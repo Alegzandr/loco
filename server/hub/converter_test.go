@@ -57,8 +57,9 @@ func TestValidRoomCode(t *testing.T) {
 		want bool
 	}{
 		{"ABCDEF", true},
-		{"ABC123", true},
-		{"abcdef", true},  // ToUpper normalizes valid chars
+		{"ABC234", true},   // digits 2-9 are valid
+		{"ABC123", false},  // '1' is excluded from charset
+		{"abcdef", true},   // ToUpper normalizes valid chars
 		{"ABCDE", false},  // 5 chars
 		{"ABCDEFG", false}, // 7 chars
 		{"ABCDE0", false},  // contains '0' (excluded)
