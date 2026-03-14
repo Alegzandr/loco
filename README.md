@@ -121,40 +121,45 @@ The **client** owns only presentation:
 All messages are JSON over WebSocket.
 
 **Client → Server:**
-| Type           | Fields                                              |
-|----------------|-----------------------------------------------------|
-| `create_room`  | `nickname`                                          |
-| `join_room`    | `nickname`, `room_code`, `session_token` (reconnect)|
-| `start_game`   | —                                                   |
-| `add_bot`      | — (host-only: adds an AI bot player to the lobby)   |
-| `play_card`    | `card`, `chosen_color`                              |
-| `draw_card`    | —                                                   |
-| `pass_turn`    | —                                                   |
-| `declare_uno`  | —                                                   |
-| `catch_uno`    | —                                                   |
-| `counter_draw` | `card`, `chosen_color`                              |
+| Type                | Fields                                                   |
+|---------------------|----------------------------------------------------------|
+| `create_room`       | `nickname`                                               |
+| `join_room`         | `nickname`, `room_code`, `session_token` (reconnect)     |
+| `start_game`        | —                                                        |
+| `add_bot`           | — (host-only)                                            |
+| `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)    |
+| `set_max_players`   | `max_players` (2–10) (host-only)                         |
+| `play_card`         | `card`, `chosen_color`                                   |
+| `draw_card`         | —                                                        |
+| `pass_turn`         | —                                                        |
+| `declare_uno`       | —                                                        |
+| `catch_uno`         | —                                                        |
+| `counter_draw`      | `card`, `chosen_color`                                   |
 
 **Server → Client:**
-| Type                  | Key Fields                                                        |
-|-----------------------|-------------------------------------------------------------------|
-| `room_created`        | `room_code`, `player_id`, `session_token`, `players`              |
-| `room_joined`         | `room_code`, `player_id`, `session_token`, `players`              |
-| `player_joined`       | `nickname`, `players`                                             |
-| `player_left`         | `nickname`, `players`                                             |
-| `player_disconnected` | `player_index`, `nickname`, `players`                             |
-| `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`            |
-| `game_started`        | `state` (personalized per player)                                 |
-| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`                    |
-| `card_drawn`          | `card` (own hand only), `player_index`, `turn`                    |
-| `turn_changed`        | `turn`                                                            |
-| `uno_declared`        | `player_index`                                                    |
-| `uno_caught`          | `player_index`                                                    |
-| `game_over`           | `winner`                                                          |
-| `error`               | `error`                                                           |
+| Type                  | Key Fields                                                                  |
+|-----------------------|-----------------------------------------------------------------------------|
+| `room_created`        | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players` |
+| `room_joined`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players` |
+| `lobby_config_changed`| `match_format`, `max_players`                                               |
+| `player_joined`       | `nickname`, `players`                                                       |
+| `player_left`         | `nickname`, `players`                                                       |
+| `player_disconnected` | `player_index`, `nickname`, `players`                                       |
+| `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`                      |
+| `game_started`        | `state` (personalized per player, includes round_number, match_format, scoreboard) |
+| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`                              |
+| `card_drawn`          | `card` (own hand only), `player_index`, `turn`                              |
+| `turn_changed`        | `turn`                                                                      |
+| `uno_declared`        | `player_index`                                                              |
+| `uno_caught`          | `player_index`                                                              |
+| `round_end`           | `round_number`, `round_winner`, `scoreboard`                                |
+| `match_end`           | `match_winner`, `scoreboard`                                                |
+| `game_over`           | `winner` (BO1 / legacy path)                                                |
+| `error`               | `error`                                                                     |
 
 `PlayerDTO` includes a `connected` boolean so clients can show disconnected players greyed out.
 
-`GameStateDTO` now includes an `event_log` array of `GameEventDTO` entries (kind, player_index, card, chosen_color, at timestamp in ms). This is delivered to reconnecting players so they can reconstruct recent game history.
+`GameStateDTO` includes: `event_log` (for reconnect history), `round_number`, `match_format`, `max_players`, and `scoreboard` (cumulative per-player scores).
 
 ---
 
@@ -172,7 +177,24 @@ Based on standard UNO with the following mechanics:
 - **Wild Draw Four (+4)**: play any time, choose color, next player draws 4 (unless countered with another +4)
 - **UNO declaration**: player must call UNO when they reach 1 card; other players have a 5-second window to catch them
 - **UNO catch**: if caught undeclared, the target draws 2 penalty cards
-- **Win**: first player to empty their hand wins
+- **Round win**: first player to empty their hand wins the round
+- **Round scoring**: winner scores the sum of all remaining players' card values (number = face value, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50)
+
+### Match Formats
+
+| Format | Rounds |
+|--------|--------|
+| BO1    | 1      |
+| BO3    | 3      |
+| BO5    | 5      |
+| BO7    | 7      |
+
+**Match winner**: player with the highest total score after all rounds.
+
+**Tiebreakers** (applied in order):
+1. Most rounds won
+2. Lowest total remaining card value across losing rounds
+3. Sudden-death extra round (if still tied)
 
 ---
 
@@ -265,11 +287,13 @@ npm run test:watch     # watch mode
 
 ## Current Implemented Features
 
-- [x] Room creation with auto-generated 4-character code
+- [x] Room creation with auto-generated 6-character human-friendly code (collision-free registry)
 - [x] Join by room code
 - [x] Nickname-only entry (no accounts)
 - [x] Real-time lobby with player list updates
 - [x] Host-only game start
+- [x] **Match format selection**: host sets BO1/BO3/BO5/BO7 in lobby; changes broadcast live
+- [x] **Max players configuration**: host sets player cap (2–10) live in lobby; cannot drop below current count
 - [x] Full UNO-style 108-card deck
 - [x] 7-card initial deal
 - [x] Legal move validation (color/number/kind matching)
@@ -278,6 +302,11 @@ npm run test:watch     # watch mode
 - [x] Draw Two / Wild Draw Four stacking (counter mechanic)
 - [x] UNO declaration
 - [x] UNO catch with server-side 5-second timing window
+- [x] **Round scoring**: winner scores sum of losers' remaining card values; Number = face, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50
+- [x] **Multi-round matches**: BO1/BO3/BO5/BO7 with persistent scoreboard
+- [x] **Tiebreakers**: rounds won → lowest lost-hand total → sudden-death extra round
+- [x] **Round summary overlay**: scoreboard shown between rounds; auto-clears when next round starts
+- [x] **Match end screen**: final scoreboard with winner highlight
 - [x] Win detection (empty hand)
 - [x] Deck replenishment from discard pile
 - [x] Polished React + PixiJS game view
@@ -292,6 +321,7 @@ npm run test:watch     # watch mode
 - [x] **Game event log**: every game action is recorded in an append-only `EventLog` on `GameState`; delivered to reconnecting players for history
 - [x] **PixiJS card animations**: cards fly to/from the discard pile with easeOutCubic tweening; card draw also animated
 - [x] **UNO reaction timer UI**: countdown bar shows the 5-second catch window whenever a player declares UNO
+- [x] **Mobile support**: responsive layout, 44px+ tap targets, double-tap guard, touch-friendly wild color picker, `user-scalable=no`
 
 ---
 
@@ -301,10 +331,7 @@ npm run test:watch     # watch mode
 - Reconnect window is 60 seconds; longer disconnects permanently drop the player
 - No spectator mode
 - No chat
-- No game history or score tracking
-- Room code is 4 characters; collision probability rises with many concurrent rooms
 - Wild Draw Four legality (should only be legal when no matching color) not yet enforced
-- No mobile-optimized touch controls
 
 ---
 

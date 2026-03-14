@@ -17,6 +17,8 @@ export function GameView({ onSend }: Props) {
   const [colorPicker, setColorPicker] = useState<CardDTO | null>(null)
   const [timerPct, setTimerPct] = useState(0)
   const timerRafRef = useRef<number | null>(null)
+  // Prevent accidental double-taps by debouncing action button presses
+  const lastActionRef = useRef<number>(0)
 
   const {
     myHand,
@@ -28,7 +30,19 @@ export function GameView({ onSend }: Props) {
     pendingDraw,
     unoDeclared,
     unoTimerEnd,
+    showRoundSummary,
+    roundWinner,
+    scoreboard,
+    roundNumber,
+    matchFormat,
   } = useGameStore()
+
+  const guardDoubleTap = useCallback((fn: () => void) => {
+    const now = Date.now()
+    if (now - lastActionRef.current < 400) return
+    lastActionRef.current = now
+    fn()
+  }, [])
 
   const handleCardClick = useCallback(
     (card: CardDTO, _idx: number) => {
@@ -111,53 +125,110 @@ export function GameView({ onSend }: Props) {
       {/* Action bar */}
       <div className={styles.actionBar}>
         {isMyTurn && pendingDraw > 0 && (
-          <button className={styles.btnDraw} onClick={() => onSend({ type: 'draw_card' })}>
+          <button
+            className={styles.btnDraw}
+            onClick={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
+          >
             Draw {pendingDraw}
           </button>
         )}
         {isMyTurn && pendingDraw === 0 && (
           <>
-            <button className={styles.btnDraw} onClick={() => onSend({ type: 'draw_card' })}>
+            <button
+              className={styles.btnDraw}
+              onClick={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
+            >
               Draw
             </button>
-            <button className={styles.btnPass} onClick={() => onSend({ type: 'pass_turn' })}>
+            <button
+              className={styles.btnPass}
+              onClick={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
+            >
               Pass
             </button>
           </>
         )}
         <button
           className={styles.btnUno}
-          onClick={() => onSend({ type: 'declare_uno' })}
+          onClick={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
           disabled={myHand.length !== 1}
         >
           UNO!
         </button>
-        <button className={styles.btnCatch} onClick={() => onSend({ type: 'catch_uno' })}>
+        <button
+          className={styles.btnCatch}
+          onClick={() => guardDoubleTap(() => onSend({ type: 'catch_uno' }))}
+        >
           Catch!
         </button>
       </div>
 
-      {/* Wild color picker overlay */}
+      {/* Wild color picker overlay — optimized for touch */}
       {colorPicker && (
         <div className={styles.overlay}>
           <div className={styles.colorPicker}>
             <p>Choose a color</p>
-            {WILD_COLORS.map((col) => (
-              <button
-                key={col}
-                className={styles.colorBtn}
-                style={{ background: colorHex(col) }}
-                onClick={() => {
-                  onSend({ type: 'play_card', card: colorPicker, chosen_color: col })
-                  setColorPicker(null)
-                }}
-              />
-            ))}
+            <div className={styles.colorBtnRow}>
+              {WILD_COLORS.map((col) => (
+                <button
+                  key={col}
+                  className={styles.colorBtn}
+                  aria-label={col}
+                  style={{ background: colorHex(col) }}
+                  onClick={() => {
+                    onSend({ type: 'play_card', card: colorPicker, chosen_color: col })
+                    setColorPicker(null)
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Round summary overlay */}
+      {showRoundSummary && (
+        <div className={styles.roundSummary}>
+          <div className={styles.roundSummaryCard}>
+            <div className={styles.roundSummaryTitle}>
+              Round {roundNumber - 1} Complete
+            </div>
+            <div className={styles.roundSummaryWinner}>
+              🏆 {roundWinner} wins the round!
+            </div>
+            <div className={styles.scoreboard}>
+              {scoreboard.map((entry) => (
+                <div key={entry.player_index} className={styles.scoreRow}>
+                  <span className={styles.scoreName}>{entry.nickname}</span>
+                  <span className={styles.scoreVal}>
+                    {entry.score} pts &middot; {entry.rounds_won}W
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ color: '#666', fontSize: '0.8rem' }}>
+              Next round starting…
+            </div>
           </div>
         </div>
       )}
 
       {unoDeclared && <div className={styles.unoBanner}>UNO!</div>}
+
+      {/* Round indicator */}
+      {matchFormat !== 'BO1' && (
+        <div style={{
+          position: 'absolute',
+          top: 8,
+          right: 12,
+          color: '#aaa',
+          fontSize: '0.8rem',
+          fontWeight: 700,
+          pointerEvents: 'none',
+        }}>
+          Round {roundNumber} · {matchFormat}
+        </div>
+      )}
     </div>
   )
 }

@@ -18,6 +18,9 @@ export default function App() {
           store.setMyIndex(msg.player_id ?? 0)
           store.setSessionToken(msg.session_token ?? '')
           store.setPlayers(msg.players ?? [])
+          if (msg.match_format && msg.max_players) {
+            store.setLobbyConfig(msg.match_format, msg.max_players)
+          }
           store.setScreen('waiting')
           break
 
@@ -26,7 +29,16 @@ export default function App() {
           store.setMyIndex(msg.player_id ?? 0)
           store.setSessionToken(msg.session_token ?? '')
           store.setPlayers(msg.players ?? [])
+          if (msg.match_format && msg.max_players) {
+            store.setLobbyConfig(msg.match_format, msg.max_players)
+          }
           store.setScreen('waiting')
+          break
+
+        case 'lobby_config_changed':
+          if (msg.match_format && msg.max_players) {
+            store.setLobbyConfig(msg.match_format, msg.max_players)
+          }
           break
 
         case 'player_joined':
@@ -37,7 +49,6 @@ export default function App() {
 
         case 'player_reconnected':
           store.setPlayers(msg.players ?? [])
-          // If this message carries game state, this client is the one reconnecting.
           if (msg.state) {
             store.applyGameState(msg.state)
             store.setRoomCode(msg.room_code ?? store.roomCode)
@@ -66,20 +77,19 @@ export default function App() {
 
         case 'card_drawn':
           store.applyCardDrawn(
-            msg.card ?? null, // null when it's another player drawing
+            msg.card ?? null,
             msg.player_index ?? 0,
             msg.turn ?? 0
           )
           break
 
         case 'turn_changed':
-          // handled by card_played/card_drawn; this covers pass_turn
           useGameStore.setState({ currentTurn: msg.turn ?? 0 })
           break
 
         case 'uno_declared':
           store.setUnoDeclared(true)
-          store.setUnoTimerEnd(Date.now() + 5000) // 5-second catch window matches server
+          store.setUnoTimerEnd(Date.now() + 5000)
           setTimeout(() => {
             store.setUnoDeclared(false)
             store.setUnoTimerEnd(null)
@@ -87,10 +97,18 @@ export default function App() {
           break
 
         case 'uno_caught':
-          // No special client handling needed beyond hand size update via game state
+          break
+
+        case 'round_end':
+          store.applyRoundEnd(msg.round_winner ?? '', msg.scoreboard ?? [])
+          break
+
+        case 'match_end':
+          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
           break
 
         case 'game_over':
+          // Legacy / BO1 fallback
           store.setWinner(msg.winner ?? '')
           break
 
@@ -103,7 +121,6 @@ export default function App() {
     []
   )
 
-  // On WebSocket reconnect during an active game, re-authenticate with the session token.
   const getReconnectMsg = useCallback(() => {
     const s = useGameStore.getState()
     if (s.screen === 'game' && s.roomCode && s.sessionToken) {
@@ -136,12 +153,19 @@ export default function App() {
           roomCode={store.roomCode}
           players={store.players}
           myIndex={store.myIndex}
+          matchFormat={store.matchFormat}
+          maxPlayers={store.maxPlayers}
           onSend={handleSend}
         />
       )}
       {store.screen === 'game' && <GameView onSend={handleSend} />}
       {store.screen === 'gameover' && (
-        <GameOver winner={store.winner} myNickname={myNickname} />
+        <GameOver
+          winner={store.matchOver ? store.matchWinner : store.winner}
+          myNickname={myNickname}
+          scoreboard={store.scoreboard}
+          matchOver={store.matchOver}
+        />
       )}
     </>
   )

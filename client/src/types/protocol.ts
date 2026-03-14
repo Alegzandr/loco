@@ -2,6 +2,7 @@
 
 export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild'
 export type CardKind = 'number' | 'skip' | 'reverse' | 'draw_two' | 'wild' | 'wild_draw_four'
+export type MatchFormat = 'BO1' | 'BO3' | 'BO5' | 'BO7'
 
 export interface CardDTO {
   color: CardColor
@@ -16,6 +17,13 @@ export interface PlayerDTO {
   connected: boolean
 }
 
+export interface ScoreboardEntryDTO {
+  player_index: number
+  nickname: string
+  score: number
+  rounds_won: number
+}
+
 export interface GameStateDTO {
   your_index: number
   hand: CardDTO[]
@@ -25,6 +33,19 @@ export interface GameStateDTO {
   turn: number
   direction: number
   pending_draw?: number
+  event_log?: GameEventDTO[]
+  round_number: number
+  match_format: MatchFormat
+  max_players: number
+  scoreboard?: ScoreboardEntryDTO[]
+}
+
+export interface GameEventDTO {
+  kind: string
+  player_index: number
+  card?: CardDTO
+  chosen_color?: string
+  at: number
 }
 
 // Client → Server
@@ -33,6 +54,8 @@ export type ClientMsgType =
   | 'join_room'
   | 'start_game'
   | 'add_bot'
+  | 'set_match_format'
+  | 'set_max_players'
   | 'play_card'
   | 'draw_card'
   | 'pass_turn'
@@ -47,6 +70,8 @@ export interface ClientMsg {
   session_token?: string
   card?: CardDTO
   chosen_color?: CardColor
+  match_format?: MatchFormat
+  max_players?: number
 }
 
 // Server → Client
@@ -57,6 +82,7 @@ export type ServerMsgType =
   | 'player_left'
   | 'player_disconnected'
   | 'player_reconnected'
+  | 'lobby_config_changed'
   | 'game_started'
   | 'game_state'
   | 'card_played'
@@ -65,6 +91,8 @@ export type ServerMsgType =
   | 'uno_declared'
   | 'uno_caught'
   | 'draw_pending'
+  | 'round_end'
+  | 'match_end'
   | 'game_over'
   | 'error'
 
@@ -82,4 +110,13 @@ export interface ServerMsg {
   pending_draw?: number
   winner?: string
   error?: string
+  // round / match
+  round_number?: number
+  round_winner?: string
+  scoreboard?: ScoreboardEntryDTO[]
+  match_over?: boolean
+  match_winner?: string
+  // lobby config
+  match_format?: MatchFormat
+  max_players?: number
 }
