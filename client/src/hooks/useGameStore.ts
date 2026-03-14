@@ -74,6 +74,23 @@ interface GameStore {
   clearError: () => void
 }
 
+function gameStateSliceFromDTO(state: GameStateDTO) {
+  return {
+    myIndex: state.your_index,
+    myHand: state.hand,
+    players: state.players,
+    discard: state.discard,
+    activeColor: state.active_color,
+    currentTurn: state.turn,
+    direction: state.direction,
+    pendingDraw: state.pending_draw ?? 0,
+    roundNumber: state.round_number ?? 1,
+    matchFormat: state.match_format ?? 'BO1',
+    maxPlayers: state.max_players ?? 10,
+    scoreboard: state.scoreboard ?? [],
+  }
+}
+
 export const useGameStore = create<GameStore>((set, get) => ({
   screen: 'lobby',
   roomCode: '',
@@ -109,23 +126,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setSessionToken: (sessionToken) => set({ sessionToken }),
 
   applyGameState: (state) =>
-    set({
-      myIndex: state.your_index,
-      myHand: state.hand,
-      players: state.players,
-      discard: state.discard,
-      activeColor: state.active_color,
-      currentTurn: state.turn,
-      direction: state.direction,
-      pendingDraw: state.pending_draw ?? 0,
-      roundNumber: state.round_number ?? 1,
-      matchFormat: state.match_format ?? 'BO1',
-      maxPlayers: state.max_players ?? 10,
-      scoreboard: state.scoreboard ?? [],
-      roundWinner: '',
-      showRoundSummary: false,
-      pendingGameState: null,
-    }),
+    set({ ...gameStateSliceFromDTO(state), roundWinner: '', showRoundSummary: false, pendingGameState: null }),
 
   applyCardPlayed: (playerIndex, card, turn, pendingDraw) =>
     set((s) => {
@@ -189,47 +190,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),
 
   applyPendingGameState: () => {
-    const s = get()
-    if (!s.pendingGameState) return
-    set({
-      myIndex: s.pendingGameState.your_index,
-      myHand: s.pendingGameState.hand,
-      players: s.pendingGameState.players,
-      discard: s.pendingGameState.discard,
-      activeColor: s.pendingGameState.active_color,
-      currentTurn: s.pendingGameState.turn,
-      direction: s.pendingGameState.direction,
-      pendingDraw: s.pendingGameState.pending_draw ?? 0,
-      roundNumber: s.pendingGameState.round_number ?? 1,
-      matchFormat: s.pendingGameState.match_format ?? 'BO1',
-      maxPlayers: s.pendingGameState.max_players ?? 10,
-      scoreboard: s.pendingGameState.scoreboard ?? [],
-      roundWinner: '',
-      showRoundSummary: false,
-      pendingGameState: null,
-    })
+    if (!get().pendingGameState) return
+    get().dismissRoundSummary()
   },
 
   dismissRoundSummary: () => {
     const s = get()
     if (s.pendingGameState) {
-      set({
-        myIndex: s.pendingGameState.your_index,
-        myHand: s.pendingGameState.hand,
-        players: s.pendingGameState.players,
-        discard: s.pendingGameState.discard,
-        activeColor: s.pendingGameState.active_color,
-        currentTurn: s.pendingGameState.turn,
-        direction: s.pendingGameState.direction,
-        pendingDraw: s.pendingGameState.pending_draw ?? 0,
-        roundNumber: s.pendingGameState.round_number ?? 1,
-        matchFormat: s.pendingGameState.match_format ?? 'BO1',
-        maxPlayers: s.pendingGameState.max_players ?? 10,
-        scoreboard: s.pendingGameState.scoreboard ?? [],
-        roundWinner: '',
-        showRoundSummary: false,
-        pendingGameState: null,
-      })
+      set({ ...gameStateSliceFromDTO(s.pendingGameState), roundWinner: '', showRoundSummary: false, pendingGameState: null })
     } else {
       set({ showRoundSummary: false })
     }

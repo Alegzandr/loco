@@ -289,12 +289,14 @@ go test ./...           # all tests
 go test ./game/... -v   # domain tests with verbose output
 ```
 
-### Frontend (Vitest)
+### Frontend (Vitest + ESLint)
 
 ```bash
 cd client
 npm test               # single run
 npm run test:watch     # watch mode
+npm run lint           # ESLint check
+npm run lint:fix       # ESLint auto-fix
 ```
 
 ---
@@ -369,7 +371,7 @@ The pipeline is defined in `.gitlab-ci.yml` and has three stages:
 
 **Test jobs** run on lightweight images (`golang:1.24.7-alpine` / `node:20-alpine`) with no Docker daemon required:
 - `backend_test`: `cd server && go test ./...`
-- `frontend_test`: `cd client && npm ci && npm run test && npm run build`
+- `frontend_test`: `cd client && npm ci && npm run lint && npm run test && npm run build`
 
 **Build** and **deploy** jobs require the `devops` runner tag and a GitLab container registry.
 

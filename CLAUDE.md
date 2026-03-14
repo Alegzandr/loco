@@ -386,10 +386,19 @@ If structure changes, update this file and the README.
 - Pipeline defined in `.gitlab-ci.yml` with three stages: `test` → `build` → `deploy`.
 - `test` stage has two jobs that run on **every push** using lightweight images (no Docker daemon):
   - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...`
-  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run test && npm run build`
+  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`
 - `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
 - Deploy jobs require the `devops` runner tag and a GitLab container registry.
 - Both test jobs must pass before Docker images are built or deployed.
+
+## Linting conventions
+
+- Client linting uses ESLint v9 with flat config (`eslint.config.js`).
+- ESLint rules: `@typescript-eslint/recommended`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`.
+- `@typescript-eslint/no-unused-vars` is set to `error`; prefix intentionally unused identifiers with `_` to suppress.
+- Run: `cd client && npm run lint` (or `npm run lint:fix` to auto-fix).
+- Linting runs in CI before tests: `npm run lint && npm run test && npm run build`.
+- Server linting: `go vet ./...` is implicitly run by `go test ./...`; this is sufficient for now.
 
 ## Reconnect visual recovery conventions
 

@@ -1,0 +1,67 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.colorPicker {
+  background: #16213e;
+  border-radius: 16px;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  color: #fff;
+  font-size: 1.1rem;
+  font-weight: 700;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+}
+
+.colorBtnRow {
+  display: flex;
+  gap: 1rem;
+}
+
+.colorBtn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.colorBtn:hover,
+.colorBtn:focus {
+  transform: scale(1.15);
+  border-color: #fff;
+  outline: none;
+}
+
+.colorBtn:active {
+  transform: scale(1.05);
+}
+
+@media (max-width: 480px) {
+  .colorBtn {
+    width: 72px;
+    height: 72px;
+  }
+
+  .colorPicker {
+    padding: 1.5rem;
+    width: 90vw;
+    max-width: 340px;
+  }
+
+  .colorBtnRow {
+    gap: 0.75rem;
+  }
+}

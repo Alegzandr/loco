@@ -740,3 +740,53 @@ func TestRoomCleanup_CancelledOnRejoin(t *testing.T) {
 	}
 }
 
+// --- Input validation tests ---
+
+func TestCreateRoom_EmptyNickname_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	defer conn.Close()
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: ""})
+	msg := readMsgOfType(t, conn, protocol.SMsgError)
+	if !strings.Contains(msg.Error, "nickname") {
+		t.Errorf("expected nickname error, got %q", msg.Error)
+	}
+}
+
+func TestCreateRoom_NicknameTooLong_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	defer conn.Close()
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: strings.Repeat("a", 21)})
+	msg := readMsgOfType(t, conn, protocol.SMsgError)
+	if !strings.Contains(msg.Error, "nickname") {
+		t.Errorf("expected nickname error, got %q", msg.Error)
+	}
+}
+
+func TestJoinRoom_InvalidRoomCode_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	defer conn.Close()
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Alice", RoomCode: "BAD!!"})
+	msg := readMsgOfType(t, conn, protocol.SMsgError)
+	if !strings.Contains(msg.Error, "invalid room code") {
+		t.Errorf("expected 'invalid room code' error, got %q", msg.Error)
+	}
+}
+
+func TestJoinRoom_EmptyNickname_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	defer conn.Close()
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "", RoomCode: "ABCDEF"})
+	msg := readMsgOfType(t, conn, protocol.SMsgError)
+	if !strings.Contains(msg.Error, "nickname") {
+		t.Errorf("expected nickname error, got %q", msg.Error)
+	}
+}
+

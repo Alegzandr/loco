@@ -260,10 +260,12 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 // --- Lobby handlers ---
 
 func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
-	if msg.Nickname == "" {
-		c.sendError("nickname required")
+	nickname := strings.TrimSpace(msg.Nickname)
+	if len(nickname) == 0 || len(nickname) > 20 {
+		c.sendError("nickname must be 1–20 characters")
 		return
 	}
+	msg.Nickname = nickname
 	code := h.generateCode()
 	room := game.NewRoom(code)
 	if err := room.Join(msg.Nickname); err != nil {
@@ -292,8 +294,14 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 }
 
 func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
-	if msg.Nickname == "" {
-		c.sendError("nickname required")
+	nickname := strings.TrimSpace(msg.Nickname)
+	if len(nickname) == 0 || len(nickname) > 20 {
+		c.sendError("nickname must be 1–20 characters")
+		return
+	}
+	msg.Nickname = nickname
+	if !validRoomCode(msg.RoomCode) {
+		c.sendError("invalid room code")
 		return
 	}
 	code := strings.ToUpper(msg.RoomCode)
@@ -447,17 +455,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	state := room.State
-	topCard := state.Discard[len(state.Discard)-1]
-
-	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
-		Type:        protocol.SMsgCardPlayed,
-		PlayerIndex: c.playerID,
-		Card:        cardToDTO(topCard),
-		Turn:        state.CurrentTurn,
-		PendingDraw: state.PendingDraw,
-	})
-
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room.State)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -604,14 +602,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	state := room.State
-	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
-		Type:        protocol.SMsgCardPlayed,
-		PlayerIndex: c.playerID,
-		Card:        cardToDTO(state.Discard[len(state.Discard)-1]),
-		Turn:        state.CurrentTurn,
-		PendingDraw: state.PendingDraw,
-	})
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room.State)
 	h.maybeScheduleBot(c.roomCode, room)
 }
 
@@ -926,15 +917,7 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			log.Printf("bot play error: %v", err)
 			return
 		}
-		state := room.State
-		topCard := state.Discard[len(state.Discard)-1]
-		h.broadcastToRoomAll(code, protocol.ServerMsg{
-			Type:        protocol.SMsgCardPlayed,
-			PlayerIndex: bm.playerID,
-			Card:        cardToDTO(topCard),
-			Turn:        state.CurrentTurn,
-			PendingDraw: state.PendingDraw,
-		})
+		h.broadcastCardPlayed(code, bm.playerID, room.State)
 
 		// Auto-declare UNO if bot is at 1 card
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
@@ -953,14 +936,7 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			log.Printf("bot counter error: %v", err)
 			return
 		}
-		state := room.State
-		h.broadcastToRoomAll(code, protocol.ServerMsg{
-			Type:        protocol.SMsgCardPlayed,
-			PlayerIndex: bm.playerID,
-			Card:        cardToDTO(state.Discard[len(state.Discard)-1]),
-			Turn:        state.CurrentTurn,
-			PendingDraw: state.PendingDraw,
-		})
+		h.broadcastCardPlayed(code, bm.playerID, room.State)
 
 	case game.BotDraw:
 		if err := room.DrawCard(bm.playerID); err != nil {
@@ -1132,95 +1108,3 @@ func (h *Hub) generateCode() string {
 	}
 }
 
-// --- DTO conversion ---
-
-func cardToDTO(c game.Card) *protocol.CardDTO {
-	return &protocol.CardDTO{
-		Color: colorName(c.Color),
-		Kind:  c.Kind.String(),
-		Value: c.Value,
-	}
-}
-
-func dtoToCard(dto *protocol.CardDTO, chosenColorStr string) (game.Card, game.Color, error) {
-	col, err := parseColor(dto.Color)
-	if err != nil {
-		return game.Card{}, 0, err
-	}
-	kind, err := parseKind(dto.Kind)
-	if err != nil {
-		return game.Card{}, 0, err
-	}
-	chosen := col
-	if dto.Color == "wild" || dto.Color == "" {
-		chosen, err = parseColor(chosenColorStr)
-		if err != nil {
-			return game.Card{}, 0, fmt.Errorf("chosen_color required for wild: %w", err)
-		}
-	}
-	return game.Card{Color: col, Kind: kind, Value: dto.Value}, chosen, nil
-}
-
-func colorName(c game.Color) string { return c.String() }
-
-func parseColor(s string) (game.Color, error) {
-	switch strings.ToLower(s) {
-	case "red":
-		return game.Red, nil
-	case "yellow":
-		return game.Yellow, nil
-	case "green":
-		return game.Green, nil
-	case "blue":
-		return game.Blue, nil
-	case "wild", "":
-		return game.Wild, nil
-	}
-	return 0, fmt.Errorf("unknown color: %q", s)
-}
-
-func parseKind(s string) (game.Kind, error) {
-	switch strings.ToLower(s) {
-	case "number":
-		return game.Number, nil
-	case "skip":
-		return game.Skip, nil
-	case "reverse":
-		return game.Reverse, nil
-	case "draw_two":
-		return game.DrawTwo, nil
-	case "wild":
-		return game.WildCard, nil
-	case "wild_draw_four":
-		return game.WildDrawFour, nil
-	}
-	return 0, fmt.Errorf("unknown kind: %q", s)
-}
-
-func matchFormatString(f game.MatchFormat) string {
-	switch f {
-	case game.BO1:
-		return "BO1"
-	case game.BO3:
-		return "BO3"
-	case game.BO5:
-		return "BO5"
-	case game.BO7:
-		return "BO7"
-	}
-	return "BO1"
-}
-
-func parseMatchFormat(s string) (game.MatchFormat, error) {
-	switch strings.ToUpper(s) {
-	case "BO1":
-		return game.BO1, nil
-	case "BO3":
-		return game.BO3, nil
-	case "BO5":
-		return game.BO5, nil
-	case "BO7":
-		return game.BO7, nil
-	}
-	return 0, fmt.Errorf("invalid match format %q: must be BO1, BO3, BO5, or BO7", s)
-}

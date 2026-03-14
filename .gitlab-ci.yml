@@ -30,6 +30,7 @@ frontend_test:
   script:
     - cd client
     - npm ci
+    - npm run lint
     - npm run test
     - npm run build
 

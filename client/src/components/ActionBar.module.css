@@ -1,0 +1,111 @@
+.actionBar {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btnDraw,
+.btnPass,
+.btnUno,
+.btnCatch {
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  border: none;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  min-width: 64px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.15s, transform 0.1s;
+}
+
+.btnRules {
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #2a3a5e;
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btnRules:hover {
+  border-color: #4d96ff;
+  color: #fff;
+}
+
+.btnDraw {
+  background: #4d96ff;
+  color: #fff;
+}
+
+.btnPass {
+  background: #555;
+  color: #fff;
+}
+
+.btnUno {
+  background: #ffd93d;
+  color: #000;
+}
+
+.btnUno:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btnCatch {
+  background: #ff6b6b;
+  color: #fff;
+}
+
+.btnDraw:hover,
+.btnPass:hover,
+.btnUno:not(:disabled):hover,
+.btnCatch:hover {
+  filter: brightness(1.2);
+  transform: translateY(-1px);
+}
+
+.btnDraw:active,
+.btnPass:active,
+.btnUno:not(:disabled):active,
+.btnCatch:active {
+  transform: scale(0.96);
+}
+
+@media (max-width: 480px) {
+  .actionBar {
+    bottom: 4px;
+    right: 4px;
+    left: 4px;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .btnDraw,
+  .btnPass,
+  .btnUno,
+  .btnCatch {
+    min-height: 52px;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    flex: 1;
+  }
+
+  .btnRules {
+    min-height: 52px;
+    font-size: 0.75rem;
+    padding: 0.4rem 0.6rem;
+  }
+}

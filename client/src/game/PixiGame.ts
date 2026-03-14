@@ -44,8 +44,10 @@ export class PixiGame {
   private onCardClick: OnCardClick
   private animations: AnimTarget[] = []
   private lastDiscardKey = ''
+  private initialized = false
+  private destroyed = false
 
-  constructor(_canvas: HTMLCanvasElement, onCardClick: OnCardClick) {
+  constructor(onCardClick: OnCardClick) {
     this.onCardClick = onCardClick
     this.app = new PIXI.Application()
     this.handContainer = new PIXI.Container()
@@ -61,6 +63,11 @@ export class PixiGame {
       backgroundColor: 0x1a1a2e,
       antialias: true,
     })
+    // Component may have unmounted while init was in-flight
+    if (this.destroyed) {
+      this.app.destroy()
+      return
+    }
     this.app.stage.addChild(this.discardContainer)
     this.app.stage.addChild(this.handContainer)
     this.app.stage.addChild(this.uiContainer)
@@ -70,9 +77,11 @@ export class PixiGame {
     this.app.ticker.add((ticker) => {
       this.updateAnimations(ticker.deltaMS)
     })
+    this.initialized = true
   }
 
   render(state: GameRenderState) {
+    if (!this.initialized) return
     const { width, height } = this.app.screen
 
     // Detect new discard card → animate it flying in
@@ -85,13 +94,13 @@ export class PixiGame {
     this.uiContainer.removeChildren()
 
     this.renderDiscard(state, width, height)
-    this.renderHand(state, width, height, discardChanged)
+    this.renderHand(state, width, height)
     this.renderPlayerInfo(state, width, height)
     this.renderTurnIndicator(state, width, height)
 
     // Animate a new card onto the discard pile
     if (discardChanged && state.discard) {
-      this.animateCardToDiscard(state.discard, state.activeColor, width, height)
+      this.animateCardToDiscard(state.discard, width, height)
     }
   }
 
@@ -100,6 +109,7 @@ export class PixiGame {
    * Elements fade/slide in over ~800ms. onComplete fires when all animations have settled.
    */
   renderReconnect(state: GameRenderState, onComplete?: () => void) {
+    if (!this.initialized) { onComplete?.(); return }
     const { width, height } = this.app.screen
 
     // Reset discard key so the regular render path doesn't re-animate
@@ -114,7 +124,7 @@ export class PixiGame {
 
     // 1. Discard pile — fade + scale in from center
     if (state.discard) {
-      const card = this.drawCard(state.discard, state.activeColor)
+      const card = this.drawCard(state.discard)
       const targetX = width / 2 - CARD_W / 2
       const targetY = height / 2 - CARD_H / 2
       card.x = targetX
@@ -217,7 +227,7 @@ export class PixiGame {
 
       const lastIdx = n - 1
       state.myHand.forEach((card, i) => {
-        const sprite = this.drawCard(card, state.activeColor, true)
+        const sprite = this.drawCard(card, true)
         const cardX = startX + i * (CARD_W + 8)
         sprite.x = cardX
         sprite.y = targetY + 40
@@ -252,13 +262,8 @@ export class PixiGame {
     }
   }
 
-  private animateCardToDiscard(
-    card: CardDTO,
-    activeColor: CardColor,
-    width: number,
-    height: number
-  ) {
-    const sprite = this.drawCard(card, activeColor)
+  private animateCardToDiscard(card: CardDTO, width: number, height: number) {
+    const sprite = this.drawCard(card)
     sprite.alpha = 0.1
     sprite.scale.set(0.6)
     // Start from the bottom (hand area)
@@ -285,9 +290,9 @@ export class PixiGame {
   }
 
   // Animate a card being drawn: fly from deck area down to hand area
-  animateCardDrawn(card: CardDTO, activeColor: CardColor) {
+  animateCardDrawn(card: CardDTO) {
     const { width, height } = this.app.screen
-    const sprite = this.drawCard(card, activeColor)
+    const sprite = this.drawCard(card)
     sprite.alpha = 0.1
     sprite.scale.set(0.6)
     // Start from deck position (left of center)
@@ -339,7 +344,7 @@ export class PixiGame {
   private renderDiscard(state: GameRenderState, width: number, height: number) {
     if (!state.discard) return
 
-    const card = this.drawCard(state.discard, state.activeColor)
+    const card = this.drawCard(state.discard)
     card.x = width / 2 - CARD_W / 2
     card.y = height / 2 - CARD_H / 2
     this.discardContainer.addChild(card)
@@ -356,12 +361,7 @@ export class PixiGame {
     this.discardContainer.addChildAt(ring, 0)
   }
 
-  private renderHand(
-    state: GameRenderState,
-    width: number,
-    height: number,
-    _discardChanged: boolean
-  ) {
+  private renderHand(state: GameRenderState, width: number, height: number) {
     const n = state.myHand.length
     if (n === 0) return
 
@@ -370,7 +370,7 @@ export class PixiGame {
     const y = height - CARD_H - 20
 
     state.myHand.forEach((card, i) => {
-      const sprite = this.drawCard(card, state.activeColor, true)
+      const sprite = this.drawCard(card, true)
       sprite.x = startX + i * (CARD_W + 8)
       sprite.y = y
       sprite.eventMode = 'static'
@@ -465,7 +465,7 @@ export class PixiGame {
     return text
   }
 
-  private drawCard(card: CardDTO, _activeColor: CardColor, interactive = false): PIXI.Container {
+  private drawCard(card: CardDTO, interactive = false): PIXI.Container {
     const container = new PIXI.Container()
 
     const bg = new PIXI.Graphics()
@@ -522,7 +522,10 @@ export class PixiGame {
   }
 
   destroy() {
-    this.app.destroy()
+    this.destroyed = true
+    if (this.initialized) {
+      this.app.destroy()
+    }
   }
 }
 
