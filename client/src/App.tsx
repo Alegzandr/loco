@@ -29,7 +29,19 @@ export default function App() {
 
         case 'player_joined':
         case 'player_left':
+        case 'player_disconnected':
           store.setPlayers(msg.players ?? [])
+          break
+
+        case 'player_reconnected':
+          store.setPlayers(msg.players ?? [])
+          // If this message carries game state, this client is the one reconnecting.
+          if (msg.state) {
+            store.applyGameState(msg.state)
+            store.setRoomCode(msg.room_code ?? store.roomCode)
+            store.setMyIndex(msg.player_id ?? store.myIndex)
+            store.setScreen('game')
+          }
           break
 
         case 'game_started':

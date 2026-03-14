@@ -132,19 +132,24 @@ All messages are JSON over WebSocket.
 | `counter_draw` | `card`, `chosen_color`        |
 
 **Server → Client:**
-| Type            | Key Fields                                |
-|-----------------|-------------------------------------------|
-| `room_created`  | `room_code`, `player_id`, `players`       |
-| `room_joined`   | `room_code`, `player_id`, `players`       |
-| `player_joined` | `nickname`, `players`                     |
-| `game_started`  | `state` (personalized per player)         |
-| `card_played`   | `player_index`, `card`, `turn`, `pending_draw` |
-| `card_drawn`    | `card` (own hand only), `player_index`, `turn` |
-| `turn_changed`  | `turn`                                    |
-| `uno_declared`  | `player_index`                            |
-| `uno_caught`    | `player_index`                            |
-| `game_over`     | `winner`                                  |
-| `error`         | `error`                                   |
+| Type                  | Key Fields                                          |
+|-----------------------|-----------------------------------------------------|
+| `room_created`        | `room_code`, `player_id`, `players`                 |
+| `room_joined`         | `room_code`, `player_id`, `players`                 |
+| `player_joined`       | `nickname`, `players`                               |
+| `player_left`         | `nickname`, `players`                               |
+| `player_disconnected` | `player_index`, `nickname`, `players`               |
+| `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players` |
+| `game_started`        | `state` (personalized per player)                   |
+| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`      |
+| `card_drawn`          | `card` (own hand only), `player_index`, `turn`      |
+| `turn_changed`        | `turn`                                              |
+| `uno_declared`        | `player_index`                                      |
+| `uno_caught`          | `player_index`                                      |
+| `game_over`           | `winner`                                            |
+| `error`               | `error`                                             |
+
+`PlayerDTO` includes a `connected` boolean so clients can show disconnected players greyed out.
 
 ---
 
@@ -272,6 +277,9 @@ npm run test:watch     # watch mode
 - [x] Deck replenishment from discard pile
 - [x] Polished React + PixiJS game view
 - [x] Per-player personalized state (hidden hand info)
+- [x] Player disconnect/reconnect during active game (60-second reconnect window)
+- [x] JSON health endpoint (`GET /health`) with room count, client count, and uptime
+- [x] Client auto-reconnect with exponential backoff
 - [x] Docker + docker-compose full-stack setup
 
 ---
@@ -279,7 +287,7 @@ npm run test:watch     # watch mode
 ## Known Limitations
 
 - No persistence: rooms and game state are in-memory only; server restart clears everything
-- No reconnect recovery: disconnecting mid-game drops the player
+- Reconnect window is 60 seconds; longer disconnects permanently drop the player
 - No spectator mode
 - No chat
 - No game history or score tracking

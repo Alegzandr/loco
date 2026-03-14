@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -19,8 +20,10 @@ func main() {
 
 	http.HandleFunc("/ws", h.ServeWS)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		stats := h.GetStats()
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		json.NewEncoder(w).Encode(stats)
 	})
 
 	log.Printf("loco server listening on :%s", port)

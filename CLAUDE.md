@@ -115,6 +115,7 @@ Never trust the client for game legality or hidden information.
 - Resolve simultaneous or reaction-based interactions on the server
 - Make timing windows explicit and testable
 - Favor deterministic resolution logic
+- Reconnect: on disconnect during play, slot is held nil for 60 seconds; rejoining with the same nickname+room_code restores the slot and delivers a full game state snapshot
 
 ### Fairness model
 For reaction-based interactions:
@@ -165,7 +166,7 @@ TDD is mandatory.
 - last-card declaration mechanic
 - counter/catch timing windows
 - simultaneous reaction resolution
-- reconnect behavior if implemented
+- reconnect behavior (60-second window; nickname + room_code identifies the slot)
 - protocol validation and rejection paths
 
 ### Test discipline
