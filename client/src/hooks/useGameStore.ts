@@ -10,6 +10,14 @@ import {
 
 export type AppScreen = 'lobby' | 'waiting' | 'game' | 'gameover'
 
+// Per-player points earned in the most recent round (computed as delta from prevScoreboard).
+export interface RoundScoreEntry {
+  player_index: number
+  nickname: string
+  round_points: number
+  cumulative_score: number
+  rounds_won: number
+}
 
 interface GameStore {
   screen: AppScreen
@@ -37,6 +45,12 @@ interface GameStore {
   matchWinner: string
   matchOver: boolean
   showRoundSummary: boolean
+  roundNumber_completed: number   // the round number that just finished (for display)
+  roundScores: RoundScoreEntry[]  // per-player points earned this round
+  pendingGameState: GameStateDTO | null // buffered next-round state (held while summary is visible)
+
+  // Reconnect animation state
+  isReconnecting: boolean
 
   setScreen: (s: AppScreen) => void
   setRoomCode: (code: string) => void
@@ -51,12 +65,16 @@ interface GameStore {
   setUnoDeclared: (val: boolean) => void
   setUnoTimerEnd: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
-  applyRoundEnd: (roundWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
+  applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[]) => void
   applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
+  setPendingGameState: (state: GameStateDTO) => void
+  applyPendingGameState: () => void
+  dismissRoundSummary: () => void
+  setIsReconnecting: (val: boolean) => void
   clearError: () => void
 }
 
-export const useGameStore = create<GameStore>((set) => ({
+export const useGameStore = create<GameStore>((set, get) => ({
   screen: 'lobby',
   roomCode: '',
   myIndex: -1,
@@ -80,6 +98,10 @@ export const useGameStore = create<GameStore>((set) => ({
   matchWinner: '',
   matchOver: false,
   showRoundSummary: false,
+  roundNumber_completed: 0,
+  roundScores: [],
+  pendingGameState: null,
+  isReconnecting: false,
 
   setScreen: (screen) => set({ screen }),
   setRoomCode: (roomCode) => set({ roomCode }),
@@ -102,6 +124,7 @@ export const useGameStore = create<GameStore>((set) => ({
       scoreboard: state.scoreboard ?? [],
       roundWinner: '',
       showRoundSummary: false,
+      pendingGameState: null,
     }),
 
   applyCardPlayed: (playerIndex, card, turn, pendingDraw) =>
@@ -138,11 +161,81 @@ export const useGameStore = create<GameStore>((set) => ({
 
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
 
-  applyRoundEnd: (roundWinner, scoreboard) =>
-    set({ roundWinner, scoreboard, showRoundSummary: true }),
+  applyRoundEnd: (roundWinner, roundNumber, newScoreboard) =>
+    set((s) => {
+      // Compute per-player round points as the delta vs current scoreboard
+      const roundScores: RoundScoreEntry[] = newScoreboard.map((entry) => {
+        const prev = s.scoreboard.find((p) => p.player_index === entry.player_index)
+        return {
+          player_index: entry.player_index,
+          nickname: entry.nickname,
+          round_points: prev ? entry.score - prev.score : entry.score,
+          cumulative_score: entry.score,
+          rounds_won: entry.rounds_won,
+        }
+      })
+      return {
+        roundWinner,
+        roundNumber_completed: roundNumber,
+        scoreboard: newScoreboard,
+        roundScores,
+        showRoundSummary: true,
+      }
+    }),
 
   applyMatchEnd: (matchWinner, scoreboard) =>
     set({ matchWinner, matchOver: true, scoreboard, screen: 'gameover' }),
+
+  setPendingGameState: (pendingGameState) => set({ pendingGameState }),
+
+  applyPendingGameState: () => {
+    const s = get()
+    if (!s.pendingGameState) return
+    set({
+      myIndex: s.pendingGameState.your_index,
+      myHand: s.pendingGameState.hand,
+      players: s.pendingGameState.players,
+      discard: s.pendingGameState.discard,
+      activeColor: s.pendingGameState.active_color,
+      currentTurn: s.pendingGameState.turn,
+      direction: s.pendingGameState.direction,
+      pendingDraw: s.pendingGameState.pending_draw ?? 0,
+      roundNumber: s.pendingGameState.round_number ?? 1,
+      matchFormat: s.pendingGameState.match_format ?? 'BO1',
+      maxPlayers: s.pendingGameState.max_players ?? 10,
+      scoreboard: s.pendingGameState.scoreboard ?? [],
+      roundWinner: '',
+      showRoundSummary: false,
+      pendingGameState: null,
+    })
+  },
+
+  dismissRoundSummary: () => {
+    const s = get()
+    if (s.pendingGameState) {
+      set({
+        myIndex: s.pendingGameState.your_index,
+        myHand: s.pendingGameState.hand,
+        players: s.pendingGameState.players,
+        discard: s.pendingGameState.discard,
+        activeColor: s.pendingGameState.active_color,
+        currentTurn: s.pendingGameState.turn,
+        direction: s.pendingGameState.direction,
+        pendingDraw: s.pendingGameState.pending_draw ?? 0,
+        roundNumber: s.pendingGameState.round_number ?? 1,
+        matchFormat: s.pendingGameState.match_format ?? 'BO1',
+        maxPlayers: s.pendingGameState.max_players ?? 10,
+        scoreboard: s.pendingGameState.scoreboard ?? [],
+        roundWinner: '',
+        showRoundSummary: false,
+        pendingGameState: null,
+      })
+    } else {
+      set({ showRoundSummary: false })
+    }
+  },
+
+  setIsReconnecting: (isReconnecting) => set({ isReconnecting }),
 
   clearError: () => set({ errorMsg: '' }),
 }))

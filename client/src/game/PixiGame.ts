@@ -6,6 +6,7 @@ const CARD_W = 70
 const CARD_H = 105
 const CARD_RADIUS = 8
 const ANIM_DURATION_MS = 350
+const RECONNECT_ANIM_DURATION_MS = 500
 
 export interface GameRenderState {
   myHand: CardDTO[]
@@ -30,6 +31,8 @@ interface AnimTarget {
   startScale: number
   endScale: number
   elapsed: number
+  duration: number
+  onDone?: () => void
 }
 
 export class PixiGame {
@@ -92,6 +95,163 @@ export class PixiGame {
     }
   }
 
+  /**
+   * Animate recovery after reconnect: rebuild the table with staggered entrance animations.
+   * Elements fade/slide in over ~800ms. onComplete fires when all animations have settled.
+   */
+  renderReconnect(state: GameRenderState, onComplete?: () => void) {
+    const { width, height } = this.app.screen
+
+    // Reset discard key so the regular render path doesn't re-animate
+    this.lastDiscardKey = state.discard
+      ? `${state.discard.color}-${state.discard.kind}-${state.discard.value}`
+      : ''
+
+    this.handContainer.removeChildren()
+    this.discardContainer.removeChildren()
+    this.uiContainer.removeChildren()
+    this.animations = []
+
+    // 1. Discard pile — fade + scale in from center
+    if (state.discard) {
+      const card = this.drawCard(state.discard, state.activeColor)
+      const targetX = width / 2 - CARD_W / 2
+      const targetY = height / 2 - CARD_H / 2
+      card.x = targetX
+      card.y = targetY
+      card.alpha = 0
+      card.scale.set(0.5)
+      this.discardContainer.addChild(card)
+
+      // Active color ring (starts invisible too)
+      const ring = new PIXI.Graphics()
+      ring.rect(targetX - 6, targetY - 6, CARD_W + 12, CARD_H + 12)
+      ring.stroke({ color: ACTIVE_COLOR_BORDER[state.activeColor], width: 3, alpha: 0.8 })
+      ring.alpha = 0
+      this.discardContainer.addChildAt(ring, 0)
+
+      this.animations.push({
+        container: card,
+        startX: targetX,
+        startY: targetY,
+        endX: targetX,
+        endY: targetY,
+        startAlpha: 0,
+        endAlpha: 1,
+        startScale: 0.5,
+        endScale: 1,
+        elapsed: 0,
+        duration: RECONNECT_ANIM_DURATION_MS,
+      })
+      this.animations.push({
+        container: ring,
+        startX: 0,
+        startY: 0,
+        endX: 0,
+        endY: 0,
+        startAlpha: 0,
+        endAlpha: 1,
+        startScale: 1,
+        endScale: 1,
+        elapsed: 0,
+        duration: RECONNECT_ANIM_DURATION_MS,
+      })
+    }
+
+    // 2. Player info bubbles — fade in from above with a small stagger
+    const others = state.players.filter((p) => p.index !== state.myIndex)
+    const angleStep = (Math.PI * 2) / (others.length || 1)
+    const cx = width / 2
+    const cy = height * 0.35
+    others.forEach((p, i) => {
+      const angle = -Math.PI / 2 + angleStep * i
+      const rx = cx + Math.cos(angle) * (width * 0.35)
+      const ry = cy + Math.sin(angle) * (height * 0.2)
+
+      const container = this._buildPlayerBubble(p, state.currentTurn)
+      container.x = rx
+      container.y = ry - 20 // start slightly above
+      container.alpha = 0
+      this.uiContainer.addChild(container)
+
+      const delay = 150 + i * 80
+      this.animations.push({
+        container,
+        startX: rx,
+        startY: ry - 20,
+        endX: rx,
+        endY: ry,
+        startAlpha: 0,
+        endAlpha: 1,
+        startScale: 1,
+        endScale: 1,
+        elapsed: -delay,
+        duration: RECONNECT_ANIM_DURATION_MS,
+      })
+    })
+
+    // 3. Turn indicator — fade in
+    const turnText = this._buildTurnIndicator(state, width, height)
+    turnText.alpha = 0
+    this.uiContainer.addChild(turnText)
+    this.animations.push({
+      container: turnText,
+      startX: turnText.x,
+      startY: turnText.y,
+      endX: turnText.x,
+      endY: turnText.y,
+      startAlpha: 0,
+      endAlpha: 1,
+      startScale: 1,
+      endScale: 1,
+      elapsed: -200,
+      duration: RECONNECT_ANIM_DURATION_MS,
+    })
+
+    // 4. Hand cards — slide up from below with stagger
+    const n = state.myHand.length
+    if (n > 0) {
+      const totalWidth = n * (CARD_W + 8) - 8
+      const startX = Math.max(8, width / 2 - totalWidth / 2)
+      const targetY = height - CARD_H - 20
+
+      const lastIdx = n - 1
+      state.myHand.forEach((card, i) => {
+        const sprite = this.drawCard(card, state.activeColor, true)
+        const cardX = startX + i * (CARD_W + 8)
+        sprite.x = cardX
+        sprite.y = targetY + 40
+        sprite.alpha = 0
+        sprite.eventMode = 'static'
+        sprite.cursor = 'pointer'
+        sprite.on('pointerover', () => { sprite.y = targetY - 10 })
+        sprite.on('pointerout', () => { sprite.y = targetY })
+        sprite.on('pointertap', () => { this.onCardClick(card, i) })
+        this.handContainer.addChild(sprite)
+
+        const delay = 300 + i * 40
+        const isLast = i === lastIdx
+        this.animations.push({
+          container: sprite,
+          startX: cardX,
+          startY: targetY + 40,
+          endX: cardX,
+          endY: targetY,
+          startAlpha: 0,
+          endAlpha: 1,
+          startScale: 1,
+          endScale: 1,
+          elapsed: -delay,
+          duration: RECONNECT_ANIM_DURATION_MS,
+          onDone: isLast && onComplete ? onComplete : undefined,
+        })
+      })
+    } else if (onComplete) {
+      // No hand cards — fire onComplete after the other animations settle
+      setTimeout(onComplete, RECONNECT_ANIM_DURATION_MS + 400)
+    }
+  }
+
   private animateCardToDiscard(
     card: CardDTO,
     activeColor: CardColor,
@@ -120,6 +280,7 @@ export class PixiGame {
       startScale: 0.6,
       endScale: 1,
       elapsed: 0,
+      duration: ANIM_DURATION_MS,
     })
   }
 
@@ -145,13 +306,16 @@ export class PixiGame {
       startScale: 0.6,
       endScale: 1,
       elapsed: 0,
+      duration: ANIM_DURATION_MS,
     })
   }
 
   private updateAnimations(deltaMS: number) {
     this.animations = this.animations.filter((anim) => {
       anim.elapsed += deltaMS
-      const t = Math.min(anim.elapsed / ANIM_DURATION_MS, 1)
+      if (anim.elapsed < 0) return true // waiting for delay
+
+      const t = Math.min(anim.elapsed / anim.duration, 1)
       const ease = easeOutCubic(t)
 
       anim.container.x = lerp(anim.startX, anim.endX, ease)
@@ -161,7 +325,11 @@ export class PixiGame {
       anim.container.scale.set(scale)
 
       if (t >= 1) {
-        this.animContainer.removeChild(anim.container)
+        if (anim.onDone) anim.onDone()
+        // Only remove from animContainer, not from handContainer/discardContainer/uiContainer
+        if (this.animContainer.children.includes(anim.container)) {
+          this.animContainer.removeChild(anim.container)
+        }
         return false
       }
       return true
@@ -222,46 +390,60 @@ export class PixiGame {
     })
   }
 
-  private renderPlayerInfo(state: GameRenderState, width: number, _height: number) {
+  private renderPlayerInfo(state: GameRenderState, width: number, height: number) {
     const others = state.players.filter((p) => p.index !== state.myIndex)
     const angleStep = (Math.PI * 2) / (others.length || 1)
     const cx = width / 2
-    const cy = _height * 0.35
+    const cy = height * 0.35
 
     others.forEach((p, i) => {
       const angle = -Math.PI / 2 + angleStep * i
       const rx = cx + Math.cos(angle) * (width * 0.35)
-      const ry = cy + Math.sin(angle) * (_height * 0.2)
+      const ry = cy + Math.sin(angle) * (height * 0.2)
 
-      const container = new PIXI.Container()
+      const container = this._buildPlayerBubble(p, state.currentTurn)
       container.x = rx
       container.y = ry
-
-      const isCurrentTurn = p.index === state.currentTurn
-      const isDisconnected = p.connected === false
-
-      const bg = new PIXI.Graphics()
-      bg.roundRect(-60, -18, 120, 36, 6)
-      bg.fill({ color: isDisconnected ? 0x333333 : isCurrentTurn ? 0x4d96ff : 0x16213e, alpha: 0.9 })
-      container.addChild(bg)
-
-      const label = isDisconnected ? `${p.nickname} ✗ (${p.hand_size})` : `${p.nickname} (${p.hand_size})`
-      const text = new PIXI.Text({
-        text: label,
-        style: {
-          fontSize: 13,
-          fill: isDisconnected ? '#666666' : '#ffffff',
-          fontWeight: isCurrentTurn ? 'bold' : 'normal',
-        },
-      })
-      text.anchor.set(0.5)
-      container.addChild(text)
-
       this.uiContainer.addChild(container)
     })
   }
 
+  /** Build a player info bubble container (shared by render and reconnect paths). */
+  private _buildPlayerBubble(
+    p: { nickname: string; hand_size: number; index: number; connected?: boolean },
+    currentTurn: number
+  ): PIXI.Container {
+    const container = new PIXI.Container()
+    const isCurrentTurn = p.index === currentTurn
+    const isDisconnected = p.connected === false
+
+    const bg = new PIXI.Graphics()
+    bg.roundRect(-60, -18, 120, 36, 6)
+    bg.fill({ color: isDisconnected ? 0x333333 : isCurrentTurn ? 0x4d96ff : 0x16213e, alpha: 0.9 })
+    container.addChild(bg)
+
+    const label = isDisconnected ? `${p.nickname} ✗ (${p.hand_size})` : `${p.nickname} (${p.hand_size})`
+    const text = new PIXI.Text({
+      text: label,
+      style: {
+        fontSize: 13,
+        fill: isDisconnected ? '#666666' : '#ffffff',
+        fontWeight: isCurrentTurn ? 'bold' : 'normal',
+      },
+    })
+    text.anchor.set(0.5)
+    container.addChild(text)
+
+    return container
+  }
+
   private renderTurnIndicator(state: GameRenderState, width: number, height: number) {
+    const text = this._buildTurnIndicator(state, width, height)
+    this.uiContainer.addChild(text)
+  }
+
+  /** Build the turn indicator text (shared by render and reconnect paths). */
+  private _buildTurnIndicator(state: GameRenderState, width: number, height: number): PIXI.Text {
     const isMyTurn = state.currentTurn === state.myIndex
     const msg = isMyTurn
       ? state.pendingDraw > 0
@@ -280,7 +462,7 @@ export class PixiGame {
     text.anchor.set(0.5, 0)
     text.x = width / 2
     text.y = height - CARD_H - 56
-    this.uiContainer.addChild(text)
+    return text
   }
 
   private drawCard(card: CardDTO, _activeColor: CardColor, interactive = false): PIXI.Container {
