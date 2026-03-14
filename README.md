@@ -305,8 +305,9 @@ npm run test:watch     # watch mode
 - [x] **Round scoring**: winner scores sum of losers' remaining card values; Number = face, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50
 - [x] **Multi-round matches**: BO1/BO3/BO5/BO7 with persistent scoreboard
 - [x] **Tiebreakers**: rounds won → lowest lost-hand total → sudden-death extra round
-- [x] **Round summary overlay**: scoreboard shown between rounds; auto-clears when next round starts
+- [x] **Round summary overlay**: full per-round breakdown (winner, points earned this round, cumulative scoreboard, round number / total); auto-dismisses after 8 s or via Continue button; next-round state is buffered so it never vanishes instantly
 - [x] **Match end screen**: final scoreboard with winner highlight
+- [x] **Reconnect visual recovery**: on reconnect, a brief "Rebuilding table…" overlay appears, then hand cards, discard pile, player bubbles, and turn indicator animate in with staggered entrance — no instant snap to restored state
 - [x] Win detection (empty hand)
 - [x] Deck replenishment from discard pile
 - [x] Polished React + PixiJS game view
@@ -332,6 +333,24 @@ npm run test:watch     # watch mode
 - No spectator mode
 - No chat
 - Wild Draw Four legality (should only be legal when no matching color) not yet enforced
+
+---
+
+## CI/CD
+
+The pipeline is defined in `.gitlab-ci.yml` and has three stages:
+
+| Stage    | Jobs                          | Trigger                            |
+|----------|-------------------------------|------------------------------------|
+| `test`   | `backend_test`, `frontend_test` | Every push (all branches)         |
+| `build`  | `build` (Docker images)       | `develop` branch or `v*` tag only  |
+| `deploy` | `deploy_dev` (manual), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build` |
+
+**Test jobs** run on lightweight images (`golang:1.24.7-alpine` / `node:20-alpine`) with no Docker daemon required:
+- `backend_test`: `cd server && go test ./...`
+- `frontend_test`: `cd client && npm ci && npm run test && npm run build`
+
+**Build** and **deploy** jobs require the `devops` runner tag and a GitLab container registry.
 
 ---
 

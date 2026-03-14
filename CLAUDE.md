@@ -375,6 +375,37 @@ If structure changes, update this file and the README.
 
 ---
 
+## CI/CD conventions
+
+- Pipeline defined in `.gitlab-ci.yml` with three stages: `test` → `build` → `deploy`.
+- `test` stage has two jobs that run on **every push** using lightweight images (no Docker daemon):
+  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...`
+  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run test && npm run build`
+- `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
+- Deploy jobs require the `devops` runner tag and a GitLab container registry.
+- Both test jobs must pass before Docker images are built or deployed.
+
+## Reconnect visual recovery conventions
+
+- On `player_reconnected`, the client sets `isReconnecting: true` in the store before applying game state.
+- `GameView` detects `isReconnecting` and shows a brief "Rebuilding table…" overlay (600 ms), then calls `PixiGame.renderReconnect(state, onComplete)`.
+- `renderReconnect` animates all elements in with staggered entrances: discard pile fades/scales in first, then player info bubbles (80 ms stagger), then hand cards (40 ms stagger per card).
+- `onComplete` fires after the last card animation, resetting `isReconnecting: false`.
+- While `isReconnecting` is true, the normal `render()` path is suppressed to avoid overwriting the animation.
+- This is purely visual recovery; server state is authoritative.
+
+## Round summary conventions
+
+- `round_end` from server triggers `applyRoundEnd(roundWinner, roundNumber, newScoreboard)` in the store.
+- `applyRoundEnd` computes per-player `round_points` as the delta (`newScore - prevScore`) using the scoreboard held before the round ended, stores them as `roundScores: RoundScoreEntry[]`, and sets `showRoundSummary: true`.
+- When `game_started` (next round) arrives while `showRoundSummary` is true, the new state is buffered in `pendingGameState` instead of being applied immediately.
+- `GameView` shows the summary with: round number/total, winner, per-player round breakdown (delta points, cumulative, wins), and full match scoreboard (for BO3+).
+- The summary has a "Continue (Ns)" button that calls `dismissRoundSummary()`, which applies the buffered state and clears the summary.
+- Auto-dismiss fires after 8 seconds if the player does not click Continue.
+- `dismissRoundSummary` applies `pendingGameState` if present, else just clears `showRoundSummary`.
+
+---
+
 ## Instructions for future Claude sessions
 
 When starting work:

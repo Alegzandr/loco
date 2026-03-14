@@ -1,6 +1,7 @@
 image: docker:27
 
 stages:
+  - test
   - build
   - deploy
 
@@ -8,6 +9,33 @@ variables:
   DOCKER_TLS_CERTDIR: ""
   APP_SUBDOMAIN: loco
   DOCKER_HOST: unix:///var/run/docker.sock
+
+# ──────────────────────────────────────────────────────────────────
+# Test jobs — run on every push, no Docker/registry required
+# ──────────────────────────────────────────────────────────────────
+
+backend_test:
+  stage: test
+  image: golang:1.24.7-alpine
+  tags:
+    - devops
+  script:
+    - cd server && go test ./...
+
+frontend_test:
+  stage: test
+  image: node:20-alpine
+  tags:
+    - devops
+  script:
+    - cd client
+    - npm ci
+    - npm run test
+    - npm run build
+
+# ──────────────────────────────────────────────────────────────────
+# Shared config for Docker build/deploy jobs
+# ──────────────────────────────────────────────────────────────────
 
 .defaults: &defaults
   tags:
@@ -52,9 +80,14 @@ variables:
     - mkdir -p "${DEPLOY_DIR}/dev" "${DEPLOY_DIR}/prod" "${DATA_DIR}"
     - echo "${CI_REGISTRY_PASSWORD:-${CI_JOB_TOKEN}}" | docker login --username "${CI_REGISTRY_USER:-gitlab-ci-token}" --password-stdin "${CI_REGISTRY}"
 
+# ──────────────────────────────────────────────────────────────────
+# Docker image build — runs on develop branch and version tags
+# ──────────────────────────────────────────────────────────────────
+
 build:
   stage: build
   extends: .defaults
+  needs: ["backend_test", "frontend_test"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop"'
     - if: '$CI_COMMIT_TAG =~ /^v.*/'
@@ -63,6 +96,10 @@ build:
     - docker build -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
     - docker push "${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}"
     - docker push "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}"
+
+# ──────────────────────────────────────────────────────────────────
+# Deploy jobs
+# ──────────────────────────────────────────────────────────────────
 
 deploy_dev:
   stage: deploy

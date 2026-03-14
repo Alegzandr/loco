@@ -50,6 +50,8 @@ export default function App() {
         case 'player_reconnected':
           store.setPlayers(msg.players ?? [])
           if (msg.state) {
+            // Mark reconnecting before applying state so GameView can animate recovery
+            store.setIsReconnecting(true)
             store.applyGameState(msg.state)
             store.setRoomCode(msg.room_code ?? store.roomCode)
             store.setMyIndex(msg.player_id ?? store.myIndex)
@@ -57,12 +59,19 @@ export default function App() {
           }
           break
 
-        case 'game_started':
+        case 'game_started': {
           if (msg.state) {
-            store.applyGameState(msg.state)
-            store.setScreen('game')
+            const s = useGameStore.getState()
+            if (s.showRoundSummary) {
+              // Round summary is visible — buffer the new state; apply when player dismisses
+              store.setPendingGameState(msg.state)
+            } else {
+              store.applyGameState(msg.state)
+              store.setScreen('game')
+            }
           }
           break
+        }
 
         case 'card_played':
           if (msg.card) {
@@ -100,7 +109,11 @@ export default function App() {
           break
 
         case 'round_end':
-          store.applyRoundEnd(msg.round_winner ?? '', msg.scoreboard ?? [])
+          store.applyRoundEnd(
+            msg.round_winner ?? '',
+            msg.round_number ?? 0,
+            msg.scoreboard ?? []
+          )
           break
 
         case 'match_end':

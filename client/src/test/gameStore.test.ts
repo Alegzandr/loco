@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useGameStore } from '../hooks/useGameStore'
-import { CardDTO, GameStateDTO } from '../types/protocol'
+import { CardDTO, GameStateDTO, ScoreboardEntryDTO } from '../types/protocol'
 
 // Reset store state between tests
 beforeEach(() => {
@@ -18,6 +18,13 @@ beforeEach(() => {
     winner: '',
     errorMsg: '',
     unoDeclared: false,
+    scoreboard: [],
+    roundWinner: '',
+    roundScores: [],
+    roundNumber_completed: 0,
+    showRoundSummary: false,
+    pendingGameState: null,
+    isReconnecting: false,
   })
 })
 
@@ -47,6 +54,9 @@ describe('useGameStore', () => {
       active_color: 'red',
       turn: 0,
       direction: 1,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 10,
     }
     useGameStore.getState().applyGameState(dto)
     const s = useGameStore.getState()
@@ -54,6 +64,8 @@ describe('useGameStore', () => {
     expect(s.players).toHaveLength(2)
     expect(s.activeColor).toBe('red')
     expect(s.currentTurn).toBe(0)
+    expect(s.showRoundSummary).toBe(false)
+    expect(s.pendingGameState).toBeNull()
   })
 
   it('applyCardPlayed advances turn and updates discard', () => {
@@ -106,5 +118,104 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().errorMsg).toBe('oops')
     useGameStore.getState().clearError()
     expect(useGameStore.getState().errorMsg).toBe('')
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // Round summary / buffering tests
+  // ──────────────────────────────────────────────────────────────
+
+  it('applyRoundEnd sets showRoundSummary and computes roundScores delta', () => {
+    // Pre-round scoreboard
+    useGameStore.setState({
+      scoreboard: [
+        { player_index: 0, nickname: 'alice', score: 0, rounds_won: 0 },
+        { player_index: 1, nickname: 'bob', score: 0, rounds_won: 0 },
+      ],
+    })
+
+    const newScoreboard: ScoreboardEntryDTO[] = [
+      { player_index: 0, nickname: 'alice', score: 30, rounds_won: 1 },
+      { player_index: 1, nickname: 'bob', score: 0, rounds_won: 0 },
+    ]
+    useGameStore.getState().applyRoundEnd('alice', 1, newScoreboard)
+
+    const s = useGameStore.getState()
+    expect(s.showRoundSummary).toBe(true)
+    expect(s.roundWinner).toBe('alice')
+    expect(s.roundNumber_completed).toBe(1)
+    expect(s.scoreboard).toEqual(newScoreboard)
+
+    const aliceEntry = s.roundScores.find((e) => e.nickname === 'alice')
+    expect(aliceEntry?.round_points).toBe(30)
+    const bobEntry = s.roundScores.find((e) => e.nickname === 'bob')
+    expect(bobEntry?.round_points).toBe(0)
+  })
+
+  it('setPendingGameState stores state without applying it', () => {
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [{ color: 'red', kind: 'number', value: 1 }],
+      players: [{ index: 0, nickname: 'alice', hand_size: 1, connected: true }],
+      discard: { color: 'red', kind: 'number', value: 1 },
+      active_color: 'red',
+      turn: 0,
+      direction: 1,
+      round_number: 2,
+      match_format: 'BO3',
+      max_players: 4,
+    }
+    useGameStore.getState().setPendingGameState(dto)
+
+    const s = useGameStore.getState()
+    expect(s.pendingGameState).toEqual(dto)
+    // Should not have been applied yet
+    expect(s.myHand).toHaveLength(0)
+  })
+
+  it('dismissRoundSummary applies pending state and clears summary', () => {
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [{ color: 'blue', kind: 'number', value: 3 }],
+      players: [{ index: 0, nickname: 'alice', hand_size: 1, connected: true }],
+      discard: { color: 'blue', kind: 'number', value: 3 },
+      active_color: 'blue',
+      turn: 0,
+      direction: 1,
+      round_number: 2,
+      match_format: 'BO3',
+      max_players: 4,
+    }
+    useGameStore.setState({ showRoundSummary: true, pendingGameState: dto })
+    useGameStore.getState().dismissRoundSummary()
+
+    const s = useGameStore.getState()
+    expect(s.showRoundSummary).toBe(false)
+    expect(s.pendingGameState).toBeNull()
+    expect(s.myHand).toHaveLength(1)
+    expect(s.roundNumber).toBe(2)
+  })
+
+  it('dismissRoundSummary without pending state just clears summary', () => {
+    useGameStore.setState({ showRoundSummary: true, pendingGameState: null })
+    useGameStore.getState().dismissRoundSummary()
+    expect(useGameStore.getState().showRoundSummary).toBe(false)
+  })
+
+  it('setIsReconnecting toggles isReconnecting', () => {
+    useGameStore.getState().setIsReconnecting(true)
+    expect(useGameStore.getState().isReconnecting).toBe(true)
+    useGameStore.getState().setIsReconnecting(false)
+    expect(useGameStore.getState().isReconnecting).toBe(false)
+  })
+
+  it('applyMatchEnd sets matchOver and navigates to gameover', () => {
+    const sb: ScoreboardEntryDTO[] = [
+      { player_index: 0, nickname: 'alice', score: 80, rounds_won: 2 },
+    ]
+    useGameStore.getState().applyMatchEnd('alice', sb)
+    const s = useGameStore.getState()
+    expect(s.matchOver).toBe(true)
+    expect(s.matchWinner).toBe('alice')
+    expect(s.screen).toBe('gameover')
   })
 })
