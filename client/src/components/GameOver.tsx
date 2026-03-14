@@ -1,4 +1,5 @@
 import { ScoreboardEntryDTO } from '../types/protocol'
+import { useI18n } from '../i18n'
 import styles from './GameOver.module.css'
 
 interface Props {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function GameOver({ winner, myNickname, scoreboard, matchOver }: Props) {
+  const { t } = useI18n()
   const isWinner = winner === myNickname
 
   return (
@@ -16,13 +18,15 @@ export function GameOver({ winner, myNickname, scoreboard, matchOver }: Props) {
       <div className={styles.card}>
         <div className={styles.emoji}>{isWinner ? '🏆' : '😔'}</div>
         <h2 className={styles.heading}>
-          {matchOver ? (isWinner ? 'Match Won!' : 'Match Over') : (isWinner ? 'You Win!' : 'Game Over')}
+          {matchOver
+            ? (isWinner ? t.matchWon : t.gameOver)
+            : (isWinner ? t.youWin : t.gameOver)}
         </h2>
         {!isWinner && <p className={styles.sub}>{winner} wins{matchOver ? ' the match' : ''}!</p>}
 
         {scoreboard && scoreboard.length > 0 && (
           <div className={styles.scoreboard}>
-            <h3 className={styles.scoreboardTitle}>Final Scores</h3>
+            <h3 className={styles.scoreboardTitle}>{t.finalScores}</h3>
             {scoreboard
               .slice()
               .sort((a, b) => b.score - a.score)
@@ -42,7 +46,7 @@ export function GameOver({ winner, myNickname, scoreboard, matchOver }: Props) {
         )}
 
         <button className={styles.btn} onClick={() => window.location.reload()}>
-          Play Again
+          {t.playAgain}
         </button>
       </div>
     </div>

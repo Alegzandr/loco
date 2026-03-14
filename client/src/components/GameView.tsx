@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore } from '../hooks/useGameStore'
+import { useI18n } from '../i18n'
+import { RulesModal } from './RulesModal'
 import styles from './GameView.module.css'
 
 interface Props {
@@ -13,6 +15,7 @@ const UNO_WINDOW_MS = 5000
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
 
 export function GameView({ onSend }: Props) {
+  const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixiRef = useRef<PixiGame | null>(null)
   const [colorPicker, setColorPicker] = useState<CardDTO | null>(null)
@@ -27,6 +30,7 @@ export function GameView({ onSend }: Props) {
   const summaryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Reconnect overlay visibility
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false)
+  const [showRules, setShowRules] = useState(false)
 
   const {
     myHand,
@@ -196,8 +200,8 @@ export function GameView({ onSend }: Props) {
         <div className={styles.reconnectOverlay}>
           <div className={styles.reconnectCard}>
             <div className={styles.reconnectSpinner} />
-            <div className={styles.reconnectText}>Reconnected</div>
-            <div className={styles.reconnectSub}>Rebuilding table…</div>
+            <div className={styles.reconnectText}>{t.reconnected}</div>
+            <div className={styles.reconnectSub}>{t.rebuildingTable}</div>
           </div>
         </div>
       )}
@@ -205,7 +209,7 @@ export function GameView({ onSend }: Props) {
       {/* UNO catch timer */}
       {unoDeclared && unoTimerEnd && (
         <div className={styles.unoTimer}>
-          <span className={styles.unoTimerLabel}>Catch window!</span>
+          <span className={styles.unoTimerLabel}>{t.catchWindow}</span>
           <div className={styles.unoTimerBar}>
             <div className={styles.unoTimerFill} style={{ width: `${timerPct}%` }} />
           </div>
@@ -219,7 +223,7 @@ export function GameView({ onSend }: Props) {
             className={styles.btnDraw}
             onClick={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
           >
-            Draw {pendingDraw}
+            {t.draw} {pendingDraw}
           </button>
         )}
         {isMyTurn && pendingDraw === 0 && (
@@ -228,13 +232,13 @@ export function GameView({ onSend }: Props) {
               className={styles.btnDraw}
               onClick={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
             >
-              Draw
+              {t.draw}
             </button>
             <button
               className={styles.btnPass}
               onClick={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
             >
-              Pass
+              {t.pass}
             </button>
           </>
         )}
@@ -243,13 +247,16 @@ export function GameView({ onSend }: Props) {
           onClick={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
           disabled={myHand.length !== 1}
         >
-          UNO!
+          {t.unoBtn}
         </button>
         <button
           className={styles.btnCatch}
           onClick={() => guardDoubleTap(() => onSend({ type: 'catch_uno' }))}
         >
-          Catch!
+          {t.catchBtn}
+        </button>
+        <button className={styles.btnRules} onClick={() => setShowRules(true)}>
+          {t.rulesBtn}
         </button>
       </div>
 
@@ -257,7 +264,7 @@ export function GameView({ onSend }: Props) {
       {colorPicker && (
         <div className={styles.overlay}>
           <div className={styles.colorPicker}>
-            <p>Choose a color</p>
+            <p>{t.chooseColor}</p>
             <div className={styles.colorBtnRow}>
               {WILD_COLORS.map((col) => (
                 <button
@@ -281,20 +288,20 @@ export function GameView({ onSend }: Props) {
         <div className={styles.roundSummary}>
           <div className={styles.roundSummaryCard}>
             <div className={styles.roundSummaryTitle}>
-              Round {roundNumber_completed}
-              {matchRoundsNeeded > 1 && ` of ${matchRoundsNeeded}`} Complete
+              {t.round} {roundNumber_completed}
+              {matchRoundsNeeded > 1 && ` ${t.of} ${matchRoundsNeeded}`} {t.complete}
             </div>
             <div className={styles.roundSummaryWinner}>
-              🏆 {roundWinner} wins the round!
+              🏆 {roundWinner} {t.winsRound}
             </div>
 
             {/* Per-player round breakdown */}
             <div className={styles.roundScoreTable}>
               <div className={styles.roundScoreHeader}>
-                <span>Player</span>
-                <span>+pts</span>
-                <span>Total</span>
-                <span>Wins</span>
+                <span>{t.player}</span>
+                <span>{t.ptsLabel}</span>
+                <span>{t.totalLabel}</span>
+                <span>{t.winsLabel}</span>
               </div>
               {roundScores
                 .slice()
@@ -318,7 +325,7 @@ export function GameView({ onSend }: Props) {
             {scoreboard.length > 0 && matchRoundsNeeded > 1 && (
               <div className={styles.matchProgress}>
                 <div className={styles.matchProgressTitle}>
-                  Match Scoreboard — {matchFormat}
+                  {t.matchScoreboard} — {matchFormat}
                 </div>
                 <div className={styles.scoreboard}>
                   {scoreboard
@@ -340,7 +347,7 @@ export function GameView({ onSend }: Props) {
               className={styles.btnContinue}
               onClick={dismissRoundSummary}
             >
-              Continue ({summaryCountdown}s)
+              {t.continueBtn} ({summaryCountdown}s)
             </button>
           </div>
         </div>
@@ -351,9 +358,11 @@ export function GameView({ onSend }: Props) {
       {/* Round indicator */}
       {matchFormat !== 'BO1' && (
         <div className={styles.roundIndicator}>
-          Round {roundNumber} · {matchFormat}
+          {t.round} {roundNumber} · {matchFormat}
         </div>
       )}
+
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   )
 }

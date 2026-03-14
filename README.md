@@ -53,17 +53,23 @@ loco/
 │   ├── src/
 │   │   ├── main.tsx         # React entry point
 │   │   ├── App.tsx          # Root component + message dispatch
-│   │   ├── components/      # UI screens
+│   │   ├── components/      # UI screens + shared components
 │   │   │   ├── Lobby.tsx
 │   │   │   ├── WaitingRoom.tsx
 │   │   │   ├── GameView.tsx
-│   │   │   └── GameOver.tsx
+│   │   │   ├── GameOver.tsx
+│   │   │   ├── RulesModal.tsx       # Game rules modal (accessible from all screens)
+│   │   │   └── LanguageSwitcher.tsx # EN/FR language toggle
 │   │   ├── game/            # PixiJS rendering
 │   │   │   ├── PixiGame.ts
 │   │   │   └── cardColors.ts
 │   │   ├── hooks/           # WebSocket + Zustand store
 │   │   │   ├── useWebSocket.ts
 │   │   │   └── useGameStore.ts
+│   │   ├── i18n/            # Internationalization
+│   │   │   ├── index.tsx    # I18nProvider, useI18n hook, lang detection
+│   │   │   ├── en.ts        # English translations + Translations type
+│   │   │   └── fr.ts        # French translations
 │   │   ├── types/           # Protocol TypeScript types
 │   │   │   └── protocol.ts
 │   │   └── test/            # Frontend unit tests
@@ -335,6 +341,8 @@ npm run test:watch     # watch mode
 - [x] **PixiJS card animations**: cards fly to/from the discard pile with easeOutCubic tweening; card draw also animated
 - [x] **UNO reaction timer UI**: countdown bar shows the 5-second catch window whenever a player declares UNO
 - [x] **Mobile support**: responsive layout, 44px+ tap targets, double-tap guard, touch-friendly wild color picker, `user-scalable=no`
+- [x] **Rules modal**: in-game rules reference accessible from Lobby, Waiting Room, and Game View — covers all custom mechanics; slides up as a sheet on mobile
+- [x] **Internationalisation (i18n)**: English and French UI with automatic browser language detection; manual language switcher persisted to `localStorage`; designed for easy addition of further languages
 
 ---
 
@@ -345,6 +353,7 @@ npm run test:watch     # watch mode
 - No spectator mode
 - No chat
 - Wild Draw Four legality (should only be legal when no matching color) not yet enforced
+- Only English and French are currently translated; adding a language requires a new file in `client/src/i18n/` and an entry in the `translations` map
 
 ---
 

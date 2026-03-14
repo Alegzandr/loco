@@ -37,6 +37,26 @@
   transition: filter 0.15s, transform 0.1s;
 }
 
+.btnRules {
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #2a3a5e;
+  background: rgba(255, 255, 255, 0.05);
+  color: #aaa;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.btnRules:hover {
+  border-color: #4d96ff;
+  color: #fff;
+}
+
 .btnDraw {
   background: #4d96ff;
   color: #fff;
@@ -452,6 +472,12 @@
     font-size: 0.875rem;
     padding: 0.5rem 0.75rem;
     flex: 1;
+  }
+
+  .btnRules {
+    min-height: 52px;
+    font-size: 0.75rem;
+    padding: 0.4rem 0.6rem;
   }
 
   .colorBtn {
