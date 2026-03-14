@@ -1,79 +1,93 @@
 .actionBar {
   position: absolute;
-  bottom: 8px;
-  right: 12px;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   gap: 8px;
   align-items: center;
+  padding: 6px 10px;
+  background: rgba(10, 14, 26, 0.85);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .btnDraw,
 .btnPass,
 .btnUno,
 .btnCatch {
-  padding: 0.6rem 1.1rem;
-  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
   border: none;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
-  min-height: 44px;
-  min-width: 64px;
+  min-height: 40px;
+  min-width: 56px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: filter 0.15s, transform 0.1s;
+  transition: filter 0.12s, transform 0.08s, box-shadow 0.12s;
+  letter-spacing: 0.02em;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .btnRules {
-  padding: 0.4rem 0.75rem;
+  padding: 0.4rem 0.6rem;
   border-radius: 8px;
-  border: 1px solid #2a3a5e;
-  background: rgba(255, 255, 255, 0.05);
-  color: #aaa;
-  font-size: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #4a5568;
+  font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
-  min-height: 44px;
+  min-height: 36px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: border-color 0.15s, color 0.15s;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .btnRules:hover {
-  border-color: #4d96ff;
-  color: #fff;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #718096;
 }
 
 .btnDraw {
-  background: #4d96ff;
+  background: linear-gradient(135deg, #4d96ff, #3b82f6);
   color: #fff;
+  box-shadow: 0 2px 8px rgba(77, 150, 255, 0.3);
 }
 
 .btnPass {
-  background: #555;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a0aec0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .btnUno {
-  background: #ffd93d;
-  color: #000;
+  background: linear-gradient(135deg, #ffd93d, #f6ad55);
+  color: #1a1a2e;
+  box-shadow: 0 2px 8px rgba(255, 217, 61, 0.25);
 }
 
 .btnUno:disabled {
-  opacity: 0.3;
+  opacity: 0.2;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .btnCatch {
-  background: #ff6b6b;
+  background: linear-gradient(135deg, #ff6b6b, #fc5c65);
   color: #fff;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.25);
 }
 
 .btnDraw:hover,
 .btnPass:hover,
 .btnUno:not(:disabled):hover,
 .btnCatch:hover {
-  filter: brightness(1.2);
+  filter: brightness(1.15);
   transform: translateY(-1px);
 }
 
@@ -81,31 +95,34 @@
 .btnPass:active,
 .btnUno:not(:disabled):active,
 .btnCatch:active {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 
 @media (max-width: 480px) {
   .actionBar {
-    bottom: 4px;
-    right: 4px;
-    left: 4px;
+    bottom: 6px;
+    left: 6px;
+    right: 6px;
+    transform: none;
     justify-content: center;
-    gap: 6px;
+    gap: 5px;
+    padding: 5px 8px;
   }
 
   .btnDraw,
   .btnPass,
   .btnUno,
   .btnCatch {
-    min-height: 52px;
-    font-size: 0.875rem;
-    padding: 0.5rem 0.75rem;
+    min-height: 44px;
+    font-size: 0.8rem;
+    padding: 0.45rem 0.65rem;
     flex: 1;
+    min-width: 0;
   }
 
   .btnRules {
-    min-height: 52px;
-    font-size: 0.75rem;
-    padding: 0.4rem 0.6rem;
+    min-height: 44px;
+    font-size: 0.7rem;
+    padding: 0.4rem 0.5rem;
   }
 }

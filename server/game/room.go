@@ -557,6 +557,22 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	r.State.Discard = append(r.State.Discard, card)
 	c := card
 	r.State.logEvent(EventCounterDraw, playerIndex, &c, chosenColor)
+
+	// Track last-card state
+	r.State.LastCardDeclared = false
+	if r.State.Hands[playerIndex].Size() == 1 {
+		r.State.LastCardTime = time.Now()
+		r.State.LastCardPlayer = playerIndex
+	}
+
+	// Check if counter emptied the hand
+	if r.State.Hands[playerIndex].Size() == 0 {
+		r.State.ActiveColor = chosenColor
+		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
+		r.markPlayerFinished(playerIndex)
+		return nil
+	}
+
 	next := r.State.ApplyEffect(card, chosenColor)
 	r.State.CurrentTurn = next
 	return nil

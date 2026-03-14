@@ -106,6 +106,7 @@ type ServerMsg struct {
 	// SMsgCardPlayed
 	PlayerIndex int      `json:"player_index,omitempty"`
 	Card        *CardDTO `json:"card,omitempty"`
+	ActiveColor string   `json:"active_color,omitempty"` // authoritative active color after card play
 
 	// SMsgTurnChanged
 	Turn int `json:"turn,omitempty"`

@@ -1,11 +1,19 @@
 import { CardColor } from '../types/protocol'
 
 export const CARD_COLORS: Record<CardColor, number> = {
-  red: 0xe74c3c,
-  yellow: 0xf1c40f,
-  green: 0x2ecc71,
-  blue: 0x3498db,
-  wild: 0x2c3e50,
+  red: 0xd63031,
+  yellow: 0xfdcb6e,
+  green: 0x00b894,
+  blue: 0x0984e3,
+  wild: 0x2d3436,
+}
+
+export const CARD_COLORS_LIGHT: Record<CardColor, number> = {
+  red: 0xff7675,
+  yellow: 0xffeaa7,
+  green: 0x55efc4,
+  blue: 0x74b9ff,
+  wild: 0x636e72,
 }
 
 export const ACTIVE_COLOR_BORDER: Record<CardColor, number> = {

@@ -57,7 +57,7 @@ interface GameStore {
   setMyIndex: (idx: number) => void
   setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
-  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, players?: PlayerDTO[]) => void
+  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[]) => void
   applyCardDrawn: (card: CardDTO | null, playerIndex: number, turn: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   setWinner: (name: string) => void
@@ -128,7 +128,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   applyGameState: (state) =>
     set({ ...gameStateSliceFromDTO(state), roundWinner: '', showRoundSummary: false, pendingGameState: null }),
 
-  applyCardPlayed: (playerIndex, card, turn, pendingDraw, players) =>
+  applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players) =>
     set((s) => {
       // Prefer server-provided player list (includes Finished/Placement); fall back to local update
       const updatedPlayers = players
@@ -136,9 +136,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
         : s.players.map((p) =>
             p.index === playerIndex ? { ...p, hand_size: p.hand_size - 1 } : p
           )
+      // Use server-authoritative active color; fall back to card color or current
+      const resolvedColor: CardColor = activeColor
+        ? activeColor
+        : card.color === 'wild'
+          ? s.activeColor
+          : card.color
+      // Remove the played card from local hand if it was our play
+      let updatedHand = s.myHand
+      if (playerIndex === s.myIndex) {
+        const idx = s.myHand.findIndex(
+          (c) => c.color === card.color && c.kind === card.kind && c.value === card.value
+        )
+        if (idx >= 0) {
+          updatedHand = [...s.myHand.slice(0, idx), ...s.myHand.slice(idx + 1)]
+        }
+      }
       return {
+        myHand: updatedHand,
         discard: card,
-        activeColor: card.color === 'wild' ? s.activeColor : card.color,
+        activeColor: resolvedColor,
         currentTurn: turn,
         pendingDraw,
         players: updatedPlayers,

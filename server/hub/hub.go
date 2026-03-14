@@ -938,6 +938,18 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 		}
 		h.broadcastCardPlayed(code, bm.playerID, room)
 
+		// Auto-declare UNO if bot is at 1 card after counter
+		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
+			_ = room.DeclareLastCard(bm.playerID)
+			h.broadcastToRoomAll(code, protocol.ServerMsg{
+				Type:        protocol.SMsgUnoDeclared,
+				PlayerIndex: bm.playerID,
+			})
+		}
+
+		h.handleRoundOrMatchEnd(code, room)
+		return
+
 	case game.BotDraw:
 		if err := room.DrawCard(bm.playerID); err != nil {
 			log.Printf("bot draw error: %v", err)

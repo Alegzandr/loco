@@ -80,6 +80,7 @@ export default function App() {
               msg.card,
               msg.turn ?? 0,
               msg.pending_draw ?? 0,
+              msg.active_color,
               msg.players
             )
           }
