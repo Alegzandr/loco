@@ -42,6 +42,29 @@ type Player struct {
 	Index    int
 }
 
+// EventKind identifies the type of a game event.
+type EventKind string
+
+const (
+	EventGameStarted  EventKind = "game_started"
+	EventCardPlayed   EventKind = "card_played"
+	EventCardDrawn    EventKind = "card_drawn"
+	EventTurnPassed   EventKind = "turn_passed"
+	EventUnoDeclared  EventKind = "uno_declared"
+	EventUnoCaught    EventKind = "uno_caught"
+	EventCounterDraw  EventKind = "counter_draw"
+	EventGameFinished EventKind = "game_finished"
+)
+
+// GameEvent records a single action taken during the game.
+type GameEvent struct {
+	Kind        EventKind `json:"kind"`
+	PlayerIndex int       `json:"player_index"`
+	Card        *Card     `json:"card,omitempty"`
+	ChosenColor Color     `json:"chosen_color,omitempty"`
+	At          time.Time `json:"at"`
+}
+
 // GameState is the authoritative server-side game state.
 type GameState struct {
 	Hands            []Hand
@@ -54,6 +77,7 @@ type GameState struct {
 	LastCardDeclared bool
 	LastCardTime     time.Time // when the last card was played (for catch window)
 	LastCardPlayer   int       // who played to 1 card
+	EventLog         []GameEvent
 }
 
 // Room manages a single game session.
@@ -147,6 +171,7 @@ func (r *Room) Start() error {
 	}
 
 	r.Status = StatusPlaying
+	r.State.logEvent(EventGameStarted, -1, nil, 0)
 	return nil
 }
 
@@ -192,8 +217,14 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 	if r.State.Hands[playerIndex].Size() == 0 {
 		r.Status = StatusFinished
 		r.Winner = r.Players[playerIndex].Nickname
+		c := card
+		r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
+		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
 		return nil
 	}
+
+	c := card
+	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
 
 	// Apply effect and advance turn
 	next := r.State.ApplyEffect(card, chosenColor)
@@ -231,6 +262,7 @@ func (r *Room) DrawCard(playerIndex int) error {
 	if skipTurn {
 		r.State.CurrentTurn = r.State.nextTurn(playerIndex)
 	}
+	r.State.logEvent(EventCardDrawn, playerIndex, nil, 0)
 	// When drawing 1, player may still play or pass; turn doesn't advance here.
 	// The client will send a separate pass action if needed.
 	return nil
@@ -245,6 +277,7 @@ func (r *Room) PassTurn(playerIndex int) error {
 		return errors.New("not your turn")
 	}
 	r.State.CurrentTurn = r.State.nextTurn(playerIndex)
+	r.State.logEvent(EventTurnPassed, playerIndex, nil, 0)
 	return nil
 }
 
@@ -258,6 +291,7 @@ func (r *Room) DeclareLastCard(playerIndex int) error {
 	}
 	r.State.LastCardDeclared = true
 	r.State.LastCardPlayer = playerIndex
+	r.State.logEvent(EventUnoDeclared, playerIndex, nil, 0)
 	return nil
 }
 
@@ -287,6 +321,7 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	}
 	r.State.Hands[targetIndex].Add(cards...)
 	r.State.LastCardDeclared = true // prevent double-catch
+	r.State.logEvent(EventUnoCaught, catcherIndex, nil, 0)
 	return nil
 }
 
@@ -321,9 +356,22 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	}
 
 	r.State.Discard = append(r.State.Discard, card)
+	c := card
+	r.State.logEvent(EventCounterDraw, playerIndex, &c, chosenColor)
 	next := r.State.ApplyEffect(card, chosenColor)
 	r.State.CurrentTurn = next
 	return nil
+}
+
+// logEvent appends an event to the game log.
+func (s *GameState) logEvent(kind EventKind, playerIndex int, card *Card, chosenColor Color) {
+	s.EventLog = append(s.EventLog, GameEvent{
+		Kind:        kind,
+		PlayerIndex: playerIndex,
+		Card:        card,
+		ChosenColor: chosenColor,
+		At:          time.Now(),
+	})
 }
 
 // ensureDeck replenishes the deck from discard if it's running low.

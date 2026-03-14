@@ -5,12 +5,13 @@ import { CARD_COLORS, ACTIVE_COLOR_BORDER } from './cardColors'
 const CARD_W = 70
 const CARD_H = 105
 const CARD_RADIUS = 8
+const ANIM_DURATION_MS = 350
 
 export interface GameRenderState {
   myHand: CardDTO[]
   discard: CardDTO | null
   activeColor: CardColor
-  players: { nickname: string; handSize: number; index: number }[]
+  players: { nickname: string; hand_size: number; index: number; connected?: boolean }[]
   myIndex: number
   currentTurn: number
   pendingDraw: number
@@ -18,19 +19,36 @@ export interface GameRenderState {
 
 type OnCardClick = (card: CardDTO, idx: number) => void
 
+interface AnimTarget {
+  container: PIXI.Container
+  startX: number
+  startY: number
+  endX: number
+  endY: number
+  startAlpha: number
+  endAlpha: number
+  startScale: number
+  endScale: number
+  elapsed: number
+}
+
 export class PixiGame {
   app: PIXI.Application
   private handContainer: PIXI.Container
   private discardContainer: PIXI.Container
   private uiContainer: PIXI.Container
+  private animContainer: PIXI.Container
   private onCardClick: OnCardClick
+  private animations: AnimTarget[] = []
+  private lastDiscardKey = ''
 
-  constructor(canvas: HTMLCanvasElement, onCardClick: OnCardClick) {
+  constructor(_canvas: HTMLCanvasElement, onCardClick: OnCardClick) {
     this.onCardClick = onCardClick
     this.app = new PIXI.Application()
     this.handContainer = new PIXI.Container()
     this.discardContainer = new PIXI.Container()
     this.uiContainer = new PIXI.Container()
+    this.animContainer = new PIXI.Container()
   }
 
   async init(canvas: HTMLCanvasElement) {
@@ -43,19 +61,111 @@ export class PixiGame {
     this.app.stage.addChild(this.discardContainer)
     this.app.stage.addChild(this.handContainer)
     this.app.stage.addChild(this.uiContainer)
+    this.app.stage.addChild(this.animContainer)
+
+    // Animation ticker
+    this.app.ticker.add((ticker) => {
+      this.updateAnimations(ticker.deltaMS)
+    })
   }
 
   render(state: GameRenderState) {
+    const { width, height } = this.app.screen
+
+    // Detect new discard card → animate it flying in
+    const newDiscardKey = state.discard ? `${state.discard.color}-${state.discard.kind}-${state.discard.value}` : ''
+    const discardChanged = newDiscardKey !== this.lastDiscardKey && newDiscardKey !== ''
+    this.lastDiscardKey = newDiscardKey
+
     this.handContainer.removeChildren()
     this.discardContainer.removeChildren()
     this.uiContainer.removeChildren()
 
-    const { width, height } = this.app.screen
-
     this.renderDiscard(state, width, height)
-    this.renderHand(state, width, height)
+    this.renderHand(state, width, height, discardChanged)
     this.renderPlayerInfo(state, width, height)
     this.renderTurnIndicator(state, width, height)
+
+    // Animate a new card onto the discard pile
+    if (discardChanged && state.discard) {
+      this.animateCardToDiscard(state.discard, state.activeColor, width, height)
+    }
+  }
+
+  private animateCardToDiscard(
+    card: CardDTO,
+    activeColor: CardColor,
+    width: number,
+    height: number
+  ) {
+    const sprite = this.drawCard(card, activeColor)
+    sprite.alpha = 0.1
+    sprite.scale.set(0.6)
+    // Start from the bottom (hand area)
+    sprite.x = width / 2 - CARD_W / 2
+    sprite.y = height - CARD_H - 20
+    this.animContainer.addChild(sprite)
+
+    const targetX = width / 2 - CARD_W / 2
+    const targetY = height / 2 - CARD_H / 2
+
+    this.animations.push({
+      container: sprite,
+      startX: sprite.x,
+      startY: sprite.y,
+      endX: targetX,
+      endY: targetY,
+      startAlpha: 0.1,
+      endAlpha: 1,
+      startScale: 0.6,
+      endScale: 1,
+      elapsed: 0,
+    })
+  }
+
+  // Animate a card being drawn: fly from deck area down to hand area
+  animateCardDrawn(card: CardDTO, activeColor: CardColor) {
+    const { width, height } = this.app.screen
+    const sprite = this.drawCard(card, activeColor)
+    sprite.alpha = 0.1
+    sprite.scale.set(0.6)
+    // Start from deck position (left of center)
+    sprite.x = width / 2 - CARD_W - 20
+    sprite.y = height / 2 - CARD_H / 2
+    this.animContainer.addChild(sprite)
+
+    this.animations.push({
+      container: sprite,
+      startX: sprite.x,
+      startY: sprite.y,
+      endX: width / 2 - CARD_W / 2,
+      endY: height - CARD_H - 20,
+      startAlpha: 0.1,
+      endAlpha: 1,
+      startScale: 0.6,
+      endScale: 1,
+      elapsed: 0,
+    })
+  }
+
+  private updateAnimations(deltaMS: number) {
+    this.animations = this.animations.filter((anim) => {
+      anim.elapsed += deltaMS
+      const t = Math.min(anim.elapsed / ANIM_DURATION_MS, 1)
+      const ease = easeOutCubic(t)
+
+      anim.container.x = lerp(anim.startX, anim.endX, ease)
+      anim.container.y = lerp(anim.startY, anim.endY, ease)
+      anim.container.alpha = lerp(anim.startAlpha, anim.endAlpha, ease)
+      const scale = lerp(anim.startScale, anim.endScale, ease)
+      anim.container.scale.set(scale)
+
+      if (t >= 1) {
+        this.animContainer.removeChild(anim.container)
+        return false
+      }
+      return true
+    })
   }
 
   private renderDiscard(state: GameRenderState, width: number, height: number) {
@@ -78,7 +188,12 @@ export class PixiGame {
     this.discardContainer.addChildAt(ring, 0)
   }
 
-  private renderHand(state: GameRenderState, width: number, height: number) {
+  private renderHand(
+    state: GameRenderState,
+    width: number,
+    height: number,
+    _discardChanged: boolean
+  ) {
     const n = state.myHand.length
     if (n === 0) return
 
@@ -122,17 +237,20 @@ export class PixiGame {
       container.x = rx
       container.y = ry
 
+      const isCurrentTurn = p.index === state.currentTurn
+      const isDisconnected = p.connected === false
+
       const bg = new PIXI.Graphics()
       bg.roundRect(-60, -18, 120, 36, 6)
-      const isCurrentTurn = p.index === state.currentTurn
-      bg.fill({ color: isCurrentTurn ? 0x4d96ff : 0x16213e, alpha: 0.9 })
+      bg.fill({ color: isDisconnected ? 0x333333 : isCurrentTurn ? 0x4d96ff : 0x16213e, alpha: 0.9 })
       container.addChild(bg)
 
+      const label = isDisconnected ? `${p.nickname} ✗ (${p.hand_size})` : `${p.nickname} (${p.hand_size})`
       const text = new PIXI.Text({
-        text: `${p.nickname} (${p.handSize})`,
+        text: label,
         style: {
           fontSize: 13,
-          fill: '#ffffff',
+          fill: isDisconnected ? '#666666' : '#ffffff',
           fontWeight: isCurrentTurn ? 'bold' : 'normal',
         },
       })
@@ -224,4 +342,12 @@ export class PixiGame {
   destroy() {
     this.app.destroy()
   }
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3)
 }

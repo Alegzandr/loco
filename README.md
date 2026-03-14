@@ -113,43 +113,48 @@ The **client** owns only presentation:
 - Turn enforcement: out-of-turn actions are rejected
 - Client timestamps are never trusted; only server receipt time is used for catch windows
 - Hidden state (other players' hands) never sent to wrong client
+- Session tokens: cryptographically random token issued on join/create, required to re-claim a slot on reconnect — prevents slot hijacking
+- Per-client rate limiting: token bucket (10 msg/s, burst 20) — rejects flood attacks at the connection layer
 
 ### Message Protocol
 
 All messages are JSON over WebSocket.
 
 **Client → Server:**
-| Type           | Fields                        |
-|----------------|-------------------------------|
-| `create_room`  | `nickname`                    |
-| `join_room`    | `nickname`, `room_code`       |
-| `start_game`   | —                             |
-| `play_card`    | `card`, `chosen_color`        |
-| `draw_card`    | —                             |
-| `pass_turn`    | —                             |
-| `declare_uno`  | —                             |
-| `catch_uno`    | —                             |
-| `counter_draw` | `card`, `chosen_color`        |
+| Type           | Fields                                              |
+|----------------|-----------------------------------------------------|
+| `create_room`  | `nickname`                                          |
+| `join_room`    | `nickname`, `room_code`, `session_token` (reconnect)|
+| `start_game`   | —                                                   |
+| `add_bot`      | — (host-only: adds an AI bot player to the lobby)   |
+| `play_card`    | `card`, `chosen_color`                              |
+| `draw_card`    | —                                                   |
+| `pass_turn`    | —                                                   |
+| `declare_uno`  | —                                                   |
+| `catch_uno`    | —                                                   |
+| `counter_draw` | `card`, `chosen_color`                              |
 
 **Server → Client:**
-| Type                  | Key Fields                                          |
-|-----------------------|-----------------------------------------------------|
-| `room_created`        | `room_code`, `player_id`, `players`                 |
-| `room_joined`         | `room_code`, `player_id`, `players`                 |
-| `player_joined`       | `nickname`, `players`                               |
-| `player_left`         | `nickname`, `players`                               |
-| `player_disconnected` | `player_index`, `nickname`, `players`               |
-| `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players` |
-| `game_started`        | `state` (personalized per player)                   |
-| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`      |
-| `card_drawn`          | `card` (own hand only), `player_index`, `turn`      |
-| `turn_changed`        | `turn`                                              |
-| `uno_declared`        | `player_index`                                      |
-| `uno_caught`          | `player_index`                                      |
-| `game_over`           | `winner`                                            |
-| `error`               | `error`                                             |
+| Type                  | Key Fields                                                        |
+|-----------------------|-------------------------------------------------------------------|
+| `room_created`        | `room_code`, `player_id`, `session_token`, `players`              |
+| `room_joined`         | `room_code`, `player_id`, `session_token`, `players`              |
+| `player_joined`       | `nickname`, `players`                                             |
+| `player_left`         | `nickname`, `players`                                             |
+| `player_disconnected` | `player_index`, `nickname`, `players`                             |
+| `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`            |
+| `game_started`        | `state` (personalized per player)                                 |
+| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`                    |
+| `card_drawn`          | `card` (own hand only), `player_index`, `turn`                    |
+| `turn_changed`        | `turn`                                                            |
+| `uno_declared`        | `player_index`                                                    |
+| `uno_caught`          | `player_index`                                                    |
+| `game_over`           | `winner`                                                          |
+| `error`               | `error`                                                           |
 
 `PlayerDTO` includes a `connected` boolean so clients can show disconnected players greyed out.
+
+`GameStateDTO` now includes an `event_log` array of `GameEventDTO` entries (kind, player_index, card, chosen_color, at timestamp in ms). This is delivered to reconnecting players so they can reconstruct recent game history.
 
 ---
 
@@ -281,6 +286,12 @@ npm run test:watch     # watch mode
 - [x] JSON health endpoint (`GET /health`) with room count, client count, and uptime
 - [x] Client auto-reconnect with exponential backoff
 - [x] Docker + docker-compose full-stack setup
+- [x] **Session tokens**: cryptographically random token issued on join/create; required for reconnect to prevent slot hijacking
+- [x] **Per-client rate limiting**: server-side token bucket (10 msg/s sustained, burst of 20) protects against message flooding
+- [x] **Bot players**: host can add AI bots to the lobby; bots play autonomously with card preference heuristics
+- [x] **Game event log**: every game action is recorded in an append-only `EventLog` on `GameState`; delivered to reconnecting players for history
+- [x] **PixiJS card animations**: cards fly to/from the discard pile with easeOutCubic tweening; card draw also animated
+- [x] **UNO reaction timer UI**: countdown bar shows the 5-second catch window whenever a player declares UNO
 
 ---
 

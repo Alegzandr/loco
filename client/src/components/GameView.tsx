@@ -9,11 +9,14 @@ interface Props {
 }
 
 const WILD_COLORS: CardColor[] = ['red', 'yellow', 'green', 'blue']
+const UNO_WINDOW_MS = 5000
 
 export function GameView({ onSend }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixiRef = useRef<PixiGame | null>(null)
   const [colorPicker, setColorPicker] = useState<CardDTO | null>(null)
+  const [timerPct, setTimerPct] = useState(0)
+  const timerRafRef = useRef<number | null>(null)
 
   const {
     myHand,
@@ -24,6 +27,7 @@ export function GameView({ onSend }: Props) {
     myIndex,
     pendingDraw,
     unoDeclared,
+    unoTimerEnd,
   } = useGameStore()
 
   const handleCardClick = useCallback(
@@ -64,11 +68,45 @@ export function GameView({ onSend }: Props) {
     })
   }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw])
 
+  // Animate UNO catch timer bar
+  useEffect(() => {
+    if (timerRafRef.current !== null) {
+      cancelAnimationFrame(timerRafRef.current)
+      timerRafRef.current = null
+    }
+    if (!unoTimerEnd) {
+      setTimerPct(0)
+      return
+    }
+    const tick = () => {
+      const remaining = unoTimerEnd - Date.now()
+      const pct = Math.max(0, Math.min(100, (remaining / UNO_WINDOW_MS) * 100))
+      setTimerPct(pct)
+      if (pct > 0) {
+        timerRafRef.current = requestAnimationFrame(tick)
+      }
+    }
+    timerRafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (timerRafRef.current !== null) cancelAnimationFrame(timerRafRef.current)
+    }
+  }, [unoTimerEnd])
+
   const isMyTurn = currentTurn === myIndex
 
   return (
     <div className={styles.container}>
       <canvas ref={canvasRef} className={styles.canvas} />
+
+      {/* UNO catch timer */}
+      {unoDeclared && unoTimerEnd && (
+        <div className={styles.unoTimer}>
+          <span className={styles.unoTimerLabel}>Catch window!</span>
+          <div className={styles.unoTimerBar}>
+            <div className={styles.unoTimerFill} style={{ width: `${timerPct}%` }} />
+          </div>
+        </div>
+      )}
 
       {/* Action bar */}
       <div className={styles.actionBar}>

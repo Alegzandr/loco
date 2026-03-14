@@ -82,6 +82,13 @@ func newTestHub(t *testing.T) (*hub.Hub, *httptest.Server) {
 // and returns both connections and the room code.
 func setupTwoPlayerGame(t *testing.T, srv *httptest.Server) (conn1, conn2 *websocket.Conn, roomCode string) {
 	t.Helper()
+	conn1, conn2, roomCode, _ = setupTwoPlayerGameWithTokens(t, srv)
+	return conn1, conn2, roomCode
+}
+
+// setupTwoPlayerGameWithTokens is like setupTwoPlayerGame but also returns [alice, bob] session tokens.
+func setupTwoPlayerGameWithTokens(t *testing.T, srv *httptest.Server) (conn1, conn2 *websocket.Conn, roomCode string, tokens [2]string) {
+	t.Helper()
 
 	conn1 = dialWS(t, srv)
 	t.Cleanup(func() { conn1.Close() })
@@ -89,19 +96,21 @@ func setupTwoPlayerGame(t *testing.T, srv *httptest.Server) (conn1, conn2 *webso
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
 	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
 	roomCode = created.RoomCode
+	tokens[0] = created.SessionToken
 
 	conn2 = dialWS(t, srv)
 	t.Cleanup(func() { conn2.Close() })
 
 	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: roomCode})
-	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	joined := readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	tokens[1] = joined.SessionToken
 	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 
-	return conn1, conn2, roomCode
+	return conn1, conn2, roomCode, tokens
 }
 
 // --- Tests ---
@@ -192,21 +201,22 @@ func TestPlayerDisconnectDuringGame_BroadcastsDisconnected(t *testing.T) {
 func TestPlayerReconnect_DuringGame(t *testing.T) {
 	_, srv := newTestHub(t)
 
-	conn1, conn2, roomCode := setupTwoPlayerGame(t, srv)
+	conn1, conn2, roomCode, tokens := setupTwoPlayerGameWithTokens(t, srv)
 
 	// Bob disconnects
 	conn2.Close()
 	// Alice sees disconnected
 	readMsgOfType(t, conn1, protocol.SMsgPlayerDisconnected)
 
-	// Bob reconnects with same nickname and room code
+	// Bob reconnects with same nickname, room code, and session token
 	conn2new := dialWS(t, srv)
 	defer conn2new.Close()
 
 	sendMsg(t, conn2new, protocol.ClientMsg{
-		Type:     protocol.CMsgJoinRoom,
-		Nickname: "Bob",
-		RoomCode: roomCode,
+		Type:         protocol.CMsgJoinRoom,
+		Nickname:     "Bob",
+		RoomCode:     roomCode,
+		SessionToken: tokens[1],
 	})
 
 	// Bob receives player_reconnected with game state
@@ -234,6 +244,29 @@ func TestPlayerReconnect_DuringGame(t *testing.T) {
 		if p.Index == 1 && !p.Connected {
 			t.Errorf("expected Bob to be connected after reconnect")
 		}
+	}
+}
+
+func TestPlayerReconnect_WrongToken_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	_, conn2, roomCode, _ := setupTwoPlayerGameWithTokens(t, srv)
+	conn2.Close()
+
+	// Try to reconnect with correct nickname but wrong token
+	conn3 := dialWS(t, srv)
+	defer conn3.Close()
+
+	sendMsg(t, conn3, protocol.ClientMsg{
+		Type:         protocol.CMsgJoinRoom,
+		Nickname:     "Bob",
+		RoomCode:     roomCode,
+		SessionToken: "wrong-token",
+	})
+
+	msg := readMsgOfType(t, conn3, protocol.SMsgError)
+	if !strings.Contains(msg.Error, "invalid session token") {
+		t.Errorf("expected 'invalid session token' error, got %q", msg.Error)
 	}
 }
 
@@ -286,7 +319,7 @@ func TestPlayerDisconnect_InLobby_RemovesPlayer(t *testing.T) {
 func TestPlayerReconnect_AfterReconnect_CanContinuePlaying(t *testing.T) {
 	_, srv := newTestHub(t)
 
-	conn1, conn2, roomCode := setupTwoPlayerGame(t, srv)
+	conn1, conn2, roomCode, tokens := setupTwoPlayerGameWithTokens(t, srv)
 
 	// Bob disconnects and reconnects
 	conn2.Close()
@@ -295,9 +328,10 @@ func TestPlayerReconnect_AfterReconnect_CanContinuePlaying(t *testing.T) {
 	conn2new := dialWS(t, srv)
 	defer conn2new.Close()
 	sendMsg(t, conn2new, protocol.ClientMsg{
-		Type:     protocol.CMsgJoinRoom,
-		Nickname: "Bob",
-		RoomCode: roomCode,
+		Type:         protocol.CMsgJoinRoom,
+		Nickname:     "Bob",
+		RoomCode:     roomCode,
+		SessionToken: tokens[1],
 	})
 
 	reconnectMsg := readMsgOfType(t, conn2new, protocol.SMsgPlayerReconnected)

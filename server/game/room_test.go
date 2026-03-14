@@ -267,5 +267,6 @@ func setupTwoPlayerGame(t *testing.T) *Room {
 		t.Fatal(err)
 	}
 	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 0 // reset any effect from the starting action card
 	return r
 }
