@@ -104,7 +104,12 @@ func (c *Client) readPump() {
 			c.sendError("invalid message format")
 			continue
 		}
-		c.hub.inbound <- inboundMsg{client: c, msg: msg}
+		select {
+		case c.hub.inbound <- inboundMsg{client: c, msg: msg}:
+		default:
+			log.Printf("inbound channel full, dropping message from addr=%s", c.conn.RemoteAddr())
+			c.sendError("server busy, please retry")
+		}
 	}
 }
 

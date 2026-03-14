@@ -603,7 +603,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
-	h.maybeScheduleBot(c.roomCode, room)
+	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
 // --- Disconnect handling ---
@@ -643,11 +643,15 @@ func (h *Hub) handleDisconnect(c *Client) {
 			Players:     h.playerList(room),
 		})
 
-		// Schedule reconnect expiry.
-		go func(code string, pid int, t time.Time) {
-			time.Sleep(reconnectTimeout)
-			h.expire <- expireMsg{roomCode: code, playerID: pid, disconnectedAt: t}
-		}(c.roomCode, c.playerID, disconnectTime)
+		// Schedule reconnect expiry using time.AfterFunc to avoid long-lived goroutines.
+		code, pid := c.roomCode, c.playerID
+		time.AfterFunc(reconnectTimeout, func() {
+			select {
+			case h.expire <- expireMsg{roomCode: code, playerID: pid, disconnectedAt: disconnectTime}:
+			default:
+				log.Printf("expire channel full, dropping reconnect expiry code=%s player=%d", code, pid)
+			}
+		})
 
 		// If all slots are now empty, start the room cleanup timer.
 		if h.allSlotsEmpty(c.roomCode) {
@@ -689,13 +693,17 @@ func (h *Hub) allSlotsEmpty(code string) bool {
 }
 
 // scheduleRoomCleanup starts a timer that will delete the room if it remains empty.
+// Uses time.AfterFunc to avoid spawning long-lived goroutines.
 func (h *Hub) scheduleRoomCleanup(code string) {
 	t := time.Now()
 	h.emptyRooms[code] = t
-	go func() {
-		time.Sleep(EmptyRoomTimeout)
-		h.cleanup <- cleanupMsg{roomCode: code, emptyAt: t}
-	}()
+	time.AfterFunc(EmptyRoomTimeout, func() {
+		select {
+		case h.cleanup <- cleanupMsg{roomCode: code, emptyAt: t}:
+		default:
+			log.Printf("cleanup channel full, room %s will be leaked until restart", code)
+		}
+	})
 }
 
 // handleCleanup deletes an empty room if it has not been rejoined since the timer started.
@@ -869,11 +877,15 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 }
 
 // scheduleBotMove fires a bot turn after a short think delay.
+// Uses time.AfterFunc to avoid spawning long-lived goroutines.
 func (h *Hub) scheduleBotMove(code string, playerID int) {
-	go func() {
-		time.Sleep(botThinkDelay)
-		h.botMove <- botMoveMsg{roomCode: code, playerID: playerID}
-	}()
+	time.AfterFunc(botThinkDelay, func() {
+		select {
+		case h.botMove <- botMoveMsg{roomCode: code, playerID: playerID}:
+		default:
+			log.Printf("botMove channel full, dropping bot turn code=%s player=%d", code, playerID)
+		}
+	})
 }
 
 // maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
@@ -1082,8 +1094,15 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 	}
 	top := state.Discard[len(state.Discard)-1]
 
-	eventLog := make([]protocol.GameEventDTO, len(state.EventLog))
-	for i, ev := range state.EventLog {
+	// Cap the event log to the most recent entries to avoid unbounded serialization.
+	const maxEventLogExport = 50
+	exportLog := state.EventLog
+	if len(exportLog) > maxEventLogExport {
+		exportLog = exportLog[len(exportLog)-maxEventLogExport:]
+	}
+
+	eventLog := make([]protocol.GameEventDTO, len(exportLog))
+	for i, ev := range exportLog {
 		dto := protocol.GameEventDTO{
 			Kind:        string(ev.Kind),
 			PlayerIndex: ev.PlayerIndex,

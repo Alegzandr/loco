@@ -374,6 +374,7 @@ If structure changes, update this file and the README.
 - Events are recorded inside domain methods (`PlayCard`, `DrawCard`, `PassTurn`, `DeclareLastCard`, `CatchUndeclared`, `CounterDraw`, `Start`).
 - `GameEventDTO` is included in `GameStateDTO` and delivered to reconnecting players.
 - Event timestamps are in UTC (`time.Now()`); wire format is Unix milliseconds.
+- `playerGameState` caps the exported event log to the last 50 events (`maxEventLogExport = 50`) to prevent unbounded serialization overhead on reconnect/round-start.
 
 ## Session token conventions
 
@@ -453,11 +454,19 @@ If structure changes, update this file and the README.
 
 - `hub.EmptyRoomTimeout` (exported `var`, default 5 minutes) controls how long an empty room is kept before deletion.
 - When a room becomes empty (last member disconnects from lobby/finished, or all slots go nil in an active game), `scheduleRoomCleanup(code)` is called.
-- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and starts a goroutine that sends a `cleanupMsg` after `EmptyRoomTimeout`.
+- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and uses `time.AfterFunc` to send a `cleanupMsg` after `EmptyRoomTimeout` (non-blocking select+default to avoid goroutine leaks if the cleanup channel is full).
 - `handleCleanup` deletes the room only if `emptyRooms[code]` still matches the recorded time (race-safe: any rejoin clears or changes the entry).
 - Rejoining (lobby join) or reconnecting (active game) calls `delete(h.emptyRooms, code)` to cancel the cleanup.
 - `deleteRoom(code)` is the single point of room deletion: cleans up all hub maps, adjusts `statRooms` and `statBotsActive`, and emits a structured log line.
 - Tests override `EmptyRoomTimeout` to a short value (e.g. 80 ms) via `hub.EmptyRoomTimeout = ...` and restore it with `t.Cleanup`.
+
+## Server stability conventions
+
+- All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` instead of `go func() { time.Sleep(...); ch <- msg }()` to avoid long-lived goroutines.
+- All channel sends in `time.AfterFunc` callbacks use `select { case ch <- msg: default: log.Printf(...) }` to prevent blocking the timer goroutine.
+- `readPump` sends to `h.inbound` with a non-blocking select+default (drops message and notifies client "server busy") to prevent readPump goroutines from being permanently parked on a full inbound channel.
+- `http.Server` is configured with `ReadHeaderTimeout: 10s` and `IdleTimeout: 60s` to reclaim stale HTTP connections and guard against Slowloris.
+- Goroutine stability is verified by `TestGoroutineStability_RoomLifecycle` and `TestGoroutineStability_BotGame` in `hub/hub_test.go`.
 
 ## Structured logging conventions
 

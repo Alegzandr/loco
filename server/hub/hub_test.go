@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -787,6 +788,106 @@ func TestJoinRoom_EmptyNickname_Rejected(t *testing.T) {
 	msg := readMsgOfType(t, conn, protocol.SMsgError)
 	if !strings.Contains(msg.Error, "nickname") {
 		t.Errorf("expected nickname error, got %q", msg.Error)
+	}
+}
+
+// TestGoroutineStability_RoomLifecycle verifies that creating and destroying many rooms
+// does not leak goroutines. This is a regression test for the 504 bug caused by
+// goroutine accumulation from room cleanup timers, reconnect expiry timers, and
+// bot move schedulers.
+func TestGoroutineStability_RoomLifecycle(t *testing.T) {
+	// Speed up cleanup so the test doesn't take minutes.
+	original := hub.EmptyRoomTimeout
+	hub.EmptyRoomTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { hub.EmptyRoomTimeout = original })
+
+	_, srv := newTestHub(t)
+
+	// Allow runtime to settle before sampling baseline.
+	runtime.GC()
+	time.Sleep(20 * time.Millisecond)
+	baseline := runtime.NumGoroutine()
+
+	const numRooms = 20
+	for i := 0; i < numRooms; i++ {
+		conn := dialWS(t, srv)
+		nickname := fmt.Sprintf("Player%d", i)
+		sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: nickname})
+		readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+		// Close immediately — triggers cleanup timer.
+		conn.Close()
+	}
+
+	// Wait for all cleanup timers (EmptyRoomTimeout + a small buffer).
+	time.Sleep(200 * time.Millisecond)
+	runtime.GC()
+	time.Sleep(20 * time.Millisecond)
+
+	after := runtime.NumGoroutine()
+	// Allow a generous slack: hub Run goroutine + readPump teardown overhead.
+	// The key property: goroutines must NOT grow proportionally to numRooms.
+	slack := 10
+	if after > baseline+slack {
+		t.Errorf("goroutine leak: baseline=%d after=%d (created %d rooms); delta=%d exceeds slack=%d",
+			baseline, after, numRooms, after-baseline, slack)
+	}
+}
+
+// TestGoroutineStability_BotGame verifies that running a 1v1 bot game to completion
+// and then closing the connection does not leave goroutines behind.
+func TestGoroutineStability_BotGame(t *testing.T) {
+	original := hub.EmptyRoomTimeout
+	hub.EmptyRoomTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { hub.EmptyRoomTimeout = original })
+
+	_, srv := newTestHub(t)
+
+	runtime.GC()
+	time.Sleep(20 * time.Millisecond)
+	baseline := runtime.NumGoroutine()
+
+	conn := dialWS(t, srv)
+
+	// Create room and add a bot.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Human"})
+	created := readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+	code := created.RoomCode
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot, RoomCode: code})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+
+	// Start the game.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+
+	// Drain messages until match_end or gameover (bot game finishes on its own).
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		var msg protocol.ServerMsg
+		if json.Unmarshal(data, &msg) == nil {
+			if msg.Type == protocol.SMsgMatchEnd || msg.Type == protocol.SMsgGameOver {
+				break
+			}
+		}
+	}
+
+	conn.Close()
+
+	// Wait for cleanup timers to fire and goroutines to settle.
+	time.Sleep(300 * time.Millisecond)
+	runtime.GC()
+	time.Sleep(20 * time.Millisecond)
+
+	after := runtime.NumGoroutine()
+	slack := 10
+	if after > baseline+slack {
+		t.Errorf("goroutine leak after bot game: baseline=%d after=%d delta=%d exceeds slack=%d",
+			baseline, after, after-baseline, slack)
 	}
 }
 
