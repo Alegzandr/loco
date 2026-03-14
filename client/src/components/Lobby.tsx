@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
+import type { FormEvent } from 'react'
 import { ClientMsg } from '../types/protocol'
 import styles from './Lobby.module.css'
 
@@ -13,13 +14,13 @@ export function Lobby({ onSend, error, onClearError }: Props) {
   const [roomCode, setRoomCode] = useState('')
   const [mode, setMode] = useState<'home' | 'create' | 'join'>('home')
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = (e: FormEvent) => {
     e.preventDefault()
     if (!nickname.trim()) return
     onSend({ type: 'create_room', nickname: nickname.trim() })
   }
 
-  const handleJoin = (e: React.FormEvent) => {
+  const handleJoin = (e: FormEvent) => {
     e.preventDefault()
     if (!nickname.trim() || !roomCode.trim()) return
     onSend({ type: 'join_room', nickname: nickname.trim(), room_code: roomCode.toUpperCase() })

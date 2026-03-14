@@ -40,8 +40,8 @@ describe('useGameStore', () => {
         { color: 'blue', kind: 'skip' },
       ],
       players: [
-        { index: 0, nickname: 'alice', hand_size: 2 },
-        { index: 1, nickname: 'bob', hand_size: 7 },
+        { index: 0, nickname: 'alice', hand_size: 2, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 7, connected: true },
       ],
       discard: { color: 'red', kind: 'number', value: 3 },
       active_color: 'red',
@@ -59,8 +59,8 @@ describe('useGameStore', () => {
   it('applyCardPlayed advances turn and updates discard', () => {
     useGameStore.setState({
       players: [
-        { index: 0, nickname: 'alice', hand_size: 5 },
-        { index: 1, nickname: 'bob', hand_size: 5 },
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
       ],
       currentTurn: 0,
       discard: { color: 'red', kind: 'number', value: 3 },
@@ -85,8 +85,8 @@ describe('useGameStore', () => {
   it('applyCardDrawn updates opponent hand size', () => {
     useGameStore.setState({
       players: [
-        { index: 0, nickname: 'alice', hand_size: 5 },
-        { index: 1, nickname: 'bob', hand_size: 5 },
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
       ],
     })
     // null card means another player drew
