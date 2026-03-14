@@ -1,0 +1,17 @@
+# Go
+server/loco-server
+
+# Node
+client/node_modules/
+client/dist/
+
+# Environment
+.env
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
