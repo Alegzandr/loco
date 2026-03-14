@@ -293,6 +293,12 @@ Adjust this section as the repo evolves. Keep it current.
 
 Typical structure:
 - `client/` frontend app
+  - `src/components/` — UI screens + shared components (RulesModal, LanguageSwitcher)
+  - `src/i18n/` — i18n context, English and French translations
+  - `src/game/` — PixiJS rendering
+  - `src/hooks/` — WebSocket connection and Zustand store
+  - `src/types/` — protocol TypeScript types
+  - `src/test/` — Vitest unit tests
 - `server/` authoritative realtime game server
   - `game/` — pure domain logic (room, deck, hand, rules, bot, event log)
   - `hub/` — WebSocket connection management, rate limiting, session tokens, bot scheduling
@@ -428,6 +434,25 @@ If structure changes, update this file and the README.
 - Format: `key=value` pairs on a single line, e.g. `room created code=ABC123 host=Alice`.
 - Events logged: player connected (with addr), player disconnected (with code/nickname/playerID), reconnected, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors.
 - No sensitive data (tokens, hand contents) in logs.
+
+## i18n conventions
+
+- Translations live in `client/src/i18n/en.ts` (English, source of truth) and `client/src/i18n/fr.ts` (French).
+- The `Translations` interface is defined in `en.ts` and re-used as the type for all language files — missing keys cause a TypeScript error.
+- `I18nProvider` (in `client/src/i18n/index.tsx`) wraps the app in `main.tsx` and exposes `useI18n()` hook returning `{ lang, t, setLang }`.
+- Language detection order: (1) `localStorage.getItem('loco_lang')`, (2) `navigator.language` prefix (`'fr'` → French, else English).
+- `setLang` stores the selection to `localStorage` and syncs `document.documentElement.lang` for accessibility.
+- To add a new language: create `client/src/i18n/xx.ts` implementing `Translations`, add the entry to the `translations` map in `index.tsx`, and add a `{ code, label }` entry to `LANGS` in `LanguageSwitcher.tsx`.
+- The `rules` field uses `readonly RulesSection[]`; sections are rendered by `RulesModal` directly from the translation object.
+- Storage key: `'loco_lang'`.
+
+## Rules modal conventions
+
+- `RulesModal` is a full-screen backdrop modal accessible from: Lobby (top-right corner), WaitingRoom (top-right corner), and GameView (action bar "Rules" button).
+- Close triggers: ✕ button, footer Close button, backdrop click, `Escape` key.
+- On mobile (`max-width: 480px`) the modal slides up from the bottom as a sheet (bottom border-radius 0, max-height 92vh).
+- `document.body.style.overflow = 'hidden'` is set while the modal is open and restored on unmount.
+- All rules content lives in the translation files; the modal component is content-agnostic.
 
 ## Dev Docker Compose conventions
 

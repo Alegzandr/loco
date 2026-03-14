@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ClientMsg } from '../types/protocol'
+import { useI18n } from '../i18n'
+import { RulesModal } from './RulesModal'
+import { LanguageSwitcher } from './LanguageSwitcher'
 import styles from './Lobby.module.css'
 
 interface Props {
@@ -10,9 +13,11 @@ interface Props {
 }
 
 export function Lobby({ onSend, error, onClearError }: Props) {
+  const { t } = useI18n()
   const [nickname, setNickname] = useState('')
   const [roomCode, setRoomCode] = useState('')
   const [mode, setMode] = useState<'home' | 'create' | 'join'>('home')
+  const [showRules, setShowRules] = useState(false)
 
   const handleCreate = (e: FormEvent) => {
     e.preventDefault()
@@ -28,8 +33,15 @@ export function Lobby({ onSend, error, onClearError }: Props) {
 
   return (
     <div className={styles.container}>
+      <div className={styles.topBar}>
+        <LanguageSwitcher />
+        <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
+          {t.rulesBtn}
+        </button>
+      </div>
+
       <h1 className={styles.title}>LOCO</h1>
-      <p className={styles.tagline}>Real-time multiplayer card game</p>
+      <p className={styles.tagline}>{t.tagline}</p>
 
       {error && (
         <div className={styles.error} onClick={onClearError}>
@@ -40,10 +52,10 @@ export function Lobby({ onSend, error, onClearError }: Props) {
       {mode === 'home' && (
         <div className={styles.buttonGroup}>
           <button className={styles.btn} onClick={() => setMode('create')}>
-            Create Room
+            {t.createRoom}
           </button>
           <button className={styles.btn} onClick={() => setMode('join')}>
-            Join Room
+            {t.joinRoom}
           </button>
         </div>
       )}
@@ -52,17 +64,17 @@ export function Lobby({ onSend, error, onClearError }: Props) {
         <form className={styles.form} onSubmit={handleCreate}>
           <input
             className={styles.input}
-            placeholder="Your nickname"
+            placeholder={t.yourNickname}
             value={nickname}
             onChange={(e) => { setNickname(e.target.value); onClearError() }}
             maxLength={20}
             autoFocus
           />
           <button className={styles.btn} type="submit">
-            Create Game
+            {t.createGame}
           </button>
           <button className={styles.btnSecondary} type="button" onClick={() => setMode('home')}>
-            Back
+            {t.back}
           </button>
         </form>
       )}
@@ -71,7 +83,7 @@ export function Lobby({ onSend, error, onClearError }: Props) {
         <form className={styles.form} onSubmit={handleJoin}>
           <input
             className={styles.input}
-            placeholder="Your nickname"
+            placeholder={t.yourNickname}
             value={nickname}
             onChange={(e) => { setNickname(e.target.value); onClearError() }}
             maxLength={20}
@@ -79,19 +91,21 @@ export function Lobby({ onSend, error, onClearError }: Props) {
           />
           <input
             className={styles.input}
-            placeholder="Room code"
+            placeholder={t.roomCodeLabel}
             value={roomCode}
             onChange={(e) => { setRoomCode(e.target.value.toUpperCase()); onClearError() }}
             maxLength={4}
           />
           <button className={styles.btn} type="submit">
-            Join Game
+            {t.joinGame}
           </button>
           <button className={styles.btnSecondary} type="button" onClick={() => setMode('home')}>
-            Back
+            {t.back}
           </button>
         </form>
       )}
+
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   )
 }

@@ -7,6 +7,35 @@
   gap: 1.25rem;
   color: #fff;
   font-family: 'Segoe UI', system-ui, sans-serif;
+  position: relative;
+}
+
+.topBar {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rulesLink {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #2a3a5e;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #aaa;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  min-height: 32px;
+  touch-action: manipulation;
+}
+
+.rulesLink:hover {
+  border-color: #4d96ff;
+  color: #fff;
 }
 
 .heading {

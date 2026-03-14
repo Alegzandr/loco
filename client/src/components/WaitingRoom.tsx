@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
+import { useI18n } from '../i18n'
+import { RulesModal } from './RulesModal'
+import { LanguageSwitcher } from './LanguageSwitcher'
 import styles from './WaitingRoom.module.css'
 
 interface Props {
@@ -12,17 +15,20 @@ interface Props {
 }
 
 const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
-const FORMAT_LABEL: Record<MatchFormat, string> = {
-  BO1: 'Best of 1',
-  BO3: 'Best of 3',
-  BO5: 'Best of 5',
-  BO7: 'Best of 7',
-}
 
 export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayers, onSend }: Props) {
+  const { t } = useI18n()
   const isOwner = myIndex === 0
   const canStart = players.length >= 2
   const [maxInput, setMaxInput] = useState<string>(String(maxPlayers))
+  const [showRules, setShowRules] = useState(false)
+
+  const FORMAT_LABEL: Record<MatchFormat, string> = {
+    BO1: t.bestOf1,
+    BO3: t.bestOf3,
+    BO5: t.bestOf5,
+    BO7: t.bestOf7,
+  }
 
   const handleMaxPlayersChange = (val: string) => {
     setMaxInput(val)
@@ -34,11 +40,18 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
 
   return (
     <div className={styles.container}>
-      <h2 className={styles.heading}>Waiting Room</h2>
-      <div className={styles.code}>
-        Room Code: <span className={styles.codeVal}>{roomCode}</span>
+      <div className={styles.topBar}>
+        <LanguageSwitcher />
+        <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
+          {t.rulesBtn}
+        </button>
       </div>
-      <p className={styles.hint}>Share this code with friends!</p>
+
+      <h2 className={styles.heading}>{t.waitingRoom}</h2>
+      <div className={styles.code}>
+        {t.roomCode}: <span className={styles.codeVal}>{roomCode}</span>
+      </div>
+      <p className={styles.hint}>{t.shareCode}</p>
 
       <ul className={styles.playerList}>
         {players.map((p) => (
@@ -46,7 +59,7 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
             <span className={p.index === myIndex ? styles.you : ''}>
               {p.nickname}
             </span>
-            {p.index === 0 && <span className={styles.owner}>Host</span>}
+            {p.index === 0 && <span className={styles.owner}>{t.hostBadge}</span>}
           </li>
         ))}
       </ul>
@@ -54,7 +67,7 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
       {isOwner && (
         <div className={styles.hostConfig}>
           <div className={styles.configRow}>
-            <label className={styles.configLabel}>Match Format</label>
+            <label className={styles.configLabel}>{t.matchFormat}</label>
             <div className={styles.formatBtns}>
               {MATCH_FORMATS.map((f) => (
                 <button
@@ -68,7 +81,7 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
             </div>
           </div>
           <div className={styles.configRow}>
-            <label className={styles.configLabel}>Max Players</label>
+            <label className={styles.configLabel}>{t.maxPlayersLabel}</label>
             <input
               type="number"
               min={players.length}
@@ -83,8 +96,8 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
 
       {!isOwner && (
         <div className={styles.configDisplay}>
-          <span>Format: <strong>{FORMAT_LABEL[matchFormat]}</strong></span>
-          <span>Max Players: <strong>{maxPlayers}</strong></span>
+          <span>{t.matchFormat}: <strong>{FORMAT_LABEL[matchFormat]}</strong></span>
+          <span>{t.maxPlayersLabel}: <strong>{maxPlayers}</strong></span>
         </div>
       )}
 
@@ -95,20 +108,22 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
             disabled={players.length >= maxPlayers}
             onClick={() => onSend({ type: 'add_bot' })}
           >
-            + Add Bot
+            {t.addBot}
           </button>
           <button
             className={styles.btn}
             disabled={!canStart}
             onClick={() => onSend({ type: 'start_game' })}
           >
-            {canStart ? 'Start Game' : 'Waiting for players…'}
+            {canStart ? t.startGame : t.waitingForPlayers}
           </button>
         </div>
       )}
       {!isOwner && (
-        <p className={styles.waitingMsg}>Waiting for host to start…</p>
+        <p className={styles.waitingMsg}>{t.waitingForHost}</p>
       )}
+
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   )
 }
