@@ -215,7 +215,7 @@ describe('useGameStore', () => {
   })
 
   it('applyGameState resets showRoundSummary and pendingGameState', () => {
-    useGameStore.setState({ showRoundSummary: true, pendingGameState: { your_index: 0, hand: [], players: [], discard: { color: 'red', kind: 'number', value: 1 }, active_color: 'red', turn: 0, direction: 1, round_number: 1, match_format: 1, max_players: 10 } })
+    useGameStore.setState({ showRoundSummary: true, pendingGameState: { your_index: 0, hand: [], players: [], discard: { color: 'red', kind: 'number', value: 1 }, active_color: 'red', turn: 0, direction: 1, round_number: 1, match_format: 'BO1', max_players: 10 } })
     const dto: GameStateDTO = {
       your_index: 1,
       hand: [],
@@ -225,7 +225,7 @@ describe('useGameStore', () => {
       turn: 1,
       direction: 1,
       round_number: 1,
-      match_format: 1,
+      match_format: 'BO1',
       max_players: 10,
     }
     useGameStore.getState().applyGameState(dto)
