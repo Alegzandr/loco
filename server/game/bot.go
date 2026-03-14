@@ -1,0 +1,94 @@
+package game
+
+import "math/rand"
+
+// BotAction represents a decision made by a bot.
+type BotActionKind int
+
+const (
+	BotPlay BotActionKind = iota
+	BotDraw
+	BotCounter
+)
+
+// BotAction is the result of a bot thinking about its turn.
+type BotAction struct {
+	Kind        BotActionKind
+	Card        Card
+	ChosenColor Color // for wild cards
+}
+
+// BotThink decides the best action for a bot player.
+// It prefers playing a card over drawing; picks a random legal card
+// weighted toward action cards. For wilds, picks the color most
+// represented in hand.
+func BotThink(state *GameState, playerIdx int) BotAction {
+	hand := state.Hands[playerIdx]
+	topCard := state.Discard[len(state.Discard)-1]
+	activeColor := state.ActiveColor
+
+	// If there is a pending draw, try to counter first.
+	if state.PendingDraw > 0 {
+		for _, c := range hand.Cards {
+			if c.Kind == topCard.Kind && (c.Kind == DrawTwo || c.Kind == WildDrawFour) {
+				chosen := activeColor
+				if c.IsWild() {
+					chosen = botPreferredColor(hand)
+				}
+				return BotAction{Kind: BotCounter, Card: c, ChosenColor: chosen}
+			}
+		}
+		// Can't counter — draw
+		return BotAction{Kind: BotDraw}
+	}
+
+	// Collect playable cards
+	var legal []Card
+	for _, c := range hand.Cards {
+		if CanPlay(c, topCard, activeColor) {
+			legal = append(legal, c)
+		}
+	}
+
+	if len(legal) == 0 {
+		return BotAction{Kind: BotDraw}
+	}
+
+	// Prefer action / wild cards to put pressure on opponents
+	var preferred []Card
+	for _, c := range legal {
+		if c.IsAction() || c.IsWild() {
+			preferred = append(preferred, c)
+		}
+	}
+	candidates := legal
+	if len(preferred) > 0 {
+		candidates = preferred
+	}
+
+	pick := candidates[rand.Intn(len(candidates))]
+	chosen := activeColor
+	if pick.IsWild() {
+		chosen = botPreferredColor(hand)
+	}
+	return BotAction{Kind: BotPlay, Card: pick, ChosenColor: chosen}
+}
+
+// botPreferredColor returns the color most frequent in the bot's hand, or Red if tie.
+func botPreferredColor(hand Hand) Color {
+	counts := map[Color]int{}
+	for _, c := range hand.Cards {
+		if !c.IsWild() {
+			counts[c.Color]++
+		}
+	}
+	best := Red
+	bestN := -1
+	for _, col := range []Color{Red, Yellow, Green, Blue} {
+		if counts[col] > bestN {
+			bestN = counts[col]
+			best = col
+		}
+	}
+	return best
+}
