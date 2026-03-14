@@ -112,6 +112,8 @@ The **client** owns only presentation:
 - All game mutations happen in the hub's event loop
 - Each client gets a personalized view of game state (own hand visible; others' hand size only)
 - Timing for UNO catch is enforced server-side using `time.Now()` at message receipt
+- All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` — no long-lived sleeping goroutines; goroutine count remains O(connections), not O(rooms × events)
+- Critical timer callbacks (botMove, expire, cleanup) retry once on channel-full before logging `WARN`; per-client output drops are tolerated with client notification
 
 ### Anti-Cheat
 
@@ -247,7 +249,7 @@ docker compose up --build
 
 - Frontend: http://localhost:3000
 - Backend health: http://localhost:8080/health
-- Metrics: http://localhost:8080/metrics
+- Metrics: http://localhost:8080/metrics (includes `goroutine_count` for runtime health monitoring)
 
 ### Development compose (hot reload, no host toolchain needed)
 
@@ -336,7 +338,7 @@ npm run lint:fix       # ESLint auto-fix
 - [x] Per-player personalized state (hidden hand info)
 - [x] Player disconnect/reconnect during active game (60-second reconnect window)
 - [x] JSON health endpoint (`GET /health`) with room count, client count, and uptime
-- [x] **Metrics endpoint**: `GET /metrics` — atomic counters for rooms_active, players_connected, matches_started, matches_finished, bots_active, uptime_sec
+- [x] **Metrics endpoint**: `GET /metrics` — atomic counters for rooms_active, players_connected, matches_started, matches_finished, bots_active, uptime_sec, **goroutine_count** (real-time goroutine health indicator)
 - [x] **Room lifecycle cleanup**: empty rooms are kept for 5 minutes then automatically deleted; rejoining before the timer cancels the cleanup
 - [x] **Structured server logging**: room created/deleted, match started/finished, player connected/disconnected, reconnect events
 - [x] Client auto-reconnect with exponential backoff

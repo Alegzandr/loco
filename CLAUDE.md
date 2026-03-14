@@ -374,6 +374,7 @@ If structure changes, update this file and the README.
 - Events are recorded inside domain methods (`PlayCard`, `DrawCard`, `PassTurn`, `DeclareLastCard`, `CatchUndeclared`, `CounterDraw`, `Start`).
 - `GameEventDTO` is included in `GameStateDTO` and delivered to reconnecting players.
 - Event timestamps are in UTC (`time.Now()`); wire format is Unix milliseconds.
+- `playerGameState` caps the exported event log to the last 50 events (`maxEventLogExport = 50`) to prevent unbounded serialization overhead on reconnect/round-start.
 
 ## Session token conventions
 
@@ -443,8 +444,9 @@ If structure changes, update this file and the README.
 
 ## Metrics conventions
 
-- `GET /metrics` returns JSON with atomic counters: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`.
-- All counters are `sync/atomic.Int32` fields on `Hub`; `GetMetrics()` reads them without entering the event loop.
+- `GET /metrics` returns JSON: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`, **`goroutine_count`**.
+- `goroutine_count` is `runtime.NumGoroutine()` read at request time — a real-time indicator of goroutine health; should remain low and stable under normal operation.
+- All other counters are `sync/atomic.Int32` fields on `Hub`; `GetMetrics()` reads them without entering the event loop.
 - `statMatchesStarted` incremented in `handleStartGame` (once per `start_game` message, not per round).
 - `statMatchesFinished` incremented in `handleRoundOrMatchEnd` when `room.MatchOver` is true.
 - `statBotsActive` incremented in `handleAddBot`; decremented in `deleteRoom` by the number of bots in that room.
@@ -452,18 +454,36 @@ If structure changes, update this file and the README.
 ## Room lifecycle cleanup conventions
 
 - `hub.EmptyRoomTimeout` (exported `var`, default 5 minutes) controls how long an empty room is kept before deletion.
+- `hub.ReconnectTimeout` (exported `var`, default 60 seconds) controls how long a disconnected in-game player's slot is held before the reconnect window closes.
+- Both vars are exported so tests can override them (e.g. 80 ms / 120 ms) and must be restored with `t.Cleanup`.
 - When a room becomes empty (last member disconnects from lobby/finished, or all slots go nil in an active game), `scheduleRoomCleanup(code)` is called.
-- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and starts a goroutine that sends a `cleanupMsg` after `EmptyRoomTimeout`.
-- `handleCleanup` deletes the room only if `emptyRooms[code]` still matches the recorded time (race-safe: any rejoin clears or changes the entry).
+- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and uses `time.AfterFunc` to send a `cleanupMsg` after `EmptyRoomTimeout`. If the channel is full, retries once after 30 s; logs `WARN` if the retry also fails.
+- `handleCleanup` deletes the room only if `emptyRooms[code]` still matches the recorded time (race-safe: any rejoin clears or changes the entry). Logs skip reason.
 - Rejoining (lobby join) or reconnecting (active game) calls `delete(h.emptyRooms, code)` to cancel the cleanup.
 - `deleteRoom(code)` is the single point of room deletion: cleans up all hub maps, adjusts `statRooms` and `statBotsActive`, and emits a structured log line.
-- Tests override `EmptyRoomTimeout` to a short value (e.g. 80 ms) via `hub.EmptyRoomTimeout = ...` and restore it with `t.Cleanup`.
+
+## Server stability conventions
+
+- All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` instead of `go func() { time.Sleep(...); ch <- msg }()` to avoid long-lived goroutines.
+- Critical channel sends (botMove, expire, cleanup) retry once after a short delay if the channel is full, then log `WARN` if the retry also fails. Rationale per channel:
+  - `botMove`: retry after 1 s — dropping permanently stalls the game (no player acts on that turn).
+  - `expire`: retry after 5 s — dropping leaves disconnected slot in `disconnectedAt` forever.
+  - `cleanup`: retry after 30 s — dropping leaks an empty room until restart.
+- Non-critical channel sends (per-client `send`, `inbound`) use non-blocking drop + client notification. These are tolerable losses (client can retry; hub must not block).
+- `Client.Send` drops messages to a slow client (send buffer cap 256) to prevent head-of-line blocking. Logged at WARN level.
+- `readPump` sends to `h.inbound` non-blocking; drops notify the client "server busy". Prevents readPump goroutines from parking on a full channel and deadlocking the `unregister` channel (cap 16).
+- Every scheduled callback (`executeBotMove`, `handleExpireReconnect`, `handleCleanup`) re-checks current room/player state before acting and logs the skip reason.
+- `http.Server` is configured with `ReadHeaderTimeout: 10s` and `IdleTimeout: 60s` to reclaim stale HTTP connections and guard against Slowloris.
+- Goroutine stability is verified by three regression tests in `hub/hub_test.go`:
+  - `TestGoroutineStability_RoomLifecycle` — rapid create/teardown (cleanup timer path).
+  - `TestGoroutineStability_BotGame` — full bot game to completion.
+  - `TestGoroutineStability_FullLifecycle` — all paths: cleanup, full game, mid-game disconnect (reconnect expiry path).
 
 ## Structured logging conventions
 
 - All log output uses the standard `log` package to stdout.
 - Format: `key=value` pairs on a single line, e.g. `room created code=ABC123 host=Alice`.
-- Events logged: player connected (with addr), player disconnected (with code/nickname/playerID), reconnected, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors.
+- Events logged: player connected (with addr), player disconnected (with code/nickname/playerID), reconnected, reconnect window expired, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors, scheduled callback skips (bot move skipped, cleanup skipped, reconnect expiry skipped — with reason), channel pressure warnings (`WARN` prefix).
 - No sensitive data (tokens, hand contents) in logs.
 
 ## i18n conventions

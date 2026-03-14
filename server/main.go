@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"loco/server/hub"
 )
@@ -32,8 +33,16 @@ func main() {
 		json.NewEncoder(w).Encode(m)
 	})
 
+	srv := &http.Server{
+		Addr: ":" + port,
+		// ReadHeaderTimeout guards against Slowloris attacks and stale HTTP connections.
+		// WebSocket connections are hijacked before this applies to the WS body.
+		ReadHeaderTimeout: 10 * time.Second,
+		// IdleTimeout reclaims keep-alive HTTP connections that are no longer active.
+		IdleTimeout: 60 * time.Second,
+	}
 	log.Printf("loco server listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }

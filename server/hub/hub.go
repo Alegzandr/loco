@@ -8,6 +8,7 @@ import (
 	"log"
 	mrand "math/rand"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,10 @@ import (
 // Exported so tests can override it.
 var EmptyRoomTimeout = 5 * time.Minute
 
+// ReconnectTimeout is how long a disconnected in-game player's slot is held.
+// Exported so tests can override it.
+var ReconnectTimeout = 60 * time.Second
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -28,8 +33,6 @@ var upgrader = websocket.Upgrader{
 		return true // allow all origins in development; restrict in production
 	},
 }
-
-const reconnectTimeout = 60 * time.Second
 
 type inboundMsg struct {
 	client *Client
@@ -103,6 +106,7 @@ type MetricsStats struct {
 	MatchesFinished  int32 `json:"matches_finished"`
 	BotsActive       int32 `json:"bots_active"`
 	UptimeSec        int64 `json:"uptime_sec"`
+	GoroutineCount   int   `json:"goroutine_count"`
 }
 
 // New creates and returns a Hub.
@@ -179,6 +183,7 @@ func (h *Hub) GetMetrics() MetricsStats {
 		MatchesFinished:  h.statMatchesFinished.Load(),
 		BotsActive:       h.statBotsActive.Load(),
 		UptimeSec:        int64(time.Since(h.startTime).Seconds()),
+		GoroutineCount:   runtime.NumGoroutine(),
 	}
 }
 
@@ -603,7 +608,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
-	h.maybeScheduleBot(c.roomCode, room)
+	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
 // --- Disconnect handling ---
@@ -643,11 +648,25 @@ func (h *Hub) handleDisconnect(c *Client) {
 			Players:     h.playerList(room),
 		})
 
-		// Schedule reconnect expiry.
-		go func(code string, pid int, t time.Time) {
-			time.Sleep(reconnectTimeout)
-			h.expire <- expireMsg{roomCode: code, playerID: pid, disconnectedAt: t}
-		}(c.roomCode, c.playerID, disconnectTime)
+		// Schedule reconnect expiry using time.AfterFunc to avoid long-lived goroutines.
+		// If the expire channel is full, retry once after 5s; dropping permanently would
+		// leave the player slot in disconnectedAt forever.
+		code, pid := c.roomCode, c.playerID
+		em := expireMsg{roomCode: code, playerID: pid, disconnectedAt: disconnectTime}
+		time.AfterFunc(ReconnectTimeout, func() {
+			select {
+			case h.expire <- em:
+			default:
+				log.Printf("expire channel full, retrying in 5s code=%s player=%d", code, pid)
+				time.AfterFunc(5*time.Second, func() {
+					select {
+					case h.expire <- em:
+					default:
+						log.Printf("WARN expire retry dropped, slot may not be reclaimed code=%s player=%d", code, pid)
+					}
+				})
+			}
+		})
 
 		// If all slots are now empty, start the room cleanup timer.
 		if h.allSlotsEmpty(c.roomCode) {
@@ -689,25 +708,42 @@ func (h *Hub) allSlotsEmpty(code string) bool {
 }
 
 // scheduleRoomCleanup starts a timer that will delete the room if it remains empty.
+// Uses time.AfterFunc to avoid spawning long-lived goroutines.
+// If the cleanup channel is full, retries once after 30s; dropping permanently
+// would leave an empty room in memory until the process restarts.
 func (h *Hub) scheduleRoomCleanup(code string) {
 	t := time.Now()
 	h.emptyRooms[code] = t
-	go func() {
-		time.Sleep(EmptyRoomTimeout)
-		h.cleanup <- cleanupMsg{roomCode: code, emptyAt: t}
-	}()
+	cm := cleanupMsg{roomCode: code, emptyAt: t}
+	time.AfterFunc(EmptyRoomTimeout, func() {
+		select {
+		case h.cleanup <- cm:
+		default:
+			log.Printf("cleanup channel full, retrying room cleanup in 30s code=%s", code)
+			time.AfterFunc(30*time.Second, func() {
+				select {
+				case h.cleanup <- cm:
+				default:
+					log.Printf("WARN cleanup retry dropped, room may leak code=%s", code)
+				}
+			})
+		}
+	})
 }
 
 // handleCleanup deletes an empty room if it has not been rejoined since the timer started.
 func (h *Hub) handleCleanup(cm cleanupMsg) {
 	at, ok := h.emptyRooms[cm.roomCode]
 	if !ok || at != cm.emptyAt {
-		return // room was joined again (emptyAt changed or key removed)
+		// Room was rejoined or already deleted; the cleanup is stale.
+		log.Printf("room cleanup skipped, room rejoined or already deleted code=%s", cm.roomCode)
+		return
 	}
 
-	// Double-check no connected members.
+	// Double-check no connected members (race-safe belt-and-suspenders guard).
 	if !h.allSlotsEmpty(cm.roomCode) {
 		delete(h.emptyRooms, cm.roomCode)
+		log.Printf("room cleanup skipped, active members still present code=%s", cm.roomCode)
 		return
 	}
 
@@ -733,17 +769,23 @@ func (h *Hub) deleteRoom(code string) {
 func (h *Hub) handleExpireReconnect(em expireMsg) {
 	slots, ok := h.disconnectedAt[em.roomCode]
 	if !ok {
-		return // player already reconnected, slots map was cleaned up
+		// Player reconnected before the timer fired; disconnectedAt map was cleared.
+		log.Printf("reconnect expiry skipped, player reconnected code=%s player=%d", em.roomCode, em.playerID)
+		return
 	}
 	at, ok := slots[em.playerID]
 	if !ok {
-		return // player already reconnected
-	}
-	// If the recorded time differs, the player disconnected again more recently;
-	// a newer expire goroutine will handle that one.
-	if at != em.disconnectedAt {
+		// Player's slot was already cleared (reconnected or room deleted).
+		log.Printf("reconnect expiry skipped, slot cleared code=%s player=%d", em.roomCode, em.playerID)
 		return
 	}
+	// If the recorded time differs, the player disconnected again more recently;
+	// a newer timer will handle that disconnect.
+	if at != em.disconnectedAt {
+		log.Printf("reconnect expiry skipped, superseded by newer disconnect code=%s player=%d", em.roomCode, em.playerID)
+		return
+	}
+	log.Printf("reconnect window expired code=%s player=%d", em.roomCode, em.playerID)
 
 	delete(slots, em.playerID)
 	if len(slots) == 0 {
@@ -869,11 +911,25 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 }
 
 // scheduleBotMove fires a bot turn after a short think delay.
+// Uses time.AfterFunc to avoid spawning long-lived goroutines.
+// If the botMove channel is full, retries once after 1s; dropping permanently
+// would stall the game (no player would act on that turn).
 func (h *Hub) scheduleBotMove(code string, playerID int) {
-	go func() {
-		time.Sleep(botThinkDelay)
-		h.botMove <- botMoveMsg{roomCode: code, playerID: playerID}
-	}()
+	bm := botMoveMsg{roomCode: code, playerID: playerID}
+	time.AfterFunc(botThinkDelay, func() {
+		select {
+		case h.botMove <- bm:
+		default:
+			log.Printf("botMove channel full, retrying in 1s code=%s player=%d", code, playerID)
+			time.AfterFunc(1*time.Second, func() {
+				select {
+				case h.botMove <- bm:
+				default:
+					log.Printf("WARN botMove retry dropped, game may stall code=%s player=%d", code, playerID)
+				}
+			})
+		}
+	})
 }
 
 // maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
@@ -895,16 +951,24 @@ func (h *Hub) maybeScheduleBot(code string, room *game.Room) {
 func (h *Hub) executeBotMove(bm botMoveMsg) {
 	room, ok := h.rooms[bm.roomCode]
 	if !ok {
+		// Room was deleted between scheduling and firing — normal after match end or cleanup.
+		log.Printf("bot move skipped, room gone code=%s player=%d", bm.roomCode, bm.playerID)
 		return
 	}
 	if room.Status != game.StatusPlaying {
+		// Game ended or not yet started between scheduling and firing.
+		log.Printf("bot move skipped, room not playing code=%s player=%d", bm.roomCode, bm.playerID)
 		return
 	}
 	if room.State.CurrentTurn != bm.playerID {
-		return // turn moved on (e.g. another bot already acted)
+		// Turn advanced (e.g. human played or another scheduled move already fired).
+		// Very common during normal play — log only at debug level (omitted in prod).
+		return
 	}
 	bots := h.botSlots[bm.roomCode]
 	if _, isBot := bots[bm.playerID]; !isBot {
+		// Slot is no longer a bot (should not happen under current logic).
+		log.Printf("bot move skipped, not a bot slot code=%s player=%d", bm.roomCode, bm.playerID)
 		return
 	}
 
@@ -1082,8 +1146,15 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 	}
 	top := state.Discard[len(state.Discard)-1]
 
-	eventLog := make([]protocol.GameEventDTO, len(state.EventLog))
-	for i, ev := range state.EventLog {
+	// Cap the event log to the most recent entries to avoid unbounded serialization.
+	const maxEventLogExport = 50
+	exportLog := state.EventLog
+	if len(exportLog) > maxEventLogExport {
+		exportLog = exportLog[len(exportLog)-maxEventLogExport:]
+	}
+
+	eventLog := make([]protocol.GameEventDTO, len(exportLog))
+	for i, ev := range exportLog {
 		dto := protocol.GameEventDTO{
 			Kind:        string(ev.Kind),
 			PlayerIndex: ev.PlayerIndex,
