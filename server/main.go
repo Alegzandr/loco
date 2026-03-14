@@ -25,6 +25,12 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(stats)
 	})
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		m := h.GetMetrics()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(m)
+	})
 
 	log.Printf("loco server listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {

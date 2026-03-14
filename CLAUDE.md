@@ -404,6 +404,41 @@ If structure changes, update this file and the README.
 - Auto-dismiss fires after 8 seconds if the player does not click Continue.
 - `dismissRoundSummary` applies `pendingGameState` if present, else just clears `showRoundSummary`.
 
+## Metrics conventions
+
+- `GET /metrics` returns JSON with atomic counters: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`.
+- All counters are `sync/atomic.Int32` fields on `Hub`; `GetMetrics()` reads them without entering the event loop.
+- `statMatchesStarted` incremented in `handleStartGame` (once per `start_game` message, not per round).
+- `statMatchesFinished` incremented in `handleRoundOrMatchEnd` when `room.MatchOver` is true.
+- `statBotsActive` incremented in `handleAddBot`; decremented in `deleteRoom` by the number of bots in that room.
+
+## Room lifecycle cleanup conventions
+
+- `hub.EmptyRoomTimeout` (exported `var`, default 5 minutes) controls how long an empty room is kept before deletion.
+- When a room becomes empty (last member disconnects from lobby/finished, or all slots go nil in an active game), `scheduleRoomCleanup(code)` is called.
+- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and starts a goroutine that sends a `cleanupMsg` after `EmptyRoomTimeout`.
+- `handleCleanup` deletes the room only if `emptyRooms[code]` still matches the recorded time (race-safe: any rejoin clears or changes the entry).
+- Rejoining (lobby join) or reconnecting (active game) calls `delete(h.emptyRooms, code)` to cancel the cleanup.
+- `deleteRoom(code)` is the single point of room deletion: cleans up all hub maps, adjusts `statRooms` and `statBotsActive`, and emits a structured log line.
+- Tests override `EmptyRoomTimeout` to a short value (e.g. 80 ms) via `hub.EmptyRoomTimeout = ...` and restore it with `t.Cleanup`.
+
+## Structured logging conventions
+
+- All log output uses the standard `log` package to stdout.
+- Format: `key=value` pairs on a single line, e.g. `room created code=ABC123 host=Alice`.
+- Events logged: player connected (with addr), player disconnected (with code/nickname/playerID), reconnected, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors.
+- No sensitive data (tokens, hand contents) in logs.
+
+## Dev Docker Compose conventions
+
+- `docker-compose.dev.yml` provides a hot-reload development environment with no host Go or Node required.
+- Backend service: `golang:1.24.7-alpine` image, bind-mounts `./server:/app`, runs `go run .`, port 8080.
+- Frontend service: `node:20-alpine` image, bind-mounts `./client:/app`, runs `npm ci && npm run dev`, port 5173 (mapped from container port 3000).
+- `VITE_WS_TARGET=ws://server:8080` environment variable in the frontend service routes the Vite WebSocket proxy to the backend container (instead of localhost).
+- `vite.config.ts` reads `process.env.VITE_WS_TARGET` for the proxy target (falls back to `ws://localhost:8080` for local dev without Docker).
+- Go module cache (`go-mod-cache`) and node_modules (`client-node-modules`) are named Docker volumes so restarts do not re-download dependencies.
+- Start command: `docker compose -f docker-compose.dev.yml up --build`.
+
 ---
 
 ## Instructions for future Claude sessions

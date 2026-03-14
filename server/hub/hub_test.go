@@ -74,6 +74,11 @@ func newTestHub(t *testing.T) (*hub.Hub, *httptest.Server) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(stats)
 	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+		m := h.GetMetrics()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(m)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return h, srv
@@ -543,5 +548,195 @@ func TestGameState_IncludesRoundAndScoreboard(t *testing.T) {
 	// Just verify the setup works correctly by checking game is running
 	// The state is sent in setupTwoPlayerGame already
 	t.Log("game state scoreboard test: game started successfully with round info")
+}
+
+// --- Metrics tests ---
+
+func TestMetricsEndpoint_ReturnsJSON(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	resp, err := http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatalf("metrics GET: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("expected application/json, got %q", ct)
+	}
+
+	var m hub.MetricsStats
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		t.Fatalf("decode metrics: %v", err)
+	}
+}
+
+func TestMetricsEndpoint_RoomsAndPlayersCount(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	// Initially zero rooms and zero players.
+	resp, _ := http.Get(srv.URL + "/metrics")
+	var m hub.MetricsStats
+	json.NewDecoder(resp.Body).Decode(&m)
+	resp.Body.Close()
+	if m.RoomsActive != 0 {
+		t.Errorf("want 0 rooms_active, got %d", m.RoomsActive)
+	}
+	if m.PlayersConnected != 0 {
+		t.Errorf("want 0 players_connected, got %d", m.PlayersConnected)
+	}
+
+	// Create a room — one room, one player.
+	conn := dialWS(t, srv)
+	defer conn.Close()
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+	time.Sleep(10 * time.Millisecond)
+
+	resp2, _ := http.Get(srv.URL + "/metrics")
+	var m2 hub.MetricsStats
+	json.NewDecoder(resp2.Body).Decode(&m2)
+	resp2.Body.Close()
+	if m2.RoomsActive != 1 {
+		t.Errorf("want 1 rooms_active, got %d", m2.RoomsActive)
+	}
+	if m2.PlayersConnected < 1 {
+		t.Errorf("want >=1 players_connected, got %d", m2.PlayersConnected)
+	}
+}
+
+func TestMetricsEndpoint_MatchesStartedAndFinished(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	resp0, _ := http.Get(srv.URL + "/metrics")
+	var m0 hub.MetricsStats
+	json.NewDecoder(resp0.Body).Decode(&m0)
+	resp0.Body.Close()
+	if m0.MatchesStarted != 0 {
+		t.Errorf("want 0 matches_started initially, got %d", m0.MatchesStarted)
+	}
+
+	// Start a game.
+	setupTwoPlayerGame(t, srv)
+	time.Sleep(10 * time.Millisecond)
+
+	resp1, _ := http.Get(srv.URL + "/metrics")
+	var m1 hub.MetricsStats
+	json.NewDecoder(resp1.Body).Decode(&m1)
+	resp1.Body.Close()
+	if m1.MatchesStarted != 1 {
+		t.Errorf("want 1 matches_started after game start, got %d", m1.MatchesStarted)
+	}
+}
+
+func TestMetricsEndpoint_BotsActive(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	defer conn.Close()
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	// Add a bot.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+	time.Sleep(10 * time.Millisecond)
+
+	resp, _ := http.Get(srv.URL + "/metrics")
+	var m hub.MetricsStats
+	json.NewDecoder(resp.Body).Decode(&m)
+	resp.Body.Close()
+	if m.BotsActive != 1 {
+		t.Errorf("want 1 bots_active, got %d", m.BotsActive)
+	}
+}
+
+// --- Room cleanup tests ---
+
+// newTestHubFastCleanup creates a hub with a shortened EmptyRoomTimeout for test speed.
+func newTestHubFastCleanup(t *testing.T, timeout time.Duration) (*hub.Hub, *httptest.Server) {
+	t.Helper()
+	orig := hub.EmptyRoomTimeout
+	hub.EmptyRoomTimeout = timeout
+	t.Cleanup(func() { hub.EmptyRoomTimeout = orig })
+	return newTestHub(t)
+}
+
+func TestRoomCleanup_EmptyLobbyDeletedAfterTimeout(t *testing.T) {
+	_, srv := newTestHubFastCleanup(t, 80*time.Millisecond)
+
+	conn := dialWS(t, srv)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	// Room exists while Alice is connected.
+	time.Sleep(10 * time.Millisecond)
+	resp, _ := http.Get(srv.URL + "/metrics")
+	var m hub.MetricsStats
+	json.NewDecoder(resp.Body).Decode(&m)
+	resp.Body.Close()
+	if m.RoomsActive != 1 {
+		t.Fatalf("want 1 room before disconnect, got %d", m.RoomsActive)
+	}
+
+	// Alice disconnects — room should now start the cleanup timer.
+	conn.Close()
+
+	// Before timeout: room should still exist (give hub time to process disconnect).
+	time.Sleep(20 * time.Millisecond)
+	resp2, _ := http.Get(srv.URL + "/metrics")
+	var m2 hub.MetricsStats
+	json.NewDecoder(resp2.Body).Decode(&m2)
+	resp2.Body.Close()
+	if m2.RoomsActive != 1 {
+		t.Errorf("want room still alive before cleanup timeout, got %d rooms", m2.RoomsActive)
+	}
+
+	// After timeout: room should be gone.
+	time.Sleep(120 * time.Millisecond)
+	resp3, _ := http.Get(srv.URL + "/metrics")
+	var m3 hub.MetricsStats
+	json.NewDecoder(resp3.Body).Decode(&m3)
+	resp3.Body.Close()
+	if m3.RoomsActive != 0 {
+		t.Errorf("want 0 rooms after cleanup timeout, got %d", m3.RoomsActive)
+	}
+}
+
+func TestRoomCleanup_CancelledOnRejoin(t *testing.T) {
+	_, srv := newTestHubFastCleanup(t, 150*time.Millisecond)
+
+	conn1 := dialWS(t, srv)
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	roomCode := created.RoomCode
+
+	// Alice disconnects, starting the cleanup timer.
+	conn1.Close()
+	time.Sleep(30 * time.Millisecond)
+
+	// Bob joins the (still-alive) room before the timer fires.
+	conn2 := dialWS(t, srv)
+	defer conn2.Close()
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: roomCode})
+	msg := readMsg(t, conn2)
+	if msg.Type == protocol.SMsgError {
+		t.Fatalf("expected to join room, got error: %q", msg.Error)
+	}
+
+	// Wait well past the original cleanup deadline.
+	time.Sleep(200 * time.Millisecond)
+
+	// Room should still exist because Bob is in it.
+	resp, _ := http.Get(srv.URL + "/metrics")
+	var m hub.MetricsStats
+	json.NewDecoder(resp.Body).Decode(&m)
+	resp.Body.Close()
+	if m.RoomsActive != 1 {
+		t.Errorf("want room still alive after Bob joined, got %d rooms", m.RoomsActive)
+	}
 }
 

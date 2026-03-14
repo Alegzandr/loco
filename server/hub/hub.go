@@ -17,6 +17,10 @@ import (
 	"loco/server/protocol"
 )
 
+// EmptyRoomTimeout is how long an empty room is kept before deletion.
+// Exported so tests can override it.
+var EmptyRoomTimeout = 5 * time.Minute
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -45,6 +49,12 @@ type botMoveMsg struct {
 	playerID int
 }
 
+// cleanupMsg is sent internally when an empty room's cleanup timer fires.
+type cleanupMsg struct {
+	roomCode string
+	emptyAt  time.Time
+}
+
 // Hub manages all active rooms and connected clients.
 type Hub struct {
 	rooms   map[string]*game.Room
@@ -55,6 +65,8 @@ type Hub struct {
 	disconnectedAt map[string]map[int]time.Time
 	// sessionTokens[code][playerID] = opaque token for reconnect authentication.
 	sessionTokens map[string]map[int]string
+	// emptyRooms[code] = time when room became empty; used to race-safely cancel cleanup.
+	emptyRooms map[string]time.Time
 
 	// botSlots[code] is a set of playerIDs that are bots.
 	botSlots map[string]map[int]struct{}
@@ -64,11 +76,15 @@ type Hub struct {
 	inbound    chan inboundMsg
 	expire     chan expireMsg
 	botMove    chan botMoveMsg // scheduled bot actions
+	cleanup    chan cleanupMsg // empty-room cleanup timers
 
-	// Atomic stats read by the health endpoint without entering the event loop.
-	statRooms   atomic.Int32
-	statClients atomic.Int32
-	startTime   time.Time
+	// Atomic stats — safe to read from any goroutine (health/metrics endpoints).
+	statRooms          atomic.Int32
+	statClients        atomic.Int32
+	statMatchesStarted atomic.Int32
+	statMatchesFinished atomic.Int32
+	statBotsActive     atomic.Int32
+	startTime          time.Time
 }
 
 // HealthStats is a snapshot of hub metrics for the health endpoint.
@@ -79,6 +95,16 @@ type HealthStats struct {
 	UptimeSec int64  `json:"uptime_sec"`
 }
 
+// MetricsStats is the full metrics payload for GET /metrics.
+type MetricsStats struct {
+	RoomsActive      int32 `json:"rooms_active"`
+	PlayersConnected int32 `json:"players_connected"`
+	MatchesStarted   int32 `json:"matches_started"`
+	MatchesFinished  int32 `json:"matches_finished"`
+	BotsActive       int32 `json:"bots_active"`
+	UptimeSec        int64 `json:"uptime_sec"`
+}
+
 // New creates and returns a Hub.
 func New() *Hub {
 	return &Hub{
@@ -87,12 +113,14 @@ func New() *Hub {
 		roomMembers:    make(map[string][]*Client),
 		disconnectedAt: make(map[string]map[int]time.Time),
 		sessionTokens:  make(map[string]map[int]string),
+		emptyRooms:     make(map[string]time.Time),
 		botSlots:       make(map[string]map[int]struct{}),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
 		inbound:        make(chan inboundMsg, 256),
 		expire:         make(chan expireMsg, 64),
 		botMove:        make(chan botMoveMsg, 64),
+		cleanup:        make(chan cleanupMsg, 64),
 		startTime:      time.Now(),
 	}
 }
@@ -142,6 +170,18 @@ func (h *Hub) GetStats() HealthStats {
 	}
 }
 
+// GetMetrics returns the full metrics payload safe to call from any goroutine.
+func (h *Hub) GetMetrics() MetricsStats {
+	return MetricsStats{
+		RoomsActive:      h.statRooms.Load(),
+		PlayersConnected: h.statClients.Load(),
+		MatchesStarted:   h.statMatchesStarted.Load(),
+		MatchesFinished:  h.statMatchesFinished.Load(),
+		BotsActive:       h.statBotsActive.Load(),
+		UptimeSec:        int64(time.Since(h.startTime).Seconds()),
+	}
+}
+
 // Run starts the hub event loop. Call in a goroutine.
 func (h *Hub) Run() {
 	for {
@@ -149,6 +189,7 @@ func (h *Hub) Run() {
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
+			log.Printf("player connected addr=%s", c.conn.RemoteAddr())
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
@@ -166,6 +207,9 @@ func (h *Hub) Run() {
 
 		case bm := <-h.botMove:
 			h.executeBotMove(bm)
+
+		case cm := <-h.cleanup:
+			h.handleCleanup(cm)
 		}
 	}
 }
@@ -174,7 +218,7 @@ func (h *Hub) Run() {
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("upgrade error: %v", err)
+		log.Printf("ws upgrade error addr=%s err=%v", r.RemoteAddr, err)
 		return
 	}
 	c := newClient(h, conn)
@@ -230,7 +274,10 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 	c.roomCode = code
 	c.playerID = 0
 	h.roomMembers[code] = []*Client{c}
+	// Room is no longer empty (host just joined).
+	delete(h.emptyRooms, code)
 	h.statRooms.Add(1)
+	log.Printf("room created code=%s host=%s", code, msg.Nickname)
 
 	tok := h.issueToken(code, 0)
 	c.Send(protocol.ServerMsg{
@@ -279,6 +326,8 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	c.roomCode = code
 	c.playerID = playerID
 	h.roomMembers[code] = append(h.roomMembers[code], c)
+	// Room has a player — cancel any pending empty-room cleanup.
+	delete(h.emptyRooms, code)
 
 	tok := h.issueToken(code, playerID)
 	// Notify the joining client
@@ -313,6 +362,9 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
+
+	h.statMatchesStarted.Add(1)
+	log.Printf("match started code=%s players=%d format=%s", c.roomCode, len(room.Players), matchFormatString(room.Format))
 
 	// Send each player their personalized game state
 	members := h.roomMembers[c.roomCode]
@@ -435,6 +487,8 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 	})
 
 	if room.MatchOver {
+		h.statMatchesFinished.Add(1)
+		log.Printf("match finished code=%s winner=%s", code, room.MatchWinner)
 		h.broadcastToRoomAll(code, protocol.ServerMsg{
 			Type:        protocol.SMsgMatchEnd,
 			MatchWinner: room.MatchWinner,
@@ -565,6 +619,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 
 func (h *Hub) handleDisconnect(c *Client) {
 	if c.roomCode == "" {
+		log.Printf("player disconnected addr=%s (no room)", c.conn.RemoteAddr())
 		return
 	}
 	room, ok := h.rooms[c.roomCode]
@@ -576,6 +631,8 @@ func (h *Hub) handleDisconnect(c *Client) {
 	if c.playerID < len(room.Players) {
 		nickname = room.Players[c.playerID].Nickname
 	}
+
+	log.Printf("player disconnected code=%s nickname=%s playerID=%d", c.roomCode, nickname, c.playerID)
 
 	// During an active game: mark slot as nil, record disconnect time, allow reconnect.
 	if room.Status == game.StatusPlaying {
@@ -600,6 +657,11 @@ func (h *Hub) handleDisconnect(c *Client) {
 			time.Sleep(reconnectTimeout)
 			h.expire <- expireMsg{roomCode: code, playerID: pid, disconnectedAt: t}
 		}(c.roomCode, c.playerID, disconnectTime)
+
+		// If all slots are now empty, start the room cleanup timer.
+		if h.allSlotsEmpty(c.roomCode) {
+			h.scheduleRoomCleanup(c.roomCode)
+		}
 		return
 	}
 
@@ -613,10 +675,8 @@ func (h *Hub) handleDisconnect(c *Client) {
 	h.roomMembers[c.roomCode] = newMembers
 
 	if len(newMembers) == 0 {
-		delete(h.rooms, c.roomCode)
-		delete(h.roomMembers, c.roomCode)
-		delete(h.sessionTokens, c.roomCode)
-		h.statRooms.Add(-1)
+		// Start cleanup timer instead of deleting immediately.
+		h.scheduleRoomCleanup(c.roomCode)
 		return
 	}
 
@@ -625,6 +685,57 @@ func (h *Hub) handleDisconnect(c *Client) {
 		Nickname: nickname,
 		Players:  h.playerList(room),
 	})
+}
+
+// allSlotsEmpty returns true if every member slot in a room is nil (all disconnected).
+func (h *Hub) allSlotsEmpty(code string) bool {
+	for _, m := range h.roomMembers[code] {
+		if m != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// scheduleRoomCleanup starts a timer that will delete the room if it remains empty.
+func (h *Hub) scheduleRoomCleanup(code string) {
+	t := time.Now()
+	h.emptyRooms[code] = t
+	go func() {
+		time.Sleep(EmptyRoomTimeout)
+		h.cleanup <- cleanupMsg{roomCode: code, emptyAt: t}
+	}()
+}
+
+// handleCleanup deletes an empty room if it has not been rejoined since the timer started.
+func (h *Hub) handleCleanup(cm cleanupMsg) {
+	at, ok := h.emptyRooms[cm.roomCode]
+	if !ok || at != cm.emptyAt {
+		return // room was joined again (emptyAt changed or key removed)
+	}
+
+	// Double-check no connected members.
+	if !h.allSlotsEmpty(cm.roomCode) {
+		delete(h.emptyRooms, cm.roomCode)
+		return
+	}
+
+	h.deleteRoom(cm.roomCode)
+}
+
+// deleteRoom removes all hub state for a room and updates the stat counter.
+func (h *Hub) deleteRoom(code string) {
+	if bots, ok := h.botSlots[code]; ok {
+		h.statBotsActive.Add(-int32(len(bots)))
+	}
+	delete(h.rooms, code)
+	delete(h.roomMembers, code)
+	delete(h.sessionTokens, code)
+	delete(h.disconnectedAt, code)
+	delete(h.emptyRooms, code)
+	delete(h.botSlots, code)
+	h.statRooms.Add(-1)
+	log.Printf("room deleted code=%s", code)
 }
 
 // handleExpireReconnect fires when a disconnected player's reconnect window closes.
@@ -663,17 +774,8 @@ func (h *Hub) handleExpireReconnect(em expireMsg) {
 		Players:  h.playerList(room),
 	})
 
-	// If no connected members remain, delete the room.
-	members := h.roomMembers[em.roomCode]
-	for _, m := range members {
-		if m != nil {
-			return // at least one connected player remains
-		}
-	}
-	delete(h.rooms, em.roomCode)
-	delete(h.roomMembers, em.roomCode)
-	delete(h.sessionTokens, em.roomCode)
-	h.statRooms.Add(-1)
+	// If no connected members remain, let the room cleanup timer handle deletion
+	// (already scheduled when the last player disconnected).
 }
 
 // findDisconnectedSlot returns the playerID of a disconnected player matching nickname, if any.
@@ -710,6 +812,11 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 			delete(h.disconnectedAt, code)
 		}
 	}
+
+	// Cancel any pending room cleanup (room is no longer empty).
+	delete(h.emptyRooms, code)
+
+	log.Printf("player reconnected code=%s nickname=%s playerID=%d", code, nickname, playerID)
 
 	// Send full game state to the reconnecting player.
 	c.Send(protocol.ServerMsg{
@@ -759,6 +866,7 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 		h.botSlots[code] = make(map[int]struct{})
 	}
 	h.botSlots[code][botID] = struct{}{}
+	h.statBotsActive.Add(1)
 	// Bots occupy a nil slot in roomMembers.
 	h.roomMembers[code] = append(h.roomMembers[code], nil)
 
