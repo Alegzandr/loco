@@ -1,7 +1,8 @@
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(6, 8, 18, 0.8);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9,39 +10,43 @@
 }
 
 .colorPicker {
-  background: #16213e;
-  border-radius: 16px;
-  padding: 2rem;
+  background: rgba(15, 20, 35, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 2rem 2.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1.25rem;
-  color: #fff;
-  font-size: 1.1rem;
+  color: #e2e8f0;
+  font-size: 1rem;
   font-weight: 700;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .colorBtnRow {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
 }
 
 .colorBtn {
-  width: 64px;
-  height: 64px;
+  width: 60px;
+  height: 60px;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.3);
+  border: 3px solid rgba(255, 255, 255, 0.15);
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.15s, border-color 0.15s;
+  transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .colorBtn:hover,
 .colorBtn:focus {
-  transform: scale(1.15);
-  border-color: #fff;
+  transform: scale(1.12);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
   outline: none;
 }
 
@@ -51,17 +56,17 @@
 
 @media (max-width: 480px) {
   .colorBtn {
-    width: 72px;
-    height: 72px;
+    width: 68px;
+    height: 68px;
   }
 
   .colorPicker {
-    padding: 1.5rem;
+    padding: 1.5rem 2rem;
     width: 90vw;
     max-width: 340px;
   }
 
   .colorBtnRow {
-    gap: 0.75rem;
+    gap: 0.65rem;
   }
 }

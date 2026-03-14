@@ -108,6 +108,7 @@ export interface ServerMsg {
   state?: GameStateDTO
   player_index?: number
   card?: CardDTO
+  active_color?: CardColor
   turn?: number
   pending_draw?: number
   winner?: string

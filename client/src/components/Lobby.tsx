@@ -94,7 +94,7 @@ export function Lobby({ onSend, error, onClearError }: Props) {
             placeholder={t.roomCodeLabel}
             value={roomCode}
             onChange={(e) => { setRoomCode(e.target.value.toUpperCase()); onClearError() }}
-            maxLength={4}
+            maxLength={6}
           />
           <button className={styles.btn} type="submit">
             {t.joinGame}

@@ -113,6 +113,7 @@ func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room) {
 		Type:        protocol.SMsgCardPlayed,
 		PlayerIndex: playerID,
 		Card:        cardToDTO(top),
+		ActiveColor: colorName(state.ActiveColor),
 		Turn:        state.CurrentTurn,
 		PendingDraw: state.PendingDraw,
 		Players:     h.playerList(room),
