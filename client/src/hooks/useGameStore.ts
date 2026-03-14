@@ -7,6 +7,7 @@ interface GameStore {
   screen: AppScreen
   roomCode: string
   myIndex: number
+  sessionToken: string
   myHand: CardDTO[]
   players: PlayerDTO[]
   discard: CardDTO | null
@@ -17,10 +18,12 @@ interface GameStore {
   winner: string
   errorMsg: string
   unoDeclared: boolean // whether someone has declared UNO this round
+  unoTimerEnd: number | null // epoch ms when the UNO catch window closes
 
   setScreen: (s: AppScreen) => void
   setRoomCode: (code: string) => void
   setMyIndex: (idx: number) => void
+  setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number) => void
   applyCardDrawn: (card: CardDTO | null, playerIndex: number, turn: number) => void
@@ -28,6 +31,7 @@ interface GameStore {
   setWinner: (name: string) => void
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
+  setUnoTimerEnd: (ts: number | null) => void
   clearError: () => void
 }
 
@@ -35,6 +39,7 @@ export const useGameStore = create<GameStore>((set) => ({
   screen: 'lobby',
   roomCode: '',
   myIndex: -1,
+  sessionToken: '',
   myHand: [],
   players: [],
   discard: null,
@@ -45,10 +50,12 @@ export const useGameStore = create<GameStore>((set) => ({
   winner: '',
   errorMsg: '',
   unoDeclared: false,
+  unoTimerEnd: null,
 
   setScreen: (screen) => set({ screen }),
   setRoomCode: (roomCode) => set({ roomCode }),
   setMyIndex: (myIndex) => set({ myIndex }),
+  setSessionToken: (sessionToken) => set({ sessionToken }),
 
   applyGameState: (state) =>
     set({
@@ -94,5 +101,6 @@ export const useGameStore = create<GameStore>((set) => ({
   setWinner: (winner) => set({ winner, screen: 'gameover' }),
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
+  setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
   clearError: () => set({ errorMsg: '' }),
 }))

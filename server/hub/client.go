@@ -15,7 +15,41 @@ const (
 	pongWait   = 60 * time.Second
 	pingPeriod = (pongWait * 9) / 10
 	maxMsgSize = 4096
+
+	// Rate limiter: token bucket per client.
+	// Allow bursts of up to rateBurst messages, refilling at ratePerSec tokens/sec.
+	ratePerSec = 10
+	rateBurst  = 20
 )
+
+// rateLimiter is a simple token bucket for per-client message rate limiting.
+type rateLimiter struct {
+	mu       sync.Mutex
+	tokens   float64
+	lastFill time.Time
+}
+
+func newRateLimiter() *rateLimiter {
+	return &rateLimiter{tokens: rateBurst, lastFill: time.Now()}
+}
+
+// allow returns true if the message should be processed, false if rate limit exceeded.
+func (r *rateLimiter) allow() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	elapsed := now.Sub(r.lastFill).Seconds()
+	r.tokens += elapsed * ratePerSec
+	if r.tokens > rateBurst {
+		r.tokens = rateBurst
+	}
+	r.lastFill = now
+	if r.tokens < 1 {
+		return false
+	}
+	r.tokens--
+	return true
+}
 
 // Client represents a single WebSocket connection.
 type Client struct {
@@ -26,14 +60,16 @@ type Client struct {
 	roomCode string
 	playerID int
 	closed   bool
+	limiter  *rateLimiter
 }
 
 // newClient creates a client and starts its read/write pumps.
 func newClient(h *Hub, conn *websocket.Conn) *Client {
 	c := &Client{
-		hub:  h,
-		conn: conn,
-		send: make(chan []byte, 256),
+		hub:     h,
+		conn:    conn,
+		send:    make(chan []byte, 256),
+		limiter: newRateLimiter(),
 	}
 	go c.writePump()
 	go c.readPump()
@@ -58,6 +94,10 @@ func (c *Client) readPump() {
 				log.Printf("ws read error: %v", err)
 			}
 			break
+		}
+		if !c.limiter.allow() {
+			c.sendError("rate limit exceeded")
+			continue
 		}
 		var msg protocol.ClientMsg
 		if err := json.Unmarshal(data, &msg); err != nil {

@@ -16,6 +16,7 @@ export default function App() {
         case 'room_created':
           store.setRoomCode(msg.room_code ?? '')
           store.setMyIndex(msg.player_id ?? 0)
+          store.setSessionToken(msg.session_token ?? '')
           store.setPlayers(msg.players ?? [])
           store.setScreen('waiting')
           break
@@ -23,6 +24,7 @@ export default function App() {
         case 'room_joined':
           store.setRoomCode(msg.room_code ?? '')
           store.setMyIndex(msg.player_id ?? 0)
+          store.setSessionToken(msg.session_token ?? '')
           store.setPlayers(msg.players ?? [])
           store.setScreen('waiting')
           break
@@ -77,7 +79,11 @@ export default function App() {
 
         case 'uno_declared':
           store.setUnoDeclared(true)
-          setTimeout(() => store.setUnoDeclared(false), 2000)
+          store.setUnoTimerEnd(Date.now() + 5000) // 5-second catch window matches server
+          setTimeout(() => {
+            store.setUnoDeclared(false)
+            store.setUnoTimerEnd(null)
+          }, 5000)
           break
 
         case 'uno_caught':
@@ -97,7 +103,17 @@ export default function App() {
     []
   )
 
-  const { send } = useWebSocket(handleMessage)
+  // On WebSocket reconnect during an active game, re-authenticate with the session token.
+  const getReconnectMsg = useCallback(() => {
+    const s = useGameStore.getState()
+    if (s.screen === 'game' && s.roomCode && s.sessionToken) {
+      const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
+      return { type: 'join_room' as const, nickname, room_code: s.roomCode, session_token: s.sessionToken }
+    }
+    return null
+  }, [])
+
+  const { send } = useWebSocket(handleMessage, getReconnectMsg)
 
   const handleSend = useCallback(
     (msg: ClientMsg) => {

@@ -230,6 +230,8 @@ Required posture:
 - keep authoritative hidden state server-side
 - avoid trusting client timestamps for outcomes
 - make server outcomes final
+- issue cryptographically random session tokens on room create/join; require token for reconnect slot reclaim
+- enforce per-client rate limits (token bucket, 10 msg/s / burst 20) at the connection layer
 
 ---
 
@@ -292,11 +294,47 @@ Adjust this section as the repo evolves. Keep it current.
 Typical structure:
 - `client/` frontend app
 - `server/` authoritative realtime game server
+  - `game/` — pure domain logic (room, deck, hand, rules, bot, event log)
+  - `hub/` — WebSocket connection management, rate limiting, session tokens, bot scheduling
+  - `protocol/` — wire types shared between hub and client
 - `shared/` protocol/types if used
 - `docs/` optional supplemental docs
 - root config / Docker / env files
 
 If structure changes, update this file and the README.
+
+---
+
+## Bot player conventions
+
+- Bots are added by the host in the lobby via `add_bot` message.
+- Bot nicknames are auto-assigned (`Bot1`, `Bot2`, …).
+- Bot AI lives in `game/bot.go` (`BotThink(state, playerIdx) BotAction`).
+- Bot actions are scheduled via the `botMove` channel with a short delay (`botThinkDelay = 800ms`).
+- Bots auto-declare UNO when playing to 1 card.
+- Bot state is tracked in `hub.botSlots[code][playerID]`.
+
+## Game event log conventions
+
+- `GameState.EventLog []GameEvent` is append-only; never remove events.
+- Events are recorded inside domain methods (`PlayCard`, `DrawCard`, `PassTurn`, `DeclareLastCard`, `CatchUndeclared`, `CounterDraw`, `Start`).
+- `GameEventDTO` is included in `GameStateDTO` and delivered to reconnecting players.
+- Event timestamps are in UTC (`time.Now()`); wire format is Unix milliseconds.
+
+## Session token conventions
+
+- Tokens are 32 hex characters (128 bits of randomness via `crypto/rand`).
+- Tokens are issued in `room_created` and `room_joined` server messages.
+- Client must store and include `session_token` in reconnect `join_room` message.
+- Invalid or missing token on reconnect returns an error; slot is not reclaimed.
+- Token maps (`hub.sessionTokens`) are cleaned up when rooms are deleted.
+
+## Rate limiting conventions
+
+- Token bucket per client: 10 tokens/sec refill rate, burst of 20.
+- Implemented in `hub/client.go` as `rateLimiter` (thread-safe).
+- Rate-limited messages receive an `error` server message and are dropped.
+- The bucket is per-connection, not per-player-identity.
 
 ---
 

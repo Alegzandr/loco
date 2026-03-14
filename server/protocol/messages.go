@@ -9,6 +9,7 @@ const (
 	CMsgCreateRoom  ClientMsgType = "create_room"
 	CMsgJoinRoom    ClientMsgType = "join_room"
 	CMsgStartGame   ClientMsgType = "start_game"
+	CMsgAddBot      ClientMsgType = "add_bot"
 	// Gameplay
 	CMsgPlayCard    ClientMsgType = "play_card"
 	CMsgDrawCard    ClientMsgType = "draw_card"
@@ -51,6 +52,9 @@ type ClientMsg struct {
 	Nickname string `json:"nickname,omitempty"`
 	RoomCode string `json:"room_code,omitempty"`
 
+	// CMsgJoinRoom reconnect: prove identity
+	SessionToken string `json:"session_token,omitempty"`
+
 	// CMsgPlayCard / CMsgCounterDraw
 	Card        *CardDTO `json:"card,omitempty"`
 	ChosenColor string   `json:"chosen_color,omitempty"`
@@ -68,8 +72,9 @@ type ServerMsg struct {
 	Type ServerMsgType `json:"type"`
 
 	// SMsgRoomCreated / SMsgRoomJoined / SMsgPlayerReconnected (self)
-	RoomCode string `json:"room_code,omitempty"`
-	PlayerID int    `json:"player_id,omitempty"`
+	RoomCode     string `json:"room_code,omitempty"`
+	PlayerID     int    `json:"player_id,omitempty"`
+	SessionToken string `json:"session_token,omitempty"` // opaque token for reconnect auth
 
 	// Player lists and nicknames
 	Players  []PlayerDTO `json:"players,omitempty"`
@@ -103,14 +108,24 @@ type PlayerDTO struct {
 	Connected bool   `json:"connected"`
 }
 
+// GameEventDTO is the wire representation of a game event.
+type GameEventDTO struct {
+	Kind        string   `json:"kind"`
+	PlayerIndex int      `json:"player_index"`
+	Card        *CardDTO `json:"card,omitempty"`
+	ChosenColor string   `json:"chosen_color,omitempty"`
+	At          int64    `json:"at"` // unix milliseconds
+}
+
 // GameStateDTO is the per-player view of the game state sent on join/start.
 type GameStateDTO struct {
-	YourIndex   int         `json:"your_index"`
-	Hand        []CardDTO   `json:"hand"`
-	Players     []PlayerDTO `json:"players"`
-	Discard     CardDTO     `json:"discard"`
-	ActiveColor string      `json:"active_color"`
-	Turn        int         `json:"turn"`
-	Direction   int         `json:"direction"`
-	PendingDraw int         `json:"pending_draw,omitempty"`
+	YourIndex   int            `json:"your_index"`
+	Hand        []CardDTO      `json:"hand"`
+	Players     []PlayerDTO    `json:"players"`
+	Discard     CardDTO        `json:"discard"`
+	ActiveColor string         `json:"active_color"`
+	Turn        int            `json:"turn"`
+	Direction   int            `json:"direction"`
+	PendingDraw int            `json:"pending_draw,omitempty"`
+	EventLog    []GameEventDTO `json:"event_log,omitempty"`
 }

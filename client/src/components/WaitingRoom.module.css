@@ -89,3 +89,31 @@
   color: #666;
   font-style: italic;
 }
+
+.hostActions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.btnSecondary {
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #4d96ff;
+  background: transparent;
+  color: #4d96ff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: rgba(77, 150, 255, 0.15);
+}
+
+.btnSecondary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

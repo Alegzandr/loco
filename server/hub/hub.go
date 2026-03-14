@@ -2,9 +2,11 @@
 package hub
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
-	"math/rand"
+	mrand "math/rand"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -32,9 +34,15 @@ type inboundMsg struct {
 
 // expireMsg is sent internally when a disconnected player's reconnect window closes.
 type expireMsg struct {
-	roomCode    string
-	playerID    int
+	roomCode       string
+	playerID       int
 	disconnectedAt time.Time
+}
+
+// botMoveMsg is sent internally when a bot should take its turn.
+type botMoveMsg struct {
+	roomCode string
+	playerID int
 }
 
 // Hub manages all active rooms and connected clients.
@@ -45,11 +53,17 @@ type Hub struct {
 	roomMembers    map[string][]*Client
 	// disconnectedAt[code][playerID] = time of disconnect (only set during StatusPlaying).
 	disconnectedAt map[string]map[int]time.Time
+	// sessionTokens[code][playerID] = opaque token for reconnect authentication.
+	sessionTokens  map[string]map[int]string
+
+	// botSlots[code] is a set of playerIDs that are bots.
+	botSlots map[string]map[int]struct{}
 
 	register   chan *Client
 	unregister chan *Client
 	inbound    chan inboundMsg
 	expire     chan expireMsg
+	botMove    chan botMoveMsg // scheduled bot actions
 
 	// Atomic stats read by the health endpoint without entering the event loop.
 	statRooms   atomic.Int32
@@ -72,12 +86,50 @@ func New() *Hub {
 		clients:        make(map[*Client]struct{}),
 		roomMembers:    make(map[string][]*Client),
 		disconnectedAt: make(map[string]map[int]time.Time),
+		sessionTokens:  make(map[string]map[int]string),
+		botSlots:       make(map[string]map[int]struct{}),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
 		inbound:        make(chan inboundMsg, 256),
 		expire:         make(chan expireMsg, 64),
+		botMove:        make(chan botMoveMsg, 64),
 		startTime:      time.Now(),
 	}
+}
+
+// generateSessionToken produces a cryptographically random 32-hex-char token.
+func generateSessionToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// fallback: use math/rand (should never happen)
+		for i := range b {
+			b[i] = byte(mrand.Intn(256))
+		}
+	}
+	return hex.EncodeToString(b)
+}
+
+// issueToken creates and stores a session token for the given player slot.
+func (h *Hub) issueToken(code string, playerID int) string {
+	if h.sessionTokens[code] == nil {
+		h.sessionTokens[code] = make(map[int]string)
+	}
+	tok := generateSessionToken()
+	h.sessionTokens[code][playerID] = tok
+	return tok
+}
+
+// validateToken checks the provided token against the stored one for the slot.
+func (h *Hub) validateToken(code string, playerID int, token string) bool {
+	slots, ok := h.sessionTokens[code]
+	if !ok {
+		return false
+	}
+	stored, ok := slots[playerID]
+	if !ok {
+		return false
+	}
+	return stored == token && token != ""
 }
 
 // GetStats returns a snapshot of hub metrics safe to call from any goroutine.
@@ -111,6 +163,9 @@ func (h *Hub) Run() {
 
 		case em := <-h.expire:
 			h.handleExpireReconnect(em)
+
+		case bm := <-h.botMove:
+			h.executeBotMove(bm)
 		}
 	}
 }
@@ -147,6 +202,8 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleCatchUno(c, msg)
 	case protocol.CMsgCounterDraw:
 		h.handleCounterDraw(c, msg)
+	case protocol.CMsgAddBot:
+		h.handleAddBot(c, msg)
 	default:
 		c.sendError("unknown message type")
 	}
@@ -171,11 +228,13 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 	h.roomMembers[code] = []*Client{c}
 	h.statRooms.Add(1)
 
+	tok := h.issueToken(code, 0)
 	c.Send(protocol.ServerMsg{
-		Type:     protocol.SMsgRoomCreated,
-		RoomCode: code,
-		PlayerID: 0,
-		Players:  h.playerList(room),
+		Type:         protocol.SMsgRoomCreated,
+		RoomCode:     code,
+		PlayerID:     0,
+		Players:      h.playerList(room),
+		SessionToken: tok,
 	})
 }
 
@@ -194,6 +253,11 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	// If the game is already in progress, check for a disconnected slot with this nickname.
 	if room.Status == game.StatusPlaying {
 		if playerID, found := h.findDisconnectedSlot(code, msg.Nickname); found {
+			// Validate session token to prevent slot hijacking.
+			if !h.validateToken(code, playerID, msg.SessionToken) {
+				c.sendError("invalid session token for reconnect")
+				return
+			}
 			h.handleReconnect(c, room, code, playerID, msg.Nickname)
 			return
 		}
@@ -210,12 +274,14 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	c.playerID = playerID
 	h.roomMembers[code] = append(h.roomMembers[code], c)
 
+	tok := h.issueToken(code, playerID)
 	// Notify the joining client
 	c.Send(protocol.ServerMsg{
-		Type:     protocol.SMsgRoomJoined,
-		RoomCode: code,
-		PlayerID: playerID,
-		Players:  h.playerList(room),
+		Type:         protocol.SMsgRoomJoined,
+		RoomCode:     code,
+		PlayerID:     playerID,
+		Players:      h.playerList(room),
+		SessionToken: tok,
 	})
 
 	// Notify others
@@ -242,8 +308,10 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 
 	// Send each player their personalized game state
 	members := h.roomMembers[c.roomCode]
-	for _, member := range members {
+	for i, member := range members {
 		if member == nil {
+			// Bot slot: send no WebSocket message, but we still need to know their index.
+			_ = i
 			continue
 		}
 		member.Send(protocol.ServerMsg{
@@ -251,6 +319,7 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 			State: h.playerGameState(room, member.playerID),
 		})
 	}
+	h.maybeScheduleBot(c.roomCode, room)
 }
 
 // --- Gameplay handlers ---
@@ -290,7 +359,9 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 			Type:   protocol.SMsgGameOver,
 			Winner: room.Winner,
 		})
+		return
 	}
+	h.maybeScheduleBot(c.roomCode, room)
 }
 
 func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
@@ -318,6 +389,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 		PlayerIndex: c.playerID,
 		Turn:        state.CurrentTurn,
 	}, c)
+	h.maybeScheduleBot(c.roomCode, room)
 }
 
 func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
@@ -333,6 +405,7 @@ func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
 		Type: protocol.SMsgTurnChanged,
 		Turn: room.State.CurrentTurn,
 	})
+	h.maybeScheduleBot(c.roomCode, room)
 }
 
 func (h *Hub) handleDeclareUno(c *Client, msg protocol.ClientMsg) {
@@ -400,6 +473,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		Turn:        state.CurrentTurn,
 		PendingDraw: state.PendingDraw,
 	})
+	h.maybeScheduleBot(c.roomCode, room)
 }
 
 // --- Disconnect handling ---
@@ -456,6 +530,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 	if len(newMembers) == 0 {
 		delete(h.rooms, c.roomCode)
 		delete(h.roomMembers, c.roomCode)
+		delete(h.sessionTokens, c.roomCode)
 		h.statRooms.Add(-1)
 		return
 	}
@@ -512,6 +587,7 @@ func (h *Hub) handleExpireReconnect(em expireMsg) {
 	}
 	delete(h.rooms, em.roomCode)
 	delete(h.roomMembers, em.roomCode)
+	delete(h.sessionTokens, em.roomCode)
 	h.statRooms.Add(-1)
 }
 
@@ -566,6 +642,174 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 		Nickname:    nickname,
 		Players:     h.playerList(room),
 	}, c)
+}
+
+// --- Bot support ---
+
+const botThinkDelay = 800 * time.Millisecond
+
+// handleAddBot adds a bot player to the lobby (host-only).
+func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if c.playerID != 0 {
+		c.sendError("only the room owner can add bots")
+		return
+	}
+	if room.Status != game.StatusLobby {
+		c.sendError("can only add bots in the lobby")
+		return
+	}
+	botNum := len(room.Players) + 1
+	nickname := fmt.Sprintf("Bot%d", botNum)
+	if err := room.Join(nickname); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	botID := len(room.Players) - 1
+	code := c.roomCode
+	if h.botSlots[code] == nil {
+		h.botSlots[code] = make(map[int]struct{})
+	}
+	h.botSlots[code][botID] = struct{}{}
+	// Bots occupy a nil slot in roomMembers.
+	h.roomMembers[code] = append(h.roomMembers[code], nil)
+
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:     protocol.SMsgPlayerJoined,
+		Nickname: nickname,
+		Players:  h.playerList(room),
+	})
+}
+
+// scheduleBotMove fires a bot turn after a short think delay.
+func (h *Hub) scheduleBotMove(code string, playerID int) {
+	go func() {
+		time.Sleep(botThinkDelay)
+		h.botMove <- botMoveMsg{roomCode: code, playerID: playerID}
+	}()
+}
+
+// maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
+func (h *Hub) maybeScheduleBot(code string, room *game.Room) {
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	bots, ok := h.botSlots[code]
+	if !ok {
+		return
+	}
+	turn := room.State.CurrentTurn
+	if _, isBot := bots[turn]; isBot {
+		h.scheduleBotMove(code, turn)
+	}
+}
+
+// executeBotMove runs the bot's chosen action on behalf of its player slot.
+func (h *Hub) executeBotMove(bm botMoveMsg) {
+	room, ok := h.rooms[bm.roomCode]
+	if !ok {
+		return
+	}
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	if room.State.CurrentTurn != bm.playerID {
+		return // turn moved on (e.g. another bot already acted)
+	}
+	bots := h.botSlots[bm.roomCode]
+	if _, isBot := bots[bm.playerID]; !isBot {
+		return
+	}
+
+	action := game.BotThink(room.State, bm.playerID)
+	code := bm.roomCode
+
+	switch action.Kind {
+	case game.BotPlay:
+		if err := room.PlayCard(bm.playerID, action.Card, action.ChosenColor); err != nil {
+			log.Printf("bot play error: %v", err)
+			return
+		}
+		state := room.State
+		topCard := state.Discard[len(state.Discard)-1]
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:        protocol.SMsgCardPlayed,
+			PlayerIndex: bm.playerID,
+			Card:        cardToDTO(topCard),
+			Turn:        state.CurrentTurn,
+			PendingDraw: state.PendingDraw,
+		})
+		if room.Status == game.StatusFinished {
+			h.broadcastToRoomAll(code, protocol.ServerMsg{
+				Type:   protocol.SMsgGameOver,
+				Winner: room.Winner,
+			})
+			return
+		}
+		// Auto-declare UNO if bot is at 1 card
+		if room.State.Hands[bm.playerID].Size() == 1 {
+			_ = room.DeclareLastCard(bm.playerID)
+			h.broadcastToRoomAll(code, protocol.ServerMsg{
+				Type:        protocol.SMsgUnoDeclared,
+				PlayerIndex: bm.playerID,
+			})
+		}
+
+	case game.BotCounter:
+		if err := room.CounterDraw(bm.playerID, action.Card, action.ChosenColor); err != nil {
+			log.Printf("bot counter error: %v", err)
+			return
+		}
+		state := room.State
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:        protocol.SMsgCardPlayed,
+			PlayerIndex: bm.playerID,
+			Card:        cardToDTO(state.Discard[len(state.Discard)-1]),
+			Turn:        state.CurrentTurn,
+			PendingDraw: state.PendingDraw,
+		})
+
+	case game.BotDraw:
+		if err := room.DrawCard(bm.playerID); err != nil {
+			log.Printf("bot draw error: %v", err)
+			return
+		}
+		state := room.State
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:        protocol.SMsgCardDrawn,
+			PlayerIndex: bm.playerID,
+			Turn:        state.CurrentTurn,
+		})
+		// After drawing, bot passes if it can't play
+		if state.CurrentTurn == bm.playerID {
+			hand := state.Hands[bm.playerID]
+			topCard := state.Discard[len(state.Discard)-1]
+			canPlay := false
+			for _, c := range hand.Cards {
+				if game.CanPlay(c, topCard, state.ActiveColor) {
+					canPlay = true
+					break
+				}
+			}
+			if !canPlay {
+				if err := room.PassTurn(bm.playerID); err == nil {
+					h.broadcastToRoomAll(code, protocol.ServerMsg{
+						Type: protocol.SMsgTurnChanged,
+						Turn: room.State.CurrentTurn,
+					})
+				}
+			} else {
+				// Schedule another bot move to play the drawn card
+				h.scheduleBotMove(code, bm.playerID)
+				return
+			}
+		}
+	}
+
+	h.maybeScheduleBot(code, room)
 }
 
 // --- Broadcast helpers ---
@@ -629,6 +873,23 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		hand[i] = *cardToDTO(c)
 	}
 	top := state.Discard[len(state.Discard)-1]
+
+	eventLog := make([]protocol.GameEventDTO, len(state.EventLog))
+	for i, ev := range state.EventLog {
+		dto := protocol.GameEventDTO{
+			Kind:        string(ev.Kind),
+			PlayerIndex: ev.PlayerIndex,
+			At:          ev.At.UnixMilli(),
+		}
+		if ev.Card != nil {
+			dto.Card = cardToDTO(*ev.Card)
+		}
+		if ev.ChosenColor != 0 {
+			dto.ChosenColor = colorName(ev.ChosenColor)
+		}
+		eventLog[i] = dto
+	}
+
 	return &protocol.GameStateDTO{
 		YourIndex:   playerIdx,
 		Hand:        hand,
@@ -638,6 +899,7 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		Turn:        state.CurrentTurn,
 		Direction:   state.Direction,
 		PendingDraw: state.PendingDraw,
+		EventLog:    eventLog,
 	}
 }
 
@@ -648,7 +910,7 @@ func (h *Hub) generateCode() string {
 	for {
 		code := make([]byte, 4)
 		for i := range code {
-			code[i] = chars[rand.Intn(len(chars))]
+			code[i] = chars[mrand.Intn(len(chars))]
 		}
 		s := string(code)
 		if _, exists := h.rooms[s]; !exists {

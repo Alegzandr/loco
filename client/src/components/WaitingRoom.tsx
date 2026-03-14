@@ -34,13 +34,22 @@ export function WaitingRoom({ roomCode, players, myIndex, onSend }: Props) {
       </ul>
 
       {isOwner && (
-        <button
-          className={styles.btn}
-          disabled={!canStart}
-          onClick={() => onSend({ type: 'start_game' })}
-        >
-          {canStart ? 'Start Game' : 'Waiting for players…'}
-        </button>
+        <div className={styles.hostActions}>
+          <button
+            className={styles.btnSecondary}
+            disabled={players.length >= 10}
+            onClick={() => onSend({ type: 'add_bot' })}
+          >
+            + Add Bot
+          </button>
+          <button
+            className={styles.btn}
+            disabled={!canStart}
+            onClick={() => onSend({ type: 'start_game' })}
+          >
+            {canStart ? 'Start Game' : 'Waiting for players…'}
+          </button>
+        </div>
       )}
       {!isOwner && (
         <p className={styles.waitingMsg}>Waiting for host to start…</p>

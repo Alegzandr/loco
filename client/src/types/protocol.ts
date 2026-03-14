@@ -32,6 +32,7 @@ export type ClientMsgType =
   | 'create_room'
   | 'join_room'
   | 'start_game'
+  | 'add_bot'
   | 'play_card'
   | 'draw_card'
   | 'pass_turn'
@@ -43,6 +44,7 @@ export interface ClientMsg {
   type: ClientMsgType
   nickname?: string
   room_code?: string
+  session_token?: string
   card?: CardDTO
   chosen_color?: CardColor
 }
@@ -70,6 +72,7 @@ export interface ServerMsg {
   type: ServerMsgType
   room_code?: string
   player_id?: number
+  session_token?: string
   players?: PlayerDTO[]
   nickname?: string
   state?: GameStateDTO

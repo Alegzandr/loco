@@ -2,14 +2,18 @@ import { useEffect, useRef, useCallback } from 'react'
 import { ClientMsg, ServerMsg } from '../types/protocol'
 
 type MessageHandler = (msg: ServerMsg) => void
+// Returns the message to send on reconnect, or null if not in an active session.
+type GetReconnectMsg = () => ClientMsg | null
 
 const RECONNECT_DELAY_MS = 2000
 const MAX_RECONNECT_ATTEMPTS = 10
 
-export function useWebSocket(onMessage: MessageHandler) {
+export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconnectMsg) {
   const wsRef = useRef<WebSocket | null>(null)
   const onMessageRef = useRef(onMessage)
   onMessageRef.current = onMessage
+  const getReconnectMsgRef = useRef(getReconnectMsg)
+  getReconnectMsgRef.current = getReconnectMsg
 
   // Holds the pending message to send after reconnect, if any.
   const pendingRef = useRef<string | null>(null)
@@ -26,6 +30,11 @@ export function useWebSocket(onMessage: MessageHandler) {
 
     ws.onopen = () => {
       attemptsRef.current = 0
+      // If reconnecting into an active game, re-authenticate first.
+      const reconnectMsg = getReconnectMsgRef.current?.()
+      if (reconnectMsg) {
+        ws.send(JSON.stringify(reconnectMsg))
+      }
       if (pendingRef.current !== null) {
         ws.send(pendingRef.current)
         pendingRef.current = null
