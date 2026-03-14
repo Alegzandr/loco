@@ -6,16 +6,16 @@ type ClientMsgType string
 
 const (
 	// Lobby
-	CMsgCreateRoom    ClientMsgType = "create_room"
-	CMsgJoinRoom      ClientMsgType = "join_room"
-	CMsgStartGame     ClientMsgType = "start_game"
+	CMsgCreateRoom  ClientMsgType = "create_room"
+	CMsgJoinRoom    ClientMsgType = "join_room"
+	CMsgStartGame   ClientMsgType = "start_game"
 	// Gameplay
-	CMsgPlayCard      ClientMsgType = "play_card"
-	CMsgDrawCard      ClientMsgType = "draw_card"
-	CMsgPassTurn      ClientMsgType = "pass_turn"
-	CMsgDeclareUno    ClientMsgType = "declare_uno"
-	CMsgCatchUno      ClientMsgType = "catch_uno"
-	CMsgCounterDraw   ClientMsgType = "counter_draw"
+	CMsgPlayCard    ClientMsgType = "play_card"
+	CMsgDrawCard    ClientMsgType = "draw_card"
+	CMsgPassTurn    ClientMsgType = "pass_turn"
+	CMsgDeclareUno  ClientMsgType = "declare_uno"
+	CMsgCatchUno    ClientMsgType = "catch_uno"
+	CMsgCounterDraw ClientMsgType = "counter_draw"
 )
 
 // ServerMsgType enumerates message types sent from server to client.
@@ -23,22 +23,24 @@ type ServerMsgType string
 
 const (
 	// Lobby
-	SMsgRoomCreated   ServerMsgType = "room_created"
-	SMsgRoomJoined    ServerMsgType = "room_joined"
-	SMsgPlayerJoined  ServerMsgType = "player_joined"
-	SMsgPlayerLeft    ServerMsgType = "player_left"
-	SMsgGameStarted   ServerMsgType = "game_started"
+	SMsgRoomCreated      ServerMsgType = "room_created"
+	SMsgRoomJoined       ServerMsgType = "room_joined"
+	SMsgPlayerJoined     ServerMsgType = "player_joined"
+	SMsgPlayerLeft       ServerMsgType = "player_left"
+	SMsgPlayerDisconnected ServerMsgType = "player_disconnected"
+	SMsgPlayerReconnected  ServerMsgType = "player_reconnected"
+	SMsgGameStarted      ServerMsgType = "game_started"
 	// Gameplay state
-	SMsgGameState     ServerMsgType = "game_state"
-	SMsgCardPlayed    ServerMsgType = "card_played"
-	SMsgCardDrawn     ServerMsgType = "card_drawn"
-	SMsgTurnChanged   ServerMsgType = "turn_changed"
-	SMsgUnoDeclared   ServerMsgType = "uno_declared"
-	SMsgUnoCaught     ServerMsgType = "uno_caught"
-	SMsgDrawPending   ServerMsgType = "draw_pending"
-	SMsgGameOver      ServerMsgType = "game_over"
+	SMsgGameState   ServerMsgType = "game_state"
+	SMsgCardPlayed  ServerMsgType = "card_played"
+	SMsgCardDrawn   ServerMsgType = "card_drawn"
+	SMsgTurnChanged ServerMsgType = "turn_changed"
+	SMsgUnoDeclared ServerMsgType = "uno_declared"
+	SMsgUnoCaught   ServerMsgType = "uno_caught"
+	SMsgDrawPending ServerMsgType = "draw_pending"
+	SMsgGameOver    ServerMsgType = "game_over"
 	// Errors
-	SMsgError         ServerMsgType = "error"
+	SMsgError ServerMsgType = "error"
 )
 
 // ClientMsg is the envelope for all client-to-server messages.
@@ -65,15 +67,15 @@ type CardDTO struct {
 type ServerMsg struct {
 	Type ServerMsgType `json:"type"`
 
-	// SMsgRoomCreated / SMsgRoomJoined
+	// SMsgRoomCreated / SMsgRoomJoined / SMsgPlayerReconnected (self)
 	RoomCode string `json:"room_code,omitempty"`
 	PlayerID int    `json:"player_id,omitempty"`
 
 	// Player lists and nicknames
-	Players []PlayerDTO `json:"players,omitempty"`
+	Players  []PlayerDTO `json:"players,omitempty"`
 	Nickname string      `json:"nickname,omitempty"`
 
-	// SMsgGameStarted / SMsgGameState
+	// SMsgGameStarted / SMsgGameState / SMsgPlayerReconnected (self)
 	State *GameStateDTO `json:"state,omitempty"`
 
 	// SMsgCardPlayed
@@ -95,9 +97,10 @@ type ServerMsg struct {
 
 // PlayerDTO is the public view of a player.
 type PlayerDTO struct {
-	Index    int    `json:"index"`
-	Nickname string `json:"nickname"`
-	HandSize int    `json:"hand_size"`
+	Index     int    `json:"index"`
+	Nickname  string `json:"nickname"`
+	HandSize  int    `json:"hand_size"`
+	Connected bool   `json:"connected"`
 }
 
 // GameStateDTO is the per-player view of the game state sent on join/start.

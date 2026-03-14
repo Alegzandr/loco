@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -22,30 +23,70 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+const reconnectTimeout = 60 * time.Second
+
 type inboundMsg struct {
 	client *Client
 	msg    protocol.ClientMsg
 }
 
+// expireMsg is sent internally when a disconnected player's reconnect window closes.
+type expireMsg struct {
+	roomCode    string
+	playerID    int
+	disconnectedAt time.Time
+}
+
 // Hub manages all active rooms and connected clients.
 type Hub struct {
-	rooms      map[string]*game.Room
-	clients    map[*Client]struct{}
-	roomMembers map[string][]*Client // roomCode → clients in order of player index
+	rooms          map[string]*game.Room
+	clients        map[*Client]struct{}
+	// roomMembers[code] is indexed by playerID; nil means that slot is currently disconnected.
+	roomMembers    map[string][]*Client
+	// disconnectedAt[code][playerID] = time of disconnect (only set during StatusPlaying).
+	disconnectedAt map[string]map[int]time.Time
+
 	register   chan *Client
 	unregister chan *Client
 	inbound    chan inboundMsg
+	expire     chan expireMsg
+
+	// Atomic stats read by the health endpoint without entering the event loop.
+	statRooms   atomic.Int32
+	statClients atomic.Int32
+	startTime   time.Time
+}
+
+// HealthStats is a snapshot of hub metrics for the health endpoint.
+type HealthStats struct {
+	Status    string `json:"status"`
+	Rooms     int32  `json:"rooms"`
+	Clients   int32  `json:"clients"`
+	UptimeSec int64  `json:"uptime_sec"`
 }
 
 // New creates and returns a Hub.
 func New() *Hub {
 	return &Hub{
-		rooms:       make(map[string]*game.Room),
-		clients:     make(map[*Client]struct{}),
-		roomMembers: make(map[string][]*Client),
-		register:    make(chan *Client, 16),
-		unregister:  make(chan *Client, 16),
-		inbound:     make(chan inboundMsg, 256),
+		rooms:          make(map[string]*game.Room),
+		clients:        make(map[*Client]struct{}),
+		roomMembers:    make(map[string][]*Client),
+		disconnectedAt: make(map[string]map[int]time.Time),
+		register:       make(chan *Client, 16),
+		unregister:     make(chan *Client, 16),
+		inbound:        make(chan inboundMsg, 256),
+		expire:         make(chan expireMsg, 64),
+		startTime:      time.Now(),
+	}
+}
+
+// GetStats returns a snapshot of hub metrics safe to call from any goroutine.
+func (h *Hub) GetStats() HealthStats {
+	return HealthStats{
+		Status:    "ok",
+		Rooms:     h.statRooms.Load(),
+		Clients:   h.statClients.Load(),
+		UptimeSec: int64(time.Since(h.startTime).Seconds()),
 	}
 }
 
@@ -55,16 +96,21 @@ func (h *Hub) Run() {
 		select {
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
+			h.statClients.Add(1)
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
+				h.statClients.Add(-1)
 				c.close()
 				h.handleDisconnect(c)
 			}
 
 		case im := <-h.inbound:
 			h.dispatch(im.client, im.msg)
+
+		case em := <-h.expire:
+			h.handleExpireReconnect(em)
 		}
 	}
 }
@@ -123,6 +169,7 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 	c.roomCode = code
 	c.playerID = 0
 	h.roomMembers[code] = []*Client{c}
+	h.statRooms.Add(1)
 
 	c.Send(protocol.ServerMsg{
 		Type:     protocol.SMsgRoomCreated,
@@ -143,6 +190,17 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 		c.sendError("room not found")
 		return
 	}
+
+	// If the game is already in progress, check for a disconnected slot with this nickname.
+	if room.Status == game.StatusPlaying {
+		if playerID, found := h.findDisconnectedSlot(code, msg.Nickname); found {
+			h.handleReconnect(c, room, code, playerID, msg.Nickname)
+			return
+		}
+		c.sendError("game already in progress")
+		return
+	}
+
 	if err := room.Join(msg.Nickname); err != nil {
 		c.sendError(err.Error())
 		return
@@ -185,6 +243,9 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	// Send each player their personalized game state
 	members := h.roomMembers[c.roomCode]
 	for _, member := range members {
+		if member == nil {
+			continue
+		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
 			State: h.playerGameState(room, member.playerID),
@@ -357,7 +418,33 @@ func (h *Hub) handleDisconnect(c *Client) {
 		nickname = room.Players[c.playerID].Nickname
 	}
 
-	// Remove client from member list
+	// During an active game: mark slot as nil, record disconnect time, allow reconnect.
+	if room.Status == game.StatusPlaying {
+		if c.playerID < len(members) {
+			members[c.playerID] = nil
+		}
+		if h.disconnectedAt[c.roomCode] == nil {
+			h.disconnectedAt[c.roomCode] = make(map[int]time.Time)
+		}
+		disconnectTime := time.Now()
+		h.disconnectedAt[c.roomCode][c.playerID] = disconnectTime
+
+		h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+			Type:        protocol.SMsgPlayerDisconnected,
+			PlayerIndex: c.playerID,
+			Nickname:    nickname,
+			Players:     h.playerList(room),
+		})
+
+		// Schedule reconnect expiry.
+		go func(code string, pid int, t time.Time) {
+			time.Sleep(reconnectTimeout)
+			h.expire <- expireMsg{roomCode: code, playerID: pid, disconnectedAt: t}
+		}(c.roomCode, c.playerID, disconnectTime)
+		return
+	}
+
+	// Lobby / finished: remove from member list entirely.
 	newMembers := make([]*Client, 0, len(members))
 	for _, m := range members {
 		if m != c {
@@ -369,6 +456,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 	if len(newMembers) == 0 {
 		delete(h.rooms, c.roomCode)
 		delete(h.roomMembers, c.roomCode)
+		h.statRooms.Add(-1)
 		return
 	}
 
@@ -379,11 +467,112 @@ func (h *Hub) handleDisconnect(c *Client) {
 	})
 }
 
+// handleExpireReconnect fires when a disconnected player's reconnect window closes.
+func (h *Hub) handleExpireReconnect(em expireMsg) {
+	slots, ok := h.disconnectedAt[em.roomCode]
+	if !ok {
+		return // player already reconnected, slots map was cleaned up
+	}
+	at, ok := slots[em.playerID]
+	if !ok {
+		return // player already reconnected
+	}
+	// If the recorded time differs, the player disconnected again more recently;
+	// a newer expire goroutine will handle that one.
+	if at != em.disconnectedAt {
+		return
+	}
+
+	delete(slots, em.playerID)
+	if len(slots) == 0 {
+		delete(h.disconnectedAt, em.roomCode)
+	}
+
+	room, ok := h.rooms[em.roomCode]
+	if !ok {
+		return
+	}
+	nickname := ""
+	if em.playerID < len(room.Players) {
+		nickname = room.Players[em.playerID].Nickname
+	}
+
+	h.broadcastToRoomAll(em.roomCode, protocol.ServerMsg{
+		Type:     protocol.SMsgPlayerLeft,
+		Nickname: nickname,
+		Players:  h.playerList(room),
+	})
+
+	// If no connected members remain, delete the room.
+	members := h.roomMembers[em.roomCode]
+	for _, m := range members {
+		if m != nil {
+			return // at least one connected player remains
+		}
+	}
+	delete(h.rooms, em.roomCode)
+	delete(h.roomMembers, em.roomCode)
+	h.statRooms.Add(-1)
+}
+
+// findDisconnectedSlot returns the playerID of a disconnected player matching nickname, if any.
+func (h *Hub) findDisconnectedSlot(code, nickname string) (int, bool) {
+	slots, ok := h.disconnectedAt[code]
+	if !ok {
+		return 0, false
+	}
+	room, ok := h.rooms[code]
+	if !ok {
+		return 0, false
+	}
+	for playerID := range slots {
+		if playerID < len(room.Players) && room.Players[playerID].Nickname == nickname {
+			return playerID, true
+		}
+	}
+	return 0, false
+}
+
+// handleReconnect restores a disconnected player's slot and sends them their game state.
+func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID int, nickname string) {
+	members := h.roomMembers[code]
+	if playerID < len(members) {
+		members[playerID] = c
+	}
+	c.roomCode = code
+	c.playerID = playerID
+
+	// Clear disconnected entry.
+	if slots := h.disconnectedAt[code]; slots != nil {
+		delete(slots, playerID)
+		if len(slots) == 0 {
+			delete(h.disconnectedAt, code)
+		}
+	}
+
+	// Send full game state to the reconnecting player.
+	c.Send(protocol.ServerMsg{
+		Type:     protocol.SMsgPlayerReconnected,
+		RoomCode: code,
+		PlayerID: playerID,
+		State:    h.playerGameState(room, playerID),
+		Players:  h.playerList(room),
+	})
+
+	// Notify others of the reconnect.
+	h.broadcastToRoom(code, protocol.ServerMsg{
+		Type:        protocol.SMsgPlayerReconnected,
+		PlayerIndex: playerID,
+		Nickname:    nickname,
+		Players:     h.playerList(room),
+	}, c)
+}
+
 // --- Broadcast helpers ---
 
 func (h *Hub) broadcastToRoom(code string, msg protocol.ServerMsg, exclude *Client) {
 	for _, c := range h.roomMembers[code] {
-		if c != exclude {
+		if c != nil && c != exclude {
 			c.Send(msg)
 		}
 	}
@@ -409,13 +598,26 @@ func (h *Hub) roomOf(c *Client) (*game.Room, bool) {
 }
 
 func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
+	code := room.Code
+	slots := h.disconnectedAt[code]
 	ps := make([]protocol.PlayerDTO, len(room.Players))
 	for i, p := range room.Players {
 		handSize := 0
 		if room.State != nil {
 			handSize = room.State.Hands[i].Size()
 		}
-		ps[i] = protocol.PlayerDTO{Index: p.Index, Nickname: p.Nickname, HandSize: handSize}
+		connected := true
+		if slots != nil {
+			if _, disconnected := slots[i]; disconnected {
+				connected = false
+			}
+		}
+		ps[i] = protocol.PlayerDTO{
+			Index:     p.Index,
+			Nickname:  p.Nickname,
+			HandSize:  handSize,
+			Connected: connected,
+		}
 	}
 	return ps
 }

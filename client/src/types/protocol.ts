@@ -13,6 +13,7 @@ export interface PlayerDTO {
   index: number
   nickname: string
   hand_size: number
+  connected: boolean
 }
 
 export interface GameStateDTO {
@@ -52,6 +53,8 @@ export type ServerMsgType =
   | 'room_joined'
   | 'player_joined'
   | 'player_left'
+  | 'player_disconnected'
+  | 'player_reconnected'
   | 'game_started'
   | 'game_state'
   | 'card_played'
