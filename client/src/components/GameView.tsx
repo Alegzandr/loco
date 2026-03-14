@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore } from '../hooks/useGameStore'

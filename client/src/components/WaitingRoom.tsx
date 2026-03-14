@@ -1,4 +1,3 @@
-import React from 'react'
 import { PlayerDTO } from '../types/protocol'
 import { ClientMsg } from '../types/protocol'
 import styles from './WaitingRoom.module.css'

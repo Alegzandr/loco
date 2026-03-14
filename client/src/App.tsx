@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react'
+import { useCallback } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useGameStore } from './hooks/useGameStore'
 import { Lobby } from './components/Lobby'
