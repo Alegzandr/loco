@@ -1,6 +1,6 @@
 .unoTimer {
   position: absolute;
-  top: 16px;
+  top: 14px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -12,24 +12,25 @@
 }
 
 .unoTimerLabel {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: #ff6b6b;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
 .unoTimerBar {
-  width: 160px;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 3px;
+  width: 140px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
   overflow: hidden;
 }
 
 .unoTimerFill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: 2px;
   background: linear-gradient(90deg, #ff6b6b, #ffd93d);
   transition: width 0.1s linear;
 }

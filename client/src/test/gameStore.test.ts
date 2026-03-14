@@ -78,7 +78,7 @@ describe('useGameStore', () => {
       discard: { color: 'red', kind: 'number', value: 3 },
     })
     const card: CardDTO = { color: 'red', kind: 'number', value: 7 }
-    useGameStore.getState().applyCardPlayed(0, card, 1, 0)
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
 
     const s = useGameStore.getState()
     expect(s.discard).toEqual(card)
@@ -241,9 +241,36 @@ describe('useGameStore', () => {
       players: [{ index: 0, nickname: 'alice', hand_size: 3, connected: true }],
     })
     const wildCard: CardDTO = { color: 'wild', kind: 'wild' }
-    useGameStore.getState().applyCardPlayed(0, wildCard, 1, 0)
+    useGameStore.getState().applyCardPlayed(0, wildCard, 1, 0, undefined)
     // activeColor should remain 'green' since card.color === 'wild'
     expect(useGameStore.getState().activeColor).toBe('green')
+  })
+
+  it('applyCardPlayed with wild card uses server active_color when provided', () => {
+    useGameStore.setState({
+      activeColor: 'green',
+      players: [{ index: 0, nickname: 'alice', hand_size: 3, connected: true }],
+    })
+    const wildCard: CardDTO = { color: 'wild', kind: 'wild' }
+    useGameStore.getState().applyCardPlayed(0, wildCard, 1, 0, 'blue')
+    expect(useGameStore.getState().activeColor).toBe('blue')
+  })
+
+  it('applyCardPlayed removes played card from myHand', () => {
+    const hand: CardDTO[] = [
+      { color: 'red', kind: 'number', value: 3 },
+      { color: 'blue', kind: 'number', value: 5 },
+      { color: 'red', kind: 'number', value: 7 },
+    ]
+    useGameStore.setState({
+      myIndex: 0,
+      myHand: hand,
+      players: [{ index: 0, nickname: 'alice', hand_size: 3, connected: true }],
+    })
+    const playedCard: CardDTO = { color: 'blue', kind: 'number', value: 5 }
+    useGameStore.getState().applyCardPlayed(0, playedCard, 1, 0, 'blue')
+    expect(useGameStore.getState().myHand).toHaveLength(2)
+    expect(useGameStore.getState().myHand.find(c => c.color === 'blue' && c.value === 5)).toBeUndefined()
   })
 
   it('setIsReconnecting toggles isReconnecting', () => {
