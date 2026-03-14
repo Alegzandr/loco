@@ -12,7 +12,7 @@ export interface GameRenderState {
   myHand: CardDTO[]
   discard: CardDTO | null
   activeColor: CardColor
-  players: { nickname: string; hand_size: number; index: number; connected?: boolean }[]
+  players: { nickname: string; hand_size: number; index: number; connected?: boolean; finished?: boolean; placement?: number }[]
   myIndex: number
   currentTurn: number
   pendingDraw: number
@@ -412,24 +412,45 @@ export class PixiGame {
 
   /** Build a player info bubble container (shared by render and reconnect paths). */
   private _buildPlayerBubble(
-    p: { nickname: string; hand_size: number; index: number; connected?: boolean },
+    p: { nickname: string; hand_size: number; index: number; connected?: boolean; finished?: boolean; placement?: number },
     currentTurn: number
   ): PIXI.Container {
     const container = new PIXI.Container()
     const isCurrentTurn = p.index === currentTurn
     const isDisconnected = p.connected === false
+    const isFinished = !!p.finished
+
+    // Background: golden-tint for finished, blue for active turn, grey for disconnected, dark default
+    let bgColor: number
+    if (isFinished) bgColor = 0x2d2a0a
+    else if (isDisconnected) bgColor = 0x333333
+    else if (isCurrentTurn) bgColor = 0x4d96ff
+    else bgColor = 0x16213e
 
     const bg = new PIXI.Graphics()
     bg.roundRect(-60, -18, 120, 36, 6)
-    bg.fill({ color: isDisconnected ? 0x333333 : isCurrentTurn ? 0x4d96ff : 0x16213e, alpha: 0.9 })
+    bg.fill({ color: bgColor, alpha: 0.9 })
     container.addChild(bg)
 
-    const label = isDisconnected ? `${p.nickname} ✗ (${p.hand_size})` : `${p.nickname} (${p.hand_size})`
+    let label: string
+    let textColor: string
+    if (isFinished) {
+      const badge = placementSuffix(p.placement ?? 0)
+      label = `${badge} · ${p.nickname}`
+      textColor = '#ffd93d'
+    } else if (isDisconnected) {
+      label = `${p.nickname} ✗ (${p.hand_size})`
+      textColor = '#666666'
+    } else {
+      label = `${p.nickname} (${p.hand_size})`
+      textColor = '#ffffff'
+    }
+
     const text = new PIXI.Text({
       text: label,
       style: {
         fontSize: 13,
-        fill: isDisconnected ? '#666666' : '#ffffff',
+        fill: textColor,
         fontWeight: isCurrentTurn ? 'bold' : 'normal',
       },
     })
@@ -541,4 +562,11 @@ function lerp(a: number, b: number, t: number): number {
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3)
+}
+
+function placementSuffix(rank: number): string {
+  if (rank === 1) return '1st'
+  if (rank === 2) return '2nd'
+  if (rank === 3) return '3rd'
+  return `${rank}th`
 }

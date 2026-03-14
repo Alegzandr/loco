@@ -324,7 +324,7 @@ npm run lint:fix       # ESLint auto-fix
 - [x] UNO declaration
 - [x] UNO catch with server-side 5-second timing window
 - [x] **Placement-based round scoring**: round continues until 1 player remains; each finisher scores against remaining unfinished opponents; last player scores 0; Number = face, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50
-- [x] **In-round spectators**: finished players watch the rest of the round; turn order skips them
+- [x] **In-round spectators**: finished players watch the rest of the round; turn order skips them; their opponent bubble shows a gold placement badge (e.g., "1st · Alice") and gold tint
 - [x] **Multi-round matches**: BO1/BO3/BO5/BO7 with persistent scoreboard
 - [x] **Tiebreakers**: highest score → rounds won → lowest last-place hand total → sudden-death extra round
 - [x] **Round summary overlay**: full per-round breakdown with placements (1st/2nd/…), points earned, cumulative scoreboard; auto-dismisses after 8 s or via Continue button; next-round state is buffered so it never vanishes instantly

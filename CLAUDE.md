@@ -411,6 +411,17 @@ If structure changes, update this file and the README.
 - Linting runs in CI before tests: `npm run lint && npm run test && npm run build`.
 - Server linting: `go vet ./...` is implicitly run by `go test ./...`; this is sufficient for now.
 
+## Player bubble (in-game opponent panels) conventions
+
+- Opponent info is rendered via `PixiGame._buildPlayerBubble` in the PixiJS canvas layer.
+- `GameRenderState.players` includes `finished?: boolean` and `placement?: number` so the renderer knows each player's finish state.
+- Normal (unfinished, not current turn): dark background (`#16213e`), white text, shows `"nickname (cardCount)"`.
+- Active turn: blue background (`#4d96ff`), bold white text.
+- Disconnected: dark-grey background, grey text, shows `"nickname ✗ (cardCount)"`.
+- Finished: dark gold-tint background (`#2d2a0a`), gold text (`#ffd93d`), shows `"Nth · nickname"` (e.g., `"1st · Alice"`); card count is omitted since they have 0 cards.
+- The `placementSuffix` helper in `PixiGame.ts` converts a 1-based placement integer to `"1st"`, `"2nd"`, `"3rd"`, `"Nth"`.
+- Finished players are never the `currentTurn` (the server enforces this via `nextTurn`), so the active-turn highlight is never shown on finished bubbles.
+
 ## Reconnect visual recovery conventions
 
 - On `player_reconnected`, the client sets `isReconnecting: true` in the store before applying game state.
