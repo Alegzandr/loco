@@ -305,6 +305,43 @@ If structure changes, update this file and the README.
 
 ---
 
+## Scoring and match system conventions
+
+- `CardValue(c Card) int` in `game/card.go`: Number = face value; Skip/Reverse/DrawTwo = 20; Wild/WildDrawFour = 50.
+- When a player empties their hand, `Room.endRound(winnerIdx)` calculates score = sum of all other players' remaining card values.
+- Scores accumulate across rounds in `Room.Scores []int` (indexed by playerID).
+- `Room.RoundsWon []int` tracks wins per player; `Room.LostHandTotal []int` tracks losing-hand totals for tiebreaking.
+- `Room.RoundEnded bool` is set to `true` by `endRound`; the hub clears it after broadcasting `round_end`.
+- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion.
+- Match formats: BO1=1, BO3=3, BO5=5, BO7=7 (stored as `game.MatchFormat`).
+- Tiebreaker order: (1) highest total score → (2) most rounds won → (3) lowest lost-hand total → (4) sudden-death extra round.
+- If `determineMatchWinner()` returns `""`, a sudden-death extra round is played automatically.
+- Hub broadcasts `round_end` (with scoreboard) then `game_started` (new round state) to each player when a round ends mid-match.
+- Hub broadcasts `match_end` (with scoreboard + match_winner) when the match is fully over.
+
+## Lobby configuration conventions
+
+- Host can set match format via `set_match_format` client message (lobby only).
+- Host can set max players via `set_max_players` client message (lobby only).
+- Max players constraints: `serverMinPlayers` (2) ≤ n ≤ `serverMaxPlayers` (10); cannot drop below current player count.
+- Any config change broadcasts `lobby_config_changed` with updated `match_format` and `max_players` to all connected clients.
+- `room_created` and `room_joined` messages include `match_format` and `max_players`.
+- Default: BO1, 10 max players.
+
+## Room code conventions
+
+- Codes are 6 characters from charset `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O/1/I/l for readability).
+- Uniqueness is guaranteed server-side: `generateCode()` retries on collision (loop until a free code is found).
+- 6 chars × 32-char alphabet = ~1 billion combinations; collision risk is effectively zero at realistic scale.
+
+## Mobile support conventions
+
+- All action buttons have `min-height: 44px` and `touch-action: manipulation` to prevent double-tap zoom.
+- A 400ms debounce (`guardDoubleTap`) prevents accidental repeated action button presses.
+- Wild color picker uses large 64px+ touch targets arranged in a row.
+- `user-scalable=no` and `maximum-scale=1.0` set in the HTML `<meta viewport>` tag.
+- CSS uses `@media (max-width: 480px)` blocks for responsive layout on small screens.
+
 ## Bot player conventions
 
 - Bots are added by the host in the lobby via `add_bot` message.

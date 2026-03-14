@@ -42,6 +42,28 @@ func TestCardIsAction(t *testing.T) {
 	}
 }
 
+func TestCardValue(t *testing.T) {
+	tests := []struct {
+		card Card
+		want int
+	}{
+		{Card{Kind: Number, Value: 0}, 0},
+		{Card{Kind: Number, Value: 7}, 7},
+		{Card{Kind: Number, Value: 9}, 9},
+		{Card{Kind: Skip}, 20},
+		{Card{Kind: Reverse}, 20},
+		{Card{Kind: DrawTwo}, 20},
+		{Card{Kind: WildCard}, 50},
+		{Card{Kind: WildDrawFour}, 50},
+	}
+	for _, tt := range tests {
+		got := CardValue(tt.card)
+		if got != tt.want {
+			t.Errorf("CardValue(%v/%v/%d) = %d, want %d", tt.card.Color, tt.card.Kind, tt.card.Value, got, tt.want)
+		}
+	}
+}
+
 func TestColorString(t *testing.T) {
 	cases := []struct {
 		c    Color

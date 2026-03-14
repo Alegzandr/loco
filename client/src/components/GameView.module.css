@@ -24,12 +24,16 @@
 .btnPass,
 .btnUno,
 .btnCatch {
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1.1rem;
   border-radius: 8px;
   border: none;
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
+  min-height: 44px;
+  min-width: 64px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: filter 0.15s, transform 0.1s;
 }
 
@@ -66,55 +70,124 @@
   transform: translateY(-1px);
 }
 
+.btnDraw:active,
+.btnPass:active,
+.btnUno:not(:disabled):active,
+.btnCatch:active {
+  transform: scale(0.96);
+}
+
+/* Wild color picker overlay */
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 20;
 }
 
 .colorPicker {
   background: #16213e;
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 16px;
+  padding: 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
   color: #fff;
   font-size: 1.1rem;
   font-weight: 700;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+
+.colorBtnRow {
+  display: flex;
+  gap: 1rem;
 }
 
 .colorBtn {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.3);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: transform 0.15s, border-color 0.15s;
 }
 
-.colorBtn:hover {
+.colorBtn:hover,
+.colorBtn:focus {
   transform: scale(1.15);
   border-color: #fff;
+  outline: none;
 }
 
-/* Lay out color buttons in a row */
-.colorPicker > .colorBtn {
-  display: inline-block;
+.colorBtn:active {
+  transform: scale(1.05);
 }
 
-.colorPicker {
+/* Round summary overlay */
+.roundSummary {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+}
+
+.roundSummaryCard {
+  background: #16213e;
+  border-radius: 16px;
+  padding: 2rem;
+  color: #fff;
+  min-width: 300px;
+  text-align: center;
+  display: flex;
   flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
 }
 
-/* Override to row for colors */
-.colorPicker > button:not(:first-child) ~ button,
-.colorPicker > button.colorBtn {
-  flex-direction: row;
+.roundSummaryTitle {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #ffd93d;
+}
+
+.roundSummaryWinner {
+  font-size: 1.1rem;
+  color: #aaa;
+}
+
+.scoreboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.scoreRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.scoreName {
+  font-weight: 600;
+}
+
+.scoreVal {
+  color: #ffd93d;
+  font-weight: 700;
 }
 
 .unoBanner {
@@ -128,6 +201,7 @@
   pointer-events: none;
   animation: popIn 0.3s ease-out forwards;
   text-shadow: 0 0 30px rgba(255, 217, 61, 0.8);
+  z-index: 10;
 }
 
 @keyframes popIn {
@@ -147,6 +221,7 @@
   align-items: center;
   gap: 4px;
   pointer-events: none;
+  z-index: 10;
 }
 
 .unoTimerLabel {
@@ -170,4 +245,45 @@
   border-radius: 3px;
   background: linear-gradient(90deg, #ff6b6b, #ffd93d);
   transition: width 0.1s linear;
+}
+
+/* Mobile responsive */
+@media (max-width: 480px) {
+  .actionBar {
+    bottom: 4px;
+    right: 4px;
+    left: 4px;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .btnDraw,
+  .btnPass,
+  .btnUno,
+  .btnCatch {
+    min-height: 52px;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    flex: 1;
+  }
+
+  .colorBtn {
+    width: 72px;
+    height: 72px;
+  }
+
+  .colorPicker {
+    padding: 1.5rem;
+    width: 90vw;
+    max-width: 340px;
+  }
+
+  .colorBtnRow {
+    gap: 0.75rem;
+  }
+
+  .roundSummaryCard {
+    width: 90vw;
+    max-width: 360px;
+  }
 }

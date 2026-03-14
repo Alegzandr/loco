@@ -27,9 +27,20 @@ func (s Status) String() string {
 	return "unknown"
 }
 
+// MatchFormat determines how many rounds make up a match.
+type MatchFormat int
+
 const (
-	maxPlayers        = 10
-	minPlayers        = 2
+	BO1 MatchFormat = 1
+	BO3 MatchFormat = 3
+	BO5 MatchFormat = 5
+	BO7 MatchFormat = 7
+)
+
+const (
+	defaultMaxPlayers = 10
+	serverMinPlayers  = 2
+	serverMaxPlayers  = 10
 	initialHandSize   = 7
 	undeclaredPenalty = 2
 	// catchWindow is how long after a player's last card play other players can catch them.
@@ -54,6 +65,8 @@ const (
 	EventUnoCaught    EventKind = "uno_caught"
 	EventCounterDraw  EventKind = "counter_draw"
 	EventGameFinished EventKind = "game_finished"
+	EventRoundEnd     EventKind = "round_end"
+	EventMatchEnd     EventKind = "match_end"
 )
 
 // GameEvent records a single action taken during the game.
@@ -86,15 +99,64 @@ type Room struct {
 	Status  Status
 	Players []*Player
 	State   *GameState
-	Winner  string
+	Winner  string // last round winner nickname
+
+	// Match configuration (host-settable in lobby)
+	Format     MatchFormat
+	MaxPlayers int
+
+	// Match state (persists across rounds)
+	RoundNumber   int   // current round (1-based, set to 1 on Start)
+	Scores        []int // cumulative match scores per playerID
+	RoundsWon     []int // rounds won per playerID
+	LostHandTotal []int // sum of remaining hand values when losing (tiebreaker)
+
+	// Signals for the hub to act on (set by endRound, cleared by hub)
+	RoundEnded  bool
+	MatchOver   bool
+	MatchWinner string
 }
 
 // NewRoom creates an empty lobby room.
 func NewRoom(code string) *Room {
 	return &Room{
-		Code:   code,
-		Status: StatusLobby,
+		Code:       code,
+		Status:     StatusLobby,
+		Format:     BO1,
+		MaxPlayers: defaultMaxPlayers,
 	}
+}
+
+// SetFormat sets the match format (lobby only).
+func (r *Room) SetFormat(f MatchFormat) error {
+	if r.Status != StatusLobby {
+		return errors.New("cannot change format after game starts")
+	}
+	switch f {
+	case BO1, BO3, BO5, BO7:
+	default:
+		return fmt.Errorf("invalid match format: %d", f)
+	}
+	r.Format = f
+	return nil
+}
+
+// SetMaxPlayers sets the player cap (lobby only; cannot drop below current count).
+func (r *Room) SetMaxPlayers(n int) error {
+	if r.Status != StatusLobby {
+		return errors.New("cannot change max players after game starts")
+	}
+	if n < serverMinPlayers {
+		return fmt.Errorf("max players cannot be less than %d", serverMinPlayers)
+	}
+	if n > serverMaxPlayers {
+		return fmt.Errorf("max players cannot exceed %d", serverMaxPlayers)
+	}
+	if n < len(r.Players) {
+		return fmt.Errorf("cannot set max players to %d: %d players already in room", n, len(r.Players))
+	}
+	r.MaxPlayers = n
+	return nil
 }
 
 // Join adds a player to the lobby.
@@ -102,8 +164,8 @@ func (r *Room) Join(nickname string) error {
 	if r.Status != StatusLobby {
 		return errors.New("game already in progress")
 	}
-	if len(r.Players) >= maxPlayers {
-		return fmt.Errorf("room is full (max %d players)", maxPlayers)
+	if len(r.Players) >= r.MaxPlayers {
+		return fmt.Errorf("room is full (max %d players)", r.MaxPlayers)
 	}
 	for _, p := range r.Players {
 		if p.Nickname == nickname {
@@ -122,38 +184,48 @@ func (r *Room) Start() error {
 	if r.Status != StatusLobby {
 		return errors.New("game already started")
 	}
-	if len(r.Players) < minPlayers {
-		return fmt.Errorf("need at least %d players to start", minPlayers)
+	if len(r.Players) < serverMinPlayers {
+		return fmt.Errorf("need at least %d players to start", serverMinPlayers)
 	}
 
+	n := len(r.Players)
+	r.Scores = make([]int, n)
+	r.RoundsWon = make([]int, n)
+	r.LostHandTotal = make([]int, n)
+	r.RoundNumber = 1
+
+	r.Status = StatusPlaying
+	r.dealRound()
+	return nil
+}
+
+// dealRound sets up a fresh GameState for the current round.
+func (r *Room) dealRound() {
+	n := len(r.Players)
 	deck := NewDeck()
 	deck.Shuffle()
 
-	hands := make([]Hand, len(r.Players))
+	hands := make([]Hand, n)
 	for i := range hands {
-		cards, ok := deck.DrawN(initialHandSize)
-		if !ok {
-			return errors.New("deck exhausted while dealing")
-		}
+		cards, _ := deck.DrawN(initialHandSize)
 		hands[i].Add(cards...)
 	}
 
 	// Flip first card; skip wild cards as starting card
 	var firstCard Card
-	var discard []Card
+	var spill []Card
 	for {
 		c, ok := deck.Draw()
 		if !ok {
-			return errors.New("deck exhausted finding first card")
+			break
 		}
 		if !c.IsWild() {
 			firstCard = c
 			break
 		}
-		discard = append(discard, c) // put wilds back at bottom later
+		spill = append(spill, c)
 	}
-	// Return wilds to bottom of deck
-	deck.Cards = append(discard, deck.Cards...)
+	deck.Cards = append(spill, deck.Cards...)
 
 	r.State = &GameState{
 		Hands:       hands,
@@ -164,15 +236,12 @@ func (r *Room) Start() error {
 		ActiveColor: firstCard.Color,
 	}
 
-	// Apply first card effect if it's an action card
 	if firstCard.IsAction() {
 		next := r.State.ApplyEffect(firstCard, firstCard.Color)
 		r.State.CurrentTurn = next
 	}
 
-	r.Status = StatusPlaying
 	r.State.logEvent(EventGameStarted, -1, nil, 0)
-	return nil
 }
 
 // PlayCard attempts to play a card from playerIndex's hand.
@@ -193,17 +262,14 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 		return errors.New("illegal card play")
 	}
 
-	// Remove card from hand
 	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
 		return err
 	}
 
-	// Resolve chosen color for non-wild cards
 	if !card.IsWild() {
 		chosenColor = card.Color
 	}
 
-	// Add to discard
 	r.State.Discard = append(r.State.Discard, card)
 
 	// Track last-card state
@@ -213,25 +279,118 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 		r.State.LastCardPlayer = playerIndex
 	}
 
-	// Check win
-	if r.State.Hands[playerIndex].Size() == 0 {
-		r.Status = StatusFinished
-		r.Winner = r.Players[playerIndex].Nickname
-		c := card
-		r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
-		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		return nil
-	}
-
 	c := card
 	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
 
-	// Apply effect and advance turn
+	// Check round win
+	if r.State.Hands[playerIndex].Size() == 0 {
+		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
+		r.Winner = r.Players[playerIndex].Nickname
+		r.endRound(playerIndex)
+		return nil
+	}
+
 	next := r.State.ApplyEffect(card, chosenColor)
 	r.State.CurrentTurn = next
-
-	// If next player has pending draws, they must draw
 	return nil
+}
+
+// endRound scores the completed round and either starts the next round or ends the match.
+func (r *Room) endRound(winnerIdx int) {
+	// Score: winner gets sum of all other players' remaining card values
+	score := 0
+	for i, hand := range r.State.Hands {
+		if i == winnerIdx {
+			continue
+		}
+		handVal := 0
+		for _, c := range hand.Cards {
+			handVal += CardValue(c)
+		}
+		score += handVal
+		r.LostHandTotal[i] += handVal
+	}
+	r.Scores[winnerIdx] += score
+	r.RoundsWon[winnerIdx]++
+
+	r.State.logEvent(EventRoundEnd, winnerIdx, nil, 0)
+	r.RoundEnded = true
+
+	// Check if match is over
+	if r.RoundNumber >= int(r.Format) {
+		matchWinner := r.determineMatchWinner()
+		if matchWinner != "" {
+			r.MatchWinner = matchWinner
+			r.MatchOver = true
+			r.Status = StatusFinished
+			r.State.logEvent(EventMatchEnd, -1, nil, 0)
+			return
+		}
+		// Still tied: play a sudden-death extra round
+	}
+	// Advance to next round
+	r.RoundNumber++
+	r.dealRound()
+}
+
+// determineMatchWinner finds the match winner using tiebreaker rules.
+// Returns "" if still perfectly tied (sudden death needed).
+func (r *Room) determineMatchWinner() string {
+	n := len(r.Players)
+
+	// Tiebreaker 0: highest total score
+	maxScore := -1
+	for i := 0; i < n; i++ {
+		if r.Scores[i] > maxScore {
+			maxScore = r.Scores[i]
+		}
+	}
+	tied := make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		if r.Scores[i] == maxScore {
+			tied = append(tied, i)
+		}
+	}
+	if len(tied) == 1 {
+		return r.Players[tied[0]].Nickname
+	}
+
+	// Tiebreaker 1: most rounds won
+	maxWins := -1
+	for _, i := range tied {
+		if r.RoundsWon[i] > maxWins {
+			maxWins = r.RoundsWon[i]
+		}
+	}
+	tiedByWins := tied[:0]
+	for _, i := range tied {
+		if r.RoundsWon[i] == maxWins {
+			tiedByWins = append(tiedByWins, i)
+		}
+	}
+	if len(tiedByWins) == 1 {
+		return r.Players[tiedByWins[0]].Nickname
+	}
+
+	// Tiebreaker 2: lowest total remaining card value across losing rounds
+	minLoss := -1
+	for _, i := range tiedByWins {
+		if minLoss < 0 || r.LostHandTotal[i] < minLoss {
+			minLoss = r.LostHandTotal[i]
+		}
+	}
+	tiedByLoss := tiedByWins[:0]
+	for _, i := range tiedByWins {
+		if r.LostHandTotal[i] == minLoss {
+			tiedByLoss = append(tiedByLoss, i)
+		}
+	}
+	if len(tiedByLoss) == 1 {
+		return r.Players[tiedByLoss[0]].Nickname
+	}
+
+	// Perfectly tied: sudden death needed
+	return ""
 }
 
 // DrawCard makes the current player draw from the deck.
@@ -263,12 +422,10 @@ func (r *Room) DrawCard(playerIndex int) error {
 		r.State.CurrentTurn = r.State.nextTurn(playerIndex)
 	}
 	r.State.logEvent(EventCardDrawn, playerIndex, nil, 0)
-	// When drawing 1, player may still play or pass; turn doesn't advance here.
-	// The client will send a separate pass action if needed.
 	return nil
 }
 
-// PassTurn advances the turn without playing (after a forced draw).
+// PassTurn advances the turn without playing (after a voluntary draw).
 func (r *Room) PassTurn(playerIndex int) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
@@ -296,7 +453,6 @@ func (r *Room) DeclareLastCard(playerIndex int) error {
 }
 
 // CatchUndeclared allows catcherIndex to penalize targetIndex for not declaring their last card.
-// The catch must be within the catch window.
 func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
@@ -313,20 +469,18 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	if now.Sub(r.State.LastCardTime) > catchWindow {
 		return errors.New("catch window expired")
 	}
-	// Apply penalty: target draws 2
 	r.ensureDeck(undeclaredPenalty)
 	cards, ok := r.State.Deck.DrawN(undeclaredPenalty)
 	if !ok {
 		return errors.New("deck exhausted during penalty")
 	}
 	r.State.Hands[targetIndex].Add(cards...)
-	r.State.LastCardDeclared = true // prevent double-catch
+	r.State.LastCardDeclared = true
 	r.State.logEvent(EventUnoCaught, catcherIndex, nil, 0)
 	return nil
 }
 
 // CounterDraw allows the current victim of a pending draw to counter with a compatible card.
-// Only DrawTwo can counter DrawTwo; WildDrawFour can be countered by WildDrawFour.
 func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
@@ -342,7 +496,6 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	}
 
 	topCard := r.State.Discard[len(r.State.Discard)-1]
-	// Counter must be same kind as the draw card that created the pending
 	if card.Kind != topCard.Kind {
 		return errors.New("counter card must match kind of draw card")
 	}
@@ -380,7 +533,7 @@ func (r *Room) ensureDeck(needed int) {
 		return
 	}
 	if len(r.State.Discard) <= 1 {
-		return // nothing to replenish from
+		return
 	}
 	top := r.State.Discard[len(r.State.Discard)-1]
 	pile := r.State.Discard[:len(r.State.Discard)-1]
