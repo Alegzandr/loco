@@ -455,7 +455,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room.State)
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -602,7 +602,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room.State)
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
 	h.maybeScheduleBot(c.roomCode, room)
 }
 
@@ -917,7 +917,7 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			log.Printf("bot play error: %v", err)
 			return
 		}
-		h.broadcastCardPlayed(code, bm.playerID, room.State)
+		h.broadcastCardPlayed(code, bm.playerID, room)
 
 		// Auto-declare UNO if bot is at 1 card
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
@@ -936,7 +936,7 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			log.Printf("bot counter error: %v", err)
 			return
 		}
-		h.broadcastCardPlayed(code, bm.playerID, room.State)
+		h.broadcastCardPlayed(code, bm.playerID, room)
 
 	case game.BotDraw:
 		if err := room.DrawCard(bm.playerID); err != nil {
@@ -1011,10 +1011,25 @@ func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
 	code := room.Code
 	slots := h.disconnectedAt[code]
 	ps := make([]protocol.PlayerDTO, len(room.Players))
+
+	// Build placement lookup from game state (Placements[rank] = playerIdx → rank+1)
+	placementOf := make(map[int]int)
+	if room.State != nil {
+		for rank, idx := range room.State.Placements {
+			placementOf[idx] = rank + 1
+		}
+	}
+
 	for i, p := range room.Players {
 		handSize := 0
+		finished := false
+		placement := 0
 		if room.State != nil {
 			handSize = room.State.Hands[i].Size()
+			if len(room.State.Finished) > i {
+				finished = room.State.Finished[i]
+			}
+			placement = placementOf[i]
 		}
 		connected := true
 		if slots != nil {
@@ -1027,6 +1042,8 @@ func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
 			Nickname:  p.Nickname,
 			HandSize:  handSize,
 			Connected: connected,
+			Finished:  finished,
+			Placement: placement,
 		}
 	}
 	return ps

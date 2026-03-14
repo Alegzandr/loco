@@ -154,7 +154,7 @@ All messages are JSON over WebSocket.
 | `player_disconnected` | `player_index`, `nickname`, `players`                                       |
 | `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`                      |
 | `game_started`        | `state` (personalized per player, includes round_number, match_format, scoreboard) |
-| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`                              |
+| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players` (updated list with Finished/Placement) |
 | `card_drawn`          | `card` (own hand only), `player_index`, `turn`                              |
 | `turn_changed`        | `turn`                                                                      |
 | `uno_declared`        | `player_index`                                                              |
@@ -164,7 +164,7 @@ All messages are JSON over WebSocket.
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `error`               | `error`                                                                     |
 
-`PlayerDTO` includes a `connected` boolean so clients can show disconnected players greyed out.
+`PlayerDTO` includes `connected` (disconnected players greyed out), `finished` (player emptied hand this round), and `placement` (1-based finish order within the round).
 
 `GameStateDTO` includes: `event_log` (for reconnect history), `round_number`, `match_format`, `max_players`, and `scoreboard` (cumulative per-player scores).
 
@@ -184,8 +184,12 @@ Based on standard UNO with the following mechanics:
 - **Wild Draw Four (+4)**: play any time, choose color, next player draws 4 (unless countered with another +4)
 - **UNO declaration**: player must call UNO when they reach 1 card; other players have a 5-second window to catch them
 - **UNO catch**: if caught undeclared, the target draws 2 penalty cards
-- **Round win**: first player to empty their hand wins the round
-- **Round scoring**: winner scores the sum of all remaining players' card values (number = face value, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50)
+- **Round finish model**: when a player empties their hand they become an in-round spectator (cannot act); play continues among remaining players until exactly one player remains with cards
+- **Round scoring by placement**: each finisher scores the sum of card values held by all *still-unfinished* players at the moment they finish; the last remaining player scores 0
+  - 1st place scores against all remaining (n-1) opponents
+  - 2nd place scores against remaining unfinished opponents
+  - and so on — last place scores 0
+  - Card values: number cards = face value (0–9), Skip/Reverse/DrawTwo = 20 pts, Wild/WildDrawFour = 50 pts
 
 ### Match Formats
 
@@ -199,9 +203,10 @@ Based on standard UNO with the following mechanics:
 **Match winner**: player with the highest total score after all rounds.
 
 **Tiebreakers** (applied in order):
-1. Most rounds won
-2. Lowest total remaining card value across losing rounds
-3. Sudden-death extra round (if still tied)
+1. Highest cumulative score
+2. Most rounds won
+3. Lowest total remaining card value held by the last-place finisher across rounds
+4. Sudden-death extra round (if still tied)
 
 ---
 
@@ -318,10 +323,11 @@ npm run lint:fix       # ESLint auto-fix
 - [x] Draw Two / Wild Draw Four stacking (counter mechanic)
 - [x] UNO declaration
 - [x] UNO catch with server-side 5-second timing window
-- [x] **Round scoring**: winner scores sum of losers' remaining card values; Number = face, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50
+- [x] **Placement-based round scoring**: round continues until 1 player remains; each finisher scores against remaining unfinished opponents; last player scores 0; Number = face, Skip/Reverse/DrawTwo = 20, Wild/WildDrawFour = 50
+- [x] **In-round spectators**: finished players watch the rest of the round; turn order skips them
 - [x] **Multi-round matches**: BO1/BO3/BO5/BO7 with persistent scoreboard
-- [x] **Tiebreakers**: rounds won → lowest lost-hand total → sudden-death extra round
-- [x] **Round summary overlay**: full per-round breakdown (winner, points earned this round, cumulative scoreboard, round number / total); auto-dismisses after 8 s or via Continue button; next-round state is buffered so it never vanishes instantly
+- [x] **Tiebreakers**: highest score → rounds won → lowest last-place hand total → sudden-death extra round
+- [x] **Round summary overlay**: full per-round breakdown with placements (1st/2nd/…), points earned, cumulative scoreboard; auto-dismisses after 8 s or via Continue button; next-round state is buffered so it never vanishes instantly
 - [x] **Match end screen**: final scoreboard with winner highlight
 - [x] **Reconnect visual recovery**: on reconnect, a brief "Rebuilding table…" overlay appears, then hand cards, discard pile, player bubbles, and turn indicator animate in with staggered entrance — no instant snap to restored state
 - [x] Win detection (empty hand)

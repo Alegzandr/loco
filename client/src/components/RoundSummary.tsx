@@ -12,6 +12,13 @@ function matchFormatRounds(fmt: string): number {
   }
 }
 
+function placementSuffix(rank: number): string {
+  if (rank === 1) return '1st'
+  if (rank === 2) return '2nd'
+  if (rank === 3) return '3rd'
+  return `${rank}th`
+}
+
 interface Props {
   roundNumber: number
   roundWinner: string
@@ -26,6 +33,11 @@ interface Props {
 export function RoundSummary({ roundNumber, roundWinner, roundScores, scoreboard, matchFormat, summaryCountdown, onDismiss, t }: Props) {
   const matchRoundsNeeded = matchFormatRounds(matchFormat)
 
+  // Sort by round_points descending to show placements; ties broken by cumulative score
+  const sorted = roundScores
+    .slice()
+    .sort((a, b) => b.round_points - a.round_points || b.cumulative_score - a.cumulative_score)
+
   return (
     <div className={styles.roundSummary}>
       <div className={styles.roundSummaryCard}>
@@ -39,27 +51,26 @@ export function RoundSummary({ roundNumber, roundWinner, roundScores, scoreboard
 
         <div className={styles.roundScoreTable}>
           <div className={styles.roundScoreHeader}>
+            <span>{t.placementLabel}</span>
             <span>{t.player}</span>
             <span>{t.ptsLabel}</span>
             <span>{t.totalLabel}</span>
             <span>{t.winsLabel}</span>
           </div>
-          {roundScores
-            .slice()
-            .sort((a, b) => b.cumulative_score - a.cumulative_score)
-            .map((entry) => (
-              <div
-                key={entry.player_index}
-                className={`${styles.roundScoreRow} ${entry.nickname === roundWinner ? styles.roundScoreRowWinner : ''}`}
-              >
-                <span className={styles.roundScoreName}>{entry.nickname}</span>
-                <span className={styles.roundScoreDelta}>
-                  {entry.round_points > 0 ? `+${entry.round_points}` : '—'}
-                </span>
-                <span className={styles.roundScoreTotal}>{entry.cumulative_score}</span>
-                <span className={styles.roundScoreWins}>{entry.rounds_won}W</span>
-              </div>
-            ))}
+          {sorted.map((entry, idx) => (
+            <div
+              key={entry.player_index}
+              className={`${styles.roundScoreRow} ${entry.nickname === roundWinner ? styles.roundScoreRowWinner : ''}`}
+            >
+              <span className={styles.roundScorePlacement}>{placementSuffix(idx + 1)}</span>
+              <span className={styles.roundScoreName}>{entry.nickname}</span>
+              <span className={styles.roundScoreDelta}>
+                {entry.round_points > 0 ? `+${entry.round_points}` : '—'}
+              </span>
+              <span className={styles.roundScoreTotal}>{entry.cumulative_score}</span>
+              <span className={styles.roundScoreWins}>{entry.rounds_won}W</span>
+            </div>
+          ))}
         </div>
 
         {scoreboard.length > 0 && matchRoundsNeeded > 1 && (

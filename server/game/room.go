@@ -91,6 +91,12 @@ type GameState struct {
 	LastCardTime     time.Time // when the last card was played (for catch window)
 	LastCardPlayer   int       // who played to 1 card
 	EventLog         []GameEvent
+
+	// Per-round finish tracking (reset each round via dealRound).
+	// Finished[i] is true once player i has emptied their hand.
+	Finished []bool
+	// Placements records the finish order: Placements[0] = 1st place playerIdx, etc.
+	Placements []int
 }
 
 // Room manages a single game session.
@@ -99,7 +105,7 @@ type Room struct {
 	Status  Status
 	Players []*Player
 	State   *GameState
-	Winner  string // last round winner nickname
+	Winner  string // first-place finisher's nickname for the current round
 
 	// Match configuration (host-settable in lobby)
 	Format     MatchFormat
@@ -109,7 +115,7 @@ type Room struct {
 	RoundNumber   int   // current round (1-based, set to 1 on Start)
 	Scores        []int // cumulative match scores per playerID
 	RoundsWon     []int // rounds won per playerID
-	LostHandTotal []int // sum of remaining hand values when losing (tiebreaker)
+	LostHandTotal []int // sum of remaining hand values for the last player each round (tiebreaker)
 
 	// Signals for the hub to act on (set by endRound, cleared by hub)
 	RoundEnded  bool
@@ -234,6 +240,7 @@ func (r *Room) dealRound() {
 		CurrentTurn: 0,
 		Direction:   1,
 		ActiveColor: firstCard.Color,
+		Finished:    make([]bool, n),
 	}
 
 	if firstCard.IsAction() {
@@ -252,6 +259,9 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 	}
 	if r.State.CurrentTurn != playerIndex {
 		return errors.New("not your turn")
+	}
+	if r.State.Finished[playerIndex] {
+		return errors.New("you have already finished this round")
 	}
 	if !r.State.Hands[playerIndex].Contains(card) {
 		return errors.New("card not in hand")
@@ -282,11 +292,12 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 	c := card
 	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
 
-	// Check round win
+	// Check if player has emptied their hand
 	if r.State.Hands[playerIndex].Size() == 0 {
+		// Set active color now (ApplyEffect won't be called for this play)
+		r.State.ActiveColor = chosenColor
 		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		r.Winner = r.Players[playerIndex].Nickname
-		r.endRound(playerIndex)
+		r.markPlayerFinished(playerIndex)
 		return nil
 	}
 
@@ -295,42 +306,74 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 	return nil
 }
 
-// endRound scores the completed round and either starts the next round or ends the match.
-func (r *Room) endRound(winnerIdx int) {
-	// Score: winner gets sum of all other players' remaining card values
+// markPlayerFinished marks playerIdx as finished for the round, scores their placement,
+// and either ends the round (when 1 player remains) or advances the turn.
+func (r *Room) markPlayerFinished(playerIdx int) {
+	r.State.Finished[playerIdx] = true
+	r.State.Placements = append(r.State.Placements, playerIdx)
+
+	// Score: sum of all currently unfinished players' card values
 	score := 0
 	for i, hand := range r.State.Hands {
-		if i == winnerIdx {
+		if r.State.Finished[i] {
 			continue
 		}
-		handVal := 0
 		for _, c := range hand.Cards {
-			handVal += CardValue(c)
+			score += CardValue(c)
 		}
-		score += handVal
-		r.LostHandTotal[i] += handVal
 	}
-	r.Scores[winnerIdx] += score
-	r.RoundsWon[winnerIdx]++
+	r.Scores[playerIdx] += score
 
-	r.State.logEvent(EventRoundEnd, winnerIdx, nil, 0)
-	r.RoundEnded = true
+	// First to finish is the round winner
+	if len(r.State.Placements) == 1 {
+		r.Winner = r.Players[playerIdx].Nickname
+		r.RoundsWon[playerIdx]++
+	}
 
-	// Check if match is over
-	if r.RoundNumber >= int(r.Format) {
-		matchWinner := r.determineMatchWinner()
-		if matchWinner != "" {
-			r.MatchWinner = matchWinner
-			r.MatchOver = true
-			r.Status = StatusFinished
-			r.State.logEvent(EventMatchEnd, -1, nil, 0)
-			return
+	// Count remaining unfinished players
+	var unfinished []int
+	for i, f := range r.State.Finished {
+		if !f {
+			unfinished = append(unfinished, i)
 		}
-		// Still tied: play a sudden-death extra round
 	}
-	// Advance to next round
-	r.RoundNumber++
-	r.dealRound()
+
+	if len(unfinished) <= 1 {
+		// Round ends; the last remaining player scores 0
+		if len(unfinished) == 1 {
+			lastPlayer := unfinished[0]
+			handVal := 0
+			for _, c := range r.State.Hands[lastPlayer].Cards {
+				handVal += CardValue(c)
+			}
+			r.LostHandTotal[lastPlayer] += handVal
+			r.State.Finished[lastPlayer] = true
+			r.State.Placements = append(r.State.Placements, lastPlayer)
+		}
+
+		r.State.logEvent(EventRoundEnd, playerIdx, nil, 0)
+		r.RoundEnded = true
+
+		// Check if match is over
+		if r.RoundNumber >= int(r.Format) {
+			matchWinner := r.determineMatchWinner()
+			if matchWinner != "" {
+				r.MatchWinner = matchWinner
+				r.MatchOver = true
+				r.Status = StatusFinished
+				r.State.logEvent(EventMatchEnd, -1, nil, 0)
+				return
+			}
+			// Still tied: play a sudden-death extra round
+		}
+		// Advance to next round
+		r.RoundNumber++
+		r.dealRound()
+		return
+	}
+
+	// Advance turn to next unfinished player
+	r.State.CurrentTurn = r.State.nextTurn(playerIdx)
 }
 
 // determineMatchWinner finds the match winner using tiebreaker rules.
@@ -456,6 +499,9 @@ func (r *Room) DeclareLastCard(playerIndex int) error {
 func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
+	}
+	if r.State.Finished[catcherIndex] {
+		return errors.New("finished players cannot catch")
 	}
 	if r.State.LastCardDeclared {
 		return errors.New("player already declared")

@@ -105,7 +105,9 @@ func parseMatchFormat(s string) (game.MatchFormat, error) {
 // --- Broadcast helpers ---
 
 // broadcastCardPlayed sends a card_played event for the top discard card to all room members.
-func (h *Hub) broadcastCardPlayed(code string, playerID int, state *game.GameState) {
+// It also includes the updated player list so clients learn about finish/placement changes.
+func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room) {
+	state := room.State
 	top := state.Discard[len(state.Discard)-1]
 	h.broadcastToRoomAll(code, protocol.ServerMsg{
 		Type:        protocol.SMsgCardPlayed,
@@ -113,6 +115,7 @@ func (h *Hub) broadcastCardPlayed(code string, playerID int, state *game.GameSta
 		Card:        cardToDTO(top),
 		Turn:        state.CurrentTurn,
 		PendingDraw: state.PendingDraw,
+		Players:     h.playerList(room),
 	})
 }
 

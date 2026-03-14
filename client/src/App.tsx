@@ -79,7 +79,8 @@ export default function App() {
               msg.player_index ?? 0,
               msg.card,
               msg.turn ?? 0,
-              msg.pending_draw ?? 0
+              msg.pending_draw ?? 0,
+              msg.players
             )
           }
           break

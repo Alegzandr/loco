@@ -47,11 +47,13 @@ export interface Translations {
   complete: string
   winsRound: string
   player: string
+  placementLabel: string
   ptsLabel: string
   totalLabel: string
   winsLabel: string
   matchScoreboard: string
   continueBtn: string
+  spectating: string
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: string
@@ -113,11 +115,13 @@ export const en: Translations = {
   complete: 'Complete',
   winsRound: 'wins the round!',
   player: 'Player',
+  placementLabel: 'Place',
   ptsLabel: '+pts',
   totalLabel: 'Total',
   winsLabel: 'Wins',
   matchScoreboard: 'Match Scoreboard',
   continueBtn: 'Continue',
+  spectating: 'You finished! Watching the round…',
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match Won!',
@@ -205,10 +209,11 @@ export const en: Translations = {
       ],
     },
     {
-      heading: 'Winning a Round',
+      heading: 'Finishing a Round',
       items: [
-        'The first player to play all their cards wins the round.',
-        "Scores are calculated: the winner earns points equal to the total value of all other players' remaining cards.",
+        'When you play all your cards you finish — you are awarded points and become a spectator.',
+        'Points earned = sum of the card values held by players who have not yet finished at that moment.',
+        'Play continues until only one player remains with cards; that player scores 0.',
         'Number cards = face value (0–9). Skip / Reverse / Draw Two = 20 pts. Wild / Wild Draw Four = 50 pts.',
       ],
     },
