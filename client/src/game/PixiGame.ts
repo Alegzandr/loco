@@ -46,6 +46,7 @@ export class PixiGame {
   private lastDiscardKey = ''
   private initialized = false
   private destroyed = false
+  private initStarted = false
 
   constructor(onCardClick: OnCardClick) {
     this.onCardClick = onCardClick
@@ -57,15 +58,16 @@ export class PixiGame {
   }
 
   async init(canvas: HTMLCanvasElement) {
+    this.initStarted = true
     await this.app.init({
       canvas,
       resizeTo: canvas.parentElement ?? window,
       backgroundColor: 0x1a1a2e,
       antialias: true,
     })
-    // Component may have unmounted while init was in-flight
+    // Component may have unmounted while init was in-flight;
+    // destroy() already called app.destroy() in that case.
     if (this.destroyed) {
-      this.app.destroy()
       return
     }
     this.app.stage.addChild(this.discardContainer)
@@ -523,7 +525,11 @@ export class PixiGame {
 
   destroy() {
     this.destroyed = true
-    if (this.initialized) {
+    // Always destroy the app if init was ever started, so the WebGL context
+    // is released immediately — even if the async init hasn't resolved yet.
+    // This prevents React StrictMode's double-effect from leaving a stale
+    // WebGL context on the canvas when the second instance tries to init.
+    if (this.initStarted) {
       this.app.destroy()
     }
   }
