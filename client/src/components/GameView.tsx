@@ -178,6 +178,7 @@ export function GameView({ onSend }: Props) {
   }, [showRoundSummary])
 
   const isMyTurn = currentTurn === myIndex
+  const isFinished = !!players.find((p) => p.index === myIndex)?.finished
 
   return (
     <div className={styles.container}>
@@ -238,6 +239,11 @@ export function GameView({ onSend }: Props) {
       )}
 
       {unoDeclared && <div className={styles.unoBanner}>UNO!</div>}
+
+      {/* Spectating banner when local player has finished but round is still going */}
+      {isFinished && !showRoundSummary && (
+        <div className={styles.spectatingBanner}>{t.spectating}</div>
+      )}
 
       {matchFormat !== 'BO1' && (
         <div className={styles.roundIndicator}>

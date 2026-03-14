@@ -57,7 +57,7 @@ interface GameStore {
   setMyIndex: (idx: number) => void
   setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
-  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number) => void
+  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, players?: PlayerDTO[]) => void
   applyCardDrawn: (card: CardDTO | null, playerIndex: number, turn: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   setWinner: (name: string) => void
@@ -128,17 +128,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
   applyGameState: (state) =>
     set({ ...gameStateSliceFromDTO(state), roundWinner: '', showRoundSummary: false, pendingGameState: null }),
 
-  applyCardPlayed: (playerIndex, card, turn, pendingDraw) =>
+  applyCardPlayed: (playerIndex, card, turn, pendingDraw, players) =>
     set((s) => {
-      const players = s.players.map((p) =>
-        p.index === playerIndex ? { ...p, hand_size: p.hand_size - 1 } : p
-      )
+      // Prefer server-provided player list (includes Finished/Placement); fall back to local update
+      const updatedPlayers = players
+        ? players
+        : s.players.map((p) =>
+            p.index === playerIndex ? { ...p, hand_size: p.hand_size - 1 } : p
+          )
       return {
         discard: card,
         activeColor: card.color === 'wild' ? s.activeColor : card.color,
         currentTurn: turn,
         pendingDraw,
-        players,
+        players: updatedPlayers,
         unoDeclared: false,
       }
     }),

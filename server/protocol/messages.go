@@ -137,6 +137,8 @@ type PlayerDTO struct {
 	Nickname  string `json:"nickname"`
 	HandSize  int    `json:"hand_size"`
 	Connected bool   `json:"connected"`
+	Finished  bool   `json:"finished,omitempty"`  // true when player has emptied their hand this round
+	Placement int    `json:"placement,omitempty"` // 1-based finish order within the round (0 = not yet finished)
 }
 
 // GameEventDTO is the wire representation of a game event.

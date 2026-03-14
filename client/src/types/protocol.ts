@@ -15,6 +15,8 @@ export interface PlayerDTO {
   nickname: string
   hand_size: number
   connected: boolean
+  finished?: boolean   // true when player has emptied their hand this round
+  placement?: number   // 1-based finish order within the round (0 / absent = not yet finished)
 }
 
 export interface ScoreboardEntryDTO {

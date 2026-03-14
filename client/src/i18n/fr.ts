@@ -44,11 +44,13 @@ export const fr: Translations = {
   complete: 'Terminée',
   winsRound: 'remporte la manche !',
   player: 'Joueur',
+  placementLabel: 'Position',
   ptsLabel: '+pts',
   totalLabel: 'Total',
   winsLabel: 'Victoires',
   matchScoreboard: 'Classement du match',
   continueBtn: 'Continuer',
+  spectating: 'Vous avez terminé ! Regardez la suite…',
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match gagné !',
@@ -136,10 +138,11 @@ export const fr: Translations = {
       ],
     },
     {
-      heading: 'Gagner une manche',
+      heading: 'Terminer une manche',
       items: [
-        'Le premier joueur à se débarrasser de toutes ses cartes remporte la manche.',
-        'Le gagnant marque des points égaux à la valeur totale des cartes restantes de tous les autres joueurs.',
+        'Quand vous jouez toutes vos cartes, vous terminez — vous marquez des points et devenez spectateur.',
+        'Points gagnés = somme des valeurs des cartes des joueurs qui n\'ont pas encore terminé à ce moment.',
+        'Le jeu continue jusqu\'à ce qu\'il ne reste qu\'un seul joueur avec des cartes ; ce joueur marque 0.',
         'Cartes numérotées = valeur faciale (0–9). Passe / Inverse / +2 = 20 pts. Joker / Joker+4 = 50 pts.',
       ],
     },
