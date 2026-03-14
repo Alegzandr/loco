@@ -104,6 +104,10 @@ func (c *Client) readPump() {
 			c.sendError("invalid message format")
 			continue
 		}
+		// Non-blocking send: if the hub event loop is saturated (inbound cap 256),
+		// drop this message and notify the client. This is intentional — it prevents
+		// readPump goroutines from parking forever on a full channel, which would
+		// cascade into a deadlock on the unregister channel (cap 16).
 		select {
 		case c.hub.inbound <- inboundMsg{client: c, msg: msg}:
 		default:
@@ -140,6 +144,10 @@ func (c *Client) writePump() {
 }
 
 // Send queues a server message for delivery.
+// Non-blocking: if the per-client send buffer (cap 256) is full, the message is
+// dropped and logged. A full buffer means the client is not draining fast enough
+// (slow network or unresponsive tab); dropping prevents head-of-line blocking
+// that would stall the hub event loop for all other clients.
 func (c *Client) Send(msg protocol.ServerMsg) {
 	data, err := json.Marshal(msg)
 	if err != nil {
