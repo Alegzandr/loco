@@ -314,16 +314,27 @@ If structure changes, update this file and the README.
 ## Scoring and match system conventions
 
 - `CardValue(c Card) int` in `game/card.go`: Number = face value; Skip/Reverse/DrawTwo = 20; Wild/WildDrawFour = 50.
-- When a player empties their hand, `Room.endRound(winnerIdx)` calculates score = sum of all other players' remaining card values.
+- **Round model**: a round does NOT end when the first player empties their hand. Instead:
+  - Each player who empties their hand is marked `Finished` and becomes an in-round spectator.
+  - They score the sum of card values held by all *still-unfinished* players at that moment.
+  - Play continues among remaining (unfinished) players; the turn order skips finished players.
+  - The round ends when exactly one player remains with cards; that player scores 0.
+  - The first to finish is the round winner (`Room.Winner`, `Room.RoundsWon`).
+  - `GameState.Finished []bool` — per-player finish flag for the current round.
+  - `GameState.Placements []int` — finish order: `Placements[0]` = 1st-place playerIdx, etc.
+  - `Room.markPlayerFinished(playerIdx)` handles scoring, placement tracking, and round-end detection.
 - Scores accumulate across rounds in `Room.Scores []int` (indexed by playerID).
-- `Room.RoundsWon []int` tracks wins per player; `Room.LostHandTotal []int` tracks losing-hand totals for tiebreaking.
-- `Room.RoundEnded bool` is set to `true` by `endRound`; the hub clears it after broadcasting `round_end`.
+- `Room.RoundsWon []int` tracks first-place wins per player; `Room.LostHandTotal []int` tracks the last-place finisher's remaining hand value per round (tiebreaker).
+- `Room.RoundEnded bool` is set to `true` by `markPlayerFinished` when the round ends; the hub clears it after broadcasting `round_end`.
 - `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion.
 - Match formats: BO1=1, BO3=3, BO5=5, BO7=7 (stored as `game.MatchFormat`).
 - Tiebreaker order: (1) highest total score → (2) most rounds won → (3) lowest lost-hand total → (4) sudden-death extra round.
 - If `determineMatchWinner()` returns `""`, a sudden-death extra round is played automatically.
 - Hub broadcasts `round_end` (with scoreboard) then `game_started` (new round state) to each player when a round ends mid-match.
 - Hub broadcasts `match_end` (with scoreboard + match_winner) when the match is fully over.
+- `card_played` server message includes `players` (updated list with `Finished` and `Placement` populated) so clients immediately learn when a player finishes.
+- `PlayerDTO` includes `finished bool` and `placement int` (1-based; 0 = not yet finished).
+- Finished players' turns are automatically skipped via `GameState.nextTurn`, which iterates until an unfinished player is found.
 
 ## Lobby configuration conventions
 
@@ -400,6 +411,17 @@ If structure changes, update this file and the README.
 - Linting runs in CI before tests: `npm run lint && npm run test && npm run build`.
 - Server linting: `go vet ./...` is implicitly run by `go test ./...`; this is sufficient for now.
 
+## Player bubble (in-game opponent panels) conventions
+
+- Opponent info is rendered via `PixiGame._buildPlayerBubble` in the PixiJS canvas layer.
+- `GameRenderState.players` includes `finished?: boolean` and `placement?: number` so the renderer knows each player's finish state.
+- Normal (unfinished, not current turn): dark background (`#16213e`), white text, shows `"nickname (cardCount)"`.
+- Active turn: blue background (`#4d96ff`), bold white text.
+- Disconnected: dark-grey background, grey text, shows `"nickname ✗ (cardCount)"`.
+- Finished: dark gold-tint background (`#2d2a0a`), gold text (`#ffd93d`), shows `"Nth · nickname"` (e.g., `"1st · Alice"`); card count is omitted since they have 0 cards.
+- The `placementSuffix` helper in `PixiGame.ts` converts a 1-based placement integer to `"1st"`, `"2nd"`, `"3rd"`, `"Nth"`.
+- Finished players are never the `currentTurn` (the server enforces this via `nextTurn`), so the active-turn highlight is never shown on finished bubbles.
+
 ## Reconnect visual recovery conventions
 
 - On `player_reconnected`, the client sets `isReconnecting: true` in the store before applying game state.
@@ -414,7 +436,7 @@ If structure changes, update this file and the README.
 - `round_end` from server triggers `applyRoundEnd(roundWinner, roundNumber, newScoreboard)` in the store.
 - `applyRoundEnd` computes per-player `round_points` as the delta (`newScore - prevScore`) using the scoreboard held before the round ended, stores them as `roundScores: RoundScoreEntry[]`, and sets `showRoundSummary: true`.
 - When `game_started` (next round) arrives while `showRoundSummary` is true, the new state is buffered in `pendingGameState` instead of being applied immediately.
-- `GameView` shows the summary with: round number/total, winner, per-player round breakdown (delta points, cumulative, wins), and full match scoreboard (for BO3+).
+- `GameView` shows the summary with: round number/total, winner, per-player round breakdown sorted by placement (1st/2nd/3rd/…), points earned this round (delta), cumulative score, wins, and full match scoreboard (for BO3+).
 - The summary has a "Continue (Ns)" button that calls `dismissRoundSummary()`, which applies the buffered state and clears the summary.
 - Auto-dismiss fires after 8 seconds if the player does not click Continue.
 - `dismissRoundSummary` applies `pendingGameState` if present, else just clears `showRoundSummary`.

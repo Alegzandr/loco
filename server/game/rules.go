@@ -43,9 +43,19 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 
 	case Reverse:
 		s.Direction *= -1
-		if n == 2 {
-			// With 2 players, reverse acts as skip (current player gets another turn)
-			return s.CurrentTurn
+		// Count active (unfinished) players to determine if Reverse acts as Skip.
+		activeCount := n
+		if len(s.Finished) > 0 {
+			activeCount = 0
+			for _, f := range s.Finished {
+				if !f {
+					activeCount++
+				}
+			}
+		}
+		if activeCount == 2 {
+			// With only 2 active players, Reverse acts as Skip
+			return s.nextTurn(s.nextTurn(s.CurrentTurn))
 		}
 		return s.nextTurn(s.CurrentTurn)
 
@@ -61,8 +71,17 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 	}
 }
 
-// nextTurn calculates the next player index given direction.
+// nextTurn calculates the next player index given direction, skipping finished players.
 func (s *GameState) nextTurn(from int) int {
 	n := len(s.Hands)
-	return ((from + s.Direction) % n + n) % n
+	next := ((from + s.Direction) % n + n) % n
+	if len(s.Finished) > 0 {
+		for i := 0; i < n; i++ {
+			if !s.Finished[next] {
+				return next
+			}
+			next = ((next + s.Direction) % n + n) % n
+		}
+	}
+	return next
 }

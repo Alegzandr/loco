@@ -517,6 +517,251 @@ func TestRoom_RoomCodeCollision(t *testing.T) {
 	}
 }
 
+// --- Placement and multi-player round model tests ---
+
+func TestRoom_PlacementFlow_ThreePlayers(t *testing.T) {
+	r := setupThreePlayerGame(t)
+
+	// Force a known state: Red-1 on top
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.PendingDraw = 0
+	r.State.Direction = 1 // ensure clockwise so turn 0→1→2
+
+	// alice has 1 matching card; bob has Skip (20pts); carol has Wild (50pts)
+	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{{Kind: Skip}}
+	r.State.Hands[2].Cards = []Card{{Kind: WildCard, Color: Wild}}
+
+	// Alice plays her last card
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red); err != nil {
+		t.Fatalf("alice play: %v", err)
+	}
+
+	// Alice finished; round should NOT end (2 active players remain)
+	if !r.State.Finished[0] {
+		t.Error("alice should be marked finished")
+	}
+	if r.RoundEnded {
+		t.Error("round should not end with 2 players remaining")
+	}
+	// alice scores bob(20) + carol(50) = 70
+	if r.Scores[0] != 70 {
+		t.Errorf("alice score = %d, want 70", r.Scores[0])
+	}
+	if r.Winner != "alice" {
+		t.Errorf("round winner = %q, want alice", r.Winner)
+	}
+	if r.RoundsWon[0] != 1 {
+		t.Errorf("alice rounds won = %d, want 1", r.RoundsWon[0])
+	}
+	// Turn should advance to bob (index 1)
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("current turn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+
+	// Bob's turn: give him a card matching a new top
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 2}}
+	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 2}}
+
+	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 2}, Red); err != nil {
+		t.Fatalf("bob play: %v", err)
+	}
+
+	// Bob finished; round should end (only carol remains)
+	if !r.State.Finished[1] {
+		t.Error("bob should be marked finished")
+	}
+	if !r.RoundEnded {
+		t.Error("round should end when only carol remains")
+	}
+	// bob scores carol's Wild (50)
+	if r.Scores[1] != 50 {
+		t.Errorf("bob score = %d, want 50", r.Scores[1])
+	}
+	// carol scores 0 (last remaining)
+	if r.Scores[2] != 0 {
+		t.Errorf("carol score = %d, want 0", r.Scores[2])
+	}
+	if r.RoundsWon[1] != 0 {
+		t.Errorf("bob rounds won = %d, want 0", r.RoundsWon[1])
+	}
+	// carol's hand value is added to LostHandTotal
+	if r.LostHandTotal[2] != 50 {
+		t.Errorf("carol LostHandTotal = %d, want 50", r.LostHandTotal[2])
+	}
+}
+
+func TestRoom_PlacementScoring_EachPlacementScoredCorrectly(t *testing.T) {
+	// 4 players: p0 finishes 1st (scores p1+p2+p3),
+	//            p1 finishes 2nd (scores p2+p3),
+	//            p2 finishes 3rd (scores p3),
+	//            p3 scores 0 and is last
+	r := NewRoom("PSCO")
+	for _, nick := range []string{"p0", "p1", "p2", "p3"} {
+		if err := r.Join(nick); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Start(); err != nil {
+		t.Fatal(err)
+	}
+	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 0
+	r.State.Direction = 1 // clockwise: 0→1→2→3
+
+	// p0: 1 card worth 1; p1: 1 card worth 2; p2: 1 card worth 3; p3: 1 card worth 5
+	playCard := func(playerIdx int, cardVal int) {
+		t.Helper()
+		c := Card{Color: Red, Kind: Number, Value: cardVal}
+		r.State.ActiveColor = Red
+		r.State.Discard = []Card{c}
+		r.State.Hands[playerIdx].Cards = []Card{c}
+		if err := r.PlayCard(playerIdx, c, Red); err != nil {
+			t.Fatalf("player %d play: %v", playerIdx, err)
+		}
+	}
+
+	// Initial hands for non-current players (values matter for scoring)
+	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 2}}
+	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
+	r.State.Hands[3].Cards = []Card{{Kind: Number, Value: 5}}
+	playCard(0, 1)
+	// p0 scores: p1(2)+p2(3)+p3(5) = 10
+	if r.Scores[0] != 10 {
+		t.Errorf("p0 score after 1st place = %d, want 10", r.Scores[0])
+	}
+	if r.RoundEnded {
+		t.Error("round should not end after p0 finishes")
+	}
+
+	// p1 finishes 2nd (p2 and p3 still active)
+	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
+	r.State.Hands[3].Cards = []Card{{Kind: Number, Value: 5}}
+	playCard(1, 2)
+	// p1 scores: p2(3)+p3(5) = 8
+	if r.Scores[1] != 8 {
+		t.Errorf("p1 score after 2nd place = %d, want 8", r.Scores[1])
+	}
+	if r.RoundEnded {
+		t.Error("round should not end after p1 finishes")
+	}
+
+	// p2 finishes 3rd (only p3 remains)
+	r.State.Hands[3].Cards = []Card{{Kind: Number, Value: 5}}
+	playCard(2, 3)
+	// p2 scores: p3(5) = 5
+	if r.Scores[2] != 5 {
+		t.Errorf("p2 score after 3rd place = %d, want 5", r.Scores[2])
+	}
+	// Round ends now (only p3 was left)
+	if !r.RoundEnded {
+		t.Error("round should end when only p3 remains")
+	}
+	// p3 scores 0
+	if r.Scores[3] != 0 {
+		t.Errorf("p3 score = %d, want 0", r.Scores[3])
+	}
+	// p3's hand value goes to LostHandTotal
+	if r.LostHandTotal[3] != 5 {
+		t.Errorf("p3 LostHandTotal = %d, want 5", r.LostHandTotal[3])
+	}
+	// p0 is round winner
+	if r.Winner != "p0" {
+		t.Errorf("round winner = %q, want p0", r.Winner)
+	}
+	if r.RoundsWon[0] != 1 {
+		t.Errorf("p0 rounds won = %d, want 1", r.RoundsWon[0])
+	}
+}
+
+func TestRoom_RoundEnd_LastPlayerRemaining(t *testing.T) {
+	// Round ends when exactly 1 player remains with cards.
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.PendingDraw = 0
+	r.State.Direction = 1 // clockwise: 0→1→2
+	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
+	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
+
+	// alice finishes
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red); err != nil {
+		t.Fatalf("alice play: %v", err)
+	}
+	if r.RoundEnded {
+		t.Error("round should not end after alice finishes (2 remain)")
+	}
+
+	// bob finishes
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.ActiveColor = Red
+	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 5}}
+	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 5}, Red); err != nil {
+		t.Fatalf("bob play: %v", err)
+	}
+
+	// Round should now be over (only carol remains)
+	if !r.RoundEnded {
+		t.Error("round should end when only carol remains")
+	}
+	// carol's card value (3) should be in LostHandTotal
+	if r.LostHandTotal[2] != 3 {
+		t.Errorf("carol LostHandTotal = %d, want 3", r.LostHandTotal[2])
+	}
+	// Placements: alice(0), bob(1), carol(2)
+	if len(r.State.Placements) != 3 {
+		t.Errorf("placements length = %d, want 3", len(r.State.Placements))
+	}
+	if r.State.Placements[0] != 0 || r.State.Placements[1] != 1 || r.State.Placements[2] != 2 {
+		t.Errorf("placements = %v, want [0 1 2]", r.State.Placements)
+	}
+}
+
+func TestRoom_TurnSkipsFinishedPlayers(t *testing.T) {
+	// In a 3-player game, when alice (0) finishes, turn should skip her.
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 0
+	r.State.Direction = 1 // clockwise: alice(0)→bob(1)→carol(2)
+	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
+	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
+
+	// alice finishes → turn should go to bob (1), not alice (0) or carol (2)
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red); err != nil {
+		t.Fatalf("alice play: %v", err)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after alice finishes, turn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_FinishedPlayerCannotAct(t *testing.T) {
+	// A finished player cannot catch (finished players cannot act).
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 0
+	r.State.Direction = 1
+	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
+	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
+
+	// alice finishes
+	_ = r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red)
+
+	// alice tries to catch — should fail
+	if err := r.CatchUndeclared(0, 1, time.Now()); err == nil {
+		t.Error("finished player should not be able to catch")
+	}
+}
+
 // setupTwoPlayerGame starts a 2-player game for alice and bob.
 func setupTwoPlayerGame(t *testing.T) *Room {
 	t.Helper()
@@ -532,5 +777,22 @@ func setupTwoPlayerGame(t *testing.T) *Room {
 	}
 	r.State.CurrentTurn = 0
 	r.State.PendingDraw = 0 // reset any effect from the starting action card
+	return r
+}
+
+// setupThreePlayerGame starts a 3-player game for alice, bob, and carol.
+func setupThreePlayerGame(t *testing.T) *Room {
+	t.Helper()
+	r := NewRoom("3PLY")
+	for _, nick := range []string{"alice", "bob", "carol"} {
+		if err := r.Join(nick); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Start(); err != nil {
+		t.Fatal(err)
+	}
+	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 0
 	return r
 }
