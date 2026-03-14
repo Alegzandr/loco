@@ -6,10 +6,12 @@ type ClientMsgType string
 
 const (
 	// Lobby
-	CMsgCreateRoom  ClientMsgType = "create_room"
-	CMsgJoinRoom    ClientMsgType = "join_room"
-	CMsgStartGame   ClientMsgType = "start_game"
-	CMsgAddBot      ClientMsgType = "add_bot"
+	CMsgCreateRoom     ClientMsgType = "create_room"
+	CMsgJoinRoom       ClientMsgType = "join_room"
+	CMsgStartGame      ClientMsgType = "start_game"
+	CMsgAddBot         ClientMsgType = "add_bot"
+	CMsgSetMatchFormat ClientMsgType = "set_match_format"
+	CMsgSetMaxPlayers  ClientMsgType = "set_max_players"
 	// Gameplay
 	CMsgPlayCard    ClientMsgType = "play_card"
 	CMsgDrawCard    ClientMsgType = "draw_card"
@@ -24,13 +26,14 @@ type ServerMsgType string
 
 const (
 	// Lobby
-	SMsgRoomCreated      ServerMsgType = "room_created"
-	SMsgRoomJoined       ServerMsgType = "room_joined"
-	SMsgPlayerJoined     ServerMsgType = "player_joined"
-	SMsgPlayerLeft       ServerMsgType = "player_left"
+	SMsgRoomCreated        ServerMsgType = "room_created"
+	SMsgRoomJoined         ServerMsgType = "room_joined"
+	SMsgPlayerJoined       ServerMsgType = "player_joined"
+	SMsgPlayerLeft         ServerMsgType = "player_left"
 	SMsgPlayerDisconnected ServerMsgType = "player_disconnected"
 	SMsgPlayerReconnected  ServerMsgType = "player_reconnected"
-	SMsgGameStarted      ServerMsgType = "game_started"
+	SMsgLobbyConfigChanged ServerMsgType = "lobby_config_changed"
+	SMsgGameStarted        ServerMsgType = "game_started"
 	// Gameplay state
 	SMsgGameState   ServerMsgType = "game_state"
 	SMsgCardPlayed  ServerMsgType = "card_played"
@@ -39,7 +42,10 @@ const (
 	SMsgUnoDeclared ServerMsgType = "uno_declared"
 	SMsgUnoCaught   ServerMsgType = "uno_caught"
 	SMsgDrawPending ServerMsgType = "draw_pending"
-	SMsgGameOver    ServerMsgType = "game_over"
+	// Round / match lifecycle
+	SMsgRoundEnd ServerMsgType = "round_end"
+	SMsgMatchEnd ServerMsgType = "match_end"
+	SMsgGameOver ServerMsgType = "game_over"
 	// Errors
 	SMsgError ServerMsgType = "error"
 )
@@ -58,6 +64,12 @@ type ClientMsg struct {
 	// CMsgPlayCard / CMsgCounterDraw
 	Card        *CardDTO `json:"card,omitempty"`
 	ChosenColor string   `json:"chosen_color,omitempty"`
+
+	// CMsgSetMatchFormat
+	MatchFormat string `json:"match_format,omitempty"`
+
+	// CMsgSetMaxPlayers
+	MaxPlayers int `json:"max_players,omitempty"`
 }
 
 // CardDTO is the wire representation of a card.
@@ -65,6 +77,14 @@ type CardDTO struct {
 	Color string `json:"color"`
 	Kind  string `json:"kind"`
 	Value int    `json:"value,omitempty"`
+}
+
+// ScoreboardEntryDTO is one player's match-level score summary.
+type ScoreboardEntryDTO struct {
+	PlayerIndex int    `json:"player_index"`
+	Nickname    string `json:"nickname"`
+	Score       int    `json:"score"`
+	RoundsWon   int    `json:"rounds_won"`
 }
 
 // ServerMsg is the envelope for all server-to-client messages.
@@ -93,8 +113,19 @@ type ServerMsg struct {
 	// SMsgDrawPending
 	PendingDraw int `json:"pending_draw,omitempty"`
 
-	// SMsgGameOver
+	// SMsgRoundEnd / SMsgMatchEnd
+	RoundNumber int                  `json:"round_number,omitempty"`
+	RoundWinner string               `json:"round_winner,omitempty"`
+	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
+	MatchOver   bool                 `json:"match_over,omitempty"`
+	MatchWinner string               `json:"match_winner,omitempty"`
+
+	// SMsgGameOver (legacy single-round / match_over)
 	Winner string `json:"winner,omitempty"`
+
+	// SMsgLobbyConfigChanged
+	MatchFormat string `json:"match_format,omitempty"`
+	MaxPlayers  int    `json:"max_players,omitempty"`
 
 	// SMsgError
 	Error string `json:"error,omitempty"`
@@ -128,4 +159,10 @@ type GameStateDTO struct {
 	Direction   int            `json:"direction"`
 	PendingDraw int            `json:"pending_draw,omitempty"`
 	EventLog    []GameEventDTO `json:"event_log,omitempty"`
+
+	// Match info
+	RoundNumber int                  `json:"round_number"`
+	MatchFormat string               `json:"match_format"`
+	MaxPlayers  int                  `json:"max_players"`
+	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 }

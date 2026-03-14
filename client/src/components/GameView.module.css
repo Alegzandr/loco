@@ -24,12 +24,16 @@
 .btnPass,
 .btnUno,
 .btnCatch {
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1.1rem;
   border-radius: 8px;
   border: none;
-  font-size: 0.875rem;
+  font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
+  min-height: 44px;
+  min-width: 64px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: filter 0.15s, transform 0.1s;
 }
 
@@ -66,57 +70,283 @@
   transform: translateY(-1px);
 }
 
+.btnDraw:active,
+.btnPass:active,
+.btnUno:not(:disabled):active,
+.btnCatch:active {
+  transform: scale(0.96);
+}
+
+/* Wild color picker overlay */
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 20;
 }
 
 .colorPicker {
   background: #16213e;
-  border-radius: 12px;
-  padding: 1.5rem;
+  border-radius: 16px;
+  padding: 2rem;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1rem;
+  gap: 1.25rem;
   color: #fff;
   font-size: 1.1rem;
   font-weight: 700;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+
+.colorBtnRow {
+  display: flex;
+  gap: 1rem;
 }
 
 .colorBtn {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.3);
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
   transition: transform 0.15s, border-color 0.15s;
 }
 
-.colorBtn:hover {
+.colorBtn:hover,
+.colorBtn:focus {
   transform: scale(1.15);
   border-color: #fff;
+  outline: none;
 }
 
-/* Lay out color buttons in a row */
-.colorPicker > .colorBtn {
-  display: inline-block;
+.colorBtn:active {
+  transform: scale(1.05);
 }
 
-.colorPicker {
+/* ────────────────────────────────────────────────
+   Reconnect overlay
+   ──────────────────────────────────────────────── */
+.reconnectOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 30, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+.reconnectCard {
+  display: flex;
   flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  animation: slideUp 0.3s ease-out forwards;
 }
 
-/* Override to row for colors */
-.colorPicker > button:not(:first-child) ~ button,
-.colorPicker > button.colorBtn {
-  flex-direction: row;
+.reconnectSpinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid rgba(77, 150, 255, 0.3);
+  border-top-color: #4d96ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
+.reconnectText {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #4d96ff;
+  letter-spacing: 0.02em;
+}
+
+.reconnectSub {
+  font-size: 0.9rem;
+  color: #888;
+}
+
+/* ────────────────────────────────────────────────
+   Round summary overlay
+   ──────────────────────────────────────────────── */
+.roundSummary {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 30;
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.roundSummaryCard {
+  background: #16213e;
+  border-radius: 18px;
+  padding: 2rem;
+  color: #fff;
+  min-width: 320px;
+  max-width: 480px;
+  width: 90vw;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  box-shadow: 0 12px 56px rgba(0,0,0,0.7);
+  animation: slideUp 0.3s ease-out forwards;
+}
+
+.roundSummaryTitle {
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: #ffd93d;
+}
+
+.roundSummaryWinner {
+  font-size: 1.1rem;
+  color: #ccc;
+  font-weight: 600;
+}
+
+/* Per-player round score table */
+.roundScoreTable {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.04);
+  padding: 0.5rem;
+}
+
+.roundScoreHeader {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #666;
+  font-weight: 700;
+}
+
+.roundScoreRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: rgba(255,255,255,0.04);
+  transition: background 0.15s;
+}
+
+.roundScoreRowWinner {
+  background: rgba(255, 217, 61, 0.12);
+  border: 1px solid rgba(255, 217, 61, 0.25);
+}
+
+.roundScoreName {
+  font-weight: 600;
+  text-align: left;
+}
+
+.roundScoreDelta {
+  color: #4d96ff;
+  font-weight: 700;
+  min-width: 3.5rem;
+  text-align: right;
+}
+
+.roundScoreTotal {
+  color: #ffd93d;
+  font-weight: 700;
+  min-width: 3rem;
+  text-align: right;
+}
+
+.roundScoreWins {
+  color: #aaa;
+  font-weight: 600;
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+/* Match progress section inside round summary */
+.matchProgress {
+  margin-top: 0.25rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 0.75rem;
+}
+
+.matchProgressTitle {
+  font-size: 0.8rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.scoreboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.scoreRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.6rem;
+  background: rgba(255,255,255,0.05);
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.scoreName {
+  font-weight: 600;
+}
+
+.scoreVal {
+  color: #ffd93d;
+  font-weight: 700;
+}
+
+/* Continue button */
+.btnContinue {
+  margin-top: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: #4d96ff;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: filter 0.15s, transform 0.1s;
+}
+
+.btnContinue:hover {
+  filter: brightness(1.15);
+  transform: translateY(-1px);
+}
+
+.btnContinue:active {
+  transform: scale(0.97);
+}
+
+/* UNO! banner */
 .unoBanner {
   position: absolute;
   top: 50%;
@@ -128,12 +358,7 @@
   pointer-events: none;
   animation: popIn 0.3s ease-out forwards;
   text-shadow: 0 0 30px rgba(255, 217, 61, 0.8);
-}
-
-@keyframes popIn {
-  from { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
-  60% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
-  to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  z-index: 10;
 }
 
 /* UNO reaction timer */
@@ -147,6 +372,7 @@
   align-items: center;
   gap: 4px;
   pointer-events: none;
+  z-index: 10;
 }
 
 .unoTimerLabel {
@@ -170,4 +396,85 @@
   border-radius: 3px;
   background: linear-gradient(90deg, #ff6b6b, #ffd93d);
   transition: width 0.1s linear;
+}
+
+/* Round indicator (top-right) */
+.roundIndicator {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  color: #aaa;
+  font-size: 0.8rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* ────────────────────────────────────────────────
+   Keyframes
+   ──────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes popIn {
+  from { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+  60% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ────────────────────────────────────────────────
+   Mobile responsive
+   ──────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .actionBar {
+    bottom: 4px;
+    right: 4px;
+    left: 4px;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .btnDraw,
+  .btnPass,
+  .btnUno,
+  .btnCatch {
+    min-height: 52px;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    flex: 1;
+  }
+
+  .colorBtn {
+    width: 72px;
+    height: 72px;
+  }
+
+  .colorPicker {
+    padding: 1.5rem;
+    width: 90vw;
+    max-width: 340px;
+  }
+
+  .colorBtnRow {
+    gap: 0.75rem;
+  }
+
+  .roundSummaryCard {
+    padding: 1.25rem;
+  }
+
+  .roundScoreHeader,
+  .roundScoreRow {
+    font-size: 0.8rem;
+  }
 }

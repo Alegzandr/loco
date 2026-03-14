@@ -305,6 +305,43 @@ If structure changes, update this file and the README.
 
 ---
 
+## Scoring and match system conventions
+
+- `CardValue(c Card) int` in `game/card.go`: Number = face value; Skip/Reverse/DrawTwo = 20; Wild/WildDrawFour = 50.
+- When a player empties their hand, `Room.endRound(winnerIdx)` calculates score = sum of all other players' remaining card values.
+- Scores accumulate across rounds in `Room.Scores []int` (indexed by playerID).
+- `Room.RoundsWon []int` tracks wins per player; `Room.LostHandTotal []int` tracks losing-hand totals for tiebreaking.
+- `Room.RoundEnded bool` is set to `true` by `endRound`; the hub clears it after broadcasting `round_end`.
+- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion.
+- Match formats: BO1=1, BO3=3, BO5=5, BO7=7 (stored as `game.MatchFormat`).
+- Tiebreaker order: (1) highest total score → (2) most rounds won → (3) lowest lost-hand total → (4) sudden-death extra round.
+- If `determineMatchWinner()` returns `""`, a sudden-death extra round is played automatically.
+- Hub broadcasts `round_end` (with scoreboard) then `game_started` (new round state) to each player when a round ends mid-match.
+- Hub broadcasts `match_end` (with scoreboard + match_winner) when the match is fully over.
+
+## Lobby configuration conventions
+
+- Host can set match format via `set_match_format` client message (lobby only).
+- Host can set max players via `set_max_players` client message (lobby only).
+- Max players constraints: `serverMinPlayers` (2) ≤ n ≤ `serverMaxPlayers` (10); cannot drop below current player count.
+- Any config change broadcasts `lobby_config_changed` with updated `match_format` and `max_players` to all connected clients.
+- `room_created` and `room_joined` messages include `match_format` and `max_players`.
+- Default: BO1, 10 max players.
+
+## Room code conventions
+
+- Codes are 6 characters from charset `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O/1/I/l for readability).
+- Uniqueness is guaranteed server-side: `generateCode()` retries on collision (loop until a free code is found).
+- 6 chars × 32-char alphabet = ~1 billion combinations; collision risk is effectively zero at realistic scale.
+
+## Mobile support conventions
+
+- All action buttons have `min-height: 44px` and `touch-action: manipulation` to prevent double-tap zoom.
+- A 400ms debounce (`guardDoubleTap`) prevents accidental repeated action button presses.
+- Wild color picker uses large 64px+ touch targets arranged in a row.
+- `user-scalable=no` and `maximum-scale=1.0` set in the HTML `<meta viewport>` tag.
+- CSS uses `@media (max-width: 480px)` blocks for responsive layout on small screens.
+
 ## Bot player conventions
 
 - Bots are added by the host in the lobby via `add_bot` message.
@@ -335,6 +372,37 @@ If structure changes, update this file and the README.
 - Implemented in `hub/client.go` as `rateLimiter` (thread-safe).
 - Rate-limited messages receive an `error` server message and are dropped.
 - The bucket is per-connection, not per-player-identity.
+
+---
+
+## CI/CD conventions
+
+- Pipeline defined in `.gitlab-ci.yml` with three stages: `test` → `build` → `deploy`.
+- `test` stage has two jobs that run on **every push** using lightweight images (no Docker daemon):
+  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...`
+  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run test && npm run build`
+- `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
+- Deploy jobs require the `devops` runner tag and a GitLab container registry.
+- Both test jobs must pass before Docker images are built or deployed.
+
+## Reconnect visual recovery conventions
+
+- On `player_reconnected`, the client sets `isReconnecting: true` in the store before applying game state.
+- `GameView` detects `isReconnecting` and shows a brief "Rebuilding table…" overlay (600 ms), then calls `PixiGame.renderReconnect(state, onComplete)`.
+- `renderReconnect` animates all elements in with staggered entrances: discard pile fades/scales in first, then player info bubbles (80 ms stagger), then hand cards (40 ms stagger per card).
+- `onComplete` fires after the last card animation, resetting `isReconnecting: false`.
+- While `isReconnecting` is true, the normal `render()` path is suppressed to avoid overwriting the animation.
+- This is purely visual recovery; server state is authoritative.
+
+## Round summary conventions
+
+- `round_end` from server triggers `applyRoundEnd(roundWinner, roundNumber, newScoreboard)` in the store.
+- `applyRoundEnd` computes per-player `round_points` as the delta (`newScore - prevScore`) using the scoreboard held before the round ended, stores them as `roundScores: RoundScoreEntry[]`, and sets `showRoundSummary: true`.
+- When `game_started` (next round) arrives while `showRoundSummary` is true, the new state is buffered in `pendingGameState` instead of being applied immediately.
+- `GameView` shows the summary with: round number/total, winner, per-player round breakdown (delta points, cumulative, wins), and full match scoreboard (for BO3+).
+- The summary has a "Continue (Ns)" button that calls `dismissRoundSummary()`, which applies the buffered state and clears the summary.
+- Auto-dismiss fires after 8 seconds if the player does not click Continue.
+- `dismissRoundSummary` applies `pendingGameState` if present, else just clears `showRoundSummary`.
 
 ---
 

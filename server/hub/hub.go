@@ -47,14 +47,14 @@ type botMoveMsg struct {
 
 // Hub manages all active rooms and connected clients.
 type Hub struct {
-	rooms          map[string]*game.Room
-	clients        map[*Client]struct{}
+	rooms   map[string]*game.Room
+	clients map[*Client]struct{}
 	// roomMembers[code] is indexed by playerID; nil means that slot is currently disconnected.
-	roomMembers    map[string][]*Client
+	roomMembers map[string][]*Client
 	// disconnectedAt[code][playerID] = time of disconnect (only set during StatusPlaying).
 	disconnectedAt map[string]map[int]time.Time
 	// sessionTokens[code][playerID] = opaque token for reconnect authentication.
-	sessionTokens  map[string]map[int]string
+	sessionTokens map[string]map[int]string
 
 	// botSlots[code] is a set of playerIDs that are bots.
 	botSlots map[string]map[int]struct{}
@@ -190,6 +190,12 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleJoinRoom(c, msg)
 	case protocol.CMsgStartGame:
 		h.handleStartGame(c, msg)
+	case protocol.CMsgAddBot:
+		h.handleAddBot(c, msg)
+	case protocol.CMsgSetMatchFormat:
+		h.handleSetMatchFormat(c, msg)
+	case protocol.CMsgSetMaxPlayers:
+		h.handleSetMaxPlayers(c, msg)
 	case protocol.CMsgPlayCard:
 		h.handlePlayCard(c, msg)
 	case protocol.CMsgDrawCard:
@@ -202,8 +208,6 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleCatchUno(c, msg)
 	case protocol.CMsgCounterDraw:
 		h.handleCounterDraw(c, msg)
-	case protocol.CMsgAddBot:
-		h.handleAddBot(c, msg)
 	default:
 		c.sendError("unknown message type")
 	}
@@ -235,6 +239,8 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 		PlayerID:     0,
 		Players:      h.playerList(room),
 		SessionToken: tok,
+		MatchFormat:  matchFormatString(room.Format),
+		MaxPlayers:   room.MaxPlayers,
 	})
 }
 
@@ -282,6 +288,8 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 		PlayerID:     playerID,
 		Players:      h.playerList(room),
 		SessionToken: tok,
+		MatchFormat:  matchFormatString(room.Format),
+		MaxPlayers:   room.MaxPlayers,
 	})
 
 	// Notify others
@@ -310,7 +318,6 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	members := h.roomMembers[c.roomCode]
 	for i, member := range members {
 		if member == nil {
-			// Bot slot: send no WebSocket message, but we still need to know their index.
 			_ = i
 			continue
 		}
@@ -320,6 +327,51 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 		})
 	}
 	h.maybeScheduleBot(c.roomCode, room)
+}
+
+func (h *Hub) handleSetMatchFormat(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if c.playerID != 0 {
+		c.sendError("only the host can change match format")
+		return
+	}
+	f, err := parseMatchFormat(msg.MatchFormat)
+	if err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	if err := room.SetFormat(f); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgLobbyConfigChanged,
+		MatchFormat: matchFormatString(room.Format),
+		MaxPlayers:  room.MaxPlayers,
+	})
+}
+
+func (h *Hub) handleSetMaxPlayers(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if c.playerID != 0 {
+		c.sendError("only the host can change max players")
+		return
+	}
+	if err := room.SetMaxPlayers(msg.MaxPlayers); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgLobbyConfigChanged,
+		MatchFormat: matchFormatString(room.Format),
+		MaxPlayers:  room.MaxPlayers,
+	})
 }
 
 // --- Gameplay handlers ---
@@ -354,14 +406,55 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		PendingDraw: state.PendingDraw,
 	})
 
-	if room.Status == game.StatusFinished {
-		h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
-			Type:   protocol.SMsgGameOver,
-			Winner: room.Winner,
+	h.handleRoundOrMatchEnd(c.roomCode, room)
+}
+
+func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
+	if !room.RoundEnded {
+		if room.Status == game.StatusFinished {
+			// Shouldn't happen with new system, but handle defensively
+			h.broadcastToRoomAll(code, protocol.ServerMsg{
+				Type:   protocol.SMsgGameOver,
+				Winner: room.Winner,
+			})
+			return
+		}
+		h.maybeScheduleBot(code, room)
+		return
+	}
+
+	room.RoundEnded = false
+	scoreboard := h.buildScoreboard(room)
+
+	// Broadcast round_end with scoreboard
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:        protocol.SMsgRoundEnd,
+		RoundNumber: room.RoundNumber - 1, // completed round number
+		RoundWinner: room.Winner,
+		Scoreboard:  scoreboard,
+	})
+
+	if room.MatchOver {
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:        protocol.SMsgMatchEnd,
+			MatchWinner: room.MatchWinner,
+			Scoreboard:  scoreboard,
 		})
 		return
 	}
-	h.maybeScheduleBot(c.roomCode, room)
+
+	// New round started: send each player their personalized state
+	members := h.roomMembers[code]
+	for _, member := range members {
+		if member == nil {
+			continue
+		}
+		member.Send(protocol.ServerMsg{
+			Type:  protocol.SMsgGameStarted,
+			State: h.playerGameState(room, member.playerID),
+		})
+	}
+	h.maybeScheduleBot(code, room)
 }
 
 func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
@@ -428,14 +521,6 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
-	// The target is specified in PlayerIndex field (re-use Turn field)
-	target := msg.Card // we borrow card DTO for the target index; see below
-	// Actually: add a TargetIndex field. For now, use a convention:
-	// The client sends { "type": "catch_uno", "player_index": <target> }
-	// We'll parse it from a field we haven't added yet. Let me use an int in ClientMsg.
-	// Since we don't have a dedicated field, we'll use the room-level default: try to catch
-	// whoever last played to 1 card.
-	_ = target
 	targetIdx := room.State.LastCardPlayer
 	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
 		c.sendError(err.Error())
@@ -742,21 +827,18 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			Turn:        state.CurrentTurn,
 			PendingDraw: state.PendingDraw,
 		})
-		if room.Status == game.StatusFinished {
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:   protocol.SMsgGameOver,
-				Winner: room.Winner,
-			})
-			return
-		}
+
 		// Auto-declare UNO if bot is at 1 card
-		if room.State.Hands[bm.playerID].Size() == 1 {
+		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
 			_ = room.DeclareLastCard(bm.playerID)
 			h.broadcastToRoomAll(code, protocol.ServerMsg{
 				Type:        protocol.SMsgUnoDeclared,
 				PlayerIndex: bm.playerID,
 			})
 		}
+
+		h.handleRoundOrMatchEnd(code, room)
+		return
 
 	case game.BotCounter:
 		if err := room.CounterDraw(bm.playerID, action.Card, action.ChosenColor); err != nil {
@@ -866,6 +948,19 @@ func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
 	return ps
 }
 
+func (h *Hub) buildScoreboard(room *game.Room) []protocol.ScoreboardEntryDTO {
+	sb := make([]protocol.ScoreboardEntryDTO, len(room.Players))
+	for i, p := range room.Players {
+		sb[i] = protocol.ScoreboardEntryDTO{
+			PlayerIndex: i,
+			Nickname:    p.Nickname,
+			Score:       room.Scores[i],
+			RoundsWon:   room.RoundsWon[i],
+		}
+	}
+	return sb
+}
+
 func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStateDTO {
 	state := room.State
 	hand := make([]protocol.CardDTO, len(state.Hands[playerIdx].Cards))
@@ -890,6 +985,11 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		eventLog[i] = dto
 	}
 
+	var scoreboard []protocol.ScoreboardEntryDTO
+	if len(room.Scores) > 0 {
+		scoreboard = h.buildScoreboard(room)
+	}
+
 	return &protocol.GameStateDTO{
 		YourIndex:   playerIdx,
 		Hand:        hand,
@@ -900,15 +1000,20 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		Direction:   state.Direction,
 		PendingDraw: state.PendingDraw,
 		EventLog:    eventLog,
+		RoundNumber: room.RoundNumber,
+		MatchFormat: matchFormatString(room.Format),
+		MaxPlayers:  room.MaxPlayers,
+		Scoreboard:  scoreboard,
 	}
 }
 
 // --- Code generation ---
 
+// generateCode produces a unique 6-character room code and guarantees no collision.
 func (h *Hub) generateCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	for {
-		code := make([]byte, 4)
+		code := make([]byte, 6)
 		for i := range code {
 			code[i] = chars[mrand.Intn(len(chars))]
 		}
@@ -982,4 +1087,32 @@ func parseKind(s string) (game.Kind, error) {
 		return game.WildDrawFour, nil
 	}
 	return 0, fmt.Errorf("unknown kind: %q", s)
+}
+
+func matchFormatString(f game.MatchFormat) string {
+	switch f {
+	case game.BO1:
+		return "BO1"
+	case game.BO3:
+		return "BO3"
+	case game.BO5:
+		return "BO5"
+	case game.BO7:
+		return "BO7"
+	}
+	return "BO1"
+}
+
+func parseMatchFormat(s string) (game.MatchFormat, error) {
+	switch strings.ToUpper(s) {
+	case "BO1":
+		return game.BO1, nil
+	case "BO3":
+		return game.BO3, nil
+	case "BO5":
+		return game.BO5, nil
+	case "BO7":
+		return game.BO7, nil
+	}
+	return 0, fmt.Errorf("invalid match format %q: must be BO1, BO3, BO5, or BO7", s)
 }

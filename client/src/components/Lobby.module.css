@@ -110,3 +110,25 @@
   text-align: center;
   font-size: 0.875rem;
 }
+
+@media (max-width: 480px) {
+  .title {
+    font-size: 3.5rem;
+  }
+
+  .form {
+    width: 90vw;
+    max-width: 320px;
+  }
+
+  .btn,
+  .btnSecondary {
+    min-height: 48px;
+    font-size: 1rem;
+  }
+
+  .input {
+    min-height: 48px;
+    font-size: 1rem;
+  }
+}
