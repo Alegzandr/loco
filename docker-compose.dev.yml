@@ -1,0 +1,55 @@
+version: '3.9'
+
+# Development compose — no host toolchain required.
+# Changes to Go or TypeScript source are picked up automatically.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Endpoints:
+#   Frontend (Vite):  http://localhost:5173
+#   Backend  (Go):    http://localhost:8080
+#   WebSocket:        ws://localhost:5173/ws  (proxied by Vite to backend)
+
+services:
+  server:
+    image: golang:1.24.7-alpine
+    working_dir: /app
+    volumes:
+      - ./server:/app
+      # Cache Go module downloads across rebuilds.
+      - go-mod-cache:/root/go/pkg/mod
+    environment:
+      - PORT=8080
+      - GOFLAGS=-mod=mod
+    ports:
+      - "8080:8080"
+    command: go run .
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  client:
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./client:/app
+      # Isolate node_modules inside the container to avoid host/container conflicts.
+      - client-node-modules:/app/node_modules
+    environment:
+      # Vite proxy target — routes /ws to the backend container.
+      - VITE_WS_TARGET=ws://server:8080
+    ports:
+      - "5173:3000"
+    command: sh -c "npm ci && npm run dev"
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  go-mod-cache:
+  client-node-modules:

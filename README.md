@@ -43,7 +43,7 @@ loco/
 │   │   ├── room.go          # Room lifecycle + game state
 │   │   └── rules.go         # CanPlay(), ApplyEffect()
 │   ├── hub/                 # WebSocket connection management
-│   │   ├── hub.go           # Event loop, message routing
+│   │   ├── hub.go           # Event loop, message routing, metrics, room cleanup
 │   │   └── client.go        # Per-connection read/write pumps
 │   ├── protocol/            # Shared message schema (client ↔ server)
 │   │   └── messages.go
@@ -70,7 +70,8 @@ loco/
 │   ├── nginx.conf           # Production reverse proxy config
 │   ├── package.json
 │   └── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml       # Production-style full-stack compose
+├── docker-compose.dev.yml   # Development compose (bind mounts, hot reload)
 ├── .env.example
 ├── .gitignore
 ├── CLAUDE.md
@@ -226,7 +227,7 @@ npm run dev
 
 ## Docker Usage
 
-### Quick start (full stack)
+### Production-style (pre-built images, nginx)
 
 ```bash
 cp .env.example .env
@@ -235,31 +236,38 @@ docker compose up --build
 
 - Frontend: http://localhost:3000
 - Backend health: http://localhost:8080/health
+- Metrics: http://localhost:8080/metrics
 
-### Individual services
+### Development compose (hot reload, no host toolchain needed)
+
+Use `docker-compose.dev.yml` during active development. Go and Node run inside containers; source files are bind-mounted so changes are picked up without rebuilding images.
 
 ```bash
-# Build and run only the server
-docker compose up server
-
-# Rebuild after code changes
-docker compose up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
+
+- Frontend (Vite): http://localhost:5173
+- Backend (go run): http://localhost:8080
+- WebSocket: `ws://localhost:5173/ws` (proxied by Vite to the backend container)
+
+Go module downloads are cached in a named volume (`go-mod-cache`) and `node_modules` are isolated inside the container (`client-node-modules`), so restarts are fast.
 
 ### Stop
 
 ```bash
-docker compose down
+docker compose down                              # production
+docker compose -f docker-compose.dev.yml down    # dev
 ```
 
 ---
 
 ## Environment Variables
 
-| Variable      | Default | Description                  |
-|---------------|---------|------------------------------|
-| `PORT`        | `8080`  | Go server listen port        |
-| `CLIENT_PORT` | `3000`  | Nginx (frontend) listen port |
+| Variable          | Default               | Description                                              |
+|-------------------|-----------------------|----------------------------------------------------------|
+| `PORT`            | `8080`                | Go server listen port                                    |
+| `CLIENT_PORT`     | `3000`                | Nginx (frontend) listen port (production compose)        |
+| `VITE_WS_TARGET`  | `ws://localhost:8080` | WebSocket proxy target (dev compose sets `ws://server:8080`) |
 
 Copy `.env.example` to `.env` and adjust as needed.
 
@@ -314,8 +322,12 @@ npm run test:watch     # watch mode
 - [x] Per-player personalized state (hidden hand info)
 - [x] Player disconnect/reconnect during active game (60-second reconnect window)
 - [x] JSON health endpoint (`GET /health`) with room count, client count, and uptime
+- [x] **Metrics endpoint**: `GET /metrics` — atomic counters for rooms_active, players_connected, matches_started, matches_finished, bots_active, uptime_sec
+- [x] **Room lifecycle cleanup**: empty rooms are kept for 5 minutes then automatically deleted; rejoining before the timer cancels the cleanup
+- [x] **Structured server logging**: room created/deleted, match started/finished, player connected/disconnected, reconnect events
 - [x] Client auto-reconnect with exponential backoff
 - [x] Docker + docker-compose full-stack setup
+- [x] **Dev Docker Compose** (`docker-compose.dev.yml`): bind-mounted source with `go run` and Vite dev server; no host toolchain required
 - [x] **Session tokens**: cryptographically random token issued on join/create; required for reconnect to prevent slot hijacking
 - [x] **Per-client rate limiting**: server-side token bucket (10 msg/s sustained, burst of 20) protects against message flooding
 - [x] **Bot players**: host can add AI bots to the lobby; bots play autonomously with card preference heuristics
