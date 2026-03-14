@@ -1,0 +1,35 @@
+services:
+  server:
+    image: ${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file:
+      - app.env
+    expose:
+      - "8080"
+    networks:
+      - internal
+
+  client:
+    image: ${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      - server
+    expose:
+      - "80"
+    networks:
+      - traefik
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.rule=Host(`${APP_HOST}`)
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.entrypoints=websecure
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.tls=true
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.service=${APP_SUBDOMAIN}-${DEPLOY_ENV}
+      - traefik.http.services.${APP_SUBDOMAIN}-${DEPLOY_ENV}.loadbalancer.server.port=80
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
+  internal:
+    name: ${APP_SUBDOMAIN}-${DEPLOY_ENV}-internal
