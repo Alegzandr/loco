@@ -201,6 +201,48 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().showRoundSummary).toBe(false)
   })
 
+  it('setLobbyConfig updates matchFormat and maxPlayers', () => {
+    useGameStore.getState().setLobbyConfig('BO3', 6)
+    const s = useGameStore.getState()
+    expect(s.matchFormat).toBe('BO3')
+    expect(s.maxPlayers).toBe(6)
+  })
+
+  it('applyPendingGameState with no pending state is a no-op', () => {
+    useGameStore.setState({ myHand: [], pendingGameState: null })
+    useGameStore.getState().applyPendingGameState()
+    expect(useGameStore.getState().myHand).toHaveLength(0)
+  })
+
+  it('applyGameState resets showRoundSummary and pendingGameState', () => {
+    useGameStore.setState({ showRoundSummary: true, pendingGameState: { your_index: 0, hand: [], players: [], discard: { color: 'red', kind: 'number', value: 1 }, active_color: 'red', turn: 0, direction: 1 } })
+    const dto: GameStateDTO = {
+      your_index: 1,
+      hand: [],
+      players: [],
+      discard: { color: 'blue', kind: 'number', value: 2 },
+      active_color: 'blue',
+      turn: 1,
+      direction: 1,
+    }
+    useGameStore.getState().applyGameState(dto)
+    const s = useGameStore.getState()
+    expect(s.showRoundSummary).toBe(false)
+    expect(s.pendingGameState).toBeNull()
+    expect(s.myIndex).toBe(1)
+  })
+
+  it('applyCardPlayed with wild card keeps activeColor from store', () => {
+    useGameStore.setState({
+      activeColor: 'green',
+      players: [{ index: 0, nickname: 'alice', hand_size: 3, connected: true }],
+    })
+    const wildCard: CardDTO = { color: 'wild', kind: 'wild' }
+    useGameStore.getState().applyCardPlayed(0, wildCard, 1, 0)
+    // activeColor should remain 'green' since card.color === 'wild'
+    expect(useGameStore.getState().activeColor).toBe('green')
+  })
+
   it('setIsReconnecting toggles isReconnecting', () => {
     useGameStore.getState().setIsReconnecting(true)
     expect(useGameStore.getState().isReconnecting).toBe(true)

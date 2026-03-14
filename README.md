@@ -43,7 +43,7 @@ loco/
 │   │   ├── room.go          # Room lifecycle + game state
 │   │   └── rules.go         # CanPlay(), ApplyEffect()
 │   ├── hub/                 # WebSocket connection management
-│   │   ├── hub.go           # Event loop, message routing
+│   │   ├── hub.go           # Event loop, message routing, metrics, room cleanup
 │   │   └── client.go        # Per-connection read/write pumps
 │   ├── protocol/            # Shared message schema (client ↔ server)
 │   │   └── messages.go
@@ -53,24 +53,31 @@ loco/
 │   ├── src/
 │   │   ├── main.tsx         # React entry point
 │   │   ├── App.tsx          # Root component + message dispatch
-│   │   ├── components/      # UI screens
+│   │   ├── components/      # UI screens + shared components
 │   │   │   ├── Lobby.tsx
 │   │   │   ├── WaitingRoom.tsx
 │   │   │   ├── GameView.tsx
-│   │   │   └── GameOver.tsx
+│   │   │   ├── GameOver.tsx
+│   │   │   ├── RulesModal.tsx       # Game rules modal (accessible from all screens)
+│   │   │   └── LanguageSwitcher.tsx # EN/FR language toggle
 │   │   ├── game/            # PixiJS rendering
 │   │   │   ├── PixiGame.ts
 │   │   │   └── cardColors.ts
 │   │   ├── hooks/           # WebSocket + Zustand store
 │   │   │   ├── useWebSocket.ts
 │   │   │   └── useGameStore.ts
+│   │   ├── i18n/            # Internationalization
+│   │   │   ├── index.tsx    # I18nProvider, useI18n hook, lang detection
+│   │   │   ├── en.ts        # English translations + Translations type
+│   │   │   └── fr.ts        # French translations
 │   │   ├── types/           # Protocol TypeScript types
 │   │   │   └── protocol.ts
 │   │   └── test/            # Frontend unit tests
 │   ├── nginx.conf           # Production reverse proxy config
 │   ├── package.json
 │   └── Dockerfile
-├── docker-compose.yml
+├── docker-compose.yml       # Production-style full-stack compose
+├── docker-compose.dev.yml   # Development compose (bind mounts, hot reload)
 ├── .env.example
 ├── .gitignore
 ├── CLAUDE.md
@@ -226,7 +233,7 @@ npm run dev
 
 ## Docker Usage
 
-### Quick start (full stack)
+### Production-style (pre-built images, nginx)
 
 ```bash
 cp .env.example .env
@@ -235,31 +242,38 @@ docker compose up --build
 
 - Frontend: http://localhost:3000
 - Backend health: http://localhost:8080/health
+- Metrics: http://localhost:8080/metrics
 
-### Individual services
+### Development compose (hot reload, no host toolchain needed)
+
+Use `docker-compose.dev.yml` during active development. Go and Node run inside containers; source files are bind-mounted so changes are picked up without rebuilding images.
 
 ```bash
-# Build and run only the server
-docker compose up server
-
-# Rebuild after code changes
-docker compose up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
+
+- Frontend (Vite): http://localhost:5173
+- Backend (go run): http://localhost:8080
+- WebSocket: `ws://localhost:5173/ws` (proxied by Vite to the backend container)
+
+Go module downloads are cached in a named volume (`go-mod-cache`) and `node_modules` are isolated inside the container (`client-node-modules`), so restarts are fast.
 
 ### Stop
 
 ```bash
-docker compose down
+docker compose down                              # production
+docker compose -f docker-compose.dev.yml down    # dev
 ```
 
 ---
 
 ## Environment Variables
 
-| Variable      | Default | Description                  |
-|---------------|---------|------------------------------|
-| `PORT`        | `8080`  | Go server listen port        |
-| `CLIENT_PORT` | `3000`  | Nginx (frontend) listen port |
+| Variable          | Default               | Description                                              |
+|-------------------|-----------------------|----------------------------------------------------------|
+| `PORT`            | `8080`                | Go server listen port                                    |
+| `CLIENT_PORT`     | `3000`                | Nginx (frontend) listen port (production compose)        |
+| `VITE_WS_TARGET`  | `ws://localhost:8080` | WebSocket proxy target (dev compose sets `ws://server:8080`) |
 
 Copy `.env.example` to `.env` and adjust as needed.
 
@@ -275,12 +289,14 @@ go test ./...           # all tests
 go test ./game/... -v   # domain tests with verbose output
 ```
 
-### Frontend (Vitest)
+### Frontend (Vitest + ESLint)
 
 ```bash
 cd client
 npm test               # single run
 npm run test:watch     # watch mode
+npm run lint           # ESLint check
+npm run lint:fix       # ESLint auto-fix
 ```
 
 ---
@@ -314,8 +330,12 @@ npm run test:watch     # watch mode
 - [x] Per-player personalized state (hidden hand info)
 - [x] Player disconnect/reconnect during active game (60-second reconnect window)
 - [x] JSON health endpoint (`GET /health`) with room count, client count, and uptime
+- [x] **Metrics endpoint**: `GET /metrics` — atomic counters for rooms_active, players_connected, matches_started, matches_finished, bots_active, uptime_sec
+- [x] **Room lifecycle cleanup**: empty rooms are kept for 5 minutes then automatically deleted; rejoining before the timer cancels the cleanup
+- [x] **Structured server logging**: room created/deleted, match started/finished, player connected/disconnected, reconnect events
 - [x] Client auto-reconnect with exponential backoff
 - [x] Docker + docker-compose full-stack setup
+- [x] **Dev Docker Compose** (`docker-compose.dev.yml`): bind-mounted source with `go run` and Vite dev server; no host toolchain required
 - [x] **Session tokens**: cryptographically random token issued on join/create; required for reconnect to prevent slot hijacking
 - [x] **Per-client rate limiting**: server-side token bucket (10 msg/s sustained, burst of 20) protects against message flooding
 - [x] **Bot players**: host can add AI bots to the lobby; bots play autonomously with card preference heuristics
@@ -323,6 +343,8 @@ npm run test:watch     # watch mode
 - [x] **PixiJS card animations**: cards fly to/from the discard pile with easeOutCubic tweening; card draw also animated
 - [x] **UNO reaction timer UI**: countdown bar shows the 5-second catch window whenever a player declares UNO
 - [x] **Mobile support**: responsive layout, 44px+ tap targets, double-tap guard, touch-friendly wild color picker, `user-scalable=no`
+- [x] **Rules modal**: in-game rules reference accessible from Lobby, Waiting Room, and Game View — covers all custom mechanics; slides up as a sheet on mobile
+- [x] **Internationalisation (i18n)**: English and French UI with automatic browser language detection; manual language switcher persisted to `localStorage`; designed for easy addition of further languages
 
 ---
 
@@ -333,6 +355,7 @@ npm run test:watch     # watch mode
 - No spectator mode
 - No chat
 - Wild Draw Four legality (should only be legal when no matching color) not yet enforced
+- Only English and French are currently translated; adding a language requires a new file in `client/src/i18n/` and an entry in the `translations` map
 
 ---
 
@@ -348,7 +371,7 @@ The pipeline is defined in `.gitlab-ci.yml` and has three stages:
 
 **Test jobs** run on lightweight images (`golang:1.24.7-alpine` / `node:20-alpine`) with no Docker daemon required:
 - `backend_test`: `cd server && go test ./...`
-- `frontend_test`: `cd client && npm ci && npm run test && npm run build`
+- `frontend_test`: `cd client && npm ci && npm run lint && npm run test && npm run build`
 
 **Build** and **deploy** jobs require the `devops` runner tag and a GitLab container registry.
 

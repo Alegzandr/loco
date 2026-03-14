@@ -293,6 +293,12 @@ Adjust this section as the repo evolves. Keep it current.
 
 Typical structure:
 - `client/` frontend app
+  - `src/components/` — UI screens + shared components (RulesModal, LanguageSwitcher)
+  - `src/i18n/` — i18n context, English and French translations
+  - `src/game/` — PixiJS rendering
+  - `src/hooks/` — WebSocket connection and Zustand store
+  - `src/types/` — protocol TypeScript types
+  - `src/test/` — Vitest unit tests
 - `server/` authoritative realtime game server
   - `game/` — pure domain logic (room, deck, hand, rules, bot, event log)
   - `hub/` — WebSocket connection management, rate limiting, session tokens, bot scheduling
@@ -380,10 +386,19 @@ If structure changes, update this file and the README.
 - Pipeline defined in `.gitlab-ci.yml` with three stages: `test` → `build` → `deploy`.
 - `test` stage has two jobs that run on **every push** using lightweight images (no Docker daemon):
   - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...`
-  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run test && npm run build`
+  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`
 - `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
 - Deploy jobs require the `devops` runner tag and a GitLab container registry.
 - Both test jobs must pass before Docker images are built or deployed.
+
+## Linting conventions
+
+- Client linting uses ESLint v9 with flat config (`eslint.config.js`).
+- ESLint rules: `@typescript-eslint/recommended`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`.
+- `@typescript-eslint/no-unused-vars` is set to `error`; prefix intentionally unused identifiers with `_` to suppress.
+- Run: `cd client && npm run lint` (or `npm run lint:fix` to auto-fix).
+- Linting runs in CI before tests: `npm run lint && npm run test && npm run build`.
+- Server linting: `go vet ./...` is implicitly run by `go test ./...`; this is sufficient for now.
 
 ## Reconnect visual recovery conventions
 
@@ -403,6 +418,60 @@ If structure changes, update this file and the README.
 - The summary has a "Continue (Ns)" button that calls `dismissRoundSummary()`, which applies the buffered state and clears the summary.
 - Auto-dismiss fires after 8 seconds if the player does not click Continue.
 - `dismissRoundSummary` applies `pendingGameState` if present, else just clears `showRoundSummary`.
+
+## Metrics conventions
+
+- `GET /metrics` returns JSON with atomic counters: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`.
+- All counters are `sync/atomic.Int32` fields on `Hub`; `GetMetrics()` reads them without entering the event loop.
+- `statMatchesStarted` incremented in `handleStartGame` (once per `start_game` message, not per round).
+- `statMatchesFinished` incremented in `handleRoundOrMatchEnd` when `room.MatchOver` is true.
+- `statBotsActive` incremented in `handleAddBot`; decremented in `deleteRoom` by the number of bots in that room.
+
+## Room lifecycle cleanup conventions
+
+- `hub.EmptyRoomTimeout` (exported `var`, default 5 minutes) controls how long an empty room is kept before deletion.
+- When a room becomes empty (last member disconnects from lobby/finished, or all slots go nil in an active game), `scheduleRoomCleanup(code)` is called.
+- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and starts a goroutine that sends a `cleanupMsg` after `EmptyRoomTimeout`.
+- `handleCleanup` deletes the room only if `emptyRooms[code]` still matches the recorded time (race-safe: any rejoin clears or changes the entry).
+- Rejoining (lobby join) or reconnecting (active game) calls `delete(h.emptyRooms, code)` to cancel the cleanup.
+- `deleteRoom(code)` is the single point of room deletion: cleans up all hub maps, adjusts `statRooms` and `statBotsActive`, and emits a structured log line.
+- Tests override `EmptyRoomTimeout` to a short value (e.g. 80 ms) via `hub.EmptyRoomTimeout = ...` and restore it with `t.Cleanup`.
+
+## Structured logging conventions
+
+- All log output uses the standard `log` package to stdout.
+- Format: `key=value` pairs on a single line, e.g. `room created code=ABC123 host=Alice`.
+- Events logged: player connected (with addr), player disconnected (with code/nickname/playerID), reconnected, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors.
+- No sensitive data (tokens, hand contents) in logs.
+
+## i18n conventions
+
+- Translations live in `client/src/i18n/en.ts` (English, source of truth) and `client/src/i18n/fr.ts` (French).
+- The `Translations` interface is defined in `en.ts` and re-used as the type for all language files — missing keys cause a TypeScript error.
+- `I18nProvider` (in `client/src/i18n/index.tsx`) wraps the app in `main.tsx` and exposes `useI18n()` hook returning `{ lang, t, setLang }`.
+- Language detection order: (1) `localStorage.getItem('loco_lang')`, (2) `navigator.language` prefix (`'fr'` → French, else English).
+- `setLang` stores the selection to `localStorage` and syncs `document.documentElement.lang` for accessibility.
+- To add a new language: create `client/src/i18n/xx.ts` implementing `Translations`, add the entry to the `translations` map in `index.tsx`, and add a `{ code, label }` entry to `LANGS` in `LanguageSwitcher.tsx`.
+- The `rules` field uses `readonly RulesSection[]`; sections are rendered by `RulesModal` directly from the translation object.
+- Storage key: `'loco_lang'`.
+
+## Rules modal conventions
+
+- `RulesModal` is a full-screen backdrop modal accessible from: Lobby (top-right corner), WaitingRoom (top-right corner), and GameView (action bar "Rules" button).
+- Close triggers: ✕ button, footer Close button, backdrop click, `Escape` key.
+- On mobile (`max-width: 480px`) the modal slides up from the bottom as a sheet (bottom border-radius 0, max-height 92vh).
+- `document.body.style.overflow = 'hidden'` is set while the modal is open and restored on unmount.
+- All rules content lives in the translation files; the modal component is content-agnostic.
+
+## Dev Docker Compose conventions
+
+- `docker-compose.dev.yml` provides a hot-reload development environment with no host Go or Node required.
+- Backend service: `golang:1.24.7-alpine` image, bind-mounts `./server:/app`, runs `go run .`, port 8080.
+- Frontend service: `node:20-alpine` image, bind-mounts `./client:/app`, runs `npm ci && npm run dev`, port 5173 (mapped from container port 3000).
+- `VITE_WS_TARGET=ws://server:8080` environment variable in the frontend service routes the Vite WebSocket proxy to the backend container (instead of localhost).
+- `vite.config.ts` reads `process.env.VITE_WS_TARGET` for the proxy target (falls back to `ws://localhost:8080` for local dev without Docker).
+- Go module cache (`go-mod-cache`) and node_modules (`client-node-modules`) are named Docker volumes so restarts do not re-download dependencies.
+- Start command: `docker compose -f docker-compose.dev.yml up --build`.
 
 ---
 
