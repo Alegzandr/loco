@@ -212,6 +212,9 @@ func (h *Hub) Run() {
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
 			log.Printf("player connected addr=%s", c.conn.RemoteAddr())
+			// Start pumps after registration so readPump's unregister call is
+			// never processed before the register, preventing zombie clients.
+			c.start()
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
