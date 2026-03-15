@@ -72,6 +72,10 @@ frontend_test:
         local target="$1"
         printf '%s\n' \
           "PORT=${PORT}" \
+          "DEPLOY_ENV=${DEPLOY_ENV}" \
+          "APP_HOST=${APP_HOST}" \
+          "IMAGE_TAG=${IMAGE_TAG}" \
+          "CI_REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}" \
           > "${target}"
       }
     - set -a
@@ -118,7 +122,7 @@ deploy_dev:
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
     - write_app_env "${TARGET_DIR}/app.env"
     - cd "${TARGET_DIR}"
-    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env -f compose.yml up -d
+    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d
 
 stop_dev:
   stage: deploy
@@ -135,7 +139,7 @@ stop_dev:
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
     - write_app_env "${TARGET_DIR}/app.env"
     - cd "${TARGET_DIR}"
-    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env -f compose.yml down
+    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml down
 
 deploy_prod:
   stage: deploy
@@ -152,4 +156,4 @@ deploy_prod:
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
     - write_app_env "${TARGET_DIR}/app.env"
     - cd "${TARGET_DIR}"
-    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env -f compose.yml up -d
+    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d

@@ -403,6 +403,28 @@ If structure changes, update this file and the README.
 - Deploy jobs require the `devops` runner tag and a GitLab container registry.
 - Both test jobs must pass before Docker images are built or deployed.
 
+### Production request path
+
+```
+Browser (HTTPS) → Traefik (:443, entrypoint websecure)
+  → client nginx (:80, networks: traefik + internal)
+    → /ws     → Go server (:8080, network: internal only)   [WebSocket]
+    → /health → Go server (:8080)
+    → /       → nginx serves static SPA files directly
+```
+
+- The Go server container is on the `internal` network only; Traefik cannot reach it directly.
+- nginx bridges `traefik` and `internal`, proxying WebSocket and health traffic to `server:8080`.
+- Port chain is consistent: Traefik → 80 → nginx → 8080 → Go. No port mismatch.
+
+### Production readiness conventions
+
+- `deploy/compose.yml` server service has a healthcheck: `wget -qO- http://localhost:8080/health`, interval 10 s, timeout 5 s, 3 retries, start_period 5 s.
+- `client` depends on `server` with `condition: service_healthy` — nginx only starts after Go is accepting connections.
+- `write_app_env` in `.gitlab-ci.yml` writes all compose-interpolation vars (`PORT`, `DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`) to `app.env`.
+- All `docker compose up/down` calls use `--env-file paths.env --env-file app.env` so a manual re-deploy on the server works without CI shell exports.
+- nginx `/ws` block sets `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s` to prevent premature 504s on both connect and long-lived WebSocket connections.
+
 ## Linting conventions
 
 - Client linting uses ESLint v9 with flat config (`eslint.config.js`).
