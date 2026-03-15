@@ -96,6 +96,11 @@ type Hub struct {
 	cleanup     chan cleanupMsg  // empty-room cleanup timers
 	turnTimeout chan turnTimerMsg // per-turn timeout actions
 
+	// afterRegisterHook is called in the register case after the client is added
+	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
+	// Nil by default; set via export_test.go for deterministic race tests only.
+	afterRegisterHook func()
+
 	// Atomic stats — safe to read from any goroutine (health/metrics endpoints).
 	statRooms          atomic.Int32
 	statClients        atomic.Int32
@@ -212,6 +217,9 @@ func (h *Hub) Run() {
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
 			log.Printf("player connected addr=%s", c.conn.RemoteAddr())
+			if h.afterRegisterHook != nil {
+				h.afterRegisterHook()
+			}
 			// Start pumps after registration so readPump's unregister call is
 			// never processed before the register, preventing zombie clients.
 			c.start()
@@ -1081,19 +1089,23 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			}
 			if !canPlay {
 				if err := room.PassTurn(bm.playerID); err == nil {
+					h.scheduleTurnTimer(code, room)
 					dl := h.turnDeadlineMs(code)
 					h.broadcastToRoomAll(code, protocol.ServerMsg{
 						Type:         protocol.SMsgTurnChanged,
 						Turn:         room.State.CurrentTurn,
 						TurnDeadline: dl,
 					})
-					h.scheduleTurnTimer(code, room)
 				}
 			} else {
 				// Schedule another bot move to play the drawn card
 				h.scheduleBotMove(code, bm.playerID)
 				return
 			}
+		} else {
+			// Penalty draw (PendingDraw > 0) advanced the turn; the new current
+			// player needs a timer or bot schedule so the game keeps progressing.
+			h.scheduleTurnTimer(code, room)
 		}
 	}
 
