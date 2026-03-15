@@ -307,8 +307,12 @@ Typical structure:
   - `tests/game-flow.spec.ts` — single-browser gameplay flow (lobby → game over)
   - `tests/multi-client.spec.ts` — two-browser synchronization tests
   - `tests/mobile.spec.ts` — mobile viewport tests (Pixel 5)
-  - `helpers/game.ts` — shared E2E helpers (create room, draw/pass, wait helpers)
-  - `types.d.ts` — `Window.__LOCO_E2E__` type declaration
+  - `tests/penalties.spec.ts` — error toast, turn timer, UNO catch window, pending-draw button
+  - `tests/round-progression.spec.ts` — BO3 round advancement, game-over, spectating banner, auto-dismiss
+  - `tests/reconnect.spec.ts` — offline/online reconnect, reconnect overlay, two-client disconnect/reconnect
+  - `tests/special-cards.spec.ts` — Swap, GlobalSwitch, counter_draw, interrupt_play, two-client card sync
+  - `helpers/game.ts` — shared E2E helpers (create room, draw/pass, takeTurn, participateInTurns, setMatchFormat, waitForPendingDraw, waitForUnoDeclared, waitForRoundNumber, clickContinue)
+  - `types.d.ts` — `Window.__LOCO_E2E__` type declaration (full store state)
   - `playwright.config.ts` — Playwright project config
 - `shared/` protocol/types if used
 - `docs/` optional supplemental docs

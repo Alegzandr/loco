@@ -340,10 +340,25 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 
 **Test projects included:**
 
-| Project         | Tests                  | Viewport     |
-|-----------------|------------------------|--------------|
-| `chromium`      | `game-flow`, `multi-client` | Desktop   |
-| `mobile-chrome` | `mobile`               | Pixel 5 (360×800) |
+| Project         | Tests                                                                                     | Viewport     |
+|-----------------|-------------------------------------------------------------------------------------------|--------------|
+| `chromium`      | `game-flow`, `multi-client`, `penalties`, `round-progression`, `reconnect`, `special-cards` | Desktop   |
+| `mobile-chrome` | `mobile`                                                                                  | Pixel 5 (360×800) |
+
+**Coverage areas:**
+- Lobby, waiting room, and game-start flow
+- Draw, pass, and play-card actions (BO1 + BO3)
+- Turn timer bar visibility
+- Error toast on invalid play
+- UNO catch window (Catch! button, timer)
+- Pending-draw counter on Draw button
+- Penalty absorption (pendingDraw clears, turn advances)
+- BO3 multi-round progression (round 2, auto-dismiss, game over)
+- Spectating banner (local player finishes before round ends)
+- WebSocket reconnect (offline/online cycle, reconnect overlay, two-client disconnect)
+- Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch discard update
+- counter_draw stacking, interrupt_play out-of-turn
+- Mobile touch targets (44px+), color picker, rules modal, canvas size
 
 ---
 
