@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useGameStore } from './hooks/useGameStore'
 import { Lobby } from './components/Lobby'
@@ -73,6 +73,13 @@ export default function App() {
           break
         }
 
+        case 'game_state':
+          // Mid-game state refresh (e.g. after Swap or GlobalSwitch)
+          if (msg.state) {
+            useGameStore.setState({ myHand: msg.state.hand, players: msg.state.players })
+          }
+          break
+
         case 'card_played':
           if (msg.card) {
             store.applyCardPlayed(
@@ -89,10 +96,11 @@ export default function App() {
 
         case 'card_drawn':
           store.applyCardDrawn(
-            msg.card ?? null,
+            msg.cards?.length ? msg.cards : (msg.card ? [msg.card] : null),
             msg.player_index ?? 0,
             msg.turn ?? 0,
-            msg.has_drawn
+            msg.has_drawn,
+            msg.drawn_count
           )
           store.setTurnDeadline(msg.turn_deadline ?? null)
           break
@@ -103,9 +111,11 @@ export default function App() {
 
         case 'uno_declared':
           store.setUnoDeclared(true)
+          store.setUnoDeclaredByIndex(msg.player_index ?? -1)
           store.setUnoTimerEnd(Date.now() + 5000)
           setTimeout(() => {
             store.setUnoDeclared(false)
+            store.setUnoDeclaredByIndex(-1)
             store.setUnoTimerEnd(null)
           }, 5000)
           break
@@ -156,7 +166,7 @@ export default function App() {
     return null
   }, [])
 
-  const { send } = useWebSocket(handleMessage, getReconnectMsg)
+  const { send, wsStatus } = useWebSocket(handleMessage, getReconnectMsg)
 
   const handleSend = useCallback(
     (msg: ClientMsg) => {
@@ -165,6 +175,21 @@ export default function App() {
     },
     [send, store]
   )
+
+  // Keep a stable ref so the E2E helper always dispatches through the latest send.
+  const sendRef = useRef(handleSend)
+  sendRef.current = handleSend
+
+  // Expose lightweight E2E helpers on window in dev mode only.
+  // Vite tree-shakes this block in production builds (import.meta.env.DEV = false).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    window.__LOCO_E2E__ = {
+      ...(window.__LOCO_E2E__ ?? {}),
+      send: (msg: ClientMsg) => sendRef.current(msg),
+      getState: useGameStore.getState,
+    }
+  }, [])
 
   const myNickname =
     store.players.find((p) => p.index === store.myIndex)?.nickname ?? ''
@@ -184,7 +209,7 @@ export default function App() {
           onSend={handleSend}
         />
       )}
-      {store.screen === 'game' && <GameView onSend={handleSend} />}
+      {store.screen === 'game' && <GameView onSend={handleSend} wsStatus={wsStatus} />}
       {store.screen === 'gameover' && (
         <GameOver
           winner={store.matchOver ? store.matchWinner : store.winner}

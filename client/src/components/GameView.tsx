@@ -3,25 +3,56 @@ import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore } from '../hooks/useGameStore'
 import { useI18n } from '../i18n'
+import { WsStatus } from '../hooks/useWebSocket'
 import { RulesModal } from './RulesModal'
 import { UnoTimer } from './UnoTimer'
 import { ColorPicker } from './ColorPicker'
+import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
 import styles from './GameView.module.css'
 
+// Client-side card legality hint — prevents animating clearly-invalid plays before
+// the server rejects them. Server validation is always authoritative.
+function clientMayPlay(
+  card: CardDTO,
+  discard: CardDTO | null,
+  activeColor: CardColor,
+  pendingDraw: number,
+): boolean {
+  if (pendingDraw > 0) {
+    // Only the exact same kind as the top discard card can counter (mirrors server CounterDraw).
+    // e.g. +2 can only be countered by +2; +4 can only be countered by +4.
+    if (!discard) return false
+    return card.kind === discard.kind && (card.kind === 'draw_two' || card.kind === 'wild_draw_four')
+  }
+  if (card.kind === 'wild' || card.kind === 'wild_draw_four') return true
+  if (!discard) return true
+  if (card.color === activeColor) return true
+  // For non-number action cards matching kind is enough (e.g. Skip on Skip)
+  if (card.kind !== 'number' && card.kind === discard.kind) return true
+  // For number cards require matching value (mirrors server CanPlay)
+  if (card.kind === 'number' && discard.kind === 'number') return card.value === discard.value
+  return false
+}
+
 interface Props {
   onSend: (msg: ClientMsg) => void
+  wsStatus: WsStatus
 }
 
 const UNO_WINDOW_MS = 5000
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
 
-export function GameView({ onSend }: Props) {
+export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixiRef = useRef<PixiGame | null>(null)
+  // Tracks when PixiJS async init completes so the render effect can fire even
+  // if no game-state deps changed between component mount and init completion.
+  const [pixiReady, setPixiReady] = useState(false)
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
+  const [playerPicker, setPlayerPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [timerPct, setTimerPct] = useState(0)
   const timerRafRef = useRef<number | null>(null)
   const [turnTimerPct, setTurnTimerPct] = useState(0)
@@ -44,6 +75,7 @@ export function GameView({ onSend }: Props) {
     pendingDraw,
     hasDrawn,
     unoDeclared,
+    unoDeclaredByIndex,
     unoTimerEnd,
     turnDeadline,
     showRoundSummary,
@@ -54,8 +86,10 @@ export function GameView({ onSend }: Props) {
     roundNumber,
     matchFormat,
     isReconnecting,
+    errorMsg,
     dismissRoundSummary,
     setIsReconnecting,
+    clearError,
   } = useGameStore()
 
   const guardDoubleTap = useCallback((fn: () => void) => {
@@ -72,6 +106,14 @@ export function GameView({ onSend }: Props) {
         setColorPicker({ card, idx: cardIdx })
         return
       }
+      if (card.kind === 'swap') {
+        setPlayerPicker({ card, idx: cardIdx })
+        return
+      }
+      // global_switch: play immediately (no picker needed)
+      // Block the play animation for clearly-invalid cards so there's no "fake" play.
+      // Server is always authoritative; this is a UX hint only.
+      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
       // Trigger travel animation before state update
       const game = pixiRef.current
       if (game) {
@@ -80,13 +122,27 @@ export function GameView({ onSend }: Props) {
       }
       onSend({ type: 'play_card', card, chosen_color: card.color })
     },
-    [currentTurn, myIndex, onSend]
+    [currentTurn, myIndex, discard, activeColor, pendingDraw, onSend]
   )
 
   // Stable ref so PixiGame always invokes the latest handleCardClick
   // even though the PixiGame instance is created once in the init effect below.
   const onCardClickRef = useRef(handleCardClick)
   onCardClickRef.current = handleCardClick
+
+  // Expose playCard on the E2E helper object (dev mode only).
+  // This lets Playwright trigger a card play via handleCardClick without needing
+  // to find and click the exact pixel on the PixiJS canvas.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    if (!window.__LOCO_E2E__) window.__LOCO_E2E__ = {}
+    window.__LOCO_E2E__.playCard = (card: CardDTO) => {
+      const idx = myHand.findIndex(
+        (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
+      )
+      handleCardClick(card, Math.max(0, idx))
+    }
+  }, [handleCardClick, myHand])
 
   // Initialize PixiJS
   useEffect(() => {
@@ -96,7 +152,12 @@ export function GameView({ onSend }: Props) {
     const game = new PixiGame(stableOnCardClick)
     let cancelled = false
     game.init(canvasRef.current).then(() => {
-      if (!cancelled) pixiRef.current = game
+      if (!cancelled) {
+        pixiRef.current = game
+        // Trigger the render effect so the initial game state is drawn even
+        // if no store deps changed between component mount and init completion.
+        setPixiReady(true)
+      }
     })
     return () => {
       cancelled = true
@@ -154,7 +215,7 @@ export function GameView({ onSend }: Props) {
       turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix,
         ord1: t.ord1, ord2: t.ord2, ord3: t.ord3, ordN: t.ordN },
     })
-  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t])
+  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t, pixiReady])
 
   // Animate UNO catch timer bar
   useEffect(() => {
@@ -209,6 +270,13 @@ export function GameView({ onSend }: Props) {
     }
   }, [turnDeadline])
 
+  // Auto-clear in-game error messages after 2.5 seconds
+  useEffect(() => {
+    if (!errorMsg) return
+    const t = setTimeout(clearError, 2500)
+    return () => clearTimeout(t)
+  }, [errorMsg, clearError])
+
   // Auto-dismiss round summary countdown
   useEffect(() => {
     if (!showRoundSummary) {
@@ -242,6 +310,9 @@ export function GameView({ onSend }: Props) {
 
   const isMyTurn = currentTurn === myIndex
   const isFinished = !!players.find((p) => p.index === myIndex)?.finished
+  // True when the player has at least one card they can legally play right now.
+  // Used to de-emphasize the Draw button so it doesn't look like the required action.
+  const hasPlayableCard = isMyTurn && myHand.some(c => clientMayPlay(c, discard, activeColor, pendingDraw))
 
   return (
     <div className={styles.container}>
@@ -251,7 +322,7 @@ export function GameView({ onSend }: Props) {
       {turnDeadline !== null && (
         <div className={styles.turnTimerBar}>
           <div
-            className={styles.turnTimerFill}
+            className={`${styles.turnTimerFill}${turnTimerPct < 20 ? ' ' + styles.turnTimerFillUrgent : ''}`}
             style={{
               width: `${turnTimerPct}%`,
               background: turnTimerPct < 25 ? '#ff4757' : turnTimerPct < 50 ? '#ffa502' : '#4d96ff',
@@ -260,13 +331,26 @@ export function GameView({ onSend }: Props) {
         </div>
       )}
 
-      {/* Reconnect overlay */}
+      {/* Reconnect overlay — server-triggered (player_reconnected) */}
       {showReconnectOverlay && (
         <div className={styles.reconnectOverlay}>
           <div className={styles.reconnectCard}>
             <div className={styles.reconnectSpinner} />
             <div className={styles.reconnectText}>{t.reconnected}</div>
             <div className={styles.reconnectSub}>{t.rebuildingTable}</div>
+          </div>
+        </div>
+      )}
+
+      {/* WS overlay — shown when the WebSocket transport is down mid-game.
+          Prevents the blank-canvas regression where the board renders empty
+          because no game_state arrives while the socket is reconnecting. */}
+      {wsStatus !== 'open' && (
+        <div className={styles.reconnectOverlay}>
+          <div className={styles.reconnectCard}>
+            <div className={styles.reconnectSpinner} />
+            <div className={styles.reconnectText}>{t.wsLostConnection}</div>
+            <div className={styles.reconnectSub}>{t.wsReconnecting}</div>
           </div>
         </div>
       )}
@@ -283,14 +367,22 @@ export function GameView({ onSend }: Props) {
         pendingDraw={pendingDraw}
         handSize={myHand.length}
         hasDrawn={hasDrawn}
+        hasPlayableCard={hasPlayableCard}
         unoTimerEnd={unoTimerEnd}
         onDraw={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
         onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
         onUno={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
         onCatch={() => guardDoubleTap(() => onSend({ type: 'catch_uno' }))}
-        onRules={() => setShowRules(true)}
         t={t}
       />
+
+      {/* Fixed Rules button — top-right corner, never shifts with action bar */}
+      <button className={styles.rulesBtn} onClick={() => setShowRules(true)}>
+        {t.rulesBtn}
+      </button>
+
+      {/* In-game error toast */}
+      {errorMsg && <div className={styles.errorToast}>{errorMsg}</div>}
 
       {/* Wild color picker */}
       {colorPicker && (
@@ -309,6 +401,24 @@ export function GameView({ onSend }: Props) {
         />
       )}
 
+      {/* Swap player picker */}
+      {playerPicker && (
+        <PlayerPicker
+          label={t.choosePlayer}
+          players={players.filter((p) => p.index !== myIndex && !p.finished)}
+          onChoose={(targetIdx: number) => {
+            const game = pixiRef.current
+            if (game) {
+              const { width, height } = game.app.screen
+              game.animateCardPlay(playerPicker.card, playerPicker.idx, width, height)
+            }
+            onSend({ type: 'play_card', card: playerPicker.card, chosen_player: targetIdx })
+            setPlayerPicker(null)
+          }}
+          onCancel={() => setPlayerPicker(null)}
+        />
+      )}
+
       {/* Round summary overlay */}
       {showRoundSummary && (
         <RoundSummary
@@ -323,7 +433,13 @@ export function GameView({ onSend }: Props) {
         />
       )}
 
-      {unoDeclared && <div className={styles.unoBanner}>{t.unoBanner}</div>}
+      {unoDeclared && (
+        <div className={styles.unoBanner}>
+          {unoDeclaredByIndex >= 0 && players.find(p => p.index === unoDeclaredByIndex)?.nickname
+            ? `${players.find(p => p.index === unoDeclaredByIndex)!.nickname}: ${t.unoBanner}`
+            : t.unoBanner}
+        </div>
+      )}
 
       {/* Spectating banner when local player has finished but round is still going */}
       {isFinished && !showRoundSummary && (

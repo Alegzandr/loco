@@ -8,6 +8,7 @@ import (
 	"log"
 	mrand "math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -64,9 +65,22 @@ type cleanupMsg struct {
 
 // turnTimerMsg is sent internally when a player's turn timer expires.
 type turnTimerMsg struct {
-	roomCode     string
-	playerID     int
+	roomCode      string
+	playerID      int
 	turnStartedAt time.Time
+}
+
+// unoMsg is sent internally to broadcast a delayed bot UNO declaration.
+type unoMsg struct {
+	roomCode    string
+	playerIndex int
+}
+
+// botCatchMsg is sent internally when a bot should attempt to catch an undeclared UNO.
+type botCatchMsg struct {
+	roomCode     string
+	targetPlayer int
+	lastCardTime time.Time // stale-check: must match room.State.LastCardTime at execution
 }
 
 // Hub manages all active rooms and connected clients.
@@ -92,9 +106,16 @@ type Hub struct {
 	unregister  chan *Client
 	inbound     chan inboundMsg
 	expire      chan expireMsg
-	botMove     chan botMoveMsg  // scheduled bot actions
-	cleanup     chan cleanupMsg  // empty-room cleanup timers
-	turnTimeout chan turnTimerMsg // per-turn timeout actions
+	botMove      chan botMoveMsg   // scheduled bot actions
+	cleanup      chan cleanupMsg   // empty-room cleanup timers
+	turnTimeout  chan turnTimerMsg // per-turn timeout actions
+	unoAnnounce  chan unoMsg       // delayed bot UNO declaration broadcasts
+	botCatch     chan botCatchMsg  // scheduled bot catch-UNO attempts
+
+	// afterRegisterHook is called in the register case after the client is added
+	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
+	// Nil by default; set via export_test.go for deterministic race tests only.
+	afterRegisterHook func()
 
 	// Atomic stats — safe to read from any goroutine (health/metrics endpoints).
 	statRooms          atomic.Int32
@@ -142,6 +163,8 @@ func New() *Hub {
 		botMove:        make(chan botMoveMsg, 64),
 		cleanup:        make(chan cleanupMsg, 64),
 		turnTimeout:    make(chan turnTimerMsg, 64),
+		unoAnnounce:    make(chan unoMsg, 64),
+		botCatch:       make(chan botCatchMsg, 64),
 		startTime:      time.Now(),
 	}
 }
@@ -212,6 +235,12 @@ func (h *Hub) Run() {
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
 			log.Printf("player connected addr=%s", c.conn.RemoteAddr())
+			if h.afterRegisterHook != nil {
+				h.afterRegisterHook()
+			}
+			// Start pumps after registration so readPump's unregister call is
+			// never processed before the register, preventing zombie clients.
+			c.start()
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {
@@ -235,6 +264,12 @@ func (h *Hub) Run() {
 
 		case tm := <-h.turnTimeout:
 			h.handleTurnTimeout(tm)
+
+		case um := <-h.unoAnnounce:
+			h.handleUnoAnnounce(um)
+
+		case cm := <-h.botCatch:
+			h.handleBotCatch(cm)
 		}
 	}
 }
@@ -279,6 +314,10 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleCatchUno(c, msg)
 	case protocol.CMsgCounterDraw:
 		h.handleCounterDraw(c, msg)
+	case protocol.CMsgInterruptPlay:
+		h.handleInterruptPlay(c, msg)
+	case protocol.CMsgDebugSetState:
+		h.handleDebugSetState(c, msg)
 	default:
 		c.sendError("unknown message type")
 	}
@@ -479,12 +518,20 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	if err := room.PlayCard(c.playerID, card, chosenColor); err != nil {
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+	if err := room.PlayCard(c.playerID, card, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		return
 	}
 
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	if card.Kind == game.Swap || card.Kind == game.GlobalSwitch {
+		h.broadcastPersonalizedGameState(c.roomCode, room)
+	}
+	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -544,13 +591,21 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
+	priorSize := len(room.State.Hands[c.playerID].Cards)
 	if err := room.DrawCard(c.playerID); err != nil {
 		c.sendError(err.Error())
 		return
 	}
 	state := room.State
 	hand := state.Hands[c.playerID]
-	drawn := hand.Cards[len(hand.Cards)-1]
+	newCards := hand.Cards[priorSize:]
+	drawnCount := len(newCards)
+
+	// Build DTOs for all newly drawn cards (sent privately to the drawing player).
+	cardDTOs := make([]*protocol.CardDTO, drawnCount)
+	for i, card := range newCards {
+		cardDTOs[i] = cardToDTO(card)
+	}
 
 	// If drawing advanced the turn (penalty draw), reset the turn timer.
 	if state.CurrentTurn != c.playerID {
@@ -558,19 +613,20 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	}
 	dl := h.turnDeadlineMs(c.roomCode)
 
-	// Tell the drawing player their new card plus the updated has_drawn flag
+	// Tell the drawing player all their new cards plus the updated has_drawn flag.
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
 		PlayerIndex:  c.playerID,
-		Card:         cardToDTO(drawn),
+		Cards:        cardDTOs,
 		Turn:         state.CurrentTurn,
 		HasDrawn:     state.HasDrawn,
 		TurnDeadline: dl,
 	})
-	// Tell others hand size changed
+	// Tell others how many cards changed hands so they can update the hand-size counter.
 	h.broadcastToRoom(c.roomCode, protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
 		PlayerIndex:  c.playerID,
+		DrawnCount:   drawnCount,
 		Turn:         state.CurrentTurn,
 		TurnDeadline: dl,
 	}, c)
@@ -645,6 +701,34 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.handleRoundOrMatchEnd(c.roomCode, room)
+}
+
+func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if msg.Card == nil {
+		c.sendError("card required")
+		return
+	}
+	card, _, err := dtoToCard(msg.Card, "")
+	if err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+	if err := room.InterruptPlay(c.playerID, card, chosenPlayer); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -911,7 +995,36 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 
 // BotThinkDelay is the simulated thinking time before a bot acts.
 // Exported so tests can reduce it to speed up bot-game tests.
-var BotThinkDelay = 800 * time.Millisecond
+var BotThinkDelay = 1200 * time.Millisecond
+
+// BotJitterMax is the maximum random jitter added to bot think delays.
+// Exported so tests can set it to 0 to make bot timing deterministic.
+var BotJitterMax = 1000 * time.Millisecond
+
+// BotUnoDelay is the base delay before a bot broadcasts its UNO declaration
+// after playing to 1 card. Separate from BotThinkDelay so it feels like a
+// distinct reaction rather than part of the card-play decision.
+// Exported so tests can set it to 0.
+var BotUnoDelay = 400 * time.Millisecond
+
+// BotUnoJitterMax is the max random jitter added to BotUnoDelay.
+// Exported so tests can set it to 0.
+var BotUnoJitterMax = 400 * time.Millisecond
+
+// BotCatchDelay is the base delay before a bot attempts to catch an undeclared UNO.
+// Must be well under catchWindow (5s). 2s base gives bots time to "notice" without
+// being instant. Exported so tests can set it to 0.
+var BotCatchDelay = 2000 * time.Millisecond
+
+// BotCatchJitterMax is the max random jitter added to BotCatchDelay, giving a
+// total reaction window of BotCatchDelay to BotCatchDelay+BotCatchJitterMax (2–3.5s).
+// Exported so tests can set it to 0.
+var BotCatchJitterMax = 1500 * time.Millisecond
+
+// BotCatchProb is the probability (0–1) that an eligible bot will catch an undeclared UNO.
+// 0.65 means bots catch ~65% of the time, making them fallible like human opponents.
+// Exported so tests can set it to a deterministic value.
+var BotCatchProb float32 = 0.65
 
 // handleAddBot adds a bot player to the lobby (host-only).
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
@@ -956,7 +1069,13 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 // would stall the game (no player would act on that turn).
 func (h *Hub) scheduleBotMove(code string, playerID int) {
 	bm := botMoveMsg{roomCode: code, playerID: playerID}
-	time.AfterFunc(BotThinkDelay, func() {
+	// Add random jitter so bots don't all act at the same instant and feel more
+	// like human reaction times. BotJitterMax can be set to 0 in tests.
+	var jitter time.Duration
+	if jm := int(BotJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
+	time.AfterFunc(BotThinkDelay+jitter, func() {
 		select {
 		case h.botMove <- bm:
 		default:
@@ -985,6 +1104,130 @@ func (h *Hub) maybeScheduleBot(code string, room *game.Room) {
 	if _, isBot := bots[turn]; isBot {
 		h.scheduleBotMove(code, turn)
 	}
+}
+
+// scheduleBotUnoAnnounce sends a delayed uno_declared broadcast for a bot that just
+// played to 1 card. The server state is already updated (DeclareLastCard called);
+// only the broadcast is deferred so it feels like a human reaction rather than instant.
+func (h *Hub) scheduleBotUnoAnnounce(code string, playerIndex int) {
+	var jitter time.Duration
+	if jm := int(BotUnoJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
+	um := unoMsg{roomCode: code, playerIndex: playerIndex}
+	time.AfterFunc(BotUnoDelay+jitter, func() {
+		select {
+		case h.unoAnnounce <- um:
+		default:
+			// Non-critical: drop if channel full; catch window just closes without announcement.
+		}
+	})
+}
+
+// handleUnoAnnounce broadcasts a bot's UNO declaration if the room still exists.
+func (h *Hub) handleUnoAnnounce(um unoMsg) {
+	if _, ok := h.rooms[um.roomCode]; !ok {
+		return // room deleted between schedule and fire
+	}
+	h.broadcastToRoomAll(um.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoDeclared,
+		PlayerIndex: um.playerIndex,
+	})
+}
+
+// maybeScheduleBotCatch checks whether the most recent card play left a player at
+// 1 card without declaring UNO, and if so, schedules a bot catch attempt.
+// Must be called immediately after broadcastCardPlayed while room state is fresh.
+func (h *Hub) maybeScheduleBotCatch(code string, room *game.Room) {
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	bots, ok := h.botSlots[code]
+	if !ok || len(bots) == 0 {
+		return
+	}
+	state := room.State
+	if state.LastCardDeclared {
+		return // player already declared UNO — nothing to catch
+	}
+	target := state.LastCardPlayer
+	if state.Hands[target].Size() != 1 {
+		return // target doesn't have exactly 1 card
+	}
+	// Check at least one eligible bot exists (not the target, not finished).
+	anyEligible := false
+	for botID := range bots {
+		if botID != target && !state.Finished[botID] {
+			anyEligible = true
+			break
+		}
+	}
+	if !anyEligible {
+		return
+	}
+
+	var jitter time.Duration
+	if jm := int(BotCatchJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
+	cm := botCatchMsg{roomCode: code, targetPlayer: target, lastCardTime: state.LastCardTime}
+	time.AfterFunc(BotCatchDelay+jitter, func() {
+		select {
+		case h.botCatch <- cm:
+		default:
+			// Non-critical: drop if channel full; catch window just closes naturally.
+		}
+	})
+}
+
+// handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates game state,
+// rolls the probability die, selects a random eligible bot, and issues the catch.
+func (h *Hub) handleBotCatch(cm botCatchMsg) {
+	room, ok := h.rooms[cm.roomCode]
+	if !ok {
+		return // room deleted
+	}
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	state := room.State
+	// Stale check: if LastCardTime changed, a different card was played after we scheduled.
+	if !state.LastCardTime.Equal(cm.lastCardTime) {
+		return
+	}
+	if state.LastCardDeclared {
+		return // target declared in time — no catch
+	}
+	if state.Hands[cm.targetPlayer].Size() != 1 {
+		return // target no longer at 1 card (e.g. drew penalty cards)
+	}
+	// Probabilistic: bots don't always notice.
+	if mrand.Float32() >= BotCatchProb {
+		return
+	}
+	// Pick a random eligible bot.
+	bots, ok := h.botSlots[cm.roomCode]
+	if !ok || len(bots) == 0 {
+		return
+	}
+	eligible := make([]int, 0, len(bots))
+	for botID := range bots {
+		if botID != cm.targetPlayer && !state.Finished[botID] {
+			eligible = append(eligible, botID)
+		}
+	}
+	if len(eligible) == 0 {
+		return
+	}
+	catcherID := eligible[mrand.Intn(len(eligible))]
+	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
+		// Window may have expired or state changed — normal race condition.
+		return
+	}
+	h.broadcastToRoomAll(cm.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoCaught,
+		PlayerIndex: cm.targetPlayer,
+	})
 }
 
 // executeBotMove runs the bot's chosen action on behalf of its player slot.
@@ -1017,19 +1260,19 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 
 	switch action.Kind {
 	case game.BotPlay:
-		if err := room.PlayCard(bm.playerID, action.Card, action.ChosenColor); err != nil {
+		if err := room.PlayCard(bm.playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
 			log.Printf("bot play error: %v", err)
 			return
 		}
 		h.broadcastCardPlayed(code, bm.playerID, room)
+		if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
+			h.broadcastPersonalizedGameState(code, room)
+		}
 
-		// Auto-declare UNO if bot is at 1 card
+		// Auto-declare UNO if bot is at 1 card (broadcast delayed for human-like feel)
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
 			_ = room.DeclareLastCard(bm.playerID)
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:        protocol.SMsgUnoDeclared,
-				PlayerIndex: bm.playerID,
-			})
+			h.scheduleBotUnoAnnounce(code, bm.playerID)
 		}
 
 		h.handleRoundOrMatchEnd(code, room)
@@ -1042,27 +1285,27 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 		}
 		h.broadcastCardPlayed(code, bm.playerID, room)
 
-		// Auto-declare UNO if bot is at 1 card after counter
+		// Auto-declare UNO if bot is at 1 card after counter (broadcast delayed for human-like feel)
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
 			_ = room.DeclareLastCard(bm.playerID)
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:        protocol.SMsgUnoDeclared,
-				PlayerIndex: bm.playerID,
-			})
+			h.scheduleBotUnoAnnounce(code, bm.playerID)
 		}
 
 		h.handleRoundOrMatchEnd(code, room)
 		return
 
 	case game.BotDraw:
+		priorBotSize := len(room.State.Hands[bm.playerID].Cards)
 		if err := room.DrawCard(bm.playerID); err != nil {
 			log.Printf("bot draw error: %v", err)
 			return
 		}
 		state := room.State
+		botDrawnCount := len(state.Hands[bm.playerID].Cards) - priorBotSize
 		h.broadcastToRoomAll(code, protocol.ServerMsg{
 			Type:        protocol.SMsgCardDrawn,
 			PlayerIndex: bm.playerID,
+			DrawnCount:  botDrawnCount,
 			Turn:        state.CurrentTurn,
 		})
 		// After drawing, bot passes if it can't play
@@ -1078,19 +1321,23 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			}
 			if !canPlay {
 				if err := room.PassTurn(bm.playerID); err == nil {
+					h.scheduleTurnTimer(code, room)
 					dl := h.turnDeadlineMs(code)
 					h.broadcastToRoomAll(code, protocol.ServerMsg{
 						Type:         protocol.SMsgTurnChanged,
 						Turn:         room.State.CurrentTurn,
 						TurnDeadline: dl,
 					})
-					h.scheduleTurnTimer(code, room)
 				}
 			} else {
 				// Schedule another bot move to play the drawn card
 				h.scheduleBotMove(code, bm.playerID)
 				return
 			}
+		} else {
+			// Penalty draw (PendingDraw > 0) advanced the turn; the new current
+			// player needs a timer or bot schedule so the game keeps progressing.
+			h.scheduleTurnTimer(code, room)
 		}
 	}
 
@@ -1159,18 +1406,21 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 
 	// Step 1: auto-draw if the player hasn't drawn yet.
 	if !room.State.HasDrawn {
+		priorTimeoutSize := len(room.State.Hands[tm.playerID].Cards)
 		if err := room.DrawCard(tm.playerID); err != nil {
 			log.Printf("turn timeout draw error code=%s player=%d err=%v", code, tm.playerID, err)
 			return
 		}
 		state := room.State
-		drawn := state.Hands[tm.playerID].Cards[len(state.Hands[tm.playerID].Cards)-1]
+		timeoutNewCards := state.Hands[tm.playerID].Cards[priorTimeoutSize:]
+		timeoutDrawnCount := len(timeoutNewCards)
 		// If drawing advanced the turn (penalty draw), broadcast and reschedule.
 		if state.CurrentTurn != tm.playerID {
 			dl := h.turnDeadlineMs(code)
 			h.broadcastToRoomAll(code, protocol.ServerMsg{
 				Type:         protocol.SMsgCardDrawn,
 				PlayerIndex:  tm.playerID,
+				DrawnCount:   timeoutDrawnCount,
 				Turn:         state.CurrentTurn,
 				TurnDeadline: dl,
 			})
@@ -1178,20 +1428,25 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 			h.scheduleTurnTimer(code, room)
 			return
 		}
-		// Private: tell the player their drawn card.
+		// Private: tell the player all their drawn cards.
 		if timedOutClient != nil {
+			timeoutCardDTOs := make([]*protocol.CardDTO, timeoutDrawnCount)
+			for i, card := range timeoutNewCards {
+				timeoutCardDTOs[i] = cardToDTO(card)
+			}
 			timedOutClient.Send(protocol.ServerMsg{
 				Type:        protocol.SMsgCardDrawn,
 				PlayerIndex: tm.playerID,
-				Card:        cardToDTO(drawn),
+				Cards:       timeoutCardDTOs,
 				Turn:        state.CurrentTurn,
 				HasDrawn:    state.HasDrawn,
 			})
 		}
-		// Public: others see hand size +1.
+		// Public: others see correct hand size delta.
 		h.broadcastToRoom(code, protocol.ServerMsg{
 			Type:        protocol.SMsgCardDrawn,
 			PlayerIndex: tm.playerID,
+			DrawnCount:  timeoutDrawnCount,
 			Turn:        state.CurrentTurn,
 		}, timedOutClient)
 	}
@@ -1221,6 +1476,20 @@ func (h *Hub) turnDeadlineMs(code string) int64 {
 }
 
 // --- Broadcast helpers ---
+
+// broadcastPersonalizedGameState sends each connected player their personalized game state.
+// Used after Swap and GlobalSwitch when all hands change simultaneously.
+func (h *Hub) broadcastPersonalizedGameState(code string, room *game.Room) {
+	for _, member := range h.roomMembers[code] {
+		if member == nil {
+			continue
+		}
+		member.Send(protocol.ServerMsg{
+			Type:  protocol.SMsgGameState,
+			State: h.playerGameState(room, member.playerID),
+		})
+	}
+}
 
 func (h *Hub) broadcastToRoom(code string, msg protocol.ServerMsg, exclude *Client) {
 	for _, c := range h.roomMembers[code] {
@@ -1356,6 +1625,102 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		MaxPlayers:   room.MaxPlayers,
 		Scoreboard:   scoreboard,
 		TurnDeadline: h.turnDeadlineMs(room.Code),
+	}
+}
+
+// --- Debug / E2E helpers ---
+
+// handleDebugSetState is a dev-only handler that lets E2E tests inject specific game
+// state (hand, discard, pending draw, active color) without relying on deck randomness.
+//
+// It is only active when the LOCO_E2E environment variable is set to "1".  In all
+// other environments the message is rejected with an error, making it impossible to
+// exploit in production.
+//
+// Any combination of the debug fields may be provided; omitted fields are left
+// unchanged.  After applying the overrides the handler broadcasts a personalised
+// game_state message to every connected player in the room so all clients reflect
+// the new state.
+func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
+	if os.Getenv("LOCO_E2E") != "1" {
+		c.sendError("debug commands are not enabled")
+		return
+	}
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if room.Status != game.StatusPlaying {
+		c.sendError("debug_set_state requires an active game")
+		return
+	}
+
+	playerID := c.playerID
+	state := room.State
+
+	// Replace this player's hand.
+	if len(msg.DebugHand) > 0 {
+		newHand := game.Hand{}
+		for _, dto := range msg.DebugHand {
+			col, err := parseColor(dto.Color)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_hand: bad color %q: %v", dto.Color, err))
+				return
+			}
+			kind, err := parseKind(dto.Kind)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_hand: bad kind %q: %v", dto.Kind, err))
+				return
+			}
+			newHand.Add(game.Card{Color: col, Kind: kind, Value: dto.Value})
+		}
+		state.Hands[playerID] = newHand
+	}
+
+	// Replace top of discard pile and optionally the active color.
+	if msg.DebugDiscard != nil {
+		col, err := parseColor(msg.DebugDiscard.Color)
+		if err != nil {
+			c.sendError(fmt.Sprintf("debug_discard: bad color %q: %v", msg.DebugDiscard.Color, err))
+			return
+		}
+		kind, err := parseKind(msg.DebugDiscard.Kind)
+		if err != nil {
+			c.sendError(fmt.Sprintf("debug_discard: bad kind %q: %v", msg.DebugDiscard.Kind, err))
+			return
+		}
+		card := game.Card{Color: col, Kind: kind, Value: msg.DebugDiscard.Value}
+		if len(state.Discard) == 0 {
+			state.Discard = []game.Card{card}
+		} else {
+			state.Discard[len(state.Discard)-1] = card
+		}
+		// Active color: use explicit override if provided; otherwise derive from card.
+		if msg.DebugActiveColor != "" {
+			activeCol, err := parseColor(msg.DebugActiveColor)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_active_color: %v", err))
+				return
+			}
+			state.ActiveColor = activeCol
+		} else if col != game.Wild {
+			state.ActiveColor = col
+		}
+	}
+
+	// Override pending draw count.
+	if msg.DebugPendingDraw != nil {
+		state.PendingDraw = *msg.DebugPendingDraw
+	}
+
+	// Broadcast personalised game_state to every connected player.
+	for i, member := range h.roomMembers[c.roomCode] {
+		if member != nil {
+			member.Send(protocol.ServerMsg{
+				Type:  protocol.SMsgGameState,
+				State: h.playerGameState(room, i),
+			})
+		}
 	}
 }
 

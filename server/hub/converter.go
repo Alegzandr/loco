@@ -29,7 +29,8 @@ func dtoToCard(dto *protocol.CardDTO, chosenColorStr string) (game.Card, game.Co
 		return game.Card{}, 0, err
 	}
 	chosen := col
-	if dto.Color == "wild" || dto.Color == "" {
+	// WildCard and WildDrawFour require a chosen_color; Swap and GlobalSwitch do not.
+	if kind == game.WildCard || kind == game.WildDrawFour {
 		chosen, err = parseColor(chosenColorStr)
 		if err != nil {
 			return game.Card{}, 0, fmt.Errorf("chosen_color required for wild: %w", err)
@@ -70,6 +71,10 @@ func parseKind(s string) (game.Kind, error) {
 		return game.WildCard, nil
 	case "wild_draw_four":
 		return game.WildDrawFour, nil
+	case "swap":
+		return game.Swap, nil
+	case "global_switch":
+		return game.GlobalSwitch, nil
 	}
 	return 0, fmt.Errorf("unknown kind: %q", s)
 }

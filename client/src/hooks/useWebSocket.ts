@@ -1,9 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { ClientMsg, ServerMsg } from '../types/protocol'
 
 type MessageHandler = (msg: ServerMsg) => void
 // Returns the message to send on reconnect, or null if not in an active session.
 type GetReconnectMsg = () => ClientMsg | null
+
+export type WsStatus = 'connecting' | 'open' | 'closed'
 
 const RECONNECT_DELAY_MS = 2000
 const MAX_RECONNECT_ATTEMPTS = 10
@@ -20,22 +22,31 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
   const attemptsRef = useRef(0)
   const unmountedRef = useRef(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [wsStatus, setWsStatus] = useState<WsStatus>('connecting')
 
   const connect = useCallback(() => {
     if (unmountedRef.current) return
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    // In dev mode, connect directly to the Go backend to bypass Vite's WS proxy,
-    // which is unreliable for WebSocket upgrades under Docker networking.
-    // VITE_WS_PORT defaults to 8080 (the Go server port).
-    const wsUrl = import.meta.env.DEV
-      ? `${proto}://${window.location.hostname}:${import.meta.env.VITE_WS_PORT ?? '8080'}/ws`
+    // VITE_WS_PORT is set in docker-compose.dev.yml to the Go server's port (8080).
+    // When present, connect directly to that port, bypassing the Vite dev server
+    // entirely (Vite's WS proxy is unreliable under Docker networking).
+    // In production VITE_WS_PORT is unset, so we fall back to same-origin /ws
+    // (served by nginx which proxies to the Go backend).
+    const wsPort = import.meta.env.VITE_WS_PORT
+    const wsUrl = wsPort
+      ? `${proto}://${window.location.hostname}:${wsPort}/ws`
       : `${proto}://${window.location.host}/ws`
+    if (import.meta.env.DEV) {
+      console.debug('[ws] connecting to', wsUrl)
+    }
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
+    setWsStatus('connecting')
 
     ws.onopen = () => {
       attemptsRef.current = 0
+      setWsStatus('open')
       // If reconnecting into an active game, re-authenticate first.
       const reconnectMsg = getReconnectMsgRef.current?.()
       if (reconnectMsg) {
@@ -63,6 +74,7 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
       // re-mount), don't trigger a reconnect from the stale close event.
       if (wsRef.current !== ws) return
       if (unmountedRef.current) return
+      setWsStatus('closed')
       if (attemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
         console.warn('WebSocket: max reconnect attempts reached')
         return
@@ -85,9 +97,13 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
       }
       const ws = wsRef.current
       if (ws) {
-        // Null out onclose before closing so the close event doesn't schedule
-        // a spurious reconnect (important in React StrictMode double-invoke).
+        // Null out onclose + onerror before closing so that forcibly closing a
+        // CONNECTING socket (React StrictMode double-invoke) doesn't log a
+        // spurious "WebSocket error" or schedule a reconnect. Real errors
+        // during active use are still reported because these handlers are only
+        // cleared here, at intentional teardown time.
         ws.onclose = null
+        ws.onerror = null
         ws.close()
         wsRef.current = null
       }
@@ -105,5 +121,5 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     }
   }, [])
 
-  return { send }
+  return { send, wsStatus }
 }

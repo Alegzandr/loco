@@ -13,9 +13,10 @@ const (
 
 // BotAction is the result of a bot thinking about its turn.
 type BotAction struct {
-	Kind        BotActionKind
-	Card        Card
-	ChosenColor Color // for wild cards
+	Kind         BotActionKind
+	Card         Card
+	ChosenColor  Color // for wild cards
+	ChosenPlayer int   // for Swap cards (-1 = no target)
 }
 
 // BotThink decides the best action for a bot player.
@@ -28,17 +29,20 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 	activeColor := state.ActiveColor
 
 	// If there is a pending draw, try to counter first.
+	// Bots counter only ~70% of the time to feel less robotic.
 	if state.PendingDraw > 0 {
-		for _, c := range hand.Cards {
-			if c.Kind == topCard.Kind && (c.Kind == DrawTwo || c.Kind == WildDrawFour) {
-				chosen := activeColor
-				if c.IsWild() {
-					chosen = botPreferredColor(hand)
+		if rand.Float32() < 0.70 {
+			for _, c := range hand.Cards {
+				if c.Kind == topCard.Kind && (c.Kind == DrawTwo || c.Kind == WildDrawFour) {
+					chosen := activeColor
+					if c.IsWild() {
+						chosen = botPreferredColor(hand)
+					}
+					return BotAction{Kind: BotCounter, Card: c, ChosenColor: chosen}
 				}
-				return BotAction{Kind: BotCounter, Card: c, ChosenColor: chosen}
 			}
 		}
-		// Can't counter — draw
+		// Can't counter (or chose not to) — draw
 		return BotAction{Kind: BotDraw}
 	}
 
@@ -68,10 +72,31 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 
 	pick := candidates[rand.Intn(len(candidates))]
 	chosen := activeColor
+	chosenPlayer := -1
 	if pick.IsWild() {
 		chosen = botPreferredColor(hand)
 	}
-	return BotAction{Kind: BotPlay, Card: pick, ChosenColor: chosen}
+	if pick.Kind == Swap {
+		// Pick a random opponent (prefer the one with most cards).
+		n := len(state.Hands)
+		bestIdx := -1
+		bestSize := -1
+		for i := 0; i < n; i++ {
+			if i == playerIdx || state.Finished[i] {
+				continue
+			}
+			if state.Hands[i].Size() > bestSize {
+				bestSize = state.Hands[i].Size()
+				bestIdx = i
+			}
+		}
+		chosenPlayer = bestIdx
+		if chosenPlayer < 0 {
+			// No valid target — skip this card and draw instead
+			return BotAction{Kind: BotDraw, ChosenPlayer: -1}
+		}
+	}
+	return BotAction{Kind: BotPlay, Card: pick, ChosenColor: chosen, ChosenPlayer: chosenPlayer}
 }
 
 // botPreferredColor returns the color most frequent in the bot's hand, or Red if tie.

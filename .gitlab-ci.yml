@@ -21,6 +21,12 @@ backend_test:
     - devops
   script:
     - cd server && go test ./...
+    # Build a static binary for the E2E job (glibc-independent, works on Ubuntu)
+    - cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
+  artifacts:
+    paths:
+      - server-bin
+    expire_in: 1 hour
 
 frontend_test:
   stage: test
@@ -33,6 +39,36 @@ frontend_test:
     - npm run lint
     - npm run test
     - npm run build
+
+e2e_test:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.52.0-jammy
+  tags:
+    - devops
+  needs:
+    - job: backend_test
+      artifacts: true
+    - job: frontend_test
+  script:
+    # Start the Go server binary in the background (LOCO_E2E=1 enables debug_set_state)
+    - chmod +x server-bin
+    - PORT=8080 LOCO_E2E=1 ./server-bin &
+    # Wait for the server to be ready
+    - timeout 30 sh -c 'until wget -qO- http://localhost:8080/health; do sleep 1; done'
+    # Install client dependencies so the webServer (Vite dev) can start
+    - cd client && npm ci && cd ..
+    # Install Playwright and run tests
+    - cd e2e && npm ci
+    - npx playwright install chromium
+    - CI=true npx playwright test
+  artifacts:
+    when: always
+    paths:
+      - e2e/playwright-results.xml
+      - e2e/playwright-report/
+    reports:
+      junit: e2e/playwright-results.xml
+    expire_in: 1 week
 
 # ──────────────────────────────────────────────────────────────────
 # Shared config for Docker build/deploy jobs

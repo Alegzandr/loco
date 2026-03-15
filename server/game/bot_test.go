@@ -45,6 +45,9 @@ func TestBotThink_DrawsWhenNoLegalCard(t *testing.T) {
 	}
 }
 
+// TestBotThink_CountersDraw verifies the bot can produce BotCounter when it has a matching
+// draw card. The bot counters ~70% of the time (probabilistic), so we run enough iterations
+// to confirm it both counters and draws across trials, proving both paths are reachable.
 func TestBotThink_CountersDraw(t *testing.T) {
 	hand := Hand{}
 	hand.Add(Card{Color: Blue, Kind: DrawTwo})
@@ -58,9 +61,27 @@ func TestBotThink_CountersDraw(t *testing.T) {
 		PendingDraw: 2,
 	}
 
-	action := BotThink(state, 0)
-	if action.Kind != BotCounter {
-		t.Errorf("expected BotCounter, got %v", action.Kind)
+	sawCounter := false
+	sawDraw := false
+	for i := 0; i < 200; i++ {
+		action := BotThink(state, 0)
+		switch action.Kind {
+		case BotCounter:
+			sawCounter = true
+		case BotDraw:
+			sawDraw = true
+		default:
+			t.Fatalf("unexpected action kind %v", action.Kind)
+		}
+		if sawCounter && sawDraw {
+			break
+		}
+	}
+	if !sawCounter {
+		t.Error("bot never countered across 200 trials; counter path appears broken")
+	}
+	if !sawDraw {
+		t.Error("bot always countered across 200 trials; draw path appears broken")
 	}
 }
 

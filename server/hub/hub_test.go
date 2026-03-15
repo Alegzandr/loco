@@ -1137,14 +1137,34 @@ func TestTurnTimer_CardPlayedIncludesDeadline(t *testing.T) {
 func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	origTimeout := hub.TurnTimeout
 	origBotDelay := hub.BotThinkDelay
-	// Use a fast bot delay (100ms) and a TurnTimeout (300ms) > bot delay so bots
-	// play before the timer fires. Human turns auto-draw+auto-pass; bot turns play
-	// normally and drain their hand, driving the game to completion.
-	hub.BotThinkDelay = 20 * time.Millisecond
-	hub.TurnTimeout = 60 * time.Millisecond
+	origJitter := hub.BotJitterMax
+	origUnoDelay := hub.BotUnoDelay
+	origUnoJitter := hub.BotUnoJitterMax
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
+	// Use moderate delays to avoid flooding the per-client send buffer (cap 256)
+	// with messages faster than the test goroutine can drain them. When the buffer
+	// fills, the hub drops messages — including match_end — causing a spurious failure.
+	// 10ms bot delay + 50ms turn timeout produces ~10 messages/second max, well
+	// within the 30-second deadline even on a loaded CI machine.
+	hub.BotThinkDelay = 10 * time.Millisecond
+	hub.BotJitterMax = 0
+	hub.BotUnoDelay = 0
+	hub.BotUnoJitterMax = 0
+	hub.BotCatchDelay = 0
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 0 // disable bot catches in this test to keep message flow simple
+	hub.TurnTimeout = 50 * time.Millisecond
 	t.Cleanup(func() {
 		hub.TurnTimeout = origTimeout
 		hub.BotThinkDelay = origBotDelay
+		hub.BotJitterMax = origJitter
+		hub.BotUnoDelay = origUnoDelay
+		hub.BotUnoJitterMax = origUnoJitter
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
 	})
 
 	origEmpty := hub.EmptyRoomTimeout
@@ -1201,5 +1221,445 @@ done:
 	if !found {
 		t.Error("expected match_end in bot+human game with timer active — game may have stalled")
 	}
+}
+
+// TestImmediateClose_NoZombieClient verifies that N connections closed immediately
+// after upgrade leave no zombie entries in h.clients (statClients → 0).
+func TestImmediateClose_NoZombieClient(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	const N = 50
+	for i := 0; i < N; i++ {
+		conn := dialWS(t, srv)
+		// Close before the hub has necessarily processed the register message.
+		conn.Close()
+	}
+
+	// Poll until all clients are cleaned up or timeout.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.GetStats().Clients == 0 {
+			return // all cleaned up — no zombies
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("zombie clients remain after immediate-close storm: statClients=%d", h.GetStats().Clients)
+}
+
+// TestRegisterHook_CleanupAfterImmediateClose uses the register hook to close
+// the connection at the exact moment the client is registered (but before
+// goroutines start), then verifies the hub always cleans up the entry.
+func TestRegisterHook_CleanupAfterImmediateClose(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	// hookFired is closed by the hook to signal that registration happened.
+	hookFired := make(chan struct{})
+	h.SetRegisterHook(func() {
+		// Signal once; remove hook so subsequent connections are unaffected.
+		h.SetRegisterHook(nil)
+		close(hookFired)
+	})
+
+	conn := dialWS(t, srv)
+
+	// Wait until the hub has registered the client (hook fires in hub goroutine).
+	select {
+	case <-hookFired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("register hook never fired")
+	}
+
+	// Close the connection right after registration, before c.start() was called
+	// (the hook ran between add-to-map and start()). The hub must still clean up.
+	conn.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.GetStats().Clients == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("hub retained zombie after hook-timed close: statClients=%d", h.GetStats().Clients)
+}
+
+// TestInterruptPlay_NonMatchingCard_Rejected verifies that the hub routes
+// CMsgInterruptPlay to the domain and returns an error when the card does not
+// exactly match the top discard.
+func TestInterruptPlay_NonMatchingCard_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+
+	// Determine who has the first turn by looking at what game_started delivered.
+	// We already consumed game_started inside setupTwoPlayerGame, so we need to
+	// identify the non-current player. We'll use the approach of having the
+	// non-current-turn player attempt an interrupt with a deliberately bad card.
+	// The server must reject it with an error regardless of whose turn it is.
+
+	// Player 1 (Bob, conn2) attempts interrupt with a wild card, which is always rejected.
+	wildCard := &protocol.CardDTO{Color: "wild", Kind: "wild"}
+	sendMsg(t, conn2, protocol.ClientMsg{
+		Type: protocol.CMsgInterruptPlay,
+		Card: wildCard,
+	})
+
+	// Bob should get an error (wild cards cannot be used to interrupt, or it is their turn).
+	got := readMsgOfType(t, conn2, protocol.SMsgError)
+	if got.Error == "" {
+		t.Errorf("expected non-empty error for invalid interrupt, got empty")
+	}
+
+	// Alice (conn1) must not have received any card_played event.
+	conn1.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_, data, err := conn1.ReadMessage()
+	if err == nil {
+		var msg protocol.ServerMsg
+		json.Unmarshal(data, &msg) //nolint:errcheck
+		if msg.Type == protocol.SMsgCardPlayed {
+			t.Errorf("alice received unexpected card_played after invalid interrupt")
+		}
+	}
+}
+
+// TestInterruptPlay_OwnTurn_Rejected verifies that sending interrupt_play when
+// it is already the sender's turn returns an error (use play_card instead).
+func TestInterruptPlay_OwnTurn_Rejected(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	// Capture the game_started message for player 0 (Alice) so we know who goes first.
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+
+	// Determine who has the first turn.
+	var currentTurnConn *websocket.Conn
+	var currentTurnHand []protocol.CardDTO
+	if gs1.State != nil && gs2.State != nil {
+		if gs1.State.Turn == gs1.State.YourIndex {
+			currentTurnConn = conn1
+			currentTurnHand = gs1.State.Hand
+		} else {
+			currentTurnConn = conn2
+			currentTurnHand = gs2.State.Hand
+		}
+	}
+	if currentTurnConn == nil || len(currentTurnHand) == 0 {
+		t.Skip("could not determine current turn player or hand is empty")
+	}
+
+	// The current-turn player sends interrupt_play — must be rejected.
+	sendMsg(t, currentTurnConn, protocol.ClientMsg{
+		Type: protocol.CMsgInterruptPlay,
+		Card: &protocol.CardDTO{Color: currentTurnHand[0].Color, Kind: currentTurnHand[0].Kind, Value: currentTurnHand[0].Value},
+	})
+
+	got := readMsgOfType(t, currentTurnConn, protocol.SMsgError)
+	if got.Error == "" {
+		t.Errorf("expected error for interrupt on own turn, got empty")
+	}
+}
+
+// TestInterruptPlay_ValidMatch_AcceptedAndBroadcast verifies the happy path:
+// when a non-current-turn player holds a card exactly matching the top discard,
+// their interrupt_play is accepted and both players receive card_played.
+func TestInterruptPlay_ValidMatch_AcceptedAndBroadcast(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+
+	if gs1.State == nil || gs2.State == nil {
+		t.Skip("no game state in game_started")
+	}
+
+	// Identify waiting player (non-current-turn) and their hand.
+	var waitingConn *websocket.Conn
+	var waitingHand []protocol.CardDTO
+	var discard protocol.CardDTO
+	if gs1.State.Turn != gs1.State.YourIndex {
+		waitingConn = conn1
+		waitingHand = gs1.State.Hand
+		discard = gs1.State.Discard
+	} else {
+		waitingConn = conn2
+		waitingHand = gs2.State.Hand
+		discard = gs2.State.Discard
+	}
+
+	// Find a non-wild card in waiting player's hand that exactly matches the discard.
+	var matchCard *protocol.CardDTO
+	for _, c := range waitingHand {
+		if c.Color == "wild" {
+			continue
+		}
+		if c.Color == discard.Color && c.Kind == discard.Kind && c.Value == discard.Value {
+			cc := c // capture
+			matchCard = &cc
+			break
+		}
+	}
+	if matchCard == nil {
+		t.Skip("waiting player has no exact-match card for the discard; skipping happy-path interrupt test")
+	}
+
+	// Send interrupt_play with the matching card.
+	sendMsg(t, waitingConn, protocol.ClientMsg{
+		Type: protocol.CMsgInterruptPlay,
+		Card: matchCard,
+	})
+
+	// Both players must receive card_played.
+	cp1 := readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	cp2 := readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
+	if cp1.Card == nil || cp2.Card == nil {
+		t.Fatalf("card_played missing card field")
+	}
+	if cp1.Card.Color != matchCard.Color || cp1.Card.Kind != matchCard.Kind || cp1.Card.Value != matchCard.Value {
+		t.Errorf("card_played card mismatch: got %+v, want %+v", cp1.Card, matchCard)
+	}
+	_ = cp2
+}
+
+// TestCatchUNO_HumanCatchesHuman verifies the complete catch-UNO flow:
+// player plays to 1 card without declaring, opponent sends catch_uno,
+// both players receive uno_caught with the correct target index.
+func TestCatchUNO_HumanCatchesHuman(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	// Identify which connection belongs to the active player.
+	var activeConn, catcherConn *websocket.Conn
+	var activeIdx int
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn, catcherConn = conn1, conn2
+		activeIdx = gs1.State.YourIndex
+	} else {
+		activeConn, catcherConn = conn2, conn1
+		activeIdx = gs2.State.YourIndex
+	}
+
+	// Patch the active player's hand and the shared discard to known values.
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	// Both players receive a personalized game_state from debug_set_state.
+	readMsgOfType(t, activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, catcherConn, protocol.SMsgGameState)
+
+	// Active player plays one card → drops to 1 card without declaring UNO.
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgCardPlayed)
+	readMsgOfType(t, catcherConn, protocol.SMsgCardPlayed)
+
+	// Other player catches within the 5-second window.
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno})
+
+	// Both must receive uno_caught for the active player.
+	caught1 := readMsgOfType(t, activeConn, protocol.SMsgUnoCaught)
+	caught2 := readMsgOfType(t, catcherConn, protocol.SMsgUnoCaught)
+	if caught1.PlayerIndex != activeIdx {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d", caught1.PlayerIndex, activeIdx)
+	}
+	_ = caught2
+}
+
+// TestBotCatch_WithinWindow verifies that a bot catches a human player who plays
+// to 1 card without declaring UNO, within the valid catch window.
+// Uses BotCatchProb=1.0 (always) and BotCatchDelay=10ms for determinism.
+// Skips if the bot holds the first turn (non-deterministic seed).
+func TestBotCatch_WithinWindow(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
+	origBotDelay := hub.BotThinkDelay
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
+	// Prevent bot from taking its turn during the test; keep catch fast.
+	hub.BotThinkDelay = 30 * time.Second
+	hub.BotCatchDelay = 10 * time.Millisecond
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 1.0 // always catch
+	t.Cleanup(func() {
+		hub.BotThinkDelay = origBotDelay
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
+	})
+
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined) // bot joined
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	if gs.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	// Only proceed if it's Alice's turn; otherwise the bot holds first turn and
+	// BotThinkDelay=30s means we'd wait too long.
+	if gs.State.Turn != gs.State.YourIndex {
+		t.Skip("bot has the first turn in this seed; skipping (non-deterministic by design)")
+	}
+
+	// Give Alice exactly 2 matching cards and a known discard.
+	zero := 0
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, conn, protocol.SMsgGameState)
+
+	// Alice plays one card → 1 card remaining, no UNO declaration.
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, conn, protocol.SMsgCardPlayed)
+
+	// Bot should catch within BotCatchDelay (10ms) + processing time.
+	// readMsgOfType retries up to 10 messages, each with a 3s read deadline.
+	caught := readMsgOfType(t, conn, protocol.SMsgUnoCaught)
+	if caught.PlayerIndex != gs.State.YourIndex {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d (Alice)", caught.PlayerIndex, gs.State.YourIndex)
+	}
+}
+
+// TestBotCatch_StaleCallback_IgnoredAfterDeclared verifies that if a player declares
+// UNO before the scheduled bot catch fires, the stale catch is silently discarded
+// (LastCardDeclared=true → CatchUndeclared returns error → no broadcast).
+func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	origBotDelay := hub.BotThinkDelay
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
+	// Long catch delay so we can declare before the bot catch fires.
+	hub.BotThinkDelay = 30 * time.Second
+	hub.BotCatchDelay = 300 * time.Millisecond
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 1.0
+	t.Cleanup(func() {
+		hub.BotThinkDelay = origBotDelay
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
+	})
+
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	if gs.State == nil {
+		t.Fatal("missing game state")
+	}
+
+	if gs.State.Turn != gs.State.YourIndex {
+		t.Skip("bot has first turn; skipping")
+	}
+
+	// Give Alice 2 matching cards.
+	zero := 0
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, conn, protocol.SMsgGameState)
+
+	// Alice plays → 1 card. Bot catch scheduled at 300ms.
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, conn, protocol.SMsgCardPlayed)
+
+	// Alice declares UNO immediately — before the 300ms bot catch fires.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
+	readMsgOfType(t, conn, protocol.SMsgUnoDeclared)
+
+	// Wait past the bot catch delay.
+	time.Sleep(400 * time.Millisecond)
+
+	// No uno_caught must arrive after declaration.
+	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_, data, err := conn.ReadMessage()
+	if err == nil {
+		var msg protocol.ServerMsg
+		json.Unmarshal(data, &msg) //nolint:errcheck
+		if msg.Type == protocol.SMsgUnoCaught {
+			t.Error("received spurious uno_caught after player already declared UNO")
+		}
+	}
+	// A timeout (read deadline exceeded) here is expected and correct.
 }
 

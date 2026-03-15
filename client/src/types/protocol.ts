@@ -1,7 +1,7 @@
 // Protocol types matching server/protocol/messages.go
 
 export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild'
-export type CardKind = 'number' | 'skip' | 'reverse' | 'draw_two' | 'wild' | 'wild_draw_four'
+export type CardKind = 'number' | 'skip' | 'reverse' | 'draw_two' | 'wild' | 'wild_draw_four' | 'swap' | 'global_switch'
 export type MatchFormat = 'BO1' | 'BO3' | 'BO5' | 'BO7'
 
 export interface CardDTO {
@@ -66,6 +66,7 @@ export type ClientMsgType =
   | 'declare_uno'
   | 'catch_uno'
   | 'counter_draw'
+  | 'interrupt_play'
 
 export interface ClientMsg {
   type: ClientMsgType
@@ -74,6 +75,7 @@ export interface ClientMsg {
   session_token?: string
   card?: CardDTO
   chosen_color?: CardColor
+  chosen_player?: number
   match_format?: MatchFormat
   max_players?: number
 }
@@ -110,6 +112,8 @@ export interface ServerMsg {
   state?: GameStateDTO
   player_index?: number
   card?: CardDTO
+  cards?: CardDTO[]     // all drawn cards for the drawing player (card_drawn penalty draw)
+  drawn_count?: number  // how many cards an opponent drew (card_drawn observer broadcast)
   active_color?: CardColor
   turn?: number
   turn_deadline?: number  // unix ms when the current turn expires; included in card_played, card_drawn, turn_changed, game_started

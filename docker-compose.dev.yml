@@ -20,6 +20,7 @@ services:
         environment:
             - PORT=8080
             - GOFLAGS=-mod=mod
+            - LOCO_E2E=1
         ports:
             - "8080:8080"
         command: go run .
@@ -40,6 +41,10 @@ services:
         environment:
             # Direct WebSocket port: browser connects to ws://<host>:8080/ws, bypassing Vite proxy.
             - VITE_WS_PORT=8080
+            # HMR client port: must match the host-side Docker port mapping (5173→3000).
+            # Without this, Vite injects HMR code pointing at container port 3000
+            # (not exposed), causing spurious WS errors that obscure app WS failures.
+            - VITE_HMR_CLIENT_PORT=5173
         ports:
             - "5173:3000"
         command: sh -c "npm ci && npm run dev"

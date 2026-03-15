@@ -7,12 +7,12 @@ interface Props {
   pendingDraw: number
   handSize: number
   hasDrawn: boolean
+  hasPlayableCard: boolean
   unoTimerEnd: number | null
   onDraw: () => void
   onPass: () => void
   onUno: () => void
   onCatch: () => void
-  onRules: () => void
   t: Translations
 }
 
@@ -22,20 +22,20 @@ export function ActionBar({
   pendingDraw,
   handSize,
   hasDrawn,
+  hasPlayableCard,
   unoTimerEnd,
   onDraw,
   onPass,
   onUno,
   onCatch,
-  onRules,
   t,
 }: Props) {
   return (
     <div className={styles.actionBar}>
       {/* Penalty draw button — only when it's our turn and we're still playing */}
       {isMyTurn && pendingDraw > 0 && !isFinished && (
-        <button className={`${styles.btn} ${styles.btnDraw}`} onClick={onDraw}>
-          {t.draw} {pendingDraw}
+        <button className={`${styles.btn} ${styles.btnPenalty}`} onClick={onDraw}>
+          {t.draw} +{pendingDraw}
         </button>
       )}
 
@@ -43,7 +43,7 @@ export function ActionBar({
       {isMyTurn && pendingDraw === 0 && !isFinished && (
         <>
           <button
-            className={`${styles.btn} ${styles.btnDraw} ${hasDrawn ? styles.btnDisabled : ''}`}
+            className={`${styles.btn} ${hasDrawn ? styles.btnDisabled : hasPlayableCard ? styles.btnDrawSecondary : styles.btnDraw}`}
             onClick={onDraw}
             disabled={hasDrawn}
           >
@@ -76,11 +76,6 @@ export function ActionBar({
           {t.catchBtn}
         </button>
       )}
-
-      {/* Rules reference */}
-      <button className={`${styles.btn} ${styles.btnRules}`} onClick={onRules}>
-        {t.rulesBtn}
-      </button>
     </div>
   )
 }
