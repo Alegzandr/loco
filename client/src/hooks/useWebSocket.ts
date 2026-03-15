@@ -25,8 +25,13 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     if (unmountedRef.current) return
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const host = window.location.host
-    const ws = new WebSocket(`${proto}://${host}/ws`)
+    // In dev mode, connect directly to the Go backend to bypass Vite's WS proxy,
+    // which is unreliable for WebSocket upgrades under Docker networking.
+    // VITE_WS_PORT defaults to 8080 (the Go server port).
+    const wsUrl = import.meta.env.DEV
+      ? `${proto}://${window.location.hostname}:${import.meta.env.VITE_WS_PORT ?? '8080'}/ws`
+      : `${proto}://${window.location.host}/ws`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
