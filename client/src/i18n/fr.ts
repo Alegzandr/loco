@@ -41,6 +41,8 @@ export const fr: Translations = {
   catchWindow: 'Fenêtre de catch !',
   reconnected: 'Reconnecté',
   rebuildingTable: 'Reconstruction de la table…',
+  wsLostConnection: 'Connexion perdue',
+  wsReconnecting: 'Reconnexion…',
   round: 'Manche',
   of: 'sur',
   complete: 'Terminée',

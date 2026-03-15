@@ -166,7 +166,7 @@ export default function App() {
     return null
   }, [])
 
-  const { send } = useWebSocket(handleMessage, getReconnectMsg)
+  const { send, wsStatus } = useWebSocket(handleMessage, getReconnectMsg)
 
   const handleSend = useCallback(
     (msg: ClientMsg) => {
@@ -209,7 +209,7 @@ export default function App() {
           onSend={handleSend}
         />
       )}
-      {store.screen === 'game' && <GameView onSend={handleSend} />}
+      {store.screen === 'game' && <GameView onSend={handleSend} wsStatus={wsStatus} />}
       {store.screen === 'gameover' && (
         <GameOver
           winner={store.matchOver ? store.matchWinner : store.winner}
