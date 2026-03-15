@@ -126,7 +126,7 @@ export class PixiGame {
     this.renderTurnIndicator(state, width, height)
 
     if (discardChanged && state.discard) {
-      this.animateCardToDiscard(state.discard, width, height)
+      this.animateCardToDiscard(state.discard, state.pendingDraw, width, height)
     }
   }
 
@@ -313,6 +313,34 @@ export class PixiGame {
     card.x = discardX
     card.y = discardY
     this.discardContainer.addChild(card)
+
+    // Pending draw stack badge — shows accumulated +N so all players can see the danger
+    if (state.pendingDraw > 0) {
+      const badgeW = 38
+      const badgeH = 22
+      const badgeX = discardX + CARD_W - badgeW / 2 + 4
+      const badgeY = discardY - badgeH / 2 + 4
+
+      const badge = new PIXI.Graphics()
+      badge.roundRect(badgeX, badgeY, badgeW, badgeH, 10)
+      badge.fill({ color: 0xe63946, alpha: 0.96 })
+      badge.stroke({ color: 0xff6b6b, width: 1.5, alpha: 0.8 })
+      this.discardContainer.addChild(badge)
+
+      const badgeText = new PIXI.Text({
+        text: `+${state.pendingDraw}`,
+        style: {
+          fontSize: 13,
+          fill: '#ffffff',
+          fontWeight: '900',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+        },
+      })
+      badgeText.anchor.set(0.5)
+      badgeText.x = badgeX + badgeW / 2
+      badgeText.y = badgeY + badgeH / 2
+      this.discardContainer.addChild(badgeText)
+    }
   }
 
   private _drawActiveRing(color: CardColor, x: number, y: number): PIXI.Graphics {
@@ -339,23 +367,25 @@ export class PixiGame {
     state.myHand.forEach((card, i) => {
       const isPlayable = isMyTurn && topCard != null && _canPlayCard(card, topCard, activeColor)
       const { x: cardX, y: handY, rotation } = slots[i]
+      // Playable cards are lifted slightly so they stand out even before hover
+      const restY = isPlayable ? handY - 9 : handY
 
       const sprite = this.drawCard(card, true, isPlayable)
       sprite.x = cardX
-      sprite.y = handY
+      sprite.y = restY
       sprite.rotation = rotation
       sprite.zIndex = i
       sprite.eventMode = 'static'
       sprite.cursor = isMyTurn ? 'pointer' : 'default'
 
       sprite.on('pointerover', () => {
-        sprite.y = handY - 16
-        sprite.scale.set(1.07)
+        sprite.y = restY - 14
+        sprite.scale.set(1.08)
         sprite.zIndex = 100
         sprite.rotation = 0
       })
       sprite.on('pointerout', () => {
-        sprite.y = handY
+        sprite.y = restY
         sprite.scale.set(1)
         sprite.zIndex = i
         sprite.rotation = rotation
@@ -574,18 +604,23 @@ export class PixiGame {
       msg = `${nickname}${suffix}`
     }
 
+    const isPenalty = isMyTurn && state.pendingDraw > 0
+    const fillColor = isPenalty ? '#ff9f43' : isMyTurn ? '#ffd93d' : '#4a5580'
     const text = new PIXI.Text({
       text: msg,
       style: {
-        fontSize: 15,
-        fill: isMyTurn ? '#ffd93d' : '#5a6580',
+        fontSize: isMyTurn ? 17 : 14,
+        fill: fillColor,
         fontWeight: 'bold',
         fontFamily: 'system-ui, -apple-system, sans-serif',
+        dropShadow: isMyTurn
+          ? { color: '#00000066', blur: 3, distance: 1 }
+          : undefined,
       },
     })
     text.anchor.set(0.5, 0)
     text.x = width / 2
-    text.y = height - CARD_H - BOTTOM_RESERVE - 34
+    text.y = height - CARD_H - BOTTOM_RESERVE - 36
     return text
   }
 
@@ -613,7 +648,7 @@ export class PixiGame {
     ))
   }
 
-  private animateCardToDiscard(card: CardDTO, width: number, height: number) {
+  private animateCardToDiscard(card: CardDTO, pendingDraw: number, width: number, height: number) {
     // Fallback animation when we don't have the card index (opponent plays)
     const sprite = this.drawCard(card)
     sprite.alpha = 0.1
@@ -626,6 +661,48 @@ export class PixiGame {
     this.animContainer.addChild(sprite)
 
     this.animations.push(this._makeAnim(sprite, sprite.x, sprite.y, targetX, targetY, 0.1, 1, 0.6, 1, 0, 0, 0))
+
+    // Show effect text for special cards
+    const effect = this._cardEffectText(card, pendingDraw)
+    if (effect) {
+      this._animateEffectText(effect[0], effect[1], width, height)
+    }
+  }
+
+  // Returns [text, color] for special card effects, or null for normal cards.
+  private _cardEffectText(card: CardDTO, pendingDraw: number): [string, number] | null {
+    switch (card.kind) {
+      case 'skip':    return ['SKIP!', 0xff9f43]
+      case 'reverse': return ['REVERSE!', 0x74b9ff]
+      case 'draw_two':       return [`+${pendingDraw || 2}`, 0xe63946]
+      case 'wild_draw_four': return [`+${pendingDraw || 4}`, 0xe63946]
+      default: return null
+    }
+  }
+
+  // Animates a brief floating text in the centre of the play area (effect announcer).
+  private _animateEffectText(text: string, color: number, width: number, height: number) {
+    const cy = (height - BOTTOM_RESERVE) / 2 - 10
+    const textObj = new PIXI.Text({
+      text,
+      style: {
+        fontSize: 42,
+        fill: color,
+        fontWeight: '900',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        dropShadow: { color: '#00000099', blur: 6, distance: 3 },
+      },
+    })
+    textObj.anchor.set(0.5)
+    textObj.x = width / 2
+    textObj.y = cy
+    this.animContainer.addChild(textObj)
+
+    // Float up and fade out over 900 ms
+    this.animations.push({
+      ...this._makeAnim(textObj, width / 2, cy, width / 2, cy - 55, 1, 0, 1, 1.25, 0, 0, 0),
+      duration: 900,
+    })
   }
 
   animateCardDrawn(_card: CardDTO) {
@@ -768,19 +845,25 @@ export class PixiGame {
       const border = new PIXI.Graphics()
       border.roundRect(0, 0, CARD_W, CARD_H, CARD_RADIUS)
       if (playable) {
-        // Bright glow border for playable cards
-        border.stroke({ color: 0xffffff, width: 2, alpha: 0.7 })
+        // Strong white border + golden inner glow for clearly-playable cards
+        border.stroke({ color: 0xffffff, width: 2.5, alpha: 0.85 })
       } else {
-        border.stroke({ color: 0x888888, width: 0.8, alpha: 0.2 })
+        border.stroke({ color: 0x888888, width: 0.8, alpha: 0.15 })
       }
       container.addChild(border)
 
-      // Playable card indicator: subtle inner glow
       if (playable) {
-        const glow = new PIXI.Graphics()
-        glow.roundRect(2, 2, CARD_W - 4, CARD_H - 4, CARD_RADIUS - 1)
-        glow.stroke({ color: 0xffd93d, width: 1.5, alpha: 0.4 })
-        container.addChild(glow)
+        // Outer glow ring (slightly outside the card) for extra visibility
+        const outerGlow = new PIXI.Graphics()
+        outerGlow.roundRect(-3, -3, CARD_W + 6, CARD_H + 6, CARD_RADIUS + 2)
+        outerGlow.stroke({ color: 0xffd93d, width: 2, alpha: 0.35 })
+        container.addChildAt(outerGlow, 0)
+
+        // Inner accent line
+        const inner = new PIXI.Graphics()
+        inner.roundRect(2, 2, CARD_W - 4, CARD_H - 4, CARD_RADIUS - 1)
+        inner.stroke({ color: 0xffd93d, width: 1.5, alpha: 0.55 })
+        container.addChild(inner)
       }
     }
 

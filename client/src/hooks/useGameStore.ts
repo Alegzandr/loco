@@ -35,6 +35,7 @@ interface GameStore {
   winner: string
   errorMsg: string
   unoDeclared: boolean
+  unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
   unoTimerEnd: number | null
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
@@ -67,6 +68,7 @@ interface GameStore {
   setWinner: (name: string) => void
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
+  setUnoDeclaredByIndex: (idx: number) => void
   setUnoTimerEnd: (ts: number | null) => void
   setTurnDeadline: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
@@ -115,6 +117,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   winner: '',
   errorMsg: '',
   unoDeclared: false,
+  unoDeclaredByIndex: -1,
   unoTimerEnd: null,
   turnDeadline: null,
   matchFormat: 'BO1',
@@ -172,6 +175,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         hasDrawn: false,
         players: updatedPlayers,
         unoDeclared: false,
+        unoDeclaredByIndex: -1,
       }
     }),
 
@@ -208,6 +212,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setWinner: (winner) => set({ winner, screen: 'gameover' }),
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
+  setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
   setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 

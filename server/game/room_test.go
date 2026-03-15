@@ -311,6 +311,115 @@ func TestRoom_LastCardDeclaration_PenaltyIfForgot(t *testing.T) {
 	}
 }
 
+// TestRoom_CatchUndeclared_WindowExpired verifies that a catch attempt is rejected
+// if more than catchWindow (5 s) has elapsed since the last card was played.
+func TestRoom_CatchUndeclared_WindowExpired(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	top := r.State.Discard[len(r.State.Discard)-1]
+	playCard := Card{Color: top.Color, Kind: Number, Value: 1}
+	leaveCard := Card{Color: top.Color, Kind: Number, Value: 2}
+	r.State.Hands[0].Cards = []Card{leaveCard, playCard}
+
+	// Alice plays leaveCard → now at 1 card (playCard remains), catch window opens
+	if err := r.PlayCard(0, leaveCard, leaveCard.Color, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if r.State.LastCardTime.IsZero() {
+		t.Fatal("expected LastCardTime to be set after playing to 1 card")
+	}
+
+	// Simulate 6 seconds later — window is expired
+	future := time.Now().Add(6 * time.Second)
+	err := r.CatchUndeclared(1, 0, future)
+	if err == nil {
+		t.Fatal("expected error for expired catch window, got nil")
+	}
+	if err.Error() != "catch window expired" {
+		t.Errorf("got error %q, want %q", err.Error(), "catch window expired")
+	}
+}
+
+// TestRoom_CatchUndeclared_AfterDeclared verifies that once a player declares UNO,
+// no other player can catch them.
+func TestRoom_CatchUndeclared_AfterDeclared(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	top := r.State.Discard[len(r.State.Discard)-1]
+	playCard := Card{Color: top.Color, Kind: Number, Value: 1}
+	leaveCard := Card{Color: top.Color, Kind: Number, Value: 2}
+	r.State.Hands[0].Cards = []Card{leaveCard, playCard}
+
+	if err := r.PlayCard(0, leaveCard, leaveCard.Color, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	if !r.State.LastCardDeclared {
+		t.Fatal("expected LastCardDeclared = true after declaration")
+	}
+
+	// Bob tries to catch — must fail
+	err := r.CatchUndeclared(1, 0, time.Now())
+	if err == nil {
+		t.Fatal("expected error catching after declaration, got nil")
+	}
+	if err.Error() != "player already declared" {
+		t.Errorf("got error %q, want %q", err.Error(), "player already declared")
+	}
+}
+
+// TestRoom_UNOStateCleanOnNewRound verifies that all UNO-tracking fields (LastCardDeclared,
+// LastCardTime, LastCardPlayer) are properly reset to zero values when a new round starts.
+// Specifically, stale catch attempts on the new round must fail the catch window check
+// (zero LastCardTime is always outside the 5-second window).
+func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.Format = BO3 // multi-round match so ending round 1 starts round 2
+
+	top := r.State.Discard[len(r.State.Discard)-1]
+	matchColor := top.Color
+
+	// Alice: 2 cards (both playable); Bob: 1 card (playable off Alice's play)
+	aliceCard1 := Card{Color: matchColor, Kind: Number, Value: 2}
+	aliceCard2 := Card{Color: matchColor, Kind: Number, Value: 3}
+	bobCard := Card{Color: matchColor, Kind: Number, Value: 4}
+	r.State.Hands[0].Cards = []Card{aliceCard1, aliceCard2}
+	r.State.Hands[1].Cards = []Card{bobCard}
+
+	// Alice plays aliceCard1 → drops to 1 card. Catch window opens.
+	if err := r.PlayCard(0, aliceCard1, matchColor, -1); err != nil {
+		t.Fatalf("alice play: %v", err)
+	}
+	if r.State.LastCardTime.IsZero() {
+		t.Fatal("round 1: expected LastCardTime set after alice plays to 1 card")
+	}
+	if r.State.LastCardDeclared {
+		t.Fatal("round 1: expected LastCardDeclared = false (no declaration)")
+	}
+
+	// Bob plays his only card → 0 cards → round 1 ends, round 2 starts
+	if err := r.PlayCard(1, bobCard, matchColor, -1); err != nil {
+		t.Fatalf("bob play: %v", err)
+	}
+	if r.RoundNumber != 2 {
+		t.Fatalf("expected round 2 after bob empties hand, got %d", r.RoundNumber)
+	}
+
+	// New round must have clean UNO state
+	if r.State.LastCardDeclared {
+		t.Error("round 2: LastCardDeclared should be false (zero value from dealRound)")
+	}
+	if !r.State.LastCardTime.IsZero() {
+		t.Errorf("round 2: LastCardTime should be zero (fresh deal), got %v", r.State.LastCardTime)
+	}
+
+	// Any catch attempt must fail: zero LastCardTime → window is always expired
+	err := r.CatchUndeclared(0, 1, time.Now())
+	if err == nil {
+		t.Fatal("catch at round-2 start must fail (zero LastCardTime means window expired)")
+	}
+}
+
 func TestRoom_CounterDrawTwo(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	// Give alice a Draw Two matching top

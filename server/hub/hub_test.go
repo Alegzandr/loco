@@ -1138,6 +1138,11 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	origTimeout := hub.TurnTimeout
 	origBotDelay := hub.BotThinkDelay
 	origJitter := hub.BotJitterMax
+	origUnoDelay := hub.BotUnoDelay
+	origUnoJitter := hub.BotUnoJitterMax
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
 	// Use moderate delays to avoid flooding the per-client send buffer (cap 256)
 	// with messages faster than the test goroutine can drain them. When the buffer
 	// fills, the hub drops messages — including match_end — causing a spurious failure.
@@ -1145,11 +1150,21 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	// within the 30-second deadline even on a loaded CI machine.
 	hub.BotThinkDelay = 10 * time.Millisecond
 	hub.BotJitterMax = 0
+	hub.BotUnoDelay = 0
+	hub.BotUnoJitterMax = 0
+	hub.BotCatchDelay = 0
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 0 // disable bot catches in this test to keep message flow simple
 	hub.TurnTimeout = 50 * time.Millisecond
 	t.Cleanup(func() {
 		hub.TurnTimeout = origTimeout
 		hub.BotThinkDelay = origBotDelay
 		hub.BotJitterMax = origJitter
+		hub.BotUnoDelay = origUnoDelay
+		hub.BotUnoJitterMax = origUnoJitter
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
 	})
 
 	origEmpty := hub.EmptyRoomTimeout
@@ -1427,5 +1442,224 @@ func TestInterruptPlay_ValidMatch_AcceptedAndBroadcast(t *testing.T) {
 		t.Errorf("card_played card mismatch: got %+v, want %+v", cp1.Card, matchCard)
 	}
 	_ = cp2
+}
+
+// TestCatchUNO_HumanCatchesHuman verifies the complete catch-UNO flow:
+// player plays to 1 card without declaring, opponent sends catch_uno,
+// both players receive uno_caught with the correct target index.
+func TestCatchUNO_HumanCatchesHuman(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	// Identify which connection belongs to the active player.
+	var activeConn, catcherConn *websocket.Conn
+	var activeIdx int
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn, catcherConn = conn1, conn2
+		activeIdx = gs1.State.YourIndex
+	} else {
+		activeConn, catcherConn = conn2, conn1
+		activeIdx = gs2.State.YourIndex
+	}
+
+	// Patch the active player's hand and the shared discard to known values.
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	// Both players receive a personalized game_state from debug_set_state.
+	readMsgOfType(t, activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, catcherConn, protocol.SMsgGameState)
+
+	// Active player plays one card → drops to 1 card without declaring UNO.
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgCardPlayed)
+	readMsgOfType(t, catcherConn, protocol.SMsgCardPlayed)
+
+	// Other player catches within the 5-second window.
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno})
+
+	// Both must receive uno_caught for the active player.
+	caught1 := readMsgOfType(t, activeConn, protocol.SMsgUnoCaught)
+	caught2 := readMsgOfType(t, catcherConn, protocol.SMsgUnoCaught)
+	if caught1.PlayerIndex != activeIdx {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d", caught1.PlayerIndex, activeIdx)
+	}
+	_ = caught2
+}
+
+// TestBotCatch_WithinWindow verifies that a bot catches a human player who plays
+// to 1 card without declaring UNO, within the valid catch window.
+// Uses BotCatchProb=1.0 (always) and BotCatchDelay=10ms for determinism.
+// Skips if the bot holds the first turn (non-deterministic seed).
+func TestBotCatch_WithinWindow(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
+	origBotDelay := hub.BotThinkDelay
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
+	// Prevent bot from taking its turn during the test; keep catch fast.
+	hub.BotThinkDelay = 30 * time.Second
+	hub.BotCatchDelay = 10 * time.Millisecond
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 1.0 // always catch
+	t.Cleanup(func() {
+		hub.BotThinkDelay = origBotDelay
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
+	})
+
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined) // bot joined
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	if gs.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	// Only proceed if it's Alice's turn; otherwise the bot holds first turn and
+	// BotThinkDelay=30s means we'd wait too long.
+	if gs.State.Turn != gs.State.YourIndex {
+		t.Skip("bot has the first turn in this seed; skipping (non-deterministic by design)")
+	}
+
+	// Give Alice exactly 2 matching cards and a known discard.
+	zero := 0
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, conn, protocol.SMsgGameState)
+
+	// Alice plays one card → 1 card remaining, no UNO declaration.
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, conn, protocol.SMsgCardPlayed)
+
+	// Bot should catch within BotCatchDelay (10ms) + processing time.
+	// readMsgOfType retries up to 10 messages, each with a 3s read deadline.
+	caught := readMsgOfType(t, conn, protocol.SMsgUnoCaught)
+	if caught.PlayerIndex != gs.State.YourIndex {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d (Alice)", caught.PlayerIndex, gs.State.YourIndex)
+	}
+}
+
+// TestBotCatch_StaleCallback_IgnoredAfterDeclared verifies that if a player declares
+// UNO before the scheduled bot catch fires, the stale catch is silently discarded
+// (LastCardDeclared=true → CatchUndeclared returns error → no broadcast).
+func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	origBotDelay := hub.BotThinkDelay
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
+	// Long catch delay so we can declare before the bot catch fires.
+	hub.BotThinkDelay = 30 * time.Second
+	hub.BotCatchDelay = 300 * time.Millisecond
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 1.0
+	t.Cleanup(func() {
+		hub.BotThinkDelay = origBotDelay
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
+	})
+
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	if gs.State == nil {
+		t.Fatal("missing game state")
+	}
+
+	if gs.State.Turn != gs.State.YourIndex {
+		t.Skip("bot has first turn; skipping")
+	}
+
+	// Give Alice 2 matching cards.
+	zero := 0
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, conn, protocol.SMsgGameState)
+
+	// Alice plays → 1 card. Bot catch scheduled at 300ms.
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, conn, protocol.SMsgCardPlayed)
+
+	// Alice declares UNO immediately — before the 300ms bot catch fires.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
+	readMsgOfType(t, conn, protocol.SMsgUnoDeclared)
+
+	// Wait past the bot catch delay.
+	time.Sleep(400 * time.Millisecond)
+
+	// No uno_caught must arrive after declaration.
+	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	_, data, err := conn.ReadMessage()
+	if err == nil {
+		var msg protocol.ServerMsg
+		json.Unmarshal(data, &msg) //nolint:errcheck
+		if msg.Type == protocol.SMsgUnoCaught {
+			t.Error("received spurious uno_caught after player already declared UNO")
+		}
+	}
+	// A timeout (read deadline exceeded) here is expected and correct.
 }
 
