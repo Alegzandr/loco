@@ -18,11 +18,17 @@ function clientMayPlay(
   activeColor: CardColor,
   pendingDraw: number,
 ): boolean {
-  if (pendingDraw > 0) return false          // must counter or draw, not play normally
+  if (pendingDraw > 0) {
+    // Under an active draw stack only counter cards are playable
+    return card.kind === 'draw_two' || card.kind === 'wild_draw_four'
+  }
   if (card.kind === 'wild' || card.kind === 'wild_draw_four') return true
   if (!discard) return true
   if (card.color === activeColor) return true
-  if (card.kind === discard.kind) return true
+  // For non-number action cards matching kind is enough (e.g. Skip on Skip)
+  if (card.kind !== 'number' && card.kind === discard.kind) return true
+  // For number cards require matching value (mirrors server CanPlay)
+  if (card.kind === 'number' && discard.kind === 'number') return card.value === discard.value
   return false
 }
 
@@ -37,6 +43,9 @@ export function GameView({ onSend }: Props) {
   const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixiRef = useRef<PixiGame | null>(null)
+  // Tracks when PixiJS async init completes so the render effect can fire even
+  // if no game-state deps changed between component mount and init completion.
+  const [pixiReady, setPixiReady] = useState(false)
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [timerPct, setTimerPct] = useState(0)
   const timerRafRef = useRef<number | null>(null)
@@ -117,7 +126,12 @@ export function GameView({ onSend }: Props) {
     const game = new PixiGame(stableOnCardClick)
     let cancelled = false
     game.init(canvasRef.current).then(() => {
-      if (!cancelled) pixiRef.current = game
+      if (!cancelled) {
+        pixiRef.current = game
+        // Trigger the render effect so the initial game state is drawn even
+        // if no store deps changed between component mount and init completion.
+        setPixiReady(true)
+      }
     })
     return () => {
       cancelled = true
@@ -175,7 +189,7 @@ export function GameView({ onSend }: Props) {
       turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix,
         ord1: t.ord1, ord2: t.ord2, ord3: t.ord3, ordN: t.ordN },
     })
-  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t])
+  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t, pixiReady])
 
   // Animate UNO catch timer bar
   useEffect(() => {
