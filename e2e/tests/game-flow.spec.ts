@@ -1,0 +1,256 @@
+/**
+ * game-flow.spec.ts
+ *
+ * Full happy-path gameplay flow tested from a single browser:
+ *   create room → add bot → start game → play/draw → round summary → game over
+ *
+ * The Go server must be running on :8080 before these tests run.
+ * In CI the server binary is started by the pipeline; locally use docker-compose.dev.yml.
+ */
+import { test, expect } from '@playwright/test'
+import {
+  T,
+  createRoom,
+  addBot,
+  startGame,
+  waitForMyTurn,
+  getHand,
+  getState,
+  playCard,
+  drawAndPass,
+  waitForRoundSummary,
+  waitForGameOver,
+  sendMsg,
+} from '../helpers/game'
+
+test.describe('gameplay flow (single player vs bot)', () => {
+  /**
+   * Verify the lobby is rendered correctly before any interaction.
+   */
+  test('app loads and shows lobby', async ({ page }) => {
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.joinRoom })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.rulesBtn })).toBeVisible()
+  })
+
+  /**
+   * Create room → reach waiting room with a valid 6-character room code.
+   */
+  test('create room reaches waiting room with room code', async ({ page }) => {
+    const code = await createRoom(page, 'Alice')
+    expect(code).toMatch(/^[A-Z2-9]{6}$/)
+    // Host badge visible
+    await expect(page.getByText('Host')).toBeVisible()
+    // Alice in player list
+    await expect(page.getByText('Alice')).toBeVisible()
+  })
+
+  /**
+   * Rules modal is accessible from the waiting room.
+   */
+  test('rules modal opens and closes from waiting room', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await page.getByRole('button', { name: T.rulesBtn }).click()
+    await expect(page.getByText('Game Rules')).toBeVisible()
+    // Close via ✕ button
+    await page.getByRole('button', { name: '✕' }).click()
+    await expect(page.getByText('Game Rules')).not.toBeVisible()
+  })
+
+  /**
+   * Adding a bot puts it in the player list; starting the game shows the canvas.
+   */
+  test('add bot and start game shows canvas and action bar', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await expect(page.getByText('Bot1')).toBeVisible()
+    await startGame(page)
+
+    // Canvas is the PixiJS rendering surface
+    await expect(page.locator('canvas')).toBeVisible()
+    // Action bar is always in the DOM during a game
+    await expect(page.locator('[class*="actionBar"]')).toBeVisible()
+  })
+
+  /**
+   * Full game flow: from lobby to game over.
+   * Steps:
+   *  1. Create room, add bot, start game
+   *  2. On our turn: draw, then pass (or play a valid card if we have one)
+   *  3. Wait for round summary
+   *  4. Dismiss summary and wait for game over (BO1, so one round = match end)
+   */
+  test('complete BO1 bot game reaches game over', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    // Participate in at least a few of our own turns so we're not just spectating
+    let turnsPlayed = 0
+    const maxTurns = 5
+
+    while (turnsPlayed < maxTurns) {
+      // Wait up to 20s for our turn (bot plays fast, ~800ms delay)
+      try {
+        await waitForMyTurn(page, 20_000)
+      } catch {
+        // Game may have ended while waiting — break out
+        break
+      }
+
+      const state = await getState(page)
+      if (!state || state.screen !== 'game') break
+
+      const hand = await getHand(page)
+      if (hand.length === 0) break
+
+      // Try to play a valid card; fall back to draw-and-pass
+      const discard = state.discard
+      const activeColor = state.activeColor
+      const pendingDraw = state.pendingDraw ?? 0
+
+      const playable = hand.find((c) => {
+        if (pendingDraw > 0) return c.kind === 'draw_two' || c.kind === 'wild_draw_four'
+        if (c.kind === 'wild' || c.kind === 'wild_draw_four') return true
+        if (!discard) return true
+        if (c.color === activeColor) return true
+        if (c.kind !== 'number' && c.kind === discard.kind) return true
+        if (c.kind === 'number' && discard.kind === 'number') return c.value === discard.value
+        return false
+      })
+
+      if (playable) {
+        // Wild cards need a chosen color; send directly to avoid color picker dialog
+        if (playable.kind === 'wild' || playable.kind === 'wild_draw_four') {
+          await sendMsg(page, { type: 'play_card', card: playable, chosen_color: 'red' })
+        } else {
+          await playCard(page, playable)
+        }
+      } else if (pendingDraw > 0) {
+        // Must draw the penalty
+        await sendMsg(page, { type: 'draw_card' })
+      } else {
+        await drawAndPass(page)
+      }
+
+      turnsPlayed++
+
+      // Short pause to let server respond before re-checking state
+      await page.waitForTimeout(500)
+    }
+
+    // After enough turns, the bot will eventually win the round (or we do)
+    await waitForRoundSummary(page, 90_000)
+
+    // Summary shows round winner and "Complete"
+    await expect(page.getByText(/wins the round!/)).toBeVisible()
+    await expect(page.getByText(T.continueBtn, { exact: false })).toBeVisible()
+
+    // Dismiss summary → game over (BO1 ends after one round)
+    await page.getByText(T.continueBtn, { exact: false }).click()
+
+    await waitForGameOver(page, 30_000)
+
+    // Game over shows "Play Again" button
+    await expect(page.getByRole('button', { name: T.playAgain })).toBeVisible()
+  })
+
+  /**
+   * Draw card: clicking Draw during our turn adds a card and enables Pass.
+   */
+  test('draw and pass actions work on our turn', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    await waitForMyTurn(page, 30_000)
+
+    const handBefore = await getHand(page)
+
+    // Draw a card
+    await sendMsg(page, { type: 'draw_card' })
+
+    // Hand should grow and hasDrawn should become true
+    await page.waitForFunction(
+      (prevSize: number) => {
+        const state = window.__LOCO_E2E__?.getState?.()
+        return state?.hasDrawn === true && (state?.myHand?.length ?? 0) >= prevSize
+      },
+      handBefore.length,
+      { timeout: 10_000 },
+    )
+
+    const handAfter = await getHand(page)
+    expect(handAfter.length).toBeGreaterThanOrEqual(handBefore.length)
+
+    // Pass turn
+    await sendMsg(page, { type: 'pass_turn' })
+
+    // Turn should pass away from us
+    await page.waitForFunction(
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s !== undefined && s.currentTurn !== s.myIndex
+      },
+      undefined,
+      { timeout: 10_000 },
+    )
+  })
+
+  /**
+   * UNO! button is visible in the action bar during a game.
+   * It is disabled unless the player has exactly 1 card.
+   */
+  test('UNO button is present in action bar during game', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    // UNO button is rendered unconditionally when player is not finished
+    const unoBtn = page.getByRole('button', { name: T.unoBtn })
+    await expect(unoBtn).toBeVisible({ timeout: 10_000 })
+    // It's disabled unless exactly 1 card in hand (rare at game start with 7 cards)
+    await expect(unoBtn).toBeDisabled()
+  })
+
+  /**
+   * Rules modal opens from within the game and can be closed.
+   */
+  test('rules modal is accessible during game', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    // Rules button is top-right of game view
+    await page.getByRole('button', { name: T.rulesBtn }).click()
+    await expect(page.getByText('Game Rules')).toBeVisible()
+
+    // Close by pressing Escape
+    await page.keyboard.press('Escape')
+    await expect(page.getByText('Game Rules')).not.toBeVisible()
+
+    // Game is still running
+    await expect(page.locator('canvas')).toBeVisible()
+  })
+
+  /**
+   * Play Again reloads the app back to the lobby.
+   */
+  test('play again returns to lobby after game over', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    await waitForRoundSummary(page, 90_000)
+    await page.getByText(T.continueBtn, { exact: false }).click()
+    await waitForGameOver(page, 30_000)
+
+    await page.getByRole('button', { name: T.playAgain }).click()
+
+    // After reload, lobby is visible again
+    await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
+  })
+})

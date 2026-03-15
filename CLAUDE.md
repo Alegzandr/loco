@@ -149,7 +149,7 @@ TDD is mandatory.
 - prioritize domain logic coverage
 - use deterministic tests for timing-sensitive behavior
 - integration-test critical multiplayer flows
-- add end-to-end coverage for essential happy paths where practical
+- maintain the Playwright E2E suite as a living regression layer (see Playwright conventions below)
 
 ### Minimum required test coverage areas
 - room creation
@@ -303,6 +303,13 @@ Typical structure:
   - `game/` — pure domain logic (room, deck, hand, rules, bot, event log)
   - `hub/` — WebSocket connection management, rate limiting, session tokens, bot scheduling
   - `protocol/` — wire types shared between hub and client
+- `e2e/` — Playwright end-to-end test suite
+  - `tests/game-flow.spec.ts` — single-browser gameplay flow (lobby → game over)
+  - `tests/multi-client.spec.ts` — two-browser synchronization tests
+  - `tests/mobile.spec.ts` — mobile viewport tests (Pixel 5)
+  - `helpers/game.ts` — shared E2E helpers (create room, draw/pass, wait helpers)
+  - `types.d.ts` — `Window.__LOCO_E2E__` type declaration
+  - `playwright.config.ts` — Playwright project config
 - `shared/` protocol/types if used
 - `docs/` optional supplemental docs
 - root config / Docker / env files
@@ -393,15 +400,37 @@ If structure changes, update this file and the README.
 
 ---
 
+## Playwright E2E conventions
+
+- E2E tests live in `e2e/` (root-level, separate `package.json`).
+- Stack: `@playwright/test` with Chromium (desktop) and Pixel 5 profile (mobile).
+- Tests require the Go server on `:8080` and the Vite dev server on `:5173`.
+  - Local: run `docker compose -f docker-compose.dev.yml up --build` first, then `cd e2e && npm test`.
+  - CI: `backend_test` builds a static `server-bin` artifact; `e2e_test` starts it and runs Playwright.
+- `window.__LOCO_E2E__` is exposed by the client in dev mode only (`import.meta.env.DEV`):
+  - `send(msg)` — dispatch any WebSocket message through the live connection
+  - `getState()` — read the current Zustand store state (hand, turn, players, etc.)
+  - `playCard(card)` — call `handleCardClick` directly (animates + sends `play_card`)
+  - This object is **never present in production builds** (Vite tree-shakes `import.meta.env.DEV` blocks).
+- Type declarations for `window.__LOCO_E2E__` are in `e2e/types.d.ts`.
+- Helper functions in `e2e/helpers/game.ts` abstract common flows (createRoom, addBot, drawAndPass, waitForMyTurn, etc.).
+- Tests must be kept reliable: prefer `waitForFunction` + store state over fragile DOM polling.
+- Prefer a small number of high-value tests over many fragile ones.
+- **Maintenance rule**: when gameplay rules, UI flow, or protocol messages change, update the Playwright suite in the same commit. Never leave E2E tests diverged from the real product behavior.
+- Canvas (PixiJS) is not inspected directly; UI state is verified via DOM elements (ActionBar, RoundSummary, GameOver) and via `window.__LOCO_E2E__.getState()`.
+
+---
+
 ## CI/CD conventions
 
 - Pipeline defined in `.gitlab-ci.yml` with three stages: `test` → `build` → `deploy`.
-- `test` stage has two jobs that run on **every push** using lightweight images (no Docker daemon):
-  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...`
+- `test` stage has three jobs that run on **every push** using lightweight images:
+  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds static `server-bin` artifact
   - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`
+  - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): starts `server-bin`, runs Playwright; needs both above jobs
 - `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
 - Deploy jobs require the `devops` runner tag and a GitLab container registry.
-- Both test jobs must pass before Docker images are built or deployed.
+- All three test jobs must pass before Docker images are built or deployed.
 
 ### Production request path
 

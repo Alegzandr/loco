@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useGameStore } from './hooks/useGameStore'
 import { Lobby } from './components/Lobby'
@@ -173,6 +173,21 @@ export default function App() {
     },
     [send, store]
   )
+
+  // Keep a stable ref so the E2E helper always dispatches through the latest send.
+  const sendRef = useRef(handleSend)
+  sendRef.current = handleSend
+
+  // Expose lightweight E2E helpers on window in dev mode only.
+  // Vite tree-shakes this block in production builds (import.meta.env.DEV = false).
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    window.__LOCO_E2E__ = {
+      ...(window.__LOCO_E2E__ ?? {}),
+      send: (msg: ClientMsg) => sendRef.current(msg),
+      getState: useGameStore.getState,
+    }
+  }, [])
 
   const myNickname =
     store.players.find((p) => p.index === store.myIndex)?.nickname ?? ''

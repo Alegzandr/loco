@@ -125,6 +125,20 @@ export function GameView({ onSend }: Props) {
   const onCardClickRef = useRef(handleCardClick)
   onCardClickRef.current = handleCardClick
 
+  // Expose playCard on the E2E helper object (dev mode only).
+  // This lets Playwright trigger a card play via handleCardClick without needing
+  // to find and click the exact pixel on the PixiJS canvas.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    if (!window.__LOCO_E2E__) window.__LOCO_E2E__ = {}
+    window.__LOCO_E2E__.playCard = (card: CardDTO) => {
+      const idx = myHand.findIndex(
+        (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
+      )
+      handleCardClick(card, Math.max(0, idx))
+    }
+  }, [handleCardClick, myHand])
+
   // Initialize PixiJS
   useEffect(() => {
     if (!canvasRef.current) return
