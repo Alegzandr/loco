@@ -76,6 +76,13 @@ type unoMsg struct {
 	playerIndex int
 }
 
+// botCatchMsg is sent internally when a bot should attempt to catch an undeclared UNO.
+type botCatchMsg struct {
+	roomCode     string
+	targetPlayer int
+	lastCardTime time.Time // stale-check: must match room.State.LastCardTime at execution
+}
+
 // Hub manages all active rooms and connected clients.
 type Hub struct {
 	rooms   map[string]*game.Room
@@ -103,6 +110,7 @@ type Hub struct {
 	cleanup      chan cleanupMsg   // empty-room cleanup timers
 	turnTimeout  chan turnTimerMsg // per-turn timeout actions
 	unoAnnounce  chan unoMsg       // delayed bot UNO declaration broadcasts
+	botCatch     chan botCatchMsg  // scheduled bot catch-UNO attempts
 
 	// afterRegisterHook is called in the register case after the client is added
 	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
@@ -156,6 +164,7 @@ func New() *Hub {
 		cleanup:        make(chan cleanupMsg, 64),
 		turnTimeout:    make(chan turnTimerMsg, 64),
 		unoAnnounce:    make(chan unoMsg, 64),
+		botCatch:       make(chan botCatchMsg, 64),
 		startTime:      time.Now(),
 	}
 }
@@ -258,6 +267,9 @@ func (h *Hub) Run() {
 
 		case um := <-h.unoAnnounce:
 			h.handleUnoAnnounce(um)
+
+		case cm := <-h.botCatch:
+			h.handleBotCatch(cm)
 		}
 	}
 }
@@ -519,6 +531,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	if card.Kind == game.Swap || card.Kind == game.GlobalSwitch {
 		h.broadcastPersonalizedGameState(c.roomCode, room)
 	}
+	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -688,6 +701,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -714,6 +728,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -996,6 +1011,21 @@ var BotUnoDelay = 400 * time.Millisecond
 // Exported so tests can set it to 0.
 var BotUnoJitterMax = 400 * time.Millisecond
 
+// BotCatchDelay is the base delay before a bot attempts to catch an undeclared UNO.
+// Must be well under catchWindow (5s). 2s base gives bots time to "notice" without
+// being instant. Exported so tests can set it to 0.
+var BotCatchDelay = 2000 * time.Millisecond
+
+// BotCatchJitterMax is the max random jitter added to BotCatchDelay, giving a
+// total reaction window of BotCatchDelay to BotCatchDelay+BotCatchJitterMax (2–3.5s).
+// Exported so tests can set it to 0.
+var BotCatchJitterMax = 1500 * time.Millisecond
+
+// BotCatchProb is the probability (0–1) that an eligible bot will catch an undeclared UNO.
+// 0.65 means bots catch ~65% of the time, making them fallible like human opponents.
+// Exported so tests can set it to a deterministic value.
+var BotCatchProb float32 = 0.65
+
 // handleAddBot adds a bot player to the lobby (host-only).
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
@@ -1102,6 +1132,101 @@ func (h *Hub) handleUnoAnnounce(um unoMsg) {
 	h.broadcastToRoomAll(um.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoDeclared,
 		PlayerIndex: um.playerIndex,
+	})
+}
+
+// maybeScheduleBotCatch checks whether the most recent card play left a player at
+// 1 card without declaring UNO, and if so, schedules a bot catch attempt.
+// Must be called immediately after broadcastCardPlayed while room state is fresh.
+func (h *Hub) maybeScheduleBotCatch(code string, room *game.Room) {
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	bots, ok := h.botSlots[code]
+	if !ok || len(bots) == 0 {
+		return
+	}
+	state := room.State
+	if state.LastCardDeclared {
+		return // player already declared UNO — nothing to catch
+	}
+	target := state.LastCardPlayer
+	if state.Hands[target].Size() != 1 {
+		return // target doesn't have exactly 1 card
+	}
+	// Check at least one eligible bot exists (not the target, not finished).
+	anyEligible := false
+	for botID := range bots {
+		if botID != target && !state.Finished[botID] {
+			anyEligible = true
+			break
+		}
+	}
+	if !anyEligible {
+		return
+	}
+
+	var jitter time.Duration
+	if jm := int(BotCatchJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
+	cm := botCatchMsg{roomCode: code, targetPlayer: target, lastCardTime: state.LastCardTime}
+	time.AfterFunc(BotCatchDelay+jitter, func() {
+		select {
+		case h.botCatch <- cm:
+		default:
+			// Non-critical: drop if channel full; catch window just closes naturally.
+		}
+	})
+}
+
+// handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates game state,
+// rolls the probability die, selects a random eligible bot, and issues the catch.
+func (h *Hub) handleBotCatch(cm botCatchMsg) {
+	room, ok := h.rooms[cm.roomCode]
+	if !ok {
+		return // room deleted
+	}
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	state := room.State
+	// Stale check: if LastCardTime changed, a different card was played after we scheduled.
+	if !state.LastCardTime.Equal(cm.lastCardTime) {
+		return
+	}
+	if state.LastCardDeclared {
+		return // target declared in time — no catch
+	}
+	if state.Hands[cm.targetPlayer].Size() != 1 {
+		return // target no longer at 1 card (e.g. drew penalty cards)
+	}
+	// Probabilistic: bots don't always notice.
+	if mrand.Float32() >= BotCatchProb {
+		return
+	}
+	// Pick a random eligible bot.
+	bots, ok := h.botSlots[cm.roomCode]
+	if !ok || len(bots) == 0 {
+		return
+	}
+	eligible := make([]int, 0, len(bots))
+	for botID := range bots {
+		if botID != cm.targetPlayer && !state.Finished[botID] {
+			eligible = append(eligible, botID)
+		}
+	}
+	if len(eligible) == 0 {
+		return
+	}
+	catcherID := eligible[mrand.Intn(len(eligible))]
+	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
+		// Window may have expired or state changed — normal race condition.
+		return
+	}
+	h.broadcastToRoomAll(cm.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoCaught,
+		PlayerIndex: cm.targetPlayer,
 	})
 }
 

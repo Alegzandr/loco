@@ -1140,6 +1140,9 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	origJitter := hub.BotJitterMax
 	origUnoDelay := hub.BotUnoDelay
 	origUnoJitter := hub.BotUnoJitterMax
+	origCatchDelay := hub.BotCatchDelay
+	origCatchJitter := hub.BotCatchJitterMax
+	origCatchProb := hub.BotCatchProb
 	// Use moderate delays to avoid flooding the per-client send buffer (cap 256)
 	// with messages faster than the test goroutine can drain them. When the buffer
 	// fills, the hub drops messages — including match_end — causing a spurious failure.
@@ -1149,6 +1152,9 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	hub.BotJitterMax = 0
 	hub.BotUnoDelay = 0
 	hub.BotUnoJitterMax = 0
+	hub.BotCatchDelay = 0
+	hub.BotCatchJitterMax = 0
+	hub.BotCatchProb = 0 // disable bot catches in this test to keep message flow simple
 	hub.TurnTimeout = 50 * time.Millisecond
 	t.Cleanup(func() {
 		hub.TurnTimeout = origTimeout
@@ -1156,6 +1162,9 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 		hub.BotJitterMax = origJitter
 		hub.BotUnoDelay = origUnoDelay
 		hub.BotUnoJitterMax = origUnoJitter
+		hub.BotCatchDelay = origCatchDelay
+		hub.BotCatchJitterMax = origCatchJitter
+		hub.BotCatchProb = origCatchProb
 	})
 
 	origEmpty := hub.EmptyRoomTimeout
