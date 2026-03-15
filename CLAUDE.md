@@ -532,8 +532,10 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 - `docker-compose.dev.yml` provides a hot-reload development environment with no host Go or Node required.
 - Backend service: `golang:1.24.7-alpine` image, bind-mounts `./server:/app`, runs `go run .`, port 8080.
 - Frontend service: `node:20-alpine` image, bind-mounts `./client:/app`, runs `npm ci && npm run dev`, port 5173 (mapped from container port 3000).
-- `VITE_WS_TARGET=ws://server:8080` environment variable in the frontend service routes the Vite WebSocket proxy to the backend container (instead of localhost).
-- `vite.config.ts` reads `process.env.VITE_WS_TARGET` for the proxy target (falls back to `ws://localhost:8080` for local dev without Docker).
+- **No Vite WS proxy**: the browser connects directly to `ws://<host>:8080/ws`. Vite's `http-proxy` WebSocket upgrade is unreliable under Docker networking and has been removed.
+- `VITE_WS_PORT=8080` environment variable in the frontend service tells the client which port to use for direct WebSocket connections (defaults to `8080` if unset).
+- `useWebSocket.ts` detects `import.meta.env.DEV` and builds the WS URL as `ws://${hostname}:${VITE_WS_PORT}/ws`; production builds use `ws://${host}/ws` (same origin, proxied by nginx).
+- `vite.config.ts` has no proxy configuration.
 - Go module cache (`go-mod-cache`) and node_modules (`client-node-modules`) are named Docker volumes so restarts do not re-download dependencies.
 - Start command: `docker compose -f docker-compose.dev.yml up --build`.
 
