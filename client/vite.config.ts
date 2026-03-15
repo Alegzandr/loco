@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const wsTarget = process.env.VITE_WS_TARGET ?? 'ws://localhost:8080'
+// Target must use http:// (not ws://) so that http-proxy performs an HTTP upgrade,
+// which is what gorilla/websocket on the backend expects.
+const wsTarget = process.env.VITE_WS_TARGET ?? 'http://localhost:8080'
 
 export default defineConfig({
   plugins: [react()],
@@ -12,6 +14,7 @@ export default defineConfig({
       '/ws': {
         target: wsTarget,
         ws: true,
+        changeOrigin: true,
       },
     },
   },
