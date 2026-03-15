@@ -1,7 +1,7 @@
 // Protocol types matching server/protocol/messages.go
 
 export type CardColor = 'red' | 'yellow' | 'green' | 'blue' | 'wild'
-export type CardKind = 'number' | 'skip' | 'reverse' | 'draw_two' | 'wild' | 'wild_draw_four'
+export type CardKind = 'number' | 'skip' | 'reverse' | 'draw_two' | 'wild' | 'wild_draw_four' | 'swap' | 'global_switch'
 export type MatchFormat = 'BO1' | 'BO3' | 'BO5' | 'BO7'
 
 export interface CardDTO {
@@ -74,6 +74,7 @@ export interface ClientMsg {
   session_token?: string
   card?: CardDTO
   chosen_color?: CardColor
+  chosen_player?: number
   match_format?: MatchFormat
   max_players?: number
 }

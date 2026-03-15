@@ -32,6 +32,8 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 		if card.Kind == WildDrawFour {
 			s.PendingDraw += 4
 		}
+	case Swap, GlobalSwitch:
+		// Do not change active color; hand manipulation is handled by Room.PlayCard.
 	default:
 		s.ActiveColor = card.Color
 	}

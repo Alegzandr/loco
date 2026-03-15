@@ -4,12 +4,11 @@ import "testing"
 
 func TestNewDeck_Size(t *testing.T) {
 	d := NewDeck()
-	// Standard UNO deck: 108 cards
-	// 4 colors × (1 zero + 2×nine numbers + 2 Skip + 2 Reverse + 2 DrawTwo) = 4×(1+18+2+2+2) = 4×25 = 100
-	// Plus 4 Wild + 4 WildDrawFour = 8
-	// Total = 108
-	if len(d.Cards) != 108 {
-		t.Errorf("NewDeck() len = %d, want 108", len(d.Cards))
+	// 4 colors × (1 zero + 2×nine numbers + 2 Skip + 2 Reverse + 2 DrawTwo) = 4×25 = 100
+	// Plus 4 Wild + 4 WildDrawFour + 2 Swap + 2 GlobalSwitch = 12
+	// Total = 112
+	if len(d.Cards) != 112 {
+		t.Errorf("NewDeck() len = %d, want 112", len(d.Cards))
 	}
 }
 
@@ -94,8 +93,8 @@ func TestDeck_DrawN(t *testing.T) {
 	if len(cards) != 7 {
 		t.Errorf("DrawN(7) returned %d cards, want 7", len(cards))
 	}
-	if len(d.Cards) != 101 {
-		t.Errorf("After DrawN(7), deck len = %d, want 101", len(d.Cards))
+	if len(d.Cards) != 105 {
+		t.Errorf("After DrawN(7), deck len = %d, want 105", len(d.Cards))
 	}
 }
 
@@ -111,12 +110,12 @@ func TestDeck_Replenish(t *testing.T) {
 	d := NewDeck()
 	d.Shuffle()
 	// Draw down to 3 cards
-	drawn, _ := d.DrawN(105)
-	discard := drawn[:104]
+	drawn, _ := d.DrawN(109)
+	discard := drawn[:108]
 
-	d.Replenish(discard, drawn[104])
-	// deck should have 104 cards again (the discards minus the top of discard)
-	if len(d.Cards) != 104 {
-		t.Errorf("After Replenish(), deck len = %d, want 104", len(d.Cards))
+	d.Replenish(discard, drawn[108])
+	// deck should have 108 cards again (the discards minus the top of discard)
+	if len(d.Cards) != 108 {
+		t.Errorf("After Replenish(), deck len = %d, want 108", len(d.Cards))
 	}
 }

@@ -73,6 +73,13 @@ export default function App() {
           break
         }
 
+        case 'game_state':
+          // Mid-game state refresh (e.g. after Swap or GlobalSwitch)
+          if (msg.state) {
+            useGameStore.setState({ myHand: msg.state.hand, players: msg.state.players })
+          }
+          break
+
         case 'card_played':
           if (msg.card) {
             store.applyCardPlayed(

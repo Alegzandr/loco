@@ -1,0 +1,96 @@
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 8, 18, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.picker {
+  background: rgba(15, 20, 35, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 2rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.25rem;
+  color: #e2e8f0;
+  font-size: 1rem;
+  font-weight: 700;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-width: 240px;
+}
+
+.playerList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+}
+
+.playerBtn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.25rem;
+  background: rgba(77, 150, 255, 0.12);
+  border: 1px solid rgba(77, 150, 255, 0.25);
+  border-radius: 12px;
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  min-height: 44px;
+}
+
+.playerBtn:hover,
+.playerBtn:focus {
+  background: rgba(77, 150, 255, 0.25);
+  border-color: rgba(77, 150, 255, 0.6);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.playerBtn:active {
+  transform: translateY(0);
+}
+
+.handSize {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 400;
+}
+
+.cancelBtn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s;
+}
+
+.cancelBtn:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+@media (max-width: 480px) {
+  .picker {
+    padding: 1.5rem 1.75rem;
+    width: 90vw;
+    max-width: 360px;
+  }
+}

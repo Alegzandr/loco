@@ -62,8 +62,9 @@ type ClientMsg struct {
 	SessionToken string `json:"session_token,omitempty"`
 
 	// CMsgPlayCard / CMsgCounterDraw
-	Card        *CardDTO `json:"card,omitempty"`
-	ChosenColor string   `json:"chosen_color,omitempty"`
+	Card         *CardDTO `json:"card,omitempty"`
+	ChosenColor  string   `json:"chosen_color,omitempty"`
+	ChosenPlayer *int     `json:"chosen_player,omitempty"` // target player index for Swap cards
 
 	// CMsgSetMatchFormat
 	MatchFormat string `json:"match_format,omitempty"`

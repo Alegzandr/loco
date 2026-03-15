@@ -6,6 +6,7 @@ import { useI18n } from '../i18n'
 import { RulesModal } from './RulesModal'
 import { UnoTimer } from './UnoTimer'
 import { ColorPicker } from './ColorPicker'
+import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
 import styles from './GameView.module.css'
@@ -47,6 +48,7 @@ export function GameView({ onSend }: Props) {
   // if no game-state deps changed between component mount and init completion.
   const [pixiReady, setPixiReady] = useState(false)
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
+  const [playerPicker, setPlayerPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [timerPct, setTimerPct] = useState(0)
   const timerRafRef = useRef<number | null>(null)
   const [turnTimerPct, setTurnTimerPct] = useState(0)
@@ -99,6 +101,11 @@ export function GameView({ onSend }: Props) {
         setColorPicker({ card, idx: cardIdx })
         return
       }
+      if (card.kind === 'swap') {
+        setPlayerPicker({ card, idx: cardIdx })
+        return
+      }
+      // global_switch: play immediately (no picker needed)
       // Block the play animation for clearly-invalid cards so there's no "fake" play.
       // Server is always authoritative; this is a UX hint only.
       if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
@@ -359,6 +366,24 @@ export function GameView({ onSend }: Props) {
             setColorPicker(null)
           }}
           onCancel={() => setColorPicker(null)}
+        />
+      )}
+
+      {/* Swap player picker */}
+      {playerPicker && (
+        <PlayerPicker
+          label={t.choosePlayer}
+          players={players.filter((p) => p.index !== myIndex && !p.finished)}
+          onChoose={(targetIdx: number) => {
+            const game = pixiRef.current
+            if (game) {
+              const { width, height } = game.app.screen
+              game.animateCardPlay(playerPicker.card, playerPicker.idx, width, height)
+            }
+            onSend({ type: 'play_card', card: playerPicker.card, chosen_player: targetIdx })
+            setPlayerPicker(null)
+          }}
+          onCancel={() => setPlayerPicker(null)}
         />
       )}
 

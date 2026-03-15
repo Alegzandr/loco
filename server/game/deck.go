@@ -7,9 +7,9 @@ type Deck struct {
 	Cards []Card
 }
 
-// NewDeck creates a standard 108-card UNO-style deck.
+// NewDeck creates a 112-card UNO-style deck including Swap and GlobalSwitch cards.
 func NewDeck() *Deck {
-	cards := make([]Card, 0, 108)
+	cards := make([]Card, 0, 112)
 
 	for _, col := range []Color{Red, Yellow, Green, Blue} {
 		// One zero per color
@@ -27,10 +27,14 @@ func NewDeck() *Deck {
 		}
 	}
 
-	// Four Wild, Four WildDrawFour
+	// Four Wild, Four WildDrawFour, Two Swap, Two GlobalSwitch
 	for i := 0; i < 4; i++ {
 		cards = append(cards, Card{Color: Wild, Kind: WildCard})
 		cards = append(cards, Card{Color: Wild, Kind: WildDrawFour})
+	}
+	for i := 0; i < 2; i++ {
+		cards = append(cards, Card{Color: Wild, Kind: Swap})
+		cards = append(cards, Card{Color: Wild, Kind: GlobalSwitch})
 	}
 
 	return &Deck{Cards: cards}

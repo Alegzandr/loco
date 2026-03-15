@@ -37,6 +37,8 @@ const (
 	DrawTwo
 	WildCard
 	WildDrawFour
+	Swap         // swap entire hands with a chosen opponent
+	GlobalSwitch // all players rotate hands in the current game direction
 )
 
 func (k Kind) String() string {
@@ -53,6 +55,10 @@ func (k Kind) String() string {
 		return "wild"
 	case WildDrawFour:
 		return "wild_draw_four"
+	case Swap:
+		return "swap"
+	case GlobalSwitch:
+		return "global_switch"
 	}
 	return "unknown"
 }
@@ -66,7 +72,7 @@ type Card struct {
 
 // IsWild returns true if the card has no inherent color.
 func (c Card) IsWild() bool {
-	return c.Kind == WildCard || c.Kind == WildDrawFour
+	return c.Kind == WildCard || c.Kind == WildDrawFour || c.Kind == Swap || c.Kind == GlobalSwitch
 }
 
 // IsAction returns true if the card is an action card.
@@ -82,7 +88,7 @@ func CardValue(c Card) int {
 		return c.Value
 	case Skip, Reverse, DrawTwo:
 		return 20
-	case WildCard, WildDrawFour:
+	case WildCard, WildDrawFour, Swap, GlobalSwitch:
 		return 50
 	}
 	return 0
