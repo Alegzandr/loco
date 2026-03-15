@@ -270,6 +270,9 @@ export function GameView({ onSend }: Props) {
 
   const isMyTurn = currentTurn === myIndex
   const isFinished = !!players.find((p) => p.index === myIndex)?.finished
+  // True when the player has at least one card they can legally play right now.
+  // Used to de-emphasize the Draw button so it doesn't look like the required action.
+  const hasPlayableCard = isMyTurn && myHand.some(c => clientMayPlay(c, discard, activeColor, pendingDraw))
 
   return (
     <div className={styles.container}>
@@ -311,6 +314,7 @@ export function GameView({ onSend }: Props) {
         pendingDraw={pendingDraw}
         handSize={myHand.length}
         hasDrawn={hasDrawn}
+        hasPlayableCard={hasPlayableCard}
         unoTimerEnd={unoTimerEnd}
         onDraw={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
         onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}

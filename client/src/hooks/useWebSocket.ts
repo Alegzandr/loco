@@ -88,9 +88,13 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
       }
       const ws = wsRef.current
       if (ws) {
-        // Null out onclose before closing so the close event doesn't schedule
-        // a spurious reconnect (important in React StrictMode double-invoke).
+        // Null out onclose + onerror before closing so that forcibly closing a
+        // CONNECTING socket (React StrictMode double-invoke) doesn't log a
+        // spurious "WebSocket error" or schedule a reconnect. Real errors
+        // during active use are still reported because these handlers are only
+        // cleared here, at intentional teardown time.
         ws.onclose = null
+        ws.onerror = null
         ws.close()
         wsRef.current = null
       }
