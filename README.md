@@ -383,6 +383,26 @@ The pipeline is defined in `.gitlab-ci.yml` and has three stages:
 
 **Build** and **deploy** jobs require the `devops` runner tag and a GitLab container registry.
 
+### Production request path
+
+```
+Browser (HTTPS) → Traefik (:443, entrypoint websecure)
+  → client nginx (:80, networks: traefik + internal)
+    → /ws  → Go server (:8080, network: internal only)   [WebSocket]
+    → /health → Go server (:8080)                        [health probe]
+    → /    → nginx serves static SPA files directly
+```
+
+- Traefik terminates TLS and routes all traffic to the nginx container on port 80.
+- nginx bridges the `traefik` and `internal` Docker networks; the Go server is isolated on `internal` only and is never directly reachable by Traefik.
+- The Go server container exposes port 8080 internally (`expose`, not `ports`).
+
+### Production readiness
+
+- The `server` service in `deploy/compose.yml` has a healthcheck (`GET /health`, 10 s interval, 5 s timeout, 3 retries, 5 s start period).
+- The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening Go server on deploy or restart.
+- All compose-interpolation variables (`DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`) are written to `app.env` by `write_app_env` and loaded via `--env-file app.env`, so a manual `docker compose up` on the server works without relying on CI shell exports.
+
 ---
 
 ## Development Workflow
