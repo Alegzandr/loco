@@ -21,12 +21,6 @@ backend_test:
     - devops
   script:
     - cd server && go test ./...
-    # Build a static binary for the E2E job (glibc-independent, works on Ubuntu)
-    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
-  artifacts:
-    paths:
-      - server-bin
-    expire_in: 1 hour
 
 frontend_test:
   stage: test
@@ -47,9 +41,10 @@ e2e_test:
     - devops
   needs:
     - job: backend_test
-      artifacts: true
     - job: frontend_test
   script:
+    # Build a static binary (no artifact transfer needed)
+    - cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin . && cd ..
     # Start the Go server binary in the background (LOCO_E2E=1 enables debug_set_state)
     - chmod +x server-bin
     - PORT=8080 LOCO_E2E=1 ./server-bin &
