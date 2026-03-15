@@ -12,7 +12,6 @@ interface Props {
   onPass: () => void
   onUno: () => void
   onCatch: () => void
-  onRules: () => void
   t: Translations
 }
 
@@ -27,7 +26,6 @@ export function ActionBar({
   onPass,
   onUno,
   onCatch,
-  onRules,
   t,
 }: Props) {
   return (
@@ -76,11 +74,6 @@ export function ActionBar({
           {t.catchBtn}
         </button>
       )}
-
-      {/* Rules reference */}
-      <button className={`${styles.btn} ${styles.btnRules}`} onClick={onRules}>
-        {t.rulesBtn}
-      </button>
     </div>
   )
 }

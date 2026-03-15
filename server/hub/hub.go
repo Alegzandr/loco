@@ -967,7 +967,10 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 // would stall the game (no player would act on that turn).
 func (h *Hub) scheduleBotMove(code string, playerID int) {
 	bm := botMoveMsg{roomCode: code, playerID: playerID}
-	time.AfterFunc(BotThinkDelay, func() {
+	// Add up to 700ms of random jitter so bots don't all act at the same instant
+	// and feel more like human reaction times (800–1500ms range).
+	jitter := time.Duration(mrand.Intn(700)) * time.Millisecond
+	time.AfterFunc(BotThinkDelay+jitter, func() {
 		select {
 		case h.botMove <- bm:
 		default:

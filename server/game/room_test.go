@@ -169,6 +169,26 @@ func TestRoom_DrawCard_NotYourTurn(t *testing.T) {
 	}
 }
 
+func TestRoom_DrawCard_FinishedPlayer(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	// Manually mark alice as finished (simulates having already played out all cards)
+	r.State.Finished[0] = true
+	err := r.DrawCard(0)
+	if err == nil {
+		t.Error("DrawCard by finished player should return error")
+	}
+}
+
+func TestRoom_PassTurn_FinishedPlayer(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.Finished[0] = true
+	r.State.HasDrawn = true // would normally allow PassTurn
+	err := r.PassTurn(0)
+	if err == nil {
+		t.Error("PassTurn by finished player should return error")
+	}
+}
+
 func TestRoom_DrawCard_OncePerTurn(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	r.State.PendingDraw = 0

@@ -28,17 +28,20 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 	activeColor := state.ActiveColor
 
 	// If there is a pending draw, try to counter first.
+	// Bots counter only ~70% of the time to feel less robotic.
 	if state.PendingDraw > 0 {
-		for _, c := range hand.Cards {
-			if c.Kind == topCard.Kind && (c.Kind == DrawTwo || c.Kind == WildDrawFour) {
-				chosen := activeColor
-				if c.IsWild() {
-					chosen = botPreferredColor(hand)
+		if rand.Float32() < 0.70 {
+			for _, c := range hand.Cards {
+				if c.Kind == topCard.Kind && (c.Kind == DrawTwo || c.Kind == WildDrawFour) {
+					chosen := activeColor
+					if c.IsWild() {
+						chosen = botPreferredColor(hand)
+					}
+					return BotAction{Kind: BotCounter, Card: c, ChosenColor: chosen}
 				}
-				return BotAction{Kind: BotCounter, Card: c, ChosenColor: chosen}
 			}
 		}
-		// Can't counter — draw
+		// Can't counter (or chose not to) — draw
 		return BotAction{Kind: BotDraw}
 	}
 
