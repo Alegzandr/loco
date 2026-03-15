@@ -634,9 +634,20 @@ export class PixiGame {
   }
 
   destroy() {
+    // Idempotent: safe to call multiple times (React StrictMode double-invoke).
+    if (this.destroyed) return
     this.destroyed = true
-    if (this.initStarted) {
-      this.app.destroy()
+    // Only call app.destroy() if init() fully completed. If init() was still
+    // in progress (initStarted=true, initialized=false), the internal PixiJS
+    // resize handler (_cancelResize) has not been set up yet and calling
+    // app.destroy() would throw. The in-progress init() checks this.destroyed
+    // after its await and returns early without touching the stage.
+    if (this.initialized) {
+      try {
+        this.app.destroy()
+      } catch (err) {
+        console.warn('PixiGame: error during app.destroy()', err)
+      }
     }
   }
 }
