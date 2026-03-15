@@ -19,13 +19,19 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
   const pendingRef = useRef<string | null>(null)
   const attemptsRef = useRef(0)
   const unmountedRef = useRef(false)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const connect = useCallback(() => {
     if (unmountedRef.current) return
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const host = window.location.host
-    const ws = new WebSocket(`${proto}://${host}/ws`)
+    // In dev mode, connect directly to the Go backend to bypass Vite's WS proxy,
+    // which is unreliable for WebSocket upgrades under Docker networking.
+    // VITE_WS_PORT defaults to 8080 (the Go server port).
+    const wsUrl = import.meta.env.DEV
+      ? `${proto}://${window.location.hostname}:${import.meta.env.VITE_WS_PORT ?? '8080'}/ws`
+      : `${proto}://${window.location.host}/ws`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
     ws.onopen = () => {
@@ -53,6 +59,9 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     ws.onerror = (e) => console.error('WebSocket error', e)
 
     ws.onclose = () => {
+      // Guard: if this socket is no longer the current one (e.g. replaced by a
+      // re-mount), don't trigger a reconnect from the stale close event.
+      if (wsRef.current !== ws) return
       if (unmountedRef.current) return
       if (attemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
         console.warn('WebSocket: max reconnect attempts reached')
@@ -60,7 +69,7 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
       }
       attemptsRef.current++
       const delay = RECONNECT_DELAY_MS * Math.min(attemptsRef.current, 4)
-      setTimeout(connect, delay)
+      reconnectTimerRef.current = setTimeout(connect, delay)
     }
   }, [])
 
@@ -69,7 +78,19 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     connect()
     return () => {
       unmountedRef.current = true
-      wsRef.current?.close()
+      // Cancel any pending reconnect timer.
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
+      const ws = wsRef.current
+      if (ws) {
+        // Null out onclose before closing so the close event doesn't schedule
+        // a spurious reconnect (important in React StrictMode double-invoke).
+        ws.onclose = null
+        ws.close()
+        wsRef.current = null
+      }
     }
   }, [connect])
 

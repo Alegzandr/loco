@@ -31,6 +31,7 @@ interface GameStore {
   currentTurn: number
   direction: number
   pendingDraw: number
+  hasDrawn: boolean
   winner: string
   errorMsg: string
   unoDeclared: boolean
@@ -58,7 +59,7 @@ interface GameStore {
   setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[]) => void
-  applyCardDrawn: (card: CardDTO | null, playerIndex: number, turn: number) => void
+  applyCardDrawn: (card: CardDTO | null, playerIndex: number, turn: number, hasDrawn?: boolean) => void
   setPlayers: (players: PlayerDTO[]) => void
   setWinner: (name: string) => void
   setError: (msg: string) => void
@@ -84,6 +85,7 @@ function gameStateSliceFromDTO(state: GameStateDTO) {
     currentTurn: state.turn,
     direction: state.direction,
     pendingDraw: state.pending_draw ?? 0,
+    hasDrawn: state.has_drawn ?? false,
     roundNumber: state.round_number ?? 1,
     matchFormat: state.match_format ?? 'BO1',
     maxPlayers: state.max_players ?? 10,
@@ -103,6 +105,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   currentTurn: 0,
   direction: 1,
   pendingDraw: 0,
+  hasDrawn: false,
   winner: '',
   errorMsg: '',
   unoDeclared: false,
@@ -158,20 +161,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
         activeColor: resolvedColor,
         currentTurn: turn,
         pendingDraw,
+        hasDrawn: false,
         players: updatedPlayers,
         unoDeclared: false,
       }
     }),
 
-  applyCardDrawn: (card, playerIndex, turn) =>
+  applyCardDrawn: (card, playerIndex, turn, hasDrawn) =>
     set((s) => {
       if (card) {
-        return { myHand: [...s.myHand, card], currentTurn: turn }
+        // Own draw: add card to hand, update hasDrawn from server
+        return { myHand: [...s.myHand, card], currentTurn: turn, hasDrawn: hasDrawn ?? s.hasDrawn }
       }
       const players = s.players.map((p) =>
         p.index === playerIndex ? { ...p, hand_size: p.hand_size + 1 } : p
       )
-      return { players, currentTurn: turn }
+      // Turn changed (penalty draw advances turn): reset hasDrawn
+      const newHasDrawn = turn !== s.currentTurn ? false : s.hasDrawn
+      return { players, currentTurn: turn, hasDrawn: newHasDrawn }
     }),
 
   setPlayers: (players) => set({ players }),

@@ -21,11 +21,12 @@ export function GameView({ onSend }: Props) {
   const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixiRef = useRef<PixiGame | null>(null)
-  const [colorPicker, setColorPicker] = useState<CardDTO | null>(null)
+  const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [timerPct, setTimerPct] = useState(0)
   const timerRafRef = useRef<number | null>(null)
   const lastActionRef = useRef<number>(0)
   const reconnectAnimatedRef = useRef(false)
+  const prevHandSizeRef = useRef<number>(0)
   const [summaryCountdown, setSummaryCountdown] = useState(0)
   const summaryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false)
@@ -39,6 +40,7 @@ export function GameView({ onSend }: Props) {
     currentTurn,
     myIndex,
     pendingDraw,
+    hasDrawn,
     unoDeclared,
     unoTimerEnd,
     showRoundSummary,
@@ -61,11 +63,17 @@ export function GameView({ onSend }: Props) {
   }, [])
 
   const handleCardClick = useCallback(
-    (card: CardDTO) => {
+    (card: CardDTO, cardIdx: number) => {
       if (currentTurn !== myIndex) return
       if (card.kind === 'wild' || card.kind === 'wild_draw_four') {
-        setColorPicker(card)
+        setColorPicker({ card, idx: cardIdx })
         return
+      }
+      // Trigger travel animation before state update
+      const game = pixiRef.current
+      if (game) {
+        const { width, height } = game.app.screen
+        game.animateCardPlay(card, cardIdx, width, height)
       }
       onSend({ type: 'play_card', card, chosen_color: card.color })
     },
@@ -107,7 +115,8 @@ export function GameView({ onSend }: Props) {
         return
       }
       game.renderReconnect(
-        { myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw },
+        { myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
+          turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix } },
         () => { setIsReconnecting(false) }
       )
     }, 600)
@@ -116,11 +125,25 @@ export function GameView({ onSend }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReconnecting])
 
-  // Re-render on state change
+  // Re-render on state change; trigger draw animation when hand grows
   useEffect(() => {
     if (isReconnecting) return
-    pixiRef.current?.render({ myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw })
-  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting])
+    const game = pixiRef.current
+    if (!game) return
+
+    // Detect when we drew a card (hand size increased by 1)
+    const prev = prevHandSizeRef.current
+    const curr = myHand.length
+    if (curr > prev && curr === prev + 1) {
+      game.animateCardDrawn(myHand[myHand.length - 1])
+    }
+    prevHandSizeRef.current = curr
+
+    game.render({
+      myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
+      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix },
+    })
+  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t])
 
   // Animate UNO catch timer bar
   useEffect(() => {
@@ -203,8 +226,11 @@ export function GameView({ onSend }: Props) {
       {/* Action bar */}
       <ActionBar
         isMyTurn={isMyTurn}
+        isFinished={isFinished}
         pendingDraw={pendingDraw}
         handSize={myHand.length}
+        hasDrawn={hasDrawn}
+        unoTimerEnd={unoTimerEnd}
         onDraw={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
         onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
         onUno={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
@@ -218,9 +244,15 @@ export function GameView({ onSend }: Props) {
         <ColorPicker
           label={t.chooseColor}
           onChoose={(col: CardColor) => {
-            onSend({ type: 'play_card', card: colorPicker, chosen_color: col })
+            const game = pixiRef.current
+            if (game) {
+              const { width, height } = game.app.screen
+              game.animateCardPlay(colorPicker.card, colorPicker.idx, width, height)
+            }
+            onSend({ type: 'play_card', card: colorPicker.card, chosen_color: col })
             setColorPicker(null)
           }}
+          onCancel={() => setColorPicker(null)}
         />
       )}
 
@@ -238,7 +270,7 @@ export function GameView({ onSend }: Props) {
         />
       )}
 
-      {unoDeclared && <div className={styles.unoBanner}>UNO!</div>}
+      {unoDeclared && <div className={styles.unoBanner}>{t.unoBanner}</div>}
 
       {/* Spectating banner when local player has finished but round is still going */}
       {isFinished && !showRoundSummary && (

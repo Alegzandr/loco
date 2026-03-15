@@ -7,7 +7,7 @@
 # Endpoints:
 #   Frontend (Vite):  http://localhost:5173
 #   Backend  (Go):    http://localhost:8080
-#   WebSocket:        ws://localhost:5173/ws  (proxied by Vite to backend)
+#   WebSocket:        ws://localhost:8080/ws  (browser connects directly — no Vite proxy)
 
 services:
     server:
@@ -38,8 +38,8 @@ services:
             # Isolate node_modules inside the container to avoid host/container conflicts.
             - client-node-modules:/app/node_modules
         environment:
-            # Vite proxy target — routes /ws to the backend container.
-            - VITE_WS_TARGET=ws://server:8080
+            # Direct WebSocket port: browser connects to ws://<host>:8080/ws, bypassing Vite proxy.
+            - VITE_WS_PORT=8080
         ports:
             - "5173:3000"
         command: sh -c "npm ci && npm run dev"

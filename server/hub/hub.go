@@ -527,11 +527,13 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	hand := state.Hands[c.playerID]
 	drawn := hand.Cards[len(hand.Cards)-1]
 
-	// Tell the drawing player their new card
+	// Tell the drawing player their new card plus the updated has_drawn flag
 	c.Send(protocol.ServerMsg{
-		Type: protocol.SMsgCardDrawn,
-		Card: cardToDTO(drawn),
-		Turn: state.CurrentTurn,
+		Type:        protocol.SMsgCardDrawn,
+		PlayerIndex: c.playerID,
+		Card:        cardToDTO(drawn),
+		Turn:        state.CurrentTurn,
+		HasDrawn:    state.HasDrawn,
 	})
 	// Tell others hand size changed
 	h.broadcastToRoom(c.roomCode, protocol.ServerMsg{
@@ -1183,6 +1185,7 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		Turn:        state.CurrentTurn,
 		Direction:   state.Direction,
 		PendingDraw: state.PendingDraw,
+		HasDrawn:    state.HasDrawn,
 		EventLog:    eventLog,
 		RoundNumber: room.RoundNumber,
 		MatchFormat: matchFormatString(room.Format),

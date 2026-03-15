@@ -54,6 +54,23 @@
   transform: scale(1.05);
 }
 
+.cancelBtn {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 1.25rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.15s;
+}
+
+.cancelBtn:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
 @media (max-width: 480px) {
   .colorBtn {
     width: 68px;

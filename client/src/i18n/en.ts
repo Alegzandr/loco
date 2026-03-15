@@ -37,6 +37,7 @@ export interface Translations {
   draw: string
   pass: string
   unoBtn: string
+  unoBanner: string
   catchBtn: string
   chooseColor: string
   catchWindow: string
@@ -54,6 +55,11 @@ export interface Translations {
   matchScoreboard: string
   continueBtn: string
   spectating: string
+
+  // ─── PixiGame in-canvas strings ───────────────────────────────
+  yourTurn: string
+  drawOrCounter: string  // contains %n placeholder for draw count
+  playerTurnSuffix: string  // appended after nickname: "Alice's turn"
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: string
@@ -105,6 +111,7 @@ export const en: Translations = {
   draw: 'Draw',
   pass: 'Pass',
   unoBtn: 'UNO!',
+  unoBanner: 'UNO!',
   catchBtn: 'Catch!',
   chooseColor: 'Choose a color',
   catchWindow: 'Catch window!',
@@ -122,6 +129,11 @@ export const en: Translations = {
   matchScoreboard: 'Match Scoreboard',
   continueBtn: 'Continue',
   spectating: 'You finished! Watching the round…',
+
+  // ─── PixiGame in-canvas strings ───────────────────────────────
+  yourTurn: 'Your turn',
+  drawOrCounter: 'Draw %n or counter!',
+  playerTurnSuffix: "'s turn",
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match Won!',

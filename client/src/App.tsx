@@ -90,12 +90,13 @@ export default function App() {
           store.applyCardDrawn(
             msg.card ?? null,
             msg.player_index ?? 0,
-            msg.turn ?? 0
+            msg.turn ?? 0,
+            msg.has_drawn
           )
           break
 
         case 'turn_changed':
-          useGameStore.setState({ currentTurn: msg.turn ?? 0 })
+          useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false })
           break
 
         case 'uno_declared':

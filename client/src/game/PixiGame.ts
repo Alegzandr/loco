@@ -5,8 +5,14 @@ import { CARD_COLORS, CARD_COLORS_LIGHT, ACTIVE_COLOR_BORDER } from './cardColor
 const CARD_W = 72
 const CARD_H = 108
 const CARD_RADIUS = 10
-const CARD_GAP = -16 // overlap cards in hand
+const ANIM_DURATION_MS = 300
 const RECONNECT_ANIM_DURATION_MS = 500
+
+export interface TurnTexts {
+  yourTurn: string
+  drawOrCounter: string  // contains %n placeholder
+  playerTurnSuffix: string
+}
 
 export interface GameRenderState {
   myHand: CardDTO[]
@@ -16,6 +22,7 @@ export interface GameRenderState {
   myIndex: number
   currentTurn: number
   pendingDraw: number
+  turnTexts?: TurnTexts
 }
 
 type OnCardClick = (card: CardDTO, idx: number) => void
@@ -30,9 +37,18 @@ interface AnimTarget {
   endAlpha: number
   startScale: number
   endScale: number
+  startRotation: number
+  endRotation: number
   elapsed: number
   duration: number
   onDone?: () => void
+}
+
+// Track card positions for animation origins
+interface CardSlot {
+  x: number
+  y: number
+  rotation: number
 }
 
 export class PixiGame {
@@ -47,7 +63,9 @@ export class PixiGame {
   private lastDiscardKey = ''
   private initialized = false
   private destroyed = false
-  private initStarted = false
+  // Track last rendered hand card positions for play animation origin
+  private handCardSlots: CardSlot[] = []
+  private deckPos: { x: number; y: number } = { x: 0, y: 0 }
 
   constructor(onCardClick: OnCardClick) {
     this.onCardClick = onCardClick
@@ -60,7 +78,6 @@ export class PixiGame {
   }
 
   async init(canvas: HTMLCanvasElement) {
-    this.initStarted = true
     await this.app.init({
       canvas,
       resizeTo: canvas.parentElement ?? window,
@@ -137,8 +154,8 @@ export class PixiGame {
       ring.alpha = 0
       this.discardContainer.addChildAt(ring, 0)
 
-      this.animations.push(this._makeAnim(card, targetX, targetY, targetX, targetY, 0, 1, 0.5, 1, 0))
-      this.animations.push(this._makeAnim(ring, 0, 0, 0, 0, 0, 1, 1, 1, 0))
+      this.animations.push(this._makeAnim(card, targetX, targetY, targetX, targetY, 0, 1, 0.5, 1, 0, 0, 0))
+      this.animations.push(this._makeAnim(ring, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0))
     }
 
     // 2. Player bubbles
@@ -148,43 +165,71 @@ export class PixiGame {
     const turnText = this._buildTurnIndicator(state, width, height)
     turnText.alpha = 0
     this.uiContainer.addChild(turnText)
-    this.animations.push(this._makeAnim(turnText, turnText.x, turnText.y, turnText.x, turnText.y, 0, 1, 1, 1, -200))
+    this.animations.push(this._makeAnim(turnText, turnText.x, turnText.y, turnText.x, turnText.y, 0, 1, 1, 1, 0, 0, -200))
 
-    // 4. Hand cards
+    // 4. Hand cards with fan layout
     const n = state.myHand.length
     if (n > 0) {
-      const handY = height - CARD_H - 24
-      const cardSpacing = Math.min(CARD_W + CARD_GAP, (width - 32) / n)
-      const totalWidth = n * cardSpacing
-      const startX = Math.max(16, width / 2 - totalWidth / 2)
-
+      const slots = this._calcHandSlots(n, width, height)
       const lastIdx = n - 1
       state.myHand.forEach((card, i) => {
+        const { x: cardX, y: handY, rotation: targetRot } = slots[i]
         const sprite = this.drawCard(card, true)
-        const cardX = startX + i * cardSpacing
         sprite.x = cardX
         sprite.y = handY + 40
         sprite.alpha = 0
+        sprite.rotation = targetRot
         sprite.eventMode = 'static'
         sprite.cursor = 'pointer'
-        sprite.on('pointerover', () => { sprite.y = handY - 12 })
-        sprite.on('pointerout', () => { sprite.y = handY })
+        sprite.on('pointerover', () => {
+          sprite.y = handY - 16
+          sprite.scale.set(1.06)
+          sprite.zIndex = 100
+        })
+        sprite.on('pointerout', () => {
+          sprite.y = handY
+          sprite.scale.set(1)
+          sprite.zIndex = i
+        })
         sprite.on('pointertap', () => { this.onCardClick(card, i) })
         this.handContainer.addChild(sprite)
 
         const delay = 300 + i * 40
         this.animations.push({
-          ...this._makeAnim(sprite, cardX, handY + 40, cardX, handY, 0, 1, 1, 1, -delay),
+          ...this._makeAnim(sprite, cardX, handY + 40, cardX, handY, 0, 1, 1, 1, targetRot, targetRot, -delay),
           onDone: i === lastIdx && onComplete ? onComplete : undefined,
         })
       })
+      this.handContainer.sortableChildren = true
     } else if (onComplete) {
       setTimeout(onComplete, RECONNECT_ANIM_DURATION_MS + 400)
     }
   }
 
+  // Calculate fan layout positions for the player's hand
+  private _calcHandSlots(n: number, width: number, height: number): { x: number; y: number; rotation: number }[] {
+    const baseY = height - CARD_H - 20
+    const maxSpacing = CARD_W + 8
+    const minSpacing = 20
+    const availWidth = width - 40
+    const cardSpacing = Math.max(minSpacing, Math.min(maxSpacing, availWidth / n))
+    const totalWidth = (n - 1) * cardSpacing + CARD_W
+    const startX = width / 2 - totalWidth / 2
+
+    // Fan rotation: spread from -maxRot to +maxRot
+    const maxRot = Math.min(0.12, 0.25 / Math.max(n, 1))
+
+    return Array.from({ length: n }, (_, i) => {
+      const t = n > 1 ? (i / (n - 1)) * 2 - 1 : 0  // -1 to 1
+      return {
+        x: startX + i * cardSpacing,
+        y: baseY + Math.abs(t) * 6,  // slight arc: middle cards higher
+        rotation: t * maxRot,
+      }
+    })
+  }
+
   private renderBackground(width: number, height: number) {
-    // Table felt gradient
     const bg = new PIXI.Graphics()
     bg.rect(0, 0, width, height)
     bg.fill({ color: 0x0a0e1a })
@@ -204,6 +249,9 @@ export class PixiGame {
     const deckX = width / 2 - CARD_W - 30
     const deckY = height / 2 - CARD_H / 2 - 30
 
+    // Track deck position for draw animation origin
+    this.deckPos = { x: deckX, y: deckY }
+
     // Stacked deck visual (3 cards offset)
     for (let i = 2; i >= 0; i--) {
       const back = this._drawCardBack()
@@ -214,31 +262,31 @@ export class PixiGame {
     }
   }
 
-  private _drawCardBack(): PIXI.Container {
+  private _drawCardBack(w = CARD_W, h = CARD_H, r = CARD_RADIUS): PIXI.Container {
     const container = new PIXI.Container()
     const bg = new PIXI.Graphics()
-    bg.roundRect(0, 0, CARD_W, CARD_H, CARD_RADIUS)
+    bg.roundRect(0, 0, w, h, r)
     bg.fill({ color: 0x1a1a3e })
     bg.stroke({ color: 0x2a2a5e, width: 1.5 })
     container.addChild(bg)
 
-    // Inner pattern
     const inner = new PIXI.Graphics()
-    inner.roundRect(6, 6, CARD_W - 12, CARD_H - 12, 6)
+    inner.roundRect(w * 0.08, h * 0.06, w * 0.84, h * 0.88, Math.max(2, r * 0.5))
     inner.fill({ color: 0x22224a })
     inner.stroke({ color: 0x33336a, width: 1 })
     container.addChild(inner)
 
-    // LOCO text
-    const text = new PIXI.Text({
-      text: 'L',
-      style: { fontSize: 24, fill: '#4d96ff', fontWeight: 'bold' },
-    })
-    text.anchor.set(0.5)
-    text.x = CARD_W / 2
-    text.y = CARD_H / 2
-    text.alpha = 0.4
-    container.addChild(text)
+    if (w > 20) {
+      const text = new PIXI.Text({
+        text: 'L',
+        style: { fontSize: Math.max(8, w * 0.33), fill: '#4d96ff', fontWeight: 'bold' },
+      })
+      text.anchor.set(0.5)
+      text.x = w / 2
+      text.y = h / 2
+      text.alpha = 0.4
+      container.addChild(text)
+    }
 
     return container
   }
@@ -249,11 +297,9 @@ export class PixiGame {
     const discardX = width / 2 - CARD_W / 2 + 20
     const discardY = height / 2 - CARD_H / 2 - 30
 
-    // Active color ring
     const ring = this._drawActiveRing(state.activeColor, discardX, discardY)
     this.discardContainer.addChild(ring)
 
-    // Card
     const card = this.drawCard(state.discard)
     card.x = discardX
     card.y = discardY
@@ -269,30 +315,42 @@ export class PixiGame {
 
   private renderHand(state: GameRenderState, width: number, height: number) {
     const n = state.myHand.length
-    if (n === 0) return
+    if (n === 0) {
+      this.handCardSlots = []
+      return
+    }
 
-    const handY = height - CARD_H - 24
     const isMyTurn = state.currentTurn === state.myIndex
+    const topCard = state.discard
+    const activeColor = state.activeColor
 
-    // Cards overlap with dynamic spacing based on count
-    const maxSpacing = CARD_W + 6
-    const minSpacing = 24
-    const availWidth = width - 32
-    const cardSpacing = Math.max(minSpacing, Math.min(maxSpacing, availWidth / n))
-    const totalWidth = n * cardSpacing
-    const startX = Math.max(16, width / 2 - totalWidth / 2)
+    const slots = this._calcHandSlots(n, width, height)
+    this.handCardSlots = slots
 
     state.myHand.forEach((card, i) => {
-      const sprite = this.drawCard(card, true, isMyTurn)
-      const x = startX + i * cardSpacing
-      sprite.x = x
+      const isPlayable = isMyTurn && topCard != null && _canPlayCard(card, topCard, activeColor)
+      const { x: cardX, y: handY, rotation } = slots[i]
+
+      const sprite = this.drawCard(card, true, isPlayable)
+      sprite.x = cardX
       sprite.y = handY
+      sprite.rotation = rotation
       sprite.zIndex = i
       sprite.eventMode = 'static'
       sprite.cursor = isMyTurn ? 'pointer' : 'default'
 
-      sprite.on('pointerover', () => { sprite.y = handY - 14; sprite.zIndex = 100 })
-      sprite.on('pointerout', () => { sprite.y = handY; sprite.zIndex = i })
+      sprite.on('pointerover', () => {
+        sprite.y = handY - 16
+        sprite.scale.set(1.07)
+        sprite.zIndex = 100
+        sprite.rotation = 0
+      })
+      sprite.on('pointerout', () => {
+        sprite.y = handY
+        sprite.scale.set(1)
+        sprite.zIndex = i
+        sprite.rotation = rotation
+      })
       sprite.on('pointertap', () => { this.onCardClick(card, i) })
 
       this.handContainer.addChild(sprite)
@@ -305,7 +363,6 @@ export class PixiGame {
     if (others.length === 0) return
 
     if (others.length === 1) {
-      // 1v1: opponent centered at top
       const p = others[0]
       const container = this._buildPlayerBubble(p, state.currentTurn)
       container.x = width / 2
@@ -314,7 +371,6 @@ export class PixiGame {
       return
     }
 
-    // Multiple opponents: arc at top
     const angleStep = Math.PI / (others.length + 1)
     const cx = width / 2
     const radiusX = width * 0.38
@@ -362,7 +418,7 @@ export class PixiGame {
       this.uiContainer.addChild(container)
 
       const delay = 150 + i * 80
-      this.animations.push(this._makeAnim(container, x, y - 20, x, y, 0, 1, 1, 1, -delay))
+      this.animations.push(this._makeAnim(container, x, y - 20, x, y, 0, 1, 1, 1, 0, 0, -delay))
     })
   }
 
@@ -382,8 +438,8 @@ export class PixiGame {
     else if (isCurrentTurn) { bgColor = 0x0d3875; borderColor = 0x4d96ff }
     else { bgColor = 0x121830; borderColor = 0x1e2d50 }
 
-    const pillW = 140
-    const pillH = 40
+    const pillW = 150
+    const pillH = isFinished ? 36 : 52
     const bg = new PIXI.Graphics()
     bg.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, pillH / 2)
     bg.fill({ color: bgColor, alpha: 0.92 })
@@ -401,10 +457,11 @@ export class PixiGame {
       label = `${p.nickname} ✗`
       textColor = '#666666'
     } else {
-      label = `${p.nickname}`
+      label = p.nickname
       textColor = isCurrentTurn ? '#74b9ff' : '#b8c4d6'
     }
 
+    const nicknameY = isFinished ? 0 : -10
     const text = new PIXI.Text({
       text: label,
       style: {
@@ -415,22 +472,14 @@ export class PixiGame {
       },
     })
     text.anchor.set(0.5)
-    text.y = isFinished ? 0 : -3
+    text.y = nicknameY
     container.addChild(text)
 
-    // Card count badge (for non-finished players)
-    if (!isFinished) {
-      const countText = new PIXI.Text({
-        text: `${p.hand_size} cards`,
-        style: {
-          fontSize: 10,
-          fill: '#666d80',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-        },
-      })
-      countText.anchor.set(0.5)
-      countText.y = 10
-      container.addChild(countText)
+    // Mini card backs for non-finished players
+    if (!isFinished && p.hand_size > 0) {
+      const miniCards = this._buildMiniCardBacks(p.hand_size)
+      miniCards.y = 10
+      container.addChild(miniCards)
     }
 
     // Turn indicator dot
@@ -444,6 +493,41 @@ export class PixiGame {
     return container
   }
 
+  // Build a row of mini card backs representing an opponent's hand count
+  private _buildMiniCardBacks(count: number): PIXI.Container {
+    const container = new PIXI.Container()
+    const cw = 10
+    const ch = 15
+    const cr = 1.5
+    const gap = 4  // visible width per card
+    const maxVisible = 12
+    const n = Math.min(count, maxVisible)
+    const totalW = (n - 1) * gap + cw
+    const startX = -totalW / 2
+
+    for (let i = 0; i < n; i++) {
+      const back = this._drawCardBack(cw, ch, cr)
+      back.x = startX + i * gap
+      back.y = 0
+      back.alpha = 0.7 + (i / Math.max(n - 1, 1)) * 0.3
+      container.addChild(back)
+    }
+
+    // If count exceeds maxVisible, show a "+N" label
+    if (count > maxVisible) {
+      const label = new PIXI.Text({
+        text: `+${count - maxVisible}`,
+        style: { fontSize: 9, fill: '#4d96ff', fontWeight: 'bold', fontFamily: 'system-ui, sans-serif' },
+      })
+      label.anchor.set(0, 0.5)
+      label.x = startX + n * gap + 2
+      label.y = ch / 2
+      container.addChild(label)
+    }
+
+    return container
+  }
+
   private renderTurnIndicator(state: GameRenderState, width: number, height: number) {
     const text = this._buildTurnIndicator(state, width, height)
     this.uiContainer.addChild(text)
@@ -451,11 +535,20 @@ export class PixiGame {
 
   private _buildTurnIndicator(state: GameRenderState, width: number, height: number): PIXI.Text {
     const isMyTurn = state.currentTurn === state.myIndex
-    const msg = isMyTurn
-      ? state.pendingDraw > 0
-        ? `Draw ${state.pendingDraw} or counter!`
-        : 'Your turn'
-      : `${state.players.find((p) => p.index === state.currentTurn)?.nickname ?? '?'}'s turn`
+    const texts = state.turnTexts
+    let msg: string
+    if (isMyTurn) {
+      if (state.pendingDraw > 0) {
+        const template = texts?.drawOrCounter ?? 'Draw %n or counter!'
+        msg = template.replace('%n', String(state.pendingDraw))
+      } else {
+        msg = texts?.yourTurn ?? 'Your turn'
+      }
+    } else {
+      const nickname = state.players.find((p) => p.index === state.currentTurn)?.nickname ?? '?'
+      const suffix = texts?.playerTurnSuffix ?? "'s turn"
+      msg = `${nickname}${suffix}`
+    }
 
     const text = new PIXI.Text({
       text: msg,
@@ -468,37 +561,70 @@ export class PixiGame {
     })
     text.anchor.set(0.5, 0)
     text.x = width / 2
-    text.y = height - CARD_H - 54
+    text.y = height - CARD_H - 58
     return text
   }
 
+  // Animate a card from a hand position (or default) to the discard pile
+  animateCardPlay(card: CardDTO, cardIdx: number, width: number, height: number) {
+    const discardX = width / 2 - CARD_W / 2 + 20
+    const discardY = height / 2 - CARD_H / 2 - 30
+
+    // Use tracked slot position if available
+    const slot = this.handCardSlots[cardIdx]
+    const startX = slot ? slot.x : width / 2 - CARD_W / 2
+    const startY = slot ? slot.y : height - CARD_H - 20
+    const startRot = slot ? slot.rotation : 0
+
+    const sprite = this.drawCard(card)
+    sprite.x = startX
+    sprite.y = startY
+    sprite.rotation = startRot
+    sprite.alpha = 0.9
+    this.animContainer.addChild(sprite)
+
+    this.animations.push(this._makeAnim(
+      sprite, startX, startY, discardX, discardY,
+      0.9, 1, 1, 1, startRot, 0, 0
+    ))
+  }
+
   private animateCardToDiscard(card: CardDTO, width: number, height: number) {
+    // Fallback animation when we don't have the card index (opponent plays)
     const sprite = this.drawCard(card)
     sprite.alpha = 0.1
     sprite.scale.set(0.6)
     sprite.x = width / 2 - CARD_W / 2
-    sprite.y = height - CARD_H - 20
-    this.animContainer.addChild(sprite)
+    sprite.y = height / 2
 
     const targetX = width / 2 - CARD_W / 2 + 20
     const targetY = height / 2 - CARD_H / 2 - 30
-
-    this.animations.push(this._makeAnim(sprite, sprite.x, sprite.y, targetX, targetY, 0.1, 1, 0.6, 1, 0))
-  }
-
-  animateCardDrawn(card: CardDTO) {
-    const { width, height } = this.app.screen
-    const sprite = this.drawCard(card)
-    sprite.alpha = 0.1
-    sprite.scale.set(0.6)
-    sprite.x = width / 2 - CARD_W - 30
-    sprite.y = height / 2 - CARD_H / 2 - 30
     this.animContainer.addChild(sprite)
 
+    this.animations.push(this._makeAnim(sprite, sprite.x, sprite.y, targetX, targetY, 0.1, 1, 0.6, 1, 0, 0, 0))
+  }
+
+  animateCardDrawn(_card: CardDTO) {
+    if (!this.initialized) return
+    const { width, height } = this.app.screen
+    const sprite = this._drawCardBack()
+    sprite.alpha = 0.1
+    sprite.scale.set(0.7)
+    sprite.x = this.deckPos.x
+    sprite.y = this.deckPos.y
+    this.animContainer.addChild(sprite)
+
+    // Target: last slot in hand (approximate)
+    const n = this.handCardSlots.length
+    const targetSlot = n > 0 ? this.handCardSlots[n - 1] : null
+    const targetX = targetSlot ? targetSlot.x : width / 2
+    const targetY = targetSlot ? targetSlot.y : height - CARD_H - 20
+
     this.animations.push(this._makeAnim(
-      sprite, sprite.x, sprite.y,
-      width / 2 - CARD_W / 2, height - CARD_H - 24,
-      0.1, 1, 0.6, 1, 0
+      sprite,
+      this.deckPos.x, this.deckPos.y,
+      targetX, targetY,
+      0.1, 1, 0.7, 1, 0, 0, 0
     ))
   }
 
@@ -506,12 +632,14 @@ export class PixiGame {
     container: PIXI.Container,
     sx: number, sy: number, ex: number, ey: number,
     sa: number, ea: number, ss: number, es: number,
+    sr: number, er: number,
     elapsed: number
   ): AnimTarget {
     return {
       container, startX: sx, startY: sy, endX: ex, endY: ey,
       startAlpha: sa, endAlpha: ea, startScale: ss, endScale: es,
-      elapsed, duration: RECONNECT_ANIM_DURATION_MS,
+      startRotation: sr, endRotation: er,
+      elapsed, duration: ANIM_DURATION_MS,
     }
   }
 
@@ -528,6 +656,7 @@ export class PixiGame {
       anim.container.alpha = lerp(anim.startAlpha, anim.endAlpha, ease)
       const scale = lerp(anim.startScale, anim.endScale, ease)
       anim.container.scale.set(scale)
+      anim.container.rotation = lerp(anim.startRotation, anim.endRotation, ease)
 
       if (t >= 1) {
         if (anim.onDone) anim.onDone()
@@ -540,16 +669,16 @@ export class PixiGame {
     })
   }
 
-  private drawCard(card: CardDTO, interactive = false, playable = false): PIXI.Container {
+  drawCard(card: CardDTO, interactive = false, playable = false): PIXI.Container {
     const container = new PIXI.Container()
     const color = CARD_COLORS[card.color]
     const lightColor = CARD_COLORS_LIGHT[card.color]
 
-    // Card shadow
+    // Drop shadow
     if (interactive) {
       const shadow = new PIXI.Graphics()
-      shadow.roundRect(2, 3, CARD_W, CARD_H, CARD_RADIUS)
-      shadow.fill({ color: 0x000000, alpha: 0.25 })
+      shadow.roundRect(3, 5, CARD_W, CARD_H, CARD_RADIUS)
+      shadow.fill({ color: 0x000000, alpha: playable ? 0.35 : 0.2 })
       container.addChild(shadow)
     }
 
@@ -562,7 +691,7 @@ export class PixiGame {
     // Top highlight strip
     const highlight = new PIXI.Graphics()
     highlight.roundRect(0, 0, CARD_W, CARD_H / 3, CARD_RADIUS)
-    highlight.fill({ color: lightColor, alpha: 0.15 })
+    highlight.fill({ color: lightColor, alpha: 0.18 })
     container.addChild(highlight)
 
     // White center oval
@@ -610,12 +739,25 @@ export class PixiGame {
       container.addChild(corner)
     }
 
-    // Border for interactive cards
+    // Border
     if (interactive) {
       const border = new PIXI.Graphics()
       border.roundRect(0, 0, CARD_W, CARD_H, CARD_RADIUS)
-      border.stroke({ color: playable ? 0xffffff : 0x888888, width: playable ? 1.5 : 0.8, alpha: playable ? 0.5 : 0.2 })
+      if (playable) {
+        // Bright glow border for playable cards
+        border.stroke({ color: 0xffffff, width: 2, alpha: 0.7 })
+      } else {
+        border.stroke({ color: 0x888888, width: 0.8, alpha: 0.2 })
+      }
       container.addChild(border)
+
+      // Playable card indicator: subtle inner glow
+      if (playable) {
+        const glow = new PIXI.Graphics()
+        glow.roundRect(2, 2, CARD_W - 4, CARD_H - 4, CARD_RADIUS - 1)
+        glow.stroke({ color: 0xffd93d, width: 1.5, alpha: 0.4 })
+        container.addChild(glow)
+      }
     }
 
     return container
@@ -634,9 +776,14 @@ export class PixiGame {
   }
 
   destroy() {
+    if (this.destroyed) return
     this.destroyed = true
-    if (this.initStarted) {
-      this.app.destroy()
+    if (this.initialized) {
+      try {
+        this.app.destroy()
+      } catch (err) {
+        console.warn('PixiGame: error during app.destroy()', err)
+      }
     }
   }
 }
@@ -654,4 +801,15 @@ function placementSuffix(rank: number): string {
   if (rank === 2) return '2nd'
   if (rank === 3) return '3rd'
   return `${rank}th`
+}
+
+// Client-side canPlay check for highlighting (mirrors server rules.go CanPlay)
+function _canPlayCard(card: CardDTO, topCard: CardDTO, activeColor: CardColor): boolean {
+  if (card.color === 'wild') return true
+  if (card.color === activeColor) return true
+  if (card.kind === topCard.kind) {
+    if (card.kind === 'number') return card.value === topCard.value
+    return true
+  }
+  return false
 }

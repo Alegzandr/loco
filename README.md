@@ -261,7 +261,7 @@ docker compose -f docker-compose.dev.yml up --build
 
 - Frontend (Vite): http://localhost:5173
 - Backend (go run): http://localhost:8080
-- WebSocket: `ws://localhost:5173/ws` (proxied by Vite to the backend container)
+- WebSocket: `ws://localhost:8080/ws` (browser connects directly — no Vite proxy)
 
 Go module downloads are cached in a named volume (`go-mod-cache`) and `node_modules` are isolated inside the container (`client-node-modules`), so restarts are fast.
 
@@ -280,7 +280,7 @@ docker compose -f docker-compose.dev.yml down    # dev
 |-------------------|-----------------------|----------------------------------------------------------|
 | `PORT`            | `8080`                | Go server listen port                                    |
 | `CLIENT_PORT`     | `3000`                | Nginx (frontend) listen port (production compose)        |
-| `VITE_WS_TARGET`  | `ws://localhost:8080` | WebSocket proxy target (dev compose sets `ws://server:8080`) |
+| `VITE_WS_PORT`    | `8080`                | Go backend port for direct WS connections in dev (`ws://<host>:<port>/ws`) |
 
 Copy `.env.example` to `.env` and adjust as needed.
 

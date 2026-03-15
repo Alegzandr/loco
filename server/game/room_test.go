@@ -169,6 +169,71 @@ func TestRoom_DrawCard_NotYourTurn(t *testing.T) {
 	}
 }
 
+func TestRoom_DrawCard_OncePerTurn(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.PendingDraw = 0
+
+	// First draw should succeed and set HasDrawn
+	if err := r.DrawCard(0); err != nil {
+		t.Fatalf("first DrawCard error: %v", err)
+	}
+	if !r.State.HasDrawn {
+		t.Error("HasDrawn should be true after drawing")
+	}
+
+	// Second draw in the same turn should fail
+	if err := r.DrawCard(0); err == nil {
+		t.Error("second DrawCard in same turn should return error")
+	}
+}
+
+func TestRoom_PassTurn_RequiresDraw(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.PendingDraw = 0
+
+	// PassTurn without drawing should fail
+	if err := r.PassTurn(0); err == nil {
+		t.Error("PassTurn without drawing should return error")
+	}
+}
+
+func TestRoom_DrawThenPass_ResetsHasDrawn(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.PendingDraw = 0
+
+	// Alice draws then passes
+	if err := r.DrawCard(0); err != nil {
+		t.Fatalf("DrawCard error: %v", err)
+	}
+	if err := r.PassTurn(0); err != nil {
+		t.Fatalf("PassTurn error: %v", err)
+	}
+	if r.State.HasDrawn {
+		t.Error("HasDrawn should be false after PassTurn")
+	}
+	// Now Bob (index 1) should be able to draw
+	r.State.PendingDraw = 0
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("Bob DrawCard after turn change error: %v", err)
+	}
+}
+
+func TestRoom_PlayCard_ResetsHasDrawn(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	// Give alice a card matching the top
+	top := r.State.Discard[len(r.State.Discard)-1]
+	matchCard := Card{Color: top.Color, Kind: Number, Value: 0}
+	r.State.Hands[0].Cards = append([]Card{matchCard}, r.State.Hands[0].Cards...)
+	r.State.HasDrawn = true // simulate having drawn
+
+	if err := r.PlayCard(0, matchCard, matchCard.Color); err != nil {
+		t.Fatalf("PlayCard error: %v", err)
+	}
+	if r.State.HasDrawn {
+		t.Error("HasDrawn should be false after playing a card")
+	}
+}
+
 func TestRoom_WinDetection(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	// Give alice exactly 1 card that matches top
