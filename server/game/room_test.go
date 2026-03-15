@@ -1102,6 +1102,349 @@ func TestCounterDraw_StackContinues(t *testing.T) {
 	}
 }
 
+// --- Card effect end-to-end tests ---
+
+func TestRoom_Skip_EndToEnd(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	// alice(0) → bob(1) → carol(2); alice plays a Skip → bob is skipped → carol's turn.
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Direction = 1
+
+	skipCard := Card{Color: Red, Kind: Skip}
+	r.State.Hands[0].Cards = append([]Card{skipCard}, r.State.Hands[0].Cards...)
+
+	if err := r.PlayCard(0, skipCard, Red, -1); err != nil {
+		t.Fatalf("PlayCard Skip: %v", err)
+	}
+	if r.State.CurrentTurn != 2 {
+		t.Errorf("after Skip, CurrentTurn = %d, want 2 (carol)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_Reverse_FlipsDirection(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	// alice(0) plays a Reverse → direction becomes -1 → next turn is carol(2).
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Direction = 1
+
+	revCard := Card{Color: Red, Kind: Reverse}
+	r.State.Hands[0].Cards = append([]Card{revCard}, r.State.Hands[0].Cards...)
+
+	if err := r.PlayCard(0, revCard, Red, -1); err != nil {
+		t.Fatalf("PlayCard Reverse: %v", err)
+	}
+	if r.State.Direction != -1 {
+		t.Errorf("Direction = %d after Reverse, want -1", r.State.Direction)
+	}
+	if r.State.CurrentTurn != 2 {
+		t.Errorf("after Reverse (3p), CurrentTurn = %d, want 2 (carol)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_Reverse_TwoPlayers_ActsAsSkip(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	// With 2 players, Reverse acts as Skip — alice plays again.
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Direction = 1
+
+	revCard := Card{Color: Red, Kind: Reverse}
+	r.State.Hands[0].Cards = append([]Card{revCard}, r.State.Hands[0].Cards...)
+
+	if err := r.PlayCard(0, revCard, Red, -1); err != nil {
+		t.Fatalf("PlayCard Reverse 2-player: %v", err)
+	}
+	// Direction flips then alice gets another turn (2-player skip behaviour).
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("after Reverse 2p, CurrentTurn = %d, want 0 (alice again)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_Wild_SetsActiveColor(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	wildCard := Card{Color: Wild, Kind: WildCard}
+	r.State.Hands[0].Cards = append([]Card{wildCard}, r.State.Hands[0].Cards...)
+
+	if err := r.PlayCard(0, wildCard, Green, -1); err != nil {
+		t.Fatalf("PlayCard Wild: %v", err)
+	}
+	if r.State.ActiveColor != Green {
+		t.Errorf("after Wild, ActiveColor = %v, want Green", r.State.ActiveColor)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after Wild, turn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_WildDrawFour_SetsPendingAndColor(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	wdf := Card{Color: Wild, Kind: WildDrawFour}
+	r.State.Hands[0].Cards = append([]Card{wdf}, r.State.Hands[0].Cards...)
+
+	if err := r.PlayCard(0, wdf, Blue, -1); err != nil {
+		t.Fatalf("PlayCard WildDrawFour: %v", err)
+	}
+	if r.State.ActiveColor != Blue {
+		t.Errorf("ActiveColor = %v, want Blue", r.State.ActiveColor)
+	}
+	if r.State.PendingDraw != 4 {
+		t.Errorf("PendingDraw = %d, want 4", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("CurrentTurn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_DrawStack_DrawTwoPlusWildDrawFour(t *testing.T) {
+	// alice plays +2 → bob counters with +4 (different kind, should be rejected by CounterDraw).
+	// Actually the counter rule requires matching kind, so bob can't counter.
+	// Instead: alice plays +2, bob faces 2; bob then plays another +2 → stack = 4.
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Direction = 1
+
+	alice2 := Card{Color: Red, Kind: DrawTwo}
+	r.State.Hands[0].Cards = append([]Card{alice2}, r.State.Hands[0].Cards...)
+	if err := r.PlayCard(0, alice2, Red, -1); err != nil {
+		t.Fatalf("alice +2: %v", err)
+	}
+	if r.State.PendingDraw != 2 {
+		t.Fatalf("PendingDraw = %d after +2, want 2", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Fatalf("turn = %d, want 1", r.State.CurrentTurn)
+	}
+
+	bob2 := Card{Color: Red, Kind: DrawTwo}
+	r.State.Hands[1].Cards = append([]Card{bob2}, r.State.Hands[1].Cards...)
+	if err := r.CounterDraw(1, bob2, Red); err != nil {
+		t.Fatalf("bob counter +2: %v", err)
+	}
+	if r.State.PendingDraw != 4 {
+		t.Errorf("after counter, PendingDraw = %d, want 4", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 2 {
+		t.Errorf("after counter, turn = %d, want 2 (carol)", r.State.CurrentTurn)
+	}
+	// Carol draws and takes all 4.
+	carolBefore := len(r.State.Hands[2].Cards)
+	if err := r.DrawCard(2); err != nil {
+		t.Fatalf("carol draw: %v", err)
+	}
+	if len(r.State.Hands[2].Cards) != carolBefore+4 {
+		t.Errorf("carol hand = %d, want %d", len(r.State.Hands[2].Cards), carolBefore+4)
+	}
+	if r.State.PendingDraw != 0 {
+		t.Errorf("PendingDraw = %d after draw, want 0", r.State.PendingDraw)
+	}
+}
+
+func TestRoom_CounterDraw_WildDrawFour(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	// alice plays +4 → bob faces 4 → bob counters with another +4 → alice faces 8.
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	wdf1 := Card{Color: Wild, Kind: WildDrawFour}
+	r.State.Hands[0].Cards = append([]Card{wdf1}, r.State.Hands[0].Cards...)
+	if err := r.PlayCard(0, wdf1, Green, -1); err != nil {
+		t.Fatalf("alice +4: %v", err)
+	}
+	if r.State.PendingDraw != 4 {
+		t.Fatalf("PendingDraw = %d, want 4", r.State.PendingDraw)
+	}
+
+	wdf2 := Card{Color: Wild, Kind: WildDrawFour}
+	r.State.Hands[1].Cards = append([]Card{wdf2}, r.State.Hands[1].Cards...)
+	if err := r.CounterDraw(1, wdf2, Blue); err != nil {
+		t.Fatalf("bob counter +4: %v", err)
+	}
+	if r.State.PendingDraw != 8 {
+		t.Errorf("after counter, PendingDraw = %d, want 8", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("after counter, turn = %d, want 0 (alice)", r.State.CurrentTurn)
+	}
+	// Alice draws 8 penalty cards.
+	aliceBefore := len(r.State.Hands[0].Cards)
+	if err := r.DrawCard(0); err != nil {
+		t.Fatalf("alice draw 8: %v", err)
+	}
+	if len(r.State.Hands[0].Cards) != aliceBefore+8 {
+		t.Errorf("alice hand = %d, want %d", len(r.State.Hands[0].Cards), aliceBefore+8)
+	}
+}
+
+// --- Interrupt play tests ---
+
+func TestRoom_InterruptPlay_Valid(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	// alice(0) has just played Red-7; top discard is Red-7; it is now bob(1)'s turn.
+	// carol(2) holds a Red-7 and interrupts.
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
+	r.State.PendingDraw = 0
+
+	carolCard := Card{Color: Red, Kind: Number, Value: 7}
+	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
+	carolHandBefore := len(r.State.Hands[2].Cards)
+
+	if err := r.InterruptPlay(2, carolCard, -1); err != nil {
+		t.Fatalf("InterruptPlay error: %v", err)
+	}
+	// carol's hand shrank by 1
+	if len(r.State.Hands[2].Cards) != carolHandBefore-1 {
+		t.Errorf("carol hand = %d, want %d", len(r.State.Hands[2].Cards), carolHandBefore-1)
+	}
+	// Top discard is now carol's card
+	top := r.State.Discard[len(r.State.Discard)-1]
+	if top.Color != Red || top.Kind != Number || top.Value != 7 {
+		t.Errorf("top card = %v, want Red-7-Number", top)
+	}
+	// Turn should have advanced from carol (2) clockwise to alice (0) — skipping no one.
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("after interrupt by carol, turn = %d, want 0 (alice)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_InterruptPlay_WildCardRejected(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.CurrentTurn = 0
+	wild := Card{Color: Wild, Kind: WildCard}
+	r.State.Hands[1].Cards = append([]Card{wild}, r.State.Hands[1].Cards...)
+	if err := r.InterruptPlay(1, wild, -1); err == nil {
+		t.Error("wild card interrupt should be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_NonMatchingCardRejected(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	mismatch := Card{Color: Blue, Kind: Number, Value: 5} // same value, wrong color
+	r.State.Hands[1].Cards = append([]Card{mismatch}, r.State.Hands[1].Cards...)
+	if err := r.InterruptPlay(1, mismatch, -1); err == nil {
+		t.Error("color-mismatched interrupt should be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_ValueMismatchRejected(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	mismatch := Card{Color: Red, Kind: Number, Value: 3} // same color, wrong value
+	r.State.Hands[1].Cards = append([]Card{mismatch}, r.State.Hands[1].Cards...)
+	if err := r.InterruptPlay(1, mismatch, -1); err == nil {
+		t.Error("value-mismatched interrupt should be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_FinishedPlayerRejected(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.Finished[2] = true
+	r.State.CurrentTurn = 0
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	matchCard := Card{Color: Red, Kind: Number, Value: 5}
+	r.State.Hands[2].Cards = append([]Card{matchCard}, r.State.Hands[2].Cards...)
+	if err := r.InterruptPlay(2, matchCard, -1); err == nil {
+		t.Error("finished player interrupt should be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_PendingDrawRejected(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 2
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	matchCard := Card{Color: Red, Kind: Number, Value: 5}
+	r.State.Hands[1].Cards = append([]Card{matchCard}, r.State.Hands[1].Cards...)
+	if err := r.InterruptPlay(1, matchCard, -1); err == nil {
+		t.Error("interrupt with pending draw should be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_OwnTurnRejected(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	matchCard := Card{Color: Red, Kind: Number, Value: 5}
+	r.State.Hands[0].Cards = append([]Card{matchCard}, r.State.Hands[0].Cards...)
+	if err := r.InterruptPlay(0, matchCard, -1); err == nil {
+		t.Error("interrupt on own turn should be rejected (use play_card instead)")
+	}
+}
+
+func TestRoom_InterruptPlay_EmptiesHand_Finishes(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	// carol(2) has exactly one card that matches the top; she interrupts to finish.
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.PendingDraw = 0
+
+	winCard := Card{Color: Red, Kind: Number, Value: 9}
+	r.State.Hands[2].Cards = []Card{winCard}
+	r.State.Hands[1].Cards = []Card{{Kind: Skip}} // bob has 1 card (20 pts)
+
+	if err := r.InterruptPlay(2, winCard, -1); err != nil {
+		t.Fatalf("InterruptPlay finish: %v", err)
+	}
+	if !r.State.Finished[2] {
+		t.Error("carol should be marked finished")
+	}
+	// alice and bob are still playing; round should not be over yet
+	if r.RoundEnded {
+		t.Error("round should not end — alice and bob remain")
+	}
+	// carol's score = sum of unfinished players' hands (bob has Skip=20, alice has 7 cards)
+	// We just check carol scored something positive.
+	if r.Scores[2] == 0 {
+		t.Error("carol should have scored points from other players' hands")
+	}
+}
+
+func TestRoom_InterruptPlay_SkipEffect(t *testing.T) {
+	// carol(2) interrupts with a Red-Skip; the Skip should apply from carol's position,
+	// so the player after carol (alice, 0) is skipped and the new turn is bob (1).
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 0 // alice's turn
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Skip}}
+	r.State.PendingDraw = 0
+	r.State.Direction = 1 // clockwise: alice(0)→bob(1)→carol(2)
+
+	// carol has a Red-Skip (exact match of top)
+	carolSkip := Card{Color: Red, Kind: Skip}
+	r.State.Hands[2].Cards = append([]Card{carolSkip}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, carolSkip, -1); err != nil {
+		t.Fatalf("InterruptPlay Skip: %v", err)
+	}
+	// Skip from carol (2): skip the next player after carol.
+	// Clockwise from carol(2): next is alice(0), then bob(1).
+	// Skip means alice(0) is skipped → turn is bob(1).
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after carol Skip interrupt, turn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+}
+
 // setupTwoPlayerGame starts a 2-player game for alice and bob.
 func setupTwoPlayerGame(t *testing.T) *Room {
 	t.Helper()
@@ -1117,6 +1460,7 @@ func setupTwoPlayerGame(t *testing.T) *Room {
 	}
 	r.State.CurrentTurn = 0
 	r.State.PendingDraw = 0 // reset any effect from the starting action card
+	r.State.Direction = 1   // reset direction; Reverse as first card can flip it
 	return r
 }
 
@@ -1134,5 +1478,6 @@ func setupThreePlayerGame(t *testing.T) *Room {
 	}
 	r.State.CurrentTurn = 0
 	r.State.PendingDraw = 0
+	r.State.Direction = 1 // reset direction; Reverse as first card can flip it
 	return r
 }

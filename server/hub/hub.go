@@ -290,6 +290,8 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleCatchUno(c, msg)
 	case protocol.CMsgCounterDraw:
 		h.handleCounterDraw(c, msg)
+	case protocol.CMsgInterruptPlay:
+		h.handleInterruptPlay(c, msg)
 	default:
 		c.sendError("unknown message type")
 	}
@@ -675,6 +677,32 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
+func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if msg.Card == nil {
+		c.sendError("card required")
+		return
+	}
+	card, _, err := dtoToCard(msg.Card, "")
+	if err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+	if err := room.InterruptPlay(c.playerID, card, chosenPlayer); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.handleRoundOrMatchEnd(c.roomCode, room)
+}
+
 // --- Disconnect handling ---
 
 func (h *Hub) handleDisconnect(c *Client) {
@@ -940,6 +968,10 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 // Exported so tests can reduce it to speed up bot-game tests.
 var BotThinkDelay = 800 * time.Millisecond
 
+// BotJitterMax is the maximum random jitter added to bot think delays.
+// Exported so tests can set it to 0 to make bot timing deterministic.
+var BotJitterMax = 700 * time.Millisecond
+
 // handleAddBot adds a bot player to the lobby (host-only).
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
@@ -983,9 +1015,12 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 // would stall the game (no player would act on that turn).
 func (h *Hub) scheduleBotMove(code string, playerID int) {
 	bm := botMoveMsg{roomCode: code, playerID: playerID}
-	// Add up to 700ms of random jitter so bots don't all act at the same instant
-	// and feel more like human reaction times (800–1500ms range).
-	jitter := time.Duration(mrand.Intn(700)) * time.Millisecond
+	// Add random jitter so bots don't all act at the same instant and feel more
+	// like human reaction times. BotJitterMax can be set to 0 in tests.
+	var jitter time.Duration
+	if jm := int(BotJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
 	time.AfterFunc(BotThinkDelay+jitter, func() {
 		select {
 		case h.botMove <- bm:

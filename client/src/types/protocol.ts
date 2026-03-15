@@ -66,6 +66,7 @@ export type ClientMsgType =
   | 'declare_uno'
   | 'catch_uno'
   | 'counter_draw'
+  | 'interrupt_play'
 
 export interface ClientMsg {
   type: ClientMsgType

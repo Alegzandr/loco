@@ -18,7 +18,8 @@ const (
 	CMsgPassTurn    ClientMsgType = "pass_turn"
 	CMsgDeclareUno  ClientMsgType = "declare_uno"
 	CMsgCatchUno    ClientMsgType = "catch_uno"
-	CMsgCounterDraw ClientMsgType = "counter_draw"
+	CMsgCounterDraw    ClientMsgType = "counter_draw"
+	CMsgInterruptPlay  ClientMsgType = "interrupt_play"
 )
 
 // ServerMsgType enumerates message types sent from server to client.

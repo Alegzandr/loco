@@ -569,6 +569,79 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	return nil
 }
 
+// InterruptPlay allows a player to play an exact match of the current top discard card
+// out of turn (jump-in / speed-play rule). The card must match the top card in color,
+// kind, and value. Wild cards and active penalty chains cannot be interrupted.
+// After a valid interrupt the game continues from the interrupting player's position.
+func (r *Room) InterruptPlay(playerIndex int, card Card, chosenPlayer int) error {
+	if r.Status != StatusPlaying {
+		return errors.New("game not in progress")
+	}
+	if r.State.Finished[playerIndex] {
+		return errors.New("you have already finished this round")
+	}
+	if r.State.CurrentTurn == playerIndex {
+		return errors.New("it is your turn; use play_card instead")
+	}
+	if r.State.PendingDraw > 0 {
+		return errors.New("cannot interrupt while a draw penalty is active")
+	}
+	if card.IsWild() {
+		return errors.New("wild cards cannot be used to interrupt")
+	}
+	if !r.State.Hands[playerIndex].Contains(card) {
+		return errors.New("card not in hand")
+	}
+
+	topCard := r.State.Discard[len(r.State.Discard)-1]
+	// Exact match required: same color, kind, and value.
+	if card.Color != topCard.Color || card.Kind != topCard.Kind || card.Value != topCard.Value {
+		return errors.New("interrupt card must exactly match the top discard card")
+	}
+
+	// Validate Swap target if this interrupt card happens to be Swap (non-wild Swap not
+	// in the current deck, but guard defensively).
+	n := len(r.State.Hands)
+	if card.Kind == Swap {
+		if chosenPlayer < 0 || chosenPlayer >= n || chosenPlayer == playerIndex {
+			return fmt.Errorf("invalid chosen_player %d for swap", chosenPlayer)
+		}
+		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
+	}
+
+	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
+		return err
+	}
+	r.State.Discard = append(r.State.Discard, card)
+
+	// Track last-card state.
+	r.State.LastCardDeclared = false
+	if r.State.Hands[playerIndex].Size() == 1 {
+		r.State.LastCardTime = time.Now()
+		r.State.LastCardPlayer = playerIndex
+	}
+
+	c := card
+	r.State.logEvent(EventCardPlayed, playerIndex, &c, card.Color)
+
+	// Check if the interrupt emptied the player's hand.
+	if r.State.Hands[playerIndex].Size() == 0 {
+		r.State.ActiveColor = card.Color
+		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
+		r.markPlayerFinished(playerIndex)
+		return nil
+	}
+
+	// Game continues from the interrupting player's position.
+	// Set CurrentTurn to the interrupter before calling ApplyEffect so the
+	// direction-aware next-turn calculation is correct.
+	r.State.CurrentTurn = playerIndex
+	next := r.State.ApplyEffect(card, card.Color)
+	r.State.HasDrawn = false
+	r.State.CurrentTurn = next
+	return nil
+}
+
 // CounterDraw allows the current victim of a pending draw to counter with a compatible card.
 func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error {
 	if r.Status != StatusPlaying {

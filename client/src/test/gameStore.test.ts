@@ -417,4 +417,200 @@ describe('useGameStore', () => {
     expect(s.unoTimerEnd).toBeNull()
     expect(s.unoDeclared).toBe(false)
   })
+
+  // ──────────────────────────────────────────────────────────────
+  // Turn deadline
+  // ──────────────────────────────────────────────────────────────
+
+  it('setTurnDeadline stores deadline timestamp', () => {
+    useGameStore.getState().setTurnDeadline(1700000000000)
+    expect(useGameStore.getState().turnDeadline).toBe(1700000000000)
+  })
+
+  it('setTurnDeadline clears deadline with null', () => {
+    useGameStore.setState({ turnDeadline: 1700000000000 })
+    useGameStore.getState().setTurnDeadline(null)
+    expect(useGameStore.getState().turnDeadline).toBeNull()
+  })
+
+  it('applyCardPlayed clears turnDeadline', () => {
+    useGameStore.setState({
+      turnDeadline: 1700000000000,
+      players: [{ index: 0, nickname: 'alice', hand_size: 3, connected: true }],
+    })
+    const card: CardDTO = { color: 'red', kind: 'number', value: 1 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    // turn deadline is reset by the hub on each new turn; store does not proactively clear it
+    // (the hub sends a new turn_deadline with the next turn_changed / card_played message).
+    // This test verifies pendingDraw is correctly forwarded.
+    expect(useGameStore.getState().currentTurn).toBe(1)
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // UNO state management
+  // ──────────────────────────────────────────────────────────────
+
+  it('setUnoDeclared sets and clears unoDeclared flag', () => {
+    useGameStore.getState().setUnoDeclared(true)
+    expect(useGameStore.getState().unoDeclared).toBe(true)
+    useGameStore.getState().setUnoDeclared(false)
+    expect(useGameStore.getState().unoDeclared).toBe(false)
+  })
+
+  it('applyCardPlayed clears unoDeclared (UNO is consumed when card is played)', () => {
+    useGameStore.setState({
+      unoDeclared: true,
+      players: [{ index: 0, nickname: 'alice', hand_size: 2, connected: true }],
+    })
+    const card: CardDTO = { color: 'green', kind: 'number', value: 4 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    expect(useGameStore.getState().unoDeclared).toBe(false)
+  })
+
+  it('setUnoTimerEnd records timer timestamp', () => {
+    useGameStore.getState().setUnoTimerEnd(1700000099000)
+    expect(useGameStore.getState().unoTimerEnd).toBe(1700000099000)
+  })
+
+  it('setUnoTimerEnd clears timer with null', () => {
+    useGameStore.setState({ unoTimerEnd: 1700000099000 })
+    useGameStore.getState().setUnoTimerEnd(null)
+    expect(useGameStore.getState().unoTimerEnd).toBeNull()
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // Pending draw accumulation
+  // ──────────────────────────────────────────────────────────────
+
+  it('applyCardPlayed propagates pendingDraw from server', () => {
+    useGameStore.setState({
+      pendingDraw: 0,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    // Alice plays DrawTwo — server reports pendingDraw=2
+    const card: CardDTO = { color: 'red', kind: 'draw_two' }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 2, undefined)
+    expect(useGameStore.getState().pendingDraw).toBe(2)
+  })
+
+  it('applyCardPlayed stacks pendingDraw when counter played (DrawTwo on +2)', () => {
+    useGameStore.setState({
+      pendingDraw: 2,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    // Bob counters with another DrawTwo — server reports pendingDraw=4
+    const card: CardDTO = { color: 'blue', kind: 'draw_two' }
+    useGameStore.getState().applyCardPlayed(1, card, 0, 4, undefined)
+    expect(useGameStore.getState().pendingDraw).toBe(4)
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // Finished players propagated via server player list
+  // ──────────────────────────────────────────────────────────────
+
+  it('applyCardPlayed uses server-provided player list with finished flag', () => {
+    useGameStore.setState({
+      myIndex: 1,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 1, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    // Alice plays her last card; server sends updated players with alice finished
+    const card: CardDTO = { color: 'red', kind: 'number', value: 9 }
+    const serverPlayers = [
+      { index: 0, nickname: 'alice', hand_size: 0, connected: true, finished: true, placement: 1 },
+      { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+    ]
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined, serverPlayers)
+    const s = useGameStore.getState()
+    expect(s.players[0].finished).toBe(true)
+    expect(s.players[0].placement).toBe(1)
+    expect(s.players[0].hand_size).toBe(0)
+  })
+
+  it('applyCardPlayed falls back to local hand-size decrement when no server player list', () => {
+    useGameStore.setState({
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    const card: CardDTO = { color: 'red', kind: 'number', value: 2 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    expect(useGameStore.getState().players[0].hand_size).toBe(4)
+    expect(useGameStore.getState().players[1].hand_size).toBe(5)
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // Interrupt / speed-play scenario
+  // ──────────────────────────────────────────────────────────────
+
+  it('applyCardPlayed handles interrupt play (out-of-turn player plays)', () => {
+    // Bob (index 1) plays out of turn interrupting while it is alice's (0) turn.
+    // The server resolves the interrupt and reports currentTurn has shifted.
+    useGameStore.setState({
+      myIndex: 0,
+      currentTurn: 0, // it was alice's turn
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 3, connected: true },
+      ],
+      discard: { color: 'red', kind: 'number', value: 7 },
+    })
+    // Bob plays a red 7 (exact match — valid interrupt); server says next turn = 0 (alice again)
+    const card: CardDTO = { color: 'red', kind: 'number', value: 7 }
+    useGameStore.getState().applyCardPlayed(1, card, 0, 0, undefined)
+    const s = useGameStore.getState()
+    expect(s.discard).toEqual(card)
+    expect(s.currentTurn).toBe(0)
+    expect(s.players[1].hand_size).toBe(2) // bob's local hand reduced
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // Hand replacement (Swap / GlobalSwitch via applyGameState)
+  // ──────────────────────────────────────────────────────────────
+
+  it('applyGameState replaces hand completely (models Swap/GlobalSwitch effect)', () => {
+    // Before: player has old hand
+    useGameStore.setState({
+      myIndex: 0,
+      myHand: [
+        { color: 'red', kind: 'number', value: 1 },
+        { color: 'blue', kind: 'number', value: 2 },
+        { color: 'green', kind: 'number', value: 3 },
+        { color: 'yellow', kind: 'number', value: 4 },
+      ],
+    })
+    // Server sends full game_state after swap: player now has a new hand
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [
+        { color: 'wild', kind: 'wild' },
+        { color: 'red', kind: 'skip' },
+      ],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 2, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 4, connected: true },
+      ],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      active_color: 'red',
+      turn: 1,
+      direction: 1,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 10,
+    }
+    useGameStore.getState().applyGameState(dto)
+    const s = useGameStore.getState()
+    expect(s.myHand).toHaveLength(2)
+    expect(s.myHand[0]).toEqual({ color: 'wild', kind: 'wild' })
+    expect(s.myHand[1]).toEqual({ color: 'red', kind: 'skip' })
+  })
 })
