@@ -106,17 +106,22 @@ func parseMatchFormat(s string) (game.MatchFormat, error) {
 
 // broadcastCardPlayed sends a card_played event for the top discard card to all room members.
 // It also includes the updated player list so clients learn about finish/placement changes.
+// If the round is not over, it schedules (or resets) the per-turn timer for the next player.
 func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room) {
+	if !room.RoundEnded {
+		h.scheduleTurnTimer(code, room)
+	}
 	state := room.State
 	top := state.Discard[len(state.Discard)-1]
 	h.broadcastToRoomAll(code, protocol.ServerMsg{
-		Type:        protocol.SMsgCardPlayed,
-		PlayerIndex: playerID,
-		Card:        cardToDTO(top),
-		ActiveColor: colorName(state.ActiveColor),
-		Turn:        state.CurrentTurn,
-		PendingDraw: state.PendingDraw,
-		Players:     h.playerList(room),
+		Type:         protocol.SMsgCardPlayed,
+		PlayerIndex:  playerID,
+		Card:         cardToDTO(top),
+		ActiveColor:  colorName(state.ActiveColor),
+		Turn:         state.CurrentTurn,
+		PendingDraw:  state.PendingDraw,
+		Players:      h.playerList(room),
+		TurnDeadline: h.turnDeadlineMs(code),
 	})
 }
 

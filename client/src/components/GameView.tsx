@@ -24,6 +24,8 @@ export function GameView({ onSend }: Props) {
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [timerPct, setTimerPct] = useState(0)
   const timerRafRef = useRef<number | null>(null)
+  const [turnTimerPct, setTurnTimerPct] = useState(0)
+  const turnTimerRafRef = useRef<number | null>(null)
   const lastActionRef = useRef<number>(0)
   const reconnectAnimatedRef = useRef(false)
   const prevHandSizeRef = useRef<number>(0)
@@ -43,6 +45,7 @@ export function GameView({ onSend }: Props) {
     hasDrawn,
     unoDeclared,
     unoTimerEnd,
+    turnDeadline,
     showRoundSummary,
     roundWinner,
     roundScores,
@@ -80,10 +83,17 @@ export function GameView({ onSend }: Props) {
     [currentTurn, myIndex, onSend]
   )
 
+  // Stable ref so PixiGame always invokes the latest handleCardClick
+  // even though the PixiGame instance is created once in the init effect below.
+  const onCardClickRef = useRef(handleCardClick)
+  onCardClickRef.current = handleCardClick
+
   // Initialize PixiJS
   useEffect(() => {
     if (!canvasRef.current) return
-    const game = new PixiGame(handleCardClick)
+    const stableOnCardClick = (card: CardDTO, cardIdx: number) =>
+      onCardClickRef.current(card, cardIdx)
+    const game = new PixiGame(stableOnCardClick)
     let cancelled = false
     game.init(canvasRef.current).then(() => {
       if (!cancelled) pixiRef.current = game
@@ -93,7 +103,6 @@ export function GameView({ onSend }: Props) {
       game.destroy()
       pixiRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Handle reconnect animation
@@ -169,6 +178,35 @@ export function GameView({ onSend }: Props) {
     }
   }, [unoTimerEnd])
 
+  // Animate per-turn countdown bar
+  useEffect(() => {
+    if (turnTimerRafRef.current !== null) {
+      cancelAnimationFrame(turnTimerRafRef.current)
+      turnTimerRafRef.current = null
+    }
+    if (!turnDeadline) {
+      setTurnTimerPct(0)
+      return
+    }
+    const totalMs = turnDeadline - Date.now()
+    if (totalMs <= 0) {
+      setTurnTimerPct(0)
+      return
+    }
+    const tick = () => {
+      const remaining = turnDeadline - Date.now()
+      const pct = Math.max(0, Math.min(100, (remaining / totalMs) * 100))
+      setTurnTimerPct(pct)
+      if (pct > 0) {
+        turnTimerRafRef.current = requestAnimationFrame(tick)
+      }
+    }
+    turnTimerRafRef.current = requestAnimationFrame(tick)
+    return () => {
+      if (turnTimerRafRef.current !== null) cancelAnimationFrame(turnTimerRafRef.current)
+    }
+  }, [turnDeadline])
+
   // Auto-dismiss round summary countdown
   useEffect(() => {
     if (!showRoundSummary) {
@@ -206,6 +244,19 @@ export function GameView({ onSend }: Props) {
   return (
     <div className={styles.container}>
       <canvas ref={canvasRef} className={styles.canvas} />
+
+      {/* Per-turn countdown bar — shown whenever a deadline is active */}
+      {turnDeadline !== null && (
+        <div className={styles.turnTimerBar}>
+          <div
+            className={styles.turnTimerFill}
+            style={{
+              width: `${turnTimerPct}%`,
+              background: turnTimerPct < 25 ? '#ff4757' : turnTimerPct < 50 ? '#ffa502' : '#4d96ff',
+            }}
+          />
+        </div>
+      )}
 
       {/* Reconnect overlay */}
       {showReconnectOverlay && (

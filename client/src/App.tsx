@@ -83,6 +83,7 @@ export default function App() {
               msg.active_color,
               msg.players
             )
+            store.setTurnDeadline(msg.turn_deadline ?? null)
           }
           break
 
@@ -93,10 +94,11 @@ export default function App() {
             msg.turn ?? 0,
             msg.has_drawn
           )
+          store.setTurnDeadline(msg.turn_deadline ?? null)
           break
 
         case 'turn_changed':
-          useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false })
+          useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
           break
 
         case 'uno_declared':
