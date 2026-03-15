@@ -221,11 +221,13 @@ func (h *Hub) Run() {
 
 // ServeWS upgrades an HTTP connection to WebSocket and registers the client.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+	log.Printf("ws request addr=%s origin=%q method=%s", r.RemoteAddr, r.Header.Get("Origin"), r.Method)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("ws upgrade error addr=%s err=%v", r.RemoteAddr, err)
+		log.Printf("ws upgrade FAILED addr=%s origin=%q err=%v", r.RemoteAddr, r.Header.Get("Origin"), err)
 		return
 	}
+	log.Printf("ws upgrade OK addr=%s", conn.RemoteAddr())
 	c := newClient(h, conn)
 	h.register <- c
 }

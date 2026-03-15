@@ -77,7 +77,14 @@ func newClient(h *Hub, conn *websocket.Conn) *Client {
 }
 
 func (c *Client) readPump() {
+	connectedAt := time.Now()
 	defer func() {
+		uptime := time.Since(connectedAt)
+		if uptime < 5*time.Second {
+			log.Printf("ws immediate disconnect addr=%s uptime=%v", c.conn.RemoteAddr(), uptime)
+		} else {
+			log.Printf("ws readPump exit addr=%s uptime=%v", c.conn.RemoteAddr(), uptime)
+		}
 		c.hub.unregister <- c
 		c.conn.Close()
 	}()
@@ -91,7 +98,11 @@ func (c *Client) readPump() {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("ws read error: %v", err)
+				log.Printf("ws unexpected close addr=%s err=%v", c.conn.RemoteAddr(), err)
+			} else {
+				// Log all other close reasons (normal close, read deadline, network reset, etc.)
+				// so we can see exactly why the connection ended.
+				log.Printf("ws connection closed addr=%s reason=%v", c.conn.RemoteAddr(), err)
 			}
 			break
 		}
