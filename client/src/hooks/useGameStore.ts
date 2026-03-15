@@ -36,6 +36,7 @@ interface GameStore {
   errorMsg: string
   unoDeclared: boolean
   unoTimerEnd: number | null
+  turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
   // Match / round state
   matchFormat: MatchFormat
@@ -49,6 +50,8 @@ interface GameStore {
   roundNumber_completed: number   // the round number that just finished (for display)
   roundScores: RoundScoreEntry[]  // per-player points earned this round
   pendingGameState: GameStateDTO | null // buffered next-round state (held while summary is visible)
+  // buffered match-end payload (held while the final round summary is visible)
+  pendingMatchEnd: { matchWinner: string; scoreboard: ScoreboardEntryDTO[] } | null
 
   // Reconnect animation state
   isReconnecting: boolean
@@ -65,10 +68,12 @@ interface GameStore {
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
   setUnoTimerEnd: (ts: number | null) => void
+  setTurnDeadline: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[]) => void
   applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
   setPendingGameState: (state: GameStateDTO) => void
+  setPendingMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
   applyPendingGameState: () => void
   dismissRoundSummary: () => void
   setIsReconnecting: (val: boolean) => void
@@ -90,6 +95,7 @@ function gameStateSliceFromDTO(state: GameStateDTO) {
     matchFormat: state.match_format ?? 'BO1',
     maxPlayers: state.max_players ?? 10,
     scoreboard: state.scoreboard ?? [],
+    turnDeadline: state.turn_deadline ?? null,
   }
 }
 
@@ -110,6 +116,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   errorMsg: '',
   unoDeclared: false,
   unoTimerEnd: null,
+  turnDeadline: null,
   matchFormat: 'BO1',
   maxPlayers: 10,
   roundNumber: 1,
@@ -121,6 +128,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   roundNumber_completed: 0,
   roundScores: [],
   pendingGameState: null,
+  pendingMatchEnd: null,
   isReconnecting: false,
 
   setScreen: (screen) => set({ screen }),
@@ -129,7 +137,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setSessionToken: (sessionToken) => set({ sessionToken }),
 
   applyGameState: (state) =>
-    set({ ...gameStateSliceFromDTO(state), roundWinner: '', showRoundSummary: false, pendingGameState: null }),
+    set({ ...gameStateSliceFromDTO(state), roundWinner: '', showRoundSummary: false, pendingGameState: null, pendingMatchEnd: null }),
 
   applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players) =>
     set((s) => {
@@ -186,6 +194,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
+  setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
 
@@ -208,6 +217,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         scoreboard: newScoreboard,
         roundScores,
         showRoundSummary: true,
+        turnDeadline: null,
+        unoDeclared: false,
+        unoTimerEnd: null,
       }
     }),
 
@@ -216,6 +228,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),
 
+  setPendingMatchEnd: (matchWinner, scoreboard) =>
+    set({ pendingMatchEnd: { matchWinner, scoreboard } }),
+
   applyPendingGameState: () => {
     if (!get().pendingGameState) return
     get().dismissRoundSummary()
@@ -223,11 +238,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   dismissRoundSummary: () => {
     const s = get()
+    // Priority 1: final round — transition to game over screen.
+    if (s.pendingMatchEnd) {
+      set({
+        matchWinner: s.pendingMatchEnd.matchWinner,
+        matchOver: true,
+        scoreboard: s.pendingMatchEnd.scoreboard,
+        screen: 'gameover',
+        showRoundSummary: false,
+        pendingMatchEnd: null,
+      })
+      return
+    }
+    // Priority 2: mid-match — apply the buffered next-round state.
     if (s.pendingGameState) {
       set({ ...gameStateSliceFromDTO(s.pendingGameState), roundWinner: '', showRoundSummary: false, pendingGameState: null })
-    } else {
-      set({ showRoundSummary: false })
+      return
     }
+    // Default: just hide the summary (e.g. BO1 game-over path).
+    set({ showRoundSummary: false })
   },
 
   setIsReconnecting: (isReconnecting) => set({ isReconnecting }),

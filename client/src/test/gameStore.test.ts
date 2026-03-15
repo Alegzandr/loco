@@ -22,8 +22,11 @@ beforeEach(() => {
     roundWinner: '',
     roundScores: [],
     roundNumber_completed: 0,
+    matchWinner: '',
+    matchOver: false,
     showRoundSummary: false,
     pendingGameState: null,
+    pendingMatchEnd: null,
     isReconnecting: false,
   })
 })
@@ -289,5 +292,99 @@ describe('useGameStore', () => {
     expect(s.matchOver).toBe(true)
     expect(s.matchWinner).toBe('alice')
     expect(s.screen).toBe('gameover')
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // pendingMatchEnd buffering — final round summary must be visible
+  // before the game over screen.
+  // ──────────────────────────────────────────────────────────────
+
+  it('setPendingMatchEnd stores payload without transitioning to gameover', () => {
+    const sb: ScoreboardEntryDTO[] = [
+      { player_index: 0, nickname: 'alice', score: 120, rounds_won: 2 },
+    ]
+    useGameStore.getState().setPendingMatchEnd('alice', sb)
+    const s = useGameStore.getState()
+    expect(s.pendingMatchEnd).toEqual({ matchWinner: 'alice', scoreboard: sb })
+    // Screen must NOT have changed yet
+    expect(s.screen).toBe('lobby')
+    expect(s.matchOver).toBe(false)
+  })
+
+  it('dismissRoundSummary with pendingMatchEnd transitions to gameover and clears buffer', () => {
+    const sb: ScoreboardEntryDTO[] = [
+      { player_index: 0, nickname: 'alice', score: 120, rounds_won: 2 },
+    ]
+    useGameStore.setState({
+      showRoundSummary: true,
+      pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb },
+    })
+    useGameStore.getState().dismissRoundSummary()
+    const s = useGameStore.getState()
+    expect(s.showRoundSummary).toBe(false)
+    expect(s.pendingMatchEnd).toBeNull()
+    expect(s.matchOver).toBe(true)
+    expect(s.matchWinner).toBe('alice')
+    expect(s.scoreboard).toEqual(sb)
+    expect(s.screen).toBe('gameover')
+  })
+
+  it('dismissRoundSummary prefers pendingMatchEnd over pendingGameState', () => {
+    // Both pending — match end wins (the match is over)
+    const sb: ScoreboardEntryDTO[] = [
+      { player_index: 0, nickname: 'alice', score: 50, rounds_won: 1 },
+    ]
+    const nextRound: GameStateDTO = {
+      your_index: 0,
+      hand: [{ color: 'red', kind: 'number', value: 1 }],
+      players: [{ index: 0, nickname: 'alice', hand_size: 1, connected: true }],
+      discard: { color: 'red', kind: 'number', value: 1 },
+      active_color: 'red',
+      turn: 0,
+      direction: 1,
+      round_number: 3,
+      match_format: 'BO3',
+      max_players: 4,
+    }
+    useGameStore.setState({
+      showRoundSummary: true,
+      pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb },
+      pendingGameState: nextRound,
+    })
+    useGameStore.getState().dismissRoundSummary()
+    const s = useGameStore.getState()
+    expect(s.screen).toBe('gameover')
+    expect(s.matchOver).toBe(true)
+    // pendingGameState should still be cleared via the gameover transition
+    expect(s.pendingMatchEnd).toBeNull()
+  })
+
+  it('applyGameState clears pendingMatchEnd', () => {
+    useGameStore.setState({
+      pendingMatchEnd: { matchWinner: 'bob', scoreboard: [] },
+    })
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [],
+      players: [],
+      discard: { color: 'blue', kind: 'number', value: 2 },
+      active_color: 'blue',
+      turn: 0,
+      direction: 1,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 10,
+    }
+    useGameStore.getState().applyGameState(dto)
+    expect(useGameStore.getState().pendingMatchEnd).toBeNull()
+  })
+
+  it('applyRoundEnd clears turnDeadline and unoTimerEnd', () => {
+    useGameStore.setState({ turnDeadline: 9999999, unoTimerEnd: 8888888, unoDeclared: true })
+    useGameStore.getState().applyRoundEnd('alice', 1, [])
+    const s = useGameStore.getState()
+    expect(s.turnDeadline).toBeNull()
+    expect(s.unoTimerEnd).toBeNull()
+    expect(s.unoDeclared).toBe(false)
   })
 })

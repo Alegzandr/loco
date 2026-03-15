@@ -26,6 +26,10 @@ var EmptyRoomTimeout = 5 * time.Minute
 // Exported so tests can override it.
 var ReconnectTimeout = 60 * time.Second
 
+// TurnTimeout is how long a human player has to act before the server auto-draws or auto-passes.
+// Exported so tests can override it.
+var TurnTimeout = 30 * time.Second
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -58,6 +62,13 @@ type cleanupMsg struct {
 	emptyAt  time.Time
 }
 
+// turnTimerMsg is sent internally when a player's turn timer expires.
+type turnTimerMsg struct {
+	roomCode     string
+	playerID     int
+	turnStartedAt time.Time
+}
+
 // Hub manages all active rooms and connected clients.
 type Hub struct {
 	rooms   map[string]*game.Room
@@ -74,12 +85,16 @@ type Hub struct {
 	// botSlots[code] is a set of playerIDs that are bots.
 	botSlots map[string]map[int]struct{}
 
-	register   chan *Client
-	unregister chan *Client
-	inbound    chan inboundMsg
-	expire     chan expireMsg
-	botMove    chan botMoveMsg // scheduled bot actions
-	cleanup    chan cleanupMsg // empty-room cleanup timers
+	// turnStartedAt[code] = time when the current turn began (for stale-timer detection).
+	turnStartedAt map[string]time.Time
+
+	register    chan *Client
+	unregister  chan *Client
+	inbound     chan inboundMsg
+	expire      chan expireMsg
+	botMove     chan botMoveMsg  // scheduled bot actions
+	cleanup     chan cleanupMsg  // empty-room cleanup timers
+	turnTimeout chan turnTimerMsg // per-turn timeout actions
 
 	// Atomic stats — safe to read from any goroutine (health/metrics endpoints).
 	statRooms          atomic.Int32
@@ -119,12 +134,14 @@ func New() *Hub {
 		sessionTokens:  make(map[string]map[int]string),
 		emptyRooms:     make(map[string]time.Time),
 		botSlots:       make(map[string]map[int]struct{}),
+		turnStartedAt:  make(map[string]time.Time),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
 		inbound:        make(chan inboundMsg, 256),
 		expire:         make(chan expireMsg, 64),
 		botMove:        make(chan botMoveMsg, 64),
 		cleanup:        make(chan cleanupMsg, 64),
+		turnTimeout:    make(chan turnTimerMsg, 64),
 		startTime:      time.Now(),
 	}
 }
@@ -215,17 +232,22 @@ func (h *Hub) Run() {
 
 		case cm := <-h.cleanup:
 			h.handleCleanup(cm)
+
+		case tm := <-h.turnTimeout:
+			h.handleTurnTimeout(tm)
 		}
 	}
 }
 
 // ServeWS upgrades an HTTP connection to WebSocket and registers the client.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+	log.Printf("ws request addr=%s origin=%q method=%s", r.RemoteAddr, r.Header.Get("Origin"), r.Method)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("ws upgrade error addr=%s err=%v", r.RemoteAddr, err)
+		log.Printf("ws upgrade FAILED addr=%s origin=%q err=%v", r.RemoteAddr, r.Header.Get("Origin"), err)
 		return
 	}
+	log.Printf("ws upgrade OK addr=%s", conn.RemoteAddr())
 	c := newClient(h, conn)
 	h.register <- c
 }
@@ -379,6 +401,8 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	h.statMatchesStarted.Add(1)
 	log.Printf("match started code=%s players=%d format=%s", c.roomCode, len(room.Players), matchFormatString(room.Format))
 
+	h.scheduleTurnTimer(c.roomCode, room)
+
 	// Send each player their personalized game state
 	members := h.roomMembers[c.roomCode]
 	for i, member := range members {
@@ -500,7 +524,8 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 		return
 	}
 
-	// New round started: send each player their personalized state
+	// New round started: schedule turn timer then send each player their personalized state
+	h.scheduleTurnTimer(code, room)
 	members := h.roomMembers[code]
 	for _, member := range members {
 		if member == nil {
@@ -527,19 +552,27 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	hand := state.Hands[c.playerID]
 	drawn := hand.Cards[len(hand.Cards)-1]
 
+	// If drawing advanced the turn (penalty draw), reset the turn timer.
+	if state.CurrentTurn != c.playerID {
+		h.scheduleTurnTimer(c.roomCode, room)
+	}
+	dl := h.turnDeadlineMs(c.roomCode)
+
 	// Tell the drawing player their new card plus the updated has_drawn flag
 	c.Send(protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: c.playerID,
-		Card:        cardToDTO(drawn),
-		Turn:        state.CurrentTurn,
-		HasDrawn:    state.HasDrawn,
+		Type:         protocol.SMsgCardDrawn,
+		PlayerIndex:  c.playerID,
+		Card:         cardToDTO(drawn),
+		Turn:         state.CurrentTurn,
+		HasDrawn:     state.HasDrawn,
+		TurnDeadline: dl,
 	})
 	// Tell others hand size changed
 	h.broadcastToRoom(c.roomCode, protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: c.playerID,
-		Turn:        state.CurrentTurn,
+		Type:         protocol.SMsgCardDrawn,
+		PlayerIndex:  c.playerID,
+		Turn:         state.CurrentTurn,
+		TurnDeadline: dl,
 	}, c)
 	h.maybeScheduleBot(c.roomCode, room)
 }
@@ -553,9 +586,11 @@ func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
+	h.scheduleTurnTimer(c.roomCode, room)
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
-		Type: protocol.SMsgTurnChanged,
-		Turn: room.State.CurrentTurn,
+		Type:         protocol.SMsgTurnChanged,
+		Turn:         room.State.CurrentTurn,
+		TurnDeadline: h.turnDeadlineMs(c.roomCode),
 	})
 	h.maybeScheduleBot(c.roomCode, room)
 }
@@ -763,6 +798,7 @@ func (h *Hub) deleteRoom(code string) {
 	delete(h.disconnectedAt, code)
 	delete(h.emptyRooms, code)
 	delete(h.botSlots, code)
+	delete(h.turnStartedAt, code)
 	h.statRooms.Add(-1)
 	log.Printf("room deleted code=%s", code)
 }
@@ -873,7 +909,9 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 
 // --- Bot support ---
 
-const botThinkDelay = 800 * time.Millisecond
+// BotThinkDelay is the simulated thinking time before a bot acts.
+// Exported so tests can reduce it to speed up bot-game tests.
+var BotThinkDelay = 800 * time.Millisecond
 
 // handleAddBot adds a bot player to the lobby (host-only).
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
@@ -918,7 +956,7 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 // would stall the game (no player would act on that turn).
 func (h *Hub) scheduleBotMove(code string, playerID int) {
 	bm := botMoveMsg{roomCode: code, playerID: playerID}
-	time.AfterFunc(botThinkDelay, func() {
+	time.AfterFunc(BotThinkDelay, func() {
 		select {
 		case h.botMove <- bm:
 		default:
@@ -1040,10 +1078,13 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			}
 			if !canPlay {
 				if err := room.PassTurn(bm.playerID); err == nil {
+					dl := h.turnDeadlineMs(code)
 					h.broadcastToRoomAll(code, protocol.ServerMsg{
-						Type: protocol.SMsgTurnChanged,
-						Turn: room.State.CurrentTurn,
+						Type:         protocol.SMsgTurnChanged,
+						Turn:         room.State.CurrentTurn,
+						TurnDeadline: dl,
 					})
+					h.scheduleTurnTimer(code, room)
 				}
 			} else {
 				// Schedule another bot move to play the drawn card
@@ -1054,6 +1095,129 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 	}
 
 	h.maybeScheduleBot(code, room)
+}
+
+// --- Turn timer ---
+
+// scheduleTurnTimer records the current turn start time and schedules an auto-action
+// if the player (human only) does not act within TurnTimeout.
+func (h *Hub) scheduleTurnTimer(code string, room *game.Room) {
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	turn := room.State.CurrentTurn
+	// Bots handle their own timing; don't schedule a timeout for them.
+	if bots, ok := h.botSlots[code]; ok {
+		if _, isBot := bots[turn]; isBot {
+			return
+		}
+	}
+	now := time.Now()
+	h.turnStartedAt[code] = now
+	tm := turnTimerMsg{roomCode: code, playerID: turn, turnStartedAt: now}
+	time.AfterFunc(TurnTimeout, func() {
+		select {
+		case h.turnTimeout <- tm:
+		default:
+			// Non-critical: if dropped the player just gets a free extra turn.
+			log.Printf("turnTimeout channel full, dropping for code=%s player=%d", code, turn)
+		}
+	})
+}
+
+// handleTurnTimeout fires when a human player's turn clock runs out.
+// It auto-draws (if not yet drawn) then auto-passes.
+func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
+	room, ok := h.rooms[tm.roomCode]
+	if !ok {
+		return // room deleted
+	}
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	if room.State.CurrentTurn != tm.playerID {
+		return // turn already advanced
+	}
+	// Check the timer is for the current turn, not a stale one.
+	recorded, ok := h.turnStartedAt[tm.roomCode]
+	if !ok || !recorded.Equal(tm.turnStartedAt) {
+		return // stale timer
+	}
+	// Skip finished players.
+	if room.State.Finished[tm.playerID] {
+		return
+	}
+	code := tm.roomCode
+
+	log.Printf("turn timeout code=%s player=%d auto-acting", code, tm.playerID)
+
+	members := h.roomMembers[code]
+	var timedOutClient *Client
+	if tm.playerID < len(members) {
+		timedOutClient = members[tm.playerID]
+	}
+
+	// Step 1: auto-draw if the player hasn't drawn yet.
+	if !room.State.HasDrawn {
+		if err := room.DrawCard(tm.playerID); err != nil {
+			log.Printf("turn timeout draw error code=%s player=%d err=%v", code, tm.playerID, err)
+			return
+		}
+		state := room.State
+		drawn := state.Hands[tm.playerID].Cards[len(state.Hands[tm.playerID].Cards)-1]
+		// If drawing advanced the turn (penalty draw), broadcast and reschedule.
+		if state.CurrentTurn != tm.playerID {
+			dl := h.turnDeadlineMs(code)
+			h.broadcastToRoomAll(code, protocol.ServerMsg{
+				Type:         protocol.SMsgCardDrawn,
+				PlayerIndex:  tm.playerID,
+				Turn:         state.CurrentTurn,
+				TurnDeadline: dl,
+			})
+			h.maybeScheduleBot(code, room)
+			h.scheduleTurnTimer(code, room)
+			return
+		}
+		// Private: tell the player their drawn card.
+		if timedOutClient != nil {
+			timedOutClient.Send(protocol.ServerMsg{
+				Type:        protocol.SMsgCardDrawn,
+				PlayerIndex: tm.playerID,
+				Card:        cardToDTO(drawn),
+				Turn:        state.CurrentTurn,
+				HasDrawn:    state.HasDrawn,
+			})
+		}
+		// Public: others see hand size +1.
+		h.broadcastToRoom(code, protocol.ServerMsg{
+			Type:        protocol.SMsgCardDrawn,
+			PlayerIndex: tm.playerID,
+			Turn:        state.CurrentTurn,
+		}, timedOutClient)
+	}
+
+	// Step 2: auto-pass.
+	if err := room.PassTurn(tm.playerID); err != nil {
+		log.Printf("turn timeout pass error code=%s player=%d err=%v", code, tm.playerID, err)
+		return
+	}
+	dl := h.turnDeadlineMs(code)
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:         protocol.SMsgTurnChanged,
+		Turn:         room.State.CurrentTurn,
+		TurnDeadline: dl,
+	})
+	h.maybeScheduleBot(code, room)
+	h.scheduleTurnTimer(code, room)
+}
+
+// turnDeadlineMs returns the unix-millisecond deadline for the current turn,
+// or 0 if no timer is active for this room.
+func (h *Hub) turnDeadlineMs(code string) int64 {
+	if t, ok := h.turnStartedAt[code]; ok {
+		return t.Add(TurnTimeout).UnixMilli()
+	}
+	return 0
 }
 
 // --- Broadcast helpers ---
@@ -1177,20 +1341,21 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 	}
 
 	return &protocol.GameStateDTO{
-		YourIndex:   playerIdx,
-		Hand:        hand,
-		Players:     h.playerList(room),
-		Discard:     *cardToDTO(top),
-		ActiveColor: colorName(state.ActiveColor),
-		Turn:        state.CurrentTurn,
-		Direction:   state.Direction,
-		PendingDraw: state.PendingDraw,
-		HasDrawn:    state.HasDrawn,
-		EventLog:    eventLog,
-		RoundNumber: room.RoundNumber,
-		MatchFormat: matchFormatString(room.Format),
-		MaxPlayers:  room.MaxPlayers,
-		Scoreboard:  scoreboard,
+		YourIndex:    playerIdx,
+		Hand:         hand,
+		Players:      h.playerList(room),
+		Discard:      *cardToDTO(top),
+		ActiveColor:  colorName(state.ActiveColor),
+		Turn:         state.CurrentTurn,
+		Direction:    state.Direction,
+		PendingDraw:  state.PendingDraw,
+		HasDrawn:     state.HasDrawn,
+		EventLog:     eventLog,
+		RoundNumber:  room.RoundNumber,
+		MatchFormat:  matchFormatString(room.Format),
+		MaxPlayers:   room.MaxPlayers,
+		Scoreboard:   scoreboard,
+		TurnDeadline: h.turnDeadlineMs(room.Code),
 	}
 }
 

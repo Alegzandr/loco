@@ -83,6 +83,7 @@ export default function App() {
               msg.active_color,
               msg.players
             )
+            store.setTurnDeadline(msg.turn_deadline ?? null)
           }
           break
 
@@ -93,10 +94,11 @@ export default function App() {
             msg.turn ?? 0,
             msg.has_drawn
           )
+          store.setTurnDeadline(msg.turn_deadline ?? null)
           break
 
         case 'turn_changed':
-          useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false })
+          useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
           break
 
         case 'uno_declared':
@@ -119,9 +121,17 @@ export default function App() {
           )
           break
 
-        case 'match_end':
-          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+        case 'match_end': {
+          const s = useGameStore.getState()
+          if (s.showRoundSummary) {
+            // Final round summary is still visible — buffer the match-end payload so
+            // the player sees the full round breakdown before the game over screen.
+            store.setPendingMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+          } else {
+            store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+          }
           break
+        }
 
         case 'game_over':
           // Legacy / BO1 fallback

@@ -22,7 +22,7 @@ export function GameOver({ winner, myNickname, scoreboard, matchOver }: Props) {
             ? (isWinner ? t.matchWon : t.gameOver)
             : (isWinner ? t.youWin : t.gameOver)}
         </h2>
-        {!isWinner && <p className={styles.sub}>{winner} wins{matchOver ? ' the match' : ''}!</p>}
+        {!isWinner && <p className={styles.sub}>{winner} {matchOver ? t.winsMatch : t.winsGame}</p>}
 
         {scoreboard && scoreboard.length > 0 && (
           <div className={styles.scoreboard}>

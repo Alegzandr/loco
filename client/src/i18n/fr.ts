@@ -57,6 +57,10 @@ export const fr: Translations = {
   yourTurn: 'Votre tour',
   drawOrCounter: 'Piocher %n ou contrer !',
   playerTurnSuffix: ' joue',
+  ord1: '1er',
+  ord2: '2e',
+  ord3: '3e',
+  ordN: 'e',
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match gagné !',
@@ -64,6 +68,8 @@ export const fr: Translations = {
   youWin: 'Vous avez gagné !',
   playAgain: 'Rejouer',
   finalScores: 'Scores finaux',
+  winsGame: 'remporte la partie !',
+  winsMatch: 'remporte le match !',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Langue',
@@ -77,7 +83,7 @@ export const fr: Translations = {
       heading: 'Joueurs et mise en place',
       items: [
         'De 2 à 10 joueurs par partie.',
-        'Chaque joueur reçoit 8 cartes au début de chaque manche.',
+        'Chaque joueur reçoit 7 cartes au début de chaque manche.',
         'Le reste du paquet est posé face cachée ; la première carte retournée lance la pile de défausse.',
         'Un joueur est sélectionné aléatoirement pour commencer.',
       ],
@@ -106,17 +112,14 @@ export const fr: Translations = {
         '+2 — le joueur suivant doit piocher 2 cartes (et perd son tour sauf s\'il contre).',
         'Joker — peut être joué sur n\'importe quelle couleur ; vous choisissez la couleur active.',
         'Joker +4 — peut être joué sur n\'importe quelle couleur ; le suivant pioche 4 (sauf s\'il contre).',
-        'Échange — échangez votre main avec n\'importe quel autre joueur.',
-        'Rotation globale — tous les joueurs passent leur main entière au joueur suivant dans l\'ordre.',
       ],
     },
     {
       heading: 'Cumul des +2 / +4',
       items: [
-        'Si l\'option est activée par l\'hôte, un joueur ciblé par un +2 ou +4 peut répondre avec son propre +2 ou +4.',
+        'Un joueur ciblé par un +2 ou +4 peut répondre avec son propre +2 ou +4 pour contrer.',
         'L\'accumulation continue jusqu\'à ce qu\'un joueur ne puisse ou ne veuille pas contrer ; il pioche le total.',
         'Un +2 ne peut être contré que par un +2 ; un +4 ne peut être contré que par un +4.',
-        'Sans l\'option, le joueur ciblé pioche immédiatement.',
       ],
     },
     {
@@ -136,11 +139,10 @@ export const fr: Translations = {
       ],
     },
     {
-      heading: 'Minuteur & AFK',
+      heading: 'Minuteur de tour',
       items: [
-        'Chaque joueur dispose d\'un temps limité par tour (affiché par un minuteur).',
-        'Si le temps s\'écoule, une carte est piochée automatiquement.',
-        'Un joueur AFK pendant 2 manches consécutives est expulsé de la salle.',
+        'Chaque joueur dispose d\'un temps limité par tour (affiché par une barre en bas de l\'écran).',
+        'Si le temps s\'écoule, une carte est piochée automatiquement et le tour passe.',
       ],
     },
     {

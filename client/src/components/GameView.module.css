@@ -89,6 +89,23 @@
   animation: fadeIn 0.3s ease-out forwards;
 }
 
+/* Per-turn countdown bar */
+.turnTimerBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  z-index: 5;
+  pointer-events: none;
+}
+
+.turnTimerFill {
+  height: 100%;
+  transition: background-color 0.5s ease;
+}
+
 /* Round indicator */
 .roundIndicator {
   position: absolute;
