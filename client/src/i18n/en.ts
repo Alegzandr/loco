@@ -44,6 +44,8 @@ export interface Translations {
   catchWindow: string
   reconnected: string
   rebuildingTable: string
+  wsLostConnection: string
+  wsReconnecting: string
   round: string
   of: string
   complete: string
@@ -126,6 +128,8 @@ export const en: Translations = {
   catchWindow: 'Catch window!',
   reconnected: 'Reconnected',
   rebuildingTable: 'Rebuilding table…',
+  wsLostConnection: 'Connection lost',
+  wsReconnecting: 'Reconnecting…',
   round: 'Round',
   of: 'of',
   complete: 'Complete',

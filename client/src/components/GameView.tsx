@@ -3,6 +3,7 @@ import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore } from '../hooks/useGameStore'
 import { useI18n } from '../i18n'
+import { WsStatus } from '../hooks/useWebSocket'
 import { RulesModal } from './RulesModal'
 import { UnoTimer } from './UnoTimer'
 import { ColorPicker } from './ColorPicker'
@@ -37,12 +38,13 @@ function clientMayPlay(
 
 interface Props {
   onSend: (msg: ClientMsg) => void
+  wsStatus: WsStatus
 }
 
 const UNO_WINDOW_MS = 5000
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
 
-export function GameView({ onSend }: Props) {
+export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pixiRef = useRef<PixiGame | null>(null)
@@ -329,13 +331,26 @@ export function GameView({ onSend }: Props) {
         </div>
       )}
 
-      {/* Reconnect overlay */}
+      {/* Reconnect overlay — server-triggered (player_reconnected) */}
       {showReconnectOverlay && (
         <div className={styles.reconnectOverlay}>
           <div className={styles.reconnectCard}>
             <div className={styles.reconnectSpinner} />
             <div className={styles.reconnectText}>{t.reconnected}</div>
             <div className={styles.reconnectSub}>{t.rebuildingTable}</div>
+          </div>
+        </div>
+      )}
+
+      {/* WS overlay — shown when the WebSocket transport is down mid-game.
+          Prevents the blank-canvas regression where the board renders empty
+          because no game_state arrives while the socket is reconnecting. */}
+      {wsStatus !== 'open' && (
+        <div className={styles.reconnectOverlay}>
+          <div className={styles.reconnectCard}>
+            <div className={styles.reconnectSpinner} />
+            <div className={styles.reconnectText}>{t.wsLostConnection}</div>
+            <div className={styles.reconnectSub}>{t.wsReconnecting}</div>
           </div>
         </div>
       )}
