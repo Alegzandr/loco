@@ -909,7 +909,9 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 
 // --- Bot support ---
 
-const botThinkDelay = 800 * time.Millisecond
+// BotThinkDelay is the simulated thinking time before a bot acts.
+// Exported so tests can reduce it to speed up bot-game tests.
+var BotThinkDelay = 800 * time.Millisecond
 
 // handleAddBot adds a bot player to the lobby (host-only).
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
@@ -954,7 +956,7 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 // would stall the game (no player would act on that turn).
 func (h *Hub) scheduleBotMove(code string, playerID int) {
 	bm := botMoveMsg{roomCode: code, playerID: playerID}
-	time.AfterFunc(botThinkDelay, func() {
+	time.AfterFunc(BotThinkDelay, func() {
 		select {
 		case h.botMove <- bm:
 		default:
@@ -1076,10 +1078,13 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			}
 			if !canPlay {
 				if err := room.PassTurn(bm.playerID); err == nil {
+					dl := h.turnDeadlineMs(code)
 					h.broadcastToRoomAll(code, protocol.ServerMsg{
-						Type: protocol.SMsgTurnChanged,
-						Turn: room.State.CurrentTurn,
+						Type:         protocol.SMsgTurnChanged,
+						Turn:         room.State.CurrentTurn,
+						TurnDeadline: dl,
 					})
+					h.scheduleTurnTimer(code, room)
 				}
 			} else {
 				// Schedule another bot move to play the drawn card

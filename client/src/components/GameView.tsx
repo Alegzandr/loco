@@ -125,7 +125,8 @@ export function GameView({ onSend }: Props) {
       }
       game.renderReconnect(
         { myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-          turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix } },
+          turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix,
+            ord1: t.ord1, ord2: t.ord2, ord3: t.ord3, ordN: t.ordN } },
         () => { setIsReconnecting(false) }
       )
     }, 600)
@@ -150,7 +151,8 @@ export function GameView({ onSend }: Props) {
 
     game.render({
       myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix },
+      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix,
+        ord1: t.ord1, ord2: t.ord2, ord3: t.ord3, ordN: t.ordN },
     })
   }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t])
 

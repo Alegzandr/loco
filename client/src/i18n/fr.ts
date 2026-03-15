@@ -57,6 +57,10 @@ export const fr: Translations = {
   yourTurn: 'Votre tour',
   drawOrCounter: 'Piocher %n ou contrer !',
   playerTurnSuffix: ' joue',
+  ord1: '1er',
+  ord2: '2e',
+  ord3: '3e',
+  ordN: 'e',
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match gagné !',

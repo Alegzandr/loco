@@ -60,6 +60,11 @@ export interface Translations {
   yourTurn: string
   drawOrCounter: string  // contains %n placeholder for draw count
   playerTurnSuffix: string  // appended after nickname: "Alice's turn"
+  // Ordinal suffixes for placement display ("1st", "2nd", "3rd", "4th"+)
+  ord1: string
+  ord2: string
+  ord3: string
+  ordN: string  // appended after number for 4+: "4th", "5th", …
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: string
@@ -134,6 +139,10 @@ export const en: Translations = {
   yourTurn: 'Your turn',
   drawOrCounter: 'Draw %n or counter!',
   playerTurnSuffix: "'s turn",
+  ord1: '1st',
+  ord2: '2nd',
+  ord3: '3rd',
+  ordN: 'th',
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match Won!',
