@@ -306,6 +306,45 @@ npm run lint           # ESLint check
 npm run lint:fix       # ESLint auto-fix
 ```
 
+### End-to-End (Playwright)
+
+E2E tests require both the Go server and the Vite dev server to be running.
+
+**Quickest local setup — use Docker Compose:**
+
+```bash
+# Terminal 1: start all services
+docker compose -f docker-compose.dev.yml up --build
+
+# Terminal 2: install browsers (first time only) and run tests
+cd e2e
+npm ci
+npx playwright install chromium
+npm test                          # headless
+npm run test:headed               # watch browsers
+npm run test:ui                   # interactive Playwright UI
+```
+
+**Without Docker (Go + Node installed locally):**
+
+```bash
+# Terminal 1
+cd server && go run .
+
+# Terminal 2
+cd client && VITE_WS_PORT=8080 npm run dev
+
+# Terminal 3
+cd e2e && npm ci && npx playwright install chromium && npm test
+```
+
+**Test projects included:**
+
+| Project         | Tests                  | Viewport     |
+|-----------------|------------------------|--------------|
+| `chromium`      | `game-flow`, `multi-client` | Desktop   |
+| `mobile-chrome` | `mobile`               | Pixel 5 (360×800) |
+
 ---
 
 ## Current Implemented Features
@@ -371,15 +410,16 @@ npm run lint:fix       # ESLint auto-fix
 
 The pipeline is defined in `.gitlab-ci.yml` and has three stages:
 
-| Stage    | Jobs                          | Trigger                            |
-|----------|-------------------------------|------------------------------------|
-| `test`   | `backend_test`, `frontend_test` | Every push (all branches)         |
-| `build`  | `build` (Docker images)       | `develop` branch or `v*` tag only  |
+| Stage    | Jobs                                        | Trigger                            |
+|----------|---------------------------------------------|------------------------------------|
+| `test`   | `backend_test`, `frontend_test`, `e2e_test` | Every push (all branches)          |
+| `build`  | `build` (Docker images)                     | `develop` branch or `v*` tag only  |
 | `deploy` | `deploy_dev` (manual), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build` |
 
-**Test jobs** run on lightweight images (`golang:1.24.7-alpine` / `node:20-alpine`) with no Docker daemon required:
-- `backend_test`: `cd server && go test ./...`
-- `frontend_test`: `cd client && npm ci && npm run lint && npm run test && npm run build`
+**Test jobs** run on every push:
+- `backend_test` (`golang:1.24.7-alpine`): `go test ./...` + builds a static Linux binary (artifact for `e2e_test`)
+- `frontend_test` (`node:20-alpine`): `npm ci && npm run lint && npm run test && npm run build`
+- `e2e_test` (`mcr.microsoft.com/playwright`): starts the server binary, runs Vite dev, executes Playwright suite; needs both `backend_test` and `frontend_test` to pass first
 
 **Build** and **deploy** jobs require the `devops` runner tag and a GitLab container registry.
 
