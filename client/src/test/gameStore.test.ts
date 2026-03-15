@@ -90,23 +90,53 @@ describe('useGameStore', () => {
   })
 
   it('applyCardDrawn adds card to own hand', () => {
-    useGameStore.setState({ myHand: [{ color: 'blue', kind: 'number', value: 2 }] })
+    useGameStore.setState({ myHand: [{ color: 'blue', kind: 'number', value: 2 }], myIndex: 0, currentTurn: 0 })
     const drawn: CardDTO = { color: 'green', kind: 'skip' }
-    useGameStore.getState().applyCardDrawn(drawn, 0, 0)
+    // Voluntary draw: turn stays on player 0, so currentTurn does not change.
+    useGameStore.getState().applyCardDrawn([drawn], 0, 0)
 
     expect(useGameStore.getState().myHand).toHaveLength(2)
   })
 
+  it('applyCardDrawn adds multiple cards on penalty draw', () => {
+    useGameStore.setState({ myHand: [{ color: 'blue', kind: 'number', value: 2 }], myIndex: 0, currentTurn: 0, pendingDraw: 2 })
+    const drawn1: CardDTO = { color: 'red', kind: 'number', value: 3 }
+    const drawn2: CardDTO = { color: 'green', kind: 'skip' }
+    // Penalty draw: turn advances to player 1.
+    useGameStore.getState().applyCardDrawn([drawn1, drawn2], 0, 1)
+
+    expect(useGameStore.getState().myHand).toHaveLength(3)
+    expect(useGameStore.getState().pendingDraw).toBe(0)
+    expect(useGameStore.getState().currentTurn).toBe(1)
+  })
+
   it('applyCardDrawn updates opponent hand size', () => {
     useGameStore.setState({
+      currentTurn: 1,
       players: [
         { index: 0, nickname: 'alice', hand_size: 5, connected: true },
         { index: 1, nickname: 'bob', hand_size: 5, connected: true },
       ],
     })
-    // null card means another player drew
+    // null cards means another player drew; turn stays the same (voluntary draw).
     useGameStore.getState().applyCardDrawn(null, 1, 1)
     expect(useGameStore.getState().players[1].hand_size).toBe(6)
+  })
+
+  it('applyCardDrawn resets pendingDraw for observers when penalty draw advances turn', () => {
+    useGameStore.setState({
+      currentTurn: 1,
+      pendingDraw: 2,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    // Bob drew 2 penalty cards; turn advances to alice (0).
+    useGameStore.getState().applyCardDrawn(null, 1, 0, undefined, 2)
+    expect(useGameStore.getState().players[1].hand_size).toBe(7)
+    expect(useGameStore.getState().pendingDraw).toBe(0)
+    expect(useGameStore.getState().currentTurn).toBe(0)
   })
 
   it('setWinner sets screen to gameover', () => {

@@ -562,13 +562,21 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
+	priorSize := len(room.State.Hands[c.playerID].Cards)
 	if err := room.DrawCard(c.playerID); err != nil {
 		c.sendError(err.Error())
 		return
 	}
 	state := room.State
 	hand := state.Hands[c.playerID]
-	drawn := hand.Cards[len(hand.Cards)-1]
+	newCards := hand.Cards[priorSize:]
+	drawnCount := len(newCards)
+
+	// Build DTOs for all newly drawn cards (sent privately to the drawing player).
+	cardDTOs := make([]*protocol.CardDTO, drawnCount)
+	for i, card := range newCards {
+		cardDTOs[i] = cardToDTO(card)
+	}
 
 	// If drawing advanced the turn (penalty draw), reset the turn timer.
 	if state.CurrentTurn != c.playerID {
@@ -576,19 +584,20 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	}
 	dl := h.turnDeadlineMs(c.roomCode)
 
-	// Tell the drawing player their new card plus the updated has_drawn flag
+	// Tell the drawing player all their new cards plus the updated has_drawn flag.
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
 		PlayerIndex:  c.playerID,
-		Card:         cardToDTO(drawn),
+		Cards:        cardDTOs,
 		Turn:         state.CurrentTurn,
 		HasDrawn:     state.HasDrawn,
 		TurnDeadline: dl,
 	})
-	// Tell others hand size changed
+	// Tell others how many cards changed hands so they can update the hand-size counter.
 	h.broadcastToRoom(c.roomCode, protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
 		PlayerIndex:  c.playerID,
+		DrawnCount:   drawnCount,
 		Turn:         state.CurrentTurn,
 		TurnDeadline: dl,
 	}, c)
@@ -1079,14 +1088,17 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 		return
 
 	case game.BotDraw:
+		priorBotSize := len(room.State.Hands[bm.playerID].Cards)
 		if err := room.DrawCard(bm.playerID); err != nil {
 			log.Printf("bot draw error: %v", err)
 			return
 		}
 		state := room.State
+		botDrawnCount := len(state.Hands[bm.playerID].Cards) - priorBotSize
 		h.broadcastToRoomAll(code, protocol.ServerMsg{
 			Type:        protocol.SMsgCardDrawn,
 			PlayerIndex: bm.playerID,
+			DrawnCount:  botDrawnCount,
 			Turn:        state.CurrentTurn,
 		})
 		// After drawing, bot passes if it can't play
@@ -1187,18 +1199,21 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 
 	// Step 1: auto-draw if the player hasn't drawn yet.
 	if !room.State.HasDrawn {
+		priorTimeoutSize := len(room.State.Hands[tm.playerID].Cards)
 		if err := room.DrawCard(tm.playerID); err != nil {
 			log.Printf("turn timeout draw error code=%s player=%d err=%v", code, tm.playerID, err)
 			return
 		}
 		state := room.State
-		drawn := state.Hands[tm.playerID].Cards[len(state.Hands[tm.playerID].Cards)-1]
+		timeoutNewCards := state.Hands[tm.playerID].Cards[priorTimeoutSize:]
+		timeoutDrawnCount := len(timeoutNewCards)
 		// If drawing advanced the turn (penalty draw), broadcast and reschedule.
 		if state.CurrentTurn != tm.playerID {
 			dl := h.turnDeadlineMs(code)
 			h.broadcastToRoomAll(code, protocol.ServerMsg{
 				Type:         protocol.SMsgCardDrawn,
 				PlayerIndex:  tm.playerID,
+				DrawnCount:   timeoutDrawnCount,
 				Turn:         state.CurrentTurn,
 				TurnDeadline: dl,
 			})
@@ -1206,20 +1221,25 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 			h.scheduleTurnTimer(code, room)
 			return
 		}
-		// Private: tell the player their drawn card.
+		// Private: tell the player all their drawn cards.
 		if timedOutClient != nil {
+			timeoutCardDTOs := make([]*protocol.CardDTO, timeoutDrawnCount)
+			for i, card := range timeoutNewCards {
+				timeoutCardDTOs[i] = cardToDTO(card)
+			}
 			timedOutClient.Send(protocol.ServerMsg{
 				Type:        protocol.SMsgCardDrawn,
 				PlayerIndex: tm.playerID,
-				Card:        cardToDTO(drawn),
+				Cards:       timeoutCardDTOs,
 				Turn:        state.CurrentTurn,
 				HasDrawn:    state.HasDrawn,
 			})
 		}
-		// Public: others see hand size +1.
+		// Public: others see correct hand size delta.
 		h.broadcastToRoom(code, protocol.ServerMsg{
 			Type:        protocol.SMsgCardDrawn,
 			PlayerIndex: tm.playerID,
+			DrawnCount:  timeoutDrawnCount,
 			Turn:        state.CurrentTurn,
 		}, timedOutClient)
 	}

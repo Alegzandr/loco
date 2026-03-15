@@ -121,6 +121,11 @@ type ServerMsg struct {
 	PendingDraw int  `json:"pending_draw,omitempty"`
 	HasDrawn    bool `json:"has_drawn,omitempty"` // included in card_drawn to signal draw-once state
 
+	// SMsgCardDrawn: multiple cards drawn at once (penalty draw)
+	// Cards holds all drawn cards for the drawing player; DrawnCount tells observers how many.
+	Cards      []*CardDTO `json:"cards,omitempty"`
+	DrawnCount int        `json:"drawn_count,omitempty"`
+
 	// SMsgRoundEnd / SMsgMatchEnd
 	RoundNumber int                  `json:"round_number,omitempty"`
 	RoundWinner string               `json:"round_winner,omitempty"`

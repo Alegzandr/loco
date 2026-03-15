@@ -62,7 +62,7 @@ interface GameStore {
   setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[]) => void
-  applyCardDrawn: (card: CardDTO | null, playerIndex: number, turn: number, hasDrawn?: boolean) => void
+  applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   setWinner: (name: string) => void
   setError: (msg: string) => void
@@ -175,18 +175,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }),
 
-  applyCardDrawn: (card, playerIndex, turn, hasDrawn) =>
+  applyCardDrawn: (cards, playerIndex, turn, hasDrawn, drawnCount) =>
     set((s) => {
-      if (card) {
-        // Own draw: add card to hand, update hasDrawn from server
-        return { myHand: [...s.myHand, card], currentTurn: turn, hasDrawn: hasDrawn ?? s.hasDrawn }
+      // A penalty draw advances the turn away from the drawing player.
+      // Use this to reset pendingDraw to 0 for all clients.
+      const isPenaltyDraw = turn !== s.currentTurn
+      if (cards && cards.length > 0) {
+        // Own draw: add all drawn cards to hand, reset pendingDraw if penalty.
+        return {
+          myHand: [...s.myHand, ...cards],
+          currentTurn: turn,
+          hasDrawn: hasDrawn ?? s.hasDrawn,
+          pendingDraw: isPenaltyDraw ? 0 : s.pendingDraw,
+        }
       }
+      // Observer: update hand size by actual drawn count (default 1 for backward compat).
+      const count = drawnCount ?? 1
       const players = s.players.map((p) =>
-        p.index === playerIndex ? { ...p, hand_size: p.hand_size + 1 } : p
+        p.index === playerIndex ? { ...p, hand_size: p.hand_size + count } : p
       )
-      // Turn changed (penalty draw advances turn): reset hasDrawn
-      const newHasDrawn = turn !== s.currentTurn ? false : s.hasDrawn
-      return { players, currentTurn: turn, hasDrawn: newHasDrawn }
+      // Penalty draw resets hasDrawn and clears pendingDraw stack.
+      const newHasDrawn = isPenaltyDraw ? false : s.hasDrawn
+      return {
+        players,
+        currentTurn: turn,
+        hasDrawn: newHasDrawn,
+        pendingDraw: isPenaltyDraw ? 0 : s.pendingDraw,
+      }
     }),
 
   setPlayers: (players) => set({ players }),
