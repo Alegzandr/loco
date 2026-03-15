@@ -22,7 +22,7 @@ backend_test:
   script:
     - cd server && go test ./...
     # Build a static binary for the E2E job (glibc-independent, works on Ubuntu)
-    - cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
+    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
   artifacts:
     paths:
       - server-bin
