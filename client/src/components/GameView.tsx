@@ -230,6 +230,7 @@ export function GameView({ onSend }: Props) {
         pendingDraw={pendingDraw}
         handSize={myHand.length}
         hasDrawn={hasDrawn}
+        unoTimerEnd={unoTimerEnd}
         onDraw={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
         onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
         onUno={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
@@ -251,6 +252,7 @@ export function GameView({ onSend }: Props) {
             onSend({ type: 'play_card', card: colorPicker.card, chosen_color: col })
             setColorPicker(null)
           }}
+          onCancel={() => setColorPicker(null)}
         />
       )}
 

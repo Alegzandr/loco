@@ -7,6 +7,7 @@ interface Props {
   pendingDraw: number
   handSize: number
   hasDrawn: boolean
+  unoTimerEnd: number | null
   onDraw: () => void
   onPass: () => void
   onUno: () => void
@@ -21,6 +22,7 @@ export function ActionBar({
   pendingDraw,
   handSize,
   hasDrawn,
+  unoTimerEnd,
   onDraw,
   onPass,
   onUno,
@@ -30,8 +32,8 @@ export function ActionBar({
 }: Props) {
   return (
     <div className={styles.actionBar}>
-      {/* Penalty draw button */}
-      {isMyTurn && pendingDraw > 0 && (
+      {/* Penalty draw button — only when it's our turn and we're still playing */}
+      {isMyTurn && pendingDraw > 0 && !isFinished && (
         <button className={`${styles.btn} ${styles.btnDraw}`} onClick={onDraw}>
           {t.draw} {pendingDraw}
         </button>
@@ -57,19 +59,23 @@ export function ActionBar({
         </>
       )}
 
-      {/* UNO declaration */}
-      <button
-        className={`${styles.btn} ${styles.btnUno}`}
-        onClick={onUno}
-        disabled={handSize !== 1}
-      >
-        {t.unoBtn}
-      </button>
+      {/* UNO declaration — only while still playing */}
+      {!isFinished && (
+        <button
+          className={`${styles.btn} ${styles.btnUno}`}
+          onClick={onUno}
+          disabled={handSize !== 1}
+        >
+          {t.unoBtn}
+        </button>
+      )}
 
-      {/* Catch opponent for not declaring */}
-      <button className={`${styles.btn} ${styles.btnCatch}`} onClick={onCatch}>
-        {t.catchBtn}
-      </button>
+      {/* Catch opponent — only visible during active UNO catch window */}
+      {!isFinished && unoTimerEnd !== null && (
+        <button className={`${styles.btn} ${styles.btnCatch}`} onClick={onCatch}>
+          {t.catchBtn}
+        </button>
+      )}
 
       {/* Rules reference */}
       <button className={`${styles.btn} ${styles.btnRules}`} onClick={onRules}>
