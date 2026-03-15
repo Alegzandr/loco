@@ -36,6 +36,7 @@ interface GameStore {
   errorMsg: string
   unoDeclared: boolean
   unoTimerEnd: number | null
+  turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
   // Match / round state
   matchFormat: MatchFormat
@@ -65,6 +66,7 @@ interface GameStore {
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
   setUnoTimerEnd: (ts: number | null) => void
+  setTurnDeadline: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[]) => void
   applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
@@ -90,6 +92,7 @@ function gameStateSliceFromDTO(state: GameStateDTO) {
     matchFormat: state.match_format ?? 'BO1',
     maxPlayers: state.max_players ?? 10,
     scoreboard: state.scoreboard ?? [],
+    turnDeadline: state.turn_deadline ?? null,
   }
 }
 
@@ -110,6 +113,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   errorMsg: '',
   unoDeclared: false,
   unoTimerEnd: null,
+  turnDeadline: null,
   matchFormat: 'BO1',
   maxPlayers: 10,
   roundNumber: 1,
@@ -186,6 +190,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
+  setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
 

@@ -1024,3 +1024,182 @@ func TestGoroutineStability_BotGame(t *testing.T) {
 	}
 }
 
+// --- Turn timer tests ---
+
+// TestTurnTimer_DeadlineIncludedInGameStarted verifies that game_started includes a
+// non-zero TurnDeadline in the state, proving the timer was scheduled after game start.
+func TestTurnTimer_DeadlineIncludedInGameStarted(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	started1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	started2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+
+	if started1.State == nil {
+		t.Fatal("game_started missing state for conn1")
+	}
+	if started1.State.TurnDeadline == 0 {
+		t.Error("conn1: expected non-zero TurnDeadline in game_started state")
+	}
+	if started1.State.TurnDeadline <= time.Now().UnixMilli() {
+		t.Errorf("conn1: TurnDeadline %d should be in the future", started1.State.TurnDeadline)
+	}
+	if started2.State == nil {
+		t.Fatal("game_started missing state for conn2")
+	}
+	if started2.State.TurnDeadline == 0 {
+		t.Error("conn2: expected non-zero TurnDeadline in game_started state")
+	}
+}
+
+// TestTurnTimer_AutoDrawAndPass verifies that when a human player does not act within
+// TurnTimeout the server auto-draws and auto-passes, broadcasting turn_changed to all.
+func TestTurnTimer_AutoDrawAndPass(t *testing.T) {
+	orig := hub.TurnTimeout
+	hub.TurnTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { hub.TurnTimeout = orig })
+
+	_, srv := newTestHub(t)
+	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+
+	// Neither player acts. After TurnTimeout the server auto-draws then auto-passes.
+	// Both connections must receive turn_changed (broadcast to all room members).
+	if !drainUntil(conn1, protocol.SMsgTurnChanged, 2*time.Second) {
+		t.Error("conn1: expected turn_changed after turn timeout, got none")
+	}
+	if !drainUntil(conn2, protocol.SMsgTurnChanged, 2*time.Second) {
+		t.Error("conn2: expected turn_changed after turn timeout, got none")
+	}
+}
+
+// TestTurnTimer_CardPlayedIncludesDeadline verifies that a card_played broadcast
+// carries a non-zero TurnDeadline so clients can reset their countdown display.
+func TestTurnTimer_CardPlayedIncludesDeadline(t *testing.T) {
+	orig := hub.TurnTimeout
+	hub.TurnTimeout = 30 * time.Second // long so it doesn't fire during the test
+	t.Cleanup(func() { hub.TurnTimeout = orig })
+
+	_, srv := newTestHub(t)
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	state1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+
+	// Whichever player has the first turn draws a card, which should broadcast
+	// a card_drawn message with a TurnDeadline.
+	var drawConn *websocket.Conn
+	var otherConn *websocket.Conn
+	if state1.State != nil && state1.State.Turn == 0 {
+		drawConn, otherConn = conn1, conn2
+	} else {
+		drawConn, otherConn = conn2, conn1
+	}
+
+	sendMsg(t, drawConn, protocol.ClientMsg{Type: protocol.CMsgDrawCard})
+
+	// The drawing player receives card_drawn with their new card + deadline.
+	drawn := readMsgOfType(t, drawConn, protocol.SMsgCardDrawn)
+	if drawn.TurnDeadline == 0 {
+		t.Error("card_drawn (private) missing TurnDeadline")
+	}
+	// The other player also receives a card_drawn broadcast with deadline.
+	drawnBroadcast := readMsgOfType(t, otherConn, protocol.SMsgCardDrawn)
+	if drawnBroadcast.TurnDeadline == 0 {
+		t.Error("card_drawn (broadcast) missing TurnDeadline")
+	}
+}
+
+// TestTurnTimer_BotGameCompletesWithTimerActive verifies that a human-vs-bot game
+// completes successfully even when the per-turn timer is active. Human turns
+// auto-draw+auto-pass after TurnTimeout; bot turns self-schedule via BotThink.
+// The combination must not deadlock or stall the game.
+func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
+	origTimeout := hub.TurnTimeout
+	origBotDelay := hub.BotThinkDelay
+	// Use a fast bot delay (100ms) and a TurnTimeout (300ms) > bot delay so bots
+	// play before the timer fires. Human turns auto-draw+auto-pass; bot turns play
+	// normally and drain their hand, driving the game to completion.
+	hub.BotThinkDelay = 20 * time.Millisecond
+	hub.TurnTimeout = 60 * time.Millisecond
+	t.Cleanup(func() {
+		hub.TurnTimeout = origTimeout
+		hub.BotThinkDelay = origBotDelay
+	})
+
+	origEmpty := hub.EmptyRoomTimeout
+	hub.EmptyRoomTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { hub.EmptyRoomTimeout = origEmpty })
+
+	_, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Human"})
+	created := readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot, RoomCode: created.RoomCode})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	conn.SetReadDeadline(time.Time{}) // clear stale 3-second deadline left by readMsg
+
+	// Read messages in a goroutine so we can apply an overall deadline without
+	// hitting gorilla/websocket's "repeated read on failed connection" panic.
+	msgCh := make(chan protocol.ServerMsg, 64)
+	go func() {
+		defer close(msgCh)
+		for {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			var msg protocol.ServerMsg
+			if json.Unmarshal(data, &msg) == nil {
+				msgCh <- msg
+			}
+		}
+	}()
+
+	found := false
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	for !found {
+		select {
+		case msg, ok := <-msgCh:
+			if !ok {
+				goto done // connection closed
+			}
+			if msg.Type == protocol.SMsgMatchEnd {
+				found = true
+			}
+		case <-timer.C:
+			goto done // overall deadline exceeded
+		}
+	}
+done:
+	if !found {
+		t.Error("expected match_end in bot+human game with timer active — game may have stalled")
+	}
+}
+

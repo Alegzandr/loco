@@ -41,6 +41,7 @@ export interface GameStateDTO {
   match_format: MatchFormat
   max_players: number
   scoreboard?: ScoreboardEntryDTO[]
+  turn_deadline?: number  // unix ms when the current turn expires (0 = no timer)
 }
 
 export interface GameEventDTO {
@@ -111,6 +112,7 @@ export interface ServerMsg {
   card?: CardDTO
   active_color?: CardColor
   turn?: number
+  turn_deadline?: number  // unix ms when the current turn expires; included in card_played, card_drawn, turn_changed, game_started
   pending_draw?: number
   has_drawn?: boolean
   winner?: string

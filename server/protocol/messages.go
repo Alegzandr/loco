@@ -111,6 +111,11 @@ type ServerMsg struct {
 	// SMsgTurnChanged
 	Turn int `json:"turn,omitempty"`
 
+	// Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
+	// Included in card_played, card_drawn, turn_changed, and game_started to let clients
+	// display and reset the countdown when a new turn begins.
+	TurnDeadline int64 `json:"turn_deadline,omitempty"`
+
 	// SMsgDrawPending
 	PendingDraw int  `json:"pending_draw,omitempty"`
 	HasDrawn    bool `json:"has_drawn,omitempty"` // included in card_drawn to signal draw-once state
@@ -170,4 +175,7 @@ type GameStateDTO struct {
 	MatchFormat string               `json:"match_format"`
 	MaxPlayers  int                  `json:"max_players"`
 	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
+
+	// Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
+	TurnDeadline int64 `json:"turn_deadline,omitempty"`
 }

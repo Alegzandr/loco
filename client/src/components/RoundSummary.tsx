@@ -12,11 +12,11 @@ function matchFormatRounds(fmt: string): number {
   }
 }
 
-function placementSuffix(rank: number): string {
-  if (rank === 1) return '1st'
-  if (rank === 2) return '2nd'
-  if (rank === 3) return '3rd'
-  return `${rank}th`
+function placementSuffix(rank: number, t: Translations): string {
+  if (rank === 1) return t.ord1
+  if (rank === 2) return t.ord2
+  if (rank === 3) return t.ord3
+  return `${rank}${t.ordN}`
 }
 
 interface Props {
@@ -62,13 +62,13 @@ export function RoundSummary({ roundNumber, roundWinner, roundScores, scoreboard
               key={entry.player_index}
               className={`${styles.roundScoreRow} ${entry.nickname === roundWinner ? styles.roundScoreRowWinner : ''}`}
             >
-              <span className={styles.roundScorePlacement}>{placementSuffix(idx + 1)}</span>
+              <span className={styles.roundScorePlacement}>{placementSuffix(idx + 1, t)}</span>
               <span className={styles.roundScoreName}>{entry.nickname}</span>
               <span className={styles.roundScoreDelta}>
                 {entry.round_points > 0 ? `+${entry.round_points}` : '—'}
               </span>
               <span className={styles.roundScoreTotal}>{entry.cumulative_score}</span>
-              <span className={styles.roundScoreWins}>{entry.rounds_won}W</span>
+              <span className={styles.roundScoreWins}>{entry.rounds_won}</span>
             </div>
           ))}
         </div>
