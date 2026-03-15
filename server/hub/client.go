@@ -63,17 +63,24 @@ type Client struct {
 	limiter  *rateLimiter
 }
 
-// newClient creates a client and starts its read/write pumps.
+// newClient creates a client. The hub's register handler calls start() after
+// adding the client to h.clients, ensuring readPump/writePump never send to
+// h.unregister before the client is registered (which would cause the unregister
+// to be silently dropped, leaving a zombie entry in h.clients).
 func newClient(h *Hub, conn *websocket.Conn) *Client {
-	c := &Client{
+	return &Client{
 		hub:     h,
 		conn:    conn,
 		send:    make(chan []byte, 256),
 		limiter: newRateLimiter(),
 	}
+}
+
+// start launches the read and write pump goroutines. Must be called by the hub
+// after the client has been added to h.clients.
+func (c *Client) start() {
 	go c.writePump()
 	go c.readPump()
-	return c
 }
 
 func (c *Client) readPump() {

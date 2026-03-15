@@ -1137,11 +1137,11 @@ func TestTurnTimer_CardPlayedIncludesDeadline(t *testing.T) {
 func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	origTimeout := hub.TurnTimeout
 	origBotDelay := hub.BotThinkDelay
-	// Use a fast bot delay (100ms) and a TurnTimeout (300ms) > bot delay so bots
-	// play before the timer fires. Human turns auto-draw+auto-pass; bot turns play
-	// normally and drain their hand, driving the game to completion.
-	hub.BotThinkDelay = 20 * time.Millisecond
-	hub.TurnTimeout = 60 * time.Millisecond
+	// Very short delays so the game finishes in milliseconds even on slow CI.
+	// Human turns auto-draw+auto-pass after TurnTimeout; bot turns play normally
+	// via BotThinkDelay and drain the hand, driving the game to completion.
+	hub.BotThinkDelay = 1 * time.Millisecond
+	hub.TurnTimeout = 3 * time.Millisecond
 	t.Cleanup(func() {
 		hub.TurnTimeout = origTimeout
 		hub.BotThinkDelay = origBotDelay
@@ -1201,5 +1201,65 @@ done:
 	if !found {
 		t.Error("expected match_end in bot+human game with timer active — game may have stalled")
 	}
+}
+
+// TestImmediateClose_NoZombieClient verifies that N connections closed immediately
+// after upgrade leave no zombie entries in h.clients (statClients → 0).
+func TestImmediateClose_NoZombieClient(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	const N = 50
+	for i := 0; i < N; i++ {
+		conn := dialWS(t, srv)
+		// Close before the hub has necessarily processed the register message.
+		conn.Close()
+	}
+
+	// Poll until all clients are cleaned up or timeout.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.GetStats().Clients == 0 {
+			return // all cleaned up — no zombies
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("zombie clients remain after immediate-close storm: statClients=%d", h.GetStats().Clients)
+}
+
+// TestRegisterHook_CleanupAfterImmediateClose uses the register hook to close
+// the connection at the exact moment the client is registered (but before
+// goroutines start), then verifies the hub always cleans up the entry.
+func TestRegisterHook_CleanupAfterImmediateClose(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	// hookFired is closed by the hook to signal that registration happened.
+	hookFired := make(chan struct{})
+	h.SetRegisterHook(func() {
+		// Signal once; remove hook so subsequent connections are unaffected.
+		h.SetRegisterHook(nil)
+		close(hookFired)
+	})
+
+	conn := dialWS(t, srv)
+
+	// Wait until the hub has registered the client (hook fires in hub goroutine).
+	select {
+	case <-hookFired:
+	case <-time.After(2 * time.Second):
+		t.Fatal("register hook never fired")
+	}
+
+	// Close the connection right after registration, before c.start() was called
+	// (the hook ran between add-to-map and start()). The hub must still clean up.
+	conn.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.GetStats().Clients == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("hub retained zombie after hook-timed close: statClients=%d", h.GetStats().Clients)
 }
 
