@@ -213,6 +213,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         scoreboard: newScoreboard,
         roundScores,
         showRoundSummary: true,
+        turnDeadline: null,
+        unoDeclared: false,
+        unoTimerEnd: null,
       }
     }),
 

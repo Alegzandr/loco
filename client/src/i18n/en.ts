@@ -72,6 +72,8 @@ export interface Translations {
   youWin: string
   playAgain: string
   finalScores: string
+  winsGame: string      // "{nickname} wins!"
+  winsMatch: string     // "{nickname} wins the match!"
 
   // ─── Language ────────────────────────────────────────────────
   language: string
@@ -150,6 +152,8 @@ export const en: Translations = {
   youWin: 'You Win!',
   playAgain: 'Play Again',
   finalScores: 'Final Scores',
+  winsGame: 'wins!',
+  winsMatch: 'wins the match!',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Language',
@@ -163,7 +167,7 @@ export const en: Translations = {
       heading: 'Players & Setup',
       items: [
         '2 to 10 players per game.',
-        'Each player is dealt 8 cards at the start of each round.',
+        'Each player is dealt 7 cards at the start of each round.',
         'The remaining deck is placed face-down; the top card flips to start the discard pile.',
         'A randomly selected player goes first.',
       ],
@@ -192,17 +196,14 @@ export const en: Translations = {
         'Draw Two (+2) — the next player must draw 2 cards (and loses their turn unless they counter).',
         'Wild — play on any color; you choose the next active color.',
         'Wild Draw Four (+4) — play on any color; next player draws 4 (and loses their turn unless they counter).',
-        'Swap — swap your hand with any other player of your choice.',
-        'Global Switch — all players pass their entire hand to the next player in turn order.',
       ],
     },
     {
       heading: '+2 / +4 Stacking',
       items: [
-        'When stacking is enabled (host option), a player targeted by a +2 or +4 may respond with their own +2 or +4.',
+        'A player targeted by a +2 or +4 may respond with their own +2 or +4 to counter it.',
         'The stack accumulates until a player cannot or chooses not to counter; that player draws the total.',
         'A +2 can only be countered by another +2; a +4 can only be countered by another +4.',
-        'When stacking is disabled, the targeted player must draw immediately.',
       ],
     },
     {
@@ -222,11 +223,10 @@ export const en: Translations = {
       ],
     },
     {
-      heading: 'Turn Timer & AFK',
+      heading: 'Turn Timer',
       items: [
-        'Each player has a limited time per turn (shown as a timer).',
-        'If the timer expires, a card is drawn automatically.',
-        'A player who is AFK for 2 consecutive rounds is kicked from the room.',
+        'Each player has a limited time per turn (shown as a timer bar at the bottom of the screen).',
+        'If the timer expires, a card is drawn automatically and the turn passes.',
       ],
     },
     {
