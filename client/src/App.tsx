@@ -111,9 +111,11 @@ export default function App() {
 
         case 'uno_declared':
           store.setUnoDeclared(true)
+          store.setUnoDeclaredByIndex(msg.player_index ?? -1)
           store.setUnoTimerEnd(Date.now() + 5000)
           setTimeout(() => {
             store.setUnoDeclared(false)
+            store.setUnoDeclaredByIndex(-1)
             store.setUnoTimerEnd(null)
           }, 5000)
           break

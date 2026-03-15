@@ -20,8 +20,10 @@ function clientMayPlay(
   pendingDraw: number,
 ): boolean {
   if (pendingDraw > 0) {
-    // Under an active draw stack only counter cards are playable
-    return card.kind === 'draw_two' || card.kind === 'wild_draw_four'
+    // Only the exact same kind as the top discard card can counter (mirrors server CounterDraw).
+    // e.g. +2 can only be countered by +2; +4 can only be countered by +4.
+    if (!discard) return false
+    return card.kind === discard.kind && (card.kind === 'draw_two' || card.kind === 'wild_draw_four')
   }
   if (card.kind === 'wild' || card.kind === 'wild_draw_four') return true
   if (!discard) return true
@@ -71,6 +73,7 @@ export function GameView({ onSend }: Props) {
     pendingDraw,
     hasDrawn,
     unoDeclared,
+    unoDeclaredByIndex,
     unoTimerEnd,
     turnDeadline,
     showRoundSummary,
@@ -415,7 +418,13 @@ export function GameView({ onSend }: Props) {
         />
       )}
 
-      {unoDeclared && <div className={styles.unoBanner}>{t.unoBanner}</div>}
+      {unoDeclared && (
+        <div className={styles.unoBanner}>
+          {unoDeclaredByIndex >= 0 && players.find(p => p.index === unoDeclaredByIndex)?.nickname
+            ? `${players.find(p => p.index === unoDeclaredByIndex)!.nickname}: ${t.unoBanner}`
+            : t.unoBanner}
+        </div>
+      )}
 
       {/* Spectating banner when local player has finished but round is still going */}
       {isFinished && !showRoundSummary && (

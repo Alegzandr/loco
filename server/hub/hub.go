@@ -65,9 +65,15 @@ type cleanupMsg struct {
 
 // turnTimerMsg is sent internally when a player's turn timer expires.
 type turnTimerMsg struct {
-	roomCode     string
-	playerID     int
+	roomCode      string
+	playerID      int
 	turnStartedAt time.Time
+}
+
+// unoMsg is sent internally to broadcast a delayed bot UNO declaration.
+type unoMsg struct {
+	roomCode    string
+	playerIndex int
 }
 
 // Hub manages all active rooms and connected clients.
@@ -93,9 +99,10 @@ type Hub struct {
 	unregister  chan *Client
 	inbound     chan inboundMsg
 	expire      chan expireMsg
-	botMove     chan botMoveMsg  // scheduled bot actions
-	cleanup     chan cleanupMsg  // empty-room cleanup timers
-	turnTimeout chan turnTimerMsg // per-turn timeout actions
+	botMove      chan botMoveMsg   // scheduled bot actions
+	cleanup      chan cleanupMsg   // empty-room cleanup timers
+	turnTimeout  chan turnTimerMsg // per-turn timeout actions
+	unoAnnounce  chan unoMsg       // delayed bot UNO declaration broadcasts
 
 	// afterRegisterHook is called in the register case after the client is added
 	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
@@ -148,6 +155,7 @@ func New() *Hub {
 		botMove:        make(chan botMoveMsg, 64),
 		cleanup:        make(chan cleanupMsg, 64),
 		turnTimeout:    make(chan turnTimerMsg, 64),
+		unoAnnounce:    make(chan unoMsg, 64),
 		startTime:      time.Now(),
 	}
 }
@@ -247,6 +255,9 @@ func (h *Hub) Run() {
 
 		case tm := <-h.turnTimeout:
 			h.handleTurnTimeout(tm)
+
+		case um := <-h.unoAnnounce:
+			h.handleUnoAnnounce(um)
 		}
 	}
 }
@@ -969,11 +980,21 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 
 // BotThinkDelay is the simulated thinking time before a bot acts.
 // Exported so tests can reduce it to speed up bot-game tests.
-var BotThinkDelay = 800 * time.Millisecond
+var BotThinkDelay = 1200 * time.Millisecond
 
 // BotJitterMax is the maximum random jitter added to bot think delays.
 // Exported so tests can set it to 0 to make bot timing deterministic.
-var BotJitterMax = 700 * time.Millisecond
+var BotJitterMax = 1000 * time.Millisecond
+
+// BotUnoDelay is the base delay before a bot broadcasts its UNO declaration
+// after playing to 1 card. Separate from BotThinkDelay so it feels like a
+// distinct reaction rather than part of the card-play decision.
+// Exported so tests can set it to 0.
+var BotUnoDelay = 400 * time.Millisecond
+
+// BotUnoJitterMax is the max random jitter added to BotUnoDelay.
+// Exported so tests can set it to 0.
+var BotUnoJitterMax = 400 * time.Millisecond
 
 // handleAddBot adds a bot player to the lobby (host-only).
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
@@ -1055,6 +1076,35 @@ func (h *Hub) maybeScheduleBot(code string, room *game.Room) {
 	}
 }
 
+// scheduleBotUnoAnnounce sends a delayed uno_declared broadcast for a bot that just
+// played to 1 card. The server state is already updated (DeclareLastCard called);
+// only the broadcast is deferred so it feels like a human reaction rather than instant.
+func (h *Hub) scheduleBotUnoAnnounce(code string, playerIndex int) {
+	var jitter time.Duration
+	if jm := int(BotUnoJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
+	um := unoMsg{roomCode: code, playerIndex: playerIndex}
+	time.AfterFunc(BotUnoDelay+jitter, func() {
+		select {
+		case h.unoAnnounce <- um:
+		default:
+			// Non-critical: drop if channel full; catch window just closes without announcement.
+		}
+	})
+}
+
+// handleUnoAnnounce broadcasts a bot's UNO declaration if the room still exists.
+func (h *Hub) handleUnoAnnounce(um unoMsg) {
+	if _, ok := h.rooms[um.roomCode]; !ok {
+		return // room deleted between schedule and fire
+	}
+	h.broadcastToRoomAll(um.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoDeclared,
+		PlayerIndex: um.playerIndex,
+	})
+}
+
 // executeBotMove runs the bot's chosen action on behalf of its player slot.
 func (h *Hub) executeBotMove(bm botMoveMsg) {
 	room, ok := h.rooms[bm.roomCode]
@@ -1094,13 +1144,10 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			h.broadcastPersonalizedGameState(code, room)
 		}
 
-		// Auto-declare UNO if bot is at 1 card
+		// Auto-declare UNO if bot is at 1 card (broadcast delayed for human-like feel)
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
 			_ = room.DeclareLastCard(bm.playerID)
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:        protocol.SMsgUnoDeclared,
-				PlayerIndex: bm.playerID,
-			})
+			h.scheduleBotUnoAnnounce(code, bm.playerID)
 		}
 
 		h.handleRoundOrMatchEnd(code, room)
@@ -1113,13 +1160,10 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 		}
 		h.broadcastCardPlayed(code, bm.playerID, room)
 
-		// Auto-declare UNO if bot is at 1 card after counter
+		// Auto-declare UNO if bot is at 1 card after counter (broadcast delayed for human-like feel)
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
 			_ = room.DeclareLastCard(bm.playerID)
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:        protocol.SMsgUnoDeclared,
-				PlayerIndex: bm.playerID,
-			})
+			h.scheduleBotUnoAnnounce(code, bm.playerID)
 		}
 
 		h.handleRoundOrMatchEnd(code, room)

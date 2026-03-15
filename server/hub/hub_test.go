@@ -1138,6 +1138,8 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	origTimeout := hub.TurnTimeout
 	origBotDelay := hub.BotThinkDelay
 	origJitter := hub.BotJitterMax
+	origUnoDelay := hub.BotUnoDelay
+	origUnoJitter := hub.BotUnoJitterMax
 	// Use moderate delays to avoid flooding the per-client send buffer (cap 256)
 	// with messages faster than the test goroutine can drain them. When the buffer
 	// fills, the hub drops messages — including match_end — causing a spurious failure.
@@ -1145,11 +1147,15 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	// within the 30-second deadline even on a loaded CI machine.
 	hub.BotThinkDelay = 10 * time.Millisecond
 	hub.BotJitterMax = 0
+	hub.BotUnoDelay = 0
+	hub.BotUnoJitterMax = 0
 	hub.TurnTimeout = 50 * time.Millisecond
 	t.Cleanup(func() {
 		hub.TurnTimeout = origTimeout
 		hub.BotThinkDelay = origBotDelay
 		hub.BotJitterMax = origJitter
+		hub.BotUnoDelay = origUnoDelay
+		hub.BotUnoJitterMax = origUnoJitter
 	})
 
 	origEmpty := hub.EmptyRoomTimeout

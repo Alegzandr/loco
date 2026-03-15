@@ -34,8 +34,8 @@ export function ActionBar({
     <div className={styles.actionBar}>
       {/* Penalty draw button — only when it's our turn and we're still playing */}
       {isMyTurn && pendingDraw > 0 && !isFinished && (
-        <button className={`${styles.btn} ${styles.btnDraw}`} onClick={onDraw}>
-          {t.draw} {pendingDraw}
+        <button className={`${styles.btn} ${styles.btnPenalty}`} onClick={onDraw}>
+          {t.draw} +{pendingDraw}
         </button>
       )}
 
