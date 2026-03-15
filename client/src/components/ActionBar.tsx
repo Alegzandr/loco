@@ -7,6 +7,7 @@ interface Props {
   pendingDraw: number
   handSize: number
   hasDrawn: boolean
+  hasPlayableCard: boolean
   unoTimerEnd: number | null
   onDraw: () => void
   onPass: () => void
@@ -21,6 +22,7 @@ export function ActionBar({
   pendingDraw,
   handSize,
   hasDrawn,
+  hasPlayableCard,
   unoTimerEnd,
   onDraw,
   onPass,
@@ -41,7 +43,7 @@ export function ActionBar({
       {isMyTurn && pendingDraw === 0 && !isFinished && (
         <>
           <button
-            className={`${styles.btn} ${styles.btnDraw} ${hasDrawn ? styles.btnDisabled : ''}`}
+            className={`${styles.btn} ${hasDrawn ? styles.btnDisabled : hasPlayableCard ? styles.btnDrawSecondary : styles.btnDraw}`}
             onClick={onDraw}
             disabled={hasDrawn}
           >
