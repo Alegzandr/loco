@@ -101,7 +101,7 @@ func TestRoom_PlayCard_NotYourTurn(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	// bob (index 1) tries to play on alice's turn (index 0)
 	card := r.State.Hands[1].Cards[0]
-	err := r.PlayCard(1, card, Red)
+	err := r.PlayCard(1, card, Red, -1)
 	if err == nil {
 		t.Error("Playing out of turn should return error")
 	}
@@ -114,7 +114,7 @@ func TestRoom_PlayCard_IllegalCard(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
 	r.State.ActiveColor = Red
 
-	err := r.PlayCard(0, Card{Color: Blue, Kind: Number, Value: 3}, Red)
+	err := r.PlayCard(0, Card{Color: Blue, Kind: Number, Value: 3}, Red, -1)
 	if err == nil {
 		t.Error("Playing an illegal card should return error")
 	}
@@ -127,7 +127,7 @@ func TestRoom_PlayCard_Success(t *testing.T) {
 	matchCard := Card{Color: top.Color, Kind: Number, Value: 0}
 	r.State.Hands[0].Cards = append([]Card{matchCard}, r.State.Hands[0].Cards...)
 
-	err := r.PlayCard(0, matchCard, matchCard.Color)
+	err := r.PlayCard(0, matchCard, matchCard.Color, -1)
 	if err != nil {
 		t.Fatalf("PlayCard() error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestRoom_PlayCard_NotInHand(t *testing.T) {
 	fakeCard := Card{Color: Red, Kind: Number, Value: 9}
 	// Make sure it's not in hand
 	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
-	err := r.PlayCard(0, fakeCard, Red)
+	err := r.PlayCard(0, fakeCard, Red, -1)
 	if err == nil {
 		t.Error("Playing a card not in hand should return error")
 	}
@@ -246,7 +246,7 @@ func TestRoom_PlayCard_ResetsHasDrawn(t *testing.T) {
 	r.State.Hands[0].Cards = append([]Card{matchCard}, r.State.Hands[0].Cards...)
 	r.State.HasDrawn = true // simulate having drawn
 
-	if err := r.PlayCard(0, matchCard, matchCard.Color); err != nil {
+	if err := r.PlayCard(0, matchCard, matchCard.Color, -1); err != nil {
 		t.Fatalf("PlayCard error: %v", err)
 	}
 	if r.State.HasDrawn {
@@ -262,7 +262,7 @@ func TestRoom_WinDetection(t *testing.T) {
 	r.State.Hands[0].Cards = []Card{winCard}
 	r.State.LastCardDeclared = true // alice has declared
 
-	err := r.PlayCard(0, winCard, winCard.Color)
+	err := r.PlayCard(0, winCard, winCard.Color, -1)
 	if err != nil {
 		t.Fatalf("PlayCard() error: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestRoom_LastCardDeclaration_PenaltyIfForgot(t *testing.T) {
 	r.State.Hands[0].Cards = []Card{winCard, secondCard}
 
 	// Play one card leaving 1 in hand, but don't declare
-	err := r.PlayCard(0, secondCard, secondCard.Color)
+	err := r.PlayCard(0, secondCard, secondCard.Color, -1)
 	if err != nil {
 		t.Fatalf("PlayCard() error: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestRoom_CounterDrawTwo(t *testing.T) {
 	drawCard := Card{Color: top.Color, Kind: DrawTwo}
 	r.State.Hands[0].Cards = append([]Card{drawCard}, r.State.Hands[0].Cards...)
 
-	err := r.PlayCard(0, drawCard, drawCard.Color)
+	err := r.PlayCard(0, drawCard, drawCard.Color, -1)
 	if err != nil {
 		t.Fatalf("PlayCard with DrawTwo error: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestRoom_CardValueScoring(t *testing.T) {
 	winCard := Card{Color: top.Color, Kind: Number, Value: top.Value}
 	r.State.Hands[0].Cards = []Card{winCard}
 
-	err := r.PlayCard(0, winCard, winCard.Color)
+	err := r.PlayCard(0, winCard, winCard.Color, -1)
 	if err != nil {
 		t.Fatalf("PlayCard error: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestRoom_RoundEnd_MatchNotOver_BO3(t *testing.T) {
 	r.State.Hands[0].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
 
-	if err := r.PlayCard(0, winCard, winCard.Color); err != nil {
+	if err := r.PlayCard(0, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("round 1 PlayCard error: %v", err)
 	}
 
@@ -425,7 +425,7 @@ func TestRoom_BO1_MatchOver(t *testing.T) {
 	r.State.Hands[0].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Kind: Skip}}
 
-	if err := r.PlayCard(0, winCard, winCard.Color); err != nil {
+	if err := r.PlayCard(0, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("PlayCard error: %v", err)
 	}
 
@@ -458,7 +458,7 @@ func TestRoom_MatchScoreAccumulation(t *testing.T) {
 		winCard := Card{Color: Red, Kind: Number, Value: 1}
 		r.State.Hands[winnerIdx].Cards = []Card{winCard}
 		r.State.Hands[loserIdx].Cards = loserCards
-		if err := r.PlayCard(winnerIdx, winCard, winCard.Color); err != nil {
+		if err := r.PlayCard(winnerIdx, winCard, winCard.Color, -1); err != nil {
 			t.Fatalf("PlayCard error: %v", err)
 		}
 		r.RoundEnded = false // simulate hub clearing the flag
@@ -619,7 +619,7 @@ func TestRoom_PlacementFlow_ThreePlayers(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{{Kind: WildCard, Color: Wild}}
 
 	// Alice plays her last card
-	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red); err != nil {
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red, -1); err != nil {
 		t.Fatalf("alice play: %v", err)
 	}
 
@@ -650,7 +650,7 @@ func TestRoom_PlacementFlow_ThreePlayers(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 2}}
 	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 2}}
 
-	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 2}, Red); err != nil {
+	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
 		t.Fatalf("bob play: %v", err)
 	}
 
@@ -703,7 +703,7 @@ func TestRoom_PlacementScoring_EachPlacementScoredCorrectly(t *testing.T) {
 		r.State.ActiveColor = Red
 		r.State.Discard = []Card{c}
 		r.State.Hands[playerIdx].Cards = []Card{c}
-		if err := r.PlayCard(playerIdx, c, Red); err != nil {
+		if err := r.PlayCard(playerIdx, c, Red, -1); err != nil {
 			t.Fatalf("player %d play: %v", playerIdx, err)
 		}
 	}
@@ -773,7 +773,7 @@ func TestRoom_RoundEnd_LastPlayerRemaining(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
 
 	// alice finishes
-	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red); err != nil {
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red, -1); err != nil {
 		t.Fatalf("alice play: %v", err)
 	}
 	if r.RoundEnded {
@@ -784,7 +784,7 @@ func TestRoom_RoundEnd_LastPlayerRemaining(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
 	r.State.ActiveColor = Red
 	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 5}}
-	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 5}, Red); err != nil {
+	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 5}, Red, -1); err != nil {
 		t.Fatalf("bob play: %v", err)
 	}
 
@@ -818,7 +818,7 @@ func TestRoom_TurnSkipsFinishedPlayers(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
 
 	// alice finishes → turn should go to bob (1), not alice (0) or carol (2)
-	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red); err != nil {
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red, -1); err != nil {
 		t.Fatalf("alice play: %v", err)
 	}
 	if r.State.CurrentTurn != 1 {
@@ -839,11 +839,162 @@ func TestRoom_FinishedPlayerCannotAct(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
 
 	// alice finishes
-	_ = r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red)
+	_ = r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red, -1)
 
 	// alice tries to catch — should fail
 	if err := r.CatchUndeclared(0, 1, time.Now()); err == nil {
 		t.Error("finished player should not be able to catch")
+	}
+}
+
+// --- Swap and GlobalSwitch tests ---
+
+func TestRoom_SwapCard_SwapsHands(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	// Give alice a Swap card and some extras; give bob a known hand
+	swapCard := Card{Color: Wild, Kind: Swap}
+	r.State.Hands[0].Cards = []Card{swapCard, {Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{
+		{Color: Blue, Kind: Skip},
+		{Color: Green, Kind: Number, Value: 7},
+	}
+
+	// Set up a discard that allows any card (red number on top; swap is wild → always legal)
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 3}}
+	r.State.ActiveColor = Red
+
+	err := r.PlayCard(0, swapCard, Wild, 1) // swap with bob (index 1)
+	if err != nil {
+		t.Fatalf("PlayCard Swap error: %v", err)
+	}
+
+	// Alice should now have bob's original 2 cards; bob should have alice's remaining 1 card
+	if len(r.State.Hands[0].Cards) != 2 {
+		t.Errorf("after swap, alice hand size = %d, want 2", len(r.State.Hands[0].Cards))
+	}
+	if len(r.State.Hands[1].Cards) != 1 {
+		t.Errorf("after swap, bob hand size = %d, want 1", len(r.State.Hands[1].Cards))
+	}
+	// Alice's new hand should be bob's original cards
+	if r.State.Hands[0].Cards[0].Kind != Skip {
+		t.Errorf("after swap, alice card[0] kind = %v, want Skip", r.State.Hands[0].Cards[0].Kind)
+	}
+	// Turn should advance to bob (index 1)
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after swap, CurrentTurn = %d, want 1", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_SwapCard_InvalidTarget(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	swapCard := Card{Color: Wild, Kind: Swap}
+	r.State.Hands[0].Cards = []Card{swapCard}
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 3}}
+	r.State.ActiveColor = Red
+
+	// Self-swap should fail
+	if err := r.PlayCard(0, swapCard, Wild, 0); err == nil {
+		t.Error("swapping with self should return error")
+	}
+	// Out-of-range index should fail
+	if err := r.PlayCard(0, swapCard, Wild, 99); err == nil {
+		t.Error("swap with out-of-range index should return error")
+	}
+}
+
+func TestRoom_GlobalSwitch_RotatesHands_Clockwise(t *testing.T) {
+	r := setupThreePlayerGame(t)
+
+	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
+	hand0 := []Card{{Color: Red, Kind: Number, Value: 1}, {Color: Blue, Kind: Number, Value: 2}}
+	hand1 := []Card{{Color: Green, Kind: Number, Value: 3}}
+	hand2 := []Card{{Color: Yellow, Kind: Skip}, {Color: Red, Kind: DrawTwo}, {Color: Blue, Kind: Reverse}}
+
+	r.State.Hands[0].Cards = append([]Card{gsCard}, hand0...)
+	r.State.Hands[1].Cards = hand1
+	r.State.Hands[2].Cards = hand2
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.ActiveColor = Red
+	r.State.Direction = 1 // clockwise: 0→1→2
+
+	err := r.PlayCard(0, gsCard, Wild, -1)
+	if err != nil {
+		t.Fatalf("PlayCard GlobalSwitch error: %v", err)
+	}
+
+	// With direction=1 (clockwise), rotation means each player gets the hand of
+	// the previous player: player[i] gets old hand[(i-1+n)%n]
+	// player0 gets old hand2 (3 cards), player1 gets old hand0 minus gsCard (2 cards),
+	// player2 gets old hand1 (1 card)
+	if len(r.State.Hands[0].Cards) != 3 {
+		t.Errorf("after GlobalSwitch, player0 hand size = %d, want 3", len(r.State.Hands[0].Cards))
+	}
+	if len(r.State.Hands[1].Cards) != 2 {
+		t.Errorf("after GlobalSwitch, player1 hand size = %d, want 2", len(r.State.Hands[1].Cards))
+	}
+	if len(r.State.Hands[2].Cards) != 1 {
+		t.Errorf("after GlobalSwitch, player2 hand size = %d, want 1", len(r.State.Hands[2].Cards))
+	}
+}
+
+func TestRoom_GlobalSwitch_RotatesHands_CounterClockwise(t *testing.T) {
+	r := setupThreePlayerGame(t)
+
+	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
+	hand0 := []Card{{Color: Red, Kind: Number, Value: 1}}
+	hand1 := []Card{{Color: Green, Kind: Number, Value: 3}, {Color: Blue, Kind: Number, Value: 4}}
+	hand2 := []Card{{Color: Yellow, Kind: Skip}, {Color: Red, Kind: DrawTwo}, {Color: Blue, Kind: Reverse}}
+
+	r.State.Hands[0].Cards = append([]Card{gsCard}, hand0...)
+	r.State.Hands[1].Cards = hand1
+	r.State.Hands[2].Cards = hand2
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.ActiveColor = Red
+	r.State.Direction = -1 // counter-clockwise: 0→2→1
+
+	err := r.PlayCard(0, gsCard, Wild, -1)
+	if err != nil {
+		t.Fatalf("PlayCard GlobalSwitch CCW error: %v", err)
+	}
+
+	// With direction=-1, rotation: player[i] gets old hand[(i+1)%n]
+	// player0 gets old hand1 (2 cards), player1 gets old hand2 (3 cards),
+	// player2 gets old hand0 minus gsCard (1 card)
+	if len(r.State.Hands[0].Cards) != 2 {
+		t.Errorf("after GlobalSwitch CCW, player0 hand size = %d, want 2", len(r.State.Hands[0].Cards))
+	}
+	if len(r.State.Hands[1].Cards) != 3 {
+		t.Errorf("after GlobalSwitch CCW, player1 hand size = %d, want 3", len(r.State.Hands[1].Cards))
+	}
+	if len(r.State.Hands[2].Cards) != 1 {
+		t.Errorf("after GlobalSwitch CCW, player2 hand size = %d, want 1", len(r.State.Hands[2].Cards))
+	}
+}
+
+func TestRoom_SwapCard_AlwaysPlayable(t *testing.T) {
+	// Swap is wild, so it should always be playable (mirrors WildCard behavior)
+	r := setupTwoPlayerGame(t)
+	swapCard := Card{Color: Wild, Kind: Swap}
+	r.State.Hands[0].Cards = []Card{swapCard}
+	r.State.Discard = []Card{{Color: Blue, Kind: Number, Value: 7}}
+	r.State.ActiveColor = Blue
+
+	top := r.State.Discard[len(r.State.Discard)-1]
+	if !CanPlay(swapCard, top, r.State.ActiveColor) {
+		t.Error("Swap card should always be playable (is wild)")
+	}
+}
+
+func TestRoom_GlobalSwitch_AlwaysPlayable(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Discard = []Card{{Color: Green, Kind: Skip}}
+	r.State.ActiveColor = Green
+
+	top := r.State.Discard[len(r.State.Discard)-1]
+	if !CanPlay(gsCard, top, r.State.ActiveColor) {
+		t.Error("GlobalSwitch card should always be playable (is wild)")
 	}
 }
 

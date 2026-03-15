@@ -490,12 +490,19 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	if err := room.PlayCard(c.playerID, card, chosenColor); err != nil {
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+	if err := room.PlayCard(c.playerID, card, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		return
 	}
 
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	if card.Kind == game.Swap || card.Kind == game.GlobalSwitch {
+		h.broadcastPersonalizedGameState(c.roomCode, room)
+	}
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -1031,11 +1038,14 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 
 	switch action.Kind {
 	case game.BotPlay:
-		if err := room.PlayCard(bm.playerID, action.Card, action.ChosenColor); err != nil {
+		if err := room.PlayCard(bm.playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
 			log.Printf("bot play error: %v", err)
 			return
 		}
 		h.broadcastCardPlayed(code, bm.playerID, room)
+		if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
+			h.broadcastPersonalizedGameState(code, room)
+		}
 
 		// Auto-declare UNO if bot is at 1 card
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
@@ -1239,6 +1249,20 @@ func (h *Hub) turnDeadlineMs(code string) int64 {
 }
 
 // --- Broadcast helpers ---
+
+// broadcastPersonalizedGameState sends each connected player their personalized game state.
+// Used after Swap and GlobalSwitch when all hands change simultaneously.
+func (h *Hub) broadcastPersonalizedGameState(code string, room *game.Room) {
+	for _, member := range h.roomMembers[code] {
+		if member == nil {
+			continue
+		}
+		member.Send(protocol.ServerMsg{
+			Type:  protocol.SMsgGameState,
+			State: h.playerGameState(room, member.playerID),
+		})
+	}
+}
 
 func (h *Hub) broadcastToRoom(code string, msg protocol.ServerMsg, exclude *Client) {
 	for _, c := range h.roomMembers[code] {

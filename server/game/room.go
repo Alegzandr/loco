@@ -254,7 +254,8 @@ func (r *Room) dealRound() {
 
 // PlayCard attempts to play a card from playerIndex's hand.
 // chosenColor is used when playing a wild card.
-func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
+// chosenPlayer is the target player index for Swap cards (-1 for all other cards).
+func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPlayer int) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
 	}
@@ -279,6 +280,25 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 
 	if !card.IsWild() {
 		chosenColor = card.Color
+	}
+
+	// Validate and apply Swap / GlobalSwitch hand effects.
+	n := len(r.State.Hands)
+	if card.Kind == Swap {
+		if chosenPlayer < 0 || chosenPlayer >= n {
+			return fmt.Errorf("invalid chosen_player %d for swap", chosenPlayer)
+		}
+		if chosenPlayer == playerIndex {
+			return errors.New("cannot swap with yourself")
+		}
+		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
+	} else if card.Kind == GlobalSwitch {
+		newHands := make([]Hand, n)
+		for i := range newHands {
+			from := ((i - r.State.Direction) % n + n) % n
+			newHands[i] = r.State.Hands[from]
+		}
+		r.State.Hands = newHands
 	}
 
 	r.State.Discard = append(r.State.Discard, card)

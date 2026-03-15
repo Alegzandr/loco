@@ -368,7 +368,7 @@ export class PixiGame {
   }
 
   private renderPlayerInfo(state: GameRenderState, width: number, height: number) {
-    const others = state.players.filter((p) => p.index !== state.myIndex)
+    const others = _clockwiseOpponents(state.players, state.myIndex)
     if (others.length === 0) return
 
     if (others.length === 1) {
@@ -398,7 +398,7 @@ export class PixiGame {
   }
 
   private _renderBubblesAnimated(state: GameRenderState, width: number, height: number) {
-    const others = state.players.filter((p) => p.index !== state.myIndex)
+    const others = _clockwiseOpponents(state.players, state.myIndex)
     if (others.length === 0) return
 
     const positions: { x: number; y: number }[] = []
@@ -795,6 +795,8 @@ export class PixiGame {
       case 'draw_two': return '+2'
       case 'wild': return 'W'
       case 'wild_draw_four': return '+4'
+      case 'swap': return '⇋'
+      case 'global_switch': return '↻'
       default: return '?'
     }
   }
@@ -831,6 +833,22 @@ function _placementSuffix(rank: number, texts?: TurnTexts): string {
   if (rank === 2) return texts.ord2
   if (rank === 3) return texts.ord3
   return `${rank}${texts.ordN}`
+}
+
+// Returns opponents in clockwise seat order starting from the player immediately
+// after myIndex, so the leftmost bubble in the arc is the next player in turn order.
+function _clockwiseOpponents(
+  players: GameRenderState['players'],
+  myIndex: number
+): GameRenderState['players'] {
+  const n = players.length
+  const result: GameRenderState['players'] = []
+  for (let offset = 1; offset < n; offset++) {
+    const idx = (myIndex + offset) % n
+    const p = players.find((p) => p.index === idx)
+    if (p) result.push(p)
+  }
+  return result
 }
 
 // Client-side canPlay check for highlighting (mirrors server rules.go CanPlay)

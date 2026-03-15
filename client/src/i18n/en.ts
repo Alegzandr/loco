@@ -40,6 +40,7 @@ export interface Translations {
   unoBanner: string
   catchBtn: string
   chooseColor: string
+  choosePlayer: string
   catchWindow: string
   reconnected: string
   rebuildingTable: string
@@ -121,6 +122,7 @@ export const en: Translations = {
   unoBanner: 'UNO!',
   catchBtn: 'Catch!',
   chooseColor: 'Choose a color',
+  choosePlayer: 'Choose a player to swap hands with',
   catchWindow: 'Catch window!',
   reconnected: 'Reconnected',
   rebuildingTable: 'Rebuilding table…',
@@ -196,6 +198,8 @@ export const en: Translations = {
         'Draw Two (+2) — the next player must draw 2 cards (and loses their turn unless they counter).',
         'Wild — play on any color; you choose the next active color.',
         'Wild Draw Four (+4) — play on any color; next player draws 4 (and loses their turn unless they counter).',
+        'Swap (⇋) — play on any turn; choose an opponent and instantly swap your entire hand with theirs.',
+        'Global Switch (↻) — play on any turn; all players pass their hands to the next player in the current direction.',
       ],
     },
     {
@@ -235,7 +239,7 @@ export const en: Translations = {
         'When you play all your cards you finish — you are awarded points and become a spectator.',
         'Points earned = sum of the card values held by players who have not yet finished at that moment.',
         'Play continues until only one player remains with cards; that player scores 0.',
-        'Number cards = face value (0–9). Skip / Reverse / Draw Two = 20 pts. Wild / Wild Draw Four = 50 pts.',
+        'Number cards = face value (0–9). Skip / Reverse / Draw Two = 20 pts. Wild / Wild Draw Four / Swap / Global Switch = 50 pts.',
       ],
     },
     {
