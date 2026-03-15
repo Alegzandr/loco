@@ -96,10 +96,11 @@ export default function App() {
 
         case 'card_drawn':
           store.applyCardDrawn(
-            msg.card ?? null,
+            msg.cards?.length ? msg.cards : (msg.card ? [msg.card] : null),
             msg.player_index ?? 0,
             msg.turn ?? 0,
-            msg.has_drawn
+            msg.has_drawn,
+            msg.drawn_count
           )
           store.setTurnDeadline(msg.turn_deadline ?? null)
           break

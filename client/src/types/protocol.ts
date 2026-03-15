@@ -111,6 +111,8 @@ export interface ServerMsg {
   state?: GameStateDTO
   player_index?: number
   card?: CardDTO
+  cards?: CardDTO[]     // all drawn cards for the drawing player (card_drawn penalty draw)
+  drawn_count?: number  // how many cards an opponent drew (card_drawn observer broadcast)
   active_color?: CardColor
   turn?: number
   turn_deadline?: number  // unix ms when the current turn expires; included in card_played, card_drawn, turn_changed, game_started

@@ -999,6 +999,109 @@ func TestRoom_GlobalSwitch_AlwaysPlayable(t *testing.T) {
 	}
 }
 
+// --- Draw stack regression tests ---
+
+// TestPenaltyDraw_ConsumesStack verifies that DrawCard when PendingDraw > 0
+// draws exactly PendingDraw cards and resets PendingDraw to 0.
+func TestPenaltyDraw_ConsumesStack(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	// Simulate alice playing a +2: bob is now facing a penalty of 2.
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.PendingDraw = 2
+
+	bobHandBefore := len(r.State.Hands[1].Cards)
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("DrawCard error: %v", err)
+	}
+
+	if r.State.PendingDraw != 0 {
+		t.Errorf("PendingDraw = %d after penalty draw, want 0", r.State.PendingDraw)
+	}
+	if len(r.State.Hands[1].Cards) != bobHandBefore+2 {
+		t.Errorf("bob hand size = %d, want %d", len(r.State.Hands[1].Cards), bobHandBefore+2)
+	}
+}
+
+// TestPenaltyDraw_EndsTurn verifies that a penalty draw advances the turn
+// immediately, without requiring a separate PassTurn call.
+func TestPenaltyDraw_EndsTurn(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	// Bob faces a +4 penalty stack.
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 4
+
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("DrawCard error: %v", err)
+	}
+
+	// Turn must have advanced to alice (player 0), not stayed on bob.
+	if r.State.CurrentTurn == 1 {
+		t.Error("turn did not advance after penalty draw — game would be stuck")
+	}
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("CurrentTurn = %d after penalty draw, want 0 (alice)", r.State.CurrentTurn)
+	}
+	// HasDrawn must be false so alice's normal draw mechanic is unaffected.
+	if r.State.HasDrawn {
+		t.Error("HasDrawn should be false after penalty draw advances the turn")
+	}
+	// PassTurn on bob must now fail (it's not bob's turn).
+	if err := r.PassTurn(1); err == nil {
+		t.Error("PassTurn should fail after penalty draw advanced the turn")
+	}
+}
+
+// TestCounterDraw_StackContinues verifies that CounterDraw accumulates the
+// penalty and passes it to the next player, keeping PendingDraw non-zero.
+func TestCounterDraw_StackContinues(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	// alice(0) → bob(1) → carol(2)
+
+	// alice plays +2; bob faces a 2-card penalty.
+	top := r.State.Discard[len(r.State.Discard)-1]
+	aliceDrawTwo := Card{Color: top.Color, Kind: DrawTwo}
+	r.State.Hands[0].Cards = append([]Card{aliceDrawTwo}, r.State.Hands[0].Cards...)
+	if err := r.PlayCard(0, aliceDrawTwo, aliceDrawTwo.Color, -1); err != nil {
+		t.Fatalf("alice PlayCard DrawTwo: %v", err)
+	}
+	if r.State.PendingDraw != 2 {
+		t.Fatalf("PendingDraw = %d after +2, want 2", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Fatalf("turn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+
+	// bob counters with another +2; carol now faces a 4-card penalty.
+	bobCounter := Card{Color: aliceDrawTwo.Color, Kind: DrawTwo}
+	r.State.Hands[1].Cards = append([]Card{bobCounter}, r.State.Hands[1].Cards...)
+	if err := r.CounterDraw(1, bobCounter, bobCounter.Color); err != nil {
+		t.Fatalf("bob CounterDraw: %v", err)
+	}
+	if r.State.PendingDraw != 4 {
+		t.Errorf("PendingDraw = %d after stack +2+2, want 4", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 2 {
+		t.Errorf("turn = %d, want 2 (carol)", r.State.CurrentTurn)
+	}
+
+	// carol draws; must consume all 4 and advance back to alice.
+	carolHandBefore := len(r.State.Hands[2].Cards)
+	if err := r.DrawCard(2); err != nil {
+		t.Fatalf("carol DrawCard: %v", err)
+	}
+	if r.State.PendingDraw != 0 {
+		t.Errorf("PendingDraw = %d after carol draws, want 0", r.State.PendingDraw)
+	}
+	if len(r.State.Hands[2].Cards) != carolHandBefore+4 {
+		t.Errorf("carol hand size = %d, want %d", len(r.State.Hands[2].Cards), carolHandBefore+4)
+	}
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("turn = %d after carol draws, want 0 (alice)", r.State.CurrentTurn)
+	}
+}
+
 // setupTwoPlayerGame starts a 2-player game for alice and bob.
 func setupTwoPlayerGame(t *testing.T) *Room {
 	t.Helper()
