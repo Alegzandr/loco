@@ -938,7 +938,8 @@ func TestRoom_GlobalSwitch_RotatesHands_Clockwise(t *testing.T) {
 	}
 }
 
-func TestRoom_GlobalSwitch_RotatesHands_CounterClockwise(t *testing.T) {
+func TestRoom_GlobalSwitch_AlwaysClockwiseEvenWhenGameDirectionReversed(t *testing.T) {
+	// GlobalSwitch always rotates clockwise regardless of current game direction.
 	r := setupThreePlayerGame(t)
 
 	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
@@ -951,24 +952,24 @@ func TestRoom_GlobalSwitch_RotatesHands_CounterClockwise(t *testing.T) {
 	r.State.Hands[2].Cards = hand2
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
 	r.State.ActiveColor = Red
-	r.State.Direction = -1 // counter-clockwise: 0→2→1
+	r.State.Direction = -1 // game is counter-clockwise, but GlobalSwitch must still rotate clockwise
 
 	err := r.PlayCard(0, gsCard, Wild, -1)
 	if err != nil {
-		t.Fatalf("PlayCard GlobalSwitch CCW error: %v", err)
+		t.Fatalf("PlayCard GlobalSwitch with reversed direction error: %v", err)
 	}
 
-	// With direction=-1, rotation: player[i] gets old hand[(i+1)%n]
-	// player0 gets old hand1 (2 cards), player1 gets old hand2 (3 cards),
-	// player2 gets old hand0 minus gsCard (1 card)
-	if len(r.State.Hands[0].Cards) != 2 {
-		t.Errorf("after GlobalSwitch CCW, player0 hand size = %d, want 2", len(r.State.Hands[0].Cards))
+	// Clockwise rotation always: newHands[i] = Hands[(i-1+n)%n]
+	// player0 gets old hand2 (3 cards), player1 gets old hand0 minus gsCard (1 card),
+	// player2 gets old hand1 (2 cards)
+	if len(r.State.Hands[0].Cards) != 3 {
+		t.Errorf("GlobalSwitch with direction=-1: player0 hand size = %d, want 3", len(r.State.Hands[0].Cards))
 	}
-	if len(r.State.Hands[1].Cards) != 3 {
-		t.Errorf("after GlobalSwitch CCW, player1 hand size = %d, want 3", len(r.State.Hands[1].Cards))
+	if len(r.State.Hands[1].Cards) != 1 {
+		t.Errorf("GlobalSwitch with direction=-1: player1 hand size = %d, want 1", len(r.State.Hands[1].Cards))
 	}
-	if len(r.State.Hands[2].Cards) != 1 {
-		t.Errorf("after GlobalSwitch CCW, player2 hand size = %d, want 1", len(r.State.Hands[2].Cards))
+	if len(r.State.Hands[2].Cards) != 2 {
+		t.Errorf("GlobalSwitch with direction=-1: player2 hand size = %d, want 2", len(r.State.Hands[2].Cards))
 	}
 }
 

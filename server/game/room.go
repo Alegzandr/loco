@@ -293,9 +293,12 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		}
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if card.Kind == GlobalSwitch {
+		// Always rotate clockwise (matching the visual seat order where index increases
+		// clockwise). Each player receives the hand of the player to their left,
+		// regardless of the current game direction.
 		newHands := make([]Hand, n)
 		for i := range newHands {
-			from := ((i - r.State.Direction) % n + n) % n
+			from := (i - 1 + n) % n
 			newHands[i] = r.State.Hands[from]
 		}
 		r.State.Hands = newHands

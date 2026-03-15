@@ -199,7 +199,7 @@ export const en: Translations = {
         'Wild — play on any color; you choose the next active color.',
         'Wild Draw Four (+4) — play on any color; next player draws 4 (and loses their turn unless they counter).',
         'Swap (⇋) — play on any turn; choose an opponent and instantly swap your entire hand with theirs.',
-        'Global Switch (↻) — play on any turn; all players pass their hands to the next player in the current direction.',
+        'Global Switch (↻) — play on any turn; all players pass their hands one seat clockwise (always clockwise, regardless of game direction).',
       ],
     },
     {

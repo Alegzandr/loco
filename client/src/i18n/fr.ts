@@ -114,7 +114,7 @@ export const fr: Translations = {
         'Joker — peut être joué sur n\'importe quelle couleur ; vous choisissez la couleur active.',
         'Joker +4 — peut être joué sur n\'importe quelle couleur ; le suivant pioche 4 (sauf s\'il contre).',
         'Échange (⇋) — peut être joué à tout moment ; choisissez un adversaire et échangez instantanément votre main avec la sienne.',
-        'Rotation globale (↻) — peut être joué à tout moment ; tous les joueurs passent leur main au joueur suivant dans le sens actuel.',
+        'Rotation globale (↻) — peut être joué à tout moment ; tous les joueurs passent leur main d\'une place dans le sens horaire (toujours dans le sens horaire, quel que soit le sens de jeu).',
       ],
     },
     {
