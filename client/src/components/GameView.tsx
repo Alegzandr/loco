@@ -10,6 +10,22 @@ import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
 import styles from './GameView.module.css'
 
+// Client-side card legality hint — prevents animating clearly-invalid plays before
+// the server rejects them. Server validation is always authoritative.
+function clientMayPlay(
+  card: CardDTO,
+  discard: CardDTO | null,
+  activeColor: CardColor,
+  pendingDraw: number,
+): boolean {
+  if (pendingDraw > 0) return false          // must counter or draw, not play normally
+  if (card.kind === 'wild' || card.kind === 'wild_draw_four') return true
+  if (!discard) return true
+  if (card.color === activeColor) return true
+  if (card.kind === discard.kind) return true
+  return false
+}
+
 interface Props {
   onSend: (msg: ClientMsg) => void
 }
@@ -54,8 +70,10 @@ export function GameView({ onSend }: Props) {
     roundNumber,
     matchFormat,
     isReconnecting,
+    errorMsg,
     dismissRoundSummary,
     setIsReconnecting,
+    clearError,
   } = useGameStore()
 
   const guardDoubleTap = useCallback((fn: () => void) => {
@@ -72,6 +90,9 @@ export function GameView({ onSend }: Props) {
         setColorPicker({ card, idx: cardIdx })
         return
       }
+      // Block the play animation for clearly-invalid cards so there's no "fake" play.
+      // Server is always authoritative; this is a UX hint only.
+      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
       // Trigger travel animation before state update
       const game = pixiRef.current
       if (game) {
@@ -80,7 +101,7 @@ export function GameView({ onSend }: Props) {
       }
       onSend({ type: 'play_card', card, chosen_color: card.color })
     },
-    [currentTurn, myIndex, onSend]
+    [currentTurn, myIndex, discard, activeColor, pendingDraw, onSend]
   )
 
   // Stable ref so PixiGame always invokes the latest handleCardClick
@@ -209,6 +230,13 @@ export function GameView({ onSend }: Props) {
     }
   }, [turnDeadline])
 
+  // Auto-clear in-game error messages after 2.5 seconds
+  useEffect(() => {
+    if (!errorMsg) return
+    const t = setTimeout(clearError, 2500)
+    return () => clearTimeout(t)
+  }, [errorMsg, clearError])
+
   // Auto-dismiss round summary countdown
   useEffect(() => {
     if (!showRoundSummary) {
@@ -251,7 +279,7 @@ export function GameView({ onSend }: Props) {
       {turnDeadline !== null && (
         <div className={styles.turnTimerBar}>
           <div
-            className={styles.turnTimerFill}
+            className={`${styles.turnTimerFill}${turnTimerPct < 20 ? ' ' + styles.turnTimerFillUrgent : ''}`}
             style={{
               width: `${turnTimerPct}%`,
               background: turnTimerPct < 25 ? '#ff4757' : turnTimerPct < 50 ? '#ffa502' : '#4d96ff',
@@ -288,9 +316,16 @@ export function GameView({ onSend }: Props) {
         onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
         onUno={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
         onCatch={() => guardDoubleTap(() => onSend({ type: 'catch_uno' }))}
-        onRules={() => setShowRules(true)}
         t={t}
       />
+
+      {/* Fixed Rules button — top-right corner, never shifts with action bar */}
+      <button className={styles.rulesBtn} onClick={() => setShowRules(true)}>
+        {t.rulesBtn}
+      </button>
+
+      {/* In-game error toast */}
+      {errorMsg && <div className={styles.errorToast}>{errorMsg}</div>}
 
       {/* Wild color picker */}
       {colorPicker && (

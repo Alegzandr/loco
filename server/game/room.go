@@ -448,6 +448,9 @@ func (r *Room) DrawCard(playerIndex int) error {
 	if r.State.CurrentTurn != playerIndex {
 		return errors.New("not your turn")
 	}
+	if r.State.Finished[playerIndex] {
+		return errors.New("you have already finished this round")
+	}
 
 	n := 1
 	skipTurn := false
@@ -485,6 +488,9 @@ func (r *Room) PassTurn(playerIndex int) error {
 	}
 	if r.State.CurrentTurn != playerIndex {
 		return errors.New("not your turn")
+	}
+	if r.State.Finished[playerIndex] {
+		return errors.New("you have already finished this round")
 	}
 	if !r.State.HasDrawn {
 		return errors.New("you must draw a card before passing")
