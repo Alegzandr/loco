@@ -43,6 +43,8 @@ e2e_test:
     - job: backend_test
     - job: frontend_test
   script:
+    # Install Go (not included in the Playwright image)
+    - apt-get update -qq && apt-get install -y golang-go
     # Build a static binary (no artifact transfer needed)
     - cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin . && cd ..
     # Start the Go server binary in the background (LOCO_E2E=1 enables debug_set_state)
