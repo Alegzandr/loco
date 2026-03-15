@@ -50,9 +50,9 @@ e2e_test:
       artifacts: true
     - job: frontend_test
   script:
-    # Start the Go server binary in the background
+    # Start the Go server binary in the background (LOCO_E2E=1 enables debug_set_state)
     - chmod +x server-bin
-    - PORT=8080 ./server-bin &
+    - PORT=8080 LOCO_E2E=1 ./server-bin &
     # Wait for the server to be ready
     - timeout 30 sh -c 'until wget -qO- http://localhost:8080/health; do sleep 1; done'
     # Install client dependencies so the webServer (Vite dev) can start

@@ -279,6 +279,56 @@ export async function takeTurn(page: Page, turnTimeoutMs = 20_000): Promise<void
 }
 
 /**
+ * Inject specific game state via the debug_set_state WebSocket message.
+ *
+ * Requires the server to be running with LOCO_E2E=1 (set in docker-compose.dev.yml
+ * and in the CI e2e_test script).  Any combination of the options may be provided;
+ * omitted fields leave the existing server state unchanged.
+ *
+ * After the server applies the changes it broadcasts a game_state message to all
+ * players, so the store updates automatically before this function returns.
+ *
+ * Options:
+ *   hand         — Replace the local player's entire hand with these cards.
+ *   discard      — Replace the top of the discard pile with this card.
+ *   activeColor  — Override the active color (required when setting a wild discard).
+ *   pendingDraw  — Override the accumulated draw-penalty count.
+ *
+ * @example
+ *   // Give the player a Swap card, set a red discard so it's playable:
+ *   await debugSetState(page, {
+ *     hand: [{ color: 'wild', kind: 'swap' }],
+ *     discard: { color: 'red', kind: 'number', value: 5 },
+ *   })
+ */
+export async function debugSetState(
+  page: Page,
+  opts: {
+    hand?: E2ECard[]
+    discard?: E2ECard
+    activeColor?: string
+    pendingDraw?: number
+  },
+): Promise<void> {
+  const msg: Record<string, unknown> = { type: 'debug_set_state' }
+  if (opts.hand !== undefined) msg.debug_hand = opts.hand
+  if (opts.discard !== undefined) msg.debug_discard = opts.discard
+  if (opts.activeColor !== undefined) msg.debug_active_color = opts.activeColor
+  if (opts.pendingDraw !== undefined) msg.debug_pending_draw = opts.pendingDraw
+  await sendMsg(page, msg)
+
+  // Wait for the game_state broadcast to arrive and be applied.
+  // The store processes game_state by updating myHand and players.
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.myHand !== undefined,
+    undefined,
+    { timeout: 5_000 },
+  )
+  // A brief settled tick so the store reactivity propagates.
+  await page.waitForTimeout(100)
+}
+
+/**
  * Participate in up to `maxTurns` of the local player's turns.
  * Stops early if the screen leaves 'game' or the round summary appears.
  */

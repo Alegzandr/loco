@@ -8,6 +8,7 @@ import (
 	"log"
 	mrand "math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -292,6 +293,8 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleCounterDraw(c, msg)
 	case protocol.CMsgInterruptPlay:
 		h.handleInterruptPlay(c, msg)
+	case protocol.CMsgDebugSetState:
+		h.handleDebugSetState(c, msg)
 	default:
 		c.sendError("unknown message type")
 	}
@@ -1453,6 +1456,102 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		MaxPlayers:   room.MaxPlayers,
 		Scoreboard:   scoreboard,
 		TurnDeadline: h.turnDeadlineMs(room.Code),
+	}
+}
+
+// --- Debug / E2E helpers ---
+
+// handleDebugSetState is a dev-only handler that lets E2E tests inject specific game
+// state (hand, discard, pending draw, active color) without relying on deck randomness.
+//
+// It is only active when the LOCO_E2E environment variable is set to "1".  In all
+// other environments the message is rejected with an error, making it impossible to
+// exploit in production.
+//
+// Any combination of the debug fields may be provided; omitted fields are left
+// unchanged.  After applying the overrides the handler broadcasts a personalised
+// game_state message to every connected player in the room so all clients reflect
+// the new state.
+func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
+	if os.Getenv("LOCO_E2E") != "1" {
+		c.sendError("debug commands are not enabled")
+		return
+	}
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if room.Status != game.StatusPlaying {
+		c.sendError("debug_set_state requires an active game")
+		return
+	}
+
+	playerID := c.playerID
+	state := room.State
+
+	// Replace this player's hand.
+	if len(msg.DebugHand) > 0 {
+		newHand := game.Hand{}
+		for _, dto := range msg.DebugHand {
+			col, err := parseColor(dto.Color)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_hand: bad color %q: %v", dto.Color, err))
+				return
+			}
+			kind, err := parseKind(dto.Kind)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_hand: bad kind %q: %v", dto.Kind, err))
+				return
+			}
+			newHand.Add(game.Card{Color: col, Kind: kind, Value: dto.Value})
+		}
+		state.Hands[playerID] = newHand
+	}
+
+	// Replace top of discard pile and optionally the active color.
+	if msg.DebugDiscard != nil {
+		col, err := parseColor(msg.DebugDiscard.Color)
+		if err != nil {
+			c.sendError(fmt.Sprintf("debug_discard: bad color %q: %v", msg.DebugDiscard.Color, err))
+			return
+		}
+		kind, err := parseKind(msg.DebugDiscard.Kind)
+		if err != nil {
+			c.sendError(fmt.Sprintf("debug_discard: bad kind %q: %v", msg.DebugDiscard.Kind, err))
+			return
+		}
+		card := game.Card{Color: col, Kind: kind, Value: msg.DebugDiscard.Value}
+		if len(state.Discard) == 0 {
+			state.Discard = []game.Card{card}
+		} else {
+			state.Discard[len(state.Discard)-1] = card
+		}
+		// Active color: use explicit override if provided; otherwise derive from card.
+		if msg.DebugActiveColor != "" {
+			activeCol, err := parseColor(msg.DebugActiveColor)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_active_color: %v", err))
+				return
+			}
+			state.ActiveColor = activeCol
+		} else if col != game.Wild {
+			state.ActiveColor = col
+		}
+	}
+
+	// Override pending draw count.
+	if msg.DebugPendingDraw != nil {
+		state.PendingDraw = *msg.DebugPendingDraw
+	}
+
+	// Broadcast personalised game_state to every connected player.
+	for i, member := range h.roomMembers[c.roomCode] {
+		if member != nil {
+			member.Send(protocol.ServerMsg{
+				Type:  protocol.SMsgGameState,
+				State: h.playerGameState(room, i),
+			})
+		}
 	}
 }
 

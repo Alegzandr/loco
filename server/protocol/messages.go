@@ -20,6 +20,8 @@ const (
 	CMsgCatchUno    ClientMsgType = "catch_uno"
 	CMsgCounterDraw    ClientMsgType = "counter_draw"
 	CMsgInterruptPlay  ClientMsgType = "interrupt_play"
+	// Dev / E2E only (requires LOCO_E2E=1 env var on the server)
+	CMsgDebugSetState ClientMsgType = "debug_set_state"
 )
 
 // ServerMsgType enumerates message types sent from server to client.
@@ -72,6 +74,13 @@ type ClientMsg struct {
 
 	// CMsgSetMaxPlayers
 	MaxPlayers int `json:"max_players,omitempty"`
+
+	// CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
+	// Any combination of fields may be provided; omitted fields are left unchanged.
+	DebugHand        []CardDTO `json:"debug_hand,omitempty"`         // replace this player's hand
+	DebugDiscard     *CardDTO  `json:"debug_discard,omitempty"`       // replace top of discard pile
+	DebugActiveColor string    `json:"debug_active_color,omitempty"`  // override active color
+	DebugPendingDraw *int      `json:"debug_pending_draw,omitempty"`  // override pending draw count
 }
 
 // CardDTO is the wire representation of a card.

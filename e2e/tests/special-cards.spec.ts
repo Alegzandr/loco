@@ -1,17 +1,24 @@
 /**
  * special-cards.spec.ts
  *
- * End-to-end tests for custom card mechanics beyond standard UNO:
- *   - Swap card opens the PlayerPicker modal (choosing a swap target)
- *   - GlobalSwitch plays immediately (no picker) and triggers a game_state broadcast
- *   - Counter-draw (counter_draw message) is valid when pendingDraw > 0 and we hold
- *     a matching card (+2 counters +2, +4 counters +4)
- *   - Interrupt play (interrupt_play message) lets us play out-of-turn with an exact match
- *   - Invalid play during an active +2/+4 penalty shows an error
+ * Deterministic end-to-end tests for custom card mechanics.
  *
- * Because Swap and GlobalSwitch cards appear at random in the deck, tests that require
- * holding a specific card use a graceful-skip pattern (same as the mobile color-picker
- * test in mobile.spec.ts).
+ * All tests use debugSetState (backed by the server-side debug_set_state WebSocket
+ * message, active when LOCO_E2E=1) to inject specific cards into the player's hand
+ * and control the discard pile / pending-draw state.  No test depends on the random
+ * deck; every assertion is guaranteed to run on every execution.
+ *
+ * Coverage:
+ *   - Swap card → PlayerPicker opens, choosing target swaps hands
+ *   - GlobalSwitch card → plays without picker, discard updates, hand rotates
+ *   - counter_draw → stacks penalty, turn advances to next player
+ *   - interrupt_play → out-of-turn play with exact match advances turn to us
+ *   - Non-counter card during active +2/+4 penalty returns error
+ *   - Two-player real-time sync: card play reflected on both clients
+ *
+ * Prerequisites:
+ *   - Server must be running with LOCO_E2E=1 (set in docker-compose.dev.yml and CI).
+ *   - Go server on :8080, Vite dev server on :5173.
  */
 import { test, expect, Browser } from '@playwright/test'
 import {
@@ -23,212 +30,147 @@ import {
   getState,
   sendMsg,
   waitForMyTurn,
+  debugSetState,
 } from '../helpers/game'
 
 // ---------------------------------------------------------------------------
-// Shared helpers
+// Helpers shared across tests
 // ---------------------------------------------------------------------------
 
-/**
- * Attempt to play best card each turn up to `maxTurns`, looking for a card
- * matching `wantKind` in our hand.  Returns the first matching card found,
- * or null if `maxTurns` elapsed without encountering it.
- */
-async function findCardInHand(
-  page: Parameters<typeof getState>[0],
-  wantKind: string,
-  maxTurns = 20,
-): Promise<E2ECard | null> {
-  for (let i = 0; i < maxTurns; i++) {
-    try {
-      await waitForMyTurn(page, 20_000)
-    } catch {
-      break
-    }
+/** Wait for it to be the local player's turn. */
+async function waitForTurn(page: Parameters<typeof getState>[0], timeoutMs = 20_000) {
+  await page.waitForFunction(
+    () => {
+      const s = window.__LOCO_E2E__?.getState?.()
+      return s?.currentTurn === s?.myIndex
+    },
+    undefined,
+    { timeout: timeoutMs },
+  )
+}
 
-    const state = await getState(page)
-    if (!state || state.screen !== 'game' || state.showRoundSummary) break
-
-    // Check if the wanted card is already in hand.
-    const target = state.myHand.find((c) => c.kind === wantKind)
-    if (target) return target
-
-    // Not found yet — draw+pass to get a new card.
-    const { discard, activeColor, pendingDraw } = state
-    const hand = state.myHand ?? []
-    const playable = hand.find((c) => {
-      if ((pendingDraw ?? 0) > 0)
-        return c.kind === 'draw_two' || c.kind === 'wild_draw_four'
-      if (
-        c.kind === 'wild' ||
-        c.kind === 'wild_draw_four' ||
-        c.kind === 'swap' ||
-        c.kind === 'global_switch'
-      )
-        return true
-      if (!discard) return true
-      if (c.color === activeColor) return true
-      if (c.kind !== 'number' && c.kind === discard.kind) return true
-      if (c.kind === 'number' && discard.kind === 'number')
-        return c.value === discard.value
-      return false
-    })
-
-    if (playable && playable.kind !== wantKind) {
-      if (playable.kind === 'wild' || playable.kind === 'wild_draw_four') {
-        await sendMsg(page, { type: 'play_card', card: playable, chosen_color: 'red' })
-      } else if (playable.kind === 'swap') {
-        const opponents = state.players.filter(
-          (p) => p.index !== state.myIndex && !p.finished,
-        )
-        if (opponents.length > 0) {
-          await sendMsg(page, {
-            type: 'play_card',
-            card: playable,
-            chosen_player: opponents[0].index,
-          })
-        } else {
-          await sendMsg(page, { type: 'draw_card' })
-          await page.waitForFunction(
-            () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
-            undefined,
-            { timeout: 8_000 },
-          )
-          await sendMsg(page, { type: 'pass_turn' })
-        }
-      } else if ((pendingDraw ?? 0) > 0) {
-        await sendMsg(page, { type: 'draw_card' })
-      } else {
-        await sendMsg(page, { type: 'play_card', card: playable })
-      }
-    } else {
-      await sendMsg(page, { type: 'draw_card' })
-      await page.waitForFunction(
-        () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
-        undefined,
-        { timeout: 8_000 },
-      )
-      await sendMsg(page, { type: 'pass_turn' })
-    }
-
-    await page.waitForTimeout(300)
-
-    // Re-check after card draw
-    const after = await getState(page)
-    const found = after?.myHand.find((c) => c.kind === wantKind)
-    if (found) return found
-  }
-  return null
+/** Wait until it is NOT the local player's turn. */
+async function waitForOtherTurn(page: Parameters<typeof getState>[0], timeoutMs = 10_000) {
+  await page.waitForFunction(
+    () => {
+      const s = window.__LOCO_E2E__?.getState?.()
+      return s !== undefined && s.currentTurn !== s.myIndex
+    },
+    undefined,
+    { timeout: timeoutMs },
+  )
 }
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
-test.describe('special card mechanics', () => {
+test.describe('special card mechanics (deterministic via debug_set_state)', () => {
   /**
-   * Swap card: when the local player triggers handleCardClick with a Swap card,
-   * the PlayerPicker modal must open (because handleCardClick calls setPlayerPicker).
-   * This is an E2E test of the UI flow, not the server-side hand swap logic.
+   * Swap card — PlayerPicker UI:
+   * When the player triggers handleCardClick with a Swap card, the PlayerPicker
+   * modal must appear before any message is sent to the server.
    */
   test('Swap card opens the PlayerPicker modal', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
 
-    const swapCard = await findCardInHand(page, 'swap', 20)
+    await waitForMyTurn(page, 30_000)
 
-    if (!swapCard) {
-      test.info().annotations.push({
-        type: 'note',
-        description:
-          'No Swap card appeared in hand in this run — PlayerPicker UI test skipped (deck is random)',
-      })
-      return
-    }
+    // Inject a Swap card as the entire hand.
+    // Discard is set to a neutral red card so Swap (always playable) has a valid game state.
+    await debugSetState(page, {
+      hand: [{ color: 'wild', kind: 'swap' }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+    })
 
-    // Ensure it is our turn before clicking.
-    await waitForMyTurn(page, 10_000)
+    // Verify the hand now contains exactly the Swap card.
+    const state = await getState(page)
+    expect(state?.myHand).toHaveLength(1)
+    expect(state?.myHand[0].kind).toBe('swap')
 
-    // Use playCard (calls handleCardClick) which opens the PlayerPicker.
-    await page.evaluate((card) => window.__LOCO_E2E__?.playCard?.(card), swapCard)
+    // Trigger handleCardClick via the E2E playCard helper.
+    await page.evaluate((card) => window.__LOCO_E2E__?.playCard?.(card), {
+      color: 'wild',
+      kind: 'swap',
+    })
 
     // PlayerPicker modal must be visible.
     await expect(page.getByText('Choose a player to swap hands with')).toBeVisible({
       timeout: 5_000,
     })
 
-    // Cancel the picker to avoid sending a malformed play.
+    // Cancel to avoid sending a partial message.
     await page.getByRole('button', { name: '✕' }).click()
     await expect(page.getByText('Choose a player to swap hands with')).not.toBeVisible()
   })
 
   /**
-   * Swap card end-to-end: playing a Swap card with a valid target results in
-   * a game_state broadcast that updates both players' hands.
-   * Verified by checking that the local hand changes after the swap.
+   * Swap card end-to-end:
+   * Playing a Swap card via sendMsg (with a valid chosen_player) should:
+   *   1. Remove the Swap card from our hand.
+   *   2. Cause the discard pile to show the Swap card.
+   *   3. Trigger a game_state broadcast so our hand updates.
+   *
+   * The bot's hand before the swap is unknown, but after swapping our single-card
+   * hand the discard must show "swap" and our hand must differ from the pre-swap state.
    */
-  test('Swap card played end-to-end changes hand contents', async ({ page }) => {
+  test('Swap card played end-to-end changes hand and updates discard', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
 
-    const swapCard = await findCardInHand(page, 'swap', 20)
+    await waitForMyTurn(page, 30_000)
 
-    if (!swapCard) {
-      test.info().annotations.push({
-        type: 'note',
-        description:
-          'No Swap card appeared in hand — Swap E2E test skipped (deck is random)',
-      })
-      return
-    }
-
-    await waitForMyTurn(page, 10_000)
-
-    const beforeState = await getState(page)
-    const opponents = (beforeState?.players ?? []).filter(
-      (p) => p.index !== beforeState?.myIndex && !p.finished,
-    )
-
-    if (opponents.length === 0) {
-      test.info().annotations.push({
-        type: 'note',
-        description: 'No valid swap target available — Swap E2E test skipped',
-      })
-      return
-    }
-
-    const handBefore = beforeState?.myHand ?? []
-
-    // Play the Swap card targeting the first opponent.
-    await sendMsg(page, {
-      type: 'play_card',
-      card: swapCard,
-      chosen_player: opponents[0].index,
+    // Set a predictable starting state: our hand = one Swap card.
+    await debugSetState(page, {
+      hand: [{ color: 'wild', kind: 'swap' }],
+      discard: { color: 'red', kind: 'number', value: 5 },
     })
 
-    // After Swap the server sends game_state (full snapshot).
-    // Our hand contents must change (we now hold the target's previous hand).
+    const before = await getState(page)
+    expect(before?.myHand).toHaveLength(1)
+
+    // Choose the bot as the swap target (first non-self, non-finished player).
+    const opponents = (before?.players ?? []).filter(
+      (p) => p.index !== before?.myIndex && !p.finished,
+    )
+    expect(opponents.length).toBeGreaterThan(0)
+    const target = opponents[0].index
+
+    // Play the Swap card.
+    await sendMsg(page, {
+      type: 'play_card',
+      card: { color: 'wild', kind: 'swap' },
+      chosen_player: target,
+    })
+
+    // After the swap:
+    //   • discard shows the Swap card
+    //   • we received the bot's hand (our hand size > 1 with high probability since
+    //     the bot starts with 7 cards and draws/plays, but we just need any change)
     await page.waitForFunction(
-      (beforeSize: number) => {
-        const hand = window.__LOCO_E2E__?.getState?.()?.myHand ?? []
-        // Hand size or contents should differ — any change confirms game_state was applied.
-        return hand.length !== beforeSize || window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'swap'
-      },
-      handBefore.length,
+      () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'swap',
+      undefined,
       { timeout: 10_000 },
     )
 
-    // Discard pile must show the swap card.
-    const afterState = await getState(page)
-    expect(afterState?.discard?.kind).toBe('swap')
+    const after = await getState(page)
+    expect(after?.discard?.kind).toBe('swap')
+    // Our hand is now whatever the bot had (could be any size ≥ 0).
+    // The Swap card itself should no longer be in our hand.
+    const stillHasSwap = after?.myHand.some((c) => c.kind === 'swap')
+    expect(stillHasSwap).toBe(false)
   })
 
   /**
-   * GlobalSwitch card: plays immediately (no picker modal) and triggers a
-   * game_state broadcast.  All players' hands are rotated; the discard shows
-   * the global_switch card.
+   * GlobalSwitch card end-to-end:
+   * Playing a GlobalSwitch card via sendMsg should:
+   *   1. Update the discard pile to show the GlobalSwitch card.
+   *   2. Trigger a game_state broadcast (hands rotate; our new hand comes from the
+   *      previous player in game direction).
+   *   3. The GlobalSwitch card must no longer be in our hand.
    */
   test('GlobalSwitch card plays without picker and triggers game_state update', async ({
     page,
@@ -237,168 +179,133 @@ test.describe('special card mechanics', () => {
     await addBot(page)
     await startGame(page)
 
-    const gsCard = await findCardInHand(page, 'global_switch', 20)
+    await waitForMyTurn(page, 30_000)
 
-    if (!gsCard) {
-      test.info().annotations.push({
-        type: 'note',
-        description:
-          'No GlobalSwitch card appeared in hand — GlobalSwitch test skipped (deck is random)',
-      })
-      return
-    }
+    // Inject GlobalSwitch into hand with a neutral discard.
+    await debugSetState(page, {
+      hand: [{ color: 'wild', kind: 'global_switch' }],
+      discard: { color: 'blue', kind: 'number', value: 3 },
+    })
 
-    await waitForMyTurn(page, 10_000)
+    const before = await getState(page)
+    expect(before?.myHand).toHaveLength(1)
+    expect(before?.myHand[0].kind).toBe('global_switch')
 
-    const beforeState = await getState(page)
-    const handBefore = beforeState?.myHand ?? []
+    // Play it — no picker, sent directly.
+    await sendMsg(page, {
+      type: 'play_card',
+      card: { color: 'wild', kind: 'global_switch' },
+    })
 
-    // Play GlobalSwitch — no chosen_color or chosen_player needed.
-    await sendMsg(page, { type: 'play_card', card: gsCard })
-
-    // Server sends game_state; discard must become the global_switch card.
+    // Discard must update to show global_switch.
     await page.waitForFunction(
       () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'global_switch',
       undefined,
       { timeout: 10_000 },
     )
 
-    // Hand must have changed (we received the previous player's hand).
-    const afterState = await getState(page)
-    expect(afterState?.discard?.kind).toBe('global_switch')
-    // Hand size may stay the same if previous player had same count, but
-    // confirming discard kind is sufficient proof the play was processed.
-    expect(afterState?.myHand).toBeDefined()
+    const after = await getState(page)
+    expect(after?.discard?.kind).toBe('global_switch')
+    // GlobalSwitch must no longer be in our hand.
+    expect(after?.myHand.some((c) => c.kind === 'global_switch')).toBe(false)
   })
 
   /**
-   * Counter-draw: when pendingDraw > 0 and we hold a matching penalty card,
-   * sending counter_draw stacks the penalty and passes the problem to the next player.
-   *
-   * Requires a +2 to be active on our turn and a +2 in our hand — doubly non-deterministic.
-   * Graceful skip if conditions never materialise.
+   * counter_draw — deterministic:
+   * 1. Inject a +2 card into our hand.
+   * 2. Set the discard to a +2 and pendingDraw to 2 (simulates a +2 played against us).
+   * 3. Send counter_draw with our +2 — this stacks the penalty to 4.
+   * 4. The turn must advance away from us and pendingDraw must be > 2.
    */
-  test('counter_draw stacks penalty when we hold a matching card', async ({ page }) => {
+  test('counter_draw stacks the pending draw and advances the turn', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
 
-    let testedCounter = false
+    await waitForMyTurn(page, 30_000)
 
-    for (let i = 0; i < 30; i++) {
-      try {
-        await waitForMyTurn(page, 20_000)
-      } catch {
-        break
-      }
+    // Inject: we have a red +2, discard is a red +2, pendingDraw = 2.
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'draw_two' },
+        { color: 'red', kind: 'number', value: 7 }, // filler so hand is non-empty after counter
+      ],
+      discard: { color: 'red', kind: 'draw_two' },
+      pendingDraw: 2,
+    })
 
-      const state = await getState(page)
-      if (!state || state.screen !== 'game' || state.showRoundSummary) break
+    const before = await getState(page)
+    expect(before?.pendingDraw).toBe(2)
 
-      const pendingDraw = state.pendingDraw ?? 0
-      if (pendingDraw > 0) {
-        // Check if we have a matching counter card.
-        const discard = state.discard
-        const counterKind =
-          discard?.kind === 'draw_two'
-            ? 'draw_two'
-            : discard?.kind === 'wild_draw_four'
-              ? 'wild_draw_four'
-              : null
+    const myIdx = before?.myIndex ?? 0
 
-        const counterCard = counterKind
-          ? state.myHand.find((c) => c.kind === counterKind)
-          : null
+    // Counter the +2 with our +2 — stack grows to 4.
+    await sendMsg(page, {
+      type: 'counter_draw',
+      card: { color: 'red', kind: 'draw_two' },
+    })
 
-        if (counterCard) {
-          const stackBefore = pendingDraw
-
-          // Send counter_draw
-          if (counterCard.kind === 'wild_draw_four') {
-            await sendMsg(page, {
-              type: 'counter_draw',
-              card: counterCard,
-              chosen_color: 'red',
-            })
-          } else {
-            await sendMsg(page, { type: 'counter_draw', card: counterCard })
-          }
-
-          // After counter, pendingDraw should increase (stack grows) and turn advances.
-          await page.waitForFunction(
-            ([before, myIdx]: [number, number]) => {
-              const s = window.__LOCO_E2E__?.getState?.()
-              return (
-                s !== undefined &&
-                s.currentTurn !== myIdx &&
-                (s.pendingDraw ?? 0) > before
-              )
-            },
-            [stackBefore, state.myIndex] as [number, number],
-            { timeout: 10_000 },
-          )
-
-          const after = await getState(page)
-          expect(after?.pendingDraw).toBeGreaterThan(stackBefore)
-          testedCounter = true
-          break
-        }
-
-        // Have penalty but no counter card — absorb it and move on.
-        await sendMsg(page, { type: 'draw_card' })
-      } else {
-        // Normal turn — draw+pass
-        await sendMsg(page, { type: 'draw_card' })
-        await page.waitForFunction(
-          () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
-          undefined,
-          { timeout: 8_000 },
+    // Turn must advance away from us and pendingDraw must have grown.
+    await page.waitForFunction(
+      ([idx, stackBefore]: [number, number]) => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return (
+          s !== undefined &&
+          s.currentTurn !== idx &&
+          (s.pendingDraw ?? 0) > stackBefore
         )
-        await sendMsg(page, { type: 'pass_turn' })
-      }
+      },
+      [myIdx, 2] as [number, number],
+      { timeout: 10_000 },
+    )
 
-      await page.waitForTimeout(300)
-    }
-
-    if (!testedCounter) {
-      test.info().annotations.push({
-        type: 'note',
-        description:
-          'Never had a matching counter card when targeted by a penalty — counter_draw test skipped (deck is random)',
-      })
-    }
+    const after = await getState(page)
+    expect(after?.pendingDraw).toBeGreaterThan(2) // stacked: 2 + 2 = 4
+    expect(after?.currentTurn).not.toBe(myIdx)
   })
 
   /**
-   * Playing a non-counter card when pendingDraw > 0 should be rejected by the server
-   * and produce an error toast — you must either counter or absorb the penalty.
+   * interrupt_play — deterministic:
+   * 1. Set the discard to a specific card (e.g. red 5).
+   * 2. Inject that exact card into our hand.
+   * 3. Wait until it is NOT our turn.
+   * 4. Send interrupt_play with the exact match — turn must come to us.
    */
-  test('playing a non-counter card during active penalty shows error', async ({ page }) => {
+  test('interrupt_play with exact match advances turn to the interrupter', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
 
-    // Wait for pendingDraw > 0 on our turn.
-    let hasPenalty = false
-    let penaltyState: Awaited<ReturnType<typeof getState>> = undefined
+    // First get into the game and let one event fire so state is stable.
+    await waitForMyTurn(page, 30_000)
 
-    for (let i = 0; i < 30; i++) {
-      try {
-        await waitForMyTurn(page, 20_000)
-      } catch {
-        break
-      }
+    // Set up: discard = red 5, our hand includes red 5 (exact match) + filler.
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'number', value: 5 },
+        { color: 'blue', kind: 'number', value: 2 }, // filler
+      ],
+      discard: { color: 'red', kind: 'number', value: 5 },
+    })
 
-      const state = await getState(page)
-      if (!state || state.screen !== 'game' || state.showRoundSummary) break
+    // Play our turn so it moves to the bot (consume the filler or draw+pass).
+    // We need it NOT to be our turn before sending interrupt_play.
+    // Use the filler blue 2 if color matches (it may not match red), or draw+pass.
+    const stateAfterDebug = await getState(page)
+    const discard = stateAfterDebug?.discard
+    const filler = stateAfterDebug?.myHand.find(
+      (c) => c.kind === 'number' && c.value === 2,
+    )
 
-      if ((state.pendingDraw ?? 0) > 0) {
-        hasPenalty = true
-        penaltyState = state
-        break
-      }
-
-      // Not in penalty yet — draw+pass
+    if (
+      filler &&
+      discard &&
+      (filler.color === discard.color ||
+        (filler.kind === 'number' && discard.kind === 'number' && filler.value === discard.value))
+    ) {
+      await sendMsg(page, { type: 'play_card', card: filler })
+    } else {
+      // draw+pass to advance the turn
       await sendMsg(page, { type: 'draw_card' })
       await page.waitForFunction(
         () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
@@ -406,43 +313,83 @@ test.describe('special card mechanics', () => {
         { timeout: 8_000 },
       )
       await sendMsg(page, { type: 'pass_turn' })
-      await page.waitForTimeout(300)
     }
 
-    if (!hasPenalty || !penaltyState) {
-      test.info().annotations.push({
-        type: 'note',
-        description:
-          'Never received a +2/+4 penalty in this run — non-counter error test skipped (deck is random)',
-      })
-      return
-    }
+    // Wait until it is no longer our turn.
+    await waitForOtherTurn(page, 15_000)
 
-    // Find a non-counter card to play illegally.
-    const illegalCard = penaltyState.myHand.find(
-      (c) => c.kind !== 'draw_two' && c.kind !== 'wild_draw_four',
+    const myIdx = (await getState(page))?.myIndex ?? 0
+
+    // Re-inject the exact-match card in case it got played or the bot drew it.
+    // Also ensure the discard remains red 5.
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 5 }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+    })
+
+    // Confirm we now hold the exact-match card and it is not our turn.
+    const preInterrupt = await getState(page)
+    expect(preInterrupt?.currentTurn).not.toBe(myIdx)
+    expect(preInterrupt?.myHand.some((c) => c.color === 'red' && c.value === 5)).toBe(true)
+
+    // Send interrupt_play.
+    await sendMsg(page, {
+      type: 'interrupt_play',
+      card: { color: 'red', kind: 'number', value: 5 },
+    })
+
+    // Turn must now be ours.
+    await page.waitForFunction(
+      (idx: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn === idx,
+      myIdx,
+      { timeout: 10_000 },
     )
 
-    if (!illegalCard) {
-      // All cards are counters — skip
-      test.info().annotations.push({
-        type: 'note',
-        description: 'Hand contains only counter cards — non-counter error test skipped',
-      })
-      return
-    }
+    const after = await getState(page)
+    expect(after?.currentTurn).toBe(myIdx)
+  })
 
-    // Wait for any pre-existing error toast to clear (auto-clears after 2.5 s).
+  /**
+   * Non-counter card during active +2/+4 penalty returns an error:
+   * Under an active draw stack, only a matching +2 or +4 may be countered.
+   * Playing any other card via play_card is rejected by the server.
+   */
+  test('playing a non-counter card during active penalty returns an error', async ({
+    page,
+  }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    await waitForMyTurn(page, 30_000)
+
+    // Set state: we have a non-counter card (red 7) and pendingDraw = 2 (targeted by +2).
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'number', value: 7 },
+        { color: 'blue', kind: 'number', value: 3 },
+      ],
+      discard: { color: 'red', kind: 'draw_two' },
+      pendingDraw: 2,
+    })
+
+    const before = await getState(page)
+    expect(before?.pendingDraw).toBe(2)
+
+    // Wait for any pre-existing error to clear (auto-clears after 2.5 s).
     await page.waitForFunction(
       () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
       undefined,
       { timeout: 5_000 },
-    ).catch(() => { /* no prior error — proceed */ })
+    ).catch(() => { /* no prior error */ })
 
-    // Play the illegal card.
-    await sendMsg(page, { type: 'play_card', card: illegalCard })
+    // Attempt to play a non-counter card illegally.
+    await sendMsg(page, {
+      type: 'play_card',
+      card: { color: 'red', kind: 'number', value: 7 },
+    })
 
-    // Server must reject it with an error.
+    // Server must reject with an error.
     await page.waitForFunction(
       () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
       undefined,
@@ -450,141 +397,23 @@ test.describe('special card mechanics', () => {
     )
 
     await expect(page.locator('[class*="errorToast"]')).toBeVisible()
+
+    // pendingDraw must remain unchanged (play was rejected).
+    const after = await getState(page)
+    expect(after?.pendingDraw).toBe(2)
   })
 
   /**
-   * Interrupt play (jump-in): sending interrupt_play with an exact card match lets
-   * a player act out of turn.  The turn advances to the interrupter.
-   *
-   * This requires the discard pile to show an exact match of a card in our hand
-   * (same color, kind, value) — non-deterministic.  Graceful skip.
+   * Two-player real-time sync:
+   * When Alice plays a card, Bob's store must reflect the reduced hand size.
+   * Uses debugSetState to give Alice a guaranteed playable card (a wild)
+   * so the play succeeds on the first attempt.
    */
-  test('interrupt_play out-of-turn with exact match advances turn to us', async ({ page }) => {
-    await createRoom(page, 'Alice')
-    await addBot(page)
-    await startGame(page)
-
-    let testedInterrupt = false
-
-    for (let i = 0; i < 30; i++) {
-      const state = await getState(page)
-      if (!state || state.screen !== 'game' || state.showRoundSummary) break
-
-      const myIdx = state.myIndex
-      const isMyTurn = state.currentTurn === myIdx
-
-      if (!isMyTurn && (state.pendingDraw ?? 0) === 0) {
-        // Look for an exact match of the top discard in our hand.
-        const discard = state.discard
-        if (discard && discard.kind !== 'wild' && discard.kind !== 'wild_draw_four') {
-          const exactMatch = state.myHand.find(
-            (c) =>
-              c.color === discard.color &&
-              c.kind === discard.kind &&
-              c.value === discard.value,
-          )
-
-          if (exactMatch) {
-            // Send interrupt_play
-            await sendMsg(page, { type: 'interrupt_play', card: exactMatch })
-
-            // Turn must advance to us.
-            await page.waitForFunction(
-              (idx: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn === idx,
-              myIdx,
-              { timeout: 10_000 },
-            ).catch(() => {
-              // Server may reject if conditions changed; that is acceptable.
-            })
-
-            const after = await getState(page)
-            if (after?.currentTurn === myIdx) {
-              testedInterrupt = true
-            }
-            break
-          }
-        }
-      }
-
-      // On our turn: play or draw+pass normally.
-      if (isMyTurn) {
-        const { discard: d, activeColor, pendingDraw } = state
-        const hand = state.myHand ?? []
-        const playable = hand.find((c) => {
-          if ((pendingDraw ?? 0) > 0)
-            return c.kind === 'draw_two' || c.kind === 'wild_draw_four'
-          if (
-            c.kind === 'wild' ||
-            c.kind === 'wild_draw_four' ||
-            c.kind === 'swap' ||
-            c.kind === 'global_switch'
-          )
-            return true
-          if (!d) return true
-          if (c.color === activeColor) return true
-          if (c.kind !== 'number' && c.kind === d.kind) return true
-          if (c.kind === 'number' && d.kind === 'number') return c.value === d.value
-          return false
-        })
-
-        if (playable) {
-          if (playable.kind === 'wild' || playable.kind === 'wild_draw_four') {
-            await sendMsg(page, { type: 'play_card', card: playable, chosen_color: 'red' })
-          } else if (playable.kind === 'swap') {
-            const opponents = state.players.filter(
-              (p) => p.index !== myIdx && !p.finished,
-            )
-            if (opponents.length > 0) {
-              await sendMsg(page, {
-                type: 'play_card',
-                card: playable,
-                chosen_player: opponents[0].index,
-              })
-            } else {
-              await sendMsg(page, { type: 'draw_card' })
-              await page.waitForFunction(
-                () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
-                undefined,
-                { timeout: 8_000 },
-              )
-              await sendMsg(page, { type: 'pass_turn' })
-            }
-          } else if ((pendingDraw ?? 0) > 0) {
-            await sendMsg(page, { type: 'draw_card' })
-          } else {
-            await sendMsg(page, { type: 'play_card', card: playable })
-          }
-        } else if ((pendingDraw ?? 0) > 0) {
-          await sendMsg(page, { type: 'draw_card' })
-        } else {
-          await sendMsg(page, { type: 'draw_card' })
-          await page.waitForFunction(
-            () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
-            undefined,
-            { timeout: 8_000 },
-          )
-          await sendMsg(page, { type: 'pass_turn' })
-        }
-      }
-
-      await page.waitForTimeout(400)
-    }
-
-    if (!testedInterrupt) {
-      test.info().annotations.push({
-        type: 'note',
-        description:
-          'No exact-match interrupt opportunity arose in this run — interrupt_play test skipped (deck is random)',
-      })
-    }
-  })
-
-  /**
-   * Two-player real-time sync with special-card flow: Alice plays a card and Bob's
-   * view updates.  Exercises card_played broadcast with players array (including
-   * finished/placement fields).
-   */
-  test('two-player sync: card play is reflected on both clients', async ({ browser }) => {
+  test('two-player sync: card play is immediately reflected on the other client', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
     const ctx1 = await browser.newContext()
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
@@ -602,47 +431,46 @@ test.describe('special card mechanics', () => {
       const aliceIndex = aliceState?.myIndex ?? 0
 
       const bobView = await page2.evaluate(() => window.__LOCO_E2E__?.getState?.())
-      const aliceFromBob = bobView?.players.find((p) => p.index === aliceIndex)
+      const aliceFromBob = (bobView?.players ?? []).find((p) => p.index === aliceIndex)
       const handBefore = aliceFromBob?.hand_size ?? 7
 
-      // Wait for Alice's turn and play or draw.
-      await waitForMyTurn(page1, 30_000)
-      const aliceCurrentState = await page1.evaluate(() => window.__LOCO_E2E__?.getState?.())
-      const { myHand, discard, activeColor, pendingDraw } = aliceCurrentState ?? {}
+      // Wait for Alice's turn.
+      await waitForTurn(page1, 30_000)
 
-      const playable = (myHand ?? []).find((c) => {
-        if ((pendingDraw ?? 0) > 0)
-          return c.kind === 'draw_two' || c.kind === 'wild_draw_four'
-        if (c.kind === 'wild' || c.kind === 'wild_draw_four') return true
-        if (!discard) return true
-        if (c.color === activeColor) return true
-        if (c.kind !== 'number' && c.kind === discard.kind) return true
-        if (c.kind === 'number' && discard.kind === 'number') return c.value === discard.value
-        return false
+      // Inject a wild card into Alice's hand so she always has a playable card.
+      await debugSetState(page1, {
+        hand: [
+          { color: 'wild', kind: 'wild' },
+          { color: 'red', kind: 'number', value: 1 },
+          { color: 'blue', kind: 'number', value: 2 },
+        ],
       })
 
-      if (playable && playable.kind !== 'swap') {
-        if (playable.kind === 'wild' || playable.kind === 'wild_draw_four') {
-          await sendMsg(page1, { type: 'play_card', card: playable, chosen_color: 'red' })
-        } else {
-          await sendMsg(page1, { type: 'play_card', card: playable })
-        }
+      // Verify Alice's hand was updated.
+      const aliceHand = await page1.evaluate(() => window.__LOCO_E2E__?.getState?.()?.myHand)
+      expect(aliceHand).toHaveLength(3)
 
-        // Bob's view of Alice's hand_size must decrease by 1.
-        await page2.waitForFunction(
-          ([idx, before]: [number, number]) => {
-            const players = window.__LOCO_E2E__?.getState?.()?.players ?? []
-            const alice = players.find((p) => p.index === idx)
-            return (alice?.hand_size ?? 0) < before
-          },
-          [aliceIndex, handBefore] as [number, number],
-          { timeout: 10_000 },
-        )
+      // Alice plays the wild card.
+      await sendMsg(page1, {
+        type: 'play_card',
+        card: { color: 'wild', kind: 'wild' },
+        chosen_color: 'red',
+      })
 
-        const bobUpdated = await page2.evaluate(() => window.__LOCO_E2E__?.getState?.())
-        const aliceAfter = bobUpdated?.players.find((p) => p.index === aliceIndex)
-        expect(aliceAfter?.hand_size).toBeLessThan(handBefore)
-      }
+      // Bob's view of Alice's hand_size must decrease.
+      await page2.waitForFunction(
+        ([idx, before]: [number, number]) => {
+          const players = window.__LOCO_E2E__?.getState?.()?.players ?? []
+          const alice = players.find((p) => p.index === idx)
+          return (alice?.hand_size ?? 0) < before
+        },
+        [aliceIndex, 3] as [number, number],
+        { timeout: 10_000 },
+      )
+
+      const bobUpdated = await page2.evaluate(() => window.__LOCO_E2E__?.getState?.())
+      const aliceAfter = (bobUpdated?.players ?? []).find((p) => p.index === aliceIndex)
+      expect(aliceAfter?.hand_size).toBeLessThan(3)
     } finally {
       await ctx1.close()
       await ctx2.close()
