@@ -3,8 +3,10 @@ import styles from './ActionBar.module.css'
 
 interface Props {
   isMyTurn: boolean
+  isFinished: boolean
   pendingDraw: number
   handSize: number
+  hasDrawn: boolean
   onDraw: () => void
   onPass: () => void
   onUno: () => void
@@ -13,31 +15,64 @@ interface Props {
   t: Translations
 }
 
-export function ActionBar({ isMyTurn, pendingDraw, handSize, onDraw, onPass, onUno, onCatch, onRules, t }: Props) {
+export function ActionBar({
+  isMyTurn,
+  isFinished,
+  pendingDraw,
+  handSize,
+  hasDrawn,
+  onDraw,
+  onPass,
+  onUno,
+  onCatch,
+  onRules,
+  t,
+}: Props) {
   return (
     <div className={styles.actionBar}>
+      {/* Penalty draw button */}
       {isMyTurn && pendingDraw > 0 && (
-        <button className={styles.btnDraw} onClick={onDraw}>
+        <button className={`${styles.btn} ${styles.btnDraw}`} onClick={onDraw}>
           {t.draw} {pendingDraw}
         </button>
       )}
-      {isMyTurn && pendingDraw === 0 && (
+
+      {/* Normal turn: Draw (disabled after drawing) + Pass (only after drawing) */}
+      {isMyTurn && pendingDraw === 0 && !isFinished && (
         <>
-          <button className={styles.btnDraw} onClick={onDraw}>
+          <button
+            className={`${styles.btn} ${styles.btnDraw} ${hasDrawn ? styles.btnDisabled : ''}`}
+            onClick={onDraw}
+            disabled={hasDrawn}
+          >
             {t.draw}
           </button>
-          <button className={styles.btnPass} onClick={onPass}>
+          <button
+            className={`${styles.btn} ${styles.btnPass} ${!hasDrawn ? styles.btnDisabled : ''}`}
+            onClick={onPass}
+            disabled={!hasDrawn}
+          >
             {t.pass}
           </button>
         </>
       )}
-      <button className={styles.btnUno} onClick={onUno} disabled={handSize !== 1}>
+
+      {/* UNO declaration */}
+      <button
+        className={`${styles.btn} ${styles.btnUno}`}
+        onClick={onUno}
+        disabled={handSize !== 1}
+      >
         {t.unoBtn}
       </button>
-      <button className={styles.btnCatch} onClick={onCatch}>
+
+      {/* Catch opponent for not declaring */}
+      <button className={`${styles.btn} ${styles.btnCatch}`} onClick={onCatch}>
         {t.catchBtn}
       </button>
-      <button className={styles.btnRules} onClick={onRules}>
+
+      {/* Rules reference */}
+      <button className={`${styles.btn} ${styles.btnRules}`} onClick={onRules}>
         {t.rulesBtn}
       </button>
     </div>

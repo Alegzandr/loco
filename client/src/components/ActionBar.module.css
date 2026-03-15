@@ -1,47 +1,109 @@
 .actionBar {
   position: absolute;
-  bottom: 10px;
+  bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  padding: 6px 10px;
-  background: rgba(10, 14, 26, 0.85);
-  backdrop-filter: blur(12px);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 8px 12px;
+  background: rgba(8, 12, 22, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  z-index: 20;
 }
 
-.btnDraw,
-.btnPass,
-.btnUno,
-.btnCatch {
-  padding: 0.5rem 1rem;
-  border-radius: 10px;
+/* Base button */
+.btn {
+  padding: 0.55rem 1.1rem;
+  border-radius: 12px;
   border: none;
   font-size: 0.85rem;
   font-weight: 700;
   cursor: pointer;
-  min-height: 40px;
+  min-height: 42px;
   min-width: 56px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: filter 0.12s, transform 0.08s, box-shadow 0.12s;
+  transition: filter 0.12s, transform 0.08s, box-shadow 0.12s, opacity 0.15s;
   letter-spacing: 0.02em;
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  position: relative;
+  overflow: hidden;
 }
 
+.btn:not(:disabled):hover {
+  filter: brightness(1.15);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.btn:not(:disabled):active {
+  transform: scale(0.96) translateY(0);
+  filter: brightness(0.95);
+}
+
+/* Disabled state */
+.btnDisabled,
+.btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  box-shadow: none !important;
+  filter: none !important;
+  transform: none !important;
+  pointer-events: none;
+}
+
+/* Draw button */
+.btnDraw {
+  background: linear-gradient(135deg, #4d96ff 0%, #3b82f6 100%);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(77, 150, 255, 0.35);
+}
+
+/* Pass button */
+.btnPass {
+  background: rgba(255, 255, 255, 0.07);
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btnPass:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+/* UNO button */
+.btnUno {
+  background: linear-gradient(135deg, #ffd93d 0%, #f6c90e 100%);
+  color: #1a1a2e;
+  box-shadow: 0 2px 10px rgba(255, 217, 61, 0.3);
+  font-size: 0.9rem;
+}
+
+/* Catch button */
+.btnCatch {
+  background: linear-gradient(135deg, #ff6b6b 0%, #e63946 100%);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(255, 107, 107, 0.3);
+}
+
+/* Rules button */
 .btnRules {
-  padding: 0.4rem 0.6rem;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
   background: transparent;
-  color: #4a5568;
-  font-size: 0.7rem;
+  color: #475569;
+  font-size: 0.72rem;
   font-weight: 600;
   cursor: pointer;
-  min-height: 36px;
+  min-height: 42px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: border-color 0.15s, color 0.15s;
@@ -49,80 +111,35 @@
 }
 
 .btnRules:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  color: #718096;
-}
-
-.btnDraw {
-  background: linear-gradient(135deg, #4d96ff, #3b82f6);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(77, 150, 255, 0.3);
-}
-
-.btnPass {
-  background: rgba(255, 255, 255, 0.08);
-  color: #a0aec0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.btnUno {
-  background: linear-gradient(135deg, #ffd93d, #f6ad55);
-  color: #1a1a2e;
-  box-shadow: 0 2px 8px rgba(255, 217, 61, 0.25);
-}
-
-.btnUno:disabled {
-  opacity: 0.2;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.btnCatch {
-  background: linear-gradient(135deg, #ff6b6b, #fc5c65);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.25);
-}
-
-.btnDraw:hover,
-.btnPass:hover,
-.btnUno:not(:disabled):hover,
-.btnCatch:hover {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
-}
-
-.btnDraw:active,
-.btnPass:active,
-.btnUno:not(:disabled):active,
-.btnCatch:active {
-  transform: scale(0.97);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #64748b;
 }
 
 @media (max-width: 480px) {
   .actionBar {
-    bottom: 6px;
-    left: 6px;
-    right: 6px;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
     transform: none;
     justify-content: center;
     gap: 5px;
-    padding: 5px 8px;
+    padding: 6px 8px;
+    border-radius: 16px;
   }
 
-  .btnDraw,
-  .btnPass,
-  .btnUno,
-  .btnCatch {
+  .btn {
     min-height: 44px;
     font-size: 0.8rem;
-    padding: 0.45rem 0.65rem;
+    padding: 0.5rem 0.7rem;
     flex: 1;
     min-width: 0;
+    border-radius: 10px;
   }
 
   .btnRules {
     min-height: 44px;
     font-size: 0.7rem;
-    padding: 0.4rem 0.5rem;
+    padding: 0.45rem 0.5rem;
+    flex: none;
   }
 }

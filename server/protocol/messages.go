@@ -112,7 +112,8 @@ type ServerMsg struct {
 	Turn int `json:"turn,omitempty"`
 
 	// SMsgDrawPending
-	PendingDraw int `json:"pending_draw,omitempty"`
+	PendingDraw int  `json:"pending_draw,omitempty"`
+	HasDrawn    bool `json:"has_drawn,omitempty"` // included in card_drawn to signal draw-once state
 
 	// SMsgRoundEnd / SMsgMatchEnd
 	RoundNumber int                  `json:"round_number,omitempty"`
@@ -161,6 +162,7 @@ type GameStateDTO struct {
 	Turn        int            `json:"turn"`
 	Direction   int            `json:"direction"`
 	PendingDraw int            `json:"pending_draw,omitempty"`
+	HasDrawn    bool           `json:"has_drawn,omitempty"`
 	EventLog    []GameEventDTO `json:"event_log,omitempty"`
 
 	// Match info

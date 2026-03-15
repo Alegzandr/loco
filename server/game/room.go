@@ -87,6 +87,7 @@ type GameState struct {
 	Direction        int // 1 = clockwise, -1 = counter-clockwise
 	ActiveColor      Color
 	PendingDraw      int // accumulated draw penalty for next player
+	HasDrawn         bool // true after a voluntary (non-penalty) draw this turn; reset on turn advance
 	LastCardDeclared bool
 	LastCardTime     time.Time // when the last card was played (for catch window)
 	LastCardPlayer   int       // who played to 1 card
@@ -302,6 +303,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color) error {
 	}
 
 	next := r.State.ApplyEffect(card, chosenColor)
+	r.State.HasDrawn = false
 	r.State.CurrentTurn = next
 	return nil
 }
@@ -373,6 +375,7 @@ func (r *Room) markPlayerFinished(playerIdx int) {
 	}
 
 	// Advance turn to next unfinished player
+	r.State.HasDrawn = false
 	r.State.CurrentTurn = r.State.nextTurn(playerIdx)
 }
 
@@ -452,6 +455,12 @@ func (r *Room) DrawCard(playerIndex int) error {
 		n = r.State.PendingDraw
 		r.State.PendingDraw = 0
 		skipTurn = true
+	} else {
+		// Voluntary draw: only allowed once per turn
+		if r.State.HasDrawn {
+			return errors.New("you have already drawn this turn")
+		}
+		r.State.HasDrawn = true
 	}
 
 	r.ensureDeck(n)
@@ -462,6 +471,7 @@ func (r *Room) DrawCard(playerIndex int) error {
 	r.State.Hands[playerIndex].Add(cards...)
 
 	if skipTurn {
+		r.State.HasDrawn = false
 		r.State.CurrentTurn = r.State.nextTurn(playerIndex)
 	}
 	r.State.logEvent(EventCardDrawn, playerIndex, nil, 0)
@@ -476,6 +486,10 @@ func (r *Room) PassTurn(playerIndex int) error {
 	if r.State.CurrentTurn != playerIndex {
 		return errors.New("not your turn")
 	}
+	if !r.State.HasDrawn {
+		return errors.New("you must draw a card before passing")
+	}
+	r.State.HasDrawn = false
 	r.State.CurrentTurn = r.State.nextTurn(playerIndex)
 	r.State.logEvent(EventTurnPassed, playerIndex, nil, 0)
 	return nil
@@ -574,6 +588,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	}
 
 	next := r.State.ApplyEffect(card, chosenColor)
+	r.State.HasDrawn = false
 	r.State.CurrentTurn = next
 	return nil
 }

@@ -35,6 +35,7 @@ export interface GameStateDTO {
   turn: number
   direction: number
   pending_draw?: number
+  has_drawn?: boolean
   event_log?: GameEventDTO[]
   round_number: number
   match_format: MatchFormat
@@ -111,6 +112,7 @@ export interface ServerMsg {
   active_color?: CardColor
   turn?: number
   pending_draw?: number
+  has_drawn?: boolean
   winner?: string
   error?: string
   // round / match

@@ -34,6 +34,7 @@ export const fr: Translations = {
   draw: 'Piocher',
   pass: 'Passer',
   unoBtn: 'UNO !',
+  unoBanner: 'UNO !',
   catchBtn: 'Catch !',
   chooseColor: 'Choisissez une couleur',
   catchWindow: 'Fenêtre de catch !',
@@ -51,6 +52,11 @@ export const fr: Translations = {
   matchScoreboard: 'Classement du match',
   continueBtn: 'Continuer',
   spectating: 'Vous avez terminé ! Regardez la suite…',
+
+  // ─── PixiGame in-canvas strings ───────────────────────────────
+  yourTurn: 'Votre tour',
+  drawOrCounter: 'Piocher %n ou contrer !',
+  playerTurnSuffix: ' joue',
 
   // ─── Game Over ────────────────────────────────────────────────
   matchWon: 'Match gagné !',
