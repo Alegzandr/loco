@@ -43,8 +43,9 @@ e2e_test:
     - job: backend_test
     - job: frontend_test
   script:
-    # Install Go (not included in the Playwright image)
-    - apt-get update -qq && apt-get install -y golang-go
+    # Install Go 1.24.7 explicitly (distro golang-go is too old and version-mismatched)
+    - curl -fsSL https://go.dev/dl/go1.24.7.linux-amd64.tar.gz | tar -C /usr/local -xz
+    - export PATH="/usr/local/go/bin:$PATH"
     # Build a static binary (no artifact transfer needed)
     - cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin . && cd ..
     # Start the Go server binary in the background (LOCO_E2E=1 enables debug_set_state)
