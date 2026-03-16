@@ -74,9 +74,11 @@ export default function App() {
         }
 
         case 'game_state':
-          // Mid-game state refresh (e.g. after Swap or GlobalSwitch)
+          // Mid-game authoritative refresh (e.g. debug_set_state, swap/global_switch effects).
+          // Apply the full state snapshot so discard/turn/pendingDraw remain in sync.
           if (msg.state) {
-            useGameStore.setState({ myHand: msg.state.hand, players: msg.state.players })
+            store.applyGameState(msg.state)
+            store.setScreen('game')
           }
           break
 
@@ -166,7 +168,7 @@ export default function App() {
     return null
   }, [])
 
-  const { send, wsStatus } = useWebSocket(handleMessage, getReconnectMsg)
+  const { send, wsStatus, forceClose } = useWebSocket(handleMessage, getReconnectMsg)
 
   const handleSend = useCallback(
     (msg: ClientMsg) => {
@@ -188,8 +190,10 @@ export default function App() {
       ...(window.__LOCO_E2E__ ?? {}),
       send: (msg: ClientMsg) => sendRef.current(msg),
       getState: useGameStore.getState,
+      getWsStatus: () => wsStatus,
+      forceCloseWs: forceClose,
     }
-  }, [])
+  }, [wsStatus, forceClose])
 
   const myNickname =
     store.players.find((p) => p.index === store.myIndex)?.nickname ?? ''

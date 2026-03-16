@@ -59,15 +59,6 @@ e2e_test:
     - cd e2e && npm ci
     - npx playwright install chromium
     - CI=true npx playwright test
-  artifacts:
-    when: always
-    paths:
-      - e2e/playwright-results.xml
-      - e2e/playwright-report/
-    reports:
-      junit: e2e/playwright-results.xml
-    expire_in: 1 week
-
 # ──────────────────────────────────────────────────────────────────
 # Shared config for Docker build/deploy jobs
 # ──────────────────────────────────────────────────────────────────
@@ -146,7 +137,6 @@ deploy_dev:
   needs: ["build"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop"'
-      when: manual
   script:
     - export APP_HOST="${APP_SUBDOMAIN}-d.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_REF_SLUG}"

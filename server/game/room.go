@@ -265,6 +265,9 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 	if r.State.Finished[playerIndex] {
 		return errors.New("you have already finished this round")
 	}
+	if r.State.PendingDraw > 0 {
+		return errors.New("must counter or draw pending penalty cards first")
+	}
 	if !r.State.Hands[playerIndex].Contains(card) {
 		return errors.New("card not in hand")
 	}

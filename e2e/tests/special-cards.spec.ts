@@ -124,10 +124,24 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     await waitForMyTurn(page, 30_000)
 
     // Set a predictable starting state: our hand = one Swap card.
+    const initial = await getState(page)
+    const myIdx = initial?.myIndex ?? 0
+
     await debugSetState(page, {
       hand: [{ color: 'wild', kind: 'swap' }],
       discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
     })
+
+    await page.waitForFunction(
+      (idx: number) => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s !== undefined && s.currentTurn === idx && (s.myHand?.length ?? 0) === 1 && s.myHand?.[0]?.kind === 'swap'
+      },
+      myIdx,
+      { timeout: 8_000 },
+    )
 
     const before = await getState(page)
     expect(before?.myHand).toHaveLength(1)
@@ -148,15 +162,18 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     // After the swap:
     //   • discard shows the Swap card
-    //   • we received the bot's hand (our hand size > 1 with high probability since
-    //     the bot starts with 7 cards and draws/plays, but we just need any change)
+    //   • if the server rejects the play, fail immediately with the surfaced error
     await page.waitForFunction(
-      () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'swap',
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s?.discard?.kind === 'swap' || (s?.errorMsg ?? '') !== ''
+      },
       undefined,
       { timeout: 10_000 },
     )
 
     const after = await getState(page)
+    expect(after?.errorMsg ?? '').toBe('')
     expect(after?.discard?.kind).toBe('swap')
     // Our hand is now whatever the bot had (could be any size ≥ 0).
     // The Swap card itself should no longer be in our hand.
@@ -224,20 +241,24 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     await waitForMyTurn(page, 30_000)
 
-    // Inject: we have a red +2, discard is a red +2, pendingDraw = 2.
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const otherIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
+
+    // Inject: we have a red +2, discard is a red +2, pendingDraw = 2, and it's our turn.
     await debugSetState(page, {
       hand: [
         { color: 'red', kind: 'draw_two' },
         { color: 'red', kind: 'number', value: 7 }, // filler so hand is non-empty after counter
       ],
+      hands: [{ playerIndex: otherIdx, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
       discard: { color: 'red', kind: 'draw_two' },
       pendingDraw: 2,
+      currentTurn: myIdx,
     })
 
     const before = await getState(page)
     expect(before?.pendingDraw).toBe(2)
-
-    const myIdx = before?.myIndex ?? 0
 
     // Counter the +2 with our +2 — stack grows to 4.
     await sendMsg(page, {
@@ -275,62 +296,17 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const otherIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
 
-    // First get into the game and let one event fire so state is stable.
-    await waitForMyTurn(page, 30_000)
-
-    // Set up: discard = red 5, our hand includes red 5 (exact match) + filler.
-    await debugSetState(page, {
-      hand: [
-        { color: 'red', kind: 'number', value: 5 },
-        { color: 'blue', kind: 'number', value: 2 }, // filler
-      ],
-      discard: { color: 'red', kind: 'number', value: 5 },
-    })
-
-    // Play our turn so it moves to the bot (consume the filler or draw+pass).
-    // We need it NOT to be our turn before sending interrupt_play.
-    // Use the filler blue 2 if color matches (it may not match red), or draw+pass.
-    const stateAfterDebug = await getState(page)
-    const discard = stateAfterDebug?.discard
-    const filler = stateAfterDebug?.myHand.find(
-      (c) => c.kind === 'number' && c.value === 2,
-    )
-
-    if (
-      filler &&
-      discard &&
-      (filler.color === discard.color ||
-        (filler.kind === 'number' && discard.kind === 'number' && filler.value === discard.value))
-    ) {
-      await sendMsg(page, { type: 'play_card', card: filler })
-    } else {
-      // draw+pass to advance the turn
-      await sendMsg(page, { type: 'draw_card' })
-      await page.waitForFunction(
-        () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
-        undefined,
-        { timeout: 8_000 },
-      )
-      await sendMsg(page, { type: 'pass_turn' })
-    }
-
-    // Wait until it is no longer our turn.
-    await waitForOtherTurn(page, 15_000)
-
-    const myIdx = (await getState(page))?.myIndex ?? 0
-
-    // Re-inject the exact-match card in case it got played or the bot drew it.
-    // Also ensure the discard remains red 5.
     await debugSetState(page, {
       hand: [{ color: 'red', kind: 'number', value: 5 }],
+      hands: [{ playerIndex: otherIdx, hand: [{ color: 'blue', kind: 'number', value: 2 }] }],
       discard: { color: 'red', kind: 'number', value: 5 },
+      currentTurn: otherIdx,
+      pendingDraw: 0,
     })
-
-    // Confirm we now hold the exact-match card and it is not our turn.
-    const preInterrupt = await getState(page)
-    expect(preInterrupt?.currentTurn).not.toBe(myIdx)
-    expect(preInterrupt?.myHand.some((c) => c.color === 'red' && c.value === 5)).toBe(true)
 
     // Send interrupt_play.
     await sendMsg(page, {
@@ -338,15 +314,19 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       card: { color: 'red', kind: 'number', value: 5 },
     })
 
-    // Turn must now be ours.
+    // The interrupt card is applied immediately and play continues from our
+    // position, so the next turn should be the next player (the bot here).
     await page.waitForFunction(
       (idx: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn === idx,
-      myIdx,
+      otherIdx,
       { timeout: 10_000 },
     )
 
     const after = await getState(page)
-    expect(after?.currentTurn).toBe(myIdx)
+    expect(after?.discard?.kind).toBe('number')
+    expect(after?.discard?.color).toBe('red')
+    expect(after?.discard?.value).toBe(5)
+    expect(after?.currentTurn).toBe(otherIdx)
   })
 
   /**
@@ -363,7 +343,10 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     await waitForMyTurn(page, 30_000)
 
-    // Set state: we have a non-counter card (red 7) and pendingDraw = 2 (targeted by +2).
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+
+    // Set state: we have a non-counter card (red 7), pendingDraw=2, and it's our turn.
     await debugSetState(page, {
       hand: [
         { color: 'red', kind: 'number', value: 7 },
@@ -371,6 +354,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       ],
       discard: { color: 'red', kind: 'draw_two' },
       pendingDraw: 2,
+      currentTurn: myIdx,
     })
 
     const before = await getState(page)

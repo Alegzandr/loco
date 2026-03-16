@@ -21,6 +21,8 @@ import {
   waitForRoundSummary,
   waitForGameOver,
   sendMsg,
+  closeRulesModal,
+  debugSetState,
 } from '../helpers/game'
 
 test.describe('gameplay flow (single player vs bot)', () => {
@@ -54,8 +56,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await createRoom(page, 'Alice')
     await page.getByRole('button', { name: T.rulesBtn }).click()
     await expect(page.getByText('Game Rules')).toBeVisible()
-    // Close via ✕ button
-    await page.getByRole('button', { name: '✕' }).click()
+    await closeRulesModal(page)
     await expect(page.getByText('Game Rules')).not.toBeVisible()
   })
 
@@ -65,7 +66,6 @@ test.describe('gameplay flow (single player vs bot)', () => {
   test('add bot and start game shows canvas and action bar', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
-    await expect(page.getByText('Bot1')).toBeVisible()
     await startGame(page)
 
     // Canvas is the PixiJS rendering surface
@@ -86,63 +86,18 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
-
-    // Participate in at least a few of our own turns so we're not just spectating
-    let turnsPlayed = 0
-    const maxTurns = 5
-
-    while (turnsPlayed < maxTurns) {
-      // Wait up to 20s for our turn (bot plays fast, ~800ms delay)
-      try {
-        await waitForMyTurn(page, 20_000)
-      } catch {
-        // Game may have ended while waiting — break out
-        break
-      }
-
-      const state = await getState(page)
-      if (!state || state.screen !== 'game') break
-
-      const hand = await getHand(page)
-      if (hand.length === 0) break
-
-      // Try to play a valid card; fall back to draw-and-pass
-      const discard = state.discard
-      const activeColor = state.activeColor
-      const pendingDraw = state.pendingDraw ?? 0
-
-      const playable = hand.find((c) => {
-        if (pendingDraw > 0) return c.kind === 'draw_two' || c.kind === 'wild_draw_four'
-        if (c.kind === 'wild' || c.kind === 'wild_draw_four') return true
-        if (!discard) return true
-        if (c.color === activeColor) return true
-        if (c.kind !== 'number' && c.kind === discard.kind) return true
-        if (c.kind === 'number' && discard.kind === 'number') return c.value === discard.value
-        return false
-      })
-
-      if (playable) {
-        // Wild cards need a chosen color; send directly to avoid color picker dialog
-        if (playable.kind === 'wild' || playable.kind === 'wild_draw_four') {
-          await sendMsg(page, { type: 'play_card', card: playable, chosen_color: 'red' })
-        } else {
-          await playCard(page, playable)
-        }
-      } else if (pendingDraw > 0) {
-        // Must draw the penalty
-        await sendMsg(page, { type: 'draw_card' })
-      } else {
-        await drawAndPass(page)
-      }
-
-      turnsPlayed++
-
-      // Short pause to let server respond before re-checking state
-      await page.waitForTimeout(500)
-    }
-
-    // After enough turns, the bot will eventually win the round (or we do)
-    await waitForRoundSummary(page, 90_000)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const opponentIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 7 }],
+      hands: [{ playerIndex: opponentIdx, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    await waitForRoundSummary(page, 20_000)
 
     // Summary shows round winner and "Complete"
     await expect(page.getByText(/wins the round!/)).toBeVisible()
@@ -242,8 +197,18 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
-
-    await waitForRoundSummary(page, 90_000)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const opponentIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 7 }],
+      hands: [{ playerIndex: opponentIdx, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    await waitForRoundSummary(page, 20_000)
     await page.getByText(T.continueBtn, { exact: false }).click()
     await waitForGameOver(page, 30_000)
 

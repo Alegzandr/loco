@@ -408,8 +408,8 @@ If structure changes, update this file and the README.
 
 - E2E tests live in `e2e/` (root-level, separate `package.json`).
 - Stack: `@playwright/test` with Chromium (desktop) and Pixel 5 profile (mobile).
-- Tests require the Go server on `:8080` and the Vite dev server on `:5173`.
-  - Local: run `docker compose -f docker-compose.dev.yml up --build` first, then `cd e2e && npm test`.
+- Tests require the Go server on `:8080`. Playwright starts an isolated Vite dev server on `:4173` from `playwright.config.ts`.
+  - Local: run `docker compose -f docker-compose.dev.yml up --build` first (for backend), then `cd e2e && npm test`.
   - CI: `backend_test` builds a static `server-bin` artifact; `e2e_test` starts it and runs Playwright.
 - `window.__LOCO_E2E__` is exposed by the client in dev mode only (`import.meta.env.DEV`):
   - `send(msg)` — dispatch any WebSocket message through the live connection
@@ -434,6 +434,7 @@ If structure changes, update this file and the README.
   - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): starts `server-bin`, runs Playwright; needs both above jobs
 - `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
 - Deploy jobs require the `devops` runner tag and a GitLab container registry.
+- `deploy_dev` runs automatically on `develop` after `build`; `deploy_prod` runs automatically on `v*` tags; `stop_dev` remains manual.
 - All three test jobs must pass before Docker images are built or deployed.
 
 ### Production request path
@@ -457,6 +458,7 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 - `write_app_env` in `.gitlab-ci.yml` writes all compose-interpolation vars (`PORT`, `DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`) to `app.env`.
 - All `docker compose up/down` calls use `--env-file paths.env --env-file app.env` so a manual re-deploy on the server works without CI shell exports.
 - nginx `/ws` block sets `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s` to prevent premature 504s on both connect and long-lived WebSocket connections.
+- nginx serves `robots.txt` with `Disallow: /` on dev hosts matching `*-d.<domain>` to prevent indexing; production hosts allow indexing by default.
 
 ## Linting conventions
 

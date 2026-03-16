@@ -21,16 +21,61 @@ export const T = {
   spectating: 'You finished! Watching the round\u2026',
 } as const
 
+interface DebugHandOverride {
+  playerIndex: number
+  hand: E2ECard[]
+}
+
+async function forceEnglish(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem('loco_lang', 'en')
+    } catch {
+      // noop
+    }
+  })
+}
+
+async function clickWithRetry(locator: ReturnType<Page['getByRole']>, retries = 3): Promise<void> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await locator.click({ timeout: 5_000 })
+      return
+    } catch (err) {
+      if (i === retries - 1) throw err
+      await locator.page().waitForTimeout(200)
+    }
+  }
+}
+
 /** Navigate to home and create a room with the given nickname. Returns the room code. */
 export async function createRoom(page: Page, nickname: string): Promise<string> {
+  await forceEnglish(page)
   await page.goto('/')
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForTimeout(600)
   await expect(page.getByText('LOCO')).toBeVisible()
-
   await page.getByRole('button', { name: T.createRoom }).click()
   await page.getByPlaceholder('Your nickname').fill(nickname)
-  await page.getByRole('button', { name: T.createGame }).click()
 
-  await expect(page.getByText(T.waitingRoom)).toBeVisible()
+  for (let i = 0; i < 3; i++) {
+    await clickWithRetry(page.getByRole('button', { name: T.createGame }))
+    const reachedWaiting = await page
+      .waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+        undefined,
+        { timeout: 4_000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (reachedWaiting) {
+      break
+    }
+    if (i === 2) {
+      throw new Error('createRoom: failed to reach waiting screen')
+    }
+    await page.waitForTimeout(400)
+  }
 
   // Room code is displayed in the waiting room
   const codeEl = page.locator('[class*="codeVal"]').first()
@@ -41,12 +86,30 @@ export async function createRoom(page: Page, nickname: string): Promise<string> 
 
 /** Join a room from the lobby with the given nickname and room code. */
 export async function joinRoom(page: Page, nickname: string, roomCode: string): Promise<void> {
+  await forceEnglish(page)
   await page.goto('/')
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForTimeout(600)
   await page.getByRole('button', { name: T.joinRoom }).click()
   await page.getByPlaceholder('Your nickname').fill(nickname)
   await page.getByPlaceholder('Room code').fill(roomCode)
-  await page.getByRole('button', { name: T.joinGame }).click()
-  await expect(page.getByText(T.waitingRoom)).toBeVisible()
+
+  for (let i = 0; i < 3; i++) {
+    await clickWithRetry(page.getByRole('button', { name: T.joinGame }))
+    const reachedWaiting = await page
+      .waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+        undefined,
+        { timeout: 4_000 },
+      )
+      .then(() => true)
+      .catch(() => false)
+    if (reachedWaiting) return
+    if (i === 2) {
+      throw new Error('joinRoom: failed to reach waiting screen')
+    }
+    await page.waitForTimeout(400)
+  }
 }
 
 /** Add one bot in the waiting room (host only). */
@@ -128,7 +191,14 @@ export async function waitForRoundSummary(page: Page, timeoutMs = 60_000): Promi
     undefined,
     { timeout: timeoutMs },
   )
-  await expect(page.getByText(/Complete/)).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByText(T.continueBtn, { exact: false })).toBeVisible({ timeout: 5_000 })
+}
+
+/** Close the rules modal via the explicit aria-label close button. */
+export async function closeRulesModal(page: Page): Promise<void> {
+  const close = page.getByLabel('Close').first()
+  await expect(close).toBeVisible({ timeout: 5_000 })
+  await close.click()
 }
 
 /** Wait for the game-over screen (screen='gameover'). */
@@ -138,9 +208,7 @@ export async function waitForGameOver(page: Page, timeoutMs = 120_000): Promise<
     undefined,
     { timeout: timeoutMs },
   )
-  await expect(
-    page.getByText(T.youWin).or(page.getByText(T.gameOver)),
-  ).toBeVisible({ timeout: 5_000 })
+  await expect(page.getByRole('button', { name: T.playAgain })).toBeVisible({ timeout: 5_000 })
 }
 
 /**
@@ -305,27 +373,31 @@ export async function debugSetState(
   page: Page,
   opts: {
     hand?: E2ECard[]
+    hands?: DebugHandOverride[]
     discard?: E2ECard
     activeColor?: string
     pendingDraw?: number
+    currentTurn?: number
   },
 ): Promise<void> {
   const msg: Record<string, unknown> = { type: 'debug_set_state' }
   if (opts.hand !== undefined) msg.debug_hand = opts.hand
+  if (opts.hands !== undefined) {
+    msg.debug_hands = opts.hands.map((h) => ({
+      player_index: h.playerIndex,
+      hand: h.hand,
+    }))
+  }
   if (opts.discard !== undefined) msg.debug_discard = opts.discard
   if (opts.activeColor !== undefined) msg.debug_active_color = opts.activeColor
   if (opts.pendingDraw !== undefined) msg.debug_pending_draw = opts.pendingDraw
+  if (opts.currentTurn !== undefined) msg.debug_current_turn = opts.currentTurn
   await sendMsg(page, msg)
-
-  // Wait for the game_state broadcast to arrive and be applied.
-  // The store processes game_state by updating myHand and players.
-  await page.waitForFunction(
-    () => window.__LOCO_E2E__?.getState?.()?.myHand !== undefined,
-    undefined,
-    { timeout: 5_000 },
-  )
-  // A brief settled tick so the store reactivity propagates.
-  await page.waitForTimeout(100)
+  // Give the broadcasted game_state a moment to arrive before the next action.
+  await page.waitForTimeout(200)
+  // currentTurn can change quickly (e.g. bot takes an automatic move), so do not
+  // assert it here; tests that depend on turn ownership should assert immediately
+  // after calling debugSetState.
 }
 
 /**

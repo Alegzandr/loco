@@ -28,6 +28,7 @@ services:
       - internal
     labels:
       - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.rule=Host(`${APP_HOST}`)
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.entrypoints=websecure
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.tls=true

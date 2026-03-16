@@ -24,7 +24,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['junit', { outputFile: 'playwright-results.xml' }], ['list']] : [['list']],
 
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     // Suppress PixiJS WebGL warnings in test output
@@ -35,6 +35,7 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: '**/mobile.spec.ts',
     },
     {
       name: 'mobile-chrome',
@@ -49,11 +50,12 @@ export default defineConfig({
     // Pass --port 5173 explicitly so Vite binds on 5173 in CI (no Docker port
     // mapping).  In Docker local dev, reuseExistingServer reuses the already-
     // running container server and this command is never executed.
-    command: `VITE_WS_PORT=8080 npm run dev -- --port 5173`,
+    command: `VITE_WS_PORT=8080 npm run dev -- --port 4173`,
     cwd: resolve(__dirname, '../client'),
-    port: 5173,
+    port: 4173,
     timeout: 120_000,
-    reuseExistingServer: !process.env.CI,
+    // Always launch an isolated dev server for deterministic E2E behavior.
+    reuseExistingServer: false,
     stdout: 'ignore',
     stderr: 'pipe',
   },

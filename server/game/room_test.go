@@ -1211,6 +1211,32 @@ func TestCounterDraw_StackContinues(t *testing.T) {
 	}
 }
 
+// TestPlayCard_RejectedDuringPendingDraw verifies that normal play_card cannot be
+// used to bypass an active draw penalty; the player must counter_draw or draw_card.
+func TestPlayCard_RejectedDuringPendingDraw(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	// Bob is under a pending +2 penalty.
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 2
+	r.State.Discard = []Card{{Color: Red, Kind: DrawTwo}}
+	r.State.ActiveColor = Red
+
+	illegal := Card{Color: Red, Kind: Number, Value: 7}
+	r.State.Hands[1].Cards = append([]Card{illegal}, r.State.Hands[1].Cards...)
+	handBefore := len(r.State.Hands[1].Cards)
+
+	if err := r.PlayCard(1, illegal, Red, -1); err == nil {
+		t.Fatal("expected PlayCard to fail during pending draw")
+	}
+	if r.State.PendingDraw != 2 {
+		t.Fatalf("PendingDraw changed after rejected play: got %d want 2", r.State.PendingDraw)
+	}
+	if len(r.State.Hands[1].Cards) != handBefore {
+		t.Fatalf("hand size changed after rejected play: got %d want %d", len(r.State.Hands[1].Cards), handBefore)
+	}
+}
+
 // --- Card effect end-to-end tests ---
 
 func TestRoom_Skip_EndToEnd(t *testing.T) {

@@ -13,25 +13,12 @@ import {
   T,
   createRoom,
   joinRoom,
-  addBot,
   startGame,
   getState,
-  drawAndPass,
   sendMsg,
   waitForRoundSummary,
+  debugSetState,
 } from '../helpers/game'
-
-/** Wait for it to be the local player's turn. */
-async function waitForTurn(page: Page, timeoutMs = 30_000): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const s = window.__LOCO_E2E__?.getState?.()
-      return s?.currentTurn === s?.myIndex
-    },
-    undefined,
-    { timeout: timeoutMs },
-  )
-}
 
 /** Wait until the turn is NOT the local player's. */
 async function waitForOthersTurn(page: Page, timeoutMs = 30_000): Promise<void> {
@@ -111,7 +98,6 @@ test.describe('multi-client synchronization', () => {
     try {
       const roomCode = await createRoom(page1, 'Alice')
       await joinRoom(page2, 'Bob', roomCode)
-      await addBot(page1)
       await startGame(page1)
 
       await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
@@ -120,30 +106,52 @@ test.describe('multi-client synchronization', () => {
       const aliceState = await getState(page1)
       const aliceIndex = aliceState?.myIndex ?? 0
 
-      // Wait until it's Alice's turn
-      await waitForTurn(page1, 30_000)
+      // Force a deterministic Alice turn and action.
+      const bobIndex = (await getState(page2))?.myIndex ?? 1
+      await debugSetState(page1, {
+        hand: [
+          { color: 'red', kind: 'number', value: 6 },
+          { color: 'blue', kind: 'number', value: 1 },
+        ],
+        hands: [{ playerIndex: bobIndex, hand: [{ color: 'blue', kind: 'number', value: 9 }, { color: 'green', kind: 'number', value: 2 }] }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        currentTurn: aliceIndex,
+      })
+      await sendMsg(page1, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 6 },
+      })
 
-      // Alice draws and passes
-      await drawAndPass(page1)
-
-      // After Alice's turn, the turn must NOT be Alice's anymore
-      await waitForOthersTurn(page1, 10_000)
-
-      // From Bob's perspective, Alice is no longer currentTurn
-      await page2.waitForFunction(
-        (aliceIdx: number) => {
-          const s = window.__LOCO_E2E__?.getState?.()
-          return s !== undefined && s.currentTurn !== aliceIdx
-        },
-        aliceIndex,
+      // After Alice's turn, the turn must be Bob's on both clients.
+      await page1.waitForFunction(
+        (idx: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn === idx,
+        bobIndex,
         { timeout: 10_000 },
       )
 
-      // Eventually Bob gets his turn
-      await waitForTurn(page2, 30_000)
+      // Bob sees the same authoritative turn.
+      await page2.waitForFunction(
+        (idx: number) => {
+          const s = window.__LOCO_E2E__?.getState?.()
+          return s !== undefined && s.currentTurn === idx
+        },
+        bobIndex,
+        { timeout: 10_000 },
+      )
 
-      // Bob draws and passes to confirm his action bar is functional
-      await drawAndPass(page2)
+      // Give Bob a deterministic turn and action too.
+      await debugSetState(page2, {
+        hand: [
+          { color: 'blue', kind: 'number', value: 8 },
+          { color: 'yellow', kind: 'number', value: 4 },
+        ],
+        discard: { color: 'blue', kind: 'number', value: 2 },
+        currentTurn: bobIndex,
+      })
+      await sendMsg(page2, {
+        type: 'play_card',
+        card: { color: 'blue', kind: 'number', value: 8 },
+      })
       await waitForOthersTurn(page2, 10_000)
     } finally {
       await ctx1.close()
@@ -168,16 +176,19 @@ test.describe('multi-client synchronization', () => {
 
       await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
 
-      // Get Alice's player index and her initial hand size from Bob's view
+      // Get Alice's player index.
       const aliceState = await getState(page1)
       const aliceIndex = aliceState?.myIndex ?? 0
 
-      const bobInitialView = await getState(page2)
-      const aliceBefore = bobInitialView?.players.find((p) => p.index === aliceIndex)
-      const handSizeBefore = aliceBefore?.hand_size ?? 7
+      await debugSetState(page1, {
+        hand: [{ color: 'red', kind: 'number', value: 1 }, { color: 'blue', kind: 'number', value: 3 }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        currentTurn: aliceIndex,
+      })
+      const bobAfterDebug = await getState(page2)
+      const aliceAfterDebug = bobAfterDebug?.players.find((p) => p.index === aliceIndex)
+      const handSizeBefore = aliceAfterDebug?.hand_size ?? 2
 
-      // Wait for Alice's turn and draw
-      await waitForTurn(page1, 30_000)
       await sendMsg(page1, { type: 'draw_card' })
 
       // Bob's view of Alice's hand size should increase by 1
@@ -213,36 +224,27 @@ test.describe('multi-client synchronization', () => {
     try {
       const roomCode = await createRoom(page1, 'Alice')
       await joinRoom(page2, 'Bob', roomCode)
-      await addBot(page1)
       await startGame(page1)
 
       await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
 
-      // Both clients participate in their turns; the bot drives the game to completion
-      const actOnTurns = async (page: Page, label: string) => {
-        for (let i = 0; i < 4; i++) {
-          try {
-            await waitForTurn(page, 20_000)
-            const state = await getState(page)
-            if (state?.screen !== 'game' || state?.showRoundSummary) break
-            await drawAndPass(page)
-            await page.waitForTimeout(300)
-          } catch {
-            console.log(`${label} turn ${i} timed out — game may have ended`)
-            break
-          }
-        }
-      }
-
-      // Run both players concurrently
-      await Promise.all([
-        actOnTurns(page1, 'Alice'),
-        actOnTurns(page2, 'Bob'),
-      ])
+      const aliceState = await getState(page1)
+      const aliceIndex = aliceState?.myIndex ?? 0
+      const bobIndex = (await getState(page2))?.myIndex ?? 1
+      await debugSetState(page1, {
+        hand: [{ color: 'red', kind: 'number', value: 7 }],
+        hands: [{ playerIndex: bobIndex, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        currentTurn: aliceIndex,
+      })
+      await sendMsg(page1, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 7 },
+      })
 
       // Round summary should appear on both
-      await waitForRoundSummary(page1, 90_000)
-      await waitForRoundSummary(page2, 90_000)
+      await waitForRoundSummary(page1, 20_000)
+      await waitForRoundSummary(page2, 20_000)
 
       await expect(page1.getByText(/wins the round!/)).toBeVisible()
       await expect(page2.getByText(/wins the round!/)).toBeVisible()

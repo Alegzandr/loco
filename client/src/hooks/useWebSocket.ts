@@ -121,5 +121,11 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     }
   }, [])
 
-  return { send, wsStatus }
+  const forceClose = useCallback(() => {
+    const ws = wsRef.current
+    if (!ws) return
+    ws.close()
+  }, [])
+
+  return { send, wsStatus, forceClose }
 }
