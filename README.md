@@ -308,7 +308,8 @@ npm run lint:fix       # ESLint auto-fix
 
 ### End-to-End (Playwright)
 
-E2E tests require both the Go server and the Vite dev server to be running.
+Playwright starts its own isolated Vite dev server on `http://localhost:4173`.
+Only the Go server must be available on `:8080`.
 
 **Quickest local setup — use Docker Compose:**
 
@@ -332,9 +333,6 @@ npm run test:ui                   # interactive Playwright UI
 cd server && go run .
 
 # Terminal 2
-cd client && VITE_WS_PORT=8080 npm run dev
-
-# Terminal 3
 cd e2e && npm ci && npx playwright install chromium && npm test
 ```
 

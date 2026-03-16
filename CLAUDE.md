@@ -408,8 +408,8 @@ If structure changes, update this file and the README.
 
 - E2E tests live in `e2e/` (root-level, separate `package.json`).
 - Stack: `@playwright/test` with Chromium (desktop) and Pixel 5 profile (mobile).
-- Tests require the Go server on `:8080` and the Vite dev server on `:5173`.
-  - Local: run `docker compose -f docker-compose.dev.yml up --build` first, then `cd e2e && npm test`.
+- Tests require the Go server on `:8080`. Playwright starts an isolated Vite dev server on `:4173` from `playwright.config.ts`.
+  - Local: run `docker compose -f docker-compose.dev.yml up --build` first (for backend), then `cd e2e && npm test`.
   - CI: `backend_test` builds a static `server-bin` artifact; `e2e_test` starts it and runs Playwright.
 - `window.__LOCO_E2E__` is exposed by the client in dev mode only (`import.meta.env.DEV`):
   - `send(msg)` — dispatch any WebSocket message through the live connection

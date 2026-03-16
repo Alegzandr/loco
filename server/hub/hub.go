@@ -1657,24 +1657,46 @@ func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
 
 	playerID := c.playerID
 	state := room.State
-
-	// Replace this player's hand.
-	if len(msg.DebugHand) > 0 {
+	parseHand := func(cards []protocol.CardDTO) (game.Hand, error) {
 		newHand := game.Hand{}
-		for _, dto := range msg.DebugHand {
+		for _, dto := range cards {
 			col, err := parseColor(dto.Color)
 			if err != nil {
-				c.sendError(fmt.Sprintf("debug_hand: bad color %q: %v", dto.Color, err))
-				return
+				return game.Hand{}, fmt.Errorf("bad color %q: %w", dto.Color, err)
 			}
 			kind, err := parseKind(dto.Kind)
 			if err != nil {
-				c.sendError(fmt.Sprintf("debug_hand: bad kind %q: %v", dto.Kind, err))
-				return
+				return game.Hand{}, fmt.Errorf("bad kind %q: %w", dto.Kind, err)
 			}
 			newHand.Add(game.Card{Color: col, Kind: kind, Value: dto.Value})
 		}
+		return newHand, nil
+	}
+
+	// Replace this player's hand.
+	if len(msg.DebugHand) > 0 {
+		newHand, err := parseHand(msg.DebugHand)
+		if err != nil {
+			c.sendError(fmt.Sprintf("debug_hand: %v", err))
+			return
+		}
 		state.Hands[playerID] = newHand
+	}
+
+	// Replace any explicitly targeted players' hands.
+	if len(msg.DebugHands) > 0 {
+		for _, override := range msg.DebugHands {
+			if override.PlayerIndex < 0 || override.PlayerIndex >= len(state.Hands) {
+				c.sendError(fmt.Sprintf("debug_hands: invalid player_index %d", override.PlayerIndex))
+				return
+			}
+			newHand, err := parseHand(override.Hand)
+			if err != nil {
+				c.sendError(fmt.Sprintf("debug_hands[%d]: %v", override.PlayerIndex, err))
+				return
+			}
+			state.Hands[override.PlayerIndex] = newHand
+		}
 	}
 
 	// Replace top of discard pile and optionally the active color.
@@ -1713,6 +1735,16 @@ func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
 		state.PendingDraw = *msg.DebugPendingDraw
 	}
 
+	// Override current turn.
+	if msg.DebugCurrentTurn != nil {
+		if *msg.DebugCurrentTurn < 0 || *msg.DebugCurrentTurn >= len(state.Hands) {
+			c.sendError(fmt.Sprintf("debug_current_turn: invalid index %d", *msg.DebugCurrentTurn))
+			return
+		}
+		state.CurrentTurn = *msg.DebugCurrentTurn
+		state.HasDrawn = false
+	}
+
 	// Broadcast personalised game_state to every connected player.
 	for i, member := range h.roomMembers[c.roomCode] {
 		if member != nil {
@@ -1740,4 +1772,3 @@ func (h *Hub) generateCode() string {
 		}
 	}
 }
-

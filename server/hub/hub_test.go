@@ -1514,6 +1514,81 @@ func TestCatchUNO_HumanCatchesHuman(t *testing.T) {
 	_ = caught2
 }
 
+func TestDebugSetState_OverridesHandsAndTurn(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{
+		Type:     protocol.CMsgJoinRoom,
+		Nickname: "Bob",
+		RoomCode: created.RoomCode,
+	})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+	idx1 := gs1.State.YourIndex
+	idx2 := gs2.State.YourIndex
+	if idx1 == idx2 {
+		t.Fatal("expected distinct player indices")
+	}
+
+	pending := 2
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type: protocol.CMsgDebugSetState,
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{
+				PlayerIndex: idx1,
+				Hand: []protocol.CardDTO{
+					{Color: "red", Kind: "number", Value: 1},
+				},
+			},
+			{
+				PlayerIndex: idx2,
+				Hand: []protocol.CardDTO{
+					{Color: "blue", Kind: "number", Value: 9},
+					{Color: "green", Kind: "number", Value: 2},
+				},
+			},
+		},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &pending,
+		DebugCurrentTurn: &idx2,
+	})
+
+	post1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
+	post2 := readMsgOfType(t, conn2, protocol.SMsgGameState)
+	if post1.State == nil || post2.State == nil {
+		t.Fatal("missing state in game_state after debug_set_state")
+	}
+
+	if post1.State.Turn != idx2 || post2.State.Turn != idx2 {
+		t.Fatalf("turn mismatch after debug_set_state: got %d/%d, want %d", post1.State.Turn, post2.State.Turn, idx2)
+	}
+	if post1.State.PendingDraw != pending || post2.State.PendingDraw != pending {
+		t.Fatalf("pending draw mismatch after debug_set_state: got %d/%d, want %d", post1.State.PendingDraw, post2.State.PendingDraw, pending)
+	}
+	if got := len(post1.State.Hand); got != 1 {
+		t.Fatalf("player1 hand size = %d, want 1", got)
+	}
+	if got := len(post2.State.Hand); got != 2 {
+		t.Fatalf("player2 hand size = %d, want 2", got)
+	}
+}
+
 // TestBotCatch_WithinWindow verifies that a bot catches a human player who plays
 // to 1 card without declaring UNO, within the valid catch window.
 // Uses BotCatchProb=1.0 (always) and BotCatchDelay=10ms for determinism.
@@ -1662,4 +1737,3 @@ func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
 	}
 	// A timeout (read deadline exceeded) here is expected and correct.
 }
-

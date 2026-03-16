@@ -74,9 +74,11 @@ export default function App() {
         }
 
         case 'game_state':
-          // Mid-game state refresh (e.g. after Swap or GlobalSwitch)
+          // Mid-game authoritative refresh (e.g. debug_set_state, swap/global_switch effects).
+          // Apply the full state snapshot so discard/turn/pendingDraw remain in sync.
           if (msg.state) {
-            useGameStore.setState({ myHand: msg.state.hand, players: msg.state.players })
+            store.applyGameState(msg.state)
+            store.setScreen('game')
           }
           break
 

@@ -77,10 +77,18 @@ type ClientMsg struct {
 
 	// CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
 	// Any combination of fields may be provided; omitted fields are left unchanged.
-	DebugHand        []CardDTO `json:"debug_hand,omitempty"`         // replace this player's hand
-	DebugDiscard     *CardDTO  `json:"debug_discard,omitempty"`       // replace top of discard pile
-	DebugActiveColor string    `json:"debug_active_color,omitempty"`  // override active color
-	DebugPendingDraw *int      `json:"debug_pending_draw,omitempty"`  // override pending draw count
+	DebugHand        []CardDTO              `json:"debug_hand,omitempty"`          // replace this player's hand
+	DebugHands       []DebugHandOverrideDTO `json:"debug_hands,omitempty"`         // replace arbitrary players' hands
+	DebugDiscard     *CardDTO               `json:"debug_discard,omitempty"`       // replace top of discard pile
+	DebugActiveColor string                 `json:"debug_active_color,omitempty"`  // override active color
+	DebugPendingDraw *int                   `json:"debug_pending_draw,omitempty"`  // override pending draw count
+	DebugCurrentTurn *int                   `json:"debug_current_turn,omitempty"`  // override current turn player index
+}
+
+// DebugHandOverrideDTO is one per-player hand replacement used by debug_set_state.
+type DebugHandOverrideDTO struct {
+	PlayerIndex int       `json:"player_index"`
+	Hand        []CardDTO `json:"hand"`
 }
 
 // CardDTO is the wire representation of a card.
