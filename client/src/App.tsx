@@ -168,7 +168,7 @@ export default function App() {
     return null
   }, [])
 
-  const { send, wsStatus } = useWebSocket(handleMessage, getReconnectMsg)
+  const { send, wsStatus, forceClose } = useWebSocket(handleMessage, getReconnectMsg)
 
   const handleSend = useCallback(
     (msg: ClientMsg) => {
@@ -190,8 +190,10 @@ export default function App() {
       ...(window.__LOCO_E2E__ ?? {}),
       send: (msg: ClientMsg) => sendRef.current(msg),
       getState: useGameStore.getState,
+      getWsStatus: () => wsStatus,
+      forceCloseWs: forceClose,
     }
-  }, [])
+  }, [wsStatus, forceClose])
 
   const myNickname =
     store.players.find((p) => p.index === store.myIndex)?.nickname ?? ''

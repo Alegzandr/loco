@@ -83,6 +83,10 @@ interface LocoE2EHelper {
   send: (msg: object) => void
   /** Return the current Zustand store state snapshot. */
   getState: () => LocoE2EState
+  /** Return the current WebSocket connection status from useWebSocket. */
+  getWsStatus: () => 'connecting' | 'open' | 'closed'
+  /** Force-close the active WebSocket (dev/test seam). */
+  forceCloseWs: () => void
   /**
    * Simulate clicking a card in the player's hand.
    * Calls handleCardClick which animates and dispatches play_card via WebSocket.
