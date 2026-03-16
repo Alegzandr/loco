@@ -124,10 +124,24 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     await waitForMyTurn(page, 30_000)
 
     // Set a predictable starting state: our hand = one Swap card.
+    const initial = await getState(page)
+    const myIdx = initial?.myIndex ?? 0
+
     await debugSetState(page, {
       hand: [{ color: 'wild', kind: 'swap' }],
       discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
     })
+
+    await page.waitForFunction(
+      (idx: number) => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s !== undefined && s.currentTurn === idx && (s.myHand?.length ?? 0) === 1 && s.myHand?.[0]?.kind === 'swap'
+      },
+      myIdx,
+      { timeout: 8_000 },
+    )
 
     const before = await getState(page)
     expect(before?.myHand).toHaveLength(1)
@@ -148,15 +162,18 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     // After the swap:
     //   • discard shows the Swap card
-    //   • we received the bot's hand (our hand size > 1 with high probability since
-    //     the bot starts with 7 cards and draws/plays, but we just need any change)
+    //   • if the server rejects the play, fail immediately with the surfaced error
     await page.waitForFunction(
-      () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'swap',
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s?.discard?.kind === 'swap' || (s?.errorMsg ?? '') !== ''
+      },
       undefined,
       { timeout: 10_000 },
     )
 
     const after = await getState(page)
+    expect(after?.errorMsg ?? '').toBe('')
     expect(after?.discard?.kind).toBe('swap')
     // Our hand is now whatever the bot had (could be any size ≥ 0).
     // The Swap card itself should no longer be in our hand.
