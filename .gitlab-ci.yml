@@ -137,7 +137,6 @@ deploy_dev:
   needs: ["build"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop"'
-      when: manual
   script:
     - export APP_HOST="${APP_SUBDOMAIN}-d.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_REF_SLUG}"

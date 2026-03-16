@@ -427,7 +427,7 @@ The pipeline is defined in `.gitlab-ci.yml` and has three stages:
 |----------|---------------------------------------------|------------------------------------|
 | `test`   | `backend_test`, `frontend_test`, `e2e_test` | Every push (all branches)          |
 | `build`  | `build` (Docker images)                     | `develop` branch or `v*` tag only  |
-| `deploy` | `deploy_dev` (manual), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build` |
+| `deploy` | `deploy_dev` (auto on `develop`), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build` |
 
 **Test jobs** run on every push:
 - `backend_test` (`golang:1.24.7-alpine`): `go test ./...` + builds a static Linux binary (artifact for `e2e_test`)
@@ -455,6 +455,7 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 - The `server` service in `deploy/compose.yml` has a healthcheck (`GET /health`, 10 s interval, 5 s timeout, 3 retries, 5 s start period).
 - The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening Go server on deploy or restart.
 - All compose-interpolation variables (`DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`) are written to `app.env` by `write_app_env` and loaded via `--env-file app.env`, so a manual `docker compose up` on the server works without relying on CI shell exports.
+- Dev hosts (`*-d.<domain>`) serve `robots.txt` with `Disallow: /` to prevent indexing; production hosts allow indexing by default.
 
 ---
 
