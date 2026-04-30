@@ -4,6 +4,10 @@ server/loco-server
 # Node
 client/node_modules/
 client/dist/
+client/.vite-cache/
+
+# E2E
+e2e/tmp-out/
 
 # Environment
 .env
