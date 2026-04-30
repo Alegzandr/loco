@@ -62,12 +62,18 @@ export default function App() {
         case 'player_reconnected':
           store.setPlayers(msg.players ?? [])
           if (msg.state) {
+            // Read live state via getState() — handleMessage is created with
+            // an empty deps array, so the destructured `store` snapshot is
+            // frozen at first render and would lose any updates that happened
+            // after mount (e.g. roomCode/myIndex from room_created arriving
+            // before this branch fires).
+            const live = useGameStore.getState()
             // Mark reconnecting before applying state so GameView can animate recovery
             clearUnoTimer()
             store.setIsReconnecting(true)
             store.applyGameState(msg.state)
-            store.setRoomCode(msg.room_code ?? store.roomCode)
-            store.setMyIndex(msg.player_id ?? store.myIndex)
+            store.setRoomCode(msg.room_code ?? live.roomCode)
+            store.setMyIndex(msg.player_id ?? live.myIndex)
             store.setScreen('game')
           }
           break
@@ -179,9 +185,19 @@ export default function App() {
 
   const getReconnectMsg = useCallback(() => {
     const s = useGameStore.getState()
+    // Active gameplay reconnect: token-authenticated to reclaim the slot.
     if (s.screen === 'game' && s.roomCode && s.sessionToken) {
       const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
       return { type: 'join_room' as const, nickname, room_code: s.roomCode, session_token: s.sessionToken }
+    }
+    // Lobby reconnect: rejoin by nickname so the user does not have to reload
+    // and re-enter the room code after a transient WS drop. The server treats
+    // this as a fresh lobby join (no token needed before the game starts).
+    if (s.screen === 'waiting' && s.roomCode) {
+      const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
+      if (nickname) {
+        return { type: 'join_room' as const, nickname, room_code: s.roomCode }
+      }
     }
     return null
   }, [])

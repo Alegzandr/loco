@@ -41,6 +41,9 @@ func main() {
 		// IdleTimeout reclaims keep-alive HTTP connections that are no longer active.
 		IdleTimeout: 60 * time.Second,
 	}
+	if os.Getenv("LOCO_E2E") == "1" {
+		log.Printf("WARN debug mode enabled (LOCO_E2E=1) — debug_set_state is unauthenticated; do NOT use in production")
+	}
 	log.Printf("loco server listening on :%s", port)
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)

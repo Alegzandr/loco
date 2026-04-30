@@ -4,6 +4,7 @@ package hub
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	mrand "math/rand"
@@ -118,12 +119,18 @@ type Hub struct {
 	afterRegisterHook func()
 
 	// Atomic stats — safe to read from any goroutine (health/metrics endpoints).
-	statRooms          atomic.Int32
-	statClients        atomic.Int32
-	statMatchesStarted atomic.Int32
-	statMatchesFinished atomic.Int32
-	statBotsActive     atomic.Int32
-	startTime          time.Time
+	statRooms                atomic.Int32
+	statClients              atomic.Int32
+	statMatchesStarted       atomic.Int32
+	statMatchesFinished      atomic.Int32
+	statBotsActive           atomic.Int32
+	statMessagesRateLimited  atomic.Int64 // inbound messages dropped for exceeding the per-client token bucket
+	statMessagesDroppedBusy  atomic.Int64 // inbound messages dropped because h.inbound was full
+	statSlowClientsClosed    atomic.Int64 // clients force-closed because their send buffer overflowed
+	statChannelRetries       atomic.Int64 // botMove/expire/cleanup channel-pressure retries
+	statSuspectedCheats      atomic.Int64 // gameplay validation rejections that look like exploit attempts
+	statReconnectExpirations atomic.Int64 // reconnect windows that expired without the player coming back
+	startTime                time.Time
 }
 
 // HealthStats is a snapshot of hub metrics for the health endpoint.
@@ -136,13 +143,20 @@ type HealthStats struct {
 
 // MetricsStats is the full metrics payload for GET /metrics.
 type MetricsStats struct {
-	RoomsActive      int32 `json:"rooms_active"`
-	PlayersConnected int32 `json:"players_connected"`
-	MatchesStarted   int32 `json:"matches_started"`
-	MatchesFinished  int32 `json:"matches_finished"`
-	BotsActive       int32 `json:"bots_active"`
-	UptimeSec        int64 `json:"uptime_sec"`
-	GoroutineCount   int   `json:"goroutine_count"`
+	RoomsActive          int32 `json:"rooms_active"`
+	PlayersConnected     int32 `json:"players_connected"`
+	MatchesStarted       int32 `json:"matches_started"`
+	MatchesFinished      int32 `json:"matches_finished"`
+	BotsActive           int32 `json:"bots_active"`
+	UptimeSec            int64 `json:"uptime_sec"`
+	GoroutineCount       int   `json:"goroutine_count"`
+	MessagesRateLimited  int64 `json:"messages_rate_limited"`
+	MessagesDroppedBusy  int64 `json:"messages_dropped_busy"`
+	SlowClientsClosed    int64 `json:"slow_clients_closed"`
+	ChannelRetries       int64 `json:"channel_retries"`
+	SuspectedCheats      int64 `json:"suspected_cheats"`
+	ReconnectExpirations int64 `json:"reconnect_expirations"`
+	DebugModeActive      bool  `json:"debug_mode_active"`
 }
 
 // New creates and returns a Hub.
@@ -217,13 +231,20 @@ func (h *Hub) GetStats() HealthStats {
 // GetMetrics returns the full metrics payload safe to call from any goroutine.
 func (h *Hub) GetMetrics() MetricsStats {
 	return MetricsStats{
-		RoomsActive:      h.statRooms.Load(),
-		PlayersConnected: h.statClients.Load(),
-		MatchesStarted:   h.statMatchesStarted.Load(),
-		MatchesFinished:  h.statMatchesFinished.Load(),
-		BotsActive:       h.statBotsActive.Load(),
-		UptimeSec:        int64(time.Since(h.startTime).Seconds()),
-		GoroutineCount:   runtime.NumGoroutine(),
+		RoomsActive:          h.statRooms.Load(),
+		PlayersConnected:     h.statClients.Load(),
+		MatchesStarted:       h.statMatchesStarted.Load(),
+		MatchesFinished:      h.statMatchesFinished.Load(),
+		BotsActive:           h.statBotsActive.Load(),
+		UptimeSec:            int64(time.Since(h.startTime).Seconds()),
+		GoroutineCount:       runtime.NumGoroutine(),
+		MessagesRateLimited:  h.statMessagesRateLimited.Load(),
+		MessagesDroppedBusy:  h.statMessagesDroppedBusy.Load(),
+		SlowClientsClosed:    h.statSlowClientsClosed.Load(),
+		ChannelRetries:       h.statChannelRetries.Load(),
+		SuspectedCheats:      h.statSuspectedCheats.Load(),
+		ReconnectExpirations: h.statReconnectExpirations.Load(),
+		DebugModeActive:      os.Getenv("LOCO_E2E") == "1",
 	}
 }
 
@@ -234,7 +255,7 @@ func (h *Hub) Run() {
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
-			log.Printf("player connected addr=%s", c.conn.RemoteAddr())
+			log.Printf("player connected conn=%s addr=%s", c.connID, c.conn.RemoteAddr())
 			if h.afterRegisterHook != nil {
 				h.afterRegisterHook()
 			}
@@ -288,6 +309,16 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 }
 
 // dispatch routes a client message to the appropriate handler.
+//
+// Replay protection: the protocol carries no nonces or sequence numbers.
+// Replay defense is implicit in every gameplay handler — they validate
+// against current authoritative state (CurrentTurn, top discard, PendingDraw,
+// Hands[*].Contains, LastCardTime catch window, RoundEnded, MatchOver). A
+// captured-and-replayed message will fail one of these checks the moment
+// state has advanced past it, with the existing "not your turn" / "card not
+// in hand" / "catch window expired" / "game not in progress" error responses.
+// All identity fields (playerID, roomCode) are server-assigned at registration
+// and never sourced from msg, so a replayed envelope cannot impersonate.
 func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 	switch msg.Type {
 	case protocol.CMsgCreateRoom:
@@ -442,16 +473,17 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 
 	h.scheduleTurnTimer(c.roomCode, room)
 
-	// Send each player their personalized game state
+	// Send each player their personalized game state. Build the shared player
+	// list once and reuse it across all recipients.
 	members := h.roomMembers[c.roomCode]
-	for i, member := range members {
+	pl := h.playerList(room)
+	for _, member := range members {
 		if member == nil {
-			_ = i
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameState(room, member.playerID),
+			State: h.playerGameStateUsing(room, member.playerID, pl),
 		})
 	}
 	h.maybeScheduleBot(c.roomCode, room)
@@ -524,6 +556,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.PlayCard(c.playerID, card, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 
@@ -579,16 +612,18 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 		return
 	}
 
-	// New round started: schedule turn timer then send each player their personalized state
+	// New round started: schedule turn timer then send each player their
+	// personalized state. Build the player list once and share across recipients.
 	h.scheduleTurnTimer(code, room)
 	members := h.roomMembers[code]
+	pl := h.playerList(room)
 	for _, member := range members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameState(room, member.playerID),
+			State: h.playerGameStateUsing(room, member.playerID, pl),
 		})
 	}
 	h.maybeScheduleBot(code, room)
@@ -602,6 +637,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	priorSize := len(room.State.Hands[c.playerID].Cards)
 	if err := room.DrawCard(c.playerID); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 	state := room.State
@@ -648,6 +684,7 @@ func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.PassTurn(c.playerID); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 	h.scheduleTurnTimer(c.roomCode, room)
@@ -666,6 +703,7 @@ func (h *Hub) handleDeclareUno(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.DeclareLastCard(c.playerID); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
@@ -682,6 +720,7 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 	targetIdx := room.State.LastCardPlayer
 	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
@@ -706,6 +745,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.CounterDraw(c.playerID, card, chosenColor); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
@@ -733,6 +773,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.InterruptPlay(c.playerID, card, chosenPlayer); err != nil {
 		c.sendError(err.Error())
+		c.noteSuspect(err.Error())
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
@@ -744,7 +785,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 
 func (h *Hub) handleDisconnect(c *Client) {
 	if c.roomCode == "" {
-		log.Printf("player disconnected addr=%s (no room)", c.conn.RemoteAddr())
+		log.Printf("player disconnected conn=%s addr=%s (no room)", c.connID, c.conn.RemoteAddr())
 		return
 	}
 	room, ok := h.rooms[c.roomCode]
@@ -786,6 +827,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 			select {
 			case h.expire <- em:
 			default:
+				h.statChannelRetries.Add(1)
 				log.Printf("expire channel full, retrying in 5s code=%s player=%d", code, pid)
 				time.AfterFunc(5*time.Second, func() {
 					select {
@@ -921,6 +963,7 @@ func (h *Hub) scheduleRoomCleanup(code string) {
 		select {
 		case h.cleanup <- cm:
 		default:
+			h.statChannelRetries.Add(1)
 			log.Printf("cleanup channel full, retrying room cleanup in 30s code=%s", code)
 			time.AfterFunc(30*time.Second, func() {
 				select {
@@ -988,6 +1031,7 @@ func (h *Hub) handleExpireReconnect(em expireMsg) {
 		log.Printf("reconnect expiry skipped, superseded by newer disconnect code=%s player=%d", em.roomCode, em.playerID)
 		return
 	}
+	h.statReconnectExpirations.Add(1)
 	log.Printf("reconnect window expired code=%s player=%d", em.roomCode, em.playerID)
 
 	delete(slots, em.playerID)
@@ -1160,6 +1204,7 @@ func (h *Hub) scheduleBotMove(code string, playerID int) {
 		select {
 		case h.botMove <- bm:
 		default:
+			h.statChannelRetries.Add(1)
 			log.Printf("botMove channel full, retrying in 1s code=%s player=%d", code, playerID)
 			time.AfterFunc(1*time.Second, func() {
 				select {
@@ -1561,21 +1606,35 @@ func (h *Hub) turnDeadlineMs(code string) int64 {
 // broadcastPersonalizedGameState sends each connected player their personalized game state.
 // Used after Swap and GlobalSwitch when all hands change simultaneously.
 func (h *Hub) broadcastPersonalizedGameState(code string, room *game.Room) {
+	pl := h.playerList(room)
 	for _, member := range h.roomMembers[code] {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameState,
-			State: h.playerGameState(room, member.playerID),
+			State: h.playerGameStateUsing(room, member.playerID, pl),
 		})
 	}
 }
 
+// broadcastToRoom marshals msg once and fans the same []byte out to every
+// member in the room except `exclude`. This avoids re-marshaling identical
+// payloads N times for an N-player room — a significant CPU win on hot paths
+// like card_played, round_end, turn_changed.
 func (h *Hub) broadcastToRoom(code string, msg protocol.ServerMsg, exclude *Client) {
-	for _, c := range h.roomMembers[code] {
+	members := h.roomMembers[code]
+	if len(members) == 0 {
+		return
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("broadcast marshal error code=%s err=%v", code, err)
+		return
+	}
+	for _, c := range members {
 		if c != nil && c != exclude {
-			c.Send(msg)
+			c.SendBytes(data)
 		}
 	}
 }
@@ -1654,7 +1713,20 @@ func (h *Hub) buildScoreboard(room *game.Room) []protocol.ScoreboardEntryDTO {
 	return sb
 }
 
+// playerGameState builds a personalized game-state snapshot for one player.
+// Use this for single-recipient sends (reconnect). For broadcast loops over
+// every member of a room, prefer playerGameStateUsing to avoid rebuilding the
+// shared player list once per recipient.
 func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStateDTO {
+	return h.playerGameStateUsing(room, playerIdx, h.playerList(room))
+}
+
+// playerGameStateUsing builds a personalized game-state DTO with a precomputed
+// player list. Broadcast loops should call playerList(room) once and pass the
+// result here for every recipient — this skips ~N redundant playerList rebuilds
+// per broadcast (each rebuild iterates Players × State.Placements × Finished ×
+// disconnectedAt and allocates a placement map and player slice).
+func (h *Hub) playerGameStateUsing(room *game.Room, playerIdx int, players []protocol.PlayerDTO) *protocol.GameStateDTO {
 	state := room.State
 	// Defensive bounds. A panic here would kill the hub goroutine and take down
 	// every active room, so we degrade gracefully when the inputs are unexpected
@@ -1669,7 +1741,7 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 		return &protocol.GameStateDTO{
 			YourIndex:   playerIdx,
 			Hand:        []protocol.CardDTO{},
-			Players:     h.playerList(room),
+			Players:     players,
 			MatchFormat: matchFormatString(room.Format),
 			MaxPlayers:  room.MaxPlayers,
 			RoundNumber: room.RoundNumber,
@@ -1712,7 +1784,7 @@ func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStat
 	return &protocol.GameStateDTO{
 		YourIndex:    playerIdx,
 		Hand:         hand,
-		Players:      h.playerList(room),
+		Players:      players,
 		Discard:      *cardToDTO(top),
 		ActiveColor:  colorName(state.ActiveColor),
 		Turn:         state.CurrentTurn,
@@ -1846,11 +1918,12 @@ func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
 	}
 
 	// Broadcast personalised game_state to every connected player.
+	pl := h.playerList(room)
 	for i, member := range h.roomMembers[c.roomCode] {
 		if member != nil {
 			member.Send(protocol.ServerMsg{
 				Type:  protocol.SMsgGameState,
-				State: h.playerGameState(room, i),
+				State: h.playerGameStateUsing(room, i, pl),
 			})
 		}
 	}

@@ -1928,3 +1928,72 @@ func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
 		t.Errorf("round 2 hand size = %d, want 7", len(gs2.State.Hand))
 	}
 }
+
+// TestRateLimit_BurstThenError verifies the per-client token bucket. The bucket
+// allows a burst of 20, then refills at 10/sec. A client that fires 30 quick
+// messages should get error responses after the bucket drains.
+func TestRateLimit_BurstThenError(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	// Fire a burst of 30 messages back-to-back (clearly above the 20-token burst).
+	// Use unknown_message so dispatch returns "unknown message type" — but the
+	// rate-limiter rejects BEFORE dispatch, so once the bucket drains we see
+	// "rate limit exceeded" instead.
+	const burst = 30
+	for i := 0; i < burst; i++ {
+		sendMsg(t, conn, protocol.ClientMsg{Type: "unknown_msg_type"})
+	}
+
+	// Drain the responses and count how many were rate-limited vs unknown-type.
+	rateLimited := 0
+	unknown := 0
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && (rateLimited+unknown) < burst {
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		var msg protocol.ServerMsg
+		if json.Unmarshal(data, &msg) != nil {
+			continue
+		}
+		if msg.Type != protocol.SMsgError {
+			continue
+		}
+		switch {
+		case strings.Contains(msg.Error, "rate limit"):
+			rateLimited++
+		case strings.Contains(msg.Error, "unknown message"):
+			unknown++
+		}
+	}
+
+	if rateLimited == 0 {
+		t.Errorf("expected at least 1 rate-limit error after %d-message burst, got %d (unknown=%d)", burst, rateLimited, unknown)
+	}
+	if got := h.GetMetrics().MessagesRateLimited; got == 0 {
+		t.Errorf("metrics MessagesRateLimited = 0 after rate-limit burst, want > 0")
+	}
+}
+
+// TestMetrics_DebugModeFlag verifies that GetMetrics surfaces the LOCO_E2E
+// gate so an operator can detect a misconfigured production deploy.
+func TestMetrics_DebugModeFlag(t *testing.T) {
+	h, _ := newTestHub(t)
+
+	// Default: env var unset → false.
+	if h.GetMetrics().DebugModeActive {
+		t.Error("DebugModeActive should be false when LOCO_E2E is unset")
+	}
+
+	t.Setenv("LOCO_E2E", "1")
+	if !h.GetMetrics().DebugModeActive {
+		t.Error("DebugModeActive should be true when LOCO_E2E=1")
+	}
+}

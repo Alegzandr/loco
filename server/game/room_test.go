@@ -1642,3 +1642,123 @@ func setupThreePlayerGame(t *testing.T) *Room {
 	r.State.Direction = 1 // reset direction; Reverse as first card can flip it
 	return r
 }
+
+// --- BeginNextRound edge cases ---
+
+func TestRoom_BeginNextRound_RejectsAfterMatchOver(t *testing.T) {
+	r := NewRoom("BNRM")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	r.Format = BO1
+	_ = r.Start()
+	r.State.CurrentTurn = 0
+	r.State.PendingDraw = 0
+
+	// Force alice to win round 1 → BO1 → MatchOver = true.
+	top := r.State.Discard[len(r.State.Discard)-1]
+	winCard := Card{Color: top.Color, Kind: Number, Value: top.Value}
+	r.State.Hands[0].Cards = []Card{winCard}
+	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
+	if err := r.PlayCard(0, winCard, winCard.Color, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if !r.MatchOver {
+		t.Fatal("expected MatchOver=true after BO1 win")
+	}
+	if err := r.BeginNextRound(); err == nil {
+		t.Error("BeginNextRound after MatchOver should return error")
+	}
+}
+
+func TestRoom_BeginNextRound_RejectsInLobby(t *testing.T) {
+	r := NewRoom("BNRL")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	// Game not started; Status == StatusLobby.
+	if err := r.BeginNextRound(); err == nil {
+		t.Error("BeginNextRound in lobby should return error")
+	}
+}
+
+// --- RemoveLobbyPlayer re-indexing ---
+
+func TestRoom_RemoveLobbyPlayer_ReindexesPlayerIndices(t *testing.T) {
+	r := NewRoom("RMVI")
+	for _, n := range []string{"alice", "bob", "carol"} {
+		if err := r.Join(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Verify initial indices.
+	for i, p := range r.Players {
+		if p.Index != i {
+			t.Errorf("initial Players[%d].Index = %d, want %d", i, p.Index, i)
+		}
+	}
+
+	// Remove the middle player (bob, index 1).
+	wasHost, err := r.RemoveLobbyPlayer(1)
+	if err != nil {
+		t.Fatalf("RemoveLobbyPlayer: %v", err)
+	}
+	if wasHost {
+		t.Error("removing index 1 should not report wasHost")
+	}
+	if len(r.Players) != 2 {
+		t.Fatalf("Players after remove = %d, want 2", len(r.Players))
+	}
+	if r.Players[0].Nickname != "alice" || r.Players[0].Index != 0 {
+		t.Errorf("Players[0] = %+v, want {alice, 0}", r.Players[0])
+	}
+	if r.Players[1].Nickname != "carol" || r.Players[1].Index != 1 {
+		t.Errorf("Players[1] = %+v, want {carol, 1} after re-index", r.Players[1])
+	}
+}
+
+func TestRoom_RemoveLobbyPlayer_HostFlag(t *testing.T) {
+	r := NewRoom("RMVH")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	wasHost, err := r.RemoveLobbyPlayer(0)
+	if err != nil {
+		t.Fatalf("RemoveLobbyPlayer: %v", err)
+	}
+	if !wasHost {
+		t.Error("removing index 0 should report wasHost=true")
+	}
+	if r.Players[0].Nickname != "bob" || r.Players[0].Index != 0 {
+		t.Errorf("after host removal, new host = %+v, want {bob, 0}", r.Players[0])
+	}
+}
+
+func TestRoom_RemoveLobbyPlayer_RejectedAfterStart(t *testing.T) {
+	r := NewRoom("RMVA")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	_ = r.Start()
+	if _, err := r.RemoveLobbyPlayer(0); err == nil {
+		t.Error("RemoveLobbyPlayer after game start should return error")
+	}
+}
+
+func TestRoom_RemoveLobbyPlayer_BoundsCheck(t *testing.T) {
+	r := NewRoom("RMVB")
+	_ = r.Join("alice")
+	if _, err := r.RemoveLobbyPlayer(-1); err == nil {
+		t.Error("negative index should return error")
+	}
+	if _, err := r.RemoveLobbyPlayer(99); err == nil {
+		t.Error("out-of-range index should return error")
+	}
+}
+
+// --- CatchUndeclared edge case (regression: catch attempt before someone played to 1 card) ---
+
+func TestRoom_CatchUndeclared_NoTargetYet(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	// LastCardPlayer defaults to 0 and Hands[0] starts at 7 cards, so a catch
+	// attempt at the start of the game must be rejected (target not at 1 card).
+	if err := r.CatchUndeclared(1, 0, time.Now()); err == nil {
+		t.Error("catch at game start should fail (no one played to 1 card yet)")
+	}
+}

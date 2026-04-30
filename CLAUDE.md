@@ -490,7 +490,18 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 - `renderReconnect` animates all elements in with staggered entrances: discard pile fades/scales in first, then player info bubbles (80 ms stagger), then hand cards (40 ms stagger per card).
 - `onComplete` fires after the last card animation, resetting `isReconnecting: false`.
 - While `isReconnecting` is true, the normal `render()` path is suppressed to avoid overwriting the animation.
+- `renderReconnect` resets `lastRenderFingerprint` so the next normal `render()` always rebuilds even if the inputs match the previous fingerprint.
 - This is purely visual recovery; server state is authoritative.
+
+## Client transport conventions
+
+- `useWebSocket.send(msg)` queues messages in `pendingRef: ClientMsg[]` whenever the socket is not OPEN; the queue is flushed in FIFO order on the next `onopen`. A user can rapidly tap multiple actions (e.g. draw + play) during a brief reconnect without losing any.
+- Auto-reconnect: linear backoff `2s × min(attempts, 4)`, capped at 10 attempts. `attemptsRef` resets to 0 on successful `onopen`.
+- `getReconnectMsg` re-authenticates on `onopen`:
+  - In `screen === 'game'`: token-authenticated `join_room` reclaiming the disconnected slot.
+  - In `screen === 'waiting'` (lobby): plain nickname `join_room`. Best-effort — if the server has not yet observed the disconnect, the rejoin is rejected with "nickname already taken" and the user must reload.
+- `App.handleMessage` is created with `deps: []`. Any branch that needs CURRENT store values (not the first-render snapshot) must read them via `useGameStore.getState()`. Stable Zustand actions (`store.setX`) are safe to use directly.
+- `PixiGame.render(state)` short-circuits when `_renderFingerprint(state, w, h)` matches the last render and the discard hasn't changed. This guards against StrictMode double-invokes and store updates that change references but not values.
 
 ## Round summary conventions
 
@@ -504,9 +515,17 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 
 ## Metrics conventions
 
-- `GET /metrics` returns JSON: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`, **`goroutine_count`**.
-- `goroutine_count` is `runtime.NumGoroutine()` read at request time — a real-time indicator of goroutine health; should remain low and stable under normal operation.
-- All other counters are `sync/atomic.Int32` fields on `Hub`; `GetMetrics()` reads them without entering the event loop.
+- `GET /metrics` returns JSON. Stable fields:
+  - `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active` — gameplay counters.
+  - `uptime_sec`, `goroutine_count` — process health; goroutine count should remain low and stable under normal operation.
+  - `messages_rate_limited` — total inbound messages dropped by the per-client token bucket. Sustained growth signals abusive clients or a too-tight burst.
+  - `messages_dropped_busy` — total inbound messages dropped because `h.inbound` was saturated. Should remain ~0; non-zero means the hub event loop is overloaded.
+  - `slow_clients_closed` — total clients force-closed because their per-client send buffer overflowed. Each one represents a user that got bumped into the reconnect path; sustained growth means the broadcast rate is too high or many clients have poor connections.
+  - `channel_retries` — total `botMove` / `expire` / `cleanup` channel-pressure retries. Should remain ~0 in healthy load.
+  - `suspected_cheats` — count of clients that triggered ≥ `suspectThreshold` gameplay validation rejections in a 30-s window. One increment per burst; investigate the matching `WARN suspected cheat` log line for the offending `conn=` and `code=`.
+  - `reconnect_expirations` — count of disconnected players whose 60-s reconnect window expired without them coming back.
+  - `debug_mode_active` — boolean reflecting `LOCO_E2E=1`. Must be `false` on every production deploy; `main.go` also logs a startup `WARN` if set.
+- All counters are atomic on `Hub`; `GetMetrics()` reads them without entering the event loop.
 - `statMatchesStarted` incremented in `handleStartGame` (once per `start_game` message, not per round).
 - `statMatchesFinished` incremented in `handleRoundOrMatchEnd` when `room.MatchOver` is true.
 - `statBotsActive` incremented in `handleAddBot`; decremented in `deleteRoom` by the number of bots in that room.
@@ -530,7 +549,8 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
   - `expire`: retry after 5 s — dropping leaves disconnected slot in `disconnectedAt` forever.
   - `cleanup`: retry after 30 s — dropping leaks an empty room until restart.
 - Non-critical channel sends (per-client `send`, `inbound`) use non-blocking drop + client notification. These are tolerable losses (client can retry; hub must not block).
-- `Client.Send` drops messages to a slow client (send buffer cap 256) to prevent head-of-line blocking. Logged at WARN level.
+- **`Client.SendBytes` force-closes the underlying WebSocket when the per-client send buffer (cap 256) fills.** Silently dropping a server-to-client message would leave the client desynced with no recovery path; closing the conn instead triggers `readPump` exit → `unregister` → the slot enters the reconnect window, the client's auto-reconnect fires, and `handleReconnect` delivers a full `game_state` snapshot. Increments `slow_clients_closed`.
+- **Broadcast helpers marshal each `ServerMsg` exactly once.** `broadcastToRoom` encodes `data, _ := json.Marshal(msg)` and fans the same `[]byte` to every recipient via `Client.SendBytes`. For per-recipient personalised payloads (game_state / game_started / private card_drawn) the broadcast loop precomputes `pl := h.playerList(room)` and calls `playerGameStateUsing(room, idx, pl)` so `playerList` is built once per broadcast, not once per recipient.
 - `readPump` sends to `h.inbound` non-blocking; drops notify the client "server busy". Prevents readPump goroutines from parking on a full channel and deadlocking the `unregister` channel (cap 16).
 - Every scheduled callback (`executeBotMove`, `handleExpireReconnect`, `handleCleanup`) re-checks current room/player state before acting and logs the skip reason.
 - `http.Server` is configured with `ReadHeaderTimeout: 10s` and `IdleTimeout: 60s` to reclaim stale HTTP connections and guard against Slowloris.
@@ -544,7 +564,9 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 
 - All log output uses the standard `log` package to stdout.
 - Format: `key=value` pairs on a single line, e.g. `room created code=ABC123 host=Alice`.
-- Events logged: player connected (with addr), player disconnected (with code/nickname/playerID), reconnected, reconnect window expired, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors, scheduled callback skips (bot move skipped, cleanup skipped, reconnect expiry skipped — with reason), channel pressure warnings (`WARN` prefix).
+- Every connection-scoped log line includes `conn=<8-hex>` (a per-`Client` random ID set in `newClient` via `generateConnID`). Use this to grep one player's actions across the log even before they have a `code=`. Room-scoped lines also include `code=<6-char>`; the room code IS the room correlation ID.
+- Events logged: player connected (conn, addr), player disconnected (conn, code, nickname, playerID), reconnected, reconnect window expired, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors, scheduled callback skips (bot move skipped, cleanup skipped, reconnect expiry skipped — with reason), channel-pressure warnings (`WARN` prefix), **suspected-cheat bursts (`WARN suspected cheat ... conn=<id> code=<code> player=<idx> last_reason=<msg>`)**, slow-client force-close (`WARN slow client ...`).
+- `WARN debug mode enabled (LOCO_E2E=1) ...` is logged once at server startup if the debug gate is on. Production deploys must never see this line.
 - No sensitive data (tokens, hand contents) in logs.
 
 ## i18n conventions
