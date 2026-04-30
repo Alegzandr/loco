@@ -10,6 +10,18 @@ import { ServerMsg, ClientMsg } from './types/protocol'
 export default function App() {
   const store = useGameStore()
 
+  // Tracks the in-flight UNO catch-window timer so a new declaration cancels
+  // the old one. Without this, an earlier setTimeout fires later and clobbers
+  // a fresh declaration's UNO state (e.g. across rapid back-to-back UNOs or
+  // after a round transition).
+  const unoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearUnoTimer = useCallback(() => {
+    if (unoTimerRef.current !== null) {
+      clearTimeout(unoTimerRef.current)
+      unoTimerRef.current = null
+    }
+  }, [])
+
   const handleMessage = useCallback(
     (msg: ServerMsg) => {
       switch (msg.type) {
@@ -50,11 +62,18 @@ export default function App() {
         case 'player_reconnected':
           store.setPlayers(msg.players ?? [])
           if (msg.state) {
+            // Read live state via getState() — handleMessage is created with
+            // an empty deps array, so the destructured `store` snapshot is
+            // frozen at first render and would lose any updates that happened
+            // after mount (e.g. roomCode/myIndex from room_created arriving
+            // before this branch fires).
+            const live = useGameStore.getState()
             // Mark reconnecting before applying state so GameView can animate recovery
+            clearUnoTimer()
             store.setIsReconnecting(true)
             store.applyGameState(msg.state)
-            store.setRoomCode(msg.room_code ?? store.roomCode)
-            store.setMyIndex(msg.player_id ?? store.myIndex)
+            store.setRoomCode(msg.room_code ?? live.roomCode)
+            store.setMyIndex(msg.player_id ?? live.myIndex)
             store.setScreen('game')
           }
           break
@@ -66,6 +85,7 @@ export default function App() {
               // Round summary is visible — buffer the new state; apply when player dismisses
               store.setPendingGameState(msg.state)
             } else {
+              clearUnoTimer()
               store.applyGameState(msg.state)
               store.setScreen('game')
             }
@@ -77,6 +97,7 @@ export default function App() {
           // Mid-game authoritative refresh (e.g. debug_set_state, swap/global_switch effects).
           // Apply the full state snapshot so discard/turn/pendingDraw remain in sync.
           if (msg.state) {
+            clearUnoTimer()
             store.applyGameState(msg.state)
             store.setScreen('game')
           }
@@ -112,10 +133,12 @@ export default function App() {
           break
 
         case 'uno_declared':
+          clearUnoTimer()
           store.setUnoDeclared(true)
           store.setUnoDeclaredByIndex(msg.player_index ?? -1)
           store.setUnoTimerEnd(Date.now() + 5000)
-          setTimeout(() => {
+          unoTimerRef.current = setTimeout(() => {
+            unoTimerRef.current = null
             store.setUnoDeclared(false)
             store.setUnoDeclaredByIndex(-1)
             store.setUnoTimerEnd(null)
@@ -126,6 +149,7 @@ export default function App() {
           break
 
         case 'round_end':
+          clearUnoTimer()
           store.applyRoundEnd(
             msg.round_winner ?? '',
             msg.round_number ?? 0,
@@ -161,9 +185,19 @@ export default function App() {
 
   const getReconnectMsg = useCallback(() => {
     const s = useGameStore.getState()
+    // Active gameplay reconnect: token-authenticated to reclaim the slot.
     if (s.screen === 'game' && s.roomCode && s.sessionToken) {
       const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
       return { type: 'join_room' as const, nickname, room_code: s.roomCode, session_token: s.sessionToken }
+    }
+    // Lobby reconnect: rejoin by nickname so the user does not have to reload
+    // and re-enter the room code after a transient WS drop. The server treats
+    // this as a fresh lobby join (no token needed before the game starts).
+    if (s.screen === 'waiting' && s.roomCode) {
+      const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
+      if (nickname) {
+        return { type: 'join_room' as const, nickname, room_code: s.roomCode }
+      }
     }
     return null
   }, [])

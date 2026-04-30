@@ -74,6 +74,7 @@ export class PixiGame {
   private onCardClick: OnCardClick
   private animations: AnimTarget[] = []
   private lastDiscardKey = ''
+  private lastRenderFingerprint = ''
   private initialized = false
   private destroyed = false
   // Track last rendered hand card positions for play animation origin
@@ -118,6 +119,17 @@ export class PixiGame {
     const discardChanged = newDiscardKey !== this.lastDiscardKey && newDiscardKey !== ''
     this.lastDiscardKey = newDiscardKey
 
+    // Skip the rebuild entirely when nothing visible has changed. The Zustand
+    // store hands React a fresh `players` array on every server message even
+    // when the values are unchanged (see useGameStore.applyCardPlayed), and
+    // React StrictMode double-invokes effects in dev. Without this guard we
+    // pay 80+ Graphics allocations per no-op tick.
+    const fp = this._renderFingerprint(state, width, height)
+    if (fp === this.lastRenderFingerprint && !discardChanged) {
+      return
+    }
+    this.lastRenderFingerprint = fp
+
     this.bgContainer.removeChildren()
     this.handContainer.removeChildren()
     this.discardContainer.removeChildren()
@@ -148,6 +160,9 @@ export class PixiGame {
     this.discardContainer.removeChildren()
     this.uiContainer.removeChildren()
     this.animations = []
+    // The reconnect animation builds the scene piece-by-piece; the next normal
+    // render() must rebuild from scratch even if the inputs match.
+    this.lastRenderFingerprint = ''
 
     this.renderBackground(width, height)
     this.renderDeckBack(width, height)
@@ -842,6 +857,24 @@ export class PixiGame {
     }
 
     return container
+  }
+
+  // Compact representation of the inputs that affect what render() draws.
+  // Two equivalent states produce identical fingerprints so render() can short-
+  // circuit. Includes width/height so a resize still re-renders.
+  private _renderFingerprint(state: GameRenderState, width: number, height: number): string {
+    const handPart = state.myHand.map((c) => `${c.color[0]}${c.kind[0]}${c.value ?? ''}`).join(',')
+    const playersPart = state.players
+      .map((p) => `${p.index}:${p.hand_size}:${p.connected === false ? 'd' : ''}${p.finished ? 'f' : ''}${p.placement ?? ''}`)
+      .join(',')
+    return `${width}x${height}|${state.myIndex}|${state.currentTurn}|${state.pendingDraw}|${state.activeColor}|${this.lastDiscardKey}|${handPart}|${playersPart}`
+  }
+
+  // Reset the fingerprint so the next render() rebuilds even if the inputs
+  // happen to match the previous render. Used after renderReconnect, which
+  // bypasses the normal render path and would otherwise leave a stale cache.
+  invalidateRenderCache() {
+    this.lastRenderFingerprint = ''
   }
 
   private cardLabel(card: CardDTO): string {
