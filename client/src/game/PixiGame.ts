@@ -33,6 +33,11 @@ export interface GameRenderState {
   turnTexts?: TurnTexts
 }
 
+export interface OpponentBubblePosition {
+  x: number
+  y: number
+}
+
 type OnCardClick = (card: CardDTO, idx: number) => void
 
 interface AnimTarget {
@@ -69,6 +74,7 @@ export class PixiGame {
   private onCardClick: OnCardClick
   private animations: AnimTarget[] = []
   private lastDiscardKey = ''
+  private lastRenderFingerprint = ''
   private initialized = false
   private destroyed = false
   // Track last rendered hand card positions for play animation origin
@@ -113,6 +119,17 @@ export class PixiGame {
     const discardChanged = newDiscardKey !== this.lastDiscardKey && newDiscardKey !== ''
     this.lastDiscardKey = newDiscardKey
 
+    // Skip the rebuild entirely when nothing visible has changed. The Zustand
+    // store hands React a fresh `players` array on every server message even
+    // when the values are unchanged (see useGameStore.applyCardPlayed), and
+    // React StrictMode double-invokes effects in dev. Without this guard we
+    // pay 80+ Graphics allocations per no-op tick.
+    const fp = this._renderFingerprint(state, width, height)
+    if (fp === this.lastRenderFingerprint && !discardChanged) {
+      return
+    }
+    this.lastRenderFingerprint = fp
+
     this.bgContainer.removeChildren()
     this.handContainer.removeChildren()
     this.discardContainer.removeChildren()
@@ -143,6 +160,9 @@ export class PixiGame {
     this.discardContainer.removeChildren()
     this.uiContainer.removeChildren()
     this.animations = []
+    // The reconnect animation builds the scene piece-by-piece; the next normal
+    // render() must rebuild from scratch even if the inputs match.
+    this.lastRenderFingerprint = ''
 
     this.renderBackground(width, height)
     this.renderDeckBack(width, height)
@@ -398,55 +418,24 @@ export class PixiGame {
   }
 
   private renderPlayerInfo(state: GameRenderState, width: number, height: number) {
-    const others = _clockwiseOpponents(state.players, state.myIndex)
+    const others = clockwiseOpponents(state.players, state.myIndex)
     if (others.length === 0) return
 
-    if (others.length === 1) {
-      const p = others[0]
-      const container = this._buildPlayerBubble(p, state.currentTurn, state.turnTexts)
-      container.x = width / 2
-      container.y = 50
-      this.uiContainer.addChild(container)
-      return
-    }
-
-    const angleStep = Math.PI / (others.length + 1)
-    const cx = width / 2
-    const radiusX = width * 0.38
-    const radiusY = height * 0.15
+    const positions = opponentBubblePositions(others.length, width, height)
 
     others.forEach((p, i) => {
-      const angle = Math.PI + angleStep * (i + 1)
-      const rx = cx + Math.cos(angle) * radiusX
-      const ry = 60 + Math.sin(angle) * radiusY
-
       const container = this._buildPlayerBubble(p, state.currentTurn, state.turnTexts)
-      container.x = rx
-      container.y = ry
+      container.x = positions[i].x
+      container.y = positions[i].y
       this.uiContainer.addChild(container)
     })
   }
 
   private _renderBubblesAnimated(state: GameRenderState, width: number, height: number) {
-    const others = _clockwiseOpponents(state.players, state.myIndex)
+    const others = clockwiseOpponents(state.players, state.myIndex)
     if (others.length === 0) return
 
-    const positions: { x: number; y: number }[] = []
-    if (others.length === 1) {
-      positions.push({ x: width / 2, y: 50 })
-    } else {
-      const angleStep = Math.PI / (others.length + 1)
-      const cx = width / 2
-      const radiusX = width * 0.38
-      const radiusY = height * 0.15
-      others.forEach((_, i) => {
-        const angle = Math.PI + angleStep * (i + 1)
-        positions.push({
-          x: cx + Math.cos(angle) * radiusX,
-          y: 60 + Math.sin(angle) * radiusY,
-        })
-      })
-    }
+    const positions = opponentBubblePositions(others.length, width, height)
 
     others.forEach((p, i) => {
       const { x, y } = positions[i]
@@ -870,6 +859,24 @@ export class PixiGame {
     return container
   }
 
+  // Compact representation of the inputs that affect what render() draws.
+  // Two equivalent states produce identical fingerprints so render() can short-
+  // circuit. Includes width/height so a resize still re-renders.
+  private _renderFingerprint(state: GameRenderState, width: number, height: number): string {
+    const handPart = state.myHand.map((c) => `${c.color[0]}${c.kind[0]}${c.value ?? ''}`).join(',')
+    const playersPart = state.players
+      .map((p) => `${p.index}:${p.hand_size}:${p.connected === false ? 'd' : ''}${p.finished ? 'f' : ''}${p.placement ?? ''}`)
+      .join(',')
+    return `${width}x${height}|${state.myIndex}|${state.currentTurn}|${state.pendingDraw}|${state.activeColor}|${this.lastDiscardKey}|${handPart}|${playersPart}`
+  }
+
+  // Reset the fingerprint so the next render() rebuilds even if the inputs
+  // happen to match the previous render. Used after renderReconnect, which
+  // bypasses the normal render path and would otherwise leave a stale cache.
+  invalidateRenderCache() {
+    this.lastRenderFingerprint = ''
+  }
+
   private cardLabel(card: CardDTO): string {
     switch (card.kind) {
       case 'number': return String(card.value ?? 0)
@@ -920,18 +927,46 @@ function _placementSuffix(rank: number, texts?: TurnTexts): string {
 
 // Returns opponents in clockwise seat order starting from the player immediately
 // after myIndex, so the leftmost bubble in the arc is the next player in turn order.
-function _clockwiseOpponents(
+export function clockwiseOpponents(
   players: GameRenderState['players'],
   myIndex: number
 ): GameRenderState['players'] {
-  const n = players.length
-  const result: GameRenderState['players'] = []
-  for (let offset = 1; offset < n; offset++) {
-    const idx = (myIndex + offset) % n
-    const p = players.find((p) => p.index === idx)
-    if (p) result.push(p)
+  const seatCount = players.reduce((max, p) => Math.max(max, p.index), myIndex) + 1
+  return players
+    .filter((p) => p.index !== myIndex)
+    .sort((a, b) => {
+      const aDist = (a.index - myIndex + seatCount) % seatCount
+      const bDist = (b.index - myIndex + seatCount) % seatCount
+      return aDist - bDist
+    })
+}
+
+export function opponentBubblePositions(
+  opponentCount: number,
+  width: number,
+  height: number
+): OpponentBubblePosition[] {
+  if (opponentCount <= 0) return []
+  if (opponentCount === 1) return [{ x: width / 2, y: 50 }]
+
+  const bubbleHalfW = 86 // _buildPlayerBubble uses a 172px pill width
+  const playableHeight = Math.max(140, height - BOTTOM_RESERVE)
+  const radiusX = Math.max(28, width / 2 - bubbleHalfW - 12)
+  const radiusY = Math.max(30, playableHeight * 0.12)
+  const angleStep = Math.PI / (opponentCount + 1)
+  const topOffset = Math.max(56, playableHeight * 0.08)
+  const cx = width / 2
+  const positions: OpponentBubblePosition[] = []
+
+  for (let i = 0; i < opponentCount; i++) {
+    // Upper arc from left->right so opponents stay visible above the table.
+    const angle = Math.PI - angleStep * (i + 1)
+    positions.push({
+      x: cx + Math.cos(angle) * radiusX,
+      y: topOffset + Math.sin(angle) * radiusY,
+    })
   }
-  return result
+  return positions
 }
 
 // Client-side canPlay check for highlighting (mirrors server rules.go CanPlay)

@@ -17,8 +17,10 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
   const getReconnectMsgRef = useRef(getReconnectMsg)
   getReconnectMsgRef.current = getReconnectMsg
 
-  // Holds the pending message to send after reconnect, if any.
-  const pendingRef = useRef<string | null>(null)
+  // Holds messages queued while the socket was not OPEN; flushed in FIFO order
+  // on the next successful onopen so a user can rapidly tap multiple actions
+  // (e.g. draw + play) during a brief reconnect without losing any of them.
+  const pendingRef = useRef<string[]>([])
   const attemptsRef = useRef(0)
   const unmountedRef = useRef(false)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -47,14 +49,18 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     ws.onopen = () => {
       attemptsRef.current = 0
       setWsStatus('open')
-      // If reconnecting into an active game, re-authenticate first.
+      // If reconnecting into an active game (or lobby), re-authenticate first.
       const reconnectMsg = getReconnectMsgRef.current?.()
       if (reconnectMsg) {
         ws.send(JSON.stringify(reconnectMsg))
       }
-      if (pendingRef.current !== null) {
-        ws.send(pendingRef.current)
-        pendingRef.current = null
+      // Flush every queued message in order. Without this, a rapid double-tap
+      // during a reconnect window would lose all but the last action.
+      if (pendingRef.current.length > 0) {
+        for (const data of pendingRef.current) {
+          ws.send(data)
+        }
+        pendingRef.current = []
       }
     }
 
@@ -116,8 +122,8 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(data)
     } else {
-      // Buffer the message; it will be flushed on reconnect open.
-      pendingRef.current = data
+      // Buffer in order; flushed on the next successful onopen.
+      pendingRef.current.push(data)
     }
   }, [])
 

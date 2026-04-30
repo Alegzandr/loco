@@ -90,12 +90,19 @@ describe('useGameStore', () => {
   })
 
   it('applyCardDrawn adds card to own hand', () => {
+    useGameStore.setState({
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 1, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 7, connected: true },
+      ],
+    })
     useGameStore.setState({ myHand: [{ color: 'blue', kind: 'number', value: 2 }], myIndex: 0, currentTurn: 0 })
     const drawn: CardDTO = { color: 'green', kind: 'skip' }
     // Voluntary draw: turn stays on player 0, so currentTurn does not change.
     useGameStore.getState().applyCardDrawn([drawn], 0, 0)
 
     expect(useGameStore.getState().myHand).toHaveLength(2)
+    expect(useGameStore.getState().players.map((p) => p.nickname)).toEqual(['alice', 'bob'])
   })
 
   it('applyCardDrawn adds multiple cards on penalty draw', () => {
@@ -239,6 +246,32 @@ describe('useGameStore', () => {
     const s = useGameStore.getState()
     expect(s.matchFormat).toBe('BO3')
     expect(s.maxPlayers).toBe(6)
+  })
+
+  it('applyGameState clears stale UNO state (regression: round-transition leftovers)', () => {
+    // Simulate stale UNO state from the previous round.
+    useGameStore.setState({
+      unoDeclared: true,
+      unoDeclaredByIndex: 2,
+      unoTimerEnd: Date.now() + 5000,
+    })
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [],
+      players: [],
+      discard: { color: 'green', kind: 'number', value: 4 },
+      active_color: 'green',
+      turn: 0,
+      direction: 1,
+      round_number: 2,
+      match_format: 'BO3',
+      max_players: 10,
+    }
+    useGameStore.getState().applyGameState(dto)
+    const s = useGameStore.getState()
+    expect(s.unoDeclared).toBe(false)
+    expect(s.unoDeclaredByIndex).toBe(-1)
+    expect(s.unoTimerEnd).toBeNull()
   })
 
   it('applyPendingGameState with no pending state is a no-op', () => {
@@ -612,5 +645,40 @@ describe('useGameStore', () => {
     expect(s.myHand).toHaveLength(2)
     expect(s.myHand[0]).toEqual({ color: 'wild', kind: 'wild' })
     expect(s.myHand[1]).toEqual({ color: 'red', kind: 'skip' })
+    expect(s.players.map((p) => p.nickname)).toEqual(['alice', 'bob'])
+  })
+
+  it('applyGameState refreshes players on reconnect-style full state', () => {
+    useGameStore.setState({
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 4, connected: false },
+        { index: 1, nickname: 'bob', hand_size: 3, connected: true },
+      ],
+      myIndex: 0,
+    })
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [
+        { color: 'red', kind: 'number', value: 8 },
+        { color: 'blue', kind: 'number', value: 1 },
+      ],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 2, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+        { index: 2, nickname: 'carol', hand_size: 4, connected: true },
+      ],
+      discard: { color: 'yellow', kind: 'number', value: 5 },
+      active_color: 'yellow',
+      turn: 2,
+      direction: 1,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 10,
+    }
+    useGameStore.getState().applyGameState(dto)
+    const s = useGameStore.getState()
+    expect(s.players).toHaveLength(3)
+    expect(s.players.find((p) => p.index === 0)?.connected).toBe(true)
+    expect(s.currentTurn).toBe(2)
   })
 })

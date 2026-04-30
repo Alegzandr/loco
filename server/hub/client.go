@@ -1,6 +1,8 @@
 package hub
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"sync"
@@ -61,6 +63,17 @@ type Client struct {
 	playerID int
 	closed   bool
 	limiter  *rateLimiter
+	// connID is a short random tag included in every log line involving this
+	// connection, so operators can grep a single player's actions across the
+	// log even when they move between rooms or before they have joined one.
+	connID string
+	// suspectMu / suspectCount / suspectWindowStart implement a lightweight
+	// rolling counter of gameplay validation rejections. A real player taps the
+	// occasional illegal play; a tampering client triggers many in a row. We
+	// emit a single WARN per burst so the operator can investigate.
+	suspectMu          sync.Mutex
+	suspectCount       int
+	suspectWindowStart time.Time
 }
 
 // newClient creates a client. The hub's register handler calls start() after
@@ -73,7 +86,18 @@ func newClient(h *Hub, conn *websocket.Conn) *Client {
 		conn:    conn,
 		send:    make(chan []byte, 256),
 		limiter: newRateLimiter(),
+		connID:  generateConnID(),
 	}
+}
+
+// generateConnID produces a short (8-hex-char) correlation ID for log tracing.
+// Not used for security; uniqueness within a server lifetime is sufficient.
+func generateConnID() string {
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "00000000"
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // start launches the read and write pump goroutines. Must be called by the hub
@@ -88,9 +112,9 @@ func (c *Client) readPump() {
 	defer func() {
 		uptime := time.Since(connectedAt)
 		if uptime < 5*time.Second {
-			log.Printf("ws immediate disconnect addr=%s uptime=%v", c.conn.RemoteAddr(), uptime)
+			log.Printf("ws immediate disconnect conn=%s addr=%s uptime=%v", c.connID, c.conn.RemoteAddr(), uptime)
 		} else {
-			log.Printf("ws readPump exit addr=%s uptime=%v", c.conn.RemoteAddr(), uptime)
+			log.Printf("ws readPump exit conn=%s addr=%s uptime=%v", c.connID, c.conn.RemoteAddr(), uptime)
 		}
 		c.hub.unregister <- c
 		c.conn.Close()
@@ -105,15 +129,16 @@ func (c *Client) readPump() {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("ws unexpected close addr=%s err=%v", c.conn.RemoteAddr(), err)
+				log.Printf("ws unexpected close conn=%s addr=%s err=%v", c.connID, c.conn.RemoteAddr(), err)
 			} else {
 				// Log all other close reasons (normal close, read deadline, network reset, etc.)
 				// so we can see exactly why the connection ended.
-				log.Printf("ws connection closed addr=%s reason=%v", c.conn.RemoteAddr(), err)
+				log.Printf("ws connection closed conn=%s addr=%s reason=%v", c.connID, c.conn.RemoteAddr(), err)
 			}
 			break
 		}
 		if !c.limiter.allow() {
+			c.hub.statMessagesRateLimited.Add(1)
 			c.sendError("rate limit exceeded")
 			continue
 		}
@@ -129,7 +154,8 @@ func (c *Client) readPump() {
 		select {
 		case c.hub.inbound <- inboundMsg{client: c, msg: msg}:
 		default:
-			log.Printf("inbound channel full, dropping message from addr=%s", c.conn.RemoteAddr())
+			c.hub.statMessagesDroppedBusy.Add(1)
+			log.Printf("inbound channel full, dropping message conn=%s addr=%s", c.connID, c.conn.RemoteAddr())
 			c.sendError("server busy, please retry")
 		}
 	}
@@ -161,31 +187,78 @@ func (c *Client) writePump() {
 	}
 }
 
-// Send queues a server message for delivery.
-// Non-blocking: if the per-client send buffer (cap 256) is full, the message is
-// dropped and logged. A full buffer means the client is not draining fast enough
-// (slow network or unresponsive tab); dropping prevents head-of-line blocking
-// that would stall the hub event loop for all other clients.
+// Send marshals a server message and queues it for delivery.
+// See SendBytes for the overflow / slow-client policy.
 func (c *Client) Send(msg protocol.ServerMsg) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("marshal error: %v", err)
 		return
 	}
+	c.SendBytes(data)
+}
+
+// SendBytes queues a pre-marshaled payload for delivery. Used by broadcast
+// helpers to marshal once and fan-out the same []byte to many recipients.
+//
+// Slow-client policy: if the per-client send buffer (cap 256) is full, the
+// client cannot keep up with the broadcast rate. Silently dropping a message
+// would leave the client desynced with no way to recover (the missed message
+// could be a card_played, round_end, etc.). Instead we force-close the
+// underlying connection: readPump will error, the hub will unregister the
+// client and (during gameplay) hold the slot for the reconnect window. The
+// client's WebSocket auto-reconnect then triggers handleReconnect, which
+// delivers a full game_state snapshot and recovers cleanly.
+func (c *Client) SendBytes(data []byte) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	if c.closed {
+		c.mu.Unlock()
 		return
 	}
 	select {
 	case c.send <- data:
+		c.mu.Unlock()
+		return
 	default:
-		log.Printf("client send buffer full, dropping message")
+		c.mu.Unlock()
 	}
+	c.hub.statSlowClientsClosed.Add(1)
+	log.Printf("WARN slow client, force-closing for clean reconnect conn=%s addr=%s", c.connID, c.conn.RemoteAddr())
+	// Closing the underlying conn triggers readPump exit → hub.unregister →
+	// c.close() (which closes c.send and lets writePump exit). gorilla/websocket
+	// treats a second Close() as a no-op error, so repeated overflow is safe.
+	_ = c.conn.Close()
 }
 
 func (c *Client) sendError(msg string) {
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: msg})
+}
+
+// noteSuspect tags a gameplay-validation rejection on this client. The first
+// rejection within a 30-second window starts the count; once the window's
+// count crosses suspectThreshold we emit a single WARN with the connID so an
+// operator can investigate, then reset the window. Genuine fat-fingered plays
+// are noisy enough to never trip the threshold.
+const (
+	suspectThreshold  = 5
+	suspectWindowSpan = 30 * time.Second
+)
+
+func (c *Client) noteSuspect(reason string) {
+	now := time.Now()
+	c.suspectMu.Lock()
+	if now.Sub(c.suspectWindowStart) > suspectWindowSpan {
+		c.suspectWindowStart = now
+		c.suspectCount = 0
+	}
+	c.suspectCount++
+	count := c.suspectCount
+	c.suspectMu.Unlock()
+	if count == suspectThreshold {
+		c.hub.statSuspectedCheats.Add(1)
+		log.Printf("WARN suspected cheat: %d validation rejections in 30s conn=%s code=%s player=%d last_reason=%q",
+			count, c.connID, c.roomCode, c.playerID, reason)
+	}
 }
 
 func (c *Client) close() {
