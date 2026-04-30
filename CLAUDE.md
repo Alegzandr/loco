@@ -337,11 +337,12 @@ If structure changes, update this file and the README.
 - Scores accumulate across rounds in `Room.Scores []int` (indexed by playerID).
 - `Room.RoundsWon []int` tracks first-place wins per player; `Room.LostHandTotal []int` tracks the last-place finisher's remaining hand value per round (tiebreaker).
 - `Room.RoundEnded bool` is set to `true` by `markPlayerFinished` when the round ends; the hub clears it after broadcasting `round_end`.
-- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion.
+- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion. Match-over is resolved inside `markPlayerFinished` so the hub can broadcast the final state in the same tick.
+- **`markPlayerFinished` does NOT deal the next round.** Dealing is the hub's responsibility via `Room.BeginNextRound()`, called only AFTER `card_played` and `round_end` have been broadcast. Otherwise the `card_played` broadcast for the round-winning play would read the freshly-dealt next round's discard top instead of the actual played card. Sudden-death rounds use the same path.
 - Match formats: BO1=1, BO3=3, BO5=5, BO7=7 (stored as `game.MatchFormat`).
 - Tiebreaker order: (1) highest total score → (2) most rounds won → (3) lowest lost-hand total → (4) sudden-death extra round.
 - If `determineMatchWinner()` returns `""`, a sudden-death extra round is played automatically.
-- Hub broadcasts `round_end` (with scoreboard) then `game_started` (new round state) to each player when a round ends mid-match.
+- Hub broadcasts `round_end` (with scoreboard, `RoundNumber` = the just-completed round) then calls `BeginNextRound` and broadcasts `game_started` (new round state) to each player when a round ends mid-match.
 - Hub broadcasts `match_end` (with scoreboard + match_winner) when the match is fully over.
 - `card_played` server message includes `players` (updated list with `Finished` and `Placement` populated) so clients immediately learn when a player finishes.
 - `PlayerDTO` includes `finished bool` and `placement int` (1-based; 0 = not yet finished).
@@ -355,6 +356,8 @@ If structure changes, update this file and the README.
 - Any config change broadcasts `lobby_config_changed` with updated `match_format` and `max_players` to all connected clients.
 - `room_created` and `room_joined` messages include `match_format` and `max_players`.
 - Default: BO1, 10 max players.
+- **Lobby disconnects re-index everything.** When any client disconnects in the lobby (host or otherwise), `Room.RemoveLobbyPlayer` removes them from `room.Players`, re-indexes remaining `Player.Index` fields, and the hub re-indexes `roomMembers`, surviving `Client.playerID`, `botSlots[code]`, and `sessionTokens[code]` so all old indices > the leaving slot shift down by 1. This guarantees the first remaining player is always playerID 0 (the host), so the room can never deadlock with no one able to start the game.
+- If a lobby disconnect leaves no human members (only bots / nothing), the room is scheduled for cleanup immediately rather than left as a zombie.
 
 ## Room code conventions
 
@@ -535,6 +538,7 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
   - `TestGoroutineStability_RoomLifecycle` — rapid create/teardown (cleanup timer path).
   - `TestGoroutineStability_BotGame` — full bot game to completion.
   - `TestGoroutineStability_FullLifecycle` — all paths: cleanup, full game, mid-game disconnect (reconnect expiry path).
+- `playerGameState(room, playerIdx)` is **defensive against bad inputs**: nil `room.State`, out-of-range `playerIdx`, or empty discard return a minimal `GameStateDTO` and log a `WARN` instead of panicking. A panic here would kill the hub's event-loop goroutine and bring down every active room.
 
 ## Structured logging conventions
 

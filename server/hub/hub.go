@@ -552,10 +552,12 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 	room.RoundEnded = false
 	scoreboard := h.buildScoreboard(room)
 
-	// Broadcast round_end with scoreboard
+	// Broadcast round_end with scoreboard.
+	// At this point room.State still reflects the round-winning play (BeginNextRound
+	// has not yet been called), so RoundNumber is the just-completed round.
 	h.broadcastToRoomAll(code, protocol.ServerMsg{
 		Type:        protocol.SMsgRoundEnd,
-		RoundNumber: room.RoundNumber - 1, // completed round number
+		RoundNumber: room.RoundNumber,
 		RoundWinner: room.Winner,
 		Scoreboard:  scoreboard,
 	})
@@ -568,6 +570,12 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 			MatchWinner: room.MatchWinner,
 			Scoreboard:  scoreboard,
 		})
+		return
+	}
+
+	// Deal the next round NOW that round_end has been broadcast.
+	if err := room.BeginNextRound(); err != nil {
+		log.Printf("WARN BeginNextRound failed code=%s err=%v", code, err)
 		return
 	}
 
@@ -796,7 +804,33 @@ func (h *Hub) handleDisconnect(c *Client) {
 		return
 	}
 
-	// Lobby / finished: remove from member list entirely.
+	// Finished room: just drop the member from the slot list; player records are
+	// no longer used for gameplay decisions.
+	if room.Status == game.StatusFinished {
+		newMembers := make([]*Client, 0, len(members))
+		for _, m := range members {
+			if m != c {
+				newMembers = append(newMembers, m)
+			}
+		}
+		h.roomMembers[c.roomCode] = newMembers
+		if len(newMembers) == 0 {
+			h.scheduleRoomCleanup(c.roomCode)
+		}
+		return
+	}
+
+	// Lobby: remove the player from room.Players and re-index everything keyed
+	// on playerID (member slots, bot slots, session tokens, remaining clients'
+	// playerID). Without this, a disconnected host (playerID 0) leaves a
+	// phantom slot and no surviving player can ever start the game.
+	leavingID := c.playerID
+	if _, err := room.RemoveLobbyPlayer(leavingID); err != nil {
+		log.Printf("WARN RemoveLobbyPlayer failed code=%s player=%d err=%v", c.roomCode, leavingID, err)
+	}
+
+	// Compact roomMembers by skipping the leaving client; remaining indices map
+	// to the new room.Players indices because we removed the same slot from both.
 	newMembers := make([]*Client, 0, len(members))
 	for _, m := range members {
 		if m != c {
@@ -805,8 +839,55 @@ func (h *Hub) handleDisconnect(c *Client) {
 	}
 	h.roomMembers[c.roomCode] = newMembers
 
-	if len(newMembers) == 0 {
-		// Start cleanup timer instead of deleting immediately.
+	// Update each remaining client's playerID to match its new slot.
+	for newIdx, m := range newMembers {
+		if m != nil {
+			m.playerID = newIdx
+		}
+	}
+
+	// Re-index bot slots: every old index > leavingID shifts down by 1.
+	if oldBots, ok := h.botSlots[c.roomCode]; ok {
+		newBots := make(map[int]struct{}, len(oldBots))
+		for oldIdx := range oldBots {
+			if oldIdx == leavingID {
+				continue
+			}
+			newIdx := oldIdx
+			if oldIdx > leavingID {
+				newIdx = oldIdx - 1
+			}
+			newBots[newIdx] = struct{}{}
+		}
+		h.botSlots[c.roomCode] = newBots
+	}
+
+	// Re-index session tokens the same way; drop the leaving slot's token.
+	if oldTokens, ok := h.sessionTokens[c.roomCode]; ok {
+		newTokens := make(map[int]string, len(oldTokens))
+		for oldIdx, tok := range oldTokens {
+			if oldIdx == leavingID {
+				continue
+			}
+			newIdx := oldIdx
+			if oldIdx > leavingID {
+				newIdx = oldIdx - 1
+			}
+			newTokens[newIdx] = tok
+		}
+		h.sessionTokens[c.roomCode] = newTokens
+	}
+
+	// If only bots (or nothing) remain, no human can start the game; treat the
+	// room as empty so the cleanup timer reclaims it.
+	hasHuman := false
+	for _, m := range newMembers {
+		if m != nil {
+			hasHuman = true
+			break
+		}
+	}
+	if !hasHuman {
 		h.scheduleRoomCleanup(c.roomCode)
 		return
 	}
@@ -1575,6 +1656,25 @@ func (h *Hub) buildScoreboard(room *game.Room) []protocol.ScoreboardEntryDTO {
 
 func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStateDTO {
 	state := room.State
+	// Defensive bounds. A panic here would kill the hub goroutine and take down
+	// every active room, so we degrade gracefully when the inputs are unexpected
+	// (e.g. message arrives during a status transition or with a corrupted ID).
+	if state == nil || playerIdx < 0 || playerIdx >= len(state.Hands) || len(state.Discard) == 0 {
+		hands, discard := 0, 0
+		if state != nil {
+			hands, discard = len(state.Hands), len(state.Discard)
+		}
+		log.Printf("WARN playerGameState invalid args code=%s playerIdx=%d state_nil=%t hands=%d discard=%d",
+			room.Code, playerIdx, state == nil, hands, discard)
+		return &protocol.GameStateDTO{
+			YourIndex:   playerIdx,
+			Hand:        []protocol.CardDTO{},
+			Players:     h.playerList(room),
+			MatchFormat: matchFormatString(room.Format),
+			MaxPlayers:  room.MaxPlayers,
+			RoundNumber: room.RoundNumber,
+		}
+	}
 	hand := make([]protocol.CardDTO, len(state.Hands[playerIdx].Cards))
 	for i, c := range state.Hands[playerIdx].Cards {
 		hand[i] = *cardToDTO(c)

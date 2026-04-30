@@ -140,7 +140,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setSessionToken: (sessionToken) => set({ sessionToken }),
 
   applyGameState: (state) =>
-    set({ ...gameStateSliceFromDTO(state), roundWinner: '', showRoundSummary: false, pendingGameState: null, pendingMatchEnd: null }),
+    set({
+      ...gameStateSliceFromDTO(state),
+      roundWinner: '',
+      showRoundSummary: false,
+      pendingGameState: null,
+      pendingMatchEnd: null,
+      // Reset UNO catch-window state — a fresh authoritative snapshot must not
+      // leave a stale UNO banner / catch button from the previous round visible.
+      unoDeclared: false,
+      unoDeclaredByIndex: -1,
+      unoTimerEnd: null,
+    }),
 
   applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players) =>
     set((s) => {
@@ -272,7 +283,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     // Priority 2: mid-match — apply the buffered next-round state.
     if (s.pendingGameState) {
-      set({ ...gameStateSliceFromDTO(s.pendingGameState), roundWinner: '', showRoundSummary: false, pendingGameState: null })
+      set({
+        ...gameStateSliceFromDTO(s.pendingGameState),
+        roundWinner: '',
+        showRoundSummary: false,
+        pendingGameState: null,
+        unoDeclared: false,
+        unoDeclaredByIndex: -1,
+        unoTimerEnd: null,
+      })
       return
     }
     // Default: just hide the summary (e.g. BO1 game-over path).

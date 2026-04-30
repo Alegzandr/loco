@@ -397,12 +397,24 @@ func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 		t.Fatal("round 1: expected LastCardDeclared = false (no declaration)")
 	}
 
-	// Bob plays his only card → 0 cards → round 1 ends, round 2 starts
+	// Bob plays his only card → 0 cards → round 1 ends.
+	// BeginNextRound is now an explicit step (the hub calls it after broadcasting
+	// round_end) so the card_played broadcast for the round-winning play sees the
+	// pre-deal state instead of the new round's freshly-flipped first card.
 	if err := r.PlayCard(1, bobCard, matchColor, -1); err != nil {
 		t.Fatalf("bob play: %v", err)
 	}
+	if !r.RoundEnded {
+		t.Fatal("expected RoundEnded after bob empties hand")
+	}
+	if r.RoundNumber != 1 {
+		t.Fatalf("expected RoundNumber to remain 1 until BeginNextRound, got %d", r.RoundNumber)
+	}
+	if err := r.BeginNextRound(); err != nil {
+		t.Fatalf("BeginNextRound: %v", err)
+	}
 	if r.RoundNumber != 2 {
-		t.Fatalf("expected round 2 after bob empties hand, got %d", r.RoundNumber)
+		t.Fatalf("expected round 2 after BeginNextRound, got %d", r.RoundNumber)
 	}
 
 	// New round must have clean UNO state
@@ -505,18 +517,25 @@ func TestRoom_RoundEnd_MatchNotOver_BO3(t *testing.T) {
 		t.Fatalf("round 1 PlayCard error: %v", err)
 	}
 
-	// Match should NOT be over; new round should have started
+	// Match should NOT be over; round 1 ended but the next round is dealt
+	// explicitly by the hub via BeginNextRound (not inside PlayCard).
 	if r.MatchOver {
 		t.Error("match should not be over after round 1 of BO3")
 	}
-	if r.RoundNumber != 2 {
-		t.Errorf("RoundNumber = %d, want 2", r.RoundNumber)
+	if r.RoundNumber != 1 {
+		t.Errorf("RoundNumber = %d before BeginNextRound, want 1", r.RoundNumber)
 	}
 	if r.Status != StatusPlaying {
-		t.Errorf("Status = %v, want Playing (new round started)", r.Status)
+		t.Errorf("Status = %v, want Playing", r.Status)
 	}
 	if r.RoundEnded != true {
 		t.Error("RoundEnded should be true")
+	}
+	if err := r.BeginNextRound(); err != nil {
+		t.Fatalf("BeginNextRound: %v", err)
+	}
+	if r.RoundNumber != 2 {
+		t.Errorf("RoundNumber after BeginNextRound = %d, want 2", r.RoundNumber)
 	}
 }
 
@@ -570,7 +589,14 @@ func TestRoom_MatchScoreAccumulation(t *testing.T) {
 		if err := r.PlayCard(winnerIdx, winCard, winCard.Color, -1); err != nil {
 			t.Fatalf("PlayCard error: %v", err)
 		}
-		r.RoundEnded = false // simulate hub clearing the flag
+		// Simulate the hub: clear RoundEnded and deal the next round
+		// (only if the match isn't already decided).
+		r.RoundEnded = false
+		if !r.MatchOver {
+			if err := r.BeginNextRound(); err != nil {
+				t.Fatalf("BeginNextRound: %v", err)
+			}
+		}
 	}
 
 	// Round 1: alice wins, bob has 10 points worth

@@ -241,6 +241,32 @@ describe('useGameStore', () => {
     expect(s.maxPlayers).toBe(6)
   })
 
+  it('applyGameState clears stale UNO state (regression: round-transition leftovers)', () => {
+    // Simulate stale UNO state from the previous round.
+    useGameStore.setState({
+      unoDeclared: true,
+      unoDeclaredByIndex: 2,
+      unoTimerEnd: Date.now() + 5000,
+    })
+    const dto: GameStateDTO = {
+      your_index: 0,
+      hand: [],
+      players: [],
+      discard: { color: 'green', kind: 'number', value: 4 },
+      active_color: 'green',
+      turn: 0,
+      direction: 1,
+      round_number: 2,
+      match_format: 'BO3',
+      max_players: 10,
+    }
+    useGameStore.getState().applyGameState(dto)
+    const s = useGameStore.getState()
+    expect(s.unoDeclared).toBe(false)
+    expect(s.unoDeclaredByIndex).toBe(-1)
+    expect(s.unoTimerEnd).toBeNull()
+  })
+
   it('applyPendingGameState with no pending state is a no-op', () => {
     useGameStore.setState({ myHand: [], pendingGameState: null })
     useGameStore.getState().applyPendingGameState()

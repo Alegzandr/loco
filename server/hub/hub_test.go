@@ -1737,3 +1737,194 @@ func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
 	}
 	// A timeout (read deadline exceeded) here is expected and correct.
 }
+
+// TestLobbyHostDisconnect_NewHostCanStartGame is a regression test for the
+// deadlock where the original host (playerID 0) disconnects from the lobby and
+// no remaining player can start the game (because handleStartGame required
+// playerID == 0 and nobody held that slot anymore).
+//
+// The fix re-indexes room.Players, roomMembers, bot slots, and session tokens
+// so the first remaining player becomes the new host (playerID 0).
+func TestLobbyHostDisconnect_NewHostCanStartGame(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	// Alice creates the room (host, playerID 0).
+	conn1 := dialWS(t, srv)
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	// Bob joins (playerID 1).
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	bobJoined := readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	if bobJoined.PlayerID != 1 {
+		t.Fatalf("Bob expected playerID 1, got %d", bobJoined.PlayerID)
+	}
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	// Carol joins (playerID 2) so that after Alice leaves, the room still has 2 players.
+	conn3 := dialWS(t, srv)
+	t.Cleanup(func() { conn3.Close() })
+	sendMsg(t, conn3, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Carol", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn3, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	readMsgOfType(t, conn2, protocol.SMsgPlayerJoined)
+
+	// Alice (host) disconnects.
+	conn1.Close()
+
+	// Wait for the disconnect to propagate to surviving clients.
+	playerLeft := readMsgOfType(t, conn2, protocol.SMsgPlayerLeft)
+	if playerLeft.Nickname != "Alice" {
+		t.Errorf("expected player_left for Alice, got %q", playerLeft.Nickname)
+	}
+	readMsgOfType(t, conn3, protocol.SMsgPlayerLeft)
+
+	// Bob (now first remaining → new host with playerID 0) starts the game.
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs.State == nil {
+		t.Fatal("game_started missing state — host promotion failed")
+	}
+	if gs.State.YourIndex != 0 {
+		t.Errorf("Bob (new host) YourIndex = %d, want 0", gs.State.YourIndex)
+	}
+	if len(gs.State.Players) != 2 {
+		t.Errorf("game started with %d players, want 2 (Alice should have been removed)", len(gs.State.Players))
+	}
+	// Carol should also receive game_started.
+	carolStart := readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+	if carolStart.State == nil || carolStart.State.YourIndex != 1 {
+		t.Errorf("Carol expected YourIndex 1 in game_started, got %+v", carolStart.State)
+	}
+}
+
+// TestLobbyHostDisconnect_BotsRemoveLeavesRoom verifies that when the host
+// leaves a lobby that contains only the host + bots, the room is cleaned up
+// rather than left in a zombie state where bots have no human to control them.
+func TestLobbyHostDisconnect_BotsOnlyTriggersCleanup(t *testing.T) {
+	origEmpty := hub.EmptyRoomTimeout
+	hub.EmptyRoomTimeout = 80 * time.Millisecond
+	t.Cleanup(func() { hub.EmptyRoomTimeout = origEmpty })
+
+	h, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	// Add a bot.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+
+	if got := h.GetStats().Rooms; got != 1 {
+		t.Fatalf("rooms after add_bot = %d, want 1", got)
+	}
+
+	// Host leaves; only the bot remains. Room must be scheduled for cleanup.
+	conn.Close()
+
+	// Wait past the cleanup timeout.
+	time.Sleep(200 * time.Millisecond)
+
+	if got := h.GetStats().Rooms; got != 0 {
+		t.Errorf("rooms after host-only-with-bots disconnect = %d, want 0 (room should have been cleaned up)", got)
+	}
+}
+
+// TestRoundTransition_CardPlayedReflectsWinningPlay is a regression test for the
+// bug where, in BO3+ matches, the card_played broadcast for the round-winning
+// play used to read room.State *after* dealRound had already run (because
+// markPlayerFinished dealt the next round inline). Clients then briefly saw the
+// new round's freshly-flipped first card as the "played" card.
+//
+// The fix moves dealRound out of markPlayerFinished into Room.BeginNextRound,
+// which the hub calls only after broadcasting card_played + round_end.
+//
+// This test forces a known winning play in a BO3 match and asserts that:
+//   - card_played carries the actual played card (not garbage from the new round)
+//   - round_end follows
+//   - game_started for the next round arrives with a fresh state
+func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgSetMatchFormat, MatchFormat: "BO3"})
+	readMsgOfType(t, conn1, protocol.SMsgLobbyConfigChanged)
+	readMsgOfType(t, conn2, protocol.SMsgLobbyConfigChanged)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil {
+		t.Fatal("missing game_started state for Alice")
+	}
+
+	// Force Alice (host, index 0) to be on turn with exactly one playable card.
+	winCard := protocol.CardDTO{Color: "red", Kind: "number", Value: 7}
+	top := protocol.CardDTO{Color: "red", Kind: "number", Value: 7}
+	zero := 0
+	turnIdx := 0
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{winCard},
+		DebugDiscard:     &top,
+		DebugPendingDraw: &zero,
+		DebugCurrentTurn: &turnIdx,
+	})
+	readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+
+	// Alice plays her last card → wins round 1 → BO3 dealing round 2.
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &winCard,
+	})
+
+	// First message: card_played. Must carry the actual winning card (Red number 7),
+	// NOT whatever random card got flipped to start round 2.
+	played := readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	if played.Card == nil {
+		t.Fatal("card_played missing card")
+	}
+	if played.Card.Color != "red" || played.Card.Kind != "number" || played.Card.Value != 7 {
+		t.Errorf("card_played reported wrong card after winning play: got color=%s kind=%s value=%d, want red/number/7 (this is the round-transition broadcast bug)",
+			played.Card.Color, played.Card.Kind, played.Card.Value)
+	}
+	if played.PlayerIndex != 0 {
+		t.Errorf("card_played player_index = %d, want 0 (Alice)", played.PlayerIndex)
+	}
+
+	// Next: round_end with the just-completed round number (1) and Alice as winner.
+	roundEnd := readMsgOfType(t, conn1, protocol.SMsgRoundEnd)
+	if roundEnd.RoundNumber != 1 {
+		t.Errorf("round_end RoundNumber = %d, want 1", roundEnd.RoundNumber)
+	}
+	if roundEnd.RoundWinner != "Alice" {
+		t.Errorf("round_end RoundWinner = %q, want Alice", roundEnd.RoundWinner)
+	}
+
+	// Then game_started for round 2 with a fresh state.
+	gs2 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	if gs2.State == nil {
+		t.Fatal("missing game_started state for round 2")
+	}
+	if gs2.State.RoundNumber != 2 {
+		t.Errorf("round 2 game_started RoundNumber = %d, want 2", gs2.State.RoundNumber)
+	}
+	if len(gs2.State.Hand) != 7 {
+		t.Errorf("round 2 hand size = %d, want 7", len(gs2.State.Hand))
+	}
+}

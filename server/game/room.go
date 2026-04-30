@@ -166,6 +166,34 @@ func (r *Room) SetMaxPlayers(n int) error {
 	return nil
 }
 
+// RemoveLobbyPlayer removes the player at playerIdx from the lobby, re-indexes
+// the remaining players, and returns true if the removed player was the host
+// (so the caller can promote the new host). Lobby-only: rejected if the game
+// has started.
+//
+// After this call, r.Players[i].Index == i for all remaining i. Callers must
+// also re-index any out-of-band per-player state (e.g. bot slots, session
+// tokens) keyed on the old playerIdx.
+func (r *Room) RemoveLobbyPlayer(playerIdx int) (wasHost bool, err error) {
+	if r.Status != StatusLobby {
+		return false, errors.New("can only remove players in the lobby")
+	}
+	if playerIdx < 0 || playerIdx >= len(r.Players) {
+		return false, fmt.Errorf("invalid player index %d", playerIdx)
+	}
+	wasHost = playerIdx == 0
+	newPlayers := make([]*Player, 0, len(r.Players)-1)
+	for i, p := range r.Players {
+		if i == playerIdx {
+			continue
+		}
+		p.Index = len(newPlayers)
+		newPlayers = append(newPlayers, p)
+	}
+	r.Players = newPlayers
+	return wasHost, nil
+}
+
 // Join adds a player to the lobby.
 func (r *Room) Join(nickname string) error {
 	if r.Status != StatusLobby {
@@ -382,7 +410,11 @@ func (r *Room) markPlayerFinished(playerIdx int) {
 		r.State.logEvent(EventRoundEnd, playerIdx, nil, 0)
 		r.RoundEnded = true
 
-		// Check if match is over
+		// Check if match is over.
+		// We resolve match-over here (so the hub can broadcast the final state)
+		// but DO NOT deal the next round — that is the hub's responsibility via
+		// BeginNextRound, called only after card_played + round_end have been
+		// broadcast. Otherwise the broadcast would read the new round's state.
 		if r.RoundNumber >= int(r.Format) {
 			matchWinner := r.determineMatchWinner()
 			if matchWinner != "" {
@@ -392,17 +424,31 @@ func (r *Room) markPlayerFinished(playerIdx int) {
 				r.State.logEvent(EventMatchEnd, -1, nil, 0)
 				return
 			}
-			// Still tied: play a sudden-death extra round
+			// Still tied: a sudden-death extra round will be dealt by BeginNextRound.
 		}
-		// Advance to next round
-		r.RoundNumber++
-		r.dealRound()
 		return
 	}
 
 	// Advance turn to next unfinished player
 	r.State.HasDrawn = false
 	r.State.CurrentTurn = r.State.nextTurn(playerIdx)
+}
+
+// BeginNextRound advances the room to the next round (incrementing RoundNumber
+// and dealing fresh hands). The hub calls this between broadcasting round_end
+// and game_started so that card_played for the round-winning play sees the
+// correct pre-deal state. Refuses to act if the match is already decided or
+// the game is not in progress.
+func (r *Room) BeginNextRound() error {
+	if r.MatchOver {
+		return errors.New("BeginNextRound called after match over")
+	}
+	if r.Status != StatusPlaying {
+		return errors.New("BeginNextRound called when game not in progress")
+	}
+	r.RoundNumber++
+	r.dealRound()
+	return nil
 }
 
 // determineMatchWinner finds the match winner using tiebreaker rules.

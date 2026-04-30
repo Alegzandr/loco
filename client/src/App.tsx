@@ -10,6 +10,18 @@ import { ServerMsg, ClientMsg } from './types/protocol'
 export default function App() {
   const store = useGameStore()
 
+  // Tracks the in-flight UNO catch-window timer so a new declaration cancels
+  // the old one. Without this, an earlier setTimeout fires later and clobbers
+  // a fresh declaration's UNO state (e.g. across rapid back-to-back UNOs or
+  // after a round transition).
+  const unoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearUnoTimer = useCallback(() => {
+    if (unoTimerRef.current !== null) {
+      clearTimeout(unoTimerRef.current)
+      unoTimerRef.current = null
+    }
+  }, [])
+
   const handleMessage = useCallback(
     (msg: ServerMsg) => {
       switch (msg.type) {
@@ -51,6 +63,7 @@ export default function App() {
           store.setPlayers(msg.players ?? [])
           if (msg.state) {
             // Mark reconnecting before applying state so GameView can animate recovery
+            clearUnoTimer()
             store.setIsReconnecting(true)
             store.applyGameState(msg.state)
             store.setRoomCode(msg.room_code ?? store.roomCode)
@@ -66,6 +79,7 @@ export default function App() {
               // Round summary is visible — buffer the new state; apply when player dismisses
               store.setPendingGameState(msg.state)
             } else {
+              clearUnoTimer()
               store.applyGameState(msg.state)
               store.setScreen('game')
             }
@@ -77,6 +91,7 @@ export default function App() {
           // Mid-game authoritative refresh (e.g. debug_set_state, swap/global_switch effects).
           // Apply the full state snapshot so discard/turn/pendingDraw remain in sync.
           if (msg.state) {
+            clearUnoTimer()
             store.applyGameState(msg.state)
             store.setScreen('game')
           }
@@ -112,10 +127,12 @@ export default function App() {
           break
 
         case 'uno_declared':
+          clearUnoTimer()
           store.setUnoDeclared(true)
           store.setUnoDeclaredByIndex(msg.player_index ?? -1)
           store.setUnoTimerEnd(Date.now() + 5000)
-          setTimeout(() => {
+          unoTimerRef.current = setTimeout(() => {
+            unoTimerRef.current = null
             store.setUnoDeclared(false)
             store.setUnoDeclaredByIndex(-1)
             store.setUnoTimerEnd(null)
@@ -126,6 +143,7 @@ export default function App() {
           break
 
         case 'round_end':
+          clearUnoTimer()
           store.applyRoundEnd(
             msg.round_winner ?? '',
             msg.round_number ?? 0,
