@@ -324,29 +324,56 @@ If structure changes, update this file and the README.
 
 ## Scoring and match system conventions
 
-- `CardValue(c Card) int` in `game/card.go`: Number = face value; Skip/Reverse/DrawTwo = 20; Wild/WildDrawFour = 50.
-- **Round model**: a round does NOT end when the first player empties their hand. Instead:
-  - Each player who empties their hand is marked `Finished` and becomes an in-round spectator.
-  - They score the sum of card values held by all *still-unfinished* players at that moment.
-  - Play continues among remaining (unfinished) players; the turn order skips finished players.
-  - The round ends when exactly one player remains with cards; that player scores 0.
-  - The first to finish is the round winner (`Room.Winner`, `Room.RoundsWon`).
-  - `GameState.Finished []bool` — per-player finish flag for the current round.
-  - `GameState.Placements []int` — finish order: `Placements[0]` = 1st-place playerIdx, etc.
-  - `Room.markPlayerFinished(playerIdx)` handles scoring, placement tracking, and round-end detection.
+- `CardValue(c Card) int` in `game/card.go`: Number = face value; Skip/Reverse/DrawTwo/Swap = 20; Wild/WildDrawFour/GlobalSwitch = 50.
+- **Round model (single-finisher)**: a round ends the moment any player empties their hand.
+  - That player wins the round (`Room.Winner`, `Room.RoundsWon[winnerIdx]++`).
+  - The winner scores the sum of all opponents' remaining card values.
+  - Every other player scores 0 for the round; their remaining-hand value is added to `Room.LostHandTotal[i]` (tiebreaker only).
+  - There is no in-round spectating, placement system, or `GameState.Finished[]` / `Placements[]` — those concepts have been removed.
+- `Room.endRound(winnerIdx)` finalises scoring and sets `RoundEnded = true`; it does NOT deal the next round.
 - Scores accumulate across rounds in `Room.Scores []int` (indexed by playerID).
-- `Room.RoundsWon []int` tracks first-place wins per player; `Room.LostHandTotal []int` tracks the last-place finisher's remaining hand value per round (tiebreaker).
-- `Room.RoundEnded bool` is set to `true` by `markPlayerFinished` when the round ends; the hub clears it after broadcasting `round_end`.
-- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion. Match-over is resolved inside `markPlayerFinished` so the hub can broadcast the final state in the same tick.
-- **`markPlayerFinished` does NOT deal the next round.** Dealing is the hub's responsibility via `Room.BeginNextRound()`, called only AFTER `card_played` and `round_end` have been broadcast. Otherwise the `card_played` broadcast for the round-winning play would read the freshly-dealt next round's discard top instead of the actual played card. Sudden-death rounds use the same path.
+- `Room.RoundEnded bool` is set to `true` by `endRound`; the hub clears it after broadcasting `round_end`.
+- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion. Match-over is resolved inside `endRound` so the hub can broadcast the final state in the same tick.
+- **`endRound` does NOT deal the next round.** Dealing is the hub's responsibility via `Room.BeginNextRound()`, called only AFTER `card_played` and `round_end` have been broadcast. Otherwise the `card_played` broadcast for the round-winning play would read the freshly-dealt next round's discard top.
+- **Round starter rule**: round 1 starting player is chosen at random (`Room.rng`); each subsequent round starts with the current biggest loser (lowest cumulative `Scores`; ties broken by lowest playerID via `Room.biggestLoser()`).
 - Match formats: BO1=1, BO3=3, BO5=5, BO7=7 (stored as `game.MatchFormat`).
 - Tiebreaker order: (1) highest total score → (2) most rounds won → (3) lowest lost-hand total → (4) sudden-death extra round.
 - If `determineMatchWinner()` returns `""`, a sudden-death extra round is played automatically.
 - Hub broadcasts `round_end` (with scoreboard, `RoundNumber` = the just-completed round) then calls `BeginNextRound` and broadcasts `game_started` (new round state) to each player when a round ends mid-match.
 - Hub broadcasts `match_end` (with scoreboard + match_winner) when the match is fully over.
-- `card_played` server message includes `players` (updated list with `Finished` and `Placement` populated) so clients immediately learn when a player finishes.
-- `PlayerDTO` includes `finished bool` and `placement int` (1-based; 0 = not yet finished).
-- Finished players' turns are automatically skipped via `GameState.nextTurn`, which iterates until an unfinished player is found.
+- `PlayerDTO` exposes `Index`, `Nickname`, `HandSize`, `Connected` only — no per-round finish/placement fields.
+
+## AFK auto-kick
+
+- `hub.AFKKickThreshold` (exported `var`, default 4) — the number of consecutive turn-timeouts (with no voluntary action in between) after which a human player is force-disconnected. ~2 full rounds in a 2-player game.
+- Bots are exempt: only human players accumulate AFK timeouts.
+- Any voluntary inbound message (play_card, draw_card, pass_turn, declare_uno, catch_uno, counter_draw, interrupt_play) resets the counter via `hub.resetAFK(code, playerID)` in the dispatch switch.
+- On kick: server sends `{type: "error", error: "afk_kicked"}` and closes the connection. The standard disconnect/reconnect-window flow takes over from there; the player can rejoin via the normal reconnect path until their session token's window expires.
+- Tests override `AFKKickThreshold` (e.g. `1 << 30` to disable for tests that deliberately let the timer expire many times).
+
+## Interrupts and batch play
+
+- **Identical-card interrupt** (`Room.InterruptPlay`): any non-current player may play a card that exactly matches the top discard's color, kind, AND value. The interrupting card stays on top of discard, its effect applies from the interrupter's seat, and play continues from the interrupter onward. Wild cards cannot be used to interrupt. Rejected while a draw penalty is pending.
+- **Free +2 interrupt** (same `InterruptPlay` method, separate match path): any non-current player may play a `DrawTwo` card regardless of color/value match against the top discard. The +2 still cannot be used while a pending draw is already active (use `CounterDraw` for that). After a free +2 interrupt the next player from the interrupter's seat must counter or draw the total.
+- Resolution model is currently **first server-received wins**; a deterministic 300ms priority buffer (identical > +2 > normal) is planned but not yet implemented.
+- **Batch identical-card play** (`Room.PlayCards`): the current player may play multiple identical cards (same Color, Kind, Value) at once via the `play_card` message's `play_cards` array (which takes precedence over the singular `card` field). Effects stack: N DrawTwos add `2*N` pending draw, N WildDrawFours add `4*N`, N Skips skip N players, N Reverses flip direction N times (parity). `Swap` and `GlobalSwitch` cannot be batch-played.
+
+## Deck composition
+
+- Deck total: 112 cards (`game/deck.go: NewDeck`).
+- Per color (Red, Yellow, Green, Blue), 25 cards = 1–9 ×2 (no 0), Skip ×2, Reverse ×2, DrawTwo ×2, **Swap ×1 (colored)**.
+- Global wilds (12): Wild ×4, WildDrawFour ×4, **GlobalSwitch ×4**.
+- `Card.IsWild()` is true only for `WildCard`, `WildDrawFour`, `GlobalSwitch`. **Swap is a colored card** and follows normal color/kind matching.
+- Initial hand size: **8 cards** per player (`initialHandSize` in `game/room.go`).
+- The opening discard must be a Number card (action / wild / Swap cards are skipped during the deal).
+- GlobalSwitch passes each player's hand to the next seat in the **current game direction** (was previously fixed clockwise).
+
+## Swap / GlobalSwitch notification conventions
+
+- `card_played` includes `chosen_player` (pointer) **only** when the played card is a `swap` — it carries the swap target's player index. For all other card kinds (including `global_switch`) the field is omitted.
+- The client store derives `swapNotice` (`useGameStore.SwapNotice`) inside `applyCardPlayed` whenever `card.kind` is `swap` or `global_switch`. The notice carries `kind`, `actorIndex`, `targetIndex` (-1 for global_switch), `direction` (game direction at play time, used to pick the GlobalSwitch arrow), and `at` (Date.now() — used as the React render key so consecutive notices animate).
+- `GameView` renders the notice via `styles.swapNotice` (purple-glow pill above the action bar) and auto-clears it after `SWAP_NOTICE_MS` (3500ms). i18n templates (`swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw`) use `%actor` / `%target` placeholders.
+- `PixiGame.animateSwap(actorIndex, targetIndex, players, myIndex)` and `PixiGame.animateGlobalSwitch(direction, players, myIndex)` spawn mini card-back trails between the relevant seat positions (`_seatPosition` returns the local hand area for `myIndex`, opponent bubble centres otherwise). Triggered exactly once per notice via a `swapNotice.at`-keyed effect so the animation does not replay on unrelated re-renders.
 
 ## Lobby configuration conventions
 

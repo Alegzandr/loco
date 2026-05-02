@@ -15,18 +15,13 @@ export interface TurnTexts {
   yourTurn: string
   drawOrCounter: string  // contains %n placeholder
   playerTurnSuffix: string
-  // Ordinal suffixes for finished-player placement badges
-  ord1: string
-  ord2: string
-  ord3: string
-  ordN: string  // suffix appended after rank number for 4th+
 }
 
 export interface GameRenderState {
   myHand: CardDTO[]
   discard: CardDTO | null
   activeColor: CardColor
-  players: { nickname: string; hand_size: number; index: number; connected?: boolean; finished?: boolean; placement?: number }[]
+  players: { nickname: string; hand_size: number; index: number; connected?: boolean }[]
   myIndex: number
   currentTurn: number
   pendingDraw: number
@@ -451,71 +446,51 @@ export class PixiGame {
   }
 
   private _buildPlayerBubble(
-    p: { nickname: string; hand_size: number; index: number; connected?: boolean; finished?: boolean; placement?: number },
+    p: { nickname: string; hand_size: number; index: number; connected?: boolean },
     currentTurn: number,
-    turnTexts?: TurnTexts
+    _turnTexts?: TurnTexts,
   ): PIXI.Container {
     const container = new PIXI.Container()
     const isCurrentTurn = p.index === currentTurn
     const isDisconnected = p.connected === false
-    const isFinished = !!p.finished
 
     let bgColor: number
     let borderColor: number
-    if (isFinished) { bgColor = 0x2d2a0a; borderColor = 0x5a5520 }
-    else if (isDisconnected) { bgColor = 0x222222; borderColor = 0x444444 }
+    if (isDisconnected) { bgColor = 0x222222; borderColor = 0x444444 }
     else if (isCurrentTurn) { bgColor = 0x0d3875; borderColor = 0x4d96ff }
     else { bgColor = 0x121830; borderColor = 0x1e2d50 }
 
-    // Wider pill to fit the fanned card backs; non-finished gets extra height for the fan.
     const pillW = 172
-    const pillH = isFinished ? 38 : 66
+    const pillH = 66
     const bg = new PIXI.Graphics()
     bg.roundRect(-pillW / 2, -pillH / 2, pillW, pillH, pillH / 2)
     bg.fill({ color: bgColor, alpha: 0.92 })
     bg.stroke({ color: borderColor, width: isCurrentTurn ? 2 : 1, alpha: 0.8 })
     container.addChild(bg)
 
-    let label: string
-    let textColor: string
-    const fontSize = 13
-    if (isFinished) {
-      const badge = _placementSuffix(p.placement ?? 0, turnTexts)
-      label = `${badge} · ${p.nickname}`
-      textColor = '#ffd93d'
-    } else if (isDisconnected) {
-      label = `${p.nickname} ✗`
-      textColor = '#666666'
-    } else {
-      label = p.nickname
-      textColor = isCurrentTurn ? '#74b9ff' : '#b8c4d6'
-    }
+    const label = isDisconnected ? `${p.nickname} ✗` : p.nickname
+    const textColor = isDisconnected ? '#666666' : (isCurrentTurn ? '#74b9ff' : '#b8c4d6')
 
-    const nicknameY = isFinished ? 0 : -14
     const text = new PIXI.Text({
       text: label,
       style: {
-        fontSize,
+        fontSize: 13,
         fill: textColor,
         fontWeight: isCurrentTurn ? 'bold' : 'normal',
         fontFamily: 'system-ui, -apple-system, sans-serif',
       },
     })
     text.anchor.set(0.5)
-    text.y = nicknameY
+    text.y = -14
     container.addChild(text)
 
-    // Fanned mini card backs for non-finished players
-    if (!isFinished && p.hand_size > 0) {
+    if (p.hand_size > 0) {
       const miniCards = this._buildMiniCardBacks(p.hand_size)
-      // The fan container's origin is at the pivot bottom-centre of the first card;
-      // shift up so the fan sits centred in the lower half of the pill.
       miniCards.y = 4
       container.addChild(miniCards)
     }
 
-    // Turn indicator dot above the pill
-    if (isCurrentTurn && !isFinished) {
+    if (isCurrentTurn) {
       const dot = new PIXI.Graphics()
       dot.circle(0, -pillH / 2 - 6, 4)
       dot.fill({ color: 0x4d96ff })
@@ -865,7 +840,7 @@ export class PixiGame {
   private _renderFingerprint(state: GameRenderState, width: number, height: number): string {
     const handPart = state.myHand.map((c) => `${c.color[0]}${c.kind[0]}${c.value ?? ''}`).join(',')
     const playersPart = state.players
-      .map((p) => `${p.index}:${p.hand_size}:${p.connected === false ? 'd' : ''}${p.finished ? 'f' : ''}${p.placement ?? ''}`)
+      .map((p) => `${p.index}:${p.hand_size}:${p.connected === false ? 'd' : ''}`)
       .join(',')
     return `${width}x${height}|${state.myIndex}|${state.currentTurn}|${state.pendingDraw}|${state.activeColor}|${this.lastDiscardKey}|${handPart}|${playersPart}`
   }
@@ -891,6 +866,88 @@ export class PixiGame {
     }
   }
 
+  // Animate a quick mini-card-back trail flying from the actor's seat to the target's
+  // so players see *which* hands changed when a Swap card resolves. Two trails overlap
+  // (actor → target and target → actor) to read as an exchange.
+  animateSwap(
+    actorIndex: number,
+    targetIndex: number,
+    players: GameRenderState['players'],
+    myIndex: number,
+  ) {
+    if (!this.initialized || actorIndex < 0 || targetIndex < 0) return
+    const { width, height } = this.app.screen
+    const a = this._seatPosition(actorIndex, players, myIndex, width, height)
+    const b = this._seatPosition(targetIndex, players, myIndex, width, height)
+    this._spawnSwapTrail(a, b, 0)
+    this._spawnSwapTrail(b, a, 90)
+  }
+
+  // Animate mini card backs traveling from each seat to the next seat in the
+  // current game direction so the GlobalSwitch rotation is visible.
+  animateGlobalSwitch(
+    direction: number,
+    players: GameRenderState['players'],
+    myIndex: number,
+  ) {
+    if (!this.initialized || players.length < 2) return
+    const { width, height } = this.app.screen
+    const ordered = [...players].sort((p, q) => p.index - q.index)
+    const step = direction >= 0 ? 1 : ordered.length - 1
+    for (let i = 0; i < ordered.length; i++) {
+      const fromIdx = ordered[i].index
+      const toIdx = ordered[(i + step) % ordered.length].index
+      if (fromIdx === toIdx) continue
+      const a = this._seatPosition(fromIdx, players, myIndex, width, height)
+      const b = this._seatPosition(toIdx, players, myIndex, width, height)
+      this._spawnSwapTrail(a, b, i * 60)
+    }
+  }
+
+  // Returns the on-screen position used as the source/sink for hand-movement
+  // animations: the local hand for myIndex, and the opponent bubble centre otherwise.
+  private _seatPosition(
+    playerIndex: number,
+    players: GameRenderState['players'],
+    myIndex: number,
+    width: number,
+    height: number,
+  ): { x: number; y: number } {
+    if (playerIndex === myIndex) {
+      return { x: width / 2, y: height - CARD_H / 2 - 20 }
+    }
+    const others = clockwiseOpponents(players, myIndex)
+    const positions = opponentBubblePositions(others.length, width, height)
+    const i = others.findIndex((p) => p.index === playerIndex)
+    if (i < 0) return { x: width / 2, y: height / 2 }
+    return positions[i]
+  }
+
+  // Spawn a single mini card back that travels from→to with a small fade and rotation.
+  private _spawnSwapTrail(
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    delayMs: number,
+  ) {
+    const w = 28
+    const h = 40
+    const sprite = this._drawCardBack(w, h, 4)
+    sprite.pivot.set(w / 2, h / 2)
+    sprite.x = from.x
+    sprite.y = from.y
+    sprite.alpha = 0
+    this.animContainer.addChild(sprite)
+    this.animations.push({
+      ...this._makeAnim(sprite, from.x, from.y, to.x, to.y, 0, 1, 0.7, 1, 0, Math.PI * 0.5, -delayMs),
+      duration: 480,
+    })
+    // Quick fade-out tail once it reaches the destination
+    this.animations.push({
+      ...this._makeAnim(sprite, to.x, to.y, to.x, to.y, 1, 0, 1, 0.7, Math.PI * 0.5, Math.PI * 0.5, -(delayMs + 480)),
+      duration: 220,
+    })
+  }
+
   destroy() {
     if (this.destroyed) return
     this.destroyed = true
@@ -910,19 +967,6 @@ function lerp(a: number, b: number, t: number): number {
 
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3)
-}
-
-function _placementSuffix(rank: number, texts?: TurnTexts): string {
-  if (!texts) {
-    if (rank === 1) return '1st'
-    if (rank === 2) return '2nd'
-    if (rank === 3) return '3rd'
-    return `${rank}th`
-  }
-  if (rank === 1) return texts.ord1
-  if (rank === 2) return texts.ord2
-  if (rank === 3) return texts.ord3
-  return `${rank}${texts.ordN}`
 }
 
 // Returns opponents in clockwise seat order starting from the player immediately

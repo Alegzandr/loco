@@ -15,8 +15,6 @@ export interface PlayerDTO {
   nickname: string
   hand_size: number
   connected: boolean
-  finished?: boolean   // true when player has emptied their hand this round
-  placement?: number   // 1-based finish order within the round (0 / absent = not yet finished)
 }
 
 export interface ScoreboardEntryDTO {
@@ -74,6 +72,7 @@ export interface ClientMsg {
   room_code?: string
   session_token?: string
   card?: CardDTO
+  play_cards?: CardDTO[]  // batch identical-card play (takes precedence over card)
   chosen_color?: CardColor
   chosen_player?: number
   match_format?: MatchFormat
@@ -115,6 +114,7 @@ export interface ServerMsg {
   cards?: CardDTO[]     // all drawn cards for the drawing player (card_drawn penalty draw)
   drawn_count?: number  // how many cards an opponent drew (card_drawn observer broadcast)
   active_color?: CardColor
+  chosen_player?: number  // swap target index; only set on card_played for Swap kind
   turn?: number
   turn_deadline?: number  // unix ms when the current turn expires; included in card_played, card_drawn, turn_changed, game_started
   pending_draw?: number

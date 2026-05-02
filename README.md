@@ -166,7 +166,7 @@ All messages are JSON over WebSocket.
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `error`               | `error`                                                                     |
 
-`PlayerDTO` includes `connected` (disconnected players greyed out), `finished` (player emptied hand this round), and `placement` (1-based finish order within the round).
+`PlayerDTO` includes `index`, `nickname`, `hand_size`, and `connected` (disconnected players greyed out).
 
 `GameStateDTO` includes: `event_log` (for reconnect history), `round_number`, `match_format`, `max_players`, and `scoreboard` (cumulative per-player scores).
 
@@ -174,24 +174,28 @@ All messages are JSON over WebSocket.
 
 ## Game Rules
 
-Based on standard UNO with the following mechanics:
-
-- **Deck**: 108 cards — 4 colors (red/yellow/green/blue), numbers 0–9, Skip, Reverse, Draw Two, plus 4 Wild and 4 Wild Draw Four
-- **Starting hand**: 7 cards per player
-- **Legal play**: match top card by color, number, or kind; wilds are always legal
-- **Skip**: next player loses their turn
-- **Reverse**: direction reverses; with 2 players acts as Skip
-- **Draw Two (+2)**: next player draws 2 and loses turn, unless they counter with another +2
-- **Wild**: play any time, choose new active color
-- **Wild Draw Four (+4)**: play any time, choose color, next player draws 4 (unless countered with another +4)
-- **UNO declaration**: player must call UNO when they reach 1 card; other players have a 5-second window to catch them
-- **UNO catch**: if caught undeclared, the target draws 2 penalty cards
-- **Round finish model**: when a player empties their hand they become an in-round spectator (cannot act); play continues among remaining players until exactly one player remains with cards
-- **Round scoring by placement**: each finisher scores the sum of card values held by all *still-unfinished* players at the moment they finish; the last remaining player scores 0
-  - 1st place scores against all remaining (n-1) opponents
-  - 2nd place scores against remaining unfinished opponents
-  - and so on — last place scores 0
-  - Card values: number cards = face value (0–9), Skip/Reverse/DrawTwo = 20 pts, Wild/WildDrawFour = 50 pts
+- **Deck**: 112 cards.
+  - Per color (red, yellow, green, blue): numbers 1–9 ×2, Skip ×2, Reverse ×2, Draw Two ×2, **Swap ×1 (colored)**.
+  - Global wilds: Wild ×4, Wild Draw Four ×4, **Global Swap ×4**.
+- **Starting hand**: 8 cards per player.
+- **Opening discard**: always a number card.
+- **Legal play**: match top card by color, number, or kind; wilds are always legal. Swap is colored — it follows normal matching rules.
+- **Skip**: next player loses their turn.
+- **Reverse**: direction reverses; with 2 players acts as Skip.
+- **Draw Two (+2)**: next player draws 2 and loses turn, unless they counter with another +2.
+- **Wild**: choose new active color.
+- **Wild Draw Four (+4)**: choose color; next player draws 4 unless countered with another +4.
+- **Swap (⇋)**: pick an opponent and swap entire hands. Turn-only, no stacking.
+- **Global Swap (↻)**: every player passes their hand to the next player in the current direction.
+- **Identical-card interrupt**: any non-current player may immediately play a card that exactly matches the top discard (color + kind + value). Fastest-server-received wins; play continues from the interrupter. Wilds cannot be used to interrupt.
+- **+2 free interrupt**: a +2 may be played out of turn at any time even if it does not match top color/value. Cannot be used while a draw penalty is already active (use the normal counter chain instead).
+- **Batch identical-card play**: on your turn you may play multiple identical cards (same color + value) at once; effects compound (`N` × +2 = `2N` pending draw, `N` skips skip `N` players, etc).
+- **UNO declaration**: player must call UNO when they reach 1 card; other players have a 5-second window to catch them.
+- **UNO catch**: if caught undeclared, the target draws 2 penalty cards.
+- **Round end (single-finisher)**: the round ends the moment one player empties their hand. That player wins and scores the sum of all opponents' remaining card values; everyone else scores 0 for the round.
+  - Card values: number = face (1–9); Skip / Reverse / +2 / Swap = 20; Wild / +4 / Global Swap = 50.
+- **Round 1 starter**: chosen at random. **Subsequent rounds**: the player with the lowest cumulative score starts.
+- **Turn timer & AFK**: each turn is time-bounded; on expiry the server auto-draws and passes. After ~2 rounds of consecutive AFK turns, the player is removed.
 
 ### Match Formats
 
@@ -207,7 +211,7 @@ Based on standard UNO with the following mechanics:
 **Tiebreakers** (applied in order):
 1. Highest cumulative score
 2. Most rounds won
-3. Lowest total remaining card value held by the last-place finisher across rounds
+3. Lowest cumulative remaining card value across losing rounds
 4. Sudden-death extra round (if still tied)
 
 ---
@@ -355,6 +359,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Spectating banner (local player finishes before round ends)
 - WebSocket reconnect (offline/online cycle, reconnect overlay, two-client disconnect)
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch discard update
+- Swap / Global Swap on-screen notification banner + PixiJS card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play out-of-turn
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
 

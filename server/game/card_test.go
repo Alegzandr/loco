@@ -9,10 +9,12 @@ func TestCardIsWild(t *testing.T) {
 	}{
 		{Card{Color: Wild, Kind: WildCard}, true},
 		{Card{Color: Wild, Kind: WildDrawFour}, true},
+		{Card{Color: Wild, Kind: GlobalSwitch}, true},
 		{Card{Color: Red, Kind: Number, Value: 5}, false},
 		{Card{Color: Blue, Kind: Skip}, false},
 		{Card{Color: Green, Kind: Reverse}, false},
 		{Card{Color: Yellow, Kind: DrawTwo}, false},
+		{Card{Color: Red, Kind: Swap}, false}, // Swap is colored
 	}
 	for _, tt := range tests {
 		got := tt.card.IsWild()
@@ -53,8 +55,10 @@ func TestCardValue(t *testing.T) {
 		{Card{Kind: Skip}, 20},
 		{Card{Kind: Reverse}, 20},
 		{Card{Kind: DrawTwo}, 20},
+		{Card{Color: Red, Kind: Swap}, 20},
 		{Card{Kind: WildCard}, 50},
 		{Card{Kind: WildDrawFour}, 50},
+		{Card{Kind: GlobalSwitch}, 50},
 	}
 	for _, tt := range tests {
 		got := CardValue(tt.card)

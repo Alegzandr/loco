@@ -7,33 +7,36 @@ type Deck struct {
 	Cards []Card
 }
 
-// NewDeck creates a 112-card UNO-style deck including Swap and GlobalSwitch cards.
+// NewDeck creates a 112-card deck.
+//
+// Per color (Red, Yellow, Green, Blue):
+//   - Numbers 1–9 ×2 (no zero)
+//   - Skip ×2, Reverse ×2, DrawTwo ×2
+//   - Swap ×1 (colored)
+//
+// Global (wild):
+//   - Wild ×4, WildDrawFour ×4, GlobalSwitch ×4
+//
+// Per color = 2*9 + 2 + 2 + 2 + 1 = 25; 4 colors = 100; +12 wild = 112.
 func NewDeck() *Deck {
 	cards := make([]Card, 0, 112)
 
 	for _, col := range []Color{Red, Yellow, Green, Blue} {
-		// One zero per color
-		cards = append(cards, Card{Color: col, Kind: Number, Value: 0})
-		// Two of each 1-9
 		for v := 1; v <= 9; v++ {
 			cards = append(cards, Card{Color: col, Kind: Number, Value: v})
 			cards = append(cards, Card{Color: col, Kind: Number, Value: v})
 		}
-		// Two Skip, Two Reverse, Two DrawTwo per color
 		for i := 0; i < 2; i++ {
 			cards = append(cards, Card{Color: col, Kind: Skip})
 			cards = append(cards, Card{Color: col, Kind: Reverse})
 			cards = append(cards, Card{Color: col, Kind: DrawTwo})
 		}
+		cards = append(cards, Card{Color: col, Kind: Swap})
 	}
 
-	// Four Wild, Four WildDrawFour, Two Swap, Two GlobalSwitch
 	for i := 0; i < 4; i++ {
 		cards = append(cards, Card{Color: Wild, Kind: WildCard})
 		cards = append(cards, Card{Color: Wild, Kind: WildDrawFour})
-	}
-	for i := 0; i < 2; i++ {
-		cards = append(cards, Card{Color: Wild, Kind: Swap})
 		cards = append(cards, Card{Color: Wild, Kind: GlobalSwitch})
 	}
 

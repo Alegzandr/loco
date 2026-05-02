@@ -43,6 +43,7 @@ interface Props {
 
 const UNO_WINDOW_MS = 5000
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
+const SWAP_NOTICE_MS = 3500
 
 export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
@@ -87,8 +88,10 @@ export function GameView({ onSend, wsStatus }: Props) {
     matchFormat,
     isReconnecting,
     errorMsg,
+    swapNotice,
     dismissRoundSummary,
     setIsReconnecting,
+    setSwapNotice,
     clearError,
   } = useGameStore()
 
@@ -186,8 +189,7 @@ export function GameView({ onSend, wsStatus }: Props) {
       }
       game.renderReconnect(
         { myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-          turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix,
-            ord1: t.ord1, ord2: t.ord2, ord3: t.ord3, ordN: t.ordN } },
+          turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix } },
         () => { setIsReconnecting(false) }
       )
     }, 600)
@@ -212,8 +214,7 @@ export function GameView({ onSend, wsStatus }: Props) {
 
     game.render({
       myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix,
-        ord1: t.ord1, ord2: t.ord2, ord3: t.ord3, ordN: t.ordN },
+      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix },
     })
   }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t, pixiReady])
 
@@ -270,6 +271,25 @@ export function GameView({ onSend, wsStatus }: Props) {
     }
   }, [turnDeadline])
 
+  // Auto-clear swap/global_switch notice after a short window, and trigger
+  // the matching PixiJS animation so the hand movement reads visually.
+  useEffect(() => {
+    if (!swapNotice) return
+    const game = pixiRef.current
+    if (game) {
+      if (swapNotice.kind === 'swap' && swapNotice.targetIndex >= 0) {
+        game.animateSwap(swapNotice.actorIndex, swapNotice.targetIndex, players, myIndex)
+      } else if (swapNotice.kind === 'global_switch') {
+        game.animateGlobalSwitch(swapNotice.direction, players, myIndex)
+      }
+    }
+    const id = setTimeout(() => setSwapNotice(null), SWAP_NOTICE_MS)
+    return () => clearTimeout(id)
+    // Triggered once per notice (keyed by .at); deps intentionally minimal so the
+    // animation does not replay when only `players` changes mid-notice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [swapNotice?.at])
+
   // Auto-clear in-game error messages after 2.5 seconds
   useEffect(() => {
     if (!errorMsg) return
@@ -309,7 +329,6 @@ export function GameView({ onSend, wsStatus }: Props) {
   }, [showRoundSummary])
 
   const isMyTurn = currentTurn === myIndex
-  const isFinished = !!players.find((p) => p.index === myIndex)?.finished
   // True when the player has at least one card they can legally play right now.
   // Used to de-emphasize the Draw button so it doesn't look like the required action.
   const hasPlayableCard = isMyTurn && myHand.some(c => clientMayPlay(c, discard, activeColor, pendingDraw))
@@ -363,7 +382,6 @@ export function GameView({ onSend, wsStatus }: Props) {
       {/* Action bar */}
       <ActionBar
         isMyTurn={isMyTurn}
-        isFinished={isFinished}
         pendingDraw={pendingDraw}
         handSize={myHand.length}
         hasDrawn={hasDrawn}
@@ -405,7 +423,7 @@ export function GameView({ onSend, wsStatus }: Props) {
       {playerPicker && (
         <PlayerPicker
           label={t.choosePlayer}
-          players={players.filter((p) => p.index !== myIndex && !p.finished)}
+          players={players.filter((p) => p.index !== myIndex)}
           onChoose={(targetIdx: number) => {
             const game = pixiRef.current
             if (game) {
@@ -433,17 +451,33 @@ export function GameView({ onSend, wsStatus }: Props) {
         />
       )}
 
+      {swapNotice && (() => {
+        const actor = players.find(p => p.index === swapNotice.actorIndex)?.nickname ?? `P${swapNotice.actorIndex}`
+        const target = swapNotice.targetIndex >= 0
+          ? (players.find(p => p.index === swapNotice.targetIndex)?.nickname ?? `P${swapNotice.targetIndex}`)
+          : ''
+        let text: string
+        if (swapNotice.kind === 'swap') {
+          const tpl = swapNotice.actorIndex === myIndex
+            ? t.swapNoticeYouActor
+            : swapNotice.targetIndex === myIndex
+              ? t.swapNoticeYouTarget
+              : t.swapNotice
+          text = tpl.replace('%actor', actor).replace('%target', target)
+        } else {
+          // direction === 1 means clockwise (next-seat); -1 means counter-clockwise.
+          const tpl = swapNotice.direction >= 0 ? t.globalSwitchNoticeCw : t.globalSwitchNoticeCcw
+          text = tpl.replace('%actor', actor)
+        }
+        return <div key={swapNotice.at} className={styles.swapNotice}>{text}</div>
+      })()}
+
       {unoDeclared && (
         <div className={styles.unoBanner}>
           {unoDeclaredByIndex >= 0 && players.find(p => p.index === unoDeclaredByIndex)?.nickname
             ? `${players.find(p => p.index === unoDeclaredByIndex)!.nickname}: ${t.unoBanner}`
             : t.unoBanner}
         </div>
-      )}
-
-      {/* Spectating banner when local player has finished but round is still going */}
-      {isFinished && !showRoundSummary && (
-        <div className={styles.spectatingBanner}>{t.spectating}</div>
       )}
 
       {matchFormat !== 'BO1' && (

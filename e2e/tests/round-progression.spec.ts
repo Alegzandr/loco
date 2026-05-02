@@ -131,14 +131,10 @@ test.describe('round summary and match progression', () => {
   })
 
   /**
-   * Spectating banner: when the local player empties their hand before the round ends,
-   * the "You finished! Watching the round…" banner is shown and the action bar is hidden.
-   *
-   * This test plays aggressively to try to empty the hand first.  Because the deck is
-   * random, we may not finish before the bots do.  Graceful skip with annotation if not
-   * observed.
+   * Round ends the moment a player empties their hand (single-finisher model).
+   * The local player plays their last card → the RoundSummary overlay appears.
    */
-  test('spectating banner is shown when local player finishes first', async ({ page }) => {
+  test('round ends immediately when local player empties their hand', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await addBot(page)
@@ -161,9 +157,7 @@ test.describe('round summary and match progression', () => {
       currentTurn: myIdx,
     })
     await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
-    await expect(page.getByText(T.spectating)).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByRole('button', { name: T.draw })).not.toBeVisible()
-    await expect(page.getByRole('button', { name: T.pass })).not.toBeVisible()
+    await expect(page.getByText(T.winsRound, { exact: false })).toBeVisible({ timeout: 5_000 })
   })
 
   /**

@@ -69,6 +69,11 @@ type ClientMsg struct {
 	ChosenColor  string   `json:"chosen_color,omitempty"`
 	ChosenPlayer *int     `json:"chosen_player,omitempty"` // target player index for Swap cards
 
+	// CMsgPlayCard batch: when the player plays multiple identical cards at once.
+	// All cards must be exactly equal; if PlayCards is non-empty it takes precedence
+	// over the singular Card field. Swap and GlobalSwitch cannot be batch-played.
+	PlayCards []CardDTO `json:"play_cards,omitempty"`
+
 	// CMsgSetMatchFormat
 	MatchFormat string `json:"match_format,omitempty"`
 
@@ -126,6 +131,10 @@ type ServerMsg struct {
 	PlayerIndex int      `json:"player_index,omitempty"`
 	Card        *CardDTO `json:"card,omitempty"`
 	ActiveColor string   `json:"active_color,omitempty"` // authoritative active color after card play
+	// Set only when a Swap card resolves: the target player index whose hand was exchanged
+	// with the actor's hand. Lets clients show a "X swapped with Y" notification without
+	// exposing hand contents to non-participants.
+	ChosenPlayer *int `json:"chosen_player,omitempty"`
 
 	// SMsgTurnChanged
 	Turn int `json:"turn,omitempty"`
@@ -168,8 +177,6 @@ type PlayerDTO struct {
 	Nickname  string `json:"nickname"`
 	HandSize  int    `json:"hand_size"`
 	Connected bool   `json:"connected"`
-	Finished  bool   `json:"finished,omitempty"`  // true when player has emptied their hand this round
-	Placement int    `json:"placement,omitempty"` // 1-based finish order within the round (0 = not yet finished)
 }
 
 // GameEventDTO is the wire representation of a game event.

@@ -89,6 +89,46 @@
   animation: fadeIn 0.3s ease-out forwards;
 }
 
+/* Swap / GlobalSwitch notice — surfaced above the action bar so players
+   understand why hands changed. Auto-clears via setSwapNotice(null). */
+.swapNotice {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(20, 14, 40, 0.92);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #f5d0fe;
+  font-size: 0.95rem;
+  font-weight: 700;
+  padding: 10px 22px;
+  border-radius: 28px;
+  border: 1px solid rgba(217, 119, 255, 0.4);
+  box-shadow: 0 4px 24px rgba(168, 85, 247, 0.35), 0 0 32px rgba(168, 85, 247, 0.12);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 14;
+  animation: swapNoticeIn 0.28s ease-out forwards;
+  letter-spacing: 0.02em;
+}
+
+@media (max-width: 480px) {
+  .swapNotice {
+    font-size: 0.82rem;
+    padding: 8px 16px;
+    top: 18%;
+    max-width: 92%;
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+@keyframes swapNoticeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.92); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
 /* Per-turn countdown bar — at top of screen, clearly visible */
 .turnTimerBar {
   position: absolute;

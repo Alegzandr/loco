@@ -10,6 +10,14 @@ import {
 
 export type AppScreen = 'lobby' | 'waiting' | 'game' | 'gameover'
 
+export interface SwapNotice {
+  kind: 'swap' | 'global_switch'
+  actorIndex: number
+  targetIndex: number  // -1 for global_switch
+  direction: number    // game direction at the time of the play (for global_switch arrow)
+  at: number           // Date.now() — used as a render key so React re-mounts the banner
+}
+
 // Per-player points earned in the most recent round (computed as delta from prevScoreboard).
 export interface RoundScoreEntry {
   player_index: number
@@ -54,6 +62,10 @@ interface GameStore {
   // buffered match-end payload (held while the final round summary is visible)
   pendingMatchEnd: { matchWinner: string; scoreboard: ScoreboardEntryDTO[] } | null
 
+  // Transient notice shown when a Swap or GlobalSwitch resolves so players
+  // understand why hands changed. Cleared by the GameView after a short timeout.
+  swapNotice: SwapNotice | null
+
   // Reconnect animation state
   isReconnecting: boolean
 
@@ -62,7 +74,8 @@ interface GameStore {
   setMyIndex: (idx: number) => void
   setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
-  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[]) => void
+  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number) => void
+  setSwapNotice: (notice: SwapNotice | null) => void
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   setWinner: (name: string) => void
@@ -132,6 +145,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   roundScores: [],
   pendingGameState: null,
   pendingMatchEnd: null,
+  swapNotice: null,
   isReconnecting: false,
 
   setScreen: (screen) => set({ screen }),
@@ -153,7 +167,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       unoTimerEnd: null,
     }),
 
-  applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players) =>
+  applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players, chosenPlayer) =>
     set((s) => {
       // Prefer server-provided player list (includes Finished/Placement); fall back to local update
       const updatedPlayers = players
@@ -177,6 +191,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
           updatedHand = [...s.myHand.slice(0, idx), ...s.myHand.slice(idx + 1)]
         }
       }
+      // Surface a transient notice when a hand-swapping card resolves so non-actors
+      // understand why their (or others') card counts just changed.
+      let swapNotice = s.swapNotice
+      if (card.kind === 'swap') {
+        swapNotice = {
+          kind: 'swap',
+          actorIndex: playerIndex,
+          targetIndex: typeof chosenPlayer === 'number' ? chosenPlayer : -1,
+          direction: s.direction,
+          at: Date.now(),
+        }
+      } else if (card.kind === 'global_switch') {
+        swapNotice = {
+          kind: 'global_switch',
+          actorIndex: playerIndex,
+          targetIndex: -1,
+          direction: s.direction,
+          at: Date.now(),
+        }
+      }
       return {
         myHand: updatedHand,
         discard: card,
@@ -187,8 +221,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         players: updatedPlayers,
         unoDeclared: false,
         unoDeclaredByIndex: -1,
+        swapNotice,
       }
     }),
+
+  setSwapNotice: (swapNotice) => set({ swapNotice }),
 
   applyCardDrawn: (cards, playerIndex, turn, hasDrawn, drawnCount) =>
     set((s) => {

@@ -82,7 +82,7 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 		bestIdx := -1
 		bestSize := -1
 		for i := 0; i < n; i++ {
-			if i == playerIdx || state.Finished[i] {
+			if i == playerIdx {
 				continue
 			}
 			if state.Hands[i].Size() > bestSize {

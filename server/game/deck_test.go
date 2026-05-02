@@ -4,11 +4,20 @@ import "testing"
 
 func TestNewDeck_Size(t *testing.T) {
 	d := NewDeck()
-	// 4 colors × (1 zero + 2×nine numbers + 2 Skip + 2 Reverse + 2 DrawTwo) = 4×25 = 100
-	// Plus 4 Wild + 4 WildDrawFour + 2 Swap + 2 GlobalSwitch = 12
-	// Total = 112
+	// 4 colors × (2×9 numbers + 2 Skip + 2 Reverse + 2 DrawTwo + 1 Swap) = 4×25 = 100
+	// + 4 Wild + 4 WildDrawFour + 4 GlobalSwitch = 12
+	// total = 112
 	if len(d.Cards) != 112 {
 		t.Errorf("NewDeck() len = %d, want 112", len(d.Cards))
+	}
+}
+
+func TestNewDeck_NoZeroCards(t *testing.T) {
+	d := NewDeck()
+	for _, c := range d.Cards {
+		if c.Kind == Number && c.Value == 0 {
+			t.Errorf("deck should not contain a 0 number card; found %+v", c)
+		}
 	}
 }
 
@@ -22,27 +31,46 @@ func TestNewDeck_ColorDistribution(t *testing.T) {
 	}
 	for _, col := range []Color{Red, Yellow, Green, Blue} {
 		if counts[col] != 25 {
-			t.Errorf("Color %v count = %d, want 25", col, counts[col])
+			t.Errorf("color %v count = %d, want 25", col, counts[col])
 		}
 	}
 }
 
-func TestNewDeck_WildCount(t *testing.T) {
+func TestNewDeck_WildAndGlobalCounts(t *testing.T) {
 	d := NewDeck()
-	wilds, wildDrawFours := 0, 0
+	var wilds, w4s, swaps, gswaps int
 	for _, c := range d.Cards {
-		if c.Kind == WildCard {
+		switch c.Kind {
+		case WildCard:
 			wilds++
-		}
-		if c.Kind == WildDrawFour {
-			wildDrawFours++
+		case WildDrawFour:
+			w4s++
+		case GlobalSwitch:
+			gswaps++
+		case Swap:
+			swaps++
 		}
 	}
 	if wilds != 4 {
-		t.Errorf("Wild count = %d, want 4", wilds)
+		t.Errorf("WildCard count = %d, want 4", wilds)
 	}
-	if wildDrawFours != 4 {
-		t.Errorf("WildDrawFour count = %d, want 4", wildDrawFours)
+	if w4s != 4 {
+		t.Errorf("WildDrawFour count = %d, want 4", w4s)
+	}
+	if gswaps != 4 {
+		t.Errorf("GlobalSwitch count = %d, want 4", gswaps)
+	}
+	if swaps != 4 {
+		t.Errorf("Swap count = %d, want 4 (1 per color)", swaps)
+	}
+}
+
+func TestNewDeck_SwapIsColored(t *testing.T) {
+	d := NewDeck()
+	for _, c := range d.Cards {
+		if c.Kind == Swap && c.Color == Wild {
+			t.Errorf("Swap should be a colored card, found Wild-colored %+v", c)
+		}
 	}
 }
 
@@ -50,7 +78,6 @@ func TestDeck_Shuffle(t *testing.T) {
 	d1 := NewDeck()
 	d2 := NewDeck()
 	d2.Shuffle()
-	// With 108 cards, the probability all are in identical order after shuffle is negligible
 	same := true
 	for i := range d1.Cards {
 		if d1.Cards[i] != d2.Cards[i] {
@@ -66,11 +93,10 @@ func TestDeck_Shuffle(t *testing.T) {
 func TestDeck_Draw(t *testing.T) {
 	d := NewDeck()
 	initial := len(d.Cards)
-	card, ok := d.Draw()
+	_, ok := d.Draw()
 	if !ok {
 		t.Fatal("Draw() on full deck returned ok=false")
 	}
-	_ = card
 	if len(d.Cards) != initial-1 {
 		t.Errorf("After Draw(), len = %d, want %d", len(d.Cards), initial-1)
 	}
@@ -86,15 +112,15 @@ func TestDeck_DrawEmpty(t *testing.T) {
 
 func TestDeck_DrawN(t *testing.T) {
 	d := NewDeck()
-	cards, ok := d.DrawN(7)
+	cards, ok := d.DrawN(8)
 	if !ok {
-		t.Fatal("DrawN(7) on full deck returned ok=false")
+		t.Fatal("DrawN(8) on full deck returned ok=false")
 	}
-	if len(cards) != 7 {
-		t.Errorf("DrawN(7) returned %d cards, want 7", len(cards))
+	if len(cards) != 8 {
+		t.Errorf("DrawN(8) returned %d cards, want 8", len(cards))
 	}
-	if len(d.Cards) != 105 {
-		t.Errorf("After DrawN(7), deck len = %d, want 105", len(d.Cards))
+	if len(d.Cards) != 104 {
+		t.Errorf("After DrawN(8), deck len = %d, want 104", len(d.Cards))
 	}
 }
 
@@ -109,13 +135,10 @@ func TestDeck_DrawN_InsufficientCards(t *testing.T) {
 func TestDeck_Replenish(t *testing.T) {
 	d := NewDeck()
 	d.Shuffle()
-	// Draw down to 3 cards
-	drawn, _ := d.DrawN(109)
-	discard := drawn[:108]
-
-	d.Replenish(discard, drawn[108])
-	// deck should have 108 cards again (the discards minus the top of discard)
-	if len(d.Cards) != 108 {
-		t.Errorf("After Replenish(), deck len = %d, want 108", len(d.Cards))
+	drawn, _ := d.DrawN(110)
+	discard := drawn[:109]
+	d.Replenish(discard, drawn[109])
+	if len(d.Cards) != 109 {
+		t.Errorf("After Replenish(), deck len = %d, want 109", len(d.Cards))
 	}
 }

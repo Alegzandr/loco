@@ -6,13 +6,10 @@ func CanPlay(card, topCard Card, activeColor Color) bool {
 	if card.IsWild() {
 		return true
 	}
-	// Match active color (used after wild sets a color)
 	if card.Color == activeColor {
 		return true
 	}
-	// Match kind (e.g., Skip on Skip)
 	if card.Kind == topCard.Kind {
-		// For number cards, also require matching value
 		if card.Kind == Number {
 			return card.Value == topCard.Value
 		}
@@ -27,36 +24,25 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 	n := len(s.Hands)
 
 	switch card.Kind {
-	case WildCard, WildDrawFour:
+	case WildCard:
 		s.ActiveColor = chosenColor
-		if card.Kind == WildDrawFour {
-			s.PendingDraw += 4
-		}
-	case Swap, GlobalSwitch:
-		// Do not change active color; hand manipulation is handled by Room.PlayCard.
+	case WildDrawFour:
+		s.ActiveColor = chosenColor
+		s.PendingDraw += 4
+	case GlobalSwitch:
+		s.ActiveColor = chosenColor
 	default:
+		// Colored cards (Number, Skip, Reverse, DrawTwo, Swap)
 		s.ActiveColor = card.Color
 	}
 
 	switch card.Kind {
 	case Skip:
-		// Skip the next player
 		return s.nextTurn(s.nextTurn(s.CurrentTurn))
 
 	case Reverse:
 		s.Direction *= -1
-		// Count active (unfinished) players to determine if Reverse acts as Skip.
-		activeCount := n
-		if len(s.Finished) > 0 {
-			activeCount = 0
-			for _, f := range s.Finished {
-				if !f {
-					activeCount++
-				}
-			}
-		}
-		if activeCount == 2 {
-			// With only 2 active players, Reverse acts as Skip
+		if n == 2 {
 			return s.nextTurn(s.nextTurn(s.CurrentTurn))
 		}
 		return s.nextTurn(s.CurrentTurn)
@@ -65,25 +51,13 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 		s.PendingDraw += 2
 		return s.nextTurn(s.CurrentTurn)
 
-	case WildDrawFour:
-		return s.nextTurn(s.CurrentTurn)
-
 	default:
 		return s.nextTurn(s.CurrentTurn)
 	}
 }
 
-// nextTurn calculates the next player index given direction, skipping finished players.
+// nextTurn calculates the next player index given direction.
 func (s *GameState) nextTurn(from int) int {
 	n := len(s.Hands)
-	next := ((from + s.Direction) % n + n) % n
-	if len(s.Finished) > 0 {
-		for i := 0; i < n; i++ {
-			if !s.Finished[next] {
-				return next
-			}
-			next = ((next + s.Direction) % n + n) % n
-		}
-	}
-	return next
+	return ((from+s.Direction)%n + n) % n
 }

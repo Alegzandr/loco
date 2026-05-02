@@ -416,7 +416,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
       const bobView = await page2.evaluate(() => window.__LOCO_E2E__?.getState?.())
       const aliceFromBob = (bobView?.players ?? []).find((p) => p.index === aliceIndex)
-      const handBefore = aliceFromBob?.hand_size ?? 7
+      const handBefore = aliceFromBob?.hand_size ?? 8
 
       // Wait for Alice's turn.
       await waitForTurn(page1, 30_000)

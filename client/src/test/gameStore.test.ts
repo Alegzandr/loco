@@ -543,11 +543,7 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().pendingDraw).toBe(4)
   })
 
-  // ──────────────────────────────────────────────────────────────
-  // Finished players propagated via server player list
-  // ──────────────────────────────────────────────────────────────
-
-  it('applyCardPlayed uses server-provided player list with finished flag', () => {
+  it('applyCardPlayed adopts server-provided player list (e.g. on round end)', () => {
     useGameStore.setState({
       myIndex: 1,
       players: [
@@ -555,17 +551,15 @@ describe('useGameStore', () => {
         { index: 1, nickname: 'bob', hand_size: 5, connected: true },
       ],
     })
-    // Alice plays her last card; server sends updated players with alice finished
     const card: CardDTO = { color: 'red', kind: 'number', value: 9 }
     const serverPlayers = [
-      { index: 0, nickname: 'alice', hand_size: 0, connected: true, finished: true, placement: 1 },
+      { index: 0, nickname: 'alice', hand_size: 0, connected: true },
       { index: 1, nickname: 'bob', hand_size: 5, connected: true },
     ]
     useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined, serverPlayers)
     const s = useGameStore.getState()
-    expect(s.players[0].finished).toBe(true)
-    expect(s.players[0].placement).toBe(1)
     expect(s.players[0].hand_size).toBe(0)
+    expect(s.players[1].hand_size).toBe(5)
   })
 
   it('applyCardPlayed falls back to local hand-size decrement when no server player list', () => {
@@ -604,6 +598,53 @@ describe('useGameStore', () => {
     expect(s.discard).toEqual(card)
     expect(s.currentTurn).toBe(0)
     expect(s.players[1].hand_size).toBe(2) // bob's local hand reduced
+  })
+
+  // ──────────────────────────────────────────────────────────────
+  // Swap / GlobalSwitch notice surfacing
+  // ──────────────────────────────────────────────────────────────
+
+  it('applyCardPlayed sets swapNotice with target index when a Swap card resolves', () => {
+    useGameStore.setState({
+      myIndex: 0,
+      currentTurn: 0,
+      direction: 1,
+      swapNotice: null,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    const card: CardDTO = { color: 'red', kind: 'swap' }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, 'red', undefined, 1)
+    const n = useGameStore.getState().swapNotice
+    expect(n).not.toBeNull()
+    expect(n?.kind).toBe('swap')
+    expect(n?.actorIndex).toBe(0)
+    expect(n?.targetIndex).toBe(1)
+  })
+
+  it('applyCardPlayed sets swapNotice with kind=global_switch and direction', () => {
+    useGameStore.setState({
+      myIndex: 1,
+      currentTurn: 0,
+      direction: -1,
+      swapNotice: null,
+    })
+    const card: CardDTO = { color: 'wild', kind: 'global_switch' }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, 'blue')
+    const n = useGameStore.getState().swapNotice
+    expect(n?.kind).toBe('global_switch')
+    expect(n?.actorIndex).toBe(0)
+    expect(n?.targetIndex).toBe(-1)
+    expect(n?.direction).toBe(-1)
+  })
+
+  it('applyCardPlayed does not set swapNotice for ordinary cards', () => {
+    useGameStore.setState({ swapNotice: null })
+    const card: CardDTO = { color: 'red', kind: 'number', value: 7 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    expect(useGameStore.getState().swapNotice).toBeNull()
   })
 
   // ──────────────────────────────────────────────────────────────

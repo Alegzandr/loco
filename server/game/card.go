@@ -71,8 +71,9 @@ type Card struct {
 }
 
 // IsWild returns true if the card has no inherent color.
+// Swap is now a colored card (one per color) and is NOT wild.
 func (c Card) IsWild() bool {
-	return c.Kind == WildCard || c.Kind == WildDrawFour || c.Kind == Swap || c.Kind == GlobalSwitch
+	return c.Kind == WildCard || c.Kind == WildDrawFour || c.Kind == GlobalSwitch
 }
 
 // IsAction returns true if the card is an action card.
@@ -86,9 +87,9 @@ func CardValue(c Card) int {
 	switch c.Kind {
 	case Number:
 		return c.Value
-	case Skip, Reverse, DrawTwo:
+	case Skip, Reverse, DrawTwo, Swap:
 		return 20
-	case WildCard, WildDrawFour, Swap, GlobalSwitch:
+	case WildCard, WildDrawFour, GlobalSwitch:
 		return 50
 	}
 	return 0

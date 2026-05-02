@@ -18,7 +18,7 @@ export const T = {
   playAgain: 'Play Again',
   gameOver: 'Game Over',
   youWin: 'You Win!',
-  spectating: 'You finished! Watching the round\u2026',
+  winsRound: 'wins the round!',
 } as const
 
 interface DebugHandOverride {

@@ -72,8 +72,6 @@ interface LocoE2EState {
     nickname: string
     hand_size: number
     connected?: boolean
-    finished?: boolean
-    placement?: number
   }>
 }
 

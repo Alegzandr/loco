@@ -1143,6 +1143,11 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	origCatchDelay := hub.BotCatchDelay
 	origCatchJitter := hub.BotCatchJitterMax
 	origCatchProb := hub.BotCatchProb
+	origAFKThreshold := hub.AFKKickThreshold
+	// This test deliberately lets the human time out repeatedly while the bot keeps playing,
+	// so disable AFK kick (would otherwise force-disconnect after 4 timeouts and stall the test).
+	hub.AFKKickThreshold = 1 << 30
+	t.Cleanup(func() { hub.AFKKickThreshold = origAFKThreshold })
 	// Use moderate delays to avoid flooding the per-client send buffer (cap 256)
 	// with messages faster than the test goroutine can drain them. When the buffer
 	// fills, the hub drops messages — including match_end — causing a spurious failure.
@@ -1924,8 +1929,8 @@ func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
 	if gs2.State.RoundNumber != 2 {
 		t.Errorf("round 2 game_started RoundNumber = %d, want 2", gs2.State.RoundNumber)
 	}
-	if len(gs2.State.Hand) != 7 {
-		t.Errorf("round 2 hand size = %d, want 7", len(gs2.State.Hand))
+	if len(gs2.State.Hand) != 8 {
+		t.Errorf("round 2 hand size = %d, want 8", len(gs2.State.Hand))
 	}
 }
 
@@ -1995,5 +2000,197 @@ func TestMetrics_DebugModeFlag(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	if !h.GetMetrics().DebugModeActive {
 		t.Error("DebugModeActive should be true when LOCO_E2E=1")
+	}
+}
+
+// TestAFK_KicksAfterConsecutiveTimeouts verifies that a human player who lets
+// their turn timer expire AFKKickThreshold times in a row gets force-disconnected
+// (the server sends an "afk_kicked" error and closes the WebSocket).
+func TestAFK_KicksAfterConsecutiveTimeouts(t *testing.T) {
+	origTimeout := hub.TurnTimeout
+	origThreshold := hub.AFKKickThreshold
+	origBotDelay := hub.BotThinkDelay
+	origJitter := hub.BotJitterMax
+	origCatchProb := hub.BotCatchProb
+	hub.TurnTimeout = 30 * time.Millisecond
+	hub.AFKKickThreshold = 2
+	hub.BotThinkDelay = 5 * time.Millisecond
+	hub.BotJitterMax = 0
+	hub.BotCatchProb = 0
+	t.Cleanup(func() {
+		hub.TurnTimeout = origTimeout
+		hub.AFKKickThreshold = origThreshold
+		hub.BotThinkDelay = origBotDelay
+		hub.BotJitterMax = origJitter
+		hub.BotCatchProb = origCatchProb
+	})
+
+	_, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Idler"})
+	created := readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot, RoomCode: created.RoomCode})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	conn.SetReadDeadline(time.Time{})
+
+	// Drain messages waiting for an "afk_kicked" error or a clean close.
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for AFK kick")
+		default:
+		}
+		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			// Connection closed: this is the expected end state after kick.
+			return
+		}
+		var msg protocol.ServerMsg
+		if json.Unmarshal(data, &msg) != nil {
+			continue
+		}
+		if msg.Type == protocol.SMsgError && msg.Error == "afk_kicked" {
+			return
+		}
+		if msg.Type == protocol.SMsgMatchEnd {
+			t.Fatal("match ended before AFK kick fired — bot won too fast for the test")
+		}
+	}
+}
+
+// TestPlayCard_SwapBroadcastsChosenPlayer verifies that when a Swap card is
+// played, the card_played broadcast carries the target player index so clients
+// can show "X swapped with Y" without inferring it from hand-size deltas.
+func TestPlayCard_SwapBroadcastsChosenPlayer(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	var activeConn, observerConn *websocket.Conn
+	var activeIdx, targetIdx int
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn, observerConn = conn1, conn2
+		activeIdx = gs1.State.YourIndex
+		targetIdx = gs2.State.YourIndex
+	} else {
+		activeConn, observerConn = conn2, conn1
+		activeIdx = gs2.State.YourIndex
+		targetIdx = gs1.State.YourIndex
+	}
+
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "swap"}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugActiveColor: "red",
+		DebugPendingDraw: &zero,
+		DebugCurrentTurn: &activeIdx,
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, observerConn, protocol.SMsgGameState)
+
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:         protocol.CMsgPlayCard,
+		Card:         &protocol.CardDTO{Color: "red", Kind: "swap"},
+		ChosenPlayer: &targetIdx,
+	})
+
+	for _, c := range []*websocket.Conn{activeConn, observerConn} {
+		cp := readMsgOfType(t, c, protocol.SMsgCardPlayed)
+		if cp.Card == nil || cp.Card.Kind != "swap" {
+			t.Fatalf("card_played card mismatch: got %+v, want swap", cp.Card)
+		}
+		if cp.ChosenPlayer == nil {
+			t.Fatalf("card_played missing chosen_player for swap")
+		}
+		if *cp.ChosenPlayer != targetIdx {
+			t.Errorf("card_played chosen_player = %d, want %d", *cp.ChosenPlayer, targetIdx)
+		}
+	}
+}
+
+// TestPlayCard_NonSwapOmitsChosenPlayer verifies chosen_player is nil for normal plays.
+func TestPlayCard_NonSwapOmitsChosenPlayer(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	var activeConn, observerConn *websocket.Conn
+	var activeIdx int
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn, observerConn = conn1, conn2
+		activeIdx = gs1.State.YourIndex
+	} else {
+		activeConn, observerConn = conn2, conn1
+		activeIdx = gs2.State.YourIndex
+	}
+
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugActiveColor: "red",
+		DebugPendingDraw: &zero,
+		DebugCurrentTurn: &activeIdx,
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, observerConn, protocol.SMsgGameState)
+
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+
+	for _, c := range []*websocket.Conn{activeConn, observerConn} {
+		cp := readMsgOfType(t, c, protocol.SMsgCardPlayed)
+		if cp.ChosenPlayer != nil {
+			t.Errorf("card_played chosen_player should be nil for non-swap, got %d", *cp.ChosenPlayer)
+		}
 	}
 }

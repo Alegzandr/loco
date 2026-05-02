@@ -42,6 +42,12 @@ export interface Translations {
   chooseColor: string
   choosePlayer: string
   catchWindow: string
+  // Banners surfaced after Swap / GlobalSwitch resolves so players see why hands changed.
+  swapNotice: string                // contains %actor and %target placeholders
+  swapNoticeYouTarget: string       // shown when %target would be the local player
+  swapNoticeYouActor: string        // shown when %actor would be the local player
+  globalSwitchNoticeCw: string      // contains %actor — clockwise rotation
+  globalSwitchNoticeCcw: string     // contains %actor — counter-clockwise rotation
   reconnected: string
   rebuildingTable: string
   wsLostConnection: string
@@ -126,6 +132,11 @@ export const en: Translations = {
   chooseColor: 'Choose a color',
   choosePlayer: 'Choose a player to swap hands with',
   catchWindow: 'Catch window!',
+  swapNotice: '%actor swapped hands with %target',
+  swapNoticeYouTarget: '%actor swapped hands with you',
+  swapNoticeYouActor: 'You swapped hands with %target',
+  globalSwitchNoticeCw: '%actor triggered Global Switch — hands passed →',
+  globalSwitchNoticeCcw: '%actor triggered Global Switch — hands passed ←',
   reconnected: 'Reconnected',
   rebuildingTable: 'Rebuilding table…',
   wsLostConnection: 'Connection lost',
@@ -172,88 +183,89 @@ export const en: Translations = {
     {
       heading: 'Players & Setup',
       items: [
-        '2 to 10 players per game.',
-        'Each player is dealt 7 cards at the start of each round.',
-        'The remaining deck is placed face-down; the top card flips to start the discard pile.',
-        'A randomly selected player goes first.',
+        '2 to 10 players per game (recommended 2–6).',
+        'Each player is dealt 8 cards at the start of each round.',
+        'The first card flipped to start the discard pile is always a Number card.',
+        'Round 1 starter is chosen at random; later rounds start with the player who has the lowest score so far.',
       ],
     },
     {
       heading: 'On Your Turn',
       items: [
-        'Play one or more cards from your hand (see special rules below).',
-        'If you cannot or choose not to play, draw a card from the deck.',
-        'After drawing, you may play the drawn card immediately (draw-and-play).',
-        'If you still cannot play after drawing, press Pass to end your turn.',
+        'Play a card matching the top card by color or value, play a Wild, or draw a card.',
+        'If you draw, you may play that card immediately if it is legal; otherwise press Pass to end your turn.',
       ],
     },
     {
       heading: 'Playing Multiple Identical Cards',
       items: [
-        'You may play several cards of the same number and color at once as a single turn.',
-        'All played cards count individually — e.g., playing two Draw Two cards stacks the effect.',
+        'You may play several cards of the exact same color and value at once.',
+        'Stacked effects compound — three +2s force the next player to draw 6, two Skips skip two players, and so on.',
       ],
     },
     {
       heading: 'Special Cards',
       items: [
         'Skip — the next player loses their turn.',
-        'Reverse — play direction is reversed.',
-        'Draw Two (+2) — the next player must draw 2 cards (and loses their turn unless they counter).',
-        'Wild — play on any color; you choose the next active color.',
-        'Wild Draw Four (+4) — play on any color; next player draws 4 (and loses their turn unless they counter).',
-        'Swap (⇋) — play on any turn; choose an opponent and instantly swap your entire hand with theirs.',
-        'Global Switch (↻) — play on any turn; all players pass their hands one seat clockwise (always clockwise, regardless of game direction).',
+        'Reverse — flips play direction (acts as Skip with 2 players).',
+        'Draw Two (+2) — next player draws 2 and loses their turn unless they stack.',
+        'Wild — choose the next active color.',
+        'Wild Draw Four (+4) — choose the color; next player draws 4 unless they stack.',
+        'Swap (⇋) — colored card; on your turn, pick an opponent and exchange entire hands. No stacking.',
+        'Global Swap (↻) — wild card; every player passes their hand to the next player in the current direction.',
       ],
     },
     {
-      heading: '+2 / +4 Stacking',
+      heading: 'Instant Play (Identical-Card Interrupt)',
       items: [
-        'A player targeted by a +2 or +4 may respond with their own +2 or +4 to counter it.',
-        'The stack accumulates until a player cannot or chooses not to counter; that player draws the total.',
-        'A +2 can only be countered by another +2; a +4 can only be countered by another +4.',
+        'Once any card is played, any other player may immediately play an identical card (same color and value).',
+        'The fastest such play takes the turn from the original player; play continues from the interrupter.',
+        'Wild cards cannot be used to interrupt.',
       ],
     },
     {
-      heading: 'UNO! Declaration',
+      heading: '+2 Free Interrupt',
       items: [
-        'When you play your second-to-last card (leaving exactly 1 card), you must press UNO! to declare.',
-        'If you fail to declare and another player presses Catch! before the 5-second window closes, you draw 2 penalty cards.',
-        'Declaring UNO has no effect if you have more than 1 card.',
+        'A +2 card can be played out of turn at any time, even if it does not match the top color or value.',
+        'The next player must stack (+2 / +4) or draw the running total.',
+        'Cannot be used while a draw penalty is already active — counter via the normal stacking rule instead.',
       ],
     },
     {
-      heading: 'Counter-UNO (Catch!)',
+      heading: 'Priority',
       items: [
-        'After a UNO declaration, any player can press Catch! within 5 seconds to challenge it.',
-        'If the declaration was valid (player has 1 card), the challenger draws 2 cards instead.',
-        'If the declaration was invalid (player has more than 1 card), the declaring player draws 2 cards.',
+        'When several reactions overlap, the server resolves: identical-card interrupt → +2 interrupt → normal play.',
+        'Server timing is final.',
       ],
     },
     {
-      heading: 'Turn Timer',
+      heading: 'UNO! Declaration & Catch',
       items: [
-        'Each player has a limited time per turn (shown as a timer bar at the bottom of the screen).',
-        'If the timer expires, a card is drawn automatically and the turn passes.',
+        'When you play down to exactly 1 card you must press UNO!',
+        'If you forget, any other player has 5 seconds to press Catch! — penalty: you draw 2 cards.',
       ],
     },
     {
-      heading: 'Finishing a Round',
+      heading: 'Turn Timer & AFK',
       items: [
-        'When you play all your cards you finish — you are awarded points and become a spectator.',
-        'Points earned = sum of the card values held by players who have not yet finished at that moment.',
-        'Play continues until only one player remains with cards; that player scores 0.',
-        'Number cards = face value (0–9). Skip / Reverse / Draw Two = 20 pts. Wild / Wild Draw Four / Swap / Global Switch = 50 pts.',
+        'Every turn is time-limited; if the timer expires the server auto-draws and passes for you.',
+        'AFK across roughly 2 rounds (4 consecutive auto-acted turns) gets you removed from the game.',
       ],
     },
     {
-      heading: 'Match Formats & Scoring',
+      heading: 'Round End & Scoring',
       items: [
-        'BO1 — single round; highest score wins.',
-        'BO3 — first to win 2 rounds wins the match.',
-        'BO5 — first to win 3 rounds wins the match.',
-        'BO7 — first to win 4 rounds wins the match.',
-        'Tiebreakers (if needed): highest cumulative score → most rounds won → lowest losing-hand total → sudden-death extra round.',
+        'A round ends the moment one player empties their hand. That player wins the round.',
+        'Round winner scores the sum of all opponents’ remaining card values; everyone else scores 0.',
+        'Number cards = face value (1–9). Skip / Reverse / +2 / Swap = 20 pts. Wild / +4 / Global Swap = 50 pts.',
+      ],
+    },
+    {
+      heading: 'Match Formats & Tiebreakers',
+      items: [
+        'BO1 / BO3 / BO5 / BO7 — match length is the configured number of rounds.',
+        'Match winner is the highest cumulative score after all rounds.',
+        'Tiebreakers: most rounds won → lowest losing-hand total → sudden-death extra round.',
       ],
     },
   ],

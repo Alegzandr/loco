@@ -32,6 +32,11 @@ var ReconnectTimeout = 60 * time.Second
 // Exported so tests can override it.
 var TurnTimeout = 30 * time.Second
 
+// AFKKickThreshold is the number of consecutive turn-timeouts (without any voluntary
+// action) after which a human player is kicked from the game. Default 4 ≈ two full
+// rounds in a 2-player game. Exported so tests can override it.
+var AFKKickThreshold = 4
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -103,6 +108,10 @@ type Hub struct {
 	// turnStartedAt[code] = time when the current turn began (for stale-timer detection).
 	turnStartedAt map[string]time.Time
 
+	// afkTimeouts[code][playerID] = consecutive turn-timeout count (reset on any voluntary action).
+	// When the count reaches AFKKickThreshold the player is force-disconnected.
+	afkTimeouts map[string]map[int]int
+
 	register    chan *Client
 	unregister  chan *Client
 	inbound     chan inboundMsg
@@ -170,6 +179,7 @@ func New() *Hub {
 		emptyRooms:     make(map[string]time.Time),
 		botSlots:       make(map[string]map[int]struct{}),
 		turnStartedAt:  make(map[string]time.Time),
+		afkTimeouts:    make(map[string]map[int]int),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
 		inbound:        make(chan inboundMsg, 256),
@@ -334,18 +344,25 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 	case protocol.CMsgSetMaxPlayers:
 		h.handleSetMaxPlayers(c, msg)
 	case protocol.CMsgPlayCard:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handlePlayCard(c, msg)
 	case protocol.CMsgDrawCard:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handleDrawCard(c, msg)
 	case protocol.CMsgPassTurn:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handlePassTurn(c, msg)
 	case protocol.CMsgDeclareUno:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handleDeclareUno(c, msg)
 	case protocol.CMsgCatchUno:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handleCatchUno(c, msg)
 	case protocol.CMsgCounterDraw:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handleCounterDraw(c, msg)
 	case protocol.CMsgInterruptPlay:
+		h.resetAFK(c.roomCode, c.playerID)
 		h.handleInterruptPlay(c, msg)
 	case protocol.CMsgDebugSetState:
 		h.handleDebugSetState(c, msg)
@@ -541,6 +558,35 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+
+	// Batch path: PlayCards (plural) takes precedence over singular Card.
+	if len(msg.PlayCards) > 0 {
+		cards := make([]game.Card, len(msg.PlayCards))
+		var chosenColor game.Color
+		for i, dto := range msg.PlayCards {
+			card, cc, err := dtoToCard(&dto, msg.ChosenColor)
+			if err != nil {
+				c.sendError(err.Error())
+				return
+			}
+			cards[i] = card
+			chosenColor = cc
+		}
+		if err := room.PlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
+			c.sendError(err.Error())
+			c.noteSuspect(err.Error())
+			return
+		}
+		h.broadcastCardPlayed(c.roomCode, c.playerID, room, -1)
+		h.maybeScheduleBotCatch(c.roomCode, room)
+		h.handleRoundOrMatchEnd(c.roomCode, room)
+		return
+	}
+
 	if msg.Card == nil {
 		c.sendError("card required")
 		return
@@ -550,17 +596,13 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	chosenPlayer := -1
-	if msg.ChosenPlayer != nil {
-		chosenPlayer = *msg.ChosenPlayer
-	}
 	if err := room.PlayCard(c.playerID, card, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
 		return
 	}
 
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
 	if card.Kind == game.Swap || card.Kind == game.GlobalSwitch {
 		h.broadcastPersonalizedGameState(c.roomCode, room)
 	}
@@ -748,7 +790,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		c.noteSuspect(err.Error())
 		return
 	}
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room, -1)
 	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -776,7 +818,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 		c.noteSuspect(err.Error())
 		return
 	}
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room)
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
 	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -1007,6 +1049,7 @@ func (h *Hub) deleteRoom(code string) {
 	delete(h.emptyRooms, code)
 	delete(h.botSlots, code)
 	delete(h.turnStartedAt, code)
+	delete(h.afkTimeouts, code)
 	h.statRooms.Add(-1)
 	log.Printf("room deleted code=%s", code)
 }
@@ -1280,10 +1323,10 @@ func (h *Hub) maybeScheduleBotCatch(code string, room *game.Room) {
 	if state.Hands[target].Size() != 1 {
 		return // target doesn't have exactly 1 card
 	}
-	// Check at least one eligible bot exists (not the target, not finished).
+	// Check at least one eligible bot exists (not the target).
 	anyEligible := false
 	for botID := range bots {
-		if botID != target && !state.Finished[botID] {
+		if botID != target {
 			anyEligible = true
 			break
 		}
@@ -1338,7 +1381,7 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 	}
 	eligible := make([]int, 0, len(bots))
 	for botID := range bots {
-		if botID != cm.targetPlayer && !state.Finished[botID] {
+		if botID != cm.targetPlayer {
 			eligible = append(eligible, botID)
 		}
 	}
@@ -1390,7 +1433,7 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			log.Printf("bot play error: %v", err)
 			return
 		}
-		h.broadcastCardPlayed(code, bm.playerID, room)
+		h.broadcastCardPlayed(code, bm.playerID, room, action.ChosenPlayer)
 		if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
 			h.broadcastPersonalizedGameState(code, room)
 		}
@@ -1409,7 +1452,7 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 			log.Printf("bot counter error: %v", err)
 			return
 		}
-		h.broadcastCardPlayed(code, bm.playerID, room)
+		h.broadcastCardPlayed(code, bm.playerID, room, -1)
 
 		// Auto-declare UNO if bot is at 1 card after counter (broadcast delayed for human-like feel)
 		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
@@ -1498,6 +1541,31 @@ func (h *Hub) scheduleTurnTimer(code string, room *game.Room) {
 	})
 }
 
+// resetAFK clears the consecutive-timeout counter for a player after any
+// voluntary action. Called from the dispatch switch.
+func (h *Hub) resetAFK(code string, playerID int) {
+	if code == "" {
+		return
+	}
+	if m, ok := h.afkTimeouts[code]; ok {
+		delete(m, playerID)
+		if len(m) == 0 {
+			delete(h.afkTimeouts, code)
+		}
+	}
+}
+
+// bumpAFK increments and returns the consecutive-timeout count for a player.
+func (h *Hub) bumpAFK(code string, playerID int) int {
+	m, ok := h.afkTimeouts[code]
+	if !ok {
+		m = make(map[int]int)
+		h.afkTimeouts[code] = m
+	}
+	m[playerID]++
+	return m[playerID]
+}
+
 // handleTurnTimeout fires when a human player's turn clock runs out.
 // It auto-draws (if not yet drawn) then auto-passes.
 func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
@@ -1516,10 +1584,6 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 	if !ok || !recorded.Equal(tm.turnStartedAt) {
 		return // stale timer
 	}
-	// Skip finished players.
-	if room.State.Finished[tm.playerID] {
-		return
-	}
 	code := tm.roomCode
 
 	log.Printf("turn timeout code=%s player=%d auto-acting", code, tm.playerID)
@@ -1528,6 +1592,17 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 	var timedOutClient *Client
 	if tm.playerID < len(members) {
 		timedOutClient = members[tm.playerID]
+	}
+
+	// AFK accounting: only count human (non-bot) players. Bot timeouts shouldn't
+	// trigger a kick — they're driven by the scheduler, not by player inactivity.
+	if _, isBot := h.botSlots[code][tm.playerID]; !isBot {
+		if h.bumpAFK(code, tm.playerID) >= AFKKickThreshold && timedOutClient != nil {
+			log.Printf("AFK kick code=%s player=%d threshold=%d", code, tm.playerID, AFKKickThreshold)
+			timedOutClient.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: "afk_kicked"})
+			timedOutClient.conn.Close()
+			return
+		}
 	}
 
 	// Step 1: auto-draw if the player hasn't drawn yet.
@@ -1663,24 +1738,10 @@ func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
 	slots := h.disconnectedAt[code]
 	ps := make([]protocol.PlayerDTO, len(room.Players))
 
-	// Build placement lookup from game state (Placements[rank] = playerIdx → rank+1)
-	placementOf := make(map[int]int)
-	if room.State != nil {
-		for rank, idx := range room.State.Placements {
-			placementOf[idx] = rank + 1
-		}
-	}
-
 	for i, p := range room.Players {
 		handSize := 0
-		finished := false
-		placement := 0
 		if room.State != nil {
 			handSize = room.State.Hands[i].Size()
-			if len(room.State.Finished) > i {
-				finished = room.State.Finished[i]
-			}
-			placement = placementOf[i]
 		}
 		connected := true
 		if slots != nil {
@@ -1693,8 +1754,6 @@ func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
 			Nickname:  p.Nickname,
 			HandSize:  handSize,
 			Connected: connected,
-			Finished:  finished,
-			Placement: placement,
 		}
 	}
 	return ps

@@ -111,7 +111,8 @@ export default function App() {
               msg.turn ?? 0,
               msg.pending_draw ?? 0,
               msg.active_color,
-              msg.players
+              msg.players,
+              msg.chosen_player
             )
             store.setTurnDeadline(msg.turn_deadline ?? null)
           }
