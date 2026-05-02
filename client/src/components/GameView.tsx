@@ -124,6 +124,21 @@ export function GameView({ onSend, wsStatus }: Props) {
     fn()
   }, [])
 
+  // playWithAnimation triggers the canvas travel animation for the given card
+  // (when PixiJS is mounted) and dispatches the play_card message. Used by the
+  // direct card tap, the wild color picker, and the swap player picker.
+  const playWithAnimation = useCallback(
+    (card: CardDTO, cardIdx: number, msg: ClientMsg) => {
+      const game = pixiRef.current
+      if (game) {
+        const { width, height } = game.app.screen
+        game.animateCardPlay(card, cardIdx, width, height)
+      }
+      onSend(msg)
+    },
+    [onSend],
+  )
+
   const handleCardClick = useCallback(
     (card: CardDTO, cardIdx: number) => {
       // Out-of-turn path: realtime "lead-taking" interrupt. If the tapped card
@@ -137,12 +152,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         const copies = myHand.filter(
           (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
         )
-        const game = pixiRef.current
-        if (game) {
-          const { width, height } = game.app.screen
-          game.animateCardPlay(card, cardIdx, width, height)
-        }
-        onSend({
+        playWithAnimation(card, cardIdx, {
           type: 'interrupt_play_card',
           card,
           play_cards: copies.length > 1 ? copies : undefined,
@@ -161,15 +171,9 @@ export function GameView({ onSend, wsStatus }: Props) {
       // Block the play animation for clearly-invalid cards so there's no "fake" play.
       // Server is always authoritative; this is a UX hint only.
       if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
-      // Trigger travel animation before state update
-      const game = pixiRef.current
-      if (game) {
-        const { width, height } = game.app.screen
-        game.animateCardPlay(card, cardIdx, width, height)
-      }
-      onSend({ type: 'play_card', card, chosen_color: card.color })
+      playWithAnimation(card, cardIdx, { type: 'play_card', card, chosen_color: card.color })
     },
-    [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, onSend]
+    [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, playWithAnimation]
   )
 
   // Stable ref so PixiGame always invokes the latest handleCardClick
@@ -358,12 +362,9 @@ export function GameView({ onSend, wsStatus }: Props) {
         <ColorPicker
           label={t.chooseColor}
           onChoose={(col: CardColor) => {
-            const game = pixiRef.current
-            if (game) {
-              const { width, height } = game.app.screen
-              game.animateCardPlay(colorPicker.card, colorPicker.idx, width, height)
-            }
-            onSend({ type: 'play_card', card: colorPicker.card, chosen_color: col })
+            playWithAnimation(colorPicker.card, colorPicker.idx, {
+              type: 'play_card', card: colorPicker.card, chosen_color: col,
+            })
             setColorPicker(null)
           }}
           onCancel={() => setColorPicker(null)}
@@ -376,12 +377,9 @@ export function GameView({ onSend, wsStatus }: Props) {
           label={t.choosePlayer}
           players={players.filter((p) => p.index !== myIndex)}
           onChoose={(targetIdx: number) => {
-            const game = pixiRef.current
-            if (game) {
-              const { width, height } = game.app.screen
-              game.animateCardPlay(playerPicker.card, playerPicker.idx, width, height)
-            }
-            onSend({ type: 'play_card', card: playerPicker.card, chosen_player: targetIdx })
+            playWithAnimation(playerPicker.card, playerPicker.idx, {
+              type: 'play_card', card: playerPicker.card, chosen_player: targetIdx,
+            })
             setPlayerPicker(null)
           }}
           onCancel={() => setPlayerPicker(null)}
