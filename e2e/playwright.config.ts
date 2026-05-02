@@ -50,7 +50,7 @@ export default defineConfig({
     // Pass --port 5173 explicitly so Vite binds on 5173 in CI (no Docker port
     // mapping).  In Docker local dev, reuseExistingServer reuses the already-
     // running container server and this command is never executed.
-    command: `VITE_WS_PORT=8080 npm run dev -- --port 4173`,
+    command: `VITE_WS_PORT=8080 VITE_HMR_CLIENT_PORT=4173 npm run dev -- --port 4173`,
     cwd: resolve(__dirname, '../client'),
     port: 4173,
     timeout: 120_000,

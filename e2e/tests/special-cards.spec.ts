@@ -126,9 +126,11 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     // Set a predictable starting state: our hand = one Swap card.
     const initial = await getState(page)
     const myIdx = initial?.myIndex ?? 0
+    const opponentIdx = (initial?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
 
     await debugSetState(page, {
-      hand: [{ color: 'wild', kind: 'swap' }],
+      hand: [{ color: 'red', kind: 'swap' }],
+      hands: [{ playerIndex: opponentIdx, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
       discard: { color: 'red', kind: 'number', value: 5 },
       pendingDraw: 0,
       currentTurn: myIdx,
@@ -156,7 +158,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     // Play the Swap card.
     await sendMsg(page, {
       type: 'play_card',
-      card: { color: 'wild', kind: 'swap' },
+      card: { color: 'red', kind: 'swap' },
       chosen_player: target,
     })
 
@@ -198,10 +200,19 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     await waitForMyTurn(page, 30_000)
 
+    const initial = await getState(page)
+    const myIdx = initial?.myIndex ?? 0
+    const opponentIdx = (initial?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
+
     // Inject GlobalSwitch into hand with a neutral discard.
+    // Pin the opponent's hand to a non-GlobalSwitch card so that after the
+    // switch our new hand cannot accidentally contain another GlobalSwitch.
     await debugSetState(page, {
       hand: [{ color: 'wild', kind: 'global_switch' }],
+      hands: [{ playerIndex: opponentIdx, hand: [{ color: 'red', kind: 'number', value: 4 }] }],
       discard: { color: 'blue', kind: 'number', value: 3 },
+      currentTurn: myIdx,
+      pendingDraw: 0,
     })
 
     const before = await getState(page)
@@ -418,9 +429,6 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       const aliceFromBob = (bobView?.players ?? []).find((p) => p.index === aliceIndex)
       const handBefore = aliceFromBob?.hand_size ?? 8
 
-      // Wait for Alice's turn.
-      await waitForTurn(page1, 30_000)
-
       // Inject a wild card into Alice's hand so she always has a playable card.
       await debugSetState(page1, {
         hand: [
@@ -428,6 +436,8 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
           { color: 'red', kind: 'number', value: 1 },
           { color: 'blue', kind: 'number', value: 2 },
         ],
+        currentTurn: aliceIndex,
+        pendingDraw: 0,
       })
 
       // Verify Alice's hand was updated.

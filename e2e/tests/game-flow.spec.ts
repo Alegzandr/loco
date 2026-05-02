@@ -122,6 +122,18 @@ test.describe('gameplay flow (single player vs bot)', () => {
 
     await waitForMyTurn(page, 30_000)
 
+    const initial = await getState(page)
+    const myIdx = initial?.myIndex ?? 0
+
+    // Force a deterministic state: no pending draw, our turn, known hand,
+    // discard mismatched in color/value so we cannot play and must draw.
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 1 }],
+      discard: { color: 'blue', kind: 'number', value: 9 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+
     const handBefore = await getHand(page)
 
     // Draw a card
