@@ -1635,90 +1635,28 @@ func (h *Hub) bumpAFK(code string, playerID int) int {
 // handleTurnTimeout fires when a human player's turn clock runs out.
 // It auto-draws (if not yet drawn) then auto-passes.
 func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
-	room, ok := h.rooms[tm.roomCode]
+	room, ok := h.turnTimeoutTarget(tm)
 	if !ok {
-		return // room deleted
-	}
-	if room.Status != game.StatusPlaying {
 		return
-	}
-	if room.State.CurrentTurn != tm.playerID {
-		return // turn already advanced
-	}
-	// Check the timer is for the current turn, not a stale one.
-	recorded, ok := h.turnStartedAt[tm.roomCode]
-	if !ok || !recorded.Equal(tm.turnStartedAt) {
-		return // stale timer
 	}
 	code := tm.roomCode
 
 	log.Printf("turn timeout code=%s player=%d auto-acting", code, tm.playerID)
 
-	members := h.roomMembers[code]
-	var timedOutClient *Client
-	if tm.playerID < len(members) {
-		timedOutClient = members[tm.playerID]
+	timedOutClient := h.memberClient(code, tm.playerID)
+
+	if h.kickIfAFK(code, tm.playerID, timedOutClient) {
+		return
 	}
 
-	// AFK accounting: only count human (non-bot) players. Bot timeouts shouldn't
-	// trigger a kick — they're driven by the scheduler, not by player inactivity.
-	if _, isBot := h.botSlots[code][tm.playerID]; !isBot {
-		if h.bumpAFK(code, tm.playerID) >= AFKKickThreshold && timedOutClient != nil {
-			log.Printf("AFK kick code=%s player=%d threshold=%d", code, tm.playerID, AFKKickThreshold)
-			timedOutClient.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: "afk_kicked"})
-			timedOutClient.conn.Close()
-			return
-		}
+	advanced, ok := h.autoDrawOnTimeout(code, room, tm.playerID, timedOutClient)
+	if !ok {
+		return
+	}
+	if advanced {
+		return
 	}
 
-	// Step 1: auto-draw if the player hasn't drawn yet.
-	if !room.State.HasDrawn {
-		priorTimeoutSize := len(room.State.Hands[tm.playerID].Cards)
-		if err := room.DrawCard(tm.playerID); err != nil {
-			log.Printf("turn timeout draw error code=%s player=%d err=%v", code, tm.playerID, err)
-			return
-		}
-		state := room.State
-		timeoutNewCards := state.Hands[tm.playerID].Cards[priorTimeoutSize:]
-		timeoutDrawnCount := len(timeoutNewCards)
-		// If drawing advanced the turn (penalty draw), broadcast and reschedule.
-		if state.CurrentTurn != tm.playerID {
-			dl := h.turnDeadlineMs(code)
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:         protocol.SMsgCardDrawn,
-				PlayerIndex:  tm.playerID,
-				DrawnCount:   timeoutDrawnCount,
-				Turn:         state.CurrentTurn,
-				TurnDeadline: dl,
-			})
-			h.maybeScheduleBot(code, room)
-			h.scheduleTurnTimer(code, room)
-			return
-		}
-		// Private: tell the player all their drawn cards.
-		if timedOutClient != nil {
-			timeoutCardDTOs := make([]*protocol.CardDTO, timeoutDrawnCount)
-			for i, card := range timeoutNewCards {
-				timeoutCardDTOs[i] = cardToDTO(card)
-			}
-			timedOutClient.Send(protocol.ServerMsg{
-				Type:        protocol.SMsgCardDrawn,
-				PlayerIndex: tm.playerID,
-				Cards:       timeoutCardDTOs,
-				Turn:        state.CurrentTurn,
-				HasDrawn:    state.HasDrawn,
-			})
-		}
-		// Public: others see correct hand size delta.
-		h.broadcastToRoom(code, protocol.ServerMsg{
-			Type:        protocol.SMsgCardDrawn,
-			PlayerIndex: tm.playerID,
-			DrawnCount:  timeoutDrawnCount,
-			Turn:        state.CurrentTurn,
-		}, timedOutClient)
-	}
-
-	// Step 2: auto-pass.
 	if err := room.PassTurn(tm.playerID); err != nil {
 		log.Printf("turn timeout pass error code=%s player=%d err=%v", code, tm.playerID, err)
 		return
@@ -1731,6 +1669,101 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 	})
 	h.maybeScheduleBot(code, room)
 	h.scheduleTurnTimer(code, room)
+}
+
+// turnTimeoutTarget validates that the timer message still applies: the room
+// exists and is playing, the current turn matches, and the recorded turn-start
+// timestamp is the same one the timer was armed against (not a stale callback).
+func (h *Hub) turnTimeoutTarget(tm turnTimerMsg) (*game.Room, bool) {
+	room, ok := h.rooms[tm.roomCode]
+	if !ok || room.Status != game.StatusPlaying {
+		return nil, false
+	}
+	if room.State.CurrentTurn != tm.playerID {
+		return nil, false
+	}
+	recorded, ok := h.turnStartedAt[tm.roomCode]
+	if !ok || !recorded.Equal(tm.turnStartedAt) {
+		return nil, false
+	}
+	return room, true
+}
+
+func (h *Hub) memberClient(code string, playerID int) *Client {
+	members := h.roomMembers[code]
+	if playerID < len(members) {
+		return members[playerID]
+	}
+	return nil
+}
+
+// kickIfAFK bumps the AFK counter for human players and force-disconnects them
+// once the threshold is reached. Bots are exempt — their timeouts are driven by
+// the scheduler, not player inactivity. Returns true if the player was kicked.
+func (h *Hub) kickIfAFK(code string, playerID int, client *Client) bool {
+	if _, isBot := h.botSlots[code][playerID]; isBot {
+		return false
+	}
+	if h.bumpAFK(code, playerID) < AFKKickThreshold || client == nil {
+		return false
+	}
+	log.Printf("AFK kick code=%s player=%d threshold=%d", code, playerID, AFKKickThreshold)
+	client.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: "afk_kicked"})
+	client.conn.Close()
+	return true
+}
+
+// autoDrawOnTimeout draws one card for a player who hasn't drawn yet this turn.
+// Returns (advanced, ok): advanced=true means a penalty-draw advanced the turn
+// and the caller should stop (broadcast already sent + timer rescheduled);
+// ok=false means an error aborted the timeout handling entirely.
+func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int, client *Client) (advanced, ok bool) {
+	if room.State.HasDrawn {
+		return false, true
+	}
+	priorSize := len(room.State.Hands[playerID].Cards)
+	if err := room.DrawCard(playerID); err != nil {
+		log.Printf("turn timeout draw error code=%s player=%d err=%v", code, playerID, err)
+		return false, false
+	}
+	state := room.State
+	newCards := state.Hands[playerID].Cards[priorSize:]
+	drawnCount := len(newCards)
+
+	if state.CurrentTurn != playerID {
+		dl := h.turnDeadlineMs(code)
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:         protocol.SMsgCardDrawn,
+			PlayerIndex:  playerID,
+			DrawnCount:   drawnCount,
+			Turn:         state.CurrentTurn,
+			TurnDeadline: dl,
+		})
+		h.maybeScheduleBot(code, room)
+		h.scheduleTurnTimer(code, room)
+		return true, true
+	}
+
+	if client != nil {
+		cardDTOs := make([]*protocol.CardDTO, drawnCount)
+		for i, card := range newCards {
+			cardDTOs[i] = cardToDTO(card)
+		}
+		client.Send(protocol.ServerMsg{
+			Type:        protocol.SMsgCardDrawn,
+			PlayerIndex: playerID,
+			Cards:       cardDTOs,
+			Turn:        state.CurrentTurn,
+			HasDrawn:    state.HasDrawn,
+		})
+	}
+	h.broadcastToRoom(code, protocol.ServerMsg{
+		Type:        protocol.SMsgCardDrawn,
+		PlayerIndex: playerID,
+		DrawnCount:  drawnCount,
+		Turn:        state.CurrentTurn,
+	}, client)
+	return false, true
 }
 
 // turnDeadlineMs returns the unix-millisecond deadline for the current turn,
