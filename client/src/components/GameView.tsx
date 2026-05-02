@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
-import { useGameStore } from '../hooks/useGameStore'
+import { useGameStore, SwapNotice } from '../hooks/useGameStore'
+import { useProgressTimer } from '../hooks/useProgressTimer'
 import { useI18n } from '../i18n'
+import { Translations } from '../i18n/en'
 import { WsStatus } from '../hooks/useWebSocket'
 import { RulesModal } from './RulesModal'
 import { UnoTimer } from './UnoTimer'
@@ -46,6 +48,31 @@ const UNO_WINDOW_MS = 5000
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
 const SWAP_NOTICE_MS = 3500
 
+// resolveSwapNoticeText picks the right i18n template (with you-as-actor / you-as-target
+// variants for swap, or cw/ccw for global_switch) and substitutes %actor / %target.
+function resolveSwapNoticeText(
+  notice: SwapNotice,
+  myIndex: number,
+  players: { index: number; nickname: string }[],
+  t: Translations,
+): string {
+  const actor = players.find((p) => p.index === notice.actorIndex)?.nickname ?? `P${notice.actorIndex}`
+  const target = notice.targetIndex >= 0
+    ? (players.find((p) => p.index === notice.targetIndex)?.nickname ?? `P${notice.targetIndex}`)
+    : ''
+  if (notice.kind === 'swap') {
+    const tpl = notice.actorIndex === myIndex
+      ? t.swapNoticeYouActor
+      : notice.targetIndex === myIndex
+        ? t.swapNoticeYouTarget
+        : t.swapNotice
+    return tpl.replace('%actor', actor).replace('%target', target)
+  }
+  // direction === 1 means clockwise (next-seat); -1 means counter-clockwise.
+  const tpl = notice.direction >= 0 ? t.globalSwitchNoticeCw : t.globalSwitchNoticeCcw
+  return tpl.replace('%actor', actor)
+}
+
 export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -55,10 +82,6 @@ export function GameView({ onSend, wsStatus }: Props) {
   const [pixiReady, setPixiReady] = useState(false)
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [playerPicker, setPlayerPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
-  const [timerPct, setTimerPct] = useState(0)
-  const timerRafRef = useRef<number | null>(null)
-  const [turnTimerPct, setTurnTimerPct] = useState(0)
-  const turnTimerRafRef = useRef<number | null>(null)
   const lastActionRef = useRef<number>(0)
   const reconnectAnimatedRef = useRef(false)
   const prevHandSizeRef = useRef<number>(0)
@@ -241,58 +264,11 @@ export function GameView({ onSend, wsStatus }: Props) {
     })
   }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t, pixiReady])
 
-  // Animate UNO catch timer bar
-  useEffect(() => {
-    if (timerRafRef.current !== null) {
-      cancelAnimationFrame(timerRafRef.current)
-      timerRafRef.current = null
-    }
-    if (!unoTimerEnd) {
-      setTimerPct(0)
-      return
-    }
-    const tick = () => {
-      const remaining = unoTimerEnd - Date.now()
-      const pct = Math.max(0, Math.min(100, (remaining / UNO_WINDOW_MS) * 100))
-      setTimerPct(pct)
-      if (pct > 0) {
-        timerRafRef.current = requestAnimationFrame(tick)
-      }
-    }
-    timerRafRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (timerRafRef.current !== null) cancelAnimationFrame(timerRafRef.current)
-    }
-  }, [unoTimerEnd])
-
-  // Animate per-turn countdown bar
-  useEffect(() => {
-    if (turnTimerRafRef.current !== null) {
-      cancelAnimationFrame(turnTimerRafRef.current)
-      turnTimerRafRef.current = null
-    }
-    if (!turnDeadline) {
-      setTurnTimerPct(0)
-      return
-    }
-    const totalMs = turnDeadline - Date.now()
-    if (totalMs <= 0) {
-      setTurnTimerPct(0)
-      return
-    }
-    const tick = () => {
-      const remaining = turnDeadline - Date.now()
-      const pct = Math.max(0, Math.min(100, (remaining / totalMs) * 100))
-      setTurnTimerPct(pct)
-      if (pct > 0) {
-        turnTimerRafRef.current = requestAnimationFrame(tick)
-      }
-    }
-    turnTimerRafRef.current = requestAnimationFrame(tick)
-    return () => {
-      if (turnTimerRafRef.current !== null) cancelAnimationFrame(turnTimerRafRef.current)
-    }
-  }, [turnDeadline])
+  // UNO catch + per-turn countdown bars: drive a percent from the deadline.
+  // UNO uses the fixed 5000ms catch window; turn timer anchors to whatever
+  // time remained when the deadline became active.
+  const timerPct = useProgressTimer(unoTimerEnd, UNO_WINDOW_MS)
+  const turnTimerPct = useProgressTimer(turnDeadline, 'auto')
 
   // Auto-clear swap/global_switch notice after a short window, and trigger
   // the matching PixiJS animation so the hand movement reads visually.
@@ -474,26 +450,11 @@ export function GameView({ onSend, wsStatus }: Props) {
         />
       )}
 
-      {swapNotice && (() => {
-        const actor = players.find(p => p.index === swapNotice.actorIndex)?.nickname ?? `P${swapNotice.actorIndex}`
-        const target = swapNotice.targetIndex >= 0
-          ? (players.find(p => p.index === swapNotice.targetIndex)?.nickname ?? `P${swapNotice.targetIndex}`)
-          : ''
-        let text: string
-        if (swapNotice.kind === 'swap') {
-          const tpl = swapNotice.actorIndex === myIndex
-            ? t.swapNoticeYouActor
-            : swapNotice.targetIndex === myIndex
-              ? t.swapNoticeYouTarget
-              : t.swapNotice
-          text = tpl.replace('%actor', actor).replace('%target', target)
-        } else {
-          // direction === 1 means clockwise (next-seat); -1 means counter-clockwise.
-          const tpl = swapNotice.direction >= 0 ? t.globalSwitchNoticeCw : t.globalSwitchNoticeCcw
-          text = tpl.replace('%actor', actor)
-        }
-        return <div key={swapNotice.at} className={styles.swapNotice}>{text}</div>
-      })()}
+      {swapNotice && (
+        <div key={swapNotice.at} className={styles.swapNotice}>
+          {resolveSwapNoticeText(swapNotice, myIndex, players, t)}
+        </div>
+      )}
 
       {unoDeclared && (
         <div className={styles.unoBanner}>
