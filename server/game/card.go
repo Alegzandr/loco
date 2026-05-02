@@ -82,14 +82,21 @@ func (c Card) IsAction() bool {
 }
 
 // CardValue returns the scoring point value of a card.
-// Number cards = face value (0-9), action cards = 20, wilds = 50.
+// Per docs/rules.md §10: Number = face value, Reverse=10, Skip=20,
+// DrawTwo=30, Swap=30, GlobalSwitch=40, Wild=40, WildDrawFour=50.
 func CardValue(c Card) int {
 	switch c.Kind {
 	case Number:
 		return c.Value
-	case Skip, Reverse, DrawTwo, Swap:
+	case Reverse:
+		return 10
+	case Skip:
 		return 20
-	case WildCard, WildDrawFour, GlobalSwitch:
+	case DrawTwo, Swap:
+		return 30
+	case GlobalSwitch, WildCard:
+		return 40
+	case WildDrawFour:
 		return 50
 	}
 	return 0

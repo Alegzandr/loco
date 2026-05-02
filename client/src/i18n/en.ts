@@ -225,17 +225,9 @@ export const en: Translations = {
       ],
     },
     {
-      heading: '+2 Free Interrupt',
-      items: [
-        'A +2 card can be played out of turn at any time, even if it does not match the top color or value.',
-        'The next player must stack (+2 / +4) or draw the running total.',
-        'Cannot be used while a draw penalty is already active — counter via the normal stacking rule instead.',
-      ],
-    },
-    {
       heading: 'Priority',
       items: [
-        'When several reactions overlap, the server resolves: identical-card interrupt → +2 interrupt → normal play.',
+        'When several reactions overlap, the first interrupt received by the server wins.',
         'Server timing is final.',
       ],
     },
@@ -258,7 +250,7 @@ export const en: Translations = {
       items: [
         'A round ends the moment one player empties their hand. That player wins the round.',
         'Round winner scores the sum of all opponents’ remaining card values; everyone else scores 0.',
-        'Number cards = face value (1–9). Skip / Reverse / +2 / Swap = 20 pts. Wild / +4 / Global Swap = 50 pts.',
+        'Number cards = face value (1–9). Reverse = 10 pts. Skip = 20 pts. +2 / Swap = 30 pts. Wild / Global Swap = 40 pts. +4 = 50 pts.',
       ],
     },
     {

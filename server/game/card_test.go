@@ -52,13 +52,13 @@ func TestCardValue(t *testing.T) {
 		{Card{Kind: Number, Value: 0}, 0},
 		{Card{Kind: Number, Value: 7}, 7},
 		{Card{Kind: Number, Value: 9}, 9},
+		{Card{Kind: Reverse}, 10},
 		{Card{Kind: Skip}, 20},
-		{Card{Kind: Reverse}, 20},
-		{Card{Kind: DrawTwo}, 20},
-		{Card{Color: Red, Kind: Swap}, 20},
-		{Card{Kind: WildCard}, 50},
+		{Card{Kind: DrawTwo}, 30},
+		{Card{Color: Red, Kind: Swap}, 30},
+		{Card{Kind: GlobalSwitch}, 40},
+		{Card{Kind: WildCard}, 40},
 		{Card{Kind: WildDrawFour}, 50},
-		{Card{Kind: GlobalSwitch}, 50},
 	}
 	for _, tt := range tests {
 		got := CardValue(tt.card)

@@ -450,7 +450,8 @@ func TestRoom_CardValueScoring(t *testing.T) {
 	r.State.CurrentTurn = 0
 	r.State.PendingDraw = 0
 
-	// Give bob a known hand (value = 7 + 20 + 50 = 77)
+	// Give bob a known hand (value = 7 + 20 + 40 = 67 per docs/rules.md §10:
+	// Number=face value, Skip=20, Wild=40)
 	r.State.Hands[1].Cards = []Card{
 		{Kind: Number, Value: 7},
 		{Kind: Skip},
@@ -467,8 +468,8 @@ func TestRoom_CardValueScoring(t *testing.T) {
 		t.Fatalf("PlayCard error: %v", err)
 	}
 
-	if r.Scores[0] != 77 {
-		t.Errorf("alice score = %d, want 77", r.Scores[0])
+	if r.Scores[0] != 67 {
+		t.Errorf("alice score = %d, want 67", r.Scores[0])
 	}
 	if r.Scores[1] != 0 {
 		t.Errorf("bob score = %d, want 0", r.Scores[1])
@@ -591,10 +592,10 @@ func TestRoom_MatchScoreAccumulation(t *testing.T) {
 		t.Errorf("after round 2, bob score = %d, want 20", r.Scores[1])
 	}
 
-	// Round 3: alice wins, bob has 50 points worth → match over
+	// Round 3: alice wins, bob has WildCard (40 pts per docs/rules.md §10) → match over
 	winRound(0, 1, []Card{{Kind: WildCard, Color: Wild}})
-	if r.Scores[0] != 60 { // 10 + 50
-		t.Errorf("after round 3, alice score = %d, want 60", r.Scores[0])
+	if r.Scores[0] != 50 { // 10 + 40
+		t.Errorf("after round 3, alice score = %d, want 50", r.Scores[0])
 	}
 	if !r.MatchOver {
 		t.Error("match should be over after 3 rounds of BO3")
@@ -1416,7 +1417,7 @@ func TestRoom_InterruptPlay_SkipEffect(t *testing.T) {
 	}
 }
 
-// --- Phase B: batch play and free +2 interrupt ---
+// --- Phase B: batch play and identical-card interrupt ---
 
 func TestRoom_PlayCards_StackedDrawTwo(t *testing.T) {
 	r := setupThreePlayerGame(t)
@@ -1493,36 +1494,35 @@ func TestRoom_PlayCards_RejectsBatchSwap(t *testing.T) {
 	}
 }
 
-func TestRoom_InterruptPlay_FreeDrawTwo_AnyColor(t *testing.T) {
-	// A +2 can be interrupt-played regardless of top color/value.
+// Per docs/rules.md §6, interjection is only allowed with an *exactly identical*
+// card (same color + kind + value). A non-matching DrawTwo must be rejected.
+func TestRoom_InterruptPlay_NonIdenticalDrawTwo_Rejected(t *testing.T) {
 	r := setupThreePlayerGame(t)
-	r.State.CurrentTurn = 0 // alice's turn (so bob/carol may interrupt)
+	r.State.CurrentTurn = 0
 	r.State.ActiveColor = Yellow
 	r.State.Discard = []Card{{Color: Yellow, Kind: Number, Value: 7}}
 	r.State.PendingDraw = 0
-	armInterrupt(r, 2) // carol just played the Yellow-7
+	armInterrupt(r, 2)
 
-	bob2 := Card{Color: Blue, Kind: DrawTwo} // wrong color, wrong kind, wrong value vs top
+	bob2 := Card{Color: Blue, Kind: DrawTwo} // not identical to Yellow-7 top
 	r.State.Hands[1].Cards = []Card{bob2, {Color: Red, Kind: Number, Value: 1}}
 
-	if err := r.InterruptPlay(1, bob2, -1); err != nil {
-		t.Fatalf("free +2 interrupt: %v", err)
+	if err := r.InterruptPlay(1, bob2, -1); err == nil {
+		t.Fatal("non-identical DrawTwo interrupt should be rejected")
 	}
-	if r.State.PendingDraw != 2 {
-		t.Errorf("PendingDraw = %d, want 2 after free +2 interrupt", r.State.PendingDraw)
+	// State must be untouched.
+	if r.State.PendingDraw != 0 {
+		t.Errorf("PendingDraw = %d, want 0 (interrupt rejected, no mutation)", r.State.PendingDraw)
 	}
-	// Turn passes to next player after bob (carol, idx 2).
-	if r.State.CurrentTurn != 2 {
-		t.Errorf("turn = %d, want 2 (carol) after free +2 interrupt by bob", r.State.CurrentTurn)
+	if len(r.State.Discard) != 1 {
+		t.Errorf("discard size = %d, want 1 (no mutation)", len(r.State.Discard))
 	}
-	// Top discard is now bob's +2.
-	top := r.State.Discard[len(r.State.Discard)-1]
-	if top.Kind != DrawTwo || top.Color != Blue {
-		t.Errorf("top discard = %+v, want Blue +2", top)
+	if r.State.Hands[1].Size() != 2 {
+		t.Errorf("bob hand size = %d, want 2 (no mutation)", r.State.Hands[1].Size())
 	}
 }
 
-func TestRoom_InterruptPlay_FreeDrawTwo_RejectedDuringPendingDraw(t *testing.T) {
+func TestRoom_InterruptPlay_RejectedDuringPendingDraw(t *testing.T) {
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
 	r.State.PendingDraw = 2
@@ -1531,7 +1531,7 @@ func TestRoom_InterruptPlay_FreeDrawTwo_RejectedDuringPendingDraw(t *testing.T) 
 	bob2 := Card{Color: Blue, Kind: DrawTwo}
 	r.State.Hands[2].Cards = []Card{bob2}
 	if err := r.InterruptPlay(2, bob2, -1); err == nil {
-		t.Error("free +2 interrupt during pending draw should be rejected")
+		t.Error("interrupt during pending draw should be rejected")
 	}
 }
 

@@ -736,7 +736,7 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenPlayer int) error
 
 // InterruptPlayCards allows any non-current player to "take the lead" by playing
 // one or more identical cards (same color+kind+value) that match the top of the
-// discard pile. Free +2 path also supported (DrawTwo regardless of top match).
+// discard pile.
 //
 // Server-authoritative checks (in order):
 //   - game in progress
@@ -746,7 +746,7 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenPlayer int) error
 //   - cards are non-empty and all identical
 //   - first card is not a Wild (wilds can't be used to interrupt)
 //   - caller has at least len(cards) copies
-//   - first card matches top exactly OR is a DrawTwo (free +2 path)
+//   - first card matches top exactly (color+kind+value)
 //
 // Resolution order ("fastest valid wins") is enforced naturally by the hub's
 // single-goroutine event loop: the first message dequeued mutates state and
@@ -804,9 +804,8 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 
 	topCard := r.State.Discard[len(r.State.Discard)-1]
 	identical := first.Color == topCard.Color && first.Kind == topCard.Kind && first.Value == topCard.Value
-	freeDrawTwo := first.Kind == DrawTwo
-	if !identical && !freeDrawTwo {
-		return errors.New("interrupt card must exactly match the top discard card, or be a +2")
+	if !identical {
+		return errors.New("interrupt card must exactly match the top discard card")
 	}
 
 	n := len(r.State.Hands)

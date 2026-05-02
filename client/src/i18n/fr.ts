@@ -132,17 +132,9 @@ export const fr: Translations = {
       ],
     },
     {
-      heading: 'Interruption +2 libre',
-      items: [
-        'Un +2 peut être joué à tout moment hors de votre tour, même s\'il ne correspond pas à la couleur ou à la valeur du dessus.',
-        'Le joueur suivant doit cumuler (+2 / +4) ou piocher le total accumulé.',
-        'Impossible si une pioche pénalité est déjà active — utilisez le cumul classique à la place.',
-      ],
-    },
-    {
       heading: 'Priorité',
       items: [
-        'En cas de réactions simultanées, le serveur tranche : interruption identique → interruption +2 → jeu normal.',
+        'En cas de réactions simultanées, la première interruption reçue par le serveur l\'emporte.',
         'Le timing du serveur fait foi.',
       ],
     },
@@ -165,7 +157,7 @@ export const fr: Translations = {
       items: [
         'La manche se termine dès qu\'un joueur vide sa main — il remporte la manche.',
         'Le vainqueur marque la somme des valeurs restantes de tous les autres joueurs ; les autres marquent 0.',
-        'Cartes numérotées = valeur faciale (1–9). Passe / Inverse / +2 / Échange = 20 pts. Joker / +4 / Rotation = 50 pts.',
+        'Cartes numérotées = valeur faciale (1–9). Inverse = 10 pts. Passe = 20 pts. +2 / Échange = 30 pts. Joker / Rotation = 40 pts. +4 = 50 pts.',
       ],
     },
     {
