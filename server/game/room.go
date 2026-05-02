@@ -124,6 +124,65 @@ func (s *GameState) closeInterruptWindow() {
 	s.InterruptDeadline = time.Time{}
 }
 
+// updateLastCardState refreshes the UNO declaration tracking after a card is
+// played: the previous declaration is invalidated, and if the actor is now down
+// to a single card, the catch window opens with the current timestamp.
+func (s *GameState) updateLastCardState(playerIndex int) {
+	s.LastCardDeclared = false
+	if s.Hands[playerIndex].Size() == 1 {
+		s.LastCardTime = time.Now()
+		s.LastCardPlayer = playerIndex
+	}
+}
+
+// stackBatchEffects applies the (count-1) extra effects of a batch identical-card
+// play. ApplyEffect must already have been called once for the leading card.
+// Wild kinds are no-ops in the interrupt batch path (interrupt rejects wilds),
+// but included here so PlayCards and InterruptPlayCards can share this helper.
+func (s *GameState) stackBatchEffects(card Card, extra int) {
+	if extra <= 0 {
+		return
+	}
+	switch card.Kind {
+	case DrawTwo:
+		s.PendingDraw += 2 * extra
+	case WildDrawFour:
+		s.PendingDraw += 4 * extra
+	case Skip:
+		for i := 0; i < extra; i++ {
+			s.CurrentTurn = s.nextTurn(s.CurrentTurn)
+		}
+	case Reverse:
+		if extra%2 == 1 {
+			s.Direction *= -1
+		}
+	}
+}
+
+// countInHand returns how many copies of card the player currently holds.
+func (s *GameState) countInHand(playerIndex int, card Card) int {
+	n := 0
+	for _, c := range s.Hands[playerIndex].Cards {
+		if c == card {
+			n++
+		}
+	}
+	return n
+}
+
+// finishRoundWin handles the "actor emptied their hand" branch: it locks in the
+// chosen color, closes the interrupt window, logs the game-finished event, and
+// ends the round. Used by PlayCard, PlayCards, and InterruptPlayCards.
+//
+// CounterDraw deliberately does NOT use this helper — its win path historically
+// omits the closeInterruptWindow call.
+func (r *Room) finishRoundWin(playerIndex int, activeColor Color) {
+	r.State.ActiveColor = activeColor
+	r.State.closeInterruptWindow()
+	r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
+	r.endRound(playerIndex)
+}
+
 // Room manages a single game session.
 type Room struct {
 	Code    string
@@ -359,22 +418,14 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 
 	r.State.Discard = append(r.State.Discard, card)
 
-	// Track last-card state
-	r.State.LastCardDeclared = false
-	if r.State.Hands[playerIndex].Size() == 1 {
-		r.State.LastCardTime = time.Now()
-		r.State.LastCardPlayer = playerIndex
-	}
+	r.State.updateLastCardState(playerIndex)
 
 	c := card
 	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
 
 	// Round ends when a player empties their hand: that player wins the round.
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.State.ActiveColor = chosenColor
-		r.State.closeInterruptWindow()
-		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		r.endRound(playerIndex)
+		r.finishRoundWin(playerIndex, chosenColor)
 		return nil
 	}
 
@@ -415,14 +466,7 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 	if r.State.PendingDraw > 0 {
 		return errors.New("must counter or draw pending penalty cards first")
 	}
-	// Verify the player holds at least len(cards) copies.
-	have := 0
-	for _, c := range r.State.Hands[playerIndex].Cards {
-		if c == first {
-			have++
-		}
-	}
-	if have < len(cards) {
+	if have := r.State.countInHand(playerIndex, first); have < len(cards) {
 		return fmt.Errorf("hand has %d copies, need %d", have, len(cards))
 	}
 	topCard := r.State.Discard[len(r.State.Discard)-1]
@@ -442,43 +486,20 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 		r.State.Discard = append(r.State.Discard, c)
 	}
 
-	r.State.LastCardDeclared = false
-	if r.State.Hands[playerIndex].Size() == 1 {
-		r.State.LastCardTime = time.Now()
-		r.State.LastCardPlayer = playerIndex
-	}
+	r.State.updateLastCardState(playerIndex)
 	for _, c := range cards {
 		cc := c
 		r.State.logEvent(EventCardPlayed, playerIndex, &cc, chosenColor)
 	}
 
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.State.ActiveColor = chosenColor
-		r.State.closeInterruptWindow()
-		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		r.endRound(playerIndex)
+		r.finishRoundWin(playerIndex, chosenColor)
 		return nil
 	}
 
 	// Apply the first card's effect normally (advances turn / sets penalty / flips dir).
-	next := r.State.ApplyEffect(first, chosenColor)
-	r.State.CurrentTurn = next
-	// Then stack the extra (count-1) effects for kinds that compound.
-	extra := len(cards) - 1
-	switch first.Kind {
-	case DrawTwo:
-		r.State.PendingDraw += 2 * extra
-	case WildDrawFour:
-		r.State.PendingDraw += 4 * extra
-	case Skip:
-		for i := 0; i < extra; i++ {
-			r.State.CurrentTurn = r.State.nextTurn(r.State.CurrentTurn)
-		}
-	case Reverse:
-		if extra%2 == 1 {
-			r.State.Direction *= -1
-		}
-	}
+	r.State.CurrentTurn = r.State.ApplyEffect(first, chosenColor)
+	r.State.stackBatchEffects(first, len(cards)-1)
 	r.State.HasDrawn = false
 	r.State.armInterruptWindow(playerIndex)
 	return nil
@@ -777,14 +798,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 			return errors.New("wild cards cannot be used to interrupt")
 		}
 	}
-	// Verify the player holds at least len(cards) copies.
-	have := 0
-	for _, c := range r.State.Hands[playerIndex].Cards {
-		if c == first {
-			have++
-		}
-	}
-	if have < len(cards) {
+	if r.State.countInHand(playerIndex, first) < len(cards) {
 		return errors.New("card not in hand")
 	}
 
@@ -812,11 +826,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 		r.State.Discard = append(r.State.Discard, c)
 	}
 
-	r.State.LastCardDeclared = false
-	if r.State.Hands[playerIndex].Size() == 1 {
-		r.State.LastCardTime = time.Now()
-		r.State.LastCardPlayer = playerIndex
-	}
+	r.State.updateLastCardState(playerIndex)
 
 	for _, c := range cards {
 		cc := c
@@ -824,32 +834,15 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 	}
 
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.State.ActiveColor = first.Color
-		r.State.closeInterruptWindow()
-		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		r.endRound(playerIndex)
+		r.finishRoundWin(playerIndex, first.Color)
 		return nil
 	}
 
 	// Lead transfers: interrupter becomes current player, then apply the
 	// played card's effect from their seat (advances turn / sets penalty / flips dir).
 	r.State.CurrentTurn = playerIndex
-	next := r.State.ApplyEffect(first, first.Color)
-	r.State.CurrentTurn = next
-	// Stack extra effects for batch identical-card interrupts.
-	extra := len(cards) - 1
-	switch first.Kind {
-	case DrawTwo:
-		r.State.PendingDraw += 2 * extra
-	case Skip:
-		for i := 0; i < extra; i++ {
-			r.State.CurrentTurn = r.State.nextTurn(r.State.CurrentTurn)
-		}
-	case Reverse:
-		if extra%2 == 1 {
-			r.State.Direction *= -1
-		}
-	}
+	r.State.CurrentTurn = r.State.ApplyEffect(first, first.Color)
+	r.State.stackBatchEffects(first, len(cards)-1)
 	r.State.HasDrawn = false
 	r.State.armInterruptWindow(playerIndex)
 	return nil
@@ -887,11 +880,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	c := card
 	r.State.logEvent(EventCounterDraw, playerIndex, &c, chosenColor)
 
-	r.State.LastCardDeclared = false
-	if r.State.Hands[playerIndex].Size() == 1 {
-		r.State.LastCardTime = time.Now()
-		r.State.LastCardPlayer = playerIndex
-	}
+	r.State.updateLastCardState(playerIndex)
 
 	if r.State.Hands[playerIndex].Size() == 0 {
 		r.State.ActiveColor = chosenColor
