@@ -81,10 +81,7 @@ func newTestHub(t *testing.T) (*hub.Hub, *httptest.Server) {
 		json.NewEncoder(w).Encode(m)
 	})
 	srv := httptest.NewServer(mux)
-	t.Cleanup(func() {
-		srv.Close()
-		h.Stop()
-	})
+	t.Cleanup(srv.Close)
 	return h, srv
 }
 
@@ -1464,17 +1461,27 @@ func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
 	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
 	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
-	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
-	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
 
-	// Stage deterministically: pin CurrentTurn=0 so player 0 (conn1) is always
-	// the active player. Without this pin the random initial turn means ~50% of
-	// runs put player 1 as active, and player 0 (with only 1 red3) becomes the
-	// interrupter and fails with "card not in hand".
+	// Identify the active player (Alice plays first; Bob is the interrupter).
+	var activeConn, interrupterConn *websocket.Conn
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn = conn1
+		interrupterConn = conn2
+	} else {
+		activeConn = conn2
+		interrupterConn = conn1
+	}
+
+	// Stage: top discard = Red-3; active player has [Red-3, Blue-9]; interrupter has 2x Red-3.
 	red3 := protocol.CardDTO{Color: "red", Kind: "number", Value: 3}
 	blue9 := protocol.CardDTO{Color: "blue", Kind: "number", Value: 9}
 	zero := 0
-	sendMsg(t, conn1, protocol.ClientMsg{
+	sendMsg(t, activeConn, protocol.ClientMsg{
 		Type:         protocol.CMsgDebugSetState,
 		DebugDiscard: &red3,
 		DebugHands: []protocol.DebugHandOverrideDTO{
@@ -1482,9 +1489,7 @@ func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
 			{PlayerIndex: 1, Hand: []protocol.CardDTO{red3, red3, blue9}},
 		},
 		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &zero,
 	})
-	activeConn, interrupterConn := conn1, conn2
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
 

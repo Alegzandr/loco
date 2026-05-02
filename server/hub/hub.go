@@ -121,6 +121,7 @@ type Hub struct {
 	turnTimeout  chan turnTimerMsg // per-turn timeout actions
 	unoAnnounce  chan unoMsg       // delayed bot UNO declaration broadcasts
 	botCatch     chan botCatchMsg  // scheduled bot catch-UNO attempts
+	quit         chan struct{}    // closed by Stop() to terminate Run()
 
 	// afterRegisterHook is called in the register case after the client is added
 	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
@@ -189,6 +190,7 @@ func New() *Hub {
 		turnTimeout:    make(chan turnTimerMsg, 64),
 		unoAnnounce:    make(chan unoMsg, 64),
 		botCatch:       make(chan botCatchMsg, 64),
+		quit:           make(chan struct{}),
 		startTime:      time.Now(),
 	}
 }
@@ -259,9 +261,18 @@ func (h *Hub) GetMetrics() MetricsStats {
 }
 
 // Run starts the hub event loop. Call in a goroutine.
+// Stop terminates the Run loop. Safe to call once; further calls panic on the
+// closed channel. Used by tests to avoid leaking the hub goroutine across
+// tests, which under suite load can starve unrelated WebSocket reads.
+func (h *Hub) Stop() {
+	close(h.quit)
+}
+
 func (h *Hub) Run() {
 	for {
 		select {
+		case <-h.quit:
+			return
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
