@@ -95,6 +95,35 @@ interface GameStore {
   clearError: () => void
 }
 
+// makeSwapNotice returns a fresh notice for a Swap or GlobalSwitch play, or null
+// for any other card kind (caller keeps the previous notice in that case).
+function makeSwapNotice(
+  card: CardDTO,
+  actorIndex: number,
+  chosenPlayer: number | null | undefined,
+  direction: number,
+): SwapNotice | null {
+  if (card.kind === 'swap') {
+    return {
+      kind: 'swap',
+      actorIndex,
+      targetIndex: typeof chosenPlayer === 'number' ? chosenPlayer : -1,
+      direction,
+      at: Date.now(),
+    }
+  }
+  if (card.kind === 'global_switch') {
+    return {
+      kind: 'global_switch',
+      actorIndex,
+      targetIndex: -1,
+      direction,
+      at: Date.now(),
+    }
+  }
+  return null
+}
+
 function gameStateSliceFromDTO(state: GameStateDTO) {
   return {
     myIndex: state.your_index,
@@ -193,24 +222,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       // Surface a transient notice when a hand-swapping card resolves so non-actors
       // understand why their (or others') card counts just changed.
-      let swapNotice = s.swapNotice
-      if (card.kind === 'swap') {
-        swapNotice = {
-          kind: 'swap',
-          actorIndex: playerIndex,
-          targetIndex: typeof chosenPlayer === 'number' ? chosenPlayer : -1,
-          direction: s.direction,
-          at: Date.now(),
-        }
-      } else if (card.kind === 'global_switch') {
-        swapNotice = {
-          kind: 'global_switch',
-          actorIndex: playerIndex,
-          targetIndex: -1,
-          direction: s.direction,
-          at: Date.now(),
-        }
-      }
+      const swapNotice = makeSwapNotice(card, playerIndex, chosenPlayer, s.direction) ?? s.swapNotice
       return {
         myHand: updatedHand,
         discard: card,

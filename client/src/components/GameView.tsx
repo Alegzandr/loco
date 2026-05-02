@@ -3,6 +3,7 @@ import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore, SwapNotice } from '../hooks/useGameStore'
 import { useProgressTimer } from '../hooks/useProgressTimer'
+import { useCountdown } from '../hooks/useCountdown'
 import { useI18n } from '../i18n'
 import { Translations } from '../i18n/en'
 import { WsStatus } from '../hooks/useWebSocket'
@@ -85,8 +86,6 @@ export function GameView({ onSend, wsStatus }: Props) {
   const lastActionRef = useRef<number>(0)
   const reconnectAnimatedRef = useRef(false)
   const prevHandSizeRef = useRef<number>(0)
-  const [summaryCountdown, setSummaryCountdown] = useState(0)
-  const summaryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false)
   const [showRules, setShowRules] = useState(false)
 
@@ -296,36 +295,8 @@ export function GameView({ onSend, wsStatus }: Props) {
     return () => clearTimeout(t)
   }, [errorMsg, clearError])
 
-  // Auto-dismiss round summary countdown
-  useEffect(() => {
-    if (!showRoundSummary) {
-      if (summaryTimerRef.current) {
-        clearInterval(summaryTimerRef.current)
-        summaryTimerRef.current = null
-      }
-      setSummaryCountdown(0)
-      return
-    }
-
-    setSummaryCountdown(Math.ceil(ROUND_SUMMARY_AUTO_DISMISS_MS / 1000))
-    const start = Date.now()
-    summaryTimerRef.current = setInterval(() => {
-      const elapsed = Date.now() - start
-      const remaining = ROUND_SUMMARY_AUTO_DISMISS_MS - elapsed
-      if (remaining <= 0) {
-        if (summaryTimerRef.current) clearInterval(summaryTimerRef.current)
-        summaryTimerRef.current = null
-        dismissRoundSummary()
-      } else {
-        setSummaryCountdown(Math.ceil(remaining / 1000))
-      }
-    }, 250)
-
-    return () => {
-      if (summaryTimerRef.current) clearInterval(summaryTimerRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showRoundSummary])
+  // Auto-dismiss round summary countdown — runs while the summary is visible.
+  const summaryCountdown = useCountdown(showRoundSummary, ROUND_SUMMARY_AUTO_DISMISS_MS, dismissRoundSummary)
 
   const isMyTurn = currentTurn === myIndex
   // True when the player has at least one card they can legally play right now.
