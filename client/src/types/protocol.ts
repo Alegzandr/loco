@@ -65,6 +65,7 @@ export type ClientMsgType =
   | 'catch_uno'
   | 'counter_draw'
   | 'interrupt_play'
+  | 'interrupt_play_card'
 
 export interface ClientMsg {
   type: ClientMsgType
@@ -96,6 +97,7 @@ export type ServerMsgType =
   | 'uno_declared'
   | 'uno_caught'
   | 'draw_pending'
+  | 'interrupt_success'
   | 'round_end'
   | 'match_end'
   | 'game_over'
@@ -111,7 +113,7 @@ export interface ServerMsg {
   state?: GameStateDTO
   player_index?: number
   card?: CardDTO
-  cards?: CardDTO[]     // all drawn cards for the drawing player (card_drawn penalty draw)
+  cards?: CardDTO[]     // all drawn cards for the drawing player (card_drawn penalty draw); also: interrupt_success batch cards
   drawn_count?: number  // how many cards an opponent drew (card_drawn observer broadcast)
   active_color?: CardColor
   chosen_player?: number  // swap target index; only set on card_played for Swap kind

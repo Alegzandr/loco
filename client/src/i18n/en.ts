@@ -216,11 +216,12 @@ export const en: Translations = {
       ],
     },
     {
-      heading: 'Instant Play (Identical-Card Interrupt)',
+      heading: 'Lead-Taking (Identical-Card Interrupt)',
       items: [
-        'Once any card is played, any other player may immediately play an identical card (same color and value).',
-        'The fastest such play takes the turn from the original player; play continues from the interrupter.',
-        'Wild cards cannot be used to interrupt.',
+        'Once any card is played, any other player has a short window (~1.5 s) to immediately play an identical card (same color, kind, AND value) — even when it is not their turn.',
+        'The fastest server-received play wins: the interrupter takes the lead and play continues from their seat.',
+        'If you hold multiple identical copies, you may play them all in one tap — effects stack just like a turn-time batch play.',
+        'Wild cards and Global Swap cannot be used to interrupt. The player who just played cannot interrupt themselves.',
       ],
     },
     {

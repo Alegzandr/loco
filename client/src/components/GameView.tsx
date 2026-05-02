@@ -10,6 +10,7 @@ import { ColorPicker } from './ColorPicker'
 import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
+import { clientMayInterrupt } from './interruptHelpers'
 import styles from './GameView.module.css'
 
 // Client-side card legality hint — prevents animating clearly-invalid plays before
@@ -104,7 +105,29 @@ export function GameView({ onSend, wsStatus }: Props) {
 
   const handleCardClick = useCallback(
     (card: CardDTO, cardIdx: number) => {
-      if (currentTurn !== myIndex) return
+      // Out-of-turn path: realtime "lead-taking" interrupt. If the tapped card
+      // is an exact match of the top discard, send interrupt_play_card (the
+      // server enforces the time window and ordering). Otherwise ignore the tap.
+      if (currentTurn !== myIndex) {
+        if (!clientMayInterrupt(card, discard, pendingDraw)) return
+        // Auto-batch: if the player holds multiple identical copies, send them all
+        // in a single interrupt — the rule allows playing any number of identical
+        // matching cards together.
+        const copies = myHand.filter(
+          (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
+        )
+        const game = pixiRef.current
+        if (game) {
+          const { width, height } = game.app.screen
+          game.animateCardPlay(card, cardIdx, width, height)
+        }
+        onSend({
+          type: 'interrupt_play_card',
+          card,
+          play_cards: copies.length > 1 ? copies : undefined,
+        })
+        return
+      }
       if (card.kind === 'wild' || card.kind === 'wild_draw_four') {
         setColorPicker({ card, idx: cardIdx })
         return
@@ -125,7 +148,7 @@ export function GameView({ onSend, wsStatus }: Props) {
       }
       onSend({ type: 'play_card', card, chosen_color: card.color })
     },
-    [currentTurn, myIndex, discard, activeColor, pendingDraw, onSend]
+    [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, onSend]
   )
 
   // Stable ref so PixiGame always invokes the latest handleCardClick

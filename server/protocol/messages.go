@@ -19,7 +19,11 @@ const (
 	CMsgDeclareUno  ClientMsgType = "declare_uno"
 	CMsgCatchUno    ClientMsgType = "catch_uno"
 	CMsgCounterDraw    ClientMsgType = "counter_draw"
-	CMsgInterruptPlay  ClientMsgType = "interrupt_play"
+	// CMsgInterruptPlay is the realtime "lead-taking" / jump-in message.
+	// Body may carry either a singular Card OR a PlayCards array (batch identical-card
+	// interrupt). interrupt_play_card is accepted as an alias for the same handler.
+	CMsgInterruptPlay     ClientMsgType = "interrupt_play"
+	CMsgInterruptPlayCard ClientMsgType = "interrupt_play_card"
 	// Dev / E2E only (requires LOCO_E2E=1 env var on the server)
 	CMsgDebugSetState ClientMsgType = "debug_set_state"
 )
@@ -44,7 +48,8 @@ const (
 	SMsgTurnChanged ServerMsgType = "turn_changed"
 	SMsgUnoDeclared ServerMsgType = "uno_declared"
 	SMsgUnoCaught   ServerMsgType = "uno_caught"
-	SMsgDrawPending ServerMsgType = "draw_pending"
+	SMsgDrawPending      ServerMsgType = "draw_pending"
+	SMsgInterruptSuccess ServerMsgType = "interrupt_success"
 	// Round / match lifecycle
 	SMsgRoundEnd ServerMsgType = "round_end"
 	SMsgMatchEnd ServerMsgType = "match_end"

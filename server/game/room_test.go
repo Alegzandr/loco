@@ -1275,6 +1275,7 @@ func TestRoom_InterruptPlay_Valid(t *testing.T) {
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
 	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
 
 	carolCard := Card{Color: Red, Kind: Number, Value: 7}
 	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
@@ -1366,6 +1367,7 @@ func TestRoom_InterruptPlay_EmptiesHand_EndsRound(t *testing.T) {
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
 	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
 
 	winCard := Card{Color: Red, Kind: Number, Value: 9}
 	r.State.Hands[2].Cards = []Card{winCard}
@@ -1397,6 +1399,7 @@ func TestRoom_InterruptPlay_SkipEffect(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Skip}}
 	r.State.PendingDraw = 0
 	r.State.Direction = 1 // clockwise: alice(0)→bob(1)→carol(2)
+	armInterrupt(r, 1)    // pretend bob just played
 
 	// carol has a Red-Skip (exact match of top)
 	carolSkip := Card{Color: Red, Kind: Skip}
@@ -1497,6 +1500,7 @@ func TestRoom_InterruptPlay_FreeDrawTwo_AnyColor(t *testing.T) {
 	r.State.ActiveColor = Yellow
 	r.State.Discard = []Card{{Color: Yellow, Kind: Number, Value: 7}}
 	r.State.PendingDraw = 0
+	armInterrupt(r, 2) // carol just played the Yellow-7
 
 	bob2 := Card{Color: Blue, Kind: DrawTwo} // wrong color, wrong kind, wrong value vs top
 	r.State.Hands[1].Cards = []Card{bob2, {Color: Red, Kind: Number, Value: 1}}
@@ -1528,6 +1532,184 @@ func TestRoom_InterruptPlay_FreeDrawTwo_RejectedDuringPendingDraw(t *testing.T) 
 	r.State.Hands[2].Cards = []Card{bob2}
 	if err := r.InterruptPlay(2, bob2, -1); err == nil {
 		t.Error("free +2 interrupt during pending draw should be rejected")
+	}
+}
+
+// --- Phase C: explicit interrupt window + batch interrupt ---
+
+// armInterrupt sets the explicit interrupt-window fields so the test simulates
+// a "card was just played by playerIndex" state without going through PlayCard.
+func armInterrupt(r *Room, playerIndex int) {
+	r.State.LastPlayBy = playerIndex
+	r.State.LastPlayAt = time.Now()
+	r.State.InterruptDeadline = time.Now().Add(InterruptWindow)
+}
+
+func TestRoom_InterruptPlay_OutsideWindowRejected(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+	// Force the deadline into the past.
+	r.State.InterruptDeadline = time.Now().Add(-50 * time.Millisecond)
+
+	carolCard := Card{Color: Red, Kind: Number, Value: 7}
+	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, carolCard, -1); err == nil {
+		t.Error("interrupt outside window must be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_PlayerWhoJustPlayedCannotInterrupt(t *testing.T) {
+	// Even though it is no longer their current turn, the player who just played
+	// must not be able to "interrupt themselves" within the window.
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0) // alice just played
+
+	dup := Card{Color: Red, Kind: Number, Value: 7}
+	r.State.Hands[0].Cards = append([]Card{dup}, r.State.Hands[0].Cards...)
+
+	if err := r.InterruptPlay(0, dup, -1); err == nil {
+		t.Error("the player who just played must not be able to interrupt themselves")
+	}
+}
+
+func TestRoom_InterruptPlay_FastestSerializedWins(t *testing.T) {
+	// Two players hold an identical Red-7 and both attempt to interrupt.
+	// The first call wins (turn transfers to that player). The second call
+	// runs against post-first state — it is a chain interrupt against the
+	// same identical card on top, also valid, transferring lead onward.
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0) // alice just played
+
+	match := Card{Color: Red, Kind: Number, Value: 7}
+	r.State.Hands[1].Cards = append([]Card{match}, r.State.Hands[1].Cards...)
+	r.State.Hands[2].Cards = append([]Card{match}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(1, match, -1); err != nil {
+		t.Fatalf("first interrupt by bob: %v", err)
+	}
+	if r.State.LastPlayBy != 1 {
+		t.Errorf("LastPlayBy after first interrupt = %d, want 1 (bob)", r.State.LastPlayBy)
+	}
+
+	// Second arrival: carol now interrupts the new top (bob's identical card).
+	if err := r.InterruptPlay(2, match, -1); err != nil {
+		t.Fatalf("chained interrupt by carol: %v", err)
+	}
+	if r.State.LastPlayBy != 2 {
+		t.Errorf("after chain, LastPlayBy = %d, want 2 (carol)", r.State.LastPlayBy)
+	}
+}
+
+func TestRoom_InterruptPlayCards_BatchSucceeds(t *testing.T) {
+	// carol holds three Red-3 and interrupts with all three at once.
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 3}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+
+	match := Card{Color: Red, Kind: Number, Value: 3}
+	r.State.Hands[2].Cards = []Card{match, match, match, {Color: Blue, Kind: Number, Value: 5}}
+
+	if err := r.InterruptPlayCards(2, []Card{match, match, match}, -1); err != nil {
+		t.Fatalf("InterruptPlayCards: %v", err)
+	}
+	// All three cards should be on top of discard (initial + 3 = 4 entries).
+	if len(r.State.Discard) != 4 {
+		t.Errorf("discard size = %d, want 4 (initial + 3 batch)", len(r.State.Discard))
+	}
+	// Carol's hand: 4 cards before, 3 played, 1 remains.
+	if r.State.Hands[2].Size() != 1 {
+		t.Errorf("carol hand size = %d, want 1", r.State.Hands[2].Size())
+	}
+	if r.State.LastPlayBy != 2 {
+		t.Errorf("LastPlayBy after batch interrupt = %d, want 2 (carol)", r.State.LastPlayBy)
+	}
+}
+
+func TestRoom_InterruptPlayCards_NotInHand_DoesNotMutate(t *testing.T) {
+	// Player claims to play 2 copies but only holds 1. Reject and leave state untouched.
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 4}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+
+	match := Card{Color: Red, Kind: Number, Value: 4}
+	r.State.Hands[2].Cards = []Card{match, {Color: Blue, Kind: Number, Value: 9}}
+	discardLen := len(r.State.Discard)
+	handLen := r.State.Hands[2].Size()
+	turnBefore := r.State.CurrentTurn
+
+	if err := r.InterruptPlayCards(2, []Card{match, match}, -1); err == nil {
+		t.Fatal("batch interrupt with insufficient copies must be rejected")
+	}
+	if len(r.State.Discard) != discardLen {
+		t.Errorf("discard mutated after rejection: size = %d, want %d", len(r.State.Discard), discardLen)
+	}
+	if r.State.Hands[2].Size() != handLen {
+		t.Errorf("hand mutated after rejection: size = %d, want %d", r.State.Hands[2].Size(), handLen)
+	}
+	if r.State.CurrentTurn != turnBefore {
+		t.Errorf("turn mutated after rejection: turn = %d, want %d", r.State.CurrentTurn, turnBefore)
+	}
+}
+
+func TestRoom_InterruptPlayCards_RejectsNonIdentical(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	armInterrupt(r, 0)
+
+	a := Card{Color: Red, Kind: Number, Value: 5}
+	b := Card{Color: Red, Kind: Number, Value: 6}
+	r.State.Hands[2].Cards = []Card{a, b}
+	if err := r.InterruptPlayCards(2, []Card{a, b}, -1); err == nil {
+		t.Error("non-identical batch interrupt must be rejected")
+	}
+}
+
+func TestRoom_PlayCard_OpensInterruptWindow(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	play := Card{Color: Red, Kind: Number, Value: 5}
+	r.State.Hands[0].Cards = []Card{play, {Color: Blue, Kind: Number, Value: 9}}
+	if err := r.PlayCard(0, play, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if r.State.LastPlayBy != 0 {
+		t.Errorf("LastPlayBy = %d, want 0", r.State.LastPlayBy)
+	}
+	if !time.Now().Before(r.State.InterruptDeadline) {
+		t.Error("InterruptDeadline must be in the future after a play")
+	}
+}
+
+func TestRoom_DrawCard_ClosesInterruptWindow(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	armInterrupt(r, 1)
+	if err := r.DrawCard(0); err != nil {
+		t.Fatalf("DrawCard: %v", err)
+	}
+	if r.State.LastPlayBy != -1 {
+		t.Errorf("after DrawCard, LastPlayBy = %d, want -1 (window closed)", r.State.LastPlayBy)
 	}
 }
 

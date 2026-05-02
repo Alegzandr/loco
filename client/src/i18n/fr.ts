@@ -123,11 +123,12 @@ export const fr: Translations = {
       ],
     },
     {
-      heading: 'Interruption (carte identique)',
+      heading: 'Prise de tête (interruption carte identique)',
       items: [
-        'Dès qu\'une carte est jouée, n\'importe quel autre joueur peut jouer instantanément une carte identique (même couleur et même valeur).',
-        'Le plus rapide reprend le tour ; le jeu continue depuis l\'interrupteur.',
-        'Les cartes joker ne peuvent pas servir d\'interruption.',
+        'Dès qu\'une carte est jouée, tout autre joueur dispose d\'une courte fenêtre (~1,5 s) pour jouer instantanément une carte identique (même couleur, type et valeur) — même quand ce n\'est pas son tour.',
+        'La première interruption reçue par le serveur l\'emporte : l\'interrupteur prend la main et le jeu continue depuis sa place.',
+        'Si vous avez plusieurs copies identiques, vous pouvez toutes les jouer d\'un seul coup — les effets se cumulent comme pour un jeu groupé en cours de tour.',
+        'Les jokers et la Rotation globale ne peuvent pas servir d\'interruption. Le joueur qui vient de jouer ne peut pas s\'interrompre lui-même.',
       ],
     },
     {

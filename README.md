@@ -187,7 +187,8 @@ All messages are JSON over WebSocket.
 - **Wild Draw Four (+4)**: choose color; next player draws 4 unless countered with another +4.
 - **Swap (⇋)**: pick an opponent and swap entire hands. Turn-only, no stacking.
 - **Global Swap (↻)**: every player passes their hand to the next player in the current direction.
-- **Identical-card interrupt**: any non-current player may immediately play a card that exactly matches the top discard (color + kind + value). Fastest-server-received wins; play continues from the interrupter. Wilds cannot be used to interrupt.
+- **Identical-card interrupt ("lead-taking")**: any non-current player may immediately play a card that exactly matches the top discard (color + kind + value) during a short server-enforced **interrupt window** (1.5 s after the latest play). The interrupter takes the lead — they become the new active player and play continues from their seat. Fastest-server-received wins; the player who just played cannot interrupt themselves. Wilds and Global Swap cannot be used to interrupt.
+- **Batch interrupt**: an interrupter holding multiple identical copies of the matching card may play them all in one tap — effects stack just like a turn-time batch play.
 - **+2 free interrupt**: a +2 may be played out of turn at any time even if it does not match top color/value. Cannot be used while a draw penalty is already active (use the normal counter chain instead).
 - **Batch identical-card play**: on your turn you may play multiple identical cards (same color + value) at once; effects compound (`N` × +2 = `2N` pending draw, `N` skips skip `N` players, etc).
 - **UNO declaration**: player must call UNO when they reach 1 card; other players have a 5-second window to catch them.
@@ -360,7 +361,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - WebSocket reconnect (offline/online cycle, reconnect overlay, two-client disconnect)
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch discard update
 - Swap / Global Swap on-screen notification banner + PixiJS card-back trail animation between affected seats
-- counter_draw stacking, interrupt_play out-of-turn
+- counter_draw stacking, interrupt_play_card lead-taking (single + batch), interrupt window timing
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
 
 ---

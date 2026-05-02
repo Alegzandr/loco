@@ -380,7 +380,11 @@ export class PixiGame {
     this.handCardSlots = slots
 
     state.myHand.forEach((card, i) => {
-      const isPlayable = isMyTurn && topCard != null && _canPlayCard(card, topCard, activeColor)
+      // Playable on my turn: legal play. Off-turn: exact-match interrupt
+      // candidate (color+kind+value). Both cases use the same highlight so
+      // players can SEE the card they may tap to take the lead.
+      const isInterrupt = !isMyTurn && topCard != null && card.color === topCard.color && card.kind === topCard.kind && card.value === topCard.value && card.color !== 'wild' && state.pendingDraw === 0
+      const isPlayable = (isMyTurn && topCard != null && _canPlayCard(card, topCard, activeColor)) || isInterrupt
       const { x: cardX, y: handY, rotation } = slots[i]
       // Playable cards are lifted slightly so they stand out even before hover
       const restY = isPlayable ? handY - 9 : handY
@@ -391,7 +395,7 @@ export class PixiGame {
       sprite.rotation = rotation
       sprite.zIndex = i
       sprite.eventMode = 'static'
-      sprite.cursor = isMyTurn ? 'pointer' : 'default'
+      sprite.cursor = (isMyTurn || isInterrupt) ? 'pointer' : 'default'
 
       sprite.on('pointerover', () => {
         sprite.y = restY - 14

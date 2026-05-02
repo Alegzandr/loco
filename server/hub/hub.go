@@ -361,7 +361,7 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 	case protocol.CMsgCounterDraw:
 		h.resetAFK(c.roomCode, c.playerID)
 		h.handleCounterDraw(c, msg)
-	case protocol.CMsgInterruptPlay:
+	case protocol.CMsgInterruptPlay, protocol.CMsgInterruptPlayCard:
 		h.resetAFK(c.roomCode, c.playerID)
 		h.handleInterruptPlay(c, msg)
 	case protocol.CMsgDebugSetState:
@@ -800,24 +800,52 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
-	if msg.Card == nil {
-		c.sendError("card required")
-		return
-	}
-	card, _, err := dtoToCard(msg.Card, "")
-	if err != nil {
-		c.sendError(err.Error())
-		return
-	}
 	chosenPlayer := -1
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	if err := room.InterruptPlay(c.playerID, card, chosenPlayer); err != nil {
+
+	// Build the cards slice. PlayCards (batch) takes precedence over singular Card.
+	var cards []game.Card
+	if len(msg.PlayCards) > 0 {
+		cards = make([]game.Card, len(msg.PlayCards))
+		for i, dto := range msg.PlayCards {
+			card, _, err := dtoToCard(&dto, "")
+			if err != nil {
+				c.sendError(err.Error())
+				return
+			}
+			cards[i] = card
+		}
+	} else if msg.Card != nil {
+		card, _, err := dtoToCard(msg.Card, "")
+		if err != nil {
+			c.sendError(err.Error())
+			return
+		}
+		cards = []game.Card{card}
+	} else {
+		c.sendError("card required")
+		return
+	}
+
+	if err := room.InterruptPlayCards(c.playerID, cards, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
 		return
 	}
+
+	// Emit a typed interrupt_success notification (in addition to the standard
+	// card_played broadcast) so clients can render distinct lead-taking visuals.
+	successCards := make([]*protocol.CardDTO, len(cards))
+	for i, card := range cards {
+		successCards[i] = cardToDTO(card)
+	}
+	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+		Type:        protocol.SMsgInterruptSuccess,
+		PlayerIndex: c.playerID,
+		Cards:       successCards,
+	})
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
 	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)

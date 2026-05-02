@@ -1377,76 +1377,141 @@ func TestInterruptPlay_OwnTurn_Rejected(t *testing.T) {
 }
 
 // TestInterruptPlay_ValidMatch_AcceptedAndBroadcast verifies the happy path:
-// when a non-current-turn player holds a card exactly matching the top discard,
-// their interrupt_play is accepted and both players receive card_played.
+// active player plays Red-5 (opens the interrupt window), then the other player
+// interrupts with their own Red-5. Server must broadcast interrupt_success and
+// the new card_played to all clients, and transfer the lead to the interrupter.
 func TestInterruptPlay_ValidMatch_AcceptedAndBroadcast(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
 	_, srv := newTestHub(t)
 
 	conn1 := dialWS(t, srv)
 	t.Cleanup(func() { conn1.Close() })
-	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
-	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
-
 	conn2 := dialWS(t, srv)
 	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
 	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
 	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
 	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
-
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
-
 	if gs1.State == nil || gs2.State == nil {
-		t.Skip("no game state in game_started")
+		t.Fatal("missing game state in game_started")
 	}
 
-	// Identify waiting player (non-current-turn) and their hand.
-	var waitingConn *websocket.Conn
-	var waitingHand []protocol.CardDTO
-	var discard protocol.CardDTO
-	if gs1.State.Turn != gs1.State.YourIndex {
-		waitingConn = conn1
-		waitingHand = gs1.State.Hand
-		discard = gs1.State.Discard
-	} else {
+	var activeConn, waitingConn *websocket.Conn
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn = conn1
 		waitingConn = conn2
-		waitingHand = gs2.State.Hand
-		discard = gs2.State.Discard
+	} else {
+		activeConn = conn2
+		waitingConn = conn1
 	}
 
-	// Find a non-wild card in waiting player's hand that exactly matches the discard.
-	var matchCard *protocol.CardDTO
-	for _, c := range waitingHand {
-		if c.Color == "wild" {
-			continue
-		}
-		if c.Color == discard.Color && c.Kind == discard.Kind && c.Value == discard.Value {
-			cc := c // capture
-			matchCard = &cc
-			break
-		}
+	red5 := protocol.CardDTO{Color: "red", Kind: "number", Value: 5}
+	blue9 := protocol.CardDTO{Color: "blue", Kind: "number", Value: 9}
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:         protocol.CMsgDebugSetState,
+		DebugDiscard: &red5,
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{PlayerIndex: 0, Hand: []protocol.CardDTO{red5, blue9}},
+			{PlayerIndex: 1, Hand: []protocol.CardDTO{red5, blue9}},
+		},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+
+	// Active plays Red-5 → window opens.
+	sendMsg(t, activeConn, protocol.ClientMsg{Type: protocol.CMsgPlayCard, Card: &red5})
+	readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
+
+	// Waiting player interrupts with their Red-5.
+	sendMsg(t, waitingConn, protocol.ClientMsg{Type: protocol.CMsgInterruptPlay, Card: &red5})
+	readMsgOfType(t, conn1, protocol.SMsgInterruptSuccess)
+	readMsgOfType(t, conn2, protocol.SMsgInterruptSuccess)
+	cp1 := readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
+	if cp1.Card == nil || cp1.Card.Color != "red" || cp1.Card.Kind != "number" || cp1.Card.Value != 5 {
+		t.Fatalf("card_played mismatch: %+v", cp1.Card)
 	}
-	if matchCard == nil {
-		t.Skip("waiting player has no exact-match card for the discard; skipping happy-path interrupt test")
+}
+
+// TestInterruptPlayCard_BatchAlias_Accepted verifies that interrupt_play_card
+// (alias message type) with a play_cards array delivers a batch identical-card
+// interrupt and emits an interrupt_success notification.
+func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
 	}
 
-	// Send interrupt_play with the matching card.
-	sendMsg(t, waitingConn, protocol.ClientMsg{
-		Type: protocol.CMsgInterruptPlay,
-		Card: matchCard,
+	// Identify the active player (Alice plays first; Bob is the interrupter).
+	var activeConn, interrupterConn *websocket.Conn
+	if gs1.State.Turn == gs1.State.YourIndex {
+		activeConn = conn1
+		interrupterConn = conn2
+	} else {
+		activeConn = conn2
+		interrupterConn = conn1
+	}
+
+	// Stage: top discard = Red-3; active player has [Red-3, Blue-9]; interrupter has 2x Red-3.
+	red3 := protocol.CardDTO{Color: "red", Kind: "number", Value: 3}
+	blue9 := protocol.CardDTO{Color: "blue", Kind: "number", Value: 9}
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:         protocol.CMsgDebugSetState,
+		DebugDiscard: &red3,
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{PlayerIndex: 0, Hand: []protocol.CardDTO{red3, blue9}},
+			{PlayerIndex: 1, Hand: []protocol.CardDTO{red3, red3, blue9}},
+		},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+
+	// Active player plays Red-3 first to open the interrupt window.
+	sendMsg(t, activeConn, protocol.ClientMsg{Type: protocol.CMsgPlayCard, Card: &red3})
+	readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
+
+	// Interrupter sends interrupt_play_card (alias) with 2 identical Red-3.
+	sendMsg(t, interrupterConn, protocol.ClientMsg{
+		Type:      protocol.CMsgInterruptPlayCard,
+		PlayCards: []protocol.CardDTO{red3, red3},
 	})
 
-	// Both players must receive card_played.
-	cp1 := readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
-	cp2 := readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
-	if cp1.Card == nil || cp2.Card == nil {
-		t.Fatalf("card_played missing card field")
+	// Both clients must receive interrupt_success then card_played.
+	is1 := readMsgOfType(t, conn1, protocol.SMsgInterruptSuccess)
+	readMsgOfType(t, conn2, protocol.SMsgInterruptSuccess)
+	if len(is1.Cards) != 2 {
+		t.Errorf("interrupt_success cards count = %d, want 2", len(is1.Cards))
 	}
-	if cp1.Card.Color != matchCard.Color || cp1.Card.Kind != matchCard.Kind || cp1.Card.Value != matchCard.Value {
-		t.Errorf("card_played card mismatch: got %+v, want %+v", cp1.Card, matchCard)
-	}
-	_ = cp2
+	readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
 }
 
 // TestCatchUNO_HumanCatchesHuman verifies the complete catch-UNO flow:
