@@ -384,10 +384,20 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 
 // --- Lobby handlers ---
 
-func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
-	nickname := strings.TrimSpace(msg.Nickname)
-	if len(nickname) == 0 || len(nickname) > 20 {
+// validateNickname trims and length-checks an inbound nickname. Returns the
+// canonical form on success, or sends an error to the client and returns "".
+func validateNickname(c *Client, raw string) string {
+	n := strings.TrimSpace(raw)
+	if len(n) == 0 || len(n) > 20 {
 		c.sendError("nickname must be 1–20 characters")
+		return ""
+	}
+	return n
+}
+
+func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
+	nickname := validateNickname(c, msg.Nickname)
+	if nickname == "" {
 		return
 	}
 	msg.Nickname = nickname
@@ -419,9 +429,8 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 }
 
 func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
-	nickname := strings.TrimSpace(msg.Nickname)
-	if len(nickname) == 0 || len(nickname) > 20 {
-		c.sendError("nickname must be 1–20 characters")
+	nickname := validateNickname(c, msg.Nickname)
+	if nickname == "" {
 		return
 	}
 	msg.Nickname = nickname
@@ -944,16 +953,30 @@ func (h *Hub) handleDisconnect(c *Client) {
 	}
 
 	// Lobby: remove the player from room.Players and re-index everything keyed
-	// on playerID (member slots, bot slots, session tokens, remaining clients'
-	// playerID). Without this, a disconnected host (playerID 0) leaves a
+	// on playerID. Without this, a disconnected host (playerID 0) leaves a
 	// phantom slot and no surviving player can ever start the game.
+	if !h.reindexLobbyDisconnect(c, room, members) {
+		// Only bots (or nothing) remain — no human can start the game.
+		h.scheduleRoomCleanup(c.roomCode)
+		return
+	}
+	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+		Type:     protocol.SMsgPlayerLeft,
+		Nickname: nickname,
+		Players:  h.playerList(room),
+	})
+}
+
+// reindexLobbyDisconnect removes the leaving client from a lobby room and
+// shifts every playerID-keyed structure (members, surviving clients' playerID,
+// bot slots, session tokens) so indices > leavingID drop by 1. Returns true
+// when at least one human remains.
+func (h *Hub) reindexLobbyDisconnect(c *Client, room *game.Room, members []*Client) (hasHuman bool) {
 	leavingID := c.playerID
 	if _, err := room.RemoveLobbyPlayer(leavingID); err != nil {
 		log.Printf("WARN RemoveLobbyPlayer failed code=%s player=%d err=%v", c.roomCode, leavingID, err)
 	}
 
-	// Compact roomMembers by skipping the leaving client; remaining indices map
-	// to the new room.Players indices because we removed the same slot from both.
 	newMembers := make([]*Client, 0, len(members))
 	for _, m := range members {
 		if m != c {
@@ -962,64 +985,53 @@ func (h *Hub) handleDisconnect(c *Client) {
 	}
 	h.roomMembers[c.roomCode] = newMembers
 
-	// Update each remaining client's playerID to match its new slot.
 	for newIdx, m := range newMembers {
 		if m != nil {
 			m.playerID = newIdx
-		}
-	}
-
-	// Re-index bot slots: every old index > leavingID shifts down by 1.
-	if oldBots, ok := h.botSlots[c.roomCode]; ok {
-		newBots := make(map[int]struct{}, len(oldBots))
-		for oldIdx := range oldBots {
-			if oldIdx == leavingID {
-				continue
-			}
-			newIdx := oldIdx
-			if oldIdx > leavingID {
-				newIdx = oldIdx - 1
-			}
-			newBots[newIdx] = struct{}{}
-		}
-		h.botSlots[c.roomCode] = newBots
-	}
-
-	// Re-index session tokens the same way; drop the leaving slot's token.
-	if oldTokens, ok := h.sessionTokens[c.roomCode]; ok {
-		newTokens := make(map[int]string, len(oldTokens))
-		for oldIdx, tok := range oldTokens {
-			if oldIdx == leavingID {
-				continue
-			}
-			newIdx := oldIdx
-			if oldIdx > leavingID {
-				newIdx = oldIdx - 1
-			}
-			newTokens[newIdx] = tok
-		}
-		h.sessionTokens[c.roomCode] = newTokens
-	}
-
-	// If only bots (or nothing) remain, no human can start the game; treat the
-	// room as empty so the cleanup timer reclaims it.
-	hasHuman := false
-	for _, m := range newMembers {
-		if m != nil {
 			hasHuman = true
-			break
 		}
 	}
-	if !hasHuman {
-		h.scheduleRoomCleanup(c.roomCode)
-		return
-	}
 
-	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
-		Type:     protocol.SMsgPlayerLeft,
-		Nickname: nickname,
-		Players:  h.playerList(room),
-	})
+	h.botSlots[c.roomCode] = shiftIntKeySet(h.botSlots[c.roomCode], leavingID)
+	h.sessionTokens[c.roomCode] = shiftIntKeyMap(h.sessionTokens[c.roomCode], leavingID)
+	return hasHuman
+}
+
+// shiftIntKeySet returns a copy of m with the entry at `removed` dropped and
+// every key > removed shifted down by 1. Returns nil when the input is nil.
+func shiftIntKeySet(m map[int]struct{}, removed int) map[int]struct{} {
+	if m == nil {
+		return nil
+	}
+	out := make(map[int]struct{}, len(m))
+	for k := range m {
+		if k == removed {
+			continue
+		}
+		if k > removed {
+			k--
+		}
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+// shiftIntKeyMap is shiftIntKeySet for map[int]string (session tokens).
+func shiftIntKeyMap(m map[int]string, removed int) map[int]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[int]string, len(m))
+	for k, v := range m {
+		if k == removed {
+			continue
+		}
+		if k > removed {
+			k--
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // allSlotsEmpty returns true if every member slot in a room is nil (all disconnected).
@@ -1468,88 +1480,103 @@ func (h *Hub) executeBotMove(bm botMoveMsg) {
 
 	switch action.Kind {
 	case game.BotPlay:
-		if err := room.PlayCard(bm.playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
-			log.Printf("bot play error: %v", err)
-			return
-		}
-		h.broadcastCardPlayed(code, bm.playerID, room, action.ChosenPlayer)
-		if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
-			h.broadcastPersonalizedGameState(code, room)
-		}
-
-		// Auto-declare UNO if bot is at 1 card (broadcast delayed for human-like feel)
-		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
-			_ = room.DeclareLastCard(bm.playerID)
-			h.scheduleBotUnoAnnounce(code, bm.playerID)
-		}
-
-		h.handleRoundOrMatchEnd(code, room)
+		h.botPlay(code, room, bm.playerID, action)
 		return
-
 	case game.BotCounter:
-		if err := room.CounterDraw(bm.playerID, action.Card, action.ChosenColor); err != nil {
-			log.Printf("bot counter error: %v", err)
-			return
-		}
-		h.broadcastCardPlayed(code, bm.playerID, room, -1)
-
-		// Auto-declare UNO if bot is at 1 card after counter (broadcast delayed for human-like feel)
-		if !room.RoundEnded && room.State.Hands[bm.playerID].Size() == 1 {
-			_ = room.DeclareLastCard(bm.playerID)
-			h.scheduleBotUnoAnnounce(code, bm.playerID)
-		}
-
-		h.handleRoundOrMatchEnd(code, room)
+		h.botCounter(code, room, bm.playerID, action)
 		return
-
 	case game.BotDraw:
-		priorBotSize := len(room.State.Hands[bm.playerID].Cards)
-		if err := room.DrawCard(bm.playerID); err != nil {
-			log.Printf("bot draw error: %v", err)
-			return
-		}
-		state := room.State
-		botDrawnCount := len(state.Hands[bm.playerID].Cards) - priorBotSize
-		h.broadcastToRoomAll(code, protocol.ServerMsg{
-			Type:        protocol.SMsgCardDrawn,
-			PlayerIndex: bm.playerID,
-			DrawnCount:  botDrawnCount,
-			Turn:        state.CurrentTurn,
-		})
-		// After drawing, bot passes if it can't play
-		if state.CurrentTurn == bm.playerID {
-			hand := state.Hands[bm.playerID]
-			topCard := state.Discard[len(state.Discard)-1]
-			canPlay := false
-			for _, c := range hand.Cards {
-				if game.CanPlay(c, topCard, state.ActiveColor) {
-					canPlay = true
-					break
-				}
-			}
-			if !canPlay {
-				if err := room.PassTurn(bm.playerID); err == nil {
-					h.scheduleTurnTimer(code, room)
-					dl := h.turnDeadlineMs(code)
-					h.broadcastToRoomAll(code, protocol.ServerMsg{
-						Type:         protocol.SMsgTurnChanged,
-						Turn:         room.State.CurrentTurn,
-						TurnDeadline: dl,
-					})
-				}
-			} else {
-				// Schedule another bot move to play the drawn card
-				h.scheduleBotMove(code, bm.playerID)
-				return
-			}
-		} else {
-			// Penalty draw (PendingDraw > 0) advanced the turn; the new current
-			// player needs a timer or bot schedule so the game keeps progressing.
-			h.scheduleTurnTimer(code, room)
+		if h.botDraw(code, room, bm.playerID) {
+			return // self-rescheduled to play the drawn card
 		}
 	}
 
 	h.maybeScheduleBot(code, room)
+}
+
+// botPlay handles a BotPlay action: PlayCard + post-play broadcasts + auto-UNO + round-end check.
+func (h *Hub) botPlay(code string, room *game.Room, playerID int, action game.BotAction) {
+	if err := room.PlayCard(playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
+		log.Printf("bot play error: %v", err)
+		return
+	}
+	h.broadcastCardPlayed(code, playerID, room, action.ChosenPlayer)
+	if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
+		h.broadcastPersonalizedGameState(code, room)
+	}
+	h.maybeAutoDeclareUNO(code, room, playerID)
+	h.handleRoundOrMatchEnd(code, room)
+}
+
+// botCounter handles a BotCounter action: CounterDraw + broadcast + auto-UNO + round-end check.
+func (h *Hub) botCounter(code string, room *game.Room, playerID int, action game.BotAction) {
+	if err := room.CounterDraw(playerID, action.Card, action.ChosenColor); err != nil {
+		log.Printf("bot counter error: %v", err)
+		return
+	}
+	h.broadcastCardPlayed(code, playerID, room, -1)
+	h.maybeAutoDeclareUNO(code, room, playerID)
+	h.handleRoundOrMatchEnd(code, room)
+}
+
+// botDraw handles a BotDraw action: DrawCard + broadcast + post-draw turn handling.
+// Returns true when it self-reschedules to play the drawn card (caller should NOT
+// fall through to maybeScheduleBot).
+func (h *Hub) botDraw(code string, room *game.Room, playerID int) (rescheduled bool) {
+	priorSize := len(room.State.Hands[playerID].Cards)
+	if err := room.DrawCard(playerID); err != nil {
+		log.Printf("bot draw error: %v", err)
+		return false
+	}
+	state := room.State
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:        protocol.SMsgCardDrawn,
+		PlayerIndex: playerID,
+		DrawnCount:  len(state.Hands[playerID].Cards) - priorSize,
+		Turn:        state.CurrentTurn,
+	})
+	if state.CurrentTurn != playerID {
+		// Penalty draw (PendingDraw > 0) advanced the turn; the new current
+		// player needs a timer or bot schedule so the game keeps progressing.
+		h.scheduleTurnTimer(code, room)
+		return false
+	}
+	if botCanPlayDrawn(state, playerID) {
+		// Schedule another bot move to play the drawn card.
+		h.scheduleBotMove(code, playerID)
+		return true
+	}
+	if err := room.PassTurn(playerID); err == nil {
+		h.scheduleTurnTimer(code, room)
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:         protocol.SMsgTurnChanged,
+			Turn:         room.State.CurrentTurn,
+			TurnDeadline: h.turnDeadlineMs(code),
+		})
+	}
+	return false
+}
+
+// maybeAutoDeclareUNO declares UNO and schedules the delayed announcement when
+// a bot has played to exactly 1 card. The delay gives the broadcast a human-like feel.
+func (h *Hub) maybeAutoDeclareUNO(code string, room *game.Room, playerID int) {
+	if room.RoundEnded || room.State.Hands[playerID].Size() != 1 {
+		return
+	}
+	_ = room.DeclareLastCard(playerID)
+	h.scheduleBotUnoAnnounce(code, playerID)
+}
+
+// botCanPlayDrawn reports whether the bot can play any card in its hand against
+// the current top discard / active color.
+func botCanPlayDrawn(state *game.GameState, playerID int) bool {
+	topCard := state.Discard[len(state.Discard)-1]
+	for _, c := range state.Hands[playerID].Cards {
+		if game.CanPlay(c, topCard, state.ActiveColor) {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Turn timer ---
