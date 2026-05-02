@@ -4,6 +4,7 @@ import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore, SwapNotice } from '../hooks/useGameStore'
 import { useProgressTimer } from '../hooks/useProgressTimer'
 import { useCountdown } from '../hooks/useCountdown'
+import { useReconnectAnimation } from '../hooks/useReconnectAnimation'
 import { useI18n } from '../i18n'
 import { Translations } from '../i18n/en'
 import { WsStatus } from '../hooks/useWebSocket'
@@ -84,9 +85,7 @@ export function GameView({ onSend, wsStatus }: Props) {
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [playerPicker, setPlayerPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const lastActionRef = useRef<number>(0)
-  const reconnectAnimatedRef = useRef(false)
   const prevHandSizeRef = useRef<number>(0)
-  const [showReconnectOverlay, setShowReconnectOverlay] = useState(false)
   const [showRules, setShowRules] = useState(false)
 
   const {
@@ -214,34 +213,16 @@ export function GameView({ onSend, wsStatus }: Props) {
     }
   }, [])
 
-  // Handle reconnect animation
-  useEffect(() => {
-    if (!isReconnecting) {
-      reconnectAnimatedRef.current = false
-      return
-    }
-    if (reconnectAnimatedRef.current) return
-    reconnectAnimatedRef.current = true
-
-    setShowReconnectOverlay(true)
-
-    const overlayTimer = setTimeout(() => {
-      setShowReconnectOverlay(false)
-      const game = pixiRef.current
-      if (!game) {
-        setIsReconnecting(false)
-        return
-      }
-      game.renderReconnect(
-        { myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-          turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix } },
-        () => { setIsReconnecting(false) }
-      )
-    }, 600)
-
-    return () => clearTimeout(overlayTimer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isReconnecting])
+  // Reconnect visual recovery: overlay → staggered fade-in via PixiGame.
+  const showReconnectOverlay = useReconnectAnimation(
+    isReconnecting,
+    pixiRef,
+    () => ({
+      myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
+      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix },
+    }),
+    () => setIsReconnecting(false),
+  )
 
   // Re-render on state change; trigger draw animation when hand grows
   useEffect(() => {
