@@ -31,6 +31,7 @@ import {
   sendMsg,
   waitForMyTurn,
   debugSetState,
+  gameBoard,
 } from '../helpers/game'
 
 // ---------------------------------------------------------------------------
@@ -419,8 +420,8 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       await joinRoom(page2, 'Bob', roomCode)
       await page1.getByRole('button', { name: T.startGame }).click()
 
-      await expect(page1.locator('canvas')).toBeVisible({ timeout: 10_000 })
-      await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page1)).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
 
       const aliceState = await page1.evaluate(() => window.__LOCO_E2E__?.getState?.())
       const aliceIndex = aliceState?.myIndex ?? 0

@@ -120,8 +120,15 @@ export async function addBot(page: Page): Promise<void> {
 /** Start the game from the waiting room (host only). */
 export async function startGame(page: Page): Promise<void> {
   await page.getByRole('button', { name: T.startGame }).click()
-  // Canvas appears once the game has started
-  await expect(page.locator('canvas')).toBeVisible({ timeout: 10_000 })
+  await expect(gameBoard(page)).toBeVisible({ timeout: 10_000 })
+}
+
+/**
+ * Locator for the React game board. Use this instead of `page.locator('canvas')`;
+ * the legacy PixiJS renderer (which mounted a <canvas>) has been replaced.
+ */
+export function gameBoard(page: Page) {
+  return page.getByTestId('game-board')
 }
 
 /** Set the match format from the waiting room (host only). */

@@ -1,0 +1,34 @@
+.back {
+  position: relative;
+  width: 72px;
+  height: 108px;
+  border-radius: 10px;
+  background: #1a1a3e;
+  border: 1.5px solid #2a2a5e;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.inner {
+  position: absolute;
+  top: 6%;
+  bottom: 6%;
+  left: 8%;
+  right: 8%;
+  border-radius: 5px;
+  background: #22224a;
+  border: 1px solid #33336a;
+}
+
+.monogram {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: #4d96ff;
+  opacity: 0.4;
+  pointer-events: none;
+}

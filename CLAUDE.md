@@ -66,9 +66,9 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 ## Repository structure
 - `client/` frontend
   - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher)
+  - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, AnimationLayer; `layout.ts` for pure pixel math)
   - `src/i18n/` i18n context, en/fr translations
-  - `src/game/` PixiJS rendering
-  - `src/hooks/` WebSocket + Zustand store
+  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver)
   - `src/types/` protocol types
   - `src/test/` Vitest unit tests
 - `server/` authoritative game server
@@ -126,7 +126,7 @@ Update this section when structure changes.
 - `card_played` includes `chosen_player` ONLY for `swap` (target's index). Omitted for everything else (incl. `global_switch`).
 - Client `applyCardPlayed` derives `swapNotice` (`useGameStore.SwapNotice`) when `card.kind` is `swap`/`global_switch`. Carries `kind`, `actorIndex`, `targetIndex` (-1 for global_switch), `direction` (game direction at play, picks GS arrow), `at` (Date.now() — React render key).
 - `GameView` shows via `styles.swapNotice` (purple-glow pill above action bar), auto-clears after `SWAP_NOTICE_MS=3500`. i18n keys: `swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw` (`%actor`/`%target`).
-- `PixiGame.animateSwap(actorIdx, targetIdx, players, myIdx)` and `animateGlobalSwitch(direction, players, myIdx)` spawn mini card-back trails. Triggered once per notice via `swapNotice.at`-keyed effect.
+- `<GameBoard />` watches `swapNotice.at` and spawns Framer Motion mini card-back trails (actor↔target for swap, chained seat→next-seat for global_switch) via `<AnimationLayer />`.
 
 ## Lobby config
 - Host messages: `set_match_format`, `set_max_players` (lobby only).
@@ -224,20 +224,27 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - CI: lint runs before tests.
 - Server: `go vet` (implicit via `go test`).
 
-## Player bubble (PixiJS)
-- `PixiGame._buildPlayerBubble`. `GameRenderState.players` includes `finished?`, `placement?`.
-- Normal: bg `#16213e`, white text, `"nickname (count)"`.
-- Active turn: bg `#4d96ff`, bold white.
-- Disconnected: dark-grey bg, grey text, `"nickname ✗ (count)"`.
-- Finished: bg `#2d2a0a`, gold text `#ffd93d`, `"Nth · nickname"` (no count).
-- `placementSuffix` → "1st"/"2nd"/"3rd"/"Nth". Server prevents finished from being currentTurn.
+## Player bubble (`<PlayerSlot />`)
+- 172×66 pill positioned via `opponentBubblePositions(...)` (upper arc, clockwise from local seat).
+- Active turn: blue background + 2px ring + dot above the pill, bold blue label.
+- Disconnected: dark-grey bg, grey label, `"nickname ✗"`.
+- Mini card-back fan inside the pill (max 9 visible, rotation ±14°/±8°/0° depending on count, "+N" overflow label).
+
+## Card rendering layer (React + Framer Motion)
+- `<GameBoard />` is the root; it tracks container size via `useElementSize` (ResizeObserver) and passes width/height to children that absolute-position in pixel coords.
+- Layout helpers (`src/components/cards/layout.ts`): `clockwiseOpponents`, `opponentBubblePositions`, `calcHandSlots`, `discardPosition`, `deckPosition`, `seatPosition` — all pure, reused by tests and animations.
+- Animations live in `<AnimationLayer />`: an array of `Flier` items (flying card faces or backs) plus `EffectText` floats. Each entry self-cleans via `onAnimationComplete` → parent `removeFlier`/`removeEffect`.
+- Animation triggers (inside `<GameBoard />`):
+  - **Card play (own)**: `handleCardClick` wraps the parent callback, computing the source slot from `calcHandSlots` and spawning a hand→discard flier before invoking parent. Sets `suppressNextDiscardFx` so the discard-change effect doesn't double-fire.
+  - **Discard top change (any source)**: small fade/scale flier at the discard pile + SKIP/REVERSE/+N effect text via `effectFor(card, pendingDraw)`.
+  - **Hand grew by 1**: deck→last-slot card-back flier (draws).
+  - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.
+- Hover lift: CSS-only (`Hand.module.css`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
 
 ## Reconnect visual recovery
 - On `player_reconnected`: store `isReconnecting:true` before applying state.
-- `GameView` shows "Rebuilding table…" overlay (600ms) → `PixiGame.renderReconnect(state, onComplete)`.
-- Staggered entrances: discard fade/scale → bubbles (80ms stagger) → hand cards (40ms stagger).
-- `onComplete` resets `isReconnecting:false`.
-- Normal `render()` suppressed while reconnecting. `renderReconnect` resets `lastRenderFingerprint`.
+- `useReconnectAnimation(isReconnecting, onComplete)` shows "Rebuilding table…" overlay for 600ms then calls onComplete (which clears `isReconnecting`).
+- `<GameBoard />` hides its children while reconnecting; on the false→true→false transition it bumps an internal `rebuildKey`, replaying a 350ms board fade-in CSS keyframe.
 - Visual only; server is authoritative.
 
 ## Client transport
@@ -245,7 +252,7 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - Auto-reconnect: linear backoff `2s × min(attempts, 4)`, cap 10. `attemptsRef` resets on `onopen`.
 - `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
 - `App.handleMessage` deps `[]`. Branches needing CURRENT store values use `useGameStore.getState()`. Stable Zustand actions safe.
-- `PixiGame.render(state)` short-circuits if `_renderFingerprint` matches and discard unchanged.
+- React renderer relies on Zustand selector equality; expensive re-renders are avoided via stable references in the store.
 
 ## Round summary
 - `round_end` → `applyRoundEnd(roundWinner, roundNumber, newScoreboard)`.

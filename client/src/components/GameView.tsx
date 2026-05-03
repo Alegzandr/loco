@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { PixiGame } from '../game/PixiGame'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore, SwapNotice } from '../hooks/useGameStore'
 import { useProgressTimer } from '../hooks/useProgressTimer'
@@ -15,6 +14,7 @@ import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
 import { clientMayInterrupt, clientMayPlay } from './interruptHelpers'
+import { GameBoard } from './cards/GameBoard'
 import styles from './GameView.module.css'
 
 interface Props {
@@ -53,15 +53,9 @@ function resolveSwapNoticeText(
 
 export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const pixiRef = useRef<PixiGame | null>(null)
-  // Tracks when PixiJS async init completes so the render effect can fire even
-  // if no game-state deps changed between component mount and init completion.
-  const [pixiReady, setPixiReady] = useState(false)
   const [colorPicker, setColorPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const [playerPicker, setPlayerPicker] = useState<{ card: CardDTO; idx: number } | null>(null)
   const lastActionRef = useRef<number>(0)
-  const prevHandSizeRef = useRef<number>(0)
   const [showRules, setShowRules] = useState(false)
 
   const {
@@ -100,21 +94,6 @@ export function GameView({ onSend, wsStatus }: Props) {
     fn()
   }, [])
 
-  // playWithAnimation triggers the canvas travel animation for the given card
-  // (when PixiJS is mounted) and dispatches the play_card message. Used by the
-  // direct card tap, the wild color picker, and the swap player picker.
-  const playWithAnimation = useCallback(
-    (card: CardDTO, cardIdx: number, msg: ClientMsg) => {
-      const game = pixiRef.current
-      if (game) {
-        const { width, height } = game.app.screen
-        game.animateCardPlay(card, cardIdx, width, height)
-      }
-      onSend(msg)
-    },
-    [onSend],
-  )
-
   const handleCardClick = useCallback(
     (card: CardDTO, cardIdx: number) => {
       // Out-of-turn path: realtime "lead-taking" interrupt. If the tapped card
@@ -128,7 +107,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         const copies = myHand.filter(
           (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
         )
-        playWithAnimation(card, cardIdx, {
+        onSend({
           type: 'interrupt_play_card',
           card,
           play_cards: copies.length > 1 ? copies : undefined,
@@ -143,23 +122,17 @@ export function GameView({ onSend, wsStatus }: Props) {
         setPlayerPicker({ card, idx: cardIdx })
         return
       }
-      // global_switch: play immediately (no picker needed)
-      // Block the play animation for clearly-invalid cards so there's no "fake" play.
+      // global_switch: play immediately (no picker needed).
+      // Block clearly-invalid plays so there's no "fake" play UI flash.
       // Server is always authoritative; this is a UX hint only.
       if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
-      playWithAnimation(card, cardIdx, { type: 'play_card', card, chosen_color: card.color })
+      onSend({ type: 'play_card', card, chosen_color: card.color })
     },
-    [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, playWithAnimation]
+    [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, onSend]
   )
 
-  // Stable ref so PixiGame always invokes the latest handleCardClick
-  // even though the PixiGame instance is created once in the init effect below.
-  const onCardClickRef = useRef(handleCardClick)
-  onCardClickRef.current = handleCardClick
-
-  // Expose playCard on the E2E helper object (dev mode only).
-  // This lets Playwright trigger a card play via handleCardClick without needing
-  // to find and click the exact pixel on the PixiJS canvas.
+  // Expose playCard on the E2E helper (dev mode only).
+  // Playwright drives the React renderer through the same handler real taps use.
   useEffect(() => {
     if (!import.meta.env.DEV) return
     if (!window.__LOCO_E2E__) window.__LOCO_E2E__ = {}
@@ -171,58 +144,12 @@ export function GameView({ onSend, wsStatus }: Props) {
     }
   }, [handleCardClick, myHand])
 
-  // Initialize PixiJS
-  useEffect(() => {
-    if (!canvasRef.current) return
-    const stableOnCardClick = (card: CardDTO, cardIdx: number) =>
-      onCardClickRef.current(card, cardIdx)
-    const game = new PixiGame(stableOnCardClick)
-    let cancelled = false
-    game.init(canvasRef.current).then(() => {
-      if (!cancelled) {
-        pixiRef.current = game
-        // Trigger the render effect so the initial game state is drawn even
-        // if no store deps changed between component mount and init completion.
-        setPixiReady(true)
-      }
-    })
-    return () => {
-      cancelled = true
-      game.destroy()
-      pixiRef.current = null
-    }
-  }, [])
-
-  // Reconnect visual recovery: overlay → staggered fade-in via PixiGame.
+  // Reconnect visual recovery: 600ms overlay → board fades back in via GameBoard's
+  // internal rebuildKey effect.
   const showReconnectOverlay = useReconnectAnimation(
     isReconnecting,
-    pixiRef,
-    () => ({
-      myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix },
-    }),
     () => setIsReconnecting(false),
   )
-
-  // Re-render on state change; trigger draw animation when hand grows
-  useEffect(() => {
-    if (isReconnecting) return
-    const game = pixiRef.current
-    if (!game) return
-
-    // Detect when we drew a card (hand size increased by 1)
-    const prev = prevHandSizeRef.current
-    const curr = myHand.length
-    if (curr > prev && curr === prev + 1) {
-      game.animateCardDrawn(myHand[myHand.length - 1])
-    }
-    prevHandSizeRef.current = curr
-
-    game.render({
-      myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw,
-      turnTexts: { yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix },
-    })
-  }, [myHand, discard, activeColor, players, myIndex, currentTurn, pendingDraw, isReconnecting, t, pixiReady])
 
   // UNO catch + per-turn countdown bars: drive a percent from the deadline.
   // UNO uses the fixed 5000ms catch window; turn timer anchors to whatever
@@ -230,22 +157,12 @@ export function GameView({ onSend, wsStatus }: Props) {
   const timerPct = useProgressTimer(unoTimerEnd, UNO_WINDOW_MS)
   const turnTimerPct = useProgressTimer(turnDeadline, 'auto')
 
-  // Auto-clear swap/global_switch notice after a short window, and trigger
-  // the matching PixiJS animation so the hand movement reads visually.
+  // Auto-clear the swap / global_switch notice after a short window.
+  // The matching trail animation lives in <GameBoard /> (keyed by swapNotice.at).
   useEffect(() => {
     if (!swapNotice) return
-    const game = pixiRef.current
-    if (game) {
-      if (swapNotice.kind === 'swap' && swapNotice.targetIndex >= 0) {
-        game.animateSwap(swapNotice.actorIndex, swapNotice.targetIndex, players, myIndex)
-      } else if (swapNotice.kind === 'global_switch') {
-        game.animateGlobalSwitch(swapNotice.direction, players, myIndex)
-      }
-    }
     const id = setTimeout(() => setSwapNotice(null), SWAP_NOTICE_MS)
     return () => clearTimeout(id)
-    // Triggered once per notice (keyed by .at); deps intentionally minimal so the
-    // animation does not replay when only `players` changes mid-notice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapNotice?.at])
 
@@ -264,9 +181,49 @@ export function GameView({ onSend, wsStatus }: Props) {
   // Used to de-emphasize the Draw button so it doesn't look like the required action.
   const hasPlayableCard = isMyTurn && myHand.some(c => clientMayPlay(c, discard, activeColor, pendingDraw))
 
+  // Predicates passed to <GameBoard /> — same logic the legacy Pixi renderer
+  // used (highlight playable cards, allow exact-match interrupts off-turn).
+  const cardIsPlayable = useCallback(
+    (card: CardDTO): boolean => {
+      const interruptOk = pendingDraw === 0 || card.kind === 'draw_two'
+      const isInterrupt = !isMyTurn && discard != null && interruptOk
+        && card.color === discard.color && card.kind === discard.kind
+        && card.value === discard.value && card.color !== 'wild'
+      if (isInterrupt) return true
+      if (!isMyTurn || !discard) return false
+      if (card.color === 'wild') return true
+      if (card.color === activeColor) return true
+      if (card.kind === discard.kind) {
+        if (card.kind === 'number') return card.value === discard.value
+        return true
+      }
+      return false
+    },
+    [isMyTurn, discard, activeColor, pendingDraw],
+  )
+  const cardIsInteractive = useCallback(
+    (card: CardDTO): boolean =>
+      isMyTurn || clientMayInterrupt(card, discard, pendingDraw),
+    [isMyTurn, discard, pendingDraw],
+  )
+
   return (
     <div className={styles.container}>
-      <canvas ref={canvasRef} className={styles.canvas} />
+      <GameBoard
+        myHand={myHand}
+        discard={discard}
+        activeColor={activeColor}
+        players={players}
+        myIndex={myIndex}
+        currentTurn={currentTurn}
+        pendingDraw={pendingDraw}
+        isPlayable={cardIsPlayable}
+        isInteractive={cardIsInteractive}
+        onCardClick={handleCardClick}
+        turnTexts={{ yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix }}
+        swapNotice={swapNotice}
+        isReconnecting={isReconnecting || showReconnectOverlay}
+      />
 
       {/* Per-turn countdown bar — shown whenever a deadline is active */}
       {turnDeadline !== null && (
@@ -293,7 +250,7 @@ export function GameView({ onSend, wsStatus }: Props) {
       )}
 
       {/* WS overlay — shown when the WebSocket transport is down mid-game.
-          Prevents the blank-canvas regression where the board renders empty
+          Prevents the blank-board regression where the board renders empty
           because no game_state arrives while the socket is reconnecting. */}
       {wsStatus !== 'open' && (
         <div className={styles.reconnectOverlay}>
@@ -338,7 +295,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         <ColorPicker
           label={t.chooseColor}
           onChoose={(col: CardColor) => {
-            playWithAnimation(colorPicker.card, colorPicker.idx, {
+            onSend({
               type: 'play_card', card: colorPicker.card, chosen_color: col,
             })
             setColorPicker(null)
@@ -353,7 +310,7 @@ export function GameView({ onSend, wsStatus }: Props) {
           label={t.choosePlayer}
           players={players.filter((p) => p.index !== myIndex)}
           onChoose={(targetIdx: number) => {
-            playWithAnimation(playerPicker.card, playerPicker.idx, {
+            onSend({
               type: 'play_card', card: playerPicker.card, chosen_player: targetIdx,
             })
             setPlayerPicker(null)

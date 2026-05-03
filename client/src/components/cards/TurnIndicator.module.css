@@ -1,0 +1,25 @@
+.indicator {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-weight: bold;
+  white-space: nowrap;
+  pointer-events: none;
+  text-align: center;
+}
+
+.mine {
+  font-size: 17px;
+  color: #ffd93d;
+  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.penalty {
+  color: #ff9f43;
+}
+
+.theirs {
+  font-size: 14px;
+  color: #4a5580;
+}

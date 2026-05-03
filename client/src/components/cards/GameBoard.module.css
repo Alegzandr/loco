@@ -1,0 +1,25 @@
+.board {
+  position: absolute;
+  inset: 0;
+  background: #0a0e1a;
+  overflow: hidden;
+}
+
+.fadeIn {
+  position: absolute;
+  inset: 0;
+  animation: boardFadeIn 0.35s ease-out both;
+}
+
+@keyframes boardFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tableOval {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(15, 22, 41, 0.8);
+  border: 2px solid rgba(26, 39, 68, 0.5);
+  pointer-events: none;
+}

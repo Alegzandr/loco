@@ -1,0 +1,27 @@
+.hand {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.slot {
+  position: absolute;
+  pointer-events: auto;
+  transform-origin: 50% 50%;
+  transition:
+    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    top 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.slot.hovered {
+  z-index: 100 !important;
+}
+
+.slot.hovered .card {
+  transform: scale(1.08) translateY(-14px);
+}
+
+.card {
+  transform-origin: 50% 50%;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}

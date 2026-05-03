@@ -8,6 +8,7 @@ import {
   getState,
   sendMsg,
   debugSetState,
+  gameBoard,
 } from '../helpers/game'
 
 test.describe('error feedback, turn timer, and penalty flows', () => {
@@ -62,7 +63,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       const roomCode = await createRoom(alice, 'Alice')
       await joinRoom(bob, 'Bob', roomCode)
       await startGame(alice)
-      await expect(bob.locator('canvas')).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
 
       const bobState = await getState(bob)
       const bobIdx = bobState?.myIndex ?? 1

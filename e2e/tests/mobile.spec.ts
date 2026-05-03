@@ -12,7 +12,7 @@
  * This spec runs in the 'mobile-chrome' Playwright project (see playwright.config.ts).
  */
 import { test, expect } from '@playwright/test'
-import { T, createRoom, addBot, startGame, waitForMyTurn, getState, sendMsg, closeRulesModal } from '../helpers/game'
+import { T, createRoom, addBot, startGame, waitForMyTurn, getState, sendMsg, closeRulesModal, gameBoard } from '../helpers/game'
 
 test.describe('mobile viewport', () => {
   /**
@@ -53,7 +53,7 @@ test.describe('mobile viewport', () => {
     await addBot(page)
     await startGame(page)
 
-    const canvas = page.locator('canvas')
+    const canvas = gameBoard(page)
     await expect(canvas).toBeVisible()
     const box = await canvas.boundingBox()
     expect(box).not.toBeNull()
@@ -161,6 +161,6 @@ test.describe('mobile viewport', () => {
     await expect(rulesTitle).not.toBeVisible()
 
     // Game is still alive
-    await expect(page.locator('canvas')).toBeVisible()
+    await expect(gameBoard(page)).toBeVisible()
   })
 })

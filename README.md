@@ -9,7 +9,7 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 - Real-time, low-latency multiplayer gameplay via WebSockets
 - Nickname-only access (no accounts, no passwords)
 - Server-authoritative anti-cheat architecture
-- Smooth, polished visuals powered by PixiJS
+- Smooth, polished visuals powered by React + Framer Motion
 - Reaction mechanics with server-side timing windows (UNO catch)
 - Full Docker-based local development and deployment
 
@@ -23,7 +23,7 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 | Realtime  | **WebSockets** (gorilla)| Persistent bidirectional connection; lowest latency for game events   |
 | Frontend  | **React + TypeScript**  | Component model, type safety, wide ecosystem                          |
 | Bundler   | **Vite**                | Near-instant dev server, fast HMR                                     |
-| Rendering | **PixiJS**              | WebGL-accelerated 2D rendering for smooth card animations             |
+| Rendering | **React + Framer Motion** | DOM-based card rendering with declarative motion-driven animations    |
 | State     | **Zustand**             | Minimal, fast React global state without boilerplate                  |
 | Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest integrates natively with Vite             |
 | Infra     | **Docker + Compose**    | Reproducible builds, simple one-command local run                     |
@@ -43,7 +43,7 @@ loco/
 ├── client/                # React + TypeScript + Vite frontend
 │   ├── src/
 │   │   ├── components/    # UI screens (Lobby, WaitingRoom, GameView, GameOver, RulesModal, …)
-│   │   ├── game/          # PixiJS rendering (PixiGame.ts)
+│   │   ├── components/cards/  # React + Framer Motion card renderer (GameBoard, Hand, Card, AnimationLayer, …)
 │   │   ├── hooks/         # WebSocket transport + Zustand store
 │   │   ├── i18n/          # I18nProvider + en/fr translations
 │   │   ├── types/         # Protocol TypeScript types
@@ -256,7 +256,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Spectating banner (local player finishes before round ends)
 - WebSocket reconnect (offline/online cycle, reconnect overlay, two-client disconnect)
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch discard update
-- Swap / Global Swap on-screen notification banner + PixiJS card-back trail animation between affected seats
+- Swap / Global Swap on-screen notification banner + Framer Motion card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch), interrupt window timing
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
 
@@ -266,7 +266,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 
 - **Lobby**: nickname-only rooms, 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
 - **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking, identical-card interrupt with 1.5 s window (single + batch), batch turn play, UNO declare + 5 s catch window, single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
-- **UI**: React + PixiJS animations, round summary overlay, match-end screen, mobile support (44 px+ targets), rules modal, EN/FR i18n.
+- **UI**: React + Framer Motion animations, round summary overlay, match-end screen, mobile support (44 px+ targets), rules modal, EN/FR i18n.
 - **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).

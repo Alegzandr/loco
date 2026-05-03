@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { clockwiseOpponents, opponentBubblePositions } from '../game/PixiGame'
+import {
+  clockwiseOpponents,
+  opponentBubblePositions,
+} from '../components/cards/layout'
 
-describe('Pixi opponent layout helpers', () => {
+describe('opponent layout helpers', () => {
   it('clockwiseOpponents preserves clockwise order from local player', () => {
     const players = [
       { index: 0, nickname: 'alice', hand_size: 5, connected: true },

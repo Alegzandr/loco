@@ -12,20 +12,6 @@ import { useGameStore } from '../hooks/useGameStore'
 import { en } from '../i18n/en'
 import { WsStatus } from '../hooks/useWebSocket'
 
-// PixiGame is heavy (WebGL). Mock the entire module so GameView renders in
-// jsdom without a real canvas or GPU context.
-vi.mock('../game/PixiGame', () => ({
-  PixiGame: vi.fn().mockImplementation(() => ({
-    init: vi.fn().mockResolvedValue(undefined),
-    render: vi.fn(),
-    renderReconnect: vi.fn(),
-    animateCardPlay: vi.fn(),
-    animateCardDrawn: vi.fn(),
-    destroy: vi.fn(),
-    app: { screen: { width: 800, height: 600 } },
-  })),
-}))
-
 const baseGameState = {
   screen: 'game' as const,
   myIndex: 0,

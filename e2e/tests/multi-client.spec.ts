@@ -18,6 +18,7 @@ import {
   sendMsg,
   waitForRoundSummary,
   debugSetState,
+  gameBoard,
 } from '../helpers/game'
 
 /** Wait until the turn is NOT the local player's. */
@@ -72,8 +73,8 @@ test.describe('multi-client synchronization', () => {
       // Two real players — no bot needed to start
       await page1.getByRole('button', { name: T.startGame }).click()
 
-      await expect(page1.locator('canvas')).toBeVisible({ timeout: 10_000 })
-      await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page1)).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
 
       await expect(page1.locator('[class*="actionBar"]')).toBeVisible()
       await expect(page2.locator('[class*="actionBar"]')).toBeVisible()
@@ -100,7 +101,7 @@ test.describe('multi-client synchronization', () => {
       await joinRoom(page2, 'Bob', roomCode)
       await startGame(page1)
 
-      await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
 
       // Record Alice's player index
       const aliceState = await getState(page1)
@@ -174,7 +175,7 @@ test.describe('multi-client synchronization', () => {
       await joinRoom(page2, 'Bob', roomCode)
       await startGame(page1)
 
-      await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
 
       // Get Alice's player index.
       const aliceState = await getState(page1)
@@ -226,7 +227,7 @@ test.describe('multi-client synchronization', () => {
       await joinRoom(page2, 'Bob', roomCode)
       await startGame(page1)
 
-      await expect(page2.locator('canvas')).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
 
       const aliceState = await getState(page1)
       const aliceIndex = aliceState?.myIndex ?? 0
