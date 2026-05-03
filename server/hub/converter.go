@@ -125,6 +125,7 @@ func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room, ch
 		Card:         cardToDTO(top),
 		ActiveColor:  colorName(state.ActiveColor),
 		Turn:         state.CurrentTurn,
+		Direction:    state.Direction,
 		PendingDraw:  state.PendingDraw,
 		Players:      h.playerList(room),
 		TurnDeadline: h.turnDeadlineMs(code),

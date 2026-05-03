@@ -1,0 +1,994 @@
+/**
+ * rules-coverage.spec.ts
+ *
+ * End-to-end coverage for LOCO rules (docs/rules.md) gaps not already covered
+ * by game-flow / multi-client / penalties / round-progression / special-cards.
+ *
+ * Each test is deterministic, using debugSetState to seed exact hands / discard /
+ * activeColor / pendingDraw / currentTurn. Server runs with LOCO_E2E=1
+ * (set in docker-compose.dev.yml and CI).
+ *
+ * Areas covered (rules.md sections in parens):
+ *   - Setup invariants: 8 cards / opening discard is a Number (§3, §14.2)
+ *   - Card matching: color / number / symbol / wild (§5.1)
+ *   - Wild + color picker UI; next play must match chosen color (§5.1, §7)
+ *   - Voluntary draw with playable card (§14.4)
+ *   - No double draw on same turn (§5.2)
+ *   - Drawn card is playable: legal play with second card play (§5.2)
+ *   - Skip (Miss a Turn) skips next player; in 2-player A plays again (§7)
+ *   - Reverse: 2-player acts as Skip; 4-player flips direction (§7, §11.3)
+ *   - Take 2 stacking cumulative (§7) — extends counter_draw test
+ *   - Cross-stack rejection: Take 2 onto Take 4 illegal (§7)
+ *   - Take 4 + color picker UI (§7)
+ *   - Swap as last card → actor wins, swap aborted (§13)
+ *   - GlobalSwitch rotates hand sizes; 2-player = mutual swap; as last card → actor wins (§7, §11.3, §13)
+ *   - Interjecting: identical card, wild blocked, action effect on next-after-interrupter,
+ *     LOCO! still required on 2→1 via interject (§6)
+ *   - LOCO! NOT required when receiving 1 card via Swap (§11.1)
+ */
+import { test, expect, Browser, Page } from '@playwright/test'
+import {
+  T,
+  createRoom,
+  joinRoom,
+  addBot,
+  startGame,
+  getState,
+  sendMsg,
+  waitForMyTurn,
+  debugSetState,
+  gameBoard,
+} from '../helpers/game'
+
+async function waitForTurn(page: Page, idx: number, timeoutMs = 10_000) {
+  await page.waitForFunction(
+    (target: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn === target,
+    idx,
+    { timeout: timeoutMs },
+  )
+}
+
+async function waitForOtherTurn(page: Page, timeoutMs = 10_000) {
+  await page.waitForFunction(
+    () => {
+      const s = window.__LOCO_E2E__?.getState?.()
+      return s !== undefined && s.currentTurn !== s.myIndex
+    },
+    undefined,
+    { timeout: timeoutMs },
+  )
+}
+
+test.describe('rules coverage — setup invariants', () => {
+  test('initial deal: 8 cards per player and opening discard is a number', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await addBot(page)
+    await startGame(page)
+
+    await page.waitForFunction(
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return !!s && s.screen === 'game' && (s.myHand?.length ?? 0) > 0 && !!s.discard
+      },
+      undefined,
+      { timeout: 15_000 },
+    )
+
+    const s = await getState(page)
+    expect(s?.myHand.length).toBe(8)
+    // Opening discard MUST be a number (§14.2)
+    expect(s?.discard?.kind).toBe('number')
+    // Each opponent reports hand_size 8
+    const opponents = (s?.players ?? []).filter((p) => p.index !== s?.myIndex)
+    for (const op of opponents) {
+      expect(op.hand_size).toBe(8)
+    }
+  })
+})
+
+test.describe('rules coverage — card matching (§5.1)', () => {
+  test('color match is legal: red 7 plays on red 5', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'number', value: 7 },
+        { color: 'blue', kind: 'number', value: 1 },
+      ],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+
+    await page.waitForFunction(
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s?.discard?.color === 'red' && s?.discard?.value === 7
+      },
+      undefined,
+      { timeout: 5_000 },
+    )
+    const after = await getState(page)
+    expect(after?.errorMsg ?? '').toBe('')
+    expect(after?.currentTurn).not.toBe(myIdx)
+  })
+
+  test('number match is legal: blue 5 plays on red 5', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [{ color: 'blue', kind: 'number', value: 5 }, { color: 'green', kind: 'number', value: 1 }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'blue', kind: 'number', value: 5 } })
+
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.discard?.color === 'blue',
+      undefined, { timeout: 5_000 })
+    const after = await getState(page)
+    expect(after?.errorMsg ?? '').toBe('')
+    expect(after?.discard?.value).toBe(5)
+  })
+
+  test('symbol match is legal: blue Skip plays on red Skip', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [
+        { color: 'blue', kind: 'skip' },
+        { color: 'green', kind: 'number', value: 2 },
+      ],
+      discard: { color: 'red', kind: 'skip' },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'blue', kind: 'skip' } })
+
+    await page.waitForFunction(
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s?.discard?.kind === 'skip' && s?.discard?.color === 'blue'
+      },
+      undefined, { timeout: 5_000 })
+    const after = await getState(page)
+    expect(after?.errorMsg ?? '').toBe('')
+  })
+
+  test('illegal play: blue 5 cannot be played on red 7', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [{ color: 'blue', kind: 'number', value: 5 }, { color: 'red', kind: 'number', value: 1 }],
+      discard: { color: 'red', kind: 'number', value: 7 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+
+    // Wait for any prior error to clear
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
+      undefined, { timeout: 5_000 }).catch(() => undefined)
+
+    await sendMsg(page, { type: 'play_card', card: { color: 'blue', kind: 'number', value: 5 } })
+
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+      undefined, { timeout: 5_000 })
+    const after = await getState(page)
+    // Discard unchanged
+    expect(after?.discard?.value).toBe(7)
+    expect(after?.discard?.color).toBe('red')
+    // Still our turn
+    expect(after?.currentTurn).toBe(myIdx)
+  })
+})
+
+test.describe('rules coverage — wild + color picker (§5.1)', () => {
+  test('Wild click opens ColorPicker; choosing color sends play with chosen_color', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [
+        { color: 'wild', kind: 'wild' },
+        { color: 'red', kind: 'number', value: 1 },
+      ],
+      discard: { color: 'blue', kind: 'number', value: 9 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+
+    // Click via __LOCO_E2E__.playCard to mimic a UI click (opens picker)
+    await page.evaluate(() => window.__LOCO_E2E__?.playCard?.({ color: 'wild', kind: 'wild' }))
+
+    // Picker is shown — pick red (exact match avoids matching in-hand cards)
+    const redBtn = page.getByRole('button', { name: 'red', exact: true })
+    await expect(redBtn).toBeVisible({ timeout: 5_000 })
+    await redBtn.click()
+
+    // Discard updates to wild and active color becomes red
+    await page.waitForFunction(
+      () => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s?.discard?.kind === 'wild' && s?.activeColor === 'red'
+      },
+      undefined, { timeout: 8_000 })
+
+    const after = await getState(page)
+    expect(after?.activeColor).toBe('red')
+    expect(after?.discard?.kind).toBe('wild')
+  })
+
+  test('after wild → red: a non-red non-wild card is rejected', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Set up: Alice on turn, plays a Wild and chooses red. Keep filler so playing
+      // doesn't end the round.
+      await debugSetState(alice, {
+        hand: [
+          { color: 'wild', kind: 'wild' },
+          { color: 'yellow', kind: 'number', value: 7 },
+        ],
+        hands: [{ playerIndex: bobIdx, hand: [
+          { color: 'blue', kind: 'number', value: 4 }, // not red, not wild → illegal
+          { color: 'red', kind: 'number', value: 6 },
+        ]}],
+        discard: { color: 'blue', kind: 'number', value: 9 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'wild', kind: 'wild' },
+        chosen_color: 'red',
+      })
+
+      // Wait for Bob's turn with activeColor=red
+      await bob.waitForFunction(
+        ([idx]) => {
+          const s = window.__LOCO_E2E__?.getState?.()
+          return s?.currentTurn === idx && s?.activeColor === 'red'
+        },
+        [bobIdx] as [number],
+        { timeout: 10_000 },
+      )
+
+      // Bob attempts illegal blue 4
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'blue', kind: 'number', value: 4 },
+      })
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+        undefined, { timeout: 5_000 })
+      let bobState = await getState(bob)
+      expect(bobState?.currentTurn).toBe(bobIdx)
+      expect(bobState?.activeColor).toBe('red')
+
+      // Now Bob plays a legal red
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 6 },
+      })
+      await bob.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.discard?.color === 'red',
+        undefined, { timeout: 5_000 })
+      bobState = await getState(bob)
+      expect(bobState?.discard?.value).toBe(6)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+})
+
+test.describe('rules coverage — drawing (§5.2, §14.4)', () => {
+  test('voluntary draw is allowed even with a playable card in hand (§14.4)', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+
+    await debugSetState(page, {
+      // red 7 IS playable on red 5 (color match)
+      hand: [{ color: 'red', kind: 'number', value: 7 }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    const before = await getState(page)
+    expect(before?.myHand.length).toBe(1)
+
+    await sendMsg(page, { type: 'draw_card' })
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
+      undefined, { timeout: 5_000 })
+
+    const after = await getState(page)
+    // Hand grew, no error, hasDrawn true, still our turn
+    expect(after?.errorMsg ?? '').toBe('')
+    expect(after?.hasDrawn).toBe(true)
+    expect((after?.myHand.length ?? 0)).toBe(2)
+    expect(after?.currentTurn).toBe(myIdx)
+  })
+
+  test('cannot draw twice: second draw_card returns an error', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+
+    await debugSetState(page, {
+      hand: [{ color: 'green', kind: 'number', value: 1 }],
+      discard: { color: 'blue', kind: 'number', value: 9 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'draw_card' })
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
+      undefined, { timeout: 5_000 })
+
+    // Clear any prior error
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
+      undefined, { timeout: 5_000 }).catch(() => undefined)
+
+    // Second draw must fail
+    await sendMsg(page, { type: 'draw_card' })
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+      undefined, { timeout: 5_000 })
+  })
+})
+
+test.describe('rules coverage — Miss a Turn / Skip (§7)', () => {
+  test('2-player: Skip → same player goes again', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'skip' },
+        { color: 'red', kind: 'number', value: 1 },
+      ],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'skip' } })
+
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'skip',
+      undefined, { timeout: 5_000 })
+    // Turn must come back to us (skip in 2-player)
+    await waitForTurn(page, myIdx, 8_000)
+    const after = await getState(page)
+    expect(after?.currentTurn).toBe(myIdx)
+  })
+
+  test('3-player: Skip skips the next player (turn lands on player after next)', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page) // bot1
+    await addBot(page) // bot2
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const others = (s?.players ?? []).filter((p) => p.index !== myIdx).map((p) => p.index).sort((a, b) => a - b)
+    expect(others.length).toBe(2)
+
+    // direction is +1 (clockwise) by default. nextIdx = (myIdx+1) % 3, skipped = (myIdx+2) % 3
+    const skippedIdx = (myIdx + 1) % 3
+    const expectedNext = (myIdx + 2) % 3
+
+    // Pin bots' hands so they cannot interrupt with a Skip and so the post-skip
+    // player has no skip in hand.
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'skip' },
+        { color: 'red', kind: 'number', value: 1 },
+      ],
+      hands: others.map((idx) => ({
+        playerIndex: idx,
+        hand: [
+          { color: 'green', kind: 'number', value: 4 },
+          { color: 'yellow', kind: 'number', value: 8 },
+        ],
+      })),
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'skip' } })
+
+    await waitForTurn(page, expectedNext, 8_000)
+    const after = await getState(page)
+    expect(after?.currentTurn).toBe(expectedNext)
+    expect(after?.currentTurn).not.toBe(skippedIdx)
+  })
+})
+
+test.describe('rules coverage — Reverse / Change Direction (§7, §11.3)', () => {
+  test('2-player: Reverse acts as Skip (same player goes again)', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'reverse' },
+        { color: 'red', kind: 'number', value: 1 },
+      ],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'reverse' } })
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'reverse',
+      undefined, { timeout: 5_000 })
+    await waitForTurn(page, myIdx, 8_000)
+    const after = await getState(page)
+    expect(after?.currentTurn).toBe(myIdx)
+  })
+
+  test('3-player: Reverse flips direction; turn goes to previous-seat player', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const others = (s?.players ?? []).filter((p) => p.index !== myIdx).map((p) => p.index)
+    const directionBefore = s?.direction ?? 1
+
+    // After reverse from clockwise, next player = (myIdx - 1 + 3) % 3
+    const expectedNext = (myIdx - directionBefore + 3) % 3
+
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'reverse' },
+        { color: 'red', kind: 'number', value: 1 },
+      ],
+      hands: others.map((idx) => ({
+        playerIndex: idx,
+        hand: [
+          { color: 'green', kind: 'number', value: 4 },
+          { color: 'yellow', kind: 'number', value: 8 },
+        ],
+      })),
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: myIdx,
+    })
+    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'reverse' } })
+
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'reverse',
+      undefined, { timeout: 5_000 })
+
+    await waitForTurn(page, expectedNext, 8_000)
+    const after = await getState(page)
+    expect(after?.currentTurn).toBe(expectedNext)
+    // The next turn lands on the previous-seat player, confirming direction flipped
+    // server-side. (The client `direction` field updates on the next full game_state
+    // broadcast — card_played alone doesn't carry direction.)
+  })
+})
+
+test.describe('rules coverage — Take 2 / Take 4 stacking (§7)', () => {
+  test('Take 2 stack: pendingDraw accumulates +2 per play', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Alice plays red +2 → Bob receives pendingDraw=2.
+      // Alice keeps a filler so playing the +2 doesn't end the round (§13-style).
+      await debugSetState(alice, {
+        hand: [
+          { color: 'red', kind: 'draw_two' },
+          { color: 'yellow', kind: 'number', value: 3 },
+        ],
+        hands: [{ playerIndex: bobIdx, hand: [
+          { color: 'blue', kind: 'draw_two' },
+          { color: 'green', kind: 'number', value: 7 },
+        ]}],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'draw_two' },
+      })
+      // Wait for Bob to be in pendingDraw=2
+      await bob.waitForFunction(
+        ([idx]) => {
+          const s = window.__LOCO_E2E__?.getState?.()
+          return s?.currentTurn === idx && (s?.pendingDraw ?? 0) === 2
+        },
+        [bobIdx] as [number],
+        { timeout: 10_000 },
+      )
+
+      // Bob counters with another +2 (any color)
+      await sendMsg(bob, {
+        type: 'counter_draw',
+        card: { color: 'blue', kind: 'draw_two' },
+      })
+
+      // pendingDraw must accumulate to 4 and turn return to Alice
+      await alice.waitForFunction(
+        ([idx]) => {
+          const s = window.__LOCO_E2E__?.getState?.()
+          return s?.currentTurn === idx && (s?.pendingDraw ?? 0) === 4
+        },
+        [aliceIdx] as [number],
+        { timeout: 10_000 },
+      )
+      const after = await getState(alice)
+      expect(after?.pendingDraw).toBe(4)
+      expect(after?.discard?.kind).toBe('draw_two')
+      expect(after?.discard?.color).toBe('blue')
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  test('cross-stack rejection: Take 2 cannot be played on an active Take 4 chain', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+    const myIdx = (await getState(page))?.myIndex ?? 0
+
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'draw_two' },
+        { color: 'blue', kind: 'number', value: 1 },
+      ],
+      discard: { color: 'wild', kind: 'wild_draw_four' },
+      activeColor: 'red',
+      pendingDraw: 4,
+      currentTurn: myIdx,
+    })
+
+    // Clear prior error
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
+      undefined, { timeout: 5_000 }).catch(() => undefined)
+
+    // Try to counter Take 4 with a Take 2 → must error
+    await sendMsg(page, {
+      type: 'counter_draw',
+      card: { color: 'red', kind: 'draw_two' },
+    })
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+      undefined, { timeout: 5_000 })
+    const after = await getState(page)
+    expect(after?.pendingDraw).toBe(4) // unchanged
+    expect(after?.currentTurn).toBe(myIdx) // still our turn
+  })
+
+  test('Take 4 click opens ColorPicker and applies +4 to next player', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      await debugSetState(alice, {
+        hand: [
+          { color: 'wild', kind: 'wild_draw_four' },
+          { color: 'yellow', kind: 'number', value: 3 }, // filler so play doesn't end the round
+        ],
+        hands: [{ playerIndex: bobIdx, hand: [
+          { color: 'blue', kind: 'number', value: 4 },
+          { color: 'red', kind: 'number', value: 1 },
+        ]}],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      // Click via UI helper to surface the ColorPicker
+      await alice.evaluate(() =>
+        window.__LOCO_E2E__?.playCard?.({ color: 'wild', kind: 'wild_draw_four' }),
+      )
+      const greenBtn = alice.getByRole('button', { name: 'green', exact: true })
+      await expect(greenBtn).toBeVisible({ timeout: 5_000 })
+      await greenBtn.click()
+
+      // Bob ends up with pendingDraw=4 and activeColor=green
+      await bob.waitForFunction(
+        ([idx]) => {
+          const s = window.__LOCO_E2E__?.getState?.()
+          return s?.currentTurn === idx && (s?.pendingDraw ?? 0) === 4 && s?.activeColor === 'green'
+        },
+        [bobIdx] as [number],
+        { timeout: 10_000 },
+      )
+      const bobState = await getState(bob)
+      expect(bobState?.pendingDraw).toBe(4)
+      expect(bobState?.activeColor).toBe('green')
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+})
+
+test.describe('rules coverage — Swap as last card (§13)', () => {
+  test('Swap played as last card: actor wins, hands NOT swapped', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Alice has only the Swap card, Bob has multiple cards.
+      const bobHand = [
+        { color: 'blue', kind: 'number', value: 4 },
+        { color: 'green', kind: 'number', value: 7 },
+        { color: 'yellow', kind: 'number', value: 2 },
+      ]
+      await debugSetState(alice, {
+        hand: [{ color: 'red', kind: 'swap' }],
+        hands: [{ playerIndex: bobIdx, hand: bobHand }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'swap' },
+        chosen_player: bobIdx,
+      })
+
+      // Round summary appears on both clients with Alice as winner
+      await alice.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.showRoundSummary === true,
+        undefined, { timeout: 10_000 })
+      await bob.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.showRoundSummary === true,
+        undefined, { timeout: 10_000 })
+
+      const aliceState = await getState(alice)
+      const bobState = await getState(bob)
+      // Alice should be the round winner (roundWinner is a nickname string)
+      expect(aliceState?.roundWinner).toBe('Alice')
+      // Bob should still have his original-sized hand (swap aborted)
+      const bobInBobView = bobState?.players.find((p) => p.index === bobIdx)
+      expect(bobInBobView?.hand_size).toBe(bobHand.length)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+})
+
+test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
+  test('GlobalSwitch in 2-player: hands swap mutually (sizes mirror)', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Alice has GlobalSwitch + 2 fillers. Bob has 4 fillers.
+      const aliceHand = [
+        { color: 'wild', kind: 'global_switch' },
+        { color: 'red', kind: 'number', value: 1 },
+        { color: 'blue', kind: 'number', value: 2 },
+      ]
+      const bobHand = [
+        { color: 'green', kind: 'number', value: 4 },
+        { color: 'yellow', kind: 'number', value: 7 },
+        { color: 'red', kind: 'number', value: 3 },
+        { color: 'blue', kind: 'number', value: 9 },
+      ]
+      await debugSetState(alice, {
+        hand: aliceHand,
+        hands: [{ playerIndex: bobIdx, hand: bobHand }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'wild', kind: 'global_switch' },
+      })
+
+      // Discard must change to global_switch on both clients
+      await bob.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'global_switch',
+        undefined, { timeout: 10_000 })
+
+      const after = await getState(alice)
+      // Alice played her GlobalSwitch (3 → 2 cards), then receives Bob's full 4
+      expect(after?.myHand.length).toBe(bobHand.length)
+      // Bob's view of Alice = bobHand.length, and Bob's own hand = 2 (Alice's leftover)
+      const bobAfter = await getState(bob)
+      expect(bobAfter?.myHand.length).toBe(aliceHand.length - 1) // minus the played GS
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  test('GlobalSwitch as last card: actor wins, rotation aborted', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      const bobHand = [
+        { color: 'blue', kind: 'number', value: 4 },
+        { color: 'green', kind: 'number', value: 7 },
+      ]
+      await debugSetState(alice, {
+        hand: [{ color: 'wild', kind: 'global_switch' }],
+        hands: [{ playerIndex: bobIdx, hand: bobHand }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'wild', kind: 'global_switch' },
+      })
+
+      await alice.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.showRoundSummary === true,
+        undefined, { timeout: 10_000 })
+      const aliceState = await getState(alice)
+      expect(aliceState?.roundWinner).toBe('Alice')
+
+      // Bob still has his original hand size (rotation aborted)
+      const bobState = await getState(bob)
+      const bobSelf = bobState?.players.find((p) => p.index === bobIdx)
+      expect(bobSelf?.hand_size).toBe(bobHand.length)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+})
+
+test.describe('rules coverage — Interjecting (§6)', () => {
+  test('wild card interject is rejected (no exact-color identity)', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Discard is a wild and it is Alice's turn. Bob holds another wild.
+      // Bob attempts to interrupt — must be rejected (wilds cannot be interjected).
+      await debugSetState(alice, {
+        hand: [{ color: 'red', kind: 'number', value: 1 }],
+        hands: [{ playerIndex: bobIdx, hand: [{ color: 'wild', kind: 'wild' }] }],
+        discard: { color: 'wild', kind: 'wild' },
+        activeColor: 'red',
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      // Clear prior error if any
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
+        undefined, { timeout: 5_000 }).catch(() => undefined)
+
+      await sendMsg(bob, {
+        type: 'interrupt_play',
+        card: { color: 'wild', kind: 'wild' },
+      })
+
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+        undefined, { timeout: 5_000 })
+      const after = await getState(alice)
+      // Turn unchanged
+      expect(after?.currentTurn).toBe(aliceIdx)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  test('different-color same-value interject is rejected (must be exact identity)', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      await debugSetState(alice, {
+        hand: [{ color: 'red', kind: 'number', value: 1 }],
+        hands: [{ playerIndex: bobIdx, hand: [{ color: 'blue', kind: 'number', value: 5 }] }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
+        undefined, { timeout: 5_000 }).catch(() => undefined)
+
+      await sendMsg(bob, {
+        type: 'interrupt_play',
+        card: { color: 'blue', kind: 'number', value: 5 },
+      })
+
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+        undefined, { timeout: 5_000 })
+      const after = await getState(alice)
+      // Discard unchanged, Alice's turn
+      expect(after?.discard?.color).toBe('red')
+      expect(after?.currentTurn).toBe(aliceIdx)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+})
+
+test.describe('rules coverage — LOCO! call (§8, §11.1)', () => {
+  test('LOCO! is NOT required when receiving 1 card via Swap (§11.1)', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Alice has Swap + filler (2 cards). Bob has exactly 1 card.
+      // After Alice plays Swap targeting Bob, Alice gets Bob's 1 card and Bob gets Alice's 1 filler.
+      // Alice now has 1 card but did NOT play to reach 1 (she received it). No LOCO! penalty,
+      // and Catch! must NOT appear on Bob's side for Alice.
+      await debugSetState(alice, {
+        hand: [
+          { color: 'red', kind: 'swap' },
+          { color: 'blue', kind: 'number', value: 4 },
+        ],
+        hands: [{ playerIndex: bobIdx, hand: [{ color: 'green', kind: 'number', value: 6 }] }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'swap' },
+        chosen_player: bobIdx,
+      })
+
+      // Wait for the swap to complete (discard = swap, Alice's hand size = 1).
+      await alice.waitForFunction(
+        () => {
+          const s = window.__LOCO_E2E__?.getState?.()
+          return s?.discard?.kind === 'swap' && (s?.myHand?.length ?? 0) === 1
+        },
+        undefined, { timeout: 10_000 })
+
+      // unoTimerEnd must NOT be set (no catch window opens for swap-receive)
+      await alice.waitForTimeout(300) // give any spurious event time to arrive
+      const aliceState = await getState(alice)
+      const bobState = await getState(bob)
+
+      expect(aliceState?.myHand.length).toBe(1)
+      expect(aliceState?.unoTimerEnd ?? null).toBeNull()
+      // Bob should not see a Catch button for Alice
+      const catchVisible = await bob.getByRole('button', { name: T.catchBtn }).isVisible().catch(() => false)
+      expect(catchVisible).toBe(false)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+})

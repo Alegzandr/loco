@@ -118,6 +118,7 @@ export interface ServerMsg {
   active_color?: CardColor
   chosen_player?: number  // swap target index; only set on card_played for Swap kind
   turn?: number
+  direction?: number  // play direction after card effect (1=cw, -1=ccw); included in card_played
   turn_deadline?: number  // unix ms when the current turn expires; included in card_played, card_drawn, turn_changed, game_started
   pending_draw?: number
   has_drawn?: boolean

@@ -74,7 +74,7 @@ interface GameStore {
   setMyIndex: (idx: number) => void
   setSessionToken: (token: string) => void
   applyGameState: (state: GameStateDTO) => void
-  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number) => void
+  applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number, direction?: number) => void
   setSwapNotice: (notice: SwapNotice | null) => void
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
@@ -196,7 +196,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       unoTimerEnd: null,
     }),
 
-  applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players, chosenPlayer) =>
+  applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players, chosenPlayer, direction) =>
     set((s) => {
       // Prefer server-provided player list (includes Finished/Placement); fall back to local update
       const updatedPlayers = players
@@ -222,12 +222,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
       // Surface a transient notice when a hand-swapping card resolves so non-actors
       // understand why their (or others') card counts just changed.
-      const swapNotice = makeSwapNotice(card, playerIndex, chosenPlayer, s.direction) ?? s.swapNotice
+      const resolvedDirection = typeof direction === 'number' && direction !== 0 ? direction : s.direction
+      const swapNotice = makeSwapNotice(card, playerIndex, chosenPlayer, resolvedDirection) ?? s.swapNotice
       return {
         myHand: updatedHand,
         discard: card,
         activeColor: resolvedColor,
         currentTurn: turn,
+        direction: resolvedDirection,
         pendingDraw,
         hasDrawn: false,
         players: updatedPlayers,

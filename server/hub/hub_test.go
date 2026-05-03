@@ -2265,3 +2265,74 @@ func TestPlayCard_NonSwapOmitsChosenPlayer(t *testing.T) {
 		}
 	}
 }
+
+// TestPlayCard_DirectionInPayload verifies card_played carries the post-effect
+// play direction so clients can update the direction indicator immediately
+// without waiting for the next full game_state.
+func TestPlayCard_DirectionInPayload(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	conn3 := dialWS(t, srv)
+	t.Cleanup(func() { conn3.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn3, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Carol", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn3, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	readMsgOfType(t, conn2, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+
+	// Pin Alice (player 0) as active with a Reverse and a Number, on a red discard.
+	zero := 0
+	red5 := protocol.CardDTO{Color: "red", Kind: "number", Value: 5}
+	redReverse := protocol.CardDTO{Color: "red", Kind: "reverse"}
+	red7 := protocol.CardDTO{Color: "red", Kind: "number", Value: 7}
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugDiscard:     &red5,
+		DebugActiveColor: "red",
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{PlayerIndex: 0, Hand: []protocol.CardDTO{redReverse, red7}},
+			{PlayerIndex: 1, Hand: []protocol.CardDTO{red5, red5}},
+			{PlayerIndex: 2, Hand: []protocol.CardDTO{red5, red5}},
+		},
+		DebugPendingDraw: &zero,
+		DebugCurrentTurn: &zero,
+	})
+	readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+	readMsgOfType(t, conn3, protocol.SMsgGameState)
+
+	// Play Reverse → direction must flip to -1 in the broadcast.
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgPlayCard, Card: &redReverse})
+	for _, c := range []*websocket.Conn{conn1, conn2, conn3} {
+		cp := readMsgOfType(t, c, protocol.SMsgCardPlayed)
+		if cp.Direction != -1 {
+			t.Errorf("card_played direction after Reverse = %d, want -1", cp.Direction)
+		}
+	}
+
+	// After Reverse from seat 0 with direction -1, next player is seat 2 (Carol).
+	// She plays a non-action card → direction must remain -1 in the broadcast.
+	sendMsg(t, conn3, protocol.ClientMsg{Type: protocol.CMsgPlayCard, Card: &red5})
+	for _, c := range []*websocket.Conn{conn1, conn2, conn3} {
+		cp := readMsgOfType(t, c, protocol.SMsgCardPlayed)
+		if cp.Direction != -1 {
+			t.Errorf("card_played direction after non-Reverse = %d, want -1 (unchanged)", cp.Direction)
+		}
+	}
+}

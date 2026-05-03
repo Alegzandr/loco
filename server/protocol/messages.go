@@ -144,6 +144,11 @@ type ServerMsg struct {
 	// SMsgTurnChanged
 	Turn int `json:"turn,omitempty"`
 
+	// Play direction (1 = clockwise, -1 = counter-clockwise) AFTER any card effect
+	// has been applied. Included in card_played so clients can update their
+	// direction indicator immediately without waiting for the next game_state.
+	Direction int `json:"direction,omitempty"`
+
 	// Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
 	// Included in card_played, card_drawn, turn_changed, and game_started to let clients
 	// display and reset the countdown when a new turn begins.
