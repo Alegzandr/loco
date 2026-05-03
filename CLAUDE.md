@@ -1,644 +1,328 @@
 # CLAUDE.md
 
-## Project mission
+## Mission
+Premium real-time multiplayer UNO-style card game. Goals: low-latency multiplayer, nickname-only access, server-authoritative anti-cheat, polished visuals, strong test coverage (TDD), docs in sync, Dockerized.
 
-Build and maintain a premium-quality real-time multiplayer online card game inspired by UNO.
+## Non-negotiables
+- No login/signup/OAuth — nickname only.
+- Server authority is mandatory; never trust client for legality or hidden state.
+- Real-time reaction/counter mechanics, Dockerization, and TDD are mandatory.
+- `README.md` and `CLAUDE.md` must stay in sync with the codebase.
 
-Primary goals:
-- real-time, low-latency multiplayer gameplay
-- nickname-only access with no accounts
-- server-authoritative anti-cheat architecture
-- smooth, polished visuals and animations
-- strong test coverage with TDD
-- accurate, continuously maintained documentation
-- Dockerized local development and deployment
+## Workflow loop
+1. Understand behavior → 2. Tests first (non-trivial) → 3. Smallest correct change → 4. Run tests → 5. Update `README.md` if setup/commands/architecture/features/limits/env/dev/test changed → 6. Update `CLAUDE.md` if workflow/architecture/conventions/testing/DoD/structure changed.
 
----
+Done = code + tests + passing + docs + Docker still works + behavior matches docs.
 
-## Non-negotiable product constraints
+## Engineering priorities (in order)
+latency → server correctness → UX smoothness → determinism → maintainability → testability → local DX.
 
-- No login, signup, email/password, or OAuth
-- Players join with nickname only
-- Server authority is mandatory
-- Real-time reaction/counter mechanics are mandatory
-- Dockerization is mandatory
-- TDD is mandatory
-- `README.md` must always stay in sync with the codebase
-- This file (`CLAUDE.md`) must always stay in sync with the codebase
+## Architecture
+**Server owns**: room/player/hand/deck/discard state, turn order, legality, timing windows, counter resolution, penalties, winner.
+**Client owns**: presentation, input, rendering, animation, sending intents.
 
----
+Realtime: persistent low-latency bidirectional transport, event-driven state, server resolves simultaneous/reaction interactions, explicit testable timing windows, deterministic resolution. Client visuals may be optimistic; server is final.
 
-## Repository operating rules
+Reconnect: 60s slot hold; rejoin via nickname+room_code+session_token restores slot with full snapshot.
 
-When working in this repository, always follow this loop:
+Fairness: server timestamps received events, defines window, deterministic documented tie-breaks.
 
-1. Understand the required behavior
-2. Update or add tests first for non-trivial behavior
-3. Implement the smallest correct change
-4. Run tests and fix failures
-5. Update `README.md` if setup, architecture, commands, features, or limitations changed
-6. Update `CLAUDE.md` if conventions, architecture, workflows, or decision rules changed
+## Style
+Small cohesive modules, explicit domain types, pure domain logic, side effects at boundaries, strong validation on incoming messages, concise comments only when useful.
 
-Do not consider work complete until code, tests, and docs all align.
+## Testing
+TDD. Tests-first for non-trivial behavior. Deterministic clocks for timing logic. Integration-test critical multiplayer flows. Maintain Playwright E2E suite as living regression.
 
----
+Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), protocol validation/rejection.
 
-## Documentation maintenance rules
+Keep tests fast, targeted, non-brittle. Cover game rules > UI details.
 
-### Always update `README.md` when changing:
-- setup steps
-- commands
-- Docker workflow
-- architecture summary
-- features
-- current status
-- limitations
-- environment variables
-- local dev instructions
-- test instructions
+## README must include
+overview, goals, stack + rationale, local setup, Docker usage, env vars, test commands, architecture summary, current features, known limitations, dev workflow.
 
-### Always update `CLAUDE.md` when changing:
-- repository workflow
-- architecture decisions
-- coding conventions
-- testing strategy
-- definition of done
-- folder structure conventions
-- operational rules for future Claude sessions
+## Docker
+Service Dockerfiles, `docker-compose.yml`, `.env.example`. Documented in README, kept current.
 
-Never leave docs outdated.
+## Anti-cheat
+Defend: illegal cards, turn spoofing, hidden-state manipulation, replay, forged reactions/declarations, dup spam, tampered hand, client win claims.
+Posture: validate every message, reject illegal/out-of-turn, server-side hidden state, ignore client timestamps for outcomes, server outcomes final, crypto-random session tokens (required for reconnect), per-client rate limit (token bucket 10 msg/s, burst 20).
 
----
+## Performance
+Optimize for low latency, smooth animation, minimal round trips, efficient state updates, predictable concurrent behavior. Don't add abstractions that harm responsiveness without clear benefit.
 
-## Engineering priorities
+## UX
+Smooth animations, clear turn indicators, strong feedback on penalties/counters, clean lobby flow, responsive layout, premium feel.
 
-In order:
-1. low latency
-2. server-authoritative correctness
-3. smooth user experience
-4. deterministic behavior
-5. maintainable architecture
-6. testability
-7. local developer experience
+## Decision rules
+Prefer realtime responsiveness, then simpler architecture, then maintainable performant tools. Avoid persistence/services without product justification. Document significant choices in README and here.
 
-If tradeoffs are necessary, favor these priorities in order.
+## Repository structure
+- `client/` frontend
+  - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher)
+  - `src/i18n/` i18n context, en/fr translations
+  - `src/game/` PixiJS rendering
+  - `src/hooks/` WebSocket + Zustand store
+  - `src/types/` protocol types
+  - `src/test/` Vitest unit tests
+- `server/` authoritative game server
+  - `game/` pure domain (room, deck, hand, rules, bot, event log)
+  - `hub/` WS connection mgmt, rate limiting, session tokens, bot scheduling
+  - `protocol/` wire types
+- `e2e/` Playwright suite
+  - `tests/`: game-flow, multi-client, mobile (Pixel 5), penalties, round-progression, reconnect, special-cards
+  - `helpers/game.ts` shared helpers (createRoom, drawAndPass, takeTurn, participateInTurns, setMatchFormat, waitForPendingDraw, waitForUnoDeclared, waitForRoundNumber, clickContinue)
+  - `types.d.ts` `Window.__LOCO_E2E__` type
+  - `playwright.config.ts`
+- `shared/` protocol/types
+- `docs/` supplemental
+- root config / Docker / env
+
+Update this section when structure changes.
 
 ---
 
-## Architecture principles
-
-### Authority
-The server owns:
-- room state
-- player state
-- hand state
-- deck/discard state
-- turn order
-- legality validation
-- timing windows
-- counter/catch resolution
-- penalties
-- winner determination
-
-The client owns:
-- presentation
-- local interaction
-- rendering
-- animation
-- sending player intents only
-
-Never trust the client for game legality or hidden information.
-
-### Realtime model
-- Use a persistent low-latency bidirectional transport
-- Prefer event-driven authoritative state updates
-- Resolve simultaneous or reaction-based interactions on the server
-- Make timing windows explicit and testable
-- Favor deterministic resolution logic
-- Reconnect: on disconnect during play, slot is held nil for 60 seconds; rejoining with the same nickname+room_code restores the slot and delivers a full game state snapshot
-
-### Fairness model
-For reaction-based interactions:
-- the server records event receipt times
-- the server defines the valid reaction window
-- only valid server-received events inside the window are considered
-- tie-breaking must be deterministic and documented
-- client visuals may be optimistic, but server resolution is final
-
----
-
-## Preferred implementation style
-
-- small cohesive modules
-- explicit domain types
-- minimal hidden magic
-- pure game/domain logic where possible
-- side effects isolated at boundaries
-- clear protocol contracts
-- strong validation on all incoming messages
-- concise comments only where useful
-
----
-
-## Testing policy
-
-TDD is mandatory.
-
-### Required testing approach
-- write or update tests before implementing non-trivial behavior
-- prioritize domain logic coverage
-- use deterministic tests for timing-sensitive behavior
-- integration-test critical multiplayer flows
-- maintain the Playwright E2E suite as a living regression layer (see Playwright conventions below)
-
-### Minimum required test coverage areas
-- room creation
-- room join by code
-- nickname-only entry
-- game start conditions
-- turn progression
-- legal move validation
-- illegal move rejection
-- skip/reverse/draw behavior
-- wild behavior
-- draw penalties
-- win detection
-- last-card declaration mechanic
-- counter/catch timing windows
-- simultaneous reaction resolution
-- reconnect behavior (60-second window; nickname + room_code identifies the slot)
-- protocol validation and rejection paths
-
-### Test discipline
-- avoid brittle tests
-- prefer deterministic clocks/timers in server logic
-- keep tests fast
-- keep tests targeted
-- cover business/game rules more heavily than UI details
-
----
-
-## README requirements
-
-`README.md` must always include, at minimum:
-- project overview
-- product goals
-- stack summary
-- why the stack was chosen
-- local setup
-- Docker usage
-- environment variables
-- test commands
-- architecture summary
-- current implemented features
-- known limitations
-- development workflow
-
-If the repo changes, the README must change with it when relevant.
-
----
-
-## Docker requirements
-
-The project should support a straightforward full-stack local run.
-
-Expected artifacts:
-- service Dockerfiles
-- `docker-compose.yml`
-- `.env.example`
-
-The Docker setup should be documented in the README and kept current.
-
----
-
-## Anti-cheat requirements
-
-The system must defend against:
-- illegal card submissions
-- turn spoofing
-- hidden-state manipulation
-- replayed messages
-- forged reaction events
-- forged declaration events
-- duplicated event spam
-- client-tampered hand state
-- client-side win claims
-
-Required posture:
-- validate every message
-- reject illegal or out-of-turn actions
-- keep authoritative hidden state server-side
-- avoid trusting client timestamps for outcomes
-- make server outcomes final
-- issue cryptographically random session tokens on room create/join; require token for reconnect slot reclaim
-- enforce per-client rate limits (token bucket, 10 msg/s / burst 20) at the connection layer
-
----
-
-## Performance expectations
-
-Optimize for:
-- low-latency interaction
-- smooth animation and rendering
-- minimal unnecessary round trips
-- efficient state updates
-- predictable server behavior under concurrent play
-
-Do not introduce heavy abstractions that harm responsiveness without clear benefit.
-
----
-
-## UX expectations
-
-The game should feel polished:
-- smooth card animations
-- clear turn indicators
-- strong feedback for penalties and counters
-- clean lobby flow
-- responsive layout
-- premium feel over basic utility UI
-
-Visual polish matters. This is not just a protocol demo.
-
----
-
-## Decision-making rules
-
-When multiple valid options exist:
-- prefer the option that improves realtime responsiveness
-- prefer simpler architecture when performance is comparable
-- prefer maintainable high-performance tools over hype-driven choices
-- avoid adding persistence unless it provides real value
-- avoid adding services that are not justified by the current product scope
-
-Document significant architectural choices in the README and, when relevant, here.
-
----
-
-## Definition of done
-
-A task is done only when all are true:
-- code is implemented
-- relevant tests exist
-- tests pass
-- docs are updated
-- Docker/dev workflow still works
-- behavior matches documented expectations
-
----
-
-## Expected repository sections
-
-Adjust this section as the repo evolves. Keep it current.
-
-Typical structure:
-- `client/` frontend app
-  - `src/components/` — UI screens + shared components (RulesModal, LanguageSwitcher)
-  - `src/i18n/` — i18n context, English and French translations
-  - `src/game/` — PixiJS rendering
-  - `src/hooks/` — WebSocket connection and Zustand store
-  - `src/types/` — protocol TypeScript types
-  - `src/test/` — Vitest unit tests
-- `server/` authoritative realtime game server
-  - `game/` — pure domain logic (room, deck, hand, rules, bot, event log)
-  - `hub/` — WebSocket connection management, rate limiting, session tokens, bot scheduling
-  - `protocol/` — wire types shared between hub and client
-- `e2e/` — Playwright end-to-end test suite
-  - `tests/game-flow.spec.ts` — single-browser gameplay flow (lobby → game over)
-  - `tests/multi-client.spec.ts` — two-browser synchronization tests
-  - `tests/mobile.spec.ts` — mobile viewport tests (Pixel 5)
-  - `tests/penalties.spec.ts` — error toast, turn timer, UNO catch window, pending-draw button
-  - `tests/round-progression.spec.ts` — BO3 round advancement, game-over, spectating banner, auto-dismiss
-  - `tests/reconnect.spec.ts` — offline/online reconnect, reconnect overlay, two-client disconnect/reconnect
-  - `tests/special-cards.spec.ts` — Swap, GlobalSwitch, counter_draw, interrupt_play, two-client card sync
-  - `helpers/game.ts` — shared E2E helpers (create room, draw/pass, takeTurn, participateInTurns, setMatchFormat, waitForPendingDraw, waitForUnoDeclared, waitForRoundNumber, clickContinue)
-  - `types.d.ts` — `Window.__LOCO_E2E__` type declaration (full store state)
-  - `playwright.config.ts` — Playwright project config
-- `shared/` protocol/types if used
-- `docs/` optional supplemental docs
-- root config / Docker / env files
-
-If structure changes, update this file and the README.
-
----
-
-## Scoring and match system conventions
-
-- `CardValue(c Card) int` in `game/card.go`: Number = face value; Skip/Reverse/DrawTwo/Swap = 20; Wild/WildDrawFour/GlobalSwitch = 50.
-- **Round model (single-finisher)**: a round ends the moment any player empties their hand.
-  - That player wins the round (`Room.Winner`, `Room.RoundsWon[winnerIdx]++`).
-  - The winner scores the sum of all opponents' remaining card values.
-  - Every other player scores 0 for the round; their remaining-hand value is added to `Room.LostHandTotal[i]` (tiebreaker only).
-  - There is no in-round spectating, placement system, or `GameState.Finished[]` / `Placements[]` — those concepts have been removed.
-- `Room.endRound(winnerIdx)` finalises scoring and sets `RoundEnded = true`; it does NOT deal the next round.
-- Scores accumulate across rounds in `Room.Scores []int` (indexed by playerID).
-- `Room.RoundEnded bool` is set to `true` by `endRound`; the hub clears it after broadcasting `round_end`.
-- `Room.MatchOver bool` + `Room.MatchWinner string` indicate match completion. Match-over is resolved inside `endRound` so the hub can broadcast the final state in the same tick.
-- **`endRound` does NOT deal the next round.** Dealing is the hub's responsibility via `Room.BeginNextRound()`, called only AFTER `card_played` and `round_end` have been broadcast. Otherwise the `card_played` broadcast for the round-winning play would read the freshly-dealt next round's discard top.
-- **Round starter rule**: round 1 starting player is chosen at random (`Room.rng`); each subsequent round starts with the current biggest loser (lowest cumulative `Scores`; ties broken by lowest playerID via `Room.biggestLoser()`).
-- Match formats: BO1=1, BO3=3, BO5=5, BO7=7 (stored as `game.MatchFormat`).
-- Tiebreaker order: (1) highest total score → (2) most rounds won → (3) lowest lost-hand total → (4) sudden-death extra round.
-- If `determineMatchWinner()` returns `""`, a sudden-death extra round is played automatically.
-- Hub broadcasts `round_end` (with scoreboard, `RoundNumber` = the just-completed round) then calls `BeginNextRound` and broadcasts `game_started` (new round state) to each player when a round ends mid-match.
-- Hub broadcasts `match_end` (with scoreboard + match_winner) when the match is fully over.
-- `PlayerDTO` exposes `Index`, `Nickname`, `HandSize`, `Connected` only — no per-round finish/placement fields.
+## Scoring & match system
+- `CardValue(c Card) int` (`game/card.go`): Number=face; Skip/Reverse/DrawTwo/Swap=20; Wild/WildDrawFour/GlobalSwitch=50.
+- **Single-finisher round**: ends when any player empties hand. Winner: `Room.Winner`, `Room.RoundsWon[winnerIdx]++`, scores sum of opponents' remaining values. Others score 0; their hand value adds to `Room.LostHandTotal[i]` (tiebreaker only). No in-round spectating, placements, `Finished[]`, or `Placements[]`.
+- `Room.endRound(winnerIdx)` finalises scoring, sets `RoundEnded=true`. Does NOT deal next round — hub calls `Room.BeginNextRound()` AFTER broadcasting `card_played` and `round_end` (otherwise the round-winning `card_played` reads the new round's discard top).
+- Scores accumulate in `Room.Scores []int`. `Room.MatchOver`/`MatchWinner` indicate completion (resolved in `endRound`).
+- Round starter: round 1 = random (`Room.rng`); subsequent = current biggest loser (lowest cumulative score; tie → lowest playerID via `Room.biggestLoser()`).
+- Formats: BO1/3/5/7 (`game.MatchFormat`).
+- Tiebreakers: highest score → most rounds won → lowest lost-hand total → sudden-death extra round.
+- `determineMatchWinner()` returning `""` triggers sudden-death.
+- Hub flow on round end: broadcast `round_end` (scoreboard, `RoundNumber`=just-completed) → `BeginNextRound` → `game_started` per player. On match end: `match_end` (scoreboard + match_winner).
+- `PlayerDTO`: `Index`, `Nickname`, `HandSize`, `Connected` only.
 
 ## AFK auto-kick
+- `hub.AFKKickThreshold` (var, default 4) consecutive turn-timeouts without voluntary action → kick (~2 rounds in 2-player).
+- Bots exempt. Voluntary inbound (play_card, draw_card, pass_turn, declare_uno, catch_uno, counter_draw, interrupt_play) calls `hub.resetAFK(code, playerID)`.
+- Kick: send `{type:"error", error:"afk_kicked"}`, close. Standard reconnect window applies.
+- Tests override threshold (e.g. `1<<30`).
 
-- `hub.AFKKickThreshold` (exported `var`, default 4) — the number of consecutive turn-timeouts (with no voluntary action in between) after which a human player is force-disconnected. ~2 full rounds in a 2-player game.
-- Bots are exempt: only human players accumulate AFK timeouts.
-- Any voluntary inbound message (play_card, draw_card, pass_turn, declare_uno, catch_uno, counter_draw, interrupt_play) resets the counter via `hub.resetAFK(code, playerID)` in the dispatch switch.
-- On kick: server sends `{type: "error", error: "afk_kicked"}` and closes the connection. The standard disconnect/reconnect-window flow takes over from there; the player can rejoin via the normal reconnect path until their session token's window expires.
-- Tests override `AFKKickThreshold` (e.g. `1 << 30` to disable for tests that deliberately let the timer expire many times).
+## Interrupts & batch play
+- **Identical-card interrupt** (`Room.InterruptPlayCards`, alias `InterruptPlay`): non-current player plays N identical cards exactly matching top discard within `game.InterruptWindow` (1500ms). Effect applies from interrupter's seat; they become turn leader. Wild/WildDrawFour/GlobalSwitch can't interrupt. Rejected if pending draw, or self-interrupt.
+- **Batch interrupt**: send N copies via `play_cards: [...]`. Effects stack (N DrawTwo = `2*N` pending; N Skips skip N players; N Reverses parity-flip). Swap and GlobalSwitch can't batch.
+- Window state on `GameState`: `LastPlayBy` (-1=closed), `LastPlayAt`, `InterruptDeadline`. Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end. Opening discard does NOT arm.
+- Resolution: fastest-server-received wins (single-goroutine event loop serializes).
+- Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards? }` — `play_cards` non-empty takes precedence. Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
+- **Batch play** (`Room.PlayCards`): current player plays N identical via `play_cards` (precedence over `card`). Effects stack (DrawTwo `2*N`, WildDrawFour `4*N`, Skips skip N, Reverses parity). Swap/GlobalSwitch excluded.
 
-## Interrupts and batch play
+## Deck
+- 112 cards (`game/deck.go: NewDeck`). Per color (R/Y/G/B) 25: 1–9 ×2 (no 0), Skip ×2, Reverse ×2, DrawTwo ×2, **Swap ×1 (colored)**.
+- Wilds (12): Wild ×4, WildDrawFour ×4, **GlobalSwitch ×4**.
+- `Card.IsWild()` true only for Wild/WildDrawFour/GlobalSwitch. **Swap is colored** — normal matching.
+- Initial hand: **8** (`initialHandSize` in `game/room.go`).
+- Opening discard must be a Number (action/wild/Swap skipped during deal).
+- GlobalSwitch passes hands to next seat in current game direction.
 
-- **Identical-card interrupt / "lead-taking"** (`Room.InterruptPlayCards`, single-card alias `Room.InterruptPlay`): any non-current player may play one or more identical cards (same color+kind+value) that exactly match the top discard during the **explicit interrupt window** (`game.InterruptWindow`, default 1500ms after the latest play). The interrupting card(s) stay on top of discard, their effect applies from the interrupter's seat, play continues from the interrupter onward, and the interrupter becomes the new turn leader. Wild / WildDrawFour / GlobalSwitch cannot be used to interrupt. Rejected while a draw penalty is pending; rejected if the player who just played tries to interrupt themselves.
-- **Batch identical-card interrupt**: an interrupter holding N copies of the matching card may play all N in a single `interrupt_play_card` (or `interrupt_play`) message via the `play_cards: [...]` array. Effects stack the same way as `PlayCards` (N DrawTwos = `2*N` pending; N Skips skip N players; N Reverses flip parity). Swap and GlobalSwitch cannot be batch-interrupted.
-- **Explicit interrupt window state** lives on `GameState`: `LastPlayBy` (-1 ⇒ window closed), `LastPlayAt`, `InterruptDeadline`. Armed by `armInterruptWindow(actor)` after every successful play (`PlayCard`, `PlayCards`, `InterruptPlayCards`). Closed by `closeInterruptWindow()` on `DrawCard`, `PassTurn`, round-winning play, and round end. The opening discard at game start does NOT open the window — interrupts require a real player play first.
-- Resolution model is **fastest-server-received wins**, enforced naturally by the hub's single-goroutine event loop (per-message serialization). The first valid interrupt mutates state and re-arms the window; subsequent attempts are evaluated against post-mutation state and either chain (still valid against the new identical top) or are rejected.
-- Wire protocol: `interrupt_play` (legacy) and `interrupt_play_card` (preferred name) are both accepted by the hub and route to the same handler. Body is `{ card?: CardDTO, play_cards?: CardDTO[] }`; when `play_cards` is non-empty it takes precedence over `card`. Server emits `interrupt_success { player_index, cards[] }` immediately before the standard `card_played` broadcast on a successful interrupt, letting clients render distinct lead-taking visuals.
-- **Batch identical-card play** (`Room.PlayCards`): the current player may play multiple identical cards (same Color, Kind, Value) at once via the `play_card` message's `play_cards` array (which takes precedence over the singular `card` field). Effects stack: N DrawTwos add `2*N` pending draw, N WildDrawFours add `4*N`, N Skips skip N players, N Reverses flip direction N times (parity). `Swap` and `GlobalSwitch` cannot be batch-played.
+## Swap / GlobalSwitch notifications
+- `card_played` includes `chosen_player` ONLY for `swap` (target's index). Omitted for everything else (incl. `global_switch`).
+- Client `applyCardPlayed` derives `swapNotice` (`useGameStore.SwapNotice`) when `card.kind` is `swap`/`global_switch`. Carries `kind`, `actorIndex`, `targetIndex` (-1 for global_switch), `direction` (game direction at play, picks GS arrow), `at` (Date.now() — React render key).
+- `GameView` shows via `styles.swapNotice` (purple-glow pill above action bar), auto-clears after `SWAP_NOTICE_MS=3500`. i18n keys: `swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw` (`%actor`/`%target`).
+- `PixiGame.animateSwap(actorIdx, targetIdx, players, myIdx)` and `animateGlobalSwitch(direction, players, myIdx)` spawn mini card-back trails. Triggered once per notice via `swapNotice.at`-keyed effect.
 
-## Deck composition
+## Lobby config
+- Host messages: `set_match_format`, `set_max_players` (lobby only).
+- Max players: `serverMinPlayers`(2) ≤ n ≤ `serverMaxPlayers`(10); cannot drop below current count.
+- Any change → broadcast `lobby_config_changed` (match_format, max_players).
+- `room_created`/`room_joined` include `match_format` + `max_players`.
+- Defaults: BO1, 10 max.
+- **Lobby disconnect re-indexes everything.** `Room.RemoveLobbyPlayer` removes + re-indexes `Player.Index`; hub re-indexes `roomMembers`, surviving `Client.playerID`, `botSlots[code]`, `sessionTokens[code]`. First remaining player is always playerID 0 (host).
+- Lobby disconnect leaving no humans → schedule cleanup immediately.
 
-- Deck total: 112 cards (`game/deck.go: NewDeck`).
-- Per color (Red, Yellow, Green, Blue), 25 cards = 1–9 ×2 (no 0), Skip ×2, Reverse ×2, DrawTwo ×2, **Swap ×1 (colored)**.
-- Global wilds (12): Wild ×4, WildDrawFour ×4, **GlobalSwitch ×4**.
-- `Card.IsWild()` is true only for `WildCard`, `WildDrawFour`, `GlobalSwitch`. **Swap is a colored card** and follows normal color/kind matching.
-- Initial hand size: **8 cards** per player (`initialHandSize` in `game/room.go`).
-- The opening discard must be a Number card (action / wild / Swap cards are skipped during the deal).
-- GlobalSwitch passes each player's hand to the next seat in the **current game direction** (was previously fixed clockwise).
+## Room codes
+- 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O/1/I/l).
+- `generateCode()` retries on collision. ~1B combos.
 
-## Swap / GlobalSwitch notification conventions
+## Mobile
+- All action buttons: `min-height:44px`, `touch-action:manipulation`.
+- 400ms debounce (`guardDoubleTap`) on action buttons.
+- Wild picker: 64px+ touch targets in a row.
+- HTML viewport: `user-scalable=no`, `maximum-scale=1.0`.
+- CSS `@media (max-width:480px)` for small screens.
 
-- `card_played` includes `chosen_player` (pointer) **only** when the played card is a `swap` — it carries the swap target's player index. For all other card kinds (including `global_switch`) the field is omitted.
-- The client store derives `swapNotice` (`useGameStore.SwapNotice`) inside `applyCardPlayed` whenever `card.kind` is `swap` or `global_switch`. The notice carries `kind`, `actorIndex`, `targetIndex` (-1 for global_switch), `direction` (game direction at play time, used to pick the GlobalSwitch arrow), and `at` (Date.now() — used as the React render key so consecutive notices animate).
-- `GameView` renders the notice via `styles.swapNotice` (purple-glow pill above the action bar) and auto-clears it after `SWAP_NOTICE_MS` (3500ms). i18n templates (`swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw`) use `%actor` / `%target` placeholders.
-- `PixiGame.animateSwap(actorIndex, targetIndex, players, myIndex)` and `PixiGame.animateGlobalSwitch(direction, players, myIndex)` spawn mini card-back trails between the relevant seat positions (`_seatPosition` returns the local hand area for `myIndex`, opponent bubble centres otherwise). Triggered exactly once per notice via a `swapNotice.at`-keyed effect so the animation does not replay on unrelated re-renders.
+## Bots
+- Host adds via `add_bot`. Auto-named `Bot1`, `Bot2`, …
+- AI: `game/bot.go` `BotThink(state, playerIdx) BotAction`.
+- Scheduled via `botMove` channel with `botThinkDelay=800ms`.
+- Auto-declare UNO when playing to 1 card.
+- Tracked in `hub.botSlots[code][playerID]`.
 
-## Lobby configuration conventions
+## Game event log
+- `GameState.EventLog []GameEvent` append-only.
+- Recorded inside domain methods (`PlayCard`, `DrawCard`, `PassTurn`, `DeclareLastCard`, `CatchUndeclared`, `CounterDraw`, `Start`).
+- `GameEventDTO` in `GameStateDTO`, delivered on reconnect.
+- Timestamps UTC (`time.Now()`); wire = Unix ms.
+- `playerGameState` caps export to last 50 (`maxEventLogExport=50`).
 
-- Host can set match format via `set_match_format` client message (lobby only).
-- Host can set max players via `set_max_players` client message (lobby only).
-- Max players constraints: `serverMinPlayers` (2) ≤ n ≤ `serverMaxPlayers` (10); cannot drop below current player count.
-- Any config change broadcasts `lobby_config_changed` with updated `match_format` and `max_players` to all connected clients.
-- `room_created` and `room_joined` messages include `match_format` and `max_players`.
-- Default: BO1, 10 max players.
-- **Lobby disconnects re-index everything.** When any client disconnects in the lobby (host or otherwise), `Room.RemoveLobbyPlayer` removes them from `room.Players`, re-indexes remaining `Player.Index` fields, and the hub re-indexes `roomMembers`, surviving `Client.playerID`, `botSlots[code]`, and `sessionTokens[code]` so all old indices > the leaving slot shift down by 1. This guarantees the first remaining player is always playerID 0 (the host), so the room can never deadlock with no one able to start the game.
-- If a lobby disconnect leaves no human members (only bots / nothing), the room is scheduled for cleanup immediately rather than left as a zombie.
+## Session tokens
+- 32 hex chars (128-bit `crypto/rand`).
+- Issued in `room_created`/`room_joined`. Client must include `session_token` in reconnect `join_room`.
+- Invalid/missing → error, slot not reclaimed.
+- `hub.sessionTokens` cleaned up on room delete.
 
-## Room code conventions
-
-- Codes are 6 characters from charset `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (no 0/O/1/I/l for readability).
-- Uniqueness is guaranteed server-side: `generateCode()` retries on collision (loop until a free code is found).
-- 6 chars × 32-char alphabet = ~1 billion combinations; collision risk is effectively zero at realistic scale.
-
-## Mobile support conventions
-
-- All action buttons have `min-height: 44px` and `touch-action: manipulation` to prevent double-tap zoom.
-- A 400ms debounce (`guardDoubleTap`) prevents accidental repeated action button presses.
-- Wild color picker uses large 64px+ touch targets arranged in a row.
-- `user-scalable=no` and `maximum-scale=1.0` set in the HTML `<meta viewport>` tag.
-- CSS uses `@media (max-width: 480px)` blocks for responsive layout on small screens.
-
-## Bot player conventions
-
-- Bots are added by the host in the lobby via `add_bot` message.
-- Bot nicknames are auto-assigned (`Bot1`, `Bot2`, …).
-- Bot AI lives in `game/bot.go` (`BotThink(state, playerIdx) BotAction`).
-- Bot actions are scheduled via the `botMove` channel with a short delay (`botThinkDelay = 800ms`).
-- Bots auto-declare UNO when playing to 1 card.
-- Bot state is tracked in `hub.botSlots[code][playerID]`.
-
-## Game event log conventions
-
-- `GameState.EventLog []GameEvent` is append-only; never remove events.
-- Events are recorded inside domain methods (`PlayCard`, `DrawCard`, `PassTurn`, `DeclareLastCard`, `CatchUndeclared`, `CounterDraw`, `Start`).
-- `GameEventDTO` is included in `GameStateDTO` and delivered to reconnecting players.
-- Event timestamps are in UTC (`time.Now()`); wire format is Unix milliseconds.
-- `playerGameState` caps the exported event log to the last 50 events (`maxEventLogExport = 50`) to prevent unbounded serialization overhead on reconnect/round-start.
-
-## Session token conventions
-
-- Tokens are 32 hex characters (128 bits of randomness via `crypto/rand`).
-- Tokens are issued in `room_created` and `room_joined` server messages.
-- Client must store and include `session_token` in reconnect `join_room` message.
-- Invalid or missing token on reconnect returns an error; slot is not reclaimed.
-- Token maps (`hub.sessionTokens`) are cleaned up when rooms are deleted.
-
-## Rate limiting conventions
-
-- Token bucket per client: 10 tokens/sec refill rate, burst of 20.
-- Implemented in `hub/client.go` as `rateLimiter` (thread-safe).
-- Rate-limited messages receive an `error` server message and are dropped.
-- The bucket is per-connection, not per-player-identity.
+## Rate limiting
+- Token bucket per client: 10/s refill, burst 20.
+- `hub/client.go` `rateLimiter` (thread-safe).
+- Drops → `error` server message. Per-connection, not per-identity.
 
 ---
 
-## Playwright E2E conventions
-
-- E2E tests live in `e2e/` (root-level, separate `package.json`).
-- Stack: `@playwright/test` with Chromium (desktop) and Pixel 5 profile (mobile).
-- Tests require the Go server on `:8080`. Playwright starts an isolated Vite dev server on `:4173` from `playwright.config.ts`.
-  - Local: run `docker compose -f docker-compose.dev.yml up --build` first (for backend), then `cd e2e && npm test`.
-  - CI: `backend_test` builds a static `server-bin` artifact; `e2e_test` starts it and runs Playwright.
-- `window.__LOCO_E2E__` is exposed by the client in dev mode only (`import.meta.env.DEV`):
-  - `send(msg)` — dispatch any WebSocket message through the live connection
-  - `getState()` — read the current Zustand store state (hand, turn, players, etc.)
-  - `playCard(card)` — call `handleCardClick` directly (animates + sends `play_card`)
-  - This object is **never present in production builds** (Vite tree-shakes `import.meta.env.DEV` blocks).
-- Type declarations for `window.__LOCO_E2E__` are in `e2e/types.d.ts`.
-- Helper functions in `e2e/helpers/game.ts` abstract common flows (createRoom, addBot, drawAndPass, waitForMyTurn, etc.).
-- Tests must be kept reliable: prefer `waitForFunction` + store state over fragile DOM polling.
-- Prefer a small number of high-value tests over many fragile ones.
-- **Maintenance rule**: when gameplay rules, UI flow, or protocol messages change, update the Playwright suite in the same commit. Never leave E2E tests diverged from the real product behavior.
-- Canvas (PixiJS) is not inspected directly; UI state is verified via DOM elements (ActionBar, RoundSummary, GameOver) and via `window.__LOCO_E2E__.getState()`.
+## Playwright E2E
+- Lives in `e2e/` (separate `package.json`). `@playwright/test` + Chromium + Pixel 5.
+- Needs Go server `:8080`. Playwright starts isolated Vite on `:4173`.
+  - Local: `docker compose -f docker-compose.dev.yml up --build` then `cd e2e && npm test`.
+  - CI: `backend_test` builds `server-bin`; `e2e_test` runs it + Playwright.
+- `window.__LOCO_E2E__` exposed in dev only (`import.meta.env.DEV`):
+  - `send(msg)`, `getState()`, `playCard(card)` (animates + sends `play_card`).
+  - Tree-shaken from prod builds.
+- Types: `e2e/types.d.ts`. Helpers: `e2e/helpers/game.ts`.
+- Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
+- **Update E2E in same commit as gameplay/UI/protocol changes.**
+- Canvas not inspected; verify via DOM (ActionBar, RoundSummary, GameOver) + `__LOCO_E2E__.getState()`.
 
 ---
 
-## CI/CD conventions
-
-- Pipeline defined in `.gitlab-ci.yml` with three stages: `test` → `build` → `deploy`.
-- `test` stage has three jobs that run on **every push** using lightweight images:
-  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds static `server-bin` artifact
-  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`
-  - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): starts `server-bin`, runs Playwright; needs both above jobs
-- `build` stage (Docker image builds) only runs on `develop` branch or `v*` tags, and only after all test jobs pass (`needs: [backend_test, frontend_test]`).
-- Deploy jobs require the `devops` runner tag and a GitLab container registry.
-- `deploy_dev` runs automatically on `develop` after `build`; `deploy_prod` runs automatically on `v*` tags; `stop_dev` remains manual.
-- All three test jobs must pass before Docker images are built or deployed.
+## CI/CD
+Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
+- `test` (every push):
+  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`.
+  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
+  - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs server-bin + Playwright; `needs: [backend_test, frontend_test]`.
+- `build` only on `develop` or `v*` tags, after tests pass.
+- Deploy: `devops` runner tag + GitLab registry. `deploy_dev` auto on `develop`; `deploy_prod` auto on `v*`; `stop_dev` manual.
 
 ### Production request path
-
 ```
-Browser (HTTPS) → Traefik (:443, entrypoint websecure)
-  → client nginx (:80, networks: traefik + internal)
-    → /ws     → Go server (:8080, network: internal only)   [WebSocket]
+Browser (HTTPS) → Traefik (:443 websecure)
+  → client nginx (:80, traefik+internal)
+    → /ws     → Go server (:8080, internal only)  [WebSocket]
     → /health → Go server (:8080)
-    → /       → nginx serves static SPA files directly
+    → /       → nginx static SPA
 ```
+- Go on `internal` network only; nginx bridges traefik↔internal.
+- Port chain: Traefik → 80 → nginx → 8080 → Go.
 
-- The Go server container is on the `internal` network only; Traefik cannot reach it directly.
-- nginx bridges `traefik` and `internal`, proxying WebSocket and health traffic to `server:8080`.
-- Port chain is consistent: Traefik → 80 → nginx → 8080 → Go. No port mismatch.
+### Production readiness
+- Server healthcheck: `wget -qO- http://localhost:8080/health`, 10s/5s/3 retries/5s start.
+- `client depends_on server: service_healthy`.
+- `write_app_env` writes `PORT`, `DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE` to `app.env`.
+- All `docker compose` calls use `--env-file paths.env --env-file app.env`.
+- nginx `/ws`: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
+- nginx serves `robots.txt` `Disallow: /` on `*-d.<domain>`; prod allows indexing.
 
-### Production readiness conventions
+## Linting
+- Client: ESLint v9 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
+- Rules: `@typescript-eslint/recommended`, `react-hooks`, `react-refresh`. `no-unused-vars: error` — prefix `_` to silence.
+- CI: lint runs before tests.
+- Server: `go vet` (implicit via `go test`).
 
-- `deploy/compose.yml` server service has a healthcheck: `wget -qO- http://localhost:8080/health`, interval 10 s, timeout 5 s, 3 retries, start_period 5 s.
-- `client` depends on `server` with `condition: service_healthy` — nginx only starts after Go is accepting connections.
-- `write_app_env` in `.gitlab-ci.yml` writes all compose-interpolation vars (`PORT`, `DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`) to `app.env`.
-- All `docker compose up/down` calls use `--env-file paths.env --env-file app.env` so a manual re-deploy on the server works without CI shell exports.
-- nginx `/ws` block sets `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s` to prevent premature 504s on both connect and long-lived WebSocket connections.
-- nginx serves `robots.txt` with `Disallow: /` on dev hosts matching `*-d.<domain>` to prevent indexing; production hosts allow indexing by default.
+## Player bubble (PixiJS)
+- `PixiGame._buildPlayerBubble`. `GameRenderState.players` includes `finished?`, `placement?`.
+- Normal: bg `#16213e`, white text, `"nickname (count)"`.
+- Active turn: bg `#4d96ff`, bold white.
+- Disconnected: dark-grey bg, grey text, `"nickname ✗ (count)"`.
+- Finished: bg `#2d2a0a`, gold text `#ffd93d`, `"Nth · nickname"` (no count).
+- `placementSuffix` → "1st"/"2nd"/"3rd"/"Nth". Server prevents finished from being currentTurn.
 
-## Linting conventions
+## Reconnect visual recovery
+- On `player_reconnected`: store `isReconnecting:true` before applying state.
+- `GameView` shows "Rebuilding table…" overlay (600ms) → `PixiGame.renderReconnect(state, onComplete)`.
+- Staggered entrances: discard fade/scale → bubbles (80ms stagger) → hand cards (40ms stagger).
+- `onComplete` resets `isReconnecting:false`.
+- Normal `render()` suppressed while reconnecting. `renderReconnect` resets `lastRenderFingerprint`.
+- Visual only; server is authoritative.
 
-- Client linting uses ESLint v9 with flat config (`eslint.config.js`).
-- ESLint rules: `@typescript-eslint/recommended`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`.
-- `@typescript-eslint/no-unused-vars` is set to `error`; prefix intentionally unused identifiers with `_` to suppress.
-- Run: `cd client && npm run lint` (or `npm run lint:fix` to auto-fix).
-- Linting runs in CI before tests: `npm run lint && npm run test && npm run build`.
-- Server linting: `go vet ./...` is implicitly run by `go test ./...`; this is sufficient for now.
+## Client transport
+- `useWebSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
+- Auto-reconnect: linear backoff `2s × min(attempts, 4)`, cap 10. `attemptsRef` resets on `onopen`.
+- `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
+- `App.handleMessage` deps `[]`. Branches needing CURRENT store values use `useGameStore.getState()`. Stable Zustand actions safe.
+- `PixiGame.render(state)` short-circuits if `_renderFingerprint` matches and discard unchanged.
 
-## Player bubble (in-game opponent panels) conventions
+## Round summary
+- `round_end` → `applyRoundEnd(roundWinner, roundNumber, newScoreboard)`.
+- Computes per-player `round_points` as `newScore - prevScore` from pre-round scoreboard, stores `roundScores: RoundScoreEntry[]`, sets `showRoundSummary:true`.
+- If `game_started` arrives while showing → buffer in `pendingGameState`.
+- `GameView` shows: round n/total, winner, per-player breakdown sorted by placement, points (delta), cumulative score, wins, full match scoreboard (BO3+).
+- "Continue (Ns)" → `dismissRoundSummary()` (applies buffered state, clears summary). Auto-dismiss at 8s.
 
-- Opponent info is rendered via `PixiGame._buildPlayerBubble` in the PixiJS canvas layer.
-- `GameRenderState.players` includes `finished?: boolean` and `placement?: number` so the renderer knows each player's finish state.
-- Normal (unfinished, not current turn): dark background (`#16213e`), white text, shows `"nickname (cardCount)"`.
-- Active turn: blue background (`#4d96ff`), bold white text.
-- Disconnected: dark-grey background, grey text, shows `"nickname ✗ (cardCount)"`.
-- Finished: dark gold-tint background (`#2d2a0a`), gold text (`#ffd93d`), shows `"Nth · nickname"` (e.g., `"1st · Alice"`); card count is omitted since they have 0 cards.
-- The `placementSuffix` helper in `PixiGame.ts` converts a 1-based placement integer to `"1st"`, `"2nd"`, `"3rd"`, `"Nth"`.
-- Finished players are never the `currentTurn` (the server enforces this via `nextTurn`), so the active-turn highlight is never shown on finished bubbles.
+## Metrics
+`GET /metrics` returns JSON:
+- Gameplay: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`.
+- Health: `uptime_sec`, `goroutine_count` (low + stable).
+- `messages_rate_limited` — sustained growth = abuse / too-tight burst.
+- `messages_dropped_busy` — should be ~0; non-zero = hub overloaded.
+- `slow_clients_closed` — per-client send buffer overflow → forced close (client into reconnect path). Sustained growth = broadcast rate too high or many bad connections.
+- `channel_retries` — botMove/expire/cleanup channel-pressure retries; ~0 healthy.
+- `suspected_cheats` — clients with ≥`suspectThreshold` rejections in 30s; one inc per burst. Investigate `WARN suspected cheat` log (`conn=`, `code=`).
+- `reconnect_expirations` — disconnected players whose 60s window expired.
+- `debug_mode_active` — reflects `LOCO_E2E=1`. MUST be `false` in prod; `main.go` logs startup `WARN` if set.
 
-## Reconnect visual recovery conventions
+All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
 
-- On `player_reconnected`, the client sets `isReconnecting: true` in the store before applying game state.
-- `GameView` detects `isReconnecting` and shows a brief "Rebuilding table…" overlay (600 ms), then calls `PixiGame.renderReconnect(state, onComplete)`.
-- `renderReconnect` animates all elements in with staggered entrances: discard pile fades/scales in first, then player info bubbles (80 ms stagger), then hand cards (40 ms stagger per card).
-- `onComplete` fires after the last card animation, resetting `isReconnecting: false`.
-- While `isReconnecting` is true, the normal `render()` path is suppressed to avoid overwriting the animation.
-- `renderReconnect` resets `lastRenderFingerprint` so the next normal `render()` always rebuilds even if the inputs match the previous fingerprint.
-- This is purely visual recovery; server state is authoritative.
+## Room lifecycle cleanup
+- `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
+- `hub.ReconnectTimeout` (var, default 60s) — disconnected-in-game slot hold.
+- Both vars exported for test override; restore via `t.Cleanup`.
+- Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(code)`.
+- `scheduleRoomCleanup`: records `emptyRooms[code]=time.Now()`, `time.AfterFunc` fires `cleanupMsg` after timeout. Channel-full → retry once after 30s, then `WARN`.
+- `handleCleanup`: deletes only if `emptyRooms[code]` still matches recorded time (race-safe).
+- Rejoin/reconnect calls `delete(h.emptyRooms, code)`.
+- `deleteRoom(code)`: single deletion point; cleans hub maps, adjusts `statRooms`/`statBotsActive`, structured log.
 
-## Client transport conventions
+## Server stability
+- Deferred async = `time.AfterFunc` (not `go func{Sleep;send}`).
+- Critical channel sends (botMove/expire/cleanup) retry once on full, then `WARN`. Rationale:
+  - `botMove` retry 1s — drop stalls game.
+  - `expire` retry 5s — drop leaves slot in `disconnectedAt` forever.
+  - `cleanup` retry 30s — drop leaks empty room.
+- Non-critical sends (per-client `send`, `inbound`) = non-blocking drop + client notification.
+- **`Client.SendBytes` force-closes WS when send buffer (cap 256) fills.** Silent drop would desync client; close → readPump exit → unregister → reconnect window → auto-reconnect → `handleReconnect` snapshot. Inc `slow_clients_closed`.
+- **Broadcasts marshal once.** `broadcastToRoom` does `json.Marshal(msg)` once, fans `[]byte` via `Client.SendBytes`. Per-recipient personalised payloads (game_state/game_started/private card_drawn) precompute `pl := h.playerList(room)` and call `playerGameStateUsing(room, idx, pl)` so `playerList` built once per broadcast.
+- `readPump` sends to `h.inbound` non-blocking; drops notify "server busy". Prevents readPump parking on full channel deadlocking `unregister` (cap 16).
+- Every scheduled callback (`executeBotMove`, `handleExpireReconnect`, `handleCleanup`) re-checks current state, logs skip reason.
+- `http.Server`: `ReadHeaderTimeout:10s`, `IdleTimeout:60s`.
+- Goroutine stability tests in `hub/hub_test.go`: `TestGoroutineStability_RoomLifecycle`, `_BotGame`, `_FullLifecycle`.
+- `playerGameState(room, playerIdx)` defensive: nil `room.State`, OOB `playerIdx`, empty discard → minimal `GameStateDTO` + `WARN` (not panic — would kill hub goroutine).
 
-- `useWebSocket.send(msg)` queues messages in `pendingRef: ClientMsg[]` whenever the socket is not OPEN; the queue is flushed in FIFO order on the next `onopen`. A user can rapidly tap multiple actions (e.g. draw + play) during a brief reconnect without losing any.
-- Auto-reconnect: linear backoff `2s × min(attempts, 4)`, capped at 10 attempts. `attemptsRef` resets to 0 on successful `onopen`.
-- `getReconnectMsg` re-authenticates on `onopen`:
-  - In `screen === 'game'`: token-authenticated `join_room` reclaiming the disconnected slot.
-  - In `screen === 'waiting'` (lobby): plain nickname `join_room`. Best-effort — if the server has not yet observed the disconnect, the rejoin is rejected with "nickname already taken" and the user must reload.
-- `App.handleMessage` is created with `deps: []`. Any branch that needs CURRENT store values (not the first-render snapshot) must read them via `useGameStore.getState()`. Stable Zustand actions (`store.setX`) are safe to use directly.
-- `PixiGame.render(state)` short-circuits when `_renderFingerprint(state, w, h)` matches the last render and the discard hasn't changed. This guards against StrictMode double-invokes and store updates that change references but not values.
+## Structured logging
+- Stdlib `log` to stdout. `key=value` single line, e.g. `room created code=ABC123 host=Alice`.
+- Every connection-scoped line: `conn=<8-hex>` (per-`Client` random ID via `generateConnID` in `newClient`). Room-scoped also: `code=<6-char>`.
+- Events: connected (conn, addr), disconnected (conn, code, nickname, playerID), reconnected, reconnect window expired, room created/deleted, match started (count, format), match finished (winner), WS upgrade errors, callback skips with reason, channel-pressure (`WARN`), **suspected cheat (`WARN suspected cheat ... conn=<id> code=<code> player=<idx> last_reason=<msg>`)**, slow client (`WARN slow client ...`).
+- `WARN debug mode enabled (LOCO_E2E=1) ...` once at startup if gate on. Prod must never see this.
+- No sensitive data (tokens, hands) in logs.
 
-## Round summary conventions
-
-- `round_end` from server triggers `applyRoundEnd(roundWinner, roundNumber, newScoreboard)` in the store.
-- `applyRoundEnd` computes per-player `round_points` as the delta (`newScore - prevScore`) using the scoreboard held before the round ended, stores them as `roundScores: RoundScoreEntry[]`, and sets `showRoundSummary: true`.
-- When `game_started` (next round) arrives while `showRoundSummary` is true, the new state is buffered in `pendingGameState` instead of being applied immediately.
-- `GameView` shows the summary with: round number/total, winner, per-player round breakdown sorted by placement (1st/2nd/3rd/…), points earned this round (delta), cumulative score, wins, and full match scoreboard (for BO3+).
-- The summary has a "Continue (Ns)" button that calls `dismissRoundSummary()`, which applies the buffered state and clears the summary.
-- Auto-dismiss fires after 8 seconds if the player does not click Continue.
-- `dismissRoundSummary` applies `pendingGameState` if present, else just clears `showRoundSummary`.
-
-## Metrics conventions
-
-- `GET /metrics` returns JSON. Stable fields:
-  - `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active` — gameplay counters.
-  - `uptime_sec`, `goroutine_count` — process health; goroutine count should remain low and stable under normal operation.
-  - `messages_rate_limited` — total inbound messages dropped by the per-client token bucket. Sustained growth signals abusive clients or a too-tight burst.
-  - `messages_dropped_busy` — total inbound messages dropped because `h.inbound` was saturated. Should remain ~0; non-zero means the hub event loop is overloaded.
-  - `slow_clients_closed` — total clients force-closed because their per-client send buffer overflowed. Each one represents a user that got bumped into the reconnect path; sustained growth means the broadcast rate is too high or many clients have poor connections.
-  - `channel_retries` — total `botMove` / `expire` / `cleanup` channel-pressure retries. Should remain ~0 in healthy load.
-  - `suspected_cheats` — count of clients that triggered ≥ `suspectThreshold` gameplay validation rejections in a 30-s window. One increment per burst; investigate the matching `WARN suspected cheat` log line for the offending `conn=` and `code=`.
-  - `reconnect_expirations` — count of disconnected players whose 60-s reconnect window expired without them coming back.
-  - `debug_mode_active` — boolean reflecting `LOCO_E2E=1`. Must be `false` on every production deploy; `main.go` also logs a startup `WARN` if set.
-- All counters are atomic on `Hub`; `GetMetrics()` reads them without entering the event loop.
-- `statMatchesStarted` incremented in `handleStartGame` (once per `start_game` message, not per round).
-- `statMatchesFinished` incremented in `handleRoundOrMatchEnd` when `room.MatchOver` is true.
-- `statBotsActive` incremented in `handleAddBot`; decremented in `deleteRoom` by the number of bots in that room.
-
-## Room lifecycle cleanup conventions
-
-- `hub.EmptyRoomTimeout` (exported `var`, default 5 minutes) controls how long an empty room is kept before deletion.
-- `hub.ReconnectTimeout` (exported `var`, default 60 seconds) controls how long a disconnected in-game player's slot is held before the reconnect window closes.
-- Both vars are exported so tests can override them (e.g. 80 ms / 120 ms) and must be restored with `t.Cleanup`.
-- When a room becomes empty (last member disconnects from lobby/finished, or all slots go nil in an active game), `scheduleRoomCleanup(code)` is called.
-- `scheduleRoomCleanup` records `emptyRooms[code] = time.Now()` and uses `time.AfterFunc` to send a `cleanupMsg` after `EmptyRoomTimeout`. If the channel is full, retries once after 30 s; logs `WARN` if the retry also fails.
-- `handleCleanup` deletes the room only if `emptyRooms[code]` still matches the recorded time (race-safe: any rejoin clears or changes the entry). Logs skip reason.
-- Rejoining (lobby join) or reconnecting (active game) calls `delete(h.emptyRooms, code)` to cancel the cleanup.
-- `deleteRoom(code)` is the single point of room deletion: cleans up all hub maps, adjusts `statRooms` and `statBotsActive`, and emits a structured log line.
-
-## Server stability conventions
-
-- All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` instead of `go func() { time.Sleep(...); ch <- msg }()` to avoid long-lived goroutines.
-- Critical channel sends (botMove, expire, cleanup) retry once after a short delay if the channel is full, then log `WARN` if the retry also fails. Rationale per channel:
-  - `botMove`: retry after 1 s — dropping permanently stalls the game (no player acts on that turn).
-  - `expire`: retry after 5 s — dropping leaves disconnected slot in `disconnectedAt` forever.
-  - `cleanup`: retry after 30 s — dropping leaks an empty room until restart.
-- Non-critical channel sends (per-client `send`, `inbound`) use non-blocking drop + client notification. These are tolerable losses (client can retry; hub must not block).
-- **`Client.SendBytes` force-closes the underlying WebSocket when the per-client send buffer (cap 256) fills.** Silently dropping a server-to-client message would leave the client desynced with no recovery path; closing the conn instead triggers `readPump` exit → `unregister` → the slot enters the reconnect window, the client's auto-reconnect fires, and `handleReconnect` delivers a full `game_state` snapshot. Increments `slow_clients_closed`.
-- **Broadcast helpers marshal each `ServerMsg` exactly once.** `broadcastToRoom` encodes `data, _ := json.Marshal(msg)` and fans the same `[]byte` to every recipient via `Client.SendBytes`. For per-recipient personalised payloads (game_state / game_started / private card_drawn) the broadcast loop precomputes `pl := h.playerList(room)` and calls `playerGameStateUsing(room, idx, pl)` so `playerList` is built once per broadcast, not once per recipient.
-- `readPump` sends to `h.inbound` non-blocking; drops notify the client "server busy". Prevents readPump goroutines from parking on a full channel and deadlocking the `unregister` channel (cap 16).
-- Every scheduled callback (`executeBotMove`, `handleExpireReconnect`, `handleCleanup`) re-checks current room/player state before acting and logs the skip reason.
-- `http.Server` is configured with `ReadHeaderTimeout: 10s` and `IdleTimeout: 60s` to reclaim stale HTTP connections and guard against Slowloris.
-- Goroutine stability is verified by three regression tests in `hub/hub_test.go`:
-  - `TestGoroutineStability_RoomLifecycle` — rapid create/teardown (cleanup timer path).
-  - `TestGoroutineStability_BotGame` — full bot game to completion.
-  - `TestGoroutineStability_FullLifecycle` — all paths: cleanup, full game, mid-game disconnect (reconnect expiry path).
-- `playerGameState(room, playerIdx)` is **defensive against bad inputs**: nil `room.State`, out-of-range `playerIdx`, or empty discard return a minimal `GameStateDTO` and log a `WARN` instead of panicking. A panic here would kill the hub's event-loop goroutine and bring down every active room.
-
-## Structured logging conventions
-
-- All log output uses the standard `log` package to stdout.
-- Format: `key=value` pairs on a single line, e.g. `room created code=ABC123 host=Alice`.
-- Every connection-scoped log line includes `conn=<8-hex>` (a per-`Client` random ID set in `newClient` via `generateConnID`). Use this to grep one player's actions across the log even before they have a `code=`. Room-scoped lines also include `code=<6-char>`; the room code IS the room correlation ID.
-- Events logged: player connected (conn, addr), player disconnected (conn, code, nickname, playerID), reconnected, reconnect window expired, room created, room deleted, match started (with player count and format), match finished (with winner), WS upgrade errors, scheduled callback skips (bot move skipped, cleanup skipped, reconnect expiry skipped — with reason), channel-pressure warnings (`WARN` prefix), **suspected-cheat bursts (`WARN suspected cheat ... conn=<id> code=<code> player=<idx> last_reason=<msg>`)**, slow-client force-close (`WARN slow client ...`).
-- `WARN debug mode enabled (LOCO_E2E=1) ...` is logged once at server startup if the debug gate is on. Production deploys must never see this line.
-- No sensitive data (tokens, hand contents) in logs.
-
-## i18n conventions
-
-- Translations live in `client/src/i18n/en.ts` (English, source of truth) and `client/src/i18n/fr.ts` (French).
-- The `Translations` interface is defined in `en.ts` and re-used as the type for all language files — missing keys cause a TypeScript error.
-- `I18nProvider` (in `client/src/i18n/index.tsx`) wraps the app in `main.tsx` and exposes `useI18n()` hook returning `{ lang, t, setLang }`.
-- Language detection order: (1) `localStorage.getItem('loco_lang')`, (2) `navigator.language` prefix (`'fr'` → French, else English).
-- `setLang` stores the selection to `localStorage` and syncs `document.documentElement.lang` for accessibility.
-- To add a new language: create `client/src/i18n/xx.ts` implementing `Translations`, add the entry to the `translations` map in `index.tsx`, and add a `{ code, label }` entry to `LANGS` in `LanguageSwitcher.tsx`.
-- The `rules` field uses `readonly RulesSection[]`; sections are rendered by `RulesModal` directly from the translation object.
+## i18n
+- `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
+- `I18nProvider` (`client/src/i18n/index.tsx`) wraps app in `main.tsx`. `useI18n()` → `{ lang, t, setLang }`.
+- Detect order: `localStorage('loco_lang')` → `navigator.language` prefix (`fr` → French, else English).
+- `setLang` persists to localStorage + syncs `document.documentElement.lang`.
+- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `index.tsx`, add `{code, label}` to `LANGS` in `LanguageSwitcher.tsx`.
+- `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
 - Storage key: `'loco_lang'`.
 
-## Rules modal conventions
+## Rules modal
+- `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").
+- Close: ✕, footer Close, backdrop click, `Escape`.
+- Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, max-height 92vh).
+- `document.body.style.overflow='hidden'` while open; restored on unmount.
+- Content lives in translations; component is content-agnostic.
 
-- `RulesModal` is a full-screen backdrop modal accessible from: Lobby (top-right corner), WaitingRoom (top-right corner), and GameView (action bar "Rules" button).
-- Close triggers: ✕ button, footer Close button, backdrop click, `Escape` key.
-- On mobile (`max-width: 480px`) the modal slides up from the bottom as a sheet (bottom border-radius 0, max-height 92vh).
-- `document.body.style.overflow = 'hidden'` is set while the modal is open and restored on unmount.
-- All rules content lives in the translation files; the modal component is content-agnostic.
-
-## Dev Docker Compose conventions
-
-- `docker-compose.dev.yml` provides a hot-reload development environment with no host Go or Node required.
-- Backend service: `golang:1.24.7-alpine` image, bind-mounts `./server:/app`, runs `go run .`, port 8080.
-- Frontend service: `node:20-alpine` image, bind-mounts `./client:/app`, runs `npm ci && npm run dev`, port 5173 (mapped from container port 3000).
-- **No Vite WS proxy**: the browser connects directly to `ws://<host>:8080/ws`. Vite's `http-proxy` WebSocket upgrade is unreliable under Docker networking and has been removed.
-- `VITE_WS_PORT=8080` environment variable in the frontend service tells the client which port to use for direct WebSocket connections (defaults to `8080` if unset).
-- `useWebSocket.ts` detects `import.meta.env.DEV` and builds the WS URL as `ws://${hostname}:${VITE_WS_PORT}/ws`; production builds use `ws://${host}/ws` (same origin, proxied by nginx).
-- `vite.config.ts` has no proxy configuration.
-- Go module cache (`go-mod-cache`) and node_modules (`client-node-modules`) are named Docker volumes so restarts do not re-download dependencies.
-- Start command: `docker compose -f docker-compose.dev.yml up --build`.
+## Dev Docker Compose
+- `docker-compose.dev.yml` — hot-reload, no host Go/Node needed.
+- Backend: `golang:1.24.7-alpine`, bind `./server:/app`, `go run .`, `:8080`.
+- Frontend: `node:20-alpine`, bind `./client:/app`, `npm ci && npm run dev`, `:5173` (container 3000).
+- **No Vite WS proxy** — browser connects directly to `ws://<host>:8080/ws` (Vite proxy unreliable under Docker).
+- `VITE_WS_PORT=8080` env tells client which port (default 8080).
+- `useWebSocket.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
+- `vite.config.ts`: no proxy.
+- Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
+- Start: `docker compose -f docker-compose.dev.yml up --build`.
 
 ---
 
-## Instructions for future Claude sessions
+## Future Claude session checklist
+1. Read this file. 2. Read `README.md`. 3. Inspect structure. 4. Identify doc drift. 5. TDD non-trivial. 6. Update docs in same change set.
 
-When starting work:
-1. read this file
-2. read `README.md`
-3. inspect current project structure
-4. identify any doc drift before coding
-5. use TDD for non-trivial changes
-6. update docs in the same change set
-
-Never allow `CLAUDE.md` or `README.md` to become stale.
+Never let `CLAUDE.md` / `README.md` go stale.
