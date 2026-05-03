@@ -14,32 +14,8 @@ import { ColorPicker } from './ColorPicker'
 import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
-import { clientMayInterrupt } from './interruptHelpers'
+import { clientMayInterrupt, clientMayPlay } from './interruptHelpers'
 import styles from './GameView.module.css'
-
-// Client-side card legality hint — prevents animating clearly-invalid plays before
-// the server rejects them. Server validation is always authoritative.
-function clientMayPlay(
-  card: CardDTO,
-  discard: CardDTO | null,
-  activeColor: CardColor,
-  pendingDraw: number,
-): boolean {
-  if (pendingDraw > 0) {
-    // Only the exact same kind as the top discard card can counter (mirrors server CounterDraw).
-    // e.g. +2 can only be countered by +2; +4 can only be countered by +4.
-    if (!discard) return false
-    return card.kind === discard.kind && (card.kind === 'draw_two' || card.kind === 'wild_draw_four')
-  }
-  if (card.kind === 'wild' || card.kind === 'wild_draw_four') return true
-  if (!discard) return true
-  if (card.color === activeColor) return true
-  // For non-number action cards matching kind is enough (e.g. Skip on Skip)
-  if (card.kind !== 'number' && card.kind === discard.kind) return true
-  // For number cards require matching value (mirrors server CanPlay)
-  if (card.kind === 'number' && discard.kind === 'number') return card.value === discard.value
-  return false
-}
 
 interface Props {
   onSend: (msg: ClientMsg) => void

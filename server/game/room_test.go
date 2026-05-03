@@ -1336,24 +1336,32 @@ func TestRoom_InterruptPlay_ValueMismatchRejected(t *testing.T) {
 	}
 }
 
-func TestRoom_InterruptPlay_PendingDrawRejected(t *testing.T) {
+// During an active Take2 chain (PendingDraw > 0) only an identical DrawTwo may
+// be interjected. A non-DrawTwo "match" (which can only happen in inconsistent
+// state) must still be rejected.
+func TestRoom_InterruptPlay_NonDrawTwoDuringPendingDrawRejected(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	r.State.CurrentTurn = 0
 	r.State.PendingDraw = 2
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	armInterrupt(r, 0)
 	matchCard := Card{Color: Red, Kind: Number, Value: 5}
 	r.State.Hands[1].Cards = append([]Card{matchCard}, r.State.Hands[1].Cards...)
 	if err := r.InterruptPlay(1, matchCard, -1); err == nil {
-		t.Error("interrupt with pending draw should be rejected")
+		t.Error("non-DrawTwo interrupt during pending draw should be rejected")
 	}
 }
 
 func TestRoom_InterruptPlay_OwnTurnRejected(t *testing.T) {
-	r := setupTwoPlayerGame(t)
+	// Set up a valid window (LastPlayBy != current player) so the rejection
+	// is specifically about it being the caller's own turn, not a closed window.
+	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 0
+	r.State.Direction = 1
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	armInterrupt(r, 2) // someone else just played
 	matchCard := Card{Color: Red, Kind: Number, Value: 5}
 	r.State.Hands[0].Cards = append([]Card{matchCard}, r.State.Hands[0].Cards...)
 	if err := r.InterruptPlay(0, matchCard, -1); err == nil {
@@ -1522,16 +1530,46 @@ func TestRoom_InterruptPlay_NonIdenticalDrawTwo_Rejected(t *testing.T) {
 	}
 }
 
-func TestRoom_InterruptPlay_RejectedDuringPendingDraw(t *testing.T) {
+// Non-identical DrawTwo (color mismatch) during a Take2 chain must still be
+// rejected — only an *exactly* identical DrawTwo may extend the chain.
+func TestRoom_InterruptPlay_NonIdenticalDrawTwoDuringChain(t *testing.T) {
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
 	r.State.PendingDraw = 2
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: DrawTwo}}
-	bob2 := Card{Color: Blue, Kind: DrawTwo}
+	armInterrupt(r, 0)
+	bob2 := Card{Color: Blue, Kind: DrawTwo} // wrong color
 	r.State.Hands[2].Cards = []Card{bob2}
 	if err := r.InterruptPlay(2, bob2, -1); err == nil {
-		t.Error("interrupt during pending draw should be rejected")
+		t.Error("color-mismatched DrawTwo during pending draw must be rejected")
+	}
+}
+
+// Per rules: an identical DrawTwo may interject an active Take2 chain. The
+// chain continues from the interjecter's seat — the next player after the
+// interjecter becomes the new victim with the accumulated total.
+func TestRoom_InterruptPlay_IdenticalDrawTwoExtendsChain(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1 // bob is the current victim
+	r.State.PendingDraw = 2
+	r.State.ActiveColor = Red
+	r.State.Direction = 1
+	r.State.Discard = []Card{{Color: Red, Kind: DrawTwo}}
+	armInterrupt(r, 0) // alice played the original DrawTwo
+
+	carolD2 := Card{Color: Red, Kind: DrawTwo}
+	r.State.Hands[2].Cards = []Card{carolD2, {Color: Blue, Kind: Number, Value: 1}}
+
+	if err := r.InterruptPlay(2, carolD2, -1); err != nil {
+		t.Fatalf("identical DrawTwo interrupt during chain: %v", err)
+	}
+	if r.State.PendingDraw != 4 {
+		t.Errorf("PendingDraw = %d, want 4 (chain extended)", r.State.PendingDraw)
+	}
+	// Next player after carol(2) clockwise is alice(0): she is now the victim.
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("after carol's DrawTwo interject, turn = %d, want 0 (alice)", r.State.CurrentTurn)
 	}
 }
 
@@ -1582,34 +1620,42 @@ func TestRoom_InterruptPlay_PlayerWhoJustPlayedCannotInterrupt(t *testing.T) {
 }
 
 func TestRoom_InterruptPlay_FastestSerializedWins(t *testing.T) {
-	// Two players hold an identical Red-7 and both attempt to interrupt.
-	// The first call wins (turn transfers to that player). The second call
-	// runs against post-first state — it is a chain interrupt against the
-	// same identical card on top, also valid, transferring lead onward.
-	r := setupThreePlayerGame(t)
-	r.State.CurrentTurn = 1 // bob's turn
+	// Two non-current players hold an identical Red-7 and both attempt to
+	// interrupt. The first call wins (turn transfers to that player). The
+	// second call runs against post-first state — it is a chain interrupt
+	// against the same identical card on top, also valid, transferring lead onward.
+	r := NewRoom("FAST")
+	for _, nick := range []string{"alice", "bob", "carol", "dave"} {
+		if err := r.Join(nick); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := r.Start(); err != nil {
+		t.Fatal(err)
+	}
+	r.State.CurrentTurn = 1 // bob's turn (alice just played)
+	r.State.Direction = 1
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
 	r.State.PendingDraw = 0
 	armInterrupt(r, 0) // alice just played
 
 	match := Card{Color: Red, Kind: Number, Value: 7}
-	r.State.Hands[1].Cards = append([]Card{match}, r.State.Hands[1].Cards...)
+	// carol(2) and dave(3) both hold the identical card.
 	r.State.Hands[2].Cards = append([]Card{match}, r.State.Hands[2].Cards...)
+	r.State.Hands[3].Cards = append([]Card{match}, r.State.Hands[3].Cards...)
 
-	if err := r.InterruptPlay(1, match, -1); err != nil {
-		t.Fatalf("first interrupt by bob: %v", err)
-	}
-	if r.State.LastPlayBy != 1 {
-		t.Errorf("LastPlayBy after first interrupt = %d, want 1 (bob)", r.State.LastPlayBy)
-	}
-
-	// Second arrival: carol now interrupts the new top (bob's identical card).
 	if err := r.InterruptPlay(2, match, -1); err != nil {
-		t.Fatalf("chained interrupt by carol: %v", err)
+		t.Fatalf("first interrupt by carol: %v", err)
 	}
 	if r.State.LastPlayBy != 2 {
-		t.Errorf("after chain, LastPlayBy = %d, want 2 (carol)", r.State.LastPlayBy)
+		t.Errorf("LastPlayBy after first interrupt = %d, want 2 (carol)", r.State.LastPlayBy)
+	}
+	// After carol's interject CurrentTurn = dave(3).
+
+	// Second arrival: dave is now the current player and cannot interrupt.
+	if err := r.InterruptPlay(3, match, -1); err == nil {
+		t.Error("dave is the current player and must not interrupt his own turn")
 	}
 }
 
@@ -1867,5 +1913,92 @@ func TestRoom_CatchUndeclared_NoTargetYet(t *testing.T) {
 	// attempt at the start of the game must be rejected (target not at 1 card).
 	if err := r.CatchUndeclared(1, 0, time.Now()); err == nil {
 		t.Error("catch at game start should fail (no one played to 1 card yet)")
+	}
+}
+
+// --- Additional Zwischenwerfen / out-of-turn play rule coverage ---
+
+// An interjected Reverse flips the play direction, and the next-player
+// resolution starts from the interjecter's seat under the new direction.
+func TestRoom_InterruptPlay_ReverseFlipsDirection(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.Direction = 1   // clockwise
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Reverse}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+
+	carolReverse := Card{Color: Red, Kind: Reverse}
+	r.State.Hands[2].Cards = append([]Card{carolReverse}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, carolReverse, -1); err != nil {
+		t.Fatalf("InterruptPlay Reverse: %v", err)
+	}
+	if r.State.Direction != -1 {
+		t.Errorf("Direction = %d, want -1 after Reverse interject", r.State.Direction)
+	}
+	// New direction is CCW. Next player after carol(2) CCW is bob(1).
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after Reverse interject, turn = %d, want 1 (bob via CCW)", r.State.CurrentTurn)
+	}
+}
+
+// Direction must be respected: in counter-clockwise play, the player after the
+// interjecter is computed by walking against the seat order.
+func TestRoom_InterruptPlay_CounterClockwise(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 0 // alice's turn
+	r.State.Direction = -1  // counter-clockwise: 0 -> 2 -> 1 -> 0
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 4}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 1) // bob just played
+
+	carolCard := Card{Color: Red, Kind: Number, Value: 4}
+	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, carolCard, -1); err != nil {
+		t.Fatalf("InterruptPlay CCW: %v", err)
+	}
+	// CCW from carol(2): next is bob(1).
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after CCW interject, turn = %d, want 1 (bob)", r.State.CurrentTurn)
+	}
+}
+
+// When an interjecter goes from 2 -> 1 cards, the LOCO! catch window must open
+// for them — the obligation to declare applies on out-of-turn plays too.
+func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 6}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+	r.State.LastCardDeclared = true // simulate a previous declaration we expect to be cleared
+
+	match := Card{Color: Red, Kind: Number, Value: 6}
+	// carol holds exactly 2 cards; after the interject she will have 1.
+	r.State.Hands[2].Cards = []Card{match, {Color: Blue, Kind: Number, Value: 1}}
+
+	before := time.Now()
+	if err := r.InterruptPlay(2, match, -1); err != nil {
+		t.Fatalf("InterruptPlay: %v", err)
+	}
+	if r.State.LastCardDeclared {
+		t.Error("LastCardDeclared must be reset after a fresh play to 1 card")
+	}
+	if r.State.LastCardPlayer != 2 {
+		t.Errorf("LastCardPlayer = %d, want 2 (carol)", r.State.LastCardPlayer)
+	}
+	if r.State.LastCardTime.Before(before) {
+		t.Error("LastCardTime should be updated to the moment of the interject")
+	}
+
+	// And alice (idx 0) can catch carol if she didn't declare in time.
+	if err := r.CatchUndeclared(0, 2, time.Now()); err != nil {
+		t.Errorf("catch on undeclared interject must succeed: %v", err)
 	}
 }

@@ -383,7 +383,9 @@ export class PixiGame {
       // Playable on my turn: legal play. Off-turn: exact-match interrupt
       // candidate (color+kind+value). Both cases use the same highlight so
       // players can SEE the card they may tap to take the lead.
-      const isInterrupt = !isMyTurn && topCard != null && card.color === topCard.color && card.kind === topCard.kind && card.value === topCard.value && card.color !== 'wild' && state.pendingDraw === 0
+      // During an active Take2 chain, only an identical DrawTwo may extend it.
+      const interruptOkUnderPenalty = state.pendingDraw === 0 || card.kind === 'draw_two'
+      const isInterrupt = !isMyTurn && topCard != null && card.color === topCard.color && card.kind === topCard.kind && card.value === topCard.value && card.color !== 'wild' && interruptOkUnderPenalty
       const isPlayable = (isMyTurn && topCard != null && _canPlayCard(card, topCard, activeColor)) || isInterrupt
       const { x: cardX, y: handY, rotation } = slots[i]
       // Playable cards are lifted slightly so they stand out even before hover

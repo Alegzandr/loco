@@ -781,11 +781,21 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 	if r.State.LastPlayBy == playerIndex {
 		return errors.New("you just played; cannot interrupt yourself")
 	}
-	if r.State.PendingDraw > 0 {
-		return errors.New("cannot interrupt while a draw penalty is active")
+	// Rule: a player whose normal turn is active must use play_card, not the
+	// interrupt path. Interjecting is reserved for non-current players.
+	if r.State.CurrentTurn == playerIndex {
+		return errors.New("it is your turn; play normally instead of interrupting")
 	}
 	if first.IsWild() {
+		// Black/wild cards have no fixed color identity and can never be
+		// interjected (Wild, WildDrawFour, GlobalSwitch).
 		return errors.New("wild cards cannot be used to interrupt")
+	}
+	// Rule: during an active Take2 chain, interjection is only permitted with
+	// an identical DrawTwo, which extends the chain from the interjecter's seat.
+	// All other interjects must wait for the pending penalty to resolve.
+	if r.State.PendingDraw > 0 && first.Kind != DrawTwo {
+		return errors.New("cannot interrupt active draw chain except with an identical DrawTwo")
 	}
 	if first.Kind == Swap || first.Kind == GlobalSwitch {
 		// Swap is a colored card, but allowing batch + interrupt with Swap creates
@@ -891,6 +901,9 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	next := r.State.ApplyEffect(card, chosenColor)
 	r.State.HasDrawn = false
 	r.State.CurrentTurn = next
+	// Counter is also an interruptable play; arm the window so a third party
+	// can stack another identical DrawTwo on top.
+	r.State.armInterruptWindow(playerIndex)
 	return nil
 }
 
