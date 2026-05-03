@@ -24,13 +24,13 @@ func main() {
 		stats := h.GetStats()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(stats)
+		_ = json.NewEncoder(w).Encode(stats)
 	})
 	http.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		m := h.GetMetrics()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(m)
+		_ = json.NewEncoder(w).Encode(m)
 	})
 
 	srv := &http.Server{

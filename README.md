@@ -25,7 +25,9 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 | Bundler   | **Vite**                | Near-instant dev server, fast HMR                                     |
 | Rendering | **React + Framer Motion** | DOM-based card rendering with declarative motion-driven animations    |
 | State     | **Zustand**             | Minimal, fast React global state without boilerplate                  |
+| Validation| **Zod**                 | Runtime schema for inbound `ServerMsg`; static types are inferred from it (no Go↔TS type drift) |
 | Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest integrates natively with Vite             |
+| Lint      | **ESLint** + **golangci-lint** | Catches dead code / unchecked errors before CI                 |
 | Infra     | **Docker + Compose**    | Reproducible builds, simple one-command local run                     |
 
 ---
@@ -189,12 +191,15 @@ Copy `.env.example` to `.env` and adjust as needed.
 
 ## Test Commands
 
+> Shortcut: `make test` runs server + client tests, `make lint` runs both linters, `make help` lists all targets. Targets are docker-first so a host Go install isn't required.
+
 ### Backend (Go)
 
 ```bash
 cd server
 go test ./...           # all tests
 go test ./game/... -v   # domain tests with verbose output
+golangci-lint run ./... # static analysis (or: make lint-server, runs in docker)
 ```
 
 ### Frontend (Vitest + ESLint)

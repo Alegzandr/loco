@@ -14,6 +14,14 @@ variables:
 # Test jobs — run on every push, no Docker/registry required
 # ──────────────────────────────────────────────────────────────────
 
+backend_lint:
+  stage: test
+  image: golangci/golangci-lint:v1.64-alpine
+  tags:
+    - devops
+  script:
+    - cd server && golangci-lint run ./...
+
 backend_test:
   stage: test
   image: golang:1.24.7-alpine

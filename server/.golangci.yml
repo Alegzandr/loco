@@ -1,0 +1,25 @@
+# Minimal config: enable a useful default set without drowning the codebase
+# in style nits. Add linters here only when they catch a real bug we hit.
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck      # unchecked errors
+    - govet         # suspicious constructs
+    - ineffassign   # ineffective assignments
+    - staticcheck   # broad set of correctness checks
+    - unused        # dead code
+    - gosimple      # simplifications
+    - misspell      # typos in comments/strings
+    - unconvert     # redundant type conversions
+    - bodyclose     # http response body left unclosed
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - bodyclose

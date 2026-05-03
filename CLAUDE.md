@@ -223,7 +223,16 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - Client: ESLint v9 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
 - Rules: `@typescript-eslint/recommended`, `react-hooks`, `react-refresh`. `no-unused-vars: error` — prefix `_` to silence.
 - CI: lint runs before tests.
-- Server: `go vet` (implicit via `go test`).
+- Server: `golangci-lint` (`server/.golangci.yml`) — errcheck, govet, ineffassign, staticcheck, unused, gosimple, misspell, unconvert, bodyclose. CI job `backend_lint` uses `golangci/golangci-lint:v1.64-alpine`. Run locally via `make lint-server` (docker, no host Go required).
+
+## Protocol validation (client)
+- `client/src/types/protocolSchemas.ts` defines Zod schemas for inbound `ServerMsg`. `client/src/types/protocol.ts` infers `CardDTO`/`PlayerDTO`/`GameStateDTO`/`ServerMsg`/etc. from the schemas — single source of truth.
+- `useWebSocket` runs `serverMsgSchema.safeParse` on every WS payload. In dev: invalid → log + drop (surfaces Go↔TS drift in tests). In prod: log + pass through (forward-compat with new server fields).
+- `ClientMsg` stays hand-typed (we control what we send).
+- When you change `server/protocol/messages.go`: update `protocolSchemas.ts` for any inbound shape changes (inferred types follow). `client/src/test/protocolSchemas.test.ts` exercises the schema.
+
+## Makefile
+- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them.
 
 ## Player bubble (`<PlayerSlot />`)
 - 172×66 pill positioned via `opponentBubblePositions(...)` (upper arc, clockwise from local seat).

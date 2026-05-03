@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { ClientMsg, ServerMsg } from '../types/protocol'
+import { serverMsgSchema } from '../types/protocolSchemas'
 
 type MessageHandler = (msg: ServerMsg) => void
 // Returns the message to send on reconnect, or null if not in an active session.
@@ -65,12 +66,24 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
     }
 
     ws.onmessage = (e) => {
+      let raw: unknown
       try {
-        const msg: ServerMsg = JSON.parse(e.data)
-        onMessageRef.current(msg)
+        raw = JSON.parse(e.data)
       } catch {
-        console.error('Failed to parse server message', e.data)
+        console.error('Failed to parse server message JSON', e.data)
+        return
       }
+      const result = serverMsgSchema.safeParse(raw)
+      if (!result.success) {
+        // In dev this surfaces protocol drift between Go and TS immediately;
+        // in prod we still pass the raw payload through so a single new field
+        // doesn't take the client offline (forward-compat).
+        console.error('Server message failed schema validation', result.error.issues, raw)
+        if (import.meta.env.DEV) return
+        onMessageRef.current(raw as ServerMsg)
+        return
+      }
+      onMessageRef.current(result.data)
     }
 
     ws.onerror = (e) => console.error('WebSocket error', e)

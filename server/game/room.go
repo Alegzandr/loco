@@ -497,9 +497,7 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 		}
 	}
 	chosenColor = resolveChosenColor(first, chosenColor)
-	for _, c := range cards {
-		r.State.Discard = append(r.State.Discard, c)
-	}
+	r.State.Discard = append(r.State.Discard, cards...)
 
 	r.State.updateLastCardState(playerIndex)
 	for _, c := range cards {
@@ -837,9 +835,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 			return err
 		}
 	}
-	for _, c := range cards {
-		r.State.Discard = append(r.State.Discard, c)
-	}
+	r.State.Discard = append(r.State.Discard, cards...)
 
 	for _, c := range cards {
 		cc := c
