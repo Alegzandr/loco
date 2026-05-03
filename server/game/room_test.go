@@ -955,6 +955,73 @@ func TestRoom_GlobalSwitch_AlwaysPlayable(t *testing.T) {
 	}
 }
 
+// Per rules.md §11.1: if the actor empties their hand by playing Swap,
+// the round ends immediately and the swap is aborted (the actor must not
+// receive the opponent's hand and lose the win).
+func TestRoom_SwapAsLastCard_EndsRoundWithoutSwapping(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	swapCard := Card{Color: Red, Kind: Swap}
+	r.State.Hands[0].Cards = []Card{swapCard}
+	r.State.Hands[1].Cards = []Card{
+		{Color: Blue, Kind: Skip},
+		{Color: Green, Kind: Number, Value: 7},
+	}
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 3}}
+	r.State.ActiveColor = Red
+
+	if err := r.PlayCard(0, swapCard, Red, 1); err != nil {
+		t.Fatalf("PlayCard Swap as last card: %v", err)
+	}
+	if !r.RoundEnded {
+		t.Fatal("playing last card (Swap) must end the round")
+	}
+	if r.Winner != r.Players[0].Nickname {
+		t.Errorf("Winner = %q, want %q", r.Winner, r.Players[0].Nickname)
+	}
+	if got := len(r.State.Hands[0].Cards); got != 0 {
+		t.Errorf("actor hand size = %d, want 0 (swap aborted)", got)
+	}
+	if got := len(r.State.Hands[1].Cards); got != 2 {
+		t.Errorf("opponent hand size = %d, want 2 (swap aborted)", got)
+	}
+}
+
+// Per rules.md §11.1 (analogous to Swap): if the actor empties their hand
+// by playing GlobalSwitch, the round ends immediately and the rotation is
+// aborted.
+func TestRoom_GlobalSwitchAsLastCard_EndsRoundWithoutRotating(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Hands[0].Cards = []Card{gsCard}
+	r.State.Hands[1].Cards = []Card{{Color: Green, Kind: Number, Value: 3}}
+	r.State.Hands[2].Cards = []Card{
+		{Color: Yellow, Kind: Skip},
+		{Color: Red, Kind: DrawTwo},
+	}
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.ActiveColor = Red
+	r.State.Direction = 1
+
+	if err := r.PlayCard(0, gsCard, Wild, -1); err != nil {
+		t.Fatalf("PlayCard GlobalSwitch as last card: %v", err)
+	}
+	if !r.RoundEnded {
+		t.Fatal("playing last card (GlobalSwitch) must end the round")
+	}
+	if r.Winner != r.Players[0].Nickname {
+		t.Errorf("Winner = %q, want %q", r.Winner, r.Players[0].Nickname)
+	}
+	if got := len(r.State.Hands[0].Cards); got != 0 {
+		t.Errorf("actor hand size = %d, want 0 (rotation aborted)", got)
+	}
+	if got := len(r.State.Hands[1].Cards); got != 1 {
+		t.Errorf("p1 hand size = %d, want 1 (rotation aborted)", got)
+	}
+	if got := len(r.State.Hands[2].Cards); got != 2 {
+		t.Errorf("p2 hand size = %d, want 2 (rotation aborted)", got)
+	}
+}
+
 // --- Draw stack regression tests ---
 
 // TestPenaltyDraw_ConsumesStack verifies that DrawCard when PendingDraw > 0
@@ -1396,6 +1463,96 @@ func TestRoom_InterruptPlay_EmptiesHand_EndsRound(t *testing.T) {
 	}
 	if r.Scores[1] != 0 || r.Scores[0] != 0 {
 		t.Error("non-winners must score 0 this round")
+	}
+}
+
+// Interjecting a Swap must remove the played card from the interjecter's
+// hand BEFORE the hand exchange. Previously the swap happened first, after
+// which Remove() looked for the card in the swapped-in opponent hand and
+// failed (since Swap is one-per-color, no duplicates).
+func TestRoom_InterruptPlay_Swap_RemovesBeforeSwapping(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Swap}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+
+	swap := Card{Color: Red, Kind: Swap}
+	// carol(2) has the matching Red Swap plus two other cards.
+	carolOther1 := Card{Color: Blue, Kind: Number, Value: 4}
+	carolOther2 := Card{Color: Green, Kind: Skip}
+	r.State.Hands[2].Cards = []Card{swap, carolOther1, carolOther2}
+	// bob (the swap target chosen by carol) has a known hand we can identify post-swap.
+	bobHand := []Card{
+		{Color: Yellow, Kind: Number, Value: 1},
+		{Color: Yellow, Kind: Number, Value: 2},
+		{Color: Yellow, Kind: Number, Value: 3},
+	}
+	r.State.Hands[1].Cards = append([]Card{}, bobHand...)
+
+	if err := r.InterruptPlay(2, swap, 1); err != nil {
+		t.Fatalf("InterruptPlay Swap: %v", err)
+	}
+	// Top discard is the Red Swap.
+	top := r.State.Discard[len(r.State.Discard)-1]
+	if top != swap {
+		t.Errorf("top discard = %+v, want %+v", top, swap)
+	}
+	// carol now holds bob's original hand (3 cards), NOT including the played Swap.
+	if got := len(r.State.Hands[2].Cards); got != len(bobHand) {
+		t.Fatalf("carol hand size after interject swap = %d, want %d", got, len(bobHand))
+	}
+	for i, c := range bobHand {
+		if r.State.Hands[2].Cards[i] != c {
+			t.Errorf("carol hand[%d] = %+v, want %+v (bob's old hand)", i, r.State.Hands[2].Cards[i], c)
+		}
+	}
+	// bob now holds carol's remaining 2 cards (Swap was removed before swap).
+	if got := len(r.State.Hands[1].Cards); got != 2 {
+		t.Fatalf("bob hand size after interject swap = %d, want 2", got)
+	}
+	wantBob := []Card{carolOther1, carolOther2}
+	for i, c := range wantBob {
+		if r.State.Hands[1].Cards[i] != c {
+			t.Errorf("bob hand[%d] = %+v, want %+v (carol's old non-Swap cards)", i, r.State.Hands[1].Cards[i], c)
+		}
+	}
+}
+
+// Interjecting a Swap as the actor's last card must end the round
+// (actor wins) and abort the hand exchange — same shape as the Swap
+// edge case in PlayCard (rules.md §13).
+func TestRoom_InterruptPlay_SwapAsLastCard_EndsRoundWithoutSwapping(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1 // bob's turn
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Swap}}
+	r.State.PendingDraw = 0
+	armInterrupt(r, 0)
+
+	swap := Card{Color: Red, Kind: Swap}
+	r.State.Hands[2].Cards = []Card{swap} // carol's only card
+	bobHandBefore := []Card{
+		{Color: Yellow, Kind: Number, Value: 1},
+		{Color: Yellow, Kind: Number, Value: 2},
+	}
+	r.State.Hands[1].Cards = append([]Card{}, bobHandBefore...)
+
+	if err := r.InterruptPlay(2, swap, 1); err != nil {
+		t.Fatalf("InterruptPlay last-card swap: %v", err)
+	}
+	if !r.RoundEnded {
+		t.Fatal("interjecting Swap as last card must end the round")
+	}
+	if r.Winner != "carol" {
+		t.Errorf("round winner = %q, want carol", r.Winner)
+	}
+	if got := len(r.State.Hands[2].Cards); got != 0 {
+		t.Errorf("carol hand size = %d, want 0 (swap aborted)", got)
+	}
+	if got := len(r.State.Hands[1].Cards); got != len(bobHandBefore) {
+		t.Errorf("bob hand size = %d, want %d (swap aborted)", got, len(bobHandBefore))
 	}
 }
 

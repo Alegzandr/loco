@@ -388,15 +388,8 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		return errors.New("illegal card play")
 	}
 
-	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
-		return err
-	}
-
-	if !card.IsWild() {
-		chosenColor = card.Color
-	}
-
-	// Validate and apply Swap / GlobalSwitch hand effects.
+	// Validate Swap target before any state mutation so an invalid request
+	// can't half-apply (card removed but swap rejected).
 	n := len(r.State.Hands)
 	if card.Kind == Swap {
 		if chosenPlayer < 0 || chosenPlayer >= n {
@@ -405,9 +398,33 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		if chosenPlayer == playerIndex {
 			return errors.New("cannot swap with yourself")
 		}
+	}
+
+	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
+		return err
+	}
+
+	if !card.IsWild() {
+		chosenColor = card.Color
+	}
+
+	r.State.Discard = append(r.State.Discard, card)
+	c := card
+	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
+
+	// Per rules.md §11.1: if the actor empties their hand by playing Swap or
+	// GlobalSwitch, the round ends immediately — the hand-rearranging effect
+	// is aborted. The win check must run before the swap/rotation, otherwise
+	// the actor would receive opponent cards and the win would not register.
+	if r.State.Hands[playerIndex].Size() == 0 {
+		r.finishRoundWin(playerIndex, chosenColor)
+		return nil
+	}
+
+	// Apply Swap / GlobalSwitch hand effects only when the actor still has cards.
+	if card.Kind == Swap {
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if card.Kind == GlobalSwitch {
-		// Pass each hand to the next player in the current direction.
 		newHands := make([]Hand, n)
 		for i := range newHands {
 			from := ((i-r.State.Direction)%n + n) % n
@@ -416,18 +433,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		r.State.Hands = newHands
 	}
 
-	r.State.Discard = append(r.State.Discard, card)
-
 	r.State.updateLastCardState(playerIndex)
-
-	c := card
-	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
-
-	// Round ends when a player empties their hand: that player wins the round.
-	if r.State.Hands[playerIndex].Size() == 0 {
-		r.finishRoundWin(playerIndex, chosenColor)
-		return nil
-	}
 
 	next := r.State.ApplyEffect(card, chosenColor)
 	r.State.HasDrawn = false
@@ -818,12 +824,14 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 		return errors.New("interrupt card must exactly match the top discard card")
 	}
 
+	// Validate Swap target up front; defer the actual hand exchange until
+	// after the played card has been removed from the interjecter's hand
+	// (otherwise Remove() would search the swapped-in opponent hand and fail).
 	n := len(r.State.Hands)
 	if first.Kind == Swap {
 		if chosenPlayer < 0 || chosenPlayer >= n || chosenPlayer == playerIndex {
 			return fmt.Errorf("invalid chosen_player %d for swap", chosenPlayer)
 		}
-		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	}
 
 	for i := 0; i < len(cards); i++ {
@@ -835,17 +843,24 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 		r.State.Discard = append(r.State.Discard, c)
 	}
 
-	r.State.updateLastCardState(playerIndex)
-
 	for _, c := range cards {
 		cc := c
 		r.State.logEvent(EventCardPlayed, playerIndex, &cc, first.Color)
 	}
 
+	// Per rules.md §13: a round-ending interject (actor empties their hand)
+	// aborts the Swap effect — the actor wins before the hand exchange.
 	if r.State.Hands[playerIndex].Size() == 0 {
 		r.finishRoundWin(playerIndex, first.Color)
 		return nil
 	}
+
+	// Apply Swap hand exchange now that the played card has been removed.
+	if first.Kind == Swap {
+		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
+	}
+
+	r.State.updateLastCardState(playerIndex)
 
 	// Lead transfers: interrupter becomes current player, then apply the
 	// played card's effect from their seat (advances turn / sets penalty / flips dir).

@@ -74,6 +74,55 @@ func TestNewDeck_SwapIsColored(t *testing.T) {
 	}
 }
 
+func TestNewDeck_FullCompositionBreakdown(t *testing.T) {
+	// Exact per-kind composition of the 112-card deck per docs/rules.md §2.
+	// Number: 72 (4 colors × 9 values × 2 copies)
+	// Skip / Reverse / DrawTwo: 8 each (4 colors × 2 copies)
+	// Swap: 4 (1 per color, colored)
+	// GlobalSwitch / Wild / WildDrawFour: 4 each (LOCO §14.1: GlobalSwitch is wild)
+	d := NewDeck()
+	counts := map[Kind]int{}
+	for _, c := range d.Cards {
+		counts[c.Kind]++
+	}
+	want := map[Kind]int{
+		Number:       72,
+		Skip:         8,
+		Reverse:      8,
+		DrawTwo:      8,
+		Swap:         4,
+		GlobalSwitch: 4,
+		WildCard:     4,
+		WildDrawFour: 4,
+	}
+	total := 0
+	for kind, n := range want {
+		if counts[kind] != n {
+			t.Errorf("kind %v count = %d, want %d", kind, counts[kind], n)
+		}
+		total += n
+	}
+	if total != 112 {
+		t.Fatalf("expected counts sum = %d, want 112", total)
+	}
+
+	// Per-color, per-value Number distribution: each (color, value) appears exactly twice.
+	numByCV := map[[2]int]int{}
+	for _, c := range d.Cards {
+		if c.Kind != Number {
+			continue
+		}
+		numByCV[[2]int{int(c.Color), c.Value}]++
+	}
+	for _, col := range []Color{Red, Yellow, Green, Blue} {
+		for v := 1; v <= 9; v++ {
+			if got := numByCV[[2]int{int(col), v}]; got != 2 {
+				t.Errorf("Number %v %d count = %d, want 2", col, v, got)
+			}
+		}
+	}
+}
+
 func TestDeck_Shuffle(t *testing.T) {
 	d1 := NewDeck()
 	d2 := NewDeck()

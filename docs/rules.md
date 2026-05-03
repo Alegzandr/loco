@@ -178,3 +178,35 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Round ends on last card played
 - [ ] Scoring: correct point values, configurable mode/threshold
 - [ ] 2-player: Change Direction = Miss a Turn behavior
+
+## 13. Swap / GlobalSwitch as Last Card
+
+If the actor empties their hand by playing Swap or Change Cards All Round
+(GlobalSwitch), the **round ends immediately** and the hand-rearranging
+effect is **aborted** — the actor wins. Implementation must check for an
+empty actor hand *before* performing the swap or rotation; otherwise the
+actor receives the opponent's hand and the win is lost.
+
+## 14. LOCO Deviations from Original SOLO Rules
+
+LOCO is based on the SOLO card game but introduces the following intentional rule changes:
+
+### 14.1 Change Cards All Round is a Wild Card
+**SOLO rule**: "Change Cards All Round" is a colored card (one per color) and follows standard matching rules (must match by color or symbol).
+**LOCO rule**: "Change Cards All Round" is a wild card (4 copies, no color). It can be played on any card at any time during your turn, like Choose a Colour.
+**Rationale**: Simplifies gameplay. Avoids situations where the card is stuck in hand with no matching color.
+
+### 14.2 Starting Card is Always a Number
+**SOLO rule**: The top card of the draw pile is flipped to start the discard pile, even if it's an action card. If it's an action card, its effect applies to the first player.
+**LOCO rule**: Action and wild cards are skipped during setup. The starting discard card is always a number card.
+**Rationale**: Avoids confusing edge cases on the very first turn (e.g., a Take 4 before anyone has played, or a Swap with no game context).
+
+### 14.3 Best-of-N Format Instead of Point Threshold
+**SOLO rule**: Points accumulate across rounds. The game ends when a player reaches 600 points (English edition). The player with the most points wins.
+**LOCO rule**: The game uses a Best-of-N format (BO1, BO3, BO5, or BO7). The first player to win the majority of rounds wins the game.
+**Rationale**: Better suited for online play — provides a predictable game length and clear progress toward the finish.
+
+### 14.4 Voluntary Draw is Allowed
+**SOLO rule**: A player may only draw from the draw pile if they have no playable card in hand.
+**LOCO rule**: A player may choose to draw one card from the draw pile even if they hold a playable card (still limited to one draw per turn).
+**Rationale**: Adds strategic depth — players can sacrifice their turn to improve their hand. This also matches UNO official rules.

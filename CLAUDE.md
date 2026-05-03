@@ -9,6 +9,13 @@ Premium real-time multiplayer UNO-style card game. Goals: low-latency multiplaye
 - Real-time reaction/counter mechanics, Dockerization, and TDD are mandatory.
 - `README.md` and `CLAUDE.md` must stay in sync with the codebase.
 
+## LOCO deviations from original SOLO rules
+Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
+1. **GlobalSwitch (Change Cards All Round) is wild** — 4 copies, no color, plays on anything. SOLO has it as colored 1-per-color. Implemented in `game/deck.go` (4 wild copies) and `game/card.go` `IsWild()`. Rationale: simpler, avoids dead cards.
+2. **Starting card is always a Number** — `dealRound` skips action/wild cards until a Number is found (`game/room.go`). SOLO applies the starting action's effect to the first player. Rationale: avoids first-turn ambiguity (Take 4 with no context, Swap with empty game state).
+3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`). Game ends when one player wins the majority of rounds. Rationale: predictable online game length.
+4. **Voluntary draw is allowed** — current player may draw even with a playable card in hand (still 1 draw max per turn). `Room.DrawCard` only enforces `HasDrawn` to prevent a second draw. Rationale: strategic depth; matches UNO official rules.
+
 ## Workflow loop
 1. Understand behavior → 2. Tests first (non-trivial) → 3. Smallest correct change → 4. Run tests → 5. Update `README.md` if setup/commands/architecture/features/limits/env/dev/test changed → 6. Update `CLAUDE.md` if workflow/architecture/conventions/testing/DoD/structure changed.
 
@@ -82,7 +89,7 @@ Update this section when structure changes.
 ---
 
 ## Scoring & match system
-- `CardValue(c Card) int` (`game/card.go`): Number=face; Skip/Reverse/DrawTwo/Swap=20; Wild/WildDrawFour/GlobalSwitch=50.
+- `CardValue(c Card) int` (`game/card.go`): Number=face; Reverse=10; Skip=20; DrawTwo=30; Swap=30; GlobalSwitch=40; WildCard=40; WildDrawFour=50. Matches `docs/rules.md` §10.
 - **Single-finisher round**: ends when any player empties hand. Winner: `Room.Winner`, `Room.RoundsWon[winnerIdx]++`, scores sum of opponents' remaining values. Others score 0; their hand value adds to `Room.LostHandTotal[i]` (tiebreaker only). No in-round spectating, placements, `Finished[]`, or `Placements[]`.
 - `Room.endRound(winnerIdx)` finalises scoring, sets `RoundEnded=true`. Does NOT deal next round — hub calls `Room.BeginNextRound()` AFTER broadcasting `card_played` and `round_end` (otherwise the round-winning `card_played` reads the new round's discard top).
 - Scores accumulate in `Room.Scores []int`. `Room.MatchOver`/`MatchWinner` indicate completion (resolved in `endRound`).
