@@ -1,88 +1,82 @@
 .roundSummary {
   position: absolute;
   inset: 0;
-  background: rgba(6, 8, 18, 0.88);
-  backdrop-filter: blur(8px);
+  background: var(--color-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 30;
   animation: fadeIn 0.2s ease-out forwards;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
 }
 
 .roundSummaryCard {
-  background: rgba(15, 20, 35, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 20px;
-  padding: 2rem;
-  color: #e2e8f0;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-xl);
+  color: var(--color-ink);
   min-width: 320px;
   max-width: 480px;
   width: 90vw;
   text-align: center;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.6);
+  gap: var(--space-md);
+  box-shadow: var(--shadow-float);
   animation: slideUp 0.3s ease-out forwards;
 }
 
 .roundSummaryTitle {
-  font-size: 1.35rem;
-  font-weight: 900;
-  color: #ffd93d;
-  letter-spacing: -0.01em;
+  font: 700 21px/1.43 var(--font-display);
+  color: var(--color-ink);
 }
 
 .roundSummaryWinner {
-  font-size: 1rem;
-  color: #718096;
-  font-weight: 600;
+  font: 400 16px/1.5 var(--font-display);
+  color: var(--color-muted);
 }
 
 .roundScoreTable {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  border-radius: 12px;
+  gap: var(--space-xs);
+  border-radius: var(--radius-md);
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.02);
-  padding: 0.5rem;
+  background: var(--color-surface-soft);
+  padding: var(--space-sm);
 }
 
 .roundScoreHeader {
   display: grid;
   grid-template-columns: auto 1fr auto auto auto;
-  gap: 0.5rem;
-  padding: 0.3rem 0.5rem;
-  font-size: 0.7rem;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  font: 700 12px/1.33 var(--font-display);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #2d3748;
-  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
 }
 
 .roundScoreRow {
   display: grid;
   grid-template-columns: auto 1fr auto auto auto;
-  gap: 0.5rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: 8px;
-  font-size: 0.85rem;
-  background: rgba(255, 255, 255, 0.02);
-  transition: background 0.15s;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  font: 400 14px/1.43 var(--font-display);
+  background: var(--color-canvas);
 }
 
 .roundScoreRowWinner {
-  background: rgba(255, 217, 61, 0.06);
-  border: 1px solid rgba(255, 217, 61, 0.12);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-primary);
 }
 
 .roundScorePlacement {
-  color: #4a5568;
-  font-weight: 700;
-  font-size: 0.75rem;
+  color: var(--color-muted);
+  font-weight: 600;
+  font-size: 13px;
   min-width: 2.5rem;
   text-align: left;
 }
@@ -90,94 +84,88 @@
 .roundScoreName {
   font-weight: 600;
   text-align: left;
+  color: var(--color-ink);
 }
 
 .roundScoreDelta {
-  color: #4d96ff;
-  font-weight: 700;
+  color: var(--color-muted);
+  font-weight: 500;
   min-width: 3.5rem;
   text-align: right;
 }
 
 .roundScoreTotal {
-  color: #ffd93d;
+  color: var(--color-ink);
   font-weight: 700;
   min-width: 3rem;
   text-align: right;
 }
 
 .roundScoreWins {
-  color: #4a5568;
-  font-weight: 600;
+  color: var(--color-muted);
+  font-weight: 500;
   min-width: 2.5rem;
   text-align: right;
 }
 
 .matchProgress {
-  margin-top: 0.25rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  padding-top: 0.75rem;
+  margin-top: var(--space-xs);
+  border-top: 1px solid var(--color-hairline-soft);
+  padding-top: var(--space-md);
 }
 
 .matchProgressTitle {
-  font-size: 0.7rem;
-  color: #2d3748;
+  font: 700 12px/1.33 var(--font-display);
+  color: var(--color-muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-sm);
 }
 
 .scoreboard {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: var(--space-xs);
 }
 
 .scoreRow {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.35rem 0.6rem;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 8px;
-  font-size: 0.85rem;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-sm);
+  font: 400 14px/1.43 var(--font-display);
 }
 
 .scoreName {
   font-weight: 600;
+  color: var(--color-ink);
 }
 
 .scoreVal {
-  color: #ffd93d;
+  color: var(--color-ink);
   font-weight: 700;
 }
 
 .btnContinue {
-  margin-top: 0.5rem;
-  padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #4d96ff, #3b82f6);
-  color: #fff;
+  margin-top: var(--space-sm);
+  padding: 14px 24px;
+  height: 48px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   border: none;
-  border-radius: 12px;
-  font-size: 0.95rem;
-  font-weight: 700;
+  border-radius: var(--radius-sm);
+  font: 500 16px/1.25 var(--font-display);
   cursor: pointer;
-  min-height: 44px;
+  min-height: 48px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: filter 0.12s, transform 0.08s;
-  box-shadow: 0 4px 12px rgba(77, 150, 255, 0.25);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  transition: background 0.15s;
 }
 
 .btnContinue:hover {
-  filter: brightness(1.12);
-  transform: translateY(-1px);
-}
-
-.btnContinue:active {
-  transform: scale(0.97);
+  background: var(--color-primary-active);
 }
 
 @keyframes fadeIn {
@@ -192,11 +180,11 @@
 
 @media (max-width: 480px) {
   .roundSummaryCard {
-    padding: 1.25rem;
+    padding: var(--space-lg);
   }
 
   .roundScoreHeader,
   .roundScoreRow {
-    font-size: 0.8rem;
+    font-size: 13px;
   }
 }

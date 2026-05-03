@@ -3,11 +3,12 @@
   width: 72px;
   height: 108px;
   border-radius: 10px;
-  background: #1a1a3e;
-  border: 1.5px solid #2a2a5e;
+  background: var(--card-back-bg);
+  border: 1.5px solid var(--card-back-border);
   box-sizing: border-box;
   flex-shrink: 0;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: var(--font-display);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .inner {
@@ -17,8 +18,8 @@
   left: 8%;
   right: 8%;
   border-radius: 5px;
-  background: #22224a;
-  border: 1px solid #33336a;
+  background: var(--card-back-inner);
+  border: 1px solid var(--card-back-inner-border);
 }
 
 .monogram {
@@ -27,8 +28,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
-  color: #4d96ff;
-  opacity: 0.4;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--card-back-mono);
+  opacity: 0.9;
   pointer-events: none;
 }

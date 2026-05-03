@@ -1,0 +1,23 @@
+.toggle {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-hairline);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--font-display);
+  line-height: 1;
+}
+
+.toggle:hover {
+  background: var(--color-surface-soft);
+  border-color: var(--color-border-strong);
+}

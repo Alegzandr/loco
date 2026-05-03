@@ -1,0 +1,147 @@
+/*
+ * Loco design tokens — sourced from DESIGN.md (Airbnb alpha).
+ * Single source of truth for colors, type, spacing, radii, elevation.
+ * Card-face suit colors live in components/cards/Card.module.css and are
+ * NOT brand tokens — they encode gameplay semantics.
+ *
+ * Light is the default theme (matches DESIGN.md). Dark mode overrides the
+ * surface and text tokens via [data-theme="dark"] on the root element.
+ */
+
+:root {
+  /* Brand & accent — stable across themes */
+  --color-primary: #ff385c;
+  --color-primary-active: #e00b41;
+  --color-primary-disabled: #ffd1da;
+  --color-luxe: #460479;
+  --color-plus: #92174d;
+
+  /* Surface (light) */
+  --color-canvas: #ffffff;
+  --color-surface-soft: #f7f7f7;
+  --color-surface-card: #ffffff;
+  --color-surface-strong: #f2f2f2;
+
+  /* Hairlines & borders (light) */
+  --color-hairline: #dddddd;
+  --color-hairline-soft: #ebebeb;
+  --color-border-strong: #c1c1c1;
+
+  /* Text (light) */
+  --color-ink: #222222;
+  --color-body: #3f3f3f;
+  --color-muted: #6a6a6a;
+  --color-muted-soft: #929292;
+  --color-on-primary: #ffffff;
+  --color-on-dark: #ffffff;
+  --color-star-rating: #222222;
+
+  /* Semantic */
+  --color-error: #c13515;
+  --color-error-hover: #b32505;
+  --color-legal-link: #428bff;
+  --color-scrim: rgba(0, 0, 0, 0.5);
+
+  /* Card back tokens (light) */
+  --card-back-bg: #ffffff;
+  --card-back-border: #ffd1da;
+  --card-back-inner: #fff5f7;
+  --card-back-inner-border: #ffd1da;
+  --card-back-mono: #ff385c;
+
+  /* Type — Cereal VF unavailable; Inter is documented substitute */
+  --font-display: 'Airbnb Cereal VF', 'Circular', 'Inter', -apple-system, system-ui, Roboto, 'Helvetica Neue', sans-serif;
+  --font-body: var(--font-display);
+
+  /* Radii */
+  --radius-none: 0;
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 32px;
+  --radius-full: 9999px;
+
+  /* Spacing */
+  --space-xxs: 2px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-base: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-xxl: 48px;
+  --space-section: 64px;
+
+  /* Single elevation tier */
+  --shadow-float:
+    rgba(0, 0, 0, 0.02) 0 0 0 1px,
+    rgba(0, 0, 0, 0.04) 0 2px 6px 0,
+    rgba(0, 0, 0, 0.1) 0 4px 8px 0;
+
+  /* Touch */
+  --touch-target: 48px;
+}
+
+/*
+ * Dark theme — Airbnb does not ship a public dark mode, so this is an
+ * extrapolation: keep Rausch as the brand voltage, invert surface/text,
+ * lift hairlines just enough to read against deep neutrals.
+ */
+[data-theme="dark"] {
+  --color-canvas: #131418;
+  --color-surface-soft: #1c1d22;
+  --color-surface-card: #1c1d22;
+  --color-surface-strong: #26272d;
+
+  --color-hairline: #34353c;
+  --color-hairline-soft: #2a2b30;
+  --color-border-strong: #4a4b53;
+
+  --color-ink: #f5f5f5;
+  --color-body: #d6d6d6;
+  --color-muted: #a0a0a8;
+  --color-muted-soft: #7a7a82;
+  --color-on-dark: #ffffff;
+  --color-star-rating: #f5f5f5;
+
+  --color-scrim: rgba(0, 0, 0, 0.7);
+
+  /* Card back (dark) — keep cream tone so backs remain warm/readable */
+  --card-back-bg: #1c1d22;
+  --card-back-border: #4a2330;
+  --card-back-inner: #2a1820;
+  --card-back-inner-border: #4a2330;
+  --card-back-mono: #ff5c7a;
+
+  --shadow-float:
+    rgba(255, 255, 255, 0.04) 0 0 0 1px,
+    rgba(0, 0, 0, 0.4) 0 2px 6px 0,
+    rgba(0, 0, 0, 0.6) 0 4px 12px 0;
+}
+
+html, body, #root {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition: background-color 0.2s ease;
+}
+
+/* Typography utility classes */
+.t-display-xl { font: 700 28px/1.43 var(--font-display); letter-spacing: 0; }
+.t-display-lg { font: 500 22px/1.18 var(--font-display); letter-spacing: -0.44px; }
+.t-display-md { font: 700 21px/1.43 var(--font-display); }
+.t-display-sm { font: 600 20px/1.2 var(--font-display); letter-spacing: -0.18px; }
+.t-title-md   { font: 600 16px/1.25 var(--font-display); }
+.t-title-sm   { font: 500 16px/1.25 var(--font-display); }
+.t-body-md    { font: 400 16px/1.5 var(--font-display); }
+.t-body-sm    { font: 400 14px/1.43 var(--font-display); }
+.t-caption    { font: 500 14px/1.29 var(--font-display); }
+.t-caption-sm { font: 400 13px/1.23 var(--font-display); }
+.t-badge      { font: 600 11px/1.18 var(--font-display); }
+.t-button-md  { font: 500 16px/1.25 var(--font-display); }
+.t-button-sm  { font: 500 14px/1.29 var(--font-display); }

@@ -13,6 +13,7 @@ import { ColorPicker } from './ColorPicker'
 import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
+import { ThemeToggle } from './ThemeToggle'
 import { clientMayInterrupt, clientMayPlay } from './interruptHelpers'
 import { GameBoard } from './cards/GameBoard'
 import styles from './GameView.module.css'
@@ -282,10 +283,13 @@ export function GameView({ onSend, wsStatus }: Props) {
         t={t}
       />
 
-      {/* Fixed Rules button — top-right corner, never shifts with action bar */}
-      <button className={styles.rulesBtn} onClick={() => setShowRules(true)}>
-        {t.rulesBtn}
-      </button>
+      {/* Fixed Rules button + theme toggle — top-right corner, never shifts with action bar */}
+      <div className={styles.topRight}>
+        <ThemeToggle />
+        <button className={styles.rulesBtn} onClick={() => setShowRules(true)}>
+          {t.rulesBtn}
+        </button>
+      </div>
 
       {/* In-game error toast */}
       {errorMsg && <div className={styles.errorToast}>{errorMsg}</div>}

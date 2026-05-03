@@ -4,6 +4,7 @@ import { ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { RulesModal } from './RulesModal'
 import { LanguageSwitcher } from './LanguageSwitcher'
+import { ThemeToggle } from './ThemeToggle'
 import styles from './Lobby.module.css'
 
 interface Props {
@@ -35,6 +36,7 @@ export function Lobby({ onSend, error, onClearError }: Props) {
     <div className={styles.container}>
       <div className={styles.topBar}>
         <LanguageSwitcher />
+        <ThemeToggle />
         <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
           {t.rulesBtn}
         </button>

@@ -1,9 +1,7 @@
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(6, 8, 18, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: var(--color-scrim);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -11,26 +9,25 @@
 }
 
 .picker {
-  background: rgba(15, 20, 35, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 20px;
-  padding: 2rem 2.5rem;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  padding: var(--space-xl) var(--space-xxl);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1.25rem;
-  color: #e2e8f0;
-  font-size: 1rem;
-  font-weight: 700;
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  min-width: 240px;
+  gap: var(--space-base);
+  color: var(--color-ink);
+  font: 600 16px/1.25 var(--font-display);
+  box-shadow: var(--shadow-float);
+  font-family: var(--font-body);
+  min-width: 280px;
 }
 
 .playerList {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: var(--space-sm);
   width: 100%;
 }
 
@@ -38,58 +35,51 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.25rem;
-  background: rgba(77, 150, 255, 0.12);
-  border: 1px solid rgba(77, 150, 255, 0.25);
-  border-radius: 12px;
-  color: #e2e8f0;
-  font-size: 0.95rem;
-  font-weight: 600;
+  padding: var(--space-md) var(--space-base);
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  font: 500 16px/1.25 var(--font-display);
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
-  min-height: 44px;
+  transition: background 0.15s, border-color 0.15s;
+  min-height: 48px;
 }
 
 .playerBtn:hover,
 .playerBtn:focus {
-  background: rgba(77, 150, 255, 0.25);
-  border-color: rgba(77, 150, 255, 0.6);
+  background: var(--color-surface-soft);
+  border-color: var(--color-ink);
   outline: none;
-  transform: translateY(-1px);
-}
-
-.playerBtn:active {
-  transform: translateY(0);
 }
 
 .handSize {
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
-  font-weight: 400;
+  font: 400 14px/1.43 var(--font-display);
+  color: var(--color-muted);
 }
 
 .cancelBtn {
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 1.25rem;
+  color: var(--color-muted);
+  font: 500 14px/1.29 var(--font-display);
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  line-height: 1;
+  padding: var(--space-xs) var(--space-sm);
+  text-decoration: underline;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: color 0.15s;
 }
 
 .cancelBtn:hover {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--color-ink);
 }
 
 @media (max-width: 480px) {
   .picker {
-    padding: 1.5rem 1.75rem;
+    padding: var(--space-lg) var(--space-xl);
     width: 90vw;
     max-width: 360px;
   }
