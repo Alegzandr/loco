@@ -126,7 +126,7 @@ func TestNewDeck_FullCompositionBreakdown(t *testing.T) {
 func TestDeck_Shuffle(t *testing.T) {
 	d1 := NewDeck()
 	d2 := NewDeck()
-	d2.Shuffle()
+	d2.Shuffle(nil)
 	same := true
 	for i := range d1.Cards {
 		if d1.Cards[i] != d2.Cards[i] {
@@ -183,7 +183,7 @@ func TestDeck_DrawN_InsufficientCards(t *testing.T) {
 
 func TestDeck_Replenish(t *testing.T) {
 	d := NewDeck()
-	d.Shuffle()
+	d.Shuffle(nil)
 	drawn, _ := d.DrawN(110)
 	discard := drawn[:109]
 	d.Replenish(discard, drawn[109])

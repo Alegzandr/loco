@@ -171,11 +171,6 @@ export default function App() {
           break
         }
 
-        case 'game_over':
-          // Legacy / BO1 fallback
-          store.setWinner(msg.winner ?? '')
-          break
-
         case 'error':
           store.setError(msg.error ?? 'Unknown error')
           break
@@ -252,7 +247,7 @@ export default function App() {
       {store.screen === 'game' && <GameView onSend={handleSend} wsStatus={wsStatus} />}
       {store.screen === 'gameover' && (
         <GameOver
-          winner={store.matchOver ? store.matchWinner : store.winner}
+          winner={store.matchWinner}
           myNickname={myNickname}
           scoreboard={store.scoreboard}
           matchOver={store.matchOver}

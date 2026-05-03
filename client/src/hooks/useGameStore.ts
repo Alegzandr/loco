@@ -40,7 +40,6 @@ interface GameStore {
   direction: number
   pendingDraw: number
   hasDrawn: boolean
-  winner: string
   errorMsg: string
   unoDeclared: boolean
   unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
@@ -78,7 +77,6 @@ interface GameStore {
   setSwapNotice: (notice: SwapNotice | null) => void
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
-  setWinner: (name: string) => void
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
   setUnoDeclaredByIndex: (idx: number) => void
@@ -156,7 +154,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
   direction: 1,
   pendingDraw: 0,
   hasDrawn: false,
-  winner: '',
   errorMsg: '',
   unoDeclared: false,
   unoDeclaredByIndex: -1,
@@ -271,7 +268,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }),
 
   setPlayers: (players) => set({ players }),
-  setWinner: (winner) => set({ winner, screen: 'gameover' }),
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),

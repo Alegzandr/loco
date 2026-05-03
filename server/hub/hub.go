@@ -573,6 +573,37 @@ func (h *Hub) handleSetMaxPlayers(c *Client, msg protocol.ClientMsg) {
 
 // --- Gameplay handlers ---
 
+// parseCardsFromMsg extracts the card(s) the player wants to play from a
+// ClientMsg. The batch field (PlayCards) takes precedence over the singular
+// Card. Returns (cards, chosenColor, ok); ok=false means an error has already
+// been sent to the client and the caller should return.
+func (h *Hub) parseCardsFromMsg(c *Client, msg protocol.ClientMsg) ([]game.Card, game.Color, bool) {
+	if len(msg.PlayCards) > 0 {
+		cards := make([]game.Card, len(msg.PlayCards))
+		var chosenColor game.Color
+		for i, dto := range msg.PlayCards {
+			card, cc, err := dtoToCard(&dto, msg.ChosenColor)
+			if err != nil {
+				c.sendError(err.Error())
+				return nil, 0, false
+			}
+			cards[i] = card
+			chosenColor = cc
+		}
+		return cards, chosenColor, true
+	}
+	if msg.Card == nil {
+		c.sendError("card required")
+		return nil, 0, false
+	}
+	card, chosenColor, err := dtoToCard(msg.Card, msg.ChosenColor)
+	if err != nil {
+		c.sendError(err.Error())
+		return nil, 0, false
+	}
+	return []game.Card{card}, chosenColor, true
+}
+
 func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
 	if !ok {
@@ -582,48 +613,31 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-
-	// Batch path: PlayCards (plural) takes precedence over singular Card.
-	if len(msg.PlayCards) > 0 {
-		cards := make([]game.Card, len(msg.PlayCards))
-		var chosenColor game.Color
-		for i, dto := range msg.PlayCards {
-			card, cc, err := dtoToCard(&dto, msg.ChosenColor)
-			if err != nil {
-				c.sendError(err.Error())
-				return
-			}
-			cards[i] = card
-			chosenColor = cc
-		}
-		if err := room.PlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
-			c.sendError(err.Error())
-			c.noteSuspect(err.Error())
-			return
-		}
-		h.broadcastCardPlayed(c.roomCode, c.playerID, room, -1)
-		h.maybeScheduleBotCatch(c.roomCode, room)
-		h.handleRoundOrMatchEnd(c.roomCode, room)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	if !ok {
 		return
 	}
 
-	if msg.Card == nil {
-		c.sendError("card required")
-		return
+	var err error
+	if len(cards) > 1 {
+		err = room.PlayCards(c.playerID, cards, chosenColor, chosenPlayer)
+	} else {
+		err = room.PlayCard(c.playerID, cards[0], chosenColor, chosenPlayer)
 	}
-	card, chosenColor, err := dtoToCard(msg.Card, msg.ChosenColor)
 	if err != nil {
-		c.sendError(err.Error())
-		return
-	}
-	if err := room.PlayCard(c.playerID, card, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
 		return
 	}
 
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
-	if card.Kind == game.Swap || card.Kind == game.GlobalSwitch {
+	// Batch plays don't carry a meaningful chosenPlayer (Swap/GlobalSwitch are
+	// excluded from batch); send -1 so card_played's swap target is omitted.
+	cpForBroadcast := chosenPlayer
+	if len(cards) > 1 {
+		cpForBroadcast = -1
+	}
+	h.broadcastCardPlayed(c.roomCode, c.playerID, room, cpForBroadcast)
+	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
 		h.broadcastPersonalizedGameState(c.roomCode, room)
 	}
 	h.maybeScheduleBotCatch(c.roomCode, room)
@@ -632,14 +646,6 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 
 func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 	if !room.RoundEnded {
-		if room.Status == game.StatusFinished {
-			// Shouldn't happen with new system, but handle defensively
-			h.broadcastToRoomAll(code, protocol.ServerMsg{
-				Type:   protocol.SMsgGameOver,
-				Winner: room.Winner,
-			})
-			return
-		}
 		h.maybeScheduleBot(code, room)
 		return
 	}
@@ -824,28 +830,8 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-
-	// Build the cards slice. PlayCards (batch) takes precedence over singular Card.
-	var cards []game.Card
-	if len(msg.PlayCards) > 0 {
-		cards = make([]game.Card, len(msg.PlayCards))
-		for i, dto := range msg.PlayCards {
-			card, _, err := dtoToCard(&dto, "")
-			if err != nil {
-				c.sendError(err.Error())
-				return
-			}
-			cards[i] = card
-		}
-	} else if msg.Card != nil {
-		card, _, err := dtoToCard(msg.Card, "")
-		if err != nil {
-			c.sendError(err.Error())
-			return
-		}
-		cards = []game.Card{card}
-	} else {
-		c.sendError("card required")
+	cards, _, ok := h.parseCardsFromMsg(c, msg)
+	if !ok {
 		return
 	}
 
@@ -1701,8 +1687,10 @@ func (h *Hub) memberClient(code string, playerID int) *Client {
 // once the threshold is reached. Bots are exempt — their timeouts are driven by
 // the scheduler, not player inactivity. Returns true if the player was kicked.
 func (h *Hub) kickIfAFK(code string, playerID int, client *Client) bool {
-	if _, isBot := h.botSlots[code][playerID]; isBot {
-		return false
+	if bots, ok := h.botSlots[code]; ok {
+		if _, isBot := bots[playerID]; isBot {
+			return false
+		}
 	}
 	if h.bumpAFK(code, playerID) < AFKKickThreshold || client == nil {
 		return false

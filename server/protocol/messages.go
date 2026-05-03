@@ -53,7 +53,6 @@ const (
 	// Round / match lifecycle
 	SMsgRoundEnd ServerMsgType = "round_end"
 	SMsgMatchEnd ServerMsgType = "match_end"
-	SMsgGameOver ServerMsgType = "game_over"
 	// Errors
 	SMsgError ServerMsgType = "error"
 )
@@ -169,9 +168,6 @@ type ServerMsg struct {
 	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 	MatchOver   bool                 `json:"match_over,omitempty"`
 	MatchWinner string               `json:"match_winner,omitempty"`
-
-	// SMsgGameOver (legacy single-round / match_over)
-	Winner string `json:"winner,omitempty"`
 
 	// SMsgLobbyConfigChanged
 	MatchFormat string `json:"match_format,omitempty"`

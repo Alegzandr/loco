@@ -66,6 +66,12 @@ export type ClientMsgType =
   | 'counter_draw'
   | 'interrupt_play'
   | 'interrupt_play_card'
+  | 'debug_set_state'
+
+export interface DebugHandOverrideDTO {
+  player_index: number
+  hand: CardDTO[]
+}
 
 export interface ClientMsg {
   type: ClientMsgType
@@ -78,6 +84,13 @@ export interface ClientMsg {
   chosen_player?: number
   match_format?: MatchFormat
   max_players?: number
+  // debug_set_state — dev/E2E only (server requires LOCO_E2E=1)
+  debug_hand?: CardDTO[]
+  debug_hands?: DebugHandOverrideDTO[]
+  debug_discard?: CardDTO
+  debug_active_color?: CardColor
+  debug_pending_draw?: number
+  debug_current_turn?: number
 }
 
 // Server → Client
@@ -100,7 +113,6 @@ export type ServerMsgType =
   | 'interrupt_success'
   | 'round_end'
   | 'match_end'
-  | 'game_over'
   | 'error'
 
 export interface ServerMsg {
@@ -122,7 +134,6 @@ export interface ServerMsg {
   turn_deadline?: number  // unix ms when the current turn expires; included in card_played, card_drawn, turn_changed, game_started
   pending_draw?: number
   has_drawn?: boolean
-  winner?: string
   error?: string
   // round / match
   round_number?: number

@@ -43,11 +43,16 @@ func NewDeck() *Deck {
 	return &Deck{Cards: cards}
 }
 
-// Shuffle randomizes the deck in place.
-func (d *Deck) Shuffle() {
-	rand.Shuffle(len(d.Cards), func(i, j int) {
-		d.Cards[i], d.Cards[j] = d.Cards[j], d.Cards[i]
-	})
+// Shuffle randomizes the deck in place using the provided rng. A nil rng falls
+// back to the global package source — convenient for callers that don't need
+// determinism (e.g. Replenish).
+func (d *Deck) Shuffle(rng *rand.Rand) {
+	swap := func(i, j int) { d.Cards[i], d.Cards[j] = d.Cards[j], d.Cards[i] }
+	if rng != nil {
+		rng.Shuffle(len(d.Cards), swap)
+		return
+	}
+	rand.Shuffle(len(d.Cards), swap)
 }
 
 // Draw removes and returns the top card of the deck.
@@ -77,5 +82,5 @@ func (d *Deck) DrawN(n int) ([]Card, bool) {
 func (d *Deck) Replenish(discard []Card, topCard Card) {
 	d.Cards = make([]Card, len(discard))
 	copy(d.Cards, discard)
-	d.Shuffle()
+	d.Shuffle(nil)
 }

@@ -1006,7 +1006,7 @@ func TestGoroutineStability_BotGame(t *testing.T) {
 		}
 		var msg protocol.ServerMsg
 		if json.Unmarshal(data, &msg) == nil {
-			if msg.Type == protocol.SMsgMatchEnd || msg.Type == protocol.SMsgGameOver {
+			if msg.Type == protocol.SMsgMatchEnd {
 				break
 			}
 		}

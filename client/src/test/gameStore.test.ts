@@ -15,7 +15,6 @@ beforeEach(() => {
     currentTurn: 0,
     direction: 1,
     pendingDraw: 0,
-    winner: '',
     errorMsg: '',
     unoDeclared: false,
     scoreboard: [],
@@ -144,13 +143,6 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().players[1].hand_size).toBe(7)
     expect(useGameStore.getState().pendingDraw).toBe(0)
     expect(useGameStore.getState().currentTurn).toBe(0)
-  })
-
-  it('setWinner sets screen to gameover', () => {
-    useGameStore.getState().setWinner('alice')
-    const s = useGameStore.getState()
-    expect(s.winner).toBe('alice')
-    expect(s.screen).toBe('gameover')
   })
 
   it('setError and clearError work', () => {

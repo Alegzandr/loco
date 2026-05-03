@@ -109,6 +109,21 @@ type GameState struct {
 	InterruptDeadline time.Time
 }
 
+// topCard returns the current top of the discard pile. Callers must ensure
+// Discard is non-empty (always true once dealRound has run).
+func (s *GameState) topCard() Card {
+	return s.Discard[len(s.Discard)-1]
+}
+
+// resolveChosenColor returns the color the played card sets active. Non-wild
+// cards override the caller-supplied chosenColor with their own color.
+func resolveChosenColor(card Card, chosenColor Color) Color {
+	if !card.IsWild() {
+		return card.Color
+	}
+	return chosenColor
+}
+
 // armInterruptWindow opens / refreshes the interrupt window for the most recent play.
 // Called by PlayCard, PlayCards, InterruptPlay(Cards), and CounterDraw.
 func (s *GameState) armInterruptWindow(actor int) {
@@ -325,7 +340,7 @@ func (r *Room) Start() error {
 func (r *Room) dealRound(startingPlayer int) {
 	n := len(r.Players)
 	deck := NewDeck()
-	deck.Shuffle()
+	deck.Shuffle(r.rng)
 
 	hands := make([]Hand, n)
 	for i := range hands {
@@ -383,8 +398,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		return errors.New("card not in hand")
 	}
 
-	topCard := r.State.Discard[len(r.State.Discard)-1]
-	if !CanPlay(card, topCard, r.State.ActiveColor) {
+	if !CanPlay(card, r.State.topCard(), r.State.ActiveColor) {
 		return errors.New("illegal card play")
 	}
 
@@ -404,9 +418,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		return err
 	}
 
-	if !card.IsWild() {
-		chosenColor = card.Color
-	}
+	chosenColor = resolveChosenColor(card, chosenColor)
 
 	r.State.Discard = append(r.State.Discard, card)
 	c := card
@@ -475,8 +487,7 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 	if have := r.State.countInHand(playerIndex, first); have < len(cards) {
 		return fmt.Errorf("hand has %d copies, need %d", have, len(cards))
 	}
-	topCard := r.State.Discard[len(r.State.Discard)-1]
-	if !CanPlay(first, topCard, r.State.ActiveColor) {
+	if !CanPlay(first, r.State.topCard(), r.State.ActiveColor) {
 		return errors.New("illegal card play")
 	}
 
@@ -485,9 +496,7 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 			return err
 		}
 	}
-	if !first.IsWild() {
-		chosenColor = first.Color
-	}
+	chosenColor = resolveChosenColor(first, chosenColor)
 	for _, c := range cards {
 		r.State.Discard = append(r.State.Discard, c)
 	}
@@ -582,56 +591,45 @@ func (r *Room) biggestLoser() int {
 // then sudden death (returns "").
 func (r *Room) determineMatchWinner() string {
 	n := len(r.Players)
-
-	maxScore := -1
-	for i := 0; i < n; i++ {
-		if r.Scores[i] > maxScore {
-			maxScore = r.Scores[i]
-		}
-	}
-	tied := make([]int, 0, n)
-	for i := 0; i < n; i++ {
-		if r.Scores[i] == maxScore {
-			tied = append(tied, i)
-		}
-	}
-	if len(tied) == 1 {
-		return r.Players[tied[0]].Nickname
+	candidates := make([]int, n)
+	for i := range candidates {
+		candidates[i] = i
 	}
 
-	maxWins := -1
-	for _, i := range tied {
-		if r.RoundsWon[i] > maxWins {
-			maxWins = r.RoundsWon[i]
-		}
+	candidates = filterBest(candidates, func(i int) int { return r.Scores[i] })
+	if len(candidates) == 1 {
+		return r.Players[candidates[0]].Nickname
 	}
-	tiedByWins := tied[:0]
-	for _, i := range tied {
-		if r.RoundsWon[i] == maxWins {
-			tiedByWins = append(tiedByWins, i)
-		}
+	candidates = filterBest(candidates, func(i int) int { return r.RoundsWon[i] })
+	if len(candidates) == 1 {
+		return r.Players[candidates[0]].Nickname
 	}
-	if len(tiedByWins) == 1 {
-		return r.Players[tiedByWins[0]].Nickname
+	candidates = filterBest(candidates, func(i int) int { return -r.LostHandTotal[i] })
+	if len(candidates) == 1 {
+		return r.Players[candidates[0]].Nickname
 	}
-
-	minLoss := -1
-	for _, i := range tiedByWins {
-		if minLoss < 0 || r.LostHandTotal[i] < minLoss {
-			minLoss = r.LostHandTotal[i]
-		}
-	}
-	tiedByLoss := tiedByWins[:0]
-	for _, i := range tiedByWins {
-		if r.LostHandTotal[i] == minLoss {
-			tiedByLoss = append(tiedByLoss, i)
-		}
-	}
-	if len(tiedByLoss) == 1 {
-		return r.Players[tiedByLoss[0]].Nickname
-	}
-
 	return ""
+}
+
+// filterBest returns the subset of candidates whose score (per scoreOf) equals
+// the maximum. Used to chain tiebreakers in determineMatchWinner.
+func filterBest(candidates []int, scoreOf func(int) int) []int {
+	if len(candidates) == 0 {
+		return candidates
+	}
+	best := scoreOf(candidates[0])
+	for _, i := range candidates[1:] {
+		if s := scoreOf(i); s > best {
+			best = s
+		}
+	}
+	out := candidates[:0]
+	for _, i := range candidates {
+		if scoreOf(i) == best {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // DrawCard makes the current player draw from the deck.
@@ -818,8 +816,8 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 		return errors.New("card not in hand")
 	}
 
-	topCard := r.State.Discard[len(r.State.Discard)-1]
-	identical := first.Color == topCard.Color && first.Kind == topCard.Kind && first.Value == topCard.Value
+	top := r.State.topCard()
+	identical := first.Color == top.Color && first.Kind == top.Kind && first.Value == top.Value
 	if !identical {
 		return errors.New("interrupt card must exactly match the top discard card")
 	}
@@ -887,8 +885,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 		return errors.New("card not in hand")
 	}
 
-	topCard := r.State.Discard[len(r.State.Discard)-1]
-	if card.Kind != topCard.Kind {
+	if card.Kind != r.State.topCard().Kind {
 		return errors.New("counter card must match kind of draw card")
 	}
 
@@ -896,9 +893,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 		return err
 	}
 
-	if !card.IsWild() {
-		chosenColor = card.Color
-	}
+	chosenColor = resolveChosenColor(card, chosenColor)
 
 	r.State.Discard = append(r.State.Discard, card)
 	c := card
@@ -941,7 +936,7 @@ func (r *Room) ensureDeck(needed int) {
 	if len(r.State.Discard) <= 1 {
 		return
 	}
-	top := r.State.Discard[len(r.State.Discard)-1]
+	top := r.State.topCard()
 	pile := r.State.Discard[:len(r.State.Discard)-1]
 	r.State.Deck.Replenish(pile, top)
 	r.State.Discard = []Card{top}
