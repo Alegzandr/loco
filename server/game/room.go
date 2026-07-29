@@ -270,8 +270,10 @@ func (r *Room) SetMaxPlayers(n int) error {
 
 // RemoveLobbyPlayer removes the player at playerIdx from the lobby, re-indexes
 // the remaining players, and returns true if the removed player was the host.
+// Allowed in a finished room too: its roster is still mutable because the host
+// may call ResetForRematch and start a new match with whoever remains.
 func (r *Room) RemoveLobbyPlayer(playerIdx int) (wasHost bool, err error) {
-	if r.Status != StatusLobby {
+	if r.Status != StatusLobby && r.Status != StatusFinished {
 		return false, errors.New("can only remove players in the lobby")
 	}
 	if playerIdx < 0 || playerIdx >= len(r.Players) {
@@ -569,6 +571,29 @@ func (r *Room) BeginNextRound() error {
 	}
 	r.RoundNumber++
 	r.dealRound(r.biggestLoser())
+	return nil
+}
+
+// ResetForRematch returns a finished room to the lobby so the same players can
+// play another match without recreating the room. Roster and lobby config
+// (format, max players) survive; all per-match state is discarded. Callers must
+// follow with Start() once the host confirms.
+func (r *Room) ResetForRematch() error {
+	if r.Status != StatusFinished {
+		return errors.New("rematch is only available once the match is over")
+	}
+	r.Status = StatusLobby
+	r.State = nil
+	r.Winner = ""
+	r.RoundEnded = false
+	r.MatchOver = false
+	r.MatchWinner = ""
+	r.RoundNumber = 0
+	// Left nil rather than zeroed: Start() reallocates them sized to whatever
+	// roster is present when the next match begins.
+	r.Scores = nil
+	r.RoundsWon = nil
+	r.LostHandTotal = nil
 	return nil
 }
 

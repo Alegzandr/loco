@@ -2159,3 +2159,130 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 		t.Errorf("catch on undeclared interject must succeed: %v", err)
 	}
 }
+
+// --- Rematch -------------------------------------------------------------
+
+// finishMatch drives a BO1 room to a completed match so rematch paths can be
+// exercised without replaying a full round of plays.
+func finishMatch(t *testing.T, nicknames ...string) *Room {
+	t.Helper()
+	r := NewRoom("TEST")
+	for _, n := range nicknames {
+		if err := r.Join(n); err != nil {
+			t.Fatalf("Join(%q): %v", n, err)
+		}
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Empty player 0's hand and end the round from their seat.
+	r.State.Hands[0].Cards = nil
+	r.endRound(0)
+	if !r.MatchOver {
+		t.Fatalf("setup: expected MatchOver after BO1 round")
+	}
+	return r
+}
+
+func TestRoom_ResetForRematch(t *testing.T) {
+	r := finishMatch(t, "alice", "bob")
+	r.Format = BO3
+	r.MaxPlayers = 4
+	prevPlayers := append([]*Player(nil), r.Players...)
+
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+
+	if r.Status != StatusLobby {
+		t.Errorf("Status = %v, want lobby", r.Status)
+	}
+	if r.State != nil {
+		t.Error("State must be cleared so no stale hands leak into the new match")
+	}
+	if r.MatchOver || r.MatchWinner != "" || r.RoundEnded || r.Winner != "" {
+		t.Errorf("match signals not cleared: over=%v winner=%q roundEnded=%v roundWinner=%q",
+			r.MatchOver, r.MatchWinner, r.RoundEnded, r.Winner)
+	}
+	if r.RoundNumber != 0 {
+		t.Errorf("RoundNumber = %d, want 0 (Start sets it to 1)", r.RoundNumber)
+	}
+	if r.Scores != nil || r.RoundsWon != nil || r.LostHandTotal != nil {
+		t.Error("cumulative match tallies must be cleared")
+	}
+	// Roster and lobby config survive — the whole point is "same room, same people".
+	if len(r.Players) != len(prevPlayers) {
+		t.Fatalf("Players = %d, want %d", len(r.Players), len(prevPlayers))
+	}
+	for i, p := range r.Players {
+		if p != prevPlayers[i] {
+			t.Errorf("player %d changed identity", i)
+		}
+		if p.Index != i {
+			t.Errorf("player %d Index = %d, want %d", i, p.Index, i)
+		}
+	}
+	if r.Format != BO3 {
+		t.Errorf("Format = %v, want BO3 (preserved)", r.Format)
+	}
+	if r.MaxPlayers != 4 {
+		t.Errorf("MaxPlayers = %d, want 4 (preserved)", r.MaxPlayers)
+	}
+}
+
+func TestRoom_ResetForRematch_ThenStartAgain(t *testing.T) {
+	r := finishMatch(t, "alice", "bob")
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start after rematch reset: %v", err)
+	}
+	if r.Status != StatusPlaying {
+		t.Errorf("Status = %v, want playing", r.Status)
+	}
+	if r.RoundNumber != 1 {
+		t.Errorf("RoundNumber = %d, want 1", r.RoundNumber)
+	}
+	for i := range r.Players {
+		if got := len(r.State.Hands[i].Cards); got != initialHandSize {
+			t.Errorf("player %d hand = %d cards, want %d", i, got, initialHandSize)
+		}
+	}
+	if r.Scores[0] != 0 || r.Scores[1] != 0 {
+		t.Errorf("scores not reset: %v", r.Scores)
+	}
+}
+
+func TestRoom_ResetForRematch_RejectedMidMatch(t *testing.T) {
+	r := NewRoom("TEST")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	if err := r.ResetForRematch(); err == nil {
+		t.Error("rematch from lobby must be rejected")
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := r.ResetForRematch(); err == nil {
+		t.Error("rematch mid-match must be rejected")
+	}
+}
+
+// A rematch must also be allowed after the lobby shrank — the new match is
+// dealt for whoever is still in the room.
+func TestRoom_ResetForRematch_AllowsRosterChangeBeforeStart(t *testing.T) {
+	r := finishMatch(t, "alice", "bob", "carol")
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+	if _, err := r.RemoveLobbyPlayer(1); err != nil {
+		t.Fatalf("RemoveLobbyPlayer: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(r.Scores) != 2 {
+		t.Errorf("Scores len = %d, want 2 (sized to the new roster)", len(r.Scores))
+	}
+}

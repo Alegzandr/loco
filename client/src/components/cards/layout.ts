@@ -83,6 +83,20 @@ export function calcHandSlots(n: number, width: number, height: number): HandSlo
   })
 }
 
+// Returns one stable key per card in hand order. Cards are value objects, so a
+// duplicate pair is disambiguated by occurrence number. Index keys would make
+// React reuse the wrong node when a card leaves the middle of the fan, and the
+// remaining cards would snap instead of sliding into the gap.
+export function handCardKeys(hand: { color: string; kind: string; value?: number }[]): string[] {
+  const seen = new Map<string, number>()
+  return hand.map((c) => {
+    const base = `${c.color}-${c.kind}-${c.value ?? ''}`
+    const n = seen.get(base) ?? 0
+    seen.set(base, n + 1)
+    return `${base}#${n}`
+  })
+}
+
 // Centre of the discard pile, in container coordinates.
 export function discardPosition(width: number, height: number): { x: number; y: number } {
   return {

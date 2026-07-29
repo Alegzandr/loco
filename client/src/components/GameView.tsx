@@ -82,6 +82,7 @@ export function GameView({ onSend, wsStatus }: Props) {
     isReconnecting,
     errorMsg,
     swapNotice,
+    lastPlay,
     dismissRoundSummary,
     setIsReconnecting,
     setSwapNotice,
@@ -223,6 +224,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         onCardClick={handleCardClick}
         turnTexts={{ yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix }}
         swapNotice={swapNotice}
+        lastPlay={lastPlay}
         isReconnecting={isReconnecting || showReconnectOverlay}
       />
 

@@ -7,12 +7,23 @@
 
 .flier {
   position: absolute;
+  /* Movement comes from x/y transforms, so the box itself stays pinned at the
+     layer origin — the browser never needs to re-run layout mid-flight. */
+  left: 0;
+  top: 0;
   pointer-events: none;
   will-change: transform, opacity;
 }
 
-.effectText {
+/* Positions the effect text and owns the centering transform, leaving the
+   inner motion node free to animate its own transform. */
+.effectAnchor {
   position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.effectText {
   font-family: var(--font-display);
   font-size: 42px;
   font-weight: 700;
@@ -21,6 +32,5 @@
   text-shadow: 0 2px 12px var(--color-canvas), 0 0 4px var(--color-canvas);
   pointer-events: none;
   white-space: nowrap;
-  transform: translate(-50%, -50%);
   will-change: transform, opacity;
 }

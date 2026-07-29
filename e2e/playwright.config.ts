@@ -47,10 +47,14 @@ export default defineConfig({
   // Start Vite dev server automatically; reuse if already running (local dev).
   // The Go server must already be running (docker-compose or CI script).
   webServer: {
-    // Pass --port 5173 explicitly so Vite binds on 5173 in CI (no Docker port
-    // mapping).  In Docker local dev, reuseExistingServer reuses the already-
-    // running container server and this command is never executed.
-    command: `VITE_WS_PORT=8080 VITE_HMR_CLIENT_PORT=4173 npm run dev -- --port 4173`,
+    // Pass --port explicitly so Vite binds on 4173 rather than its default.
+    // Environment goes through `env` rather than a shell prefix: the prefix form
+    // is POSIX-only and fails when the suite is run from Windows.
+    command: `npm run dev -- --port 4173`,
+    env: {
+      VITE_WS_PORT: '8080',
+      VITE_HMR_CLIENT_PORT: '4173',
+    },
     cwd: resolve(__dirname, '../client'),
     port: 4173,
     timeout: 120_000,

@@ -25,6 +25,25 @@ export const ACTIVE_RING: Record<CardColor, string> = {
   wild: '#aaaaaa',
 }
 
+// ─── Motion ─────────────────────────────────────────────────────────────────
+// One easing curve and one spring shared by every card movement, so a card
+// travelling from hand to discard and the neighbours closing the gap behind it
+// decelerate on the same curve.
+export const EASE_OUT_CARD = [0.16, 1, 0.3, 1] as const
+
+// Reflow of the hand fan: stiff enough to feel immediate, damped enough not to
+// wobble. `mass` is kept low so many cards settling at once stay crisp.
+export const SPRING_HAND = { type: 'spring', stiffness: 520, damping: 38, mass: 0.7 } as const
+
+// Per-card delay when a fresh hand is dealt, in ms.
+export const DEAL_STAGGER_MS = 45
+
+// Layout math works in radians; framer-motion's `rotate` is in degrees.
+// Convert at the render boundary so neither side has to compromise.
+export function radToDeg(rad: number): number {
+  return (rad * 180) / Math.PI
+}
+
 export const CARD_W = 72
 export const CARD_H = 108
 export const CARD_RADIUS = 10

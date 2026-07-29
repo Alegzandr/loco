@@ -171,6 +171,17 @@ export default function App() {
           break
         }
 
+        case 'rematch_started':
+          // The host reopened the finished room. player_id is authoritative: seats
+          // may have been re-based when absent players were pruned.
+          store.applyRematch(
+            msg.player_id ?? 0,
+            msg.players ?? [],
+            msg.match_format ?? 'BO1',
+            msg.max_players ?? 10,
+          )
+          break
+
         case 'error':
           store.setError(msg.error ?? 'Unknown error')
           break
@@ -213,6 +224,10 @@ export default function App() {
   const sendRef = useRef(handleSend)
   sendRef.current = handleSend
 
+  // Backing store for the dev-only E2E turn recorder (see the helper below).
+  const recordedTurns = useRef<number[]>([])
+  const turnRecorderStop = useRef<(() => void) | null>(null)
+
   // Expose lightweight E2E helpers on window in dev mode only.
   // Vite tree-shakes this block in production builds (import.meta.env.DEV = false).
   useEffect(() => {
@@ -221,6 +236,19 @@ export default function App() {
       ...(window.__LOCO_E2E__ ?? {}),
       send: (msg: ClientMsg) => sendRef.current(msg),
       getState: useGameStore.getState,
+      // Turn recorder: captures every distinct currentTurn the store passes
+      // through, so tests can assert on a turn *sequence* rather than sampling a
+      // transient value a bot may already have moved past. Results are read back
+      // via getRecordedTurns() — the recorder itself has to stay in the page.
+      startTurnRecorder: () => {
+        turnRecorderStop.current?.()
+        recordedTurns.current = [useGameStore.getState().currentTurn]
+        turnRecorderStop.current = useGameStore.subscribe((s) => {
+          const seen = recordedTurns.current
+          if (s.currentTurn !== seen[seen.length - 1]) seen.push(s.currentTurn)
+        })
+      },
+      getRecordedTurns: () => [...recordedTurns.current],
       getWsStatus: () => wsStatus,
       forceCloseWs: forceClose,
     }
@@ -251,6 +279,8 @@ export default function App() {
           myNickname={myNickname}
           scoreboard={store.scoreboard}
           matchOver={store.matchOver}
+          isHost={store.myIndex === 0}
+          onSend={handleSend}
         />
       )}
     </>

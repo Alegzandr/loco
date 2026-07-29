@@ -78,6 +78,9 @@ export const fr: Translations = {
   finalScores: 'Scores finaux',
   winsGame: 'remporte la partie !',
   winsMatch: 'remporte le match !',
+  rematch: 'Revanche',
+  rematchWaiting: 'En attente d\'une revanche lancée par l\'hôte…',
+  leaveRoom: 'Quitter le salon',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Langue',

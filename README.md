@@ -246,7 +246,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 
 | Project         | Tests                                                                                     | Viewport     |
 |-----------------|-------------------------------------------------------------------------------------------|--------------|
-| `chromium`      | `game-flow`, `multi-client`, `penalties`, `round-progression`, `reconnect`, `special-cards` | Desktop   |
+| `chromium`      | `game-flow`, `multi-client`, `penalties`, `round-progression`, `reconnect`, `rematch`, `rules-coverage`, `special-cards` | Desktop   |
 | `mobile-chrome` | `mobile`                                                                                  | Pixel 5 (360×800) |
 
 **Coverage areas:**
@@ -263,6 +263,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch discard update
 - Swap / Global Swap on-screen notification banner + Framer Motion card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch), interrupt window timing
+- Rematch: host reopens the finished room and plays a full new match; a joined player is pulled back to the waiting room and keeps their seat
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
 
 ---
@@ -271,7 +272,8 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 
 - **Lobby**: nickname-only rooms, 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
 - **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking, identical-card interrupt with 1.5 s window (single + batch), batch turn play, UNO declare + 5 s catch window, single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
-- **UI**: React + Framer Motion animations, round summary overlay, match-end screen, mobile support (44 px+ targets), rules modal, EN/FR i18n.
+- **Rematch**: after a match the host reopens the same room (same code, same roster, cleared scores); absent seats are pruned, everyone else is pulled back to the waiting room.
+- **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen, mobile support (44 px+ targets), rules modal, EN/FR i18n.
 - **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).

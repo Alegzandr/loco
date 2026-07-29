@@ -12,6 +12,7 @@ All messages are JSON over a single WebSocket per player.
 | `add_bot`           | — (host-only)                                            |
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
 | `set_max_players`   | `max_players` (2–10) (host-only)                         |
+| `rematch`           | — (host-only; reopens a finished room as a lobby)        |
 | `play_card`         | `card`, `chosen_color`                                   |
 | `play_cards`        | `cards[]` (batch identical play; takes precedence over `card`) |
 | `draw_card`         | —                                                        |
@@ -41,6 +42,7 @@ All messages are JSON over a single WebSocket per player.
 | `uno_caught`          | `player_index`                                                              |
 | `round_end`           | `round_number`, `round_winner`, `scoreboard`                                |
 | `match_end`           | `match_winner`, `scoreboard`                                                |
+| `rematch_started`     | `room_code`, `player_id`, `players`, `match_format`, `max_players` (per-recipient) |
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `error`               | `error`                                                                     |
 
@@ -53,4 +55,5 @@ All messages are JSON over a single WebSocket per player.
 
 - `card_played` carries `chosen_player` only for `swap` (target seat index). `global_switch` and other cards omit it.
 - `interrupt_success` is emitted before the corresponding `card_played` so the client can render lead-taking distinctly.
+- `rematch_started` is sent **per recipient**, not broadcast: the server first prunes seats with no connected client behind them (bots excepted), which can re-base every surviving `player_id`. Clients must adopt the `player_id` they receive.
 - `play_cards` (turn-time) and `interrupt_play_card` with `play_cards` (out-of-turn) require N identical cards; effects stack: N×+2 = `2N` pending draw, N skips skip N players, N reverses flip parity. Swap and Global Swap cannot batch.

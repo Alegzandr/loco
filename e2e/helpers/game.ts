@@ -15,7 +15,9 @@ export const T = {
   catchBtn: 'Catch!',
   rulesBtn: 'Rules',
   continueBtn: 'Continue',
-  playAgain: 'Play Again',
+  rematch: 'Rematch',
+  rematchWaiting: 'Waiting for the host to start a rematch…',
+  leaveRoom: 'Leave room',
   gameOver: 'Game Over',
   youWin: 'You Win!',
   winsRound: 'wins the round!',
@@ -215,7 +217,18 @@ export async function waitForGameOver(page: Page, timeoutMs = 120_000): Promise<
     undefined,
     { timeout: timeoutMs },
   )
-  await expect(page.getByRole('button', { name: T.playAgain })).toBeVisible({ timeout: 5_000 })
+  // The host always gets the rematch button; everyone gets a way out of the room.
+  await expect(page.getByRole('button', { name: T.leaveRoom })).toBeVisible({ timeout: 5_000 })
+}
+
+/** Click Rematch on the game-over screen (host only) and wait for the lobby. */
+export async function clickRematch(page: Page): Promise<void> {
+  await page.getByRole('button', { name: T.rematch }).click()
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+    undefined,
+    { timeout: 10_000 },
+  )
 }
 
 /**

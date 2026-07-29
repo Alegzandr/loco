@@ -438,12 +438,27 @@ test.describe('rules coverage — Miss a Turn / Skip (§7)', () => {
       currentTurn: myIdx,
     })
 
+    // Record the turn sequence: the seat after the skipped one only holds the
+    // turn until its bot plays (~800 ms), so sampling currentTurn can miss it
+    // entirely. Asserting on the recorded sequence is timing-independent and
+    // additionally proves the skipped seat never held the turn at all.
+    await page.evaluate(() => window.__LOCO_E2E__?.startTurnRecorder?.())
     await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'skip' } })
 
-    await waitForTurn(page, expectedNext, 8_000)
-    const after = await getState(page)
-    expect(after?.currentTurn).toBe(expectedNext)
-    expect(after?.currentTurn).not.toBe(skippedIdx)
+    await expect
+      .poll(
+        () => page.evaluate(() => window.__LOCO_E2E__?.getRecordedTurns?.() ?? []),
+        {
+          timeout: 8_000,
+          message: `turn never reached seat ${expectedNext} after Skip from seat ${myIdx} (skipped seat should be ${skippedIdx})`,
+        },
+      )
+      .toContain(expectedNext)
+
+    const turns = await page.evaluate(() => window.__LOCO_E2E__?.getRecordedTurns?.() ?? [])
+    // Everything up to and including the expected seat must skip `skippedIdx`.
+    const upToExpected = turns.slice(0, turns.indexOf(expectedNext) + 1)
+    expect(upToExpected, `observed turn sequence: ${JSON.stringify(turns)}`).not.toContain(skippedIdx)
   })
 })
 

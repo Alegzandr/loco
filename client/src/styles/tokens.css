@@ -145,3 +145,19 @@ html, body, #root {
 .t-badge      { font: 600 11px/1.18 var(--font-display); }
 .t-button-md  { font: 500 16px/1.25 var(--font-display); }
 .t-button-sm  { font: 500 14px/1.29 var(--font-display); }
+
+/* ─── Reduced motion ───────────────────────────────────────────────────────
+   Users who ask their OS for less motion get a static board: no card flights,
+   no pulses, no sliding panels. Everything still renders and remains playable —
+   only the movement between states is removed. framer-motion is handled
+   separately via <MotionConfig reducedMotion="user"> in main.tsx. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

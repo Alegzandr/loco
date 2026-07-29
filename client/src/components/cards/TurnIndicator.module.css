@@ -1,7 +1,13 @@
-.indicator {
+/* Owns the position and centering so the inner motion node is free to animate
+   its own transform. */
+.anchor {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.indicator {
   font-family: var(--font-display);
   font-weight: 600;
   white-space: nowrap;

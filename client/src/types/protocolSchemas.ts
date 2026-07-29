@@ -85,6 +85,7 @@ export const serverMsgTypeSchema = z.enum([
   'interrupt_success',
   'round_end',
   'match_end',
+  'rematch_started',
   'error',
 ])
 

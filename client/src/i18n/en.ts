@@ -83,6 +83,9 @@ export interface Translations {
   finalScores: string
   winsGame: string      // "{nickname} wins!"
   winsMatch: string     // "{nickname} wins the match!"
+  rematch: string             // host button: reopen the room for another match
+  rematchWaiting: string      // shown to non-hosts while they wait for the host
+  leaveRoom: string           // secondary button: abandon the room entirely
 
   // ─── Language ────────────────────────────────────────────────
   language: string
@@ -171,6 +174,9 @@ export const en: Translations = {
   finalScores: 'Final Scores',
   winsGame: 'wins!',
   winsMatch: 'wins the match!',
+  rematch: 'Rematch',
+  rematchWaiting: 'Waiting for the host to start a rematch…',
+  leaveRoom: 'Leave room',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Language',

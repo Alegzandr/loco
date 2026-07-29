@@ -15,8 +15,8 @@ import {
   deckPosition,
   seatPosition,
 } from './layout'
-import { BOTTOM_RESERVE } from './cardTheme'
-import { SwapNotice } from '../../hooks/useGameStore'
+import { BOTTOM_RESERVE, CARD_W, CARD_H } from './cardTheme'
+import { SwapNotice, LastPlay } from '../../hooks/useGameStore'
 import styles from './GameBoard.module.css'
 
 interface Props {
@@ -33,6 +33,8 @@ interface Props {
   turnTexts: TurnTexts
   /** swap / global_switch notice from the store; triggers trail animation. */
   swapNotice: SwapNotice | null
+  /** Last play from the store; drives the opponent seat→discard card flight. */
+  lastPlay: LastPlay | null
   /** True while reconnect overlay is visible; board fades back in afterwards. */
   isReconnecting: boolean
 }
@@ -81,6 +83,39 @@ export function GameBoard(props: Props) {
   const others = clockwiseOpponents(props.players, props.myIndex)
   const positions = ready ? opponentBubblePositions(others.length, width, height) : []
 
+  // ─── Animation effect: an opponent played a card ─────────────────────────
+  // Flies the card from the opponent's seat to the discard pile so the play is
+  // legible without watching the pile. Declared before the discard-change effect
+  // so it can claim the update and suppress the generic pile flier.
+  const lastPlayAt = useRef(props.lastPlay?.at ?? 0)
+  useEffect(() => {
+    const lp = props.lastPlay
+    if (!ready || !lp || lp.at === lastPlayAt.current) return
+    lastPlayAt.current = lp.at
+    // Own plays already fly out of the hand via handleCardClick.
+    if (lp.actorIndex === props.myIndex) return
+    const from = seatPosition(lp.actorIndex, props.players, props.myIndex, width, height)
+    const dest = discardPosition(width, height)
+    setFliers((cur) => [
+      ...cur,
+      {
+        id: newId(),
+        kind: 'face',
+        card: lp.card,
+        // seatPosition returns a centre point; fliers are positioned by corner.
+        from: { x: from.x - CARD_W / 2, y: from.y - CARD_H / 2, rotation: -0.18 },
+        to: { x: dest.x, y: dest.y, rotation: 0 },
+        startAlpha: 0.35,
+        startScale: 0.72,
+        duration: 340,
+        arcHeight: 26,
+      },
+    ])
+    suppressNextDiscardFx.current = true
+    // Keyed on the play timestamp: one flight per play, never a replay on resize.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.lastPlay?.at, ready])
+
   // ─── Animation effect: discard top changed (any source) ─────────────────
   const lastDiscardKey = useRef('')
   useEffect(() => {
@@ -90,24 +125,27 @@ export function GameBoard(props: Props) {
     const isFirstRender = lastDiscardKey.current === ''
     lastDiscardKey.current = key
     if (isFirstRender) return  // don't animate the opening card
-    if (suppressNextDiscardFx.current) {
-      suppressNextDiscardFx.current = false
-      return
+    // A hand→discard or seat→discard flight already showed the card travelling;
+    // only the generic pile flier is redundant. The effect callout still fires —
+    // playing your own Skip must announce itself just like an opponent's.
+    const covered = suppressNextDiscardFx.current
+    suppressNextDiscardFx.current = false
+    if (!covered) {
+      const target = discardPosition(width, height)
+      setFliers((cur) => [
+        ...cur,
+        {
+          id: newId(),
+          kind: 'face',
+          card: props.discard!,
+          from: { x: target.x, y: (height - BOTTOM_RESERVE) / 2 },
+          to: { x: target.x, y: target.y },
+          startAlpha: 0.1,
+          startScale: 0.6,
+          duration: 300,
+        },
+      ])
     }
-    const target = discardPosition(width, height)
-    setFliers((cur) => [
-      ...cur,
-      {
-        id: newId(),
-        kind: 'face',
-        card: props.discard!,
-        from: { x: target.x, y: (height - BOTTOM_RESERVE) / 2 },
-        to: { x: target.x, y: target.y },
-        startAlpha: 0.1,
-        startScale: 0.6,
-        duration: 300,
-      },
-    ])
     const eff = effectFor(props.discard!, props.pendingDraw)
     if (eff) {
       setEffectTexts((cur) => [
@@ -215,6 +253,7 @@ export function GameBoard(props: Props) {
             to: { x: dest.x, y: dest.y, rotation: 0 },
             startAlpha: 0.9,
             duration: 300,
+            arcHeight: 22,
           },
         ])
         suppressNextDiscardFx.current = true

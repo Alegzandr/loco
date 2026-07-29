@@ -51,6 +51,34 @@
   background: var(--color-primary-active);
 }
 
+.btnSecondary {
+  padding: 10px 20px;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-hairline);
+  background: transparent;
+  color: var(--color-muted);
+  font: 500 14px/1.25 var(--font-display);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.btnSecondary:hover {
+  color: var(--color-ink);
+  border-color: var(--color-muted);
+}
+
+/* Non-host stand-in for the rematch button, so the card keeps its rhythm. */
+.waiting {
+  margin-top: var(--space-base);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: var(--color-muted);
+  font: 400 14px/1.43 var(--font-display);
+}
+
 .scoreboard {
   width: 100%;
   display: flex;
@@ -114,7 +142,8 @@
     font-size: 22px;
   }
 
-  .btn {
+  .btn,
+  .btnSecondary {
     min-height: 48px;
     touch-action: manipulation;
     width: 100%;

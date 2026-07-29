@@ -18,6 +18,14 @@ export interface SwapNotice {
   at: number           // Date.now() — used as a render key so React re-mounts the banner
 }
 
+// The most recent card play, used by the renderer to fly the card from the
+// acting player's seat to the discard pile. `at` doubles as a trigger key.
+export interface LastPlay {
+  actorIndex: number
+  card: CardDTO
+  at: number
+}
+
 // Per-player points earned in the most recent round (computed as delta from prevScoreboard).
 export interface RoundScoreEntry {
   player_index: number
@@ -65,6 +73,9 @@ interface GameStore {
   // understand why hands changed. Cleared by the GameView after a short timeout.
   swapNotice: SwapNotice | null
 
+  // Last card play, purely for animation. Never used for rules decisions.
+  lastPlay: LastPlay | null
+
   // Reconnect animation state
   isReconnecting: boolean
 
@@ -85,6 +96,7 @@ interface GameStore {
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[]) => void
   applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
+  applyRematch: (myIndex: number, players: PlayerDTO[], format: MatchFormat, maxPlayers: number) => void
   setPendingGameState: (state: GameStateDTO) => void
   setPendingMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
   applyPendingGameState: () => void
@@ -172,6 +184,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   pendingGameState: null,
   pendingMatchEnd: null,
   swapNotice: null,
+  lastPlay: null,
   isReconnecting: false,
 
   setScreen: (screen) => set({ screen }),
@@ -233,6 +246,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         unoDeclared: false,
         unoDeclaredByIndex: -1,
         swapNotice,
+        lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
       }
     }),
 
@@ -267,7 +281,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }),
 
-  setPlayers: (players) => set({ players }),
+  // Re-resolves myIndex from our own nickname on every roster update. The server
+  // re-indexes seats when someone leaves a lobby or a finished room, so a client
+  // that holds a stale index would lose host controls (or claim someone else's).
+  // Nicknames are unique per room, so the match is unambiguous.
+  setPlayers: (players) =>
+    set((s) => {
+      const myNickname = s.players.find((p) => p.index === s.myIndex)?.nickname
+      if (!myNickname) return { players }
+      const mine = players.find((p) => p.nickname === myNickname)
+      return mine ? { players, myIndex: mine.index } : { players }
+    }),
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
@@ -303,6 +327,44 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   applyMatchEnd: (matchWinner, scoreboard) =>
     set({ matchWinner, matchOver: true, scoreboard, screen: 'gameover' }),
+
+  // The host reopened the finished room: drop all match state and go back to the
+  // waiting room. myIndex comes from the server because pruning absent players
+  // can re-seat everyone. sessionToken is deliberately kept — the room is the
+  // same, so it still authenticates a reconnect during the next match.
+  applyRematch: (myIndex, players, matchFormat, maxPlayers) =>
+    set({
+      screen: 'waiting',
+      myIndex,
+      players,
+      matchFormat,
+      maxPlayers,
+      myHand: [],
+      discard: null,
+      activeColor: 'red',
+      currentTurn: 0,
+      direction: 1,
+      pendingDraw: 0,
+      hasDrawn: false,
+      roundNumber: 1,
+      scoreboard: [],
+      roundWinner: '',
+      roundScores: [],
+      roundNumber_completed: 0,
+      matchWinner: '',
+      matchOver: false,
+      showRoundSummary: false,
+      pendingGameState: null,
+      pendingMatchEnd: null,
+      unoDeclared: false,
+      unoDeclaredByIndex: -1,
+      unoTimerEnd: null,
+      turnDeadline: null,
+      swapNotice: null,
+      lastPlay: null,
+      isReconnecting: false,
+      errorMsg: '',
+    }),
 
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),
 
