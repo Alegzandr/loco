@@ -18,6 +18,14 @@ import { music } from './music'
 
 type State = ReturnType<typeof useGameStore.getState>
 
+/** Sounds long enough that the music bed must get out of their way. */
+const FANFARES: ReadonlySet<SfxName> = new Set<SfxName>([
+  'roundWin',
+  'roundLose',
+  'matchWin',
+  'matchLose',
+])
+
 /** Extra sting layered on top of the generic card-play swish. */
 function stingFor(card: CardDTO): SfxName | null {
   switch (card.kind) {
@@ -139,7 +147,13 @@ export function useGameAudio(): void {
       const before = prev
       prev = next
 
-      for (const name of soundsForTransition(before, next)) playSfx(name)
+      const sounds = soundsForTransition(before, next)
+      for (const name of sounds) playSfx(name)
+
+      // Pull the bed down under the long fanfares. Two pieces of music competing
+      // for the same moment makes both of them mush, and the fanfare is the one
+      // people clip.
+      if (sounds.some((n) => FANFARES.has(n))) music.duck(2400)
 
       // A fresh hand is a flourish of its own rather than one draw sound.
       if (next.screen === 'game' && before.screen !== 'game' && next.myHand.length > 0) {

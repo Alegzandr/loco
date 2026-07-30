@@ -260,9 +260,14 @@ and measures the peak amplitude on the bus:
 make audio-verify
 # ✓ cardPlay     peak=0.1179
 # ✓ interrupt    peak=0.4444
-# ✓ music bed    peak=0.3052
+# ✓ adaptivity   calm=0.0369 tense=0.0715 (×1.94)
+# ✓ slew         reached calm=0.08 tense=1.00
+# ✓ duck         before=0.0709 during=0.0152
 # ✓ mute         peak=0.0000 (want ~0)
 ```
+
+It also checks the claims the music bed makes about itself — that tension is audible, that the
+intensity ramp reaches its targets, and that ducking attenuates.
 
 It is deliberately **not** part of CI: audio devices in CI containers are unreliable, and a flaky
 sound assertion only teaches people to ignore a red pipeline. Run it after touching
@@ -332,7 +337,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n, light + dark themes.
 - **Art direction**: chunky cartoon system — ink outlines, solid press-down shadows, saturated card faces, felt table with a real rim. Seats resize and wrap so a nine-player table stays readable on a phone. Design tokens live in `client/src/styles/tokens.css`.
 - **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
-- **Audio**: runtime-synthesised effects for every action and rule outcome, plus a generative music bed whose tempo and layer count follow the tension at the table (someone on one card, a climbing draw stack). Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
+- **Audio**: runtime-synthesised effects for every action and rule outcome, plus a generative music bed built on a recurring motif, whose tempo and layer count follow the tension at the table (someone on one card, a climbing draw stack). Intensity is ramped rather than switched, layers join on bar lines, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
 - **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).

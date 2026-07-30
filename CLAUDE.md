@@ -367,19 +367,35 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   card becomes a melody nobody wrote); rule outcomes are **pitched and interval-based** so the table
   learns them by ear.
 - `audio/music.ts` — four-bar generative bed over i–VI–III–VII in A minor. What changes is
-  *density*, not melody: `intensity` (0..1) picks how many layers play and how fast, and the game
-  raises it when someone is on one card or a draw stack is climbing. Scheduled with the standard
-  lookahead pattern, so `setTimeout` jitter never reaches the output.
+  *density and tempo*, not harmony: `intensity` (0..1) picks how many layers play and how fast, and
+  the game raises it when someone is on one card or a draw stack is climbing. Scheduled with the
+  standard lookahead pattern, so `setTimeout` jitter never reaches the output.
+  - `MOTIF` is the actual theme — eight pentatonic notes that sit correctly over all four chords, so
+    it can enter on any bar. A purely random arp is texture; a game needs one line people can hum.
+  - **Intensity is slewed at `SLEW_PER_SEC` (per second, not per step).** Game events move it in
+    jumps, and applied raw whole layers snap in and out mid-bar. A per-*step* rate was worse than
+    useless: a 16th at 88 BPM is 170ms, so the ramp depended on the tempo it was meant to drive and
+    took 14s to cross the range — longer than the moment it was reacting to.
+  - Layer entry and tempo are sampled **at the bar line** (`barIntensity`): a layer arriving on beat
+    3 sounds like a bug, the same layer on beat 1 sounds intended.
+  - `music.duck(ms)` pulls the bed under the win/lose fanfares through the bed's own output stage,
+    so it never touches the user's music volume. Two pieces of music fighting for the same moment
+    makes both of them mush, and the fanfare is the one people clip.
 - `audio/useGameAudio.ts` — **the only place that plays anything**. One store subscription diffs
   snapshots (`soundsForTransition`, pure and unit-tested) instead of audio calls scattered through
   components: every sound stays in one readable list and can't double-fire.
 - `<AudioSettings />` sits in the top-right cluster on every screen. Music defaults below effects —
   it is a bed, and a streamer talking over the game must stay louder than it.
-- `make audio-verify` (`tools/audio/verify.mjs`) plays every voice through a real AudioContext and
-  measures peak amplitude on the bus. A broken envelope or a mis-wired node produces **silence**, not
-  an error — no unit test would ever go red. Deliberately outside CI: audio devices in CI containers
-  are unreliable and a flaky sound assertion trains people to ignore red. Run it after touching
-  `sfx.ts` or `engine.ts`.
+- `make audio-verify` (`tools/audio/verify.mjs`) is the only thing that can catch a broken envelope
+  or a mis-wired node: those produce **silence**, not an error, so no unit test would ever go red.
+  It plays every voice through a real AudioContext and measures peak amplitude on the bus, then
+  checks the three properties of the bed that are claims rather than code: calm-vs-tense energy
+  (≥1.3×), that the slew reaches its targets, and that ducking attenuates.
+  - **Measure over a full loop (~11s at the slowest tempo).** A shorter window samples a random
+    slice of the progression: the first version of this check confidently reported ×1.05 for a bed
+    that does change.
+  - Deliberately outside CI: audio devices in CI containers are unreliable and a flaky sound
+    assertion trains people to ignore red. Run it after touching `sfx.ts`, `music.ts` or `engine.ts`.
 - **Strudel was evaluated and rejected**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and
   bundling them into a network-served client triggers §13 for the whole app. Revisit only if LOCO
   itself becomes AGPL.

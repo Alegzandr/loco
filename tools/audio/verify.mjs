@@ -120,9 +120,58 @@ try {
     }
     peaks['<deal x8>'] = await measure(audio.sfxDestination(), 700, () => sfx.playDeal(8))
 
+    /** Mean square energy on `bus` over `ms`. Density, not just "is it audible". */
+    const rms = async (bus, ms) => {
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 2048
+      bus.connect(analyser)
+      const buf = new Float32Array(analyser.fftSize)
+      let sum = 0
+      let frames = 0
+      const until = performance.now() + ms
+      while (performance.now() < until) {
+        await new Promise((r) => requestAnimationFrame(() => r(null)))
+        analyser.getFloatTimeDomainData(buf)
+        let frame = 0
+        for (let i = 0; i < buf.length; i++) frame += buf[i] * buf[i]
+        sum += frame / buf.length
+        frames++
+      }
+      bus.disconnect(analyser)
+      return frames ? Math.sqrt(sum / frames) : 0
+    }
+
+    const settle = (ms) => new Promise((r) => setTimeout(r, ms))
+
     // Music bed: give the lookahead scheduler a beat or two to emit something.
     music.setIntensity(0.9)
     const musicPeak = await measure(audio.musicDestination(), 1600, () => music.start('game'))
+
+    // Adaptivity is the whole premise of the bed, so measure it rather than
+    // trusting the layer conditions. Intensity is slewed, so each change needs a
+    // moment to arrive before the level means anything.
+    // The loop is four bars — ~11s at the slowest tempo. Measuring a shorter
+    // window samples a random slice of the progression and the numbers mean
+    // nothing, which is exactly how the first version of this check produced a
+    // confident ×1.05 for a bed that does change.
+    const LOOP_MS = 11_000
+
+    music.setIntensity(0.08)
+    await settle(3000)
+    const calmRms = await rms(audio.musicDestination(), LOOP_MS)
+    const calmIntensity = music.getIntensity()
+
+    music.setIntensity(1)
+    await settle(3000)
+    const tenseRms = await rms(audio.musicDestination(), LOOP_MS)
+    const tenseIntensity = music.getIntensity()
+
+    // Ducking must actually pull the bed down under a fanfare.
+    const beforeDuck = await rms(audio.musicDestination(), 4000)
+    music.duck(9000)
+    await settle(400)
+    const duckedRms = await rms(audio.musicDestination(), 4000)
+
     music.stop()
 
     // Mute must actually mute: master gain is the only thing between the buses
@@ -134,7 +183,7 @@ try {
     ).catch(() => -1)
     audio.setSettings({ muted: false })
 
-    return { peaks, musicPeak, mutedPeak }
+    return { peaks, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity, beforeDuck, duckedRms }
   })
 
   if (results.error) {
@@ -150,6 +199,29 @@ try {
     const musicOk = results.musicPeak > THRESHOLD
     if (!musicOk) failures++
     console.log(`${musicOk ? '✓' : '✗'} ${'music bed'.padEnd(12)} peak=${results.musicPeak.toFixed(4)}`)
+
+    // The bed's whole premise is that tension is audible. A 30% energy rise is a
+    // deliberately loose floor — it only has to prove the layers really engage.
+    const adaptiveOk = results.tenseRms > results.calmRms * 1.3
+    if (!adaptiveOk) failures++
+    console.log(
+      `${adaptiveOk ? '✓' : '✗'} ${'adaptivity'.padEnd(12)} calm=${results.calmRms.toFixed(4)} ` +
+        `tense=${results.tenseRms.toFixed(4)} (×${(results.tenseRms / (results.calmRms || 1e-9)).toFixed(2)})`,
+    )
+
+    const slewOk = results.calmIntensity < 0.2 && results.tenseIntensity > 0.8
+    if (!slewOk) failures++
+    console.log(
+      `${slewOk ? '✓' : '✗'} ${'slew'.padEnd(12)} reached calm=${results.calmIntensity.toFixed(2)} ` +
+        `tense=${results.tenseIntensity.toFixed(2)}`,
+    )
+
+    const duckOk = results.duckedRms < results.beforeDuck * 0.6
+    if (!duckOk) failures++
+    console.log(
+      `${duckOk ? '✓' : '✗'} ${'duck'.padEnd(12)} before=${results.beforeDuck.toFixed(4)} ` +
+        `during=${results.duckedRms.toFixed(4)}`,
+    )
     // playSfx() early-returns while muted, so the effects bus stays silent.
     const muteOk = results.mutedPeak <= THRESHOLD
     if (!muteOk) failures++

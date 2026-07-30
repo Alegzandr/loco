@@ -53,7 +53,19 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     await expect(page.locator('[class*="turnTimerBar"]')).toBeVisible()
   })
 
-  test('Catch! button appears during the UNO catch window', async ({ browser }: { browser: Browser }) => {
+  /**
+   * §8: the catch window opens when a player *plays down to* one card without
+   * calling LOCO!, and closes the moment they call it.
+   *
+   * The previous version of this test declared UNO and then expected a Catch
+   * button — the exact opposite of the rule. It only ever passed because the
+   * client used to open the window on the declaration itself.
+   */
+  test('Catch! appears when an opponent reaches 1 card, and closes when they declare', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
     const ctx1 = await browser.newContext()
     const ctx2 = await browser.newContext()
     const alice = await ctx1.newPage()
@@ -65,19 +77,34 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
 
-      const bobState = await getState(bob)
-      const bobIdx = bobState?.myIndex ?? 1
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
       await debugSetState(bob, {
-        hand: [{ color: 'red', kind: 'number', value: 7 }],
+        hand: [
+          { color: 'red', kind: 'number', value: 7 },
+          { color: 'blue', kind: 'number', value: 3 },
+        ],
         discard: { color: 'red', kind: 'number', value: 5 },
+        activeColor: 'red',
         currentTurn: bobIdx,
       })
-      await sendMsg(bob, { type: 'declare_uno' })
 
-      await expect(alice.getByRole('button', { name: T.catchBtn })).toBeVisible({ timeout: 5_000 })
-      const state = await getState(alice)
-      expect(state?.unoTimerEnd).not.toBeNull()
-      expect(state?.unoTimerEnd).toBeGreaterThan(Date.now() - 2_000)
+      // Bob plays down to one card and says nothing: he is now catchable.
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 7 },
+        chosen_color: 'red',
+      })
+
+      const catchBtn = alice.getByRole('button', { name: T.catchBtn })
+      await expect(catchBtn).toBeVisible({ timeout: 5_000 })
+      const armed = await getState(alice)
+      expect(armed?.catchTarget).toBe(bobIdx)
+      expect(armed?.unoTimerEnd).not.toBeNull()
+
+      // Declaring closes the window — you cannot catch someone who called it.
+      await sendMsg(bob, { type: 'declare_uno' })
+      await expect(catchBtn).toHaveCount(0, { timeout: 5_000 })
+      expect((await getState(alice))?.catchTarget).toBeNull()
     } finally {
       await ctx1.close()
       await ctx2.close()
