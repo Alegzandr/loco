@@ -840,11 +840,14 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 - **`flightFor(card)` is the single source of flight timing.** One pure function feeding all four
   callers — hand→pile, seat→pile, the generic pile refresh, and `DiscardPile`'s `revealDelayMs`. They
   must agree or the pile shows the answer while its own card is still crossing the table.
-- `spin` is in **whole turns**. A half turn lands the card face down.
-- A `spin > 0` flier renders **two faces** (`.front` + a `rotateY(180deg)` `.back`) inside a
-  `preserve-3d` node, and `.layer` carries the `perspective`. Without the second face the roll shows
-  a mirrored front for half of every turn; without the perspective a `rotateY` is an affine squash
-  and the card just gets thinner.
+- `spin` is **whole turns in the card's own plane**, folded into the same `rotate` track as the
+  landing tilt (a full turn is visually a no-op, so the card still settles on exactly `toRot`).
+- **A flier shows one side, never two.** It was a barrel roll around Y — two faces in a `preserve-3d`
+  node, `.layer` carrying the `perspective` — and the card's back was turned to the table once per
+  turn: at two turns in 470ms a wild *blinked*, which reads as a loading spinner rather than as a
+  throw. A card spinning flat is still thrown; a card that hides its face mid-flight also hides the
+  thing the play is about. `kind` alone decides the side (`data-flier-face`), so a draw is a back for
+  its whole flight and a play a face for its whole flight.
 - `swell` is the mid-flight scale — the card passes nearer the camera. This is most of what separates
   a card being *thrown* from a sprite being moved.
 - **The pile reveals on impact, not on the message.** `DiscardPile` holds its new top for

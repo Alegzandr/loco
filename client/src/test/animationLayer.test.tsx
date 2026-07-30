@@ -15,11 +15,10 @@ const flier = (over: Partial<Flier> = {}): Flier => ({
 })
 
 describe('<AnimationLayer /> spinning fliers', () => {
-  it('renders a card back behind a spinning card', () => {
-    // Without the second face, half of every turn shows a mirrored front —
-    // which reads as a rendering glitch, not as a card turning over.
-    // Asserted on the face nodes, not on the "L": every card face carries that
-    // monogram in its bottom-right corner, so it tells the two apart from nothing.
+  it('never shows a back behind a spinning card', () => {
+    // The spin is in the card's own plane, so the face is up for the whole
+    // flight. A barrel roll around Y turned the back to the table twice in
+    // 470ms, which reads as a blinking loading indicator rather than a throw.
     const { container } = render(
       <AnimationLayer
         fliers={[flier({ spin: 2 })]}
@@ -28,20 +27,22 @@ describe('<AnimationLayer /> spinning fliers', () => {
         onEffectDone={noop}
       />,
     )
-    expect(container.querySelector('[data-flier-face="front"]')).toBeInTheDocument()
-    expect(container.querySelector('[data-flier-face="back"]')).toBeInTheDocument()
+    expect(container.querySelector('[data-flier-face="back"]')).toBeNull()
   })
 
-  it('renders no back for a flier that does not spin', () => {
+  it('shows one side only, whichever side the flier is', () => {
+    // A drawn card is a back for the whole flight, a played card a face — a
+    // flier never carries both, so nothing can flip mid-air.
     const { container } = render(
       <AnimationLayer
-        fliers={[flier()]}
+        fliers={[flier({ kind: 'back', spin: 1 })]}
         effectTexts={[]}
         onFlierDone={noop}
         onEffectDone={noop}
       />,
     )
-    expect(container.querySelector('[data-flier-face="back"]')).toBeNull()
+    expect(container.querySelector('[data-flier-face="back"]')).toBeInTheDocument()
+    expect(container.querySelector('[data-flier-face="face"]')).toBeNull()
   })
 })
 

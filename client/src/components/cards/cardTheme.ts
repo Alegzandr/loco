@@ -94,7 +94,12 @@ export function cardRarity(card: CardDTO): CardRarity {
 export interface Flight {
   /** ms of travel. */
   duration: number
-  /** Whole turns of barrel roll. A half turn would land the card face down. */
+  /**
+   * Whole turns of spin **in the card's own plane** — the face stays up for the
+   * whole flight. It used to be a barrel roll around Y, which showed the card's
+   * back once per turn: at two turns in 470ms that is a blink, and a blinking
+   * card reads as a loading spinner, not as a throw.
+   */
   spin: number
   /** Mid-flight scale: the card passes nearer the camera. */
   swell: number

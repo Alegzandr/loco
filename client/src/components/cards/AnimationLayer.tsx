@@ -118,33 +118,24 @@ export function AnimationLayer({
                 opacity: f.startAlpha ?? 1,
                 scale: startScale,
                 rotate: fromRot,
-                rotateY: 0,
               }}
               animate={{
                 x: f.to.x,
                 y: yTrack,
                 opacity: 1,
                 scale: scaleTrack,
-                rotate: toRot,
-                rotateY: spin * 360,
+                // The spin is whole turns in the card's own plane, folded into the
+                // same rotate track as the landing tilt: a full turn is visually a
+                // no-op, so the card still settles on exactly `toRot`.
+                rotate: toRot + spin * 360,
               }}
               exit={f.fadeOut ? { opacity: 0, transition: { duration: 0.22 } } : undefined}
               transition={{ duration, delay, ease: EASE_OUT_CARD }}
               onAnimationComplete={() => onFlierDone(f.id)}
-              style={{ width: w, height: h, transformStyle: spin > 0 ? 'preserve-3d' : undefined }}
+              data-flier-face={f.kind}
+              style={{ width: w, height: h }}
             >
-              {spin > 0 ? (
-                // A rolling card needs a back, otherwise half of every turn shows a
-                // mirrored front, which reads as a rendering glitch rather than as
-                // a card turning over. The perspective lives on .layer; without it a
-                // rotateY is an affine squash and the card just gets thinner.
-                <>
-                  <div className={styles.front} data-flier-face="front">{face}</div>
-                  <div className={styles.back} data-flier-face="back">
-                    <CardBack width={w} height={h} radius={r} />
-                  </div>
-                </>
-              ) : face}
+              {face}
             </motion.div>
           )
         })}
