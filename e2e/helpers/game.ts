@@ -257,7 +257,14 @@ export async function clickRematch(page: Page): Promise<void> {
 }
 
 /**
- * Click the Continue button to dismiss the round summary.
+ * Dismiss the round summary, and return once it is actually gone.
+ *
+ * What this waits on is the *state*, never the gesture. The summary auto-dismisses
+ * after ROUND_SUMMARY_AUTO_DISMISS_MS (8s), so a click that loses that race can
+ * never land — the button is detached and nothing recreates it, since the caller
+ * is blocked here and never forces the next round. Playwright then retries into
+ * the test timeout while the app has in fact done exactly what was asked.
+ *
  * Assumes the round summary is currently visible.
  */
 export async function clickContinue(page: Page): Promise<void> {
@@ -265,21 +272,34 @@ export async function clickContinue(page: Page): Promise<void> {
   await btn.waitFor({ state: 'visible' })
   // The summary card springs in over ~420ms. waitForRoundSummary resolves on the
   // store flag, which flips before that animation has settled, so clicking
-  // straight away races a moving target and Playwright rightly refuses. Wait for
-  // the card's own animations to finish first.
+  // straight away races a moving target and Playwright rightly refuses.
+  //
+  // The animations must have *started* to be worth waiting on: a CSS animation
+  // only begins on the frame after the node is inserted, and `every` on an empty
+  // list is true, so the naive check sailed straight through and clicked into the
+  // spring.
   await page
     .waitForFunction(
       () => {
         const el = document.querySelector('[class*="roundSummaryCard"]')
-        return !!el && el.getAnimations().every((a) => a.playState === 'finished')
+        if (!el) return true // already auto-dismissed: nothing left to click
+        const anims = el.getAnimations()
+        return anims.length > 0 && anims.every((a) => a.playState === 'finished')
       },
       undefined,
-      { timeout: 5_000 },
+      { timeout: 3_000 },
     )
     .catch(() => {
-      // Reduced-motion or an already-settled card: nothing to wait for.
+      // Reduced motion, or the card settled before we looked: nothing to wait for.
     })
-  await btn.click()
+  await btn.click({ timeout: 5_000 }).catch(() => {
+    // Lost the race with the auto-dismiss. The summary is closing anyway.
+  })
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.showRoundSummary === false,
+    undefined,
+    { timeout: 10_000 },
+  )
 }
 
 /**
