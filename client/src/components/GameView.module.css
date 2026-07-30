@@ -2,7 +2,7 @@
   position: relative;
   width: 100%;
   height: 100%;
-  background: var(--color-surface-soft);
+  background: var(--color-canvas);
   font-family: var(--font-body);
   color: var(--color-ink);
 }
@@ -13,11 +13,12 @@
   height: 100%;
 }
 
-/* Reconnect overlay */
+/* Reconnect / transport-down overlay */
 .reconnectOverlay {
   position: absolute;
   inset: 0;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--color-scrim);
+  backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -30,42 +31,61 @@
   flex-direction: column;
   align-items: center;
   gap: var(--space-base);
-  animation: slideUp 0.3s ease-out forwards;
+  padding: var(--space-xl) var(--space-xxl);
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  animation: slideUp 0.3s var(--ease-bounce) forwards;
 }
 
 .reconnectSpinner {
-  width: 44px;
-  height: 44px;
-  border: 3px solid var(--color-hairline-soft);
+  width: 46px;
+  height: 46px;
+  border: 5px solid var(--color-hairline);
   border-top-color: var(--color-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .reconnectText {
-  font: 600 20px/1.2 var(--font-display);
-  letter-spacing: -0.18px;
+  font: 600 22px/1.2 var(--font-display);
   color: var(--color-ink);
 }
 
 .reconnectSub {
-  font: 400 14px/1.43 var(--font-display);
+  font: 500 14px/1.4 var(--font-body);
   color: var(--color-muted);
 }
 
-/* UNO banner */
+/* ── UNO banner ───────────────────────────────────────────────────────────
+   The loudest moment in the game. A tilted sticker with a thick outline that
+   punches in and settles — built to be legible in a clipped highlight. */
 .unoBanner {
   position: absolute;
-  top: 50%;
+  /* Sits above the pile rather than over it — the play that triggered the
+     shout must stay visible while the banner is up. */
+  top: 24%;
   left: 50%;
-  transform: translate(-50%, -50%);
-  font: 700 64px/1.1 var(--font-display);
+  font: 700 clamp(30px, 5.6vw, 56px)/1 var(--font-display);
   letter-spacing: -1px;
-  color: var(--color-primary);
+  color: #fff;
+  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  padding: 14px 40px;
+  border: 5px solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 0 var(--color-stroke-soft), 0 0 60px rgba(255, 61, 104, 0.6);
+  text-shadow: 0 4px 0 rgba(120, 10, 40, 0.5);
+  white-space: nowrap;
   pointer-events: none;
-  animation: popIn 0.35s ease-out forwards;
-  text-shadow: 0 4px 24px rgba(255, 56, 92, 0.25);
+  animation: unoPunch 0.45s var(--ease-bounce) forwards;
   z-index: 10;
+}
+
+@keyframes unoPunch {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-14deg); }
+  55%  { opacity: 1; transform: translate(-50%, -50%) scale(1.12) rotate(-3deg); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(-4deg); }
 }
 
 /* Spectating banner */
@@ -74,13 +94,13 @@
   bottom: 80px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--color-canvas);
+  background: var(--color-surface-card);
   color: var(--color-ink);
   font: 600 14px/1.29 var(--font-display);
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-hairline);
-  box-shadow: var(--shadow-float);
+  border: var(--stroke) solid var(--color-stroke);
+  box-shadow: var(--shadow-hard);
   pointer-events: none;
   white-space: nowrap;
   z-index: 10;
@@ -90,27 +110,27 @@
 /* Swap / GlobalSwitch notice */
 .swapNotice {
   position: absolute;
-  top: 22%;
+  top: 20%;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--color-canvas);
-  color: var(--color-ink);
-  font: 600 16px/1.25 var(--font-display);
-  padding: 10px 22px;
+  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
+  color: #fff;
+  font: 600 17px/1.25 var(--font-display);
+  text-shadow: 0 1px 0 rgba(30, 10, 90, 0.45);
+  padding: 11px 24px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-luxe);
-  box-shadow: var(--shadow-float);
+  border: var(--stroke) solid var(--color-stroke);
+  box-shadow: var(--shadow-hard), 0 0 28px rgba(108, 92, 255, 0.55);
   pointer-events: none;
   white-space: nowrap;
   z-index: 14;
-  animation: swapNoticeIn 0.28s ease-out forwards;
+  animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
 }
 
 @media (max-width: 480px) {
   .swapNotice {
     font-size: 14px;
-    padding: 8px 16px;
-    top: 18%;
+    padding: 9px 16px;
+    top: 17%;
     max-width: 92%;
     white-space: normal;
     text-align: center;
@@ -118,7 +138,7 @@
 }
 
 @keyframes swapNoticeIn {
-  from { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(0.92); }
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px) scale(0.85); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
@@ -128,15 +148,18 @@
   top: 0;
   left: 0;
   right: 0;
-  height: 4px;
-  background: var(--color-hairline-soft);
+  height: 6px;
+  background: rgba(36, 21, 70, 0.18);
   z-index: 5;
   pointer-events: none;
 }
 
 .turnTimerFill {
   height: 100%;
+  border-bottom-right-radius: 3px;
+  border-top-right-radius: 3px;
   background: var(--color-primary);
+  box-shadow: 0 0 12px currentColor;
   transition: background-color 0.5s ease;
 }
 
@@ -147,20 +170,20 @@
 /* Error toast */
 .errorToast {
   position: absolute;
-  bottom: 76px;
+  bottom: 82px;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--color-canvas);
-  color: var(--color-error);
-  font: 500 14px/1.29 var(--font-display);
-  padding: var(--space-sm) var(--space-base);
+  background: linear-gradient(180deg, #ff7a6a 0%, var(--color-error) 100%);
+  color: #fff;
+  font: 600 15px/1.3 var(--font-display);
+  text-shadow: 0 1px 0 rgba(110, 10, 20, 0.4);
+  padding: 10px 20px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-error);
-  box-shadow: var(--shadow-float);
+  border: var(--stroke) solid var(--color-stroke);
+  box-shadow: var(--shadow-hard);
   pointer-events: none;
   white-space: nowrap;
   z-index: 30;
-  animation: toastSlideUp 0.18s ease-out forwards;
+  animation: toastSlideUp 0.24s var(--ease-bounce) forwards;
 }
 
 /* Top-right cluster: theme toggle + rules button */
@@ -176,23 +199,29 @@
 
 /* Fixed Rules button */
 .rulesBtn {
-  padding: 8px 16px;
+  padding: 9px 18px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-hairline);
-  background: var(--color-canvas);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-card);
   color: var(--color-ink);
-  font: 500 14px/1.29 var(--font-display);
+  font: 600 14px/1.2 var(--font-display);
   cursor: pointer;
-  min-height: 36px;
+  min-height: 40px;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s, border-color 0.15s;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
   z-index: 15;
 }
 
 .rulesBtn:hover {
-  background: var(--color-surface-soft);
-  border-color: var(--color-border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 var(--color-stroke-soft);
+}
+
+.rulesBtn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--color-stroke-soft);
 }
 
 /* Round indicator — top-left */
@@ -200,11 +229,17 @@
   position: absolute;
   top: 14px;
   left: 16px;
-  color: var(--color-muted);
-  font: 700 12px/1.33 var(--font-display);
-  letter-spacing: 0.06em;
+  padding: 6px 14px;
+  background: var(--color-surface-card);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-full);
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  color: var(--color-ink);
+  font: 700 13px/1.2 var(--font-display);
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   pointer-events: none;
+  z-index: 15;
 }
 
 @keyframes fadeIn {
@@ -214,23 +249,17 @@
 
 @keyframes timerPulse {
   from { opacity: 1; }
-  to { opacity: 0.5; }
+  to { opacity: 0.45; }
 }
 
 @keyframes toastSlideUp {
-  from { opacity: 0; transform: translateX(-50%) translateY(6px); }
-  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+  from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.9); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }
 
 @keyframes slideUp {
-  from { transform: translateY(20px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-@keyframes popIn {
-  from { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
-  50% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
-  to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  from { transform: translateY(20px) scale(0.95); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
 @keyframes spin {

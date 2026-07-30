@@ -1,11 +1,11 @@
 import { CSSProperties, forwardRef, KeyboardEvent, MouseEvent } from 'react'
 import { CardDTO } from '../../types/protocol'
-import { CARD_FACE, CARD_FACE_LIGHT, cardLabel } from './cardTheme'
+import { CARD_FACE, CARD_FACE_LIGHT, CARD_INK, cardLabel } from './cardTheme'
 import styles from './Card.module.css'
 
 interface Props {
   card: CardDTO
-  /** Visually marks the card as legal-to-play (white border + golden glow). */
+  /** Visually marks the card as legal-to-play (bright rim + lift glow). */
   playable?: boolean
   /** Adds the drop-shadow used for in-hand cards. */
   shadow?: boolean
@@ -15,20 +15,27 @@ interface Props {
   style?: CSSProperties
 }
 
-// Card renders a single card face. Sized exactly like the old Pixi sprite
-// (CARD_W × CARD_H = 72 × 108). Stateless, no animation — wrap in a
-// <motion.div> at the call site for movement / hover effects.
+/**
+ * A single card face: white frame, ink outline, tilted white oval, big numeral.
+ * The shape is deliberately close to a physical playing card — a spectator
+ * recognises what was played from a stream thumbnail, without reading text.
+ *
+ * Stateless and unanimated. Wrap in a <motion.div> at the call site for
+ * movement or hover effects.
+ */
 export const Card = forwardRef<HTMLDivElement, Props>(function Card(
   { card, playable = false, shadow = false, onClick, className, style },
   ref,
 ) {
   const label = cardLabel(card)
   const isNumeric = label.length === 1 && /\d/.test(label)
+  const isWild = card.color === 'wild'
   const labelClass = isNumeric ? styles.numeric : label.length <= 2 ? styles.short : styles.long
 
   const cssVars = {
     '--card-face': CARD_FACE[card.color],
     '--card-face-light': CARD_FACE_LIGHT[card.color],
+    '--card-ink': CARD_INK[card.color],
   } as CSSProperties
 
   const handleKey = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -61,10 +68,17 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
       data-card-kind={card.kind}
       data-card-value={card.value ?? ''}
     >
-      <div className={styles.highlight} />
-      <div className={styles.oval} />
-      <div className={`${styles.label} ${labelClass}`}>{label}</div>
-      {label.length <= 3 && <div className={styles.corner}>{label}</div>}
+      <div className={styles.sheen} />
+      {/* Wilds show the four-colour wheel instead of a flat oval — the same
+          visual shorthand every card game uses for "any colour". */}
+      <div className={`${styles.oval} ${isWild ? styles.ovalWild : ''}`} />
+      <div className={`${styles.label} ${labelClass} ${isWild ? styles.labelOnWild : ''}`}>{label}</div>
+      {label.length <= 3 && (
+        <>
+          <div className={`${styles.corner} ${styles.cornerTL}`}>{label}</div>
+          <div className={`${styles.corner} ${styles.cornerBR}`}>{label}</div>
+        </>
+      )}
     </div>
   )
 })

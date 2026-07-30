@@ -20,15 +20,18 @@
 - Batch identical-card play on your turn (effects compound).
 - Swap (colored, opponent hand swap) and Global Swap (rotate all hands in current direction).
 - UNO declaration + 5 s server-enforced catch window.
-- Single-finisher round scoring (number = face; Skip/Reverse/+2/Swap = 20; Wild/+4/Global Swap = 50).
+- Single-finisher round scoring (number = face; Reverse = 10; Skip = 20; +2 and Swap = 30; Wild and Global Swap = 40; +4 = 50).
 - Multi-round matches with persistent scoreboard.
 - Tiebreakers: highest score → rounds won → lowest lost-hand total → sudden-death extra round.
 - Win detection (empty hand) and deck replenishment from the discard pile.
+- Rematch: once a match is over the host reopens the same room — same code, same roster, cleared scores — instead of everyone rebuilding a room from scratch. Seats with nobody behind them are pruned first.
 
 ## UI / UX
-- React + PixiJS game view with WebGL card animations (easeOutCubic tweening, draw + discard).
+- React + Framer Motion game view. All card movement is expressed as GPU-composited `x`/`y`/`rotate` transforms — never `left`/`top` — so multiple cards can fly at once without triggering layout.
+- Motion detail: cards fly from the acting player's own seat to the discard pile (so opponents' plays are legible without watching the pile), the hand fan springs closed behind a played card, a fresh deal staggers in, the discard settles with a per-card tilt, and turn-indicator text crossfades.
+- `prefers-reduced-motion` is honoured throughout: transforms snap to their end state and CSS transitions are disabled, leaving the game fully playable without movement.
 - Round summary overlay with placements, points earned, cumulative scoreboard; auto-dismiss after 8 s or via Continue. Next-round state is buffered so the overlay never vanishes instantly.
-- Match-end screen with final scoreboard and winner highlight.
+- Match-end screen with final scoreboard, winner highlight, host Rematch button, and Leave room.
 - UNO reaction timer: countdown bar visible whenever a player declares UNO.
 - Reconnect visual recovery: brief "Rebuilding table…" overlay, then staggered entrance of bubbles, hand cards, and discard pile.
 - Mobile support: responsive layout, 44 px+ tap targets, 400 ms double-tap guard, touch-friendly wild color picker, `user-scalable=no`.

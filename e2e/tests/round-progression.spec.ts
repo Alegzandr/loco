@@ -127,7 +127,7 @@ test.describe('round summary and match progression', () => {
     }
 
     await waitForGameOver(page, 15_000)
-    await expect(page.getByRole('button', { name: T.playAgain })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.rematch })).toBeVisible()
   })
 
   /**
@@ -178,7 +178,7 @@ test.describe('round summary and match progression', () => {
     await clickContinue(page)
 
     await waitForGameOver(page, 30_000)
-    await expect(page.getByRole('button', { name: T.playAgain })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.rematch })).toBeVisible()
   })
 
   /**

@@ -354,6 +354,8 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleSetMatchFormat(c, msg)
 	case protocol.CMsgSetMaxPlayers:
 		h.handleSetMaxPlayers(c, msg)
+	case protocol.CMsgRematch:
+		h.handleRematch(c, msg)
 	case protocol.CMsgPlayCard:
 		h.resetAFK(c.roomCode, c.playerID)
 		h.handlePlayCard(c, msg)
@@ -524,6 +526,88 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 		})
 	}
 	h.maybeScheduleBot(c.roomCode, room)
+}
+
+// handleRematch reopens a finished room as a lobby so the same group can play
+// again without recreating the room and re-sharing the code. Players who never
+// came back from a mid-match disconnect are pruned first, so the next match is
+// dealt only to people who are actually present.
+func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if c.playerID != 0 {
+		c.sendError("only the host can start a rematch")
+		return
+	}
+	if room.Status != game.StatusFinished {
+		c.sendError("rematch is only available once the match is over")
+		return
+	}
+
+	h.pruneAbsentPlayers(c.roomCode, room)
+
+	if err := room.ResetForRematch(); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+
+	// Per-match hub bookkeeping must not leak into the new match.
+	delete(h.turnStartedAt, c.roomCode)
+	delete(h.afkTimeouts, c.roomCode)
+	delete(h.disconnectedAt, c.roomCode)
+	delete(h.emptyRooms, c.roomCode)
+
+	log.Printf("rematch opened code=%s players=%d format=%s",
+		c.roomCode, len(room.Players), matchFormatString(room.Format))
+
+	// Sent per-recipient: pruning may have shifted playerIDs, and each client
+	// needs its own new index to render the waiting room correctly.
+	for _, member := range h.roomMembers[c.roomCode] {
+		if member == nil {
+			continue
+		}
+		member.Send(protocol.ServerMsg{
+			Type:        protocol.SMsgRematchStarted,
+			RoomCode:    c.roomCode,
+			PlayerID:    member.playerID,
+			Players:     h.playerList(room),
+			MatchFormat: matchFormatString(room.Format),
+			MaxPlayers:  room.MaxPlayers,
+		})
+	}
+}
+
+// pruneAbsentPlayers drops every seat with neither a live connection nor a bot
+// behind it, re-indexing all playerID-keyed structures. Iterates high→low so
+// each removal only shifts indices already processed.
+func (h *Hub) pruneAbsentPlayers(code string, room *game.Room) {
+	members := h.roomMembers[code]
+	bots := h.botSlots[code]
+	for id := len(members) - 1; id >= 0; id-- {
+		if members[id] != nil {
+			continue
+		}
+		if _, isBot := bots[id]; isBot {
+			continue
+		}
+		if _, err := room.RemoveLobbyPlayer(id); err != nil {
+			log.Printf("WARN prune failed code=%s player=%d err=%v", code, id, err)
+			continue
+		}
+		members = append(members[:id], members[id+1:]...)
+		h.roomMembers[code] = members
+		for newIdx, m := range members {
+			if m != nil {
+				m.playerID = newIdx
+			}
+		}
+		h.botSlots[code] = shiftIntKeySet(h.botSlots[code], id)
+		h.sessionTokens[code] = shiftIntKeyMap(h.sessionTokens[code], id)
+		bots = h.botSlots[code]
+		log.Printf("pruned absent player code=%s player=%d", code, id)
+	}
 }
 
 func (h *Hub) handleSetMatchFormat(c *Client, msg protocol.ClientMsg) {
@@ -786,6 +870,7 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	targetIdx := room.State.LastCardPlayer
+	priorSize := len(room.State.Hands[targetIdx].Cards)
 	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
@@ -795,6 +880,9 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 		Type:        protocol.SMsgUnoCaught,
 		PlayerIndex: targetIdx,
 	})
+	// The penalty cards are a hand change like any other: the caught player must
+	// be sent the cards themselves, everyone else the new count.
+	h.sendHandGrowth(c.roomCode, room, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
 }
 
 func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
@@ -830,12 +918,12 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	cards, _, ok := h.parseCardsFromMsg(c, msg)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
 	if !ok {
 		return
 	}
 
-	if err := room.InterruptPlayCards(c.playerID, cards, chosenPlayer); err != nil {
+	if err := room.InterruptPlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
 		return
@@ -853,6 +941,13 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 		Cards:       successCards,
 	})
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
+	// Same rule as handlePlayCard: a Swap rearranges hands, so every client needs
+	// a fresh personalised snapshot. Only reachable if the deck ever ships two
+	// copies of a coloured Swap (today it ships one), but the domain permits the
+	// play and a silent hand desync is exactly the bug this guards against.
+	if len(cards) == 1 && cards[0].Kind == game.Swap {
+		h.broadcastPersonalizedGameState(c.roomCode, room)
+	}
 	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -922,19 +1017,20 @@ func (h *Hub) handleDisconnect(c *Client) {
 		return
 	}
 
-	// Finished room: just drop the member from the slot list; player records are
-	// no longer used for gameplay decisions.
+	// Finished room: treat it exactly like a lobby. The host may call rematch to
+	// reopen the room, so the roster and every playerID-keyed structure must stay
+	// consistent — leaving a phantom player here would deal a hand to nobody in
+	// the next match.
 	if room.Status == game.StatusFinished {
-		newMembers := make([]*Client, 0, len(members))
-		for _, m := range members {
-			if m != c {
-				newMembers = append(newMembers, m)
-			}
-		}
-		h.roomMembers[c.roomCode] = newMembers
-		if len(newMembers) == 0 {
+		if !h.reindexLobbyDisconnect(c, room, members) {
 			h.scheduleRoomCleanup(c.roomCode)
+			return
 		}
+		h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+			Type:     protocol.SMsgPlayerLeft,
+			Nickname: nickname,
+			Players:  h.playerList(room),
+		})
 		return
 	}
 
@@ -1232,6 +1328,22 @@ var BotCatchJitterMax = 1500 * time.Millisecond
 var BotCatchProb float32 = 0.65
 
 // handleAddBot adds a bot player to the lobby (host-only).
+// nextBotName returns the lowest free "BotN" name (1-based). Scanning for a free
+// name rather than counting seats keeps the first bot named Bot1 and avoids
+// colliding with a bot that survived a rematch or a human using that nickname.
+func nextBotName(room *game.Room) string {
+	taken := make(map[string]struct{}, len(room.Players))
+	for _, p := range room.Players {
+		taken[p.Nickname] = struct{}{}
+	}
+	for n := 1; ; n++ {
+		name := fmt.Sprintf("Bot%d", n)
+		if _, clash := taken[name]; !clash {
+			return name
+		}
+	}
+}
+
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
 	if !ok {
@@ -1245,8 +1357,7 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 		c.sendError("can only add bots in the lobby")
 		return
 	}
-	botNum := len(room.Players) + 1
-	nickname := fmt.Sprintf("Bot%d", botNum)
+	nickname := nextBotName(room)
 	if err := room.Join(nickname); err != nil {
 		c.sendError(err.Error())
 		return
@@ -1426,6 +1537,7 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 		return
 	}
 	catcherID := eligible[mrand.Intn(len(eligible))]
+	priorSize := len(state.Hands[cm.targetPlayer].Cards)
 	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
 		// Window may have expired or state changed — normal race condition.
 		return
@@ -1434,6 +1546,7 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 		Type:        protocol.SMsgUnoCaught,
 		PlayerIndex: cm.targetPlayer,
 	})
+	h.sendHandGrowth(cm.roomCode, room, cm.targetPlayer, state.Hands[cm.targetPlayer].Cards[priorSize:])
 }
 
 // executeBotMove runs the bot's chosen action on behalf of its player slot.
@@ -1635,7 +1748,7 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 		return
 	}
 
-	advanced, ok := h.autoDrawOnTimeout(code, room, tm.playerID, timedOutClient)
+	advanced, ok := h.autoDrawOnTimeout(code, room, tm.playerID)
 	if !ok {
 		return
 	}
@@ -1705,7 +1818,7 @@ func (h *Hub) kickIfAFK(code string, playerID int, client *Client) bool {
 // Returns (advanced, ok): advanced=true means a penalty-draw advanced the turn
 // and the caller should stop (broadcast already sent + timer rescheduled);
 // ok=false means an error aborted the timeout handling entirely.
-func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int, client *Client) (advanced, ok bool) {
+func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int) (advanced, ok bool) {
 	if room.State.HasDrawn {
 		return false, true
 	}
@@ -1716,41 +1829,17 @@ func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int, clie
 	}
 	state := room.State
 	newCards := state.Hands[playerID].Cards[priorSize:]
-	drawnCount := len(newCards)
 
 	if state.CurrentTurn != playerID {
-		dl := h.turnDeadlineMs(code)
-		h.broadcastToRoomAll(code, protocol.ServerMsg{
-			Type:         protocol.SMsgCardDrawn,
-			PlayerIndex:  playerID,
-			DrawnCount:   drawnCount,
-			Turn:         state.CurrentTurn,
-			TurnDeadline: dl,
-		})
-		h.maybeScheduleBot(code, room)
+		// Penalty draw: the turn moved on. Re-arm the timer BEFORE announcing so
+		// the broadcast carries the new player's deadline, not the expired one.
 		h.scheduleTurnTimer(code, room)
+		h.sendHandGrowth(code, room, playerID, newCards)
+		h.maybeScheduleBot(code, room)
 		return true, true
 	}
 
-	if client != nil {
-		cardDTOs := make([]*protocol.CardDTO, drawnCount)
-		for i, card := range newCards {
-			cardDTOs[i] = cardToDTO(card)
-		}
-		client.Send(protocol.ServerMsg{
-			Type:        protocol.SMsgCardDrawn,
-			PlayerIndex: playerID,
-			Cards:       cardDTOs,
-			Turn:        state.CurrentTurn,
-			HasDrawn:    state.HasDrawn,
-		})
-	}
-	h.broadcastToRoom(code, protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: playerID,
-		DrawnCount:  drawnCount,
-		Turn:        state.CurrentTurn,
-	}, client)
+	h.sendHandGrowth(code, room, playerID, newCards)
 	return false, true
 }
 
@@ -1764,6 +1853,44 @@ func (h *Hub) turnDeadlineMs(code string) int64 {
 }
 
 // --- Broadcast helpers ---
+
+// sendHandGrowth tells the affected player exactly WHICH cards just entered
+// their hand, and everyone else only how many. Every path that grows a hand
+// must go through here: a client that is told a count but not the cards keeps
+// a hand shorter than the server's, empties it, and the round then never ends
+// (the server still holds cards for a player whose screen shows none).
+//
+// Callers must have (re)armed the turn timer first — the deadline is read here.
+func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCards []game.Card) {
+	if len(newCards) == 0 {
+		return
+	}
+	state := room.State
+	dl := h.turnDeadlineMs(code)
+	client := h.memberClient(code, playerID)
+	if client != nil {
+		cardDTOs := make([]*protocol.CardDTO, len(newCards))
+		for i, card := range newCards {
+			cardDTOs[i] = cardToDTO(card)
+		}
+		client.Send(protocol.ServerMsg{
+			Type:         protocol.SMsgCardDrawn,
+			PlayerIndex:  playerID,
+			Cards:        cardDTOs,
+			Turn:         state.CurrentTurn,
+			HasDrawn:     state.HasDrawn,
+			TurnDeadline: dl,
+		})
+	}
+	// client == nil (bot seat, or a player mid-reconnect) still needs the count fan-out.
+	h.broadcastToRoom(code, protocol.ServerMsg{
+		Type:         protocol.SMsgCardDrawn,
+		PlayerIndex:  playerID,
+		DrawnCount:   len(newCards),
+		Turn:         state.CurrentTurn,
+		TurnDeadline: dl,
+	}, client)
+}
 
 // broadcastPersonalizedGameState sends each connected player their personalized game state.
 // Used after Swap and GlobalSwitch when all hands change simultaneously.

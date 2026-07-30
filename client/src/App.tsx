@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
-import { useGameStore } from './hooks/useGameStore'
+import { useGameStore, UNO_CATCH_WINDOW_MS } from './hooks/useGameStore'
+import { useGameAudio } from './audio/useGameAudio'
 import { Lobby } from './components/Lobby'
 import { WaitingRoom } from './components/WaitingRoom'
 import { GameView } from './components/GameView'
@@ -9,6 +10,10 @@ import { ServerMsg, ClientMsg } from './types/protocol'
 
 export default function App() {
   const store = useGameStore()
+
+  // Single owner of every sound in the game: one store subscription, no
+  // per-component audio calls. See audio/useGameAudio.ts.
+  useGameAudio()
 
   // Tracks the in-flight UNO catch-window timer so a new declaration cancels
   // the old one. Without this, an earlier setTimeout fires later and clobbers
@@ -134,20 +139,35 @@ export default function App() {
           useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
           break
 
-        case 'uno_declared':
+        // A declaration closes the catch window on the declarer: from here on the
+        // server answers every catch with "player already declared". The banner
+        // stays up on its own timer so the table still sees who called it.
+        case 'uno_declared': {
           clearUnoTimer()
+          const declarer = msg.player_index ?? -1
           store.setUnoDeclared(true)
-          store.setUnoDeclaredByIndex(msg.player_index ?? -1)
-          store.setUnoTimerEnd(Date.now() + 5000)
+          store.setUnoDeclaredByIndex(declarer)
+          if (useGameStore.getState().catchTarget === declarer) {
+            store.clearCatchWindow()
+          }
           unoTimerRef.current = setTimeout(() => {
             unoTimerRef.current = null
             store.setUnoDeclared(false)
             store.setUnoDeclaredByIndex(-1)
-            store.setUnoTimerEnd(null)
-          }, 5000)
+          }, UNO_CATCH_WINDOW_MS)
+          break
+        }
+
+        // Penalty applied — the target is no longer catchable by anyone.
+        case 'uno_caught':
+          store.clearCatchWindow()
           break
 
-        case 'uno_caught':
+        // Sent immediately before the resulting card_played so the steal can be
+        // presented on its own — banner, sting, screen shake — instead of
+        // looking like an ordinary turn.
+        case 'interrupt_success':
+          store.applyInterrupt(msg.player_index ?? 0, msg.cards?.length || 1)
           break
 
         case 'round_end':
@@ -170,6 +190,17 @@ export default function App() {
           }
           break
         }
+
+        case 'rematch_started':
+          // The host reopened the finished room. player_id is authoritative: seats
+          // may have been re-based when absent players were pruned.
+          store.applyRematch(
+            msg.player_id ?? 0,
+            msg.players ?? [],
+            msg.match_format ?? 'BO1',
+            msg.max_players ?? 10,
+          )
+          break
 
         case 'error':
           store.setError(msg.error ?? 'Unknown error')
@@ -213,6 +244,10 @@ export default function App() {
   const sendRef = useRef(handleSend)
   sendRef.current = handleSend
 
+  // Backing store for the dev-only E2E turn recorder (see the helper below).
+  const recordedTurns = useRef<number[]>([])
+  const turnRecorderStop = useRef<(() => void) | null>(null)
+
   // Expose lightweight E2E helpers on window in dev mode only.
   // Vite tree-shakes this block in production builds (import.meta.env.DEV = false).
   useEffect(() => {
@@ -221,6 +256,19 @@ export default function App() {
       ...(window.__LOCO_E2E__ ?? {}),
       send: (msg: ClientMsg) => sendRef.current(msg),
       getState: useGameStore.getState,
+      // Turn recorder: captures every distinct currentTurn the store passes
+      // through, so tests can assert on a turn *sequence* rather than sampling a
+      // transient value a bot may already have moved past. Results are read back
+      // via getRecordedTurns() — the recorder itself has to stay in the page.
+      startTurnRecorder: () => {
+        turnRecorderStop.current?.()
+        recordedTurns.current = [useGameStore.getState().currentTurn]
+        turnRecorderStop.current = useGameStore.subscribe((s) => {
+          const seen = recordedTurns.current
+          if (s.currentTurn !== seen[seen.length - 1]) seen.push(s.currentTurn)
+        })
+      },
+      getRecordedTurns: () => [...recordedTurns.current],
       getWsStatus: () => wsStatus,
       forceCloseWs: forceClose,
     }
@@ -251,6 +299,8 @@ export default function App() {
           myNickname={myNickname}
           scoreboard={store.scoreboard}
           matchOver={store.matchOver}
+          isHost={store.myIndex === 0}
+          onSend={handleSend}
         />
       )}
     </>

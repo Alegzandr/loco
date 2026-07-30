@@ -1,7 +1,13 @@
 # CLAUDE.md
 
 ## Mission
-Premium real-time multiplayer UNO-style card game. Goals: low-latency multiplayer, nickname-only access, server-authoritative anti-cheat, polished visuals, strong test coverage (TDD), docs in sync, Dockerized.
+Premium real-time multiplayer UNO-style card game **built to be streamed**. Goals: low-latency
+multiplayer, nickname-only access, server-authoritative anti-cheat, polished visuals *and* audio,
+strong test coverage (TDD), docs in sync, Dockerized.
+
+Streamability is a product requirement, not decoration: every state must be readable at 720p by a
+viewer who is not playing, and the game's big moments (interception, UNO, victory) must be legible
+in a clipped highlight with the sound muted.
 
 ## Non-negotiables
 - No login/signup/OAuth — nickname only.
@@ -40,9 +46,17 @@ Small cohesive modules, explicit domain types, pure domain logic, side effects a
 ## Testing
 TDD. Tests-first for non-trivial behavior. Deterministic clocks for timing logic. Integration-test critical multiplayer flows. Maintain Playwright E2E suite as living regression.
 
-Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), protocol validation/rejection.
+Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping.
 
 Keep tests fast, targeted, non-brittle. Cover game rules > UI details.
+
+Review layout/colour/motion changes with `make visual` — reading four contact sheets catches what no
+assertion was going to describe (a clipped heading, a theme that never applied, seats overlapping the
+header). Assertions still own behaviour; screenshots own appearance.
+
+Beware assertions that only restate the fixture. An E2E test once sent an interrupt, then asserted
+the discard and turn that `debug_set_state` had itself just configured — it passed for months while
+the server rejected every interrupt with "interrupt window closed".
 
 ## README must include
 overview, goals, stack + rationale, local setup, Docker usage, env vars, test commands, architecture summary, current features, known limitations, dev workflow.
@@ -65,10 +79,13 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 
 ## Repository structure
 - `client/` frontend
-  - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher)
+  - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings, InterruptBanner, Confetti, `playerColors.ts`)
   - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, AnimationLayer; `layout.ts` for pure pixel math)
+  - `src/audio/` `engine.ts` (context/buses/settings), `sfx.ts` (synthesised one-shots), `music.ts` (adaptive bed), `useGameAudio.ts` (store→sound bridge)
+  - `src/dev/` dev-only visual showcase (`scenes.ts` registry + `Showcase.tsx`), tree-shaken from prod
+  - `src/styles/tokens.css` design tokens — single source of truth for colour/type/shape/motion
   - `src/i18n/` i18n context, en/fr translations
-  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver)
+  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useTheme` (`initTheme()` runs in `main.tsx`)
   - `src/types/` protocol types
   - `src/test/` Vitest unit tests
 - `server/` authoritative game server
@@ -76,10 +93,11 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
   - `hub/` WS connection mgmt, rate limiting, session tokens, bot scheduling
   - `protocol/` wire types
 - `e2e/` Playwright suite
-  - `tests/`: game-flow, multi-client, mobile (Pixel 5), penalties, round-progression, reconnect, special-cards
-  - `helpers/game.ts` shared helpers (createRoom, drawAndPass, takeTurn, participateInTurns, setMatchFormat, waitForPendingDraw, waitForUnoDeclared, waitForRoundNumber, clickContinue)
+  - `tests/`: game-flow, multi-client, mobile (Pixel 5), penalties, round-progression, reconnect, rematch, rules-coverage, special-cards
+  - `helpers/game.ts` shared helpers (createRoom, drawAndPass, takeTurn, participateInTurns, setMatchFormat, waitForPendingDraw, waitForUnoDeclared, waitForRoundNumber, clickContinue, clickRematch)
   - `types.d.ts` `Window.__LOCO_E2E__` type
   - `playwright.config.ts`
+- `tools/visual/shoot.mjs` screenshot harness (boots Vite, walks the scene registry, writes `.visual/`)
 - `shared/` protocol/types
 - `docs/` supplemental
 - root config / Docker / env
@@ -107,9 +125,12 @@ Update this section when structure changes.
 - Tests override threshold (e.g. `1<<30`).
 
 ## Interrupts & batch play
-- **Identical-card interrupt** (`Room.InterruptPlayCards`, alias `InterruptPlay`): non-current player plays N identical cards exactly matching top discard within `game.InterruptWindow` (1500ms). Effect applies from interrupter's seat; they become turn leader. Wild/WildDrawFour/GlobalSwitch can't interrupt. Rejected if pending draw, or self-interrupt.
-- **Batch interrupt**: send N copies via `play_cards: [...]`. Effects stack (N DrawTwo = `2*N` pending; N Skips skip N players; N Reverses parity-flip). Swap and GlobalSwitch can't batch.
-- Window state on `GameState`: `LastPlayBy` (-1=closed), `LastPlayAt`, `InterruptDeadline`. Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end. Opening discard does NOT arm.
+- **Identical-card interrupt** (`Room.InterruptPlayCards(playerIndex, cards, chosenColor, chosenPlayer)`, alias `InterruptPlay`): **anyone** plays N identical cards exactly matching top discard. Effect applies from interrupter's seat; they become turn leader.
+- **There is no deadline and no excluded player.** The player who just played may take the lead back with a second copy, and so may the current player. Everything is a race decided by arrival order. Removing those two restrictions is what makes the mechanic feel realtime instead of turn-based — do not reinstate them.
+- **Every kind can interrupt, wilds included**: Wild on Wild, WildDrawFour extends a +4 chain, GlobalSwitch rotates hands from the interjecter's seat. Wilds share `Color: Wild`, so plain equality still keeps a Wild off a WildDrawFour. A wild interject must name a real colour (`chosenColor != Wild`); GlobalSwitch is exempt (it carries no colour choice, same as a normal play).
+- **Batch interrupt**: send N copies via `play_cards: [...]`. Effects stack (N DrawTwo = `2*N` pending; N Skips skip N players; N Reverses parity-flip). Swap and GlobalSwitch can't batch (which target? how many rotations?).
+- During a draw chain (`PendingDraw > 0`) only DrawTwo/WildDrawFour may interject — implied by identical-to-top in a consistent state, kept explicit as a guard.
+- Window state on `GameState`: `LastPlayBy` (-1=closed), `LastPlayAt` (informational). Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`/`CounterDraw`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end. Opening discard does NOT arm.
 - Resolution: fastest-server-received wins (single-goroutine event loop serializes).
 - Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards? }` — `play_cards` non-empty takes precedence. Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
 - **Batch play** (`Room.PlayCards`): current player plays N identical via `play_cards` (precedence over `card`). Effects stack (DrawTwo `2*N`, WildDrawFour `4*N`, Skips skip N, Reverses parity). Swap/GlobalSwitch excluded.
@@ -129,6 +150,16 @@ Update this section when structure changes.
 - `GameView` shows via `styles.swapNotice` (purple-glow pill above action bar), auto-clears after `SWAP_NOTICE_MS=3500`. i18n keys: `swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw` (`%actor`/`%target`).
 - `<GameBoard />` watches `swapNotice.at` and spawns Framer Motion mini card-back trails (actor↔target for swap, chained seat→next-seat for global_switch) via `<AnimationLayer />`.
 
+## Rematch (end of match)
+- `rematch` (host-only, client→server) reopens a finished room as a lobby. Server replies **per recipient** with `rematch_started { room_code, player_id, players, match_format, max_players }`.
+- `Room.ResetForRematch()` (`game/room.go`): requires `StatusFinished`. Clears `State`, `Winner`, `RoundEnded`, `MatchOver`, `MatchWinner`, `RoundNumber`, and nils `Scores`/`RoundsWon`/`LostHandTotal` (so `Start()` reallocates them sized to the roster present at that moment). Keeps `Players`, `Format`, `MaxPlayers`.
+- `hub.handleRematch` first calls `pruneAbsentPlayers` — drops every seat with a nil `roomMembers` entry that is not in `botSlots` (i.e. humans who never came back), high→low, re-indexing `roomMembers`, surviving `Client.playerID`, `botSlots`, `sessionTokens`. **This is why `rematch_started` is per-recipient: playerIDs can shift.** Then deletes `turnStartedAt`, `afkTimeouts`, `disconnectedAt`, `emptyRooms` for the code.
+- **A finished room's roster is mutable, exactly like a lobby.** `RemoveLobbyPlayer` accepts `StatusFinished`, and `handleDisconnect` routes the finished-room case through `reindexLobbyDisconnect` (+ `player_left` broadcast). Without this a phantom player would be dealt a hand in the rematch.
+- Client: `applyRematch(myIndex, players, format, maxPlayers)` wipes all match state → `screen:'waiting'`. **Keeps `sessionToken`** (same room, still valid for reconnect during the next match). `App` adopts the server's `player_id`.
+- `store.setPlayers` re-resolves `myIndex` by matching our own nickname in the incoming roster. Server-side re-indexing (lobby or finished-room disconnect) otherwise leaves a stale index, so a promoted player would never get host controls — e.g. the host leaves the game-over screen and nobody can rematch. Nicknames are unique per room, so the match is unambiguous.
+- `GameOver` takes `isHost` + `onSend`: host sees a Rematch button, others `rematchWaiting` text; both get `leaveRoom` (reloads). i18n keys: `rematch`, `rematchWaiting`, `leaveRoom`.
+- Bots survive a rematch. `nextBotName` scans for the lowest free `BotN` rather than counting seats, so the first bot is `Bot1` and a surviving bot can't cause a duplicate-nickname `Join` failure.
+
 ## Lobby config
 - Host messages: `set_match_format`, `set_max_players` (lobby only).
 - Max players: `serverMinPlayers`(2) ≤ n ≤ `serverMaxPlayers`(10); cannot drop below current count.
@@ -143,6 +174,8 @@ Update this section when structure changes.
 - `generateCode()` retries on collision. ~1B combos.
 
 ## Mobile
+- Seats resize and wrap automatically (see "Seat layout"); nothing about the table is hard-coded to
+  desktop. Verify with `make visual ARGS="--viewports=mobile"`.
 - All action buttons: `min-height:44px`, `touch-action:manipulation`.
 - 400ms debounce (`guardDoubleTap`) on action buttons.
 - Wild picker: 64px+ touch targets in a row.
@@ -150,7 +183,7 @@ Update this section when structure changes.
 - CSS `@media (max-width:480px)` for small screens.
 
 ## Bots
-- Host adds via `add_bot`. Auto-named `Bot1`, `Bot2`, …
+- Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
 - AI: `game/bot.go` `BotThink(state, playerIdx) BotAction`.
 - Scheduled via `botMove` channel with `botThinkDelay=800ms`.
 - Auto-declare UNO when playing to 1 card.
@@ -182,11 +215,22 @@ Update this section when structure changes.
   - Local: `docker compose -f docker-compose.dev.yml up --build` then `cd e2e && npm test`.
   - CI: `backend_test` builds `server-bin`; `e2e_test` runs it + Playwright.
 - `window.__LOCO_E2E__` exposed in dev only (`import.meta.env.DEV`):
-  - `send(msg)`, `getState()`, `playCard(card)` (animates + sends `play_card`).
+  - `send(msg)`, `getState()`, `playCard(card)` (animates + sends `play_card`), `getWsStatus()`, `forceCloseWs()`.
+  - `startTurnRecorder()` / `getRecordedTurns()` — records distinct `currentTurn` transitions. **Use this instead of polling `currentTurn` whenever a bot seat is involved**: a bot holds the turn for only ~800ms, so sampling is inherently flaky, and the recorded sequence additionally proves a skipped seat never held the turn.
   - Tree-shaken from prod builds.
 - Types: `e2e/types.d.ts`. Helpers: `e2e/helpers/game.ts`.
+- `webServer` env vars go in `playwright.config.ts`'s `env` object, **not** a `VAR=x cmd` shell prefix — the prefix form is POSIX-only and breaks when the suite runs from Windows.
 - Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
 - **Update E2E in same commit as gameplay/UI/protocol changes.**
+- The **interrupt window is only armed by a real play** — `debug_set_state` leaves it closed, so a
+  successful-interrupt test must have somebody actually play first. Who interrupts no longer matters
+  (self-interrupt and current-player interrupt are both legal), but keep bots out of the scenario:
+  a bot's 800ms timer plays a card and re-arms the window under the interrupt in flight.
+- Entrance animations race clicks: `clickContinue` waits for the round-summary card's animations to
+  report `finished` before clicking, because `waitForRoundSummary` resolves on the store flag, which
+  flips ~420ms before the card stops moving.
+- Two controls must never share an accessible name — the draw pile is `drawPile` ("Pioche"), not
+  "Draw", precisely because a strict-mode locator caught the collision.
 - Canvas not inspected; verify via DOM (ActionBar, RoundSummary, GameOver) + `__LOCO_E2E__.getState()`.
 
 ---
@@ -232,24 +276,182 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - When you change `server/protocol/messages.go`: update `protocolSchemas.ts` for any inbound shape changes (inferred types follow). `client/src/test/protocolSchemas.test.ts` exercises the schema.
 
 ## Makefile
-- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them.
+- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual`).
+
+## Art direction — "cartoon premium"
+Inspirations: **Nintendo × Gartic Phone**. Chunky rounded shapes, thick ink outlines, saturated
+candy palette, solid offset shadows that make every control read as a physical object. The old
+Airbnb-derived tokens are gone; `DESIGN.md` is historical.
+
+Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
+1. Every raised object has an ink outline (`--stroke`) **and** a hard bottom shadow
+   (`--shadow-hard`). Soft blurs are ambience, never structure.
+2. Nothing is pure white on pure white. The board always sits on colour (`--bg-gradient`, painted
+   once on `body`; screen containers stay `transparent`).
+3. Type is display-weight and large — a spectator reads it at 720p, not a designer at arm's length.
+
+- Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
+  `@fontsource-variable/*` and imported in `main.tsx`. No CDN — the CSP stays closed.
+- Press feedback: `.btn-chunky` in `tokens.css` (hover lifts, active travels *into* the ledge).
+  Components extend it rather than reinventing the six lines.
+- Card faces: white frame + ink outline + tilted white oval + big numeral + rotated corner glyphs.
+  Wilds show a four-colour conic wheel. Suit colours in `cards/cardTheme.ts` are separated in hue
+  **and** luminance, and every card also carries its glyph.
+- `--ease-bounce` for anything that should feel physical; `--ease-out` for travel.
+- **Theme is applied by `initTheme()` in `main.tsx`, before first render.** It used to be written
+  only by `<ThemeToggle />`'s hook, so any screen without a toggle (game over, a reload straight
+  into a match) silently rendered light.
+
+## Board scale (`layout.ts: boardScale`)
+The board is laid out in a **fixed coordinate space** (design size 1150×730) and scaled to the
+element by `<div .stage>` in `<GameBoard />` (`transform: scale(s)`, `transform-origin: 0 0`).
+`boardScale` = `clamp(min(w/1150, h/730), 1, 1.6)`, driven by the **shorter** axis — an ultrawide but
+short window has no vertical room to spend, and scaling on width alone pushes the hand under the
+action bar. Below the design size the scale is 1 and the existing responsive behaviour takes over,
+so **phones are unaffected**.
+
+- `GameBoard` divides the measured pixel size by the scale and passes only the virtual size down.
+  Children, `layout.ts` and every animation coordinate stay in that one space — nothing else knows
+  about the scale, which is why cards, seats, felt, type and fliers all grow together.
+- This is the fix for "1440p shows the same small table surrounded by background". Do **not** solve
+  that class of problem by bumping `CARD_W` / `SEAT_DIMS` — those are design-space constants.
+- Deck and discard derive their centre from `tableRect` (`pileTop`), so the pair sits in the middle
+  of the felt. Both take `topReserve` and `<GameBoard />` passes `seats.blockHeight` to the piles,
+  the fliers and `tableRect` from one variable — mismatched reserves drift the fliers off the pile.
+
+## Seat layout (`layout.ts: seatLayout`)
+One function owns opponent seating because three callers must agree exactly: `<GameBoard />`
+(renders the pills), `seatPosition` (anchors swap/steal animations), and `tableRect` (must not
+slide the felt under the seats). When they disagreed, trails flew to empty space.
+
+- Picks the largest pill size that fits the whole table on one row: `full` (172×66, desktop only) →
+  `compact` (124×56) → `mini` (82×46, name + count, no card fan). Sizes in `cardTheme.ts:SEAT_DIMS`.
+- Wraps to extra rows when even mini pills don't fit one row (nine opponents on a phone).
+- X is spread **linearly**, not by `cos(angle)`: evenly-spaced angles bunch their projections at the
+  extremes and outer pills overlapped from six players up.
+- Non-mini pills keep `SEAT_EDGE` (28px) clear of both screen edges, mini pills only `SEAT_GAP`
+  (10px). A row of full pills that technically fits but runs edge to edge reads as a toolbar, not as
+  players around a table; mini pills only appear when the table is crowded and every pixel counts.
+- Reports `blockHeight`; `tableRect(width, height, topReserve)` places the felt underneath it,
+  clamps to `width - 20`, and keeps an oval aspect (rounder on phones, where a wide oval leaves dead
+  bands above and below). The felt takes 74% of the band it is given (capped 440) — at 62%/400 a
+  third of the play area was bare background.
+- Seats clear `TOP_CHROME` (58px) so they never sit under the round badge / theme / audio / rules
+  cluster.
+
+## Streamable moments
+- **Interception slam** (`<InterruptBanner />`): driven by the server's `interrupt_success`, which
+  the client used to ignore entirely. Store field `interruptFlash { actorIndex, count, at }`, set by
+  `applyInterrupt`, cleared by the banner after 1800ms. Colour comes from `seatColor(actorIndex)`.
+  `<GameView />` also shakes the board via the **Web Animations API** (not a CSS class — a class
+  toggle would need a remount to replay, tearing down the board).
+- **UNO banner**: tilted sticker, punch-in, positioned *above* the pile so the play that triggered
+  it stays visible.
+- **Effect callouts** (`AnimationLayer`): SKIP / REVERSE / +N, outlined rather than shadowed so they
+  survive landing on felt, on a card, or on the background. Text is localised (`fxSkip`,
+  `fxReverse`); `<GameBoard />` takes them as a memoised `fxTexts` prop — a fresh object literal
+  would replay the callout on every render.
+- **Confetti** on the victory screen only. Losing screens do not celebrate.
+- **Per-seat identity colours** (`components/playerColors.ts`): a player keeps one colour across
+  lobby avatar, banner and scoreboard so a viewer can follow "the orange player" all match.
+- Opponent pills show the **exact** card count (the fan only conveys few-vs-many, and caps out).
+
+## Audio
+Everything is synthesised at runtime. **No audio files ship with the client** — nothing to
+download, nothing to licence, no cache-miss silence on a sound's first play.
+
+- `audio/engine.ts` — lazy `AudioContext` (browsers refuse one outside a user gesture; every play
+  before `unlock()` is a silent no-op), master → sfx/music buses, settings persisted under
+  `loco_audio`, per-frame voice budget so a batch play can't stack a dozen voices.
+- `audio/sfx.ts` — one-shots. Card handling is **noise** (paper has no pitch; a pitched click per
+  card becomes a melody nobody wrote); rule outcomes are **pitched and interval-based** so the table
+  learns them by ear.
+- `audio/music.ts` — four-bar generative bed over i–VI–III–VII in A minor. What changes is
+  *density and tempo*, not harmony: `intensity` (0..1) picks how many layers play and how fast, and
+  the game raises it when someone is on one card or a draw stack is climbing. Scheduled with the
+  standard lookahead pattern, so `setTimeout` jitter never reaches the output.
+  - `MOTIF` is the actual theme — eight pentatonic notes that sit correctly over all four chords, so
+    it can enter on any bar. A purely random arp is texture; a game needs one line people can hum.
+  - **Intensity is slewed at `SLEW_PER_SEC` (per second, not per step).** Game events move it in
+    jumps, and applied raw whole layers snap in and out mid-bar. A per-*step* rate was worse than
+    useless: a 16th at 88 BPM is 170ms, so the ramp depended on the tempo it was meant to drive and
+    took 14s to cross the range — longer than the moment it was reacting to.
+  - Layer entry and tempo are sampled **at the bar line** (`barIntensity`): a layer arriving on beat
+    3 sounds like a bug, the same layer on beat 1 sounds intended.
+  - `music.duck(ms)` pulls the bed under the win/lose fanfares through the bed's own output stage,
+    so it never touches the user's music volume. Two pieces of music fighting for the same moment
+    makes both of them mush, and the fanfare is the one people clip.
+- `audio/useGameAudio.ts` — **the only place that plays anything**. One store subscription diffs
+  snapshots (`soundsForTransition`, pure and unit-tested) instead of audio calls scattered through
+  components: every sound stays in one readable list and can't double-fire.
+- `<AudioSettings />` sits in the top-right cluster on every screen. Music defaults below effects —
+  it is a bed, and a streamer talking over the game must stay louder than it.
+- `make audio-verify` (`tools/audio/verify.mjs`) is the only thing that can catch a broken envelope
+  or a mis-wired node: those produce **silence**, not an error, so no unit test would ever go red.
+  It plays every voice through a real AudioContext and measures peak amplitude on the bus, then
+  checks the three properties of the bed that are claims rather than code: calm-vs-tense energy
+  (≥1.3×), that the slew reaches its targets, and that ducking attenuates.
+  - **Measure over a full loop (~11s at the slowest tempo).** A shorter window samples a random
+    slice of the progression: the first version of this check confidently reported ×1.05 for a bed
+    that does change.
+  - Deliberately outside CI: audio devices in CI containers are unreliable and a flaky sound
+    assertion trains people to ignore red. Run it after touching `sfx.ts`, `music.ts` or `engine.ts`.
+- **Strudel was evaluated and rejected**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and
+  bundling them into a network-served client triggers §13 for the whole app. Revisit only if LOCO
+  itself becomes AGPL.
+
+## Visual showcase & screenshot harness
+`client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,
+`?showcase=<id>` renders one scene full-screen with no server, no WebSocket and no second player.
+Gated behind `import.meta.env.DEV` (dynamic import in `main.tsx`), so Rollup drops the chunk in prod.
+
+`tools/visual/shoot.mjs` (`make visual`) boots Vite, walks the registry and writes
+`.visual/<scene>__<viewport>__<theme>.png` plus one contact sheet per viewport/theme.
+
+- **Add a scene in the same change set as any new screen or visual state.**
+- Flags: `--scenes=a,b`, `--viewports=desktop,mobile,wide`, `--themes=light,dark`, `--motion` (keep
+  animations running), `--port`. Default runs `desktop` (1440×900) + `mobile` (390×844); `wide`
+  (1920×1080) is where board-scale regressions show up — check it after touching `layout.ts`.
+- Viewport size goes under `viewport: {...}` in the Playwright context options — width/height at the
+  top level are silently ignored and you get the 1280×720 default.
+- Captures run with `reducedMotion: 'reduce'` by default so they are deterministic; `--motion` is how
+  you check confetti, springs and callouts.
 
 ## Player bubble (`<PlayerSlot />`)
-- 172×66 pill positioned via `opponentBubblePositions(...)` (upper arc, clockwise from local seat).
-- Active turn: blue background + 2px ring + dot above the pill, bold blue label.
-- Disconnected: dark-grey bg, grey label, `"nickname ✗"`.
-- Mini card-back fan inside the pill (max 9 visible, rotation ±14°/±8°/0° depending on count, "+N" overflow label).
+- Chunky sticker pill positioned by `seatLayout(...)` (see "Seat layout"), clockwise from the local
+  seat. Size is `full` / `compact` / `mini` — the component mirrors `SEAT_DIMS`, it does not choose.
+- Active turn: gold gradient fill + glow ring + bobbing arrow above the pill, dark label. It is the
+  brightest object on screen on purpose — a viewer must never hunt for whose turn it is.
+- Card-count badge on the pill's right edge; it turns red and pulses at exactly 1 card.
+- Disconnected: muted fill, faded, `"nickname ✗"`.
+- Mini card-back fan inside `full`/`compact` pills (rotation ±14°/±8°/0° depending on count, "+N"
+  overflow label). `mini` drops the fan — at that size it would be unreadable mush.
 
 ## Card rendering layer (React + Framer Motion)
 - `<GameBoard />` is the root; it tracks container size via `useElementSize` (ResizeObserver) and passes width/height to children that absolute-position in pixel coords.
-- Layout helpers (`src/components/cards/layout.ts`): `clockwiseOpponents`, `opponentBubblePositions`, `calcHandSlots`, `discardPosition`, `deckPosition`, `seatPosition` — all pure, reused by tests and animations.
+- Layout helpers (`src/components/cards/layout.ts`): `clockwiseOpponents`, `opponentBubblePositions`, `calcHandSlots`, `discardPosition`, `deckPosition`, `seatPosition`, `handCardKeys` — all pure, reused by tests and animations.
 - Animations live in `<AnimationLayer />`: an array of `Flier` items (flying card faces or backs) plus `EffectText` floats. Each entry self-cleans via `onAnimationComplete` → parent `removeFlier`/`removeEffect`.
-- Animation triggers (inside `<GameBoard />`):
-  - **Card play (own)**: `handleCardClick` wraps the parent callback, computing the source slot from `calcHandSlots` and spawning a hand→discard flier before invoking parent. Sets `suppressNextDiscardFx` so the discard-change effect doesn't double-fire.
-  - **Discard top change (any source)**: small fade/scale flier at the discard pile + SKIP/REVERSE/+N effect text via `effectFor(card, pendingDraw)`.
+- Animation triggers (inside `<GameBoard />`), in effect-declaration order:
+  - **Opponent play**: keyed on `lastPlay.at`; flies the card from `seatPosition(actor)` to the discard with `arcHeight`. Skipped when the actor is the local player. Sets `suppressNextDiscardFx`.
+  - **Card play (own)**: `handleCardClick` wraps the parent callback, computing the source slot from `calcHandSlots` and spawning an arced hand→discard flier before invoking parent. Sets `suppressNextDiscardFx`.
+  - **Discard top change (any source)**: `suppressNextDiscardFx` suppresses **only the generic pile flier**, never the SKIP/REVERSE/+N callout — playing your own Skip must announce itself too. Callout text from `effectFor(card, pendingDraw)`.
   - **Hand grew by 1**: deck→last-slot card-back flier (draws).
   - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.
 - Hover lift: CSS-only (`Hand.module.css`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
+
+### Motion conventions (non-negotiable)
+- **Animate transforms, never `left`/`top`.** Every moving node (`.flier`, `Hand .slot`, `PlayerSlot .slot`) is pinned at `left:0;top:0` in CSS and positioned by framer-motion `x`/`y`. Animating `left`/`top` runs layout every frame and visibly stutters once several cards move at once.
+- **A node's transform has exactly one owner.** If framer-motion animates a node's transform, its CSS must not set `transform` (and vice-versa). Where a static offset is also needed — centering the effect text, centering the turn indicator — use an outer anchor div for the CSS transform and an inner motion node for the animation (`.effectAnchor`, `TurnIndicator .anchor`). The hover lift lives on the inner `.card` for the same reason.
+- **Layout math is radians; framer-motion `rotate` is degrees.** Convert at the render boundary with `radToDeg` (`cardTheme.ts`). Passing radians straight to `rotate` silently flattens every rotation.
+- Shared motion constants in `cardTheme.ts`: `EASE_OUT_CARD` (card flights), `SPRING_HAND` (fan reflow), `DEAL_STAGGER_MS`.
+- **Hand keys come from `handCardKeys(hand)`**, not the array index — occurrence-numbered card identity. Index keys make React reuse the wrong node when a card leaves the middle of the fan, so the survivors snap instead of sliding into the gap.
+- `Hand` staggers cards in only when the hand grows **from empty** (a deal). Any other growth is a draw, which already has its own deck→hand flier.
+- `DiscardPile`: 2 static neutral under-layers for pile thickness (deliberately untinted — the active-colour ring owns the colour there) + top card keyed on `cardKey(card)` so each new top card remounts and replays a spring settle at a deterministic `hashTilt`.
+- `store.lastPlay { actorIndex, card, at }` is set by `applyCardPlayed` and exists **only** for animation. Never read it for rules decisions.
+
+### Reduced motion
+- `<MotionConfig reducedMotion="user">` in `main.tsx` covers framer-motion; a `@media (prefers-reduced-motion: reduce)` block at the end of `styles/tokens.css` neutralises CSS transitions/animations globally.
+- When adding motion, verify it degrades to a readable static state rather than disappearing.
 
 ## Reconnect visual recovery
 - On `player_reconnected`: store `isReconnecting:true` before applying state.
@@ -285,6 +487,9 @@ Browser (HTTPS) → Traefik (:443 websecure)
 
 All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
 
+## Client protocol coverage
+- New inbound message types must be added to `serverMsgTypeSchema` in `protocolSchemas.ts` or `useWebSocket` drops them in dev. New outbound types go in `ClientMsgType` (`protocol.ts`).
+
 ## Room lifecycle cleanup
 - `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
 - `hub.ReconnectTimeout` (var, default 60s) — disconnected-in-game slot hold.
@@ -294,6 +499,18 @@ All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatc
 - `handleCleanup`: deletes only if `emptyRooms[code]` still matches recorded time (race-safe).
 - Rejoin/reconnect calls `delete(h.emptyRooms, code)`.
 - `deleteRoom(code)`: single deletion point; cleans hub maps, adjusts `statRooms`/`statBotsActive`, structured log.
+
+## Hand synchronisation
+**Every path that grows a hand goes through `hub.sendHandGrowth`** — it sends the affected player
+the actual cards (`card_drawn.cards`) and everyone else only the count (`drawn_count`). Callers:
+`handleDrawCard`, `autoDrawOnTimeout` (both the plain and the penalty branch), `handleCatchUno`,
+`handleBotCatch`. Hands rearranged wholesale (Swap / GlobalSwitch) instead get a personalised
+`game_state` per recipient.
+
+Telling a client the count but not the cards desyncs it silently and unrecoverably: its local hand
+stays short, the player empties the hand they can see, the server still holds cards for them, so the
+round-end check never fires — the board freezes on "your turn" with no cards. That is exactly what
+the UNO-catch penalty (+2) and the penalty branch of the turn timeout used to do.
 
 ## Server stability
 - Deferred async = `time.AfterFunc` (not `go func{Sleep;send}`).

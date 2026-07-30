@@ -5,20 +5,33 @@ import { useI18n } from '../i18n'
 import { RulesModal } from './RulesModal'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { ThemeToggle } from './ThemeToggle'
+import { AudioSettings } from './AudioSettings'
+import { playSfx } from '../audio/sfx'
 import styles from './Lobby.module.css'
+
+type LobbyMode = 'home' | 'create' | 'join'
 
 interface Props {
   onSend: (msg: ClientMsg) => void
   error: string
   onClearError: () => void
+  /** Starting sub-screen. Only set by the visual showcase; the app always starts at 'home'. */
+  initialMode?: LobbyMode
 }
 
-export function Lobby({ onSend, error, onClearError }: Props) {
+export function Lobby({ onSend, error, onClearError, initialMode = 'home' }: Props) {
   const { t } = useI18n()
   const [nickname, setNickname] = useState('')
   const [roomCode, setRoomCode] = useState('')
-  const [mode, setMode] = useState<'home' | 'create' | 'join'>('home')
+  const [mode, setMode] = useState<LobbyMode>(initialMode)
   const [showRules, setShowRules] = useState(false)
+
+  // Leaving a sub-screen gets the descending blip; entering one is silent
+  // because the screen change is already obvious.
+  const goHome = () => {
+    playSfx('uiBack')
+    setMode('home')
+  }
 
   const handleCreate = (e: FormEvent) => {
     e.preventDefault()
@@ -37,6 +50,7 @@ export function Lobby({ onSend, error, onClearError }: Props) {
       <div className={styles.topBar}>
         <LanguageSwitcher />
         <ThemeToggle />
+        <AudioSettings />
         <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
           {t.rulesBtn}
         </button>
@@ -56,7 +70,9 @@ export function Lobby({ onSend, error, onClearError }: Props) {
           <button className={styles.btn} onClick={() => setMode('create')}>
             {t.createRoom}
           </button>
-          <button className={styles.btn} onClick={() => setMode('join')}>
+          {/* Two equally-valid entry points, so they get two distinct colours
+              rather than a primary/secondary pair — neither is a fallback. */}
+          <button className={styles.btnAlt} onClick={() => setMode('join')}>
             {t.joinRoom}
           </button>
         </div>
@@ -75,7 +91,7 @@ export function Lobby({ onSend, error, onClearError }: Props) {
           <button className={styles.btn} type="submit">
             {t.createGame}
           </button>
-          <button className={styles.btnSecondary} type="button" onClick={() => setMode('home')}>
+          <button className={styles.btnSecondary} type="button" onClick={goHome}>
             {t.back}
           </button>
         </form>
@@ -101,7 +117,7 @@ export function Lobby({ onSend, error, onClearError }: Props) {
           <button className={styles.btn} type="submit">
             {t.joinGame}
           </button>
-          <button className={styles.btnSecondary} type="button" onClick={() => setMode('home')}>
+          <button className={styles.btnSecondary} type="button" onClick={goHome}>
             {t.back}
           </button>
         </form>

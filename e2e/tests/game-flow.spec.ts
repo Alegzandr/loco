@@ -109,8 +109,9 @@ test.describe('gameplay flow (single player vs bot)', () => {
 
     await waitForGameOver(page, 30_000)
 
-    // Game over shows "Play Again" button
-    await expect(page.getByRole('button', { name: T.playAgain })).toBeVisible()
+    // Game over offers the host a rematch and everyone a way out
+    await expect(page.getByRole('button', { name: T.rematch })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.leaveRoom })).toBeVisible()
   })
 
   /**
@@ -204,9 +205,9 @@ test.describe('gameplay flow (single player vs bot)', () => {
   })
 
   /**
-   * Play Again reloads the app back to the lobby.
+   * Leave room abandons the session and returns to the lobby screen.
    */
-  test('play again returns to lobby after game over', async ({ page }) => {
+  test('leave room returns to lobby after game over', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
@@ -225,7 +226,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await page.getByText(T.continueBtn, { exact: false }).click()
     await waitForGameOver(page, 30_000)
 
-    await page.getByRole('button', { name: T.playAgain }).click()
+    await page.getByRole('button', { name: T.leaveRoom }).click()
 
     // After reload, lobby is visible again
     await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible({ timeout: 10_000 })

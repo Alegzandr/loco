@@ -12,6 +12,8 @@ const (
 	CMsgAddBot         ClientMsgType = "add_bot"
 	CMsgSetMatchFormat ClientMsgType = "set_match_format"
 	CMsgSetMaxPlayers  ClientMsgType = "set_max_players"
+	// CMsgRematch returns a finished room to the lobby with the same players.
+	CMsgRematch ClientMsgType = "rematch"
 	// Gameplay
 	CMsgPlayCard    ClientMsgType = "play_card"
 	CMsgDrawCard    ClientMsgType = "draw_card"
@@ -53,6 +55,11 @@ const (
 	// Round / match lifecycle
 	SMsgRoundEnd ServerMsgType = "round_end"
 	SMsgMatchEnd ServerMsgType = "match_end"
+
+	// SMsgRematchStarted tells every remaining member that the finished room is
+	// back in the lobby. Sent per-recipient because pruning absent players can
+	// shift player indices.
+	SMsgRematchStarted ServerMsgType = "rematch_started"
 	// Errors
 	SMsgError ServerMsgType = "error"
 )

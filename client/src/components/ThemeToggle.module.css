@@ -1,23 +1,23 @@
 .toggle {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-hairline);
-  background: var(--color-canvas);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-card);
   color: var(--color-ink);
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, border-color 0.15s;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   font-family: var(--font-display);
   line-height: 1;
+  flex-shrink: 0;
 }
 
-.toggle:hover {
-  background: var(--color-surface-soft);
-  border-color: var(--color-border-strong);
-}
+.toggle:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
+.toggle:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }

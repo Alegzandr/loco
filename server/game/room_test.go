@@ -348,6 +348,42 @@ func TestRoom_CatchUndeclared_AfterDeclared(t *testing.T) {
 	}
 }
 
+// TestRoom_CatchUndeclared_NotReopenedByLaterPlay pins the regression where a
+// declaration was silently voided by the *next* play from anyone: LastCardDeclared
+// was reset unconditionally, so a player who had declared became catchable again
+// as soon as somebody else discarded inside their 5 s window. With interjections
+// that happens on almost every hand.
+func TestRoom_CatchUndeclared_NotReopenedByLaterPlay(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	alicePlay := Card{Color: Red, Kind: Number, Value: 3}
+	r.State.Hands[0].Cards = []Card{alicePlay, {Color: Blue, Kind: Number, Value: 9}}
+	if err := r.PlayCard(0, alicePlay, Red, -1); err != nil {
+		t.Fatalf("alice PlayCard: %v", err)
+	}
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+
+	// Bob plays immediately after — this must not void alice's declaration.
+	bobPlay := Card{Color: Red, Kind: Number, Value: 6}
+	r.State.Hands[1].Cards = append([]Card{bobPlay}, r.State.Hands[1].Cards...)
+	if err := r.PlayCard(1, bobPlay, Red, -1); err != nil {
+		t.Fatalf("bob PlayCard: %v", err)
+	}
+
+	if err := r.CatchUndeclared(2, 0, time.Now()); err == nil {
+		t.Error("alice declared; a later play by bob must not make her catchable again")
+	}
+	if len(r.State.Hands[0].Cards) != 1 {
+		t.Errorf("alice hand = %d, want 1 (no penalty)", len(r.State.Hands[0].Cards))
+	}
+}
+
 // TestRoom_UNOStateCleanOnNewRound verifies that all UNO-tracking fields (LastCardDeclared,
 // LastCardTime, LastCardPlayer) are properly reset to zero values when a new round starts.
 // Specifically, stale catch attempts on the new round must fail the catch window check
@@ -1349,7 +1385,7 @@ func TestRoom_InterruptPlay_Valid(t *testing.T) {
 	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
 	carolHandBefore := len(r.State.Hands[2].Cards)
 
-	if err := r.InterruptPlay(2, carolCard, -1); err != nil {
+	if err := r.InterruptPlay(2, carolCard, carolCard.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay error: %v", err)
 	}
 	// carol's hand shrank by 1
@@ -1367,13 +1403,96 @@ func TestRoom_InterruptPlay_Valid(t *testing.T) {
 	}
 }
 
-func TestRoom_InterruptPlay_WildCardRejected(t *testing.T) {
-	r := setupTwoPlayerGame(t)
-	r.State.CurrentTurn = 0
+// Every card can take the lead, wilds included — "identical to the top" is the
+// only rule. A wild on a wild is identical (they share the wild colour), and the
+// interjecter picks the new active colour just like a normal wild play.
+func TestRoom_InterruptPlay_WildOnWildAllowed(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Wild, Kind: WildCard}}
+	armInterrupt(r, 0)
+
 	wild := Card{Color: Wild, Kind: WildCard}
-	r.State.Hands[1].Cards = append([]Card{wild}, r.State.Hands[1].Cards...)
-	if err := r.InterruptPlay(1, wild, -1); err == nil {
-		t.Error("wild card interrupt should be rejected")
+	r.State.Hands[2].Cards = append([]Card{wild}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, wild, Green, -1); err != nil {
+		t.Fatalf("wild-on-wild interrupt must be accepted, got %v", err)
+	}
+	if r.State.ActiveColor != Green {
+		t.Errorf("ActiveColor = %v, want Green (interjecter's choice)", r.State.ActiveColor)
+	}
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("turn = %d, want 0 (seat after carol)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_InterruptPlay_WildDrawFourExtendsChain(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Wild, Kind: WildDrawFour}}
+	r.State.PendingDraw = 4
+	armInterrupt(r, 0)
+
+	wd4 := Card{Color: Wild, Kind: WildDrawFour}
+	r.State.Hands[2].Cards = append([]Card{wd4}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, wd4, Blue, -1); err != nil {
+		t.Fatalf("WildDrawFour interject must be accepted, got %v", err)
+	}
+	if r.State.PendingDraw != 8 {
+		t.Errorf("PendingDraw = %d, want 8 (chain extended)", r.State.PendingDraw)
+	}
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("turn = %d, want 0 (victim is the seat after carol)", r.State.CurrentTurn)
+	}
+}
+
+func TestRoom_InterruptPlay_GlobalSwitchRotatesHands(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Wild, Kind: GlobalSwitch}}
+	armInterrupt(r, 0)
+
+	gs := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 2}}
+	r.State.Hands[2].Cards = []Card{gs, {Color: Red, Kind: Number, Value: 3}}
+
+	if err := r.InterruptPlay(2, gs, Yellow, -1); err != nil {
+		t.Fatalf("GlobalSwitch interject must be accepted, got %v", err)
+	}
+	// Hands rotate one seat in the play direction: seat i receives seat i-1's hand.
+	if got := r.State.Hands[0].Cards[0].Value; got != 3 {
+		t.Errorf("alice received card %d, want 3 (carol's hand)", got)
+	}
+	if got := r.State.Hands[1].Cards[0].Value; got != 1 {
+		t.Errorf("bob received card %d, want 1 (alice's hand)", got)
+	}
+	if got := r.State.Hands[2].Cards[0].Value; got != 2 {
+		t.Errorf("carol received card %d, want 2 (bob's hand)", got)
+	}
+}
+
+func TestRoom_InterruptPlay_WildWithoutColorRejected(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.Discard = []Card{{Color: Wild, Kind: WildCard}}
+	armInterrupt(r, 0)
+
+	wild := Card{Color: Wild, Kind: WildCard}
+	r.State.Hands[2].Cards = append([]Card{wild}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, wild, Wild, -1); err == nil {
+		t.Error("a wild interject must name a real colour")
+	}
+	if len(r.State.Discard) != 1 {
+		t.Error("a rejected interject must not touch the discard pile")
 	}
 }
 
@@ -1385,7 +1504,7 @@ func TestRoom_InterruptPlay_NonMatchingCardRejected(t *testing.T) {
 
 	mismatch := Card{Color: Blue, Kind: Number, Value: 5} // same value, wrong color
 	r.State.Hands[1].Cards = append([]Card{mismatch}, r.State.Hands[1].Cards...)
-	if err := r.InterruptPlay(1, mismatch, -1); err == nil {
+	if err := r.InterruptPlay(1, mismatch, mismatch.Color, -1); err == nil {
 		t.Error("color-mismatched interrupt should be rejected")
 	}
 }
@@ -1398,15 +1517,16 @@ func TestRoom_InterruptPlay_ValueMismatchRejected(t *testing.T) {
 
 	mismatch := Card{Color: Red, Kind: Number, Value: 3} // same color, wrong value
 	r.State.Hands[1].Cards = append([]Card{mismatch}, r.State.Hands[1].Cards...)
-	if err := r.InterruptPlay(1, mismatch, -1); err == nil {
+	if err := r.InterruptPlay(1, mismatch, mismatch.Color, -1); err == nil {
 		t.Error("value-mismatched interrupt should be rejected")
 	}
 }
 
-// During an active Take2 chain (PendingDraw > 0) only an identical DrawTwo may
-// be interjected. A non-DrawTwo "match" (which can only happen in inconsistent
-// state) must still be rejected.
-func TestRoom_InterruptPlay_NonDrawTwoDuringPendingDrawRejected(t *testing.T) {
+// During an active draw chain (PendingDraw > 0) only an identical draw card may
+// be interjected — in a consistent state that is implied by the identical-to-top
+// rule, but a non-draw "match" (only reachable from inconsistent state) must
+// still be rejected rather than silently swallowing the pending penalty.
+func TestRoom_InterruptPlay_NonDrawCardDuringPendingDrawRejected(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	r.State.CurrentTurn = 0
 	r.State.PendingDraw = 2
@@ -1415,14 +1535,14 @@ func TestRoom_InterruptPlay_NonDrawTwoDuringPendingDrawRejected(t *testing.T) {
 	armInterrupt(r, 0)
 	matchCard := Card{Color: Red, Kind: Number, Value: 5}
 	r.State.Hands[1].Cards = append([]Card{matchCard}, r.State.Hands[1].Cards...)
-	if err := r.InterruptPlay(1, matchCard, -1); err == nil {
+	if err := r.InterruptPlay(1, matchCard, matchCard.Color, -1); err == nil {
 		t.Error("non-DrawTwo interrupt during pending draw should be rejected")
 	}
 }
 
-func TestRoom_InterruptPlay_OwnTurnRejected(t *testing.T) {
-	// Set up a valid window (LastPlayBy != current player) so the rejection
-	// is specifically about it being the caller's own turn, not a closed window.
+func TestRoom_InterruptPlay_OwnTurnAllowed(t *testing.T) {
+	// Slamming an identical card is available to everyone, including whoever
+	// currently holds the turn — the client may route the tap either way.
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 0
 	r.State.Direction = 1
@@ -1431,8 +1551,11 @@ func TestRoom_InterruptPlay_OwnTurnRejected(t *testing.T) {
 	armInterrupt(r, 2) // someone else just played
 	matchCard := Card{Color: Red, Kind: Number, Value: 5}
 	r.State.Hands[0].Cards = append([]Card{matchCard}, r.State.Hands[0].Cards...)
-	if err := r.InterruptPlay(0, matchCard, -1); err == nil {
-		t.Error("interrupt on own turn should be rejected (use play_card instead)")
+	if err := r.InterruptPlay(0, matchCard, matchCard.Color, -1); err != nil {
+		t.Fatalf("interrupt on own turn must be accepted, got %v", err)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after alice's slam, turn = %d, want 1 (bob)", r.State.CurrentTurn)
 	}
 }
 
@@ -1449,7 +1572,7 @@ func TestRoom_InterruptPlay_EmptiesHand_EndsRound(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Skip}} // bob has 1 card (20 pts)
 
-	if err := r.InterruptPlay(2, winCard, -1); err != nil {
+	if err := r.InterruptPlay(2, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay finish: %v", err)
 	}
 	if !r.RoundEnded {
@@ -1491,7 +1614,7 @@ func TestRoom_InterruptPlay_Swap_RemovesBeforeSwapping(t *testing.T) {
 	}
 	r.State.Hands[1].Cards = append([]Card{}, bobHand...)
 
-	if err := r.InterruptPlay(2, swap, 1); err != nil {
+	if err := r.InterruptPlay(2, swap, swap.Color, 1); err != nil {
 		t.Fatalf("InterruptPlay Swap: %v", err)
 	}
 	// Top discard is the Red Swap.
@@ -1539,7 +1662,7 @@ func TestRoom_InterruptPlay_SwapAsLastCard_EndsRoundWithoutSwapping(t *testing.T
 	}
 	r.State.Hands[1].Cards = append([]Card{}, bobHandBefore...)
 
-	if err := r.InterruptPlay(2, swap, 1); err != nil {
+	if err := r.InterruptPlay(2, swap, swap.Color, 1); err != nil {
 		t.Fatalf("InterruptPlay last-card swap: %v", err)
 	}
 	if !r.RoundEnded {
@@ -1571,7 +1694,7 @@ func TestRoom_InterruptPlay_SkipEffect(t *testing.T) {
 	carolSkip := Card{Color: Red, Kind: Skip}
 	r.State.Hands[2].Cards = append([]Card{carolSkip}, r.State.Hands[2].Cards...)
 
-	if err := r.InterruptPlay(2, carolSkip, -1); err != nil {
+	if err := r.InterruptPlay(2, carolSkip, carolSkip.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay Skip: %v", err)
 	}
 	// Skip from carol (2): skip the next player after carol.
@@ -1672,7 +1795,7 @@ func TestRoom_InterruptPlay_NonIdenticalDrawTwo_Rejected(t *testing.T) {
 	bob2 := Card{Color: Blue, Kind: DrawTwo} // not identical to Yellow-7 top
 	r.State.Hands[1].Cards = []Card{bob2, {Color: Red, Kind: Number, Value: 1}}
 
-	if err := r.InterruptPlay(1, bob2, -1); err == nil {
+	if err := r.InterruptPlay(1, bob2, bob2.Color, -1); err == nil {
 		t.Fatal("non-identical DrawTwo interrupt should be rejected")
 	}
 	// State must be untouched.
@@ -1698,7 +1821,7 @@ func TestRoom_InterruptPlay_NonIdenticalDrawTwoDuringChain(t *testing.T) {
 	armInterrupt(r, 0)
 	bob2 := Card{Color: Blue, Kind: DrawTwo} // wrong color
 	r.State.Hands[2].Cards = []Card{bob2}
-	if err := r.InterruptPlay(2, bob2, -1); err == nil {
+	if err := r.InterruptPlay(2, bob2, bob2.Color, -1); err == nil {
 		t.Error("color-mismatched DrawTwo during pending draw must be rejected")
 	}
 }
@@ -1718,7 +1841,7 @@ func TestRoom_InterruptPlay_IdenticalDrawTwoExtendsChain(t *testing.T) {
 	carolD2 := Card{Color: Red, Kind: DrawTwo}
 	r.State.Hands[2].Cards = []Card{carolD2, {Color: Blue, Kind: Number, Value: 1}}
 
-	if err := r.InterruptPlay(2, carolD2, -1); err != nil {
+	if err := r.InterruptPlay(2, carolD2, carolD2.Color, -1); err != nil {
 		t.Fatalf("identical DrawTwo interrupt during chain: %v", err)
 	}
 	if r.State.PendingDraw != 4 {
@@ -1736,33 +1859,54 @@ func TestRoom_InterruptPlay_IdenticalDrawTwoExtendsChain(t *testing.T) {
 // a "card was just played by playerIndex" state without going through PlayCard.
 func armInterrupt(r *Room, playerIndex int) {
 	r.State.LastPlayBy = playerIndex
-	r.State.LastPlayAt = time.Now()
-	r.State.InterruptDeadline = time.Now().Add(InterruptWindow)
 }
 
-func TestRoom_InterruptPlay_OutsideWindowRejected(t *testing.T) {
+func TestRoom_InterruptPlay_ClosedWindowRejected(t *testing.T) {
+	// The window is closed by a draw / pass / round end, not by elapsed time.
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
+	r.State.PendingDraw = 0
+	r.State.closeInterruptWindow()
+
+	carolCard := Card{Color: Red, Kind: Number, Value: 7}
+	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
+
+	if err := r.InterruptPlay(2, carolCard, carolCard.Color, -1); err == nil {
+		t.Error("interrupt on a closed window must be rejected")
+	}
+}
+
+func TestRoom_InterruptPlay_NoTimeLimit(t *testing.T) {
+	// Taking the lead has no deadline: as long as the matching card is still on
+	// top and nobody has drawn / passed, the jump-in stays available.
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
 	r.State.PendingDraw = 0
 	armInterrupt(r, 0)
-	// Force the deadline into the past.
-	r.State.InterruptDeadline = time.Now().Add(-50 * time.Millisecond)
+	// Simulate a long think from the current player.
+	r.State.LastPlayAt = time.Now().Add(-30 * time.Second)
 
 	carolCard := Card{Color: Red, Kind: Number, Value: 7}
 	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
 
-	if err := r.InterruptPlay(2, carolCard, -1); err == nil {
-		t.Error("interrupt outside window must be rejected")
+	if err := r.InterruptPlay(2, carolCard, carolCard.Color, -1); err != nil {
+		t.Errorf("interrupt long after the play must still be accepted, got %v", err)
+	}
+	if r.State.LastPlayBy != 2 {
+		t.Errorf("LastPlayBy = %d, want 2 (carol took the lead)", r.State.LastPlayBy)
 	}
 }
 
-func TestRoom_InterruptPlay_PlayerWhoJustPlayedCannotInterrupt(t *testing.T) {
-	// Even though it is no longer their current turn, the player who just played
-	// must not be able to "interrupt themselves" within the window.
+func TestRoom_InterruptPlay_SelfInterruptAllowed(t *testing.T) {
+	// The player who just played may slam a second identical card and take the
+	// lead back — this is the core of the game's speed.
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
+	r.State.Direction = 1
 	r.State.ActiveColor = Red
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 7}}
 	r.State.PendingDraw = 0
@@ -1771,8 +1915,12 @@ func TestRoom_InterruptPlay_PlayerWhoJustPlayedCannotInterrupt(t *testing.T) {
 	dup := Card{Color: Red, Kind: Number, Value: 7}
 	r.State.Hands[0].Cards = append([]Card{dup}, r.State.Hands[0].Cards...)
 
-	if err := r.InterruptPlay(0, dup, -1); err == nil {
-		t.Error("the player who just played must not be able to interrupt themselves")
+	if err := r.InterruptPlay(0, dup, dup.Color, -1); err != nil {
+		t.Fatalf("self-interrupt must be accepted, got %v", err)
+	}
+	// Lead transfers back to alice, so the next seat clockwise plays: bob(1).
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("after alice's self-interrupt, turn = %d, want 1 (bob)", r.State.CurrentTurn)
 	}
 }
 
@@ -1802,7 +1950,7 @@ func TestRoom_InterruptPlay_FastestSerializedWins(t *testing.T) {
 	r.State.Hands[2].Cards = append([]Card{match}, r.State.Hands[2].Cards...)
 	r.State.Hands[3].Cards = append([]Card{match}, r.State.Hands[3].Cards...)
 
-	if err := r.InterruptPlay(2, match, -1); err != nil {
+	if err := r.InterruptPlay(2, match, match.Color, -1); err != nil {
 		t.Fatalf("first interrupt by carol: %v", err)
 	}
 	if r.State.LastPlayBy != 2 {
@@ -1810,9 +1958,17 @@ func TestRoom_InterruptPlay_FastestSerializedWins(t *testing.T) {
 	}
 	// After carol's interject CurrentTurn = dave(3).
 
-	// Second arrival: dave is now the current player and cannot interrupt.
-	if err := r.InterruptPlay(3, match, -1); err == nil {
-		t.Error("dave is the current player and must not interrupt his own turn")
+	// Second arrival: dave slams the same identical card. Being the current
+	// player is no longer a reason to refuse — he simply takes the lead in turn,
+	// and the seat after him plays next.
+	if err := r.InterruptPlay(3, match, match.Color, -1); err != nil {
+		t.Fatalf("second interrupt by dave: %v", err)
+	}
+	if r.State.LastPlayBy != 3 {
+		t.Errorf("LastPlayBy after second interrupt = %d, want 3 (dave)", r.State.LastPlayBy)
+	}
+	if r.State.CurrentTurn != 0 {
+		t.Errorf("after dave's interject, turn = %d, want 0 (alice)", r.State.CurrentTurn)
 	}
 }
 
@@ -1828,7 +1984,7 @@ func TestRoom_InterruptPlayCards_BatchSucceeds(t *testing.T) {
 	match := Card{Color: Red, Kind: Number, Value: 3}
 	r.State.Hands[2].Cards = []Card{match, match, match, {Color: Blue, Kind: Number, Value: 5}}
 
-	if err := r.InterruptPlayCards(2, []Card{match, match, match}, -1); err != nil {
+	if err := r.InterruptPlayCards(2, []Card{match, match, match}, match.Color, -1); err != nil {
 		t.Fatalf("InterruptPlayCards: %v", err)
 	}
 	// All three cards should be on top of discard (initial + 3 = 4 entries).
@@ -1859,7 +2015,7 @@ func TestRoom_InterruptPlayCards_NotInHand_DoesNotMutate(t *testing.T) {
 	handLen := r.State.Hands[2].Size()
 	turnBefore := r.State.CurrentTurn
 
-	if err := r.InterruptPlayCards(2, []Card{match, match}, -1); err == nil {
+	if err := r.InterruptPlayCards(2, []Card{match, match}, match.Color, -1); err == nil {
 		t.Fatal("batch interrupt with insufficient copies must be rejected")
 	}
 	if len(r.State.Discard) != discardLen {
@@ -1883,7 +2039,7 @@ func TestRoom_InterruptPlayCards_RejectsNonIdentical(t *testing.T) {
 	a := Card{Color: Red, Kind: Number, Value: 5}
 	b := Card{Color: Red, Kind: Number, Value: 6}
 	r.State.Hands[2].Cards = []Card{a, b}
-	if err := r.InterruptPlayCards(2, []Card{a, b}, -1); err == nil {
+	if err := r.InterruptPlayCards(2, []Card{a, b}, Red, -1); err == nil {
 		t.Error("non-identical batch interrupt must be rejected")
 	}
 }
@@ -1900,8 +2056,8 @@ func TestRoom_PlayCard_OpensInterruptWindow(t *testing.T) {
 	if r.State.LastPlayBy != 0 {
 		t.Errorf("LastPlayBy = %d, want 0", r.State.LastPlayBy)
 	}
-	if !time.Now().Before(r.State.InterruptDeadline) {
-		t.Error("InterruptDeadline must be in the future after a play")
+	if r.State.LastPlayAt.IsZero() {
+		t.Error("LastPlayAt must be stamped after a play")
 	}
 }
 
@@ -2089,7 +2245,7 @@ func TestRoom_InterruptPlay_ReverseFlipsDirection(t *testing.T) {
 	carolReverse := Card{Color: Red, Kind: Reverse}
 	r.State.Hands[2].Cards = append([]Card{carolReverse}, r.State.Hands[2].Cards...)
 
-	if err := r.InterruptPlay(2, carolReverse, -1); err != nil {
+	if err := r.InterruptPlay(2, carolReverse, carolReverse.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay Reverse: %v", err)
 	}
 	if r.State.Direction != -1 {
@@ -2115,7 +2271,7 @@ func TestRoom_InterruptPlay_CounterClockwise(t *testing.T) {
 	carolCard := Card{Color: Red, Kind: Number, Value: 4}
 	r.State.Hands[2].Cards = append([]Card{carolCard}, r.State.Hands[2].Cards...)
 
-	if err := r.InterruptPlay(2, carolCard, -1); err != nil {
+	if err := r.InterruptPlay(2, carolCard, carolCard.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay CCW: %v", err)
 	}
 	// CCW from carol(2): next is bob(1).
@@ -2141,7 +2297,7 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{match, {Color: Blue, Kind: Number, Value: 1}}
 
 	before := time.Now()
-	if err := r.InterruptPlay(2, match, -1); err != nil {
+	if err := r.InterruptPlay(2, match, match.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay: %v", err)
 	}
 	if r.State.LastCardDeclared {
@@ -2157,5 +2313,132 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 	// And alice (idx 0) can catch carol if she didn't declare in time.
 	if err := r.CatchUndeclared(0, 2, time.Now()); err != nil {
 		t.Errorf("catch on undeclared interject must succeed: %v", err)
+	}
+}
+
+// --- Rematch -------------------------------------------------------------
+
+// finishMatch drives a BO1 room to a completed match so rematch paths can be
+// exercised without replaying a full round of plays.
+func finishMatch(t *testing.T, nicknames ...string) *Room {
+	t.Helper()
+	r := NewRoom("TEST")
+	for _, n := range nicknames {
+		if err := r.Join(n); err != nil {
+			t.Fatalf("Join(%q): %v", n, err)
+		}
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Empty player 0's hand and end the round from their seat.
+	r.State.Hands[0].Cards = nil
+	r.endRound(0)
+	if !r.MatchOver {
+		t.Fatalf("setup: expected MatchOver after BO1 round")
+	}
+	return r
+}
+
+func TestRoom_ResetForRematch(t *testing.T) {
+	r := finishMatch(t, "alice", "bob")
+	r.Format = BO3
+	r.MaxPlayers = 4
+	prevPlayers := append([]*Player(nil), r.Players...)
+
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+
+	if r.Status != StatusLobby {
+		t.Errorf("Status = %v, want lobby", r.Status)
+	}
+	if r.State != nil {
+		t.Error("State must be cleared so no stale hands leak into the new match")
+	}
+	if r.MatchOver || r.MatchWinner != "" || r.RoundEnded || r.Winner != "" {
+		t.Errorf("match signals not cleared: over=%v winner=%q roundEnded=%v roundWinner=%q",
+			r.MatchOver, r.MatchWinner, r.RoundEnded, r.Winner)
+	}
+	if r.RoundNumber != 0 {
+		t.Errorf("RoundNumber = %d, want 0 (Start sets it to 1)", r.RoundNumber)
+	}
+	if r.Scores != nil || r.RoundsWon != nil || r.LostHandTotal != nil {
+		t.Error("cumulative match tallies must be cleared")
+	}
+	// Roster and lobby config survive — the whole point is "same room, same people".
+	if len(r.Players) != len(prevPlayers) {
+		t.Fatalf("Players = %d, want %d", len(r.Players), len(prevPlayers))
+	}
+	for i, p := range r.Players {
+		if p != prevPlayers[i] {
+			t.Errorf("player %d changed identity", i)
+		}
+		if p.Index != i {
+			t.Errorf("player %d Index = %d, want %d", i, p.Index, i)
+		}
+	}
+	if r.Format != BO3 {
+		t.Errorf("Format = %v, want BO3 (preserved)", r.Format)
+	}
+	if r.MaxPlayers != 4 {
+		t.Errorf("MaxPlayers = %d, want 4 (preserved)", r.MaxPlayers)
+	}
+}
+
+func TestRoom_ResetForRematch_ThenStartAgain(t *testing.T) {
+	r := finishMatch(t, "alice", "bob")
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start after rematch reset: %v", err)
+	}
+	if r.Status != StatusPlaying {
+		t.Errorf("Status = %v, want playing", r.Status)
+	}
+	if r.RoundNumber != 1 {
+		t.Errorf("RoundNumber = %d, want 1", r.RoundNumber)
+	}
+	for i := range r.Players {
+		if got := len(r.State.Hands[i].Cards); got != initialHandSize {
+			t.Errorf("player %d hand = %d cards, want %d", i, got, initialHandSize)
+		}
+	}
+	if r.Scores[0] != 0 || r.Scores[1] != 0 {
+		t.Errorf("scores not reset: %v", r.Scores)
+	}
+}
+
+func TestRoom_ResetForRematch_RejectedMidMatch(t *testing.T) {
+	r := NewRoom("TEST")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	if err := r.ResetForRematch(); err == nil {
+		t.Error("rematch from lobby must be rejected")
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := r.ResetForRematch(); err == nil {
+		t.Error("rematch mid-match must be rejected")
+	}
+}
+
+// A rematch must also be allowed after the lobby shrank — the new match is
+// dealt for whoever is still in the room.
+func TestRoom_ResetForRematch_AllowsRosterChangeBeforeStart(t *testing.T) {
+	r := finishMatch(t, "alice", "bob", "carol")
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+	if _, err := r.RemoveLobbyPlayer(1); err != nil {
+		t.Fatalf("RemoveLobbyPlayer: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(r.Scores) != 2 {
+		t.Errorf("Scores len = %d, want 2 (sized to the new roster)", len(r.Scores))
 	}
 }

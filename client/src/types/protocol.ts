@@ -32,6 +32,7 @@ export type ClientMsgType =
   | 'add_bot'
   | 'set_match_format'
   | 'set_max_players'
+  | 'rematch'
   | 'play_card'
   | 'draw_card'
   | 'pass_turn'

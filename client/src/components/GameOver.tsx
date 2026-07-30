@@ -1,5 +1,6 @@
-import { ScoreboardEntryDTO } from '../types/protocol'
+import { ScoreboardEntryDTO, ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
+import { Confetti } from './Confetti'
 import styles from './GameOver.module.css'
 
 interface Props {
@@ -7,14 +8,20 @@ interface Props {
   myNickname: string
   scoreboard?: ScoreboardEntryDTO[]
   matchOver?: boolean
+  /** True when this client is the room host (player index 0) — only they can rematch. */
+  isHost: boolean
+  onSend: (msg: ClientMsg) => void
 }
 
-export function GameOver({ winner, myNickname, scoreboard, matchOver }: Props) {
+export function GameOver({ winner, myNickname, scoreboard, matchOver, isHost, onSend }: Props) {
   const { t } = useI18n()
   const isWinner = winner === myNickname
 
   return (
     <div className={styles.container}>
+      {/* Only the winner gets confetti — a losing screen that celebrates is a
+          worse experience than a quiet one. */}
+      {isWinner && <Confetti />}
       <div className={styles.card}>
         <div className={styles.emoji}>{isWinner ? '🏆' : '😔'}</div>
         <h2 className={styles.heading}>
@@ -45,8 +52,19 @@ export function GameOver({ winner, myNickname, scoreboard, matchOver }: Props) {
           </div>
         )}
 
-        <button className={styles.btn} onClick={() => window.location.reload()}>
-          {t.playAgain}
+        {/* Rematch keeps the room, the code and the roster; only the host may
+            trigger it. Everyone else waits — the server moves them back to the
+            waiting room when it happens. */}
+        {isHost ? (
+          <button className={styles.btn} onClick={() => onSend({ type: 'rematch' })}>
+            {t.rematch}
+          </button>
+        ) : (
+          <p className={styles.waiting}>{t.rematchWaiting}</p>
+        )}
+
+        <button className={styles.btnSecondary} onClick={() => window.location.reload()}>
+          {t.leaveRoom}
         </button>
       </div>
     </div>

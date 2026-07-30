@@ -1,28 +1,37 @@
+/* Catch window — a hard 5s deadline. Rendered as a chunky capsule so the
+   pressure is visible to a spectator, not just to the player holding the mouse. */
+
 .unoTimer {
   position: absolute;
-  top: 14px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-xs);
+  gap: 6px;
+  padding: 8px 18px 10px;
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard), 0 0 26px rgba(255, 61, 104, 0.4);
   pointer-events: none;
   z-index: 10;
+  animation: catchIn 0.3s var(--ease-bounce) both;
 }
 
 .unoTimerLabel {
-  font: 700 12px/1.33 var(--font-display);
+  font: 700 13px/1.2 var(--font-display);
   color: var(--color-primary);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-family: var(--font-body);
+  letter-spacing: 0.08em;
 }
 
 .unoTimerBar {
-  width: 160px;
-  height: 4px;
-  background: var(--color-hairline-soft);
+  width: 200px;
+  height: 10px;
+  background: var(--color-surface-strong);
+  border: var(--stroke-thin) solid var(--color-stroke);
   border-radius: var(--radius-full);
   overflow: hidden;
 }
@@ -30,6 +39,11 @@
 .unoTimerFill {
   height: 100%;
   border-radius: var(--radius-full);
-  background: var(--color-primary);
+  background: linear-gradient(90deg, #ffc93c 0%, var(--color-primary) 100%);
   transition: width 0.1s linear;
+}
+
+@keyframes catchIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(-14px) scale(0.9); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
 }

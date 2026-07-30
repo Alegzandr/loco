@@ -1,25 +1,37 @@
+/* Deck back — the game's "logo card". Deep indigo, white frame, gold monogram
+   on a tilted oval, so a face-down card is instantly distinguishable from a
+   face-up one even in a blurred mini-fan. */
+
 .back {
   position: relative;
   width: 72px;
   height: 108px;
   border-radius: 10px;
-  background: var(--card-back-bg);
-  border: 1.5px solid var(--card-back-border);
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.05) 0 6px,
+      rgba(255, 255, 255, 0) 6px 12px
+    ),
+    linear-gradient(160deg, #4a2f8f 0%, var(--card-back-bg) 62%);
+  border: 3px solid var(--card-back-border);
+  box-shadow: 0 0 0 2px var(--color-stroke);
   box-sizing: border-box;
   flex-shrink: 0;
+  overflow: hidden;
   font-family: var(--font-display);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .inner {
   position: absolute;
-  top: 6%;
-  bottom: 6%;
-  left: 8%;
-  right: 8%;
-  border-radius: 5px;
+  top: 12%;
+  bottom: 12%;
+  left: 12%;
+  right: 12%;
+  border-radius: 50%;
   background: var(--card-back-inner);
-  border: 1px solid var(--card-back-inner-border);
+  border: 2px solid var(--card-back-inner-border);
+  transform: rotate(-22deg);
 }
 
 .monogram {
@@ -29,8 +41,8 @@
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.04em;
   color: var(--card-back-mono);
-  opacity: 0.9;
+  text-shadow: 0 2px 0 rgba(20, 8, 45, 0.55);
   pointer-events: none;
 }

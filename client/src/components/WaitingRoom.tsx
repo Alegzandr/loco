@@ -4,6 +4,8 @@ import { useI18n } from '../i18n'
 import { RulesModal } from './RulesModal'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { ThemeToggle } from './ThemeToggle'
+import { AudioSettings } from './AudioSettings'
+import { seatColor, seatInitial } from './playerColors'
 import styles from './WaitingRoom.module.css'
 
 interface Props {
@@ -23,6 +25,19 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
   const canStart = players.length >= 2
   const [maxInput, setMaxInput] = useState<string>(String(maxPlayers))
   const [showRules, setShowRules] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  // Clipboard is unavailable on insecure origins and in some embedded views;
+  // failing silently is correct here — the code stays visible either way.
+  const copyCode = () => {
+    navigator.clipboard?.writeText(roomCode).then(
+      () => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1600)
+      },
+      () => {},
+    )
+  }
 
   const FORMAT_LABEL: Record<MatchFormat, string> = {
     BO1: t.bestOf1,
@@ -44,22 +59,31 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
       <div className={styles.topBar}>
         <LanguageSwitcher />
         <ThemeToggle />
+        <AudioSettings />
         <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
           {t.rulesBtn}
         </button>
       </div>
 
       <h2 className={styles.heading}>{t.waitingRoom}</h2>
-      <div className={styles.code}>
-        {t.roomCode}: <span className={styles.codeVal}>{roomCode}</span>
-      </div>
+      {/* Tap-to-copy: this code gets read out loud and pasted into chat, so
+          copying it should never mean selecting six characters by hand. */}
+      <button className={styles.code} onClick={copyCode} aria-label={`${t.roomCode} ${roomCode}`}>
+        <span className={copied ? styles.copied : undefined}>{copied ? t.copyCode : t.roomCode}</span>
+        <span className={styles.codeVal}>{roomCode}</span>
+      </button>
       <p className={styles.hint}>{t.shareCode}</p>
 
       <ul className={styles.playerList}>
         {players.map((p) => (
           <li key={p.index} className={styles.player}>
-            <span className={p.index === myIndex ? styles.you : ''}>
-              {p.nickname}
+            <span className={styles.playerMain}>
+              <span className={styles.avatar} style={{ background: seatColor(p.index) }} aria-hidden>
+                {seatInitial(p.nickname)}
+              </span>
+              <span className={`${styles.playerName} ${p.index === myIndex ? styles.you : ''}`}>
+                {p.nickname}
+              </span>
             </span>
             {p.index === 0 && <span className={styles.owner}>{t.hostBadge}</span>}
           </li>

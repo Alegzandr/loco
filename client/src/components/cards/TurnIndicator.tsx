@@ -1,3 +1,4 @@
+import { motion, AnimatePresence } from 'framer-motion'
 import { CARD_H, BOTTOM_RESERVE } from './cardTheme'
 import styles from './TurnIndicator.module.css'
 
@@ -33,8 +34,26 @@ export function TurnIndicator({ isMyTurn, pendingDraw, currentTurn, players, hei
     isPenalty ? styles.penalty : '',
   ].filter(Boolean).join(' ')
 
-  // Match the Pixi position: 36px above the top of the hand slots.
-  const top = height - CARD_H - BOTTOM_RESERVE - 36
+  // Sits clear above the hand: the fan's playable cards lift by 9px and the
+  // pill is ~38px tall, so anything tighter than this overlaps the cards.
+  const top = height - CARD_H - BOTTOM_RESERVE - 58
 
-  return <div className={cls} style={{ top }}>{msg}</div>
+  return (
+    <div className={styles.anchor} style={{ top }}>
+      {/* Keyed on the message so a turn change crossfades instead of swapping text
+          mid-glance. The wrapper holds the centering transform. */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={msg}
+          className={cls}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+        >
+          {msg}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  )
 }

@@ -48,7 +48,11 @@ interface LocoE2EState {
   hasDrawn: boolean
   // UNO / catch window
   unoDeclared: boolean
+  /** Player the server is tracking as catchable for a missed LOCO!; null = nobody. */
+  catchTarget: number | null
   unoTimerEnd: number | null
+  /** Last successful out-of-turn slam (drives the interception banner). */
+  interruptFlash: { actorIndex: number; count: number; at: number } | null
   // Per-turn deadline
   turnDeadline: number | null
   // Match / round
@@ -92,6 +96,15 @@ interface LocoE2EHelper {
    * For swap cards this opens the PlayerPicker; use send() with chosen_player instead.
    */
   playCard: (card: E2ECard) => void
+  /**
+   * Start recording every distinct `currentTurn` the store passes through.
+   * Call before an action whose turn *sequence* matters, then read the result
+   * with getRecordedTurns(). Avoids sampling a turn value that a bot may have
+   * already moved past. Calling again resets the recording.
+   */
+  startTurnRecorder: () => void
+  /** Distinct turn values observed since startTurnRecorder(), in order. */
+  getRecordedTurns: () => number[]
 }
 
 declare interface Window {

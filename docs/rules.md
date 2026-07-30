@@ -54,11 +54,16 @@ When the draw pile is empty: take all cards from the discard pile **except the t
 
 This is a **core mechanic** of LOCO.
 
-### 6.1 Conditions (ALL must be true)
+### 6.1 Conditions
 
-1. It is **NOT** the player's turn.
-2. The card is **exactly identical** to the top of the discard pile (see 6.2).
-3. The card is **NOT** black/wild.
+1. The card is **exactly identical** to the top of the discard pile (see 6.2).
+2. The interject window is open — it opens on every play and closes on a draw,
+   a pass, or the end of the round. **There is no time limit.**
+
+Anyone may interject, with **any** card kind: the player who just played (with a
+second identical copy), the player whose turn it currently is, and every other
+seat. This is deliberate — the interject is a race, and taking that race away
+from the two players closest to the action is what made it feel like a turn.
 
 ### 6.2 "Exactly Identical" = same color AND same value
 
@@ -69,7 +74,11 @@ Both attributes must match. **AND, not OR.**
 - ❌ Red 3 on Red 5 — rejected (different number)
 - ✅ Blue "Miss a Turn" on Blue "Miss a Turn" — allowed
 - ❌ Red "Miss a Turn" on Blue "Miss a Turn" — rejected (different color)
-- ❌ Black wild on black wild — **always rejected** (wild cards cannot be interjected)
+- ✅ Black wild on black wild — allowed; wilds all share the "wild" colour, so the
+  same equality test keeps a Choose-a-Colour off a Take-4. The interjecter names
+  the new active colour just like on a normal wild play.
+- ✅ Change Cards All Round on Change Cards All Round — allowed; hands rotate from
+  the interjecter's seat.
 
 Implementation: `card.color === topCard.color && card.type === topCard.type && card.value === topCard.value`. Using `||` instead of `&&` is a common bug.
 
@@ -90,7 +99,7 @@ When an action card is interjected, its effect fires on the **next player after 
 
 ### 6.5 Interject During a Take 2 / Take 4 Chain
 
-A player may interject with an identical Take 2 during an active chain. The chain continues from the interjecter's position with the accumulated total + 2 more. The next player after the interjecter must stack or draw the full amount.
+A player may interject with an identical Take 2 (or an identical Take 4) during an active chain. The chain continues from the interjecter's position with the accumulated total + 2 more. The next player after the interjecter must stack or draw the full amount.
 
 ### 6.6 LOCO! Call on Interject
 
@@ -98,7 +107,7 @@ The LOCO! rule (Section 8) applies to interjections. Going from 2 → 1 card via
 
 ### 6.7 Simultaneous Interjects
 
-If multiple players could interject: resolve by **seat priority** — the eligible player closest to the current player in the current play direction wins. Alternatively, use a short reaction window then resolve ties by seat priority.
+If multiple players could interject: **the first message the server dequeues wins.** The hub's single-goroutine event loop serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
 
 ## 7. Action Cards — Effects
 

@@ -7,20 +7,35 @@
 
 .flier {
   position: absolute;
+  /* Movement comes from x/y transforms, so the box itself stays pinned at the
+     layer origin — the browser never needs to re-run layout mid-flight. */
+  left: 0;
+  top: 0;
   pointer-events: none;
   will-change: transform, opacity;
 }
 
-.effectText {
+/* Positions the effect text and owns the centering transform, leaving the
+   inner motion node free to animate its own transform. */
+.effectAnchor {
   position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Floating SKIP! / REVERSE! / +N callout. Outlined rather than shadowed so it
+   stays legible over the felt, over a card face, or over the background — the
+   three very different things it can land on. */
+.effectText {
   font-family: var(--font-display);
-  font-size: 42px;
+  font-size: clamp(34px, 5vw, 52px);
   font-weight: 700;
   letter-spacing: -1px;
-  color: var(--color-ink);
-  text-shadow: 0 2px 12px var(--color-canvas), 0 0 4px var(--color-canvas);
+  color: currentColor;
+  -webkit-text-stroke: 5px var(--color-stroke);
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 var(--color-stroke-soft);
   pointer-events: none;
   white-space: nowrap;
-  transform: translate(-50%, -50%);
   will-change: transform, opacity;
 }
