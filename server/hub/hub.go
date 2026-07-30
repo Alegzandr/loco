@@ -2298,7 +2298,8 @@ func (h *Hub) playerGameStateUsing(room *game.Room, playerIdx int, players []pro
 // --- Debug / E2E helpers ---
 
 // handleDebugSetState is a dev-only handler that lets E2E tests inject specific game
-// state (hand, discard, pending draw, active color) without relying on deck randomness.
+// state (hand, discard, pending draw, active color, turn, direction) without relying
+// on deck randomness or on what the bots happened to play first.
 //
 // It is only active when the LOCO_E2E environment variable is set to "1".  In all
 // other environments the message is rejected with an error, making it impossible to
@@ -2400,6 +2401,17 @@ func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
 	// Override pending draw count.
 	if msg.DebugPendingDraw != nil {
 		state.PendingDraw = *msg.DebugPendingDraw
+	}
+
+	// Override the play direction. A test that reasons about "the next seat" has
+	// no other way to pin it: the bots play before the local player's first turn,
+	// and one Reverse among them silently mirrors the whole table.
+	if msg.DebugDirection != nil {
+		if *msg.DebugDirection != 1 && *msg.DebugDirection != -1 {
+			c.sendError(fmt.Sprintf("debug_direction: must be 1 or -1, got %d", *msg.DebugDirection))
+			return
+		}
+		state.Direction = *msg.DebugDirection
 	}
 
 	// Override current turn.

@@ -417,13 +417,17 @@ test.describe('rules coverage — Miss a Turn / Skip (§7)', () => {
     const others = (s?.players ?? []).filter((p) => p.index !== myIdx).map((p) => p.index).sort((a, b) => a - b)
     expect(others.length).toBe(2)
 
-    // direction is +1 (clockwise) by default. nextIdx = (myIdx+1) % 3, skipped = (myIdx+2) % 3
+    // The direction is pinned below rather than assumed: a bot can play a Reverse
+    // before our first turn, and a mirrored table makes every seat computed here
+    // the wrong one (the Skip then lands on myIdx-2, and the run reads as a rules
+    // bug rather than as a flaky fixture).
     const skippedIdx = (myIdx + 1) % 3
     const expectedNext = (myIdx + 2) % 3
 
     // Pin bots' hands so they cannot interrupt with a Skip and so the post-skip
     // player has no skip in hand.
     await debugSetState(page, {
+      direction: 1,
       hand: [
         { color: 'red', kind: 'skip' },
         { color: 'red', kind: 'number', value: 1 },
@@ -498,12 +502,13 @@ test.describe('rules coverage — Reverse / Change Direction (§7, §11.3)', () 
     const s = await getState(page)
     const myIdx = s?.myIndex ?? 0
     const others = (s?.players ?? []).filter((p) => p.index !== myIdx).map((p) => p.index)
-    const directionBefore = s?.direction ?? 1
 
-    // After reverse from clockwise, next player = (myIdx - 1 + 3) % 3
-    const expectedNext = (myIdx - directionBefore + 3) % 3
+    // Direction is pinned clockwise below (a bot may have played a Reverse before
+    // our first turn), so after this Reverse the next player is (myIdx - 1 + 3) % 3.
+    const expectedNext = (myIdx - 1 + 3) % 3
 
     await debugSetState(page, {
+      direction: 1,
       hand: [
         { color: 'red', kind: 'reverse' },
         { color: 'red', kind: 'number', value: 1 },
@@ -834,10 +839,12 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
 
-      // Direction is clockwise (the opening discard is always a Number, so no
-      // Reverse can have flipped it), so Bob sits right after Alice.
+      // Direction is pinned clockwise, so Bob sits right after Alice. It cannot be
+      // assumed: the idle bot may hold the first turn and play a Reverse while this
+      // test is still setting up.
       const playableAfter = { color: 'red', kind: 'number', value: 6 }
       await debugSetState(alice, {
+        direction: 1,
         hand: [{ color: 'wild', kind: 'global_switch' }, { color: 'red', kind: 'number', value: 1 }],
         hands: [{ playerIndex: bobIdx, hand: [playableAfter, { color: 'blue', kind: 'number', value: 9 }] }],
         discard: { color: 'red', kind: 'number', value: 5 },

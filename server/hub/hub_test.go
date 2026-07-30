@@ -1878,6 +1878,72 @@ func TestDebugSetState_OverridesHandsAndTurn(t *testing.T) {
 	}
 }
 
+// TestDebugSetState_OverridesDirection pins the play direction. Without it an E2E
+// test that reasons about "the next seat" is at the mercy of whatever the bots
+// played before the local player's first turn: one Reverse and every seat the test
+// computed is the wrong one.
+func TestDebugSetState_OverridesDirection(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{
+		Type:     protocol.CMsgJoinRoom,
+		Nickname: "Bob",
+		RoomCode: created.RoomCode,
+	})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
+
+	ccw := -1
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type:           protocol.CMsgDebugSetState,
+		DebugDirection: &ccw,
+	})
+	post1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
+	post2 := readMsgOfType(t, conn2, protocol.SMsgGameState)
+	if post1.State == nil || post2.State == nil {
+		t.Fatal("missing state in game_state after debug_set_state")
+	}
+	if post1.State.Direction != -1 || post2.State.Direction != -1 {
+		t.Fatalf("direction after override = %d/%d, want -1", post1.State.Direction, post2.State.Direction)
+	}
+
+	cw := 1
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type:           protocol.CMsgDebugSetState,
+		DebugDirection: &cw,
+	})
+	back1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+	if back1.State == nil || back1.State.Direction != 1 {
+		t.Fatalf("direction after second override = %+v, want 1", back1.State)
+	}
+
+	// Anything other than ±1 is refused: a 0 would freeze the turn on one seat
+	// and any other value would step over seats.
+	bogus := 2
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type:           protocol.CMsgDebugSetState,
+		DebugDirection: &bogus,
+	})
+	if errMsg := readMsgOfType(t, conn1, protocol.SMsgError); errMsg.Error == "" {
+		t.Fatal("expected an error for a bogus direction")
+	}
+}
+
 // TestBotCatch_WithinWindow verifies that a bot catches a human player who plays
 // to 1 card without declaring UNO, within the valid catch window.
 // Uses BotCatchProb=1.0 (always) and BotCatchDelay=10ms for determinism.
