@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { CardDTO, CardColor } from '../../types/protocol'
 import { Card } from './Card'
-import { ACTIVE_RING, CARD_W, CARD_H, cardKey, flightFor } from './cardTheme'
+import { ACTIVE_RING, SUIT_PAINT, SUIT_ANGLE_DEG, CARD_W, CARD_H, cardKey, flightFor } from './cardTheme'
 import { discardPosition } from './layout'
 import styles from './DiscardPile.module.css'
 
@@ -62,6 +62,20 @@ export function DiscardPile({ card, activeColor, pendingDraw, width, height, top
 
   return (
     <div className={styles.pile} style={{ left: x, top: y, width: CARD_W, height: CARD_H }} aria-label="discard">
+      {/* Three readings of the same fact, at three distances. The pool is the
+          one a spectator gets at 720p without looking for anything; the ring is
+          the one a player already knows; the chip is the one that answers the
+          question when the card itself cannot — a wild has no colour on its
+          face, and that is exactly when people ask where the colour is.
+          Keyed on the colour so a wild resolving replays all three. */}
+      <motion.div
+        key={`pool-${activeColor}`}
+        className={styles.pool}
+        style={{ color: ACTIVE_RING[activeColor] }}
+        initial={{ opacity: 0.78, scale: 1.28 }}
+        animate={{ opacity: 0.44, scale: 1 }}
+        transition={{ duration: 0.55, ease: 'easeOut' }}
+      />
       {/* `color` drives both the border (border-color defaults to currentColor)
           and the glow, so the active colour is set in one place. */}
       <div className={styles.ring} style={{ color: ACTIVE_RING[activeColor] }} />
@@ -82,6 +96,25 @@ export function DiscardPile({ card, activeColor, pendingDraw, width, height, top
       >
         <Card card={shown} />
       </motion.div>
+      {/* The chip carries the suit's whole gradient, so it is literally the
+          paint of the swatch that was tapped in <ColorPicker /> and of the
+          cards it now lets you play. A flat sample would be a fourth colour to
+          learn. Bottom-left mirrors the +N badge's corner: the pile has two
+          fixed places to look, and this one is always occupied. */}
+      <motion.div
+        key={`chip-${activeColor}`}
+        className={styles.chip}
+        style={{
+          left: -16,
+          top: CARD_H - 22,
+          color: ACTIVE_RING[activeColor],
+          background: `linear-gradient(${SUIT_ANGLE_DEG}deg, ${SUIT_PAINT[activeColor].from}, ${SUIT_PAINT[activeColor].to})`,
+        }}
+        aria-label={`active color ${activeColor}`}
+        initial={{ scale: 0.35, rotate: -22 }}
+        animate={{ scale: 1, rotate: 0 }}
+        transition={{ type: 'spring', stiffness: 520, damping: 18 }}
+      />
       {pendingDraw > 0 && (
         <motion.div
           className={styles.badge}

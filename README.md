@@ -103,6 +103,19 @@ The **client** owns only presentation:
 - All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` — no long-lived sleeping goroutines; goroutine count remains O(connections), not O(rooms × events)
 - Critical timer callbacks (botMove, expire, cleanup) retry once on channel-full before logging `WARN`; per-client output drops are tolerated with client notification
 
+**Latency budget.** Interrupts are resolved by arrival order at the server, so every hop is tuned
+for the smallest possible delay rather than the fewest bytes:
+
+- nginx forwards the WebSocket tunnel with `tcp_nodelay on` and `proxy_buffering off`. Gameplay
+  messages are a few hundred bytes, the exact size Nagle holds back waiting for a fuller segment,
+  which would add up to 40 ms to a card play on a hop the app cannot see.
+- WebSocket compression is deliberately disabled: no useful saving at these payload sizes, and it
+  would put a deflate pass plus a flush on both ends of every play.
+- The client sends the play before it animates it, and animates nothing for a tap it refuses or a
+  tap that only opens the colour/target prompt.
+- The reconnect backoff starts at 250 ms (250 / 500 / 1000 / 2000 / 4000). Most drops come straight
+  back, and a dead board costs a whole interrupt window.
+
 ### Anti-Cheat
 
 - Card legality validated server-side on every `play_card`
@@ -348,6 +361,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Turn timer bar visibility
 - Error toast on invalid play
 - Last-card catch window ("LOCO!" declaration button, Catch! button, timer), including the seat a Swap hands its last card to
+- Missed Contre-LOCO! penalty (+1 card to the caller, button spent on press)
 - Pending-draw counter on Draw button
 - Penalty absorption (pendingDraw clears, turn advances)
 - BO3 multi-round progression (round 2, auto-dismiss, game over)
@@ -364,7 +378,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 ## Implemented Features
 
 - **Lobby**: nickname-only rooms, 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
-- **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`) + a per-seat 5 s catch window that also covers the players a Swap or a Global Swap leaves holding a single card, single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
+- **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`; one call per single card, and the button is spent once the server confirms it) + a per-seat 5 s catch window that also covers the players a Swap or a Global Swap leaves holding a single card (Contre-LOCO! is a wager: a call that arrives after the declaration, after the hand grew, or after the window closed costs the caller 1 card — `docs/rules.md` §14.6), single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
 - **Rematch**: after a match the host reopens the same room (same code, same roster, cleared scores); absent seats are pruned, everyone else is pulled back to the waiting room.
 - **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
   copy rather than showing the server's own English string), light + dark themes.
@@ -374,6 +388,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Review the whole deck on one screen with `make visual ARGS="--scenes=card-sheet"`.
 - **Score table**: hold `TAB` during a match (or tap the **Scores** button, which is how it opens on a phone) for the standings: seat colour, nickname, one column per finished round, cumulative total, rounds won, and a live ping per player coloured by how much it costs in a race (green under 60 ms, red past 220 ms). Both the per-round history and the ping are measured and broadcast by the server, so they survive a reconnect and cannot be self-reported.
 - **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
+- **Play direction on the table**: a ring of chevrons runs around the felt showing which way play is moving, chasing slowly in that direction and flipping over when a Reverse lands. The callout lasts a second; the heading lasts the rest of the round, so a player who looked away — or a viewer who just opened the stream — can still read whose turn comes next.
 - **Audio**: runtime-synthesised effects for every action and rule outcome, plus **three adaptive soundtracks** — *Neon Horizon* (uplifting trance, 138 BPM), *Pixel Rush* (electro house, 128) and *Voltage* (dark electro, 145) — each written as parts (intro, verse, chorus, bridge, break) rather than a loop. They play as a **shuffled playlist**: a track runs about two minutes, then hands over on its own, and the only control is a ⏭ next button. Two things drive what you hear: the **song form** advances by itself, so around forty bars pass before a part returns, and the **table's tension** picks how thickly it is played *and* which part comes next — a breakdown between rounds, a build-up in the lobby, a groove during play, the full drop when someone is one card from winning. Risers and crashes announce a chorus, fills close every part, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
 - **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 

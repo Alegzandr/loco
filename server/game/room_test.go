@@ -267,6 +267,40 @@ func TestRoom_LastCardDeclaration(t *testing.T) {
 	}
 }
 
+// TestRoom_LastCardDeclaration_OnlyOnce pins that a declaration is spent: the
+// same single card cannot be announced twice. Repeating it re-broadcast
+// uno_declared and re-logged the event, so a player could spam the banner (and
+// the sting that goes with it) for as long as they held that card.
+func TestRoom_LastCardDeclaration_OnlyOnce(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.Hands[0].Cards = r.State.Hands[0].Cards[:1]
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	err := r.DeclareLastCard(0)
+	if err == nil {
+		t.Fatal("expected error declaring twice, got nil")
+	}
+	if err.Error() != "player already declared" {
+		t.Errorf("got error %q, want %q", err.Error(), "player already declared")
+	}
+}
+
+// TestRoom_LastCardDeclaration_AgainAfterRearrange verifies the flip side: a
+// Swap or a GlobalSwitch hands the seat a *different* single card, which nobody
+// at the table has heard announced, so the seat owes a fresh declaration.
+func TestRoom_LastCardDeclaration_AgainAfterRearrange(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.Hands[0].Cards = r.State.Hands[0].Cards[:1]
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	r.State.openCatchWindowsAfterRearrange()
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard after rearrange: %v", err)
+	}
+}
+
 func TestRoom_LastCardDeclaration_PenaltyIfForgot(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	top := r.State.Discard[len(r.State.Discard)-1]
@@ -2792,5 +2826,107 @@ func TestRoom_ResetForRematch_AllowsRosterChangeBeforeStart(t *testing.T) {
 	}
 	if len(r.Scores) != 2 {
 		t.Errorf("Scores len = %d, want 2 (sized to the new roster)", len(r.Scores))
+	}
+}
+
+// --- Failed catch penalty -------------------------------------------------
+
+// A Contre-LOCO! that arrives after the target's declaration is a race lost on
+// the wire, not a protocol violation: the domain must say so explicitly so the
+// hub can charge the caller a card instead of treating them as a cheat.
+func TestRoom_CatchUndeclared_MissedByDeclaration(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Hands[0].Cards = []Card{
+		{Color: Red, Kind: Number, Value: 2},
+		{Color: Red, Kind: Number, Value: 3},
+	}
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	err := r.CatchUndeclared(1, 0, time.Now())
+	if err == nil {
+		t.Fatal("catching a declared player must fail")
+	}
+	if !IsMissedCatch(err) {
+		t.Errorf("IsMissedCatch(%v) = false, want true", err)
+	}
+	if err.Error() != "player already declared" {
+		t.Errorf("error text = %q, want the unchanged wire string", err.Error())
+	}
+}
+
+// Same for a window that closed before the message landed.
+func TestRoom_CatchUndeclared_MissedByExpiry(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Hands[0].Cards = []Card{
+		{Color: Red, Kind: Number, Value: 2},
+		{Color: Red, Kind: Number, Value: 3},
+	}
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	err := r.CatchUndeclared(1, 0, time.Now().Add(catchWindow+time.Second))
+	if err == nil {
+		t.Fatal("catching after the window must fail")
+	}
+	if !IsMissedCatch(err) {
+		t.Errorf("IsMissedCatch(%v) = false, want true", err)
+	}
+}
+
+// A malformed target is a client bug or an attack, never a lost race — it must
+// not be charged a card, and the hub still counts it as suspect.
+func TestRoom_CatchUndeclared_InvalidTargetIsNotAMiss(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	if err := r.CatchUndeclared(1, 99, time.Now()); err == nil || IsMissedCatch(err) {
+		t.Errorf("CatchUndeclared(1, 99) = %v, want a non-miss error", err)
+	}
+	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil || IsMissedCatch(err) {
+		t.Errorf("self-catch = %v, want a non-miss error", err)
+	}
+}
+
+// The wager: a miss costs the caller exactly one card, and nothing else about
+// the round moves — not the turn, not the target's hand, not the draw flag.
+func TestRoom_PenalizeFailedCatch(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	before := r.State.Hands[1].Size()
+	turn, hasDrawn := r.State.CurrentTurn, r.State.HasDrawn
+	targetBefore := r.State.Hands[0].Size()
+
+	cards := r.PenalizeFailedCatch(1)
+	if len(cards) != failedCatchPenalty {
+		t.Fatalf("PenalizeFailedCatch drew %d cards, want %d", len(cards), failedCatchPenalty)
+	}
+	if got := r.State.Hands[1].Size(); got != before+failedCatchPenalty {
+		t.Errorf("catcher hand = %d, want %d", got, before+failedCatchPenalty)
+	}
+	if r.State.CurrentTurn != turn || r.State.HasDrawn != hasDrawn {
+		t.Error("a failed catch must not touch the turn state")
+	}
+	if r.State.Hands[0].Size() != targetBefore {
+		t.Error("a failed catch must not touch the target's hand")
+	}
+}
+
+// A penalty is a draw, and a draw never fails: with every card in a hand the
+// caller simply gets away with it rather than the round freezing.
+func TestRoom_PenalizeFailedCatch_EmptyDeck(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.Deck.Cards = nil
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	before := r.State.Hands[1].Size()
+	if cards := r.PenalizeFailedCatch(1); len(cards) != 0 {
+		t.Fatalf("PenalizeFailedCatch on an exhausted deck drew %d cards, want 0", len(cards))
+	}
+	if got := r.State.Hands[1].Size(); got != before {
+		t.Errorf("catcher hand = %d, want %d unchanged", got, before)
 	}
 }

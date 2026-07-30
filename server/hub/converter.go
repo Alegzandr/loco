@@ -127,7 +127,7 @@ func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room, ch
 	top := state.Discard[len(state.Discard)-1]
 	msg := protocol.ServerMsg{
 		Type:         protocol.SMsgCardPlayed,
-		PlayerIndex:  playerID,
+		PlayerIndex:  intPtr(playerID),
 		Card:         cardToDTO(top),
 		ActiveColor:  colorName(state.ActiveColor),
 		Turn:         state.CurrentTurn,

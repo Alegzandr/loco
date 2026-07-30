@@ -126,7 +126,37 @@
   animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
 }
 
+/* A missed Contre-LOCO!. Same pill as the swap notice so it reads as table news
+   rather than as an error, but in the penalty's own red and sitting lower, so
+   the two can be on screen at once without covering each other. */
+.catchFailNotice {
+  position: absolute;
+  top: 29%;
+  left: 50%;
+  background: linear-gradient(180deg, #ff8a6b 0%, var(--color-error) 100%);
+  color: #fff;
+  font: 600 17px/1.25 var(--font-display);
+  text-shadow: 0 1px 0 rgba(90, 10, 10, 0.45);
+  padding: 11px 24px;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  box-shadow: var(--shadow-hard), 0 0 28px rgba(229, 72, 77, 0.5);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 14;
+  animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
+}
+
 @media (max-width: 480px) {
+  .catchFailNotice {
+    font-size: 14px;
+    padding: 9px 16px;
+    top: 26%;
+    max-width: 92%;
+    white-space: normal;
+    text-align: center;
+  }
+
   .swapNotice {
     font-size: 14px;
     padding: 9px 16px;

@@ -146,11 +146,10 @@ export default function App() {
         case 'uno_declared': {
           clearUnoTimer()
           const declarer = msg.player_index ?? -1
-          store.setUnoDeclared(true)
-          store.setUnoDeclaredByIndex(declarer)
           // Only that seat is off the hook: after a Swap or a GlobalSwitch
-          // somebody else may still owe a call.
-          store.closeCatchWindow(declarer)
+          // somebody else may still owe a call. If it is ours, the call is now
+          // spent and the button goes with it.
+          store.applyUnoDeclared(declarer)
           unoTimerRef.current = setTimeout(() => {
             unoTimerRef.current = null
             store.setUnoDeclared(false)
@@ -163,6 +162,13 @@ export default function App() {
         // other seat still holding a single card remains fair game.
         case 'uno_caught':
           store.closeCatchWindow(msg.player_index ?? -1)
+          break
+
+        // A Contre-LOCO! that lost its race. The penalty card arrives through
+        // the ordinary card_drawn path; this only names the seat that paid, for
+        // the notice and so the caller learns why their hand grew.
+        case 'catch_failed':
+          store.applyCatchFailed(msg.player_index ?? -1)
           break
 
         // Sent immediately before the resulting card_played so the steal can be

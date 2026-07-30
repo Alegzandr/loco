@@ -85,8 +85,8 @@ func TestCatchUNO_TargetReceivesPenaltyCards(t *testing.T) {
 	if len(drawn.Cards) != 2 {
 		t.Fatalf("caught player received %d cards, want 2 (hand would desync)", len(drawn.Cards))
 	}
-	if drawn.PlayerIndex != g.activeIdx {
-		t.Errorf("card_drawn PlayerIndex = %d, want %d", drawn.PlayerIndex, g.activeIdx)
+	if drawn.Seat() != g.activeIdx {
+		t.Errorf("card_drawn PlayerIndex = %d, want %d", drawn.Seat(), g.activeIdx)
 	}
 
 	// The catcher only needs the count.
@@ -94,8 +94,8 @@ func TestCatchUNO_TargetReceivesPenaltyCards(t *testing.T) {
 	if observed.DrawnCount != 2 {
 		t.Errorf("observer DrawnCount = %d, want 2", observed.DrawnCount)
 	}
-	if observed.PlayerIndex != g.activeIdx {
-		t.Errorf("observer card_drawn PlayerIndex = %d, want %d", observed.PlayerIndex, g.activeIdx)
+	if observed.Seat() != g.activeIdx {
+		t.Errorf("observer card_drawn PlayerIndex = %d, want %d", observed.Seat(), g.activeIdx)
 	}
 }
 

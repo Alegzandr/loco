@@ -194,8 +194,8 @@ func TestPlayerDisconnectDuringGame_BroadcastsDisconnected(t *testing.T) {
 
 	// Alice should receive player_disconnected
 	msg := readMsgOfType(t, conn1, protocol.SMsgPlayerDisconnected)
-	if msg.PlayerIndex != 1 {
-		t.Errorf("expected PlayerIndex 1, got %d", msg.PlayerIndex)
+	if msg.Seat() != 1 {
+		t.Errorf("expected PlayerIndex 1, got %d", msg.Seat())
 	}
 	if msg.Nickname != "Bob" {
 		t.Errorf("expected Nickname Bob, got %q", msg.Nickname)
@@ -246,8 +246,8 @@ func TestPlayerReconnect_DuringGame(t *testing.T) {
 
 	// Alice sees player_reconnected broadcast
 	aliceMsg := readMsgOfType(t, conn1, protocol.SMsgPlayerReconnected)
-	if aliceMsg.PlayerIndex != 1 {
-		t.Errorf("expected PlayerIndex 1, got %d", aliceMsg.PlayerIndex)
+	if aliceMsg.Seat() != 1 {
+		t.Errorf("expected PlayerIndex 1, got %d", aliceMsg.Seat())
 	}
 	// Bob should now be connected in Alice's player list
 	for _, p := range aliceMsg.Players {
@@ -1684,8 +1684,8 @@ func TestCatchUNO_HumanCatchesHuman(t *testing.T) {
 	// Both must receive uno_caught for the active player.
 	caught1 := readMsgOfType(t, activeConn, protocol.SMsgUnoCaught)
 	caught2 := readMsgOfType(t, catcherConn, protocol.SMsgUnoCaught)
-	if caught1.PlayerIndex != activeIdx {
-		t.Errorf("uno_caught PlayerIndex = %d, want %d", caught1.PlayerIndex, activeIdx)
+	if caught1.Seat() != activeIdx {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d", caught1.Seat(), activeIdx)
 	}
 	_ = caught2
 }
@@ -1830,8 +1830,8 @@ func TestBotCatch_WithinWindow(t *testing.T) {
 	// Bot should catch within BotCatchDelay (10ms) + processing time.
 	// readMsgOfType retries up to 10 messages, each with a 3s read deadline.
 	caught := readMsgOfType(t, conn, protocol.SMsgUnoCaught)
-	if caught.PlayerIndex != gs.State.YourIndex {
-		t.Errorf("uno_caught PlayerIndex = %d, want %d (Alice)", caught.PlayerIndex, gs.State.YourIndex)
+	if caught.Seat() != gs.State.YourIndex {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d (Alice)", caught.Seat(), gs.State.YourIndex)
 	}
 }
 
@@ -1998,7 +1998,7 @@ func TestBotUno_CatchableDuringAnnounceDelay(t *testing.T) {
 			t.Fatal("bot never played")
 		}
 		msg := readMsgOfType(t, conn, protocol.SMsgCardPlayed)
-		if msg.PlayerIndex == bot {
+		if msg.Seat() == bot {
 			break
 		}
 	}
@@ -2006,8 +2006,8 @@ func TestBotUno_CatchableDuringAnnounceDelay(t *testing.T) {
 	// Alice catches it inside the window the UI is showing her.
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &bot})
 	caught := readMsgOfType(t, conn, protocol.SMsgUnoCaught)
-	if caught.PlayerIndex != bot {
-		t.Errorf("uno_caught PlayerIndex = %d, want %d (the bot, i.e. the caught seat)", caught.PlayerIndex, bot)
+	if caught.Seat() != bot {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d (the bot, i.e. the caught seat)", caught.Seat(), bot)
 	}
 
 	// The swallowed announcement must not resurface: the bot took the penalty
@@ -2021,7 +2021,7 @@ func TestBotUno_CatchableDuringAnnounceDelay(t *testing.T) {
 		}
 		var msg protocol.ServerMsg
 		json.Unmarshal(data, &msg) //nolint:errcheck
-		if msg.Type == protocol.SMsgUnoDeclared && msg.PlayerIndex == bot {
+		if msg.Type == protocol.SMsgUnoDeclared && msg.Seat() == bot {
 			t.Fatal("bot announced LOCO! after being caught")
 		}
 	}
@@ -2192,8 +2192,8 @@ func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
 		t.Errorf("card_played reported wrong card after winning play: got color=%s kind=%s value=%d, want red/number/7 (this is the round-transition broadcast bug)",
 			played.Card.Color, played.Card.Kind, played.Card.Value)
 	}
-	if played.PlayerIndex != 0 {
-		t.Errorf("card_played player_index = %d, want 0 (Alice)", played.PlayerIndex)
+	if played.Seat() != 0 {
+		t.Errorf("card_played player_index = %d, want 0 (Alice)", played.Seat())
 	}
 
 	// Next: round_end with the just-completed round number (1) and Alice as winner.
@@ -2694,5 +2694,98 @@ func TestEventLog_AbsentFromBroadcastGameState(t *testing.T) {
 	}
 	if len(started.State.EventLog) != 0 {
 		t.Errorf("game_started carries %d event-log entries; the log is reconnect-only", len(started.State.EventLog))
+	}
+}
+
+// TestCatchUNO_FailedCatchCostsACard pins the wager: the catcher's button was
+// armed, but the target's LOCO! reached the hub first, so the call is refused
+// AND charged one card. Without the price, mashing Contre-LOCO! on every seat
+// holding one card would be free and always correct.
+func TestCatchUNO_FailedCatchCostsACard(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	if gs1.State == nil || gs2.State == nil {
+		t.Fatal("missing game state in game_started")
+	}
+
+	activeConn, catcherConn := conn1, conn2
+	activeIdx, catcherIdx := gs1.State.YourIndex, gs2.State.YourIndex
+	catcherHand := len(gs2.State.Hand)
+	if gs1.State.Turn != gs1.State.YourIndex {
+		activeConn, catcherConn = conn2, conn1
+		activeIdx, catcherIdx = gs2.State.YourIndex, gs1.State.YourIndex
+		catcherHand = len(gs1.State.Hand)
+	}
+
+	zero := 0
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, catcherConn, protocol.SMsgGameState)
+
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgCardPlayed)
+	readMsgOfType(t, catcherConn, protocol.SMsgCardPlayed)
+
+	// The target declares first, then the catcher taps anyway.
+	sendMsg(t, activeConn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
+	readMsgOfType(t, activeConn, protocol.SMsgUnoDeclared)
+	readMsgOfType(t, catcherConn, protocol.SMsgUnoDeclared)
+
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
+
+	// The whole room learns whose call missed.
+	failed := readMsgOfType(t, catcherConn, protocol.SMsgCatchFailed)
+	if failed.Seat() != catcherIdx {
+		t.Errorf("catch_failed PlayerIndex = %d, want the catcher %d", failed.Seat(), catcherIdx)
+	}
+	if seen := readMsgOfType(t, activeConn, protocol.SMsgCatchFailed); seen.Seat() != catcherIdx {
+		t.Errorf("target saw catch_failed for seat %d, want %d", seen.Seat(), catcherIdx)
+	}
+
+	// And the catcher is handed the penalty card itself, not just a count.
+	drawn := readMsgOfType(t, catcherConn, protocol.SMsgCardDrawn)
+	if len(drawn.Cards) != 1 {
+		t.Fatalf("card_drawn carried %d cards, want 1", len(drawn.Cards))
+	}
+	if drawn.Seat() != catcherIdx {
+		t.Errorf("card_drawn PlayerIndex = %d, want %d", drawn.Seat(), catcherIdx)
+	}
+
+	// The target keeps its single card: a missed catch never touches the seat
+	// it was aimed at.
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgDebugSetState})
+	st := readMsgOfType(t, catcherConn, protocol.SMsgGameState)
+	if st.State == nil || len(st.State.Hand) != catcherHand+1 {
+		t.Fatalf("catcher hand = %d, want %d", len(st.State.Hand), catcherHand+1)
+	}
+	for _, p := range st.State.Players {
+		if p.Index == activeIdx && p.HandSize != 1 {
+			t.Errorf("target hand size = %d, want 1 untouched", p.HandSize)
+		}
 	}
 }

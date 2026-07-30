@@ -17,6 +17,10 @@ beforeEach(() => {
     pendingDraw: 0,
     errorMsg: '',
     unoDeclared: false,
+    myDeclared: false,
+    catchWindows: [],
+    catchTarget: null,
+    unoTimerEnd: null,
     scoreboard: [],
     roundWinner: '',
     roundScores: [],
@@ -551,6 +555,56 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().unoDeclared).toBe(false)
   })
 
+  // A declaration is spent: the server refuses a second one on the same single
+  // card, so the button must stop offering it after the server confirms ours.
+  it('applyUnoDeclared spends our own declaration and only ours', () => {
+    useGameStore.setState({ myIndex: 1 })
+    useGameStore.getState().applyUnoDeclared(0)
+    expect(useGameStore.getState().myDeclared).toBe(false)
+    useGameStore.getState().applyUnoDeclared(1)
+    const s = useGameStore.getState()
+    expect(s.myDeclared).toBe(true)
+    expect(s.unoDeclaredByIndex).toBe(1)
+  })
+
+  // The flip side, mirroring the server's openCatchWindowsAfterRearrange: a
+  // GlobalSwitch hands us a different single card, which nobody has heard
+  // called, so the button comes back live.
+  it('applyCardPlayed re-arms our declaration when a rearrange hands us a new last card', () => {
+    useGameStore.setState({
+      myIndex: 1,
+      myDeclared: true,
+      myHand: [{ color: 'red', kind: 'number', value: 5 }],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 3, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 1, connected: true },
+      ],
+    })
+    const gs: CardDTO = { color: 'wild', kind: 'global_switch' }
+    useGameStore.getState().applyCardPlayed(0, gs, 1, 0, 'red', [
+      { index: 0, nickname: 'alice', hand_size: 3, connected: true },
+      { index: 1, nickname: 'bob', hand_size: 1, connected: true },
+    ])
+    expect(useGameStore.getState().myDeclared).toBe(false)
+  })
+
+  // Nothing else may spend it: an unrelated play leaves the single card we
+  // already called exactly as it was.
+  it('applyCardPlayed keeps our declaration through an unrelated play', () => {
+    useGameStore.setState({
+      myIndex: 1,
+      myDeclared: true,
+      myHand: [{ color: 'red', kind: 'number', value: 5 }],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 3, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 1, connected: true },
+      ],
+    })
+    const card: CardDTO = { color: 'red', kind: 'number', value: 4 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, 'red')
+    expect(useGameStore.getState().myDeclared).toBe(true)
+  })
+
   it('applyCardPlayed clears unoDeclared (UNO is consumed when card is played)', () => {
     useGameStore.setState({
       unoDeclared: true,
@@ -681,6 +735,75 @@ describe('useGameStore', () => {
     const s = useGameStore.getState()
     expect(s.catchWindows.map((w) => w.seat)).toEqual([1])
     expect(s.catchTarget).toBe(1)
+  })
+
+  // Drawing takes a seat off one card, and the server refuses every catch on it
+  // from that moment ("target does not have exactly 1 card"). A window left open
+  // is a Contre-LOCO! button that stays armed on a play that can only be refused.
+  it('applyCardDrawn closes the drawing seat window and promotes the next', () => {
+    const now = Date.now()
+    useGameStore.setState({
+      myIndex: 3,
+      catchWindows: [
+        { seat: 0, endsAt: now + 2000 },
+        { seat: 1, endsAt: now + 4000 },
+      ],
+      catchTarget: 0,
+      unoTimerEnd: now + 2000,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 1, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 1, connected: true },
+        { index: 3, nickname: 'dave', hand_size: 5, connected: true },
+      ],
+    })
+    useGameStore.getState().applyCardDrawn(null, 0, 1, true, 1, 0)
+    const s = useGameStore.getState()
+    expect(s.catchWindows.map((w) => w.seat)).toEqual([1])
+    expect(s.catchTarget).toBe(1)
+  })
+
+  // A missed call now costs a card, so the button has to be spent the moment it
+  // is pressed rather than when the server answers — otherwise one impatient
+  // double tap buys the same opinion twice.
+  it('noteCatchAttempt disarms that seat and promotes the next', () => {
+    const now = Date.now()
+    useGameStore.setState({
+      myIndex: 3,
+      catchWindows: [
+        { seat: 0, endsAt: now + 2000 },
+        { seat: 1, endsAt: now + 4000 },
+      ],
+      catchTarget: 0,
+      unoTimerEnd: now + 2000,
+    })
+    useGameStore.getState().noteCatchAttempt(0)
+    const s = useGameStore.getState()
+    // The window itself stays: it is still somebody else's obligation, and the
+    // 5s bar is still counting down. Only our own button is spent.
+    expect(s.catchWindows.map((w) => w.seat)).toEqual([0, 1])
+    expect(s.catchTarget).toBe(1)
+    expect(s.unoTimerEnd).toBe(now + 4000)
+  })
+
+  it('noteCatchAttempt on the only open window closes the button', () => {
+    const now = Date.now()
+    useGameStore.setState({
+      myIndex: 3,
+      catchWindows: [{ seat: 0, endsAt: now + 2000 }],
+      catchTarget: 0,
+      unoTimerEnd: now + 2000,
+    })
+    useGameStore.getState().noteCatchAttempt(0)
+    const s = useGameStore.getState()
+    expect(s.catchTarget).toBeNull()
+    expect(s.unoTimerEnd).toBeNull()
+  })
+
+  it('applyCatchFailed names the seat that paid, clearCatchFailed retires it', () => {
+    useGameStore.getState().applyCatchFailed(2)
+    expect(useGameStore.getState().catchFailed?.seat).toBe(2)
+    useGameStore.getState().clearCatchFailed()
+    expect(useGameStore.getState().catchFailed).toBeNull()
   })
 
   it('pruneCatchWindows drops only the expired ones', () => {

@@ -77,8 +77,8 @@ func TestPenaltyDraw_RearmsTurnTimer(t *testing.T) {
 				Card: &protocol.CardDTO{Color: "blue", Kind: "number", Value: 3},
 			})
 			played := readMsgOfType(t, g.activeConn, protocol.SMsgCardPlayed)
-			if played.PlayerIndex != g.activeIdx {
-				t.Errorf("card_played PlayerIndex = %d, want %d", played.PlayerIndex, g.activeIdx)
+			if played.Seat() != g.activeIdx {
+				t.Errorf("card_played PlayerIndex = %d, want %d", played.Seat(), g.activeIdx)
 			}
 		})
 	}

@@ -21,7 +21,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { AudioSettings } from './AudioSettings'
 import { playSfx } from '../audio/sfx'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from './interruptHelpers'
-import { GameBoard } from './cards/GameBoard'
+import { GameBoard, GameBoardHandle } from './cards/GameBoard'
 import styles from './GameView.module.css'
 
 interface Props {
@@ -31,6 +31,7 @@ interface Props {
 
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
 const SWAP_NOTICE_MS = 3500
+const CATCH_FAIL_NOTICE_MS = 2800
 /** Seconds of remaining turn time at which the countdown ticks start. */
 const TURN_COUNTDOWN_FROM = 5
 
@@ -70,13 +71,17 @@ export function GameView({ onSend, wsStatus }: Props) {
   const [playerPicker, setPlayerPicker] = useState<
     { card: CardDTO; idx: number; interrupt?: boolean } | null
   >(null)
-  const lastActionRef = useRef<number>(0)
+  // Per-control timestamp of the last accepted tap; see guardDoubleTap.
+  const lastActionRef = useRef<Map<string, number>>(new Map())
   const [showRules, setShowRules] = useState(false)
   // Touch devices have no TAB key, so the same table is also pinned open by a
   // button in the top cluster. Held and pinned are separate states on purpose:
   // releasing TAB must never close a table the player deliberately pinned.
   const [pinnedScores, setPinnedScores] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // The board fills this in; the pickers use it to animate a play that was only
+  // confirmed once a colour or a target was named.
+  const flightRef = useRef<GameBoardHandle | null>(null)
   // Countdown bars are written to directly, never through state: see useDrainBar.
   const turnFillRef = useRef<HTMLDivElement>(null)
   const turnTrackRef = useRef<HTMLDivElement>(null)
@@ -88,11 +93,13 @@ export function GameView({ onSend, wsStatus }: Props) {
     discard,
     activeColor,
     currentTurn,
+    direction,
     myIndex,
     pendingDraw,
     hasDrawn,
     unoDeclared,
     unoDeclaredByIndex,
+    myDeclared,
     catchTarget,
     unoTimerEnd,
     turnDeadline,
@@ -108,30 +115,45 @@ export function GameView({ onSend, wsStatus }: Props) {
     isReconnecting,
     errorMsg,
     swapNotice,
+    catchFailed,
     lastPlay,
     interruptFlash,
     dismissRoundSummary,
     setIsReconnecting,
     setSwapNotice,
     pruneCatchWindows,
+    noteCatchAttempt,
+    clearCatchFailed,
     clearInterrupt,
     clearError,
   } = useGameStore()
 
-  const guardDoubleTap = useCallback((fn: () => void) => {
+  // Swallows the second half of a double-tap on the same control, and only on
+  // the same control. It used to be one shared 400ms lockout across every
+  // action, which silently ate the most ordinary sequence in the game: draw,
+  // then pass. Same for declaring LOCO! and catching in the same breath, or
+  // catching a second seat after a Swap put two players on one card. In a game
+  // whose windows are measured in seconds, a control that ignores a deliberate
+  // tap because a *different* control was used 300ms ago reads as a dead button.
+  // The catch key carries its target for that reason: two seats are two taps.
+  const guardDoubleTap = useCallback((key: string, fn: () => void) => {
     const now = Date.now()
-    if (now - lastActionRef.current < 400) return
-    lastActionRef.current = now
+    const last = lastActionRef.current.get(key) ?? 0
+    if (now - last < 400) return
+    lastActionRef.current.set(key, now)
     fn()
   }, [])
 
+  // Returns true when the tap actually sent a play, which is what <GameBoard />
+  // keys the hand→discard flight off. A refused card and a card that only opens
+  // a prompt both return false.
   const handleCardClick = useCallback(
-    (card: CardDTO, cardIdx: number) => {
+    (card: CardDTO, cardIdx: number): boolean => {
       // Out-of-turn path: realtime "lead-taking" interrupt. If the tapped card
       // is an exact match of the top discard, send interrupt_play_card (the
       // server enforces the time window and ordering). Otherwise ignore the tap.
       if (currentTurn !== myIndex) {
-        if (!clientMayInterrupt(card, discard, pendingDraw)) return
+        if (!clientMayInterrupt(card, discard, pendingDraw)) return false
         // Auto-batch: if the player holds multiple identical copies, send them all
         // in a single interrupt — the rule allows playing any number of identical
         // matching cards together. Swap and global_switch never batch.
@@ -148,40 +170,41 @@ export function GameView({ onSend, wsStatus }: Props) {
             interrupt: true,
             copies: card.kind === 'global_switch' ? undefined : batch,
           })
-          return
+          return false
         }
         if (card.kind === 'swap') {
           setPlayerPicker({ card, idx: cardIdx, interrupt: true })
-          return
+          return false
         }
         onSend({ type: 'interrupt_play_card', card, play_cards: batch })
-        return
+        return true
       }
       // Answering a pending +2/+4 stack is its own message. Any matching draw
       // card counters, whatever its colour — the server compares kinds only.
       // Sending play_card here is always refused ("must counter or draw pending
       // penalty cards first"), which used to make stacking unreachable by tap.
       if (pendingDraw > 0) {
-        if (!isCounterCard(card, discard, pendingDraw)) return
+        if (!isCounterCard(card, discard, pendingDraw)) return false
         if (card.kind === 'wild_draw_four') {
           setColorPicker({ card, idx: cardIdx, counter: true })
-          return
+          return false
         }
         onSend({ type: 'counter_draw', card, chosen_color: card.color })
-        return
+        return true
       }
       if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
         setColorPicker({ card, idx: cardIdx })
-        return
+        return false
       }
       if (card.kind === 'swap') {
         setPlayerPicker({ card, idx: cardIdx })
-        return
+        return false
       }
       // Block clearly-invalid plays so there's no "fake" play UI flash.
       // Server is always authoritative; this is a UX hint only.
-      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
+      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return false
       onSend({ type: 'play_card', card, chosen_color: card.color })
+      return true
     },
     [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, onSend]
   )
@@ -246,6 +269,15 @@ export function GameView({ onSend, wsStatus }: Props) {
     return () => clearTimeout(id)
   }, [unoTimerEnd, pruneCatchWindows])
 
+  // Auto-clear the missed-Contre-LOCO! notice. Same shape as the swap notice:
+  // a transient piece of table news, not a state anybody has to dismiss.
+  useEffect(() => {
+    if (!catchFailed) return
+    const id = setTimeout(clearCatchFailed, CATCH_FAIL_NOTICE_MS)
+    return () => clearTimeout(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catchFailed?.at])
+
   // Auto-clear the swap / global_switch notice after a short window.
   // The matching trail animation lives in <GameBoard /> (keyed by swapNotice.at).
   useEffect(() => {
@@ -302,7 +334,10 @@ export function GameView({ onSend, wsStatus }: Props) {
 
   // Memoised: <GameBoard /> lists fxTexts in an effect's dependency array, and a
   // fresh object literal each render would replay the callout on every update.
-  const fxTexts = useMemo(() => ({ skip: t.fxSkip, reverse: t.fxReverse }), [t])
+  const fxTexts = useMemo(
+    () => ({ skip: t.fxSkip, reverse: t.fxReverse, colors: t.fxColors }),
+    [t],
+  )
 
   // Hold TAB for the standings. Disabled while a dialog owns the screen: inside
   // the rules modal or a picker, TAB still belongs to the dialog's own focus
@@ -352,7 +387,7 @@ export function GameView({ onSend, wsStatus }: Props) {
     [t],
   )
   const handleDraw = useCallback(
-    () => guardDoubleTap(() => onSend({ type: 'draw_card' })),
+    () => guardDoubleTap('draw', () => onSend({ type: 'draw_card' })),
     [guardDoubleTap, onSend],
   )
 
@@ -368,11 +403,14 @@ export function GameView({ onSend, wsStatus }: Props) {
         players={players}
         myIndex={myIndex}
         currentTurn={currentTurn}
+        direction={direction}
+        directionLabel={direction >= 0 ? t.directionCw : t.directionCcw}
         pendingDraw={pendingDraw}
         canCounter={canCounter}
         isPlayable={cardIsPlayable}
         isInteractive={cardIsInteractive}
         onCardClick={handleCardClick}
+        flightRef={flightRef}
         turnTexts={turnTexts}
         fxTexts={fxTexts}
         swapNotice={swapNotice}
@@ -429,14 +467,19 @@ export function GameView({ onSend, wsStatus }: Props) {
         hasDrawn={hasDrawn}
         hasPlayableCard={hasPlayableCard}
         canCatch={catchTarget !== null}
+        hasDeclared={myDeclared}
         onDraw={handleDraw}
-        onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
-        onUno={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
+        onPass={() => guardDoubleTap('pass', () => onSend({ type: 'pass_turn' }))}
+        onUno={() => guardDoubleTap('uno', () => onSend({ type: 'declare_uno' }))}
         // Name the seat: several players can owe a declaration at once after a
         // Swap or a GlobalSwitch, and the button offers the most urgent one.
         onCatch={() =>
-          guardDoubleTap(() => {
+          guardDoubleTap(`catch:${catchTarget}`, () => {
             if (catchTarget === null) return
+            // Spend the button before the round trip: a call that arrives after
+            // the target's LOCO! costs a card, and a second tap while the first
+            // is in flight would buy the same opinion twice.
+            noteCatchAttempt(catchTarget)
             onSend({ type: 'catch_uno', target_index: catchTarget })
           })
         }
@@ -496,6 +539,9 @@ export function GameView({ onSend, wsStatus }: Props) {
               chosen_color: col,
               play_cards: colorPicker.copies,
             })
+            // Send first, animate second: the table is waiting on the message,
+            // not on our card leaving our own fan.
+            flightRef.current?.flyFromHand(colorPicker.card, colorPicker.idx)
             setColorPicker(null)
           }}
           onCancel={() => setColorPicker(null)}
@@ -513,6 +559,7 @@ export function GameView({ onSend, wsStatus }: Props) {
               card: playerPicker.card,
               chosen_player: targetIdx,
             })
+            flightRef.current?.flyFromHand(playerPicker.card, playerPicker.idx)
             setPlayerPicker(null)
           }}
           onCancel={() => setPlayerPicker(null)}
@@ -536,6 +583,20 @@ export function GameView({ onSend, wsStatus }: Props) {
       {swapNotice && (
         <div key={swapNotice.at} className={styles.swapNotice}>
           {resolveSwapNoticeText(swapNotice, myIndex, players, t)}
+        </div>
+      )}
+
+      {/* A Contre-LOCO! that arrived after the LOCO! it was aimed at. The card
+          it cost is public, so the notice is too — otherwise the caller's hand
+          grows for no reason anybody at the table can see. */}
+      {catchFailed && (
+        <div key={catchFailed.at} className={styles.catchFailNotice}>
+          {catchFailed.seat === myIndex
+            ? t.catchFailedYou
+            : t.catchFailedOther.replace(
+                '%player',
+                players.find((p) => p.index === catchFailed.seat)?.nickname ?? `P${catchFailed.seat}`,
+              )}
         </div>
       )}
 

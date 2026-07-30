@@ -11,6 +11,9 @@ interface Props {
   // Driven by the catch window, not by uno_declared — a declaration is exactly
   // the moment catching stops being possible.
   canCatch: boolean
+  // True once we have already called it on the card we hold. A declaration is
+  // spent — the server refuses the second one — so the button must stop asking.
+  hasDeclared: boolean
   onDraw: () => void
   onPass: () => void
   onUno: () => void
@@ -25,6 +28,7 @@ export function ActionBar({
   hasDrawn,
   hasPlayableCard,
   canCatch,
+  hasDeclared,
   onDraw,
   onPass,
   onUno,
@@ -67,8 +71,15 @@ export function ActionBar({
 
       <div className={styles.slot} data-slot="center">
         {locoTurn ? (
-          // We are on one card: LOCO is live by definition, so it is always armed.
-          <button className={`${styles.btn} ${styles.btnUno} ${styles.armed}`} onClick={onUno}>
+          // We are on one card: LOCO is live by definition — until we call it.
+          // The declaration is a one-shot, so afterwards the button stays in
+          // place (nothing may move in this bar) as a spent, dead object, the
+          // same way Catch waits out the match greyed in this very column.
+          <button
+            className={`${styles.btn} ${styles.btnUno} ${hasDeclared ? styles.btnDisabled : styles.armed}`}
+            onClick={onUno}
+            disabled={hasDeclared}
+          >
             {t.unoBtn}
           </button>
         ) : (

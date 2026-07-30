@@ -318,6 +318,122 @@ export function tableRect(
   }
 }
 
+// ─── Play direction ─────────────────────────────────────────────────────────
+
+export interface DirectionMarker {
+  x: number
+  y: number
+  /** Heading of the flow at that point, in **degrees** (SVG rotate takes degrees). */
+  angle: number
+}
+
+/**
+ * Chevrons laid around the felt. Enough to read as a ring, few enough to stay
+ * chunky — and deliberately not twelve, which on the phone's near-circular felt
+ * turns the table into a clock face.
+ */
+export const DIRECTION_MARKER_COUNT = 10
+/** Distance kept between each chevron and the felt's rim, measured along the normal. */
+export const DIRECTION_RING_INSET = 26
+/** `.tableOval`'s border width, in board space — the box it is given is border-box. */
+const FELT_RIM = 11
+
+/**
+ * Chevrons running around the felt, one per step of the ring, each already
+ * turned to face the way play is moving.
+ *
+ * The seat arc puts the next player at the *left* end of the top row and the
+ * previous one at the right, so a table flows 6 o'clock → 9 → 12 → 3: with
+ * `direction = +1` the play order is **clockwise on screen**, which is what
+ * `clockwiseOpponents` is named after. The ring must never contradict that —
+ * an arrow pointing the wrong way is worse than no arrow at all.
+ *
+ * Markers come out in flow order, so a chase animation only has to stagger them
+ * by index to travel the right way round.
+ */
+export function directionMarkers(
+  width: number,
+  height: number,
+  direction: number,
+  count = DIRECTION_MARKER_COUNT,
+): DirectionMarker[] {
+  // The felt is a flat oval, and both of the obvious shortcuts only work on a
+  // circle: evenly-spaced *parametric* angles bunch the chevrons at the two
+  // ends, and shrinking both semi-axes by the inset is not an offset curve —
+  // it drifts inward wherever the curvature is low. So: walk the rim by arc
+  // length, then step off it along the normal.
+  const a = Math.max(1, width / 2 - FELT_RIM)
+  const b = Math.max(1, height / 2 - FELT_RIM)
+  // With y pointing down, a growing parametric angle sweeps clockwise, which is
+  // already the +1 case; -1 simply walks the same ellipse backwards.
+  const flow = direction >= 0 ? 1 : -1
+  const inset = Math.min(DIRECTION_RING_INSET, Math.min(a, b) * 0.45)
+
+  // The chevrons sit on the *offset* curve, so that is the curve to walk by arc
+  // length: spacing them evenly on the rim and then stepping inward pulls them
+  // together again wherever the rim bends hardest, i.e. at the two ends.
+  const pointAt = (t: number) => {
+    const cos = Math.cos(t)
+    const sin = Math.sin(t)
+    // Outward normal of x²/a² + y²/b² = 1 — the gradient, normalised.
+    const gx = cos / a
+    const gy = sin / b
+    const g = Math.hypot(gx, gy) || 1
+    return {
+      x: width / 2 + a * cos - (inset * gx) / g,
+      y: height / 2 + b * sin - (inset * gy) / g,
+    }
+  }
+  const angleAt = arcLengthSampler(pointAt)
+
+  return Array.from({ length: count }, (_, i) => {
+    const t = flow * angleAt(i / count)
+    // Tangent of (a·cos t, b·sin t), taken in the direction of travel. The
+    // offset curve is parallel to the rim, so it shares the heading.
+    const dx = flow * -a * Math.sin(t)
+    const dy = flow * b * Math.cos(t)
+    return {
+      ...pointAt(t),
+      angle: (Math.atan2(dy, dx) * 180) / Math.PI,
+    }
+  })
+}
+
+/**
+ * Returns `fraction of the perimeter → parametric angle` for a closed curve, so
+ * callers can space things by arc length. Sampled rather than solved: an
+ * ellipse's arc length has no closed form to begin with, and this runs once per
+ * board render with the felt's dimensions, not per frame.
+ */
+function arcLengthSampler(
+  pointAt: (t: number) => { x: number; y: number },
+): (fraction: number) => number {
+  const STEPS = 512
+  const cumulative = [0]
+  let prev = pointAt(0)
+  for (let i = 1; i <= STEPS; i++) {
+    const next = pointAt((i / STEPS) * Math.PI * 2)
+    cumulative.push(cumulative[i - 1] + Math.hypot(next.x - prev.x, next.y - prev.y))
+    prev = next
+  }
+  const total = cumulative[STEPS]
+  return (fraction) => {
+    const target = fraction * total
+    let lo = 0
+    let hi = STEPS
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (cumulative[mid] < target) lo = mid + 1
+      else hi = mid
+    }
+    if (lo === 0) return 0
+    // Linear interpolation inside the step the target landed in.
+    const span = cumulative[lo] - cumulative[lo - 1]
+    const frac = span > 0 ? (target - cumulative[lo - 1]) / span : 0
+    return ((lo - 1 + frac) / STEPS) * Math.PI * 2
+  }
+}
+
 // Returns the on-screen anchor for a seat: the local hand for myIndex,
 // otherwise the opponent's bubble centre. Used as the source/sink for swap
 // and global_switch trail animations.

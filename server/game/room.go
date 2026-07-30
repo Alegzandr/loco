@@ -45,6 +45,12 @@ const (
 	serverMaxPlayers  = 10
 	initialHandSize   = 8
 	undeclaredPenalty = 2
+	// failedCatchPenalty is what a Contre-LOCO! costs when it arrives too late.
+	// The call is a wager: catching an undeclared seat is worth 2 cards to the
+	// table, so calling it on a seat that already declared has to cost the
+	// caller something, or the correct play is to mash the button on every
+	// single card anybody ever holds.
+	failedCatchPenalty = 1
 	// catchWindow is how long after a player's last card play other players can catch them.
 	catchWindow = 5 * time.Second
 )
@@ -65,6 +71,7 @@ const (
 	EventTurnPassed   EventKind = "turn_passed"
 	EventUnoDeclared  EventKind = "uno_declared"
 	EventUnoCaught    EventKind = "uno_caught"
+	EventCatchFailed  EventKind = "catch_failed"
 	EventCounterDraw  EventKind = "counter_draw"
 	EventGameFinished EventKind = "game_finished"
 	EventRoundEnd     EventKind = "round_end"
@@ -812,9 +819,38 @@ func (r *Room) DeclareLastCard(playerIndex int) error {
 	if r.State.Hands[playerIndex].Size() != 1 {
 		return errors.New("can only declare with exactly 1 card in hand")
 	}
+	// A declaration is spent, exactly like a catch: the flag stays true until a
+	// new window opens on this seat (openCatchWindow), which is the only moment
+	// the seat owes the table a call again. Without this the same single card
+	// could be announced over and over, replaying the banner and the sting.
+	if r.State.LastCardDeclared[playerIndex] {
+		return errors.New("player already declared")
+	}
 	r.State.LastCardDeclared[playerIndex] = true
 	r.State.logEvent(EventUnoDeclared, playerIndex, nil, 0)
 	return nil
+}
+
+// The three ways a catch loses on timing rather than on legality. They are
+// sentinels, not new strings: the wire text is unchanged, only now the hub can
+// tell "you were too slow" (charge a card, say nothing about cheating) from
+// "that target does not exist" (a client bug or an attack).
+var (
+	// ErrAlreadyDeclared — the target's LOCO! reached the server first.
+	ErrAlreadyDeclared = errors.New("player already declared")
+	// ErrCatchWindowExpired — the 5s window closed before the message landed.
+	ErrCatchWindowExpired = errors.New("catch window expired")
+	// ErrTargetNotSingleCard — the target's hand grew (a draw, a penalty) between
+	// the click and the message, which closes the obligation just as effectively.
+	ErrTargetNotSingleCard = errors.New("target does not have exactly 1 card")
+)
+
+// IsMissedCatch reports whether a CatchUndeclared error is a lost race — the
+// only class of rejection that costs the caller a card.
+func IsMissedCatch(err error) bool {
+	return errors.Is(err, ErrAlreadyDeclared) ||
+		errors.Is(err, ErrCatchWindowExpired) ||
+		errors.Is(err, ErrTargetNotSingleCard)
 }
 
 // CatchUndeclared allows catcherIndex to penalize targetIndex for not declaring their last card.
@@ -829,13 +865,13 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 		return errors.New("cannot catch yourself")
 	}
 	if r.State.LastCardDeclared[targetIndex] {
-		return errors.New("player already declared")
+		return ErrAlreadyDeclared
 	}
 	if r.State.Hands[targetIndex].Size() != 1 {
-		return errors.New("target does not have exactly 1 card")
+		return ErrTargetNotSingleCard
 	}
 	if !r.State.catchWindowOpen(targetIndex, now) {
-		return errors.New("catch window expired")
+		return ErrCatchWindowExpired
 	}
 	r.ensureDeck(undeclaredPenalty)
 	cards, ok := r.State.Deck.DrawN(undeclaredPenalty)
@@ -848,6 +884,41 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	r.State.LastCardDeclared[targetIndex] = true
 	r.State.logEvent(EventUnoCaught, catcherIndex, nil, 0)
 	return nil
+}
+
+// PenalizeFailedCatch charges catcherIndex one card for a Contre-LOCO! that lost
+// its race (IsMissedCatch). It returns the cards actually drawn so the hub can
+// send them to their owner.
+//
+// It deliberately touches nothing else: not the turn, not HasDrawn, not the
+// target. A failed call is a side bet on somebody else's obligation, and the
+// player who made it may not even be in turn.
+//
+// Like every other draw in this game it cannot fail — once every card sits in a
+// hand the caller simply gets away with it, rather than the round freezing on an
+// error nobody can act on.
+func (r *Room) PenalizeFailedCatch(catcherIndex int) []Card {
+	if r.Status != StatusPlaying || r.State == nil {
+		return nil
+	}
+	if catcherIndex < 0 || catcherIndex >= len(r.State.Hands) {
+		return nil
+	}
+	r.ensureDeck(failedCatchPenalty)
+	drawn := make([]Card, 0, failedCatchPenalty)
+	for i := 0; i < failedCatchPenalty; i++ {
+		card, ok := r.State.Deck.Draw()
+		if !ok {
+			break
+		}
+		drawn = append(drawn, card)
+	}
+	if len(drawn) == 0 {
+		return nil
+	}
+	r.State.Hands[catcherIndex].Add(drawn...)
+	r.State.logEvent(EventCatchFailed, catcherIndex, nil, 0)
+	return drawn
 }
 
 // InterruptPlay is the single-card form of InterruptPlayCards.

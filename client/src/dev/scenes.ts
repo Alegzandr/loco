@@ -241,6 +241,16 @@ export const SCENES: Scene[] = [
     deadlineIn: 9,
   },
   {
+    // The direction ring is the only lasting record of a Reverse: the callout
+    // lasts a second, the heading lasts the rest of the round. Both states are
+    // captured so the flip is reviewable side by side.
+    id: 'game-reversed',
+    title: 'Partie · sens inversé',
+    screen: 'game',
+    state: { ...gameBase, discard: card('yellow', 'reverse'), activeColor: 'yellow', direction: -1 },
+    deadlineIn: 21,
+  },
+  {
     id: 'game-full-hand',
     title: 'Partie · grande main',
     screen: 'game',
@@ -258,6 +268,15 @@ export const SCENES: Scene[] = [
       pendingDraw: 6,
     },
     deadlineIn: 5,
+  },
+  {
+    // The state the active-colour cues exist for: the top card is a wild, so
+    // its face says nothing, and the pool/ring/chip are the whole answer.
+    id: 'game-wild-active-color',
+    title: 'Partie · joker, couleur active',
+    screen: 'game',
+    state: { ...gameBase, discard: card('wild', 'wild'), activeColor: 'yellow' },
+    deadlineIn: 21,
   },
   {
     id: 'game-uno',
@@ -302,6 +321,21 @@ export const SCENES: Scene[] = [
     },
     unoIn: 2.6,
     deadlineIn: 11,
+  },
+  {
+    // The wager lost: our Contre-LOCO! arrived after Pixel's own call and drew
+    // us a card for it. The notice is red and sits below the swap pill so the
+    // two can share the screen; both are table news, not errors.
+    id: 'game-catch-failed',
+    title: 'Partie · Contre-LOCO raté',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchFailed: { seat: 0, at: 1 },
+      players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    deadlineIn: 16,
   },
   {
     id: 'game-last-card',

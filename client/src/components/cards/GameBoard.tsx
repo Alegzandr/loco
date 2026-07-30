@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState, MutableRefObject } from 'react'
 import { CardDTO, CardColor, PlayerDTO } from '../../types/protocol'
 import { useElementSize } from '../../hooks/useElementSize'
 import { Deck } from './Deck'
@@ -6,6 +6,7 @@ import { DiscardPile } from './DiscardPile'
 import { Hand } from './Hand'
 import { PlayerSlot } from './PlayerSlot'
 import { TurnIndicator, TurnTexts } from './TurnIndicator'
+import { DirectionRing } from './DirectionRing'
 import { AnimationLayer, Flier, EffectText, Impact } from './AnimationLayer'
 import {
   clockwiseOpponents,
@@ -30,12 +31,28 @@ interface Props {
   players: PlayerDTO[]
   myIndex: number
   currentTurn: number
+  /** Play direction: +1 clockwise on screen, -1 counter-clockwise. */
+  direction: number
+  /** Localised description of that direction, for the ring's accessible name. */
+  directionLabel: string
   pendingDraw: number
   /** True when a card in hand actually stacks the pending penalty (see TurnIndicator). */
   canCounter: boolean
   isPlayable: (card: CardDTO) => boolean
   isInteractive: (card: CardDTO) => boolean
-  onCardClick: (card: CardDTO, idx: number) => void
+  /**
+   * Handles the tap and returns whether the card actually left the hand, i.e.
+   * whether a play was sent. The board animates only on `true`: a tap the
+   * client refuses, or one that merely opens the colour/player prompt, must not
+   * throw the card at the pile and then have it reappear in the fan.
+   */
+  onCardClick: (card: CardDTO, idx: number) => boolean
+  /**
+   * Filled in by the board with its imperative animation handle. Plays that are
+   * confirmed later (a wild once its colour is named, a Swap once its target
+   * is) call `flyFromHand` after sending, so they animate like any other play.
+   */
+  flightRef?: MutableRefObject<GameBoardHandle | null>
   turnTexts: TurnTexts
   fxTexts: FxTexts
   /** swap / global_switch notice from the store; triggers trail animation. */
@@ -50,6 +67,11 @@ interface Props {
   drawLabel: string
 }
 
+/** Imperative handle exposed through `flightRef`: see the prop's comment. */
+export interface GameBoardHandle {
+  flyFromHand: (card: CardDTO, idx: number) => void
+}
+
 const SWAP_TRAIL_W = 28
 const SWAP_TRAIL_H = 40
 const SWAP_TRAIL_R = 4
@@ -58,7 +80,16 @@ const SWAP_TRAIL_R = 4
 export interface FxTexts {
   skip: string
   reverse: string
+  colors: Record<'red' | 'yellow' | 'green' | 'blue', string>
 }
+
+// A wild's face names no colour, so the board has to say it out loud once. The
+// ring, the pool and the chip all state the active colour permanently — this
+// callout is what teaches a new player that they mean anything, and it is also
+// the frame a clipped highlight needs: "he changed it to green" has to survive
+// muted playback. Delayed past the +N callout a wild_draw_four also fires, so
+// the two read as a sequence instead of stacking on the same pixels.
+const COLOR_CALLOUT_DELAY_MS = 420
 
 // effectFor returns the floating SKIP/REVERSE/+N callout shown over the discard
 // pile when a special card resolves. The +N cases are numerals, so they need no
@@ -264,6 +295,31 @@ export const GameBoard = memo(function GameBoard(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.discard, props.pendingDraw, props.fxTexts, ready, width, height, topReserve])
 
+  // ─── Animation effect: a wild named a new colour ──────────────────────────
+  // Only fires while the top card is a wild: any other card carries its colour
+  // on its own face, and announcing what the player can already read is noise.
+  const lastActiveColor = useRef<CardColor | ''>('')
+  useEffect(() => {
+    if (!ready) return
+    const prev = lastActiveColor.current
+    lastActiveColor.current = props.activeColor
+    if (prev === '' || prev === props.activeColor) return
+    if (props.discard?.color !== 'wild') return
+    const label = props.fxTexts.colors[props.activeColor as 'red' | 'yellow' | 'green' | 'blue']
+    if (!label) return
+    setEffectTexts((cur) => [
+      ...cur,
+      {
+        id: newId(),
+        text: label,
+        color: ACTIVE_RING[props.activeColor],
+        x: width / 2,
+        y: discardPosition(width, height, topReserve).y - 10,
+        delayMs: (props.discard ? flightFor(props.discard).duration : 0) + COLOR_CALLOUT_DELAY_MS,
+      },
+    ])
+  }, [props.activeColor, props.discard, props.fxTexts, ready, width, height, topReserve])
+
   // ─── Animation effect: my hand grew by one (drew a card) ─────────────────
   const prevHandSize = useRef(props.myHand.length)
   useEffect(() => {
@@ -341,38 +397,53 @@ export const GameBoard = memo(function GameBoard(props: Props) {
     wasReconnecting.current = props.isReconnecting
   }, [props.isReconnecting])
 
-  // Wrap card click so we can spawn the hand→discard fly before the parent
-  // sends the WS message and the store updates myHand/discard.
+  // Spawns the hand→discard flight for a card the player has just committed.
+  // Called straight after the send, never before it: the flight is a few
+  // hundred milliseconds of local rendering and the message is the thing the
+  // whole table is waiting on, so the packet leaves first and the animation
+  // catches up on the same frame.
+  function flyFromHand(card: CardDTO, idx: number) {
+    if (!ready) return
+    const slots = calcHandSlots(props.myHand.length, width, height)
+    const slot = slots[idx]
+    if (!slot) return
+    const dest = discardPosition(width, height, topReserve)
+    // The lift applied to playable cards in <Hand /> shifts them up by 9px
+    // at rest; mirror it so the fly starts at the visually correct spot.
+    const liftedY = props.isPlayable(card) ? slot.y - 9 : slot.y
+    const flight = flightFor(card)
+    setFliers((cur) => [
+      ...cur,
+      {
+        id: newId(),
+        kind: 'face',
+        card,
+        from: { x: slot.x, y: liftedY, rotation: slot.rotation },
+        to: { x: dest.x, y: dest.y, rotation: 0 },
+        startAlpha: 0.9,
+        duration: flight.duration,
+        arcHeight: flight.arcHeight,
+        spin: flight.spin,
+        swell: flight.swell,
+      },
+    ])
+    landCard(card, dest, flight.duration)
+    suppressNextDiscardFx.current = true
+  }
+
+  // Reassigned on every render so the handle closes over the current hand and
+  // board size, since the picker calls it a beat after the tap that opened it.
+  useEffect(() => {
+    if (!props.flightRef) return
+    props.flightRef.current = { flyFromHand }
+  })
+
+  // The parent owns the rules: it tells us whether the tap became a play. A
+  // refused tap (illegal card) and a tap that only opens a prompt both animate
+  // nothing: flying the card out and snapping it back reads as a bug rather
+  // than as "you can't play that".
   const handleCardClick = (card: CardDTO, idx: number) => {
-    if (ready) {
-      const slots = calcHandSlots(props.myHand.length, width, height)
-      const slot = slots[idx]
-      if (slot) {
-        const dest = discardPosition(width, height, topReserve)
-        // The lift applied to playable cards in <Hand /> shifts them up by 9px
-        // at rest; mirror it so the fly starts at the visually correct spot.
-        const liftedY = props.isPlayable(card) ? slot.y - 9 : slot.y
-        const flight = flightFor(card)
-        setFliers((cur) => [
-          ...cur,
-          {
-            id: newId(),
-            kind: 'face',
-            card,
-            from: { x: slot.x, y: liftedY, rotation: slot.rotation },
-            to: { x: dest.x, y: dest.y, rotation: 0 },
-            startAlpha: 0.9,
-            duration: flight.duration,
-            arcHeight: flight.arcHeight,
-            spin: flight.spin,
-            swell: flight.swell,
-          },
-        ])
-        landCard(card, dest, flight.duration)
-        suppressNextDiscardFx.current = true
-      }
-    }
-    props.onCardClick(card, idx)
+    if (props.onCardClick(card, idx)) flyFromHand(card, idx)
   }
 
   // Felt table — geometry lives in layout.ts so tests and animations share it.
@@ -400,6 +471,14 @@ export const GameBoard = memo(function GameBoard(props: Props) {
                 <path d={LOCO_MARK_PATH} fillRule="evenodd" fill="#ffffff" />
               </svg>
             </div>
+            {/* Keyed on the direction so a Reverse remounts the ring and
+                replays its flip: the change of heading is the event. */}
+            <DirectionRing
+              key={props.direction >= 0 ? 'cw' : 'ccw'}
+              rect={table}
+              direction={props.direction}
+              label={props.directionLabel}
+            />
             <Deck
               width={width}
               height={height}

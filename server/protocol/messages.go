@@ -50,6 +50,10 @@ const (
 	SMsgTurnChanged ServerMsgType = "turn_changed"
 	SMsgUnoDeclared ServerMsgType = "uno_declared"
 	SMsgUnoCaught   ServerMsgType = "uno_caught"
+	// SMsgCatchFailed names the seat whose Contre-LOCO! arrived too late and was
+	// charged a card for it. Broadcast to the whole room: the wager is public,
+	// like the catch it lost to.
+	SMsgCatchFailed ServerMsgType = "catch_failed"
 	SMsgDrawPending      ServerMsgType = "draw_pending"
 	SMsgInterruptSuccess ServerMsgType = "interrupt_success"
 	// Round / match lifecycle
@@ -159,8 +163,18 @@ type ServerMsg struct {
 	// SMsgGameStarted / SMsgGameState / SMsgPlayerReconnected (self)
 	State *GameStateDTO `json:"state,omitempty"`
 
-	// SMsgCardPlayed
-	PlayerIndex int      `json:"player_index,omitempty"`
+	// SMsgCardPlayed / SMsgCardDrawn / SMsgUnoDeclared / SMsgUnoCaught /
+	// SMsgCatchFailed / SMsgInterruptSuccess / SMsgPlayerDisconnected /
+	// SMsgPlayerReconnected:
+	// the seat the message is about.
+	//
+	// A pointer for the same reason as PendingDraw/HasDrawn below: `omitempty`
+	// drops a zero, and seat 0 is the host's seat. The client closes the catch
+	// window on the seat named by uno_declared, so an absent player_index left
+	// it open — Contre-LOCO! stayed armed on a player who had already called it
+	// and the server refused every tap with "player already declared".
+	// Read it with Seat(); absent means "this message names no seat".
+	PlayerIndex *int     `json:"player_index,omitempty"`
 	Card        *CardDTO `json:"card,omitempty"`
 	ActiveColor string   `json:"active_color,omitempty"` // authoritative active color after card play
 	// Set only when a Swap card resolves: the target player index whose hand was exchanged
@@ -219,6 +233,14 @@ type ServerMsg struct {
 
 	// SMsgError
 	Error string `json:"error,omitempty"`
+}
+
+// Seat returns the seat this message is about, or -1 when it names none.
+func (m ServerMsg) Seat() int {
+	if m.PlayerIndex == nil {
+		return -1
+	}
+	return *m.PlayerIndex
 }
 
 // PlayerDTO is the public view of a player.

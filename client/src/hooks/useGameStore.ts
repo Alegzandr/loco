@@ -26,15 +26,21 @@ export interface SwapNotice {
 export interface CatchWindow {
   seat: number
   endsAt: number
+  // Set the moment we tap Contre-LOCO! on this seat. A missed call now costs a
+  // card, and the server answers a few dozen milliseconds later, so a window
+  // left armed in the meantime would let one impatient double tap pay twice for
+  // a single opinion. The 400ms double-tap guard is not that window.
+  attempted?: boolean
 }
 
 // deriveCatch picks the catch the UI offers: the window closest to expiring
 // among the opponents'. Ours never counts: you cannot catch yourself, and at
-// one card the action bar is showing us the LOCO! button instead.
+// one card the action bar is showing us the LOCO! button instead. A window we
+// already called on is spent, exactly like our own LOCO! button.
 function deriveCatch(windows: CatchWindow[], myIndex: number) {
   let best: CatchWindow | null = null
   for (const w of windows) {
-    if (w.seat === myIndex) continue
+    if (w.seat === myIndex || w.attempted) continue
     if (!best || w.endsAt < best.endsAt) best = w
   }
   return { catchTarget: best ? best.seat : null, unoTimerEnd: best ? best.endsAt : null }
@@ -83,6 +89,12 @@ interface GameStore {
   errorMsg: string
   unoDeclared: boolean
   unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
+  // True once WE have called it on the card we currently hold. A declaration is
+  // spent: the server refuses a second one on the same single card, so the
+  // button has to stop offering it. Cleared whenever a fresh obligation opens on
+  // our seat (a Swap or a GlobalSwitch hands us a card nobody has heard called)
+  // or our hand stops being a single card.
+  myDeclared: boolean
   // Every seat that currently owes the table a declaration, with the end of its
   // 5 s window. A list rather than a single seat because a Swap or a
   // GlobalSwitch hands a single card to more than one player at once, and each
@@ -92,6 +104,9 @@ interface GameStore {
   // (never ourselves) and the end of that window. null = nobody to catch.
   catchTarget: number | null
   unoTimerEnd: number | null   // end of the 5s catch window (null = closed)
+  // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
+  // like the catch it lost to. Cleared by the GameView after a short timeout.
+  catchFailed: { seat: number; at: number } | null
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
   // Match / round state
@@ -143,10 +158,14 @@ interface GameStore {
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
   setUnoDeclaredByIndex: (idx: number) => void
+  applyUnoDeclared: (declarer: number) => void
   setUnoTimerEnd: (ts: number | null) => void
   clearCatchWindow: () => void
   closeCatchWindow: (seat: number) => void
   pruneCatchWindows: () => void
+  noteCatchAttempt: (seat: number) => void
+  applyCatchFailed: (seat: number) => void
+  clearCatchFailed: () => void
   setTurnDeadline: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[], roundHistory?: number[][]) => void
@@ -226,9 +245,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
   errorMsg: '',
   unoDeclared: false,
   unoDeclaredByIndex: -1,
+  myDeclared: false,
   catchWindows: [],
   catchTarget: null,
   unoTimerEnd: null,
+  catchFailed: null,
   turnDeadline: null,
   matchFormat: 'BO1',
   maxPlayers: 10,
@@ -278,6 +299,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
         // fresh authoritative snapshot must not leave it hanging.
         unoDeclared: false,
         unoDeclaredByIndex: -1,
+        // A declaration only covers the single card it was called on. Any other
+        // hand — a fresh deal, a penalty, a card drawn — owes nothing yet.
+        myDeclared: s.myDeclared && state.hand.length === 1,
         catchWindows,
         ...deriveCatch(catchWindows, state.your_index),
       }
@@ -343,6 +367,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         players: updatedPlayers,
         unoDeclared: voidsBanner ? false : s.unoDeclared,
         unoDeclaredByIndex: voidsBanner ? -1 : s.unoDeclaredByIndex,
+        // A window reopening on our own seat is a new obligation, exactly like
+        // the server's openCatchWindow: what we called earlier was another card.
+        myDeclared: onTheHook.includes(s.myIndex)
+          ? false
+          : s.myDeclared && updatedHand.length === 1,
         catchWindows,
         ...deriveCatch(catchWindows, s.myIndex),
         swapNotice,
@@ -366,10 +395,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // is what stuck a player with a disabled Draw button and a Pass the server
       // answered "you must draw a card before passing" until the turn timer ran
       // out. Absent means unchanged; the server fills both in on every card_drawn.
+      // A hand that grew is off one card, and the server answers every catch on
+      // that seat with "target does not have exactly 1 card". Keeping the window
+      // open leaves Contre-LOCO! armed on a tap that can only come back refused.
+      const catchWindows = s.catchWindows.filter((w) => w.seat !== playerIndex)
       const turnState = {
         currentTurn: turn,
         hasDrawn: hasDrawn ?? s.hasDrawn,
         pendingDraw: pendingDraw ?? s.pendingDraw,
+        catchWindows,
+        ...deriveCatch(catchWindows, s.myIndex),
       }
       if (cards && cards.length > 0) {
         return { ...turnState, myHand: [...s.myHand, ...cards] }
@@ -396,6 +431,21 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setError: (errorMsg) => set({ errorMsg }),
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
+
+  // One seat called it. The banner is for the table; `myDeclared` is the part
+  // that spends our own button, and it is set from the server's confirmation
+  // rather than from the click, so a refused call leaves the button live.
+  applyUnoDeclared: (declarer) =>
+    set((s) => {
+      const catchWindows = s.catchWindows.filter((w) => w.seat !== declarer)
+      return {
+        unoDeclared: true,
+        unoDeclaredByIndex: declarer,
+        myDeclared: declarer === s.myIndex ? true : s.myDeclared,
+        catchWindows,
+        ...deriveCatch(catchWindows, s.myIndex),
+      }
+    }),
   setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
   clearCatchWindow: () => set({ catchWindows: [], catchTarget: null, unoTimerEnd: null }),
 
@@ -417,6 +467,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (catchWindows.length === s.catchWindows.length) return s
       return { catchWindows, ...deriveCatch(catchWindows, s.myIndex) }
     }),
+
+  // Spends the button on this seat the moment we press it, before the server has
+  // answered. A missed Contre-LOCO! costs a card now, so the cost of leaving it
+  // armed for one more round trip is a second penalty for the same call.
+  noteCatchAttempt: (seat) =>
+    set((s) => {
+      const catchWindows = s.catchWindows.map((w) =>
+        w.seat === seat ? { ...w, attempted: true } : w
+      )
+      return { catchWindows, ...deriveCatch(catchWindows, s.myIndex) }
+    }),
+
+  // Somebody's call arrived too late and they drew for it. The +1 card itself
+  // comes through the ordinary card_drawn path; this is only the notice.
+  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: Date.now() } }),
+
+  clearCatchFailed: () => set({ catchFailed: null }),
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
@@ -448,9 +515,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         showRoundSummary: true,
         turnDeadline: null,
         unoDeclared: false,
+        myDeclared: false,
         catchWindows: [],
         unoTimerEnd: null,
         catchTarget: null,
+        catchFailed: null,
       }
     }),
 
@@ -489,9 +558,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       pendingMatchEnd: null,
       unoDeclared: false,
       unoDeclaredByIndex: -1,
+      myDeclared: false,
       catchWindows: [],
       unoTimerEnd: null,
       catchTarget: null,
+      catchFailed: null,
       turnDeadline: null,
       swapNotice: null,
       lastPlay: null,
@@ -533,9 +604,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
         pendingGameState: null,
         unoDeclared: false,
         unoDeclaredByIndex: -1,
+        myDeclared: false,
         catchWindows: [],
         unoTimerEnd: null,
         catchTarget: null,
+        catchFailed: null,
       })
       return
     }

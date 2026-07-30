@@ -137,6 +137,15 @@ card from winning, and a hand that arrived by rotation is one nobody has heard
 announced. Every seat left on one card after a hand-rearranging play gets its
 own 5 s window and is caught on its own (§11.1).
 
+One card, one call: the declaration covers the single card it was made on, so it
+cannot be repeated while that card is held. A rearranging play that hands you a
+*different* last card is a new obligation, and the call comes back.
+
+**Calling "Contre-LOCO!" is a wager** (§14.6). It only lands inside the 5 s
+window opened by the seat you are calling on; if that seat's own "LOCO!" got
+there first — or its hand grew, or the window had just closed — the call misses
+and *you* draw **1 card** for it.
+
 ## 9. End of Round
 
 First player to play their last card **wins the round**. The round ends immediately. If the last card is an action card, its effect is moot (no more turns).
@@ -195,6 +204,7 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Swap Cards: full hand swap with chosen opponent
 - [ ] Change Cards All Round: simultaneous hand rotation
 - [ ] LOCO! call at 2→1 cards; penalty = draw 2 if forgotten
+- [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card
 - [ ] Round ends on last card played
 - [ ] Scoring: correct point values, configurable mode/threshold
 - [ ] 2-player: Change Direction = Miss a Turn behavior
@@ -238,3 +248,17 @@ picked, and the client must prompt for it before the card leaves the hand.
 **SOLO rule**: The victim of a Take 2 / Take 4 draws the penalty cards and their turn ends immediately.
 **LOCO rule**: The victim takes the whole accumulated stack and then **keeps the turn**: they may play any legal card from the enlarged hand, or pass. The forced draw counts as the turn's single draw, so no second draw is possible. Drawing also **restarts the turn clock**, so the time spent deciding whether to counter is not taken out of the turn that follows the draw.
 **Rationale**: Eating a +6 and then being skipped is two punishments for one card, and it reads as a bug to the player — the board sits on their seat, the hand jumps, and the turn is gone before they can act. Costing cards is punishment enough; being able to answer with the card you just drew is the part that makes a draw stack fun to watch. Stacking (§11) is still the way to avoid drawing at all.
+
+### 14.6 A Missed Contre-LOCO! Costs a Card
+**SOLO rule**: calling out a player who forgot to announce their last card has no
+downside — an unfounded or late call is simply ignored.
+**LOCO rule**: a Contre-LOCO! that does not land costs the caller **1 card**. It
+lands only while the target's 5 s window is open and unanswered; the three ways
+it misses are the target's own call arriving first, the target's hand having
+grown, and the window having expired.
+**Rationale**: without a price, mashing the button at every seat holding one card
+is free and therefore always correct, which turns a reaction into a reflex nobody
+has to aim. One card is small enough that a genuine race stays worth entering and
+large enough that a blind call is not. It is the same wager seen from both sides
+of the table: the player who forgot risks 2 cards, the player who calls too early
+risks 1. Bots pay it on the same terms as humans.

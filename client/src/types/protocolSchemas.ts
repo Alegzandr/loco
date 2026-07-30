@@ -93,6 +93,7 @@ export const serverMsgTypeSchema = z.enum([
   'turn_changed',
   'uno_declared',
   'uno_caught',
+  'catch_failed',
   'draw_pending',
   'interrupt_success',
   'round_end',

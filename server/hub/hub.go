@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,9 +38,24 @@ var TurnTimeout = 30 * time.Second
 // rounds in a 2-player game. Exported so tests can override it.
 var AFKKickThreshold = 4
 
+// writeBufferPool is shared by every connection. gorilla otherwise allocates a
+// per-connection write buffer that lives as long as the socket; at a ten-seat
+// table that is ten buffers held for the whole match, and the garbage a
+// broadcast produces is what the event loop pays for in pause time.
+var writeBufferPool = &sync.Pool{}
+
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	// Sized so a personalised game_state (hand + players + round history) goes
+	// out in a single write syscall. At 1024 the exact message the board is
+	// rebuilt from was being split across several writes, each its own segment.
+	ReadBufferSize:  2048,
+	WriteBufferSize: 4096,
+	WriteBufferPool: writeBufferPool,
+	// Deliberately off. permessage-deflate would compress payloads that are a
+	// few hundred bytes: no bandwidth worth having, and it puts a deflate pass
+	// on both ends of every card play plus a flush the receiver has to wait on.
+	// latency outranks bandwidth here (see "Engineering priorities").
+	EnableCompression: false,
 	CheckOrigin: func(r *http.Request) bool {
 		return true // allow all origins in development; restrict in production
 	},
@@ -824,7 +840,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	// Tell the drawing player all their new cards plus the updated turn state.
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  c.playerID,
+		PlayerIndex:  intPtr(c.playerID),
 		Cards:        cardDTOs,
 		Turn:         state.CurrentTurn,
 		PendingDraw:  intPtr(state.PendingDraw),
@@ -836,7 +852,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	// the table, not the recipient, and a client left to infer them desyncs.
 	h.broadcastToRoom(c.roomCode, protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  c.playerID,
+		PlayerIndex:  intPtr(c.playerID),
 		DrawnCount:   drawnCount,
 		Turn:         state.CurrentTurn,
 		PendingDraw:  intPtr(state.PendingDraw),
@@ -872,12 +888,17 @@ func (h *Hub) handleDeclareUno(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.DeclareLastCard(c.playerID); err != nil {
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		// A second call on the same single card is a double tap or a message in
+		// flight when the first one landed, not an attack — the client already
+		// spends its own button. Everything else here is a real out-of-state call.
+		if err.Error() != "player already declared" {
+			c.noteSuspect(err.Error())
+		}
 		return
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoDeclared,
-		PlayerIndex: c.playerID,
+		PlayerIndex: intPtr(c.playerID),
 	})
 }
 
@@ -901,17 +922,41 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 	}
 	priorSize := len(room.State.Hands[targetIdx].Cards)
 	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
+		// A lost race is the mechanic working, not an attack: the button was
+		// armed when it was pressed and the target's LOCO! (or a hand that grew,
+		// or the last millisecond of the window) simply reached the hub first.
+		// It costs the caller a card and nothing else — no error toast, no
+		// suspicion, since the client shows the penalty itself.
+		if game.IsMissedCatch(err) {
+			h.penalizeFailedCatch(c.roomCode, room, c.playerID)
+			return
+		}
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
 		return
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoCaught,
-		PlayerIndex: targetIdx,
+		PlayerIndex: intPtr(targetIdx),
 	})
 	// The penalty cards are a hand change like any other: the caught player must
 	// be sent the cards themselves, everyone else the new count.
 	h.sendHandGrowth(c.roomCode, room, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
+}
+
+// penalizeFailedCatch charges one card for a Contre-LOCO! that lost its race and
+// tells the room whose call it was. Shared by the human and the bot path — a bot
+// that guesses wrong pays the same price, or the two are playing different games.
+func (h *Hub) penalizeFailedCatch(code string, room *game.Room, catcherIdx int) {
+	drawn := room.PenalizeFailedCatch(catcherIdx)
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:        protocol.SMsgCatchFailed,
+		PlayerIndex: intPtr(catcherIdx),
+	})
+	if len(drawn) == 0 {
+		return // deck and discard exhausted — the call goes unpunished
+	}
+	h.sendHandGrowth(code, room, catcherIdx, drawn)
 }
 
 func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
@@ -966,7 +1011,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgInterruptSuccess,
-		PlayerIndex: c.playerID,
+		PlayerIndex: intPtr(c.playerID),
 		Cards:       successCards,
 	})
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
@@ -1016,7 +1061,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 
 		h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
 			Type:        protocol.SMsgPlayerDisconnected,
-			PlayerIndex: c.playerID,
+			PlayerIndex: intPtr(c.playerID),
 			Nickname:    nickname,
 			Players:     h.playerList(room),
 		})
@@ -1318,7 +1363,7 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 	// Notify others of the reconnect.
 	h.broadcastToRoom(code, protocol.ServerMsg{
 		Type:        protocol.SMsgPlayerReconnected,
-		PlayerIndex: playerID,
+		PlayerIndex: intPtr(playerID),
 		Nickname:    nickname,
 		Players:     h.playerList(room),
 	}, c)
@@ -1505,7 +1550,7 @@ func (h *Hub) handleUnoAnnounce(um unoMsg) {
 	}
 	h.broadcastToRoomAll(um.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoDeclared,
-		PlayerIndex: um.playerIndex,
+		PlayerIndex: intPtr(um.playerIndex),
 	})
 }
 
@@ -1596,12 +1641,16 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 	catcherID := eligible[mrand.Intn(len(eligible))]
 	priorSize := len(state.Hands[cm.targetPlayer].Cards)
 	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
-		// Window may have expired or state changed — normal race condition.
+		// Window may have expired or state changed — normal race condition, and
+		// the bot pays for it exactly like a human who mistimed the button.
+		if game.IsMissedCatch(err) {
+			h.penalizeFailedCatch(cm.roomCode, room, catcherID)
+		}
 		return
 	}
 	h.broadcastToRoomAll(cm.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoCaught,
-		PlayerIndex: cm.targetPlayer,
+		PlayerIndex: intPtr(cm.targetPlayer),
 	})
 	h.sendHandGrowth(cm.roomCode, room, cm.targetPlayer, state.Hands[cm.targetPlayer].Cards[priorSize:])
 }
@@ -1687,7 +1736,7 @@ func (h *Hub) botDraw(code string, room *game.Room, playerID int) (rescheduled b
 	state := room.State
 	h.broadcastToRoomAll(code, protocol.ServerMsg{
 		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: playerID,
+		PlayerIndex: intPtr(playerID),
 		DrawnCount:  len(state.Hands[playerID].Cards) - priorSize,
 		Turn:        state.CurrentTurn,
 		PendingDraw: intPtr(state.PendingDraw),
@@ -1933,7 +1982,7 @@ func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCard
 		}
 		client.Send(protocol.ServerMsg{
 			Type:         protocol.SMsgCardDrawn,
-			PlayerIndex:  playerID,
+			PlayerIndex:  intPtr(playerID),
 			Cards:        cardDTOs,
 			Turn:         state.CurrentTurn,
 			PendingDraw:  intPtr(state.PendingDraw),
@@ -1944,7 +1993,7 @@ func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCard
 	// client == nil (bot seat, or a player mid-reconnect) still needs the count fan-out.
 	h.broadcastToRoom(code, protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  playerID,
+		PlayerIndex:  intPtr(playerID),
 		DrawnCount:   len(newCards),
 		Turn:         state.CurrentTurn,
 		PendingDraw:  intPtr(state.PendingDraw),

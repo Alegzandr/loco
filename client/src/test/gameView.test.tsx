@@ -21,6 +21,49 @@ function renderGame(onSend = vi.fn()) {
   return onSend
 }
 
+function seedBoard() {
+  // jsdom measures everything as 0×0; the board renders nothing (and so does
+  // the hand) until useElementSize sees a real box.
+  Element.prototype.getBoundingClientRect = () =>
+    ({ width: 1240, height: 790, top: 0, left: 0, right: 1240, bottom: 790, x: 0, y: 0 }) as DOMRect
+
+  useGameStore.setState({
+    myIndex: 0,
+    myHand: [gs, red3],
+    players: [seat(0, 'Alice', 2), seat(1, 'Bob', 3)],
+    discard: red3,
+    activeColor: 'red',
+    currentTurn: 0,
+    direction: 1,
+    pendingDraw: 0,
+    hasDrawn: false,
+    lastPlay: null,
+    showRoundSummary: false,
+  })
+}
+
+// The ring around the felt is the only thing on screen that says which way play
+// is moving — a Reverse otherwise only announces itself for the length of one
+// callout, and a spectator joining afterwards has no way to know.
+describe('GameView — play direction ring', () => {
+  beforeEach(seedBoard)
+
+  it('names the clockwise direction on the board', () => {
+    renderGame()
+    const ring = screen.getByTestId('direction-ring')
+    expect(ring).toHaveAttribute('data-direction', 'cw')
+    expect(ring).toHaveAccessibleName('Play order: clockwise')
+  })
+
+  it('flips with the game direction', () => {
+    renderGame()
+    act(() => { useGameStore.setState({ direction: -1 }) })
+    const ring = screen.getByTestId('direction-ring')
+    expect(ring).toHaveAttribute('data-direction', 'ccw')
+    expect(ring).toHaveAccessibleName('Play order: counter-clockwise')
+  })
+})
+
 describe('GameView — GlobalSwitch colour choice', () => {
   beforeEach(() => {
     // jsdom measures everything as 0×0; the board renders nothing (and so does

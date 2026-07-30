@@ -21,6 +21,7 @@ function renderBar(over: Partial<Parameters<typeof ActionBar>[0]> = {}) {
       hasDrawn={false}
       hasPlayableCard
       canCatch={false}
+      hasDeclared={false}
       onDraw={noop}
       onPass={noop}
       onUno={noop}
@@ -93,6 +94,16 @@ describe('ActionBar', () => {
 
     renderBar({ handSize: 1 })
     expect([...btn(/^LOCO!$/).classList]).toContain(armedCatch)
+  })
+
+  // A declaration is a one-shot. The button stays in its column — nothing in
+  // this bar may move mid-match — but it is spent, so it can no longer be
+  // tapped and no longer asks to be.
+  it('spends the LOCO button once the declaration is in', () => {
+    renderBar({ handSize: 1, hasDeclared: true })
+    expect(slotOf(/^LOCO!$/)).toBe('center')
+    expect(btn(/^LOCO!$/)).toBeDisabled()
+    expect([...btn(/^LOCO!$/).classList].some((c) => c.includes('armed'))).toBe(false)
   })
 
   it('leaves catch unarmed while the window is closed', () => {

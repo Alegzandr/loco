@@ -115,6 +115,150 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     }
   })
 
+  /**
+   * §8: one card, one call. The declaration is spent on the server's
+   * confirmation, so the button stops offering it — it used to stay armed and
+   * every extra tap re-broadcast uno_declared, replaying the banner and the
+   * sting for the whole table.
+   */
+  test('the LOCO! button is spent once the declaration lands', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await expect(gameBoard(page)).toBeVisible({ timeout: 10_000 })
+
+    const myIdx = (await getState(page))?.myIndex ?? 0
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 7 }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      activeColor: 'red',
+      currentTurn: myIdx,
+    })
+
+    const unoBtn = page.getByRole('button', { name: T.unoBtn })
+    await expect(unoBtn).toBeEnabled({ timeout: 5_000 })
+    await unoBtn.click()
+
+    await expect(unoBtn).toBeDisabled({ timeout: 5_000 })
+    expect((await getState(page))?.myDeclared).toBe(true)
+  })
+
+  /**
+   * §14.6: a Contre-LOCO! only lands inside the window, and one that arrives
+   * after the declaration costs its caller a card.
+   *
+   * The tap itself has to go down the socket rather than through the button:
+   * the client disables Catch the instant `uno_declared` arrives, so by
+   * construction a missed call is a message that left while the button was
+   * still armed. That is the race this rule exists for, and it is the one part
+   * of the flow the UI cannot stage. The button's own half — spent on press —
+   * is asserted from the click just below.
+   */
+  test('a Contre-LOCO! that loses its race costs the caller a card', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', roomCode)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+      await debugSetState(bob, {
+        hand: [
+          { color: 'red', kind: 'number', value: 7 },
+          { color: 'blue', kind: 'number', value: 3 },
+        ],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        activeColor: 'red',
+        currentTurn: bobIdx,
+      })
+
+      const catchBtn = alice.getByRole('button', { name: T.catchBtn })
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 7 },
+        chosen_color: 'red',
+      })
+      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+
+      const handBefore = (await getState(alice))?.myHand?.length ?? 0
+
+      // Bob calls it; Alice's tap was already on its way.
+      await sendMsg(bob, { type: 'declare_uno' })
+      await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
+      await sendMsg(alice, { type: 'catch_uno', target_index: bobIdx })
+
+      await alice.waitForFunction(
+        (n) => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) === n,
+        handBefore + 1,
+        { timeout: 5_000 },
+      )
+      const after = await getState(alice)
+      expect(after?.catchFailed?.seat).toBe(aliceIdx)
+      // The seat the call was aimed at keeps its single card.
+      expect((after?.players ?? []).find((p) => p.index === bobIdx)?.hand_size).toBe(1)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
+   * The other half of §14.6: the button is spent the moment it is pressed, not
+   * when the server answers. A call in flight already costs a card if it loses,
+   * so a second tap during that round trip would buy the same opinion twice.
+   */
+  test('the Catch! button is spent on press, before the server answers', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', roomCode)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+      await debugSetState(bob, {
+        hand: [
+          { color: 'red', kind: 'number', value: 7 },
+          { color: 'blue', kind: 'number', value: 3 },
+        ],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        activeColor: 'red',
+        currentTurn: bobIdx,
+      })
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 7 },
+        chosen_color: 'red',
+      })
+
+      const catchBtn = alice.getByRole('button', { name: T.catchBtn })
+      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await catchBtn.click()
+      await expect(catchBtn).toBeDisabled()
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
   test('pending draw counter is displayed on the Draw button', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)

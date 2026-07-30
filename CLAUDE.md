@@ -22,6 +22,11 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
 3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`). Game ends when one player wins the majority of rounds. Rationale: predictable online game length.
 4. **Voluntary draw is allowed** — current player may draw even with a playable card in hand (still 1 draw max per turn). `Room.DrawCard` only enforces `HasDrawn` to prevent a second draw. Rationale: strategic depth; matches UNO official rules.
 5. **A forced draw does not cost the turn** — the victim of a +2/+4 stack takes the whole accumulated amount and then plays normally (or passes). `Room.DrawCard` sets `HasDrawn` in both branches and never advances `CurrentTurn`; nothing but `PlayCard`/`PassTurn`/an effect moves the turn. **`hub.handleDrawCard` re-arms the turn timer on every draw** — the domain kept the turn but the clock was still the one armed when the +2 landed, so a victim who took a few seconds to decide against countering drew the stack and was auto-passed right after: the deviation held on paper and the seat still vanished. One draw per turn bounds the extension. Rationale: cards *and* turn for one played card is two punishments, and it reads as a bug — the hand jumps and the seat is gone before the player can act. Stacking (`CounterDraw`) is still how you avoid drawing at all.
+6. **A missed Contre-LOCO! costs the caller 1 card** — the call only lands inside the target's 5s
+   window and is refused *and* charged when the target's own LOCO! got there first, when its hand
+   grew, or when the window had already closed. SOLO ignores an unfounded call. `failedCatchPenalty`
+   + `Room.PenalizeFailedCatch`; see "LOCO! declaration & catch windows" and `docs/rules.md` §14.6.
+   Rationale: an unpriced button is free to mash, so the reaction stops being one.
 
 ## Workflow loop
 1. Understand behavior → 2. Tests first (non-trivial) → 3. Smallest correct change → 4. Run tests → 5. Update `README.md` if setup/commands/architecture/features/limits/env/dev/test changed → 6. Update `CLAUDE.md` if workflow/architecture/conventions/testing/DoD/structure changed.
@@ -81,7 +86,7 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 ## Repository structure
 - `client/` frontend
   - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings, InterruptBanner, Confetti, ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`)
-  - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, AnimationLayer; `layout.ts` for pure pixel math, `CardArt.tsx` + `locoMark.ts` for the card face itself)
+  - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` for pure pixel math, `CardArt.tsx` + `locoMark.ts` for the card face itself)
   - `src/audio/` `engine.ts` (context/buses/settings), `sfx.ts` (synthesised one-shots), `music.ts` (the bed *engine*), `tracks/` (the music itself, as data), `useGameAudio.ts` (store→sound bridge)
   - `src/dev/` dev-only visual showcase (`scenes.ts` registry + `Showcase.tsx` + `CardSheet.tsx`, the whole deck on one screen), tree-shaken from prod
   - `public/` `favicon.svg` + `apple-touch-icon.png` + `og.png` (the link preview, generated — see "Link preview"), all three from the LOCO mark
@@ -208,11 +213,48 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   target, and `handleBotCatch`'s stale check compares `LastCardAt[target]`.
 - Wire: `catch_uno` carries `target_index` (the catcher names the seat). Absent = the window closest
   to expiring, which is the catch about to be lost.
+- **A Contre-LOCO! that misses costs its caller 1 card** (`docs/rules.md` §14.6,
+  `failedCatchPenalty`). Without a price, mashing the button at every seat holding one card is free
+  and therefore always correct, which turns the game's hardest reaction into a reflex nobody has to
+  aim. The three misses are all timing (`game.IsMissedCatch`): the target declared first
+  (`ErrAlreadyDeclared`), its hand grew (`ErrTargetNotSingleCard`), the window closed
+  (`ErrCatchWindowExpired`). Those are **sentinels, not new strings** — the wire text is unchanged;
+  what is new is that the hub can tell a lost race from an invalid target.
+  - `Room.PenalizeFailedCatch(catcher)` draws the card and touches **nothing else** — not the turn,
+    not `HasDrawn`, not the target. A failed call is a side bet on somebody else's obligation and its
+    caller may not even be in turn. Like every draw it cannot fail: with every card in a hand the
+    caller simply gets away with it (see "A draw never fails").
+  - `hub.penalizeFailedCatch` broadcasts `catch_failed { player_index }` (the *caller's* seat) then
+    `sendHandGrowth`. Both the human path (`handleCatchUno`) and the bot path (`handleBotCatch`) go
+    through it — a bot that mistimes pays the same price, or the two are playing different games. A
+    miss deliberately does **not** `noteSuspect` and sends no error toast: the button was armed when
+    it was pressed, and the client shows the penalty itself.
+- **The client spends the catch button on press, not on the reply** (`noteCatchAttempt` sets
+  `CatchWindow.attempted`, which `deriveCatch` skips). The server answers a round trip later, and now
+  that a miss costs a card, a window left armed in the meantime lets one impatient double tap pay
+  twice for a single opinion. The 400ms `guardDoubleTap` is not that window. The window itself stays
+  open — it is still somebody else's obligation, and another player can still take it.
+- `store.catchFailed { seat, at }` (set by `applyCatchFailed`) drives a red pill in `<GameView />`,
+  auto-cleared after `CATCH_FAIL_NOTICE_MS=2800`, plus the `penalty` sting in `soundsForTransition`.
+  The penalty reads as an ordinary draw otherwise, which is exactly the wrong story: the card was a
+  price paid, not a turn taken. i18n keys `catchFailedYou` / `catchFailedOther` (`%player`); scene
+  `game-catch-failed`.
+- **`ServerMsg.PlayerIndex` is a `*int`, for the same reason as `PendingDraw`/`HasDrawn`.** As a
+  plain `int` with `omitempty` it dropped seat **0** — the host's seat — off the wire, and the client
+  reads `player_index ?? -1` on `uno_declared`: the declaration closed the catch window of seat -1,
+  so Contre-LOCO! stayed armed for the full 5s on a player who had already called it and the server
+  refused every tap with "player already declared". The same message also drove the banner's name
+  and `myDeclared`, so seat 0's own LOCO! button never went out either. Read it with
+  `ServerMsg.Seat()` (-1 = the message names no seat); `protocol/messages_test.go` pins seat 0 onto
+  the wire for every message type that carries one.
 - Client mirrors it: `useGameStore.catchWindows: { seat, endsAt }[]`, with `catchTarget` /
   `unoTimerEnd` **derived** (`deriveCatch`: most urgent opponent window, never our own seat) so
   `<ActionBar />` and the timer bar stay single-target. `closeCatchWindow(seat)` on
   `uno_declared` / `uno_caught` retires one seat only; `pruneCatchWindows()` drops expired ones and
   promotes the next.
+- **A hand that grows closes that seat's window** (`applyCardDrawn`). `CatchUndeclared` refuses any
+  target that no longer holds exactly one card, so a window kept open past a draw is a Contre-LOCO!
+  button armed on a tap that can only come back refused.
 - **`applyGameState` filters catch windows, it does not wipe them.** Swap and GlobalSwitch are
   followed by a personalised `game_state`, so clearing there made the exact rule this exists for
   unreachable: the player handed their last card was catchable for a few milliseconds and then
@@ -273,6 +315,16 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   arming of every button across states.
 - The penalty draw and the ordinary draw share the left slot; `--slot-w` (126px) is sized for the
   widest label either can hold ("Piocher +4").
+- **A declaration is a one-shot, and the button is spent with it.** `Room.DeclareLastCard` refuses a
+  second call on the same single card (`player already declared`, the string `CatchUndeclared`
+  already uses), and the flag only clears when `openCatchWindow` opens a fresh obligation on that
+  seat — i.e. a Swap or a GlobalSwitch handing it a card nobody has heard called. Client-side,
+  `store.myDeclared` (set by `applyUnoDeclared` on the *server's* confirmation, never on the click)
+  disables the button in place: it stays in the centre column as a dead object rather than
+  disappearing, because nothing in this bar may move mid-match. Without either half, LOCO! could be
+  spammed for as long as the card was held, replaying the banner and the sting each time.
+  `hub.handleDeclareUno` deliberately does **not** `noteSuspect` that one rejection: a second call is
+  a double tap or a message already in flight, not an attack.
 - **The declaration button reads "LOCO!" / "LOCO !"**, not UNO — it is the game's own call. Only the
   visible strings changed: the wire types (`declare_uno`, `uno_declared`), the store fields and the
   E2E helper key stay `uno*`.
@@ -487,6 +539,32 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
 - Seats clear `TOP_CHROME` (58px) so they never sit under the round badge / theme / audio / rules
   cluster.
 
+## Active colour (four readings, `<DiscardPile />` + `GameBoard`)
+The colour in play is the single most-consulted piece of state on the board, and it was stated in
+exactly one place — a ring around the discard. Players kept asking where it was. The ring is not
+hard to see; it is hard to *know it means that*, and on a wild (black face, no colour of its own)
+it was also the only thing saying anything at all. Four readings now, at four distances:
+
+- **The pool** (`.pool`) — coloured light spilled on the felt around the discard, sized well past
+  the card. What a viewer gets at 720p without looking for it. Deliberately low and blurred: the
+  table stays near-black and card edges keep winning, which is the rule the felt exists for.
+- **The ring** (`.ring`) — unchanged, the precise statement.
+- **The chip** (`.chip`) — a solid token set into the ring's bottom-left, mirroring the `+N` badge's
+  corner so the pile has two fixed places to look and this one is *always* occupied. It carries the
+  suit's whole gradient (`SUIT_PAINT`), so it is literally the paint of the `<ColorPicker />`
+  swatch that was tapped and of the cards it now lets you play — a flat sample would be a fourth
+  colour to learn.
+- **The callout** — `GameBoard` announces the colour by name over the pile (`fxTexts.colors`,
+  `ACTIVE_RING` tint) **only when the top card is a wild**. Any other card carries its colour on its
+  face, and announcing what the player can already read is noise. This is the one that teaches a new
+  player that the other three mean anything, and it is what a muted highlight clip needs to show
+  "he changed it to green". Delayed by `COLOR_CALLOUT_DELAY_MS` (420ms) past the `+N` callout a
+  `wild_draw_four` also fires, so the two read as a sequence instead of stacking on the same pixels.
+
+All three permanent cues are keyed on the colour, so a wild resolving replays them together.
+Scene `game-wild-active-color`; `src/test/discardPile.test.tsx` covers the chip and both callout
+branches.
+
 ## Streamable moments
 - **Interception slam** (`<InterruptBanner />`): driven by the server's `interrupt_success`, which
   the client used to ignore entirely. Store field `interruptFlash { actorIndex, count, at }`, set by
@@ -499,6 +577,23 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   survive landing on felt, on a card, or on the background. Text is localised (`fxSkip`,
   `fxReverse`); `<GameBoard />` takes them as a memoised `fxTexts` prop — a fresh object literal
   would replay the callout on every render.
+- **Play direction ring** (`<DirectionRing />`, geometry in `layout.ts: directionMarkers`): chevrons
+  around the felt saying which way play is moving. A Reverse otherwise only announces itself for the
+  length of one callout, after which nothing on screen answers "who plays after me" — the question
+  the card was about.
+  - **`direction = +1` is clockwise *on screen*, and the ring must never contradict the seats.** The
+    arc puts the next player at the **left** end of the top row, so a table flows 6 o'clock → 9 → 12
+    → 3, which is clockwise. Same fact `clockwiseOpponents` is named after; an arrow pointing the
+    wrong way is worse than no arrow.
+  - The heading lives in the **geometry**, never in the motion: the chase is a second readout, so a
+    frozen ring (`prefers-reduced-motion`, a paused clip, a screenshot) still reads. Same principle
+    as `.armed` degrading to a static halo.
+  - `<GameBoard />` keys it on the direction, so a Reverse remounts it and replays the flip. Nothing
+    here goes through per-frame state — the chase is one CSS animation per chevron, staggered by
+    index (markers come out of `directionMarkers` in flow order, so index order *is* flow order).
+  - Drawn as a sibling of `.tableOval`, not a child: the felt clips its overflow and the chevrons'
+    glow extends past the ellipse.
+  - Scenes `game-my-turn` (cw) and `game-reversed` (ccw) cover both headings in the showcase.
 - **Confetti** on the victory screen only. Losing screens do not celebrate.
 - **Per-seat identity colours** (`components/playerColors.ts`): a player keeps one colour across
   lobby avatar, banner and scoreboard so a viewer can follow "the orange player" all match.
@@ -886,9 +981,43 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 - `<GameBoard />` hides its children while reconnecting; on the false→true→false transition it bumps an internal `rebuildKey`, replaying a 350ms board fade-in CSS keyframe.
 - Visual only; server is authoritative.
 
+## The realtime path (tap → wire → table)
+Every hop between a player's finger and the other clients' boards is on the critical path of a
+mechanic that is decided by arrival order. Treat a delay added here as a rules change, not as
+polish.
+
+- **nginx `/ws` sets `tcp_nodelay on` and `proxy_buffering off`.** Gameplay messages are a few
+  hundred bytes each, which is exactly the shape Nagle holds back waiting for a fuller segment:
+  up to 40ms of invisible delay on a card play, on the one hop nothing in the app can see. The
+  buffering flags say the same thing for nginx's own buffers.
+- **The upgrader keeps compression off** and sizes its write buffer (4096) so a personalised
+  `game_state` goes out in one write. permessage-deflate would buy no bandwidth worth having on
+  payloads this small and would put a deflate pass plus a flush on both ends of every play.
+  `WriteBufferPool` is shared, so a ten-seat table does not hold ten per-connection buffers for the
+  whole match.
+- **The client sends first and animates second.** `GameBoard.handleCardClick` calls
+  `props.onCardClick` and only spawns the hand→discard flight if it returns `true`. The flight is
+  local rendering; the message is what the table is waiting on.
+- **A tap that is not a play animates nothing.** `GameView.handleCardClick` returns `false` when the
+  client refuses the card and when the tap only opens the colour/player prompt. It used to fly the
+  card on every tap, so an illegal card and an unconfirmed wild both threw the card at the pile and
+  had it reappear in the fan. Plays confirmed later go through `flightRef`
+  (`GameBoardHandle.flyFromHand`), called by the picker callbacks straight after `onSend`.
+- **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, keyed `draw` / `pass` / `uno` /
+  `catch:<seat>`). One shared 400ms lockout silently ate the most ordinary sequence in the game,
+  draw then pass, along with LOCO-then-catch and catching a second seat after a Swap. A control that
+  ignores a deliberate tap because a *different* control was used 300ms ago reads as a dead button.
+  The catch key carries its target because two seats are two taps.
+- `src/test/realtime.test.tsx` owns all of the above on the client side.
+
 ## Client transport
 - `useWebSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
-- Auto-reconnect: linear backoff `2s × min(attempts, 4)`, cap 10. `attemptsRef` resets on `onopen`.
+- Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
+  (250ms, 500ms, 1s, 2s, 4s, then held), max 10 attempts, `attemptsRef` resets on `onopen`.
+  **The first retry is deliberately almost immediate.** Most drops are a single lost connection
+  that comes straight back, and the flat 2s first retry it replaced cost the player an entire
+  interrupt window of dead board every time one happened. The tail still backs off, so a server
+  that is genuinely down is not hammered.
 - `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
 - `App.handleMessage` deps `[]`. Branches needing CURRENT store values use `useGameStore.getState()`. Stable Zustand actions safe.
 - React renderer relies on Zustand selector equality; expensive re-renders are avoided via stable references in the store.

@@ -103,6 +103,10 @@ export interface Translations {
   interruptCombo: string
   fxSkip: string
   fxReverse: string
+  /** Colour names, announced over the pile when a wild names a new colour. */
+  fxColors: Record<'red' | 'yellow' | 'green' | 'blue', string>
+  directionCw: string
+  directionCcw: string
   drawPile: string
   hostBadge: string
   matchFormat: string
@@ -127,6 +131,10 @@ export interface Translations {
   chooseColor: string
   choosePlayer: string
   catchWindow: string
+  // A Contre-LOCO! that arrived after the target's own call: it costs the
+  // caller one card, so the table is told whose it was.
+  catchFailedYou: string
+  catchFailedOther: string            // contains %player
   // Banners surfaced after Swap / GlobalSwitch resolves so players see why hands changed.
   swapNotice: string                // contains %actor and %target placeholders
   swapNoticeYouTarget: string       // shown when %target would be the local player
@@ -230,6 +238,9 @@ export const en: Translations = {
   interruptCombo: '×%n',
   fxSkip: 'SKIP!',
   fxReverse: 'REVERSE!',
+  fxColors: { red: 'RED!', yellow: 'YELLOW!', green: 'GREEN!', blue: 'BLUE!' },
+  directionCw: 'Play order: clockwise',
+  directionCcw: 'Play order: counter-clockwise',
   drawPile: 'Draw pile',
   hostBadge: 'Host',
   matchFormat: 'Match Format',
@@ -254,6 +265,8 @@ export const en: Translations = {
   chooseColor: 'Choose a color',
   choosePlayer: 'Choose a player to swap hands with',
   catchWindow: 'Catch window!',
+  catchFailedYou: 'Too late! +1 card',
+  catchFailedOther: '%player called too late — +1 card',
   swapNotice: '%actor swapped hands with %target',
   swapNoticeYouTarget: '%actor swapped hands with you',
   swapNoticeYouActor: 'You swapped hands with %target',
@@ -375,6 +388,7 @@ export const en: Translations = {
         'When you play down to exactly 1 card you must press LOCO!',
         'Being handed your last card counts too: after a Swap or a Global Swap, everyone left on one card must press LOCO!',
         'If you forget, any other player has 5 seconds to press Catch! — penalty: you draw 2 cards.',
+        'Catch! is a wager: it only counts inside those 5 seconds, and a call that arrives after the LOCO! costs the caller 1 card.',
       ],
     },
     {

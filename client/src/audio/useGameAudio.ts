@@ -99,6 +99,11 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
 
   if (next.unoDeclared && !prev.unoDeclared) out.push('unoDeclare')
 
+  // A Contre-LOCO! that missed. It reads as a draw on its own (the caller's hand
+  // grew), which is exactly the wrong story: the sting is what says the card was
+  // a price paid, not a turn taken.
+  if (next.catchFailed && next.catchFailed.at !== prev.catchFailed?.at) out.push('penalty')
+
   // pendingDraw only climbs while a counter chain is live; the drop back to 0
   // is the stack being eaten, which is the penalty, not another stack.
   if (next.pendingDraw > prev.pendingDraw && !out.includes('drawStack')) out.push('drawStack')
