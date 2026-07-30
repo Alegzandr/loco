@@ -73,6 +73,11 @@ export const gameStateSchema = z.object({
   round_number: z.number(),
   match_format: matchFormatSchema,
   max_players: z.number(),
+  // The room this match is played in. Deliberately a bare string rather than an
+  // enum of the ids the client knows: a server that ships a new map before the
+  // client has its art must degrade to the built-in felt, and a Zod enum here
+  // would instead drop the whole game_state in dev and freeze the board.
+  map_id: z.string().optional(),
   scoreboard: z.array(scoreboardEntrySchema).optional(),
   round_history: roundHistorySchema.optional(),
   turn_deadline: z.number().optional(),
@@ -87,6 +92,8 @@ export const serverMsgTypeSchema = z.enum([
   'player_reconnected',
   'lobby_config_changed',
   'game_started',
+  'match_loading',
+  'match_ready',
   'game_state',
   'card_played',
   'card_drawn',
@@ -132,4 +139,8 @@ export const serverMsgSchema = z.object({
   max_players: z.number().optional(),
   round_history: roundHistorySchema.optional(),
   latencies: z.array(latencyEntrySchema).optional(),
+  // match_loading: the seats whose client has the map decoded. Absent means
+  // "none yet": the field rides exactly one message type, so there is no
+  // earlier value it could be leaving unchanged.
+  players_ready: z.array(z.number()).optional(),
 })

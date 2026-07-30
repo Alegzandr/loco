@@ -37,6 +37,7 @@ import {
   sendMsg,
   waitForMyTurn,
   debugSetState,
+  waitForTableOpen,
   gameBoard,
 } from '../helpers/game'
 
@@ -249,6 +250,7 @@ test.describe('rules coverage — wild + color picker (§5.1)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -543,6 +545,7 @@ test.describe('rules coverage — Take 2 / Take 4 stacking (§7)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -649,6 +652,7 @@ test.describe('rules coverage — Take 2 / Take 4 stacking (§7)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -705,6 +709,7 @@ test.describe('rules coverage — Swap as last card (§13)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -762,6 +767,7 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -823,6 +829,7 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       await addBot(alice) // third seat, kept idle: it never holds the turn here
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -878,6 +885,7 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -935,6 +943,7 @@ test.describe('rules coverage — Interjecting (§6)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -999,6 +1008,7 @@ test.describe('rules coverage — Interjecting (§6)', () => {
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -1051,7 +1061,9 @@ test.describe('rules coverage — LOCO! call (§8, §11.1)', () => {
       await joinRoom(carol, 'Carol', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
       await expect(gameBoard(carol)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(carol)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1

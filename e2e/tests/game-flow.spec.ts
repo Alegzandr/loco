@@ -23,6 +23,7 @@ import {
   sendMsg,
   closeRulesModal,
   debugSetState,
+  waitForTableOpen,
   gameBoard,
 } from '../helpers/game'
 
@@ -71,6 +72,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
 
     // Canvas is the PixiJS rendering surface
     await expect(gameBoard(page)).toBeVisible()
+    await waitForTableOpen(page)
     // Action bar is always in the DOM during a game
     await expect(page.locator('[class*="actionBar"]')).toBeVisible()
   })
@@ -202,6 +204,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
 
     // Game is still running
     await expect(gameBoard(page)).toBeVisible()
+    await waitForTableOpen(page)
   })
 
   /**

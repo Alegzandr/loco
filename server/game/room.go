@@ -277,6 +277,11 @@ type Room struct {
 	Format     MatchFormat
 	MaxPlayers int
 
+	// MapID is the room this match is played in: presentation only, drawn once
+	// per match by Start(). Empty until then, and again after a rematch reset:
+	// a rematch is a new match and gets a new room. See maps.go.
+	MapID MapID
+
 	// Match state (persists across rounds)
 	RoundNumber   int   // current round (1-based, set to 1 on Start)
 	Scores        []int // cumulative match scores per playerID
@@ -403,6 +408,10 @@ func (r *Room) Start() error {
 	if r.rng == nil {
 		r.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
+
+	// Drawn once per match, not per round: the table is the room the whole match
+	// is played in, and swapping it between rounds would read as a bug.
+	r.MapID = r.pickMap()
 
 	r.Status = StatusPlaying
 	r.dealRound(r.rng.Intn(n))
@@ -685,6 +694,10 @@ func (r *Room) ResetForRematch() error {
 	r.MatchOver = false
 	r.MatchWinner = ""
 	r.RoundNumber = 0
+	// Cleared, not kept: the next Start() draws a new room. A rematch that opens
+	// on the same table reads as "nothing happened", and it is also the moment
+	// the loading gate exists for: a map nobody has downloaded yet.
+	r.MapID = ""
 	// Left nil rather than zeroed: Start() reallocates them sized to whatever
 	// roster is present when the next match begins.
 	r.Scores = nil

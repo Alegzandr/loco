@@ -22,6 +22,9 @@ import { AudioSettings } from './AudioSettings'
 import { playSfx } from '../audio/sfx'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from './interruptHelpers'
 import { GameBoard, GameBoardHandle } from './cards/GameBoard'
+import { resolveMap } from './cards/maps'
+import { MapLoadingScreen } from './MapLoadingScreen'
+import { useMapPreload } from '../hooks/useMapPreload'
 import styles from './GameView.module.css'
 
 interface Props {
@@ -112,6 +115,8 @@ export function GameView({ onSend, wsStatus }: Props) {
     latencies,
     roundNumber,
     matchFormat,
+    mapId,
+    mapLoading,
     isReconnecting,
     errorMsg,
     swapNotice,
@@ -332,6 +337,39 @@ export function GameView({ onSend, wsStatus }: Props) {
   // Auto-dismiss round summary countdown — runs while the summary is visible.
   const summaryCountdown = useCountdown(showRoundSummary, ROUND_SUMMARY_AUTO_DISMISS_MS, dismissRoundSummary)
 
+  // The room this match is played in. Memoised because <GameBoard /> is memo'd
+  // and takes it as a prop: resolveMap returns the same object for the same id,
+  // but pinning it here keeps the intent explicit alongside the other stable
+  // props below. null = the built-in felt (a map id we have no art for).
+  const map = useMemo(() => resolveMap(mapId), [mapId])
+
+  // Preload while the table is shut. `useMapPreload` reports when the images are
+  // *decoded*, not merely downloaded: the whole point of the wait is that the
+  // first turn does not spend a frame on a WebP.
+  const preload = useMapPreload(map, mapLoading !== null)
+
+  // Tell the server the moment we are in, once per gate.
+  //
+  // The guard is a ref rather than a dependency because `mapLoading` gets a new
+  // identity on every progress broadcast (each time *another* player arrives),
+  // and keying the effect on the object itself would re-send map_ready once per
+  // opponent. A map we have no art for is ready immediately: there is nothing
+  // to fetch, and a client that never answers is the one outcome the gate
+  // cannot survive.
+  const gateOpen = mapLoading !== null
+  const nothingToLoad = map === null
+  const sentReady = useRef(false)
+  useEffect(() => {
+    if (!gateOpen) {
+      sentReady.current = false
+      return
+    }
+    if (sentReady.current) return
+    if (!preload.done && !nothingToLoad) return
+    sentReady.current = true
+    onSend({ type: 'map_ready' })
+  }, [gateOpen, preload.done, nothingToLoad, onSend])
+
   // Memoised: <GameBoard /> lists fxTexts in an effect's dependency array, and a
   // fresh object literal each render would replay the callout on every update.
   const fxTexts = useMemo(
@@ -416,6 +454,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         swapNotice={swapNotice}
         lastPlay={lastPlay}
         isReconnecting={isReconnecting || showReconnectOverlay}
+        map={map}
         canDraw={isMyTurn && (pendingDraw > 0 || !hasDrawn)}
         onDraw={handleDraw}
         drawLabel={pendingDraw > 0 ? `${t.drawPile} +${pendingDraw}` : t.drawPile}
@@ -623,6 +662,21 @@ export function GameView({ onSend, wsStatus }: Props) {
       )}
 
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
+
+      {/* The map reveal. Deliberately an overlay over a mounted board rather
+          than a screen instead of it: the board spends this time laying itself
+          out and warming the images, so what the player sees when this lifts is
+          a table that is already finished. */}
+      {mapLoading && map && (
+        <MapLoadingScreen
+          map={map}
+          ready={mapLoading.ready}
+          players={players}
+          myIndex={myIndex}
+          progress={preload.progress}
+          t={t}
+        />
+      )}
     </div>
   )
 }

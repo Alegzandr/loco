@@ -145,6 +145,13 @@ export interface Translations {
   rebuildingTable: string
   wsLostConnection: string
   wsReconnecting: string
+  // Synchronised map loading, shown between "hands dealt" and "clock running".
+  mapLoadingTitle: string           // small label above the map's name
+  mapLoadingWaiting: string         // status while other players are still loading
+  mapLoadingReady: string           // status once we are in and only others remain
+  mapLoadingCount: string           // contains %ready and %total
+  /** One entry per map id in components/cards/maps.ts: display name + one line. */
+  maps: Record<'neon' | 'rune' | 'velvet' | 'orbit', { name: string; tagline: string }>
   round: string
   of: string
   complete: string
@@ -276,6 +283,28 @@ export const en: Translations = {
   rebuildingTable: 'Rebuilding table…',
   wsLostConnection: 'Connection lost',
   wsReconnecting: 'Reconnecting…',
+  mapLoadingTitle: 'Tonight you play in',
+  mapLoadingWaiting: 'Waiting for the table…',
+  mapLoadingReady: 'You are in. Waiting for the others…',
+  mapLoadingCount: '%ready of %total ready',
+  maps: {
+    neon: {
+      name: 'Neon',
+      tagline: 'A rooftop club above the skyline. Black marble, and a ring of light.',
+    },
+    rune: {
+      name: 'Rune',
+      tagline: 'The back room of an arcane tavern. Carved oak, gemstones, candlelight.',
+    },
+    velvet: {
+      name: 'Velvet',
+      tagline: 'An art-deco lounge. Brass, burgundy baize, and lamps turned low.',
+    },
+    orbit: {
+      name: 'Orbit',
+      tagline: 'A starship hangar in high orbit. Brushed alloy over a holo table.',
+    },
+  },
   round: 'Round',
   of: 'of',
   complete: 'Complete',

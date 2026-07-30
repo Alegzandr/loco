@@ -387,6 +387,58 @@ export const SCENES: Scene[] = [
     },
     deadlineIn: 8,
   },
+  // ─── Maps ────────────────────────────────────────────────────────────────
+  // One scene per room, plus the loading screen that introduces it. These are
+  // the only place the art is reviewable without a server dealing a match, and
+  // the table's placement (see maps.ts `playfield`) is measured by eye off the
+  // art, so a drifted table shows up here and nowhere else.
+  {
+    id: 'game-map-neon',
+    title: 'Map · Neon',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'neon' },
+    deadlineIn: 21,
+  },
+  {
+    id: 'game-map-rune',
+    title: 'Map · Rune',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'rune', discard: card('green', 'draw_two'), activeColor: 'green' },
+    deadlineIn: 18,
+  },
+  {
+    id: 'game-map-velvet',
+    title: 'Map · Velvet',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'velvet', discard: num('yellow', 4), activeColor: 'yellow' },
+    deadlineIn: 24,
+  },
+  {
+    id: 'game-map-orbit',
+    title: 'Map · Orbit',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      mapId: 'orbit',
+      discard: card('wild', 'wild'),
+      activeColor: 'blue',
+      direction: -1,
+    },
+    deadlineIn: 13,
+  },
+  {
+    // The reveal. Two seats in, one still downloading: the state the roster
+    // exists for, since a bar alone cannot tell a slow player from a hung game.
+    id: 'game-map-loading',
+    title: 'Map · écran de chargement',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      mapId: 'rune',
+      mapLoading: { ready: [0, 2] },
+      turnDeadline: null,
+    },
+  },
   {
     id: 'game-eight-players',
     title: 'Partie · 8 joueurs',

@@ -31,6 +31,7 @@ import {
   sendMsg,
   waitForMyTurn,
   debugSetState,
+  waitForTableOpen,
   gameBoard,
   playCard,
 } from '../helpers/game'
@@ -442,7 +443,9 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       await joinRoom(carol, 'Carol', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
       await expect(gameBoard(carol)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(carol)
 
       const bobIdx = (await getState(bob))?.myIndex ?? 1
 
@@ -512,6 +515,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       await joinRoom(bob, 'Bob', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const bobIdx = (await getState(bob))?.myIndex ?? 1
 
@@ -685,7 +689,9 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       await page1.getByRole('button', { name: T.startGame }).click()
 
       await expect(gameBoard(page1)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page1)
       await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
 
       const aliceState = await page1.evaluate(() => window.__LOCO_E2E__?.getState?.())
       const aliceIndex = aliceState?.myIndex ?? 0

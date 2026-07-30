@@ -8,6 +8,7 @@ import {
   getState,
   sendMsg,
   debugSetState,
+  waitForTableOpen,
   gameBoard,
   playCard,
 } from '../helpers/game'
@@ -77,6 +78,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       await joinRoom(bob, 'Bob', roomCode)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const bobIdx = (await getState(bob))?.myIndex ?? 1
       await debugSetState(bob, {
@@ -126,6 +128,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     await addBot(page)
     await startGame(page)
     await expect(gameBoard(page)).toBeVisible({ timeout: 10_000 })
+    await waitForTableOpen(page)
 
     const myIdx = (await getState(page))?.myIndex ?? 0
     await debugSetState(page, {
@@ -169,6 +172,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       await joinRoom(bob, 'Bob', roomCode)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
@@ -232,6 +236,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       await joinRoom(bob, 'Bob', roomCode)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
 
       const bobIdx = (await getState(bob))?.myIndex ?? 1
       await debugSetState(bob, {

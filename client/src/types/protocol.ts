@@ -41,6 +41,9 @@ export type ClientMsgType =
   | 'declare_uno'
   | 'catch_uno'
   | 'counter_draw'
+  // Answers match_loading: this client has the match's map decoded. The server
+  // holds the turn clock until every seat has said so.
+  | 'map_ready'
   | 'interrupt_play'
   | 'interrupt_play_card'
   | 'debug_set_state'

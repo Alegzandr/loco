@@ -57,6 +57,10 @@ function applyScene(scene: Scene) {
     isReconnecting: false,
     matchWinner: '',
     matchOver: false,
+    // A scene names its room explicitly; anything else falls back to the
+    // built-in felt rather than inheriting the previous scene's map.
+    mapId: '',
+    mapLoading: null,
     ...(scene.state ?? {}),
   }
   if (scene.deadlineIn !== undefined) patch.turnDeadline = Date.now() + scene.deadlineIn * 1000

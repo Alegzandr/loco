@@ -21,6 +21,9 @@ const (
 	CMsgDeclareUno  ClientMsgType = "declare_uno"
 	CMsgCatchUno    ClientMsgType = "catch_uno"
 	CMsgCounterDraw    ClientMsgType = "counter_draw"
+	// CMsgMapReady tells the server this client has the match's map decoded and
+	// is ready to play. Sent once per match, in answer to SMsgMatchLoading.
+	CMsgMapReady ClientMsgType = "map_ready"
 	// CMsgInterruptPlay is the realtime "lead-taking" / jump-in message.
 	// Body may carry either a singular Card OR a PlayCards array (batch identical-card
 	// interrupt). interrupt_play_card is accepted as an alias for the same handler.
@@ -43,6 +46,14 @@ const (
 	SMsgPlayerReconnected  ServerMsgType = "player_reconnected"
 	SMsgLobbyConfigChanged ServerMsgType = "lobby_config_changed"
 	SMsgGameStarted        ServerMsgType = "game_started"
+	// SMsgMatchLoading is sent right after game_started while the table waits for
+	// everybody to finish downloading the map, and again on each arrival so the
+	// loading screen can show who is still missing. PlayersReady names the seats
+	// that are in.
+	SMsgMatchLoading ServerMsgType = "match_loading"
+	// SMsgMatchReady releases the table: the clock starts here, not at
+	// game_started. Carries the turn deadline armed in the same instant.
+	SMsgMatchReady ServerMsgType = "match_ready"
 	// Gameplay state
 	SMsgGameState   ServerMsgType = "game_state"
 	SMsgCardPlayed  ServerMsgType = "card_played"
@@ -231,6 +242,14 @@ type ServerMsg struct {
 	MatchFormat string `json:"match_format,omitempty"`
 	MaxPlayers  int    `json:"max_players,omitempty"`
 
+	// SMsgMatchLoading: the seats whose client has the map decoded.
+	//
+	// `omitempty` is safe here, unlike on PlayerIndex/PendingDraw: this field
+	// appears on exactly one message type, so an absent list can only mean "no
+	// seat is ready yet": there is no earlier value it could be leaving
+	// unchanged. Keeping it omittable also keeps it off every other broadcast.
+	PlayersReady []int `json:"players_ready,omitempty"`
+
 	// SMsgError
 	Error string `json:"error,omitempty"`
 }
@@ -277,6 +296,10 @@ type GameStateDTO struct {
 	RoundNumber int                  `json:"round_number"`
 	MatchFormat string               `json:"match_format"`
 	MaxPlayers  int                  `json:"max_players"`
+	// MapID names the room this match is played in (see game/maps.go). Rides
+	// every snapshot rather than only game_started so a reconnecting player
+	// rebuilds the same table as everybody else. Empty = the built-in felt.
+	MapID string `json:"map_id,omitempty"`
 	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 	// RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
 	// Included in every snapshot so a reconnecting player recovers the table.

@@ -58,11 +58,13 @@ loco/
 │   │   ├── styles/        # Design tokens (single source of truth for colour/type/shape)
 │   │   ├── types/         # Protocol TypeScript types
 │   │   └── test/          # Vitest unit tests
+│   ├── public/maps/       # Map art: <id>/room.webp + table.webp, see "Map art"
 │   ├── nginx.conf         # Production reverse proxy
 │   └── Dockerfile
 ├── e2e/                   # Playwright suite (separate package.json)
 ├── tools/visual/          # Screenshot harness (shoot.mjs) — see "Visual QA"
 ├── tools/og/              # Link-preview generator (shoot.mjs → client/public/og.png)
+├── tools/maps/            # Map art cropper/encoder (prepare.mjs), see "Map art"
 ├── docs/                  # Rules spec and supplemental docs
 ├── deploy/                # Production compose + traefik config
 ├── docker-compose.yml     # Production-style full-stack compose
@@ -125,6 +127,7 @@ for the smallest possible delay rather than the fewest bytes:
 - Hidden state (other players' hands) never sent to wrong client
 - Session tokens: cryptographically random token issued on join/create, required to re-claim a slot on reconnect — prevents slot hijacking
 - Per-client rate limiting: token bucket (10 msg/s, burst 20) — rejects flood attacks at the connection layer
+- Gameplay is refused while the room is still loading its map: the fairness of the loading gate cannot rest on every client honouring its own loading screen
 
 ### Message Protocol
 
@@ -295,6 +298,38 @@ which has no browser, and a preview that 404s is worse than no preview.
   URLs, and declare the dimensions the committed PNG actually has — nothing else
   in the suite would notice the preview breaking.
 
+### Map art
+
+The four rooms ship as `client/public/maps/<id>/room.webp` (the space) and
+`table.webp` (the table, cut out against transparency), about 1.75 MB in total.
+They are **committed**, for the same reason `og.png` is: the client image is
+built in CI, which has no browser to render anything.
+
+```bash
+make maps ARGS="--src=/path/to/Maps"        # one folder per map, two images each
+```
+
+`tools/maps/prepare.mjs` crops each table to its alpha bounding box and
+re-encodes both files to WebP. Two things about it are worth knowing:
+
+- **Which source file is the table is read off the alpha channel, never the
+  filename.** The renders arrive named after their timestamp; an earlier version
+  guessed by frame brightness, on the assumption that the tables sat on a grey
+  backdrop, and got all four maps backwards. That grey was the image viewer
+  showing through the transparency.
+- The crop is what makes the placement numbers honest. `maps.ts` positions each
+  table by a `playfield` rectangle expressed as fractions of the file, so any
+  dead margin left in the file would be a constant every one of those numbers
+  had to carry.
+
+Those `playfield` numbers are measured **by eye** off the art, and nothing but a
+screenshot will catch a drifted one: the cards simply stop sitting on the
+table. Review any change to the art with:
+
+```bash
+make visual ARGS="--scenes=game-map-neon,game-map-rune,game-map-velvet,game-map-orbit,game-map-loading"
+```
+
 ### Audio verification
 
 Sounds are synthesised, so a broken envelope produces silence rather than an error — nothing fails
@@ -387,6 +422,8 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - **The deck has its own identity**: each face is a full-bleed suit gradient with the LOCO mark — a geometric wireframe duck, straight from the brand's source file — behind it in the *same gradient reversed*, drawn as one SVG (`client/src/components/cards/CardArt.tsx`, `cardArtSpace.ts`, `locoMark.ts`). On a card the mark is deliberately **cropped and tilted** so the artwork runs off all four edges and under the value; the logo (`LocoLogo.tsx`), the favicon and the table watermark show it **whole**. Card faces do not follow the light/dark theme — a card is an object, not a control. Every glyph is ink-outlined: off-white on the green suit is 1.2:1, and outlined it clears 14:1 on every face.
 - Review the whole deck on one screen with `make visual ARGS="--scenes=card-sheet"`.
 - **Score table**: hold `TAB` during a match (or tap the **Scores** button, which is how it opens on a phone) for the standings: seat colour, nickname, one column per finished round, cumulative total, rounds won, and a live ping per player coloured by how much it costs in a race (green under 60 ms, red past 220 ms). Both the per-round history and the ping are measured and broadcast by the server, so they survive a reconnect and cannot be self-reported.
+- **Maps**: every match is dealt into one of four rooms: **Neon** (a rooftop club above the skyline), **Rune** (the back room of an arcane tavern), **Velvet** (an art-deco lounge) and **Orbit** (a starship hangar). A map is a backdrop, a table and an accent colour; it changes no rule and no card. The **server** draws it once per match and tells every seat, so the whole table plays in one room and a clip cut between two players does not jump between two rooms. A rematch draws a new one. The accent tints the light the table casts and the direction ring, never the brand red, the active seat's gold or a card face, because those are how a viewer reads the game, and a state cue that changes colour with the scenery has to be re-learned four times.
+- **Synchronised loading**: between "hands dealt" and "clock running" the table stays shut while every client downloads and decodes the map, on a screen that names the room, describes it in a line, and shows who is still loading. The turn clock starts when the last player is in, not before. A map is around 600 kB, and in a game decided by arrival order, starting the first turn while somebody's table is still a grey rectangle is a head start rather than a slow paint. Gameplay messages are refused server-side until then, so skipping the screen buys nothing, and a 20 s deadline means one backgrounded tab cannot hold the room hostage.
 - **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
 - **Play direction on the table**: a ring of chevrons runs around the felt showing which way play is moving, chasing slowly in that direction and flipping over when a Reverse lands. The callout lasts a second; the heading lasts the rest of the round, so a player who looked away — or a viewer who just opened the stream — can still read whose turn comes next.
 - **Audio**: runtime-synthesised effects for every action and rule outcome, plus **three adaptive soundtracks** — *Neon Horizon* (uplifting trance, 138 BPM), *Pixel Rush* (electro house, 128) and *Voltage* (dark electro, 145) — each written as parts (intro, verse, chorus, bridge, break) rather than a loop. They play as a **shuffled playlist**: a track runs about two minutes, then hands over on its own, and the only control is a ⏭ next button. Two things drive what you hear: the **song form** advances by itself, so around forty bars pass before a part returns, and the **table's tension** picks how thickly it is played *and* which part comes next — a breakdown between rounds, a build-up in the lobby, a groove during play, the full drop when someone is one card from winning. Risers and crashes announce a chorus, fills close every part, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
@@ -402,6 +439,7 @@ Full grouped list: [`docs/features.md`](docs/features.md).
 - Reconnect window is 60 seconds; longer disconnects permanently drop the player
 - No spectator mode
 - No chat
+- Maps are drawn at random and cannot be chosen; the four that ship are cosmetic only and have no effect on play
 - Wild Draw Four legality (should only be legal when no matching color) not yet enforced
 - Only English and French are currently translated; adding a language requires a new file in `client/src/i18n/` and an entry in the `translations` map
 - Audio is synthesised, not recorded: the result is deliberately arcade-like rather than orchestral

@@ -41,6 +41,7 @@ func setupActiveGame(t *testing.T) startedGame {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("missing game state in game_started")
 	}

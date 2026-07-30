@@ -63,6 +63,25 @@ func readMsgOfType(t *testing.T, conn *websocket.Conn, typ protocol.ServerMsgTyp
 	return protocol.ServerMsg{}
 }
 
+// completeMapLoad takes every connection through the map-loading handshake that
+// now sits between game_started and the first legal move.
+//
+// The table is shut until each client answers map_ready, so a test that skips
+// this gets "waiting for every player to load the table" on its first play and
+// then blocks reading a message the server will never send. Going through the
+// real handshake rather than disabling the gate in tests is deliberate: it is
+// the path production takes, and the gate is exactly the kind of thing that
+// rots the moment nothing exercises it.
+func completeMapLoad(t *testing.T, conns ...*websocket.Conn) {
+	t.Helper()
+	for _, c := range conns {
+		sendMsg(t, c, protocol.ClientMsg{Type: protocol.CMsgMapReady})
+	}
+	for _, c := range conns {
+		readMsgOfType(t, c, protocol.SMsgMatchReady)
+	}
+}
+
 // newTestHub creates a Hub, starts it, and returns a test HTTP server.
 func newTestHub(t *testing.T) (*hub.Hub, *httptest.Server) {
 	t.Helper()
@@ -119,6 +138,7 @@ func setupTwoPlayerGameWithTokens(t *testing.T, srv *httptest.Server) (conn1, co
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 
 	return conn1, conn2, roomCode, tokens
 }
@@ -858,6 +878,7 @@ func TestGoroutineStability_FullLifecycle(t *testing.T) {
 
 		sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 		readMsgOfType(t, conn, protocol.SMsgGameStarted)
+		completeMapLoad(t, conn)
 
 		drainUntil(conn, protocol.SMsgMatchEnd, 8*time.Second)
 		// conn.Close() via defer — triggers scheduleRoomCleanup
@@ -880,6 +901,7 @@ func TestGoroutineStability_FullLifecycle(t *testing.T) {
 
 		sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 		readMsgOfType(t, conn, protocol.SMsgGameStarted)
+		completeMapLoad(t, conn)
 
 		// Disconnect immediately — triggers reconnect expiry timer (120 ms in tests).
 		conn.Close()
@@ -995,6 +1017,7 @@ func TestGoroutineStability_BotGame(t *testing.T) {
 	// Start the game.
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 
 	// Drain messages until match_end or gameover (bot game finishes on its own).
 	deadline := time.Now().Add(10 * time.Second)
@@ -1029,9 +1052,14 @@ func TestGoroutineStability_BotGame(t *testing.T) {
 
 // --- Turn timer tests ---
 
-// TestTurnTimer_DeadlineIncludedInGameStarted verifies that game_started includes a
-// non-zero TurnDeadline in the state, proving the timer was scheduled after game start.
-func TestTurnTimer_DeadlineIncludedInGameStarted(t *testing.T) {
+// TestTurnTimer_StartsAtMatchReadyNotGameStarted pins where the clock starts.
+//
+// It used to start at game_started, which meant the first player's 30 seconds
+// began while somebody else's browser was still decoding a megabyte of map. In a
+// game whose reaction windows are decided by arrival order that is a head start,
+// not a cosmetic problem, so the timer is now armed by match_ready, the message
+// that goes out once every client has answered map_ready.
+func TestTurnTimer_StartsAtMatchReadyNotGameStarted(t *testing.T) {
 	_, srv := newTestHub(t)
 
 	conn1 := dialWS(t, srv)
@@ -1049,20 +1077,32 @@ func TestTurnTimer_DeadlineIncludedInGameStarted(t *testing.T) {
 	started1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	started2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 
-	if started1.State == nil {
-		t.Fatal("game_started missing state for conn1")
+	if started1.State == nil || started2.State == nil {
+		t.Fatal("game_started missing state")
 	}
-	if started1.State.TurnDeadline == 0 {
-		t.Error("conn1: expected non-zero TurnDeadline in game_started state")
+	// No clock yet: the table is still shut.
+	if started1.State.TurnDeadline != 0 {
+		t.Errorf("conn1: game_started carries TurnDeadline %d; the clock must not start before match_ready",
+			started1.State.TurnDeadline)
 	}
-	if started1.State.TurnDeadline <= time.Now().UnixMilli() {
-		t.Errorf("conn1: TurnDeadline %d should be in the future", started1.State.TurnDeadline)
+	if started2.State.TurnDeadline != 0 {
+		t.Errorf("conn2: game_started carries TurnDeadline %d; the clock must not start before match_ready",
+			started2.State.TurnDeadline)
 	}
-	if started2.State == nil {
-		t.Fatal("game_started missing state for conn2")
+
+	// Both clients answer; the table opens and the clock starts with it.
+	for _, c := range []*websocket.Conn{conn1, conn2} {
+		sendMsg(t, c, protocol.ClientMsg{Type: protocol.CMsgMapReady})
 	}
-	if started2.State.TurnDeadline == 0 {
-		t.Error("conn2: expected non-zero TurnDeadline in game_started state")
+	for i, c := range []*websocket.Conn{conn1, conn2} {
+		ready := readMsgOfType(t, c, protocol.SMsgMatchReady)
+		if ready.TurnDeadline == 0 {
+			t.Errorf("conn%d: match_ready carries no TurnDeadline", i+1)
+			continue
+		}
+		if ready.TurnDeadline <= time.Now().UnixMilli() {
+			t.Errorf("conn%d: TurnDeadline %d should be in the future", i+1, ready.TurnDeadline)
+		}
 	}
 }
 
@@ -1108,6 +1148,7 @@ func TestTurnTimer_CardPlayedIncludesDeadline(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	state1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 
 	// Whichever player has the first turn draws a card, which should broadcast
 	// a card_drawn message with a TurnDeadline.
@@ -1133,11 +1174,25 @@ func TestTurnTimer_CardPlayedIncludesDeadline(t *testing.T) {
 	}
 }
 
-// TestTurnTimer_BotGameCompletesWithTimerActive verifies that a human-vs-bot game
-// completes successfully even when the per-turn timer is active. Human turns
-// auto-draw+auto-pass after TurnTimeout; bot turns self-schedule via BotThink.
-// The combination must not deadlock or stall the game.
-func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
+// TestTurnTimer_BotGameSurvivesInterleavedTimeouts pins the liveness property the
+// turn timer and the bot scheduler have to keep between them: a human who never
+// acts is auto-drawn and auto-passed every TurnTimeout while the bot
+// self-schedules through BotThinkDelay, and the two must keep interleaving
+// without ever deadlocking, then let the match finish.
+//
+// The round is ended deliberately, by handing the bot a single playable card,
+// rather than waited out. Waiting it out is what this test used to do, and
+// "the bot empties its hand inside 30 seconds" is not a property of this code:
+// a human who never plays keeps drawing, so the round runs exactly as long as
+// the bot needs to empty a hand that a Swap or a +4 chain can refill at any
+// moment. Usually that is eight turns. About once in eight runs it was over a
+// hundred, and the test failed on wall clock with the server working perfectly.
+// What is asserted now is what actually has to hold: the game keeps moving
+// under sustained timer pressure, and it can still reach match_end.
+func TestTurnTimer_BotGameSurvivesInterleavedTimeouts(t *testing.T) {
+	// The deliberate ending goes through debug_set_state.
+	t.Setenv("LOCO_E2E", "1")
+
 	origTimeout := hub.TurnTimeout
 	origBotDelay := hub.BotThinkDelay
 	origJitter := hub.BotJitterMax
@@ -1153,9 +1208,9 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	t.Cleanup(func() { hub.AFKKickThreshold = origAFKThreshold })
 	// Use moderate delays to avoid flooding the per-client send buffer (cap 256)
 	// with messages faster than the test goroutine can drain them. When the buffer
-	// fills, the hub drops messages — including match_end — causing a spurious failure.
-	// 10ms bot delay + 50ms turn timeout produces ~10 messages/second max, well
-	// within the 30-second deadline even on a loaded CI machine.
+	// fills, the hub drops messages, including match_end, and the test fails for
+	// a reason that has nothing to do with what it checks. 10ms bot delay + 50ms
+	// turn timeout produces roughly 10 messages a second.
 	hub.BotThinkDelay = 10 * time.Millisecond
 	hub.BotJitterMax = 0
 	hub.BotUnoDelay = 0
@@ -1190,6 +1245,7 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 	conn.SetReadDeadline(time.Time{}) // clear stale 3-second deadline left by readMsg
 
 	// Read messages in a goroutine so we can apply an overall deadline without
@@ -1209,25 +1265,76 @@ func TestTurnTimer_BotGameCompletesWithTimerActive(t *testing.T) {
 		}
 	}()
 
-	found := false
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-	for !found {
+	// next reads one message, or reports that the game went quiet. A deadlock is
+	// exactly a gap with no traffic, so the per-message budget is the real
+	// assertion here: it is generous enough that a busy machine never trips it,
+	// and short enough that a genuinely wedged hub does.
+	next := func(budget time.Duration) (protocol.ServerMsg, bool) {
+		timer := time.NewTimer(budget)
+		defer timer.Stop()
 		select {
 		case msg, ok := <-msgCh:
-			if !ok {
-				goto done // connection closed
-			}
-			if msg.Type == protocol.SMsgMatchEnd {
-				found = true
-			}
+			return msg, ok
 		case <-timer.C:
-			goto done // overall deadline exceeded
+			return protocol.ServerMsg{}, false
 		}
 	}
-done:
-	if !found {
-		t.Error("expected match_end in bot+human game with timer active — game may have stalled")
+
+	// ─── Phase 1: the interleaving itself ───────────────────────────────────
+	// Every turn_changed here is a turn timer firing on a human who did nothing
+	// and the hub passing for them; every card_played is the bot's own schedule
+	// coming round. Requiring several of each proves the two keep taking turns
+	// instead of one starving the other.
+	const wantPasses, wantBotPlays = 5, 3
+	passes, botPlays := 0, 0
+	matchEnded := false
+	for (passes < wantPasses || botPlays < wantBotPlays) && !matchEnded {
+		msg, ok := next(10 * time.Second)
+		if !ok {
+			t.Fatalf("game went quiet after %d auto-passes and %d bot plays; the timer and the bot scheduler have deadlocked",
+				passes, botPlays)
+		}
+		switch msg.Type {
+		case protocol.SMsgTurnChanged:
+			passes++
+		case protocol.SMsgCardPlayed:
+			botPlays++
+		case protocol.SMsgMatchEnd:
+			// The bot emptied its hand on its own before we got there. Nothing
+			// left to force, and the assertion below is already satisfied.
+			matchEnded = true
+		}
+	}
+
+	if matchEnded {
+		return
+	}
+
+	// ─── Phase 2: end the round on purpose ──────────────────────────────────
+	// One playable card, nothing pending, a discard it matches: the bot wins on
+	// its next turn whatever the deck happens to hold.
+	noPending := 0
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgDebugSetState,
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{PlayerIndex: 1, Hand: []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}}},
+		},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugActiveColor: "red",
+		DebugPendingDraw: &noPending,
+	})
+
+	for {
+		msg, ok := next(15 * time.Second)
+		if !ok {
+			t.Fatal("no match_end after the bot was handed a winning card; the round did not close")
+		}
+		if msg.Type == protocol.SMsgError {
+			t.Fatalf("debug_set_state refused: %q", msg.Error)
+		}
+		if msg.Type == protocol.SMsgMatchEnd {
+			return
+		}
 	}
 }
 
@@ -1350,6 +1457,7 @@ func TestInterruptPlay_OwnTurn_Rejected(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 
 	// Determine who has the first turn.
 	var currentTurnConn *websocket.Conn
@@ -1408,6 +1516,7 @@ func TestInterruptPlay_ValidMatch_AcceptedAndBroadcast(t *testing.T) {
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2, conn3)
 
 	// Pin Alice (player 0) as the active player; Carol (player 2) is a non-current,
 	// non-just-played seat — the only valid interjecter after Alice plays.
@@ -1476,6 +1585,7 @@ func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2, conn3)
 
 	// Pin Alice (player 0) active; Carol (player 2) is the non-current interjecter.
 	red3 := protocol.CardDTO{Color: "red", Kind: "number", Value: 3}
@@ -1549,6 +1659,7 @@ func TestInterruptPlay_GlobalSwitch_ResendsHands(t *testing.T) {
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2, conn3)
 
 	gs := protocol.CardDTO{Color: "wild", Kind: "global_switch"}
 	red3 := protocol.CardDTO{Color: "red", Kind: "number", Value: 3}
@@ -1643,6 +1754,7 @@ func TestCatchUNO_HumanCatchesHuman(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("missing game state in game_started")
 	}
@@ -1713,6 +1825,7 @@ func TestDebugSetState_OverridesHandsAndTurn(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("missing game state in game_started")
 	}
@@ -1800,6 +1913,7 @@ func TestBotCatch_WithinWindow(t *testing.T) {
 
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 	if gs.State == nil {
 		t.Fatal("missing game state in game_started")
 	}
@@ -1869,6 +1983,7 @@ func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
 
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 	if gs.State == nil {
 		t.Fatal("missing game state")
 	}
@@ -1956,6 +2071,7 @@ func TestBotUno_CatchableDuringAnnounceDelay(t *testing.T) {
 
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 	if gs.State == nil {
 		t.Fatal("missing game state")
 	}
@@ -2084,6 +2200,7 @@ func TestLobbyHostDisconnect_NewHostCanStartGame(t *testing.T) {
 	}
 	// Carol should also receive game_started.
 	carolStart := readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn2, conn3)
 	if carolStart.State == nil || carolStart.State.YourIndex != 1 {
 		t.Errorf("Carol expected YourIndex 1 in game_started, got %+v", carolStart.State)
 	}
@@ -2157,6 +2274,7 @@ func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil {
 		t.Fatal("missing game_started state for Alice")
 	}
@@ -2320,6 +2438,7 @@ func TestAFK_KicksAfterConsecutiveTimeouts(t *testing.T) {
 	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 	conn.SetReadDeadline(time.Time{})
 
 	// Drain messages waiting for an "afk_kicked" error or a clean close.
@@ -2372,6 +2491,7 @@ func TestPlayCard_SwapBroadcastsChosenPlayer(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("missing game state in game_started")
 	}
@@ -2440,6 +2560,7 @@ func TestPlayCard_NonSwapOmitsChosenPlayer(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("missing game state in game_started")
 	}
@@ -2508,6 +2629,7 @@ func TestPlayCard_DirectionInPayload(t *testing.T) {
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2, conn3)
 
 	// Pin Alice (player 0) as active with a Reverse and a Number, on a red discard.
 	zero := 0
@@ -2580,6 +2702,7 @@ func TestLatencyBroadcast_OneEntryPerSeat(t *testing.T) {
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 
 	msg := readMsgOfType(t, conn1, protocol.SMsgLatency)
 	if len(msg.Latencies) != 3 {
@@ -2689,6 +2812,7 @@ func TestEventLog_AbsentFromBroadcastGameState(t *testing.T) {
 
 	sendMsg(t, host, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	started := readMsgOfType(t, host, protocol.SMsgGameStarted)
+	completeMapLoad(t, host, guest)
 	if started.State == nil {
 		t.Fatal("expected game state in game_started")
 	}
@@ -2721,6 +2845,7 @@ func TestCatchUNO_FailedCatchCostsACard(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs1 := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("missing game state in game_started")
 	}
