@@ -6,7 +6,7 @@ import { DiscardPile } from './DiscardPile'
 import { Hand } from './Hand'
 import { PlayerSlot } from './PlayerSlot'
 import { TurnIndicator, TurnTexts } from './TurnIndicator'
-import { AnimationLayer, Flier, EffectText } from './AnimationLayer'
+import { AnimationLayer, Flier, EffectText, Impact } from './AnimationLayer'
 import {
   clockwiseOpponents,
   calcHandSlots,
@@ -18,7 +18,7 @@ import {
   boardScale,
   boardSpace,
 } from './layout'
-import { CARD_W, CARD_H } from './cardTheme'
+import { ACTIVE_RING, CARD_W, CARD_H, flightFor } from './cardTheme'
 import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
 import { SwapNotice, LastPlay } from '../../hooks/useGameStore'
 import styles from './GameBoard.module.css'
@@ -101,6 +101,11 @@ export const GameBoard = memo(function GameBoard(props: Props) {
 
   const [fliers, setFliers] = useState<Flier[]>([])
   const [effectTexts, setEffectTexts] = useState<EffectText[]>([])
+  const [impacts, setImpacts] = useState<Impact[]>([])
+  // Landings are scheduled for the end of a flight, so they outlive the render
+  // that spawned them and have to be cancelled if the board goes away first.
+  const landTimers = useRef<number[]>([])
+  const stageRef = useRef<HTMLDivElement>(null)
   // When the local player plays a card, we already animate the hand→discard
   // fly. Suppress the "discard fade-in" flier for that one update so the two
   // animations don't stack on top of each other.
@@ -111,6 +116,54 @@ export const GameBoard = memo(function GameBoard(props: Props) {
 
   const removeFlier = (id: string) => setFliers((cur) => cur.filter((f) => f.id !== id))
   const removeEffect = (id: string) => setEffectTexts((cur) => cur.filter((e) => e.id !== id))
+  const removeImpact = (id: string) => setImpacts((cur) => cur.filter((i) => i.id !== id))
+
+  useEffect(() => () => {
+    landTimers.current.forEach(clearTimeout)
+    landTimers.current = []
+  }, [])
+
+  // The board takes a knock when a legendary lands. Animated through the
+  // `translate` property, never `transform`: .stage's transform *is* the board
+  // scale, and a WAAPI transform animation would override it mid-kick and resize
+  // the whole table.
+  function kickBoard() {
+    const el = stageRef.current
+    if (!el || typeof el.animate !== 'function') return
+    if (typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    el.animate(
+      [
+        { translate: '0 0' },
+        { translate: '0 7px' },
+        { translate: '-5px -3px' },
+        { translate: '0 0' },
+      ],
+      { duration: 260, easing: 'ease-out' },
+    )
+  }
+
+  // A rare or legendary play leaves a shockwave where it lands. Scheduled for the
+  // end of the flight rather than fired on the message: a ring that blooms while
+  // its own card is still crossing the table reads as a second, unrelated event.
+  function landCard(card: CardDTO, dest: { x: number; y: number }, afterMs: number) {
+    const flight = flightFor(card)
+    if (flight.impact <= 0) return
+    const timer = window.setTimeout(() => {
+      setImpacts((cur) => [
+        ...cur,
+        {
+          id: newId(),
+          x: dest.x + CARD_W / 2,
+          y: dest.y + CARD_H / 2,
+          color: ACTIVE_RING[card.color],
+          size: flight.impact,
+        },
+      ])
+      if (flight.kick) kickBoard()
+    }, afterMs)
+    landTimers.current.push(timer)
+  }
 
   const others = clockwiseOpponents(props.players, props.myIndex)
   // seatLayout picks the pill size and row count that actually fit this
@@ -135,6 +188,7 @@ export const GameBoard = memo(function GameBoard(props: Props) {
     if (lp.actorIndex === props.myIndex) return
     const from = seatPosition(lp.actorIndex, props.players, props.myIndex, width, height)
     const dest = discardPosition(width, height, topReserve)
+    const flight = flightFor(lp.card)
     setFliers((cur) => [
       ...cur,
       {
@@ -146,10 +200,13 @@ export const GameBoard = memo(function GameBoard(props: Props) {
         to: { x: dest.x, y: dest.y, rotation: 0 },
         startAlpha: 0.35,
         startScale: 0.72,
-        duration: 340,
-        arcHeight: 26,
+        duration: flight.duration,
+        arcHeight: flight.arcHeight + 4,
+        spin: flight.spin,
+        swell: flight.swell,
       },
     ])
+    landCard(lp.card, dest, flight.duration)
     suppressNextDiscardFx.current = true
     // Keyed on the play timestamp: one flight per play, never a replay on resize.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -171,6 +228,7 @@ export const GameBoard = memo(function GameBoard(props: Props) {
     suppressNextDiscardFx.current = false
     if (!covered) {
       const target = discardPosition(width, height, topReserve)
+      const flight = flightFor(props.discard!)
       setFliers((cur) => [
         ...cur,
         {
@@ -181,17 +239,29 @@ export const GameBoard = memo(function GameBoard(props: Props) {
           to: { x: target.x, y: target.y },
           startAlpha: 0.1,
           startScale: 0.6,
-          duration: 300,
+          duration: flight.duration,
+          swell: flight.swell,
         },
       ])
+      landCard(props.discard!, target, flight.duration)
     }
     const eff = effectFor(props.discard!, props.pendingDraw, props.fxTexts)
     if (eff) {
       setEffectTexts((cur) => [
         ...cur,
-        { id: newId(), text: eff.text, color: eff.color, x: width / 2, y: discardPosition(width, height, topReserve).y - 10 },
+        {
+          id: newId(),
+          text: eff.text,
+          color: eff.color,
+          x: width / 2,
+          y: discardPosition(width, height, topReserve).y - 10,
+          delayMs: flightFor(props.discard!).duration,
+        },
       ])
     }
+    // landCard is re-created every render and only schedules a timer; listing it
+    // would restage the landing on any unrelated re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.discard, props.pendingDraw, props.fxTexts, ready, width, height, topReserve])
 
   // ─── Animation effect: my hand grew by one (drew a card) ─────────────────
@@ -282,6 +352,7 @@ export const GameBoard = memo(function GameBoard(props: Props) {
         // The lift applied to playable cards in <Hand /> shifts them up by 9px
         // at rest; mirror it so the fly starts at the visually correct spot.
         const liftedY = props.isPlayable(card) ? slot.y - 9 : slot.y
+        const flight = flightFor(card)
         setFliers((cur) => [
           ...cur,
           {
@@ -291,10 +362,13 @@ export const GameBoard = memo(function GameBoard(props: Props) {
             from: { x: slot.x, y: liftedY, rotation: slot.rotation },
             to: { x: dest.x, y: dest.y, rotation: 0 },
             startAlpha: 0.9,
-            duration: 300,
-            arcHeight: 22,
+            duration: flight.duration,
+            arcHeight: flight.arcHeight,
+            spin: flight.spin,
+            swell: flight.swell,
           },
         ])
+        landCard(card, dest, flight.duration)
         suppressNextDiscardFx.current = true
       }
     }
@@ -307,6 +381,7 @@ export const GameBoard = memo(function GameBoard(props: Props) {
   return (
     <div ref={ref} className={styles.board} data-testid="game-board">
       <div
+        ref={stageRef}
         className={styles.stage}
         style={{ width, height, transform: `translateY(${offsetY}px) scale(${scale})` }}
       >
@@ -375,8 +450,10 @@ export const GameBoard = memo(function GameBoard(props: Props) {
         <AnimationLayer
           fliers={fliers}
           effectTexts={effectTexts}
+          impacts={impacts}
           onFlierDone={removeFlier}
           onEffectDone={removeEffect}
+          onImpactDone={removeImpact}
         />
       </div>
     </div>

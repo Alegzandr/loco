@@ -18,7 +18,9 @@ describe('<AnimationLayer /> spinning fliers', () => {
   it('renders a card back behind a spinning card', () => {
     // Without the second face, half of every turn shows a mirrored front —
     // which reads as a rendering glitch, not as a card turning over.
-    const { getByText } = render(
+    // Asserted on the face nodes, not on the "L": every card face carries that
+    // monogram in its bottom-right corner, so it tells the two apart from nothing.
+    const { container } = render(
       <AnimationLayer
         fliers={[flier({ spin: 2 })]}
         effectTexts={[]}
@@ -26,11 +28,12 @@ describe('<AnimationLayer /> spinning fliers', () => {
         onEffectDone={noop}
       />,
     )
-    expect(getByText('L')).toBeInTheDocument()  // the card-back monogram
+    expect(container.querySelector('[data-flier-face="front"]')).toBeInTheDocument()
+    expect(container.querySelector('[data-flier-face="back"]')).toBeInTheDocument()
   })
 
   it('renders no back for a flier that does not spin', () => {
-    const { queryByText } = render(
+    const { container } = render(
       <AnimationLayer
         fliers={[flier()]}
         effectTexts={[]}
@@ -38,7 +41,7 @@ describe('<AnimationLayer /> spinning fliers', () => {
         onEffectDone={noop}
       />,
     )
-    expect(queryByText('L')).toBeNull()
+    expect(container.querySelector('[data-flier-face="back"]')).toBeNull()
   })
 })
 

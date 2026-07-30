@@ -72,6 +72,54 @@ export const SPRING_HAND = { type: 'spring', stiffness: 520, damping: 38, mass: 
 // Per-card delay when a fresh hand is dealt, in ms.
 export const DEAL_STAGGER_MS = 45
 
+// ─── Rarity & the throw ─────────────────────────────────────────────────────
+// Presentation only. `game/` never consults any of this: it is how a card
+// *lands*, not what it does. The tiers follow scarcity in the deck so the escalation
+// matches how often a player actually sees each one: a number is two thirds of every
+// hand, and dressing up the routine play would leave nothing to escalate to when a
+// wild drops, which is the entire reason the tiers exist.
+export type CardRarity = 'common' | 'rare' | 'legendary'
+
+const WILD_KINDS: ReadonlySet<CardDTO['kind']> = new Set([
+  'wild', 'wild_draw_four', 'global_switch',
+])
+
+/** common = number (72 cards), rare = coloured action (28), legendary = any wild (12). */
+export function cardRarity(card: CardDTO): CardRarity {
+  if (WILD_KINDS.has(card.kind)) return 'legendary'
+  return card.kind === 'number' ? 'common' : 'rare'
+}
+
+/** How a card of this rarity crosses the table, and what it does on impact. */
+export interface Flight {
+  /** ms of travel. */
+  duration: number
+  /** Whole turns of barrel roll. A half turn would land the card face down. */
+  spin: number
+  /** Mid-flight scale: the card passes nearer the camera. */
+  swell: number
+  /** Peak lift of the arc, in px. */
+  arcHeight: number
+  /** Diameter of the shockwave ring on landing; 0 = no ring. */
+  impact: number
+  /** Legendary only: the board takes a knock when it lands. */
+  kick: boolean
+}
+
+const FLIGHTS: Record<CardRarity, Flight> = {
+  common:    { duration: 300, spin: 0, swell: 1.06, arcHeight: 22, impact: 0,   kick: false },
+  rare:      { duration: 380, spin: 1, swell: 1.16, arcHeight: 30, impact: 170, kick: false },
+  legendary: { duration: 470, spin: 2, swell: 1.26, arcHeight: 40, impact: 260, kick: true },
+}
+
+// The single source of flight timing. All four callers (hand to pile, seat to
+// pile, the generic pile refresh and DiscardPile's reveal delay) read it here,
+// because they must agree: a pile that reveals early shows the answer while its
+// own card is still crossing the table.
+export function flightFor(card: CardDTO): Flight {
+  return FLIGHTS[cardRarity(card)]
+}
+
 // Layout math works in radians; framer-motion's `rotate` is in degrees.
 // Convert at the render boundary so neither side has to compromise.
 export function radToDeg(rad: number): number {
