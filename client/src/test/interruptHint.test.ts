@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { clientMayInterrupt, clientMayPlay } from '../components/interruptHelpers'
+import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
 import type { CardDTO } from '../types/protocol'
 
 const red5: CardDTO = { color: 'red', kind: 'number', value: 5 }
@@ -79,5 +79,55 @@ describe('clientMayPlay', () => {
     expect(clientMayPlay(red5, blue5, 'blue', 0)).toBe(true)  // same number value
     expect(clientMayPlay(red5, red6, 'red', 0)).toBe(true)    // same color
     expect(clientMayPlay(red5, red6, 'blue', 0)).toBe(false)  // no overlap
+  })
+
+  it('answers a pending penalty only with the same-coloured draw card', () => {
+    const redD2: CardDTO = { color: 'red', kind: 'draw_two' }
+    const blueD2: CardDTO = { color: 'blue', kind: 'draw_two' }
+    expect(clientMayPlay(redD2, redD2, 'red', 2)).toBe(true)
+    expect(clientMayPlay(blueD2, redD2, 'red', 2)).toBe(false)
+  })
+
+  it('plays that same off-colour +2 normally once the penalty has been taken', () => {
+    // Forced draws do not cost the turn (§14.5): pendingDraw is back to 0 and the
+    // +2 is now an ordinary kind-match on the +2 still sitting on the discard.
+    const redD2: CardDTO = { color: 'red', kind: 'draw_two' }
+    const blueD2: CardDTO = { color: 'blue', kind: 'draw_two' }
+    expect(clientMayPlay(blueD2, redD2, 'red', 0)).toBe(true)
+  })
+})
+
+describe('isCounterCard', () => {
+  const redD2: CardDTO = { color: 'red', kind: 'draw_two' }
+  const blueD2: CardDTO = { color: 'blue', kind: 'draw_two' }
+  const wd4: CardDTO = { color: 'wild', kind: 'wild_draw_four' }
+
+  it('accepts a same-coloured +2 on a +2 and refuses another colour', () => {
+    expect(isCounterCard(redD2, redD2, 2)).toBe(true)
+    expect(isCounterCard(blueD2, redD2, 2)).toBe(false)
+  })
+
+  it('accepts a +4 on a +4', () => {
+    expect(isCounterCard(wd4, wd4, 4)).toBe(true)
+  })
+
+  it('does not cross kinds — a +4 never answers a +2 and vice-versa', () => {
+    expect(isCounterCard(wd4, redD2, 2)).toBe(false)
+    expect(isCounterCard(redD2, wd4, 4)).toBe(false)
+  })
+
+  it('rejects every other card while a penalty is pending', () => {
+    expect(isCounterCard(red5, redD2, 2)).toBe(false)
+    expect(isCounterCard(globalSwitch, redD2, 2)).toBe(false)
+    expect(isCounterCard(wild, wd4, 4)).toBe(false)
+  })
+
+  it('is false with no pending penalty — that tap is an ordinary play', () => {
+    expect(isCounterCard(redD2, redD2, 0)).toBe(false)
+    expect(isCounterCard(blueD2, redD2, 0)).toBe(false)
+  })
+
+  it('rejects when there is no top discard yet', () => {
+    expect(isCounterCard(redD2, null, 2)).toBe(false)
   })
 })

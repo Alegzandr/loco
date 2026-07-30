@@ -11,7 +11,7 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 - Server-authoritative anti-cheat architecture
 - Smooth, polished visuals powered by React + Framer Motion
 - A look worth streaming: chunky cartoon art direction (Nintendo × Gartic Phone), readable at 720p over someone's commentary
-- Fully synthesised audio — sound effects and an adaptive music bed, zero audio assets shipped
+- Fully synthesised audio — sound effects and a shuffled playlist of three adaptive soundtracks, zero audio assets shipped
 - Reaction mechanics with server-side timing windows (UNO catch, interception slam)
 - Full Docker-based local development and deployment
 
@@ -51,10 +51,10 @@ loco/
 │   ├── src/
 │   │   ├── components/    # UI screens (Lobby, WaitingRoom, GameView, GameOver, RulesModal, …)
 │   │   ├── components/cards/  # React + Framer Motion card renderer (GameBoard, Hand, Card, AnimationLayer, …)
-│   │   ├── audio/         # Synthesised SFX, adaptive music bed, engine + store bridge
+│   │   ├── audio/         # Synthesised SFX, music engine, tracks/ (music as data), store bridge
 │   │   ├── dev/           # Dev-only visual showcase (scene registry, tree-shaken in prod)
-│   │   ├── hooks/         # WebSocket transport + Zustand store
-│   │   ├── i18n/          # I18nProvider + en/fr translations
+│   │   ├── hooks/         # WebSocket transport + Zustand store + held-key hook
+│   │   ├── i18n/          # I18nProvider + en/fr translations + server-error copy
 │   │   ├── styles/        # Design tokens (single source of truth for colour/type/shape)
 │   │   ├── types/         # Protocol TypeScript types
 │   │   └── test/          # Vitest unit tests
@@ -62,6 +62,7 @@ loco/
 │   └── Dockerfile
 ├── e2e/                   # Playwright suite (separate package.json)
 ├── tools/visual/          # Screenshot harness (shoot.mjs) — see "Visual QA"
+├── tools/og/              # Link-preview generator (shoot.mjs → client/public/og.png)
 ├── docs/                  # Rules spec and supplemental docs
 ├── deploy/                # Production compose + traefik config
 ├── docker-compose.yml     # Production-style full-stack compose
@@ -239,7 +240,8 @@ contact sheet per viewport/theme into `.visual/` (git-ignored):
 ```bash
 make visual                                              # everything
 make visual ARGS="--scenes=game-my-turn --viewports=mobile"
-make visual ARGS="--viewports=wide"                      # 1920×1080, board at full scale
+make visual ARGS="--viewports=wide"                      # 1920×1080, board scaled up
+make visual ARGS="--viewports=small"                     # 360×640, board scaled down
 make visual ARGS="--themes=dark --motion"                # keep animations running
 ```
 
@@ -249,6 +251,36 @@ theme that never applied) that no assertion was ever going to describe.
 
 The showcase is gated behind `import.meta.env.DEV`, so Rollup drops it — and its
 chunk — from production builds.
+
+### Link preview (Discord / X)
+
+The game is meant to be shared as a link, so the preview card is a product
+surface, not metadata. `client/public/og.png` (1200×630) is rendered from the
+`og-card` scene — the **real** `<LocoLogo />` and the **real** `<Card />`, so the
+duck on the preview is the duck on the cards is the duck in the tab:
+
+```bash
+make og                                     # → client/public/og.png (English)
+make og ARGS="--lang=fr --out=client/public/og.fr.png"
+```
+
+The PNG is **committed**: the client image is built by `npm run build` in CI,
+which has no browser, and a preview that 404s is worse than no preview.
+
+- Absolute URLs are required — crawlers resolve `og:image` against nothing.
+  `client/index.html` uses a `%OG_ORIGIN%` token substituted at build time by the
+  `loco-og-origin` plugin in `vite.config.ts`; it defaults to the production
+  origin and is overridable with `VITE_PUBLIC_ORIGIN`.
+- Discord and X **cache a preview by URL** for days. Bump the `?v=` on
+  `og:image`/`twitter:image` in `index.html` whenever the art changes, then
+  re-scrape from X's Card Validator or by re-posting the link.
+- `twitter:card` is `summary_large_image`; without it X renders a 120px
+  thumbnail instead of the card.
+- Previews will **not** render on the `-d.` dev host: nginx serves
+  `robots.txt: Disallow: /` there and X's crawler honours it. That is deliberate.
+- `client/src/test/ogCard.test.ts` asserts the tags exist, point at absolute
+  URLs, and declare the dimensions the committed PNG actually has — nothing else
+  in the suite would notice the preview breaking.
 
 ### Audio verification
 
@@ -315,13 +347,13 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Draw, pass, and play-card actions (BO1 + BO3)
 - Turn timer bar visibility
 - Error toast on invalid play
-- UNO catch window (Catch! button, timer)
+- Last-card catch window ("LOCO!" declaration button, Catch! button, timer), including the seat a Swap hands its last card to
 - Pending-draw counter on Draw button
 - Penalty absorption (pendingDraw clears, turn advances)
 - BO3 multi-round progression (round 2, auto-dismiss, game over)
 - Spectating banner (local player finishes before round ends)
 - WebSocket reconnect (offline/online cycle, reconnect overlay, two-client disconnect)
-- Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch discard update
+- Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch colour prompt + discard update
 - Swap / Global Swap on-screen notification banner + Framer Motion card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch, wilds included), interrupt window open/closed
 - Rematch: host reopens the finished room and plays a full new match; a joined player is pulled back to the waiting room and keeps their seat
@@ -332,12 +364,17 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 ## Implemented Features
 
 - **Lobby**: nickname-only rooms, 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
-- **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking, identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, UNO declare + 5 s catch window, single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
+- **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`) + a per-seat 5 s catch window that also covers the players a Swap or a Global Swap leaves holding a single card, single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
 - **Rematch**: after a match the host reopens the same room (same code, same roster, cleared scores); absent seats are pruned, everyone else is pulled back to the waiting room.
-- **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n, light + dark themes.
-- **Art direction**: chunky cartoon system — ink outlines, solid press-down shadows, saturated card faces, felt table with a real rim. Seats resize and wrap so a nine-player table stays readable on a phone. Design tokens live in `client/src/styles/tokens.css`.
+- **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
+  copy rather than showing the server's own English string), light + dark themes.
+- **Card feel**: cards are tiered by scarcity for presentation only — a number lands clean and quick, a coloured action barrel-rolls once, a wild rolls twice, arriving bigger, ringed by a shockwave and kicking the board. Special cards carry a trading-card foil (masked to the frame so suit colour survives stream compression) with a travelling highlight desynchronised per card. The discard pile reveals its new top **on impact**, so the throw is the reveal.
+- **Art direction**: chunky cartoon system — ink outlines, solid press-down shadows, a dark table with a real rim. Seats resize and wrap so a nine-player table stays readable on a phone. Design tokens live in `client/src/styles/tokens.css`.
+- **The deck has its own identity**: each face is a full-bleed suit gradient with the LOCO mark — a geometric wireframe duck, straight from the brand's source file — behind it in the *same gradient reversed*, drawn as one SVG (`client/src/components/cards/CardArt.tsx`, `cardArtSpace.ts`, `locoMark.ts`). On a card the mark is deliberately **cropped and tilted** so the artwork runs off all four edges and under the value; the logo (`LocoLogo.tsx`), the favicon and the table watermark show it **whole**. Card faces do not follow the light/dark theme — a card is an object, not a control. Every glyph is ink-outlined: off-white on the green suit is 1.2:1, and outlined it clears 14:1 on every face.
+- Review the whole deck on one screen with `make visual ARGS="--scenes=card-sheet"`.
+- **Score table**: hold `TAB` during a match (or tap the **Scores** button, which is how it opens on a phone) for the standings: seat colour, nickname, one column per finished round, cumulative total, rounds won, and a live ping per player coloured by how much it costs in a race (green under 60 ms, red past 220 ms). Both the per-round history and the ping are measured and broadcast by the server, so they survive a reconnect and cannot be self-reported.
 - **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
-- **Audio**: runtime-synthesised effects for every action and rule outcome, plus a generative music bed built on a recurring motif, whose tempo and layer count follow the tension at the table (someone on one card, a climbing draw stack). Intensity is ramped rather than switched, layers join on bar lines, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
+- **Audio**: runtime-synthesised effects for every action and rule outcome, plus **three adaptive soundtracks** — *Neon Horizon* (uplifting trance, 138 BPM), *Pixel Rush* (electro house, 128) and *Voltage* (dark electro, 145) — each written as parts (intro, verse, chorus, bridge, break) rather than a loop. They play as a **shuffled playlist**: a track runs about two minutes, then hands over on its own, and the only control is a ⏭ next button. Two things drive what you hear: the **song form** advances by itself, so around forty bars pass before a part returns, and the **table's tension** picks how thickly it is played *and* which part comes next — a breakdown between rounds, a build-up in the lobby, a groove during play, the full drop when someone is one card from winning. Risers and crashes announce a chorus, fills close every part, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
 - **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).

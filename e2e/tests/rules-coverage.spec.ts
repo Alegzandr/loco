@@ -554,8 +554,10 @@ test.describe('rules coverage — Take 2 / Take 4 stacking (§7)', () => {
           { color: 'red', kind: 'draw_two' },
           { color: 'yellow', kind: 'number', value: 3 },
         ],
+        // Bob's counter must be the same card as the one played at him — a red
+        // +2 answers a red +2 (§11). The off-colour one is tested below.
         hands: [{ playerIndex: bobIdx, hand: [
-          { color: 'blue', kind: 'draw_two' },
+          { color: 'red', kind: 'draw_two' },
           { color: 'green', kind: 'number', value: 7 },
         ]}],
         discard: { color: 'red', kind: 'number', value: 5 },
@@ -576,10 +578,10 @@ test.describe('rules coverage — Take 2 / Take 4 stacking (§7)', () => {
         { timeout: 10_000 },
       )
 
-      // Bob counters with another +2 (any color)
+      // Bob counters with the same-coloured +2
       await sendMsg(bob, {
         type: 'counter_draw',
-        card: { color: 'blue', kind: 'draw_two' },
+        card: { color: 'red', kind: 'draw_two' },
       })
 
       // pendingDraw must accumulate to 4 and turn return to Alice
@@ -594,7 +596,7 @@ test.describe('rules coverage — Take 2 / Take 4 stacking (§7)', () => {
       const after = await getState(alice)
       expect(after?.pendingDraw).toBe(4)
       expect(after?.discard?.kind).toBe('draw_two')
-      expect(after?.discard?.color).toBe('blue')
+      expect(after?.discard?.color).toBe('red')
     } finally {
       await ctx1.close()
       await ctx2.close()
@@ -787,6 +789,7 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       await sendMsg(alice, {
         type: 'play_card',
         card: { color: 'wild', kind: 'global_switch' },
+        chosen_color: 'green',
       })
 
       // Discard must change to global_switch on both clients
@@ -800,6 +803,65 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       // Bob's view of Alice = bobHand.length, and Bob's own hand = 2 (Alice's leftover)
       const bobAfter = await getState(bob)
       expect(bobAfter?.myHand.length).toBe(aliceHand.length - 1) // minus the played GS
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  // A GlobalSwitch is not a Skip: the seat right after the actor must get the
+  // turn, with the hand it just received. Three seats, so "next seat" and "the
+  // one after it" are distinguishable — in a 2-player game both are the opponent.
+  test('GlobalSwitch: the next seat gets the turn and can play', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await addBot(alice) // third seat, kept idle: it never holds the turn here
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Direction is clockwise (the opening discard is always a Number, so no
+      // Reverse can have flipped it), so Bob sits right after Alice.
+      const playableAfter = { color: 'red', kind: 'number', value: 6 }
+      await debugSetState(alice, {
+        hand: [{ color: 'wild', kind: 'global_switch' }, { color: 'red', kind: 'number', value: 1 }],
+        hands: [{ playerIndex: bobIdx, hand: [playableAfter, { color: 'blue', kind: 'number', value: 9 }] }],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        activeColor: 'red',
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+      })
+
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'wild', kind: 'global_switch' },
+        chosen_color: 'red',
+      })
+
+      // Both clients must agree the turn landed on Bob — not on the seat after him.
+      await waitForTurn(bob, bobIdx)
+      await waitForTurn(alice, bobIdx)
+
+      // A GlobalSwitch names its colour like any other wild. It must be a real
+      // one: with 'wild' active nothing coloured would be legal for anyone and
+      // the table would be stuck drawing until somebody turned up a wild.
+      expect((await getState(bob))?.activeColor).toBe('red')
+
+      // And it is a real turn: Bob plays a card from the hand he just received
+      // (Alice's leftover red 1 rotated to him).
+      const bobHand = (await getState(bob))?.myHand ?? []
+      expect(bobHand).toHaveLength(1)
+      await sendMsg(bob, { type: 'play_card', card: bobHand[0] })
+      await bob.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'number',
+        undefined, { timeout: 10_000 })
     } finally {
       await ctx1.close()
       await ctx2.close()
@@ -835,6 +897,7 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       await sendMsg(alice, {
         type: 'play_card',
         card: { color: 'wild', kind: 'global_switch' },
+        chosen_color: 'blue',
       })
 
       await alice.waitForFunction(
@@ -972,30 +1035,54 @@ test.describe('rules coverage — Interjecting (§6)', () => {
 })
 
 test.describe('rules coverage — LOCO! call (§8, §11.1)', () => {
-  test('LOCO! is NOT required when receiving 1 card via Swap (§11.1)', async ({ browser }: { browser: Browser }) => {
+  // §11.1: receiving your last card owes the table a declaration exactly like
+  // playing down to it. Three seats so the catcher is somebody with a full hand:
+  // a player on one card sees LOCO! in the centre slot, not Catch.
+  test('LOCO! IS required when a Swap hands you your last card (§11.1)', async ({ browser }: { browser: Browser }) => {
     const ctx1 = await browser.newContext()
     const ctx2 = await browser.newContext()
+    const ctx3 = await browser.newContext()
     const alice = await ctx1.newPage()
     const bob = await ctx2.newPage()
+    const carol = await ctx3.newPage()
     try {
       const code = await createRoom(alice, 'Alice')
       await joinRoom(bob, 'Bob', code)
+      await joinRoom(carol, 'Carol', code)
       await startGame(alice)
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(carol)).toBeVisible({ timeout: 10_000 })
 
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
+      const carolIdx = (await getState(carol))?.myIndex ?? 2
 
-      // Alice has Swap + filler (2 cards). Bob has exactly 1 card.
-      // After Alice plays Swap targeting Bob, Alice gets Bob's 1 card and Bob gets Alice's 1 filler.
-      // Alice now has 1 card but did NOT play to reach 1 (she received it). No LOCO! penalty,
-      // and Catch! must NOT appear on Bob's side for Alice.
+      // Alice: Swap + one leftover. Bob: three cards. Carol: two, so she is the
+      // one seat whose action bar still shows Catch.
+      // After the swap Alice holds Bob's three and Bob holds Alice's single
+      // leftover — Bob never played a card, he was handed his last one.
       await debugSetState(alice, {
         hand: [
           { color: 'red', kind: 'swap' },
           { color: 'blue', kind: 'number', value: 4 },
         ],
-        hands: [{ playerIndex: bobIdx, hand: [{ color: 'green', kind: 'number', value: 6 }] }],
+        hands: [
+          {
+            playerIndex: bobIdx,
+            hand: [
+              { color: 'green', kind: 'number', value: 6 },
+              { color: 'green', kind: 'number', value: 7 },
+              { color: 'green', kind: 'number', value: 8 },
+            ],
+          },
+          {
+            playerIndex: carolIdx,
+            hand: [
+              { color: 'yellow', kind: 'number', value: 2 },
+              { color: 'yellow', kind: 'number', value: 3 },
+            ],
+          },
+        ],
         discard: { color: 'red', kind: 'number', value: 5 },
         pendingDraw: 0,
         currentTurn: aliceIdx,
@@ -1007,27 +1094,24 @@ test.describe('rules coverage — LOCO! call (§8, §11.1)', () => {
         chosen_player: bobIdx,
       })
 
-      // Wait for the swap to complete (discard = swap, Alice's hand size = 1).
-      await alice.waitForFunction(
-        () => {
-          const s = window.__LOCO_E2E__?.getState?.()
-          return s?.discard?.kind === 'swap' && (s?.myHand?.length ?? 0) === 1
-        },
+      // Bob is the only seat left on one card, so he is the catch Carol is offered.
+      await carol.waitForFunction(
+        (idx: number) => window.__LOCO_E2E__?.getState?.()?.catchTarget === idx,
+        bobIdx, { timeout: 10_000 })
+
+      const catchBtn = carol.getByRole('button', { name: T.catchBtn })
+      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await catchBtn.click()
+
+      // The penalty lands on Bob: one received card + two drawn.
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) === 3,
         undefined, { timeout: 10_000 })
-
-      // unoTimerEnd must NOT be set (no catch window opens for swap-receive)
-      await alice.waitForTimeout(300) // give any spurious event time to arrive
-      const aliceState = await getState(alice)
-      const bobState = await getState(bob)
-
-      expect(aliceState?.myHand.length).toBe(1)
-      expect(aliceState?.unoTimerEnd ?? null).toBeNull()
-      // Bob should not see a Catch button for Alice
-      const catchVisible = await bob.getByRole('button', { name: T.catchBtn }).isVisible().catch(() => false)
-      expect(catchVisible).toBe(false)
+      expect((await getState(alice))?.myHand.length).toBe(3)
     } finally {
       await ctx1.close()
       await ctx2.close()
+      await ctx3.close()
     }
   })
 })

@@ -1,0 +1,88 @@
+/* See OgCard.tsx. A fixed 1200×630 drawing, not a responsive layout: the frame
+   only scales it whole so it can also be looked at in the gallery. */
+
+.frame {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #0a0c14;
+}
+
+.card {
+  position: relative;
+  width: 1200px;
+  height: 630px;
+  flex: none;
+  overflow: hidden;
+  transform-origin: center;
+
+  /* The table, not the app: this image never follows the light/dark theme, so
+     every token it inherits is pinned here. A link preview is one picture, and
+     it must not depend on which theme the machine that captured it was in. */
+  --color-stroke: #241546;
+  --color-primary: #ff3d68;
+
+  /* Same near-black felt the board uses. The cards are the only bright objects
+     on it, which is exactly the job at preview size. */
+  background:
+    radial-gradient(120% 140% at 78% 108%, #2b3145 0%, rgba(43, 49, 69, 0) 62%),
+    linear-gradient(150deg, #262b3a 0%, #12151f 58%, #0a0c14 100%);
+  font-family: var(--font-body);
+}
+
+/* Two suit-coloured washes behind the artwork. Enough to keep the corners from
+   going flat black in a dark Discord channel, far too faint to fight a card. */
+.glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(46% 62% at 20% 34%, rgba(255, 61, 104, 0.32) 0%, rgba(255, 61, 104, 0) 70%),
+    radial-gradient(52% 68% at 74% 22%, rgba(108, 92, 255, 0.34) 0%, rgba(108, 92, 255, 0) 72%),
+    radial-gradient(40% 55% at 60% 100%, rgba(21, 212, 255, 0.18) 0%, rgba(21, 212, 255, 0) 70%);
+}
+
+.brand {
+  position: absolute;
+  left: 76px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 344px;
+  z-index: 10;
+}
+
+.logo {
+  /* The stacked logo centres itself; here it anchors the left column. */
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.tagline {
+  margin: 26px 0 0 4px;
+  max-width: 340px;
+  font: 600 30px/1.25 var(--font-display);
+  letter-spacing: -0.2px;
+  color: #e9e2ff;
+  text-shadow: 0 2px 0 rgba(10, 12, 20, 0.55);
+}
+
+/* Bottom-anchored so the arc rises out of the lower-right corner the way a hand
+   does, and free to bleed a little past the frame — a fan that stops politely
+   inside the edges reads as clip art. */
+.fan {
+  position: absolute;
+  left: 470px;
+  bottom: 118px;
+  width: 0;
+  height: 0;
+}
+
+.slot {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 14px 0 rgba(6, 7, 12, 0.45))
+    drop-shadow(0 26px 34px rgba(0, 0, 0, 0.55));
+}

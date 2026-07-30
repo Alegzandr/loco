@@ -6,36 +6,80 @@ export interface OpponentBubblePosition {
   y: number
 }
 
+/** Vertical space the top chrome (round badge, theme/audio/rules cluster) owns. */
+export const TOP_CHROME = 58
+
 // ─── Board scale ────────────────────────────────────────────────────────────
 // The whole board is laid out in a fixed coordinate space and then scaled to
 // the viewport, exactly like a game canvas. Everything — cards, seats, felt,
 // fliers, type — grows by the same factor, so a 1440p monitor shows a bigger
 // table rather than the same small table surrounded by background.
 //
-// The design space is the smallest window we still consider "desktop"; below it
-// the scale stays at 1 and the layout falls back to its responsive behaviour
-// (which is what phones already use).
-const DESIGN_W = 1150
-const DESIGN_H = 730
+// The design space is the smallest window we still consider "desktop"; between
+// it and the phone reference below, the scale stays at 1 and the layout falls
+// back to its responsive behaviour.
+const DESIGN_W = 1240
+const DESIGN_H = 790
+
+// Phone reference: the screen the current card/seat sizes were drawn for. A
+// narrower or shorter phone scales the whole board down instead of showing the
+// same objects cropped — the elements were "trop gros, trop in" on small
+// screens, and shrinking the coordinate space keeps every proportion intact.
+const PHONE_W = 405
+const PHONE_H = 830
+/** Below this width we are on a phone and the board may shrink. */
+const PHONE_MAX_W = 560
 
 /** Upper bound: past this the felt starts to look like a poster, not a table. */
-export const MAX_BOARD_SCALE = 1.6
+export const MAX_BOARD_SCALE = 1.45
+/** Lower bound: past this the suit glyphs stop reading at arm's length. */
+export const MIN_BOARD_SCALE = 0.78
 
 /**
  * Scale factor between the board's coordinate space and its pixel size.
  *
- * Driven by the *shorter* axis relative to the design space: an ultrawide but
+ * Driven by the *shorter* axis relative to the reference space: an ultrawide but
  * short window has no vertical room to spend, and scaling on width alone would
  * push the hand under the action bar.
  */
 export function boardScale(width: number, height: number): number {
   if (width <= 0 || height <= 0) return 1
+  if (width < PHONE_MAX_W) {
+    const fit = Math.min(width / PHONE_W, height / PHONE_H)
+    return Math.min(1, Math.max(MIN_BOARD_SCALE, fit))
+  }
   const fit = Math.min(width / DESIGN_W, height / DESIGN_H)
   return Math.min(MAX_BOARD_SCALE, Math.max(1, fit))
 }
 
-/** Vertical space the top chrome (round badge, theme/audio/rules cluster) owns. */
-const TOP_CHROME = 58
+/**
+ * Virtual size of the board's coordinate space, plus the pixel offset the stage
+ * must be translated by.
+ *
+ * Not simply `px / scale`. The board is bracketed by two bands of **real
+ * chrome** that do not scale with it: the round badge / theme / audio / rules
+ * cluster on top (`TOP_CHROME`) and the action bar at the bottom
+ * (`BOTTOM_RESERVE`). Both reserves therefore have to stay constant in
+ * *pixels*. Scaling them along with everything else shrinks them on a phone —
+ * seats slide under the buttons and the hand under the action bar — and
+ * inflates them on a monitor into two bands nothing is allowed to use.
+ *
+ * `offsetY` pins the top band; the height is then solved so the bottom one
+ * lands exactly on the action bar.
+ */
+export function boardSpace(
+  pxWidth: number,
+  pxHeight: number,
+  scale: number,
+): { width: number; height: number; offsetY: number } {
+  const offsetY = TOP_CHROME * (1 - scale)
+  return {
+    width: pxWidth / scale,
+    height: (pxHeight - BOTTOM_RESERVE - offsetY) / scale + BOTTOM_RESERVE,
+    offsetY,
+  }
+}
+
 /** Gap between stacked seat rows. */
 const ROW_GAP = 6
 /** Minimum breathing room between two pills on the same row. */

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { useGameStore, SwapNotice, UNO_CATCH_WINDOW_MS } from '../hooks/useGameStore'
-import { useProgressTimer } from '../hooks/useProgressTimer'
+import { useDrainBar } from '../hooks/useDrainBar'
 import { useCountdown } from '../hooks/useCountdown'
 import { useReconnectAnimation } from '../hooks/useReconnectAnimation'
+import { useHeldKey } from '../hooks/useHeldKey'
 import { useI18n } from '../i18n'
 import { Translations } from '../i18n/en'
+import { resolveServerError } from '../i18n/serverErrors'
 import { WsStatus } from '../hooks/useWebSocket'
 import { RulesModal } from './RulesModal'
 import { UnoTimer } from './UnoTimer'
@@ -13,11 +15,12 @@ import { ColorPicker } from './ColorPicker'
 import { PlayerPicker } from './PlayerPicker'
 import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
+import { ScoreTable } from './ScoreTable'
 import { InterruptBanner } from './InterruptBanner'
 import { ThemeToggle } from './ThemeToggle'
 import { AudioSettings } from './AudioSettings'
 import { playSfx } from '../audio/sfx'
-import { clientMayInterrupt, clientMayPlay } from './interruptHelpers'
+import { clientMayInterrupt, clientMayPlay, isCounterCard } from './interruptHelpers'
 import { GameBoard } from './cards/GameBoard'
 import styles from './GameView.module.css'
 
@@ -59,16 +62,25 @@ function resolveSwapNoticeText(
 export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
   // `interrupt` routes the confirmed choice to interrupt_play_card instead of
-  // play_card; `copies` carries a batch slam through the colour prompt.
+  // play_card, `counter` to counter_draw (a +4 answering a pending stack still
+  // names a colour); `copies` carries a batch slam through the colour prompt.
   const [colorPicker, setColorPicker] = useState<
-    { card: CardDTO; idx: number; interrupt?: boolean; copies?: CardDTO[] } | null
+    { card: CardDTO; idx: number; interrupt?: boolean; counter?: boolean; copies?: CardDTO[] } | null
   >(null)
   const [playerPicker, setPlayerPicker] = useState<
     { card: CardDTO; idx: number; interrupt?: boolean } | null
   >(null)
   const lastActionRef = useRef<number>(0)
   const [showRules, setShowRules] = useState(false)
+  // Touch devices have no TAB key, so the same table is also pinned open by a
+  // button in the top cluster. Held and pinned are separate states on purpose:
+  // releasing TAB must never close a table the player deliberately pinned.
+  const [pinnedScores, setPinnedScores] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Countdown bars are written to directly, never through state: see useDrainBar.
+  const turnFillRef = useRef<HTMLDivElement>(null)
+  const turnTrackRef = useRef<HTMLDivElement>(null)
+  const catchFillRef = useRef<HTMLDivElement>(null)
 
   const {
     myHand,
@@ -89,6 +101,8 @@ export function GameView({ onSend, wsStatus }: Props) {
     roundScores,
     roundNumber_completed,
     scoreboard,
+    roundHistory,
+    latencies,
     roundNumber,
     matchFormat,
     isReconnecting,
@@ -99,7 +113,7 @@ export function GameView({ onSend, wsStatus }: Props) {
     dismissRoundSummary,
     setIsReconnecting,
     setSwapNotice,
-    clearCatchWindow,
+    pruneCatchWindows,
     clearInterrupt,
     clearError,
   } = useGameStore()
@@ -125,24 +139,38 @@ export function GameView({ onSend, wsStatus }: Props) {
           (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
         )
         const batch = copies.length > 1 ? copies : undefined
-        // Wilds can take the lead too, and they still need their colour named.
-        // global_switch carries no colour choice, so it goes straight out.
-        if (card.kind === 'wild' || card.kind === 'wild_draw_four') {
-          setColorPicker({ card, idx: cardIdx, interrupt: true, copies: batch })
+        // Wilds can take the lead too, and they still need their colour named
+        // global_switch included: it rotates the hands *and* sets the colour.
+        if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
+          setColorPicker({
+            card,
+            idx: cardIdx,
+            interrupt: true,
+            copies: card.kind === 'global_switch' ? undefined : batch,
+          })
           return
         }
         if (card.kind === 'swap') {
           setPlayerPicker({ card, idx: cardIdx, interrupt: true })
           return
         }
-        onSend({
-          type: 'interrupt_play_card',
-          card,
-          play_cards: card.kind === 'global_switch' ? undefined : batch,
-        })
+        onSend({ type: 'interrupt_play_card', card, play_cards: batch })
         return
       }
-      if (card.kind === 'wild' || card.kind === 'wild_draw_four') {
+      // Answering a pending +2/+4 stack is its own message. Any matching draw
+      // card counters, whatever its colour — the server compares kinds only.
+      // Sending play_card here is always refused ("must counter or draw pending
+      // penalty cards first"), which used to make stacking unreachable by tap.
+      if (pendingDraw > 0) {
+        if (!isCounterCard(card, discard, pendingDraw)) return
+        if (card.kind === 'wild_draw_four') {
+          setColorPicker({ card, idx: cardIdx, counter: true })
+          return
+        }
+        onSend({ type: 'counter_draw', card, chosen_color: card.color })
+        return
+      }
+      if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
         setColorPicker({ card, idx: cardIdx })
         return
       }
@@ -150,7 +178,6 @@ export function GameView({ onSend, wsStatus }: Props) {
         setPlayerPicker({ card, idx: cardIdx })
         return
       }
-      // global_switch: play immediately (no picker needed).
       // Block clearly-invalid plays so there's no "fake" play UI flash.
       // Server is always authoritative; this is a UX hint only.
       if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return
@@ -172,6 +199,18 @@ export function GameView({ onSend, wsStatus }: Props) {
     }
   }, [handleCardClick, myHand])
 
+  // A picker is a promise about a board that no longer exists once a card lands.
+  // Someone interjecting on top of the discard you were about to answer (the
+  // classic case is a second GlobalSwitch stealing the lead) invalidates both
+  // the colour and the swap target you were choosing, and the server would
+  // refuse the play anyway. Close them: the interjecter now owns the choice.
+  useEffect(() => {
+    if (!lastPlay) return
+    setColorPicker(null)
+    setPlayerPicker(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastPlay?.at])
+
   // Reconnect visual recovery: 600ms overlay → board fades back in via GameBoard's
   // internal rebuildKey effect.
   const showReconnectOverlay = useReconnectAnimation(
@@ -179,24 +218,33 @@ export function GameView({ onSend, wsStatus }: Props) {
     () => setIsReconnecting(false),
   )
 
-  // UNO catch + per-turn countdown bars: drive a percent from the deadline.
-  // UNO uses the fixed 5000ms catch window; turn timer anchors to whatever
-  // time remained when the deadline became active.
-  const timerPct = useProgressTimer(unoTimerEnd, UNO_CATCH_WINDOW_MS)
-  const turnTimerPct = useProgressTimer(turnDeadline, 'auto')
+  // UNO catch + per-turn countdown bars. Both drain through a CSS animation
+  // armed once per deadline (useDrainBar) rather than a per-frame state
+  // update: the board must not re-render sixty times a second just to move a
+  // 6px bar. UNO uses the fixed 5000ms catch window; the turn timer anchors to
+  // whatever time remained when the deadline became active, since the server
+  // re-arms it on a draw.
+  // The catch bar is only mounted once a target is on the hook, so the deadline
+  // handed to the hook has to go null with it, otherwise the effect would not
+  // re-run when the element finally appears, and the bar would never arm.
+  const catchDeadline = catchTarget !== null ? unoTimerEnd : null
+  useDrainBar(turnFillRef, turnDeadline, 'auto', turnTrackRef, styles.turnTimerUrgent)
+  useDrainBar(catchFillRef, catchDeadline, UNO_CATCH_WINDOW_MS)
 
-  // Close the catch window locally when it runs out. The server enforces the
-  // same 5 s deadline, so a late click would only earn an error toast.
+  // Retire each catch window locally when it runs out. Only the expired ones
+  // go: after a Swap or a GlobalSwitch several seats are on the hook with
+  // different deadlines, and the next one becomes the offered catch. The server
+  // enforces the same 5 s, so a late click would only earn an error toast.
   useEffect(() => {
     if (unoTimerEnd === null) return
     const remaining = unoTimerEnd - Date.now()
     if (remaining <= 0) {
-      clearCatchWindow()
+      pruneCatchWindows()
       return
     }
-    const id = setTimeout(clearCatchWindow, remaining)
+    const id = setTimeout(pruneCatchWindows, remaining)
     return () => clearTimeout(id)
-  }, [unoTimerEnd, clearCatchWindow])
+  }, [unoTimerEnd, pruneCatchWindows])
 
   // Auto-clear the swap / global_switch notice after a short window.
   // The matching trail animation lives in <GameBoard /> (keyed by swapNotice.at).
@@ -256,10 +304,22 @@ export function GameView({ onSend, wsStatus }: Props) {
   // fresh object literal each render would replay the callout on every update.
   const fxTexts = useMemo(() => ({ skip: t.fxSkip, reverse: t.fxReverse }), [t])
 
+  // Hold TAB for the standings. Disabled while a dialog owns the screen: inside
+  // the rules modal or a picker, TAB still belongs to the dialog's own focus
+  // order, and the summary already shows the same numbers.
+  const scoresHeld = useHeldKey(
+    'Tab',
+    !showRules && !colorPicker && !playerPicker && !showRoundSummary,
+  )
+  const showScores = scoresHeld || pinnedScores
+
   const isMyTurn = currentTurn === myIndex
   // True when the player has at least one card they can legally play right now.
   // Used to de-emphasize the Draw button so it doesn't look like the required action.
   const hasPlayableCard = isMyTurn && myHand.some(c => clientMayPlay(c, discard, activeColor, pendingDraw))
+  // While a penalty is pending the only legal cards are the ones that stack it,
+  // so "can I play something" and "can I counter" are the same question.
+  const canCounter = pendingDraw > 0 && hasPlayableCard
 
   // Predicates passed to <GameBoard />: highlight what can be played right now.
   // Off-turn that means exact-match slams, on-turn the normal legality rules —
@@ -277,6 +337,25 @@ export function GameView({ onSend, wsStatus }: Props) {
     [isMyTurn, discard, pendingDraw],
   )
 
+  // <GameBoard /> is memoised, and it is the expensive half of the screen: seat
+  // layout, hand slots and every card are re-derived on each of its renders.
+  // These two used to be an object literal and an arrow in the JSX, which
+  // handed it a new identity on every parent render, so a latency broadcast, an
+  // error toast or a catch window would have rebuilt the whole board.
+  const turnTexts = useMemo(
+    () => ({
+      yourTurn: t.yourTurn,
+      drawOrCounter: t.drawOrCounter,
+      drawPenalty: t.drawPenalty,
+      playerTurnSuffix: t.playerTurnSuffix,
+    }),
+    [t],
+  )
+  const handleDraw = useCallback(
+    () => guardDoubleTap(() => onSend({ type: 'draw_card' })),
+    [guardDoubleTap, onSend],
+  )
+
   return (
     <div className={styles.container} ref={containerRef}>
       {/* drawLabel is deliberately not the Draw button's string: two controls
@@ -290,29 +369,26 @@ export function GameView({ onSend, wsStatus }: Props) {
         myIndex={myIndex}
         currentTurn={currentTurn}
         pendingDraw={pendingDraw}
+        canCounter={canCounter}
         isPlayable={cardIsPlayable}
         isInteractive={cardIsInteractive}
         onCardClick={handleCardClick}
-        turnTexts={{ yourTurn: t.yourTurn, drawOrCounter: t.drawOrCounter, playerTurnSuffix: t.playerTurnSuffix }}
+        turnTexts={turnTexts}
         fxTexts={fxTexts}
         swapNotice={swapNotice}
         lastPlay={lastPlay}
         isReconnecting={isReconnecting || showReconnectOverlay}
         canDraw={isMyTurn && (pendingDraw > 0 || !hasDrawn)}
-        onDraw={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
+        onDraw={handleDraw}
         drawLabel={pendingDraw > 0 ? `${t.drawPile} +${pendingDraw}` : t.drawPile}
       />
 
-      {/* Per-turn countdown bar — shown whenever a deadline is active */}
+      {/* Per-turn countdown bar, shown whenever a deadline is active.
+          Both the emptying and the colour are driven by useDrainBar, which
+          never re-renders: see the hook for why that matters here. */}
       {turnDeadline !== null && (
-        <div className={styles.turnTimerBar}>
-          <div
-            className={`${styles.turnTimerFill}${turnTimerPct < 20 ? ' ' + styles.turnTimerFillUrgent : ''}`}
-            style={{
-              width: `${turnTimerPct}%`,
-              background: turnTimerPct < 25 ? '#ff4757' : turnTimerPct < 50 ? '#ffa502' : '#4d96ff',
-            }}
-          />
+        <div ref={turnTrackRef} className={styles.turnTimerBar}>
+          <div ref={turnFillRef} className={`${styles.turnTimerFill} loco-heat`} />
         </div>
       )}
 
@@ -342,7 +418,7 @@ export function GameView({ onSend, wsStatus }: Props) {
 
       {/* Catch window — runs while somebody is sitting on one uncalled card. */}
       {catchTarget !== null && unoTimerEnd !== null && (
-        <UnoTimer timerPct={timerPct} label={t.catchWindow} />
+        <UnoTimer fillRef={catchFillRef} label={t.catchWindow} />
       )}
 
       {/* Action bar */}
@@ -353,15 +429,29 @@ export function GameView({ onSend, wsStatus }: Props) {
         hasDrawn={hasDrawn}
         hasPlayableCard={hasPlayableCard}
         canCatch={catchTarget !== null}
-        onDraw={() => guardDoubleTap(() => onSend({ type: 'draw_card' }))}
+        onDraw={handleDraw}
         onPass={() => guardDoubleTap(() => onSend({ type: 'pass_turn' }))}
         onUno={() => guardDoubleTap(() => onSend({ type: 'declare_uno' }))}
-        onCatch={() => guardDoubleTap(() => onSend({ type: 'catch_uno' }))}
+        // Name the seat: several players can owe a declaration at once after a
+        // Swap or a GlobalSwitch, and the button offers the most urgent one.
+        onCatch={() =>
+          guardDoubleTap(() => {
+            if (catchTarget === null) return
+            onSend({ type: 'catch_uno', target_index: catchTarget })
+          })
+        }
         t={t}
       />
 
       {/* Fixed Rules button + theme toggle — top-right corner, never shifts with action bar */}
       <div className={styles.topRight}>
+        <button
+          className={styles.rulesBtn}
+          aria-pressed={pinnedScores}
+          onClick={() => setPinnedScores((v) => !v)}
+        >
+          {t.scoreTableBtn}
+        </button>
         <ThemeToggle />
         <AudioSettings />
         <button className={styles.rulesBtn} onClick={() => setShowRules(true)}>
@@ -369,8 +459,27 @@ export function GameView({ onSend, wsStatus }: Props) {
         </button>
       </div>
 
-      {/* In-game error toast */}
-      {errorMsg && <div className={styles.errorToast}>{errorMsg}</div>}
+      {/* Standings: held open with TAB, or pinned by the button above. */}
+      {showScores && (
+        <ScoreTable
+          players={players}
+          scoreboard={scoreboard}
+          roundHistory={roundHistory}
+          latencies={latencies}
+          myIndex={myIndex}
+          t={t}
+          onDismiss={pinnedScores ? () => setPinnedScores(false) : undefined}
+        />
+      )}
+
+      {/* In-game refusal. Sits over the empty upper felt, never over the hand:
+          it used to be pinned at the action bar's reserve height, which put it
+          straight across the cards it was complaining about. */}
+      {errorMsg && (
+        <div className={styles.errorToast} role="alert">
+          {resolveServerError(errorMsg, t.errors)}
+        </div>
+      )}
 
       {/* Wild color picker — serves both a normal play and an out-of-turn slam. */}
       {colorPicker && (
@@ -378,7 +487,11 @@ export function GameView({ onSend, wsStatus }: Props) {
           label={t.chooseColor}
           onChoose={(col: CardColor) => {
             onSend({
-              type: colorPicker.interrupt ? 'interrupt_play_card' : 'play_card',
+              type: colorPicker.interrupt
+                ? 'interrupt_play_card'
+                : colorPicker.counter
+                  ? 'counter_draw'
+                  : 'play_card',
               card: colorPicker.card,
               chosen_color: col,
               play_cards: colorPicker.copies,

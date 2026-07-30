@@ -1,42 +1,61 @@
 // Card colour palette and shared dimensions for the React rendering layer.
 import { CardColor, CardDTO } from '../../types/protocol'
 
-// Suit colours. Saturated enough to survive stream compression at 720p, and
-// far enough apart in hue *and* luminance that they stay distinguishable for
-// the most common colour-vision deficiencies (red/green sit at clearly
-// different lightness, and every card also carries its glyph).
-export const CARD_FACE: Record<CardColor, string> = {
-  red: '#eb2f45',
-  yellow: '#ffc31f',
-  green: '#17b877',
-  blue: '#2b7fff',
-  wild: '#2a1a52',
+// ─── Suits ──────────────────────────────────────────────────────────────────
+// Every face is one two-stop gradient running along the card's bottom-left →
+// top-right diagonal, and the LOCO mark behind it is *the same gradient
+// reversed*. That single trick is what makes the art read: the watermark is
+// brighter than the face where the face is dark and darker where it is light,
+// so the mark never needs an outline, a tint or an opacity to stay legible.
+//
+// Values measured off the reference art rather than eyeballed, so the four
+// suits keep the hue *and* luminance separation they were designed with — red
+// and green sit at clearly different lightness, and every card also carries its
+// glyph, which is what carries colour-vision deficiency and 720p compression.
+export interface SuitPaint {
+  /** Bottom-left stop. */
+  from: string
+  /** Top-right stop. */
+  to: string
+  /** Mark stops; the coloured suits simply reverse the face. */
+  mark: [string, string]
 }
 
-// Top-of-card sheen — a lighter tint of the face.
-export const CARD_FACE_LIGHT: Record<CardColor, string> = {
-  red: '#ff6d7d',
-  yellow: '#ffe06b',
-  green: '#4ee0a6',
-  blue: '#74b0ff',
-  wild: '#6b4bb8',
+export const SUIT_PAINT: Record<CardColor, SuitPaint> = {
+  yellow: { from: '#ffbd00', to: '#ff4852', mark: ['#ff4852', '#ffbd00'] },
+  red: { from: '#ff002a', to: '#8f0098', mark: ['#8f0098', '#ff002a'] },
+  green: { from: '#00ff6d', to: '#00668e', mark: ['#00668e', '#00ff6d'] },
+  blue: { from: '#15d4ff', to: '#5918a7', mark: ['#5918a7', '#15d4ff'] },
+  // Wilds belong to no suit, so they get the near-black card the reference uses
+  // — the four-colour fan on the face is the whole statement, and it only lands
+  // against something neutral. Its face barely moves, so the mark cannot be the
+  // reversed face here; it is a fixed lift instead.
+  wild: { from: '#1c1c1c', to: '#141414', mark: ['#282828', '#242424'] },
 }
 
-// Ink used for the numeral inside the white oval — a deepened face colour so
-// the glyph reads as "the same colour, darker" rather than a second hue.
-export const CARD_INK: Record<CardColor, string> = {
-  red: '#b3132a',
-  yellow: '#b8790a',
-  green: '#0a7d50',
-  blue: '#1250b8',
-  wild: '#2a1a52',
-}
+/** The gradient's own axis, in degrees, as CSS measures it. */
+export const SUIT_ANGLE_DEG = 35
 
+// Off-white for every glyph on a card face. Pure white vibrates against the
+// saturated faces and clips first under stream compression.
+export const CARD_GLYPH = '#efefef'
+
+// …and the ink it is outlined in. Off-white on a suit face measures 1.18:1 on
+// green and 1.46:1 on yellow — unreadable, and no single ink colour fixes it
+// either (dark ink is 1.66:1 on blue). The outline is what makes it legible on
+// every face: glyph-against-ink is ~15:1 and ink-against-any-face is ~14:1, so
+// the value reads at 720p, in a stream re-encode, and for a low-vision player.
+// The card's own face is deliberately NOT darkened to achieve this — the suit
+// colours are the brand.
+export const CARD_GLYPH_INK = '#120b24'
+
+// Active-colour ring on the discard pile. The saturated end of each suit — the
+// ring is a signal, not a swatch, and it has to win against the felt.
 export const ACTIVE_RING: Record<CardColor, string> = {
-  red: '#ff5570',
-  yellow: '#ffd23d',
-  green: '#2fdc98',
-  blue: '#4d96ff',
+  red: '#ff002a',
+  yellow: '#ffbd00',
+  green: '#00ff6d',
+  blue: '#15d4ff',
   wild: '#9b7bff',
 }
 
@@ -61,7 +80,11 @@ export function radToDeg(rad: number): number {
 
 export const CARD_W = 72
 export const CARD_H = 108
-export const CARD_RADIUS = 10
+// The reference art rounds its corners at ~3.4% of the card width. Held to the
+// letter that is 2.4px here, which antialiases into a ragged corner rather than
+// reading as a rounded one; 5px is the same design at the size we actually
+// render, and still far from the pill the old face used.
+export const CARD_RADIUS = 5
 // Reserved for the action bar so cards never overlap it.
 export const BOTTOM_RESERVE = 82
 
@@ -82,6 +105,19 @@ export const SEAT_DIMS: Record<SeatSize, { w: number; h: number }> = {
   full: { w: PILL_W, h: PILL_H },
   compact: { w: PILL_W_COMPACT, h: PILL_H_COMPACT },
   mini: { w: PILL_W_MINI, h: PILL_H_MINI },
+}
+
+// Kinds drawn as an icon rather than typeset. ⊘ ⇄ ⇋ ↻ are the obvious
+// characters and the wrong tool: Fredoka carries none of them, so the font
+// fallback chain would decide what a rule card looks like. Lives here rather
+// than beside the drawings so CardArt.tsx exports components only.
+const GLYPH_KINDS: ReadonlySet<CardDTO['kind']> = new Set([
+  'skip', 'reverse', 'swap', 'global_switch', 'wild',
+])
+
+/** True when the kind is drawn as an icon instead of typeset as text. */
+export function hasGlyph(kind: CardDTO['kind']): boolean {
+  return GLYPH_KINDS.has(kind)
 }
 
 export function cardLabel(card: CardDTO): string {

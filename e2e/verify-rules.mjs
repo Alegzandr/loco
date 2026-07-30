@@ -353,7 +353,7 @@ async function runRulesTests() {
     pendingDraw: 0,
     currentTurn: aliceIdx,
   })
-  await send(aliceCtx.page, { type: 'play_card', card: { color: 'wild', kind: 'global_switch' } })
+  await send(aliceCtx.page, { type: 'play_card', card: { color: 'wild', kind: 'global_switch' }, chosen_color: 'green' })
   await sleep(500)
   aS = await getState(aliceCtx.page)
   bS = await getState(bobCtx.page)

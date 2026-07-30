@@ -6,6 +6,7 @@ import {
   PlayerDTO,
   MatchFormat,
   ScoreboardEntryDTO,
+  LatencyEntryDTO,
 } from '../types/protocol'
 
 // How long other players have to punish a missed LOCO! call (server: catchWindow).
@@ -19,6 +20,24 @@ export interface SwapNotice {
   targetIndex: number  // -1 for global_switch
   direction: number    // game direction at the time of the play (for global_switch arrow)
   at: number           // Date.now() — used as a render key so React re-mounts the banner
+}
+
+// One seat's open catch window: they hold a single card and have not declared.
+export interface CatchWindow {
+  seat: number
+  endsAt: number
+}
+
+// deriveCatch picks the catch the UI offers: the window closest to expiring
+// among the opponents'. Ours never counts: you cannot catch yourself, and at
+// one card the action bar is showing us the LOCO! button instead.
+function deriveCatch(windows: CatchWindow[], myIndex: number) {
+  let best: CatchWindow | null = null
+  for (const w of windows) {
+    if (w.seat === myIndex) continue
+    if (!best || w.endsAt < best.endsAt) best = w
+  }
+  return { catchTarget: best ? best.seat : null, unoTimerEnd: best ? best.endsAt : null }
 }
 
 // The most recent card play, used by the renderer to fly the card from the
@@ -64,9 +83,13 @@ interface GameStore {
   errorMsg: string
   unoDeclared: boolean
   unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
-  // Player currently catchable for a missed LOCO!, i.e. the one the server is
-  // tracking as LastCardPlayer. Set when somebody else lands on a single card,
-  // never for ourselves. null = nobody to catch.
+  // Every seat that currently owes the table a declaration, with the end of its
+  // 5 s window. A list rather than a single seat because a Swap or a
+  // GlobalSwitch hands a single card to more than one player at once, and each
+  // of them is catchable on their own. Mirrors the server's per-seat windows.
+  catchWindows: CatchWindow[]
+  // Derived from catchWindows for the UI: the most urgent catchable opponent
+  // (never ourselves) and the end of that window. null = nobody to catch.
   catchTarget: number | null
   unoTimerEnd: number | null   // end of the 5s catch window (null = closed)
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
@@ -79,6 +102,13 @@ interface GameStore {
   roundWinner: string
   matchWinner: string
   matchOver: boolean
+  // roundHistory[k][playerIndex] = points scored in round k+1. Server-owned:
+  // a reconnecting player must see the same table as everyone else, and the
+  // cumulative scoreboard cannot be split back into rounds locally.
+  roundHistory: number[][]
+  // Per-seat round trips, refreshed by the server's periodic `latency`
+  // broadcast. Purely informational: nothing reads it for a rules decision.
+  latencies: LatencyEntryDTO[]
   showRoundSummary: boolean
   roundNumber_completed: number   // the round number that just finished (for display)
   roundScores: RoundScoreEntry[]  // per-player points earned this round
@@ -108,16 +138,19 @@ interface GameStore {
   setSwapNotice: (notice: SwapNotice | null) => void
   applyInterrupt: (actorIndex: number, count: number) => void
   clearInterrupt: () => void
-  applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number) => void
+  applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number, pendingDraw?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
   setUnoDeclaredByIndex: (idx: number) => void
   setUnoTimerEnd: (ts: number | null) => void
   clearCatchWindow: () => void
+  closeCatchWindow: (seat: number) => void
+  pruneCatchWindows: () => void
   setTurnDeadline: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
-  applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[]) => void
+  applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[], roundHistory?: number[][]) => void
+  applyLatencies: (latencies: LatencyEntryDTO[]) => void
   applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
   applyRematch: (myIndex: number, players: PlayerDTO[], format: MatchFormat, maxPlayers: number) => void
   setPendingGameState: (state: GameStateDTO) => void
@@ -172,6 +205,7 @@ function gameStateSliceFromDTO(state: GameStateDTO) {
     matchFormat: state.match_format ?? 'BO1',
     maxPlayers: state.max_players ?? 10,
     scoreboard: state.scoreboard ?? [],
+    roundHistory: state.round_history ?? [],
     turnDeadline: state.turn_deadline ?? null,
   }
 }
@@ -192,6 +226,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   errorMsg: '',
   unoDeclared: false,
   unoDeclaredByIndex: -1,
+  catchWindows: [],
   catchTarget: null,
   unoTimerEnd: null,
   turnDeadline: null,
@@ -202,6 +237,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   roundWinner: '',
   matchWinner: '',
   matchOver: false,
+  roundHistory: [],
+  latencies: [],
   showRoundSummary: false,
   roundNumber_completed: 0,
   roundScores: [],
@@ -218,18 +255,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setSessionToken: (sessionToken) => set({ sessionToken }),
 
   applyGameState: (state) =>
-    set({
-      ...gameStateSliceFromDTO(state),
-      roundWinner: '',
-      showRoundSummary: false,
-      pendingGameState: null,
-      pendingMatchEnd: null,
-      // Reset UNO catch-window state — a fresh authoritative snapshot must not
-      // leave a stale UNO banner / catch button from the previous round visible.
-      unoDeclared: false,
-      unoDeclaredByIndex: -1,
-      unoTimerEnd: null,
-      catchTarget: null,
+    set((s) => {
+      // Open catch windows are FILTERED against the snapshot, not wiped. A Swap
+      // or a GlobalSwitch is followed by a personalised game_state, so clearing
+      // here meant the one situation this rule exists for, a player handed
+      // their last card, was never catchable by anyone. A window survives only
+      // while it is unexpired and its seat still holds exactly one card, so a
+      // fresh deal (nobody on one card) still clears everything.
+      const now = Date.now()
+      const catchWindows = s.catchWindows.filter(
+        (w) =>
+          w.endsAt > now &&
+          state.players.find((p) => p.index === w.seat)?.hand_size === 1,
+      )
+      return {
+        ...gameStateSliceFromDTO(state),
+        roundWinner: '',
+        showRoundSummary: false,
+        pendingGameState: null,
+        pendingMatchEnd: null,
+        // The banner is cosmetic and announces the previous one-card moment; a
+        // fresh authoritative snapshot must not leave it hanging.
+        unoDeclared: false,
+        unoDeclaredByIndex: -1,
+        catchWindows,
+        ...deriveCatch(catchWindows, state.your_index),
+      }
     }),
 
   applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players, chosenPlayer, direction) =>
@@ -240,12 +291,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
         : s.players.map((p) =>
             p.index === playerIndex ? { ...p, hand_size: p.hand_size - 1 } : p
           )
-      // Use server-authoritative active color; fall back to card color or current
-      const resolvedColor: CardColor = activeColor
-        ? activeColor
-        : card.color === 'wild'
-          ? s.activeColor
-          : card.color
+      // Use server-authoritative active color; fall back to card color or current.
+      // 'wild' is never a playable colour — it matches nothing, so the colour in
+      // play carries over (this is exactly what a GlobalSwitch does).
+      const resolvedColor: CardColor =
+        activeColor && activeColor !== 'wild'
+          ? activeColor
+          : card.color === 'wild'
+            ? s.activeColor
+            : card.color
       // Remove the played card from local hand if it was our play
       let updatedHand = s.myHand
       if (playerIndex === s.myIndex) {
@@ -260,12 +314,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // understand why their (or others') card counts just changed.
       const resolvedDirection = typeof direction === 'number' && direction !== 0 ? direction : s.direction
       const swapNotice = makeSwapNotice(card, playerIndex, chosenPlayer, resolvedDirection) ?? s.swapNotice
-      // Catch window: it opens when the actor lands on a single card, which is
-      // also the only moment a declaration is voided (the server does exactly
-      // the same — resetting on every play voided declarations made a beat
-      // earlier). Our own last card is never catchable by us.
-      const actorHandSize = updatedPlayers.find((p) => p.index === playerIndex)?.hand_size
-      const openedCatch = actorHandSize === 1
+      // Catch windows, mirroring the server. An ordinary play only puts the
+      // actor on the hook; a Swap or a GlobalSwitch rearranges hands, so EVERY
+      // seat left holding a single card owes the table a declaration: the hand
+      // it holds is not one anybody has heard announced.
+      const rearranged = card.kind === 'swap' || card.kind === 'global_switch'
+      const onTheHook = rearranged
+        ? updatedPlayers.filter((p) => p.hand_size === 1).map((p) => p.index)
+        : updatedPlayers.find((p) => p.index === playerIndex)?.hand_size === 1
+          ? [playerIndex]
+          : []
+      const now = Date.now()
+      const catchWindows: CatchWindow[] = [
+        ...s.catchWindows.filter((w) => w.endsAt > now && !onTheHook.includes(w.seat)),
+        ...onTheHook.map((seat) => ({ seat, endsAt: now + UNO_CATCH_WINDOW_MS })),
+      ]
+      // Any fresh window retires the declaration banner: it announced the
+      // previous one-card situation, and the table has moved on.
+      const voidsBanner = onTheHook.length > 0
       return {
         myHand: updatedHand,
         discard: card,
@@ -275,14 +341,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
         pendingDraw,
         hasDrawn: false,
         players: updatedPlayers,
-        unoDeclared: openedCatch ? false : s.unoDeclared,
-        unoDeclaredByIndex: openedCatch ? -1 : s.unoDeclaredByIndex,
-        catchTarget: openedCatch
-          ? (playerIndex === s.myIndex ? null : playerIndex)
-          : s.catchTarget,
-        unoTimerEnd: openedCatch
-          ? (playerIndex === s.myIndex ? null : Date.now() + UNO_CATCH_WINDOW_MS)
-          : s.unoTimerEnd,
+        unoDeclared: voidsBanner ? false : s.unoDeclared,
+        unoDeclaredByIndex: voidsBanner ? -1 : s.unoDeclaredByIndex,
+        catchWindows,
+        ...deriveCatch(catchWindows, s.myIndex),
         swapNotice,
         lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
       }
@@ -295,33 +357,29 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   clearInterrupt: () => set({ interruptFlash: null }),
 
-  applyCardDrawn: (cards, playerIndex, turn, hasDrawn, drawnCount) =>
+  applyCardDrawn: (cards, playerIndex, turn, hasDrawn, drawnCount, pendingDraw) =>
     set((s) => {
-      // A penalty draw advances the turn away from the drawing player.
-      // Use this to reset pendingDraw to 0 for all clients.
-      const isPenaltyDraw = turn !== s.currentTurn
+      // `has_drawn` / `pending_draw` are taken from the message, never guessed.
+      // Not every card_drawn is a turn action: the UNO-catch penalty grows a hand
+      // while somebody else's draw-once state is what it was, and the same
+      // message reaches the whole table. Defaulting the missing flag to "drawn"
+      // is what stuck a player with a disabled Draw button and a Pass the server
+      // answered "you must draw a card before passing" until the turn timer ran
+      // out. Absent means unchanged; the server fills both in on every card_drawn.
+      const turnState = {
+        currentTurn: turn,
+        hasDrawn: hasDrawn ?? s.hasDrawn,
+        pendingDraw: pendingDraw ?? s.pendingDraw,
+      }
       if (cards && cards.length > 0) {
-        // Own draw: add all drawn cards to hand, reset pendingDraw if penalty.
-        return {
-          myHand: [...s.myHand, ...cards],
-          currentTurn: turn,
-          hasDrawn: hasDrawn ?? s.hasDrawn,
-          pendingDraw: isPenaltyDraw ? 0 : s.pendingDraw,
-        }
+        return { ...turnState, myHand: [...s.myHand, ...cards] }
       }
       // Observer: update hand size by actual drawn count (default 1 for backward compat).
       const count = drawnCount ?? 1
       const players = s.players.map((p) =>
         p.index === playerIndex ? { ...p, hand_size: p.hand_size + count } : p
       )
-      // Penalty draw resets hasDrawn and clears pendingDraw stack.
-      const newHasDrawn = isPenaltyDraw ? false : s.hasDrawn
-      return {
-        players,
-        currentTurn: turn,
-        hasDrawn: newHasDrawn,
-        pendingDraw: isPenaltyDraw ? 0 : s.pendingDraw,
-      }
+      return { ...turnState, players }
     }),
 
   // Re-resolves myIndex from our own nickname on every roster update. The server
@@ -339,12 +397,33 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
   setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
-  clearCatchWindow: () => set({ catchTarget: null, unoTimerEnd: null }),
+  clearCatchWindow: () => set({ catchWindows: [], catchTarget: null, unoTimerEnd: null }),
+
+  // One seat is settled (it declared, or it was caught and took the penalty).
+  // The others stay on the hook: after a GlobalSwitch there can be several, and
+  // closing them all would hand the slow ones a free pass.
+  closeCatchWindow: (seat) =>
+    set((s) => {
+      const catchWindows = s.catchWindows.filter((w) => w.seat !== seat)
+      return { catchWindows, ...deriveCatch(catchWindows, s.myIndex) }
+    }),
+
+  // Drops windows whose 5 s ran out. The server enforces the same deadline, so
+  // a late click would only earn an error toast.
+  pruneCatchWindows: () =>
+    set((s) => {
+      const now = Date.now()
+      const catchWindows = s.catchWindows.filter((w) => w.endsAt > now)
+      if (catchWindows.length === s.catchWindows.length) return s
+      return { catchWindows, ...deriveCatch(catchWindows, s.myIndex) }
+    }),
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
 
-  applyRoundEnd: (roundWinner, roundNumber, newScoreboard) =>
+  applyLatencies: (latencies) => set({ latencies }),
+
+  applyRoundEnd: (roundWinner, roundNumber, newScoreboard, roundHistory) =>
     set((s) => {
       // Compute per-player round points as the delta vs current scoreboard
       const roundScores: RoundScoreEntry[] = newScoreboard.map((entry) => {
@@ -361,10 +440,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
         roundWinner,
         roundNumber_completed: roundNumber,
         scoreboard: newScoreboard,
+        // The next game_state (which also carries the history) is buffered
+        // behind the round summary, so take it here or the score table would
+        // be one round stale for as long as the summary is up.
+        roundHistory: roundHistory ?? s.roundHistory,
         roundScores,
         showRoundSummary: true,
         turnDeadline: null,
         unoDeclared: false,
+        catchWindows: [],
         unoTimerEnd: null,
         catchTarget: null,
       }
@@ -393,6 +477,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
       hasDrawn: false,
       roundNumber: 1,
       scoreboard: [],
+      roundHistory: [],
+      latencies: [],
       roundWinner: '',
       roundScores: [],
       roundNumber_completed: 0,
@@ -403,6 +489,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       pendingMatchEnd: null,
       unoDeclared: false,
       unoDeclaredByIndex: -1,
+      catchWindows: [],
       unoTimerEnd: null,
       catchTarget: null,
       turnDeadline: null,
@@ -446,6 +533,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         pendingGameState: null,
         unoDeclared: false,
         unoDeclaredByIndex: -1,
+        catchWindows: [],
         unoTimerEnd: null,
         catchTarget: null,
       })

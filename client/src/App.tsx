@@ -130,7 +130,8 @@ export default function App() {
             msg.player_index ?? 0,
             msg.turn ?? 0,
             msg.has_drawn,
-            msg.drawn_count
+            msg.drawn_count,
+            msg.pending_draw
           )
           store.setTurnDeadline(msg.turn_deadline ?? null)
           break
@@ -147,9 +148,9 @@ export default function App() {
           const declarer = msg.player_index ?? -1
           store.setUnoDeclared(true)
           store.setUnoDeclaredByIndex(declarer)
-          if (useGameStore.getState().catchTarget === declarer) {
-            store.clearCatchWindow()
-          }
+          // Only that seat is off the hook: after a Swap or a GlobalSwitch
+          // somebody else may still owe a call.
+          store.closeCatchWindow(declarer)
           unoTimerRef.current = setTimeout(() => {
             unoTimerRef.current = null
             store.setUnoDeclared(false)
@@ -158,9 +159,10 @@ export default function App() {
           break
         }
 
-        // Penalty applied — the target is no longer catchable by anyone.
+        // Penalty applied, so that target is no longer catchable by anyone. Any
+        // other seat still holding a single card remains fair game.
         case 'uno_caught':
-          store.clearCatchWindow()
+          store.closeCatchWindow(msg.player_index ?? -1)
           break
 
         // Sent immediately before the resulting card_played so the steal can be
@@ -175,8 +177,15 @@ export default function App() {
           store.applyRoundEnd(
             msg.round_winner ?? '',
             msg.round_number ?? 0,
-            msg.scoreboard ?? []
+            msg.scoreboard ?? [],
+            msg.round_history,
           )
+          break
+
+        // Periodic per-seat ping, fed to the TAB score table. Informational
+        // only, never consulted for a rules decision.
+        case 'latency':
+          store.applyLatencies(msg.latencies ?? [])
           break
 
         case 'match_end': {

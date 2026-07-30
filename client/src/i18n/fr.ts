@@ -22,6 +22,8 @@ export const fr: Translations = {
   audioMaster: 'Général',
   audioSfx: 'Effets',
   audioMusic: 'Musique',
+  audioTrack: 'En cours',
+  audioNextTrack: 'Morceau suivant',
   audioMute: 'Couper le son',
   audioUnmute: 'Rétablir le son',
 
@@ -50,12 +52,12 @@ export const fr: Translations = {
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Piocher',
   pass: 'Passer',
-  unoBtn: 'UNO !',
-  unoBanner: 'UNO !',
-  catchBtn: 'Catch !',
+  unoBtn: 'LOCO !',
+  unoBanner: 'LOCO !',
+  catchBtn: 'Contre-LOCO !',
   chooseColor: 'Choisissez une couleur',
   choosePlayer: 'Choisissez un joueur avec qui échanger votre main',
-  catchWindow: 'Fenêtre de catch !',
+  catchWindow: 'Contre-LOCO possible !',
   swapNotice: '%actor a échangé sa main avec %target',
   swapNoticeYouTarget: '%actor a échangé sa main avec vous',
   swapNoticeYouActor: 'Vous avez échangé votre main avec %target',
@@ -78,9 +80,21 @@ export const fr: Translations = {
   continueBtn: 'Continuer',
   spectating: 'Vous avez terminé ! Regardez la suite…',
 
+  // ─── Tableau des scores en jeu (TAB maintenu) ─────────────────
+  scoreTableTitle: 'Scores',
+  scoreTableHint: 'Maintenez TAB',
+  scoreTableBtn: 'Scores',
+  scoreTableRoundCol: 'M%n',
+  scoreTablePingCol: 'Ping',
+  scoreTableYou: 'vous',
+  scoreTableBot: 'BOT',
+  scoreTableNoPing: '--',
+  scoreTableEmptyRounds: 'Première manche en cours',
+
   // ─── PixiGame in-canvas strings ───────────────────────────────
   yourTurn: 'Votre tour',
   drawOrCounter: 'Piocher %n ou contrer !',
+  drawPenalty: 'Piocher %n',
   playerTurnSuffix: ' joue',
   ord1: '1er',
   ord2: '2e',
@@ -139,7 +153,7 @@ export const fr: Translations = {
         'Joker — choisissez la couleur active.',
         'Joker +4 — choisissez la couleur ; le suivant pioche 4 sauf s\'il cumule.',
         'Échange (⇋) — carte colorée ; à votre tour, choisissez un adversaire et échangez vos mains. Pas de cumul.',
-        'Rotation globale (↻) — carte joker ; chaque joueur passe sa main au joueur suivant dans le sens en cours.',
+        'Rotation globale (↻) — carte joker ; choisissez la couleur active, puis chaque joueur passe sa main au joueur suivant dans le sens en cours.',
       ],
     },
     {
@@ -160,10 +174,11 @@ export const fr: Translations = {
       ],
     },
     {
-      heading: 'UNO ! et Catch',
+      heading: 'LOCO ! et Contre-LOCO',
       items: [
-        'Quand il ne vous reste qu\'une carte, vous devez appuyer sur UNO !',
-        'Sinon, tout autre joueur a 5 secondes pour appuyer sur Catch ! — pénalité : vous piochez 2 cartes.',
+        'Quand il ne vous reste qu\'une carte, vous devez appuyer sur LOCO !',
+        'Recevoir sa dernière carte compte aussi : après un Échange ou une Rotation globale, tous ceux qui n\'ont plus qu\'une carte doivent appuyer sur LOCO !',
+        'Sinon, tout autre joueur a 5 secondes pour appuyer sur Contre-LOCO ! — pénalité : vous piochez 2 cartes.',
       ],
     },
     {
@@ -190,4 +205,52 @@ export const fr: Translations = {
       ],
     },
   ] as const,
+
+  // ─── Actions refusées ────────────────────────────────────────
+  errors: {
+    generic: 'Ça n\'a pas marché. Réessayez.',
+
+    nicknameTaken: 'Ce pseudo est déjà pris dans cette salle.',
+    nicknameLength: 'Choisissez un pseudo de 1 à 20 caractères.',
+    roomNotFound: 'Aucune salle avec ce code.',
+    roomFull: 'Cette salle est pleine.',
+    gameInProgress: 'Cette partie a déjà commencé.',
+    sessionInvalid: 'Impossible de récupérer votre place. Rejoignez la salle.',
+    notInRoom: 'Vous n\'êtes plus dans une salle.',
+
+    notYourTurn: 'Ce n\'est pas encore à vous.',
+    mustAnswerPenalty: 'Contrez, ou prenez les cartes.',
+    alreadyDrew: 'Une seule pioche par tour.',
+    mustDrawFirst: 'Piochez avant de passer.',
+    needColor: 'Choisissez d\'abord une couleur.',
+    cardNotInHand: 'Vous n\'avez pas cette carte.',
+    illegalCard: 'Cette carte ne correspond pas.',
+
+    counterMismatch: 'Seule la carte identique se cumule.',
+    noPendingDraw: 'Rien à contrer pour l\'instant.',
+
+    interruptClosed: 'Trop tard.',
+    interruptDrawChain: 'Seule une carte de pioche identique peut s\'intercaler ici.',
+    interruptMismatch: 'Il faut une carte identique à celle du dessus.',
+    batchNotAllowed: 'Échange et Rotation globale ne se jouent pas en série.',
+    batchMismatch: 'Les cartes jouées ensemble doivent être identiques.',
+
+    declareTooEarly: 'Annoncez LOCO avec exactement une carte.',
+    alreadyDeclared: 'Déjà annoncé.',
+    catchExpired: 'Trop tard pour attraper.',
+    catchTargetSafe: 'Rien à attraper ici.',
+
+    swapSelf: 'Choisissez un autre joueur.',
+    swapTargetInvalid: 'Ce joueur ne peut pas être ciblé.',
+
+    hostOnly: 'Seul l\'hôte peut faire ça.',
+    notEnoughPlayers: 'Pas assez de joueurs pour démarrer.',
+    lobbyOnly: 'Modifiable seulement avant le début de la partie.',
+    maxPlayersInvalid: 'Cette limite de joueurs n\'est pas autorisée.',
+    rematchTooEarly: 'Le match n\'est pas encore terminé.',
+
+    rateLimited: 'Doucement, une seconde.',
+    serverBusy: 'Serveur occupé. Réessayez.',
+    deckExhausted: 'Plus de cartes à piocher.',
+  },
 }

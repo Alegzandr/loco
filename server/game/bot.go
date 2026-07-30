@@ -33,7 +33,11 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 	if state.PendingDraw > 0 {
 		if rand.Float32() < 0.70 {
 			for _, c := range hand.Cards {
-				if c.Kind == topCard.Kind && (c.Kind == DrawTwo || c.Kind == WildDrawFour) {
+				// A counter is the same card: same kind AND same colour. Sending
+				// an off-colour +2 here is refused by CounterDraw, and the bot
+				// then sits out its turn until the timeout fires.
+				if c.Kind == topCard.Kind && c.Color == topCard.Color &&
+					(c.Kind == DrawTwo || c.Kind == WildDrawFour) {
 					chosen := activeColor
 					if c.IsWild() {
 						chosen = botPreferredColor(hand)

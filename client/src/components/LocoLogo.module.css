@@ -1,0 +1,61 @@
+/* See LocoLogo.tsx. Everything is `em` of the caller's font-size, so one
+   component serves the lobby hero, the waiting room header and the game-over
+   card without a second set of numbers. */
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2em;
+  font-size: 72px;
+  line-height: 1;
+}
+
+.stacked {
+  flex-direction: column;
+  gap: 0.14em;
+}
+
+/* The mark is a closed drawing, so it stands on its own — no frame, no plaque.
+   Sized off the type it sits beside and tilted the same few degrees the rest of
+   the UI's stickers are, so it reads as an object rather than as clip art. */
+.mark {
+  display: block;
+  height: 1.05em;
+  width: calc(1.05em * 712 / 576); /* the mark's own proportions */
+  flex-shrink: 0;
+  overflow: visible;
+  transform: rotate(-5deg);
+  filter: drop-shadow(0 0.06em 0 var(--color-stroke))
+    drop-shadow(0 0.13em 0.13em rgba(20, 8, 45, 0.3));
+}
+
+.stacked .mark {
+  height: 1.35em;
+  width: calc(1.35em * 712 / 576);
+}
+
+.word {
+  font: 700 1em / 1 var(--font-display);
+  letter-spacing: -0.045em;
+  color: var(--color-primary);
+  -webkit-text-stroke: 0.07em var(--color-stroke);
+  paint-order: stroke fill;
+  text-shadow:
+    0 0.07em 0 var(--color-stroke),
+    0 0.14em 0 rgba(36, 21, 70, 0.35),
+    0 0.25em 0.3em rgba(36, 21, 70, 0.3);
+}
+
+.animated {
+  animation: logoBreathe 4.5s ease-in-out infinite;
+}
+
+@keyframes logoBreathe {
+  0%, 100% { transform: rotate(-2deg) scale(1); }
+  50%      { transform: rotate(-2deg) scale(1.028); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated { animation: none; transform: rotate(-2deg); }
+}

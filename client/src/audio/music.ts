@@ -1,19 +1,33 @@
 /**
- * Adaptive music bed — generative, synthesised, no audio files and no
- * third-party dependency.
+ * Adaptive music bed — the engine.
  *
- * Strudel (`@strudel/*`, `superdough`) was evaluated for this and rejected: it
- * is AGPL-3.0-or-later, and bundling it into a client served over the network
- * would pull the whole of LOCO under §13. It is also a live-coding engine, whose
- * value is improvising at a keyboard — what this game needs is a deterministic
- * bed driven by game state, which is what follows.
+ * This file contains no music. Tracks are data (`audio/tracks/`), and this plays
+ * any of them: scheduling, synthesis, the arrangement ladder, the song form.
  *
- * The soundtrack is a four-bar loop over a fixed progression. What changes is
- * *density and tempo*, not harmony: an `intensity` value between 0 and 1 decides
- * how many layers are audible and how fast the loop runs. The game raises it
- * when someone is one card from winning or a draw stack is climbing, and drops
- * it back between rounds — so the music tracks the table's tension without
- * anyone having to compose a cue for every situation.
+ * ## Two axes, and why
+ *
+ * The first version was one four-bar loop whose only variation was layer count.
+ * However good four bars are, a twenty-minute match spends it in the first two
+ * minutes — the feedback was, exactly, "it's just a chorus on repeat".
+ *
+ * So what you hear is the product of two independent things:
+ *
+ * - **The form** advances on its own. A track is a set of parts (intro, verse,
+ *   chorus, bridge, break) and an order; the engine walks it. Around forty bars
+ *   pass before a part returns, and it usually returns in a different section.
+ * - **The game's intensity** picks the *stack* (`sectionFor` → `LAYERS`) and
+ *   *biases which part comes next* (`nextFormIndex`): a drop pulls the form
+ *   toward a chorus, a round summary toward a break.
+ *
+ * Both are pure functions, exported and unit-tested, because "does the music go
+ * somewhere" is a claim about behaviour and not about sound.
+ *
+ * ## Anti-repetition, deliberately
+ *
+ * Beyond the form: a riser and a crash whenever the *next* part is a chorus, a
+ * drum fill in the last bar of every part, and an octave lift on alternate
+ * passes of a chorus. These exist because the ear forgives a repeated phrase
+ * that arrives differently, and never forgives one that arrives identically.
  *
  * Scheduling uses the standard Web Audio lookahead pattern: a coarse timer wakes
  * up often, and every event it finds inside the next slice is scheduled with a
@@ -21,6 +35,8 @@
  * output.
  */
 import { audio } from './engine'
+import { DEFAULT_TRACK_ID, getTrack, TRACKS } from './tracks'
+import type { Adsr, DrumStyle, PartDef, PartRole, Slot, SynthSpec, TrackDef } from './tracks/types'
 
 export type MusicScene = 'lobby' | 'game' | 'off'
 
@@ -29,43 +45,193 @@ const LOOKAHEAD = 0.18
 /** How often the scheduler wakes, in ms. Must be well under LOOKAHEAD. */
 const TICK_MS = 40
 
-/** i – VI – III – VII in A minor: warm, loops without a seam, never resolves hard. */
-const PROGRESSION = [
-  { bass: 33, chord: [57, 60, 64] }, // Am
-  { bass: 29, chord: [53, 57, 60] }, // F
-  { bass: 36, chord: [55, 60, 64] }, // C
-  { bass: 31, chord: [55, 59, 62] }, // G
-]
-
-/** Pentatonic A minor, two octaves — every note works over every chord above. */
-const ARP_SCALE = [69, 72, 74, 76, 79, 81, 84, 86]
-
-/**
- * The LOCO motif. Eight notes of A-minor pentatonic that sit correctly over all
- * four chords, so it can enter on any bar without a transition. A game needs one
- * line people can hum; a purely random arp is texture, not a theme.
- */
-const MOTIF = [76, 74, 72, 74, 76, 79, 76, 72]
-
 const STEPS_PER_BAR = 16
-const BARS = PROGRESSION.length
-const TOTAL_STEPS = STEPS_PER_BAR * BARS
 
-/** Intensity at which each layer joins. Ordered so layers stack, never swap. */
-const ENTER = {
-  bass: 0.12,
-  hats: 0.38,
-  motif: 0.5,
-  kick: 0.62,
-  denseHats: 0.72,
-  fastArp: 0.75,
+/** Arrangement stacks, in the order intensity unlocks them. */
+export type Section = 'breakdown' | 'buildup' | 'groove' | 'drop'
+
+/** Intensity at or above which each section plays. Ordered, ascending. */
+export const SECTION_AT: Record<Section, number> = {
+  breakdown: 0,
+  buildup: 0.2,
+  groove: 0.3,
+  drop: 0.58,
+}
+
+export interface LayerSet {
+  kick: boolean
+  hats: boolean
+  ride: boolean
+  /** 'beats' = on 2 and 4; 'sparse' = one hit every other bar; null = none. */
+  clap: 'beats' | 'sparse' | null
+  crash: boolean
+  bass: boolean
+  pad: boolean
+  lead: boolean
+  counter: boolean
+  stabs: boolean
+  leadOctave: boolean
+  /** Multiplier on the arp's written gain. */
+  arpGain: number
+  /** Fixed cutoff instead of the sweep, when the section wants it closed down. */
+  arpCutoff: number | null
 }
 
 /**
- * Intensity units per second. A full swing takes ~1.8s — about two bars, so the
- * crescendo lands on a bar line rather than dragging past the moment.
+ * What plays in each section.
+ *
+ * The lead is in every one of them. That is not an oversight to tidy up later: an
+ * earlier version gated its theme above `intensity > 0.5` while an ordinary turn
+ * sits at 0.34, so players never heard a tune at all. Sparse sections get their
+ * quietness from the *part* the form is on (a `break` part is written sparse),
+ * not from muting the melody.
+ */
+export const LAYERS: Record<Section, LayerSet> = {
+  breakdown: {
+    kick: false, hats: false, ride: false, clap: 'sparse', crash: false, bass: false,
+    pad: true, lead: true, counter: false, stabs: false, leadOctave: false,
+    arpGain: 0.35, arpCutoff: 1200,
+  },
+  buildup: {
+    kick: false, hats: false, ride: false, clap: null, crash: false, bass: false,
+    pad: true, lead: true, counter: false, stabs: false, leadOctave: false,
+    arpGain: 0.8, arpCutoff: null,
+  },
+  groove: {
+    kick: true, hats: true, ride: false, clap: 'beats', crash: false, bass: true,
+    pad: true, lead: true, counter: false, stabs: true, leadOctave: false,
+    arpGain: 1, arpCutoff: null,
+  },
+  drop: {
+    kick: true, hats: true, ride: true, clap: 'beats', crash: true, bass: true,
+    pad: true, lead: true, counter: true, stabs: true, leadOctave: true,
+    arpGain: 1, arpCutoff: null,
+  },
+}
+
+/**
+ * Which stack a given intensity plays.
+ *
+ * Pure and exported because it is the whole contract between game state and what
+ * the room hears — a test can assert it without an AudioContext.
+ */
+export function sectionFor(intensity: number, lobby = false): Section {
+  // The lobby is a build-up, not a breakdown: people are reading names and
+  // pressing buttons, and a build-up is the section that has the tune without
+  // the drums.
+  if (lobby) return 'buildup'
+  if (intensity >= SECTION_AT.drop) return 'drop'
+  if (intensity >= SECTION_AT.groove) return 'groove'
+  if (intensity >= SECTION_AT.buildup) return 'buildup'
+  return 'breakdown'
+}
+
+/** Which part roles each section wants next, best first. */
+const ROLE_PREF: Record<Section, PartRole[]> = {
+  breakdown: ['break', 'intro'],
+  buildup: ['intro', 'verse', 'break'],
+  groove: ['verse', 'bridge', 'chorus'],
+  drop: ['chorus', 'bridge'],
+}
+
+/**
+ * Where the form goes next.
+ *
+ * A **single forward scan** for the first part whose role the section accepts.
+ * Two properties matter and both were got wrong first time:
+ *
+ * - It can never return `from` (the scan stops one short of a full lap), so the
+ *   form cannot stall. Preferring a role that only one part carries otherwise
+ *   pins the track on that part — a loop, which is the exact thing this design
+ *   exists to escape.
+ * - It takes the *first* acceptable part rather than exhausting one role before
+ *   trying the next. Ranking by role instead made a sustained groove ping-pong
+ *   between the two verses and never reach the bridge or the choruses; taking
+ *   them in written order tours the whole track.
+ *
+ * Falls through to the next entry when nothing matches, because silence is never
+ * the right answer to a track with an unusual role mix.
+ */
+export function nextFormIndex(track: TrackDef, from: number, section: Section): number {
+  const prefs = ROLE_PREF[section]
+  const n = track.form.length
+  for (let k = 1; k < n; k++) {
+    const idx = (from + k) % n
+    const role = partById(track, track.form[idx])?.role
+    if (role && prefs.includes(role)) return idx
+  }
+  return (from + 1) % n
+}
+
+export function partById(track: TrackDef, id: string): PartDef | undefined {
+  return track.parts.find((p) => p.id === id)
+}
+
+/** Length of the note starting at `i`, in slots, following `-1` ties. */
+export function noteLength(row: Slot[], i: number): number {
+  let n = 1
+  while (i + n < row.length && row[i + n] === -1) n++
+  return n
+}
+
+/**
+ * A shuffle bag: every track exactly once, in a random order that does not open
+ * on `avoid`.
+ *
+ * Not `Math.random()` per track. Pure random repeats — roughly one handover in
+ * three would play the track that just finished, which people hear as "it's
+ * broken", not as "that's what random means". Dealing a shuffled bag and
+ * refilling it when empty gives an order that feels random *and* guarantees you
+ * hear everything before hearing anything twice.
+ */
+export function shuffledOrder(ids: string[], avoid: string | null, rand: () => number): string[] {
+  const out = [...ids]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1)) % (i + 1)
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  // One deterministic swap rather than a reshuffle loop: re-rolling until the
+  // head differs can, with one track in the bag, never terminate.
+  if (out.length > 1 && out[0] === avoid) [out[0], out[1]] = [out[1], out[0]]
+  return out
+}
+
+/**
+ * How many parts a track plays before handing over.
+ *
+ * One pass of a form is ~36 bars, about a minute — short for something presented
+ * as a song. Two passes lands around two minutes, which is both a normal track
+ * length and long enough that the handover is an event rather than a carousel.
+ */
+export const PASSES_PER_TRACK = 2
+
+/**
+ * Intensity units per second. A full swing takes ~1.8s — about a bar, so a
+ * change lands on a bar line rather than dragging past the moment.
  */
 const SLEW_PER_SEC = 0.55
+
+/** Above this much pending climb, a bar line launches a riser. */
+const RISER_GAP = 0.18
+
+/** Drum patterns, in sixteenths. The kit is the track's, the pattern is here. */
+const KITS: Record<DrumStyle, { kick: number[]; clap: number[]; hat: number[]; openHat: number[]; ride: number[] }> = {
+  // Four on the floor, offbeat hats — the trance engine.
+  trance: {
+    kick: [0, 4, 8, 12], clap: [4, 12], hat: [2, 6, 10, 14], openHat: [],
+    ride: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  },
+  // Same kick, but the hat is on every eighth and the "and" gets an open one.
+  house: {
+    kick: [0, 4, 8, 12], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14],
+    openHat: [2, 6, 10, 14], ride: [],
+  },
+  // The kick leaves the grid: 1, the "a" of 2, 3, the "a" of 4.
+  electro: {
+    kick: [0, 6, 8, 14], clap: [4, 12], hat: [2, 6, 10, 14], openHat: [],
+    ride: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  },
+}
 
 function mtof(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12)
@@ -74,18 +240,48 @@ function mtof(midi: number): number {
 class MusicBed {
   private timer: ReturnType<typeof setInterval> | null = null
   private out: GainNode | null = null
-  private step = 0
+  /** Pad-only bus carrying the stepped pump. */
+  private padBus: GainNode | null = null
+  private reverbIn: GainNode | null = null
+  private leadEchoIn: GainNode | null = null
+  private leadDelay: DelayNode | null = null
+  private arpEchoIn: GainNode | null = null
+  private arpDelay: DelayNode | null = null
+  private noiseBuf: AudioBuffer | null = null
+  /** Soft clipping for the kick — most of a 909's punch. */
+  private shaper: WaveShaperNode | null = null
+
+  private track: TrackDef = getTrack(DEFAULT_TRACK_ID)
+  private pendingTrack: TrackDef | null = null
+  /** True when the swap was asked for by a person and should not wait a part. */
+  private pendingNow = false
+  /** A track just changed; the next emitted step covers the seam with a dip. */
+  private dipPending = false
+  /** Remaining tracks in the current shuffle bag. */
+  private queue: string[] = []
+  /** Parts played in the current track; at `partsPerTrack()` it hands over. */
+  private partsPlayed = 0
+  /** Harness-only shortening of a track. See `setPartsPerTrack`. */
+  private partsOverride: number | null = null
+  /** Index into `track.form`. */
+  private formIndex = 0
+  /** Sixteenth within the current part. */
+  private partStep = 0
+  /** How many times the current part has played — drives per-pass variation. */
+  private partPass = 0
+
   private nextStepTime = 0
   /** Where the game wants the intensity. */
   private target = 0.35
   /** Where the bed actually is — slewed toward the target, never jumped. */
   private current = 0.35
-  /** Tempo is sampled once per bar so the loop never speeds up mid-phrase. */
+  /** Sampled once per bar, so the arrangement never changes mid-phrase. */
   private barIntensity = 0.35
+  private section: Section = 'groove'
   private scene: MusicScene = 'off'
-  /** Loop counter, used to vary the motif so the bed never becomes wallpaper. */
-  private cycle = 0
-  /** Deterministic per-loop variation, so the arp is not a metronome. */
+  /** Bars elapsed since the bed started — drives the slow filter sweeps. */
+  private barCount = 0
+  /** Deterministic variation, so hats are not a machine. */
   private seed = 1
   /** Scheduler time of the last slew, for a frame-rate-independent ramp. */
   private lastSlewAt = 0
@@ -111,8 +307,116 @@ class MusicBed {
     return this.current
   }
 
+  /** Section currently playing. Exposed for the verification harness. */
+  getSection(): Section {
+    return this.section
+  }
+
+  getTrackId(): string {
+    return this.track.id
+  }
+
+  /** Part currently playing. Exposed so the harness can prove the form moves. */
+  getPartId(): string {
+    return this.track.form[this.formIndex] ?? ''
+  }
+
+  /**
+   * Switches track, persisting the choice. Used by the verification harness and
+   * by the automatic handover; people use `nextTrack()`.
+   *
+   * `now` swaps at the next bar line, roughly a second and a half away; without
+   * it the swap waits for the end of the current part, which can be four bars.
+   * That distinction is the whole difference between an automatic handover
+   * (which should land on a phrase boundary) and a button press (which has to
+   * feel like it did something).
+   */
+  setTrack(id: string, now = false): void {
+    const next = getTrack(id)
+    audio.setSettings({ track: next.id })
+    if (!this.isPlaying() || next.id === this.track.id) {
+      this.track = next
+      this.pendingTrack = null
+      this.beginTrack()
+      return
+    }
+    this.pendingTrack = next
+    this.pendingNow = now
+  }
+
+  /**
+   * Skips to the next track in the shuffle bag, refilling it when empty.
+   *
+   * This is the only way a person changes track: there is no picker. Choosing
+   * from a list means reading three names to make a decision nobody came here to
+   * make, whereas "not this one" is a judgement you can act on in one tap.
+   */
+  nextTrack(): void {
+    this.setTrack(this.takeFromQueue(), true)
+  }
+
+  /** How many parts this track plays before handing over. */
+  private partsPerTrack(): number {
+    return this.partsOverride ?? this.track.form.length * PASSES_PER_TRACK
+  }
+
+  /**
+   * Shortens a track, for the verification harness only.
+   *
+   * A real track runs about two minutes, which is the right length and far too
+   * long for a harness to sit through — so the automatic handover would be the
+   * one behaviour here that nothing ever checks. Same test seam the server uses
+   * for `AFKKickThreshold`; pass `null` to restore.
+   */
+  setPartsPerTrack(parts: number | null): void {
+    this.partsOverride = parts
+  }
+
+  private takeFromQueue(): string {
+    if (this.queue.length === 0) {
+      this.queue = shuffledOrder(TRACKS.map((t) => t.id), this.track.id, () => this.rand())
+    }
+    return this.queue.shift() ?? this.track.id
+  }
+
+  /** Resets the position counters for a track that is starting now. */
+  private beginTrack(): void {
+    this.formIndex = 0
+    this.partStep = 0
+    this.partPass = 0
+    this.partsPlayed = 0
+    this.retuneDelays()
+  }
+
+  /**
+   * Covers a track change with a short dip.
+   *
+   * Two pieces of music butt-joined on a bar line still click, because the tails
+   * of the outgoing one (reverb, delay repeats, a pad's 1.2s release) are cut
+   * mid-air. Fading down into the seam and back out of it costs a quarter of a
+   * second and removes the only artefact of the swap.
+   */
+  private dipThrough(ctx: AudioContext, at: number): void {
+    const out = this.out
+    if (!out) return
+    const from = Math.max(ctx.currentTime, at - 0.18)
+    out.gain.cancelScheduledValues(from)
+    out.gain.setValueAtTime(out.gain.value, from)
+    out.gain.linearRampToValueAtTime(0.06, at)
+    out.gain.linearRampToValueAtTime(1, at + 0.28)
+  }
+
   setIntensity(value: number): void {
     this.target = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0))
+  }
+
+  /** Seconds per sixteenth, from the current track's tempo. */
+  private stepDur(): number {
+    return 60 / this.track.bpm / 4
+  }
+
+  private barDur(): number {
+    return this.stepDur() * STEPS_PER_BAR
   }
 
   /**
@@ -126,9 +430,121 @@ class MusicBed {
     if (!this.out) {
       this.out = ctx.createGain()
       this.out.gain.value = 1
-      this.out.connect(bus)
+      // Fixed output trim, downstream of the duck so `duck()` can keep treating
+      // 1 as nominal on `out.gain`.
+      //
+      // Headroom is a real problem here: the pad is up to 7 unison voices per
+      // chord tone with a long release, so chords overlap, and a drop stacks that
+      // under an arp, a lead, a counter-line, stabs, a bass and drums. Measured
+      // bare, the bed peaked at 0.73 with the music slider at 1 — clipping once
+      // effects play over it. A `DynamicsCompressor` was the obvious fix and the
+      // wrong one: Chrome's applies an internal makeup gain, so the "limiter"
+      // came back *louder* (peak 0.81, RMS +45%). One multiplication is
+      // predictable, and every voice level is tuned against it.
+      const trim = ctx.createGain()
+      trim.gain.value = 0.55
+      this.out.connect(trim)
+      trim.connect(bus)
+      this.buildGraph(ctx, this.out)
     }
     return this.out
+  }
+
+  /**
+   * The fixed part of the graph, built once: pad bus, reverb, the two delays and
+   * the kick's waveshaper.
+   *
+   * All of it hangs off `out`, upstream of the duck, so `duck()` attenuates wet
+   * and dry together — a fanfare over a reverb tail that ignored the duck would
+   * be the same mush the duck exists to prevent.
+   */
+  private buildGraph(ctx: AudioContext, out: GainNode) {
+    this.padBus = ctx.createGain()
+    this.padBus.gain.value = 1
+    this.padBus.connect(out)
+
+    // Three lowpassed comb delays. A convolver would sound lusher, but this bed
+    // runs next to card animations on a phone, and "latency → smooth animation"
+    // outranks "lush" in this repo.
+    const revIn = ctx.createGain()
+    const revOut = ctx.createGain()
+    revOut.gain.value = 0.5
+    const preTone = ctx.createBiquadFilter()
+    preTone.type = 'lowpass'
+    preTone.frequency.value = 4200
+    revIn.connect(preTone)
+    for (const [time, fb] of [[0.037, 0.78], [0.041, 0.75], [0.053, 0.72]]) {
+      const comb = ctx.createDelay(0.2)
+      comb.delayTime.value = time
+      const loop = ctx.createGain()
+      loop.gain.value = fb
+      const damp = ctx.createBiquadFilter()
+      damp.type = 'lowpass'
+      damp.frequency.value = 2600
+      preTone.connect(comb)
+      comb.connect(damp)
+      damp.connect(loop)
+      loop.connect(comb)
+      damp.connect(revOut)
+    }
+    revOut.connect(out)
+    this.reverbIn = revIn
+
+    // Dotted delays — this genre's whole sense of space. The times are bar
+    // fractions recomputed on every tempo change (`retuneDelays`); typed in as
+    // seconds they would land between the beats and the groove would die.
+    const echo = (feedback: number, level: number, tone: number): [GainNode, DelayNode] => {
+      const input = ctx.createGain()
+      input.gain.value = level
+      const delay = ctx.createDelay(2)
+      const fb = ctx.createGain()
+      fb.gain.value = feedback
+      const lp = ctx.createBiquadFilter()
+      lp.type = 'lowpass'
+      lp.frequency.value = tone
+      input.connect(delay)
+      delay.connect(lp)
+      lp.connect(fb)
+      fb.connect(delay)
+      lp.connect(out)
+      return [input, delay]
+    }
+    const [leadIn, leadDelay] = echo(0.55, 0.5, 3200)
+    const [arpIn, arpDelay] = echo(0.45, 0.4, 2600)
+    this.leadEchoIn = leadIn
+    this.leadDelay = leadDelay
+    this.arpEchoIn = arpIn
+    this.arpDelay = arpDelay
+    this.retuneDelays()
+
+    const curve = new Float32Array(1024)
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i / (curve.length - 1)) * 2 - 1
+      curve[i] = Math.tanh(x * 2.2)
+    }
+    this.shaper = ctx.createWaveShaper()
+    this.shaper.curve = curve
+    this.shaper.oversample = '2x'
+    this.shaper.connect(out)
+  }
+
+  /** Keeps the dotted delays locked to the current track's tempo. */
+  private retuneDelays(): void {
+    const bar = this.barDur()
+    if (this.leadDelay) this.leadDelay.delayTime.value = bar * (3 / 8)
+    if (this.arpDelay) this.arpDelay.delayTime.value = bar * (3 / 16)
+  }
+
+  /** One buffer of white noise, reused by every percussion voice and the riser. */
+  private noise(ctx: AudioContext): AudioBuffer {
+    if (!this.noiseBuf) {
+      const len = Math.floor(ctx.sampleRate * 2)
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate)
+      const data = buf.getChannelData(0)
+      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1
+      this.noiseBuf = buf
+    }
+    return this.noiseBuf
   }
 
   /**
@@ -156,8 +572,15 @@ class MusicBed {
       return
     }
     if (!audio.isReady() || this.timer) return
-    this.step = 0
-    this.cycle = 0
+    // Seed the shuffle from the clock, once. The generator is otherwise
+    // deterministic — fine for debugging a rhythm, useless for "play them in a
+    // random order", which would hand every session the same order forever.
+    this.seed = (Date.now() & 0x7fffffff) | 1
+    this.queue = shuffledOrder(TRACKS.map((t) => t.id), null, () => this.rand())
+    this.track = getTrack(this.takeFromQueue())
+    audio.setSettings({ track: this.track.id })
+    this.beginTrack()
+    this.barCount = 0
     this.lastSlewAt = 0
     this.nextStepTime = audio.now() + 0.08
     this.timer = setInterval(() => this.schedule(), TICK_MS)
@@ -171,10 +594,8 @@ class MusicBed {
     this.scene = 'off'
   }
 
-  /** Seconds per 16th note. Tempo climbs with intensity: 88 → 124 BPM. */
-  private stepDuration(): number {
-    const bpm = this.scene === 'lobby' ? 76 : 88 + this.barIntensity * 36
-    return 60 / bpm / 4
+  private part(): PartDef {
+    return partById(this.track, this.track.form[this.formIndex]) ?? this.track.parts[0]
   }
 
   private schedule(): void {
@@ -189,11 +610,51 @@ class MusicBed {
 
     let guard = 0
     while (this.nextStepTime < horizon && guard++ < 64) {
-      this.emitStep(this.step, this.nextStepTime, ctx, dest)
-      this.nextStepTime += this.stepDuration()
-      this.step = (this.step + 1) % TOTAL_STEPS
-      if (this.step === 0) this.cycle++
+      this.emitStep(this.nextStepTime, ctx, dest)
+      this.nextStepTime += this.stepDur()
+      this.advance()
     }
+  }
+
+  /** Moves one sixteenth on, crossing part boundaries and applying a track swap. */
+  private advance(): void {
+    this.partStep++
+    if (this.partStep % STEPS_PER_BAR === 0) this.barCount++
+    const len = this.part().bars.length * STEPS_PER_BAR
+    if (this.partStep < len) return
+
+    this.partStep = 0
+    this.partsPlayed++
+
+    // A track that has played its length hands over to the next one in the bag.
+    // The handover waits for this part boundary rather than a bar line: it is not
+    // a response to anything a person did, so it can afford to land on a phrase.
+    if (!this.pendingTrack && this.partsPlayed >= this.partsPerTrack()) {
+      this.pendingTrack = getTrack(this.takeFromQueue())
+      this.pendingNow = false
+    }
+    if (this.pendingTrack) {
+      this.applyPendingTrack()
+      return
+    }
+
+    const before = this.formIndex
+    this.formIndex = nextFormIndex(this.track, this.formIndex, this.section)
+    if (this.formIndex === before) this.partPass++
+    else this.partPass = 0
+  }
+
+  private applyPendingTrack(): void {
+    if (!this.pendingTrack) return
+    this.track = this.pendingTrack
+    this.pendingTrack = null
+    this.pendingNow = false
+    // Both routes in — button and end-of-track — get the dip. `advance()` has no
+    // scheduler time to hand to `dipThrough`, so it is flagged here and applied
+    // on the next emitted step, which is the seam itself.
+    this.dipPending = true
+    audio.setSettings({ track: this.track.id })
+    this.beginTrack()
   }
 
   /**
@@ -201,13 +662,13 @@ class MusicBed {
    *
    * Intensity is derived from discrete game events, so it arrives in jumps — a
    * +4 landing can take it from 0.34 to 0.7 between one message and the next.
-   * Applied raw, whole layers would snap in and out mid-bar. Slewing turns that
-   * into a crescendo, which is what the tension actually feels like.
+   * Applied raw, the arrangement would cut from breakdown to drop mid-bar.
+   * Slewing turns that into a build, which is what the tension actually feels
+   * like — and it is what gives the riser something real to announce.
    *
-   * The rate is per *second*, not per step: a 16th note at 88 BPM lasts 170ms,
-   * so a per-step rate made the ramp depend on the tempo it was supposed to be
-   * driving — and took 14 seconds to cross the range, by which time the round
-   * was over.
+   * The rate is per *second*, not per step: a sixteenth at 138 BPM lasts 109ms,
+   * so a per-step rate made the ramp depend on the tempo and took 14 seconds to
+   * cross the range, by which time the round was over.
    */
   private slew(now: number): void {
     const dt = this.lastSlewAt === 0 ? 0 : Math.min(0.5, Math.max(0, now - this.lastSlewAt))
@@ -218,178 +679,418 @@ class MusicBed {
     else this.current += Math.sign(d) * maxDelta
   }
 
-  private emitStep(step: number, when: number, ctx: AudioContext, dest: AudioNode) {
+  /** Sine LFO in 0..1 over `bars` bars. */
+  private lfo(bars: number, offset = 0): number {
+    const pos = this.barCount + (this.partStep % STEPS_PER_BAR) / STEPS_PER_BAR
+    return 0.5 + 0.5 * Math.sin((2 * Math.PI * (pos + offset)) / bars)
+  }
+
+  private emitStep(when: number, ctx: AudioContext, dest: GainNode) {
+    // A person pressed "next": swap on this bar line rather than making them wait
+    // out the part. It happens *before* anything below reads the track, so the
+    // new one gets its own downbeat — applying it later and returning early
+    // silently swallowed the first sixteenth, which is where the kick, the pad
+    // and the first note of the tune all live.
+    if (this.pendingTrack && this.pendingNow && this.partStep % STEPS_PER_BAR === 0) {
+      this.applyPendingTrack()
+    }
+    if (this.dipPending) {
+      this.dipThrough(ctx, when)
+      this.dipPending = false
+    }
+
+    const track = this.track
+    const part = this.part()
+    const step = this.partStep
     const bar = Math.floor(step / STEPS_PER_BAR)
     const inBar = step % STEPS_PER_BAR
-    const harmony = PROGRESSION[bar]
+    const barDef = part.bars[bar]
     const lobby = this.scene === 'lobby'
+    const stepDur = this.stepDur()
 
     this.slew(when)
-    // Layer decisions and tempo are frozen at the bar line: a layer that appears
-    // on beat 3 sounds like a mistake, the same layer on beat 1 sounds intended.
-    if (inBar === 0) this.barIntensity = this.current
-    const i = lobby ? 0.2 : this.barIntensity
-
-    // ── Pad: one sustained chord per bar. Always present; it is the room tone.
     if (inBar === 0) {
-      const dur = this.stepDuration() * STEPS_PER_BAR * 0.98
-      harmony.chord.forEach((m, idx) => {
-        this.voice(ctx, dest, {
-          freq: mtof(m),
-          type: 'triangle',
-          when,
-          dur,
-          attack: 0.5,
-          release: 0.9,
-          gain: 0.055 - idx * 0.008,
-          filter: 1500 + i * 1400,
-        })
-      })
-    }
+      // The arrangement is frozen at the bar line: a layer that appears on beat 3
+      // sounds like a mistake, the same layer on beat 1 sounds intended.
+      this.barIntensity = this.current
+      this.section = sectionFor(this.barIntensity, lobby)
 
-    // ── Bass: root on the downbeat, plus pushes once it matters.
-    if (!lobby && i > ENTER.bass) {
-      const hit = inBar === 0 || (i > 0.5 && inBar === 8) || (i > 0.85 && inBar === 12)
-      if (hit) {
-        this.voice(ctx, dest, {
-          freq: mtof(harmony.bass),
-          type: 'sawtooth',
-          when,
-          dur: this.stepDuration() * 3.2,
-          attack: 0.012,
-          release: 0.16,
-          gain: 0.1 + i * 0.05,
-          filter: 320 + i * 420,
-        })
+      const lastBar = bar === part.bars.length - 1
+      const next = partById(track, track.form[nextFormIndex(track, this.formIndex, this.section)])
+      // Build into a chorus. This is the single biggest thing separating a song
+      // from a loop: the arrival is announced before it happens.
+      if (lastBar && next?.role === 'chorus' && this.section !== 'breakdown') {
+        this.riser(ctx, dest)
+      } else if (!lobby && this.section !== 'drop' && this.target - this.current > RISER_GAP) {
+        // Otherwise a riser only fires from the *gap*: the game has asked for
+        // more tension than the bed has reached, so there is a real build.
+        this.riser(ctx, dest)
+      }
+      if (step === 0 && LAYERS[this.section].crash && part.role === 'chorus') {
+        this.crash(ctx, dest, when)
       }
     }
 
-    // ── Hats: offbeat 8ths, then 16ths when the table is tense.
-    if (!lobby && i > ENTER.hats) {
-      const dense = i > ENTER.denseHats
-      if (dense ? inBar % 2 === 1 : inBar % 4 === 2) {
-        this.hat(ctx, dest, when, 0.035 + i * 0.03)
+    const L = LAYERS[this.section]
+
+    // ── Pump: stepped on every sixteenth, pad bus only.
+    if (this.padBus) {
+      this.padBus.gain.setValueAtTime(track.pump[inBar % track.pump.length], when)
+    }
+
+    // ── Pad: one sustained chord per bar.
+    if (L.pad && inBar === 0 && this.padBus) {
+      for (const midi of barDef.chord) {
+        this.synth(ctx, this.padBus, track.voices.pad, mtof(midi), when, this.barDur())
       }
     }
 
-    // ── Kick: only at high intensity, and only on 1 and 3.
-    if (!lobby && i > ENTER.kick && (inBar === 0 || inBar === 8)) {
-      this.kick(ctx, dest, when, 0.16 + i * 0.08)
-    }
-
-    // ── Motif: the actual theme. Enters mid-intensity as 8th notes across the
-    //    first two bars of the loop, so it recurs often enough to be learned
-    //    without playing continuously.
-    const motifBars = bar < 2
-    if (!lobby && i > ENTER.motif && motifBars && inBar % 2 === 0) {
-      const idx = bar * 8 + inBar / 2
-      // Every other pass lifts the phrase an octave: same tune, more urgency.
-      const octave = this.cycle % 2 === 1 && i > 0.7 ? 12 : 0
-      this.voice(ctx, dest, {
-        freq: mtof(MOTIF[idx % MOTIF.length] + octave),
-        type: 'square',
-        when,
-        dur: this.stepDuration() * 1.8,
-        attack: 0.008,
-        release: 0.1,
-        gain: 0.05 + i * 0.025,
-        filter: 2600 + i * 2200,
+    // ── Arp: the texture that never stops. Cutoff sweeps slowly across sixteen
+    //    bars, or sits closed when the section wants it out of the way.
+    const arpEvery = STEPS_PER_BAR / part.arpDiv
+    if (inBar % arpEvery === 0) {
+      const spec = track.voices.arp
+      const idx = (inBar / arpEvery) % barDef.arp.length
+      const open = spec.filter * (0.35 + 0.65 * this.lfo(16))
+      this.synth(ctx, dest, spec, mtof(barDef.arp[idx]), when, stepDur * arpEvery, {
+        gain: spec.gain * L.arpGain,
+        filter: L.arpCutoff ?? open,
+        pan: inBar % 2 === 0 ? -0.18 : 0.18,
       })
     }
 
-    // ── Arp: the filler layer. Sparse and slow in the lobby, running 16ths when
-    //    someone is about to go out. Steps back where the motif plays so the two
-    //    never fight for the same beat.
-    const arpEvery = lobby ? 8 : i > ENTER.fastArp ? 2 : i > 0.45 ? 4 : 8
-    const motifOwnsThisBeat = !lobby && i > ENTER.motif && motifBars && inBar % 2 === 0
-    if (inBar % arpEvery === 0 && !motifOwnsThisBeat) {
-      // Bias the note choice toward the current chord tones so the line always
-      // sounds intentional even though the pitch is picked at random.
-      const pool = this.rand() < 0.55 ? harmony.chord.map((m) => m + 12) : ARP_SCALE
-      const midi = pool[Math.floor(this.rand() * pool.length) % pool.length]
-      this.voice(ctx, dest, {
-        freq: mtof(midi),
-        type: lobby ? 'sine' : 'square',
-        when,
-        dur: this.stepDuration() * (lobby ? 5 : 2.2),
-        attack: 0.006,
-        release: 0.12,
-        gain: (lobby ? 0.05 : 0.04) + i * 0.025,
-        filter: 2200 + i * 2600,
+    // ── Lead, and its answer.
+    if (L.lead && part.lead) {
+      const every = STEPS_PER_BAR / part.div
+      if (inBar % every === 0) {
+        const row = part.lead[bar]
+        const slot = inBar / every
+        const midi = row[slot]
+        if (midi > 0) {
+          const len = noteLength(row, slot) * every * stepDur
+          // Alternate passes of a chorus lift an octave: same tune, more arrival.
+          const lift = L.leadOctave && part.role === 'chorus' && this.partPass % 2 === 1 ? 12 : 0
+          this.synth(ctx, dest, track.voices.lead, mtof(midi + lift), when, len)
+          if (L.leadOctave && lift === 0) {
+            this.synth(ctx, dest, track.voices.lead, mtof(midi + 12), when, len * 0.7, {
+              gain: track.voices.lead.gain * 0.3,
+              echo: null,
+              reverb: 0.3,
+            })
+          }
+        }
+      }
+    }
+    if (L.counter && part.counter) {
+      const every = STEPS_PER_BAR / part.div
+      if (inBar % every === 0) {
+        const row = part.counter[bar]
+        const slot = inBar / every
+        const midi = row[slot]
+        if (midi > 0) {
+          const len = noteLength(row, slot) * every * stepDur
+          this.synth(ctx, dest, track.voices.lead, mtof(midi), when, len, {
+            gain: track.voices.lead.gain * 0.55,
+            filter: track.voices.lead.filter * 0.6,
+          })
+        }
+      }
+    }
+
+    // ── Stabs: offbeat chord hits, the electro-house signature.
+    if (L.stabs && part.stabs?.includes(inBar)) {
+      for (const midi of barDef.chord.slice(1)) {
+        this.synth(ctx, dest, track.voices.stab, mtof(midi), when, stepDur)
+      }
+    }
+
+    // ── Bass.
+    if (L.bass) {
+      const offset = part.bass[inBar]
+      if (offset !== null && offset !== undefined) {
+        this.bassNote(ctx, dest, barDef.root + offset, when)
+      }
+    }
+
+    // ── Drums.
+    const kit = KITS[track.drums]
+    if (L.kick && kit.kick.includes(inBar)) this.kick(ctx, when)
+    if (L.hats && kit.hat.includes(inBar)) {
+      this.noiseVoice(ctx, dest, {
+        when, dur: 0.045, gain: 0.05 * (0.85 + this.rand() * 0.3),
+        type: 'highpass', freq: 8000, pan: (this.lfo(0.5) - 0.5) * 0.4,
+      })
+    }
+    if (L.hats && kit.openHat.includes(inBar)) {
+      this.noiseVoice(ctx, dest, {
+        when, dur: 0.13, gain: 0.03, type: 'highpass', freq: 7000, pan: 0.12,
+      })
+    }
+    if (L.ride && kit.ride.includes(inBar)) {
+      this.noiseVoice(ctx, dest, {
+        when, dur: 0.03, gain: 0.05 * [0.35, 0.15, 0.25, 0.15][inBar % 4],
+        type: 'highpass', freq: 9200, pan: -0.1,
+      })
+    }
+    if (L.clap === 'beats' && kit.clap.includes(inBar)) this.clap(ctx, dest, when)
+    if (L.clap === 'sparse' && inBar === 8 && bar % 2 === 0) this.clap(ctx, dest, when)
+
+    // ── Fill: the last beat of a part, when there are drums to fill with. Four
+    //    rising snare hits is a cliché, and clichés are how a listener knows a
+    //    section is ending.
+    const lastBar = bar === part.bars.length - 1
+    if ((L.kick || L.hats) && lastBar && inBar >= 12) {
+      this.noiseVoice(ctx, dest, {
+        when, dur: 0.06, gain: 0.03 + (inBar - 12) * 0.012,
+        type: 'bandpass', freq: 1400 + (inBar - 12) * 260, Q: 1.2, reverb: 0.25,
       })
     }
   }
 
-  private voice(
+  /**
+   * One synthesised voice: `unison` detuned oscillators through a lowpass with an
+   * ADSR, plus optional sends and pan.
+   *
+   * Detuned stacks are the sound of this genre — a single oscillator playing the
+   * same notes reads as a test tone however good the tune is. Level is divided by
+   * the unison count so widening a voice never also makes it louder.
+   */
+  private synth(
+    ctx: AudioContext,
+    dest: AudioNode,
+    spec: SynthSpec,
+    freq: number,
+    when: number,
+    dur: number,
+    override?: { gain?: number; filter?: number; pan?: number; reverb?: number; echo?: SynthSpec['echo'] },
+  ) {
+    const gain = override?.gain ?? spec.gain
+    const filter = override?.filter ?? spec.filter
+    const reverb = override?.reverb ?? spec.reverb
+    const echoName = override?.echo === undefined ? spec.echo : override.echo
+    const { attack, decay, sustain, release }: Adsr = spec.adsr
+
+    const g = ctx.createGain()
+    const sus = Math.max(0.0002, gain * sustain)
+    const relStart = Math.max(when + attack + decay, when + dur)
+    g.gain.setValueAtTime(0.0001, when)
+    g.gain.exponentialRampToValueAtTime(gain, when + attack)
+    g.gain.exponentialRampToValueAtTime(sus, when + attack + decay)
+    g.gain.setValueAtTime(sus, relStart)
+    g.gain.exponentialRampToValueAtTime(0.0001, relStart + release)
+    const end = relStart + release
+
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    lp.frequency.setValueAtTime(filter, when)
+    lp.Q.value = spec.q ?? 0.9
+    lp.connect(g)
+
+    const level = 1 / spec.unison
+    const oscs: OscillatorNode[] = []
+    for (let n = 0; n < spec.unison; n++) {
+      const osc = ctx.createOscillator()
+      osc.type = spec.wave
+      osc.frequency.setValueAtTime(freq, when)
+      const cents = spec.unison === 1 ? 0 : -spec.detune / 2 + (spec.detune * n) / (spec.unison - 1)
+      osc.detune.setValueAtTime(cents, when)
+      const mix = ctx.createGain()
+      mix.gain.value = level
+      osc.connect(mix)
+      mix.connect(lp)
+      oscs.push(osc)
+    }
+
+    let tail: AudioNode = g
+    if (override?.pan !== undefined) {
+      const panner = ctx.createStereoPanner()
+      panner.pan.setValueAtTime(override.pan, when)
+      g.connect(panner)
+      tail = panner
+    }
+    tail.connect(dest)
+    this.send(ctx, tail, this.reverbIn, reverb)
+    if (echoName) {
+      this.send(ctx, tail, echoName === 'lead' ? this.leadEchoIn : this.arpEchoIn, 1)
+    }
+
+    for (const osc of oscs) {
+      osc.start(when)
+      osc.stop(end + 0.02)
+    }
+  }
+
+  private send(ctx: AudioContext, from: AudioNode, to: GainNode | null, amount?: number) {
+    if (!to || !amount) return
+    const g = ctx.createGain()
+    g.gain.value = amount
+    from.connect(g)
+    g.connect(to)
+  }
+
+  /**
+   * The bass: a sine sub for weight plus a filtered body for movement, one
+   * lowpass, no waveshaper.
+   *
+   * The reference sketch reaches for `lpq(8)` and `shape(.3)` — a great
+   * three-minute sound and an exhausting twenty-minute one, since the resonant
+   * peak lands where the ear is most sensitive and the distortion fills every gap
+   * the arp left. The user asked for this to be gentler by name.
+   */
+  private bassNote(ctx: AudioContext, dest: AudioNode, midi: number, when: number) {
+    const spec = this.track.voices.bass
+    const dur = this.stepDur() * spec.length
+    const freq = mtof(midi)
+    const env = (param: AudioParam, peak: number) => {
+      const sus = Math.max(0.0002, peak * 0.25)
+      param.setValueAtTime(0.0001, when)
+      param.exponentialRampToValueAtTime(peak, when + 0.002)
+      param.exponentialRampToValueAtTime(sus, when + 0.12)
+      param.setValueAtTime(sus, when + dur)
+      param.exponentialRampToValueAtTime(0.0001, when + dur + 0.05)
+    }
+
+    const sub = ctx.createOscillator()
+    sub.type = 'sine'
+    sub.frequency.setValueAtTime(freq, when)
+    const subG = ctx.createGain()
+    env(subG.gain, spec.subGain)
+    sub.connect(subG)
+    subG.connect(dest)
+    sub.start(when)
+    sub.stop(when + dur + 0.1)
+
+    const body = ctx.createOscillator()
+    body.type = spec.bodyWave
+    body.frequency.setValueAtTime(freq * 2, when)
+    const lp = ctx.createBiquadFilter()
+    lp.type = 'lowpass'
+    const [lo, hi] = spec.cutoff
+    lp.frequency.setValueAtTime(lo + this.lfo(8) * (hi - lo), when)
+    lp.Q.value = spec.q
+    if (spec.wobble) {
+      // A talking bass, slow enough not to become a novelty you tire of.
+      const lfo = ctx.createOscillator()
+      lfo.frequency.setValueAtTime(spec.wobble, when)
+      const depth = ctx.createGain()
+      depth.gain.value = (hi - lo) * 0.45
+      lfo.connect(depth)
+      depth.connect(lp.frequency)
+      lfo.start(when)
+      lfo.stop(when + dur + 0.1)
+    }
+    const bodyG = ctx.createGain()
+    env(bodyG.gain, spec.bodyGain)
+    body.connect(lp)
+    lp.connect(bodyG)
+    bodyG.connect(dest)
+    body.start(when)
+    body.stop(when + dur + 0.1)
+  }
+
+  /** One-shot noise voice, used by every percussion sound and the riser. */
+  private noiseVoice(
     ctx: AudioContext,
     dest: AudioNode,
     o: {
-      freq: number
-      type: OscillatorType
       when: number
       dur: number
-      attack: number
-      release: number
       gain: number
-      filter?: number
+      type: BiquadFilterType
+      freq: number
+      endFreq?: number
+      Q?: number
+      pan?: number
+      reverb?: number
+      attack?: number
     },
   ) {
-    const osc = ctx.createOscillator()
-    osc.type = o.type
-    osc.frequency.setValueAtTime(o.freq, o.when)
+    const src = ctx.createBufferSource()
+    src.buffer = this.noise(ctx)
+    src.loop = true
+    // Start somewhere else in the buffer each time so repeated hits differ.
+    const offset = this.rand() * 1.5
+
+    const filter = ctx.createBiquadFilter()
+    filter.type = o.type
+    filter.frequency.setValueAtTime(o.freq, o.when)
+    if (o.endFreq) filter.frequency.exponentialRampToValueAtTime(o.endFreq, o.when + o.dur)
+    if (o.Q) filter.Q.value = o.Q
 
     const g = ctx.createGain()
     g.gain.setValueAtTime(0.0001, o.when)
-    g.gain.exponentialRampToValueAtTime(o.gain, o.when + o.attack)
-    g.gain.setValueAtTime(o.gain, o.when + Math.max(o.attack, o.dur - o.release))
+    g.gain.exponentialRampToValueAtTime(o.gain, o.when + (o.attack ?? 0.002))
     g.gain.exponentialRampToValueAtTime(0.0001, o.when + o.dur)
 
-    let node: AudioNode = osc
-    if (o.filter) {
-      const lp = ctx.createBiquadFilter()
-      lp.type = 'lowpass'
-      lp.frequency.setValueAtTime(o.filter, o.when)
-      osc.connect(lp)
-      node = lp
+    src.connect(filter)
+    filter.connect(g)
+    let tail: AudioNode = g
+    if (o.pan !== undefined) {
+      const panner = ctx.createStereoPanner()
+      panner.pan.setValueAtTime(o.pan, o.when)
+      g.connect(panner)
+      tail = panner
     }
-    node.connect(g)
-    g.connect(dest)
-    osc.start(o.when)
-    osc.stop(o.when + o.dur + 0.05)
+    tail.connect(dest)
+    this.send(ctx, tail, this.reverbIn, o.reverb)
+    src.start(o.when, offset)
+    src.stop(o.when + o.dur + 0.05)
   }
 
-  private hat(ctx: AudioContext, dest: AudioNode, when: number, gain: number) {
-    const osc = ctx.createOscillator()
-    osc.type = 'square'
-    osc.frequency.setValueAtTime(7800, when)
-    const hp = ctx.createBiquadFilter()
-    hp.type = 'highpass'
-    hp.frequency.setValueAtTime(6000, when)
-    const g = ctx.createGain()
-    g.gain.setValueAtTime(0.0001, when)
-    g.gain.exponentialRampToValueAtTime(gain, when + 0.002)
-    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.045)
-    osc.connect(hp)
-    hp.connect(g)
-    g.connect(dest)
-    osc.start(when)
-    osc.stop(when + 0.06)
-  }
-
-  private kick(ctx: AudioContext, dest: AudioNode, when: number, gain: number) {
+  private kick(ctx: AudioContext, when: number) {
+    const dest = this.shaper ?? this.out
+    if (!dest) return
     const osc = ctx.createOscillator()
     osc.type = 'sine'
-    osc.frequency.setValueAtTime(150, when)
-    osc.frequency.exponentialRampToValueAtTime(44, when + 0.11)
+    osc.frequency.setValueAtTime(158, when)
+    osc.frequency.exponentialRampToValueAtTime(46, when + 0.095)
     const g = ctx.createGain()
     g.gain.setValueAtTime(0.0001, when)
-    g.gain.exponentialRampToValueAtTime(gain, when + 0.004)
-    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.18)
+    g.gain.exponentialRampToValueAtTime(0.3, when + 0.004)
+    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.2)
     osc.connect(g)
     g.connect(dest)
     osc.start(when)
-    osc.stop(when + 0.22)
+    osc.stop(when + 0.24)
+    // Click transient: without it the kick is felt but not heard on the laptop
+    // speakers most of this game gets played on.
+    this.noiseVoice(ctx, dest, { when, dur: 0.02, gain: 0.09, type: 'highpass', freq: 1900 })
+  }
+
+  /** Three quick bursts then a body — one burst reads as a tick, not as hands. */
+  private clap(ctx: AudioContext, dest: AudioNode, when: number) {
+    for (let n = 0; n < 3; n++) {
+      this.noiseVoice(ctx, dest, {
+        when: when + n * 0.011, dur: 0.02, gain: 0.055, type: 'bandpass', freq: 1500, Q: 1.4,
+      })
+    }
+    this.noiseVoice(ctx, dest, {
+      when: when + 0.032, dur: 0.15, gain: 0.06, type: 'bandpass', freq: 1300, Q: 0.9, reverb: 0.4,
+    })
+  }
+
+  private crash(ctx: AudioContext, dest: AudioNode, when: number) {
+    this.noiseVoice(ctx, dest, {
+      when, dur: 1.6, gain: 0.06, type: 'highpass', freq: 5000, reverb: 0.5, attack: 0.006,
+    })
+  }
+
+  /** One bar of noise sweeping up — the build-up. */
+  private riser(ctx: AudioContext, dest: AudioNode) {
+    const dur = this.barDur()
+    this.noiseVoice(ctx, dest, {
+      when: this.nextStepTime,
+      dur,
+      gain: 0.05,
+      type: 'bandpass',
+      freq: 400,
+      endFreq: 9000,
+      Q: 1.1,
+      reverb: 0.5,
+      attack: dur * 0.8,
+    })
   }
 }
 
 export const music = new MusicBed()
+export { TRACKS, getTrack, DEFAULT_TRACK_ID }

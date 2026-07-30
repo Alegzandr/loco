@@ -56,6 +56,11 @@ const (
 	SMsgRoundEnd ServerMsgType = "round_end"
 	SMsgMatchEnd ServerMsgType = "match_end"
 
+	// SMsgLatency carries every seat's measured round-trip time. Broadcast on a
+	// timer to rooms that are playing, so the in-game score table can show a
+	// live ping per player without any client self-reporting.
+	SMsgLatency ServerMsgType = "latency"
+
 	// SMsgRematchStarted tells every remaining member that the finished room is
 	// back in the lobby. Sent per-recipient because pruning absent players can
 	// shift player indices.
@@ -84,6 +89,12 @@ type ClientMsg struct {
 	// All cards must be exactly equal; if PlayCards is non-empty it takes precedence
 	// over the singular Card field. Swap and GlobalSwitch cannot be batch-played.
 	PlayCards []CardDTO `json:"play_cards,omitempty"`
+
+	// CMsgCatchUno: which seat is being caught. Several players can owe a
+	// declaration at once (Swap / GlobalSwitch hand a single card to more than
+	// one of them), so the catcher names their target. Omitted = the window
+	// closest to expiring.
+	TargetIndex *int `json:"target_index,omitempty"`
 
 	// CMsgSetMatchFormat
 	MatchFormat string `json:"match_format,omitempty"`
@@ -120,6 +131,16 @@ type ScoreboardEntryDTO struct {
 	Nickname    string `json:"nickname"`
 	Score       int    `json:"score"`
 	RoundsWon   int    `json:"rounds_won"`
+}
+
+// LatencyEntryDTO is one seat's measured round-trip time.
+type LatencyEntryDTO struct {
+	PlayerIndex int `json:"player_index"`
+	// RTTMs is the smoothed WebSocket ping/pong round trip in milliseconds,
+	// or -1 when nothing has been measured yet (bots, a seat that just
+	// connected, a player inside their reconnect window).
+	RTTMs int  `json:"rtt_ms"`
+	Bot   bool `json:"bot,omitempty"`
 }
 
 // ServerMsg is the envelope for all server-to-client messages.
@@ -160,9 +181,18 @@ type ServerMsg struct {
 	// display and reset the countdown when a new turn begins.
 	TurnDeadline int64 `json:"turn_deadline,omitempty"`
 
-	// SMsgDrawPending
-	PendingDraw int  `json:"pending_draw,omitempty"`
-	HasDrawn    bool `json:"has_drawn,omitempty"` // included in card_drawn to signal draw-once state
+	// SMsgDrawPending / SMsgCardPlayed / SMsgCardDrawn: the authoritative turn
+	// state AFTER the event.
+	//
+	// Pointers, not plain values: `omitempty` drops a false bool and a zero int
+	// from the wire, so the receiver has to invent the missing value — and it
+	// guesses wrong exactly where it hurts. A hand can grow without the current
+	// player having drawn (UNO-catch penalty), and a client that read the absent
+	// has_drawn as "true" then disabled its own Draw button and had every Pass
+	// refused with "you must draw a card before passing" until the turn timer
+	// bailed it out. Absent now means "unchanged", and every sender fills them in.
+	PendingDraw *int  `json:"pending_draw,omitempty"`
+	HasDrawn    *bool `json:"has_drawn,omitempty"`
 
 	// SMsgCardDrawn: multiple cards drawn at once (penalty draw)
 	// Cards holds all drawn cards for the drawing player; DrawnCount tells observers how many.
@@ -175,6 +205,13 @@ type ServerMsg struct {
 	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 	MatchOver   bool                 `json:"match_over,omitempty"`
 	MatchWinner string               `json:"match_winner,omitempty"`
+	// RoundHistory[k][playerIndex] = points scored in round k+1. Sent with
+	// round_end so the score table updates without waiting for the next
+	// game_state (which the client buffers behind the round summary).
+	RoundHistory [][]int `json:"round_history,omitempty"`
+
+	// SMsgLatency
+	Latencies []LatencyEntryDTO `json:"latencies,omitempty"`
 
 	// SMsgLobbyConfigChanged
 	MatchFormat string `json:"match_format,omitempty"`
@@ -219,6 +256,9 @@ type GameStateDTO struct {
 	MatchFormat string               `json:"match_format"`
 	MaxPlayers  int                  `json:"max_players"`
 	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
+	// RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
+	// Included in every snapshot so a reconnecting player recovers the table.
+	RoundHistory [][]int `json:"round_history,omitempty"`
 
 	// Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
 	TurnDeadline int64 `json:"turn_deadline,omitempty"`

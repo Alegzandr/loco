@@ -19,6 +19,8 @@ export interface AudioSettings {
   sfx: number
   /** 0..1 */
   music: number
+  /** Id of the chosen track (`audio/tracks`). Persisted like any other setting. */
+  track: string
 }
 
 const STORAGE_KEY = 'loco_audio'
@@ -30,6 +32,10 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   // Music sits well under the effects: it is a bed, not the show. A streamer
   // talking over the game must stay louder than the soundtrack.
   music: 0.32,
+  // Deliberately a bare string rather than an import from `audio/tracks`: the
+  // engine is the bottom of the audio stack and must not depend on the track
+  // registry, which depends on it. `getTrack` falls back on an unknown id.
+  track: 'neon-horizon',
 }
 
 function clamp01(n: number): number {
@@ -47,6 +53,7 @@ function readSettings(): AudioSettings {
       master: parsed.master === undefined ? DEFAULT_SETTINGS.master : clamp01(parsed.master),
       sfx: parsed.sfx === undefined ? DEFAULT_SETTINGS.sfx : clamp01(parsed.sfx),
       music: parsed.music === undefined ? DEFAULT_SETTINGS.music : clamp01(parsed.music),
+      track: typeof parsed.track === 'string' ? parsed.track : DEFAULT_SETTINGS.track,
     }
   } catch {
     // Corrupt or unavailable storage must never stop the game from booting.
@@ -134,6 +141,7 @@ class AudioEngine {
       master: patch.master === undefined ? this.settings.master : clamp01(patch.master),
       sfx: patch.sfx === undefined ? this.settings.sfx : clamp01(patch.sfx),
       music: patch.music === undefined ? this.settings.music : clamp01(patch.music),
+      track: patch.track ?? this.settings.track,
     }
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings))

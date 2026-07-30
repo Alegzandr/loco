@@ -70,11 +70,11 @@ test.describe('mobile viewport', () => {
     await addBot(page)
     await startGame(page)
 
-    // UNO button is always rendered in-game
-    const unoBtn = page.getByRole('button', { name: T.unoBtn })
-    await expect(unoBtn).toBeVisible({ timeout: 10_000 })
+    // The centre slot is always rendered in-game; on a fresh deal it is Catch.
+    const centreBtn = page.getByRole('button', { name: T.catchBtn })
+    await expect(centreBtn).toBeVisible({ timeout: 10_000 })
 
-    const box = await unoBtn.boundingBox()
+    const box = await centreBtn.boundingBox()
     expect(box).not.toBeNull()
     expect(box!.height).toBeGreaterThanOrEqual(44)
   })

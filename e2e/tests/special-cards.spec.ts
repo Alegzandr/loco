@@ -32,6 +32,7 @@ import {
   waitForMyTurn,
   debugSetState,
   gameBoard,
+  playCard,
 } from '../helpers/game'
 
 // ---------------------------------------------------------------------------
@@ -185,14 +186,19 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
   })
 
   /**
-   * GlobalSwitch card end-to-end:
-   * Playing a GlobalSwitch card via sendMsg should:
-   *   1. Update the discard pile to show the GlobalSwitch card.
-   *   2. Trigger a game_state broadcast (hands rotate; our new hand comes from the
-   *      previous player in game direction).
-   *   3. The GlobalSwitch card must no longer be in our hand.
+   * GlobalSwitch card end-to-end, tapped through the real click handler:
+   *   1. The tap opens the colour picker: a GlobalSwitch is a wild and names
+   *      the colour that becomes active, so it must never fly out silently.
+   *   2. Choosing a colour plays it: the discard shows the GlobalSwitch and the
+   *      chosen colour becomes active.
+   *   3. Hands rotate (game_state broadcast) and the card leaves our hand.
+   *
+   * Driven by playCard + a click on the swatch rather than a raw sendMsg: the
+   * server rejects a colourless GlobalSwitch now, so a test that sends
+   * chosen_color down the socket itself would stay green while the button that
+   * produces it was unreachable.
    */
-  test('GlobalSwitch card plays without picker and triggers game_state update', async ({
+  test('GlobalSwitch asks for a colour, then plays with it', async ({
     page,
   }) => {
     await createRoom(page, 'Alice')
@@ -220,11 +226,13 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     expect(before?.myHand).toHaveLength(1)
     expect(before?.myHand[0].kind).toBe('global_switch')
 
-    // Play it — no picker, sent directly.
-    await sendMsg(page, {
-      type: 'play_card',
-      card: { color: 'wild', kind: 'global_switch' },
-    })
+    // Tap it: the picker must open and nothing must have been played yet.
+    await playCard(page, { color: 'wild', kind: 'global_switch' })
+    const swatch = page.getByRole('button', { name: 'green' })
+    await expect(swatch).toBeVisible({ timeout: 5_000 })
+    expect((await getState(page))?.discard?.kind).toBe('number')
+
+    await swatch.click()
 
     // Discard must update to show global_switch.
     await page.waitForFunction(
@@ -235,6 +243,8 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     const after = await getState(page)
     expect(after?.discard?.kind).toBe('global_switch')
+    // The colour the player named is the colour in play.
+    expect(after?.activeColor).toBe('green')
     // GlobalSwitch must no longer be in our hand.
     expect(after?.myHand.some((c) => c.kind === 'global_switch')).toBe(false)
   })
@@ -243,8 +253,14 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
    * counter_draw — deterministic:
    * 1. Inject a +2 card into our hand.
    * 2. Set the discard to a +2 and pendingDraw to 2 (simulates a +2 played against us).
-   * 3. Send counter_draw with our +2 — this stacks the penalty to 4.
+   * 3. Tap our +2 through the real click handler — this stacks the penalty to 4.
    * 4. The turn must advance away from us and pendingDraw must be > 2.
+   *
+   * The tap goes through handleCardClick on purpose. An earlier version sent
+   * counter_draw straight down the socket, which proved the server stacks
+   * correctly while the UI was in fact sending play_card — a message the server
+   * always refuses while a penalty is pending. Stacking was unreachable for a
+   * human player and the suite was green throughout.
    */
   test('counter_draw stacks the pending draw and advances the turn', async ({ page }) => {
     await createRoom(page, 'Alice')
@@ -257,7 +273,9 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     const myIdx = s?.myIndex ?? 0
     const otherIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
 
-    // Inject: we have a red +2, discard is a red +2, pendingDraw = 2, and it's our turn.
+    // Inject: we have a red +2, discard is a red +2, pendingDraw = 2, our turn.
+    // Same colour on purpose — a counter is the same card, and the tap has to
+    // route to counter_draw for the stack to be reachable at all.
     await debugSetState(page, {
       hand: [
         { color: 'red', kind: 'draw_two' },
@@ -273,10 +291,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     expect(before?.pendingDraw).toBe(2)
 
     // Counter the +2 with our +2 — stack grows to 4.
-    await sendMsg(page, {
-      type: 'counter_draw',
-      card: { color: 'red', kind: 'draw_two' },
-    })
+    await playCard(page, { color: 'red', kind: 'draw_two' })
 
     // Turn must advance away from us and pendingDraw must have grown.
     await page.waitForFunction(
@@ -295,6 +310,68 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     const after = await getState(page)
     expect(after?.pendingDraw).toBeGreaterThan(2) // stacked: 2 + 2 = 4
     expect(after?.currentTurn).not.toBe(myIdx)
+  })
+
+  /**
+   * An off-colour +2 does not counter (§11: a counter is the same card), but it
+   * is not a dead card either — the forced draw keeps the turn (§14.5), so after
+   * taking the penalty it plays as an ordinary kind-match on the very same +2.
+   *
+   * This is the full UI path a player actually walks: the tap while the penalty
+   * is pending must do nothing at all, the draw must leave the turn on our seat,
+   * and the same tap must then send the card.
+   */
+  test('an off-colour +2 is refused as a counter and playable after the draw', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForMyTurn(page, 30_000)
+
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const otherIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
+
+    await debugSetState(page, {
+      hand: [
+        { color: 'blue', kind: 'draw_two' },
+        { color: 'red', kind: 'number', value: 7 }, // filler so the round can't end here
+      ],
+      hands: [{ playerIndex: otherIdx, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
+      discard: { color: 'red', kind: 'draw_two' },
+      activeColor: 'red',
+      pendingDraw: 2,
+      currentTurn: myIdx,
+    })
+
+    // Tapping it under the penalty must be a no-op: no counter, no play, no error.
+    await playCard(page, { color: 'blue', kind: 'draw_two' })
+    const stuck = await getState(page)
+    expect(stuck?.pendingDraw).toBe(2)
+    expect(stuck?.currentTurn).toBe(myIdx)
+    expect(stuck?.myHand.some((c) => c.color === 'blue' && c.kind === 'draw_two')).toBe(true)
+
+    // Take the penalty — the turn must stay on our seat.
+    await sendMsg(page, { type: 'draw_card' })
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.pendingDraw ?? -1) === 0,
+      undefined,
+      { timeout: 10_000 },
+    )
+    expect((await getState(page))?.currentTurn).toBe(myIdx)
+
+    // Now the same card is an ordinary kind-match on the red +2.
+    await playCard(page, { color: 'blue', kind: 'draw_two' })
+    await page.waitForFunction(
+      ([idx]: [number]) => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        return s !== undefined && s.currentTurn !== idx && (s.pendingDraw ?? 0) === 2
+      },
+      [myIdx] as [number],
+      { timeout: 10_000 },
+    )
+    const played = await getState(page)
+    expect(played?.discard?.color).toBe('blue')
+    expect(played?.discard?.kind).toBe('draw_two')
   })
 
   /**

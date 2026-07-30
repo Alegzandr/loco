@@ -25,15 +25,17 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 
 	switch card.Kind {
 	case WildCard:
-		s.ActiveColor = chosenColor
+		s.setActiveColor(chosenColor)
 	case WildDrawFour:
-		s.ActiveColor = chosenColor
+		s.setActiveColor(chosenColor)
 		s.PendingDraw += 4
 	case GlobalSwitch:
-		s.ActiveColor = chosenColor
+		// A wild like the other two: the player names the colour that becomes
+		// active, and the rotation happens on top of that choice.
+		s.setActiveColor(chosenColor)
 	default:
 		// Colored cards (Number, Skip, Reverse, DrawTwo, Swap)
-		s.ActiveColor = card.Color
+		s.setActiveColor(card.Color)
 	}
 
 	switch card.Kind {

@@ -9,6 +9,7 @@ import {
   sendMsg,
   debugSetState,
   gameBoard,
+  playCard,
 } from '../helpers/game'
 
 test.describe('error feedback, turn timer, and penalty flows', () => {
@@ -95,15 +96,18 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         chosen_color: 'red',
       })
 
+      // The catch button holds the centre slot at all times and is *enabled* by
+      // the window opening — it is never mounted or unmounted, so it cannot move
+      // out from under a cursor already parked on it.
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })
-      await expect(catchBtn).toBeVisible({ timeout: 5_000 })
+      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
       const armed = await getState(alice)
       expect(armed?.catchTarget).toBe(bobIdx)
       expect(armed?.unoTimerEnd).not.toBeNull()
 
       // Declaring closes the window — you cannot catch someone who called it.
       await sendMsg(bob, { type: 'declare_uno' })
-      await expect(catchBtn).toHaveCount(0, { timeout: 5_000 })
+      await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
       expect((await getState(alice))?.catchTarget).toBeNull()
     } finally {
       await ctx1.close()
@@ -129,17 +133,21 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     await expect(page.getByRole('button', { name: /Draw \+2/ })).toBeVisible()
   })
 
-  test('drawing penalty cards clears pendingDraw and advances turn', async ({ page }) => {
+  // rules.md §14.5: eating a draw stack costs cards, not the turn. The victim
+  // draws the whole stack and then plays from the enlarged hand.
+  test('drawing penalty cards clears pendingDraw and keeps the turn', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
 
     const s = await getState(page)
     const myIdx = s?.myIndex ?? 0
+    const playable = { color: 'red', kind: 'number', value: 4 } as const
 
     await debugSetState(page, {
-      hand: [{ color: 'blue', kind: 'number', value: 4 }],
+      hand: [playable],
       discard: { color: 'red', kind: 'draw_two' },
+      activeColor: 'red',
       pendingDraw: 2,
       currentTurn: myIdx,
     })
@@ -149,7 +157,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     await page.waitForFunction(
       (idx: number) => {
         const st = window.__LOCO_E2E__?.getState?.()
-        return st !== undefined && st.currentTurn !== idx && (st.pendingDraw ?? 0) === 0
+        return st !== undefined && st.currentTurn === idx && (st.pendingDraw ?? 0) === 0 && st.hasDrawn === true
       },
       myIdx,
       { timeout: 10_000 },
@@ -157,7 +165,19 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
 
     const after = await getState(page)
     expect(after?.pendingDraw).toBe(0)
-    expect(after?.currentTurn).not.toBe(myIdx)
+    expect(after?.currentTurn).toBe(myIdx)
+    expect(after?.myHand.length).toBe(3) // 1 held + 2 drawn
+
+    // The turn is still ours: playing is accepted and only then does it move on.
+    await playCard(page, playable)
+    await page.waitForFunction(
+      (idx: number) => {
+        const st = window.__LOCO_E2E__?.getState?.()
+        return st !== undefined && st.currentTurn !== idx
+      },
+      myIdx,
+      { timeout: 10_000 },
+    )
   })
 
   test('UNO button is enabled and clickable with exactly 1 card in hand', async ({ page }) => {

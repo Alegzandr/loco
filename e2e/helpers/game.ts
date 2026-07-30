@@ -11,7 +11,7 @@ export const T = {
   waitingRoom: 'Waiting Room',
   draw: 'Draw',
   pass: 'Pass',
-  unoBtn: 'UNO!',
+  unoBtn: 'LOCO!',
   catchBtn: 'Catch!',
   rulesBtn: 'Rules',
   continueBtn: 'Continue',
@@ -307,9 +307,9 @@ export async function waitForRoundNumber(
  * Take one turn: play the best available card, or draw+pass if nothing is playable.
  *
  * Uses raw sendMsg to avoid ColorPicker / PlayerPicker modals:
- * - wild / wild_draw_four → play with chosen_color 'red'
+ * - wild / wild_draw_four / global_switch → play with chosen_color 'red'
  * - swap → play with first non-finished opponent
- * - global_switch / regular card → play directly
+ * - regular card → play directly
  * - nothing playable → draw_card then pass_turn
  *
  * Skips silently if it is not our turn or the game is not in the 'game' screen.
@@ -346,7 +346,11 @@ export async function takeTurn(page: Page, turnTimeoutMs = 20_000): Promise<void
   })
 
   if (playable) {
-    if (playable.kind === 'wild' || playable.kind === 'wild_draw_four') {
+    if (
+      playable.kind === 'wild' ||
+      playable.kind === 'wild_draw_four' ||
+      playable.kind === 'global_switch'
+    ) {
       await sendMsg(page, { type: 'play_card', card: playable, chosen_color: 'red' })
     } else if (playable.kind === 'swap') {
       const opponents = state.players.filter(
@@ -372,8 +376,15 @@ export async function takeTurn(page: Page, turnTimeoutMs = 20_000): Promise<void
       await sendMsg(page, { type: 'play_card', card: playable })
     }
   } else if ((pendingDraw ?? 0) > 0) {
-    // Must absorb the penalty
+    // Must absorb the penalty. It no longer costs the turn (rules.md §14.5), so
+    // pass explicitly — otherwise the caller waits forever for the turn to move.
     await sendMsg(page, { type: 'draw_card' })
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.hasDrawn === true,
+      undefined,
+      { timeout: 8_000 },
+    )
+    await sendMsg(page, { type: 'pass_turn' })
   } else {
     // Voluntary draw then pass
     await sendMsg(page, { type: 'draw_card' })

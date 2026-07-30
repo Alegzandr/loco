@@ -5,24 +5,35 @@ import styles from './TurnIndicator.module.css'
 export interface TurnTexts {
   yourTurn: string
   drawOrCounter: string  // contains %n placeholder
+  drawPenalty: string    // contains %n placeholder
   playerTurnSuffix: string
 }
 
 interface Props {
   isMyTurn: boolean
   pendingDraw: number
+  /**
+   * True when a card in hand can actually stack the pending penalty. Only the
+   * same card counters (same kind AND same colour), so most hands cannot —
+   * announcing the counter unconditionally sent players tapping cards that were
+   * never going to leave.
+   */
+  canCounter: boolean
   currentTurn: number
   players: { index: number; nickname: string }[]
   height: number
   texts: TurnTexts
 }
 
-export function TurnIndicator({ isMyTurn, pendingDraw, currentTurn, players, height, texts }: Props) {
+export function TurnIndicator({ isMyTurn, pendingDraw, canCounter, currentTurn, players, height, texts }: Props) {
   let msg: string
   if (isMyTurn) {
-    msg = pendingDraw > 0
-      ? texts.drawOrCounter.replace('%n', String(pendingDraw))
-      : texts.yourTurn
+    if (pendingDraw > 0) {
+      const tpl = canCounter ? texts.drawOrCounter : texts.drawPenalty
+      msg = tpl.replace('%n', String(pendingDraw))
+    } else {
+      msg = texts.yourTurn
+    }
   } else {
     const nick = players.find((p) => p.index === currentTurn)?.nickname ?? '?'
     msg = `${nick}${texts.playerTurnSuffix}`

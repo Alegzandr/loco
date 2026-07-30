@@ -38,6 +38,28 @@ describe('serverMsgSchema', () => {
     expect(r.success).toBe(true)
   })
 
+  it('accepts a latency broadcast', () => {
+    const r = serverMsgSchema.safeParse({
+      type: 'latency',
+      latencies: [
+        { player_index: 0, rtt_ms: 47 },
+        { player_index: 1, rtt_ms: -1, bot: true },
+      ],
+    })
+    expect(r.success).toBe(true)
+  })
+
+  it('accepts a round_end carrying the per-round history', () => {
+    const r = serverMsgSchema.safeParse({
+      type: 'round_end',
+      round_number: 2,
+      round_winner: 'alice',
+      scoreboard: [{ player_index: 0, nickname: 'alice', score: 30, rounds_won: 1 }],
+      round_history: [[30, 0], [0, 12]],
+    })
+    expect(r.success).toBe(true)
+  })
+
   it('rejects unknown ServerMsg type (drift detector)', () => {
     expect(serverMsgSchema.safeParse({ type: 'wat' }).success).toBe(false)
   })

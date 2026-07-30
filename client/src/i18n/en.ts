@@ -3,6 +3,72 @@ export interface RulesSection {
   items: readonly string[]
 }
 
+/**
+ * Player-facing copy for a refused action.
+ *
+ * The server's own error strings are developer prose, in English, and used to
+ * reach the screen verbatim. `resolveServerError` (i18n/serverErrors.ts) maps
+ * them onto these; anything it does not recognise resolves to `generic`, so a
+ * raw wire string is never rendered.
+ *
+ * Voice: say what the player should do next, in as few words as fit on one
+ * pill. A refusal in a reaction game is read in under a second or not at all.
+ */
+export interface ErrorCopy {
+  generic: string
+
+  // Joining
+  nicknameTaken: string
+  nicknameLength: string
+  roomNotFound: string
+  roomFull: string
+  gameInProgress: string
+  sessionInvalid: string
+  notInRoom: string
+
+  // Turn legality
+  notYourTurn: string
+  mustAnswerPenalty: string
+  alreadyDrew: string
+  mustDrawFirst: string
+  needColor: string
+  cardNotInHand: string
+  illegalCard: string
+
+  // Draw stack
+  counterMismatch: string
+  noPendingDraw: string
+
+  // Interrupts & batches
+  interruptClosed: string
+  interruptDrawChain: string
+  interruptMismatch: string
+  batchNotAllowed: string
+  batchMismatch: string
+
+  // LOCO declaration & catch
+  declareTooEarly: string
+  alreadyDeclared: string
+  catchExpired: string
+  catchTargetSafe: string
+
+  // Swap
+  swapSelf: string
+  swapTargetInvalid: string
+
+  // Lobby & host
+  hostOnly: string
+  notEnoughPlayers: string
+  lobbyOnly: string
+  maxPlayersInvalid: string
+  rematchTooEarly: string
+
+  // Transport
+  rateLimited: string
+  serverBusy: string
+  deckExhausted: string
+}
+
 export interface Translations {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: string
@@ -25,6 +91,8 @@ export interface Translations {
   audioMaster: string
   audioSfx: string
   audioMusic: string
+  audioTrack: string
+  audioNextTrack: string
   audioMute: string
   audioUnmute: string
 
@@ -82,9 +150,21 @@ export interface Translations {
   continueBtn: string
   spectating: string
 
+  // ─── In-game score table (hold TAB) ───────────────────────────
+  scoreTableTitle: string
+  scoreTableHint: string       // "Hold TAB"
+  scoreTableBtn: string        // accessible name of the touch button
+  scoreTableRoundCol: string   // per-round column header, %n = round number
+  scoreTablePingCol: string
+  scoreTableYou: string        // marker next to your own row
+  scoreTableBot: string        // shown in the ping column for bot seats
+  scoreTableNoPing: string     // ping not measured yet
+  scoreTableEmptyRounds: string // no round has finished yet
+
   // ─── PixiGame in-canvas strings ───────────────────────────────
   yourTurn: string
   drawOrCounter: string  // contains %n placeholder for draw count
+  drawPenalty: string    // same, for a hand that holds no counter
   playerTurnSuffix: string  // appended after nickname: "Alice's turn"
   // Ordinal suffixes for placement display ("1st", "2nd", "3rd", "4th"+)
   ord1: string
@@ -111,6 +191,9 @@ export interface Translations {
   rulesTitle: string
   rulesClose: string
   rules: readonly RulesSection[]
+
+  // ─── Refused actions ─────────────────────────────────────────
+  errors: ErrorCopy
 }
 
 export const en: Translations = {
@@ -135,6 +218,8 @@ export const en: Translations = {
   audioMaster: 'Overall',
   audioSfx: 'Effects',
   audioMusic: 'Music',
+  audioTrack: 'Now playing',
+  audioNextTrack: 'Next track',
   audioMute: 'Mute',
   audioUnmute: 'Unmute',
 
@@ -163,8 +248,8 @@ export const en: Translations = {
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Draw',
   pass: 'Pass',
-  unoBtn: 'UNO!',
-  unoBanner: 'UNO!',
+  unoBtn: 'LOCO!',
+  unoBanner: 'LOCO!',
   catchBtn: 'Catch!',
   chooseColor: 'Choose a color',
   choosePlayer: 'Choose a player to swap hands with',
@@ -191,9 +276,21 @@ export const en: Translations = {
   continueBtn: 'Continue',
   spectating: 'You finished! Watching the round…',
 
+  // ─── In-game score table (hold TAB) ───────────────────────────
+  scoreTableTitle: 'Scores',
+  scoreTableHint: 'Hold TAB',
+  scoreTableBtn: 'Scores',
+  scoreTableRoundCol: 'R%n',
+  scoreTablePingCol: 'Ping',
+  scoreTableYou: 'you',
+  scoreTableBot: 'BOT',
+  scoreTableNoPing: '--',
+  scoreTableEmptyRounds: 'First round in progress',
+
   // ─── PixiGame in-canvas strings ───────────────────────────────
   yourTurn: 'Your turn',
   drawOrCounter: 'Draw %n or counter!',
+  drawPenalty: 'Draw %n',
   playerTurnSuffix: "'s turn",
   ord1: '1st',
   ord2: '2nd',
@@ -252,7 +349,7 @@ export const en: Translations = {
         'Wild — choose the next active color.',
         'Wild Draw Four (+4) — choose the color; next player draws 4 unless they stack.',
         'Swap (⇋) — colored card; on your turn, pick an opponent and exchange entire hands. No stacking.',
-        'Global Swap (↻) — wild card; every player passes their hand to the next player in the current direction.',
+        'Global Swap (↻) — wild card; choose the active colour, then every player passes their hand to the next player in the current direction.',
       ],
     },
     {
@@ -273,9 +370,10 @@ export const en: Translations = {
       ],
     },
     {
-      heading: 'UNO! Declaration & Catch',
+      heading: 'LOCO! Declaration & Catch',
       items: [
-        'When you play down to exactly 1 card you must press UNO!',
+        'When you play down to exactly 1 card you must press LOCO!',
+        'Being handed your last card counts too: after a Swap or a Global Swap, everyone left on one card must press LOCO!',
         'If you forget, any other player has 5 seconds to press Catch! — penalty: you draw 2 cards.',
       ],
     },
@@ -303,4 +401,52 @@ export const en: Translations = {
       ],
     },
   ],
+
+  // ─── Refused actions ─────────────────────────────────────────
+  errors: {
+    generic: "That didn't work. Try again.",
+
+    nicknameTaken: 'That nickname is taken in this room.',
+    nicknameLength: 'Pick a nickname of 1 to 20 characters.',
+    roomNotFound: 'No room with that code.',
+    roomFull: 'That room is full.',
+    gameInProgress: 'That game has already started.',
+    sessionInvalid: 'Could not restore your seat. Rejoin the room.',
+    notInRoom: 'You are not in a room any more.',
+
+    notYourTurn: 'Not your turn yet.',
+    mustAnswerPenalty: 'Counter it, or take the cards.',
+    alreadyDrew: 'One draw per turn.',
+    mustDrawFirst: 'Draw a card before passing.',
+    needColor: 'Pick a color first.',
+    cardNotInHand: 'You do not hold that card.',
+    illegalCard: 'That card does not match.',
+
+    counterMismatch: 'Only the exact same card stacks.',
+    noPendingDraw: 'Nothing to counter right now.',
+
+    interruptClosed: 'Too late.',
+    interruptDrawChain: 'Only a matching draw card can cut in here.',
+    interruptMismatch: 'It has to be identical to the top card.',
+    batchNotAllowed: 'Swap and Global Swap cannot be played in a batch.',
+    batchMismatch: 'Batched cards must be identical.',
+
+    declareTooEarly: 'Call LOCO with exactly one card left.',
+    alreadyDeclared: 'Already called.',
+    catchExpired: 'Too late to catch.',
+    catchTargetSafe: 'Nothing to catch there.',
+
+    swapSelf: 'Pick another player.',
+    swapTargetInvalid: 'That player cannot be your target.',
+
+    hostOnly: 'Only the host can do that.',
+    notEnoughPlayers: 'Not enough players to start.',
+    lobbyOnly: 'That can only be changed before the game starts.',
+    maxPlayersInvalid: 'That player limit is not allowed.',
+    rematchTooEarly: 'The match is not over yet.',
+
+    rateLimited: 'Slow down a moment.',
+    serverBusy: 'Server is busy. Try again.',
+    deckExhausted: 'No cards left to draw.',
+  },
 }

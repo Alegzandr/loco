@@ -169,19 +169,19 @@ test.describe('gameplay flow (single player vs bot)', () => {
   })
 
   /**
-   * UNO! button is visible in the action bar during a game.
-   * It is disabled unless the player has exactly 1 card.
+   * The action bar's centre slot belongs to Catch, and LOCO only borrows it at
+   * exactly one card. On a fresh deal (8 cards, nobody catchable) the centre
+   * therefore holds a disabled Catch and no LOCO button exists at all.
    */
-  test('UNO button is present in action bar during game', async ({ page }) => {
+  test('centre slot holds a disabled catch button on a fresh deal', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
 
-    // UNO button is rendered unconditionally when player is not finished
-    const unoBtn = page.getByRole('button', { name: T.unoBtn })
-    await expect(unoBtn).toBeVisible({ timeout: 10_000 })
-    // It's disabled unless exactly 1 card in hand (rare at game start with 7 cards)
-    await expect(unoBtn).toBeDisabled()
+    const catchBtn = page.getByRole('button', { name: T.catchBtn })
+    await expect(catchBtn).toBeVisible({ timeout: 10_000 })
+    await expect(catchBtn).toBeDisabled()
+    await expect(page.getByRole('button', { name: T.unoBtn })).toHaveCount(0)
   })
 
   /**

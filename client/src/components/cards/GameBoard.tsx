@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { CardDTO, CardColor, PlayerDTO } from '../../types/protocol'
 import { useElementSize } from '../../hooks/useElementSize'
 import { Deck } from './Deck'
@@ -16,8 +16,10 @@ import {
   tableRect,
   seatLayout,
   boardScale,
+  boardSpace,
 } from './layout'
 import { CARD_W, CARD_H } from './cardTheme'
+import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
 import { SwapNotice, LastPlay } from '../../hooks/useGameStore'
 import styles from './GameBoard.module.css'
 
@@ -29,6 +31,8 @@ interface Props {
   myIndex: number
   currentTurn: number
   pendingDraw: number
+  /** True when a card in hand actually stacks the pending penalty (see TurnIndicator). */
+  canCounter: boolean
   isPlayable: (card: CardDTO) => boolean
   isInteractive: (card: CardDTO) => boolean
   onCardClick: (card: CardDTO, idx: number) => void
@@ -80,15 +84,19 @@ function discardKey(c: CardDTO | null): string {
 let nextFlierId = 1
 const newId = () => `f${nextFlierId++}`
 
-export function GameBoard(props: Props) {
+// Memoised: this is the expensive half of the screen (seat layout, hand slots,
+// pile positions and every card are re-derived on each render) and it sits
+// under a <GameView /> that also owns toasts, banners and latency updates.
+// Its props are kept referentially stable there (turnTexts, fxTexts, the two
+// predicates, onCardClick, onDraw) so this comparison actually bites.
+export const GameBoard = memo(function GameBoard(props: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const { width: pxWidth, height: pxHeight } = useElementSize(ref)
   // Everything below works in the board's own coordinate space; <div .stage>
   // scales that space to the element's pixel size. Children — and the pure
   // layout maths they share with the animations — never see the scale.
   const scale = boardScale(pxWidth, pxHeight)
-  const width = pxWidth / scale
-  const height = pxHeight / scale
+  const { width, height, offsetY } = boardSpace(pxWidth, pxHeight, scale)
   const ready = width > 0 && height > 0
 
   const [fliers, setFliers] = useState<Flier[]>([])
@@ -300,14 +308,23 @@ export function GameBoard(props: Props) {
     <div ref={ref} className={styles.board} data-testid="game-board">
       <div
         className={styles.stage}
-        style={{ width, height, transform: `scale(${scale})` }}
+        style={{ width, height, transform: `translateY(${offsetY}px) scale(${scale})` }}
       >
         {ready && !props.isReconnecting && (
           <div key={rebuildKey} className={styles.fadeIn}>
             <div
               className={styles.tableOval}
               style={{ left: table.left, top: table.top, width: table.width, height: table.height }}
-            />
+            >
+              <svg
+                className={styles.tableMark}
+                viewBox={LOCO_MARK_VIEWBOX}
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path d={LOCO_MARK_PATH} fillRule="evenodd" fill="#ffffff" />
+              </svg>
+            </div>
             <Deck
               width={width}
               height={height}
@@ -327,6 +344,7 @@ export function GameBoard(props: Props) {
             <TurnIndicator
               isMyTurn={props.currentTurn === props.myIndex}
               pendingDraw={props.pendingDraw}
+              canCounter={props.canCounter}
               currentTurn={props.currentTurn}
               players={props.players}
               height={height}
@@ -363,5 +381,4 @@ export function GameBoard(props: Props) {
       </div>
     </div>
   )
-}
-
+})

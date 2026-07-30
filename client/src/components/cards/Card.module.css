@@ -1,24 +1,41 @@
-/* Card face — see Card.tsx. Frame + ink outline + tilted oval + big numeral. */
+/* Card face — see Card.tsx and CardArt.tsx.
+   Full-bleed suit gradient, the LOCO mark behind it in the same gradient
+   reversed, one large off-white glyph, two corner marks. No white frame and no
+   oval: the reference art carries the card on colour alone. */
 
 .card {
   position: relative;
   width: 72px;
   height: 108px;
-  border-radius: 11px;
-  background:
-    linear-gradient(168deg, var(--card-face-light, #6b4bb8) 0%, var(--card-face, #2a1a52) 46%);
-  color: #fff;
+  border-radius: 5px;
+  /* Every glyph on the face is sized against the card itself, so one component
+     serves the hand, the discard, a flier mid-flight and the showcase without a
+     second set of numbers. */
+  container-type: size;
+  /* Fixed, not themed: a card is a physical object and its face must read the
+     same whatever the UI around it is doing. Mirrors CARD_GLYPH_INK. */
+  --card-glyph-ink: #120b24;
+  color: #efefef;
   font-family: var(--font-display);
-  font-weight: 600;
+  font-weight: 700;
   user-select: none;
   -webkit-user-select: none;
   box-sizing: border-box;
-  /* White frame like a printed card; the ink outline sits outside it so the
-     card keeps its exact 72×108 layout box. */
-  border: 3px solid #fff;
+  /* Rule 1 of the art direction: a raised object gets an ink outline. It sits
+     outside the box, so the card keeps its exact 72x108 layout size. */
   box-shadow: 0 0 0 2px var(--color-stroke);
   overflow: hidden;
   flex-shrink: 0;
+  /* Fallback for anything without container query units. */
+  font-size: 53px;
+}
+
+.art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 
 .card.shadow {
@@ -30,98 +47,86 @@
 /* Legal-to-play: warm rim + glow. Paired with the lift applied in <Hand />, so
    "I can play this" is readable from position alone on a stream. */
 .card.playable {
-  border-color: #fff8dc;
   box-shadow:
     0 0 0 2px var(--color-stroke),
-    0 0 0 5px rgba(255, 201, 60, 0.85),
+    0 0 0 4px rgba(255, 201, 60, 0.9),
     0 0 22px 4px rgba(255, 201, 60, 0.5),
     0 6px 14px rgba(20, 8, 45, 0.4);
 }
 
-/* Top gloss — a single soft highlight, not a plastic gradient stack. */
-.sheen {
+/* The one large glyph. Positioned by its own centre so the number sits where
+   the reference puts it — a touch above the middle of the card. */
+.value {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 42%;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0));
-  pointer-events: none;
-}
-
-/* The tilted white ellipse. Non-wild cards get flat white; wilds get the
-   four-colour wheel that means "choose any colour". */
-.oval {
-  position: absolute;
-  top: 9%;
-  bottom: 9%;
-  left: 9%;
-  right: 9%;
-  border-radius: 50%;
-  background: #fff;
-  transform: rotate(-22deg);
-  box-shadow: inset 0 -3px 6px rgba(20, 8, 45, 0.12);
-  pointer-events: none;
-}
-
-.ovalWild {
-  background: conic-gradient(
-    from 45deg,
-    #eb2f45 0deg 90deg,
-    #ffc31f 90deg 180deg,
-    #17b877 180deg 270deg,
-    #2b7fff 270deg 360deg
-  );
-}
-
-.label {
-  position: absolute;
-  inset: 0;
+  left: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  text-align: center;
-  color: var(--card-ink, #241546);
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  transform: translate(-50%, -50%);
   pointer-events: none;
 }
 
-/* On the colour wheel a dark glyph would fight four hues at once — go white
-   with an ink halo instead. */
-.labelOnWild {
-  color: #fff;
-  text-shadow:
-    0 0 3px rgba(20, 8, 45, 0.9),
-    0 2px 4px rgba(20, 8, 45, 0.7),
-    0 0 10px rgba(20, 8, 45, 0.5);
+/* Accessibility, not decoration — see CARD_GLYPH_INK. Off-white measures
+   1.18:1 against the green suit; outlined it is ~15:1 against its own ink and
+   the ink is ~14:1 against any face. `paint-order` keeps the stroke behind the
+   fill so the glyph does not thin out. */
+.value,
+.corner {
+  color: #efefef;
+  -webkit-text-stroke: 0.055em var(--card-glyph-ink);
+  paint-order: stroke fill;
 }
 
-.label.numeric { font-size: 40px; line-height: 1; }
-.label.short   { font-size: 26px; }
-.label.long    { font-size: 15px; }
+.centred { top: 46%; }
+/* Wilds: the four-suit fan owns the middle band, the value sits under it. */
+.underFan { top: 62%; }
 
-/* Corner glyphs, upright top-left and rotated bottom-right, exactly like a
-   printed card. They stay readable when the fan overlaps the card bodies. */
+.oneChar { font-size: 49cqh; }
+.manyChars { font-size: 30cqh; }
+.iconSize {
+  width: 42cqh;
+  height: 42cqh;
+}
+.underFan.manyChars { font-size: 18cqh; }
+
+.value svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Corner marks: brand monogram top-left, value bottom-right rotated, exactly
+   like the reference (and like a printed card). */
 .corner {
   position: absolute;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(20, 8, 45, 0.55);
-  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14.5cqh;
   line-height: 1;
+  pointer-events: none;
 }
+
+.cornerSmall { font-size: 8.5cqh; }
 
 .cornerTL {
-  top: 5px;
-  left: 6px;
+  top: 2.2%;
+  left: 5.2%;
 }
 
+/* Upright, unlike the reference's bottom corner. That corner is rotated so a
+   card reads when held the other way up — worth it for a value, meaningless for
+   a monogram, which just looks like a glyph that fell over. */
 .cornerBR {
-  bottom: 5px;
-  right: 6px;
-  transform: rotate(180deg);
+  bottom: 1.5%;
+  right: 5%;
+}
+
+/* An icon corner has no glyph box to size it, so it gets an explicit one. */
+.corner svg {
+  width: 12cqh;
+  height: 12cqh;
 }
 
 .interactive {

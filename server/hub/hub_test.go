@@ -1520,6 +1520,106 @@ func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
 	readMsgOfType(t, conn3, protocol.SMsgCardPlayed)
 }
 
+// TestInterruptPlay_GlobalSwitch_ResendsHands verifies that a GlobalSwitch
+// played as an *interrupt* rearranges every hand and that every client is told
+// so: without a personalised game_state each client keeps the hand it can no
+// longer play, taps a phantom card and gets "card not in hand" forever.
+func TestInterruptPlay_GlobalSwitch_ResendsHands(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	conn3 := dialWS(t, srv)
+	t.Cleanup(func() { conn3.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn3, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Carol", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn3, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	readMsgOfType(t, conn2, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn3, protocol.SMsgGameStarted)
+
+	gs := protocol.CardDTO{Color: "wild", Kind: "global_switch"}
+	red3 := protocol.CardDTO{Color: "red", Kind: "number", Value: 3}
+	blue9 := protocol.CardDTO{Color: "blue", Kind: "number", Value: 9}
+	green7 := protocol.CardDTO{Color: "green", Kind: "number", Value: 7}
+	zero := 0
+	sendMsg(t, conn1, protocol.ClientMsg{
+		Type:         protocol.CMsgDebugSetState,
+		DebugDiscard: &red3,
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{PlayerIndex: 0, Hand: []protocol.CardDTO{gs, blue9}},
+			{PlayerIndex: 1, Hand: []protocol.CardDTO{green7}},
+			{PlayerIndex: 2, Hand: []protocol.CardDTO{gs, red3}},
+		},
+		DebugPendingDraw: &zero,
+		DebugCurrentTurn: &zero,
+	})
+	readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+	readMsgOfType(t, conn3, protocol.SMsgGameState)
+
+	// Alice plays her GlobalSwitch: hands rotate one seat and the window opens.
+	// Direction is clockwise, so seat i receives seat i-1's hand:
+	// 0←[gs,red3], 1←[blue9], 2←[green7].
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgPlayCard, Card: &gs, ChosenColor: "red"})
+	readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn3, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn1, protocol.SMsgGameState)
+	readMsgOfType(t, conn2, protocol.SMsgGameState)
+	readMsgOfType(t, conn3, protocol.SMsgGameState)
+
+	// Alice now holds the GlobalSwitch she just received and takes the lead back
+	// with it. Hands rotate again: 0←[green7], 1←[red3], 2←[blue9].
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgInterruptPlay, Card: &gs, ChosenColor: "blue"})
+	readMsgOfType(t, conn1, protocol.SMsgInterruptSuccess)
+	readMsgOfType(t, conn2, protocol.SMsgInterruptSuccess)
+	readMsgOfType(t, conn3, protocol.SMsgInterruptSuccess)
+	readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
+	readMsgOfType(t, conn3, protocol.SMsgCardPlayed)
+
+	st1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
+	st2 := readMsgOfType(t, conn2, protocol.SMsgGameState)
+	st3 := readMsgOfType(t, conn3, protocol.SMsgGameState)
+	want := []struct {
+		state *protocol.GameStateDTO
+		seat  string
+		color string
+		value int
+	}{
+		{st1.State, "Alice", "green", 7},
+		{st2.State, "Bob", "red", 3},
+		{st3.State, "Carol", "blue", 9},
+	}
+	for _, w := range want {
+		if w.state == nil || len(w.state.Hand) != 1 {
+			t.Fatalf("%s: game_state hand = %+v, want exactly 1 card", w.seat, w.state)
+		}
+		if got := w.state.Hand[0]; got.Color != w.color || got.Value != w.value {
+			t.Errorf("%s holds %s %d, want %s %d", w.seat, got.Color, got.Value, w.color, w.value)
+		}
+	}
+
+	// The interjecter names the colour, exactly as on any other wild. 'wild'
+	// matches nothing and would strand the whole table.
+	if st1.State.ActiveColor != "blue" {
+		t.Errorf("active_color = %q, want \"blue\" (chosen by the interjecter)", st1.State.ActiveColor)
+	}
+}
+
 // TestCatchUNO_HumanCatchesHuman verifies the complete catch-UNO flow:
 // player plays to 1 card without declaring, opponent sends catch_uno,
 // both players receive uno_caught with the correct target index.
@@ -2334,5 +2434,152 @@ func TestPlayCard_DirectionInPayload(t *testing.T) {
 		if cp.Direction != -1 {
 			t.Errorf("card_played direction after non-Reverse = %d, want -1 (unchanged)", cp.Direction)
 		}
+	}
+}
+
+// The score table's ping column is fed by a broadcast the client never asks
+// for, so its shape (one entry per seat, bots flagged, unmeasured seats at -1)
+// is the whole contract.
+func TestLatencyBroadcast_OneEntryPerSeat(t *testing.T) {
+	prevBroadcast, prevPing := hub.LatencyBroadcastPeriod, hub.PingPeriod
+	hub.LatencyBroadcastPeriod = 40 * time.Millisecond
+	hub.PingPeriod = 20 * time.Millisecond
+	t.Cleanup(func() {
+		hub.LatencyBroadcastPeriod = prevBroadcast
+		hub.PingPeriod = prevPing
+	})
+
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	defer conn1.Close()
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+
+	conn2 := dialWS(t, srv)
+	defer conn2.Close()
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+
+	msg := readMsgOfType(t, conn1, protocol.SMsgLatency)
+	if len(msg.Latencies) != 3 {
+		t.Fatalf("latencies = %v, want one entry per seat (3)", msg.Latencies)
+	}
+	for i, e := range msg.Latencies {
+		if e.PlayerIndex != i {
+			t.Errorf("entry %d has player_index %d", i, e.PlayerIndex)
+		}
+	}
+	if msg.Latencies[2].Bot != true {
+		t.Error("seat 2 is a bot and must be flagged as one")
+	}
+	if msg.Latencies[2].RTTMs != -1 {
+		t.Errorf("bot rtt = %d, want -1 (no connection to measure)", msg.Latencies[2].RTTMs)
+	}
+	// The broadcast only goes out once something has actually been measured, so
+	// at least one human seat carries a real round trip by now.
+	if msg.Latencies[0].RTTMs < 0 && msg.Latencies[1].RTTMs < 0 {
+		t.Errorf("no human seat measured: %v", msg.Latencies)
+	}
+	for _, i := range []int{0, 1} {
+		if msg.Latencies[i].Bot {
+			t.Errorf("human seat %d flagged as a bot", i)
+		}
+	}
+}
+
+// A lobby has nothing to show a ping next to; the broadcast must stay off until
+// the match is actually running.
+func TestLatencyBroadcast_NotSentInLobby(t *testing.T) {
+	prevBroadcast, prevPing := hub.LatencyBroadcastPeriod, hub.PingPeriod
+	hub.LatencyBroadcastPeriod = 40 * time.Millisecond
+	hub.PingPeriod = 20 * time.Millisecond
+	t.Cleanup(func() {
+		hub.LatencyBroadcastPeriod = prevBroadcast
+		hub.PingPeriod = prevPing
+	})
+
+	_, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	defer conn.Close()
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			break // read deadline: nothing arrived, which is the point
+		}
+		var msg protocol.ServerMsg
+		if err := json.Unmarshal(data, &msg); err == nil && msg.Type == protocol.SMsgLatency {
+			t.Fatal("latency broadcast sent to a room still in the lobby")
+		}
+	}
+}
+
+// The event log is the one unbounded field in a game_state, and no client reads
+// it: it exists so a reconnecting player's history can be rebuilt. It therefore
+// rides the reconnect snapshot only: a personalised game_state, which is built
+// and marshalled once per recipient, must not carry 50 events per seat.
+func TestEventLog_OnlyOnReconnectSnapshot(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1, conn2, roomCode, tokens := setupTwoPlayerGameWithTokens(t, srv)
+
+	conn2.Close()
+	readMsgOfType(t, conn1, protocol.SMsgPlayerDisconnected)
+
+	conn2new := dialWS(t, srv)
+	defer conn2new.Close()
+	sendMsg(t, conn2new, protocol.ClientMsg{
+		Type:         protocol.CMsgJoinRoom,
+		Nickname:     "Bob",
+		RoomCode:     roomCode,
+		SessionToken: tokens[1],
+	})
+
+	msg := readMsgOfType(t, conn2new, protocol.SMsgPlayerReconnected)
+	if msg.State == nil {
+		t.Fatal("expected game state in reconnect message")
+	}
+	// Start() records a round_started event, so the log is never empty here.
+	if len(msg.State.EventLog) == 0 {
+		t.Error("reconnect snapshot carries no event log; a reconnecting client cannot rebuild its history")
+	}
+}
+
+func TestEventLog_AbsentFromBroadcastGameState(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	// game_started is the personalised game_state every player is sent at the
+	// top of each round, one build and one marshal per recipient. Built here
+	// rather than through setupTwoPlayerGameWithTokens, which consumes it.
+	host := dialWS(t, srv)
+	defer host.Close()
+	sendMsg(t, host, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, host, protocol.SMsgRoomCreated)
+
+	guest := dialWS(t, srv)
+	defer guest.Close()
+	sendMsg(t, guest, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, guest, protocol.SMsgRoomJoined)
+	readMsgOfType(t, host, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, host, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	started := readMsgOfType(t, host, protocol.SMsgGameStarted)
+	if started.State == nil {
+		t.Fatal("expected game state in game_started")
+	}
+	if len(started.State.EventLog) != 0 {
+		t.Errorf("game_started carries %d event-log entries; the log is reconnect-only", len(started.State.EventLog))
 	}
 }

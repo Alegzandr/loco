@@ -135,6 +135,12 @@
     white-space: normal;
     text-align: center;
   }
+
+  /* A crowded phone table wraps its seats onto extra rows, so the toast starts
+     a little lower to stay clear of them. */
+  .errorToast {
+    top: 34%;
+  }
 }
 
 @keyframes swapNoticeIn {
@@ -154,39 +160,73 @@
   pointer-events: none;
 }
 
+/* Full width and drained by scaleX (see .loco-draining in tokens.css). Width
+   was the obvious property and the wrong one: it lays out the page on every
+   frame, where a transform is composited. The fill's colour comes from the
+   drain animation too, so nothing here sets a background. */
 .turnTimerFill {
   height: 100%;
   border-bottom-right-radius: 3px;
   border-top-right-radius: 3px;
   background: var(--color-primary);
   box-shadow: 0 0 12px currentColor;
-  transition: background-color 0.5s ease;
 }
 
-.turnTimerFillUrgent {
+/* Urgency pulse sits on the track, not on the fill: the fill's transform and
+   animation already belong to the drain, and one node never has two owners. */
+.turnTimerUrgent {
   animation: timerPulse 0.6s ease-in-out infinite alternate;
 }
 
-/* Error toast */
+/* Refused action.
+   Placed over the empty upper felt. It used to sit at `bottom: 82px` — exactly
+   the action bar's reserve — which laid it straight across the hand, so the
+   player was told "that card does not match" by a banner covering the cards
+   they were choosing between. It also ran `white-space: nowrap`, which sent a
+   translated sentence off both edges of a phone.
+   Flat fill and a shallower ledge than any button on the board: this is a
+   label, not something to press. */
 .errorToast {
   position: absolute;
-  bottom: 82px;
+  top: 30%;
   left: 50%;
-  background: linear-gradient(180deg, #ff7a6a 0%, var(--color-error) 100%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  max-width: min(300px, 84vw);
+  background: var(--color-error);
   color: #fff;
-  font: 600 15px/1.3 var(--font-display);
-  text-shadow: 0 1px 0 rgba(110, 10, 20, 0.4);
-  padding: 10px 20px;
-  border-radius: var(--radius-full);
-  border: var(--stroke) solid var(--color-stroke);
-  box-shadow: var(--shadow-hard);
+  font: 600 15px/1.3 var(--font-body);
+  text-align: left;
+  text-wrap: balance;
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  box-shadow: 0 3px 0 var(--color-stroke-soft), 0 8px 20px rgba(28, 14, 56, 0.3);
   pointer-events: none;
-  white-space: nowrap;
   z-index: 30;
   animation: toastSlideUp 0.24s var(--ease-bounce) forwards;
 }
 
-/* Top-right cluster: theme toggle + rules button */
+.errorToast::before {
+  content: '!';
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  background: #fff;
+  color: var(--color-error);
+  font: 700 15px/1 var(--font-display);
+}
+
+/* Top-right cluster: scores, theme toggle, audio, rules.
+   Sits above the score table (z-index 45) rather than under it: the button that
+   pins the table open is the same button that closes it, and a panel that
+   swallows its own toggle is a trap on a touch device, where there is no TAB
+   key to fall back on. Dialogs that own the screen (pickers 100, rules 1000)
+   still cover the cluster. */
 .topRight {
   position: absolute;
   top: 12px;
@@ -194,7 +234,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  z-index: 15;
+  z-index: 46;
 }
 
 /* Fixed Rules button */

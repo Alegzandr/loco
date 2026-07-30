@@ -269,10 +269,15 @@ func (h *Hub) Stop() {
 }
 
 func (h *Hub) Run() {
+	latencyTicker := time.NewTicker(LatencyBroadcastPeriod)
+	defer latencyTicker.Stop()
 	for {
 		select {
 		case <-h.quit:
 			return
+
+		case <-latencyTicker.C:
+			h.broadcastLatencies()
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
@@ -741,10 +746,11 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 	// At this point room.State still reflects the round-winning play (BeginNextRound
 	// has not yet been called), so RoundNumber is the just-completed round.
 	h.broadcastToRoomAll(code, protocol.ServerMsg{
-		Type:        protocol.SMsgRoundEnd,
-		RoundNumber: room.RoundNumber,
-		RoundWinner: room.Winner,
-		Scoreboard:  scoreboard,
+		Type:         protocol.SMsgRoundEnd,
+		RoundNumber:  room.RoundNumber,
+		RoundWinner:  room.Winner,
+		Scoreboard:   scoreboard,
+		RoundHistory: room.RoundHistory,
 	})
 
 	if room.MatchOver {
@@ -803,27 +809,37 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 		cardDTOs[i] = cardToDTO(card)
 	}
 
-	// If drawing advanced the turn (penalty draw), reset the turn timer.
-	if state.CurrentTurn != c.playerID {
-		h.scheduleTurnTimer(c.roomCode, room)
-	}
+	// Drawing re-arms the turn clock. A forced draw does not cost the turn
+	// (rules.md §14.5), but the timer was armed when the +2 landed, so every
+	// second the victim spent deciding whether to counter came off the turn they
+	// are owed *after* the draw — take the stack late and the seat is auto-passed
+	// moments later, which is the exact double punishment the deviation forbids.
+	// A voluntary draw follows the same rule for the same reason: the player
+	// still has to decide play-or-pass with cards they have only just seen. There
+	// is one draw per turn, so this can extend a turn once and never repeatedly.
+	h.scheduleTurnTimer(c.roomCode, room)
 	dl := h.turnDeadlineMs(c.roomCode)
 
-	// Tell the drawing player all their new cards plus the updated has_drawn flag.
+	// Tell the drawing player all their new cards plus the updated turn state.
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
 		PlayerIndex:  c.playerID,
 		Cards:        cardDTOs,
 		Turn:         state.CurrentTurn,
-		HasDrawn:     state.HasDrawn,
+		PendingDraw:  intPtr(state.PendingDraw),
+		HasDrawn:     boolPtr(state.HasDrawn),
 		TurnDeadline: dl,
 	})
-	// Tell others how many cards changed hands so they can update the hand-size counter.
+	// Tell others how many cards changed hands so they can update the hand-size
+	// counter. They get the same turn state: has_drawn / pending_draw describe
+	// the table, not the recipient, and a client left to infer them desyncs.
 	h.broadcastToRoom(c.roomCode, protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
 		PlayerIndex:  c.playerID,
 		DrawnCount:   drawnCount,
 		Turn:         state.CurrentTurn,
+		PendingDraw:  intPtr(state.PendingDraw),
+		HasDrawn:     boolPtr(state.HasDrawn),
 		TurnDeadline: dl,
 	}, c)
 	h.maybeScheduleBot(c.roomCode, room)
@@ -869,7 +885,19 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
-	targetIdx := room.State.LastCardPlayer
+	// A Swap or a GlobalSwitch can leave several seats catchable at once, so the
+	// catcher names the one they spotted. Older clients send nothing: fall back
+	// to the window closest to expiring, which is the catch about to be lost.
+	targetIdx := -1
+	if msg.TargetIndex != nil {
+		targetIdx = *msg.TargetIndex
+	} else if open := room.State.CatchableTargets(time.Now()); len(open) > 0 {
+		targetIdx = open[0]
+	}
+	if targetIdx < 0 || targetIdx >= len(room.State.Hands) {
+		c.sendError("target does not have exactly 1 card")
+		return
+	}
 	priorSize := len(room.State.Hands[targetIdx].Cards)
 	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
 		c.sendError(err.Error())
@@ -941,11 +969,14 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 		Cards:       successCards,
 	})
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
-	// Same rule as handlePlayCard: a Swap rearranges hands, so every client needs
-	// a fresh personalised snapshot. Only reachable if the deck ever ships two
-	// copies of a coloured Swap (today it ships one), but the domain permits the
-	// play and a silent hand desync is exactly the bug this guards against.
-	if len(cards) == 1 && cards[0].Kind == game.Swap {
+	// Same rule as handlePlayCard: Swap and GlobalSwitch rearrange hands, so every
+	// client needs a fresh personalised snapshot. A GlobalSwitch interject is
+	// ordinary play (the deck ships four of them); the Swap case is only reachable
+	// if the deck ever ships two copies of a coloured Swap (today it ships one),
+	// but the domain permits it and a silent hand desync — the client keeps a hand
+	// it can no longer play and every tap comes back "card not in hand" — is
+	// exactly the bug this guards against.
+	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
 		h.broadcastPersonalizedGameState(c.roomCode, room)
 	}
 	h.maybeScheduleBotCatch(c.roomCode, room)
@@ -1452,8 +1483,10 @@ func (h *Hub) handleUnoAnnounce(um unoMsg) {
 	})
 }
 
-// maybeScheduleBotCatch checks whether the most recent card play left a player at
-// 1 card without declaring UNO, and if so, schedules a bot catch attempt.
+// maybeScheduleBotCatch checks whether the most recent card play left anybody at
+// 1 card without declaring UNO, and if so, schedules a bot catch attempt per
+// catchable seat, because a Swap or a GlobalSwitch puts several of them on the
+// hook at once and a bot that only ever saw the first would let the rest walk.
 // Must be called immediately after broadcastCardPlayed while room state is fresh.
 func (h *Hub) maybeScheduleBotCatch(code string, room *game.Room) {
 	if room.Status != game.StatusPlaying {
@@ -1464,37 +1497,32 @@ func (h *Hub) maybeScheduleBotCatch(code string, room *game.Room) {
 		return
 	}
 	state := room.State
-	if state.LastCardDeclared {
-		return // player already declared UNO — nothing to catch
-	}
-	target := state.LastCardPlayer
-	if state.Hands[target].Size() != 1 {
-		return // target doesn't have exactly 1 card
-	}
-	// Check at least one eligible bot exists (not the target).
-	anyEligible := false
-	for botID := range bots {
-		if botID != target {
-			anyEligible = true
-			break
+	for _, target := range state.CatchableTargets(time.Now()) {
+		// Check at least one eligible bot exists (not the target).
+		anyEligible := false
+		for botID := range bots {
+			if botID != target {
+				anyEligible = true
+				break
+			}
 		}
-	}
-	if !anyEligible {
-		return
-	}
+		if !anyEligible {
+			continue
+		}
 
-	var jitter time.Duration
-	if jm := int(BotCatchJitterMax.Milliseconds()); jm > 0 {
-		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
-	}
-	cm := botCatchMsg{roomCode: code, targetPlayer: target, lastCardTime: state.LastCardTime}
-	time.AfterFunc(BotCatchDelay+jitter, func() {
-		select {
-		case h.botCatch <- cm:
-		default:
-			// Non-critical: drop if channel full; catch window just closes naturally.
+		var jitter time.Duration
+		if jm := int(BotCatchJitterMax.Milliseconds()); jm > 0 {
+			jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 		}
-	})
+		cm := botCatchMsg{roomCode: code, targetPlayer: target, lastCardTime: state.LastCardAt[target]}
+		time.AfterFunc(BotCatchDelay+jitter, func() {
+			select {
+			case h.botCatch <- cm:
+			default:
+				// Non-critical: drop if channel full; catch window just closes naturally.
+			}
+		})
+	}
 }
 
 // handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates game state,
@@ -1508,11 +1536,14 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 		return
 	}
 	state := room.State
-	// Stale check: if LastCardTime changed, a different card was played after we scheduled.
-	if !state.LastCardTime.Equal(cm.lastCardTime) {
+	if cm.targetPlayer < 0 || cm.targetPlayer >= len(state.Hands) {
+		return // seat pruned between schedule and fire
+	}
+	// Stale check: if this seat's window was reopened, it is a different one.
+	if !state.LastCardAt[cm.targetPlayer].Equal(cm.lastCardTime) {
 		return
 	}
-	if state.LastCardDeclared {
+	if state.LastCardDeclared[cm.targetPlayer] {
 		return // target declared in time — no catch
 	}
 	if state.Hands[cm.targetPlayer].Size() != 1 {
@@ -1633,6 +1664,8 @@ func (h *Hub) botDraw(code string, room *game.Room, playerID int) (rescheduled b
 		PlayerIndex: playerID,
 		DrawnCount:  len(state.Hands[playerID].Cards) - priorSize,
 		Turn:        state.CurrentTurn,
+		PendingDraw: intPtr(state.PendingDraw),
+		HasDrawn:    boolPtr(state.HasDrawn),
 	})
 	if state.CurrentTurn != playerID {
 		// Penalty draw (PendingDraw > 0) advanced the turn; the new current
@@ -1878,7 +1911,8 @@ func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCard
 			PlayerIndex:  playerID,
 			Cards:        cardDTOs,
 			Turn:         state.CurrentTurn,
-			HasDrawn:     state.HasDrawn,
+			PendingDraw:  intPtr(state.PendingDraw),
+			HasDrawn:     boolPtr(state.HasDrawn),
 			TurnDeadline: dl,
 		})
 	}
@@ -1888,6 +1922,8 @@ func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCard
 		PlayerIndex:  playerID,
 		DrawnCount:   len(newCards),
 		Turn:         state.CurrentTurn,
+		PendingDraw:  intPtr(state.PendingDraw),
+		HasDrawn:     boolPtr(state.HasDrawn),
 		TurnDeadline: dl,
 	}, client)
 }
@@ -1973,6 +2009,50 @@ func (h *Hub) playerList(room *game.Room) []protocol.PlayerDTO {
 	return ps
 }
 
+// LatencyBroadcastPeriod is how often a playing room is told every seat's ping.
+// One small message per member: slow enough to disappear next to gameplay
+// traffic, fast enough that a score table opened on TAB is never showing a
+// number from a previous minute. Exported so tests can shorten it.
+var LatencyBroadcastPeriod = 3 * time.Second
+
+// broadcastLatencies fans the current per-seat round trips out to every room
+// that is actually playing: the score table is an in-game overlay, and a lobby
+// has nothing to put the numbers next to.
+//
+// Runs on the hub event loop, so reading h.rooms / h.roomMembers is safe; the
+// RTT itself comes from an atomic written by the connection's pumps.
+func (h *Hub) broadcastLatencies() {
+	for code, room := range h.rooms {
+		if room.Status != game.StatusPlaying {
+			continue
+		}
+		members := h.roomMembers[code]
+		bots := h.botSlots[code]
+		entries := make([]protocol.LatencyEntryDTO, len(room.Players))
+		measured := false
+		for i := range room.Players {
+			entry := protocol.LatencyEntryDTO{PlayerIndex: i, RTTMs: -1}
+			if _, isBot := bots[i]; isBot {
+				entry.Bot = true
+			} else if i < len(members) && members[i] != nil {
+				entry.RTTMs = members[i].latency()
+				measured = measured || entry.RTTMs >= 0
+			}
+			entries[i] = entry
+		}
+		// Nothing has answered a ping yet (the first seconds of a round, or a
+		// table of bots): a payload of "unknown" tells the client exactly what
+		// its own default already says.
+		if !measured {
+			continue
+		}
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
+			Type:      protocol.SMsgLatency,
+			Latencies: entries,
+		})
+	}
+}
+
 func (h *Hub) buildScoreboard(room *game.Room) []protocol.ScoreboardEntryDTO {
 	sb := make([]protocol.ScoreboardEntryDTO, len(room.Players))
 	for i, p := range room.Players {
@@ -1986,12 +2066,52 @@ func (h *Hub) buildScoreboard(room *game.Room) []protocol.ScoreboardEntryDTO {
 	return sb
 }
 
-// playerGameState builds a personalized game-state snapshot for one player.
-// Use this for single-recipient sends (reconnect). For broadcast loops over
-// every member of a room, prefer playerGameStateUsing to avoid rebuilding the
-// shared player list once per recipient.
+// playerGameState builds the full recovery snapshot for one player: the
+// personalized state plus the event log. Used for the single-recipient sends
+// that have to rebuild a client from nothing (reconnect). For broadcast loops
+// over every member of a room, use playerGameStateUsing: it skips both the
+// per-recipient player list and the log (see exportEventLog).
 func (h *Hub) playerGameState(room *game.Room, playerIdx int) *protocol.GameStateDTO {
-	return h.playerGameStateUsing(room, playerIdx, h.playerList(room))
+	dto := h.playerGameStateUsing(room, playerIdx, h.playerList(room))
+	dto.EventLog = exportEventLog(room.State)
+	return dto
+}
+
+// maxEventLogExport caps how much history a reconnecting client is handed.
+const maxEventLogExport = 50
+
+// exportEventLog converts the tail of the room's event log to the wire format.
+//
+// It is deliberately NOT part of every game_state. The log is the one
+// unbounded field in the snapshot (up to 50 entries, each with a nested card)
+// and a personalized game_state is built per recipient, so a GlobalSwitch at a
+// ten-seat table used to serialise the same 50 events ten times over. Nothing
+// in the client reads it: it exists so a reconnecting player's history can be
+// rebuilt, which is exactly the one send that still carries it.
+func exportEventLog(state *game.GameState) []protocol.GameEventDTO {
+	if state == nil {
+		return nil
+	}
+	src := state.EventLog
+	if len(src) > maxEventLogExport {
+		src = src[len(src)-maxEventLogExport:]
+	}
+	out := make([]protocol.GameEventDTO, len(src))
+	for i, ev := range src {
+		dto := protocol.GameEventDTO{
+			Kind:        string(ev.Kind),
+			PlayerIndex: ev.PlayerIndex,
+			At:          ev.At.UnixMilli(),
+		}
+		if ev.Card != nil {
+			dto.Card = cardToDTO(*ev.Card)
+		}
+		if ev.ChosenColor != 0 {
+			dto.ChosenColor = colorName(ev.ChosenColor)
+		}
+		out[i] = dto
+	}
+	return out
 }
 
 // playerGameStateUsing builds a personalized game-state DTO with a precomputed
@@ -2026,29 +2146,6 @@ func (h *Hub) playerGameStateUsing(room *game.Room, playerIdx int, players []pro
 	}
 	top := state.Discard[len(state.Discard)-1]
 
-	// Cap the event log to the most recent entries to avoid unbounded serialization.
-	const maxEventLogExport = 50
-	exportLog := state.EventLog
-	if len(exportLog) > maxEventLogExport {
-		exportLog = exportLog[len(exportLog)-maxEventLogExport:]
-	}
-
-	eventLog := make([]protocol.GameEventDTO, len(exportLog))
-	for i, ev := range exportLog {
-		dto := protocol.GameEventDTO{
-			Kind:        string(ev.Kind),
-			PlayerIndex: ev.PlayerIndex,
-			At:          ev.At.UnixMilli(),
-		}
-		if ev.Card != nil {
-			dto.Card = cardToDTO(*ev.Card)
-		}
-		if ev.ChosenColor != 0 {
-			dto.ChosenColor = colorName(ev.ChosenColor)
-		}
-		eventLog[i] = dto
-	}
-
 	var scoreboard []protocol.ScoreboardEntryDTO
 	if len(room.Scores) > 0 {
 		scoreboard = h.buildScoreboard(room)
@@ -2064,11 +2161,11 @@ func (h *Hub) playerGameStateUsing(room *game.Room, playerIdx int, players []pro
 		Direction:    state.Direction,
 		PendingDraw:  state.PendingDraw,
 		HasDrawn:     state.HasDrawn,
-		EventLog:     eventLog,
 		RoundNumber:  room.RoundNumber,
 		MatchFormat:  matchFormatString(room.Format),
 		MaxPlayers:   room.MaxPlayers,
 		Scoreboard:   scoreboard,
+		RoundHistory: room.RoundHistory,
 		TurnDeadline: h.turnDeadlineMs(room.Code),
 	}
 }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { audio, AudioSettings as Settings } from '../audio/engine'
+import { getTrack, music } from '../audio/music'
 import { playSfx } from '../audio/sfx'
 import { useI18n } from '../i18n'
 import styles from './AudioSettings.module.css'
@@ -21,8 +22,11 @@ function useAudioSettings(): Settings {
  * the button itself mutes on click while the caret opens the sliders.
  */
 export function AudioSettings() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const settings = useAudioSettings()
+  // `settings.track` is written by the bed itself on every handover, so this
+  // re-renders when a track ends on its own, not only when the button is pressed.
+  const current = getTrack(settings.track)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -83,6 +87,30 @@ export function AudioSettings() {
           {slider('master', t.audioMaster)}
           {slider('sfx', t.audioSfx)}
           {slider('music', t.audioMusic)}
+
+          {/* No picker: tracks shuffle and hand over on their own, and the only
+              control is "not this one". Choosing from a list would mean reading
+              three names to make a decision nobody opened this panel to make. */}
+          <div className={styles.tracks}>
+            <div className={styles.label}>{t.audioTrack}</div>
+            <div className={styles.nowPlaying}>
+              <span className={styles.trackName}>{current.title}</span>
+              <span className={styles.trackBlurb}>
+                {lang === 'fr' ? current.blurb.fr : current.blurb.en}
+              </span>
+            </div>
+            <button
+              className={styles.nextBtn}
+              onClick={() => {
+                audio.unlock()
+                music.nextTrack()
+                playSfx('uiTap')
+              }}
+            >
+              ⏭ {t.audioNextTrack}
+            </button>
+          </div>
+
           <button
             className={styles.muteBtn}
             onClick={() => {
