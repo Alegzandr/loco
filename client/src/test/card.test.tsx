@@ -116,6 +116,18 @@ describe('card face art', () => {
     }
   })
 
+  it('draws GlobalSwitch as a ring of hands, not as a refresh arrow', () => {
+    // A lone circular arrow is the "refresh" pictogram: it says something turns
+    // without saying the cards do, and it was read as "redraw your hand". The
+    // three cards are the rule, and three of them can never be Swap's two.
+    const { container } = render(<Card card={card({ color: 'wild', kind: 'global_switch' })} />)
+    // The glyph is drawn twice (ink pass, then the glyph over it) in each of its
+    // two places on the card (centre + corner), three seats per pass.
+    expect(container.querySelectorAll('svg rect[transform]')).toHaveLength(3 * 4)
+    const swap = render(<Card card={card({ kind: 'swap' })} />).container
+    expect(swap.querySelectorAll('svg rect[transform]')).toHaveLength(0)
+  })
+
   it('crops and tilts the mark on a card, and shows it whole in the logo', () => {
     // Two framings of one geometry, and they are not interchangeable. On a card
     // the mark runs off all four edges under the value — a landscape drawing

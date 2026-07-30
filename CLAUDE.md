@@ -586,6 +586,15 @@ rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcan
   `layout.ts: tableImageRect()` solves for where to draw the picture so that box lands on the felt.
   The result deliberately overhangs the felt on every side: rim, base and cast shadow are most of
   what makes each table a different object, and cropping to the felt would cut them off.
+- **The backdrop is blurred, the table is not.** `.board[data-map]::after` paints a second copy of
+  `room.webp` (`background-image: inherit`, so one place still names the file) at `blur(0.55vmin)`
+  behind everything, which is depth of field: the room is behind the table, and a photograph in
+  focus competes with a card edge, the one contest a card must always win at 720p. The radius is in
+  `vmin` because the board scales with the viewport, so a fixed one is a haze on a phone and a smudge
+  on a 1440p monitor. Slight on purpose, and `<MapLoadingScreen />` keeps its backdrop **sharp**:
+  that screen exists to show the room, this one to play on the table. The layer needs
+  `isolation: isolate` on `.board`, since a negative z-index otherwise escapes to the nearest
+  stacking context and lands behind the element's own background.
 - **The accent is light, not chrome.** It tints the glow pooled under the table, the ambient wash,
   and the direction ring's chevrons (as an 85% white *wash*, never the raw accent). It deliberately
   does **not** reach `--color-primary`, the active seat's gold, or any card face: those are what a
@@ -950,6 +959,16 @@ shows.
   Fredoka carries none of them, so the font fallback chain would decide what a rule card looks like.
   `hasGlyph` (in `cardTheme.ts`, so `CardArt.tsx` exports components only) lists the kinds that get
   one. Swap and GlobalSwitch deliberately do not share a silhouette.
+- **GlobalSwitch is three cards in a ring, each moving to the next seat** (`rotatingHands`), not the
+  single circular arrow it started as. That arrow is the "refresh" pictogram: it says *something*
+  turns without ever saying the cards do, and it was read as "redraw your hand". Both halves of each
+  connector carry weight — the curved shaft is the only thing that says the three go *round*, and a
+  bare arrowhead at this size reads as a wedge pointing at whatever is nearest. Three cards can also
+  never be mistaken for Swap's two crossing arrows, which is the trade between exactly two seats.
+- **A glyph may carry its own stroke widths** (`twoPassGlyphs`): the wild fan and the ring of hands
+  both close up into solid bars at `GLYPH_STROKE`. Such a glyph has to be *drawn twice from scratch*
+  rather than letting the ink pass re-render the same element wider, because a child `stroke-width`
+  beats whatever the pass sets on its group.
 - **Value top-left, monogram bottom-right — the reference's two marks in its two corners, swapped.**
   The reference is a hero shot of one card; in a hand the fan overlaps down to the left ~30% of each
   card, and branding that sliver leaves a player holding twelve cards that all say "L". The wild
@@ -1110,9 +1129,23 @@ polish.
 round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding live in
 `scoreTableModel.ts` (`buildScoreRows`, `pingTier`), unit-tested; the component only renders.
 
-- **Opened by holding TAB** (`useHeldKey('Tab', enabled)`) **or pinned by the Scores button** in the
+- **Opened by holding TAB** (`useHeldKey('Tab', enabled)`) **or pinned by the scores button** in the
   top-right cluster. Held and pinned are separate states: releasing TAB must not close a table
   somebody deliberately pinned, and a phone has no TAB key at all.
+- **That button exists on touch layouts only** — `.scoresBtn` is `display:none` until
+  `(max-width: 480px), (pointer: coarse)`. It is the fallback for the missing key, so on a machine
+  that has the key it is a permanent control for something already one keypress away, spending room
+  in a cluster of four. The coarse-pointer half of the query is what covers a tablet, which has no
+  TAB either and is wider than 480px.
+- **It is an icon** (a table glyph, drawn inline in `GameView` like every other rule glyph in this
+  UI, never a font character), 40×40 like `<ThemeToggle />` beside it: at phone width the cluster
+  has no room for a word, and the three buttons next to it are already square. `t.scoreTableBtn`
+  survives as its `aria-label` + `title`, so the accessible name is unchanged and the E2E locator
+  still finds it. `aria-pressed` tints it with `--color-primary` when pinned — the panel can be
+  dismissed by tapping its backdrop, and nothing else would say the state changed.
+- E2E: the desktop project therefore opens the table by **holding TAB** (`holdScores` in
+  `score-table.spec.ts`); one test resizes to 390×844 to exercise the button and asserts it hidden
+  before the resize.
 - `useHeldKey` resets on `blur`. Alt-tabbing away swallows the keyup, and the overlay would stay
   stuck over the board with no way out. It `preventDefault`s TAB, so `enabled` is false while the
   rules modal, a picker or the round summary owns the screen: inside a dialog TAB is the dialog's.

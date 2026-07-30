@@ -31,6 +31,38 @@
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
+  /* The blurred copy below sits at a negative z-index, and a negative layer
+     escapes to the nearest stacking context, which here would put it *behind*
+     this element's own background, i.e. nowhere. Isolating makes .board that
+     context. Safe: nothing inside the board goes past z-index 3. */
+  isolation: isolate;
+}
+
+/* The same room again, blurred, over its own sharp copy.
+   Depth of field: the table is what the eye is focused on and the room is
+   behind it, so a busy photograph stops competing with a card edge, the one
+   contest a card must always win, at 720p through stream compression most of
+   all. Deliberately slight: the room still has to be recognisable as the room
+   the loading screen just spent a second introducing, which is also why that
+   screen keeps its backdrop sharp.
+
+   `background-image: inherit` picks up the inline url set by <GameBoard />, so
+   exactly one place still names the file. The radius is in `vmin` rather than
+   px because the board scales with the viewport (see boardScale): a fixed one
+   is a haze on a phone and a smudge on a 1440p monitor. The scale-up covers the
+   transparent rim a blur pulls in at the edges. */
+.board[data-map]:not([data-map=''])::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: inherit;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(0.55vmin);
+  transform: scale(1.06);
+  pointer-events: none;
 }
 
 /* The room already carries its own lighting, so the decorative orbs and the

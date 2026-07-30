@@ -153,9 +153,9 @@ const glyphs: Partial<Record<CardDTO['kind'], JSX.Element>> = {
       <path d="M58 53 L71 64 L58 75" />
     </>
   ),
-  // Crossing arrows, not the two arcs an exchange usually gets: a ring of arrows
-  // is what GlobalSwitch means on this deck, and two rule cards that both say
-  // "something moves around" must not share a silhouette.
+  // Crossing arrows, not the two arcs an exchange usually gets: two rule cards
+  // that both say "something moves around" must not share a silhouette, and
+  // this one is the trade between exactly two seats.
   swap: (
     <>
       <path d="M22 30 L78 70" />
@@ -164,13 +164,62 @@ const glyphs: Partial<Record<CardDTO['kind'], JSX.Element>> = {
       <path d="M22 70 L38 70 M22 70 L22 55" />
     </>
   ),
-  global_switch: (
-    <>
-      <path d="M50 17 A33 33 0 1 1 21 36" />
-      <path d="M36 12 L50 17 L37 27" />
-    </>
-  ),
 }
+
+// GlobalSwitch: three hands laid out in a ring, each one moving to the next
+// seat. It replaces a single circular arrow, which is the "refresh" pictogram
+// and therefore says that *something* turns without ever saying that the cards
+// do — players read it as "redraw your hand". Drawing the cards themselves is
+// the rule, and three of them can never be mistaken for Swap's two.
+//
+// The cards are outlines; the movement between them is a curved shaft and a
+// solid head. Both halves are load-bearing — a bare arrowhead has no heading at
+// this size (it reads as a wedge pointing at whatever is nearest), and the
+// curve is the only thing that says the three of them go *round*.
+//
+// Deliberately stroked thinner than the other glyphs: three outlined rects at
+// GLYPH_STROKE close up into three solid bars. That means the ink pass needs
+// its own copy, exactly like the wild fan — a child `stroke-width` beats
+// whatever the pass sets on its group.
+const RING_R = 31
+const HAND_W = 20
+const HAND_H = 27
+const HAND_SEATS = [0, 120, 240]
+const ARROW_SEATS = [60, 180, 300]
+// One arrow, drawn on the ring at 12 o'clock heading clockwise, then rotated
+// into each gap. It spans −20°…+26° of the ring, so it is rotated 3° short of
+// the gap's own angle to sit centred between the two cards it connects.
+// Both paths are solved for RING_R — moving the ring means re-solving them.
+const ARROW_LEAD = -3
+const ARROW_SHAFT = 'M39.40 20.87 A31 31 0 0 1 53.24 19.17'
+const ARROW_HEAD = 'M63.59 22.14 L52.77 23.65 L53.71 14.69 Z'
+
+const rotatingHands = (inked: boolean) => (
+  <>
+    {HAND_SEATS.map((a) => (
+      <rect
+        key={`hand${a}`}
+        x={50 - HAND_W / 2}
+        y={50 - RING_R - HAND_H / 2}
+        width={HAND_W}
+        height={HAND_H}
+        rx={4.5}
+        transform={`rotate(${a} 50 50)`}
+        strokeWidth={inked ? 14 : 7}
+      />
+    ))}
+    {ARROW_SEATS.map((a) => (
+      <g key={`arrow${a}`} transform={`rotate(${a + ARROW_LEAD} 50 50)`}>
+        <path d={ARROW_SHAFT} strokeWidth={inked ? 13 : 6} />
+        <path
+          d={ARROW_HEAD}
+          fill={inked ? CARD_GLYPH_INK : CARD_GLYPH}
+          strokeWidth={inked ? 9 : 3}
+        />
+      </g>
+    ))}
+  </>
+)
 
 // The colour-change card is named by its four suits, never by a letter — that
 // is how players actually read it, and a "W" is also a word in one language.
@@ -192,10 +241,17 @@ const wildFanGlyph = (inked: boolean) => (
   </>
 )
 
+// Glyphs that carry their own stroke widths, and so have to be drawn twice from
+// scratch instead of letting the ink pass re-render the same element wider.
+const twoPassGlyphs: Partial<Record<CardDTO['kind'], (inked: boolean) => JSX.Element>> = {
+  wild: wildFanGlyph,
+  global_switch: rotatingHands,
+}
+
 export function CardGlyph({ kind }: { kind: CardDTO['kind'] }) {
-  const isWildFan = kind === 'wild'
-  const g = isWildFan ? wildFanGlyph(false) : glyphs[kind]
-  const inkPass = isWildFan ? wildFanGlyph(true) : g
+  const twoPass = twoPassGlyphs[kind]
+  const g = twoPass ? twoPass(false) : glyphs[kind]
+  const inkPass = twoPass ? twoPass(true) : g
   if (!g) return null
   // Deliberately unsized: the parent (.value / .corner) owns how big a glyph is,
   // the same way it owns how big a numeral is.

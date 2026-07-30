@@ -294,6 +294,45 @@
   box-shadow: 0 1px 0 var(--color-stroke-soft);
 }
 
+/* Scores toggle — square icon button, and deliberately absent on desktop.
+   Holding TAB is the faster way in and every pointer device has the key, so a
+   permanent control there only spends room in the cluster. It appears where the
+   key does not exist: a narrow viewport or any coarse pointer (a tablet has no
+   TAB either, and it is wider than 480px). */
+.scoresBtn {
+  display: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
+  z-index: 15;
+}
+
+@media (max-width: 480px), (pointer: coarse) {
+  .scoresBtn { display: flex; }
+}
+
+.scoresBtn:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
+.scoresBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
+
+/* Pinned open: the button says so, since the panel it opens can be dismissed
+   by tapping the backdrop and nothing else would have changed. */
+.scoresBtn[aria-pressed='true'] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
 /* Round indicator — top-left */
 .roundIndicator {
   position: absolute;

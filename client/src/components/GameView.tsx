@@ -527,12 +527,29 @@ export function GameView({ onSend, wsStatus }: Props) {
 
       {/* Fixed Rules button + theme toggle — top-right corner, never shifts with action bar */}
       <div className={styles.topRight}>
+        {/* Scores: a touch affordance only. A pointer device holds TAB, so on
+            desktop this button is a permanent control for something the player
+            already has a faster way to reach. Icon-only because a square is
+            what fits a phone's top-right cluster beside the other three. */}
         <button
-          className={styles.rulesBtn}
+          className={styles.scoresBtn}
           aria-pressed={pinnedScores}
+          aria-label={t.scoreTableBtn}
+          title={t.scoreTableBtn}
           onClick={() => setPinnedScores((v) => !v)}
         >
-          {t.scoreTableBtn}
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+            <g
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <rect x="3" y="4" width="18" height="16" rx="3" />
+              <path d="M3 9.5h18M3 15h18M10 9.5V20" />
+            </g>
+          </svg>
         </button>
         <ThemeToggle />
         <AudioSettings />

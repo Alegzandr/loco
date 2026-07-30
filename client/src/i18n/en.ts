@@ -168,7 +168,7 @@ export interface Translations {
   // ─── In-game score table (hold TAB) ───────────────────────────
   scoreTableTitle: string
   scoreTableHint: string       // "Hold TAB"
-  scoreTableBtn: string        // accessible name of the touch button
+  scoreTableBtn: string        // accessible name + tooltip of the touch-only icon button
   scoreTableRoundCol: string   // per-round column header, %n = round number
   scoreTablePingCol: string
   scoreTableYou: string        // marker next to your own row
