@@ -125,6 +125,7 @@ type ClientMsg struct {
 	DebugActiveColor string                 `json:"debug_active_color,omitempty"`  // override active color
 	DebugPendingDraw *int                   `json:"debug_pending_draw,omitempty"`  // override pending draw count
 	DebugCurrentTurn *int                   `json:"debug_current_turn,omitempty"`  // override current turn player index
+	DebugDirection   *int                   `json:"debug_direction,omitempty"`     // override play direction (1 cw, -1 ccw)
 }
 
 // DebugHandOverrideDTO is one per-player hand replacement used by debug_set_state.

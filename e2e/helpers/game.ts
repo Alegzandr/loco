@@ -435,6 +435,11 @@ export async function takeTurn(page: Page, turnTimeoutMs = 20_000): Promise<void
  *   discard      — Replace the top of the discard pile with this card.
  *   activeColor  — Override the active color (required when setting a wild discard).
  *   pendingDraw  — Override the accumulated draw-penalty count.
+ *   currentTurn  — Override which seat holds the turn.
+ *   direction    — Pin the play direction (1 clockwise, -1 counter-clockwise).
+ *                  Any test that computes "the next seat" must set this: the bots
+ *                  play before the local player's first turn and a Reverse among
+ *                  them mirrors the table.
  *
  * @example
  *   // Give the player a Swap card, set a red discard so it's playable:
@@ -452,6 +457,7 @@ export async function debugSetState(
     activeColor?: string
     pendingDraw?: number
     currentTurn?: number
+    direction?: number
   },
 ): Promise<void> {
   const msg: Record<string, unknown> = { type: 'debug_set_state' }
@@ -466,6 +472,7 @@ export async function debugSetState(
   if (opts.activeColor !== undefined) msg.debug_active_color = opts.activeColor
   if (opts.pendingDraw !== undefined) msg.debug_pending_draw = opts.pendingDraw
   if (opts.currentTurn !== undefined) msg.debug_current_turn = opts.currentTurn
+  if (opts.direction !== undefined) msg.debug_direction = opts.direction
   await sendMsg(page, msg)
   // Give the broadcasted game_state a moment to arrive before the next action.
   await page.waitForTimeout(200)

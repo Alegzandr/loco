@@ -74,6 +74,7 @@ export interface ClientMsg {
   debug_active_color?: CardColor
   debug_pending_draw?: number
   debug_current_turn?: number
+  debug_direction?: number // 1 = clockwise, -1 = counter-clockwise
 }
 
 // Server → Client

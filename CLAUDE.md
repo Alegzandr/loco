@@ -404,6 +404,11 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 - `webServer` env vars go in `playwright.config.ts`'s `env` object, **not** a `VAR=x cmd` shell prefix — the prefix form is POSIX-only and breaks when the suite runs from Windows.
 - Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
 - **Update E2E in same commit as gameplay/UI/protocol changes.**
+- **Pin the direction with `debugSetState({ direction: 1 })` in any test that computes a seat.**
+  `waitForMyTurn` lets the bots play first, and one Reverse among them mirrors the table: a
+  3-player Skip then lands on `myIdx-2` instead of `myIdx+2`, and the run reads as a rules bug.
+  This is what `debug_direction` exists for — the CI failure it fixes reproduced roughly one run in
+  ten and pointed at the Skip rule, which was correct all along.
 - The **interrupt window is only armed by a real play** — `debug_set_state` leaves it closed, so a
   successful-interrupt test must have somebody actually play first. Who interrupts no longer matters
   (self-interrupt and current-player interrupt are both legal), but keep bots out of the scenario:
