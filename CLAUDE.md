@@ -297,7 +297,19 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
 - AI: `game/bot.go` `BotThink(state, playerIdx) BotAction`.
 - Scheduled via `botMove` channel with `botThinkDelay=800ms`.
-- Auto-declare UNO when playing to 1 card.
+- Auto-declare UNO when playing to 1 card — **deferred, and the declaration itself is what waits**.
+  `maybeAutoDeclareUNO` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the timer
+  fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
+  alone settled the seat server-side while every client was still showing the 5s catch window it had
+  just opened on the same `card_played`: a bot's LOCO! was uncatchable by construction and every
+  Contre-LOCO! tap came back `player already declared` ("Déjà annoncé."), which reads as a broken
+  button rather than as a race lost.
+  - `handleUnoAnnounce` re-checks like every other scheduled callback: room playing, seat still in
+    range, `LastCardAt[seat]` unchanged (a Swap can open a *different* window for the same seat), and
+    `DeclareLastCard` failing means the bot lost the race and simply never announces.
+  - `BotUnoDelay`+`BotUnoJitterMax` = **1.6–2.8s** of the 5s window. It is a human reaction budget
+    (spot the seat → move to the button → click), not a machine's: at the old 0.4–0.8s the mechanic
+    would have been unwinnable even once the state bug was fixed.
 - Tracked in `hub.botSlots[code][playerID]`.
 
 ## Game event log

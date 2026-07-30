@@ -76,10 +76,11 @@ type turnTimerMsg struct {
 	turnStartedAt time.Time
 }
 
-// unoMsg is sent internally to broadcast a delayed bot UNO declaration.
+// unoMsg is sent internally when a bot's deferred UNO declaration comes due.
 type unoMsg struct {
-	roomCode    string
-	playerIndex int
+	roomCode     string
+	playerIndex  int
+	lastCardTime time.Time // stale-check: must match room.State.LastCardAt at execution
 }
 
 // botCatchMsg is sent internally when a bot should attempt to catch an undeclared UNO.
@@ -1333,15 +1334,19 @@ var BotThinkDelay = 1200 * time.Millisecond
 // Exported so tests can set it to 0 to make bot timing deterministic.
 var BotJitterMax = 1000 * time.Millisecond
 
-// BotUnoDelay is the base delay before a bot broadcasts its UNO declaration
-// after playing to 1 card. Separate from BotThinkDelay so it feels like a
-// distinct reaction rather than part of the card-play decision.
+// BotUnoDelay is the base delay before a bot declares its UNO after playing to
+// 1 card. It is the window in which a human can beat it to the Contre-LOCO!
+// button, so it is measured against a person spotting the one-card seat, moving
+// to the button and clicking — not against how fast a machine could react.
+// Together with the jitter it spans 1.6–2.8 s of the 5 s catch window: enough to
+// be winnable, short enough that a bot still usually declares in time.
 // Exported so tests can set it to 0.
-var BotUnoDelay = 400 * time.Millisecond
+var BotUnoDelay = 1600 * time.Millisecond
 
-// BotUnoJitterMax is the max random jitter added to BotUnoDelay.
+// BotUnoJitterMax is the max random jitter added to BotUnoDelay, so the moment
+// to strike is never the same twice.
 // Exported so tests can set it to 0.
-var BotUnoJitterMax = 400 * time.Millisecond
+var BotUnoJitterMax = 1200 * time.Millisecond
 
 // BotCatchDelay is the base delay before a bot attempts to catch an undeclared UNO.
 // Must be well under catchWindow (5s). 2s base gives bots time to "notice" without
@@ -1454,28 +1459,49 @@ func (h *Hub) maybeScheduleBot(code string, room *game.Room) {
 	}
 }
 
-// scheduleBotUnoAnnounce sends a delayed uno_declared broadcast for a bot that just
-// played to 1 card. The server state is already updated (DeclareLastCard called);
-// only the broadcast is deferred so it feels like a human reaction rather than instant.
-func (h *Hub) scheduleBotUnoAnnounce(code string, playerIndex int) {
+// scheduleBotUnoAnnounce defers a bot's UNO declaration for a bot that just
+// played to 1 card. The declaration itself is deferred, not just its broadcast:
+// declaring on the spot settled the seat server-side while every client was
+// still showing the 5 s catch window it opened on the same card_played, so a
+// bot's LOCO! could never be caught and every Contre-LOCO! tap came back
+// "player already declared".
+func (h *Hub) scheduleBotUnoAnnounce(code string, playerIndex int, lastCardTime time.Time) {
 	var jitter time.Duration
 	if jm := int(BotUnoJitterMax.Milliseconds()); jm > 0 {
 		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 	}
-	um := unoMsg{roomCode: code, playerIndex: playerIndex}
+	um := unoMsg{roomCode: code, playerIndex: playerIndex, lastCardTime: lastCardTime}
 	time.AfterFunc(BotUnoDelay+jitter, func() {
 		select {
 		case h.unoAnnounce <- um:
 		default:
-			// Non-critical: drop if channel full; catch window just closes without announcement.
+			// Non-critical: drop if channel full; the bot simply never declares
+			// and stays catchable until its window expires.
 		}
 	})
 }
 
-// handleUnoAnnounce broadcasts a bot's UNO declaration if the room still exists.
+// handleUnoAnnounce declares and broadcasts a bot's UNO if the situation it was
+// scheduled for still holds. Every guard here is a way the bot can lose the
+// race: it was caught (hand no longer at 1), the round moved on, or this seat
+// opened a different window in the meantime (a Swap handed it another single
+// card, which is a declaration it has not made yet).
 func (h *Hub) handleUnoAnnounce(um unoMsg) {
-	if _, ok := h.rooms[um.roomCode]; !ok {
+	room, ok := h.rooms[um.roomCode]
+	if !ok {
 		return // room deleted between schedule and fire
+	}
+	if room.Status != game.StatusPlaying || room.State == nil {
+		return
+	}
+	if um.playerIndex < 0 || um.playerIndex >= len(room.State.Hands) {
+		return // seat pruned between schedule and fire
+	}
+	if !room.State.LastCardAt[um.playerIndex].Equal(um.lastCardTime) {
+		return // different one-card moment
+	}
+	if err := room.DeclareLastCard(um.playerIndex); err != nil {
+		return // caught, or no longer on one card
 	}
 	h.broadcastToRoomAll(um.roomCode, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoDeclared,
@@ -1689,14 +1715,13 @@ func (h *Hub) botDraw(code string, room *game.Room, playerID int) (rescheduled b
 	return false
 }
 
-// maybeAutoDeclareUNO declares UNO and schedules the delayed announcement when
-// a bot has played to exactly 1 card. The delay gives the broadcast a human-like feel.
+// maybeAutoDeclareUNO schedules a bot's deferred declaration when it has played
+// to exactly 1 card. Nothing is declared here — see scheduleBotUnoAnnounce.
 func (h *Hub) maybeAutoDeclareUNO(code string, room *game.Room, playerID int) {
 	if room.RoundEnded || room.State.Hands[playerID].Size() != 1 {
 		return
 	}
-	_ = room.DeclareLastCard(playerID)
-	h.scheduleBotUnoAnnounce(code, playerID)
+	h.scheduleBotUnoAnnounce(code, playerID, room.State.LastCardAt[playerID])
 }
 
 // botCanPlayDrawn reports whether the bot can play any card in its hand against

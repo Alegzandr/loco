@@ -1914,6 +1914,119 @@ func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
 	// A timeout (read deadline exceeded) here is expected and correct.
 }
 
+// TestBotUno_CatchableDuringAnnounceDelay is the regression test for a
+// bot-declared LOCO! that was impossible to catch: the hub used to call
+// DeclareLastCard the instant the bot played its second-to-last card and only
+// defer the uno_declared broadcast, so the seat was already settled server-side
+// while every client still showed an open 5 s catch window. Every Contre-LOCO!
+// tap in that window came back "player already declared".
+//
+// The declaration must now happen when it is announced, so the delay is a real
+// reaction window.
+func TestBotUno_CatchableDuringAnnounceDelay(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+
+	origBotDelay := hub.BotThinkDelay
+	origJitter := hub.BotJitterMax
+	origUnoDelay := hub.BotUnoDelay
+	origUnoJitter := hub.BotUnoJitterMax
+	origCatchProb := hub.BotCatchProb
+	hub.BotThinkDelay = 20 * time.Millisecond
+	hub.BotJitterMax = 0
+	hub.BotUnoDelay = 2 * time.Second // long enough for the catch below to land first
+	hub.BotUnoJitterMax = 0
+	hub.BotCatchProb = 0 // bots must not catch Alice in this scenario
+	t.Cleanup(func() {
+		hub.BotThinkDelay = origBotDelay
+		hub.BotJitterMax = origJitter
+		hub.BotUnoDelay = origUnoDelay
+		hub.BotUnoJitterMax = origUnoJitter
+		hub.BotCatchProb = origCatchProb
+	})
+
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	readMsgOfType(t, conn, protocol.SMsgRoomCreated)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	gs := readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	if gs.State == nil {
+		t.Fatal("missing game state")
+	}
+	alice := gs.State.YourIndex
+	bot := 1 - alice
+
+	// Bot holds two playable numbers: its next move takes it down to one card.
+	// Alice moves first so the bot's turn is scheduled by a real play
+	// (debug_set_state does not schedule bot moves).
+	zero := 0
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgDebugSetState,
+		DebugHands: []protocol.DebugHandOverrideDTO{
+			{PlayerIndex: bot, Hand: []protocol.CardDTO{
+				{Color: "red", Kind: "number", Value: 6},
+				{Color: "red", Kind: "number", Value: 7},
+			}},
+			{PlayerIndex: alice, Hand: []protocol.CardDTO{
+				{Color: "red", Kind: "number", Value: 4},
+				{Color: "blue", Kind: "number", Value: 2},
+				{Color: "green", Kind: "number", Value: 3},
+			}},
+		},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugActiveColor: "red",
+		DebugPendingDraw: &zero,
+		DebugCurrentTurn: &alice,
+	})
+	readMsgOfType(t, conn, protocol.SMsgGameState)
+
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 4},
+	})
+
+	// Bot plays → one card left, declaration not yet announced.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if time.Now().After(deadline) {
+			t.Fatal("bot never played")
+		}
+		msg := readMsgOfType(t, conn, protocol.SMsgCardPlayed)
+		if msg.PlayerIndex == bot {
+			break
+		}
+	}
+
+	// Alice catches it inside the window the UI is showing her.
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &bot})
+	caught := readMsgOfType(t, conn, protocol.SMsgUnoCaught)
+	if caught.PlayerIndex != bot {
+		t.Errorf("uno_caught PlayerIndex = %d, want %d (the bot, i.e. the caught seat)", caught.PlayerIndex, bot)
+	}
+
+	// The swallowed announcement must not resurface: the bot took the penalty
+	// and is no longer on one card.
+	time.Sleep(hub.BotUnoDelay + 300*time.Millisecond)
+	conn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)) //nolint:errcheck
+	for {
+		_, data, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		var msg protocol.ServerMsg
+		json.Unmarshal(data, &msg) //nolint:errcheck
+		if msg.Type == protocol.SMsgUnoDeclared && msg.PlayerIndex == bot {
+			t.Fatal("bot announced LOCO! after being caught")
+		}
+	}
+}
+
 // TestLobbyHostDisconnect_NewHostCanStartGame is a regression test for the
 // deadlock where the original host (playerID 0) disconnects from the lobby and
 // no remaining player can start the game (because handleStartGame required
