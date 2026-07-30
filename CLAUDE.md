@@ -415,7 +415,15 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   a bot's 800ms timer plays a card and re-arms the window under the interrupt in flight.
 - Entrance animations race clicks: `clickContinue` waits for the round-summary card's animations to
   report `finished` before clicking, because `waitForRoundSummary` resolves on the store flag, which
-  flips ~420ms before the card stops moving.
+  flips ~420ms before the card stops moving. Two details that made this flaky in CI, both worth not
+  repeating elsewhere: **`getAnimations().every(...)` is vacuously true on an empty list**, and a CSS
+  animation only starts on the frame *after* the node is inserted, so the guard has to require the
+  animations to have started (`length > 0`) or it sails through and clicks into the spring. And
+  **a helper waiting on a self-destructing element must wait on the state, not the gesture** — the
+  summary auto-dismisses at 8s, after which the button is detached and never comes back (the caller
+  is blocked in the helper, so no further round is forced), and Playwright retries into the test
+  timeout while the app has done exactly what was asked. `clickContinue` therefore clicks with a
+  short timeout, tolerates losing that race, and returns on `showRoundSummary === false`.
 - Two controls must never share an accessible name — the draw pile is `drawPile` ("Pioche"), not
   "Draw", precisely because a strict-mode locator caught the collision.
 - Canvas not inspected; verify via DOM (ActionBar, RoundSummary, GameOver) + `__LOCO_E2E__.getState()`.
