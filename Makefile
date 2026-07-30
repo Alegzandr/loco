@@ -10,7 +10,7 @@ E2E_DIR         := $(CURDIR)/e2e
 DOCKER_GO = docker run --rm -v $(SERVER_DIR):/app -w /app
 DOCKER_LINT = docker run --rm -v $(SERVER_DIR):/app -w /app
 
-.PHONY: help dev down test test-server test-client test-e2e lint lint-server lint-client build-server build-client
+.PHONY: help dev down test test-server test-client test-e2e visual audio-verify lint lint-server lint-client build-server build-client
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?##"}{printf "  %-16s %s\n", $$1, $$2}'
@@ -31,6 +31,12 @@ test-client: ## Run client unit tests (Vitest)
 
 test-e2e: ## Run Playwright suite (expects server + dev client running OR will start its own)
 	cd $(E2E_DIR) && npm test
+
+visual: ## Screenshot every showcase scene into .visual/ (no server needed)
+	node tools/visual/shoot.mjs $(ARGS)
+
+audio-verify: ## Assert every synthesised voice actually produces signal (not in CI)
+	node tools/audio/verify.mjs $(ARGS)
 
 lint: lint-server lint-client ## Run all linters
 

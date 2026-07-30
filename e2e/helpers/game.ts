@@ -21,6 +21,8 @@ export const T = {
   gameOver: 'Game Over',
   youWin: 'You Win!',
   winsRound: 'wins the round!',
+  drawPile: 'Draw pile',
+  interruptTitle: 'INTERCEPTED!',
 } as const
 
 interface DebugHandOverride {
@@ -236,7 +238,25 @@ export async function clickRematch(page: Page): Promise<void> {
  * Assumes the round summary is currently visible.
  */
 export async function clickContinue(page: Page): Promise<void> {
-  await page.getByText(T.continueBtn, { exact: false }).click()
+  const btn = page.getByText(T.continueBtn, { exact: false })
+  await btn.waitFor({ state: 'visible' })
+  // The summary card springs in over ~420ms. waitForRoundSummary resolves on the
+  // store flag, which flips before that animation has settled, so clicking
+  // straight away races a moving target and Playwright rightly refuses. Wait for
+  // the card's own animations to finish first.
+  await page
+    .waitForFunction(
+      () => {
+        const el = document.querySelector('[class*="roundSummaryCard"]')
+        return !!el && el.getAnimations().every((a) => a.playState === 'finished')
+      },
+      undefined,
+      { timeout: 5_000 },
+    )
+    .catch(() => {
+      // Reduced-motion or an already-settled card: nothing to wait for.
+    })
+  await btn.click()
 }
 
 /**

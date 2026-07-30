@@ -23,18 +23,28 @@ describe('clientMayInterrupt', () => {
     expect(clientMayInterrupt(red5, red6, 0)).toBe(false)
   })
 
-  it('rejects wild and global_switch (cannot take lead)', () => {
-    expect(clientMayInterrupt(wild, wild, 0)).toBe(false)
-    expect(clientMayInterrupt(globalSwitch, globalSwitch, 0)).toBe(false)
+  it('allows wild on wild and global_switch on global_switch', () => {
+    expect(clientMayInterrupt(wild, wild, 0)).toBe(true)
+    expect(clientMayInterrupt(globalSwitch, globalSwitch, 0)).toBe(true)
   })
 
-  it('rejects non-DrawTwo interject when a draw penalty is pending', () => {
+  it('keeps wild kinds distinct — a wild never lands on a wild_draw_four', () => {
+    const wd4: CardDTO = { color: 'wild', kind: 'wild_draw_four' }
+    expect(clientMayInterrupt(wild, wd4, 0)).toBe(false)
+  })
+
+  it('rejects non-draw interject when a draw penalty is pending', () => {
     expect(clientMayInterrupt(red5, red5, 2)).toBe(false)
   })
 
   it('allows identical DrawTwo to extend an active draw chain', () => {
     const redD2: CardDTO = { color: 'red', kind: 'draw_two' }
     expect(clientMayInterrupt(redD2, redD2, 2)).toBe(true)
+  })
+
+  it('allows identical WildDrawFour to extend an active +4 chain', () => {
+    const wd4: CardDTO = { color: 'wild', kind: 'wild_draw_four' }
+    expect(clientMayInterrupt(wd4, wd4, 4)).toBe(true)
   })
 
   it('rejects color-mismatched DrawTwo during a draw chain', () => {

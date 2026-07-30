@@ -1,22 +1,24 @@
 .switcher {
   display: flex;
-  gap: 2px;
+  gap: 3px;
   background: var(--color-surface-strong);
+  border: var(--stroke) solid var(--color-stroke);
   border-radius: var(--radius-full);
   padding: 3px;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
 }
 
 .btn {
-  padding: 6px 12px;
+  padding: 5px 12px;
   border: none;
   border-radius: var(--radius-full);
   background: transparent;
   color: var(--color-muted);
-  font: 500 13px/1.23 var(--font-display);
-  letter-spacing: 0.04em;
+  font: 700 13px/1.2 var(--font-display);
+  letter-spacing: 0.05em;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
-  min-height: 32px;
+  min-height: 30px;
   touch-action: manipulation;
 }
 
@@ -25,7 +27,7 @@
 }
 
 .btn.active {
-  background: var(--color-canvas);
+  background: var(--color-surface-card);
   color: var(--color-ink);
-  box-shadow: var(--shadow-float);
+  box-shadow: 0 2px 0 var(--color-stroke-soft);
 }

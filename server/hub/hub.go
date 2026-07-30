@@ -870,6 +870,7 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	targetIdx := room.State.LastCardPlayer
+	priorSize := len(room.State.Hands[targetIdx].Cards)
 	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
@@ -879,6 +880,9 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 		Type:        protocol.SMsgUnoCaught,
 		PlayerIndex: targetIdx,
 	})
+	// The penalty cards are a hand change like any other: the caught player must
+	// be sent the cards themselves, everyone else the new count.
+	h.sendHandGrowth(c.roomCode, room, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
 }
 
 func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
@@ -914,12 +918,12 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	cards, _, ok := h.parseCardsFromMsg(c, msg)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
 	if !ok {
 		return
 	}
 
-	if err := room.InterruptPlayCards(c.playerID, cards, chosenPlayer); err != nil {
+	if err := room.InterruptPlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
 		c.noteSuspect(err.Error())
 		return
@@ -937,6 +941,13 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 		Cards:       successCards,
 	})
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
+	// Same rule as handlePlayCard: a Swap rearranges hands, so every client needs
+	// a fresh personalised snapshot. Only reachable if the deck ever ships two
+	// copies of a coloured Swap (today it ships one), but the domain permits the
+	// play and a silent hand desync is exactly the bug this guards against.
+	if len(cards) == 1 && cards[0].Kind == game.Swap {
+		h.broadcastPersonalizedGameState(c.roomCode, room)
+	}
 	h.maybeScheduleBotCatch(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -1526,6 +1537,7 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 		return
 	}
 	catcherID := eligible[mrand.Intn(len(eligible))]
+	priorSize := len(state.Hands[cm.targetPlayer].Cards)
 	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
 		// Window may have expired or state changed — normal race condition.
 		return
@@ -1534,6 +1546,7 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 		Type:        protocol.SMsgUnoCaught,
 		PlayerIndex: cm.targetPlayer,
 	})
+	h.sendHandGrowth(cm.roomCode, room, cm.targetPlayer, state.Hands[cm.targetPlayer].Cards[priorSize:])
 }
 
 // executeBotMove runs the bot's chosen action on behalf of its player slot.
@@ -1735,7 +1748,7 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 		return
 	}
 
-	advanced, ok := h.autoDrawOnTimeout(code, room, tm.playerID, timedOutClient)
+	advanced, ok := h.autoDrawOnTimeout(code, room, tm.playerID)
 	if !ok {
 		return
 	}
@@ -1805,7 +1818,7 @@ func (h *Hub) kickIfAFK(code string, playerID int, client *Client) bool {
 // Returns (advanced, ok): advanced=true means a penalty-draw advanced the turn
 // and the caller should stop (broadcast already sent + timer rescheduled);
 // ok=false means an error aborted the timeout handling entirely.
-func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int, client *Client) (advanced, ok bool) {
+func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int) (advanced, ok bool) {
 	if room.State.HasDrawn {
 		return false, true
 	}
@@ -1816,41 +1829,17 @@ func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int, clie
 	}
 	state := room.State
 	newCards := state.Hands[playerID].Cards[priorSize:]
-	drawnCount := len(newCards)
 
 	if state.CurrentTurn != playerID {
-		dl := h.turnDeadlineMs(code)
-		h.broadcastToRoomAll(code, protocol.ServerMsg{
-			Type:         protocol.SMsgCardDrawn,
-			PlayerIndex:  playerID,
-			DrawnCount:   drawnCount,
-			Turn:         state.CurrentTurn,
-			TurnDeadline: dl,
-		})
-		h.maybeScheduleBot(code, room)
+		// Penalty draw: the turn moved on. Re-arm the timer BEFORE announcing so
+		// the broadcast carries the new player's deadline, not the expired one.
 		h.scheduleTurnTimer(code, room)
+		h.sendHandGrowth(code, room, playerID, newCards)
+		h.maybeScheduleBot(code, room)
 		return true, true
 	}
 
-	if client != nil {
-		cardDTOs := make([]*protocol.CardDTO, drawnCount)
-		for i, card := range newCards {
-			cardDTOs[i] = cardToDTO(card)
-		}
-		client.Send(protocol.ServerMsg{
-			Type:        protocol.SMsgCardDrawn,
-			PlayerIndex: playerID,
-			Cards:       cardDTOs,
-			Turn:        state.CurrentTurn,
-			HasDrawn:    state.HasDrawn,
-		})
-	}
-	h.broadcastToRoom(code, protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: playerID,
-		DrawnCount:  drawnCount,
-		Turn:        state.CurrentTurn,
-	}, client)
+	h.sendHandGrowth(code, room, playerID, newCards)
 	return false, true
 }
 
@@ -1864,6 +1853,44 @@ func (h *Hub) turnDeadlineMs(code string) int64 {
 }
 
 // --- Broadcast helpers ---
+
+// sendHandGrowth tells the affected player exactly WHICH cards just entered
+// their hand, and everyone else only how many. Every path that grows a hand
+// must go through here: a client that is told a count but not the cards keeps
+// a hand shorter than the server's, empties it, and the round then never ends
+// (the server still holds cards for a player whose screen shows none).
+//
+// Callers must have (re)armed the turn timer first — the deadline is read here.
+func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCards []game.Card) {
+	if len(newCards) == 0 {
+		return
+	}
+	state := room.State
+	dl := h.turnDeadlineMs(code)
+	client := h.memberClient(code, playerID)
+	if client != nil {
+		cardDTOs := make([]*protocol.CardDTO, len(newCards))
+		for i, card := range newCards {
+			cardDTOs[i] = cardToDTO(card)
+		}
+		client.Send(protocol.ServerMsg{
+			Type:         protocol.SMsgCardDrawn,
+			PlayerIndex:  playerID,
+			Cards:        cardDTOs,
+			Turn:         state.CurrentTurn,
+			HasDrawn:     state.HasDrawn,
+			TurnDeadline: dl,
+		})
+	}
+	// client == nil (bot seat, or a player mid-reconnect) still needs the count fan-out.
+	h.broadcastToRoom(code, protocol.ServerMsg{
+		Type:         protocol.SMsgCardDrawn,
+		PlayerIndex:  playerID,
+		DrawnCount:   len(newCards),
+		Turn:         state.CurrentTurn,
+		TurnDeadline: dl,
+	}, client)
+}
 
 // broadcastPersonalizedGameState sends each connected player their personalized game state.
 // Used after Swap and GlobalSwitch when all hands change simultaneously.

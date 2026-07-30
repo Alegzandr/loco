@@ -11,6 +11,8 @@ interface Props {
   pendingDraw: number
   width: number
   height: number
+  /** Vertical space claimed by the opponent seats — the piles follow the felt. */
+  topReserve?: number
 }
 
 // Fixed tilts for the cards buried under the top one. Static rather than random
@@ -31,14 +33,16 @@ function hashTilt(card: CardDTO): number {
 }
 
 // Top of the discard pile + active-color ring + pending-draw +N badge.
-export function DiscardPile({ card, activeColor, pendingDraw, width, height }: Props) {
+export function DiscardPile({ card, activeColor, pendingDraw, width, height, topReserve = 0 }: Props) {
   if (!card) return null
-  const { x, y } = discardPosition(width, height)
+  const { x, y } = discardPosition(width, height, topReserve)
   const tilt = hashTilt(card)
 
   return (
     <div className={styles.pile} style={{ left: x, top: y, width: CARD_W, height: CARD_H }} aria-label="discard">
-      <div className={styles.ring} style={{ borderColor: ACTIVE_RING[activeColor] }} />
+      {/* `color` drives both the border (border-color defaults to currentColor)
+          and the glow, so the active colour is set in one place. */}
+      <div className={styles.ring} style={{ color: ACTIVE_RING[activeColor] }} />
       {UNDER_LAYERS.map((l, i) => (
         <div
           key={i}
@@ -59,7 +63,7 @@ export function DiscardPile({ card, activeColor, pendingDraw, width, height }: P
       {pendingDraw > 0 && (
         <motion.div
           className={styles.badge}
-          style={{ left: CARD_W - 38 / 2 + 4, top: -22 / 2 + 4 }}
+          style={{ left: CARD_W - 46 / 2, top: -30 / 2 }}
           aria-label={`pending draw ${pendingDraw}`}
           initial={{ scale: 0.5, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}

@@ -22,7 +22,7 @@
  *   - Take 4 + color picker UI (§7)
  *   - Swap as last card → actor wins, swap aborted (§13)
  *   - GlobalSwitch rotates hand sizes; 2-player = mutual swap; as last card → actor wins (§7, §11.3, §13)
- *   - Interjecting: identical card, wild blocked, action effect on next-after-interrupter,
+ *   - Interjecting: identical card (wilds included), action effect on next-after-interrupter,
  *     LOCO! still required on 2→1 via interject (§6)
  *   - LOCO! NOT required when receiving 1 card via Swap (§11.1)
  */
@@ -855,7 +855,14 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
 })
 
 test.describe('rules coverage — Interjecting (§6)', () => {
-  test('wild card interject is rejected (no exact-color identity)', async ({ browser }: { browser: Browser }) => {
+  // Wilds interject like everything else (§6.2): they all carry the 'wild'
+  // colour, so a Wild on a Wild is an exact identity match. The interjecter
+  // names the colour that becomes active, exactly as on a normal wild play.
+  //
+  // Alice must really play the wild — debug_set_state leaves the interject
+  // window closed, and a test that skips the play would pass on "window closed"
+  // no matter what the wild rule says.
+  test('wild card interjects onto an identical wild and sets the chosen colour', async ({ browser }: { browser: Browser }) => {
     const ctx1 = await browser.newContext()
     const ctx2 = await browser.newContext()
     const alice = await ctx1.newPage()
@@ -869,33 +876,50 @@ test.describe('rules coverage — Interjecting (§6)', () => {
       const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
 
-      // Discard is a wild and it is Alice's turn. Bob holds another wild.
-      // Bob attempts to interrupt — must be rejected (wilds cannot be interjected).
       await debugSetState(alice, {
-        hand: [{ color: 'red', kind: 'number', value: 1 }],
-        hands: [{ playerIndex: bobIdx, hand: [{ color: 'wild', kind: 'wild' }] }],
-        discard: { color: 'wild', kind: 'wild' },
+        hand: [
+          { color: 'wild', kind: 'wild' },
+          { color: 'red', kind: 'number', value: 1 },
+        ],
+        hands: [
+          {
+            playerIndex: bobIdx,
+            hand: [
+              { color: 'wild', kind: 'wild' },
+              { color: 'green', kind: 'number', value: 8 },
+            ],
+          },
+        ],
+        discard: { color: 'red', kind: 'number', value: 5 },
         activeColor: 'red',
         pendingDraw: 0,
         currentTurn: aliceIdx,
       })
 
-      // Clear prior error if any
+      // Alice's real play puts a wild on top and arms the window.
+      await sendMsg(alice, {
+        type: 'play_card',
+        card: { color: 'wild', kind: 'wild' },
+        chosen_color: 'red',
+      })
       await bob.waitForFunction(
-        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
-        undefined, { timeout: 5_000 }).catch(() => undefined)
+        () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'wild',
+        undefined, { timeout: 5_000 })
 
       await sendMsg(bob, {
-        type: 'interrupt_play',
+        type: 'interrupt_play_card',
         card: { color: 'wild', kind: 'wild' },
+        chosen_color: 'blue',
       })
 
-      await bob.waitForFunction(
-        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+      // Bob takes the lead: the colour he named is active and the turn is back
+      // on Alice (the seat after Bob in a two-player game).
+      await alice.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.activeColor === 'blue',
         undefined, { timeout: 5_000 })
       const after = await getState(alice)
-      // Turn unchanged
       expect(after?.currentTurn).toBe(aliceIdx)
+      expect((await getState(bob))?.myHand?.length).toBe(1)
     } finally {
       await ctx1.close()
       await ctx2.close()

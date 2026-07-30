@@ -37,10 +37,9 @@ export const CardBack = forwardRef<HTMLDivElement, Props>(function CardBack(
         ...style,
       }}
     >
-      <div
-        className={styles.inner}
-        style={{ borderRadius: Math.max(2, radius * 0.5) }}
-      />
+      {/* Inner medallion is always an ellipse — its radius is owned by the
+          stylesheet, not derived from the outer card radius. */}
+      <div className={styles.inner} />
       {showMono && (
         <div className={styles.monogram} style={{ fontSize: monoSize }}>L</div>
       )}

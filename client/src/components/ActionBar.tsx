@@ -7,7 +7,10 @@ interface Props {
   handSize: number
   hasDrawn: boolean
   hasPlayableCard: boolean
-  unoTimerEnd: number | null
+  // True while another player sits on a single card without having called it.
+  // Driven by the catch window, not by uno_declared — a declaration is exactly
+  // the moment catching stops being possible.
+  canCatch: boolean
   onDraw: () => void
   onPass: () => void
   onUno: () => void
@@ -21,7 +24,7 @@ export function ActionBar({
   handSize,
   hasDrawn,
   hasPlayableCard,
-  unoTimerEnd,
+  canCatch,
   onDraw,
   onPass,
   onUno,
@@ -63,7 +66,7 @@ export function ActionBar({
         {t.unoBtn}
       </button>
 
-      {unoTimerEnd !== null && (
+      {canCatch && (
         <button className={`${styles.btn} ${styles.btnCatch}`} onClick={onCatch}>
           {t.catchBtn}
         </button>

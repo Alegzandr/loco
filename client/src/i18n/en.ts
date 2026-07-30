@@ -19,6 +19,23 @@ export interface Translations {
   waitingRoom: string
   roomCode: string
   shareCode: string
+  copyCode: string
+  // ─── Audio ────────────────────────────────────────────────────────
+  audioTitle: string
+  audioMaster: string
+  audioSfx: string
+  audioMusic: string
+  audioMute: string
+  audioUnmute: string
+
+  // ─── Interrupt ────────────────────────────────────────────────────
+  interruptTitle: string
+  interruptBy: string
+  interruptByYou: string
+  interruptCombo: string
+  fxSkip: string
+  fxReverse: string
+  drawPile: string
   hostBadge: string
   matchFormat: string
   maxPlayersLabel: string
@@ -112,6 +129,23 @@ export const en: Translations = {
   waitingRoom: 'Waiting Room',
   roomCode: 'Room Code',
   shareCode: 'Share this code with friends!',
+  copyCode: 'Copied!',
+  // ─── Audio ────────────────────────────────────────────────────────
+  audioTitle: 'Sound',
+  audioMaster: 'Overall',
+  audioSfx: 'Effects',
+  audioMusic: 'Music',
+  audioMute: 'Mute',
+  audioUnmute: 'Unmute',
+
+  // ─── Interrupt ────────────────────────────────────────────────────
+  interruptTitle: 'INTERCEPTED!',
+  interruptBy: '%actor stole the lead',
+  interruptByYou: 'You stole the lead',
+  interruptCombo: '×%n',
+  fxSkip: 'SKIP!',
+  fxReverse: 'REVERSE!',
+  drawPile: 'Draw pile',
   hostBadge: 'Host',
   matchFormat: 'Match Format',
   maxPlayersLabel: 'Max Players',
@@ -224,10 +258,11 @@ export const en: Translations = {
     {
       heading: 'Lead-Taking (Identical-Card Interrupt)',
       items: [
-        'Once any card is played, any other player has a short window (~1.5 s) to immediately play an identical card (same color, kind, AND value) — even when it is not their turn.',
+        'While a card sits on the pile, anyone holding an identical card (same color, kind, AND value) may slam it down and take the lead — even when it is not their turn.',
+        'No deadline: the window stays open until somebody plays, draws or passes. That includes the player who just played and the player whose turn it is.',
         'The fastest server-received play wins: the interrupter takes the lead and play continues from their seat.',
         'If you hold multiple identical copies, you may play them all in one tap — effects stack just like a turn-time batch play.',
-        'Wild cards and Global Swap cannot be used to interrupt. The player who just played cannot interrupt themselves.',
+        'Every card can interrupt, wilds and Global Swap included: a Wild lands on a Wild, a +4 extends a +4 chain. The only rule is being identical to the top of the pile.',
       ],
     },
     {

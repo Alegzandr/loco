@@ -3,17 +3,29 @@
   pointer-events: none;
 }
 
+/* Active-colour halo. This is the single most-consulted piece of state on the
+   board, so it is a solid glowing ring rather than a hairline: readable from a
+   stream thumbnail, and it changes the moment a wild resolves. */
 .ring {
   position: absolute;
-  top: -5px;
-  left: -5px;
-  width: calc(72px + 10px);
-  height: calc(108px + 10px);
-  border-radius: 13px;
-  border-width: 3px;
+  top: -11px;
+  left: -11px;
+  width: calc(72px + 22px);
+  height: calc(108px + 22px);
+  border-radius: 20px;
+  border-width: 5px;
   border-style: solid;
-  opacity: 0.7;
+  box-shadow:
+    0 0 22px 3px currentColor,
+    inset 0 0 12px rgba(255, 255, 255, 0.35);
+  opacity: 0.95;
   pointer-events: none;
+  animation: ringBreathe 2.6s ease-in-out infinite;
+}
+
+@keyframes ringBreathe {
+  0%, 100% { opacity: 0.95; }
+  50%      { opacity: 0.7; }
 }
 
 /* Buried cards giving the pile visible thickness. Deliberately neutral: the
@@ -25,9 +37,9 @@
   left: 0;
   width: 72px;
   height: 108px;
-  border-radius: 10px;
-  background: var(--color-surface-strong);
-  border: 1px solid var(--color-hairline);
+  border-radius: 11px;
+  background: #fff;
+  border: var(--stroke-thin) solid var(--color-stroke);
   transform-origin: 50% 50%;
   pointer-events: none;
 }
@@ -40,19 +52,24 @@
   will-change: transform;
 }
 
+/* Stacked penalty counter. Sits on the card's corner like a damage number. */
 .badge {
   position: absolute;
-  width: 40px;
-  height: 24px;
+  width: 46px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-primary);
-  border: 1.5px solid var(--color-canvas);
+  background: linear-gradient(180deg, #ff6d7d 0%, var(--color-primary) 100%);
+  border: var(--stroke) solid var(--color-stroke);
   border-radius: var(--radius-full);
   color: var(--color-on-primary);
-  font: 700 12px/1.33 var(--font-display);
+  font: 700 16px/1 var(--font-display);
   pointer-events: none;
   z-index: 2;
-  box-shadow: var(--shadow-float);
+  box-shadow: 0 3px 0 var(--color-stroke-soft), 0 0 18px rgba(255, 61, 104, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring { animation: none; }
 }

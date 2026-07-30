@@ -9,13 +9,15 @@ import { TurnIndicator, TurnTexts } from './TurnIndicator'
 import { AnimationLayer, Flier, EffectText } from './AnimationLayer'
 import {
   clockwiseOpponents,
-  opponentBubblePositions,
   calcHandSlots,
   discardPosition,
   deckPosition,
   seatPosition,
+  tableRect,
+  seatLayout,
+  boardScale,
 } from './layout'
-import { BOTTOM_RESERVE, CARD_W, CARD_H } from './cardTheme'
+import { CARD_W, CARD_H } from './cardTheme'
 import { SwapNotice, LastPlay } from '../../hooks/useGameStore'
 import styles from './GameBoard.module.css'
 
@@ -31,24 +33,40 @@ interface Props {
   isInteractive: (card: CardDTO) => boolean
   onCardClick: (card: CardDTO, idx: number) => void
   turnTexts: TurnTexts
+  fxTexts: FxTexts
   /** swap / global_switch notice from the store; triggers trail animation. */
   swapNotice: SwapNotice | null
   /** Last play from the store; drives the opponent seat→discard card flight. */
   lastPlay: LastPlay | null
   /** True while reconnect overlay is visible; board fades back in afterwards. */
   isReconnecting: boolean
+  /** True when drawing is legal right now — makes the deck clickable. */
+  canDraw: boolean
+  onDraw: () => void
+  drawLabel: string
 }
 
 const SWAP_TRAIL_W = 28
 const SWAP_TRAIL_H = 40
 const SWAP_TRAIL_R = 4
 
-// effectFor returns [text, color] for the floating SKIP/REVERSE/+N callout
-// shown over the discard pile when a special card resolves.
-function effectFor(card: CardDTO, pendingDraw: number): { text: string; color: string } | null {
+/** Localised labels for the floating callouts over the discard pile. */
+export interface FxTexts {
+  skip: string
+  reverse: string
+}
+
+// effectFor returns the floating SKIP/REVERSE/+N callout shown over the discard
+// pile when a special card resolves. The +N cases are numerals, so they need no
+// translation; the two word callouts do.
+function effectFor(
+  card: CardDTO,
+  pendingDraw: number,
+  texts: FxTexts,
+): { text: string; color: string } | null {
   switch (card.kind) {
-    case 'skip':            return { text: 'SKIP!',    color: '#ff9f43' }
-    case 'reverse':         return { text: 'REVERSE!', color: '#74b9ff' }
+    case 'skip':            return { text: texts.skip,    color: '#ff9f43' }
+    case 'reverse':         return { text: texts.reverse, color: '#74b9ff' }
     case 'draw_two':        return { text: `+${pendingDraw || 2}`, color: '#e63946' }
     case 'wild_draw_four':  return { text: `+${pendingDraw || 4}`, color: '#e63946' }
     default:                return null
@@ -64,7 +82,13 @@ const newId = () => `f${nextFlierId++}`
 
 export function GameBoard(props: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  const { width, height } = useElementSize(ref)
+  const { width: pxWidth, height: pxHeight } = useElementSize(ref)
+  // Everything below works in the board's own coordinate space; <div .stage>
+  // scales that space to the element's pixel size. Children — and the pure
+  // layout maths they share with the animations — never see the scale.
+  const scale = boardScale(pxWidth, pxHeight)
+  const width = pxWidth / scale
+  const height = pxHeight / scale
   const ready = width > 0 && height > 0
 
   const [fliers, setFliers] = useState<Flier[]>([])
@@ -81,7 +105,14 @@ export function GameBoard(props: Props) {
   const removeEffect = (id: string) => setEffectTexts((cur) => cur.filter((e) => e.id !== id))
 
   const others = clockwiseOpponents(props.players, props.myIndex)
-  const positions = ready ? opponentBubblePositions(others.length, width, height) : []
+  // seatLayout picks the pill size and row count that actually fit this
+  // viewport, and reports how much vertical space the seats claim so the table
+  // can be placed underneath them rather than through them.
+  const seats = seatLayout(ready ? others.length : 0, width, height)
+  const positions = seats.positions
+  // Every pile/animation coordinate needs the same seat reserve the felt uses,
+  // otherwise the deck, the discard and the fliers drift apart from the table.
+  const topReserve = seats.blockHeight
 
   // ─── Animation effect: an opponent played a card ─────────────────────────
   // Flies the card from the opponent's seat to the discard pile so the play is
@@ -95,7 +126,7 @@ export function GameBoard(props: Props) {
     // Own plays already fly out of the hand via handleCardClick.
     if (lp.actorIndex === props.myIndex) return
     const from = seatPosition(lp.actorIndex, props.players, props.myIndex, width, height)
-    const dest = discardPosition(width, height)
+    const dest = discardPosition(width, height, topReserve)
     setFliers((cur) => [
       ...cur,
       {
@@ -131,14 +162,14 @@ export function GameBoard(props: Props) {
     const covered = suppressNextDiscardFx.current
     suppressNextDiscardFx.current = false
     if (!covered) {
-      const target = discardPosition(width, height)
+      const target = discardPosition(width, height, topReserve)
       setFliers((cur) => [
         ...cur,
         {
           id: newId(),
           kind: 'face',
           card: props.discard!,
-          from: { x: target.x, y: (height - BOTTOM_RESERVE) / 2 },
+          from: { x: target.x, y: target.y + CARD_H / 2 },
           to: { x: target.x, y: target.y },
           startAlpha: 0.1,
           startScale: 0.6,
@@ -146,14 +177,14 @@ export function GameBoard(props: Props) {
         },
       ])
     }
-    const eff = effectFor(props.discard!, props.pendingDraw)
+    const eff = effectFor(props.discard!, props.pendingDraw, props.fxTexts)
     if (eff) {
       setEffectTexts((cur) => [
         ...cur,
-        { id: newId(), text: eff.text, color: eff.color, x: width / 2, y: (height - BOTTOM_RESERVE) / 2 - 10 },
+        { id: newId(), text: eff.text, color: eff.color, x: width / 2, y: discardPosition(width, height, topReserve).y - 10 },
       ])
     }
-  }, [props.discard, props.pendingDraw, ready, width, height])
+  }, [props.discard, props.pendingDraw, props.fxTexts, ready, width, height, topReserve])
 
   // ─── Animation effect: my hand grew by one (drew a card) ─────────────────
   const prevHandSize = useRef(props.myHand.length)
@@ -165,7 +196,7 @@ export function GameBoard(props: Props) {
     if (curr !== prev + 1) return  // only single-card draws (penalty draws batch differently)
     const slots = calcHandSlots(curr, width, height)
     const target = slots[curr - 1]
-    const start = deckPosition(width, height)
+    const start = deckPosition(width, height, topReserve)
     setFliers((cur) => [
       ...cur,
       {
@@ -178,7 +209,7 @@ export function GameBoard(props: Props) {
         duration: 300,
       },
     ])
-  }, [props.myHand.length, ready, width, height])
+  }, [props.myHand.length, ready, width, height, topReserve])
 
   // ─── Animation effect: swap / global_switch notice ──────────────────────
   useEffect(() => {
@@ -239,7 +270,7 @@ export function GameBoard(props: Props) {
       const slots = calcHandSlots(props.myHand.length, width, height)
       const slot = slots[idx]
       if (slot) {
-        const dest = discardPosition(width, height)
+        const dest = discardPosition(width, height, topReserve)
         // The lift applied to playable cards in <Hand /> shifts them up by 9px
         // at rest; mirror it so the fly starts at the visually correct spot.
         const liftedY = props.isPlayable(card) ? slot.y - 9 : slot.y
@@ -262,63 +293,74 @@ export function GameBoard(props: Props) {
     props.onCardClick(card, idx)
   }
 
-  // Subtle table oval — centred above the action bar.
-  const tableW = width * 0.84
-  const tableH = (height - BOTTOM_RESERVE) * 0.56
-  const tableLeft = (width - tableW) / 2
-  const tableTop = (height - BOTTOM_RESERVE) / 2 - tableH / 2 - 10
+  // Felt table — geometry lives in layout.ts so tests and animations share it.
+  const table = tableRect(width, height, topReserve)
 
   return (
     <div ref={ref} className={styles.board} data-testid="game-board">
-      {ready && !props.isReconnecting && (
-        <div key={rebuildKey} className={styles.fadeIn}>
-          <div
-            className={styles.tableOval}
-            style={{ left: tableLeft, top: tableTop, width: tableW, height: tableH }}
-          />
-          <Deck width={width} height={height} />
-          <DiscardPile
-            card={props.discard}
-            activeColor={props.activeColor}
-            pendingDraw={props.pendingDraw}
-            width={width}
-            height={height}
-          />
-          <TurnIndicator
-            isMyTurn={props.currentTurn === props.myIndex}
-            pendingDraw={props.pendingDraw}
-            currentTurn={props.currentTurn}
-            players={props.players}
-            height={height}
-            texts={props.turnTexts}
-          />
-          {others.map((p, i) => (
-            <PlayerSlot
-              key={p.index}
-              nickname={p.nickname}
-              handSize={p.hand_size}
-              isActiveTurn={p.index === props.currentTurn}
-              isDisconnected={p.connected === false}
-              x={positions[i].x}
-              y={positions[i].y}
+      <div
+        className={styles.stage}
+        style={{ width, height, transform: `scale(${scale})` }}
+      >
+        {ready && !props.isReconnecting && (
+          <div key={rebuildKey} className={styles.fadeIn}>
+            <div
+              className={styles.tableOval}
+              style={{ left: table.left, top: table.top, width: table.width, height: table.height }}
             />
-          ))}
-          <Hand
-            hand={props.myHand}
-            width={width}
-            height={height}
-            isPlayable={props.isPlayable}
-            isInteractive={props.isInteractive}
-            onCardClick={handleCardClick}
-          />
-        </div>
-      )}
-      <AnimationLayer
-        fliers={fliers}
-        effectTexts={effectTexts}
-        onFlierDone={removeFlier}
-        onEffectDone={removeEffect}
-      />
+            <Deck
+              width={width}
+              height={height}
+              topReserve={topReserve}
+              canDraw={props.canDraw}
+              onDraw={props.onDraw}
+              drawLabel={props.drawLabel}
+            />
+            <DiscardPile
+              card={props.discard}
+              activeColor={props.activeColor}
+              pendingDraw={props.pendingDraw}
+              width={width}
+              height={height}
+              topReserve={topReserve}
+            />
+            <TurnIndicator
+              isMyTurn={props.currentTurn === props.myIndex}
+              pendingDraw={props.pendingDraw}
+              currentTurn={props.currentTurn}
+              players={props.players}
+              height={height}
+              texts={props.turnTexts}
+            />
+            {others.map((p, i) => (
+              <PlayerSlot
+                key={p.index}
+                nickname={p.nickname}
+                handSize={p.hand_size}
+                isActiveTurn={p.index === props.currentTurn}
+                isDisconnected={p.connected === false}
+                x={positions[i].x}
+                y={positions[i].y}
+                size={seats.size}
+              />
+            ))}
+            <Hand
+              hand={props.myHand}
+              width={width}
+              height={height}
+              isPlayable={props.isPlayable}
+              isInteractive={props.isInteractive}
+              onCardClick={handleCardClick}
+            />
+          </div>
+        )}
+        <AnimationLayer
+          fliers={fliers}
+          effectTexts={effectTexts}
+          onFlierDone={removeFlier}
+          onEffectDone={removeEffect}
+        />
+      </div>
     </div>
   )
 }

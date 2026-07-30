@@ -1,5 +1,6 @@
 import { ScoreboardEntryDTO, ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
+import { Confetti } from './Confetti'
 import styles from './GameOver.module.css'
 
 interface Props {
@@ -18,6 +19,9 @@ export function GameOver({ winner, myNickname, scoreboard, matchOver, isHost, on
 
   return (
     <div className={styles.container}>
+      {/* Only the winner gets confetti — a losing screen that celebrates is a
+          worse experience than a quiet one. */}
+      {isWinner && <Confetti />}
       <div className={styles.card}>
         <div className={styles.emoji}>{isWinner ? '🏆' : '😔'}</div>
         <h2 className={styles.heading}>

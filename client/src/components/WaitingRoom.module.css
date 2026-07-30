@@ -1,12 +1,20 @@
+/* Pre-game room. The room code is the single most-read thing on this screen —
+   people say it out loud on stream — so it gets plaque treatment. */
+
 .container {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  /* See Lobby.module.css — `safe` prevents the heading being clipped above the
+     scroll area once the roster and host panel exceed the viewport. */
+  justify-content: safe center;
   height: 100%;
-  gap: var(--space-base);
+  gap: var(--space-md);
+  padding: var(--space-xl) var(--space-base) var(--space-lg);
+  overflow-y: auto;
   position: relative;
-  background: var(--color-canvas);
+  background: transparent;
   color: var(--color-ink);
   font-family: var(--font-body);
 }
@@ -18,51 +26,70 @@
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  z-index: 5;
 }
 
 .rulesLink {
-  padding: var(--space-sm) var(--space-base);
-  border: 1px solid var(--color-hairline);
+  padding: 9px 18px;
+  border: var(--stroke) solid var(--color-stroke);
   border-radius: var(--radius-full);
-  background: var(--color-canvas);
+  background: var(--color-surface-card);
   color: var(--color-ink);
-  font: 500 14px/1.29 var(--font-display);
+  font: 600 14px/1.2 var(--font-display);
   cursor: pointer;
   min-height: 40px;
   touch-action: manipulation;
-  transition: background 0.15s, border-color 0.15s;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
 }
 
-.rulesLink:hover {
-  background: var(--color-surface-soft);
-  border-color: var(--color-border-strong);
-}
+.rulesLink:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
+.rulesLink:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
 
 .heading {
-  font: 500 22px/1.18 var(--font-display);
-  letter-spacing: -0.44px;
+  font: 700 26px/1.15 var(--font-display);
   color: var(--color-ink);
 }
 
+/* Room-code plaque */
 .code {
-  font: 500 14px/1.29 var(--font-display);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 10px 30px 14px;
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard-lg);
+  font: 700 12px/1.3 var(--font-display);
   color: var(--color-muted);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-align: center;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
 }
 
+.code:hover { transform: translateY(-2px); box-shadow: 0 8px 0 var(--color-stroke-soft); }
+.code:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
+
 .codeVal {
-  font: 700 28px/1.1 var(--font-display);
+  font: 700 clamp(34px, 8vw, 46px)/1.1 var(--font-display);
   color: var(--color-primary);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   display: block;
   text-align: center;
-  margin-top: var(--space-xs);
+  -webkit-text-stroke: 2px var(--color-stroke);
+  paint-order: stroke fill;
+}
+
+.copied {
+  color: var(--color-mint);
 }
 
 .hint {
-  font: 400 13px/1.23 var(--font-display);
+  font: 500 14px/1.4 var(--font-body);
   color: var(--color-muted);
 }
 
@@ -70,64 +97,106 @@
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
-  width: 320px;
+  gap: 6px;
+  width: 340px;
+  max-width: 100%;
 }
 
 .player {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-md) var(--space-base);
+  gap: var(--space-md);
+  padding: 8px 14px;
   background: var(--color-surface-card);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
-  font: 400 16px/1.5 var(--font-display);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-full);
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  font: 600 16px/1.3 var(--font-display);
   color: var(--color-ink);
+  animation: playerIn 0.32s var(--ease-bounce) both;
+}
+
+.playerMain {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Initial-letter avatar. Hue is derived from the seat index in the component, so
+   the same player keeps the same colour for the whole match. */
+.avatar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 700 16px/1 var(--font-display);
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(20, 8, 45, 0.5);
+}
+
+.playerName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes playerIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .you {
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .owner {
-  font: 700 11px/1.18 var(--font-display);
-  background: var(--color-canvas);
-  color: var(--color-ink);
-  padding: var(--space-xs) 10px;
+  font: 700 11px/1.2 var(--font-display);
+  background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
+  color: #4a2c00;
+  padding: 4px 10px;
   border-radius: var(--radius-full);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  border: 1px solid var(--color-hairline);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  flex-shrink: 0;
 }
 
 .btn {
-  padding: 14px 24px;
-  height: 48px;
-  border-radius: var(--radius-sm);
-  border: none;
-  background: var(--color-primary);
+  padding: 14px 30px;
+  min-height: 54px;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
   color: var(--color-on-primary);
-  font: 500 16px/1.25 var(--font-display);
+  text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
+  font: 700 19px/1.2 var(--font-display);
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: 0 5px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out), filter 0.12s ease;
   touch-action: manipulation;
 }
 
-.btn:hover:not(:disabled) {
-  background: var(--color-primary-active);
-}
+.btn:hover:not(:disabled) { transform: translateY(-3px); box-shadow: 0 8px 0 var(--color-stroke-soft); filter: brightness(1.06); }
+.btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
 
 .btn:disabled {
   background: var(--color-surface-strong);
   color: var(--color-muted);
   cursor: not-allowed;
+  box-shadow: none;
+  text-shadow: none;
 }
 
 .waitingMsg {
   color: var(--color-muted);
-  font: 400 14px/1.43 var(--font-display);
+  font: 600 15px/1.4 var(--font-body);
 }
 
 .hostActions {
@@ -138,25 +207,26 @@
 }
 
 .btnSecondary {
-  padding: 13px 23px;
-  height: 48px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-ink);
-  background: var(--color-canvas);
+  padding: 12px 24px;
+  min-height: 48px;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-card);
   color: var(--color-ink);
-  font: 500 14px/1.29 var(--font-display);
+  font: 600 15px/1.2 var(--font-display);
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: 0 4px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
   touch-action: manipulation;
 }
 
-.btnSecondary:hover:not(:disabled) {
-  background: var(--color-surface-soft);
-}
+.btnSecondary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 0 var(--color-stroke-soft); }
+.btnSecondary:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
 
 .btnSecondary:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* Host config panel */
@@ -164,12 +234,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  width: 320px;
+  width: 340px;
+  max-width: 100%;
   background: var(--color-surface-card);
-  border: 1px solid var(--color-hairline);
-  border-radius: var(--radius-md);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
   padding: var(--space-base) var(--space-lg);
-  box-shadow: var(--shadow-float);
+  box-shadow: var(--shadow-hard-lg);
 }
 
 .configRow {
@@ -179,84 +250,89 @@
 }
 
 .configLabel {
-  font: 500 14px/1.29 var(--font-display);
+  font: 700 12px/1.2 var(--font-display);
   color: var(--color-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 
 .formatBtns {
   display: flex;
-  gap: var(--space-xs);
+  gap: 6px;
   flex-wrap: wrap;
 }
 
 .formatBtn {
-  padding: 10px 16px;
+  padding: 10px 14px;
   border-radius: var(--radius-full);
-  border: 1px solid var(--color-hairline);
-  background: var(--color-canvas);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  background: var(--color-surface-strong);
   color: var(--color-ink);
-  font: 500 14px/1.29 var(--font-display);
+  font: 600 14px/1.2 var(--font-display);
   cursor: pointer;
-  min-height: 40px;
+  min-height: 42px;
   touch-action: manipulation;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out), background 0.15s;
 }
 
-.formatBtn:hover {
-  background: var(--color-surface-soft);
-  border-color: var(--color-border-strong);
-}
+.formatBtn:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
+.formatBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
 
 .formatBtnActive {
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  border-color: var(--color-primary);
-}
-
-.formatBtnActive:hover {
-  background: var(--color-primary-active);
-  border-color: var(--color-primary-active);
+  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
 }
 
 .maxInput {
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-hairline);
-  background: var(--color-canvas);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-strong);
   color: var(--color-ink);
-  font: 400 16px/1.5 var(--font-display);
-  width: 80px;
-  min-height: 44px;
+  font: 700 17px/1.3 var(--font-display);
+  width: 90px;
+  min-height: 46px;
+  box-shadow: inset 0 3px 0 rgba(36, 21, 70, 0.08);
 }
 
 .maxInput:focus {
-  border-color: var(--color-ink);
   outline: none;
+  box-shadow: inset 0 3px 0 rgba(36, 21, 70, 0.08), 0 0 0 4px rgba(108, 92, 255, 0.35);
 }
 
 .configDisplay {
   display: flex;
-  gap: var(--space-lg);
-  color: var(--color-muted);
-  font: 400 14px/1.43 var(--font-display);
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  justify-content: center;
+  color: var(--color-body);
+  font: 500 14px/1.4 var(--font-body);
+}
+
+.configDisplay span {
+  padding: 6px 14px;
+  background: var(--color-surface-card);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-full);
 }
 
 @media (max-width: 480px) {
-  .hostConfig {
+  .hostConfig,
+  .playerList {
     width: 100%;
     max-width: 340px;
-  }
-
-  .formatBtns {
-    gap: var(--space-xs);
   }
 
   .formatBtn {
     flex: 1;
     min-width: 0;
     text-align: center;
-    padding: 10px 8px;
+    padding: 10px 6px;
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player { animation: none; }
 }

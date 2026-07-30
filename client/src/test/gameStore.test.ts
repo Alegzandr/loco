@@ -492,6 +492,63 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().unoDeclared).toBe(false)
   })
 
+  // The catch window is what makes LOCO a race: it opens the moment somebody
+  // else lands on a single card, NOT when they declare. Driving it off
+  // uno_declared showed the Catch button only in the one situation where the
+  // server always refuses the catch.
+  it('applyCardPlayed opens the catch window when another player drops to 1 card', () => {
+    useGameStore.setState({
+      myIndex: 1,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 2, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    const card: CardDTO = { color: 'green', kind: 'number', value: 4 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    const s = useGameStore.getState()
+    expect(s.catchTarget).toBe(0)
+    expect(s.unoTimerEnd).not.toBeNull()
+  })
+
+  it('applyCardPlayed does not offer a catch on my own last card', () => {
+    useGameStore.setState({
+      myIndex: 0,
+      players: [{ index: 0, nickname: 'alice', hand_size: 2, connected: true }],
+    })
+    const card: CardDTO = { color: 'green', kind: 'number', value: 4 }
+    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    expect(useGameStore.getState().catchTarget).toBeNull()
+  })
+
+  it('applyCardPlayed keeps a declaration alive when an unrelated player plays', () => {
+    // Mirrors the server rule: only a NEW player reaching 1 card resets the flag.
+    useGameStore.setState({
+      myIndex: 2,
+      unoDeclared: true,
+      unoDeclaredByIndex: 0,
+      catchTarget: 0,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 1, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 6, connected: true },
+        { index: 2, nickname: 'carol', hand_size: 6, connected: true },
+      ],
+    })
+    const card: CardDTO = { color: 'green', kind: 'number', value: 4 }
+    useGameStore.getState().applyCardPlayed(1, card, 2, 0, undefined)
+    const s = useGameStore.getState()
+    expect(s.unoDeclared).toBe(true)
+    expect(s.unoDeclaredByIndex).toBe(0)
+  })
+
+  it('clearCatchWindow closes the catch affordance', () => {
+    useGameStore.setState({ catchTarget: 3, unoTimerEnd: 1700000099000 })
+    useGameStore.getState().clearCatchWindow()
+    const s = useGameStore.getState()
+    expect(s.catchTarget).toBeNull()
+    expect(s.unoTimerEnd).toBeNull()
+  })
+
   it('setUnoTimerEnd records timer timestamp', () => {
     useGameStore.getState().setUnoTimerEnd(1700000099000)
     expect(useGameStore.getState().unoTimerEnd).toBe(1700000099000)

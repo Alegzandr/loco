@@ -48,10 +48,6 @@ const (
 	catchWindow = 5 * time.Second
 )
 
-// InterruptWindow is how long after a card is played any other player may
-// jump in with an exact-match interrupt. Exposed as a var so tests can override.
-var InterruptWindow = 1500 * time.Millisecond
-
 // Player holds per-player metadata.
 type Player struct {
 	Nickname string
@@ -99,14 +95,16 @@ type GameState struct {
 	EventLog         []GameEvent
 
 	// Interrupt window: explicit state for the realtime "lead taking" / jump-in
-	// mechanic. After every successful play the window is opened: any non-actor
-	// player who holds a card identical (color+kind+value) to the top discard
-	// may take the lead by sending an interrupt_play within InterruptWindow.
+	// mechanic. After every successful play the window is opened: ANY player who
+	// holds a card identical (color+kind+value) to the top discard may take the
+	// lead by sending an interrupt_play — including the player who just played
+	// and the player whose turn it currently is. There is deliberately no
+	// deadline: the window stays open for as long as that card is on top, so the
+	// race is decided by who reacts first, not by an arbitrary timer.
 	// LastPlayBy < 0 means the window is closed (e.g. after DrawCard / PassTurn
 	// / CounterDraw resolves the chain, or after round end).
-	LastPlayBy        int
-	LastPlayAt        time.Time
-	InterruptDeadline time.Time
+	LastPlayBy int
+	LastPlayAt time.Time
 }
 
 // topCard returns the current top of the discard pile. Callers must ensure
@@ -127,27 +125,30 @@ func resolveChosenColor(card Card, chosenColor Color) Color {
 // armInterruptWindow opens / refreshes the interrupt window for the most recent play.
 // Called by PlayCard, PlayCards, InterruptPlay(Cards), and CounterDraw.
 func (s *GameState) armInterruptWindow(actor int) {
-	now := time.Now()
 	s.LastPlayBy = actor
-	s.LastPlayAt = now
-	s.InterruptDeadline = now.Add(InterruptWindow)
+	s.LastPlayAt = time.Now()
 }
 
 // closeInterruptWindow closes the window explicitly (DrawCard / PassTurn / round end).
 func (s *GameState) closeInterruptWindow() {
 	s.LastPlayBy = -1
-	s.InterruptDeadline = time.Time{}
 }
 
 // updateLastCardState refreshes the UNO declaration tracking after a card is
-// played: the previous declaration is invalidated, and if the actor is now down
-// to a single card, the catch window opens with the current timestamp.
+// played: when the actor is now down to a single card they become the tracked
+// target and their catch window opens with the current timestamp.
+//
+// The declaration flag is reset ONLY here, when a new player enters the 1-card
+// state. Resetting it on every play (whoever the actor was) voided a legitimate
+// declaration as soon as anybody else discarded inside the same 5 s window —
+// which, with interjections, is most plays.
 func (s *GameState) updateLastCardState(playerIndex int) {
-	s.LastCardDeclared = false
-	if s.Hands[playerIndex].Size() == 1 {
-		s.LastCardTime = time.Now()
-		s.LastCardPlayer = playerIndex
+	if s.Hands[playerIndex].Size() != 1 {
+		return
 	}
+	s.LastCardDeclared = false
+	s.LastCardTime = time.Now()
+	s.LastCardPlayer = playerIndex
 }
 
 // stackBatchEffects applies the (count-1) extra effects of a batch identical-card
@@ -757,23 +758,28 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 }
 
 // InterruptPlay is the single-card form of InterruptPlayCards.
-func (r *Room) InterruptPlay(playerIndex int, card Card, chosenPlayer int) error {
-	return r.InterruptPlayCards(playerIndex, []Card{card}, chosenPlayer)
+func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chosenPlayer int) error {
+	return r.InterruptPlayCards(playerIndex, []Card{card}, chosenColor, chosenPlayer)
 }
 
-// InterruptPlayCards allows any non-current player to "take the lead" by playing
-// one or more identical cards (same color+kind+value) that match the top of the
-// discard pile.
+// InterruptPlayCards allows ANY player to "take the lead" by playing one or more
+// identical cards (same color+kind+value) that match the top of the discard pile.
+// There is no reaction deadline and no restriction on who may slam: the player
+// who just played may take the lead back, and so may the player whose turn it
+// currently is. Whoever's message reaches the hub first wins.
 //
 // Server-authoritative checks (in order):
 //   - game in progress
-//   - interrupt window still open (LastPlayBy >= 0 and now < InterruptDeadline)
-//   - caller is NOT the player who just played
-//   - no pending draw penalty active
+//   - interrupt window still open (LastPlayBy >= 0 — closed by draw / pass / round end)
 //   - cards are non-empty and all identical
-//   - first card is not a Wild (wilds can't be used to interrupt)
 //   - caller has at least len(cards) copies
 //   - first card matches top exactly (color+kind+value)
+//   - a wild names a real colour; a Swap names a valid target
+//
+// EVERY kind can interject, wilds included: a Wild slams onto a Wild, a
+// WildDrawFour extends a +4 chain, a GlobalSwitch rotates hands from the
+// interjecter's seat. Wilds share the wild colour, so "identical" still means
+// the same kind and value — a Wild never lands on a WildDrawFour.
 //
 // Resolution order ("fastest valid wins") is enforced naturally by the hub's
 // single-goroutine event loop: the first message dequeued mutates state and
@@ -785,7 +791,7 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenPlayer int) error
 // Skip / Reverse), and the interrupt window is re-armed for the new top card.
 //
 // On any rejection, no state is mutated.
-func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer int) error {
+func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
 	}
@@ -798,42 +804,29 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 			return errors.New("batch cards must be identical")
 		}
 	}
-	// Explicit interrupt window check.
+	// The window is open from the moment a card is played until a draw / pass /
+	// round end resolves it. No deadline, no exclusion of the last actor or of
+	// the current player: any identical card may be slammed at any moment.
 	if r.State.LastPlayBy < 0 {
 		return errors.New("interrupt window closed")
 	}
-	if !time.Now().Before(r.State.InterruptDeadline) {
-		return errors.New("interrupt window expired")
+	// Rule: during an active draw chain, only an identical draw card may be
+	// interjected — it extends the chain from the interjecter's seat. In a
+	// consistent state the identical-to-top check below already guarantees this;
+	// the explicit guard keeps an inconsistent state from swallowing the penalty.
+	if r.State.PendingDraw > 0 && first.Kind != DrawTwo && first.Kind != WildDrawFour {
+		return errors.New("cannot interrupt active draw chain except with an identical draw card")
 	}
-	if r.State.LastPlayBy == playerIndex {
-		return errors.New("you just played; cannot interrupt yourself")
+	// Swap picks a target and GlobalSwitch rearranges every hand: stacking N of
+	// them raises questions (which target? how many rotations?) that the rules
+	// do not answer, so they stay single-card — same restriction as PlayCards.
+	if (first.Kind == Swap || first.Kind == GlobalSwitch) && len(cards) != 1 {
+		return errors.New("Swap and GlobalSwitch cannot be batch-interrupted")
 	}
-	// Rule: a player whose normal turn is active must use play_card, not the
-	// interrupt path. Interjecting is reserved for non-current players.
-	if r.State.CurrentTurn == playerIndex {
-		return errors.New("it is your turn; play normally instead of interrupting")
-	}
-	if first.IsWild() {
-		// Black/wild cards have no fixed color identity and can never be
-		// interjected (Wild, WildDrawFour, GlobalSwitch).
-		return errors.New("wild cards cannot be used to interrupt")
-	}
-	// Rule: during an active Take2 chain, interjection is only permitted with
-	// an identical DrawTwo, which extends the chain from the interjecter's seat.
-	// All other interjects must wait for the pending penalty to resolve.
-	if r.State.PendingDraw > 0 && first.Kind != DrawTwo {
-		return errors.New("cannot interrupt active draw chain except with an identical DrawTwo")
-	}
-	if first.Kind == Swap || first.Kind == GlobalSwitch {
-		// Swap is a colored card, but allowing batch + interrupt with Swap creates
-		// nasty edge cases (multiple targets, swap order). Restrict to single
-		// non-batch Swap interrupt for now.
-		if len(cards) != 1 {
-			return errors.New("Swap and GlobalSwitch cannot be batch-interrupted")
-		}
-		if first.Kind == GlobalSwitch {
-			return errors.New("wild cards cannot be used to interrupt")
-		}
+	// A wild carries no colour of its own; the interjecter must name the one
+	// that becomes active, exactly as on a normal wild play.
+	if first.IsWild() && first.Kind != GlobalSwitch && chosenColor == Wild {
+		return errors.New("must choose a color for a wild card")
 	}
 	if r.State.countInHand(playerIndex, first) < len(cards) {
 		return errors.New("card not in hand")
@@ -855,6 +848,8 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 		}
 	}
 
+	chosenColor = resolveChosenColor(first, chosenColor)
+
 	for i := 0; i < len(cards); i++ {
 		if err := r.State.Hands[playerIndex].Remove(first); err != nil {
 			return err
@@ -864,19 +859,26 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 
 	for _, c := range cards {
 		cc := c
-		r.State.logEvent(EventCardPlayed, playerIndex, &cc, first.Color)
+		r.State.logEvent(EventCardPlayed, playerIndex, &cc, chosenColor)
 	}
 
 	// Per rules.md §13: a round-ending interject (actor empties their hand)
-	// aborts the Swap effect — the actor wins before the hand exchange.
+	// aborts the Swap / GlobalSwitch effect — the actor wins before the hands move.
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.finishRoundWin(playerIndex, first.Color)
+		r.finishRoundWin(playerIndex, chosenColor)
 		return nil
 	}
 
-	// Apply Swap hand exchange now that the played card has been removed.
+	// Apply the hand-moving effects now that the played card has been removed.
 	if first.Kind == Swap {
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
+	} else if first.Kind == GlobalSwitch {
+		newHands := make([]Hand, n)
+		for i := range newHands {
+			from := ((i-r.State.Direction)%n + n) % n
+			newHands[i] = r.State.Hands[from]
+		}
+		r.State.Hands = newHands
 	}
 
 	r.State.updateLastCardState(playerIndex)
@@ -884,7 +886,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenPlayer in
 	// Lead transfers: interrupter becomes current player, then apply the
 	// played card's effect from their seat (advances turn / sets penalty / flips dir).
 	r.State.CurrentTurn = playerIndex
-	r.State.CurrentTurn = r.State.ApplyEffect(first, first.Color)
+	r.State.CurrentTurn = r.State.ApplyEffect(first, chosenColor)
 	r.State.stackBatchEffects(first, len(cards)-1)
 	r.State.HasDrawn = false
 	r.State.armInterruptWindow(playerIndex)

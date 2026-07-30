@@ -16,6 +16,23 @@ export const fr: Translations = {
   waitingRoom: 'Salle d\'attente',
   roomCode: 'Code de salle',
   shareCode: 'Partagez ce code avec vos amis !',
+  copyCode: 'Copié !',
+  // ─── Audio ────────────────────────────────────────────────────────
+  audioTitle: 'Son',
+  audioMaster: 'Général',
+  audioSfx: 'Effets',
+  audioMusic: 'Musique',
+  audioMute: 'Couper le son',
+  audioUnmute: 'Rétablir le son',
+
+  // ─── Interrupt ────────────────────────────────────────────────────
+  interruptTitle: 'INTERCEPTION !',
+  interruptBy: '%actor prend la main',
+  interruptByYou: 'Vous prenez la main',
+  interruptCombo: '×%n',
+  fxSkip: 'PASSE !',
+  fxReverse: 'DEMI-TOUR !',
+  drawPile: 'Pioche',
   hostBadge: 'Hôte',
   matchFormat: 'Format de match',
   maxPlayersLabel: 'Joueurs max',
@@ -128,10 +145,11 @@ export const fr: Translations = {
     {
       heading: 'Prise de tête (interruption carte identique)',
       items: [
-        'Dès qu\'une carte est jouée, tout autre joueur dispose d\'une courte fenêtre (~1,5 s) pour jouer instantanément une carte identique (même couleur, type et valeur) — même quand ce n\'est pas son tour.',
+        'Tant qu\'une carte est sur la pile, n\'importe qui peut jouer instantanément une carte identique (même couleur, type et valeur) et prendre la main — même quand ce n\'est pas son tour.',
+        'Aucun délai : la fenêtre reste ouverte jusqu\'à ce que quelqu\'un joue, pioche ou passe. Y compris pour celui qui vient de jouer et pour celui dont c\'est le tour.',
         'La première interruption reçue par le serveur l\'emporte : l\'interrupteur prend la main et le jeu continue depuis sa place.',
         'Si vous avez plusieurs copies identiques, vous pouvez toutes les jouer d\'un seul coup — les effets se cumulent comme pour un jeu groupé en cours de tour.',
-        'Les jokers et la Rotation globale ne peuvent pas servir d\'interruption. Le joueur qui vient de jouer ne peut pas s\'interrompre lui-même.',
+        'Toutes les cartes peuvent intercepter, jokers et Rotation globale compris : un Joker se pose sur un Joker, un +4 prolonge une chaîne de +4. Seule règle : être identique au sommet de la pile.',
       ],
     },
     {

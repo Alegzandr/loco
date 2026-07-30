@@ -48,7 +48,11 @@ interface LocoE2EState {
   hasDrawn: boolean
   // UNO / catch window
   unoDeclared: boolean
+  /** Player the server is tracking as catchable for a missed LOCO!; null = nobody. */
+  catchTarget: number | null
   unoTimerEnd: number | null
+  /** Last successful out-of-turn slam (drives the interception banner). */
+  interruptFlash: { actorIndex: number; count: number; at: number } | null
   // Per-turn deadline
   turnDeadline: number | null
   // Match / round

@@ -108,9 +108,16 @@ export function AnimationLayer({ fliers, effectTexts, onFlierDone, onEffectDone 
             <motion.div
               className={styles.effectText}
               style={{ color: et.color }}
-              initial={{ opacity: 1, scale: 1, y: 0 }}
-              animate={{ opacity: 0, scale: 1.25, y: -55 }}
-              transition={{ duration: 0.9, ease: 'easeOut' }}
+              // Punch in, hold, then drift up and fade. The overshoot on the
+              // way in is what makes the callout read as an impact rather than
+              // a label that appeared.
+              initial={{ opacity: 0, scale: 0.3, y: 12 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                scale: [0.3, 1.3, 1.08, 1.16],
+                y: [12, -6, -22, -62],
+              }}
+              transition={{ duration: 1, times: [0, 0.16, 0.6, 1], ease: 'easeOut' }}
               onAnimationComplete={() => onEffectDone(et.id)}
             >
               {et.text}

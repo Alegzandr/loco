@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
-import { useGameStore } from './hooks/useGameStore'
+import { useGameStore, UNO_CATCH_WINDOW_MS } from './hooks/useGameStore'
+import { useGameAudio } from './audio/useGameAudio'
 import { Lobby } from './components/Lobby'
 import { WaitingRoom } from './components/WaitingRoom'
 import { GameView } from './components/GameView'
@@ -9,6 +10,10 @@ import { ServerMsg, ClientMsg } from './types/protocol'
 
 export default function App() {
   const store = useGameStore()
+
+  // Single owner of every sound in the game: one store subscription, no
+  // per-component audio calls. See audio/useGameAudio.ts.
+  useGameAudio()
 
   // Tracks the in-flight UNO catch-window timer so a new declaration cancels
   // the old one. Without this, an earlier setTimeout fires later and clobbers
@@ -134,20 +139,35 @@ export default function App() {
           useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
           break
 
-        case 'uno_declared':
+        // A declaration closes the catch window on the declarer: from here on the
+        // server answers every catch with "player already declared". The banner
+        // stays up on its own timer so the table still sees who called it.
+        case 'uno_declared': {
           clearUnoTimer()
+          const declarer = msg.player_index ?? -1
           store.setUnoDeclared(true)
-          store.setUnoDeclaredByIndex(msg.player_index ?? -1)
-          store.setUnoTimerEnd(Date.now() + 5000)
+          store.setUnoDeclaredByIndex(declarer)
+          if (useGameStore.getState().catchTarget === declarer) {
+            store.clearCatchWindow()
+          }
           unoTimerRef.current = setTimeout(() => {
             unoTimerRef.current = null
             store.setUnoDeclared(false)
             store.setUnoDeclaredByIndex(-1)
-            store.setUnoTimerEnd(null)
-          }, 5000)
+          }, UNO_CATCH_WINDOW_MS)
+          break
+        }
+
+        // Penalty applied — the target is no longer catchable by anyone.
+        case 'uno_caught':
+          store.clearCatchWindow()
           break
 
-        case 'uno_caught':
+        // Sent immediately before the resulting card_played so the steal can be
+        // presented on its own — banner, sting, screen shake — instead of
+        // looking like an ordinary turn.
+        case 'interrupt_success':
+          store.applyInterrupt(msg.player_index ?? 0, msg.cards?.length || 1)
           break
 
         case 'round_end':

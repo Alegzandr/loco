@@ -8,6 +8,9 @@ import {
   ScoreboardEntryDTO,
 } from '../types/protocol'
 
+// How long other players have to punish a missed LOCO! call (server: catchWindow).
+export const UNO_CATCH_WINDOW_MS = 5000
+
 export type AppScreen = 'lobby' | 'waiting' | 'game' | 'gameover'
 
 export interface SwapNotice {
@@ -23,6 +26,16 @@ export interface SwapNotice {
 export interface LastPlay {
   actorIndex: number
   card: CardDTO
+  at: number
+}
+
+// A successful out-of-turn interrupt. The server announces these separately
+// from the resulting card_played so the client can give the steal its own
+// presentation — it is the most dramatic thing that happens in a round.
+export interface InterruptFlash {
+  actorIndex: number
+  /** Number of identical cards slammed down (batch interrupts stack). */
+  count: number
   at: number
 }
 
@@ -51,7 +64,11 @@ interface GameStore {
   errorMsg: string
   unoDeclared: boolean
   unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
-  unoTimerEnd: number | null
+  // Player currently catchable for a missed LOCO!, i.e. the one the server is
+  // tracking as LastCardPlayer. Set when somebody else lands on a single card,
+  // never for ourselves. null = nobody to catch.
+  catchTarget: number | null
+  unoTimerEnd: number | null   // end of the 5s catch window (null = closed)
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
   // Match / round state
@@ -76,6 +93,9 @@ interface GameStore {
   // Last card play, purely for animation. Never used for rules decisions.
   lastPlay: LastPlay | null
 
+  // Last successful out-of-turn interrupt, for its slam banner and sting.
+  interruptFlash: InterruptFlash | null
+
   // Reconnect animation state
   isReconnecting: boolean
 
@@ -86,12 +106,15 @@ interface GameStore {
   applyGameState: (state: GameStateDTO) => void
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number, direction?: number) => void
   setSwapNotice: (notice: SwapNotice | null) => void
+  applyInterrupt: (actorIndex: number, count: number) => void
+  clearInterrupt: () => void
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   setError: (msg: string) => void
   setUnoDeclared: (val: boolean) => void
   setUnoDeclaredByIndex: (idx: number) => void
   setUnoTimerEnd: (ts: number | null) => void
+  clearCatchWindow: () => void
   setTurnDeadline: (ts: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[]) => void
@@ -169,6 +192,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   errorMsg: '',
   unoDeclared: false,
   unoDeclaredByIndex: -1,
+  catchTarget: null,
   unoTimerEnd: null,
   turnDeadline: null,
   matchFormat: 'BO1',
@@ -185,6 +209,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   pendingMatchEnd: null,
   swapNotice: null,
   lastPlay: null,
+  interruptFlash: null,
   isReconnecting: false,
 
   setScreen: (screen) => set({ screen }),
@@ -204,6 +229,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       unoDeclared: false,
       unoDeclaredByIndex: -1,
       unoTimerEnd: null,
+      catchTarget: null,
     }),
 
   applyCardPlayed: (playerIndex, card, turn, pendingDraw, activeColor, players, chosenPlayer, direction) =>
@@ -234,6 +260,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // understand why their (or others') card counts just changed.
       const resolvedDirection = typeof direction === 'number' && direction !== 0 ? direction : s.direction
       const swapNotice = makeSwapNotice(card, playerIndex, chosenPlayer, resolvedDirection) ?? s.swapNotice
+      // Catch window: it opens when the actor lands on a single card, which is
+      // also the only moment a declaration is voided (the server does exactly
+      // the same — resetting on every play voided declarations made a beat
+      // earlier). Our own last card is never catchable by us.
+      const actorHandSize = updatedPlayers.find((p) => p.index === playerIndex)?.hand_size
+      const openedCatch = actorHandSize === 1
       return {
         myHand: updatedHand,
         discard: card,
@@ -243,14 +275,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
         pendingDraw,
         hasDrawn: false,
         players: updatedPlayers,
-        unoDeclared: false,
-        unoDeclaredByIndex: -1,
+        unoDeclared: openedCatch ? false : s.unoDeclared,
+        unoDeclaredByIndex: openedCatch ? -1 : s.unoDeclaredByIndex,
+        catchTarget: openedCatch
+          ? (playerIndex === s.myIndex ? null : playerIndex)
+          : s.catchTarget,
+        unoTimerEnd: openedCatch
+          ? (playerIndex === s.myIndex ? null : Date.now() + UNO_CATCH_WINDOW_MS)
+          : s.unoTimerEnd,
         swapNotice,
         lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
       }
     }),
 
   setSwapNotice: (swapNotice) => set({ swapNotice }),
+
+  applyInterrupt: (actorIndex, count) =>
+    set({ interruptFlash: { actorIndex, count, at: Date.now() } }),
+
+  clearInterrupt: () => set({ interruptFlash: null }),
 
   applyCardDrawn: (cards, playerIndex, turn, hasDrawn, drawnCount) =>
     set((s) => {
@@ -296,6 +339,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
   setUnoTimerEnd: (unoTimerEnd) => set({ unoTimerEnd }),
+  clearCatchWindow: () => set({ catchTarget: null, unoTimerEnd: null }),
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
@@ -322,6 +366,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         turnDeadline: null,
         unoDeclared: false,
         unoTimerEnd: null,
+        catchTarget: null,
       }
     }),
 
@@ -359,9 +404,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       unoDeclared: false,
       unoDeclaredByIndex: -1,
       unoTimerEnd: null,
+      catchTarget: null,
       turnDeadline: null,
       swapNotice: null,
       lastPlay: null,
+      interruptFlash: null,
       isReconnecting: false,
       errorMsg: '',
     }),
@@ -400,6 +447,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         unoDeclared: false,
         unoDeclaredByIndex: -1,
         unoTimerEnd: null,
+        catchTarget: null,
       })
       return
     }

@@ -1,3 +1,13 @@
+> **Historical — no longer the source of truth.**
+>
+> This file documents the Airbnb-derived system LOCO shipped with originally. The game has since
+> moved to a "cartoon premium" art direction (Nintendo × Gartic Phone): chunky rounded shapes, ink
+> outlines, solid press-down shadows, a saturated candy palette, and Fredoka/Nunito instead of
+> Cereal. It is kept for provenance only.
+>
+> Current tokens: **`client/src/styles/tokens.css`**. Rationale and rules: the "Art direction"
+> section of `CLAUDE.md`.
+
 ---
 version: alpha
 name: Airbnb

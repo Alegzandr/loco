@@ -298,13 +298,203 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
   })
 
   /**
-   * interrupt_play — deterministic:
-   * 1. Set the discard to a specific card (e.g. red 5).
-   * 2. Inject that exact card into our hand.
-   * 3. Wait until it is NOT our turn.
-   * 4. Send interrupt_play with the exact match — turn must come to us.
+   * The interrupt window is armed by a real play and closed by a draw / pass /
+   * round end — there is no time limit. A client that sends an interrupt out of
+   * the blue (nothing was played) must still be refused.
+   *
+   * This replaces an earlier test that set the board with debug_set_state, sent
+   * an interrupt, and then asserted the discard and turn it had itself just
+   * configured — it passed whether or not the interrupt was accepted, and in
+   * fact the server was rejecting it the whole time. The success path is covered
+   * by the three-client test below, which arms the window properly.
    */
-  test('interrupt_play with exact match advances turn to the interrupter', async ({ page }) => {
+  test('interrupt outside an armed window is rejected', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const otherIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
+
+    await debugSetState(page, {
+      hand: [
+        { color: 'red', kind: 'number', value: 5 },
+        { color: 'blue', kind: 'number', value: 9 },
+      ],
+      hands: [{ playerIndex: otherIdx, hand: [{ color: 'blue', kind: 'number', value: 2 }] }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      currentTurn: otherIdx,
+      pendingDraw: 0,
+    })
+
+    await sendMsg(page, {
+      type: 'interrupt_play',
+      card: { color: 'red', kind: 'number', value: 5 },
+    })
+
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+      undefined,
+      { timeout: 5_000 },
+    )
+    const after = await getState(page)
+    expect(after?.errorMsg).toMatch(/interrupt window/i)
+    // The card stays in hand: a refused interrupt must not cost anything.
+    expect(after?.myHand?.length).toBe(2)
+  })
+
+  /**
+   * The interception slam is the game's signature moment, driven by the
+   * `interrupt_success` message the client used to ignore.
+   *
+   * The interrupt window is only armed by a real play (debug_set_state leaves it
+   * closed), so somebody other than the interrupter has to play first. Carol is
+   * a third human rather than a bot so no 800ms bot timer plays a card and
+   * re-arms the window under the interrupt in flight.
+   */
+  test('successful interrupt shows the interception banner on both clients', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctxs = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()])
+    const [alice, bob, carol] = await Promise.all(ctxs.map((c) => c.newPage()))
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await joinRoom(carol, 'Carol', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await expect(gameBoard(carol)).toBeVisible({ timeout: 10_000 })
+
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Alice and Bob both hold a red 5; the discard is a red 3 so Bob's play is
+      // legal. Everyone keeps a spare card so no hand empties and ends the round
+      // before the banner can be read.
+      await debugSetState(alice, {
+        hand: [
+          { color: 'red', kind: 'number', value: 5 },
+          { color: 'blue', kind: 'number', value: 9 },
+        ],
+        hands: [
+          {
+            playerIndex: bobIdx,
+            hand: [
+              { color: 'red', kind: 'number', value: 5 },
+              { color: 'green', kind: 'number', value: 4 },
+            ],
+          },
+        ],
+        discard: { color: 'red', kind: 'number', value: 3 },
+        activeColor: 'red',
+        pendingDraw: 0,
+        currentTurn: bobIdx,
+      })
+
+      // Bob's real play arms the interrupt window and hands the turn to Carol.
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 5 },
+        chosen_color: 'red',
+      })
+      await alice.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.discard?.value === 5,
+        undefined,
+        { timeout: 5_000 },
+      )
+
+      await sendMsg(alice, {
+        type: 'interrupt_play_card',
+        card: { color: 'red', kind: 'number', value: 5 },
+      })
+
+      // The steal must be legible to the player who made it and to the table.
+      await expect(alice.getByText(T.interruptTitle)).toBeVisible({ timeout: 5_000 })
+      await expect(carol.getByText(T.interruptTitle)).toBeVisible({ timeout: 5_000 })
+    } finally {
+      await Promise.all(ctxs.map((c) => c.close()))
+    }
+  })
+
+  /**
+   * Taking the lead back from yourself. The player who just played is not
+   * excluded from the jump-in — holding two identical cards means you can slam
+   * the second one before anybody reacts, and the seat after you plays next.
+   * This is the whole point of the mechanic being a race rather than a turn.
+   */
+  test('the player who just played can slam an identical card and retake the lead', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctxs = await Promise.all([browser.newContext(), browser.newContext()])
+    const [alice, bob] = await Promise.all(ctxs.map((c) => c.newPage()))
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Bob holds two red 5s plus a spare, so emptying his hand cannot end the
+      // round before the second slam lands.
+      await debugSetState(alice, {
+        hand: [{ color: 'blue', kind: 'number', value: 9 }],
+        hands: [
+          {
+            playerIndex: bobIdx,
+            hand: [
+              { color: 'red', kind: 'number', value: 5 },
+              { color: 'red', kind: 'number', value: 5 },
+              { color: 'green', kind: 'number', value: 4 },
+            ],
+          },
+        ],
+        discard: { color: 'red', kind: 'number', value: 3 },
+        activeColor: 'red',
+        pendingDraw: 0,
+        currentTurn: bobIdx,
+      })
+
+      // First play: legal on the red 3, arms the window, turn goes to Alice.
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 5 },
+        chosen_color: 'red',
+      })
+      await bob.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.currentTurn !== window.__LOCO_E2E__?.getState?.()?.myIndex,
+        undefined,
+        { timeout: 5_000 },
+      )
+
+      // Second copy, out of turn, against his own card.
+      await sendMsg(bob, {
+        type: 'interrupt_play_card',
+        card: { color: 'red', kind: 'number', value: 5 },
+      })
+
+      await alice.waitForFunction(
+        (idx) => window.__LOCO_E2E__?.getState?.()?.interruptFlash?.actorIndex === idx,
+        bobIdx,
+        { timeout: 5_000 },
+      )
+      const after = await getState(bob)
+      expect(after?.errorMsg ?? '').toBe('')
+      expect(after?.myHand?.length).toBe(1) // both red 5s gone, spare kept
+    } finally {
+      await Promise.all(ctxs.map((c) => c.close()))
+    }
+  })
+
+  /**
+   * The draw pile doubles as a draw button when drawing is legal. It must never
+   * be reachable when it is not our turn — that would send an illegal intent on
+   * every stray click.
+   */
+  test('draw pile is clickable on our turn and inert otherwise', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
@@ -314,31 +504,28 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     await debugSetState(page, {
       hand: [{ color: 'red', kind: 'number', value: 5 }],
-      hands: [{ playerIndex: otherIdx, hand: [{ color: 'blue', kind: 'number', value: 2 }] }],
-      discard: { color: 'red', kind: 'number', value: 5 },
+      discard: { color: 'blue', kind: 'number', value: 2 },
       currentTurn: otherIdx,
       pendingDraw: 0,
     })
+    await expect(page.getByRole('button', { name: T.drawPile })).toHaveCount(0)
 
-    // Send interrupt_play.
-    await sendMsg(page, {
-      type: 'interrupt_play',
-      card: { color: 'red', kind: 'number', value: 5 },
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 5 }],
+      discard: { color: 'blue', kind: 'number', value: 2 },
+      currentTurn: myIdx,
+      pendingDraw: 0,
     })
+    const pile = page.getByRole('button', { name: T.drawPile })
+    await expect(pile).toBeVisible()
 
-    // The interrupt card is applied immediately and play continues from our
-    // position, so the next turn should be the next player (the bot here).
+    const before = (await getState(page))?.myHand?.length ?? 0
+    await pile.click()
     await page.waitForFunction(
-      (idx: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn === idx,
-      otherIdx,
-      { timeout: 10_000 },
+      (n: number) => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) > n,
+      before,
+      { timeout: 5_000 },
     )
-
-    const after = await getState(page)
-    expect(after?.discard?.kind).toBe('number')
-    expect(after?.discard?.color).toBe('red')
-    expect(after?.discard?.value).toBe(5)
-    expect(after?.currentTurn).toBe(otherIdx)
   })
 
   /**
