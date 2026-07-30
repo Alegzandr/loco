@@ -12,7 +12,7 @@
  * This spec runs in the 'mobile-chrome' Playwright project (see playwright.config.ts).
  */
 import { test, expect } from '@playwright/test'
-import { T, createRoom, addBot, startGame, waitForMyTurn, getState, sendMsg, closeRulesModal, gameBoard } from '../helpers/game'
+import { T, createRoom, addBot, startGame, waitForMyTurn, getState, sendMsg, closeRulesModal, gameBoard, waitForTableOpen } from '../helpers/game'
 
 test.describe('mobile viewport', () => {
   /**
@@ -162,5 +162,6 @@ test.describe('mobile viewport', () => {
 
     // Game is still alive
     await expect(gameBoard(page)).toBeVisible()
+    await waitForTableOpen(page)
   })
 })

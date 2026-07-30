@@ -29,6 +29,7 @@ func winBO1(t *testing.T) (*websocket.Conn, *websocket.Conn, string) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 
 	winMatchFromHostTurn(t, conn1, conn2)
 	return conn1, conn2, code
@@ -87,6 +88,7 @@ func TestRematch_ReopensRoomForBothPlayers(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	gs := readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	if gs.State == nil {
 		t.Fatal("game_started without state after rematch")
 	}
@@ -137,6 +139,7 @@ func TestRematch_RejectedBeforeMatchIsOver(t *testing.T) {
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
 	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgRematch})
 	if msg := readMsgOfType(t, conn1, protocol.SMsgError); !strings.Contains(msg.Error, "match is over") {
 		t.Errorf("mid-match rematch error = %q, want it to mention the match not being over", msg.Error)
@@ -178,6 +181,7 @@ func TestRematch_PrunesPlayerWhoLeftAfterMatchEnd(t *testing.T) {
 	if gs := readMsgOfType(t, conn1, protocol.SMsgGameStarted); gs.State == nil || len(gs.State.Players) != 2 {
 		t.Errorf("rematch with bot did not start with 2 players: %+v", gs.State)
 	}
+	completeMapLoad(t, conn1)
 }
 
 // Bots occupy nil member slots; pruning must leave them alone.
@@ -193,6 +197,7 @@ func TestRematch_KeepsBots(t *testing.T) {
 
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgStartGame})
 	readMsgOfType(t, conn, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn)
 	winMatchFromHostTurn(t, conn)
 
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgRematch})
@@ -207,4 +212,5 @@ func TestRematch_KeepsBots(t *testing.T) {
 	if gs := readMsgOfType(t, conn, protocol.SMsgGameStarted); gs.State == nil {
 		t.Fatal("rematch with bot failed to start")
 	}
+	completeMapLoad(t, conn)
 }

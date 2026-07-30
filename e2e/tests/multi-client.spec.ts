@@ -18,6 +18,7 @@ import {
   sendMsg,
   waitForRoundSummary,
   debugSetState,
+  waitForTableOpen,
   gameBoard,
 } from '../helpers/game'
 
@@ -74,7 +75,9 @@ test.describe('multi-client synchronization', () => {
       await page1.getByRole('button', { name: T.startGame }).click()
 
       await expect(gameBoard(page1)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page1)
       await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
 
       await expect(page1.locator('[class*="actionBar"]')).toBeVisible()
       await expect(page2.locator('[class*="actionBar"]')).toBeVisible()
@@ -102,6 +105,7 @@ test.describe('multi-client synchronization', () => {
       await startGame(page1)
 
       await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
 
       // Record Alice's player index
       const aliceState = await getState(page1)
@@ -176,6 +180,7 @@ test.describe('multi-client synchronization', () => {
       await startGame(page1)
 
       await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
 
       // Get Alice's player index.
       const aliceState = await getState(page1)
@@ -228,6 +233,7 @@ test.describe('multi-client synchronization', () => {
       await startGame(page1)
 
       await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
 
       const aliceState = await getState(page1)
       const aliceIndex = aliceState?.myIndex ?? 0

@@ -72,6 +72,28 @@ export const fr: Translations = {
   rebuildingTable: 'Reconstruction de la table…',
   wsLostConnection: 'Connexion perdue',
   wsReconnecting: 'Reconnexion…',
+  mapLoadingTitle: 'Ce soir, vous jouez à',
+  mapLoadingWaiting: 'Préparation de la table…',
+  mapLoadingReady: 'Vous êtes prêt. On attend les autres…',
+  mapLoadingCount: '%ready joueur(s) prêt(s) sur %total',
+  maps: {
+    neon: {
+      name: 'Neon',
+      tagline: 'Un club sur les toits, face aux gratte-ciels. Marbre noir et cercle de lumière.',
+    },
+    rune: {
+      name: 'Rune',
+      tagline: 'L’arrière-salle d’une taverne arcanique. Chêne sculpté, gemmes, chandelles.',
+    },
+    velvet: {
+      name: 'Velvet',
+      tagline: 'Un salon art déco. Laiton, feutre bordeaux et lampes en veilleuse.',
+    },
+    orbit: {
+      name: 'Orbit',
+      tagline: 'Un hangar de vaisseau en orbite haute. Alliage brossé sur table holographique.',
+    },
+  },
   round: 'Manche',
   of: 'sur',
   complete: 'Terminée',

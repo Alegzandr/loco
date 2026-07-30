@@ -15,10 +15,12 @@ import {
   deckPosition,
   seatPosition,
   tableRect,
+  tableImageRect,
   seatLayout,
   boardScale,
   boardSpace,
 } from './layout'
+import { MapDef } from './maps'
 import { ACTIVE_RING, CARD_W, CARD_H, flightFor } from './cardTheme'
 import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
 import { SwapNotice, LastPlay } from '../../hooks/useGameStore'
@@ -61,6 +63,14 @@ interface Props {
   lastPlay: LastPlay | null
   /** True while reconnect overlay is visible; board fades back in afterwards. */
   isReconnecting: boolean
+  /**
+   * The room this match is played in, or null for the built-in felt.
+   *
+   * A map replaces how the table is *painted* and nothing else: `tableRect()`
+   * still owns the geometry, so the piles, the seats, the direction ring and
+   * every animation coordinate are identical in all five cases.
+   */
+  map: MapDef | null
   /** True when drawing is legal right now — makes the deck clickable. */
   canDraw: boolean
   onDraw: () => void
@@ -449,8 +459,28 @@ export const GameBoard = memo(function GameBoard(props: Props) {
   // Felt table — geometry lives in layout.ts so tests and animations share it.
   const table = tableRect(width, height, topReserve)
 
+  // The map's table is placed *around* the felt: its picture is scaled so that
+  // the playing surface inside the file lands exactly on `table`. See
+  // tableImageRect() for why the result overhangs on every side.
+  const map = props.map
+  const tableImg = map ? tableImageRect(table, map.playfield) : null
+
   return (
-    <div ref={ref} className={styles.board} data-testid="game-board">
+    <div
+      ref={ref}
+      className={styles.board}
+      data-testid="game-board"
+      data-map={map?.id ?? ''}
+      style={
+        map
+          ? ({
+              backgroundImage: `url(${map.room})`,
+              ['--map-accent' as string]: map.accent,
+              ['--map-accent-deep' as string]: map.accentDeep,
+            } as React.CSSProperties)
+          : undefined
+      }
+    >
       <div
         ref={stageRef}
         className={styles.stage}
@@ -458,19 +488,49 @@ export const GameBoard = memo(function GameBoard(props: Props) {
       >
         {ready && !props.isReconnecting && (
           <div key={rebuildKey} className={styles.fadeIn}>
-            <div
-              className={styles.tableOval}
-              style={{ left: table.left, top: table.top, width: table.width, height: table.height }}
-            >
-              <svg
-                className={styles.tableMark}
-                viewBox={LOCO_MARK_VIEWBOX}
+            {/* The light the table casts on the room's floor. Drawn under the
+                table itself and sized off the felt, so it tracks the board
+                scale like everything else. */}
+            {map && (
+              <div
+                className={styles.tableGlow}
+                style={{
+                  left: table.left,
+                  top: table.top,
+                  width: table.width,
+                  height: table.height,
+                }}
+              />
+            )}
+            {map && tableImg ? (
+              <img
+                className={styles.tableImage}
+                src={map.table}
+                alt=""
                 aria-hidden="true"
-                focusable="false"
+                draggable={false}
+                style={{
+                  left: tableImg.left,
+                  top: tableImg.top,
+                  width: tableImg.width,
+                  height: tableImg.height,
+                }}
+              />
+            ) : (
+              <div
+                className={styles.tableOval}
+                style={{ left: table.left, top: table.top, width: table.width, height: table.height }}
               >
-                <path d={LOCO_MARK_PATH} fillRule="evenodd" fill="#ffffff" />
-              </svg>
-            </div>
+                <svg
+                  className={styles.tableMark}
+                  viewBox={LOCO_MARK_VIEWBOX}
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d={LOCO_MARK_PATH} fillRule="evenodd" fill="#ffffff" />
+                </svg>
+              </div>
+            )}
             {/* Keyed on the direction so a Reverse remounts the ring and
                 replays its flip: the change of heading is the event. */}
             <DirectionRing

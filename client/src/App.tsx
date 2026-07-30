@@ -98,6 +98,20 @@ export default function App() {
           break
         }
 
+        // The table is shut while the room downloads its map. Arrives right
+        // after game_started, and again on every arrival so the loading screen
+        // can show who is still missing.
+        case 'match_loading':
+          store.applyMatchLoading(msg.players_ready ?? [])
+          store.setScreen('game')
+          break
+
+        // The table is open. This, not game_started, is where the clock
+        // starts, which is why the deadline rides this message.
+        case 'match_ready':
+          store.applyMatchReady(msg.turn ?? 0, msg.turn_deadline ?? null)
+          break
+
         case 'game_state':
           // Mid-game authoritative refresh (e.g. debug_set_state, swap/global_switch effects).
           // Apply the full state snapshot so discard/turn/pendingDraw remain in sync.

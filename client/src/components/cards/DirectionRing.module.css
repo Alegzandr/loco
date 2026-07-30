@@ -16,8 +16,11 @@
   fill: none;
   /* Near-white, barely cooled. A saturated cyan reads as a *coloured* cue on a
      table whose whole colour vocabulary belongs to the suits — the ring has no
-     business looking like a card. Size and the chase carry it instead. */
-  stroke: #e6f2fa;
+     business looking like a card. Size and the chase carry it instead.
+     In a map, it takes a *wash* of the room's accent rather than the accent
+     itself (85% white): the chevrons have to read as engraved into that table,
+     and the rule above still holds: they must not start looking like a suit. */
+  stroke: color-mix(in srgb, #ffffff 85%, var(--map-accent, #e6f2fa));
   stroke-width: 5.4;
   stroke-linecap: round;
   stroke-linejoin: round;

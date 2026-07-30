@@ -109,6 +109,16 @@ interface GameStore {
   catchFailed: { seat: number; at: number } | null
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
+  // The room this match is played in, straight off the wire. Server-drawn so
+  // every seat sees one table; '' means the built-in felt (a lobby, or a map id
+  // this client has no art for). See components/cards/maps.ts.
+  mapId: string
+  // Set while the table is shut waiting for everyone's assets, and null the
+  // instant the server opens it. `ready` is the seats that are in, which is the loading
+  // screen's whole content, and what tells a player the wait is somebody else's
+  // connection rather than their own.
+  mapLoading: { ready: number[] } | null
+
   // Match / round state
   matchFormat: MatchFormat
   maxPlayers: number
@@ -167,6 +177,8 @@ interface GameStore {
   applyCatchFailed: (seat: number) => void
   clearCatchFailed: () => void
   setTurnDeadline: (ts: number | null) => void
+  applyMatchLoading: (ready: number[]) => void
+  applyMatchReady: (turn: number, turnDeadline: number | null) => void
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[], roundHistory?: number[][]) => void
   applyLatencies: (latencies: LatencyEntryDTO[]) => void
@@ -221,6 +233,7 @@ function gameStateSliceFromDTO(state: GameStateDTO) {
     pendingDraw: state.pending_draw ?? 0,
     hasDrawn: state.has_drawn ?? false,
     roundNumber: state.round_number ?? 1,
+    mapId: state.map_id ?? '',
     matchFormat: state.match_format ?? 'BO1',
     maxPlayers: state.max_players ?? 10,
     scoreboard: state.scoreboard ?? [],
@@ -251,6 +264,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   unoTimerEnd: null,
   catchFailed: null,
   turnDeadline: null,
+  mapId: '',
+  mapLoading: null,
   matchFormat: 'BO1',
   maxPlayers: 10,
   roundNumber: 1,
@@ -486,6 +501,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
   clearCatchFailed: () => set({ catchFailed: null }),
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
+  // The table is shut. Also clears the turn deadline: game_started arrives with
+  // no clock (the server does not arm one until match_ready), and a stale
+  // deadline left over from the previous round would drain a bar over a loading
+  // screen for a turn nobody can take yet.
+  applyMatchLoading: (ready) => set({ mapLoading: { ready }, turnDeadline: null }),
+
+  // The table is open. This, not game_started, is where a match actually
+  // begins. The deadline comes from the same message so the bar and the server's
+  // clock start together.
+  applyMatchReady: (turn, turnDeadline) =>
+    set({ mapLoading: null, currentTurn: turn, turnDeadline }),
+
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
 
   applyLatencies: (latencies) => set({ latencies }),
@@ -545,6 +572,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
       pendingDraw: 0,
       hasDrawn: false,
       roundNumber: 1,
+      // The next match draws its own room, and its assets are ones this client
+      // may not hold yet, so the gate re-arms and the map is unknown until then.
+      mapId: '',
+      mapLoading: null,
       scoreboard: [],
       roundHistory: [],
       latencies: [],

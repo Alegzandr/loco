@@ -25,6 +25,7 @@ import {
   getState,
   waitForRoundSummary,
   debugSetState,
+  waitForTableOpen,
   gameBoard,
 } from '../helpers/game'
 
@@ -231,7 +232,9 @@ test.describe('WebSocket reconnect', () => {
       await page1.getByRole('button', { name: T.startGame }).click()
 
       await expect(gameBoard(page1)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page1)
       await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
 
       // Get Alice's index from Bob's perspective.
       const aliceState = await page1.evaluate(() => window.__LOCO_E2E__?.getState?.())

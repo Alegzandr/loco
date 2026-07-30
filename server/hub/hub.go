@@ -125,20 +125,27 @@ type Hub struct {
 	// turnStartedAt[code] = time when the current turn began (for stale-timer detection).
 	turnStartedAt map[string]time.Time
 
+	// mapLoading[code] is set while a freshly started match waits for every
+	// client to finish downloading its map. Its presence means the table is
+	// shut: no turn timer, no bots, no gameplay message accepted. See
+	// maploading.go for why that wait exists at all.
+	mapLoading map[string]*mapLoadState
+
 	// afkTimeouts[code][playerID] = consecutive turn-timeout count (reset on any voluntary action).
 	// When the count reaches AFKKickThreshold the player is force-disconnected.
 	afkTimeouts map[string]map[int]int
 
-	register    chan *Client
-	unregister  chan *Client
-	inbound     chan inboundMsg
-	expire      chan expireMsg
-	botMove      chan botMoveMsg   // scheduled bot actions
-	cleanup      chan cleanupMsg   // empty-room cleanup timers
-	turnTimeout  chan turnTimerMsg // per-turn timeout actions
-	unoAnnounce  chan unoMsg       // delayed bot UNO declaration broadcasts
-	botCatch     chan botCatchMsg  // scheduled bot catch-UNO attempts
-	quit         chan struct{}    // closed by Stop() to terminate Run()
+	register       chan *Client
+	unregister     chan *Client
+	inbound        chan inboundMsg
+	expire         chan expireMsg
+	botMove        chan botMoveMsg        // scheduled bot actions
+	cleanup        chan cleanupMsg        // empty-room cleanup timers
+	turnTimeout    chan turnTimerMsg      // per-turn timeout actions
+	unoAnnounce    chan unoMsg            // delayed bot UNO declaration broadcasts
+	botCatch       chan botCatchMsg       // scheduled bot catch-UNO attempts
+	mapLoadTimeout chan mapLoadTimeoutMsg // "start without the stragglers" deadline
+	quit           chan struct{}          // closed by Stop() to terminate Run()
 
 	// afterRegisterHook is called in the register case after the client is added
 	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
@@ -197,6 +204,7 @@ func New() *Hub {
 		emptyRooms:     make(map[string]time.Time),
 		botSlots:       make(map[string]map[int]struct{}),
 		turnStartedAt:  make(map[string]time.Time),
+		mapLoading:     make(map[string]*mapLoadState),
 		afkTimeouts:    make(map[string]map[int]int),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
@@ -207,6 +215,7 @@ func New() *Hub {
 		turnTimeout:    make(chan turnTimerMsg, 64),
 		unoAnnounce:    make(chan unoMsg, 64),
 		botCatch:       make(chan botCatchMsg, 64),
+		mapLoadTimeout: make(chan mapLoadTimeoutMsg, 64),
 		quit:           make(chan struct{}),
 		startTime:      time.Now(),
 	}
@@ -334,6 +343,9 @@ func (h *Hub) Run() {
 
 		case cm := <-h.botCatch:
 			h.handleBotCatch(cm)
+
+		case mlm := <-h.mapLoadTimeout:
+			h.handleMapLoadTimeout(mlm)
 		}
 	}
 }
@@ -363,7 +375,17 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 // All identity fields (playerID, roomCode) are server-assigned at registration
 // and never sourced from msg, so a replayed envelope cannot impersonate.
 func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
+	// The table is shut while the room downloads its map. Refusing gameplay here
+	// rather than trusting the client's own loading screen is the whole point of
+	// the gate: a client that skipped it would otherwise be the only one able to
+	// act, in a game whose reaction windows are decided by arrival order.
+	if isGameplayMsg(msg.Type) && h.isMapLoading(c.roomCode) {
+		c.sendError("waiting for every player to load the table")
+		return
+	}
 	switch msg.Type {
+	case protocol.CMsgMapReady:
+		h.handleMapReady(c)
 	case protocol.CMsgCreateRoom:
 		h.handleCreateRoom(c, msg)
 	case protocol.CMsgJoinRoom:
@@ -532,8 +554,6 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	h.statMatchesStarted.Add(1)
 	log.Printf("match started code=%s players=%d format=%s", c.roomCode, len(room.Players), matchFormatString(room.Format))
 
-	h.scheduleTurnTimer(c.roomCode, room)
-
 	// Send each player their personalized game state. Build the shared player
 	// list once and reuse it across all recipients.
 	members := h.roomMembers[c.roomCode]
@@ -547,7 +567,14 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 			State: h.playerGameStateUsing(room, member.playerID, pl),
 		})
 	}
-	h.maybeScheduleBot(c.roomCode, room)
+
+	// The turn clock and the bots are deliberately NOT armed here. game_started
+	// only tells each client what it has to render; the match begins at
+	// match_ready, once everybody has the map decoded. See maploading.go: the
+	// first turn used to start ticking while somebody's table was still a grey
+	// rectangle, which in a game decided by arrival order is a head start, not
+	// a cosmetic problem.
+	h.beginMapLoading(c.roomCode, room)
 }
 
 // handleRematch reopens a finished room as a lobby so the same group can play
@@ -577,6 +604,9 @@ func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
 
 	// Per-match hub bookkeeping must not leak into the new match.
 	delete(h.turnStartedAt, c.roomCode)
+	// A gate belonging to the match that just ended would otherwise keep the next
+	// one shut: its timeout has already fired and nothing would ever reopen it.
+	delete(h.mapLoading, c.roomCode)
 	delete(h.afkTimeouts, c.roomCode)
 	delete(h.disconnectedAt, c.roomCode)
 	delete(h.emptyRooms, c.roomCode)
@@ -1066,6 +1096,14 @@ func (h *Hub) handleDisconnect(c *Client) {
 			Players:     h.playerList(room),
 		})
 
+		// A seat that left during the loading gate is no longer a seat the table
+		// is waiting on. Without this the room sits on the loading screen until
+		// MapLoadTimeout for a player who is provably gone.
+		if h.isMapLoading(c.roomCode) {
+			h.broadcastLoadingProgress(c.roomCode)
+			h.maybeOpenTable(c.roomCode, room)
+		}
+
 		// Schedule reconnect expiry using time.AfterFunc to avoid long-lived goroutines.
 		// If the expire channel is full, retry once after 5s; dropping permanently would
 		// leave the player slot in disconnectedAt forever.
@@ -1259,6 +1297,7 @@ func (h *Hub) deleteRoom(code string) {
 	delete(h.emptyRooms, code)
 	delete(h.botSlots, code)
 	delete(h.turnStartedAt, code)
+	delete(h.mapLoading, code)
 	delete(h.afkTimeouts, code)
 	h.statRooms.Add(-1)
 	log.Printf("room deleted code=%s", code)
@@ -1367,6 +1406,16 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 		Nickname:    nickname,
 		Players:     h.playerList(room),
 	}, c)
+
+	// Someone who comes back while the table is still shut has to be told so,
+	// their client would otherwise never send map_ready, and the room would wait
+	// out the full MapLoadTimeout on a player who is right there.
+	if h.isMapLoading(code) {
+		c.Send(protocol.ServerMsg{
+			Type:         protocol.SMsgMatchLoading,
+			PlayersReady: h.readySeats(code),
+		})
+	}
 }
 
 // --- Bot support ---
@@ -2212,6 +2261,7 @@ func (h *Hub) playerGameStateUsing(room *game.Room, playerIdx int, players []pro
 			MatchFormat: matchFormatString(room.Format),
 			MaxPlayers:  room.MaxPlayers,
 			RoundNumber: room.RoundNumber,
+			MapID:       string(room.MapID),
 		}
 	}
 	hand := make([]protocol.CardDTO, len(state.Hands[playerIdx].Cards))
@@ -2238,6 +2288,7 @@ func (h *Hub) playerGameStateUsing(room *game.Room, playerIdx int, players []pro
 		RoundNumber:  room.RoundNumber,
 		MatchFormat:  matchFormatString(room.Format),
 		MaxPlayers:   room.MaxPlayers,
+		MapID:        string(room.MapID),
 		Scoreboard:   scoreboard,
 		RoundHistory: room.RoundHistory,
 		TurnDeadline: h.turnDeadlineMs(room.Code),

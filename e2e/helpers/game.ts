@@ -121,10 +121,33 @@ export async function addBot(page: Page): Promise<void> {
   await page.getByRole('button', { name: T.addBot }).click()
 }
 
-/** Start the game from the waiting room (host only). */
+/**
+ * Wait for the map-loading gate to open on this page.
+ *
+ * The server refuses every gameplay message between game_started and
+ * match_ready, so a test that starts acting on the board as soon as it appears
+ * gets "waiting for every player to load the table" and then blocks reading a
+ * reply that never comes. The client answers on its own (it preloads the map
+ * and sends map_ready); this only waits for the answer to land.
+ */
+export async function waitForTableOpen(page: Page, timeoutMs = 30_000): Promise<void> {
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.mapLoading == null,
+    undefined,
+    { timeout: timeoutMs },
+  )
+}
+
+/**
+ * Start the game from the waiting room (host only).
+ *
+ * Returns once the table is genuinely open, not merely once the board is on
+ * screen: the loading gate sits between the two.
+ */
 export async function startGame(page: Page): Promise<void> {
   await page.getByRole('button', { name: T.startGame }).click()
   await expect(gameBoard(page)).toBeVisible({ timeout: 10_000 })
+  await waitForTableOpen(page)
 }
 
 /**

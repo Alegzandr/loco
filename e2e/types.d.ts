@@ -59,6 +59,15 @@ interface LocoE2EState {
   interruptFlash: { actorIndex: number; count: number; at: number } | null
   // Per-turn deadline
   turnDeadline: number | null
+  /** The room this match is played in; '' = the built-in felt. */
+  mapId: string
+  /**
+   * Set while the table is shut waiting for every client's map to decode, and
+   * null once the server opens it. Gameplay messages are refused until then, so
+   * a test that acts too early gets "waiting for every player to load the
+   * table". See helpers/game.ts `waitForTableOpen`.
+   */
+  mapLoading: { ready: number[] } | null
   // Match / round
   matchFormat: string
   maxPlayers: number

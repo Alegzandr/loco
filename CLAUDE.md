@@ -52,7 +52,7 @@ Small cohesive modules, explicit domain types, pure domain logic, side effects a
 ## Testing
 TDD. Tests-first for non-trivial behavior. Deterministic clocks for timing logic. Integration-test critical multiplayer flows. Maintain Playwright E2E suite as living regression.
 
-Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping, score table (round history, ping banding, TAB hold vs pinned), link-preview tags vs the committed `og.png`.
+Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping, score table (round history, ping banding, TAB hold vs pinned), link-preview tags vs the committed `og.png`, map draw + the loading gate (refusal while shut, timeout, disconnect, rematch re-arm) and `tableImageRect` at every board size.
 
 Keep tests fast, targeted, non-brittle. Cover game rules > UI details.
 
@@ -86,13 +86,13 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 ## Repository structure
 - `client/` frontend
   - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings, InterruptBanner, Confetti, ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`)
-  - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` for pure pixel math, `CardArt.tsx` + `locoMark.ts` for the card face itself)
+  - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` for pure pixel math, `CardArt.tsx` + `locoMark.ts` for the card face itself, `maps.ts` for the four rooms)
   - `src/audio/` `engine.ts` (context/buses/settings), `sfx.ts` (synthesised one-shots), `music.ts` (the bed *engine*), `tracks/` (the music itself, as data), `useGameAudio.ts` (store→sound bridge)
   - `src/dev/` dev-only visual showcase (`scenes.ts` registry + `Showcase.tsx` + `CardSheet.tsx`, the whole deck on one screen), tree-shaken from prod
-  - `public/` `favicon.svg` + `apple-touch-icon.png` + `og.png` (the link preview, generated — see "Link preview"), all three from the LOCO mark
+  - `public/` `favicon.svg` + `apple-touch-icon.png` + `og.png` (the link preview, generated: see "Link preview"), all three from the LOCO mark; `maps/<id>/{room,table}.webp` (see "Maps")
   - `src/styles/tokens.css` design tokens — single source of truth for colour/type/shape/motion
   - `src/i18n/` i18n context, en/fr translations, `serverErrors.ts` (server prose → player voice)
-  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useTheme` (`initTheme()` runs in `main.tsx`) + `useHeldKey` (hold-to-show) + `useDrainBar` (countdown bars, render-free)
+  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useTheme` (`initTheme()` runs in `main.tsx`) + `useHeldKey` (hold-to-show) + `useDrainBar` (countdown bars, render-free) + `useMapPreload` (map art, decode-aware)
   - `src/types/` protocol types
   - `src/test/` Vitest unit tests
 - `server/` authoritative game server
@@ -107,6 +107,7 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 - `tools/lib/vite.mjs` shared dev-server boot for both capture harnesses
 - `tools/visual/shoot.mjs` screenshot harness (boots Vite, walks the scene registry, writes `.visual/`)
 - `tools/og/shoot.mjs` link-preview generator (renders the `og-card` scene → `client/public/og.png`)
+- `tools/maps/prepare.mjs` map art cropper/encoder (→ `client/public/maps/`, see "Maps")
 - `shared/` protocol/types
 - `docs/` supplemental
 - root config / Docker / env
@@ -457,7 +458,7 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - When you change `server/protocol/messages.go`: update `protocolSchemas.ts` for any inbound shape changes (inferred types follow). `client/src/test/protocolSchemas.test.ts` exercises the schema.
 
 ## Makefile
-- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make og`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual`).
+- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make og`, `make maps`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual` and `make maps`).
 
 ## Art direction — "cartoon premium"
 Inspirations: **Nintendo × Gartic Phone**. Chunky rounded shapes, thick ink outlines, saturated
@@ -564,6 +565,88 @@ it was also the only thing saying anything at all. Four readings now, at four di
 All three permanent cues are keyed on the colour, so a wild resolving replays them together.
 Scene `game-wild-active-color`; `src/test/discardPile.test.tsx` covers the chip and both callout
 branches.
+
+## Maps (the room a match is played in)
+A map is **three things and nothing else**: a backdrop, a table, and an accent colour. It changes no
+rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcane tavern), **Velvet**
+(art-deco lounge), **Orbit** (starship hangar).
+
+- **The draw is server-side and per match.** `game/maps.go` (`MapID`, `MapIDs`, `Room.pickMap`);
+  `Room.Start()` writes `Room.MapID`, `BeginNextRound` keeps it, `ResetForRematch` clears it so the
+  next match gets a new room. Exported as `GameStateDTO.map_id` on **every** snapshot, not just
+  `game_started`, so a reconnecting player rebuilds the same table as everybody else.
+  - It has to be the server's even though the consequence is purely visual: two players in one room
+    describing two different tables to a viewer is a table that does not exist, and a clip cut
+    between two seats would jump between two rooms. Hashing the room code client-side would agree
+    just as well but would freeze a room's map forever, and a rematch is meant to feel new.
+- **`tableRect()` remains the single authority on the board's geometry.** A map replaces how the felt
+  is *painted*, never where anything is: piles, seats, direction ring and every animation coordinate
+  are identical with or without one. `maps.ts` names each table's `playfield`, the sub-box of
+  `table.webp` holding the playing surface, four numbers measured off the art, and
+  `layout.ts: tableImageRect()` solves for where to draw the picture so that box lands on the felt.
+  The result deliberately overhangs the felt on every side: rim, base and cast shadow are most of
+  what makes each table a different object, and cropping to the felt would cut them off.
+- **The accent is light, not chrome.** It tints the glow pooled under the table, the ambient wash,
+  and the direction ring's chevrons (as an 85% white *wash*, never the raw accent). It deliberately
+  does **not** reach `--color-primary`, the active seat's gold, or any card face: those are what a
+  viewer reads game state off, and a state cue that changes colour with the scenery is a cue that has
+  to be re-learned four times.
+- `resolveMap()` returns **null** for an unknown or empty id, and null is a first-class answer: a
+  lobby has no map, and a server shipping a new one before the client has its art must degrade to the
+  built-in felt rather than to a blank table. Same reason `map_id` is a bare `z.string()` in
+  `protocolSchemas.ts` and not an enum: an enum would drop the whole `game_state` in dev.
+- Art lives in `client/public/maps/<id>/{room,table}.webp` (~1.75 MB total). `make maps
+  ARGS="--src=<folder>"` (`tools/maps/prepare.mjs`) crops and re-encodes it. **Which source file is
+  the table is read off the alpha channel, never the filename**, since the renders come out of the
+  generator named after their timestamp, and an earlier pass that guessed by frame brightness got
+  every map backwards. The table is cropped to its alpha bounding box, which is what makes the
+  `playfield` fractions honest.
+- Scenes `game-map-neon` / `-rune` / `-velvet` / `-orbit` / `game-map-loading`. **The playfield
+  numbers are measured by eye off the art, so a drifted table shows up in `make visual` and nowhere
+  else**, so review any change to the art or to `tableImageRect()` there.
+
+## Synchronised map loading
+The table stays **shut** between "hands dealt" and "clock running" while every client downloads the
+map. `hub/maploading.go`.
+
+- **Why it is not cosmetic**: a map is ~600 kB of backdrop and table. Dealt straight into a match,
+  the first player's 30 seconds start ticking while somebody else's table is still a grey rectangle,
+  and in a game decided by arrival order that is a head start, not a slow paint.
+- Flow: `handleStartGame` broadcasts `game_started` (with **no** turn deadline) then
+  `beginMapLoading` → `match_loading { players_ready }` → each client preloads and sends `map_ready`
+  → `match_loading` again per arrival → once nobody is left, `openTable` arms the turn timer,
+  broadcasts `match_ready { turn, turn_deadline }` and schedules the bots. **The clock starts at
+  `match_ready`, not at `game_started`** (`TestTurnTimer_StartsAtMatchReadyNotGameStarted`).
+- **Every gameplay message is refused while the gate is open** (`isGameplayMsg` + `isMapLoading` in
+  `dispatch`, "waiting for every player to load the table"). Trusting the client's own loading screen
+  would leave a client that skipped it as the only one able to act.
+- Gate is **per match, not per round**: round two runs on a decoded map, and a second pause there
+  would be a stall with no visible cause. A rematch re-arms it, because it draws a new map.
+- Bots are marked ready at the start: they render nothing. A seat that **disconnects** during the
+  gate stops being one the table waits on (`handleDisconnect`), and a seat that **reconnects** into an
+  open gate is sent `match_loading` so its client knows to answer.
+- `hub.MapLoadTimeout` (var, 20s) opens the table without the stragglers: one backgrounded tab must
+  not hold nine people hostage. The client's own `MAP_PRELOAD_TIMEOUT_MS` (12s) is deliberately
+  shorter: if they were equal, every slow connection would look like a dead one.
+- Client: `store.mapLoading` / `applyMatchLoading` / `applyMatchReady`, `useMapPreload`
+  (`img.decode()`, not the `load` event, because bytes arriving is not the same as being paintable), and
+  `<MapLoadingScreen />`. **A failed or missing image still reports ready**: the board falls back to
+  the felt, which is a worse-looking match, not a broken one; a client that never answers is the one
+  outcome the gate cannot survive.
+- **`map_ready` is sent once per gate, guarded by a ref**, not keyed on `mapLoading`: the store
+  object gets a new identity on every progress broadcast, so a dependency would pay one `map_ready`
+  per opponent.
+- The screen is an **overlay over a mounted board**, not a screen instead of it: the board spends the
+  wait laying itself out, so the table is finished the instant the overlay lifts.
+- The reveal names the room and describes it in one line (`t.maps[id]`), and lists **who is still
+  loading**, because a bar alone cannot tell a slow download from a hung game, which is the difference
+  between waiting and reloading. The scrim is deliberately light: a scrim heavy enough to make type
+  effortless turns the reveal back into the loading bar it replaced, so the name carries its own ink
+  outline instead.
+- **E2E**: `startGame()` now returns only once the table is genuinely open, and `waitForTableOpen`
+  must be called on every *secondary* page in a multi-client test. Without it a test acts during the
+  gate, gets refused, and then blocks reading a reply that never comes. Go tests go through
+  `completeMapLoad(t, conns...)` for the same reason: the gate is exercised, never disabled.
 
 ## Streamable moments
 - **Interception slam** (`<InterruptBanner />`): driven by the server's `interrupt_success`, which
