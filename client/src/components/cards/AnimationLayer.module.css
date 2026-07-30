@@ -39,3 +39,20 @@
   white-space: nowrap;
   will-change: transform, opacity;
 }
+
+/* Shockwave left by a rare/legendary landing. */
+.impactAnchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.impactRing {
+  border: 4px solid currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 24px currentColor;
+  /* No transform here : the anchor owns the centering, framer-motion owns the
+     expansion. Two owners on one node and the ring would jump. */
+  pointer-events: none;
+  will-change: transform, opacity;
+}

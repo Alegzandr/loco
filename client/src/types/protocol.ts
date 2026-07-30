@@ -10,6 +10,7 @@ import type {
   scoreboardEntrySchema,
   gameEventSchema,
   gameStateSchema,
+  latencyEntrySchema,
   serverMsgSchema,
   serverMsgTypeSchema,
 } from './protocolSchemas'
@@ -23,6 +24,7 @@ export type PlayerDTO = z.infer<typeof playerSchema>
 export type ScoreboardEntryDTO = z.infer<typeof scoreboardEntrySchema>
 export type GameEventDTO = z.infer<typeof gameEventSchema>
 export type GameStateDTO = z.infer<typeof gameStateSchema>
+export type LatencyEntryDTO = z.infer<typeof latencyEntrySchema>
 
 // Client → Server
 export type ClientMsgType =
@@ -57,6 +59,9 @@ export interface ClientMsg {
   play_cards?: CardDTO[]  // batch identical-card play (takes precedence over card)
   chosen_color?: CardColor
   chosen_player?: number
+  // catch_uno: which seat is being caught. Several players can owe a
+  // declaration at once (Swap / GlobalSwitch), so the catcher names one.
+  target_index?: number
   match_format?: MatchFormat
   max_players?: number
   // debug_set_state — dev/E2E only (server requires LOCO_E2E=1)

@@ -53,12 +53,17 @@
     linear-gradient(168deg, #f7edff 0%, #ece3ff 48%, #e3ecff 100%);
 
   /* ── Play table (felt) ─────────────────────────────────────────────────── */
-  --table-felt-1: #1fbf8f;
-  --table-felt-2: #0f9b74;
+  /* Near-black, faintly cool. The deck is saturated gradient on black, and the
+     old green felt fought it — a #00ff6d card on a #1fbf8f table loses its edge,
+     which is the one thing a card must never do. Dark also makes the table the
+     stage and the cards the only bright objects on it. Same in both themes: a
+     table is an object, like the cards, not a surface that follows the UI. */
+  --table-felt-1: #262b3a;
+  --table-felt-2: #12151f;
   /* The rim must read as a distinct object edge, not a darker shade of felt —
      keep it several steps darker than --table-felt-2. */
-  --table-rim: #07553f;
-  --table-rim-light: #3fdcae;
+  --table-rim: #0a0c14;
+  --table-rim-light: #5b6480;
 
   /* ── Hairlines & borders ───────────────────────────────────────────────── */
   --color-hairline: #ded2f5;
@@ -81,11 +86,10 @@
   --color-scrim: rgba(28, 14, 56, 0.55);
 
   /* ── Card back ─────────────────────────────────────────────────────────── */
-  --card-back-bg: #2b1b52;
-  --card-back-border: #ffffff;
-  --card-back-inner: #3d2775;
-  --card-back-inner-border: rgba(255, 255, 255, 0.55);
-  --card-back-mono: #ffc93c;
+  /* Same near-black as a wild card face: the deck and the wilds are one family,
+     and the four-colour mark on the back only reads against something neutral. */
+  --card-back-bg: #141414;
+  --card-back-bg-top: #1e1e1e;
 
   /* ── Type ──────────────────────────────────────────────────────────────── */
   --font-display: 'Fredoka Variable', 'Fredoka', 'Baloo 2', system-ui, -apple-system, sans-serif;
@@ -134,10 +138,10 @@
     radial-gradient(110% 80% at 92% 6%, #16365e 0%, rgba(22, 54, 94, 0) 52%),
     linear-gradient(168deg, #1b1038 0%, #150c2e 52%, #100a24 100%);
 
-  --table-felt-1: #17a37b;
-  --table-felt-2: #0c7a5c;
-  --table-rim: #033025;
-  --table-rim-light: #33cfa2;
+  --table-felt-1: #262b3a;
+  --table-felt-2: #12151f;
+  --table-rim: #06080e;
+  --table-rim-light: #5b6480;
 
   --color-stroke: #0b0618;
   --color-stroke-soft: rgba(6, 3, 16, 0.55);
@@ -159,11 +163,8 @@
 
   --color-scrim: rgba(8, 4, 20, 0.68);
 
-  --card-back-bg: #1b1138;
-  --card-back-border: #ffffff;
-  --card-back-inner: #2e1e5e;
-  --card-back-inner-border: rgba(255, 255, 255, 0.45);
-  --card-back-mono: #ffc93c;
+  --card-back-bg: #0e0e0e;
+  --card-back-bg-top: #191919;
 }
 
 html,
@@ -230,6 +231,41 @@ body {
   outline-offset: 2px;
 }
 
+/* ─── Countdown bars ───────────────────────────────────────────────────────
+   Every timer bar in the game (turn clock, catch window) drains through these
+   two keyframes rather than through a per-frame React state update. See
+   `hooks/useDrainBar.ts` for why. They live here, outside any CSS module, so
+   the hook can name them; `--drain-ms` / `--drain-delay` are written on the
+   element by the hook (the delay is negative: the part already elapsed).
+
+   Add `loco-heat` for a bar that should also change colour: it runs on the same
+   clock, so the colour becomes a second readout of the same number: blue while
+   there is time, amber past halfway, red in the last quarter. It is keyed off
+   elapsed time, hence the reversed thresholds. The short catch window opts out
+   and keeps its own paint: five seconds is not long enough to report a trend. */
+@keyframes loco-drain {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+@keyframes loco-drain-heat {
+  0%,     50%  { background: #4d96ff; }
+  50.01%, 75%  { background: #ffa502; }
+  75.01%, 100% { background: #ff4757; }
+}
+
+.loco-draining {
+  transform-origin: left center;
+  will-change: transform;
+  animation: loco-drain var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
+}
+
+.loco-draining.loco-heat {
+  animation:
+    loco-drain      var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards,
+    loco-drain-heat var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
+}
+
 /* ─── Reduced motion ───────────────────────────────────────────────────────
    Users who ask their OS for less motion get a static board: no card flights,
    no pulses, no sliding panels. Everything still renders and remains playable —
@@ -243,5 +279,14 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* A countdown bar is not decoration: it is the only place the remaining time
+     is written down, and a player who asked for less motion still has to know
+     their turn is about to be auto-passed. It keeps draining, at exactly the
+     same speed. The duration comes back from the element's own custom
+     property, which the blanket rule above cannot see. */
+  .loco-draining {
+    animation-duration: var(--drain-ms, 0ms) !important;
   }
 }

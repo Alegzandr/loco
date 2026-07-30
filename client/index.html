@@ -3,10 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ece3ff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#150c2e" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Loco – Real-time Card Game</title>
+    <title>LOCO – Real-time multiplayer card game</title>
+    <meta name="description" content="Fast, free, no signup. Pick a nickname, share a code, play. Intercept, stack penalties and shout LOCO on your last card." />
+
+    <!-- Link preview (Discord, X, Slack, iMessage…). %OG_ORIGIN% is substituted
+         at build time by the `loco-og-origin` plugin in vite.config.ts; these
+         crawlers do not run JS, so every one of these tags has to be in the
+         served HTML rather than set from React.
+         The ?v= is a cache buster: both Discord and X cache a preview image by
+         URL for a long time, so bump it whenever og.png is regenerated. -->
+    <link rel="canonical" href="%OG_ORIGIN%/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="LOCO" />
+    <meta property="og:url" content="%OG_ORIGIN%/" />
+    <meta property="og:title" content="LOCO – Real-time multiplayer card game" />
+    <meta property="og:description" content="Fast, free, no signup. Pick a nickname, share a code, play." />
+    <meta property="og:image" content="%OG_ORIGIN%/og.png?v=1" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The LOCO duck beside a fan of five cards: green 4, blue skip, wild +4, yellow +2, red 7." />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="fr_FR" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="LOCO – Real-time multiplayer card game" />
+    <meta name="twitter:description" content="Fast, free, no signup. Pick a nickname, share a code, play." />
+    <meta name="twitter:image" content="%OG_ORIGIN%/og.png?v=1" />
+    <meta name="twitter:image:alt" content="The LOCO duck beside a fan of five cards." />
+
     <style>
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
       /* Pre-hydration backdrop: matches the light-theme canvas so there is no

@@ -1,6 +1,7 @@
 import { CSSProperties, forwardRef, KeyboardEvent, MouseEvent } from 'react'
 import { CardDTO } from '../../types/protocol'
-import { CARD_FACE, CARD_FACE_LIGHT, CARD_INK, cardLabel } from './cardTheme'
+import { cardLabel, hasGlyph } from './cardTheme'
+import { CardArt, CardGlyph } from './CardArt'
 import styles from './Card.module.css'
 
 interface Props {
@@ -16,9 +17,14 @@ interface Props {
 }
 
 /**
- * A single card face: white frame, ink outline, tilted white oval, big numeral.
- * The shape is deliberately close to a physical playing card — a spectator
- * recognises what was played from a stream thumbnail, without reading text.
+ * A single card face: full-bleed suit gradient, the LOCO mark behind it in the
+ * same gradient reversed, one large glyph, and the two corner marks.
+ *
+ * The corners follow the reference art exactly — brand monogram top-left, value
+ * bottom-left-up (rotated 180°) — which is also the one thing here that costs
+ * something: in a tightly overlapped fan the visible sliver of each card is its
+ * top-left corner, so a crowded hand is read from the big glyph and the suit
+ * colour rather than from the corners.
  *
  * Stateless and unanimated. Wrap in a <motion.div> at the call site for
  * movement or hover effects.
@@ -28,15 +34,15 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
   ref,
 ) {
   const label = cardLabel(card)
-  const isNumeric = label.length === 1 && /\d/.test(label)
+  const icon = hasGlyph(card.kind)
   const isWild = card.color === 'wild'
-  const labelClass = isNumeric ? styles.numeric : label.length <= 2 ? styles.short : styles.long
-
-  const cssVars = {
-    '--card-face': CARD_FACE[card.color],
-    '--card-face-light': CARD_FACE_LIGHT[card.color],
-    '--card-ink': CARD_INK[card.color],
-  } as CSSProperties
+  // The colour-change card already *is* the four-suit fan at full size; a second
+  // copy of it over the middle would only repeat itself.
+  const bare = card.kind === 'wild'
+  // A wild carries the four-suit fan across its middle, so its value sits below
+  // it. Everything else centres on the card.
+  const layout = isWild && !icon ? styles.underFan : styles.centred
+  const size = icon ? styles.iconSize : label.length === 1 ? styles.oneChar : styles.manyChars
 
   const handleKey = (e: KeyboardEvent<HTMLDivElement>) => {
     if (!onClick) return
@@ -58,7 +64,7 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
     <div
       ref={ref}
       className={classes}
-      style={{ ...cssVars, ...style }}
+      style={style}
       onClick={onClick}
       onKeyDown={handleKey}
       role={onClick ? 'button' : undefined}
@@ -68,17 +74,27 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
       data-card-kind={card.kind}
       data-card-value={card.value ?? ''}
     >
-      <div className={styles.sheen} />
-      {/* Wilds show the four-colour wheel instead of a flat oval — the same
-          visual shorthand every card game uses for "any colour". */}
-      <div className={`${styles.oval} ${isWild ? styles.ovalWild : ''}`} />
-      <div className={`${styles.label} ${labelClass} ${isWild ? styles.labelOnWild : ''}`}>{label}</div>
-      {label.length <= 3 && (
-        <>
-          <div className={`${styles.corner} ${styles.cornerTL}`}>{label}</div>
-          <div className={`${styles.corner} ${styles.cornerBR}`}>{label}</div>
-        </>
+      <CardArt card={card} className={styles.art} />
+      {!bare && (
+        <div className={`${styles.value} ${layout} ${size}`}>
+          {icon ? <CardGlyph kind={card.kind} /> : label}
+        </div>
       )}
+      {/* Value top-left, monogram bottom-right — the reference's two marks, in
+          the reference's two corners, the other way round. The reference is a
+          hero shot of one card; in a hand the fan can overlap down to the left
+          ~30% of each card, and branding that sliver leaves a player holding
+          twelve cards that all say "L". The wild already reads this way in the
+          reference, so this is also the rule that makes every card consistent. */}
+      <div
+        className={[
+          styles.corner, styles.cornerTL,
+          icon || label.length > 1 ? styles.cornerSmall : '',
+        ].filter(Boolean).join(' ')}
+      >
+        {icon ? <CardGlyph kind={card.kind} /> : label}
+      </div>
+      <div className={`${styles.corner} ${styles.cornerBR}`}>L</div>
     </div>
   )
 })

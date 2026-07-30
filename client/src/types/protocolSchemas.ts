@@ -40,6 +40,17 @@ export const scoreboardEntrySchema = z.object({
   rounds_won: z.number(),
 })
 
+// One seat's measured round trip. rtt_ms is -1 when the server has nothing to
+// report yet (a bot, or a connection that has not answered a ping frame).
+export const latencyEntrySchema = z.object({
+  player_index: z.number(),
+  rtt_ms: z.number(),
+  bot: z.boolean().optional(),
+})
+
+// round_history[k][player_index] = points scored in round k+1.
+export const roundHistorySchema = z.array(z.array(z.number()))
+
 export const gameEventSchema = z.object({
   kind: z.string(),
   player_index: z.number(),
@@ -63,6 +74,7 @@ export const gameStateSchema = z.object({
   match_format: matchFormatSchema,
   max_players: z.number(),
   scoreboard: z.array(scoreboardEntrySchema).optional(),
+  round_history: roundHistorySchema.optional(),
   turn_deadline: z.number().optional(),
 })
 
@@ -81,10 +93,12 @@ export const serverMsgTypeSchema = z.enum([
   'turn_changed',
   'uno_declared',
   'uno_caught',
+  'catch_failed',
   'draw_pending',
   'interrupt_success',
   'round_end',
   'match_end',
+  'latency',
   'rematch_started',
   'error',
 ])
@@ -116,4 +130,6 @@ export const serverMsgSchema = z.object({
   match_winner: z.string().optional(),
   match_format: matchFormatSchema.optional(),
   max_players: z.number().optional(),
+  round_history: roundHistorySchema.optional(),
+  latencies: z.array(latencyEntrySchema).optional(),
 })

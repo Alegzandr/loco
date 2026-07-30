@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -13,16 +14,35 @@ import (
 )
 
 const (
-	writeWait  = 10 * time.Second
-	pongWait   = 60 * time.Second
-	pingPeriod = (pongWait * 9) / 10
+	writeWait = 10 * time.Second
+	pongWait  = 60 * time.Second
+	// Ping frames double as the latency probe behind the in-game score table,
+	// so they go out far more often than keeping the connection alive requires.
+	// Browsers answer a ping in the WebSocket layer with no client code
+	// involved, which makes this a real network RTT rather than something the
+	// client reports about itself (and could lie about). pongWait, the read
+	// deadline, is deliberately unchanged: a client is still only dropped
+	// after a full minute of silence.
 	maxMsgSize = 4096
+
+	// A single sample carries the jitter of one packet, and a ping readout that
+	// jumps 40, then 180, then 50 reads as broken rather than as informative, so each
+	// measurement is folded into the previous one: 0.6 old + 0.4 new.
+	latencySmoothOld = 3
+	latencySmoothNew = 2
+	// Anything past this is "unplayable" either way; the cap keeps a stalled
+	// connection from parking the display on a five-digit number.
+	maxLatencyMs = 9999
 
 	// Rate limiter: token bucket per client.
 	// Allow bursts of up to rateBurst messages, refilling at ratePerSec tokens/sec.
 	ratePerSec = 10
 	rateBurst  = 20
 )
+
+// PingPeriod is how often a ping frame goes out (see the comment above).
+// Exported as a var so tests can shorten it; production never changes it.
+var PingPeriod = 5 * time.Second
 
 // rateLimiter is a simple token bucket for per-client message rate limiting.
 type rateLimiter struct {
@@ -74,6 +94,13 @@ type Client struct {
 	suspectMu          sync.Mutex
 	suspectCount       int
 	suspectWindowStart time.Time
+
+	// latencyMs is the smoothed ping/pong round trip in milliseconds, or -1
+	// while nothing has been measured yet. pingSentAt is the unix-nano stamp of
+	// the last ping frame written. Written by the write/read pumps, read by the
+	// hub event loop when it builds a latency broadcast, hence atomic.
+	latencyMs  atomic.Int32
+	pingSentAt atomic.Int64
 }
 
 // newClient creates a client. The hub's register handler calls start() after
@@ -81,13 +108,15 @@ type Client struct {
 // h.unregister before the client is registered (which would cause the unregister
 // to be silently dropped, leaving a zombie entry in h.clients).
 func newClient(h *Hub, conn *websocket.Conn) *Client {
-	return &Client{
+	c := &Client{
 		hub:     h,
 		conn:    conn,
 		send:    make(chan []byte, 256),
 		limiter: newRateLimiter(),
 		connID:  generateConnID(),
 	}
+	c.latencyMs.Store(-1) // "not measured yet", not "0 ms"
+	return c
 }
 
 // generateConnID produces a short (8-hex-char) correlation ID for log tracing.
@@ -123,6 +152,7 @@ func (c *Client) readPump() {
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
 		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		c.notePong(time.Now())
 		return nil
 	})
 	for {
@@ -162,7 +192,7 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(PingPeriod)
 	defer func() {
 		ticker.Stop()
 		c.conn.Close()
@@ -180,6 +210,7 @@ func (c *Client) writePump() {
 			}
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.pingSentAt.Store(time.Now().UnixNano())
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
@@ -229,6 +260,34 @@ func (c *Client) SendBytes(data []byte) {
 	// treats a second Close() as a no-op error, so repeated overflow is safe.
 	_ = c.conn.Close()
 }
+
+// notePong records the round trip of the ping frame this pong answers, folded
+// into the previous measurement (see latencySmoothOld/New). A pong that arrives
+// before any ping was sent, or with a clock that went backwards, is ignored
+// rather than published as a bogus 0 ms.
+func (c *Client) notePong(now time.Time) {
+	sent := c.pingSentAt.Load()
+	if sent == 0 {
+		return
+	}
+	rtt := now.Sub(time.Unix(0, sent)).Milliseconds()
+	if rtt < 0 {
+		return
+	}
+	if rtt > maxLatencyMs {
+		rtt = maxLatencyMs
+	}
+	prev := c.latencyMs.Load()
+	if prev < 0 {
+		c.latencyMs.Store(int32(rtt))
+		return
+	}
+	smoothed := (int64(prev)*latencySmoothOld + rtt*latencySmoothNew) / (latencySmoothOld + latencySmoothNew)
+	c.latencyMs.Store(int32(smoothed))
+}
+
+// latency returns the smoothed round trip in milliseconds, or -1 if unknown.
+func (c *Client) latency() int { return int(c.latencyMs.Load()) }
 
 func (c *Client) sendError(msg string) {
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: msg})

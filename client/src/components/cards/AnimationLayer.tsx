@@ -27,6 +27,23 @@ export interface Flier {
   fadeOut?: boolean
   /** Peak lift of the arc, in px. 0 (default) flies in a straight line. */
   arcHeight?: number
+  /** Barrel roll, in *whole turns* (a half turn would land the card face down). */
+  spin?: number
+  /** Mid-flight scale: the card passes nearer the camera. Most of what separates
+   *  a card being thrown from a sprite being moved. */
+  swell?: number
+}
+
+/** Shockwave ring left where a card landed. Rare and legendary plays only. */
+export interface Impact {
+  id: string
+  /** Centre of the ring, in board coordinates. */
+  x: number
+  y: number
+  /** Ring tint: the caller passes ACTIVE_RING[card.color]. */
+  color: string
+  /** Diameter in px; the caller sizes it by rarity. */
+  size?: number
 }
 
 export interface EffectText {
@@ -35,14 +52,22 @@ export interface EffectText {
   color: string
   x: number
   y: number
+  /** ms to wait before the callout punches in, set to the flight time, so it
+   *  announces the card's landing rather than the message that carried it. */
+  delayMs?: number
 }
 
 interface Props {
   fliers: Flier[]
   effectTexts: EffectText[]
+  /** Landing rings; omitted entirely when nothing notable landed. */
+  impacts?: Impact[]
   onFlierDone: (id: string) => void
   onEffectDone: (id: string) => void
+  onImpactDone?: (id: string) => void
 }
+
+const IMPACT_SIZE = 170
 
 // Renders the absolute-positioned overlay holding all transient animations:
 // flying cards (plays, draws, swap/global_switch trails) and floating effect
@@ -51,7 +76,14 @@ interface Props {
 // Movement is expressed as `x`/`y` transforms rather than `left`/`top` so the
 // browser can composite each flier on the GPU instead of running layout on
 // every frame — the difference is visible once several cards fly at once.
-export function AnimationLayer({ fliers, effectTexts, onFlierDone, onEffectDone }: Props) {
+export function AnimationLayer({
+  fliers,
+  effectTexts,
+  impacts = [],
+  onFlierDone,
+  onEffectDone,
+  onImpactDone,
+}: Props) {
   return (
     <div className={styles.layer} aria-hidden>
       <AnimatePresence>
@@ -69,6 +101,13 @@ export function AnimationLayer({ fliers, effectTexts, onFlierDone, onEffectDone 
           const yTrack = arc > 0
             ? [f.from.y, (f.from.y + f.to.y) / 2 - arc, f.to.y]
             : f.to.y
+          const startScale = f.startScale ?? 1
+          const swell = f.swell ?? 0
+          const scaleTrack = swell > 1 ? [startScale, swell, 1] : 1
+          const spin = f.spin ?? 0
+          const face = f.kind === 'back'
+            ? <CardBack width={w} height={h} radius={r} />
+            : <Card card={f.card!} />
           return (
             <motion.div
               key={f.id}
@@ -77,24 +116,26 @@ export function AnimationLayer({ fliers, effectTexts, onFlierDone, onEffectDone 
                 x: f.from.x,
                 y: f.from.y,
                 opacity: f.startAlpha ?? 1,
-                scale: f.startScale ?? 1,
+                scale: startScale,
                 rotate: fromRot,
               }}
               animate={{
                 x: f.to.x,
                 y: yTrack,
                 opacity: 1,
-                scale: 1,
-                rotate: toRot,
+                scale: scaleTrack,
+                // The spin is whole turns in the card's own plane, folded into the
+                // same rotate track as the landing tilt: a full turn is visually a
+                // no-op, so the card still settles on exactly `toRot`.
+                rotate: toRot + spin * 360,
               }}
               exit={f.fadeOut ? { opacity: 0, transition: { duration: 0.22 } } : undefined}
               transition={{ duration, delay, ease: EASE_OUT_CARD }}
               onAnimationComplete={() => onFlierDone(f.id)}
+              data-flier-face={f.kind}
               style={{ width: w, height: h }}
             >
-              {f.kind === 'back'
-                ? <CardBack width={w} height={h} radius={r} />
-                : <Card card={f.card!} />}
+              {face}
             </motion.div>
           )
         })}
@@ -117,11 +158,34 @@ export function AnimationLayer({ fliers, effectTexts, onFlierDone, onEffectDone 
                 scale: [0.3, 1.3, 1.08, 1.16],
                 y: [12, -6, -22, -62],
               }}
-              transition={{ duration: 1, times: [0, 0.16, 0.6, 1], ease: 'easeOut' }}
+              transition={{
+                duration: 1,
+                delay: (et.delayMs ?? 0) / 1000,
+                times: [0, 0.16, 0.6, 1],
+                ease: 'easeOut',
+              }}
               onAnimationComplete={() => onEffectDone(et.id)}
             >
               {et.text}
             </motion.div>
+          </div>
+        ))}
+      </AnimatePresence>
+      <AnimatePresence>
+        {impacts.map((im) => (
+          // Outer anchor owns the position, inner motion node owns the expansion:
+          // same split as the effect text, for the same reason.
+          <div key={im.id} className={styles.impactAnchor} style={{ left: im.x, top: im.y }}>
+            <motion.div
+              className={styles.impactRing}
+              // `color` drives the border and the glow together, so the ring is
+              // tinted in one place from the card that landed.
+              style={{ width: im.size ?? IMPACT_SIZE, height: im.size ?? IMPACT_SIZE, color: im.color }}
+              initial={{ scale: 0.18, opacity: 0.9 }}
+              animate={{ scale: 1, opacity: 0 }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
+              onAnimationComplete={() => onImpactDone?.(im.id)}
+            />
           </div>
         ))}
       </AnimatePresence>

@@ -44,7 +44,7 @@ A card is valid if it matches the top of the discard pile by **at least one** of
 - If you **cannot** play any card, draw **exactly 1 card** from the draw pile.
 - If the drawn card is a valid play, you **may** play it immediately.
 - If the drawn card cannot be played, keep it in hand and your turn ends.
-- Exception: forced draws from Take 2 / Take 4 do not count as your "draw" action — you draw the penalty amount and lose your turn.
+- Exception: forced draws from Take 2 / Take 4 make you take the whole accumulated stack at once. That **counts as your draw for the turn** but does **not** end it — you may then play a card, or pass (see §14.5).
 
 ### 5.3 Draw Pile Exhaustion
 
@@ -117,19 +117,34 @@ All colored action cards follow standard matching rules (Section 5.1). Black car
 
 **Change Direction** — Play direction reverses (clockwise ↔ counter-clockwise). Next player is determined by the new direction. In a 2-player game: acts like Miss a Turn (same player goes again).
 
-**Take 2** — Next player draws 2 cards and loses their turn. **Stacking**: the next player may play **any** Take 2 card (regardless of color) instead of drawing; penalty accumulates (+2 each). Continues until someone cannot or does not stack → that player draws the full total.
+**Take 2** — Next player draws 2 cards (then plays on normally — §14.5). **Stacking**: the next player may play a Take 2 **of the same color** instead of drawing; penalty accumulates (+2 each). Continues until someone cannot or does not stack → that player draws the full total. A Take 2 of another color is *not* a counter, but it is not wasted either: the forced draw keeps the turn (§14.5), so its holder takes the stack and may then play it as an ordinary card-type match.
 
 **Choose a Colour** — Player declares a color (R/G/B/Y). Next player must match that color (or play a wild, or draw).
 
-**Take 4 + Choose a Colour** — Player declares a color AND next player draws 4 and loses their turn. **Stacking**: next player may play another Take 4 + Choose a Colour to pass on the penalty (+4 each). **No cross-stacking**: Take 2 and Take 4 stack only with their own kind.
+**Take 4 + Choose a Colour** — Player declares a color AND next player draws 4 (then plays on normally — §14.5). **Stacking**: next player may play another Take 4 + Choose a Colour to pass on the penalty (+4 each). **No cross-stacking**: Take 2 and Take 4 stack only with their own kind.
 
 **Swap Cards with Another Player** — Player chooses any opponent; they swap entire hands immediately.
 
-**Change Cards All Round** — All players simultaneously pass their entire hand to their neighbor in the current play direction. In a 2-player game: equivalent to a swap.
+**Change Cards All Round** — Player declares a color (R/G/B/Y), AND all players simultaneously pass their entire hand to their neighbor in the current play direction. In a 2-player game: equivalent to a swap. Like every wild, it names the colour that becomes active (§14.1).
 
 ## 8. LOCO! Call
 
 When playing your **second-to-last card** (going from 2 → 1 card in hand), you **must** call "LOCO!" before or at the moment of discarding. Penalty for forgetting: draw **2 cards**. This applies on normal turns AND on interjections.
+
+It also applies when a **Swap** or a **Change Cards All Round** *hands* you a
+single card: what the rule protects is the table's right to know somebody is one
+card from winning, and a hand that arrived by rotation is one nobody has heard
+announced. Every seat left on one card after a hand-rearranging play gets its
+own 5 s window and is caught on its own (§11.1).
+
+One card, one call: the declaration covers the single card it was made on, so it
+cannot be repeated while that card is held. A rearranging play that hands you a
+*different* last card is a new obligation, and the call comes back.
+
+**Calling "Contre-LOCO!" is a wager** (§14.6). It only lands inside the 5 s
+window opened by the seat you are calling on; if that seat's own "LOCO!" got
+there first — or its hand grew, or the window had just closed — the call misses
+and *you* draw **1 card** for it.
 
 ## 9. End of Round
 
@@ -154,8 +169,13 @@ Remaining players sum the point values of cards still in hand:
 
 ## 11. Edge Cases
 
-1. **Swap with 1 card in hand**: Legal. The player who receives 1 card does NOT need to call "LOCO!" — only the player who *plays* a card to reach 1 must call.
-2. **Change Cards All Round with 1 card**: Legal. That player passes 1 card and receives neighbor's full hand.
+1. **Swap with 1 card in hand**: Legal. Everyone left holding exactly 1 card once
+   the hands have moved must call "LOCO!", because *receiving* your last card
+   counts like playing down to it. A Swap can put two players on the hook at the
+   same instant (the actor, who took the opponent's single card, and the
+   opponent, who took the actor's leftover) and each is catchable on their own
+   5 s window.
+2. **Change Cards All Round with 1 card**: Legal. That player passes 1 card and receives neighbor's full hand. As with Swap, every seat holding a single card after the rotation owes the table a call, including one that declared a moment earlier, since the card it declared for is not the card it now holds.
 3. **2-player specifics**: Change Direction = Miss a Turn (same player goes again). Change Cards All Round = mutual hand swap.
 4. **Last card is an action card**: Round ends immediately; the action effect does not resolve.
 5. **Interject during Take chain**: Chain continues from interjecter (see 6.5).
@@ -178,12 +198,13 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Interjecting: simultaneous resolution by seat priority
 - [ ] Miss a Turn: next player skips
 - [ ] Change Direction: reverses play direction
-- [ ] Take 2: draw 2 + lose turn; stacking allowed (cumulative)
-- [ ] Take 4 + Choose a Colour: draw 4 + lose turn + declare color; stacking allowed; no cross-stacking with Take 2
+- [ ] Take 2: draw 2, keep the turn (§14.5); stacking allowed (cumulative, same color only)
+- [ ] Take 4 + Choose a Colour: draw 4 + declare color, victim keeps the turn (§14.5); stacking allowed; no cross-stacking with Take 2
 - [ ] Choose a Colour: declares color for next player
 - [ ] Swap Cards: full hand swap with chosen opponent
 - [ ] Change Cards All Round: simultaneous hand rotation
 - [ ] LOCO! call at 2→1 cards; penalty = draw 2 if forgotten
+- [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card
 - [ ] Round ends on last card played
 - [ ] Scoring: correct point values, configurable mode/threshold
 - [ ] 2-player: Change Direction = Miss a Turn behavior
@@ -204,6 +225,9 @@ LOCO is based on the SOLO card game but introduces the following intentional rul
 **SOLO rule**: "Change Cards All Round" is a colored card (one per color) and follows standard matching rules (must match by color or symbol).
 **LOCO rule**: "Change Cards All Round" is a wild card (4 copies, no color). It can be played on any card at any time during your turn, like Choose a Colour.
 **Rationale**: Simplifies gameplay. Avoids situations where the card is stuck in hand with no matching color.
+**Colour choice**: like Choose a Colour and Take 4, it names the new active colour.
+A wild that chose nothing would hand the table a rotation whose outcome nobody
+picked, and the client must prompt for it before the card leaves the hand.
 
 ### 14.2 Starting Card is Always a Number
 **SOLO rule**: The top card of the draw pile is flipped to start the discard pile, even if it's an action card. If it's an action card, its effect applies to the first player.
@@ -219,3 +243,22 @@ LOCO is based on the SOLO card game but introduces the following intentional rul
 **SOLO rule**: A player may only draw from the draw pile if they have no playable card in hand.
 **LOCO rule**: A player may choose to draw one card from the draw pile even if they hold a playable card (still limited to one draw per turn).
 **Rationale**: Adds strategic depth — players can sacrifice their turn to improve their hand. This also matches UNO official rules.
+
+### 14.5 A Forced Draw Does Not Cost the Turn
+**SOLO rule**: The victim of a Take 2 / Take 4 draws the penalty cards and their turn ends immediately.
+**LOCO rule**: The victim takes the whole accumulated stack and then **keeps the turn**: they may play any legal card from the enlarged hand, or pass. The forced draw counts as the turn's single draw, so no second draw is possible. Drawing also **restarts the turn clock**, so the time spent deciding whether to counter is not taken out of the turn that follows the draw.
+**Rationale**: Eating a +6 and then being skipped is two punishments for one card, and it reads as a bug to the player — the board sits on their seat, the hand jumps, and the turn is gone before they can act. Costing cards is punishment enough; being able to answer with the card you just drew is the part that makes a draw stack fun to watch. Stacking (§11) is still the way to avoid drawing at all.
+
+### 14.6 A Missed Contre-LOCO! Costs a Card
+**SOLO rule**: calling out a player who forgot to announce their last card has no
+downside — an unfounded or late call is simply ignored.
+**LOCO rule**: a Contre-LOCO! that does not land costs the caller **1 card**. It
+lands only while the target's 5 s window is open and unanswered; the three ways
+it misses are the target's own call arriving first, the target's hand having
+grown, and the window having expired.
+**Rationale**: without a price, mashing the button at every seat holding one card
+is free and therefore always correct, which turns a reaction into a reflex nobody
+has to aim. One card is small enough that a genuine race stays worth entering and
+large enough that a blind call is not. It is the same wager seen from both sides
+of the table: the player who forgot risks 2 cards, the player who calls too early
+risks 1. Bots pay it on the same terms as humans.

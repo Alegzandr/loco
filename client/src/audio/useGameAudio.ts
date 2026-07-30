@@ -41,12 +41,18 @@ function stingFor(card: CardDTO): SfxName | null {
 }
 
 /**
- * How tense the table is, 0..1. Drives tempo and layer density in the music bed.
+ * How tense the table is, 0..1. Picks the music bed's arrangement section.
  * Deliberately coarse: the point is that the room *feels* different when someone
  * is about to go out, not that the value is precise.
+ *
+ * The thresholds it has to clear live in `music.ts` (`SECTION_AT`): 0.2 buildup,
+ * 0.3 groove, 0.58 drop. The round summary is deliberately below all of them —
+ * a round ending is the one moment in a match that should sound like a
+ * breakdown, and without it the bed's calmest section would be unreachable.
  */
 function intensityOf(s: State): number {
   if (s.screen !== 'game') return 0.2
+  if (s.showRoundSummary) return 0.1
   let i = 0.34
   const minHand = s.players.reduce((m, p) => Math.min(m, p.hand_size), Infinity)
   if (minHand <= 1) i += 0.3
@@ -92,6 +98,11 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
   }
 
   if (next.unoDeclared && !prev.unoDeclared) out.push('unoDeclare')
+
+  // A Contre-LOCO! that missed. It reads as a draw on its own (the caller's hand
+  // grew), which is exactly the wrong story: the sting is what says the card was
+  // a price paid, not a turn taken.
+  if (next.catchFailed && next.catchFailed.at !== prev.catchFailed?.at) out.push('penalty')
 
   // pendingDraw only climbs while a counter chain is live; the drop back to 0
   // is the stack being eaten, which is the penalty, not another stack.

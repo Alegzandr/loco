@@ -50,7 +50,9 @@ func TestBotThink_DrawsWhenNoLegalCard(t *testing.T) {
 // to confirm it both counters and draws across trials, proving both paths are reachable.
 func TestBotThink_CountersDraw(t *testing.T) {
 	hand := Hand{}
-	hand.Add(Card{Color: Blue, Kind: DrawTwo})
+	// Same colour as the top card: a counter is the same card, so a blue +2
+	// would not be a legal answer to a red one here.
+	hand.Add(Card{Color: Red, Kind: DrawTwo})
 
 	state := &GameState{
 		Hands:       []Hand{hand},

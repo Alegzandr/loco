@@ -63,11 +63,37 @@
     /* ink outline on both sides of the rim, so the table edge survives any
        background colour behind it */
     inset 0 0 0 2px rgba(6, 3, 16, 0.35),
-    inset 0 8px 24px rgba(255, 255, 255, 0.18),
-    inset 0 -20px 36px rgba(0, 0, 0, 0.28),
+    inset 0 8px 24px rgba(255, 255, 255, 0.1),
+    inset 0 -20px 36px rgba(0, 0, 0, 0.36),
     0 0 0 2px rgba(6, 3, 16, 0.45),
-    0 13px 0 rgba(3, 40, 30, 0.55),
+    0 13px 0 rgba(4, 5, 12, 0.6),
     0 28px 52px rgba(12, 6, 30, 0.42);
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* The mark, branded into the felt the way a casino brands its baize. Kept at
+   the threshold of visible: the piles sit on top of it, and a table that
+   competes with the card being played is a table that has to be looked past. */
+.tableMark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* Sized to fit *inside* the ellipse, not inside its bounding box. The felt
+     clips its overflow, so a mark scaled to the box has its corners sliced off
+     and reads as a broken drawing rather than a watermark. The mark is landscape,
+     and the felt is a *flat* oval (roughly 2.7:1), so even a landscape mark is
+     bound by height, not width: at 62% of the height it is only ~28% of the
+     width and sits comfortably inside the curve. Driving it off the width put
+     the mark half outside the ellipse and sliced it into fragments. */
+  height: 58%;
+  width: auto;
+  /* Belt and braces: an absolutely-positioned <svg> with one axis auto does not
+     reliably take its intrinsic ratio, and a mark stretched to the felt is the
+     bug this whole file exists to avoid. */
+  aspect-ratio: 712 / 576;
+  transform: translate(-50%, -50%);
+  opacity: 0.07;
   pointer-events: none;
 }
 

@@ -70,16 +70,24 @@ describe('Lobby', () => {
     expect((codeInput as HTMLInputElement).value).toBe('ABC123')
   })
 
-  it('displays error message when provided', () => {
+  it('announces a server error in the player’s own words, never the raw string', () => {
     renderLobby(vi.fn(), 'room not found')
-    expect(screen.getByText('room not found')).toBeInTheDocument()
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(en.errors.roomNotFound)
+    expect(screen.queryByText('room not found')).not.toBeInTheDocument()
   })
 
-  it('calls onClearError when error is clicked', () => {
+  it('falls back to the generic message for an unrecognised server error', () => {
+    renderLobby(vi.fn(), 'some future server message')
+    expect(screen.getByRole('alert')).toHaveTextContent(en.errors.generic)
+  })
+
+  it('clears the error as soon as the player edits the nickname', () => {
     const onClearError = vi.fn()
-    renderLobby(vi.fn(), 'some error', onClearError)
-    fireEvent.click(screen.getByText('some error'))
-    expect(onClearError).toHaveBeenCalledOnce()
+    renderLobby(vi.fn(), 'nickname "Bob" already taken', onClearError)
+    fireEvent.click(screen.getByText(en.createRoom))
+    fireEvent.change(screen.getByPlaceholderText(en.yourNickname), { target: { value: 'B' } })
+    expect(onClearError).toHaveBeenCalled()
   })
 
   it('valid create room sends message', () => {

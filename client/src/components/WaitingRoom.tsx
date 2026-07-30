@@ -19,6 +19,11 @@ interface Props {
 
 const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
 
+// Mirrors the server's serverMinPlayers / serverMaxPlayers (game/room.go). A cap of 1
+// is a room that can never start, so the field must not even offer it.
+const MIN_PLAYERS = 2
+const MAX_PLAYERS = 10
+
 export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayers, onSend }: Props) {
   const { t } = useI18n()
   const isOwner = myIndex === 0
@@ -46,12 +51,21 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
     BO7: t.bestOf7,
   }
 
+  const minAllowed = Math.max(MIN_PLAYERS, players.length)
+
   const handleMaxPlayersChange = (val: string) => {
     setMaxInput(val)
     const n = parseInt(val, 10)
-    if (!isNaN(n) && n >= 2 && n <= 10) {
+    if (!isNaN(n) && n >= minAllowed && n <= MAX_PLAYERS) {
       onSend({ type: 'set_max_players', max_players: n })
     }
+  }
+
+  // Typing an out-of-range value leaves the field showing something the server never
+  // accepted; snapping back on blur is what tells the host the change did not take.
+  const handleMaxPlayersBlur = () => {
+    const n = parseInt(maxInput, 10)
+    if (isNaN(n) || n < minAllowed || n > MAX_PLAYERS) setMaxInput(String(maxPlayers))
   }
 
   return (
@@ -110,10 +124,11 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
             <label className={styles.configLabel}>{t.maxPlayersLabel}</label>
             <input
               type="number"
-              min={players.length}
-              max={10}
+              min={minAllowed}
+              max={MAX_PLAYERS}
               value={maxInput}
               onChange={(e) => handleMaxPlayersChange(e.target.value)}
+              onBlur={handleMaxPlayersBlur}
               className={styles.maxInput}
             />
           </div>

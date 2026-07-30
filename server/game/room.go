@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"time"
 )
 
@@ -44,6 +45,12 @@ const (
 	serverMaxPlayers  = 10
 	initialHandSize   = 8
 	undeclaredPenalty = 2
+	// failedCatchPenalty is what a Contre-LOCO! costs when it arrives too late.
+	// The call is a wager: catching an undeclared seat is worth 2 cards to the
+	// table, so calling it on a seat that already declared has to cost the
+	// caller something, or the correct play is to mash the button on every
+	// single card anybody ever holds.
+	failedCatchPenalty = 1
 	// catchWindow is how long after a player's last card play other players can catch them.
 	catchWindow = 5 * time.Second
 )
@@ -64,6 +71,7 @@ const (
 	EventTurnPassed   EventKind = "turn_passed"
 	EventUnoDeclared  EventKind = "uno_declared"
 	EventUnoCaught    EventKind = "uno_caught"
+	EventCatchFailed  EventKind = "catch_failed"
 	EventCounterDraw  EventKind = "counter_draw"
 	EventGameFinished EventKind = "game_finished"
 	EventRoundEnd     EventKind = "round_end"
@@ -89,10 +97,15 @@ type GameState struct {
 	ActiveColor      Color
 	PendingDraw      int  // accumulated draw penalty for next player
 	HasDrawn         bool // true after a voluntary (non-penalty) draw this turn; reset on turn advance
-	LastCardDeclared bool
-	LastCardTime     time.Time // when the last card was played (for catch window)
-	LastCardPlayer   int       // who played to 1 card
-	EventLog         []GameEvent
+
+	// Last-card declaration, tracked PER SEAT. A single slot cannot express the
+	// board a Swap or a GlobalSwitch produces: both rearrange hands, so several
+	// players can land on one card in the same instant and each of them owes the
+	// table a declaration. Indexed by player index, sized in dealRound.
+	LastCardDeclared []bool
+	LastCardAt       []time.Time // when this seat's catch window opened; zero = closed
+
+	EventLog []GameEvent
 
 	// Interrupt window: explicit state for the realtime "lead taking" / jump-in
 	// mechanic. After every successful play the window is opened: ANY player who
@@ -122,6 +135,18 @@ func resolveChosenColor(card Card, chosenColor Color) Color {
 	return chosenColor
 }
 
+// setActiveColor is the ONLY way ActiveColor is written after the deal. It
+// refuses Wild: that value matches no coloured card, so it would leave the
+// whole table holding wilds as its only legal play (and the discard's colour
+// ring would render purple-for-nothing). Every wild, GlobalSwitch included,
+// names a real colour before reaching here; this is the last line of defence.
+func (s *GameState) setActiveColor(c Color) {
+	if c == Wild {
+		return
+	}
+	s.ActiveColor = c
+}
+
 // armInterruptWindow opens / refreshes the interrupt window for the most recent play.
 // Called by PlayCard, PlayCards, InterruptPlay(Cards), and CounterDraw.
 func (s *GameState) armInterruptWindow(actor int) {
@@ -134,21 +159,62 @@ func (s *GameState) closeInterruptWindow() {
 	s.LastPlayBy = -1
 }
 
+// openCatchWindow puts one seat on the hook: it owes the table a declaration
+// and can be caught until catchWindow elapses.
+func (s *GameState) openCatchWindow(playerIndex int) {
+	s.LastCardDeclared[playerIndex] = false
+	s.LastCardAt[playerIndex] = time.Now()
+}
+
 // updateLastCardState refreshes the UNO declaration tracking after a card is
-// played: when the actor is now down to a single card they become the tracked
-// target and their catch window opens with the current timestamp.
+// played: when the actor is now down to a single card their catch window opens
+// with the current timestamp.
 //
-// The declaration flag is reset ONLY here, when a new player enters the 1-card
-// state. Resetting it on every play (whoever the actor was) voided a legitimate
-// declaration as soon as anybody else discarded inside the same 5 s window —
-// which, with interjections, is most plays.
+// Only that seat's flag is touched. Resetting a global flag on every play
+// voided a legitimate declaration as soon as anybody else discarded inside the
+// same 5 s window, which, with interjections, is most plays.
 func (s *GameState) updateLastCardState(playerIndex int) {
 	if s.Hands[playerIndex].Size() != 1 {
 		return
 	}
-	s.LastCardDeclared = false
-	s.LastCardTime = time.Now()
-	s.LastCardPlayer = playerIndex
+	s.openCatchWindow(playerIndex)
+}
+
+// openCatchWindowsAfterRearrange puts EVERY seat holding a single card on the
+// hook after a Swap or a GlobalSwitch. Receiving your last card counts exactly
+// like playing down to it: what the rule protects is the table's right to know
+// somebody is one card from winning, and a hand that arrived by rotation is one
+// nobody at the table has heard announced, including a seat that declared a
+// moment ago, since the card it declared for is not the card it now holds.
+func (s *GameState) openCatchWindowsAfterRearrange() {
+	for i := range s.Hands {
+		if s.Hands[i].Size() == 1 {
+			s.openCatchWindow(i)
+		}
+	}
+}
+
+// catchWindowOpen reports whether targetIndex can still be caught at now.
+func (s *GameState) catchWindowOpen(targetIndex int, now time.Time) bool {
+	at := s.LastCardAt[targetIndex]
+	return !at.IsZero() && now.Sub(at) <= catchWindow
+}
+
+// CatchableTargets returns every seat that owes the table a declaration at now,
+// oldest window first, i.e. the one about to expire is the one a catcher who
+// named no target gets. Several seats at once is the normal case after a Swap
+// or a GlobalSwitch.
+func (s *GameState) CatchableTargets(now time.Time) []int {
+	var out []int
+	for i := range s.Hands {
+		if s.Hands[i].Size() == 1 && !s.LastCardDeclared[i] && s.catchWindowOpen(i, now) {
+			out = append(out, i)
+		}
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		return s.LastCardAt[out[a]].Before(s.LastCardAt[out[b]])
+	})
+	return out
 }
 
 // stackBatchEffects applies the (count-1) extra effects of a batch identical-card
@@ -193,7 +259,7 @@ func (s *GameState) countInHand(playerIndex int, card Card) int {
 // CounterDraw deliberately does NOT use this helper — its win path historically
 // omits the closeInterruptWindow call.
 func (r *Room) finishRoundWin(playerIndex int, activeColor Color) {
-	r.State.ActiveColor = activeColor
+	r.State.setActiveColor(activeColor)
 	r.State.closeInterruptWindow()
 	r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
 	r.endRound(playerIndex)
@@ -216,6 +282,11 @@ type Room struct {
 	Scores        []int // cumulative match scores per playerID
 	RoundsWon     []int // rounds won per playerID
 	LostHandTotal []int // sum of remaining hand values for the round losers (tiebreaker)
+	// RoundHistory[k][playerID] = points scored by that player in round k+1.
+	// Cumulative Scores alone cannot be broken back down per round once a player
+	// wins twice, and the in-game score table shows every round played so far,
+	// including after a reconnect, which is why this lives on the server.
+	RoundHistory [][]int
 
 	// Signals for the hub to act on (set by endRound, cleared by hub)
 	RoundEnded  bool
@@ -327,6 +398,7 @@ func (r *Room) Start() error {
 	r.Scores = make([]int, n)
 	r.RoundsWon = make([]int, n)
 	r.LostHandTotal = make([]int, n)
+	r.RoundHistory = nil
 	r.RoundNumber = 1
 	if r.rng == nil {
 		r.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -372,13 +444,15 @@ func (r *Room) dealRound(startingPlayer int) {
 	}
 
 	r.State = &GameState{
-		Hands:       hands,
-		Deck:        deck,
-		Discard:     []Card{firstCard},
-		CurrentTurn: startingPlayer,
-		Direction:   1,
-		ActiveColor: firstCard.Color,
-		LastPlayBy:  -1,
+		Hands:            hands,
+		Deck:             deck,
+		Discard:          []Card{firstCard},
+		CurrentTurn:      startingPlayer,
+		Direction:        1,
+		ActiveColor:      firstCard.Color,
+		LastPlayBy:       -1,
+		LastCardDeclared: make([]bool, n),
+		LastCardAt:       make([]time.Time, n),
 	}
 
 	r.State.logEvent(EventGameStarted, -1, nil, 0)
@@ -403,6 +477,14 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 
 	if !CanPlay(card, r.State.topCard(), r.State.ActiveColor) {
 		return errors.New("illegal card play")
+	}
+
+	// A wild carries no colour of its own; the player must name the one that
+	// becomes active. GlobalSwitch is no exception: it rotates the hands *and*
+	// sets the colour, so a rotation that also left the colour to chance would
+	// be the one card whose outcome nobody chose.
+	if card.IsWild() && chosenColor == Wild {
+		return errors.New("must choose a color for a wild card")
 	}
 
 	// Validate Swap target before any state mutation so an invalid request
@@ -437,6 +519,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 	}
 
 	// Apply Swap / GlobalSwitch hand effects only when the actor still has cards.
+	rearranged := card.Kind == Swap || card.Kind == GlobalSwitch
 	if card.Kind == Swap {
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if card.Kind == GlobalSwitch {
@@ -448,7 +531,11 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		r.State.Hands = newHands
 	}
 
-	r.State.updateLastCardState(playerIndex)
+	if rearranged {
+		r.State.openCatchWindowsAfterRearrange()
+	} else {
+		r.State.updateLastCardState(playerIndex)
+	}
 
 	next := r.State.ApplyEffect(card, chosenColor)
 	r.State.HasDrawn = false
@@ -492,6 +579,9 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 	}
 	if !CanPlay(first, r.State.topCard(), r.State.ActiveColor) {
 		return errors.New("illegal card play")
+	}
+	if first.IsWild() && chosenColor == Wild {
+		return errors.New("must choose a color for a wild card")
 	}
 
 	for i := 0; i < len(cards); i++ {
@@ -542,6 +632,11 @@ func (r *Room) endRound(winnerIdx int) {
 		r.LostHandTotal[i] += handVal
 	}
 	r.Scores[winnerIdx] += score
+
+	// One row per round, in play order: everyone scores 0 except the finisher.
+	roundPoints := make([]int, len(r.Players))
+	roundPoints[winnerIdx] = score
+	r.RoundHistory = append(r.RoundHistory, roundPoints)
 
 	r.State.logEvent(EventRoundEnd, winnerIdx, nil, 0)
 	r.RoundEnded = true
@@ -595,6 +690,7 @@ func (r *Room) ResetForRematch() error {
 	r.Scores = nil
 	r.RoundsWon = nil
 	r.LostHandTotal = nil
+	r.RoundHistory = nil
 	return nil
 }
 
@@ -666,18 +762,22 @@ func (r *Room) DrawCard(playerIndex int) error {
 		return errors.New("not your turn")
 	}
 
+	// A forced draw does not cost the turn (rules.md §14.5): the victim takes the
+	// whole accumulated stack and then plays normally, or passes. Cards *and* the
+	// turn for one played card is two punishments, and it reads as a bug — the
+	// hand jumps and the seat is gone before the player can act. It is also what
+	// makes an off-colour +2 worth holding: it does not counter, but it plays as
+	// an ordinary kind-match once the stack has been taken.
 	n := 1
-	skipTurn := false
 	if r.State.PendingDraw > 0 {
 		n = r.State.PendingDraw
 		r.State.PendingDraw = 0
-		skipTurn = true
-	} else {
-		if r.State.HasDrawn {
-			return errors.New("you have already drawn this turn")
-		}
-		r.State.HasDrawn = true
+	} else if r.State.HasDrawn {
+		return errors.New("you have already drawn this turn")
 	}
+	// Set in both branches: nothing but PlayCard / PassTurn / an effect moves the
+	// turn on from here, and PassTurn requires HasDrawn.
+	r.State.HasDrawn = true
 
 	r.ensureDeck(n)
 	cards, ok := r.State.Deck.DrawN(n)
@@ -686,10 +786,6 @@ func (r *Room) DrawCard(playerIndex int) error {
 	}
 	r.State.Hands[playerIndex].Add(cards...)
 
-	if skipTurn {
-		r.State.HasDrawn = false
-		r.State.CurrentTurn = r.State.nextTurn(playerIndex)
-	}
 	// A draw is not an interruptable event; close the window so the next
 	// player can act normally without a stale jump-in opportunity.
 	r.State.closeInterruptWindow()
@@ -723,10 +819,38 @@ func (r *Room) DeclareLastCard(playerIndex int) error {
 	if r.State.Hands[playerIndex].Size() != 1 {
 		return errors.New("can only declare with exactly 1 card in hand")
 	}
-	r.State.LastCardDeclared = true
-	r.State.LastCardPlayer = playerIndex
+	// A declaration is spent, exactly like a catch: the flag stays true until a
+	// new window opens on this seat (openCatchWindow), which is the only moment
+	// the seat owes the table a call again. Without this the same single card
+	// could be announced over and over, replaying the banner and the sting.
+	if r.State.LastCardDeclared[playerIndex] {
+		return errors.New("player already declared")
+	}
+	r.State.LastCardDeclared[playerIndex] = true
 	r.State.logEvent(EventUnoDeclared, playerIndex, nil, 0)
 	return nil
+}
+
+// The three ways a catch loses on timing rather than on legality. They are
+// sentinels, not new strings: the wire text is unchanged, only now the hub can
+// tell "you were too slow" (charge a card, say nothing about cheating) from
+// "that target does not exist" (a client bug or an attack).
+var (
+	// ErrAlreadyDeclared — the target's LOCO! reached the server first.
+	ErrAlreadyDeclared = errors.New("player already declared")
+	// ErrCatchWindowExpired — the 5s window closed before the message landed.
+	ErrCatchWindowExpired = errors.New("catch window expired")
+	// ErrTargetNotSingleCard — the target's hand grew (a draw, a penalty) between
+	// the click and the message, which closes the obligation just as effectively.
+	ErrTargetNotSingleCard = errors.New("target does not have exactly 1 card")
+)
+
+// IsMissedCatch reports whether a CatchUndeclared error is a lost race — the
+// only class of rejection that costs the caller a card.
+func IsMissedCatch(err error) bool {
+	return errors.Is(err, ErrAlreadyDeclared) ||
+		errors.Is(err, ErrCatchWindowExpired) ||
+		errors.Is(err, ErrTargetNotSingleCard)
 }
 
 // CatchUndeclared allows catcherIndex to penalize targetIndex for not declaring their last card.
@@ -734,17 +858,20 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
 	}
-	if r.State.LastCardDeclared {
-		return errors.New("player already declared")
+	if targetIndex < 0 || targetIndex >= len(r.State.Hands) {
+		return fmt.Errorf("invalid target %d", targetIndex)
+	}
+	if catcherIndex == targetIndex {
+		return errors.New("cannot catch yourself")
+	}
+	if r.State.LastCardDeclared[targetIndex] {
+		return ErrAlreadyDeclared
 	}
 	if r.State.Hands[targetIndex].Size() != 1 {
-		return errors.New("target does not have exactly 1 card")
+		return ErrTargetNotSingleCard
 	}
-	if r.State.LastCardPlayer != targetIndex {
-		return errors.New("target did not just play to 1 card")
-	}
-	if now.Sub(r.State.LastCardTime) > catchWindow {
-		return errors.New("catch window expired")
+	if !r.State.catchWindowOpen(targetIndex, now) {
+		return ErrCatchWindowExpired
 	}
 	r.ensureDeck(undeclaredPenalty)
 	cards, ok := r.State.Deck.DrawN(undeclaredPenalty)
@@ -752,9 +879,46 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 		return errors.New("deck exhausted during penalty")
 	}
 	r.State.Hands[targetIndex].Add(cards...)
-	r.State.LastCardDeclared = true
+	// The penalty settles the debt: this seat is no longer catchable, and it now
+	// holds three cards anyway.
+	r.State.LastCardDeclared[targetIndex] = true
 	r.State.logEvent(EventUnoCaught, catcherIndex, nil, 0)
 	return nil
+}
+
+// PenalizeFailedCatch charges catcherIndex one card for a Contre-LOCO! that lost
+// its race (IsMissedCatch). It returns the cards actually drawn so the hub can
+// send them to their owner.
+//
+// It deliberately touches nothing else: not the turn, not HasDrawn, not the
+// target. A failed call is a side bet on somebody else's obligation, and the
+// player who made it may not even be in turn.
+//
+// Like every other draw in this game it cannot fail — once every card sits in a
+// hand the caller simply gets away with it, rather than the round freezing on an
+// error nobody can act on.
+func (r *Room) PenalizeFailedCatch(catcherIndex int) []Card {
+	if r.Status != StatusPlaying || r.State == nil {
+		return nil
+	}
+	if catcherIndex < 0 || catcherIndex >= len(r.State.Hands) {
+		return nil
+	}
+	r.ensureDeck(failedCatchPenalty)
+	drawn := make([]Card, 0, failedCatchPenalty)
+	for i := 0; i < failedCatchPenalty; i++ {
+		card, ok := r.State.Deck.Draw()
+		if !ok {
+			break
+		}
+		drawn = append(drawn, card)
+	}
+	if len(drawn) == 0 {
+		return nil
+	}
+	r.State.Hands[catcherIndex].Add(drawn...)
+	r.State.logEvent(EventCatchFailed, catcherIndex, nil, 0)
+	return drawn
 }
 
 // InterruptPlay is the single-card form of InterruptPlayCards.
@@ -825,7 +989,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	}
 	// A wild carries no colour of its own; the interjecter must name the one
 	// that becomes active, exactly as on a normal wild play.
-	if first.IsWild() && first.Kind != GlobalSwitch && chosenColor == Wild {
+	if first.IsWild() && chosenColor == Wild {
 		return errors.New("must choose a color for a wild card")
 	}
 	if r.State.countInHand(playerIndex, first) < len(cards) {
@@ -870,6 +1034,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	}
 
 	// Apply the hand-moving effects now that the played card has been removed.
+	rearranged := first.Kind == Swap || first.Kind == GlobalSwitch
 	if first.Kind == Swap {
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if first.Kind == GlobalSwitch {
@@ -881,7 +1046,11 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		r.State.Hands = newHands
 	}
 
-	r.State.updateLastCardState(playerIndex)
+	if rearranged {
+		r.State.openCatchWindowsAfterRearrange()
+	} else {
+		r.State.updateLastCardState(playerIndex)
+	}
 
 	// Lead transfers: interrupter becomes current player, then apply the
 	// played card's effect from their seat (advances turn / sets penalty / flips dir).
@@ -908,8 +1077,22 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 		return errors.New("card not in hand")
 	}
 
-	if card.Kind != r.State.topCard().Kind {
+	top := r.State.topCard()
+	if card.Kind != top.Kind {
 		return errors.New("counter card must match kind of draw card")
+	}
+	// Same colour only — countering is passing the stack on with the *same* card,
+	// so a red +2 is answered by a red +2. (Every +4 is Wild-coloured, so this is
+	// automatically satisfied for a +4 chain.) A mismatched +2 is not lost: the
+	// forced draw does not cost the turn (§14.5), so its holder takes the stack
+	// and can then play it as an ordinary kind-match on the same discard.
+	if card.Color != top.Color {
+		return errors.New("counter card must match color of draw card")
+	}
+	// A +4 stacked onto the chain still names the colour that becomes active
+	// once the stack resolves, exactly as on a normal wild play.
+	if card.IsWild() && chosenColor == Wild {
+		return errors.New("must choose a color for a wild card")
 	}
 
 	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
@@ -925,7 +1108,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	r.State.updateLastCardState(playerIndex)
 
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.State.ActiveColor = chosenColor
+		r.State.setActiveColor(chosenColor)
 		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
 		r.endRound(playerIndex)
 		return nil

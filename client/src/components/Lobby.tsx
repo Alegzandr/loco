@@ -2,10 +2,12 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
+import { resolveServerError } from '../i18n/serverErrors'
 import { RulesModal } from './RulesModal'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { ThemeToggle } from './ThemeToggle'
 import { AudioSettings } from './AudioSettings'
+import { LocoLogo } from './LocoLogo'
 import { playSfx } from '../audio/sfx'
 import styles from './Lobby.module.css'
 
@@ -56,13 +58,20 @@ export function Lobby({ onSend, error, onClearError, initialMode = 'home' }: Pro
         </button>
       </div>
 
-      <h1 className={styles.title}>LOCO</h1>
+      <h1 className={styles.title}>
+        <LocoLogo size="clamp(58px, 11vw, 128px)" animated />
+      </h1>
       <p className={styles.tagline}>{t.tagline}</p>
 
+      {/* An alert, not a control: it announces itself to assistive tech and
+          clears as soon as the player edits the field it is complaining about,
+          so it never needed to be clickable to be dismissible. Styling it as a
+          filled pill the same size as the CTA below made it read as a third
+          button on the screen. */}
       {error && (
-        <div className={styles.error} onClick={onClearError}>
-          {error}
-        </div>
+        <p className={styles.error} role="alert">
+          {resolveServerError(error, t.errors)}
+        </p>
       )}
 
       {mode === 'home' && (

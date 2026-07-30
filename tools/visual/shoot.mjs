@@ -17,15 +17,11 @@
  * Playwright is resolved from e2e/node_modules (already installed for the E2E
  * suite) so this adds no dependency to the client.
  */
-import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import net from 'node:net'
+import { ROOT, startVite } from '../lib/vite.mjs'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(HERE, '..', '..')
 const OUT_DIR = path.join(ROOT, '.visual')
 
 const require = createRequire(path.join(ROOT, 'e2e', 'package.json'))
@@ -58,6 +54,15 @@ const VIEWPORTS = {
     isMobile: true,
     hasTouch: true,
   },
+  // The small end of the phone range (iPhone SE / older Android). The board
+  // scales *down* here, so this is where "cards too big for the screen"
+  // regressions show up — `mobile` alone never catches them.
+  small: {
+    viewport: { width: 360, height: 640 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+  },
 }
 
 const themes = String(args.themes ?? 'light,dark').split(',').filter(Boolean)
@@ -74,41 +79,6 @@ async function readScenes() {
   while ((m = re.exec(src)) !== null) scenes.push({ id: m[1], title: m[2] })
   if (scenes.length === 0) throw new Error('no scenes found in client/src/dev/scenes.ts')
   return scenes
-}
-
-// ─── Dev server ─────────────────────────────────────────────────────────────
-
-function waitForPort(port, timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      const sock = net.connect(port, '127.0.0.1')
-      sock.once('connect', () => { sock.destroy(); resolve() })
-      sock.once('error', () => {
-        sock.destroy()
-        if (Date.now() > deadline) reject(new Error(`vite did not start on :${port}`))
-        else setTimeout(tick, 250)
-      })
-    }
-    tick()
-  })
-}
-
-async function startVite() {
-  const bin = path.join(ROOT, 'client', 'node_modules', 'vite', 'bin', 'vite.js')
-  const child = spawn(process.execPath, [bin, '--port', String(PORT), '--strictPort'], {
-    cwd: path.join(ROOT, 'client'),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, VITE_HMR_CLIENT_PORT: String(PORT) },
-  })
-  child.stdout.on('data', () => {})
-  let stderr = ''
-  child.stderr.on('data', (d) => { stderr += d.toString() })
-  child.on('exit', (code) => {
-    if (code !== 0 && code !== null) console.error(`vite exited (${code})\n${stderr}`)
-  })
-  await waitForPort(PORT)
-  return child
 }
 
 // ─── Capture ────────────────────────────────────────────────────────────────
@@ -217,7 +187,7 @@ function escapeHtml(s) {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
-const vite = await startVite()
+const vite = await startVite(PORT)
 try {
   const shots = await capture()
   console.log(`\n✓ ${shots.length} captures → .visual/`)

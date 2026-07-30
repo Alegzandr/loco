@@ -29,8 +29,9 @@ func dtoToCard(dto *protocol.CardDTO, chosenColorStr string) (game.Card, game.Co
 		return game.Card{}, 0, err
 	}
 	chosen := col
-	// WildCard and WildDrawFour require a chosen_color; Swap and GlobalSwitch do not.
-	if kind == game.WildCard || kind == game.WildDrawFour {
+	// Every wild requires a chosen_color, GlobalSwitch included. Swap is
+	// coloured and carries its own.
+	if kind == game.WildCard || kind == game.WildDrawFour || kind == game.GlobalSwitch {
 		chosen, err = parseColor(chosenColorStr)
 		if err != nil {
 			return game.Card{}, 0, fmt.Errorf("chosen_color required for wild: %w", err)
@@ -107,6 +108,11 @@ func parseMatchFormat(s string) (game.MatchFormat, error) {
 	return 0, fmt.Errorf("invalid match format %q: must be BO1, BO3, BO5, or BO7", s)
 }
 
+// intPtr / boolPtr wrap a value for the pointer-typed wire fields whose zero
+// value must survive `omitempty` (see protocol.ServerMsg.PendingDraw).
+func intPtr(v int) *int    { return &v }
+func boolPtr(v bool) *bool { return &v }
+
 // --- Broadcast helpers ---
 
 // broadcastCardPlayed sends a card_played event for the top discard card to all room members.
@@ -121,12 +127,13 @@ func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room, ch
 	top := state.Discard[len(state.Discard)-1]
 	msg := protocol.ServerMsg{
 		Type:         protocol.SMsgCardPlayed,
-		PlayerIndex:  playerID,
+		PlayerIndex:  intPtr(playerID),
 		Card:         cardToDTO(top),
 		ActiveColor:  colorName(state.ActiveColor),
 		Turn:         state.CurrentTurn,
 		Direction:    state.Direction,
-		PendingDraw:  state.PendingDraw,
+		PendingDraw:  intPtr(state.PendingDraw),
+		HasDrawn:     boolPtr(state.HasDrawn),
 		Players:      h.playerList(room),
 		TurnDeadline: h.turnDeadlineMs(code),
 	}

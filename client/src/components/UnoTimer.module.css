@@ -36,11 +36,15 @@
   overflow: hidden;
 }
 
+/* Full width, drained by scaleX (see .loco-draining in tokens.css) so the
+   5s window costs the main thread nothing while the catch is live, which is
+   exactly the moment the player needs their click handled instantly.
+   The drain animation paints the fill, so the gradient is a fallback for the
+   frame before it is armed. */
 .unoTimerFill {
   height: 100%;
   border-radius: var(--radius-full);
   background: linear-gradient(90deg, #ffc93c 0%, var(--color-primary) 100%);
-  transition: width 0.1s linear;
 }
 
 @keyframes catchIn {

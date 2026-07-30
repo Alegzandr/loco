@@ -240,7 +240,7 @@ func TestRoom_WinDetection(t *testing.T) {
 	top := r.State.Discard[len(r.State.Discard)-1]
 	winCard := Card{Color: top.Color, Kind: Number, Value: 1}
 	r.State.Hands[0].Cards = []Card{winCard}
-	r.State.LastCardDeclared = true // alice has declared
+	r.State.LastCardDeclared[0] = true // alice has declared
 
 	err := r.PlayCard(0, winCard, winCard.Color, -1)
 	if err != nil {
@@ -262,8 +262,42 @@ func TestRoom_LastCardDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DeclareLastCard() error: %v", err)
 	}
-	if !r.State.LastCardDeclared {
-		t.Error("LastCardDeclared should be true")
+	if !r.State.LastCardDeclared[0] {
+		t.Error("LastCardDeclared[0] should be true")
+	}
+}
+
+// TestRoom_LastCardDeclaration_OnlyOnce pins that a declaration is spent: the
+// same single card cannot be announced twice. Repeating it re-broadcast
+// uno_declared and re-logged the event, so a player could spam the banner (and
+// the sting that goes with it) for as long as they held that card.
+func TestRoom_LastCardDeclaration_OnlyOnce(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.Hands[0].Cards = r.State.Hands[0].Cards[:1]
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	err := r.DeclareLastCard(0)
+	if err == nil {
+		t.Fatal("expected error declaring twice, got nil")
+	}
+	if err.Error() != "player already declared" {
+		t.Errorf("got error %q, want %q", err.Error(), "player already declared")
+	}
+}
+
+// TestRoom_LastCardDeclaration_AgainAfterRearrange verifies the flip side: a
+// Swap or a GlobalSwitch hands the seat a *different* single card, which nobody
+// at the table has heard announced, so the seat owes a fresh declaration.
+func TestRoom_LastCardDeclaration_AgainAfterRearrange(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+	r.State.Hands[0].Cards = r.State.Hands[0].Cards[:1]
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	r.State.openCatchWindowsAfterRearrange()
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard after rearrange: %v", err)
 	}
 }
 
@@ -304,8 +338,8 @@ func TestRoom_CatchUndeclared_WindowExpired(t *testing.T) {
 	if err := r.PlayCard(0, leaveCard, leaveCard.Color, -1); err != nil {
 		t.Fatalf("PlayCard: %v", err)
 	}
-	if r.State.LastCardTime.IsZero() {
-		t.Fatal("expected LastCardTime to be set after playing to 1 card")
+	if r.State.LastCardAt[0].IsZero() {
+		t.Fatal("expected LastCardAt to be set after playing to 1 card")
 	}
 
 	// Simulate 6 seconds later — window is expired
@@ -334,8 +368,8 @@ func TestRoom_CatchUndeclared_AfterDeclared(t *testing.T) {
 	if err := r.DeclareLastCard(0); err != nil {
 		t.Fatalf("DeclareLastCard: %v", err)
 	}
-	if !r.State.LastCardDeclared {
-		t.Fatal("expected LastCardDeclared = true after declaration")
+	if !r.State.LastCardDeclared[0] {
+		t.Fatal("expected LastCardDeclared[0] = true after declaration")
 	}
 
 	// Bob tries to catch — must fail
@@ -384,10 +418,10 @@ func TestRoom_CatchUndeclared_NotReopenedByLaterPlay(t *testing.T) {
 	}
 }
 
-// TestRoom_UNOStateCleanOnNewRound verifies that all UNO-tracking fields (LastCardDeclared,
-// LastCardTime, LastCardPlayer) are properly reset to zero values when a new round starts.
-// Specifically, stale catch attempts on the new round must fail the catch window check
-// (zero LastCardTime is always outside the 5-second window).
+// TestRoom_UNOStateCleanOnNewRound verifies that the per-seat UNO-tracking slices
+// (LastCardDeclared, LastCardAt) are reallocated clean when a new round starts.
+// Specifically, stale catch attempts on the new round must fail the catch window
+// check (a zero LastCardAt is always outside the 5-second window).
 func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	r.Format = BO3 // multi-round match so ending round 1 starts round 2
@@ -406,11 +440,11 @@ func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 	if err := r.PlayCard(0, aliceCard1, matchColor, -1); err != nil {
 		t.Fatalf("alice play: %v", err)
 	}
-	if r.State.LastCardTime.IsZero() {
-		t.Fatal("round 1: expected LastCardTime set after alice plays to 1 card")
+	if r.State.LastCardAt[0].IsZero() {
+		t.Fatal("round 1: expected LastCardAt set after alice plays to 1 card")
 	}
-	if r.State.LastCardDeclared {
-		t.Fatal("round 1: expected LastCardDeclared = false (no declaration)")
+	if r.State.LastCardDeclared[0] {
+		t.Fatal("round 1: expected LastCardDeclared[0] = false (no declaration)")
 	}
 
 	// Bob plays his only card → 0 cards → round 1 ends.
@@ -434,17 +468,17 @@ func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 	}
 
 	// New round must have clean UNO state
-	if r.State.LastCardDeclared {
-		t.Error("round 2: LastCardDeclared should be false (zero value from dealRound)")
+	if r.State.LastCardDeclared[0] {
+		t.Error("round 2: LastCardDeclared[0] should be false (fresh slice from dealRound)")
 	}
-	if !r.State.LastCardTime.IsZero() {
-		t.Errorf("round 2: LastCardTime should be zero (fresh deal), got %v", r.State.LastCardTime)
+	if !r.State.LastCardAt[0].IsZero() {
+		t.Errorf("round 2: LastCardAt should be zero (fresh deal), got %v", r.State.LastCardAt[0])
 	}
 
-	// Any catch attempt must fail: zero LastCardTime → window is always expired
+	// Any catch attempt must fail: zero LastCardAt → window is always expired
 	err := r.CatchUndeclared(0, 1, time.Now())
 	if err == nil {
-		t.Fatal("catch at round-2 start must fail (zero LastCardTime means window expired)")
+		t.Fatal("catch at round-2 start must fail (zero LastCardAt means window expired)")
 	}
 }
 
@@ -512,6 +546,52 @@ func TestRoom_CardValueScoring(t *testing.T) {
 	}
 	if r.RoundsWon[0] != 1 {
 		t.Errorf("alice rounds won = %d, want 1", r.RoundsWon[0])
+	}
+}
+
+// The in-game score table shows one column per round played, so every finished
+// round must leave its own row behind: cumulative Scores cannot be broken back
+// down once the same player wins twice.
+func TestRoom_RoundHistory_OneRowPerRound(t *testing.T) {
+	r := NewRoom("HIST")
+	_ = r.Join("alice")
+	_ = r.Join("bob")
+	r.Format = BO3
+	_ = r.Start()
+
+	if len(r.RoundHistory) != 0 {
+		t.Fatalf("fresh match RoundHistory = %v, want empty", r.RoundHistory)
+	}
+
+	// Round 1: alice finishes holding nothing, bob holds 7 + Skip(20) = 27.
+	r.State.Hands[0].Cards = nil
+	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 7}, {Kind: Skip}}
+	r.endRound(0)
+
+	if err := r.BeginNextRound(); err != nil {
+		t.Fatalf("BeginNextRound: %v", err)
+	}
+
+	// Round 2: bob finishes, alice holds a Wild (40).
+	r.State.Hands[1].Cards = nil
+	r.State.Hands[0].Cards = []Card{{Kind: WildCard, Color: Wild}}
+	r.endRound(1)
+
+	want := [][]int{{27, 0}, {0, 40}}
+	if len(r.RoundHistory) != len(want) {
+		t.Fatalf("RoundHistory = %v, want %v", r.RoundHistory, want)
+	}
+	for round, row := range want {
+		for idx, points := range row {
+			if r.RoundHistory[round][idx] != points {
+				t.Errorf("round %d player %d = %d, want %d",
+					round+1, idx, r.RoundHistory[round][idx], points)
+			}
+		}
+	}
+	// The rows must add up to the cumulative scores the scoreboard shows.
+	if r.Scores[0] != 27 || r.Scores[1] != 40 {
+		t.Errorf("Scores = %v, want [27 40]", r.Scores)
 	}
 }
 
@@ -916,7 +996,7 @@ func TestRoom_GlobalSwitch_RotatesHands_Clockwise(t *testing.T) {
 	r.State.ActiveColor = Red
 	r.State.Direction = 1 // clockwise: 0→1→2
 
-	err := r.PlayCard(0, gsCard, Wild, -1)
+	err := r.PlayCard(0, gsCard, Blue, -1)
 	if err != nil {
 		t.Fatalf("PlayCard GlobalSwitch error: %v", err)
 	}
@@ -952,7 +1032,7 @@ func TestRoom_GlobalSwitch_RotatesByDirection_CounterClockwise(t *testing.T) {
 	r.State.ActiveColor = Red
 	r.State.Direction = -1 // counter-clockwise: each hand passes to (i+1)→(i)
 
-	if err := r.PlayCard(0, gsCard, Wild, -1); err != nil {
+	if err := r.PlayCard(0, gsCard, Blue, -1); err != nil {
 		t.Fatalf("PlayCard GlobalSwitch: %v", err)
 	}
 	// With direction=-1, rotation: newHands[i] = Hands[(i+1)%n]
@@ -988,6 +1068,114 @@ func TestRoom_GlobalSwitch_AlwaysPlayable(t *testing.T) {
 	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
 	if !CanPlay(gsCard, Card{Color: Green, Kind: Skip}, Green) {
 		t.Error("GlobalSwitch is wild; must always be playable")
+	}
+}
+
+func TestRoom_GlobalSwitch_SetsChosenColorPlayable(t *testing.T) {
+	// A GlobalSwitch names a colour like any other wild, and that colour must be
+	// a real one so the next player can answer with an ordinary coloured card.
+	// If ActiveColor became Wild the only legal cards at the table would be wilds
+	// and everybody would be stuck drawing.
+	r := setupThreePlayerGame(t)
+	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
+	// Hands rotate one seat, so the card the next player will hold is the one
+	// left in seat 0 after the play.
+	r.State.Hands[0].Cards = []Card{gsCard, {Color: Red, Kind: Number, Value: 2}}
+	r.State.Hands[1].Cards = []Card{{Color: Blue, Kind: Number, Value: 3}}
+	r.State.Hands[2].Cards = []Card{{Color: Green, Kind: Number, Value: 4}}
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.ActiveColor = Red
+	r.State.Direction = 1
+
+	if err := r.PlayCard(0, gsCard, Red, -1); err != nil {
+		t.Fatalf("PlayCard GlobalSwitch: %v", err)
+	}
+	if r.State.ActiveColor != Red {
+		t.Fatalf("ActiveColor = %v, want Red (chosen)", r.State.ActiveColor)
+	}
+	next := r.State.CurrentTurn
+	var playable bool
+	for _, c := range r.State.Hands[next].Cards {
+		if CanPlay(c, r.State.topCard(), r.State.ActiveColor) {
+			playable = true
+		}
+	}
+	if !playable {
+		t.Errorf("player %d holds %v — no legal card after GlobalSwitch", next, r.State.Hands[next].Cards)
+	}
+}
+
+func TestRoom_InterruptPlay_GlobalSwitch_SetsChosenColor(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Wild, Kind: GlobalSwitch}}
+	armInterrupt(r, 0)
+
+	gs := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Hands[0].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
+	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 2}}
+	r.State.Hands[2].Cards = []Card{gs, {Color: Red, Kind: Number, Value: 3}}
+
+	if err := r.InterruptPlay(2, gs, Green, -1); err != nil {
+		t.Fatalf("GlobalSwitch interject: %v", err)
+	}
+	if r.State.ActiveColor != Green {
+		t.Errorf("ActiveColor = %v, want Green (chosen by the interjecter)", r.State.ActiveColor)
+	}
+}
+
+// A GlobalSwitch is a wild: it must name the colour that becomes active, on a
+// normal play and on an interject alike. Letting a colourless one through would
+// hand the table a rotation whose colour nobody chose.
+func TestRoom_GlobalSwitch_RequiresChosenColor(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	gs := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Hands[0].Cards = []Card{gs, {Color: Red, Kind: Number, Value: 1}}
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.ActiveColor = Red
+
+	if err := r.PlayCard(0, gs, Wild, -1); err == nil {
+		t.Error("a GlobalSwitch play must name a real colour")
+	}
+	if len(r.State.Discard) != 1 {
+		t.Error("a rejected GlobalSwitch must not touch the discard pile")
+	}
+}
+
+func TestRoom_InterruptPlay_GlobalSwitch_RequiresChosenColor(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Wild, Kind: GlobalSwitch}}
+	armInterrupt(r, 0)
+
+	gs := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Hands[2].Cards = []Card{gs, {Color: Red, Kind: Number, Value: 3}}
+
+	if err := r.InterruptPlay(2, gs, Wild, -1); err == nil {
+		t.Error("a GlobalSwitch interject must name a real colour")
+	}
+	if len(r.State.Discard) != 1 {
+		t.Error("a rejected GlobalSwitch must not touch the discard pile")
+	}
+}
+
+func TestRoom_GlobalSwitchAsLastCard_DoesNotLeaveWildActive(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	gsCard := Card{Color: Wild, Kind: GlobalSwitch}
+	r.State.Hands[0].Cards = []Card{gsCard}
+	r.State.Hands[1].Cards = []Card{{Color: Green, Kind: Number, Value: 3}}
+	r.State.Hands[2].Cards = []Card{{Color: Yellow, Kind: Skip}}
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
+	r.State.ActiveColor = Red
+
+	if err := r.PlayCard(0, gsCard, Green, -1); err != nil {
+		t.Fatalf("PlayCard GlobalSwitch as last card: %v", err)
+	}
+	if r.State.ActiveColor == Wild {
+		t.Error("ActiveColor must never be Wild — the round summary would show a colourless ring")
 	}
 }
 
@@ -1038,7 +1226,7 @@ func TestRoom_GlobalSwitchAsLastCard_EndsRoundWithoutRotating(t *testing.T) {
 	r.State.ActiveColor = Red
 	r.State.Direction = 1
 
-	if err := r.PlayCard(0, gsCard, Wild, -1); err != nil {
+	if err := r.PlayCard(0, gsCard, Green, -1); err != nil {
 		t.Fatalf("PlayCard GlobalSwitch as last card: %v", err)
 	}
 	if !r.RoundEnded {
@@ -1082,9 +1270,10 @@ func TestPenaltyDraw_ConsumesStack(t *testing.T) {
 	}
 }
 
-// TestPenaltyDraw_EndsTurn verifies that a penalty draw advances the turn
-// immediately, without requiring a separate PassTurn call.
-func TestPenaltyDraw_EndsTurn(t *testing.T) {
+// TestPenaltyDraw_KeepsTurn verifies rules.md §14.5: a forced draw costs cards,
+// not the turn. The victim takes the whole stack and then plays normally — or
+// passes, which is the only thing that moves the turn on from there.
+func TestPenaltyDraw_KeepsTurn(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 
 	// Bob faces a +4 penalty stack.
@@ -1095,20 +1284,21 @@ func TestPenaltyDraw_EndsTurn(t *testing.T) {
 		t.Fatalf("DrawCard error: %v", err)
 	}
 
-	// Turn must have advanced to alice (player 0), not stayed on bob.
-	if r.State.CurrentTurn == 1 {
-		t.Error("turn did not advance after penalty draw — game would be stuck")
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("CurrentTurn = %d after penalty draw, want 1 (bob keeps the turn)", r.State.CurrentTurn)
+	}
+	// HasDrawn gates the second draw and unlocks PassTurn.
+	if !r.State.HasDrawn {
+		t.Error("HasDrawn should be true after a penalty draw")
+	}
+	if err := r.DrawCard(1); err == nil {
+		t.Error("a second draw in the same turn must be refused")
+	}
+	if err := r.PassTurn(1); err != nil {
+		t.Fatalf("PassTurn after a penalty draw: %v", err)
 	}
 	if r.State.CurrentTurn != 0 {
-		t.Errorf("CurrentTurn = %d after penalty draw, want 0 (alice)", r.State.CurrentTurn)
-	}
-	// HasDrawn must be false so alice's normal draw mechanic is unaffected.
-	if r.State.HasDrawn {
-		t.Error("HasDrawn should be false after penalty draw advances the turn")
-	}
-	// PassTurn on bob must now fail (it's not bob's turn).
-	if err := r.PassTurn(1); err == nil {
-		t.Error("PassTurn should fail after penalty draw advanced the turn")
+		t.Errorf("CurrentTurn = %d after passing, want 0 (alice)", r.State.CurrentTurn)
 	}
 }
 
@@ -1145,7 +1335,7 @@ func TestCounterDraw_StackContinues(t *testing.T) {
 		t.Errorf("turn = %d, want 2 (carol)", r.State.CurrentTurn)
 	}
 
-	// carol draws; must consume all 4 and advance back to alice.
+	// carol draws; must consume all 4 and keep the turn (§14.5) until she passes.
 	carolHandBefore := len(r.State.Hands[2].Cards)
 	if err := r.DrawCard(2); err != nil {
 		t.Fatalf("carol DrawCard: %v", err)
@@ -1156,8 +1346,78 @@ func TestCounterDraw_StackContinues(t *testing.T) {
 	if len(r.State.Hands[2].Cards) != carolHandBefore+4 {
 		t.Errorf("carol hand size = %d, want %d", len(r.State.Hands[2].Cards), carolHandBefore+4)
 	}
+	if r.State.CurrentTurn != 2 {
+		t.Errorf("turn = %d after carol draws, want 2 (carol keeps the turn)", r.State.CurrentTurn)
+	}
+	if err := r.PassTurn(2); err != nil {
+		t.Fatalf("carol PassTurn: %v", err)
+	}
 	if r.State.CurrentTurn != 0 {
-		t.Errorf("turn = %d after carol draws, want 0 (alice)", r.State.CurrentTurn)
+		t.Errorf("turn = %d after carol passes, want 0 (alice)", r.State.CurrentTurn)
+	}
+}
+
+// TestCounterDraw_RequiresSameColor verifies that a counter is the same card:
+// a red +2 is answered by a red +2 only. The off-colour +2 is not lost — the
+// forced draw keeps the turn (§14.5), so the victim takes the stack and then
+// plays it as an ordinary kind-match on the very same discard.
+func TestCounterDraw_RequiresSameColor(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	// Bob is under a red +2 and holds a blue one.
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 2
+	r.State.Discard = []Card{{Color: Red, Kind: DrawTwo}}
+	r.State.ActiveColor = Red
+	blueDrawTwo := Card{Color: Blue, Kind: DrawTwo}
+	r.State.Hands[1].Cards = append([]Card{blueDrawTwo}, r.State.Hands[1].Cards...)
+
+	if err := r.CounterDraw(1, blueDrawTwo, Blue); err == nil {
+		t.Fatal("CounterDraw with a differently-coloured +2 should be refused")
+	}
+	if r.State.PendingDraw != 2 {
+		t.Errorf("PendingDraw = %d after refused counter, want 2", r.State.PendingDraw)
+	}
+
+	// Take the penalty: the turn stays with bob, and the blue +2 is now legal.
+	if err := r.DrawCard(1); err != nil {
+		t.Fatalf("bob DrawCard: %v", err)
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Fatalf("turn = %d after forced draw, want 1 (bob keeps the turn)", r.State.CurrentTurn)
+	}
+	if err := r.PlayCard(1, blueDrawTwo, Blue, -1); err != nil {
+		t.Fatalf("blue +2 on a red +2 after the forced draw: %v", err)
+	}
+	if r.State.PendingDraw != 2 {
+		t.Errorf("PendingDraw = %d, want 2 (the newly played +2)", r.State.PendingDraw)
+	}
+	if r.State.ActiveColor != Blue {
+		t.Errorf("ActiveColor = %v, want blue", r.State.ActiveColor)
+	}
+}
+
+// TestCounterDraw_WildChainIgnoresColorTest verifies the colour check never
+// blocks a +4 chain: every WildDrawFour is Wild-coloured, so same-colour holds
+// by construction whatever colour was chosen.
+func TestCounterDraw_WildChainIgnoresColorTest(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 4
+	r.State.Discard = []Card{{Color: Wild, Kind: WildDrawFour}}
+	r.State.ActiveColor = Red
+	wd4 := Card{Color: Wild, Kind: WildDrawFour}
+	r.State.Hands[1].Cards = append([]Card{wd4}, r.State.Hands[1].Cards...)
+
+	if err := r.CounterDraw(1, wd4, Green); err != nil {
+		t.Fatalf("CounterDraw +4 on +4: %v", err)
+	}
+	if r.State.PendingDraw != 8 {
+		t.Errorf("PendingDraw = %d, want 8", r.State.PendingDraw)
+	}
+	if r.State.ActiveColor != Green {
+		t.Errorf("ActiveColor = %v, want green (the counter's chosen colour)", r.State.ActiveColor)
 	}
 }
 
@@ -2222,10 +2482,133 @@ func TestRoom_RemoveLobbyPlayer_BoundsCheck(t *testing.T) {
 
 func TestRoom_CatchUndeclared_NoTargetYet(t *testing.T) {
 	r := setupTwoPlayerGame(t)
-	// LastCardPlayer defaults to 0 and Hands[0] starts at 7 cards, so a catch
+	// Every seat starts with a full hand and a zero LastCardAt, so a catch
 	// attempt at the start of the game must be rejected (target not at 1 card).
 	if err := r.CatchUndeclared(1, 0, time.Now()); err == nil {
 		t.Error("catch at game start should fail (no one played to 1 card yet)")
+	}
+}
+
+// --- Receiving a single card owes the table a declaration (§11.1) ---
+
+// Swap hands the target the actor's leftovers. If that is a single card the
+// target must call LOCO! like anybody else: what the rule protects is the
+// table's right to know somebody is one card from winning, and how the hand
+// got there changes nothing.
+func TestRoom_Swap_ReceiverOwesDeclaration(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	swap := Card{Color: Red, Kind: Swap}
+	// Alice: swap + one leftover. Bob: three cards. After the swap Alice holds
+	// three and Bob holds the single leftover.
+	r.State.Hands[0].Cards = []Card{swap, {Color: Blue, Kind: Number, Value: 2}}
+	r.State.Hands[1].Cards = []Card{
+		{Color: Green, Kind: Number, Value: 3},
+		{Color: Green, Kind: Number, Value: 4},
+		{Color: Green, Kind: Number, Value: 6},
+	}
+	r.State.Hands[2].Cards = []Card{{Color: Yellow, Kind: Number, Value: 7}}
+
+	if err := r.PlayCard(0, swap, Red, 1); err != nil {
+		t.Fatalf("PlayCard swap: %v", err)
+	}
+	if got := r.State.Hands[1].Size(); got != 1 {
+		t.Fatalf("bob hand = %d, want 1 (received alice's leftover)", got)
+	}
+	if err := r.CatchUndeclared(2, 1, time.Now()); err != nil {
+		t.Fatalf("bob received a single card and never declared, so he must be catchable: %v", err)
+	}
+	if got := r.State.Hands[1].Size(); got != 3 {
+		t.Errorf("bob hand after penalty = %d, want 3", got)
+	}
+}
+
+// Declaring closes the window for a receiver exactly as for a player who played
+// down to one card.
+func TestRoom_Swap_ReceiverCanDeclare(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	swap := Card{Color: Red, Kind: Swap}
+	r.State.Hands[0].Cards = []Card{swap, {Color: Blue, Kind: Number, Value: 2}}
+	r.State.Hands[1].Cards = []Card{
+		{Color: Green, Kind: Number, Value: 3},
+		{Color: Green, Kind: Number, Value: 4},
+	}
+	r.State.Hands[2].Cards = []Card{{Color: Yellow, Kind: Number, Value: 7}}
+
+	if err := r.PlayCard(0, swap, Red, 1); err != nil {
+		t.Fatalf("PlayCard swap: %v", err)
+	}
+	if err := r.DeclareLastCard(1); err != nil {
+		t.Fatalf("bob must be able to declare the card he received: %v", err)
+	}
+	if err := r.CatchUndeclared(2, 1, time.Now()); err == nil {
+		t.Error("bob declared; catching him must fail")
+	}
+}
+
+// A GlobalSwitch can put several seats on one card in the same instant, and each
+// of them owes a declaration. A single tracked target would let all but one walk.
+func TestRoom_GlobalSwitch_EverySingleCardSeatIsCatchable(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.CurrentTurn = 0
+	r.State.Direction = 1
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+
+	gs := Card{Color: Wild, Kind: GlobalSwitch}
+	// After the play: seat 0 ← seat 2's hand (1 card), seat 1 ← alice's leftover
+	// (1 card), seat 2 ← seat 1's hand (2 cards).
+	r.State.Hands[0].Cards = []Card{gs, {Color: Blue, Kind: Number, Value: 2}}
+	r.State.Hands[1].Cards = []Card{
+		{Color: Green, Kind: Number, Value: 3},
+		{Color: Green, Kind: Number, Value: 4},
+	}
+	r.State.Hands[2].Cards = []Card{{Color: Yellow, Kind: Number, Value: 7}}
+
+	if err := r.PlayCard(0, gs, Green, -1); err != nil {
+		t.Fatalf("PlayCard global switch: %v", err)
+	}
+	open := r.State.CatchableTargets(time.Now())
+	if len(open) != 2 || open[0] == open[1] {
+		t.Fatalf("CatchableTargets = %v, want the two seats left holding one card", open)
+	}
+	for _, seat := range []int{0, 1} {
+		if r.State.Hands[seat].Size() != 1 {
+			t.Fatalf("seat %d holds %d cards, fixture is wrong", seat, r.State.Hands[seat].Size())
+		}
+	}
+	// Both are catchable, independently.
+	if err := r.CatchUndeclared(2, 0, time.Now()); err != nil {
+		t.Errorf("seat 0 must be catchable: %v", err)
+	}
+	if err := r.CatchUndeclared(2, 1, time.Now()); err != nil {
+		t.Errorf("seat 1 must be catchable too, one slot cannot hold two debts: %v", err)
+	}
+}
+
+// Catching yourself would be a free pass: you would take a 2-card penalty at a
+// moment of your choosing and close the window nobody else got to use.
+func TestRoom_CatchUndeclared_CannotCatchYourself(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Hands[0].Cards = []Card{
+		{Color: Red, Kind: Number, Value: 2},
+		{Color: Red, Kind: Number, Value: 3},
+	}
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil {
+		t.Error("a player must not be able to catch themselves")
 	}
 }
 
@@ -2290,7 +2673,7 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 6}}
 	r.State.PendingDraw = 0
 	armInterrupt(r, 0)
-	r.State.LastCardDeclared = true // simulate a previous declaration we expect to be cleared
+	r.State.LastCardDeclared[2] = true // simulate a previous declaration we expect to be cleared
 
 	match := Card{Color: Red, Kind: Number, Value: 6}
 	// carol holds exactly 2 cards; after the interject she will have 1.
@@ -2300,14 +2683,14 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 	if err := r.InterruptPlay(2, match, match.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay: %v", err)
 	}
-	if r.State.LastCardDeclared {
-		t.Error("LastCardDeclared must be reset after a fresh play to 1 card")
+	if r.State.LastCardDeclared[2] {
+		t.Error("LastCardDeclared[2] must be reset after a fresh play to 1 card")
 	}
-	if r.State.LastCardPlayer != 2 {
-		t.Errorf("LastCardPlayer = %d, want 2 (carol)", r.State.LastCardPlayer)
+	if r.State.LastCardAt[2].IsZero() {
+		t.Error("carol's catch window must be open after she interjects to 1 card")
 	}
-	if r.State.LastCardTime.Before(before) {
-		t.Error("LastCardTime should be updated to the moment of the interject")
+	if r.State.LastCardAt[2].Before(before) {
+		t.Error("LastCardAt should be updated to the moment of the interject")
 	}
 
 	// And alice (idx 0) can catch carol if she didn't declare in time.
@@ -2365,6 +2748,9 @@ func TestRoom_ResetForRematch(t *testing.T) {
 	}
 	if r.Scores != nil || r.RoundsWon != nil || r.LostHandTotal != nil {
 		t.Error("cumulative match tallies must be cleared")
+	}
+	if r.RoundHistory != nil {
+		t.Error("RoundHistory must be cleared, the new match starts at round 1")
 	}
 	// Roster and lobby config survive — the whole point is "same room, same people".
 	if len(r.Players) != len(prevPlayers) {
@@ -2440,5 +2826,107 @@ func TestRoom_ResetForRematch_AllowsRosterChangeBeforeStart(t *testing.T) {
 	}
 	if len(r.Scores) != 2 {
 		t.Errorf("Scores len = %d, want 2 (sized to the new roster)", len(r.Scores))
+	}
+}
+
+// --- Failed catch penalty -------------------------------------------------
+
+// A Contre-LOCO! that arrives after the target's declaration is a race lost on
+// the wire, not a protocol violation: the domain must say so explicitly so the
+// hub can charge the caller a card instead of treating them as a cheat.
+func TestRoom_CatchUndeclared_MissedByDeclaration(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Hands[0].Cards = []Card{
+		{Color: Red, Kind: Number, Value: 2},
+		{Color: Red, Kind: Number, Value: 3},
+	}
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if err := r.DeclareLastCard(0); err != nil {
+		t.Fatalf("DeclareLastCard: %v", err)
+	}
+	err := r.CatchUndeclared(1, 0, time.Now())
+	if err == nil {
+		t.Fatal("catching a declared player must fail")
+	}
+	if !IsMissedCatch(err) {
+		t.Errorf("IsMissedCatch(%v) = false, want true", err)
+	}
+	if err.Error() != "player already declared" {
+		t.Errorf("error text = %q, want the unchanged wire string", err.Error())
+	}
+}
+
+// Same for a window that closed before the message landed.
+func TestRoom_CatchUndeclared_MissedByExpiry(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	r.State.Hands[0].Cards = []Card{
+		{Color: Red, Kind: Number, Value: 2},
+		{Color: Red, Kind: Number, Value: 3},
+	}
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	err := r.CatchUndeclared(1, 0, time.Now().Add(catchWindow+time.Second))
+	if err == nil {
+		t.Fatal("catching after the window must fail")
+	}
+	if !IsMissedCatch(err) {
+		t.Errorf("IsMissedCatch(%v) = false, want true", err)
+	}
+}
+
+// A malformed target is a client bug or an attack, never a lost race — it must
+// not be charged a card, and the hub still counts it as suspect.
+func TestRoom_CatchUndeclared_InvalidTargetIsNotAMiss(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	if err := r.CatchUndeclared(1, 99, time.Now()); err == nil || IsMissedCatch(err) {
+		t.Errorf("CatchUndeclared(1, 99) = %v, want a non-miss error", err)
+	}
+	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil || IsMissedCatch(err) {
+		t.Errorf("self-catch = %v, want a non-miss error", err)
+	}
+}
+
+// The wager: a miss costs the caller exactly one card, and nothing else about
+// the round moves — not the turn, not the target's hand, not the draw flag.
+func TestRoom_PenalizeFailedCatch(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	before := r.State.Hands[1].Size()
+	turn, hasDrawn := r.State.CurrentTurn, r.State.HasDrawn
+	targetBefore := r.State.Hands[0].Size()
+
+	cards := r.PenalizeFailedCatch(1)
+	if len(cards) != failedCatchPenalty {
+		t.Fatalf("PenalizeFailedCatch drew %d cards, want %d", len(cards), failedCatchPenalty)
+	}
+	if got := r.State.Hands[1].Size(); got != before+failedCatchPenalty {
+		t.Errorf("catcher hand = %d, want %d", got, before+failedCatchPenalty)
+	}
+	if r.State.CurrentTurn != turn || r.State.HasDrawn != hasDrawn {
+		t.Error("a failed catch must not touch the turn state")
+	}
+	if r.State.Hands[0].Size() != targetBefore {
+		t.Error("a failed catch must not touch the target's hand")
+	}
+}
+
+// A penalty is a draw, and a draw never fails: with every card in a hand the
+// caller simply gets away with it rather than the round freezing.
+func TestRoom_PenalizeFailedCatch_EmptyDeck(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.Deck.Cards = nil
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	before := r.State.Hands[1].Size()
+	if cards := r.PenalizeFailedCatch(1); len(cards) != 0 {
+		t.Fatalf("PenalizeFailedCatch on an exhausted deck drew %d cards, want 0", len(cards))
+	}
+	if got := r.State.Hands[1].Size(); got != before {
+		t.Errorf("catcher hand = %d, want %d unchanged", got, before)
 	}
 }

@@ -85,8 +85,8 @@ func TestCatchUNO_TargetReceivesPenaltyCards(t *testing.T) {
 	if len(drawn.Cards) != 2 {
 		t.Fatalf("caught player received %d cards, want 2 (hand would desync)", len(drawn.Cards))
 	}
-	if drawn.PlayerIndex != g.activeIdx {
-		t.Errorf("card_drawn PlayerIndex = %d, want %d", drawn.PlayerIndex, g.activeIdx)
+	if drawn.Seat() != g.activeIdx {
+		t.Errorf("card_drawn PlayerIndex = %d, want %d", drawn.Seat(), g.activeIdx)
 	}
 
 	// The catcher only needs the count.
@@ -94,8 +94,92 @@ func TestCatchUNO_TargetReceivesPenaltyCards(t *testing.T) {
 	if observed.DrawnCount != 2 {
 		t.Errorf("observer DrawnCount = %d, want 2", observed.DrawnCount)
 	}
-	if observed.PlayerIndex != g.activeIdx {
-		t.Errorf("observer card_drawn PlayerIndex = %d, want %d", observed.PlayerIndex, g.activeIdx)
+	if observed.Seat() != g.activeIdx {
+		t.Errorf("observer card_drawn PlayerIndex = %d, want %d", observed.Seat(), g.activeIdx)
+	}
+}
+
+// TestCatchUNO_PenaltyCarriesTurnState: a hand can grow without anybody having
+// drawn on their turn. Every card_drawn must therefore state has_drawn and
+// pending_draw explicitly, to the drawer and to the observers alike.
+//
+// Regression: both fields were `omitempty`, so a false / zero never reached the
+// wire and the client filled the blank with "has drawn". The caught player then
+// had its Draw button disabled and every Pass refused with "you must draw a card
+// before passing" — unblockable until the turn timer auto-acted.
+func TestCatchUNO_PenaltyCarriesTurnState(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+	g := setupActiveGame(t)
+
+	zero := 0
+	sendMsg(t, g.activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, g.otherConn, protocol.SMsgGameState)
+
+	sendMsg(t, g.activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, g.activeConn, protocol.SMsgCardPlayed)
+	readMsgOfType(t, g.otherConn, protocol.SMsgCardPlayed)
+
+	sendMsg(t, g.otherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno})
+	readMsgOfType(t, g.activeConn, protocol.SMsgUnoCaught)
+	readMsgOfType(t, g.otherConn, protocol.SMsgUnoCaught)
+
+	for _, tc := range []struct {
+		name string
+		msg  protocol.ServerMsg
+	}{
+		{"caught player", readMsgOfType(t, g.activeConn, protocol.SMsgCardDrawn)},
+		{"observer", readMsgOfType(t, g.otherConn, protocol.SMsgCardDrawn)},
+	} {
+		if tc.msg.HasDrawn == nil {
+			t.Errorf("%s: card_drawn omitted has_drawn (client would assume true)", tc.name)
+		} else if *tc.msg.HasDrawn {
+			t.Errorf("%s: card_drawn has_drawn = true, want false (nobody drew on their turn)", tc.name)
+		}
+		if tc.msg.PendingDraw == nil {
+			t.Errorf("%s: card_drawn omitted pending_draw", tc.name)
+		} else if *tc.msg.PendingDraw != 0 {
+			t.Errorf("%s: card_drawn pending_draw = %d, want 0", tc.name, *tc.msg.PendingDraw)
+		}
+	}
+}
+
+// TestDrawCard_CarriesTurnState: the other side of the same contract — a real
+// voluntary draw reports has_drawn=true to everyone, so the Pass button unlocks.
+func TestDrawCard_CarriesTurnState(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+	g := setupActiveGame(t)
+
+	zero := 0
+	sendMsg(t, g.activeConn, protocol.ClientMsg{
+		Type:             protocol.CMsgDebugSetState,
+		DebugHand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
+		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+		DebugPendingDraw: &zero,
+	})
+	readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
+	readMsgOfType(t, g.otherConn, protocol.SMsgGameState)
+
+	sendMsg(t, g.activeConn, protocol.ClientMsg{Type: protocol.CMsgDrawCard})
+
+	for _, tc := range []struct {
+		name string
+		msg  protocol.ServerMsg
+	}{
+		{"drawer", readMsgOfType(t, g.activeConn, protocol.SMsgCardDrawn)},
+		{"observer", readMsgOfType(t, g.otherConn, protocol.SMsgCardDrawn)},
+	} {
+		if tc.msg.HasDrawn == nil || !*tc.msg.HasDrawn {
+			t.Errorf("%s: card_drawn has_drawn = %v, want true", tc.name, tc.msg.HasDrawn)
+		}
 	}
 }
 

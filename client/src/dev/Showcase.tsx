@@ -17,7 +17,10 @@ import { GameOver } from '../components/GameOver'
 import { RulesModal } from '../components/RulesModal'
 import { ColorPicker } from '../components/ColorPicker'
 import { PlayerPicker } from '../components/PlayerPicker'
+import { ScoreTable } from '../components/ScoreTable'
 import { useI18n } from '../i18n'
+import { CardSheet } from './CardSheet'
+import { OgCard } from './OgCard'
 import { SCENES, Scene } from './scenes'
 import styles from './Showcase.module.css'
 
@@ -46,6 +49,8 @@ function applyScene(scene: Scene) {
     turnDeadline: null,
     showRoundSummary: false,
     roundScores: [],
+    roundHistory: [],
+    latencies: [],
     swapNotice: null,
     lastPlay: null,
     interruptFlash: null,
@@ -77,9 +82,31 @@ function SceneOverlayEl({ scene }: { scene: Scene }) {
           onCancel={noop}
         />
       )
+    case 'scores':
+      return <ScoresOverlay />
     default:
       return null
   }
+}
+
+/** The TAB standings, which GameView gates behind component-local state. */
+function ScoresOverlay() {
+  const { t } = useI18n()
+  const players = useGameStore((s) => s.players)
+  const myIndex = useGameStore((s) => s.myIndex)
+  const scoreboard = useGameStore((s) => s.scoreboard)
+  const roundHistory = useGameStore((s) => s.roundHistory)
+  const latencies = useGameStore((s) => s.latencies)
+  return (
+    <ScoreTable
+      players={players}
+      scoreboard={scoreboard}
+      roundHistory={roundHistory}
+      latencies={latencies}
+      myIndex={myIndex}
+      t={t}
+    />
+  )
 }
 
 function SceneScreen({ scene }: { scene: Scene }) {
@@ -94,6 +121,10 @@ function SceneScreen({ scene }: { scene: Scene }) {
   const scoreboard = useGameStore((s) => s.scoreboard)
 
   switch (scene.screen) {
+    case 'cards':
+      return <CardSheet />
+    case 'og':
+      return <OgCard />
     case 'lobby':
       return <Lobby onSend={noop} error={errorMsg} onClearError={noop} initialMode={scene.lobbyMode} />
     case 'waiting':

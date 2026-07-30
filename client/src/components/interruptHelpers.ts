@@ -11,6 +11,25 @@ export function clientMayInterrupt(card: CardDTO, discard: CardDTO | null, pendi
   return card.color === discard.color && card.kind === discard.kind && card.value === discard.value
 }
 
+// True when this tap answers a pending +2/+4 stack rather than being an ordinary
+// play. The counter is the *same card*: same kind **and** same colour (every +4
+// is wild-coloured, so a +4 chain satisfies the colour test by construction).
+// The kinds never cross — a +4 does not answer a +2.
+//
+// A differently-coloured +2 is not a dead card: the forced draw does not cost the
+// turn, so its holder takes the stack and can then play it as an ordinary
+// kind-match on the same discard.
+//
+// Such a tap must go out as `counter_draw`, never `play_card` — `Room.PlayCard`
+// refuses every card while `PendingDraw > 0`, so routing it as a play makes the
+// whole stacking mechanic unreachable for a human ("must counter or draw pending
+// penalty cards first" on a card the rules allow).
+export function isCounterCard(card: CardDTO, discard: CardDTO | null, pendingDraw: number): boolean {
+  if (pendingDraw <= 0 || !discard) return false
+  if (card.kind !== 'draw_two' && card.kind !== 'wild_draw_four') return false
+  return card.kind === discard.kind && card.color === discard.color
+}
+
 // Client-side card legality hint — prevents animating clearly-invalid plays before
 // the server rejects them. Server validation is always authoritative.
 export function clientMayPlay(
@@ -19,10 +38,7 @@ export function clientMayPlay(
   activeColor: CardColor,
   pendingDraw: number,
 ): boolean {
-  if (pendingDraw > 0) {
-    if (!discard) return false
-    return card.kind === discard.kind && (card.kind === 'draw_two' || card.kind === 'wild_draw_four')
-  }
+  if (pendingDraw > 0) return isCounterCard(card, discard, pendingDraw)
   if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') return true
   if (!discard) return true
   if (card.color === activeColor) return true

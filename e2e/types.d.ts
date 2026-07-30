@@ -48,9 +48,13 @@ interface LocoE2EState {
   hasDrawn: boolean
   // UNO / catch window
   unoDeclared: boolean
+  /** True once *we* have called it on the card we hold: one card, one call. */
+  myDeclared: boolean
   /** Player the server is tracking as catchable for a missed LOCO!; null = nobody. */
   catchTarget: number | null
   unoTimerEnd: number | null
+  /** Seat whose Contre-LOCO! missed and drew a card for it (rules §14.6). */
+  catchFailed: { seat: number; at: number } | null
   /** Last successful out-of-turn slam (drives the interception banner). */
   interruptFlash: { actorIndex: number; count: number; at: number } | null
   // Per-turn deadline

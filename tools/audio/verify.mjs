@@ -78,7 +78,7 @@ try {
   const results = await page.evaluate(async () => {
     const { audio } = await import('/src/audio/engine.ts')
     const sfx = await import('/src/audio/sfx.ts')
-    const { music } = await import('/src/audio/music.ts')
+    const { music, TRACKS } = await import('/src/audio/music.ts')
 
     audio.unlock()
     audio.setSettings({ muted: false, master: 1, sfx: 1, music: 1 })
@@ -143,6 +143,75 @@ try {
 
     const settle = (ms) => new Promise((r) => setTimeout(r, ms))
 
+    // Every registered track must actually make sound. A track is pure data, so
+    // a typo in it produces silence rather than an error, and no unit test can
+    // see that.
+    const trackPeaks = {}
+    for (const track of TRACKS) {
+      music.stop()
+      music.setTrack(track.id)
+      music.setIntensity(0.9)
+      trackPeaks[track.title] = await measure(
+        audio.musicDestination(), 2200, () => music.start('game'),
+      )
+    }
+
+    /**
+     * The next button has to work, and the bag has to deal.
+     *
+     * Pressing next swaps on a bar line, so a second is plenty. Collecting the
+     * ids proves three things at once: the button changes track, the shuffle
+     * never repeats back to back, and the bag really does cover the catalogue.
+     */
+    music.stop()
+    music.start('game')
+    music.setIntensity(0.5)
+    await settle(1200)
+    const skipped = [music.getTrackId()]
+    for (let n = 0; n < 5; n++) {
+      music.nextTrack()
+      await settle(2600)
+      skipped.push(music.getTrackId())
+    }
+
+    /**
+     * A finished track has to hand over on its own, with nobody pressing
+     * anything. Real tracks run ~2 minutes, so the bed is told to treat three
+     * parts as a whole track for the duration of this check.
+     */
+    music.stop()
+    music.setPartsPerTrack(3)
+    music.start('game')
+    music.setIntensity(0.5)
+    const autoSeen = new Set()
+    const autoUntil = performance.now() + 30_000
+    while (performance.now() < autoUntil) {
+      await new Promise((r) => setTimeout(r, 150))
+      autoSeen.add(music.getTrackId())
+    }
+    music.setPartsPerTrack(null)
+    const autoPlayed = [...autoSeen]
+
+    /**
+     * The form has to move on its own.
+     *
+     * This is the check for the complaint that produced the whole part/form
+     * design — "it's just a chorus on repeat". Holding the intensity perfectly
+     * still, the bed must still walk through several distinct parts; a bed that
+     * only changes when the game changes is a loop with extra steps.
+     */
+    music.stop()
+    music.setTrack(TRACKS[0].id)
+    music.setIntensity(0.5)
+    music.start('game')
+    const partsSeen = new Set()
+    const formUntil = performance.now() + 26_000
+    while (performance.now() < formUntil) {
+      await new Promise((r) => setTimeout(r, 120))
+      partsSeen.add(music.getPartId())
+    }
+    const formParts = [...partsSeen]
+
     // Music bed: give the lookahead scheduler a beat or two to emit something.
     music.setIntensity(0.9)
     const musicPeak = await measure(audio.musicDestination(), 1600, () => music.start('game'))
@@ -150,21 +219,50 @@ try {
     // Adaptivity is the whole premise of the bed, so measure it rather than
     // trusting the layer conditions. Intensity is slewed, so each change needs a
     // moment to arrive before the level means anything.
-    // The loop is four bars — ~11s at the slowest tempo. Measuring a shorter
-    // window samples a random slice of the progression and the numbers mean
-    // nothing, which is exactly how the first version of this check produced a
-    // confident ×1.05 for a bed that does change.
-    const LOOP_MS = 11_000
+    // The melody loop is eight bars — ~15s at the slowest tempo. Measuring a
+    // shorter window samples a random slice of the progression and the numbers
+    // mean nothing, which is exactly how the first version of this check produced
+    // a confident ×1.05 for a bed that does change.
+    const LOOP_MS = 15_000
 
     music.setIntensity(0.08)
     await settle(3000)
     const calmRms = await rms(audio.musicDestination(), LOOP_MS)
     const calmIntensity = music.getIntensity()
+    const calmSection = music.getSection()
 
     music.setIntensity(1)
     await settle(3000)
     const tenseRms = await rms(audio.musicDestination(), LOOP_MS)
     const tenseIntensity = music.getIntensity()
+    const tenseSection = music.getSection()
+
+    /**
+     * Mean and p95 gap between animation frames, in ms.
+     *
+     * The drop schedules continuous 16th supersaws, so it builds far more nodes
+     * per second than a pad-and-arp bed did — and in this repo "latency → smooth
+     * animation" outranks how good the music is. This measures that cost on the
+     * same thread the card animations run on instead of assuming it away.
+     */
+    const frameStats = async (ms) => {
+      const gaps = []
+      let last = performance.now()
+      const until = last + ms
+      while (performance.now() < until) {
+        await new Promise((r) => requestAnimationFrame(r))
+        const now = performance.now()
+        gaps.push(now - last)
+        last = now
+      }
+      gaps.sort((a, b) => a - b)
+      return {
+        mean: gaps.reduce((s, g) => s + g, 0) / gaps.length,
+        p95: gaps[Math.floor(gaps.length * 0.95)],
+      }
+    }
+
+    const dropFrames = await frameStats(4000)
 
     // Ducking must actually pull the bed down under a fanfare.
     const beforeDuck = await rms(audio.musicDestination(), 4000)
@@ -173,6 +271,8 @@ try {
     const duckedRms = await rms(audio.musicDestination(), 4000)
 
     music.stop()
+    await settle(1200)
+    const idleFrames = await frameStats(3000)
 
     // Mute must actually mute: master gain is the only thing between the buses
     // and the speakers, so verify it rather than trusting it.
@@ -183,7 +283,11 @@ try {
     ).catch(() => -1)
     audio.setSettings({ muted: false })
 
-    return { peaks, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity, beforeDuck, duckedRms }
+    return {
+      peaks, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity,
+      calmSection, tenseSection, beforeDuck, duckedRms, dropFrames, idleFrames,
+      trackPeaks, formParts, skipped, autoPlayed,
+    }
   })
 
   if (results.error) {
@@ -200,6 +304,38 @@ try {
     if (!musicOk) failures++
     console.log(`${musicOk ? '✓' : '✗'} ${'music bed'.padEnd(12)} peak=${results.musicPeak.toFixed(4)}`)
 
+    for (const [title, peak] of Object.entries(results.trackPeaks)) {
+      const ok = peak > THRESHOLD
+      if (!ok) failures++
+      console.log(`${ok ? '✓' : '✗'} ${`♪ ${title}`.padEnd(12)} peak=${peak.toFixed(4)}`)
+    }
+
+    // The next button, and the shuffle bag behind it.
+    const noRepeat = results.skipped.every((id, i) => i === 0 || id !== results.skipped[i - 1])
+    const covered = new Set(results.skipped).size >= Object.keys(results.trackPeaks).length
+    const skipOk = noRepeat && covered
+    if (!skipOk) failures++
+    console.log(
+      `${skipOk ? '✓' : '✗'} ${'next track'.padEnd(12)} ${results.skipped.join(' → ')}` +
+        `${noRepeat ? '' : ' [REPEATED]'}${covered ? '' : ' [INCOMPLETE BAG]'}`,
+    )
+
+    // Handover with nobody touching anything.
+    const autoOk = results.autoPlayed.length >= 2
+    if (!autoOk) failures++
+    console.log(
+      `${autoOk ? '✓' : '✗'} ${'auto next'.padEnd(12)} ${results.autoPlayed.join(' → ')} (unattended)`,
+    )
+
+    // At a fixed intensity the form must still travel. Three distinct parts in
+    // ~26s is a loose floor that a four-bar loop cannot clear.
+    const formOk = results.formParts.length >= 3
+    if (!formOk) failures++
+    console.log(
+      `${formOk ? '✓' : '✗'} ${'form moves'.padEnd(12)} ${results.formParts.length} parts in 26s: ` +
+        results.formParts.join(' → '),
+    )
+
     // The bed's whole premise is that tension is audible. A 30% energy rise is a
     // deliberately loose floor — it only has to prove the layers really engage.
     const adaptiveOk = results.tenseRms > results.calmRms * 1.3
@@ -207,6 +343,16 @@ try {
     console.log(
       `${adaptiveOk ? '✓' : '✗'} ${'adaptivity'.padEnd(12)} calm=${results.calmRms.toFixed(4)} ` +
         `tense=${results.tenseRms.toFixed(4)} (×${(results.tenseRms / (results.calmRms || 1e-9)).toFixed(2)})`,
+    )
+
+    // The arrangement is the adaptivity, so check the section actually moved and
+    // not just the level: a bed that got louder without reaching the drop would
+    // pass the RMS check while never bringing in the drums.
+    const sectionOk = results.calmSection === 'breakdown' && results.tenseSection === 'drop'
+    if (!sectionOk) failures++
+    console.log(
+      `${sectionOk ? '✓' : '✗'} ${'sections'.padEnd(12)} calm=${results.calmSection} ` +
+        `tense=${results.tenseSection}`,
     )
 
     const slewOk = results.calmIntensity < 0.2 && results.tenseIntensity > 0.8
@@ -222,6 +368,17 @@ try {
       `${duckOk ? '✓' : '✗'} ${'duck'.padEnd(12)} before=${results.beforeDuck.toFixed(4)} ` +
         `during=${results.duckedRms.toFixed(4)}`,
     )
+
+    // Frame cost of the drop. 25ms mean is ~40fps: a loose floor, because a
+    // headless browser's rAF is noisy — it is here to catch the bed becoming
+    // structurally expensive, not to police a millisecond.
+    const framesOk = results.dropFrames.mean < 25
+    if (!framesOk) failures++
+    console.log(
+      `${framesOk ? '✓' : '✗'} ${'frame cost'.padEnd(12)} drop mean=${results.dropFrames.mean.toFixed(1)}ms ` +
+        `p95=${results.dropFrames.p95.toFixed(1)}ms · idle mean=${results.idleFrames.mean.toFixed(1)}ms`,
+    )
+
     // playSfx() early-returns while muted, so the effects bus stays silent.
     const muteOk = results.mutedPeak <= THRESHOLD
     if (!muteOk) failures++

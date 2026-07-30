@@ -131,6 +131,38 @@ func TestApplyEffect_Wild_SetsColor(t *testing.T) {
 	}
 }
 
+func TestApplyEffect_GlobalSwitch_SetsChosenColor(t *testing.T) {
+	// GlobalSwitch is a wild like the other two: the player names the colour.
+	state := newTestState(4, 0)
+	state.ActiveColor = Red
+	state.ApplyEffect(Card{Color: Wild, Kind: GlobalSwitch}, Yellow)
+	if state.ActiveColor != Yellow {
+		t.Errorf("GlobalSwitch: ActiveColor = %v, want Yellow (chosen)", state.ActiveColor)
+	}
+}
+
+func TestApplyEffect_GlobalSwitch_NeverSetsWildAsActiveColor(t *testing.T) {
+	// Last line of defence: Wild matches no coloured card, so it would leave the
+	// whole table holding wilds as its only legal play. The callers reject a
+	// colourless GlobalSwitch outright; if one slips through, the colour in play
+	// carries over rather than becoming Wild.
+	state := newTestState(4, 0)
+	state.ActiveColor = Green
+	state.ApplyEffect(Card{Color: Wild, Kind: GlobalSwitch}, Wild)
+	if state.ActiveColor != Green {
+		t.Errorf("GlobalSwitch: ActiveColor = %v, want Green (carried over)", state.ActiveColor)
+	}
+}
+
+func TestApplyEffect_Wild_NeverSetsWildAsActiveColor(t *testing.T) {
+	state := newTestState(4, 0)
+	state.ActiveColor = Blue
+	state.ApplyEffect(Card{Color: Wild, Kind: WildCard}, Wild)
+	if state.ActiveColor != Blue {
+		t.Errorf("ActiveColor = %v, want Blue — Wild must never become the active colour", state.ActiveColor)
+	}
+}
+
 // helper to build a minimal game state for rule testing
 func newTestState(players, currentTurn int) *GameState {
 	hands := make([]Hand, players)

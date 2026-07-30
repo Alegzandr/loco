@@ -8,7 +8,7 @@
  *
  * Adding a screen or a visual state? Add a scene here in the same change set.
  */
-import type { CardDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
+import type { CardDTO, LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
 import type { RoundScoreEntry } from '../hooks/useGameStore'
 
 // ─── Mock builders ──────────────────────────────────────────────────────────
@@ -71,6 +71,29 @@ const SCOREBOARD: ScoreboardEntryDTO[] = [
   { player_index: 3, nickname: 'Pixel', score: 55, rounds_won: 0 },
 ]
 
+// Three finished rounds. Only the finisher scores in LOCO, so exactly one
+// column is non-zero per row, and the rows add up to SCOREBOARD_HISTORIC.
+const ROUND_HISTORY: number[][] = [
+  [113, 0, 0, 0],
+  [0, 142, 0, 0],
+  [74, 0, 0, 0],
+]
+
+const SCOREBOARD_HISTORIC: ScoreboardEntryDTO[] = [
+  { player_index: 0, nickname: 'Nova', score: 187, rounds_won: 2 },
+  { player_index: 1, nickname: 'Kiwi', score: 142, rounds_won: 1 },
+  { player_index: 2, nickname: 'Bot1', score: 0, rounds_won: 0 },
+  { player_index: 3, nickname: 'Pixel', score: 0, rounds_won: 0 },
+]
+
+// rtt_ms -1 means "nothing measured", which is what a bot seat always reports.
+const LATENCIES: LatencyEntryDTO[] = [
+  { player_index: 0, rtt_ms: 38 },
+  { player_index: 1, rtt_ms: 145 },
+  { player_index: 2, rtt_ms: -1, bot: true },
+  { player_index: 3, rtt_ms: 312 },
+]
+
 const ROUND_SCORES: RoundScoreEntry[] = [
   { player_index: 0, nickname: 'Nova', round_points: 74, cumulative_score: 187, rounds_won: 2 },
   { player_index: 1, nickname: 'Kiwi', round_points: 0, cumulative_score: 142, rounds_won: 1 },
@@ -81,14 +104,14 @@ const ROUND_SCORES: RoundScoreEntry[] = [
 // ─── Scene registry ─────────────────────────────────────────────────────────
 
 /** Extra element layered over the base screen (component-local state we can't set from the store). */
-export type SceneOverlay = 'color-picker' | 'player-picker' | 'rules' | null
+export type SceneOverlay = 'color-picker' | 'player-picker' | 'rules' | 'scores' | null
 
 export interface Scene {
   id: string
   /** Human label shown in the gallery index. */
   title: string
   /** Which top-level screen to mount. */
-  screen: 'lobby' | 'waiting' | 'game' | 'gameover'
+  screen: 'lobby' | 'waiting' | 'game' | 'gameover' | 'cards' | 'og'
   /**
    * Store patch applied before mounting. `deadlineIn`/`unoIn` are relative so
    * captures stay stable regardless of when they run.
@@ -123,6 +146,19 @@ const gameBase = {
 }
 
 export const SCENES: Scene[] = [
+  {
+    id: 'card-sheet',
+    title: 'Le jeu complet · toutes les cartes',
+    screen: 'cards',
+  },
+  {
+    // Not a screen either: the 1200×630 link preview, captured by
+    // `tools/og/shoot.mjs` into client/public/og.png. It lives in the registry
+    // so a change to the mark or to a card face is reviewed here too.
+    id: 'og-card',
+    title: 'Aperçu de lien (Discord / X)',
+    screen: 'og',
+  },
   {
     id: 'lobby-home',
     title: 'Accueil',
@@ -205,6 +241,16 @@ export const SCENES: Scene[] = [
     deadlineIn: 9,
   },
   {
+    // The direction ring is the only lasting record of a Reverse: the callout
+    // lasts a second, the heading lasts the rest of the round. Both states are
+    // captured so the flip is reviewable side by side.
+    id: 'game-reversed',
+    title: 'Partie · sens inversé',
+    screen: 'game',
+    state: { ...gameBase, discard: card('yellow', 'reverse'), activeColor: 'yellow', direction: -1 },
+    deadlineIn: 21,
+  },
+  {
     id: 'game-full-hand',
     title: 'Partie · grande main',
     screen: 'game',
@@ -224,8 +270,17 @@ export const SCENES: Scene[] = [
     deadlineIn: 5,
   },
   {
+    // The state the active-colour cues exist for: the top card is a wild, so
+    // its face says nothing, and the pool/ring/chip are the whole answer.
+    id: 'game-wild-active-color',
+    title: 'Partie · joker, couleur active',
+    screen: 'game',
+    state: { ...gameBase, discard: card('wild', 'wild'), activeColor: 'yellow' },
+    deadlineIn: 21,
+  },
+  {
     id: 'game-uno',
-    title: 'Partie · UNO annoncé',
+    title: 'Partie · LOCO annoncé',
     screen: 'game',
     state: {
       ...gameBase,
@@ -249,6 +304,38 @@ export const SCENES: Scene[] = [
     },
     unoIn: 3.4,
     deadlineIn: 14,
+  },
+  {
+    // The overlap: we are on one card AND Pixel is catchable. LOCO keeps the
+    // centre column (declaring is ours to lose) and Catch floats beside the bar
+    // — the only state where the floating slot is used at all.
+    id: 'game-catch-and-loco',
+    title: 'Partie · attraper + LOCO',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchTarget: 3,
+      myHand: [num('red', 7)],
+      players: [player(0, 'Nova', 1), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    unoIn: 2.6,
+    deadlineIn: 11,
+  },
+  {
+    // The wager lost: our Contre-LOCO! arrived after Pixel's own call and drew
+    // us a card for it. The notice is red and sits below the swap pill so the
+    // two can share the screen; both are table news, not errors.
+    id: 'game-catch-failed',
+    title: 'Partie · Contre-LOCO raté',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchFailed: { seat: 0, at: 1 },
+      players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    deadlineIn: 16,
   },
   {
     id: 'game-last-card',
@@ -343,6 +430,38 @@ export const SCENES: Scene[] = [
     screen: 'game',
     state: gameBase,
     wsStatus: 'connecting',
+  },
+  {
+    // Held-TAB standings mid-match: two rounds played, one bot, one player on a
+    // ping bad enough that the colour has to say so before the number does.
+    id: 'game-scores',
+    title: 'Partie · tableau des scores',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      roundNumber: 4,
+      matchFormat: 'BO7' as const,
+      scoreboard: SCOREBOARD_HISTORIC,
+      roundHistory: ROUND_HISTORY,
+      latencies: LATENCIES,
+    },
+    overlay: 'scores',
+  },
+  {
+    // Same overlay before anyone has scored: the round columns have nothing to
+    // show yet, which is the state a player sees most often in a BO1.
+    id: 'game-scores-round-one',
+    title: 'Partie · scores (1re manche)',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      roundNumber: 1,
+      matchFormat: 'BO1' as const,
+      roundHistory: [],
+      scoreboard: SCOREBOARD_HISTORIC.map((e) => ({ ...e, score: 0, rounds_won: 0 })),
+      latencies: LATENCIES,
+    },
+    overlay: 'scores',
   },
   {
     id: 'round-summary',
