@@ -546,17 +546,23 @@ describe('useGameStore', () => {
     expect(useGameStore.getState().turnDeadline).toBeNull()
   })
 
-  it('applyCardPlayed clears turnDeadline', () => {
+  // The store deliberately does NOT clear turnDeadline here: the hub sends a
+  // fresh one with the same card_played, and clearing it locally would blank the
+  // countdown bar for a round trip on every single play. This test therefore
+  // asserts what applyCardPlayed really owes (the turn and the pending draw),
+  // and that the deadline is left for the transport to set.
+  it('applyCardPlayed forwards turn and pendingDraw, leaving turnDeadline to the server', () => {
     useGameStore.setState({
       turnDeadline: 1700000000000,
+      pendingDraw: 4,
       players: [{ index: 0, nickname: 'alice', hand_size: 3, connected: true }],
     })
     const card: CardDTO = { color: 'red', kind: 'number', value: 1 }
     useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
-    // turn deadline is reset by the hub on each new turn; store does not proactively clear it
-    // (the hub sends a new turn_deadline with the next turn_changed / card_played message).
-    // This test verifies pendingDraw is correctly forwarded.
-    expect(useGameStore.getState().currentTurn).toBe(1)
+    const s = useGameStore.getState()
+    expect(s.currentTurn).toBe(1)
+    expect(s.pendingDraw).toBe(0)
+    expect(s.turnDeadline).toBe(1700000000000)
   })
 
   // ──────────────────────────────────────────────────────────────

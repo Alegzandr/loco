@@ -65,7 +65,6 @@ const (
 	// charged a card for it. Broadcast to the whole room: the wager is public,
 	// like the catch it lost to.
 	SMsgCatchFailed ServerMsgType = "catch_failed"
-	SMsgDrawPending      ServerMsgType = "draw_pending"
 	SMsgInterruptSuccess ServerMsgType = "interrupt_success"
 	// Round / match lifecycle
 	SMsgRoundEnd ServerMsgType = "round_end"
@@ -213,8 +212,8 @@ type ServerMsg struct {
 	// display and reset the countdown when a new turn begins.
 	TurnDeadline int64 `json:"turn_deadline,omitempty"`
 
-	// SMsgDrawPending / SMsgCardPlayed / SMsgCardDrawn: the authoritative turn
-	// state AFTER the event.
+	// SMsgCardPlayed / SMsgCardDrawn: the authoritative turn state AFTER the
+	// event.
 	//
 	// Pointers, not plain values: `omitempty` drops a false bool and a zero int
 	// from the wire, so the receiver has to invent the missing value — and it

@@ -856,6 +856,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		h.broadcastPersonalizedGameState(c.roomCode, room)
 	}
 	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.maybeScheduleBotDeclarations(c.roomCode, room)
 	h.maybeScheduleBotInterrupt(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -1090,6 +1091,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, -1)
 	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.maybeScheduleBotDeclarations(c.roomCode, room)
 	h.maybeScheduleBotInterrupt(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -1116,6 +1118,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 
 	h.broadcastInterrupt(c.roomCode, room, c.playerID, cards, chosenPlayer)
 	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.maybeScheduleBotDeclarations(c.roomCode, room)
 	h.maybeScheduleBotInterrupt(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
@@ -1847,7 +1850,7 @@ func (h *Hub) handleBotInterrupt(bim botInterruptMsg) {
 		return
 	}
 	h.broadcastInterrupt(bim.roomCode, room, botID, action.Cards, action.ChosenPlayer)
-	h.maybeAutoDeclareUNO(bim.roomCode, room, botID)
+	h.maybeScheduleBotDeclarations(bim.roomCode, room)
 	h.handleRoundOrMatchEnd(bim.roomCode, room)
 }
 
@@ -1964,7 +1967,7 @@ func (h *Hub) botPlay(code string, room *game.Room, playerID int, action game.Bo
 	if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
 		h.broadcastPersonalizedGameState(code, room)
 	}
-	h.maybeAutoDeclareUNO(code, room, playerID)
+	h.maybeScheduleBotDeclarations(code, room)
 	h.handleRoundOrMatchEnd(code, room)
 }
 
@@ -1975,7 +1978,7 @@ func (h *Hub) botCounter(code string, room *game.Room, playerID int, action game
 		return
 	}
 	h.broadcastCardPlayed(code, playerID, room, -1)
-	h.maybeAutoDeclareUNO(code, room, playerID)
+	h.maybeScheduleBotDeclarations(code, room)
 	h.handleRoundOrMatchEnd(code, room)
 }
 
@@ -2017,13 +2020,35 @@ func (h *Hub) botDraw(code string, room *game.Room, playerID int) (rescheduled b
 	return false
 }
 
-// maybeAutoDeclareUNO schedules a bot's deferred declaration when it has played
-// to exactly 1 card. Nothing is declared here — see scheduleBotUnoAnnounce.
-func (h *Hub) maybeAutoDeclareUNO(code string, room *game.Room, playerID int) {
-	if room.RoundEnded || room.State.Hands[playerID].Size() != 1 {
+// maybeScheduleBotDeclarations arms a deferred LOCO! for every bot seat that
+// currently owes one, not only for the seat that happened to act.
+//
+// Playing down to one card is not the only way to owe a declaration: a Swap or
+// a GlobalSwitch hands one over, and receiving your last card is exactly as
+// declarable as playing to it (rules.md §8). Keyed on the acting seat, a human
+// who swapped a bot down to one card left it silently catchable for the whole
+// 5 s window: a free +2 that no human ever offers, since bots do catch humans.
+// A bot's own Swap had the same hole against a *second* bot.
+//
+// CatchableTargets is the same set maybeScheduleBotCatch reads: seats on one
+// card, undeclared, window still open. Filtering it to bots is the entire rule.
+// Nothing is declared here: see scheduleBotUnoAnnounce. Scheduling twice for
+// one moment is harmless: the second announce finds the seat settled and
+// returns.
+func (h *Hub) maybeScheduleBotDeclarations(code string, room *game.Room) {
+	if room.Status != game.StatusPlaying || room.RoundEnded || room.State == nil {
 		return
 	}
-	h.scheduleBotUnoAnnounce(code, playerID, room.State.LastCardAt[playerID])
+	bots, ok := h.botSlots[code]
+	if !ok || len(bots) == 0 {
+		return
+	}
+	for _, seat := range room.State.CatchableTargets(time.Now()) {
+		if _, isBot := bots[seat]; !isBot {
+			continue // a human's own call is theirs to make or lose
+		}
+		h.scheduleBotUnoAnnounce(code, seat, room.State.LastCardAt[seat])
+	}
 }
 
 // botCanPlayDrawn reports whether the bot can play any card in its hand against
@@ -2050,6 +2075,15 @@ func (h *Hub) scheduleTurnTimer(code string, room *game.Room) {
 	// Bots handle their own timing; don't schedule a timeout for them.
 	if bots, ok := h.botSlots[code]; ok {
 		if _, isBot := bots[turn]; isBot {
+			// Drop the previous turn's start time on the way out. turnDeadlineMs
+			// reads this map with no notion of whose turn it is, so leaving the
+			// human's entry behind made every card_played that hands the turn to
+			// a bot carry a deadline that had already half expired: the client
+			// mounts its countdown bar on any non-null deadline, so it drained
+			// the rest of somebody else's clock under a seat that has no clock.
+			// Zero here really is an absence: turn_deadline is omitempty, so the
+			// field never reaches the client and the bar stays down.
+			delete(h.turnStartedAt, code)
 			return
 		}
 	}

@@ -417,9 +417,9 @@ pending the only legal cards are the ones that stack it, so the two questions ar
     with, or the bot is answering a board that no longer exists.
   - `broadcastInterrupt` is shared with the human path, so a bot taking the lead produces the exact
     same sequence on the wire (`interrupt_success` then `card_played`).
-- Auto-declare UNO when playing to 1 card — **deferred, and the declaration itself is what waits**.
-  `maybeAutoDeclareUNO` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the timer
-  fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
+- Auto-declare UNO: **deferred, and the declaration itself is what waits**.
+  `maybeScheduleBotDeclarations` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the
+  timer fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
   alone settled the seat server-side while every client was still showing the 5s catch window it had
   just opened on the same `card_played`: a bot's LOCO! was uncatchable by construction and every
   Contre-LOCO! tap came back `player already declared` ("Déjà annoncé."), which reads as a broken
@@ -430,6 +430,23 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   - `BotUnoDelay`+`BotUnoJitterMax` = **1.6–2.8s** of the 5s window. It is a human reaction budget
     (spot the seat → move to the button → click), not a machine's: at the old 0.4–0.8s the mechanic
     would have been unwinnable even once the state bug was fixed.
+  - **It scans `CatchableTargets`, it is not keyed on the seat that acted.** Playing down to one card
+    is not the only way to owe a declaration: a Swap or a GlobalSwitch hands one over, and §8 makes
+    receiving your last card exactly as declarable as playing to it. Keyed on the actor, a *human's*
+    Swap scheduled nothing at all for the bot it put on one card, so that bot stayed undeclared and
+    catchable for the full window: a free +2 no human ever offers, since bots do catch humans. A
+    bot's own Swap had the same hole against a second bot. Called at the same three human entry
+    points as `maybeScheduleBotCatch` **and** after every bot action; scheduling twice for one moment
+    is harmless (the second announce finds the seat settled and returns).
+- **A bot's turn broadcasts no deadline.** `scheduleTurnTimer` arms no timeout for a bot and now also
+  `delete`s `turnStartedAt[code]` on its way out, because `turnDeadlineMs` reads that map with no
+  notion of whose turn it is. Leaving the previous human's entry behind put a half-spent deadline on
+  every `card_played` that handed the turn to a bot, and the client mounts its countdown bar on any
+  non-null deadline: it drained somebody else's clock, in urgent red, under a seat that cannot time
+  out. `turn_deadline` keeps `omitempty` precisely so the resulting 0 never reaches the client (the
+  one field here where a zero is an absence rather than a value, unlike `turn` / `drawn_count` /
+  `pending_draw`). `TestTurnDeadline_AbsentDuringBotTurn` plays a Skip first so a live deadline is
+  proven recorded before the second play asserts it gone.
 - Tracked in `hub.botSlots[code][playerID]`.
 
 ## Game event log
@@ -455,6 +472,14 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 - Token bucket per client: 10/s refill, burst 20.
 - `hub/client.go` `rateLimiter` (thread-safe).
 - Drops → `error` server message. Per-connection, not per-identity.
+- **One notice per burst, not one per dropped message** (`rateLimitNoticePeriod`, 1s). Answering each
+  drop put a fresh `json.Marshal` and a queued frame on the server's own send path for every message
+  of a flood: the limiter amplified exactly what it exists to absorb, and a fast enough burst ended
+  by overflowing the send buffer and force-closing a connection that one notice would have corrected.
+  The reply is a hint to a buggy client, not an acknowledgement owed to every message.
+  `messages_rate_limited` still counts **every** drop, so the metric keeps its shape;
+  `TestRateLimit_BurstThenError` pins both halves.
+- `lastLimitNotice` needs no lock: `readPump` is the only goroutine that drops a message.
 
 ---
 
