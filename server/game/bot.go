@@ -81,26 +81,92 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 		chosen = botPreferredColor(hand)
 	}
 	if pick.Kind == Swap {
-		// Pick a random opponent (prefer the one with most cards).
-		n := len(state.Hands)
-		bestIdx := -1
-		bestSize := -1
-		for i := 0; i < n; i++ {
-			if i == playerIdx {
-				continue
-			}
-			if state.Hands[i].Size() > bestSize {
-				bestSize = state.Hands[i].Size()
-				bestIdx = i
-			}
-		}
-		chosenPlayer = bestIdx
+		chosenPlayer = botSwapTarget(state, playerIdx)
 		if chosenPlayer < 0 {
 			// No valid target — skip this card and draw instead
 			return BotAction{Kind: BotDraw, ChosenPlayer: -1}
 		}
 	}
 	return BotAction{Kind: BotPlay, Card: pick, ChosenColor: chosen, ChosenPlayer: chosenPlayer}
+}
+
+// BotInterruptAction is an interject a bot could make into an open window:
+// every identical copy it holds of the current top discard.
+type BotInterruptAction struct {
+	Cards        []Card
+	ChosenColor  Color
+	ChosenPlayer int // Swap target, -1 otherwise
+}
+
+// BotInterrupt returns what playerIdx could slam onto the top discard right
+// now, or nil if it holds nothing that matches.
+//
+// The interject is the game's signature mechanic and it used to run one way
+// only: bots could be interrupted and never interrupted back, so the reaction
+// nobody has to defend is the reaction nobody has to think about. This mirrors
+// InterruptPlayCards' own rules rather than trusting the caller — an interject
+// the domain will refuse is worse than none, since it costs a round trip and
+// shows up as a rejection.
+//
+// It answers the question and schedules nothing: the hub owns whether and when.
+func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
+	if state == nil || playerIdx < 0 || playerIdx >= len(state.Hands) {
+		return nil
+	}
+	// Closed window: nothing to jump into.
+	if state.LastPlayBy < 0 || len(state.Discard) == 0 {
+		return nil
+	}
+	top := state.Discard[len(state.Discard)-1]
+	// During a draw chain only an identical draw card may be interjected. In a
+	// consistent state the equality below already implies it; kept explicit for
+	// the same reason the domain keeps it.
+	if state.PendingDraw > 0 && top.Kind != DrawTwo && top.Kind != WildDrawFour {
+		return nil
+	}
+
+	var copies []Card
+	for _, c := range state.Hands[playerIdx].Cards {
+		if c == top {
+			copies = append(copies, c)
+		}
+	}
+	if len(copies) == 0 {
+		return nil
+	}
+
+	action := &BotInterruptAction{Cards: copies, ChosenColor: state.ActiveColor, ChosenPlayer: -1}
+	// Swap and GlobalSwitch cannot be batch-interjected.
+	if top.Kind == Swap || top.Kind == GlobalSwitch {
+		action.Cards = copies[:1]
+	}
+	// Every wild names a colour, GlobalSwitch included.
+	if top.IsWild() {
+		action.ChosenColor = botPreferredColor(state.Hands[playerIdx])
+	}
+	if top.Kind == Swap {
+		action.ChosenPlayer = botSwapTarget(state, playerIdx)
+		if action.ChosenPlayer < 0 {
+			return nil
+		}
+	}
+	return action
+}
+
+// botSwapTarget picks the opponent holding the most cards, or -1 if there is
+// nobody to swap with.
+func botSwapTarget(state *GameState, playerIdx int) int {
+	bestIdx, bestSize := -1, -1
+	for i := range state.Hands {
+		if i == playerIdx {
+			continue
+		}
+		if state.Hands[i].Size() > bestSize {
+			bestSize = state.Hands[i].Size()
+			bestIdx = i
+		}
+	}
+	return bestIdx
 }
 
 // botPreferredColor returns the color most frequent in the bot's hand, or Red if tie.

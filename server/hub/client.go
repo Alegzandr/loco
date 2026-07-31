@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"loco/server/game"
 	"loco/server/protocol"
 )
 
@@ -302,6 +303,21 @@ const (
 	suspectThreshold  = 5
 	suspectWindowSpan = 30 * time.Second
 )
+
+// noteRejection is the gameplay path's entry point: it records a refused action
+// against this client unless the refusal is one a correct client produces in
+// ordinary play (see game.IsLostRace). Every gameplay handler goes through here
+// rather than calling noteSuspect directly.
+//
+// suspected_cheats is meant to point an operator at a tampered client. Counting
+// lost interrupt races and double taps made it rise fastest at the busiest,
+// most contested tables, which is exactly backwards.
+func (c *Client) noteRejection(err error) {
+	if err == nil || game.IsLostRace(err) {
+		return
+	}
+	c.noteSuspect(err.Error())
+}
 
 func (c *Client) noteSuspect(reason string) {
 	now := time.Now()

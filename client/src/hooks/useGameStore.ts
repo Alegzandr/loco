@@ -192,6 +192,43 @@ interface GameStore {
   clearError: () => void
 }
 
+/**
+ * Drop the copies of `card` the server just discarded from our hand.
+ *
+ * One `card_played` can stand for several discards: a batch play or a batch
+ * interrupt slams *every* identical copy the player holds. Removing exactly one
+ * left the rest as phantom cards — they rendered, they could be tapped, and the
+ * server refused each tap with "card not in hand" until the round ended.
+ *
+ * `targetSize` is the server's own `hand_size` for our seat and it is the
+ * authority: copies come off until the local hand matches it. With no authority
+ * to compare against we fall back to a single copy, which is the ordinary play.
+ * A server hand that is *larger* than ours removes nothing — that is a desync a
+ * `game_state` has to settle, and guessing here would only widen it.
+ *
+ * Copies come off the end so the survivors keep their `handCardKeys` identity
+ * and slide into the gap instead of remounting.
+ */
+export function removePlayedCards(
+  hand: CardDTO[],
+  card: CardDTO,
+  targetSize?: number,
+): CardDTO[] {
+  const wanted =
+    typeof targetSize === 'number' ? Math.max(0, hand.length - targetSize) : 1
+  if (wanted === 0) return hand
+  const next = [...hand]
+  let removed = 0
+  for (let i = next.length - 1; i >= 0 && removed < wanted; i--) {
+    const c = next[i]
+    if (c.color === card.color && c.kind === card.kind && c.value === card.value) {
+      next.splice(i, 1)
+      removed++
+    }
+  }
+  return removed > 0 ? next : hand
+}
+
 // makeSwapNotice returns a fresh notice for a Swap or GlobalSwitch play, or null
 // for any other card kind (caller keeps the previous notice in that case).
 function makeSwapNotice(
@@ -342,12 +379,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       // Remove the played card from local hand if it was our play
       let updatedHand = s.myHand
       if (playerIndex === s.myIndex) {
-        const idx = s.myHand.findIndex(
-          (c) => c.color === card.color && c.kind === card.kind && c.value === card.value
+        updatedHand = removePlayedCards(
+          s.myHand,
+          card,
+          updatedPlayers.find((p) => p.index === s.myIndex)?.hand_size
         )
-        if (idx >= 0) {
-          updatedHand = [...s.myHand.slice(0, idx), ...s.myHand.slice(idx + 1)]
-        }
       }
       // Surface a transient notice when a hand-swapping card resolves so non-actors
       // understand why their (or others') card counts just changed.
@@ -424,8 +460,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (cards && cards.length > 0) {
         return { ...turnState, myHand: [...s.myHand, ...cards] }
       }
-      // Observer: update hand size by actual drawn count (default 1 for backward compat).
-      const count = drawnCount ?? 1
+      // Observer: update hand size by the count the server sent. Absent means
+      // nothing, never "probably one": a draw against exhausted piles hands over
+      // zero cards, and guessing there adds a card to a hand that did not grow —
+      // the same class of desync as inferring has_drawn above.
+      const count = drawnCount ?? 0
       const players = s.players.map((p) =>
         p.index === playerIndex ? { ...p, hand_size: p.hand_size + count } : p
       )

@@ -78,7 +78,9 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // ── Transport ────────────────────────────────────────────────────────────
   [/rate limit exceeded/i, 'rateLimited'],
   [/server busy/i, 'serverBusy'],
-  [/deck exhausted/i, 'deckExhausted'],
+  // There is deliberately no rule for an exhausted deck: a draw cannot fail any
+  // more (Deck.DrawUpTo), so no server path can produce that refusal. A rule
+  // kept for a message nobody sends is a rule nobody maintains.
 ]
 
 /**

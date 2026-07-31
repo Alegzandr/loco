@@ -194,8 +194,14 @@ type ServerMsg struct {
 	// exposing hand contents to non-participants.
 	ChosenPlayer *int `json:"chosen_player,omitempty"`
 
-	// SMsgTurnChanged
-	Turn int `json:"turn,omitempty"`
+	// SMsgTurnChanged.
+	//
+	// No omitempty, deliberately: seat 0 is a turn like any other, and dropping
+	// it would leave every client to infer whose turn it is from an absence.
+	// The client happens to default to 0, so this was correct by luck — the same
+	// luck PlayerIndex did not have. A few bytes on every message is the price of
+	// never having to think about it again.
+	Turn int `json:"turn"`
 
 	// Play direction (1 = clockwise, -1 = counter-clockwise) AFTER any card effect
 	// has been applied. Included in card_played so clients can update their
@@ -222,8 +228,12 @@ type ServerMsg struct {
 
 	// SMsgCardDrawn: multiple cards drawn at once (penalty draw)
 	// Cards holds all drawn cards for the drawing player; DrawnCount tells observers how many.
-	Cards      []*CardDTO `json:"cards,omitempty"`
-	DrawnCount int        `json:"drawn_count,omitempty"`
+	Cards []*CardDTO `json:"cards,omitempty"`
+	// No omitempty for the same reason as Turn, and here it was not luck: a draw
+	// against exhausted piles hands over nothing, and the client's fallback for
+	// an absent count was 1 — so every observer would have added a card nobody
+	// drew, to a hand the server never grew.
+	DrawnCount int `json:"drawn_count"`
 
 	// SMsgRoundEnd / SMsgMatchEnd
 	RoundNumber int                  `json:"round_number,omitempty"`

@@ -49,6 +49,21 @@ func TestServerMsg_NoSeatStaysAbsent(t *testing.T) {
 	}
 }
 
+// The same trap, one field over. A zero turn is seat 0's turn, and a zero
+// drawn_count is a draw against exhausted piles — which the client's fallback
+// would have read as one card, growing a hand the server never grew.
+func TestServerMsg_ZeroTurnAndDrawnCountSurviveTheWire(t *testing.T) {
+	data, err := json.Marshal(ServerMsg{Type: SMsgCardDrawn, PlayerIndex: seat(0), Turn: 0, DrawnCount: 0})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, want := range []string{`"turn":0`, `"drawn_count":0`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("card_drawn dropped %s from the wire: %s", want, data)
+		}
+	}
+}
+
 func TestServerMsg_Seat(t *testing.T) {
 	if got := (ServerMsg{Type: SMsgError}).Seat(); got != -1 {
 		t.Errorf("Seat() on a seatless message = %d, want -1", got)

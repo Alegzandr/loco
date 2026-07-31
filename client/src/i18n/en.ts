@@ -66,7 +66,6 @@ export interface ErrorCopy {
   // Transport
   rateLimited: string
   serverBusy: string
-  deckExhausted: string
 }
 
 export interface Translations {
@@ -387,7 +386,7 @@ export const en: Translations = {
       items: [
         'Skip — the next player loses their turn.',
         'Reverse — flips play direction (acts as Skip with 2 players).',
-        'Draw Two (+2) — next player draws 2 and loses their turn unless they stack.',
+        'Draw Two (+2) — next player draws 2 unless they stack an identical +2. Taking the cards does not cost them the turn: they draw, then play or pass.',
         'Wild — choose the next active color.',
         'Wild Draw Four (+4) — choose the color; next player draws 4 unless they stack.',
         'Swap (⇋) — colored card; on your turn, pick an opponent and exchange entire hands. No stacking.',
@@ -490,6 +489,5 @@ export const en: Translations = {
 
     rateLimited: 'Slow down a moment.',
     serverBusy: 'Server is busy. Try again.',
-    deckExhausted: 'No cards left to draw.',
   },
 }

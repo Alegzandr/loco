@@ -13,8 +13,7 @@ All messages are JSON over a single WebSocket per player.
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
 | `set_max_players`   | `max_players` (2–10) (host-only)                         |
 | `rematch`           | — (host-only; reopens a finished room as a lobby)        |
-| `play_card`         | `card`, `chosen_color`                                   |
-| `play_cards`        | `cards[]` (batch identical play; takes precedence over `card`) |
+| `play_card`         | `card`, `chosen_color` — or `play_cards[]` for a batch of identical cards, which takes precedence over `card`. There is no separate `play_cards` message type. |
 | `draw_card`         | —                                                        |
 | `pass_turn`         | —                                                        |
 | `declare_uno`       | —                                                        |

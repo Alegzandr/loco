@@ -9,6 +9,7 @@ import (
 	"log"
 	mrand "math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strings"
@@ -56,9 +57,73 @@ var upgrader = websocket.Upgrader{
 	// on both ends of every card play plus a flush the receiver has to wait on.
 	// latency outranks bandwidth here (see "Engineering priorities").
 	EnableCompression: false,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // allow all origins in development; restrict in production
-	},
+	CheckOrigin: originAllowed,
+}
+
+// AllowedOrigins is the exact set of browser origins permitted to open a socket,
+// read once from LOCO_ALLOWED_ORIGINS (comma-separated) at startup. Empty means
+// "same host as the request", which is what the production topology already is:
+// nginx serves the SPA and proxies /ws on one hostname.
+//
+// Exported as a var so tests can set it; production sets the environment.
+var AllowedOrigins = splitOrigins(os.Getenv("LOCO_ALLOWED_ORIGINS"))
+
+func splitOrigins(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+// originAllowed decides whether a browser at Origin may upgrade.
+//
+// `return true` accepted a socket from any page on the internet. The exposure is
+// genuinely small — LOCO has no login, no cookie and no ambient credential, so
+// there is nothing for a cross-site socket to borrow — but "small" is not the
+// same as "none": an unrestricted upgrade is a free room-creation and
+// message-flood endpoint pointed at this server from anybody's page, and the
+// per-connection rate limit is the only thing standing behind it.
+//
+// The default rule needs no configuration and holds in dev: hostnames must
+// match, ports need not, so the Vite client on :5173 reaches the server on
+// :8080 while evil.example is refused either way.
+func originAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		// Not a browser. Nothing here is authenticated by anything a
+		// non-browser client could be tricked into replaying.
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	if len(AllowedOrigins) > 0 {
+		for _, allowed := range AllowedOrigins {
+			if strings.EqualFold(allowed, origin) {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), hostname(r.Host))
+}
+
+// hostname strips any :port from a Host header, IPv6 literals included.
+func hostname(host string) string {
+	if strings.HasPrefix(host, "[") {
+		if end := strings.Index(host, "]"); end >= 0 {
+			return host[1:end]
+		}
+		return host
+	}
+	if i := strings.LastIndex(host, ":"); i >= 0 {
+		return host[:i]
+	}
+	return host
 }
 
 type inboundMsg struct {
@@ -106,6 +171,15 @@ type botCatchMsg struct {
 	lastCardTime time.Time // stale-check: must match room.State.LastCardTime at execution
 }
 
+// botInterruptMsg is sent internally when a bot should consider slamming an
+// identical card into an open interrupt window.
+type botInterruptMsg struct {
+	roomCode string
+	// stale-check: the discard must still be the card this was scheduled for.
+	// Anything else and the bot is answering a board that no longer exists.
+	lastPlayAt time.Time
+}
+
 // Hub manages all active rooms and connected clients.
 type Hub struct {
 	rooms   map[string]*game.Room
@@ -144,6 +218,7 @@ type Hub struct {
 	turnTimeout    chan turnTimerMsg      // per-turn timeout actions
 	unoAnnounce    chan unoMsg            // delayed bot UNO declaration broadcasts
 	botCatch       chan botCatchMsg       // scheduled bot catch-UNO attempts
+	botInterrupt   chan botInterruptMsg   // scheduled bot interject attempts
 	mapLoadTimeout chan mapLoadTimeoutMsg // "start without the stragglers" deadline
 	quit           chan struct{}          // closed by Stop() to terminate Run()
 
@@ -215,6 +290,7 @@ func New() *Hub {
 		turnTimeout:    make(chan turnTimerMsg, 64),
 		unoAnnounce:    make(chan unoMsg, 64),
 		botCatch:       make(chan botCatchMsg, 64),
+		botInterrupt:   make(chan botInterruptMsg, 64),
 		mapLoadTimeout: make(chan mapLoadTimeoutMsg, 64),
 		quit:           make(chan struct{}),
 		startTime:      time.Now(),
@@ -343,6 +419,9 @@ func (h *Hub) Run() {
 
 		case cm := <-h.botCatch:
 			h.handleBotCatch(cm)
+
+		case bim := <-h.botInterrupt:
+			h.handleBotInterrupt(bim)
 
 		case mlm := <-h.mapLoadTimeout:
 			h.handleMapLoadTimeout(mlm)
@@ -762,7 +841,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	}
 	if err != nil {
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		c.noteRejection(err)
 		return
 	}
 
@@ -777,6 +856,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		h.broadcastPersonalizedGameState(c.roomCode, room)
 	}
 	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.maybeScheduleBotInterrupt(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -842,7 +922,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	priorSize := len(room.State.Hands[c.playerID].Cards)
 	if err := room.DrawCard(c.playerID); err != nil {
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		c.noteRejection(err)
 		return
 	}
 	state := room.State
@@ -899,7 +979,7 @@ func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.PassTurn(c.playerID); err != nil {
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		c.noteRejection(err)
 		return
 	}
 	h.scheduleTurnTimer(c.roomCode, room)
@@ -920,10 +1000,10 @@ func (h *Hub) handleDeclareUno(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		// A second call on the same single card is a double tap or a message in
 		// flight when the first one landed, not an attack — the client already
-		// spends its own button. Everything else here is a real out-of-state call.
-		if err.Error() != "player already declared" {
-			c.noteSuspect(err.Error())
-		}
+		// spends its own button. game.IsLostRace covers it (ErrAlreadyDeclared),
+		// so this is the same rule every other handler now applies, rather than
+		// a string comparison that a reworded error would silently break.
+		c.noteRejection(err)
 		return
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
@@ -962,7 +1042,7 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 			return
 		}
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		c.noteRejection(err)
 		return
 	}
 	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
@@ -1005,11 +1085,12 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 	}
 	if err := room.CounterDraw(c.playerID, card, chosenColor); err != nil {
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		c.noteRejection(err)
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, -1)
 	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.maybeScheduleBotInterrupt(c.roomCode, room)
 	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
@@ -1029,22 +1110,32 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 
 	if err := room.InterruptPlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
 		c.sendError(err.Error())
-		c.noteSuspect(err.Error())
+		c.noteRejection(err)
 		return
 	}
 
+	h.broadcastInterrupt(c.roomCode, room, c.playerID, cards, chosenPlayer)
+	h.maybeScheduleBotCatch(c.roomCode, room)
+	h.maybeScheduleBotInterrupt(c.roomCode, room)
+	h.handleRoundOrMatchEnd(c.roomCode, room)
+}
+
+// broadcastInterrupt announces a successful interject. Shared by the human and
+// the bot path so both produce the same sequence on the wire — a bot that took
+// the lead has to look exactly like a player who did.
+func (h *Hub) broadcastInterrupt(code string, room *game.Room, playerID int, cards []game.Card, chosenPlayer int) {
 	// Emit a typed interrupt_success notification (in addition to the standard
 	// card_played broadcast) so clients can render distinct lead-taking visuals.
 	successCards := make([]*protocol.CardDTO, len(cards))
 	for i, card := range cards {
 		successCards[i] = cardToDTO(card)
 	}
-	h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
 		Type:        protocol.SMsgInterruptSuccess,
-		PlayerIndex: intPtr(c.playerID),
+		PlayerIndex: intPtr(playerID),
 		Cards:       successCards,
 	})
-	h.broadcastCardPlayed(c.roomCode, c.playerID, room, chosenPlayer)
+	h.broadcastCardPlayed(code, playerID, room, chosenPlayer)
 	// Same rule as handlePlayCard: Swap and GlobalSwitch rearrange hands, so every
 	// client needs a fresh personalised snapshot. A GlobalSwitch interject is
 	// ordinary play (the deck ships four of them); the Swap case is only reachable
@@ -1053,10 +1144,8 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	// it can no longer play and every tap comes back "card not in hand" — is
 	// exactly the bug this guards against.
 	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
-		h.broadcastPersonalizedGameState(c.roomCode, room)
+		h.broadcastPersonalizedGameState(code, room)
 	}
-	h.maybeScheduleBotCatch(c.roomCode, room)
-	h.handleRoundOrMatchEnd(c.roomCode, room)
 }
 
 // --- Disconnect handling ---
@@ -1457,6 +1546,27 @@ var BotCatchJitterMax = 1500 * time.Millisecond
 // Exported so tests can set it to a deterministic value.
 var BotCatchProb float32 = 0.65
 
+// BotInterruptDelay and BotInterruptJitterMax bound how long a bot takes to
+// slam an identical card into an open window (0.7–1.5s).
+//
+// This is the one bot reaction with no deadline to respect — an interrupt
+// window stays open until somebody draws, passes or the round ends — so the
+// number is set by fairness, not by a timeout: a human has to see the card
+// land, recognise the match and click. Instant would make every contested
+// window the bot's, which is worse than the bots never interrupting at all.
+// Exported so tests can set them to 0.
+var (
+	BotInterruptDelay     = 700 * time.Millisecond
+	BotInterruptJitterMax = 800 * time.Millisecond
+)
+
+// BotInterruptProb is the probability that a bot holding an identical card
+// actually uses it. Deliberately below BotCatchProb: an interject takes the
+// lead outright, so a bot that always took the one it could see would answer
+// every play a human made.
+// Exported so tests can set it to a deterministic value.
+var BotInterruptProb float32 = 0.40
+
 // handleAddBot adds a bot player to the lobby (host-only).
 // nextBotName returns the lowest free "BotN" name (1-based). Scanning for a free
 // name rather than counting seats keeps the first bot named Bot1 and avoids
@@ -1645,6 +1755,102 @@ func (h *Hub) maybeScheduleBotCatch(code string, room *game.Room) {
 	}
 }
 
+// maybeScheduleBotInterrupt arms one interject attempt against the card that
+// was just played. Called at the same points as maybeScheduleBotCatch, i.e.
+// after a *human* action: bots deliberately do not answer each other, which is
+// the existing rule for catches and also what keeps an all-bot table from
+// slamming cards back and forth with nobody watching.
+//
+// One message per play, not one per bot: the handler picks among whoever can
+// actually answer, so a table with four bots does not get four rolls of the die
+// on the same card.
+func (h *Hub) maybeScheduleBotInterrupt(code string, room *game.Room) {
+	if room.Status != game.StatusPlaying || room.RoundEnded || room.State == nil {
+		return
+	}
+	if room.State.LastPlayBy < 0 {
+		return // window already closed (round-winning play, draw, pass)
+	}
+	if bots, ok := h.botSlots[code]; !ok || len(bots) == 0 {
+		return
+	}
+	var jitter time.Duration
+	if jm := int(BotInterruptJitterMax.Milliseconds()); jm > 0 {
+		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
+	}
+	bim := botInterruptMsg{roomCode: code, lastPlayAt: room.State.LastPlayAt}
+	time.AfterFunc(BotInterruptDelay+jitter, func() {
+		select {
+		case h.botInterrupt <- bim:
+		default:
+			// Non-critical: dropping it means the bot did not react in time,
+			// which is a legal outcome of the mechanic rather than a fault.
+		}
+	})
+}
+
+// handleBotInterrupt fires when a scheduled interject is due. Every guard is a
+// way the moment can have passed between the schedule and the fire, and each
+// one simply means the bot lost the race.
+func (h *Hub) handleBotInterrupt(bim botInterruptMsg) {
+	room, ok := h.rooms[bim.roomCode]
+	if !ok || room.Status != game.StatusPlaying || room.State == nil || room.RoundEnded {
+		return
+	}
+	state := room.State
+	// Stale check: a different card is on the pile, so this answer is to a
+	// board that no longer exists. Interjecting anyway would be answering the
+	// wrong play with the right card.
+	if !state.LastPlayAt.Equal(bim.lastPlayAt) {
+		return
+	}
+	bots, ok := h.botSlots[bim.roomCode]
+	if !ok || len(bots) == 0 {
+		return
+	}
+	// Probabilistic, like every other bot reaction: they do not always spot it.
+	if mrand.Float32() >= BotInterruptProb {
+		return
+	}
+
+	// Whoever can actually answer, minus the seat that just played — taking the
+	// lead back from itself is legal for a human but pointless for a bot, and
+	// it would let two bots trade a pair of identical cards on one play.
+	//
+	// The seat holding the turn is deliberately NOT excluded. In a two-player
+	// game the bot is always the next player, so excluding it would mean the
+	// mechanic stays one-way in the single most common setup. It is also not
+	// redundant with its ordinary turn: an interject slams *every* identical
+	// copy at once, where BotThink plays one.
+	type candidate struct {
+		seat   int
+		action *game.BotInterruptAction
+	}
+	candidates := make([]candidate, 0, len(bots))
+	for botID := range bots {
+		if botID == state.LastPlayBy {
+			continue
+		}
+		if action := game.BotInterrupt(state, botID); action != nil {
+			candidates = append(candidates, candidate{botID, action})
+		}
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	picked := candidates[mrand.Intn(len(candidates))]
+	botID, action := picked.seat, picked.action
+	if err := room.InterruptPlayCards(botID, action.Cards, action.ChosenColor, action.ChosenPlayer); err != nil {
+		// Lost the race to a human or to the state moving on. Nothing to do:
+		// the bot simply did not get there, exactly like a mistimed click.
+		log.Printf("bot interrupt refused code=%s player=%d err=%v", bim.roomCode, botID, err)
+		return
+	}
+	h.broadcastInterrupt(bim.roomCode, room, botID, action.Cards, action.ChosenPlayer)
+	h.maybeAutoDeclareUNO(bim.roomCode, room, botID)
+	h.handleRoundOrMatchEnd(bim.roomCode, room)
+}
+
 // handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates game state,
 // rolls the probability die, selects a random eligible bot, and issues the catch.
 func (h *Hub) handleBotCatch(cm botCatchMsg) {
@@ -1791,12 +1997,10 @@ func (h *Hub) botDraw(code string, room *game.Room, playerID int) (rescheduled b
 		PendingDraw: intPtr(state.PendingDraw),
 		HasDrawn:    boolPtr(state.HasDrawn),
 	})
-	if state.CurrentTurn != playerID {
-		// Penalty draw (PendingDraw > 0) advanced the turn; the new current
-		// player needs a timer or bot schedule so the game keeps progressing.
-		h.scheduleTurnTimer(code, room)
-		return false
-	}
+	// A forced draw does not cost the turn (rules.md §14.5), so the seat is
+	// still ours: play the drawn card or pass. The branch that used to handle a
+	// penalty draw advancing the turn was unreachable from the day that
+	// deviation landed — same dead code as in autoDrawOnTimeout.
 	if botCanPlayDrawn(state, playerID) {
 		// Schedule another bot move to play the drawn card.
 		h.scheduleBotMove(code, playerID)
@@ -1904,11 +2108,7 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 		return
 	}
 
-	advanced, ok := h.autoDrawOnTimeout(code, room, tm.playerID)
-	if !ok {
-		return
-	}
-	if advanced {
+	if !h.autoDrawOnTimeout(code, room, tm.playerID) {
 		return
 	}
 
@@ -1970,33 +2170,24 @@ func (h *Hub) kickIfAFK(code string, playerID int, client *Client) bool {
 	return true
 }
 
-// autoDrawOnTimeout draws one card for a player who hasn't drawn yet this turn.
-// Returns (advanced, ok): advanced=true means a penalty-draw advanced the turn
-// and the caller should stop (broadcast already sent + timer rescheduled);
-// ok=false means an error aborted the timeout handling entirely.
-func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int) (advanced, ok bool) {
+// autoDrawOnTimeout draws for a player who hasn't drawn yet this turn, and
+// reports whether the caller may go on to pass the turn for them.
+//
+// There is only one way out of here: a forced draw does not cost the turn
+// (rules.md §14.5), so the seat still owes the table a play or a pass. The
+// branch that used to handle a draw advancing the turn was unreachable from the
+// day that deviation landed.
+func (h *Hub) autoDrawOnTimeout(code string, room *game.Room, playerID int) bool {
 	if room.State.HasDrawn {
-		return false, true
+		return true
 	}
 	priorSize := len(room.State.Hands[playerID].Cards)
 	if err := room.DrawCard(playerID); err != nil {
 		log.Printf("turn timeout draw error code=%s player=%d err=%v", code, playerID, err)
-		return false, false
+		return false
 	}
-	state := room.State
-	newCards := state.Hands[playerID].Cards[priorSize:]
-
-	if state.CurrentTurn != playerID {
-		// Penalty draw: the turn moved on. Re-arm the timer BEFORE announcing so
-		// the broadcast carries the new player's deadline, not the expired one.
-		h.scheduleTurnTimer(code, room)
-		h.sendHandGrowth(code, room, playerID, newCards)
-		h.maybeScheduleBot(code, room)
-		return true, true
-	}
-
-	h.sendHandGrowth(code, room, playerID, newCards)
-	return false, true
+	h.sendHandGrowth(code, room, playerID, room.State.Hands[playerID].Cards[priorSize:])
+	return true
 }
 
 // turnDeadlineMs returns the unix-millisecond deadline for the current turn,

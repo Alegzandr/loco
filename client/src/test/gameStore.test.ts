@@ -130,8 +130,23 @@ describe('useGameStore', () => {
       ],
     })
     // null cards means another player drew; turn stays the same (voluntary draw).
-    useGameStore.getState().applyCardDrawn(null, 1, 1)
+    // The count is the server's, never inferred: a draw against exhausted piles
+    // sends 0, and guessing 1 would grow a hand that did not grow.
+    useGameStore.getState().applyCardDrawn(null, 1, 1, undefined, 1)
     expect(useGameStore.getState().players[1].hand_size).toBe(6)
+  })
+
+  it('applyCardDrawn adds nothing when the draw came up empty', () => {
+    useGameStore.setState({
+      currentTurn: 1,
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 5, connected: true },
+      ],
+    })
+    useGameStore.getState().applyCardDrawn(null, 1, 1, true, 0)
+    expect(useGameStore.getState().players[1].hand_size).toBe(5)
+    expect(useGameStore.getState().hasDrawn).toBe(true)
   })
 
   it('applyCardDrawn resets pendingDraw for observers when penalty draw advances turn', () => {
@@ -188,7 +203,7 @@ describe('useGameStore', () => {
         { index: 1, nickname: 'bob', hand_size: 7, connected: true },
       ],
     })
-    useGameStore.getState().applyCardDrawn(null, 1, 0)
+    useGameStore.getState().applyCardDrawn(null, 1, 0, undefined, 1)
 
     expect(useGameStore.getState().hasDrawn).toBe(false)
     expect(useGameStore.getState().pendingDraw).toBe(2)

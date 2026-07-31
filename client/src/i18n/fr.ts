@@ -176,7 +176,7 @@ export const fr: Translations = {
       items: [
         'Passe — le joueur suivant perd son tour.',
         'Inverse — inverse le sens de jeu (agit comme un Passe à 2 joueurs).',
-        '+2 — le joueur suivant pioche 2 et perd son tour sauf s\'il cumule.',
+        '+2 — le joueur suivant pioche 2 sauf s\'il cumule un +2 identique. Piocher ne lui coûte pas son tour : il pioche, puis joue ou passe.',
         'Joker — choisissez la couleur active.',
         'Joker +4 — choisissez la couleur ; le suivant pioche 4 sauf s\'il cumule.',
         'Échange (⇋) — carte colorée ; à votre tour, choisissez un adversaire et échangez vos mains. Pas de cumul.',
@@ -279,6 +279,5 @@ export const fr: Translations = {
 
     rateLimited: 'Doucement, une seconde.',
     serverBusy: 'Serveur occupé. Réessayez.',
-    deckExhausted: 'Plus de cartes à piocher.',
   },
 }
