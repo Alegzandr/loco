@@ -638,7 +638,7 @@ Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
   - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`,
     handed to `e2e_test` through the cache (see "This runner cannot upload artifacts").
   - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
-  - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs `server-bin` + Playwright,
+  - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs `server-bin` + Playwright,
     `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
   - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
@@ -664,9 +664,16 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
 - **`server-bin` is built once by `backend_test`** and handed over through the cache. `e2e_test` used
   to download a 70 MB Go toolchain tarball and rebuild the same binary, on an image with no Go in it,
   once per shard.
-- **No `playwright install`.** The `mcr.microsoft.com/playwright:v1.52.0-jammy` image already ships
-  the browsers, at the version the dependency is pinned to. Bump both together or the download comes
-  back.
+- **No `playwright install`.** The image already ships the browsers, and it ships **only the ones its
+  own Playwright needs**, so the image tag and `e2e/package-lock.json` are one decision. That step
+  was not merely slow, it was *hiding* a drift: `^1.52.0` in `e2e/package.json` had long since
+  resolved to **1.58.2** while the image stayed on `v1.52.0`, and the download silently fetched the
+  missing browser on every push. Removing it turned a hidden cost into four red shards saying
+  `Executable doesn't exist at /ms-playwright/chromium_headless_shell-…`, which names neither file
+  that has to change. Two things keep it from recurring: the dependency is pinned **exactly** (no
+  caret, because the runtime is a docker image and not a range), and `PLAYWRIGHT_VERSION` is declared once in
+  `e2e_test`, interpolated into the image tag, and asserted against `npx playwright --version` before
+  the suite runs. Bump the variable and the dependency together, and commit the lockfile.
 - **Caches.** `GOPATH`/`GOMODCACHE`/`GOCACHE` and npm's cache are redirected under `$CI_PROJECT_DIR`
   because GitLab can only cache paths inside the project. Every cache key is per-job-family
   (`go`, `golangci`, `npm-client`, `npm-e2e-$CI_NODE_INDEX`): two jobs sharing one key race on the

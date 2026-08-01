@@ -105,7 +105,14 @@ frontend_test:
 
 e2e_test:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.52.0-jammy
+  # The image ships the browsers, and it ships only the ones its own Playwright
+  # needs, so the tag and e2e/package-lock.json are one decision, not two.
+  # Declared once here and asserted below, because getting it wrong reports as
+  # "Executable doesn't exist at /ms-playwright/chromium_headless_shell-…",
+  # which names neither of the two files that have to change.
+  variables:
+    PLAYWRIGHT_VERSION: "1.58.2"
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy
   tags:
     - devops
   # The 87 tests run sequentially inside a job (the suite is stateful, so
@@ -165,9 +172,21 @@ e2e_test:
     - timeout 30 sh -c 'until wget -qO- http://localhost:8080/health; do sleep 1; done'
     # Client deps: Playwright's `webServer` starts Vite from client/ on :4173.
     - cd client && npm ci $NPM_FLAGS && cd ..
-    # No `playwright install`: this image ships the browsers, and the version is
-    # pinned to the same v1.52.0 as the dependency.
+    # No `playwright install`: this image ships the browsers already. That step
+    # used to hide a drift instead of costing only time: `^1.52.0` in
+    # package.json had resolved to 1.58.2 in the lockfile while the image stayed
+    # on v1.52.0, and the download quietly fetched the missing browser on every
+    # push. The dependency is now pinned exactly, and this asserts the pair
+    # rather than letting the next drift surface as a missing executable.
     - cd e2e && npm ci $NPM_FLAGS
+    - |
+      installed="$(npx playwright --version | sed 's/^Version //')"
+      if [ "$installed" != "$PLAYWRIGHT_VERSION" ]; then
+        echo "Playwright $installed is installed, but this job runs on the v$PLAYWRIGHT_VERSION image," >&2
+        echo "which ships only its own browsers. Set PLAYWRIGHT_VERSION in .gitlab-ci.yml and" >&2
+        echo "@playwright/test in e2e/package.json to the same version, then commit the lockfile." >&2
+        exit 1
+      fi
     - CI=true npx playwright test --shard=$CI_NODE_INDEX/$CI_NODE_TOTAL
   # No `artifacts:` here either, and this one costs something real: the JUnit
   # report (failing specs surfaced in the merge request) and the traces and

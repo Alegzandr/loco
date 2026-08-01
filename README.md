@@ -514,7 +514,7 @@ E2E dominates the wall clock. Everything done to shorten it spends dead time, ne
 
 - **`e2e_test` runs as 4 parallel shards** (`--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`). This needs a GitLab runner that accepts concurrent jobs (`concurrent > 1` in its `config.toml`); at `concurrent = 1` the shards queue and pay four setups for one suite.
 - **`server-bin` is built once** by `backend_test` and handed to `e2e_test` through the cache, instead of downloading a 70 MB Go toolchain onto the Playwright image and rebuilding it once per shard.
-- **No `playwright install`** — the pinned Playwright image already ships the browsers.
+- **No `playwright install` in CI** (it stays in the local setup above). The image already ships the browsers, and only the ones its own Playwright needs. `PLAYWRIGHT_VERSION` is declared once in `e2e_test`, interpolated into the image tag and asserted against the installed version before the suite runs, and `@playwright/test` is pinned exactly rather than by caret: the runtime here is a docker image, not a version range. Bump the two together and commit the lockfile.
 - **Go and npm caches** are redirected under `$CI_PROJECT_DIR` (GitLab can only cache paths inside the project) and keyed per job family.
 - **Bots think faster in CI only**: `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`, applied by the server at startup and gated on `LOCO_E2E=1`. The think delay is the one bot timing nothing races. Catch, declaration and interrupt delays keep their shipped values — those are reaction windows tests are meant to be able to win.
 

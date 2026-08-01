@@ -14,8 +14,8 @@ Defined in `.gitlab-ci.yml`, three stages:
 
 - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` and builds the static Linux binary `e2e_test` runs.
 - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
-- `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs the server binary, runs Playwright as
-  4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
+- `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
+  Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
 - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
 
 `build` **needs all four**. `needs` is what actually gates a deploy: naming only `backend_test` and
@@ -34,7 +34,7 @@ nothing is skipped, no gate is loosened, no reaction window is shortened.
 |---|---|
 | `parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL` | The suite is stateful, so `workers` stays at 1 *inside* a job; sharding is what parallelises it. `fullyParallel: true` is what makes the split even — left false, Playwright shards whole spec files and 87 tests came out 27/39/0/21. |
 | `server-bin` built once by `backend_test`, handed over by cache | `e2e_test` used to download a 70 MB Go toolchain onto an image with no Go and rebuild the same binary, once per shard. Cache rather than artifact: see below. |
-| No `playwright install` | The pinned image ships the browsers. Bump the image and the dependency together. |
+| No `playwright install` | The image ships the browsers, and only the ones its own Playwright needs. `PLAYWRIGHT_VERSION` is declared once, interpolated into the image tag, and asserted against the installed version before the suite runs; `@playwright/test` is pinned exactly. Bump the two together and commit the lockfile. |
 | Go + npm caches under `$CI_PROJECT_DIR` | GitLab only caches paths inside the project. Keys are per job family; the shards key on `$CI_NODE_INDEX` so four jobs don't race on one cache upload. |
 | `e2e_test needs: [backend_test]` only | It consumes nothing from `frontend_test`, so naming it just parked the longest job behind the second-longest. `build` still needs every test job, so nothing red ships. |
 | `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` | Bot think time is dead time nothing races. Catch, LOCO! declaration and interrupt delays keep their shipped values — tests are meant to be able to win those races. |
