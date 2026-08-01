@@ -16,6 +16,10 @@ func main() {
 		port = "8080"
 	}
 
+	// Before the hub starts, so no bot is ever scheduled on the shipped timing
+	// and then rescheduled on the overridden one.
+	hub.ApplyBotTimingEnv()
+
 	h := hub.New()
 	go h.Run()
 

@@ -141,8 +141,7 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 - `tools/maps/prepare.mjs` map art cropper/encoder (→ `client/public/maps/`, see "Maps")
 - `shared/` protocol/types
 - `docs/` supplemental
-- `.gitlab-ci.yml` the pipeline that builds and deploys; `.github/workflows/test.yml` the mirror's
-  verification (tests only, no deploy)
+- `.gitlab-ci.yml` the pipeline that tests, builds and deploys — the only CI definition
 - root config / Docker / env
 
 Update this section when structure changes.
@@ -427,6 +426,15 @@ swipe bar and the round badge under the status bar.
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
 - AI: `game/bot.go` `BotThink(state, playerIdx) BotAction`.
 - Scheduled via `botMove` channel with `BotThinkDelay` (1200ms) + `BotJitterMax` (1000ms).
+- **The think delay, and only the think delay, is tunable from the environment**
+  (`LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`, applied by `hub.ApplyBotTimingEnv` at startup and
+  gated on `LOCO_E2E=1` like `debug_set_state`). It is pure dead time — nothing races it — so a
+  shorter one changes how long the E2E suite takes and not what it proves. Every *other* bot delay
+  is a reaction window somebody is meant to be able to win (`BotCatchDelay` against a human's
+  Contre-LOCO!, `BotUnoDelay` against the catch it invites, `BotInterruptDelay` against an open
+  window), and shortening those in CI would quietly rewrite the verdict of the tests covering them.
+  A malformed or negative value is ignored with a `WARN` and leaves the shipped timing in place: a
+  typo must not silently produce an instant bot.
 - **Bots interject** (`game.BotInterrupt(state, playerIdx) *BotInterruptAction`, scheduled by
   `hub.maybeScheduleBotInterrupt`, executed by `handleBotInterrupt`). Without it the game's
   signature mechanic ran one way only: bots could be interrupted and never interrupted back, so the
@@ -576,6 +584,17 @@ That is the disconnect people actually have, and it was the one that could not b
   - `startTurnRecorder()` / `getRecordedTurns()` — records distinct `currentTurn` transitions. **Use this instead of polling `currentTurn` whenever a bot seat is involved**: a bot holds the turn for only ~800ms, so sampling is inherently flaky, and the recorded sequence additionally proves a skipped seat never held the turn.
   - Tree-shaken from prod builds.
 - Types: `e2e/types.d.ts`. Helpers: `e2e/helpers/game.ts`.
+- **Every test must stay self-contained** — no `beforeAll`, no `describe.serial`, no state carried
+  between tests; each one creates its own room. That is what lets CI shard the suite per *test*
+  (`fullyParallel: true`) instead of per spec file, which is what makes four shards even instead of
+  27/39/0/21. Sequential execution is `workers: 1`'s job, not `fullyParallel`'s.
+- **A fixture must state everything the assertion rests on.** `debug_set_state` sets only what it is
+  given, and anything left unsaid is whatever the deal and the bots produced. The pinned fields are
+  `direction` (a Reverse mirrors any computed seat), `pendingDraw: 0` (a pending stack routes a tap
+  to `counter_draw`), `currentTurn`, and the *colour* of a coloured card. A Swap in the wrong colour
+  is not playable, so `handleCardClick` refuses to open its picker — a fixture using a
+  `{ color: 'wild', kind: 'swap' }`, a card that exists in no deck, failed on every run once the
+  legality check moved ahead of the prompt.
 - `webServer` env vars go in `playwright.config.ts`'s `env` object, **not** a `VAR=x cmd` shell prefix — the prefix form is POSIX-only and breaks when the suite runs from Windows.
 - Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
 - **Update E2E in same commit as gameplay/UI/protocol changes.**
@@ -616,18 +635,61 @@ That is the disconnect people actually have, and it was the one that could not b
 ## CI/CD
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
 - `test` (every push):
-  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`.
+  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`,
+    published as an artifact.
   - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
-  - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs server-bin + Playwright; `needs: [backend_test, frontend_test]`.
+  - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs `server-bin` + Playwright,
+    `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for the artifact alone.
   - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
   Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
   build started the moment those two finished, so the lint and the entire Playwright suite were
   advisory — red on `develop` still shipped to dev, and a version tag still shipped to prod.
 - Deploy: `devops` runner tag + GitLab registry. `deploy_dev` auto on `develop`; `deploy_prod` auto on `v*`; `stop_dev` manual.
-- **GitLab (`origin`) owns build and deploy. GitHub is a mirror** (`gh` remote) and runs
-  `.github/workflows/test.yml`: the same four jobs, same commands, no deploy. It exists so a push or
-  a pull request on that side is not unverified. Two CI definitions drift — change both.
+- **GitLab (`origin`) is the only CI.** The `gh` remote is a plain mirror with no pipeline of its
+  own: `.gitlab-ci.yml` is the single definition, so there is nothing to keep in sync. A push to the
+  mirror is verified by whatever the same commit did on GitLab, not by GitHub.
+
+### Keeping the pipeline fast
+E2E dominates the wall clock, and the rule for every second cut out of it is the same: **spend dead
+time, never coverage.** No test is skipped, no gate is loosened, and no reaction window is shortened.
+
+- **`parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`.** The suite is stateful, so `workers`
+  stays at 1 *within* a job and Playwright splits by spec file across jobs. This is the only change
+  here with a prerequisite outside the repo: **it needs a runner that accepts concurrent jobs**
+  (`concurrent > 1` in its `config.toml`). At `concurrent = 1` the shards queue and pay four setups
+  for one suite, which is slower than not sharding at all.
+- **`server-bin` is an artifact from `backend_test`.** `e2e_test` used to download a 70 MB Go
+  toolchain tarball and rebuild the same binary, on an image with no Go in it.
+- **No `playwright install`.** The `mcr.microsoft.com/playwright:v1.52.0-jammy` image already ships
+  the browsers, at the version the dependency is pinned to. Bump both together or the download comes
+  back.
+- **Caches.** `GOPATH`/`GOMODCACHE`/`GOCACHE` and npm's cache are redirected under `$CI_PROJECT_DIR`
+  because GitLab can only cache paths inside the project. Every cache key is per-job-family
+  (`go`, `golangci`, `npm-client`, `npm-e2e-$CI_NODE_INDEX`): two jobs sharing one key race on the
+  upload and the loser's entry is what the next pipeline restores, which is why the shards key on
+  their index.
+- **`e2e_test` needs `backend_test` only.** It consumes that job's artifact and nothing of
+  `frontend_test`, so naming it just parked the pipeline's longest job behind the second-longest.
+  The `build` job still `needs` every test job, so nothing red can ship — that gate is what makes
+  this reordering free.
+- **Failures are collected**: `artifacts:reports:junit` puts failing specs in the merge request, and
+  `e2e/test-results/` keeps the traces and screenshots Playwright was already producing and throwing
+  away.
+- **`LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`** cut bot think time from 1.2–2.2 s to 0.25–0.45 s
+  in CI (`hub.ApplyBotTimingEnv`). See "Bots": the think delay is the only bot timing nothing races.
+- **The E2E helpers wait on state, not on the clock.** `createRoom`/`joinRoom` wait for the socket to
+  be open (`getWsStatus() === 'open'`), which is the actual precondition for the click they precede;
+  `debugSetState` waits for the fixture it just sent to appear in the store, tolerating the loss of
+  that race exactly as the flat delay did. A fixed delay is both too long on an idle machine and
+  occasionally too short on a loaded runner, which is the worse half.
+
+**Serving a static build to the E2E suite was measured and rejected.** A dev-server page load costs
+~95 ms (median of 8, cold context), i.e. ~9 s across the whole suite, and `vite build --mode
+development` still sets `import.meta.env.DEV` to false — `__LOCO_E2E__`, the turn recorder and the
+showcase are all tree-shaken out of the bundle. Buying those 9 s means gating the debug helpers on a
+build variable instead, trading a structural guarantee (they *cannot* exist in a production build)
+for a configuration one. Not worth it; do not revisit without a new reason.
 
 ### Production request path
 ```

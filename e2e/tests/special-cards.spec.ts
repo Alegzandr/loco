@@ -80,12 +80,30 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     await startGame(page)
 
     await waitForMyTurn(page, 30_000)
+    const initial = await getState(page)
+    const myIdx = initial?.myIndex ?? 0
 
-    // Inject a Swap card as the entire hand.
-    // Discard is set to a neutral red card so Swap (always playable) has a valid game state.
+    // Inject a Swap card as the entire hand, matching the discard's colour.
+    //
+    // Swap is a *coloured* card — there is exactly one per suit and none in the
+    // wild pile — so it obeys ordinary matching, and `handleCardClick` now
+    // refuses to open a picker for a card `clientMayPlay` rejects (asking for a
+    // target and then having the server refuse the card is a worse refusal than
+    // the silent one every other unplayable card gives). This fixture used to
+    // inject `{ color: 'wild', kind: 'swap' }`, a card that exists in no deck,
+    // against an unstated active colour: once the legality check moved ahead of
+    // the prompt, the picker could never open and the test failed on every run.
+    //
+    // pendingDraw and currentTurn are pinned for the same reason the neighbouring
+    // test pins them: a bot's +2 landing before our turn routes the tap to
+    // counter_draw instead of the picker, which is the fixture deciding the
+    // verdict rather than the behaviour under test.
     await debugSetState(page, {
-      hand: [{ color: 'wild', kind: 'swap' }],
+      hand: [{ color: 'red', kind: 'swap' }],
       discard: { color: 'red', kind: 'number', value: 5 },
+      activeColor: 'red',
+      pendingDraw: 0,
+      currentTurn: myIdx,
     })
 
     // Verify the hand now contains exactly the Swap card.
@@ -95,7 +113,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
 
     // Trigger handleCardClick via the E2E playCard helper.
     await page.evaluate((card) => window.__LOCO_E2E__?.playCard?.(card), {
-      color: 'wild',
+      color: 'red',
       kind: 'swap',
     })
 

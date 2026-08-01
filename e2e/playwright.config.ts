@@ -17,7 +17,19 @@ import { resolve } from 'path'
  */
 export default defineConfig({
   testDir: './tests',
-  fullyParallel: false,   // Game tests are stateful — run sequentially to avoid port conflicts
+  // `workers: 1` is what keeps the suite sequential — one browser, one room at a
+  // time, against a single shared Go server. `fullyParallel` does not change
+  // that with a single worker; what it changes is the granularity CI shards at.
+  //
+  // Left false, Playwright shards whole spec files, and these files are wildly
+  // uneven (rules-coverage alone holds 23 of 87 tests): `--shard=i/4` produced
+  // 27 / 39 / 0 / 21, i.e. one job running empty while another carried 45% of
+  // the suite. True, it shards per test and the four jobs come out even.
+  //
+  // It is safe here because every test is self-contained: no beforeAll, no
+  // describe.serial, no shared fixture — each one creates its own room. Keep it
+  // that way, or raise workers deliberately rather than by accident.
+  fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   workers: 1,

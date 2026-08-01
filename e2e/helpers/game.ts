@@ -41,6 +41,23 @@ async function forceEnglish(page: Page): Promise<void> {
   })
 }
 
+/**
+ * Wait for the page's WebSocket to be open.
+ *
+ * This is the real precondition before clicking Create/Join: the click sends a
+ * message, and `useWebSocket` queues anything sent before `onopen`. It replaces
+ * a flat `waitForTimeout(600)` paid by every test in the suite — too long on an
+ * idle machine, and not always long enough on a loaded CI runner, which is what
+ * the retry loops below were absorbing.
+ */
+async function waitForSocket(page: Page, timeoutMs = 15_000): Promise<void> {
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getWsStatus?.() === 'open',
+    undefined,
+    { timeout: timeoutMs },
+  )
+}
+
 async function clickWithRetry(locator: ReturnType<Page['getByRole']>, retries = 3): Promise<void> {
   for (let i = 0; i < retries; i++) {
     try {
@@ -58,7 +75,7 @@ export async function createRoom(page: Page, nickname: string): Promise<string> 
   await forceEnglish(page)
   await page.goto('/')
   await page.waitForLoadState('domcontentloaded')
-  await page.waitForTimeout(600)
+  await waitForSocket(page)
   await expect(page.getByText('LOCO')).toBeVisible()
   await page.getByRole('button', { name: T.createRoom }).click()
   await page.getByPlaceholder('Your nickname').fill(nickname)
@@ -94,7 +111,7 @@ export async function joinRoom(page: Page, nickname: string, roomCode: string): 
   await forceEnglish(page)
   await page.goto('/')
   await page.waitForLoadState('domcontentloaded')
-  await page.waitForTimeout(600)
+  await waitForSocket(page)
   await page.getByRole('button', { name: T.joinRoom }).click()
   await page.getByPlaceholder('Your nickname').fill(nickname)
   await page.getByPlaceholder('Room code').fill(roomCode)
@@ -495,11 +512,64 @@ export async function debugSetState(
   if (opts.currentTurn !== undefined) msg.debug_current_turn = opts.currentTurn
   if (opts.direction !== undefined) msg.debug_direction = opts.direction
   await sendMsg(page, msg)
-  // Give the broadcasted game_state a moment to arrive before the next action.
-  await page.waitForTimeout(200)
-  // currentTurn can change quickly (e.g. bot takes an automatic move), so do not
-  // assert it here; tests that depend on turn ownership should assert immediately
-  // after calling debugSetState.
+
+  // Wait for the broadcast to actually land rather than for a flat 200ms. A
+  // fixture is set once per test and the delay was paid every time: too long on
+  // an idle machine, and occasionally too short on a loaded runner — where the
+  // next action then races the very state it was given.
+  //
+  // Losing the race is tolerated, which keeps the old behaviour as the floor:
+  // this is a fixture, not an assertion, and a bot moving first can legitimately
+  // overwrite what was just set. currentTurn is deliberately not waited on for
+  // that exact reason — a bot may already have moved past it. Tests that depend
+  // on turn ownership should assert immediately after calling debugSetState.
+  const expected = {
+    discard: opts.discard ?? null,
+    activeColor: opts.activeColor ?? null,
+    pendingDraw: opts.pendingDraw ?? null,
+    handSize: opts.hand?.length ?? null,
+  }
+  // A fixture that only sets things the local store cannot echo back (an
+  // opponent's hand, the turn) has nothing to wait on, and waiting on nothing
+  // would return instantly — less settling time than the flat delay this
+  // replaced. Keep the old floor for that case rather than silently removing it.
+  if (Object.values(expected).every((v) => v === null)) {
+    await page.waitForTimeout(200)
+    return
+  }
+  await page
+    .waitForFunction(
+      (want) => {
+        const s = window.__LOCO_E2E__?.getState?.()
+        if (!s) return false
+        if (want.discard) {
+          const top = s.discard
+          // `value` is omitempty on the wire, so an action card arrives with no
+          // value at all where the fixture may carry an explicit 0. Normalising
+          // keeps a match from being missed and the wait from running its full
+          // timeout for nothing.
+          if (
+            !top ||
+            top.kind !== want.discard.kind ||
+            top.color !== want.discard.color ||
+            (top.value ?? 0) !== (want.discard.value ?? 0)
+          ) {
+            return false
+          }
+        }
+        if (want.activeColor !== null && s.activeColor !== want.activeColor) return false
+        if (want.pendingDraw !== null && s.pendingDraw !== want.pendingDraw) return false
+        if (want.handSize !== null && s.myHand.length !== want.handSize) return false
+        return true
+      },
+      expected,
+      // Short: losing this race is a normal outcome, and a long timeout would
+      // turn the one case the old flat delay handled fine into the slow one.
+      { timeout: 2_000 },
+    )
+    .catch(() => {
+      /* the fixture was overtaken; the test's own assertions decide */
+    })
 }
 
 /**

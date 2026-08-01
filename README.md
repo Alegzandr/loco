@@ -228,6 +228,8 @@ docker compose -f docker-compose.dev.yml down    # dev
 | `VITE_WS_PORT`    | `8080`                | Go backend port for direct WS connections in dev (`ws://<host>:<port>/ws`) |
 | `LOCO_ALLOWED_ORIGINS` | *(unset)*        | Comma-separated exact browser origins allowed to open a WebSocket. Unset means "same hostname as the request", port-insensitive, which already covers production and dev. |
 | `LOCO_E2E`        | *(unset)*             | `1` enables `debug_set_state`, used by the Playwright suite. **Never set in production** — the server logs a startup `WARN` and `/metrics` reports `debug_mode_active`. |
+| `LOCO_BOT_THINK_MS` | `1200`              | Bot thinking time before playing a card. Read **only** when `LOCO_E2E=1`; ignored (with a `WARN`) if malformed or negative. Shortened in CI to cut dead time out of the E2E suite. |
+| `LOCO_BOT_JITTER_MS` | `1000`             | Random jitter added to `LOCO_BOT_THINK_MS`. Same gate and same validation. Bot *reaction* windows (catch, LOCO! declaration, interrupt) are deliberately not tunable. |
 
 Copy `.env.example` to `.env` and adjust as needed.
 
@@ -504,7 +506,18 @@ GitLab CI pipeline (`.gitlab-ci.yml`) runs `test → build → deploy`; producti
 
 `build` depends on **every** test job — Go tests, `golangci-lint`, the client suite and the full Playwright run. Listing only a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the build started as soon as those two finished, so the lint and the E2E suite were advisory and a red `develop` still shipped.
 
-GitHub is a mirror and runs the same four jobs via `.github/workflows/test.yml` (tests only, no deploy), so a push there is not unverified. Two pipeline definitions drift: change both.
+GitLab is the only CI. The GitHub remote is a plain mirror with no pipeline of its own, so `.gitlab-ci.yml` is the single definition and there is nothing to keep in sync.
+
+### Pipeline speed
+
+E2E dominates the wall clock. Everything done to shorten it spends dead time, never coverage: no test is skipped, no gate is loosened, and no reaction window is shortened.
+
+- **`e2e_test` runs as 4 parallel shards** (`--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`). This needs a GitLab runner that accepts concurrent jobs (`concurrent > 1` in its `config.toml`); at `concurrent = 1` the shards queue and pay four setups for one suite.
+- **`server-bin` is built once** by `backend_test` and passed to `e2e_test` as an artifact, instead of downloading a 70 MB Go toolchain onto the Playwright image to rebuild it.
+- **No `playwright install`** — the pinned Playwright image already ships the browsers.
+- **Go and npm caches** are redirected under `$CI_PROJECT_DIR` (GitLab can only cache paths inside the project) and keyed per job family.
+- **Bots think faster in CI only**: `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`, applied by the server at startup and gated on `LOCO_E2E=1`. The think delay is the one bot timing nothing races. Catch, declaration and interrupt delays keep their shipped values — those are reaction windows tests are meant to be able to win.
+- **Failures are kept**: JUnit results surface failing specs in the merge request, and Playwright traces and screenshots are published as artifacts.
 
 ---
 
