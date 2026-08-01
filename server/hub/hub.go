@@ -841,8 +841,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 		err = room.PlayCard(c.playerID, cards[0], chosenColor, chosenPlayer)
 	}
 	if err != nil {
-		c.sendError(err.Error())
-		c.noteRejection(err)
+		h.refuseAction(c, room, err)
 		return
 	}
 
@@ -923,8 +922,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	}
 	priorSize := len(room.State.Hands[c.playerID].Cards)
 	if err := room.DrawCard(c.playerID); err != nil {
-		c.sendError(err.Error())
-		c.noteRejection(err)
+		h.refuseAction(c, room, err)
 		return
 	}
 	state := room.State
@@ -980,8 +978,7 @@ func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	if err := room.PassTurn(c.playerID); err != nil {
-		c.sendError(err.Error())
-		c.noteRejection(err)
+		h.refuseAction(c, room, err)
 		return
 	}
 	h.scheduleTurnTimer(c.roomCode, room)
@@ -1086,8 +1083,7 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	if err := room.CounterDraw(c.playerID, card, chosenColor); err != nil {
-		c.sendError(err.Error())
-		c.noteRejection(err)
+		h.refuseAction(c, room, err)
 		return
 	}
 	h.broadcastCardPlayed(c.roomCode, c.playerID, room, -1)
@@ -1112,8 +1108,7 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 	}
 
 	if err := room.InterruptPlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
-		c.sendError(err.Error())
-		c.noteRejection(err)
+		h.refuseAction(c, room, err)
 		return
 	}
 
@@ -2332,6 +2327,33 @@ func (h *Hub) sendHandGrowth(code string, room *game.Room, playerID int, newCard
 		HasDrawn:     boolPtr(state.HasDrawn),
 		TurnDeadline: dl,
 	}, client)
+}
+
+// refuseAction answers a rejected gameplay message with the reason and the
+// metric, plus a fresh personalised snapshot when the refusal can only mean the
+// client was acting on a board the server no longer has.
+//
+// Without that snapshot a client whose state has drifted has no way back. It
+// keeps offering the action its own copy says is legal, the player keeps taking
+// it, and every attempt comes back refused: the loop only ends when some other
+// broadcast happens to carry the field that was wrong. That is the shape of the
+// bug this was written for, an off-colour Swap that opened its target prompt
+// over and over and answered "illegal card play" every time.
+//
+// It is deliberately narrow (game.IsStateMismatch, never a lost race): a
+// personalised game_state is the most expensive message this server sends, and
+// interrupts are refused by design all match long.
+func (h *Hub) refuseAction(c *Client, room *game.Room, err error) {
+	c.sendError(err.Error())
+	c.noteRejection(err)
+	if !game.IsStateMismatch(err) {
+		return
+	}
+	log.Printf("state resync conn=%s code=%s player=%d reason=%v", c.connID, c.roomCode, c.playerID, err)
+	c.Send(protocol.ServerMsg{
+		Type:  protocol.SMsgGameState,
+		State: h.playerGameStateUsing(room, c.playerID, h.playerList(room)),
+	})
 }
 
 // broadcastPersonalizedGameState sends each connected player their personalized game state.

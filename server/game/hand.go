@@ -1,7 +1,5 @@
 package game
 
-import "errors"
-
 // Hand represents a player's hand of cards.
 type Hand struct {
 	Cards []Card
@@ -20,7 +18,7 @@ func (h *Hand) Remove(card Card) error {
 			return nil
 		}
 	}
-	return errors.New("card not in hand")
+	return ErrCardNotInHand
 }
 
 // Contains returns true if the hand contains the given card.

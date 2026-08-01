@@ -82,6 +82,9 @@ function SceneOverlayEl({ scene }: { scene: Scene }) {
       return (
         <PlayerPicker
           label={t.choosePlayer}
+          cardsLabel={(n) =>
+            n === 1 ? t.swapTargetCardOne : t.swapTargetCards.replace('%n', String(n))
+          }
           players={players.filter((p) => p.index !== myIndex)}
           onChoose={noop}
           onCancel={noop}
