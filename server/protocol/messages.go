@@ -162,9 +162,18 @@ type LatencyEntryDTO struct {
 type ServerMsg struct {
 	Type ServerMsgType `json:"type"`
 
-	// SMsgRoomCreated / SMsgRoomJoined / SMsgPlayerReconnected (self)
+	// SMsgRoomCreated / SMsgRoomJoined / SMsgPlayerReconnected (self) /
+	// SMsgRematchStarted: the recipient's OWN seat.
+	//
+	// A pointer for exactly the same reason as PlayerIndex below, and it took
+	// longer to notice because the client's `?? 0` fallback was right by luck
+	// everywhere it mattered: the host is seat 0 on room_created, so an absent
+	// field and the default agreed. A tab reloading into a match is where the
+	// luck runs out: it has no earlier value to fall back to, so a dropped
+	// player_id left the restored client seated at -1, holding a hand it could
+	// not match to any seat on the board. Read it with OwnSeat().
 	RoomCode     string `json:"room_code,omitempty"`
-	PlayerID     int    `json:"player_id,omitempty"`
+	PlayerID     *int   `json:"player_id,omitempty"`
 	SessionToken string `json:"session_token,omitempty"` // opaque token for reconnect auth
 
 	// Player lists and nicknames
@@ -270,6 +279,14 @@ func (m ServerMsg) Seat() int {
 		return -1
 	}
 	return *m.PlayerIndex
+}
+
+// OwnSeat returns the recipient's own seat, or -1 when the message assigns none.
+func (m ServerMsg) OwnSeat() int {
+	if m.PlayerID == nil {
+		return -1
+	}
+	return *m.PlayerID
 }
 
 // PlayerDTO is the public view of a player.

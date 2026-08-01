@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useGameStore, UNO_CATCH_WINDOW_MS } from './hooks/useGameStore'
+import { reconnectMessageFor } from './hooks/sessionPersistence'
+import { useSessionPersistence, useRestoreTimeout } from './hooks/useSessionRestore'
 import { useGameAudio } from './audio/useGameAudio'
 import { Lobby } from './components/Lobby'
 import { WaitingRoom } from './components/WaitingRoom'
 import { GameView } from './components/GameView'
 import { GameOver } from './components/GameOver'
+import { Reconnecting } from './components/Reconnecting'
 import { ServerMsg, ClientMsg } from './types/protocol'
 
 export default function App() {
@@ -26,6 +29,12 @@ export default function App() {
   // per-component audio calls. See audio/useGameAudio.ts.
   useGameAudio()
 
+  // Mirrors room + seat + token into sessionStorage so a reload can reclaim the
+  // seat, and gives a reclaim that never lands a way out. Both are effects on a
+  // narrow (or no) subscription. See the note above about what App may watch.
+  useSessionPersistence()
+  useRestoreTimeout('reconnect failed')
+
   // Tracks the in-flight UNO catch-window timer so a new declaration cancels
   // the old one. Without this, an earlier setTimeout fires later and clobbers
   // a fresh declaration's UNO state (e.g. across rapid back-to-back UNOs or
@@ -42,26 +51,22 @@ export default function App() {
     (msg: ServerMsg) => {
       switch (msg.type) {
         case 'room_created':
+        case 'room_joined': {
+          const players = msg.players ?? []
+          const myIdx = msg.player_id ?? 0
           store.setRoomCode(msg.room_code ?? '')
-          store.setMyIndex(msg.player_id ?? 0)
+          store.setMyIndex(myIdx)
           store.setSessionToken(msg.session_token ?? '')
-          store.setPlayers(msg.players ?? [])
+          store.setPlayers(players)
+          // Persisted alongside the token: a reloaded tab has no roster to
+          // derive it from, and the rejoin is keyed on the nickname.
+          store.setMyNickname(players.find((p) => p.index === myIdx)?.nickname ?? '')
           if (msg.match_format && msg.max_players) {
             store.setLobbyConfig(msg.match_format, msg.max_players)
           }
           store.setScreen('waiting')
           break
-
-        case 'room_joined':
-          store.setRoomCode(msg.room_code ?? '')
-          store.setMyIndex(msg.player_id ?? 0)
-          store.setSessionToken(msg.session_token ?? '')
-          store.setPlayers(msg.players ?? [])
-          if (msg.match_format && msg.max_players) {
-            store.setLobbyConfig(msg.match_format, msg.max_players)
-          }
-          store.setScreen('waiting')
-          break
+        }
 
         case 'lobby_config_changed':
           if (msg.match_format && msg.max_players) {
@@ -89,7 +94,18 @@ export default function App() {
             store.setIsReconnecting(true)
             store.applyGameState(msg.state)
             store.setRoomCode(msg.room_code ?? live.roomCode)
-            store.setMyIndex(msg.player_id ?? live.myIndex)
+            // `state.your_index` is the same seat by construction and is not
+            // omittable, so it is the fallback rather than the previous value:
+            // a reloaded tab has no previous value, and the one it defaults to
+            // (-1) would seat it nowhere on a board it is otherwise holding a
+            // hand for. See protocol: player_id used to drop seat 0 entirely.
+            const myIdx = msg.player_id ?? msg.state.your_index ?? live.myIndex
+            store.setMyIndex(myIdx)
+            // A reloaded tab arrives here with only the persisted nickname; the
+            // roster in this message is the authority, and re-reading it keeps
+            // the record honest if the seat was re-indexed while we were away.
+            const mine = (msg.players ?? []).find((p) => p.index === myIdx)?.nickname
+            if (mine) store.setMyNickname(mine)
             store.setScreen('game')
           }
           break
@@ -184,9 +200,11 @@ export default function App() {
         }
 
         // Penalty applied, so that target is no longer catchable by anyone. Any
-        // other seat still holding a single card remains fair game.
+        // other seat still holding a single card remains fair game. It also
+        // arms the slam: the penalty cards arrive through the ordinary
+        // card_drawn path, which on its own reads as somebody taking a turn.
         case 'uno_caught':
-          store.closeCatchWindow(msg.player_index ?? -1)
+          store.applyUnoCaught(msg.player_index ?? -1)
           break
 
         // A Contre-LOCO! that lost its race. The penalty card arrives through
@@ -242,33 +260,30 @@ export default function App() {
           )
           break
 
-        case 'error':
-          store.setError(msg.error ?? 'Unknown error')
+        case 'error': {
+          const reason = msg.error ?? 'Unknown error'
+          // A refusal during a seat reclaim is the end of that reclaim, not a
+          // toast over a spinner: the room is gone, the match moved on, or the
+          // token no longer matches. abortRestore drops the stored record too,
+          // so the next load does not walk into the same refusal.
+          if (useGameStore.getState().screen === 'restoring') {
+            store.abortRestore(reason)
+            break
+          }
+          store.setError(reason)
           break
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   )
 
-  const getReconnectMsg = useCallback(() => {
-    const s = useGameStore.getState()
-    // Active gameplay reconnect: token-authenticated to reclaim the slot.
-    if (s.screen === 'game' && s.roomCode && s.sessionToken) {
-      const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
-      return { type: 'join_room' as const, nickname, room_code: s.roomCode, session_token: s.sessionToken }
-    }
-    // Lobby reconnect: rejoin by nickname so the user does not have to reload
-    // and re-enter the room code after a transient WS drop. The server treats
-    // this as a fresh lobby join (no token needed before the game starts).
-    if (s.screen === 'waiting' && s.roomCode) {
-      const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname ?? ''
-      if (nickname) {
-        return { type: 'join_room' as const, nickname, room_code: s.roomCode }
-      }
-    }
-    return null
-  }, [])
+  // Sent on every socket open. One pure function covers all three cases: a
+  // socket that dropped mid-match, one that dropped in the lobby, and a tab that
+  // was reloaded into 'restoring'. A reclaim cannot mean two different
+  // things depending on how the connection was lost. See sessionPersistence.ts.
+  const getReconnectMsg = useCallback(() => reconnectMessageFor(useGameStore.getState()), [])
 
   const { send, wsStatus, forceClose } = useWebSocket(handleMessage, getReconnectMsg)
 
@@ -326,11 +341,19 @@ export default function App() {
   const matchWinner = useGameStore((s) => s.matchWinner)
   const scoreboard = useGameStore((s) => s.scoreboard)
   const matchOver = useGameStore((s) => s.matchOver)
+  const restoreTarget = useGameStore((s) => s.restoreTarget)
 
   const myNickname = playerList.find((p) => p.index === myIndex)?.nickname ?? ''
 
   return (
     <>
+      {screen === 'restoring' && (
+        <Reconnecting
+          roomCode={roomCode}
+          target={restoreTarget ?? 'game'}
+          onCancel={() => useGameStore.getState().abortRestore('reconnect cancelled')}
+        />
+      )}
       {screen === 'lobby' && (
         <Lobby onSend={handleSend} error={errorMsg} onClearError={store.clearError} />
       )}

@@ -8,11 +8,17 @@ import {
   ScoreboardEntryDTO,
   LatencyEntryDTO,
 } from '../types/protocol'
+import { clearSession, type PersistedSession, type RestoreTarget } from './sessionPersistence'
 
 // How long other players have to punish a missed LOCO! call (server: catchWindow).
 export const UNO_CATCH_WINDOW_MS = 5000
 
-export type AppScreen = 'lobby' | 'waiting' | 'game' | 'gameover'
+// 'restoring' is the screen a reloaded tab boots onto: we know which room and
+// seat to ask for, and we have not heard back yet. It is its own screen rather
+// than a flag over 'game' because the board has nothing to render at that point
+// (no hand, no discard, no players), and a table drawn from an empty state
+// behind an overlay is a broken table with a curtain over it.
+export type AppScreen = 'lobby' | 'waiting' | 'game' | 'gameover' | 'restoring'
 
 export interface SwapNotice {
   kind: 'swap' | 'global_switch'
@@ -64,6 +70,22 @@ export interface InterruptFlash {
   at: number
 }
 
+// A Contre-LOCO! that landed. The server names the caught seat and nothing
+// else — who pressed the button is not on the wire — so this is the table's
+// news: that seat owed a declaration and just paid for it.
+export interface CatchFlash {
+  /** The caught seat, i.e. the one taking the penalty. */
+  seat: number
+  at: number
+}
+
+// What a missed declaration costs its owner (server: `undeclaredPenalty`). The
+// banner and the penalty-card flight both state it, so it is written once here.
+// Against fully exhausted piles the server hands over fewer cards (a draw never
+// fails, it shrinks); the hand itself always comes from the server, so what is
+// approximate in that corner case is the announcement, never the state.
+export const CATCH_PENALTY_CARDS = 2
+
 // Per-player points earned in the most recent round (computed as delta from prevScoreboard).
 export interface RoundScoreEntry {
   player_index: number
@@ -78,6 +100,13 @@ interface GameStore {
   roomCode: string
   myIndex: number
   sessionToken: string
+  // Our own nickname, kept separately from `players`. A reloaded tab has no
+  // player list yet and the rejoin message is built from the nickname, so
+  // deriving it from the roster alone leaves a cold boot with nothing to send.
+  myNickname: string
+  // While screen === 'restoring', which rejoin the server is being asked for.
+  // Null at every other time.
+  restoreTarget: RestoreTarget | null
   myHand: CardDTO[]
   players: PlayerDTO[]
   discard: CardDTO | null
@@ -107,6 +136,9 @@ interface GameStore {
   // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
   // like the catch it lost to. Cleared by the GameView after a short timeout.
   catchFailed: { seat: number; at: number } | null
+  // The mirror: a Contre-LOCO! that landed, for its slam banner, its sting and
+  // the penalty cards flying to the caught seat. Cleared by the banner.
+  catchFlash: CatchFlash | null
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
 
   // The room this match is played in, straight off the wire. Server-drawn so
@@ -158,6 +190,9 @@ interface GameStore {
   setRoomCode: (code: string) => void
   setMyIndex: (idx: number) => void
   setSessionToken: (token: string) => void
+  setMyNickname: (nickname: string) => void
+  beginRestore: (session: PersistedSession) => void
+  abortRestore: (reason: string) => void
   applyGameState: (state: GameStateDTO) => void
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number, direction?: number) => void
   setSwapNotice: (notice: SwapNotice | null) => void
@@ -172,6 +207,8 @@ interface GameStore {
   setUnoTimerEnd: (ts: number | null) => void
   clearCatchWindow: () => void
   closeCatchWindow: (seat: number) => void
+  applyUnoCaught: (seat: number) => void
+  clearCatchFlash: () => void
   pruneCatchWindows: () => void
   noteCatchAttempt: (seat: number) => void
   applyCatchFailed: (seat: number) => void
@@ -284,6 +321,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   roomCode: '',
   myIndex: -1,
   sessionToken: '',
+  myNickname: '',
+  restoreTarget: null,
   myHand: [],
   players: [],
   discard: null,
@@ -300,6 +339,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   catchTarget: null,
   unoTimerEnd: null,
   catchFailed: null,
+  catchFlash: null,
   turnDeadline: null,
   mapId: '',
   mapLoading: null,
@@ -322,10 +362,45 @@ export const useGameStore = create<GameStore>((set, get) => ({
   interruptFlash: null,
   isReconnecting: false,
 
-  setScreen: (screen) => set({ screen }),
+  // Leaving 'restoring' is what "the reclaim landed" means, and every landing
+  // path goes through here (player_reconnected, room_joined, match_loading), so
+  // this is the one place the target has to be retired.
+  setScreen: (screen) =>
+    set((s) => ({ screen, restoreTarget: screen === 'restoring' ? s.restoreTarget : null })),
   setRoomCode: (roomCode) => set({ roomCode }),
   setMyIndex: (myIndex) => set({ myIndex }),
   setSessionToken: (sessionToken) => set({ sessionToken }),
+  setMyNickname: (myNickname) => set({ myNickname }),
+
+  // Boot straight into the reclaim, from a record written before the tab went
+  // away. Nothing here is authoritative: the seat, the hand and the score all
+  // arrive with the server's answer.
+  beginRestore: (session) =>
+    set({
+      screen: 'restoring',
+      restoreTarget: session.target,
+      roomCode: session.roomCode,
+      myNickname: session.nickname,
+      sessionToken: session.sessionToken,
+      errorMsg: '',
+    }),
+
+  // The reclaim could not land: refused, or never answered. Drop the record so
+  // the next load does not replay the same refusal, and hand the player back a
+  // lobby that says why rather than a spinner that does not end.
+  abortRestore: (reason) =>
+    set((s) => {
+      if (s.screen !== 'restoring') return s
+      clearSession()
+      return {
+        screen: 'lobby' as AppScreen,
+        restoreTarget: null,
+        roomCode: '',
+        sessionToken: '',
+        myIndex: -1,
+        errorMsg: reason,
+      }
+    }),
 
   applyGameState: (state) =>
     set((s) => {
@@ -512,6 +587,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return { catchWindows, ...deriveCatch(catchWindows, s.myIndex) }
     }),
 
+  // A Contre-LOCO! landed on `seat`. Two things at once, and they belong
+  // together: the seat is settled (it took the penalty, so nobody else may
+  // catch it) and the table is told, which until now it never was — the caught
+  // player's hand simply grew by two with nothing on screen to say why, and the
+  // catcher got no answer at all beyond a button that went quiet. It is the
+  // game's hardest reaction and it was also its most silent.
+  applyUnoCaught: (seat) =>
+    set((s) => {
+      const catchWindows = s.catchWindows.filter((w) => w.seat !== seat)
+      return {
+        catchWindows,
+        ...deriveCatch(catchWindows, s.myIndex),
+        catchFlash: { seat, at: Date.now() },
+      }
+    }),
+
+  clearCatchFlash: () => set({ catchFlash: null }),
+
   // Drops windows whose 5 s ran out. The server enforces the same deadline, so
   // a late click would only earn an error toast.
   pruneCatchWindows: () =>
@@ -586,6 +679,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         unoTimerEnd: null,
         catchTarget: null,
         catchFailed: null,
+        catchFlash: null,
       }
     }),
 
@@ -633,6 +727,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       unoTimerEnd: null,
       catchTarget: null,
       catchFailed: null,
+      catchFlash: null,
       turnDeadline: null,
       swapNotice: null,
       lastPlay: null,
@@ -679,6 +774,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         unoTimerEnd: null,
         catchTarget: null,
         catchFailed: null,
+        catchFlash: null,
       })
       return
     }

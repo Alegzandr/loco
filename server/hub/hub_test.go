@@ -251,8 +251,8 @@ func TestPlayerReconnect_DuringGame(t *testing.T) {
 
 	// Bob receives player_reconnected with game state
 	msg := readMsgOfType(t, conn2new, protocol.SMsgPlayerReconnected)
-	if msg.PlayerID != 1 {
-		t.Errorf("expected PlayerID 1, got %d", msg.PlayerID)
+	if msg.OwnSeat() != 1 {
+		t.Errorf("expected PlayerID 1, got %d", msg.OwnSeat())
 	}
 	if msg.RoomCode != roomCode {
 		t.Errorf("expected RoomCode %q, got %q", roomCode, msg.RoomCode)
@@ -2229,8 +2229,8 @@ func TestLobbyHostDisconnect_NewHostCanStartGame(t *testing.T) {
 	t.Cleanup(func() { conn2.Close() })
 	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
 	bobJoined := readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
-	if bobJoined.PlayerID != 1 {
-		t.Fatalf("Bob expected playerID 1, got %d", bobJoined.PlayerID)
+	if bobJoined.OwnSeat() != 1 {
+		t.Fatalf("Bob expected playerID 1, got %d", bobJoined.OwnSeat())
 	}
 	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
 

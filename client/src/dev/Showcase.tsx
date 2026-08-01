@@ -14,6 +14,7 @@ import { Lobby } from '../components/Lobby'
 import { WaitingRoom } from '../components/WaitingRoom'
 import { GameView } from '../components/GameView'
 import { GameOver } from '../components/GameOver'
+import { Reconnecting } from '../components/Reconnecting'
 import { RulesModal } from '../components/RulesModal'
 import { ColorPicker } from '../components/ColorPicker'
 import { PlayerPicker } from '../components/PlayerPicker'
@@ -122,6 +123,7 @@ function SceneScreen({ scene }: { scene: Scene }) {
   const errorMsg = useGameStore((s) => s.errorMsg)
   const matchWinner = useGameStore((s) => s.matchWinner)
   const matchOver = useGameStore((s) => s.matchOver)
+  const restoreTarget = useGameStore((s) => s.restoreTarget)
   const scoreboard = useGameStore((s) => s.scoreboard)
 
   switch (scene.screen) {
@@ -131,6 +133,8 @@ function SceneScreen({ scene }: { scene: Scene }) {
       return <OgCard />
     case 'lobby':
       return <Lobby onSend={noop} error={errorMsg} onClearError={noop} initialMode={scene.lobbyMode} />
+    case 'restoring':
+      return <Reconnecting roomCode={roomCode} target={restoreTarget ?? 'game'} onCancel={noop} />
     case 'waiting':
       return (
         <WaitingRoom

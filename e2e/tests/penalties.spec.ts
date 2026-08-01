@@ -264,6 +264,77 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     }
   })
 
+  /**
+   * A catch that lands has to be visible to the whole table, and for a long time
+   * it was visible to nobody: the server closed the window, the caught hand grew
+   * by two, and on a board where hands grow all match long that is
+   * indistinguishable from an ordinary draw. The catcher saw a button go dark.
+   *
+   * Asserted on both pages on purpose — the verdict is table news, not a
+   * private reply to whoever pressed the button.
+   */
+  test('a landed Contre-LOCO! is announced on every screen', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', roomCode)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
+
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+      await debugSetState(bob, {
+        hand: [
+          { color: 'red', kind: 'number', value: 7 },
+          { color: 'blue', kind: 'number', value: 3 },
+        ],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        activeColor: 'red',
+        currentTurn: bobIdx,
+      })
+      // Bob plays down to one card and says nothing.
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 7 },
+        chosen_color: 'red',
+      })
+
+      const catchBtn = alice.getByRole('button', { name: T.catchBtn })
+      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await catchBtn.click()
+
+      // The stamp names the seat that owed the call, on the caller's screen and
+      // on the caught player's alike.
+      await expect(alice.getByTestId('catch-banner')).toContainText(T.catchBannerTitle, {
+        timeout: 5_000,
+      })
+      await expect(bob.getByTestId('catch-banner')).toContainText(T.catchBannerTitle, {
+        timeout: 5_000,
+      })
+
+      // And the store agrees about whose seat it was, which is what the penalty
+      // cards on the board are aimed at.
+      expect((await getState(alice))?.catchFlash?.seat).toBe(bobIdx)
+      // Bob took the two-card penalty: 1 card left + 2 drawn.
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) === 3,
+        undefined,
+        { timeout: 5_000 },
+      )
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
   test('pending draw counter is displayed on the Draw button', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)

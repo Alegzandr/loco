@@ -43,6 +43,8 @@ latency → server correctness → UX smoothness → determinism → maintainabi
 Realtime: persistent low-latency bidirectional transport, event-driven state, server resolves simultaneous/reaction interactions, explicit testable timing windows, deterministic resolution. Client visuals may be optimistic; server is final.
 
 Reconnect: 60s slot hold; rejoin via nickname+room_code+session_token restores slot with full snapshot.
+The identity is mirrored into `sessionStorage`, so a **page reload** reclaims the seat too, not only
+a dropped socket. See "Session restore across a reload".
 
 Fairness: server timestamps received events, defines window, deterministic documented tie-breaks.
 
@@ -52,7 +54,7 @@ Small cohesive modules, explicit domain types, pure domain logic, side effects a
 ## Testing
 TDD. Tests-first for non-trivial behavior. Deterministic clocks for timing logic. Integration-test critical multiplayer flows. Maintain Playwright E2E suite as living regression.
 
-Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping, score table (round history, ping banding, TAB hold vs pinned), link-preview tags vs the committed `og.png`, map draw + the loading gate (refusal while shut, timeout, disconnect, rematch re-arm) and `tableImageRect` at every board size, batch play and batch interrupt (hand sync, unit *and* E2E), a draw against exhausted piles, `Origin` checking, and bots interjecting.
+Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code) **and session restore across a page reload** (seat + hand mid-match, waiting room, a dead session falling back to the lobby), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping, score table (round history, ping banding, TAB hold vs pinned), link-preview tags vs the committed `og.png`, map draw + the loading gate (refusal while shut, timeout, disconnect, rematch re-arm) and `tableImageRect` at every board size, batch play and batch interrupt (hand sync, unit *and* E2E), a draw against exhausted piles, `Origin` checking, and bots interjecting.
 
 Keep tests fast, targeted, non-brittle. Cover game rules > UI details.
 
@@ -114,14 +116,14 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 
 ## Repository structure
 - `client/` frontend
-  - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings, InterruptBanner, Confetti, ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`)
+  - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings, InterruptBanner, CatchBanner, Confetti, ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`)
   - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack, Deck, DiscardPile, PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` for pure pixel math, `CardArt.tsx` + `locoMark.ts` for the card face itself, `maps.ts` for the four rooms)
   - `src/audio/` `engine.ts` (context/buses/settings), `sfx.ts` (synthesised one-shots), `music.ts` (the bed *engine*), `tracks/` (the music itself, as data), `useGameAudio.ts` (store→sound bridge)
   - `src/dev/` dev-only visual showcase (`scenes.ts` registry + `Showcase.tsx` + `CardSheet.tsx`, the whole deck on one screen), tree-shaken from prod
   - `public/` `favicon.svg` + `apple-touch-icon.png` + `og.png` (the link preview, generated: see "Link preview"), all three from the LOCO mark; `maps/<id>/{room,table}.webp` (see "Maps")
   - `src/styles/tokens.css` design tokens — single source of truth for colour/type/shape/motion
   - `src/i18n/` i18n context, en/fr translations, `serverErrors.ts` (server prose → player voice)
-  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useTheme` (`initTheme()` runs in `main.tsx`) + `useHeldKey` (hold-to-show) + `useDrainBar` (countdown bars, render-free) + `useMapPreload` (map art, decode-aware)
+  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useTheme` (`initTheme()` runs in `main.tsx`) + `useHeldKey` (hold-to-show) + `useDrainBar` (countdown bars, render-free) + `useMapPreload` (map art, decode-aware) + `sessionPersistence` (the record + `reconnectMessageFor`, both pure) + `useSessionRestore` (`initSessionRestore()` runs in `main.tsx`, alongside `initTheme()`)
   - `src/types/` protocol types
   - `src/test/` Vitest unit tests
 - `server/` authoritative game server
@@ -256,6 +258,10 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   target, and `handleBotCatch`'s stale check compares `LastCardAt[target]`.
 - Wire: `catch_uno` carries `target_index` (the catcher names the seat). Absent = the window closest
   to expiring, which is the catch about to be lost.
+- **A catch that lands is announced** (`applyUnoCaught` → `store.catchFlash` → `<CatchBanner />` +
+  the penalty cards flying to the caught seat). See "Streamable moments": for a long time the *miss*
+  had a notice and the *hit* had nothing at all, so the game's hardest reaction was also its most
+  silent, and the only thing the table saw was two cards appearing in somebody's hand.
 - **A Contre-LOCO! that misses costs its caller 1 card** (`docs/rules.md` §14.6,
   `failedCatchPenalty`). Without a price, mashing the button at every seat holding one card is free
   and therefore always correct, which turns the game's hardest reaction into a reflex nobody has to
@@ -467,6 +473,54 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 - Issued in `room_created`/`room_joined`. Client must include `session_token` in reconnect `join_room`.
 - Invalid/missing → error, slot not reclaimed.
 - `hub.sessionTokens` cleaned up on room delete.
+
+## Session restore across a reload
+The socket-level reconnect only ever covered a **dropped connection**: the store was still in memory,
+so it still knew the room, the seat and the token. A refresh, a crashed tab, an accidental navigation
+or a phone killing a backgrounded page threw all of that away, and the player landed on the lobby
+while the server held their hand and their score for another minute with nobody able to claim it.
+That is the disconnect people actually have, and it was the one that could not be undone.
+
+- `hooks/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`.
+  **One pure function builds the rejoin for all three cases** (a socket that dropped mid-match, one
+  that dropped in the lobby, and a tab that was reloaded), so a reclaim cannot mean two different
+  things depending on how the connection was lost.
+- **`sessionStorage`, deliberately, not `localStorage`.** It is per tab, so two seats played from one
+  browser (how this game is tested, and how a lot of people play with a friend on one machine) cannot
+  overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
+  navigation and a crash restore, which is every case this exists for; and it dies with the tab
+  rather than handing the next person a live seat.
+- `initSessionRestore()` runs in `main.tsx` **before the first render**, next to `initTheme()` and for
+  the same reason: `useWebSocket` connects in an effect on App's first mount and the rejoin goes out
+  from that very first `onopen`, so the store has to already know what it is reclaiming.
+- `screen: 'restoring'` is its own screen, not a flag over `'game'`: the board has no hand, no discard
+  and no players at that point, and a table drawn from an empty state behind an overlay is a broken
+  table with a curtain over it. `restoreTarget` says which rejoin is in flight; `setScreen` retires it,
+  which is what "the reclaim landed" means (every landing path goes through it).
+- `SESSION_TTL_MS` (30 min) is a **staleness guard, not a correctness one**: the server is the only
+  authority on whether a slot can still be claimed. Its job is to stop a cold open days later from
+  flashing a reconnect screen at somebody who just wants the lobby. The stored fields change once, at
+  join time, so `touchSession()` re-stamps on `pagehide`/`visibilitychange`. Otherwise `at` would be
+  the join time and a long match would age its own record past the TTL.
+- **A refusal ends the restore and takes the record with it** (`abortRestore`, called from the `error`
+  branch and by `useRestoreTimeout`, 12s). Replaying the same refusal on every load is how a tab
+  becomes permanently unusable, and a spinner with no end is worse than a lobby with a reason.
+  `reconnect failed` / `reconnect cancelled` are the only entries in `serverErrors.ts` with no server
+  string behind them: they land in the same `errorMsg` slot, so they resolve through the same table.
+- The persistence subscription **dedupes on the four persisted fields**. It fires on every store
+  change, i.e. several times a second during a match, and `sessionStorage` is synchronous. See "The
+  realtime path": work added there is work added between a tap and the wire.
+- **`ServerMsg.PlayerID` is a `*int`, for the same reason as `PlayerIndex`.** `omitempty` dropped seat
+  **0**, and this hid longer because the client's `?? 0` fallback was right by luck everywhere it
+  mattered: the host is seat 0 on `room_created`, so an absent field and the default agreed. A tab
+  reloading straight into a match has no earlier value to fall back on, so a dropped `player_id` seated
+  the restored client at **-1**, holding a hand it could not match to any seat on the board. Read it
+  with `ServerMsg.OwnSeat()` (-1 = the message assigns no seat); `protocol/messages_test.go` now pins
+  seat 0 onto the wire for **both** fields. `player_reconnected` additionally falls back to
+  `state.your_index`, which is the same seat and is not omittable.
+- Client: `store.myNickname` is kept separately from `players` because a reloaded tab has no roster to
+  derive it from and the rejoin is keyed on the nickname. `<Reconnecting />` names the room so the
+  player recognises it and offers the way out; scenes `reconnecting-game` / `reconnecting-room`.
 
 ## Rate limiting
 - Token bucket per client: 10/s refill, burst 20.
@@ -809,6 +863,31 @@ map. `hub/maploading.go`.
   `applyInterrupt`, cleared by the banner after 1800ms. Colour comes from `seatColor(actorIndex)`.
   `<GameView />` also shakes the board via the **Web Animations API** (not a CSS class — a class
   toggle would need a remount to replay, tearing down the board).
+- **Contre-LOCO! verdict** (`<CatchBanner />`): driven by `uno_caught`, which the client used to
+  consume for its window bookkeeping and nothing else. A landed catch was the **quietest** event in
+  the game — the caught seat's hand grew by two, which on a board where hands grow all match long is
+  indistinguishable from an ordinary draw, and the player who won the race got no answer at all
+  beyond a button going dark. It is the hardest reaction LOCO asks for and it rendered nothing.
+  - `store.catchFlash { seat, at }`, set by `applyUnoCaught(seat)` — which also closes that seat's
+    window, since settling the seat and announcing it are the same event. Cleared by the banner.
+  - Three readings, because one banner cannot carry a moment this short: the **stamp** (who owes the
+    call, what it cost), the **penalty cards** flying deck→caught seat with a `+2` callout over the
+    pill (`<GameBoard />`, keyed on `catchFlash.at`), and the **`unoCaught` sting** — a voice that
+    had been sitting in `sfx.ts` since the start with nothing ever playing it.
+  - Deliberately **not** shaped like the interception slam: a red stamp punching *down* with a
+    shockwave, against an actor-tinted banner growing out of a horizontal wipe, and a single
+    vertical thump against a sideways rattle (`shakeScreen`). The two loudest moments in the game
+    have to be told apart in a muted clip. The caught seat's colour appears on their name only.
+  - The stamp sits at 30% height, above the piles: the penalty cards leave the deck while it is
+    still up, and a verdict covering the cards it is about explains nothing. Same reason the LOCO!
+    banner sits above the pile rather than over it.
+  - **The catcher is not on the wire** — `uno_caught` carries the caught seat only — so the banner
+    names the seat that pays, not the one that called. That is the table's news; the caller already
+    knows, they pressed the button. Naming them would be a protocol change for a line of copy.
+  - `CATCH_PENALTY_CARDS` (2) is stated once in the store and read by both the banner and the
+    flight. Against fully exhausted piles the server hands over fewer (a draw never fails, it
+    shrinks), so what is approximate there is the announcement, never the hand — which always comes
+    from the server. Scene `game-catch-caught`; `src/test/catchBanner.test.tsx`.
 - **UNO banner**: tilted sticker, punch-in, positioned *above* the pile so the play that triggered
   it stays visible.
 - **Effect callouts** (`AnimationLayer`): SKIP / REVERSE / +N, outlined rather than shadowed so they

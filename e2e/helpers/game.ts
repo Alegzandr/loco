@@ -13,6 +13,7 @@ export const T = {
   pass: 'Pass',
   unoBtn: 'LOCO!',
   catchBtn: 'Catch!',
+  catchBannerTitle: 'CAUGHT!',
   rulesBtn: 'Rules',
   continueBtn: 'Continue',
   rematch: 'Rematch',

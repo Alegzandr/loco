@@ -99,6 +99,12 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
 
   if (next.unoDeclared && !prev.unoDeclared) out.push('unoDeclare')
 
+  // A Contre-LOCO! that landed. The `unoCaught` voice has existed in sfx.ts
+  // since the start and nothing ever played it: the game's hardest reaction was
+  // silent, and the only thing the table heard was the caught player's two
+  // cards being drawn, which is the sound of an ordinary turn.
+  if (next.catchFlash && next.catchFlash.at !== prev.catchFlash?.at) out.push('unoCaught')
+
   // A Contre-LOCO! that missed. It reads as a draw on its own (the caller's hand
   // grew), which is exactly the wrong story: the sting is what says the card was
   // a price paid, not a turn taken.

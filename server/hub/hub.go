@@ -545,7 +545,7 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgRoomCreated,
 		RoomCode:     code,
-		PlayerID:     0,
+		PlayerID:     intPtr(0),
 		Players:      h.playerList(room),
 		SessionToken: tok,
 		MatchFormat:  matchFormatString(room.Format),
@@ -601,7 +601,7 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgRoomJoined,
 		RoomCode:     code,
-		PlayerID:     playerID,
+		PlayerID:     intPtr(playerID),
 		Players:      h.playerList(room),
 		SessionToken: tok,
 		MatchFormat:  matchFormatString(room.Format),
@@ -702,7 +702,7 @@ func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
 		member.Send(protocol.ServerMsg{
 			Type:        protocol.SMsgRematchStarted,
 			RoomCode:    c.roomCode,
-			PlayerID:    member.playerID,
+			PlayerID:    intPtr(member.playerID),
 			Players:     h.playerList(room),
 			MatchFormat: matchFormatString(room.Format),
 			MaxPlayers:  room.MaxPlayers,
@@ -1486,7 +1486,7 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 	c.Send(protocol.ServerMsg{
 		Type:     protocol.SMsgPlayerReconnected,
 		RoomCode: code,
-		PlayerID: playerID,
+		PlayerID: intPtr(playerID),
 		State:    h.playerGameState(room, playerID),
 		Players:  h.playerList(room),
 	})

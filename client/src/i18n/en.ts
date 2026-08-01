@@ -66,6 +66,9 @@ export interface ErrorCopy {
   // Transport
   rateLimited: string
   serverBusy: string
+  // Client-side: a seat reclaim that timed out or was cancelled. The only
+  // entry here with no server string behind it.
+  reconnectFailed: string
 }
 
 export interface Translations {
@@ -134,6 +137,12 @@ export interface Translations {
   // caller one card, so the table is told whose it was.
   catchFailedYou: string
   catchFailedOther: string            // contains %player
+  // A Contre-LOCO! that landed. The wire names the caught seat only, never the
+  // caller, so the banner is about the seat that pays.
+  catchBannerTitle: string
+  catchBannerYou: string              // we are the one who got caught
+  catchBannerOther: string            // contains %player
+  catchBannerPenalty: string          // contains %n
   // Banners surfaced after Swap / GlobalSwitch resolves so players see why hands changed.
   swapNotice: string                // contains %actor and %target placeholders
   swapNoticeYouTarget: string       // shown when %target would be the local player
@@ -142,6 +151,12 @@ export interface Translations {
   globalSwitchNoticeCcw: string     // contains %actor — counter-clockwise rotation
   reconnected: string
   rebuildingTable: string
+  // Session restore: shown while a reloaded tab reclaims its seat.
+  reconnectingGame: string          // coming back to a match in progress
+  reconnectingRoom: string          // coming back to a waiting room
+  reconnectingHint: string          // in-match: the seat is held, and for how long
+  reconnectingHintRoom: string      // pre-match: there is no clock on this one
+  reconnectCancel: string           // give up and go back to the lobby
   wsLostConnection: string
   wsReconnecting: string
   // Synchronised map loading, shown between "hands dealt" and "clock running".
@@ -273,6 +288,10 @@ export const en: Translations = {
   catchWindow: 'Catch window!',
   catchFailedYou: 'Too late! +1 card',
   catchFailedOther: '%player called too late — +1 card',
+  catchBannerTitle: 'CAUGHT!',
+  catchBannerYou: 'You never called LOCO!',
+  catchBannerOther: '%player never called LOCO!',
+  catchBannerPenalty: '+%n cards',
   swapNotice: '%actor swapped hands with %target',
   swapNoticeYouTarget: '%actor swapped hands with you',
   swapNoticeYouActor: 'You swapped hands with %target',
@@ -280,6 +299,11 @@ export const en: Translations = {
   globalSwitchNoticeCcw: '%actor triggered Global Switch — hands passed ←',
   reconnected: 'Reconnected',
   rebuildingTable: 'Rebuilding table…',
+  reconnectingGame: 'Getting your seat back…',
+  reconnectingRoom: 'Rejoining the room…',
+  reconnectingHint: 'Your hand and score are kept on the server for a minute after you drop.',
+  reconnectingHintRoom: 'The match has not started yet, nothing to lose.',
+  reconnectCancel: 'Back to the menu',
   wsLostConnection: 'Connection lost',
   wsReconnecting: 'Reconnecting…',
   mapLoadingTitle: 'Tonight you play in',
@@ -489,5 +513,6 @@ export const en: Translations = {
 
     rateLimited: 'Slow down a moment.',
     serverBusy: 'Server is busy. Try again.',
+    reconnectFailed: 'Could not get your seat back. The game may be over.',
   },
 }

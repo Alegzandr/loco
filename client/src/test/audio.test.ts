@@ -52,6 +52,20 @@ describe('soundsForTransition', () => {
     expect(soundsForTransition(prev, next)).toEqual(['interrupt', 'cardPlay'])
   })
 
+  // The `unoCaught` voice shipped in sfx.ts and nothing ever played it: the
+  // catch had no sound of its own, only the two cards the victim drew, which is
+  // the sound of somebody taking an ordinary turn.
+  it('stings when a Contre-LOCO! lands', () => {
+    const prev = state()
+    const next = state({ catchFlash: { seat: 1, at: 9 } })
+    expect(soundsForTransition(prev, next)).toContain('unoCaught')
+  })
+
+  it('does not replay the catch sting while the same catch is on screen', () => {
+    const flash = { seat: 1, at: 9 }
+    expect(soundsForTransition(state({ catchFlash: flash }), state({ catchFlash: flash }))).toEqual([])
+  })
+
   it('does not replay a card sound when only the timestamp is unchanged', () => {
     const play = { actorIndex: 1, card: { color: 'red' as const, kind: 'skip' as const }, at: 4 }
     expect(soundsForTransition(state({ lastPlay: play }), state({ lastPlay: play }))).toEqual([])

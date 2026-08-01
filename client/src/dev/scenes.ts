@@ -111,7 +111,7 @@ export interface Scene {
   /** Human label shown in the gallery index. */
   title: string
   /** Which top-level screen to mount. */
-  screen: 'lobby' | 'waiting' | 'game' | 'gameover' | 'cards' | 'og'
+  screen: 'lobby' | 'waiting' | 'game' | 'gameover' | 'restoring' | 'cards' | 'og'
   /**
    * Store patch applied before mounting. `deadlineIn`/`unoIn` are relative so
    * captures stay stable regardless of when they run.
@@ -183,6 +183,18 @@ export const SCENES: Scene[] = [
     screen: 'lobby',
     lobbyMode: 'join',
     state: { errorMsg: 'nickname already taken' },
+  },
+  {
+    id: 'reconnecting-game',
+    title: 'Reconnexion · partie en cours',
+    screen: 'restoring',
+    state: { roomCode: 'KX7QP2', restoreTarget: 'game' },
+  },
+  {
+    id: 'reconnecting-room',
+    title: 'Reconnexion · salon',
+    screen: 'restoring',
+    state: { roomCode: 'KX7QP2', restoreTarget: 'waiting' },
   },
   {
     id: 'lobby-rules',
@@ -334,6 +346,22 @@ export const SCENES: Scene[] = [
       currentTurn: 0,
       catchFailed: { seat: 0, at: 1 },
       players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    deadlineIn: 16,
+  },
+  {
+    // The wager won. The stamp names the seat that owed the call, the chip says
+    // what it cost, and the board underneath flies the two cards to that seat.
+    // Deliberately red and vertical where the interception slam is actor-tinted
+    // and horizontal: review the two side by side in the contact sheet.
+    id: 'game-catch-caught',
+    title: 'Partie · Contre-LOCO réussi',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchFlash: { seat: 3, at: 1 },
+      players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 3)],
     },
     deadlineIn: 16,
   },
