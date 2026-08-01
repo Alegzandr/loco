@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
 import { useI18n } from '../i18n'
+import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { ThemeToggle } from './ThemeToggle'
@@ -15,6 +16,11 @@ interface Props {
   matchFormat: MatchFormat
   maxPlayers: number
   onSend: (msg: ClientMsg) => void
+  onLeave: () => void
+  /** Showcase only: mounts straight into the confirmation, which is otherwise
+   *  component-local state no scene could reach. Same trick as Lobby's
+   *  `initialMode`. */
+  initialConfirmLeave?: boolean
 }
 
 const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
@@ -24,13 +30,35 @@ const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
 const MIN_PLAYERS = 2
 const MAX_PLAYERS = 10
 
-export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayers, onSend }: Props) {
+export function WaitingRoom({
+  roomCode,
+  players,
+  myIndex,
+  matchFormat,
+  maxPlayers,
+  onSend,
+  onLeave,
+  initialConfirmLeave = false,
+}: Props) {
   const { t } = useI18n()
   const isOwner = myIndex === 0
   const canStart = players.length >= 2
   const [maxInput, setMaxInput] = useState<string>(String(maxPlayers))
   const [showRules, setShowRules] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [confirmLeave, setConfirmLeave] = useState(initialConfirmLeave)
+
+  // Escape backs out of the question, like every other dismissible thing here.
+  // Bound while the question is up and only then: a listener that outlives it
+  // would swallow the key from whatever comes next.
+  useEffect(() => {
+    if (!confirmLeave) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConfirmLeave(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [confirmLeave])
 
   // Clipboard is unavailable on insecure origins and in some embedded views;
   // failing silently is correct here — the code stays visible either way.
@@ -74,9 +102,7 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
         <LanguageSwitcher />
         <ThemeToggle />
         <AudioSettings />
-        <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
-          {t.rulesBtn}
-        </button>
+        <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
 
       <h2 className={styles.heading}>{t.waitingRoom}</h2>
@@ -162,6 +188,38 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
       )}
       {!isOwner && (
         <p className={styles.waitingMsg}>{t.waitingForHost}</p>
+      )}
+
+      {/* Nothing has been dealt yet, so leaving is free: the server frees the seat
+          on the spot instead of holding it 60s the way a closed tab would. Kept
+          quiet on purpose — it must never compete with Start.
+
+          It still asks first: the press is one-way, and on this screen it also
+          costs the table code, which a guest has no way to get back. The question
+          takes the link's place rather than opening over it, so the answer is
+          where the finger already is and nothing else on the screen moves. */}
+      {confirmLeave ? (
+        <div className={styles.leaveConfirm}>
+          <p className={styles.leaveConfirmMsg}>{t.leaveConfirm}</p>
+          <div className={styles.leaveConfirmBtns}>
+            {/* Staying comes first and is the solid one: the safe answer should
+                be the easy one to hit. */}
+            <button
+              className={styles.leaveStay}
+              onClick={() => setConfirmLeave(false)}
+              autoFocus
+            >
+              {t.leaveConfirmStay}
+            </button>
+            <button className={styles.leaveGo} onClick={onLeave}>
+              {t.leaveConfirmYes}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button className={styles.leaveBtn} onClick={() => setConfirmLeave(true)}>
+          {t.leaveRoom}
+        </button>
       )}
 
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}

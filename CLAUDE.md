@@ -255,7 +255,10 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   (`MatchmakingAFKThreshold`) instead of 4, and **both expiries forfeit the match** to whoever stayed
   (`game.Room.ForfeitTo` + `hub.forfeitMatch`), as does `leave_room`. The scoreboard is left alone: no
   points are invented for a round nobody finished. Ordinary rooms keep 60s and 4: those are people
-  who came in together. `leave_room` is refused mid-match in one.
+  who came in together. `leave_room` is refused mid-match in one, and allowed in every waiting room:
+  a table you opened or joined by mistake has a quit button (behind one in-place confirmation, the
+  only one in the game), and the seat is freed on the spot rather than held the 60s a closed tab
+  would cost the others.
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub.BeginDrain`,
   `hub/drain.go`): nothing that would start a new match is accepted, the matchmaking queue is emptied
   with an explanation, and **everything already running is left completely alone**. The refusal list

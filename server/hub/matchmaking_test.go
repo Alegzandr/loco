@@ -451,6 +451,36 @@ func TestMatchmaking_LeaveRoomRefusedInAnOrdinaryMatch(t *testing.T) {
 	}
 }
 
+// The waiting room has a way out, and nothing has been dealt yet: the seat is
+// freed on the spot rather than held the way a dropped socket would be, and the
+// players still there are told immediately.
+func TestLeaveRoom_FreesASeatInAnOrdinaryLobby(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	code := readMsgOfType(t, conn1, protocol.SMsgRoomCreated).RoomCode
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: code})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
+	readMsgOfType(t, conn2, protocol.SMsgLeftRoom)
+
+	left := readMsgOfType(t, conn1, protocol.SMsgPlayerLeft)
+	if len(left.Players) != 1 || left.Players[0].Nickname != "Alice" {
+		t.Fatalf("players after leave = %+v, want Alice alone", left.Players)
+	}
+
+	// The socket is seatless again, so it can take a seat somewhere else.
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Bob"})
+	readMsgOfType(t, conn2, protocol.SMsgRoomCreated)
+}
+
 // "Find another opponent" is one button on the game-over screen: a player still
 // sitting in the finished room goes straight back into the queue.
 func TestMatchmaking_FindMatchReleasesAFinishedSeat(t *testing.T) {

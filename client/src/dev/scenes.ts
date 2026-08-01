@@ -138,6 +138,8 @@ export interface Scene {
   searchingFor?: number
   /** Simulated transport state for the game screen. */
   wsStatus?: 'connecting' | 'open' | 'closed'
+  /** Waiting room: mount straight into the leave confirmation. */
+  confirmLeave?: boolean
 }
 
 const gameBase = {
@@ -261,6 +263,20 @@ export const SCENES: Scene[] = [
     id: 'waiting-guest',
     title: 'Salon · invité',
     screen: 'waiting',
+    state: {
+      roomCode: 'KX7QP2',
+      players: PLAYERS_4,
+      myIndex: 2,
+      matchFormat: 'BO1',
+      maxPlayers: 10,
+    },
+  },
+  {
+    // The one destructive press on this screen, mid-question.
+    id: 'waiting-leave-confirm',
+    title: 'Salon · confirmer le départ',
+    screen: 'waiting',
+    confirmLeave: true,
     state: {
       roomCode: 'KX7QP2',
       players: PLAYERS_4,

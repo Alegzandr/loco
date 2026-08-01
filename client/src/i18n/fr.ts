@@ -18,8 +18,9 @@ export const fr: Translations = {
   yourNickname: 'Ton pseudo',
   roomCodeLabel: 'Code de la table',
   back: 'Retour',
-  // Le bouton vit dans une rangée d'icônes, en jeu comme au lobby : un seul mot.
-  // C'est la modale qu'il ouvre qui a le droit d'être une phrase.
+  // Le bouton est une pastille point d'interrogation dans une rangée d'icônes,
+  // en jeu comme au lobby : ce texte n'est jamais dessiné, il sert d'aria-label
+  // et d'infobulle. C'est la modale qu'il ouvre qui a le droit d'être une phrase.
   rulesBtn: 'Règles',
 
   // ─── Matchmaking 1v1 ──────────────────────────────────────────
@@ -54,6 +55,9 @@ export const fr: Translations = {
   // La page dit déjà « La table » et « Code de la table » : une troisième
   // occurrence dans la même colonne se lit comme un gabarit mal rempli.
   shareCode: 'Envoie ce code. Ils sont à un clic.',
+  leaveConfirm: 'Tu quittes la table\u00a0?',
+  leaveConfirmYes: 'Oui, je pars',
+  leaveConfirmStay: 'Rester',
   copyCode: 'Copié\u00a0!',
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: 'Son',

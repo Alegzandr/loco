@@ -9,6 +9,7 @@ import { useI18n } from '../i18n'
 import { Translations } from '../i18n/en'
 import { resolveServerError } from '../i18n/serverErrors'
 import { WsStatus } from '../hooks/useWebSocket'
+import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
 import { UnoTimer } from './UnoTimer'
 import { ColorPicker } from './ColorPicker'
@@ -639,9 +640,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         </button>
         <ThemeToggle />
         <AudioSettings />
-        <button className={styles.rulesBtn} onClick={() => setShowRules(true)}>
-          {t.rulesBtn}
-        </button>
+        <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
 
       {/* Standings: held open with TAB, or pinned by the button above. */}

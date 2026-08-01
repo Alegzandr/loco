@@ -157,8 +157,11 @@ strangers will not, and the player who is still at the table did nothing wrong.
   reconnect hold) for somebody who has already proved they are not there, and the opponent would have
   sat through both. The away player is sent `afk_forfeit` first so their own screen can explain it.
 - `leave_room` is the deliberate version: immediate, no wait. It is **refused** in an ordinary match
-  in progress (`you cannot leave a match in progress`): there is no quit button in that UI, and one
-  arriving on the wire would hand a group's match away.
+  in progress (`you cannot leave a match in progress`): that UI offers no way out once the cards are
+  dealt, and one arriving on the wire would hand a group's match away. Before the deal it is allowed
+  everywhere and is not a forfeit at all: the waiting room has a quit button for host and guest
+  alike, `releaseSeat` frees the seat on the spot and the rest of the table gets `player_left`. That
+  is the whole point of sending it rather than closing the tab, which would hold the slot instead.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.

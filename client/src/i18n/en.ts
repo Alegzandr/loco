@@ -145,6 +145,11 @@ export interface Translations {
   roomCode: string
   shareCode: string
   copyCode: string
+  // Leaving is one-way, so the button asks first. The question names the table,
+  // and the safe answer is a word, not a dismissal.
+  leaveConfirm: string
+  leaveConfirmYes: string
+  leaveConfirmStay: string
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: string
   audioMaster: string
@@ -308,8 +313,9 @@ export const en: Translations = {
   yourNickname: 'Your name',
   roomCodeLabel: 'Table code',
   back: 'Back',
-  // The button sits in a row of icons, in-game as well as in the lobby, so it
-  // stays one word. The modal it opens is the one that gets to be a sentence.
+  // The button is a question-mark chip in a row of icons, in-game as well as in
+  // the lobby, so this string is never drawn: it is the aria-label and the
+  // tooltip. The modal it opens is the one that gets to be a sentence.
   rulesBtn: 'Rules',
 
   // ─── 1v1 matchmaking ──────────────────────────────────────────
@@ -345,6 +351,9 @@ export const en: Translations = {
   // same column reads as a half-filled template.
   shareCode: 'Send this code. They are one tap away.',
   copyCode: 'Copied!',
+  leaveConfirm: 'Leave this table?',
+  leaveConfirmYes: 'Yes, leave',
+  leaveConfirmStay: 'Stay',
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: 'Sound',
   audioMaster: 'Overall',

@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { resolveServerError } from '../i18n/serverErrors'
+import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { ThemeToggle } from './ThemeToggle'
@@ -68,9 +69,7 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
         <LanguageSwitcher />
         <ThemeToggle />
         <AudioSettings />
-        <button className={styles.rulesLink} onClick={() => setShowRules(true)}>
-          {t.rulesBtn}
-        </button>
+        <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
 
       <h1 className={styles.title}>

@@ -33,22 +33,7 @@
   z-index: 5;
 }
 
-.rulesLink {
-  padding: 9px 18px;
-  border: var(--stroke) solid var(--color-stroke);
-  border-radius: var(--radius-full);
-  background: var(--color-surface-card);
-  color: var(--color-ink);
-  font: 600 14px/1.2 var(--font-display);
-  cursor: pointer;
-  min-height: 40px;
-  touch-action: manipulation;
-  box-shadow: 0 3px 0 var(--color-stroke-soft);
-  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
-}
-
-.rulesLink:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
-.rulesLink:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
+/* The rules opener is <RulesButton />, which carries its own chip styling. */
 
 .heading {
   font: 700 26px/1.15 var(--font-display);
@@ -231,6 +216,92 @@
   opacity: 0.45;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+/* The way out. Underlined text rather than a plaque: it is always available and
+   never the thing to press, so it carries no raised-object treatment. */
+.leaveBtn {
+  margin-top: var(--space-xs);
+  padding: 8px 14px;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  font: 600 14px/1.2 var(--font-display);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 0.12s var(--ease-out);
+}
+
+.leaveBtn:hover { color: var(--color-ink); }
+
+/* The question, in the link's place. It is allowed to be louder than the link
+   was: at this point it is the only thing being asked. */
+.leaveConfirm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  padding: var(--space-sm) var(--space-base);
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-hard-lg);
+  animation: confirmIn 0.18s var(--ease-bounce) both;
+}
+
+@keyframes confirmIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.leaveConfirmMsg {
+  font: 700 16px/1.3 var(--font-display);
+  color: var(--color-ink);
+  text-align: center;
+}
+
+.leaveConfirmBtns {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.leaveStay,
+.leaveGo {
+  padding: 10px 20px;
+  min-height: 44px;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  font: 700 15px/1.2 var(--font-display);
+  cursor: pointer;
+  box-shadow: 0 4px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
+  touch-action: manipulation;
+}
+
+.leaveStay {
+  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
+  color: #fff;
+  text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
+}
+
+/* Leaving stays plain: it is the answer that costs something, so it does not get
+   the colour that reads as "press me". */
+.leaveGo {
+  background: var(--color-surface-strong);
+  color: var(--color-body);
+}
+
+.leaveStay:hover,
+.leaveGo:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--color-stroke-soft); }
+.leaveStay:active,
+.leaveGo:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
+
+@media (prefers-reduced-motion: reduce) {
+  .leaveConfirm { animation: none; }
 }
 
 /* Host config panel */

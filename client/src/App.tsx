@@ -508,6 +508,7 @@ export default function App() {
           matchFormat={matchFormat}
           maxPlayers={maxPlayers}
           onSend={handleSend}
+          onLeave={leaveRoom}
         />
       )}
       {screen === 'game' && <GameView onSend={handleSend} wsStatus={wsStatus} />}
