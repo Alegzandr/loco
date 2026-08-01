@@ -486,7 +486,11 @@ func (h *Hub) releaseSeat(c *Client) {
 //
 // In an ordinary room mid-match it is refused: those rooms are groups of people
 // who came in together, the 60s hold exists precisely so a drop is not the end,
-// and there is no quit button in that UI to send it from.
+// and the board offers no way out to send it from.
+//
+// Before the deal it is nobody's forfeit and every room allows it: the waiting
+// room's quit button lands here, and the seat is released on the spot instead of
+// being held the way a closed tab would hold it.
 func (h *Hub) handleLeaveRoom(c *Client) {
 	h.dequeue(c)
 	if !h.alreadySeated(c) {

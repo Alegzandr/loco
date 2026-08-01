@@ -5,6 +5,7 @@
 - Join by room code; nickname-only entry (no accounts).
 - Real-time lobby with live player list updates.
 - Host-only game start.
+- Leaving a table before the deal: host and guest alike get a quit button in the waiting room, the seat is released immediately (`leave_room`) and the rest of the table sees the roster update. Once the cards are out, an ordinary match has no way out.
 - Match format selection (BO1/BO3/BO5/BO7), broadcast live in lobby.
 - Max-players configuration (2–10), live in lobby; cannot drop below current count.
 - **1v1 matchmaking**: a single FIFO queue on the home screen. Two searchers are paired, shown a versus reveal naming their opponent, and dealt in 2.5 s later (a single round) with nobody pressing start. No host, no code, no lobby. The queue's size is never sent to a client in any form; the searching screen times its own wait and restates it at 15 s and 45 s, offering a private table past that. At the end either player may offer a rematch: both offers are broadcast, and the same two are dealt in again only once both are in. No rank, and nothing calls the mode "unranked".

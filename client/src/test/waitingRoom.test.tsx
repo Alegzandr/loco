@@ -18,10 +18,28 @@ function renderWaiting(players: PlayerDTO[], maxPlayers = 10, onSend = vi.fn()) 
         matchFormat="BO1"
         maxPlayers={maxPlayers}
         onSend={onSend}
+        onLeave={vi.fn()}
       />
     </I18nProvider>
   )
   return { onSend, input: screen.getByRole('spinbutton') as HTMLInputElement }
+}
+
+function renderSeat(myIndex: number, onLeave = vi.fn()) {
+  render(
+    <I18nProvider>
+      <WaitingRoom
+        roomCode="ABC123"
+        players={[player(0, 'Alice'), player(1, 'Bob')]}
+        myIndex={myIndex}
+        matchFormat="BO1"
+        maxPlayers={4}
+        onSend={vi.fn()}
+        onLeave={onLeave}
+      />
+    </I18nProvider>
+  )
+  return { onLeave }
 }
 
 describe('WaitingRoom max players', () => {
@@ -54,5 +72,21 @@ describe('WaitingRoom max players', () => {
     const { onSend, input } = renderWaiting([player(0, 'Alice')])
     fireEvent.change(input, { target: { value: '6' } })
     expect(onSend).toHaveBeenCalledWith({ type: 'set_max_players', max_players: 6 })
+  })
+})
+
+// A table nobody can leave is a dead end: the only way out was closing the tab,
+// which drops the socket and holds the seat for 60s instead of freeing it.
+describe('WaitingRoom leaving', () => {
+  it('lets the host give the table up', () => {
+    const { onLeave } = renderSeat(0)
+    fireEvent.click(screen.getByRole('button', { name: 'Leave the table' }))
+    expect(onLeave).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets a guest give their seat up', () => {
+    const { onLeave } = renderSeat(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Leave the table' }))
+    expect(onLeave).toHaveBeenCalledTimes(1)
   })
 })

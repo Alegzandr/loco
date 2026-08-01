@@ -15,6 +15,7 @@ interface Props {
   matchFormat: MatchFormat
   maxPlayers: number
   onSend: (msg: ClientMsg) => void
+  onLeave: () => void
 }
 
 const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
@@ -24,7 +25,15 @@ const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
 const MIN_PLAYERS = 2
 const MAX_PLAYERS = 10
 
-export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayers, onSend }: Props) {
+export function WaitingRoom({
+  roomCode,
+  players,
+  myIndex,
+  matchFormat,
+  maxPlayers,
+  onSend,
+  onLeave,
+}: Props) {
   const { t } = useI18n()
   const isOwner = myIndex === 0
   const canStart = players.length >= 2
@@ -163,6 +172,13 @@ export function WaitingRoom({ roomCode, players, myIndex, matchFormat, maxPlayer
       {!isOwner && (
         <p className={styles.waitingMsg}>{t.waitingForHost}</p>
       )}
+
+      {/* Nothing has been dealt yet, so leaving is free: the server frees the seat
+          on the spot instead of holding it 60s the way a closed tab would. Kept
+          quiet on purpose — it must never compete with Start. */}
+      <button className={styles.leaveBtn} onClick={onLeave}>
+        {t.leaveRoom}
+      </button>
 
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>

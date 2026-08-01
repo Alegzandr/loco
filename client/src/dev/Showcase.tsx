@@ -183,6 +183,7 @@ function SceneScreen({ scene }: { scene: Scene }) {
           matchFormat={matchFormat}
           maxPlayers={maxPlayers}
           onSend={noop}
+          onLeave={noop}
         />
       )
     case 'game':

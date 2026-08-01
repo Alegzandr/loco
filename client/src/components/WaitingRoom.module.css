@@ -233,6 +233,25 @@
   box-shadow: none;
 }
 
+/* The way out. Underlined text rather than a plaque: it is always available and
+   never the thing to press, so it carries no raised-object treatment. */
+.leaveBtn {
+  margin-top: var(--space-xs);
+  padding: 8px 14px;
+  min-height: 40px;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  font: 600 14px/1.2 var(--font-display);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 0.12s var(--ease-out);
+}
+
+.leaveBtn:hover { color: var(--color-ink); }
+
 /* Host config panel */
 .hostConfig {
   display: flex;

@@ -59,6 +59,37 @@ test.describe('multi-client synchronization', () => {
   })
 
   /**
+   * A player who opened or joined a table can change their mind. The seat is
+   * freed on the spot — not held the 60s a closed tab would cost — and the
+   * leaver lands back on the home screen, free to take a seat elsewhere.
+   */
+  test('leaving the waiting room frees the seat on both sides', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const page1 = await ctx1.newPage()
+    const page2 = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(page1, 'Alice')
+      await joinRoom(page2, 'Bob', roomCode)
+      await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
+
+      await page2.getByRole('button', { name: T.leaveRoom }).click()
+
+      await page2.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'lobby',
+        undefined,
+        { timeout: 5_000 },
+      )
+      await expect(page1.getByText('Bob')).toBeHidden({ timeout: 5_000 })
+      await expect(page1.getByText('Alice')).toBeVisible()
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
    * Both players see the game start (canvas + action bar) when host starts.
    */
   test('game start is visible to both clients', async ({ browser }: { browser: Browser }) => {
