@@ -123,7 +123,7 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
   - `public/` `favicon.svg` + `apple-touch-icon.png` + `og.png` (the link preview, generated: see "Link preview"), all three from the LOCO mark; `maps/<id>/{room,table}.webp` (see "Maps")
   - `src/styles/tokens.css` design tokens — single source of truth for colour/type/shape/motion
   - `src/i18n/` i18n context, en/fr translations, `serverErrors.ts` (server prose → player voice)
-  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useTheme` (`initTheme()` runs in `main.tsx`) + `useHeldKey` (hold-to-show) + `useDrainBar` (countdown bars, render-free) + `useMapPreload` (map art, decode-aware) + `sessionPersistence` (the record + `reconnectMessageFor`, both pure) + `useSessionRestore` (`initSessionRestore()` runs in `main.tsx`, alongside `initTheme()`)
+  - `src/hooks/` WebSocket + Zustand store + `useElementSize` (ResizeObserver) + `useSafeAreaInsets` (notch/home indicator, token-driven) + `useTheme` (`initTheme()` runs in `main.tsx`) + `useHeldKey` (hold-to-show) + `useDrainBar` (countdown bars, render-free) + `useMapPreload` (map art, decode-aware) + `sessionPersistence` (the record + `reconnectMessageFor`, both pure) + `useSessionRestore` (`initSessionRestore()` runs in `main.tsx`, alongside `initTheme()`)
   - `src/types/` protocol types
   - `src/test/` Vitest unit tests
 - `server/` authoritative game server
@@ -391,8 +391,37 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 - All action buttons: `min-height:44px`, `touch-action:manipulation`.
 - 400ms debounce (`guardDoubleTap`) on action buttons.
 - Wild picker: 64px+ touch targets in a row.
-- HTML viewport: `user-scalable=no`, `maximum-scale=1.0`.
+- HTML viewport: `user-scalable=no`, `maximum-scale=1.0`, **`viewport-fit=cover`**.
 - CSS `@media (max-width:480px)` for small screens.
+
+### Safe areas (the notch and the home indicator)
+The page owns the whole screen and keeps the game off its edges. Both halves are needed: without
+`viewport-fit=cover` iOS confines the page to the safe area and fills the notch and home-indicator
+bands with the **root element's own colour**, which put two bright violet strips across a room lit
+like a nightclub; with only the cover flag, the action bar would sit under the home indicator's
+swipe bar and the round badge under the status bar.
+
+- `--safe-top` / `--safe-right` / `--safe-bottom` / `--safe-left` in `tokens.css` wrap
+  `env(safe-area-inset-*)`. Every piece of chrome anchored to an edge offsets itself by them
+  (`.topRight`, `.roundIndicator`, `.turnTimerBar`, `.actionBar`, and the padding of every screen
+  container). Zero on any device without a notch, which is why they are plain `calc()` and not a
+  media query.
+- **`layout.ts: boardSpace` takes the insets**, so `TOP_CHROME` and `BOTTOM_RESERVE` are measured
+  from the *safe* edge and the whole coordinate space stops short of the bands. The board element
+  still runs edge to edge: the room's picture uses the difference, the game does not. `offsetX` is
+  the landscape half of the same rule (a phone on its side puts the notch on one flank).
+- `useSafeAreaInsets` reads the numbers back through a hidden probe whose padding is the `--safe-*`
+  tokens, and re-measures on `resize`/`orientationchange` only. An `env()` held in a custom property
+  reads back as the unresolved token in several engines, so the resolved computed padding is the
+  only reliable source. Reading the *tokens* rather than `env()` directly is also the seam the
+  capture harness overrides.
+- **A match in a map pins `<html>` to `--room-void`** (`<GameBoard />` sets `data-room` on the root).
+  The browser paints anything the page does not own with the root's colour, so this is the only
+  thing that can reach a band left over by a floating browser bar. A violet strip across a dark room
+  reads as a broken layout; the same strip in the room's shadow reads as the room.
+- Review it with `make visual ARGS="--viewports=notch"` — no desktop browser reports an inset, so
+  that viewport is the only place this layout is visible at all. `layout.test.ts` owns the maths and
+  `safeArea.test.tsx` owns the wiring through to the stage's transform.
 
 ## Bots
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
@@ -702,13 +731,15 @@ scaling on width alone pushes the hand under the action bar.
   objects too big for the screen rather than a table seen from above.
 - Between the two (560px ≤ w < 1240px) the scale is 1 and the responsive behaviour takes over.
 
-`boardSpace(pxW, pxH, s)` — **not** plain `px / s` — converts pixels to the virtual space. The board is
+`boardSpace(pxW, pxH, s, insets)` — **not** plain `px / s` — converts pixels to the virtual space. The board is
 bracketed by two bands of **real chrome that do not scale with it**: `TOP_CHROME` (round badge,
 theme/audio/rules cluster) and `BOTTOM_RESERVE` (action bar). Both must stay constant in *pixels*.
 Scaling them along with the board shrinks them on a phone — seat pills slide under the top buttons,
 the hand under the action bar — and inflates them on a monitor into two bands nothing may use.
-`offsetY = TOP_CHROME * (1 - s)` pins the top band, and the height is solved so the bottom one lands
-exactly on the action bar. Asserted in `layout.test.ts`.
+`offsetY = safeTop + TOP_CHROME * (1 - s)` pins the top band, and the height is solved so the bottom
+one lands exactly on the action bar. The device's safe areas are part of that same arithmetic: the
+element runs edge to edge so the room's picture can, and the coordinate space stops short of the
+notch and the home indicator (see "Safe areas"). Asserted in `layout.test.ts`.
 
 - `GameBoard` passes only the virtual size down. Children, `layout.ts` and every animation coordinate
   stay in that one space — nothing else knows about the scale, which is why cards, seats, felt, type
@@ -923,6 +954,32 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
 - `audio/engine.ts` — lazy `AudioContext` (browsers refuse one outside a user gesture; every play
   before `unlock()` is a silent no-op), master → sfx/music buses, settings persisted under
   `loco_audio`, per-frame voice budget so a batch play can't stack a dozen voices.
+- **Mobile Safari loses the context in three ways, and all three fail as silence rather than as an
+  error**, which is why nothing in the suite went red on them for months.
+  `src/test/audioLifecycle.test.tsx` owns all three.
+  - **`unlock()` resumes anything that is not `running`, never just `suspended`.** WebKit parks the
+    context in its own non-standard **`interrupted`** state when the page is backgrounded, when a
+    call lands, or when Siri speaks. Guarded on `=== 'suspended'` the resume never fired, so
+    `isReady()` stayed false forever: `playSfx` became a no-op and `MusicBed.schedule` returned on
+    every tick against a frozen clock while its `setInterval` kept running, so `music.isPlaying()`
+    was `true` and the gesture handler never restarted the bed either. Switching apps and coming
+    back cost the player the sound for the rest of the page's life.
+  - **`unlock()` is `async` and resolves once the context is really running.** `resume()` is a
+    promise, so starting the bed on the next line found `isReady()` still false and silently did
+    nothing; the sound only arrived on the player's *second* tap. `useGameAudio` starts the music
+    inside the `.then()`.
+  - **`visibilitychange` + `focus` reclaim the context** (`useGameAudio`, skipped while hidden).
+    Coming back from another app is exactly when the context needs reclaiming and exactly when
+    there is no gesture to hang it on: the player looks at the board before touching it. It does
+    not replace the gesture handlers (a resume outside one may be refused), but the page keeps its
+    sticky activation, so in practice this is what turns the sound back on.
+  - **`navigator.audioSession.type = 'playback'`** at context creation (Safari 16.4+, guarded). On
+    iPhone the Ring/Silent switch mutes Web Audio in a page (unlike an inline `<video>`) with no
+    error and no way to feature-detect the outcome, so the same build is silent on one phone and
+    fine on another. That is most of "sometimes I have sound, sometimes I don't". `playback` is
+    what this is (a game with its own soundtrack) and is the category that ignores the switch; it
+    also stops whatever the player had going in another app, which is the deliberate trade. Use
+    `'ambient'` instead to respect the switch and mix with other audio.
 - `audio/sfx.ts` — one-shots. Card handling is **noise** (paper has no pitch; a pitched click per
   card becomes a melody nobody wrote); rule outcomes are **pitched and interval-based** so the table
   learns them by ear.
@@ -1058,10 +1115,15 @@ Gated behind `import.meta.env.DEV` (dynamic import in `main.tsx`), so Rollup dro
 - `card-sheet` is the odd one out: not a screen but the whole deck, every kind in every suit, laid
   out to fit the capture viewport. Cards are the component the game draws forty of at once and no
   gameplay scene shows more than a handful of kinds — review any card change against it.
-- Flags: `--scenes=a,b`, `--viewports=desktop,mobile,wide,small`, `--themes=light,dark`, `--motion`
-  (keep animations running), `--port`. Default runs `desktop` (1440×900) + `mobile` (390×844). The
-  two ends of the board-scale range are where its regressions show up — check **both** after touching
-  `layout.ts`: `wide` (1920×1080, scaled up) and `small` (360×640, scaled down).
+- Flags: `--scenes=a,b`, `--viewports=desktop,mobile,wide,small,notch`, `--themes=light,dark`,
+  `--motion` (keep animations running), `--port`. Default runs `desktop` (1440×900) + `mobile`
+  (390×844). The two ends of the board-scale range are where its regressions show up — check
+  **both** after touching `layout.ts`: `wide` (1920×1080, scaled up) and `small` (360×640, scaled
+  down).
+- **`notch` is a phone with safe areas** (390×844 plus a 59px notch and a 34px home indicator). A
+  viewport entry may carry `insets`, which the init script writes over the `--safe-*` tokens the CSS
+  offsets and `useSafeAreaInsets` both read. No desktop browser reports an inset on its own, so this
+  is the only way to see the layout that has to dodge them (see "Safe areas").
 - Viewport size goes under `viewport: {...}` in the Playwright context options — width/height at the
   top level are silently ignored and you get the 1280×720 default.
 - Captures run with `reducedMotion: 'reduce'` by default so they are deterministic; `--motion` is how
@@ -1220,7 +1282,7 @@ shows.
 - Animation triggers (inside `<GameBoard />`), in effect-declaration order:
   - **Opponent play**: keyed on `lastPlay.at`; flies the card from `seatPosition(actor)` to the discard with `arcHeight`. Skipped when the actor is the local player. Sets `suppressNextDiscardFx`.
   - **Card play (own)**: `flyCardFromHand(card, idx)` computes the source slot from `calcHandSlots` and spawns the arced hand→discard flier. Sets `suppressNextDiscardFx`. **It only runs once the play is committed** — `props.onCardClick` returns a boolean ("did the card leave the hand?") and the flier is spawned only on `true`. A tap the client refuses (`clientMayPlay`/`clientMayInterrupt` say no) animates nothing: flying the card out and snapping it back reads as a bug, not as "illegal card". Plays confirmed later (wild colour, swap target) fire it through `flightRef` — a `GameBoardHandle` the `<ColorPicker />`/`<PlayerPicker />` callbacks in `GameView` call after `onSend`.
-  - `GameView.handleCardClick` also refuses to open a picker for a card `clientMayPlay` rejects — prompting for a colour and then having the server reject the card is the same broken promise as the animation.
+  - `GameView.handleCardClick` also refuses to open a picker for a card `clientMayPlay` rejects — prompting for a colour and then having the server reject the card is the same broken promise as the animation. **The check runs before the prompts, not after**, and that order is the whole rule: the three wilds always match, so gating them changes nothing, but **Swap is a coloured card** and follows ordinary matching. Behind the prompts, an off-colour Swap was the one card in the deck that asked for a target, took the answer, and *then* came back refused with "illegal card play" — every other unplayable card ignores the tap in silence, so it read as the card behaving differently rather than as an illegal play. `realtime.test.tsx` covers both branches (refused Swap opens nothing, playable Swap still prompts).
   - **Discard top change (any source)**: `suppressNextDiscardFx` suppresses **only the generic pile flier**, never the SKIP/REVERSE/+N callout — playing your own Skip must announce itself too. Callout text from `effectFor(card, pendingDraw)`.
   - **Hand grew by 1**: deck→last-slot card-back flier (draws).
   - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.

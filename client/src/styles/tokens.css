@@ -17,6 +17,24 @@
  */
 
 :root {
+  /* ── Device safe areas ─────────────────────────────────────────────────────
+     The page runs `viewport-fit=cover` (see index.html), so it owns the notch
+     and the home-indicator band and the room's picture reaches every edge of
+     the screen. Nothing a player has to read or press may sit there, so every
+     piece of chrome anchored to an edge offsets itself by these, and the board's
+     coordinate space stops short of them (layout.ts: boardSpace). Zero on any
+     device without a notch, which is why the offsets are plain `calc()` rather
+     than a media query. Theme-independent: a notch is hardware. */
+  /* The dark a room sits in: behind the map's picture, and under every band the
+     page does not own once a match is up. Theme-independent, like the felt and
+     the cards: a room is a place, not a surface that follows the UI. */
+  --room-void: #07060f;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
   /* ── Brand ─────────────────────────────────────────────────────────────── */
   --color-primary: #ff3d68;          /* LOCO red — CTAs, logo, "your turn" */
   --color-primary-active: #de1f4a;
@@ -189,6 +207,19 @@ body {
     var(--bg-gradient);
   background-attachment: fixed;
   transition: background-color 0.25s ease;
+}
+
+/* A match played in a map: the root drops the candy gradient for the room's own
+   near-black. Nothing of the page changes (the board paints over all of it) —
+   what changes is every band the page does not own, which the browser fills
+   with the root's colour: an iOS safe area, the strip a floating browser bar
+   reserves. A bright violet band across a dark room reads as a broken layout;
+   the same band in the room's shadow reads as the room. Set by <GameBoard />
+   from the map it was handed. */
+html[data-room],
+html[data-room] body {
+  background: var(--room-void);
+  background-attachment: scroll;
 }
 
 /* ── Typography utilities ────────────────────────────────────────────────

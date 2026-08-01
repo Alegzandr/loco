@@ -72,7 +72,7 @@ export function AudioSettings() {
       <button
         className={styles.toggle}
         onClick={() => {
-          audio.unlock()
+          void audio.unlock()
           setOpen((v) => !v)
         }}
         aria-label={t.audioTitle}
@@ -102,7 +102,7 @@ export function AudioSettings() {
             <button
               className={styles.nextBtn}
               onClick={() => {
-                audio.unlock()
+                void audio.unlock()
                 music.nextTrack()
                 playSfx('uiTap')
               }}
@@ -114,7 +114,7 @@ export function AudioSettings() {
           <button
             className={styles.muteBtn}
             onClick={() => {
-              audio.unlock()
+              void audio.unlock()
               audio.toggleMute()
             }}
           >

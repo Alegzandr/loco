@@ -13,6 +13,7 @@ import type { CardDTO } from '../types/protocol'
 const red3: CardDTO = { color: 'red', kind: 'number', value: 3 }
 const blue7: CardDTO = { color: 'blue', kind: 'number', value: 7 }
 const wild: CardDTO = { color: 'wild', kind: 'wild' }
+const blueSwap: CardDTO = { color: 'blue', kind: 'swap' }
 
 function seat(index: number, nickname: string, handSize: number) {
   return { index, nickname, hand_size: handSize, connected: true }
@@ -145,6 +146,32 @@ describe('the board animates only a committed play', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'green' }))
     expect(container.querySelector('[data-flier-face="face"]')).toBeInTheDocument()
+  })
+
+  // Swap is a *coloured* card, so it obeys the ordinary matching rules — unlike
+  // the three wilds, which always match. Opening its target prompt before
+  // checking that made it the one card in the deck whose refusal arrived from
+  // the server, after a choice had been made: an off-colour Swap prompted for a
+  // seat, flew nothing, and answered with "illegal card play". Every other
+  // unplayable card simply ignores the tap.
+  it('does not open the swap prompt for an off-colour swap', () => {
+    const { onSend } = renderGame()
+    act(() =>
+      useGameStore.setState({ myHand: [blueSwap], discard: red3, activeColor: 'red' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+    expect(screen.queryByRole('button', { name: /Bob/ })).toBeNull()
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('still opens the swap prompt when the swap is playable', () => {
+    const { onSend } = renderGame()
+    act(() =>
+      useGameStore.setState({ myHand: [blueSwap], discard: blue7, activeColor: 'blue' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+    expect(screen.getByRole('button', { name: /Bob/ })).toBeInTheDocument()
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it('flies a legal ordinary play', () => {

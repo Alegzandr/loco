@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState, MutableRefObject } from 'react'
 import { CardDTO, CardColor, PlayerDTO } from '../../types/protocol'
 import { useElementSize } from '../../hooks/useElementSize'
+import { useSafeAreaInsets } from '../../hooks/useSafeAreaInsets'
 import { Deck } from './Deck'
 import { DiscardPile } from './DiscardPile'
 import { Hand } from './Hand'
@@ -155,11 +156,18 @@ const newId = () => `f${nextFlierId++}`
 export const GameBoard = memo(function GameBoard(props: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const { width: pxWidth, height: pxHeight } = useElementSize(ref)
+  // The element runs edge to edge (viewport-fit=cover) so the room's picture
+  // reaches every corner of the screen, which puts part of it under the notch
+  // and the home indicator. The picture may live there; the game may not.
+  const insets = useSafeAreaInsets()
   // Everything below works in the board's own coordinate space; <div .stage>
   // scales that space to the element's pixel size. Children — and the pure
   // layout maths they share with the animations — never see the scale.
-  const scale = boardScale(pxWidth, pxHeight)
-  const { width, height, offsetY } = boardSpace(pxWidth, pxHeight, scale)
+  const scale = boardScale(
+    pxWidth - insets.left - insets.right,
+    pxHeight - insets.top - insets.bottom,
+  )
+  const { width, height, offsetX, offsetY } = boardSpace(pxWidth, pxHeight, scale, insets)
   const ready = width > 0 && height > 0
 
   const [fliers, setFliers] = useState<Flier[]>([])
@@ -176,6 +184,25 @@ export const GameBoard = memo(function GameBoard(props: Props) {
   // Rebuild key forces the board's fade-in animation to replay after a reconnect.
   const [rebuildKey, setRebuildKey] = useState(0)
   const wasReconnecting = useRef(props.isReconnecting)
+
+  // The room is painted by this element, but the browser paints anything the
+  // page itself does not own with the *root* element's colour: a safe area on a
+  // notched phone, the strip a floating browser bar reserves. The app's candy
+  // gradient there reads as two bright bands laid across a dark room, so while
+  // a map is up the root is pinned to the room's own near-black and a band we
+  // never get to draw in still looks like the room's shadow.
+  const mapId = props.map?.id ?? ''
+  useEffect(() => {
+    const root = document.documentElement
+    if (!mapId) {
+      delete root.dataset.room
+      return
+    }
+    root.dataset.room = mapId
+    return () => {
+      delete root.dataset.room
+    }
+  }, [mapId])
 
   const removeFlier = (id: string) => setFliers((cur) => cur.filter((f) => f.id !== id))
   const removeEffect = (id: string) => setEffectTexts((cur) => cur.filter((e) => e.id !== id))
@@ -558,7 +585,11 @@ export const GameBoard = memo(function GameBoard(props: Props) {
       <div
         ref={stageRef}
         className={styles.stage}
-        style={{ width, height, transform: `translateY(${offsetY}px) scale(${scale})` }}
+        style={{
+          width,
+          height,
+          transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
+        }}
       >
         {ready && !props.isReconnecting && (
           <div key={rebuildKey} className={styles.fadeIn}>

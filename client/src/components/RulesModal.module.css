@@ -7,7 +7,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-base);
+  padding:
+    calc(var(--space-base) + var(--safe-top))
+    calc(var(--space-base) + var(--safe-right))
+    calc(var(--space-base) + var(--safe-bottom))
+    calc(var(--space-base) + var(--safe-left));
 }
 
 .modal {

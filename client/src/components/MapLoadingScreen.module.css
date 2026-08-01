@@ -7,7 +7,15 @@
   z-index: 900;
   display: grid;
   place-items: center;
-  background-color: #07060f;
+  /* The reveal is full-bleed, its copy is not: the roster is the part that
+     answers "is this a slow download or a hung game", so it may not slide
+     under the home indicator. */
+  padding:
+    calc(var(--safe-top))
+    calc(var(--safe-right))
+    calc(var(--safe-bottom))
+    calc(var(--safe-left));
+  background-color: var(--room-void);
   /* `cover`, and centred: the art is 3:2 and this is full-viewport, so
      letterboxing it would frame the reveal in two black bands. */
   background-size: cover;

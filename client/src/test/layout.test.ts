@@ -92,6 +92,40 @@ describe('boardScale', () => {
     }
   })
 
+  // The page runs `viewport-fit=cover` so the map reaches every edge of the
+  // screen (without it iOS paints the notch and the home-indicator band with
+  // the body's own colour, which is where the dark purple bands came from).
+  // Paint may reach those edges; the game may not. Both reserves are therefore
+  // measured from the safe edge, not from the screen edge.
+  it('measures both chrome reserves from the safe edge, not the screen edge', () => {
+    // iPhone 14 Pro portrait: notch above, home indicator below.
+    const insets = { top: 59, right: 0, bottom: 34, left: 0 }
+    for (const [w, h] of [[390, 844], [360, 640], [1920, 1080]]) {
+      const s = boardScale(w - insets.left - insets.right, h - insets.top - insets.bottom)
+      const { height, offsetY } = boardSpace(w, h, s, insets)
+      const toPx = (y: number) => offsetY + y * s
+      expect(toPx(TOP_CHROME)).toBeCloseTo(insets.top + TOP_CHROME, 5)
+      expect(toPx(height - BOTTOM_RESERVE)).toBeCloseTo(h - insets.bottom - BOTTOM_RESERVE, 5)
+    }
+  })
+
+  it('spends a landscape notch on the sides, so nothing is dealt under it', () => {
+    const insets = { top: 0, right: 59, bottom: 21, left: 59 }
+    const [w, h] = [844, 390]
+    const s = boardScale(w - insets.left - insets.right, h - insets.top - insets.bottom)
+    const { width, offsetX } = boardSpace(w, h, s, insets)
+    expect(offsetX).toBe(insets.left)
+    expect(offsetX + width * s).toBeCloseTo(w - insets.right, 5)
+  })
+
+  it('is unchanged on a device with no safe areas', () => {
+    const s = boardScale(1440, 900)
+    const withNone = boardSpace(1440, 900, s, { top: 0, right: 0, bottom: 0, left: 0 })
+    const omitted = boardSpace(1440, 900, s)
+    expect(omitted).toEqual(withNone)
+    expect(omitted.offsetX).toBe(0)
+  })
+
   it('fills the vertical band better once scaled: less dead space under the felt', () => {
     const deadSpace = (w: number, h: number, s: number) => {
       const t = tableRect(w / s, h / s, 130)

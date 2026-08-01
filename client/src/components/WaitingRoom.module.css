@@ -11,7 +11,11 @@
   justify-content: safe center;
   height: 100%;
   gap: var(--space-md);
-  padding: var(--space-xl) var(--space-base) var(--space-lg);
+  padding:
+    calc(var(--space-xl) + var(--safe-top))
+    calc(var(--space-base) + var(--safe-right))
+    calc(var(--space-lg) + var(--safe-bottom))
+    calc(var(--space-base) + var(--safe-left));
   overflow-y: auto;
   position: relative;
   background: transparent;
@@ -21,8 +25,8 @@
 
 .topBar {
   position: absolute;
-  top: var(--space-base);
-  right: var(--space-base);
+  top: calc(var(--space-base) + var(--safe-top));
+  right: calc(var(--space-base) + var(--safe-right));
   display: flex;
   align-items: center;
   gap: var(--space-sm);

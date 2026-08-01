@@ -63,7 +63,7 @@ function readSettings(): AudioSettings {
 
 type Listener = (s: AudioSettings) => void
 
-class AudioEngine {
+export class AudioEngine {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
   private sfxBus: GainNode | null = null
@@ -89,9 +89,15 @@ class AudioEngine {
 
   /**
    * Creates (or resumes) the AudioContext. Must be called from a user gesture
-   * the first time; safe to call on every gesture afterwards.
+   * the first time; safe to call on every gesture afterwards, and cheap enough
+   * to call again whenever the page comes back to the foreground.
+   *
+   * Resolves once the context is actually running, which is not the same moment
+   * as the call: `resume()` is a promise, so a caller that starts the music bed
+   * on the next line finds `isReady()` still false and silently does nothing.
+   * On iOS that reads as "the first tap never turns the sound on".
    */
-  unlock(): void {
+  async unlock(): Promise<void> {
     if (typeof window === 'undefined') return
     if (!this.ctx) {
       const Ctor: typeof AudioContext | undefined =
@@ -102,6 +108,7 @@ class AudioEngine {
       } catch {
         return
       }
+      this.declarePlaybackSession()
       this.master = this.ctx.createGain()
       this.sfxBus = this.ctx.createGain()
       this.musicBus = this.ctx.createGain()
@@ -110,7 +117,41 @@ class AudioEngine {
       this.master.connect(this.ctx.destination)
       this.applyGains(0)
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume()
+    // Anything that is not running, not just `suspended`. WebKit parks the
+    // context in its own non-standard `interrupted` state when the page is
+    // backgrounded, when a call comes in, or when Siri speaks: neither
+    // `running` nor `suspended`, so a resume guarded on `=== 'suspended'` never
+    // fires. `isReady()` then stays false forever, every sound becomes a silent
+    // no-op and the music scheduler ticks against a frozen clock, with no error
+    // anywhere. That is the "I switched apps and lost the sound" bug.
+    if (this.ctx.state === 'closed' || this.ctx.state === 'running') return
+    try {
+      await this.ctx.resume()
+    } catch {
+      // A resume outside a gesture may simply be refused; the next tap retries.
+    }
+  }
+
+  /**
+   * Asks iOS to treat this page as playback audio.
+   *
+   * On iPhone the Ring/Silent switch mutes Web Audio in a page (unlike an
+   * inline `<video>`), silently and with no way to detect it: the same build is
+   * silent on one phone and fine on another, which is most of "sometimes I have
+   * sound, sometimes I don't". `playback` is the honest description of what this
+   * is (a game with its own soundtrack) and it is the category that ignores the
+   * switch. It also stops whatever the player had going in another app, which is
+   * the deliberate trade; `'ambient'` is the setting that respects the switch and
+   * mixes instead. Safari 16.4+; everywhere else the property is absent
+   * and the game keeps the old behaviour.
+   */
+  private declarePlaybackSession(): void {
+    try {
+      const session = (navigator as unknown as { audioSession?: { type: string } }).audioSession
+      if (session) session.type = 'playback'
+    } catch {
+      // Non-writable or unsupported. Never worth failing a sound over.
+    }
   }
 
   /** True once the context exists and is running. */

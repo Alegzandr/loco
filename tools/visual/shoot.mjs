@@ -63,6 +63,18 @@ const VIEWPORTS = {
     isMobile: true,
     hasTouch: true,
   },
+  // A notched phone. No desktop browser reports a safe-area inset, so the only
+  // way to review the one layout that has to dodge a notch and a home indicator
+  // is to say so: `insets` overrides the --safe-* tokens, which the CSS offsets
+  // and useSafeAreaInsets both read. This is the viewport where a control
+  // hiding under the status bar shows up.
+  notch: {
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    insets: { top: 59, right: 0, bottom: 34, left: 0 },
+  },
 }
 
 const themes = String(args.themes ?? 'light,dark').split(',').filter(Boolean)
@@ -99,18 +111,27 @@ async function capture() {
     const viewport = VIEWPORTS[vpName]
     if (!viewport) throw new Error(`unknown viewport: ${vpName}`)
     for (const theme of themes) {
+      const { insets, ...contextOptions } = viewport
       const ctx = await browser.newContext({
-        ...viewport,
+        ...contextOptions,
         reducedMotion: KEEP_MOTION ? 'no-preference' : 'reduce',
         colorScheme: theme === 'dark' ? 'dark' : 'light',
         locale: lang === 'fr' ? 'fr-FR' : 'en-US',
       })
       await ctx.addInitScript(
-        ([t, l]) => {
+        ([t, l, i]) => {
           localStorage.setItem('loco_theme', t)
           localStorage.setItem('loco_lang', l)
+          if (!i) return
+          const style = document.createElement('style')
+          style.textContent =
+            `:root{--safe-top:${i.top}px!important;--safe-right:${i.right}px!important;` +
+            `--safe-bottom:${i.bottom}px!important;--safe-left:${i.left}px!important}`
+          document.addEventListener('DOMContentLoaded', () =>
+            document.head.appendChild(style),
+          )
         },
-        [theme, lang],
+        [theme, lang, insets ?? null],
       )
       const page = await ctx.newPage()
       const errors = []

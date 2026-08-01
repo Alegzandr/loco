@@ -142,16 +142,38 @@ export function useGameAudio(): void {
   useEffect(() => {
     // Browsers only allow an AudioContext to start inside a user gesture. Every
     // gesture retries, because the first one can land before the page is ready.
+    //
+    // The bed is started only after `unlock()` resolves: `resume()` is async, so
+    // starting on the next line finds the context still not running and does
+    // nothing at all, which on iOS costs the player a whole extra tap.
     const unlock = () => {
-      audio.unlock()
-      const s = useGameStore.getState()
-      const scene = sceneFor(s)
-      music.setIntensity(intensityOf(s))
-      if (scene !== 'off' && !music.isPlaying()) music.start(scene)
+      void audio.unlock().then(() => {
+        const s = useGameStore.getState()
+        const scene = sceneFor(s)
+        music.setIntensity(intensityOf(s))
+        if (scene !== 'off' && !music.isPlaying()) music.start(scene)
+      })
     }
+
+    // Coming back from another app is exactly when the context needs reclaiming
+    // and is exactly when there is no gesture to hang it on: the player looks at
+    // the board before touching it, so waiting for the next tap means the table
+    // is silent for as long as they are only watching. Not a replacement for the
+    // gesture handlers (a resume outside one can be refused), but the page
+    // keeps its sticky activation, so in practice this is what turns the sound
+    // back on. `focus` covers desktop tab switches, where `visibilitychange`
+    // does not fire.
+    const wake = () => {
+      if (document.visibilityState === 'hidden') return
+      unlock()
+    }
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
     window.addEventListener('pointerdown', unlock)
     window.addEventListener('keydown', unlock)
     return () => {
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
       window.removeEventListener('pointerdown', unlock)
       window.removeEventListener('keydown', unlock)
     }

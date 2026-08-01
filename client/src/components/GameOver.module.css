@@ -7,7 +7,11 @@
   justify-content: center;
   justify-content: safe center;
   height: 100%;
-  padding: var(--space-lg) var(--space-base);
+  padding:
+    calc(var(--space-lg) + var(--safe-top))
+    calc(var(--space-base) + var(--safe-right))
+    calc(var(--space-lg) + var(--safe-bottom))
+    calc(var(--space-base) + var(--safe-left));
   overflow-y: auto;
   background: transparent;
   font-family: var(--font-body);

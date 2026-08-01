@@ -276,6 +276,7 @@ make visual                                              # everything
 make visual ARGS="--scenes=game-my-turn --viewports=mobile"
 make visual ARGS="--viewports=wide"                      # 1920×1080, board scaled up
 make visual ARGS="--viewports=small"                     # 360×640, board scaled down
+make visual ARGS="--viewports=notch"                     # phone with a notch + home indicator
 make visual ARGS="--themes=dark --motion"                # keep animations running
 ```
 
@@ -462,7 +463,10 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`; one call per single card, and the button is spent once the server confirms it) + a per-seat 5 s catch window that also covers the players a Swap or a Global Swap leaves holding a single card (Contre-LOCO! is a wager: a call that arrives after the declaration, after the hand grew, or after the window closed costs the caller 1 card — `docs/rules.md` §14.6), single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
 - **Rematch**: after a match the host reopens the same room (same code, same roster, cleared scores); absent seats are pruned, everyone else is pulled back to the waiting room.
 - **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
-  copy rather than showing the server's own English string), light + dark themes.
+  copy rather than showing the server's own English string), light + dark themes. On a phone with a notch the page runs edge to edge (`viewport-fit=cover`) so the
+  room's picture reaches every edge of the screen, while the board, the action bar and the top cluster
+  keep clear of the notch and the home indicator: without the first half iOS paints those bands with the
+  page's own colour, which laid two bright strips across a dark room.
 - **Card feel**: cards are tiered by scarcity for presentation only — a number lands clean and quick, a coloured action spins once flat, a wild spins twice, arriving bigger, ringed by a shockwave and kicking the board. Special cards carry a trading-card foil (masked to the frame so suit colour survives stream compression) with a travelling highlight desynchronised per card. The discard pile reveals its new top **on impact**, so the throw is the reveal.
 - **Art direction**: chunky cartoon system — ink outlines, solid press-down shadows, a dark table with a real rim. Seats resize and wrap so a nine-player table stays readable on a phone. Design tokens live in `client/src/styles/tokens.css`.
 - **The deck has its own identity**: each face is a full-bleed suit gradient with the LOCO mark — a geometric wireframe duck, straight from the brand's source file — behind it in the *same gradient reversed*, drawn as one SVG (`client/src/components/cards/CardArt.tsx`, `cardArtSpace.ts`, `locoMark.ts`). On a card the mark is deliberately **cropped and tilted** so the artwork runs off all four edges and under the value; the logo (`LocoLogo.tsx`), the favicon and the table watermark show it **whole**. Card faces do not follow the light/dark theme — a card is an object, not a control. Every glyph is ink-outlined: off-white on the green suit is 1.2:1, and outlined it clears 14:1 on every face.
