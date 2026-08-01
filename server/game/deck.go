@@ -65,7 +65,11 @@ func (d *Deck) Draw() (Card, bool) {
 	return top, true
 }
 
-// DrawN removes and returns n cards from the top of the deck.
+// DrawN removes and returns n cards from the top of the deck, or nothing at all
+// when fewer than n are left. Dealing is the one caller that wants this: a short
+// hand is a broken round, so it is better to know before any card moves.
+//
+// Every in-play draw wants DrawUpTo instead.
 func (d *Deck) DrawN(n int) ([]Card, bool) {
 	if len(d.Cards) < n {
 		return nil, false
@@ -77,9 +81,32 @@ func (d *Deck) DrawN(n int) ([]Card, bool) {
 	return drawn, true
 }
 
-// Replenish replaces the deck with the shuffled discard pile.
-// topCard is kept separate as the current top of the discard pile.
-func (d *Deck) Replenish(discard []Card, topCard Card) {
+// DrawUpTo removes and returns however many of the n requested cards are left,
+// possibly none.
+//
+// A draw in this game can never fail. Once every card sits in a hand there is
+// nothing to reshuffle and nothing to hand over, and the only sane answer is a
+// smaller penalty: an error at this point would have to be returned to a player
+// who has no other legal action, which freezes the round for the whole table.
+// The caller decides what "nothing came out" means for the turn.
+func (d *Deck) DrawUpTo(n int) []Card {
+	if n > len(d.Cards) {
+		n = len(d.Cards)
+	}
+	if n <= 0 {
+		return nil
+	}
+	drawn := make([]Card, n)
+	for i := 0; i < n; i++ {
+		drawn[i], _ = d.Draw()
+	}
+	return drawn
+}
+
+// Replenish replaces the deck with the shuffled discard pile. The caller keeps
+// the current top card out of `discard` — it stays on the pile so the round
+// still has something to match against.
+func (d *Deck) Replenish(discard []Card) {
 	d.Cards = make([]Card, len(discard))
 	copy(d.Cards, discard)
 	d.Shuffle(nil)

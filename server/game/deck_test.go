@@ -186,7 +186,7 @@ func TestDeck_Replenish(t *testing.T) {
 	d.Shuffle(nil)
 	drawn, _ := d.DrawN(110)
 	discard := drawn[:109]
-	d.Replenish(discard, drawn[109])
+	d.Replenish(discard)
 	if len(d.Cards) != 109 {
 		t.Errorf("After Replenish(), deck len = %d, want 109", len(d.Cards))
 	}

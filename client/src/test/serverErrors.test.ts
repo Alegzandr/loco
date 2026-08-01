@@ -51,7 +51,6 @@ describe('resolveServerError', () => {
       'rematch is only available once the match is over',
       'rate limit exceeded',
       'server busy, please retry',
-      'deck exhausted',
     ]
 
     for (const message of raw) {

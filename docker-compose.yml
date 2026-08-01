@@ -5,8 +5,12 @@ services:
             dockerfile: Dockerfile
         environment:
             - PORT=${PORT:-8080}
-        ports:
-            - "${PORT:-8080}:8080"
+        # Not published, exactly like deploy/compose.yml: the browser reaches
+        # this server through nginx (/ws, /health) and never directly, so a host
+        # port would only put /metrics on the LAN. Read it from inside instead:
+        #   docker compose exec server wget -qO- http://localhost:8080/metrics
+        expose:
+            - "8080"
         restart: unless-stopped
         healthcheck:
             test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"loco/server/game"
 	"loco/server/protocol"
 )
 
@@ -101,7 +102,21 @@ type Client struct {
 	// hub event loop when it builds a latency broadcast, hence atomic.
 	latencyMs  atomic.Int32
 	pingSentAt atomic.Int64
+
+	// lastLimitNotice is when this connection was last told it is being rate
+	// limited. Read and written by readPump only, which is the single goroutine
+	// that drops messages, so it needs no lock.
+	lastLimitNotice time.Time
 }
+
+// rateLimitNoticePeriod is how often a rate-limited connection is told so. One
+// error per *dropped message* meant a client flooding at 1000 msg/s got 1000
+// error frames back, each a fresh json.Marshal onto the server's own send path:
+// the limiter amplified the flood it exists to absorb, and the burst ended by
+// overflowing the send buffer and force-closing a connection that a single
+// notice would have corrected. The notice is a hint to a buggy client, not an
+// acknowledgement owed to every message.
+const rateLimitNoticePeriod = time.Second
 
 // newClient creates a client. The hub's register handler calls start() after
 // adding the client to h.clients, ensuring readPump/writePump never send to
@@ -168,8 +183,13 @@ func (c *Client) readPump() {
 			break
 		}
 		if !c.limiter.allow() {
+			// Still counted per dropped message: messages_rate_limited is the
+			// metric that has to keep its shape. Only the reply is throttled.
 			c.hub.statMessagesRateLimited.Add(1)
-			c.sendError("rate limit exceeded")
+			if now := time.Now(); now.Sub(c.lastLimitNotice) >= rateLimitNoticePeriod {
+				c.lastLimitNotice = now
+				c.sendError("rate limit exceeded")
+			}
 			continue
 		}
 		var msg protocol.ClientMsg
@@ -302,6 +322,21 @@ const (
 	suspectThreshold  = 5
 	suspectWindowSpan = 30 * time.Second
 )
+
+// noteRejection is the gameplay path's entry point: it records a refused action
+// against this client unless the refusal is one a correct client produces in
+// ordinary play (see game.IsLostRace). Every gameplay handler goes through here
+// rather than calling noteSuspect directly.
+//
+// suspected_cheats is meant to point an operator at a tampered client. Counting
+// lost interrupt races and double taps made it rise fastest at the busiest,
+// most contested tables, which is exactly backwards.
+func (c *Client) noteRejection(err error) {
+	if err == nil || game.IsLostRace(err) {
+		return
+	}
+	c.noteSuspect(err.Error())
+}
 
 func (c *Client) noteSuspect(reason string) {
 	now := time.Now()

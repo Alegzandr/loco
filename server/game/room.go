@@ -765,8 +765,8 @@ func filterBest(candidates []int, scoreOf func(int) int) []int {
 	return out
 }
 
-// DrawCard makes the current player draw from the deck.
-// If there is a pending draw, they draw that many cards and forfeit their turn.
+// DrawCard makes the current player draw from the deck: one card, or the whole
+// pending stack if there is one. Either way the seat keeps its turn.
 func (r *Room) DrawCard(playerIndex int) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
@@ -784,20 +784,24 @@ func (r *Room) DrawCard(playerIndex int) error {
 	n := 1
 	if r.State.PendingDraw > 0 {
 		n = r.State.PendingDraw
-		r.State.PendingDraw = 0
 	} else if r.State.HasDrawn {
-		return errors.New("you have already drawn this turn")
+		return ErrAlreadyDrawn
 	}
-	// Set in both branches: nothing but PlayCard / PassTurn / an effect moves the
-	// turn on from here, and PassTurn requires HasDrawn.
-	r.State.HasDrawn = true
 
+	// Nothing above this line has touched the state, and nothing below it can
+	// fail. The order is the rule: clearing PendingDraw and setting HasDrawn
+	// first, then returning "deck exhausted", evaporated the whole penalty
+	// without a single card changing hands, and left the seat holding a turn it
+	// had no legal way to end.
 	r.ensureDeck(n)
-	cards, ok := r.State.Deck.DrawN(n)
-	if !ok {
-		return errors.New("deck exhausted")
-	}
+	cards := r.State.Deck.DrawUpTo(n)
 	r.State.Hands[playerIndex].Add(cards...)
+	// The stack is settled by taking whatever the piles could give: a remainder
+	// kept pending is a debt no draw can ever pay off. See DrawUpTo.
+	r.State.PendingDraw = 0
+	// Set whether or not cards came out: nothing but PlayCard / PassTurn / an
+	// effect moves the turn on from here, and PassTurn requires HasDrawn.
+	r.State.HasDrawn = true
 
 	// A draw is not an interruptable event; close the window so the next
 	// player can act normally without a stale jump-in opportunity.
@@ -815,7 +819,7 @@ func (r *Room) PassTurn(playerIndex int) error {
 		return errors.New("not your turn")
 	}
 	if !r.State.HasDrawn {
-		return errors.New("you must draw a card before passing")
+		return ErrMustDrawBeforePass
 	}
 	r.State.HasDrawn = false
 	r.State.CurrentTurn = r.State.nextTurn(playerIndex)
@@ -837,7 +841,7 @@ func (r *Room) DeclareLastCard(playerIndex int) error {
 	// the seat owes the table a call again. Without this the same single card
 	// could be announced over and over, replaying the banner and the sting.
 	if r.State.LastCardDeclared[playerIndex] {
-		return errors.New("player already declared")
+		return ErrAlreadyDeclared
 	}
 	r.State.LastCardDeclared[playerIndex] = true
 	r.State.logEvent(EventUnoDeclared, playerIndex, nil, 0)
@@ -866,6 +870,43 @@ func IsMissedCatch(err error) bool {
 		errors.Is(err, ErrTargetNotSingleCard)
 }
 
+// The refusals a correct client produces in ordinary play. Same treatment as
+// the catch sentinels: the wire strings are unchanged, but the hub can now tell
+// a lost race from a forged message.
+var (
+	// ErrAlreadyDrawn — a second draw in one turn, i.e. a double tap or a
+	// message already in flight when the first one landed.
+	ErrAlreadyDrawn = errors.New("you have already drawn this turn")
+	// ErrMustDrawBeforePass — Pass arrived before the draw it was waiting on.
+	ErrMustDrawBeforePass = errors.New("you must draw a card before passing")
+	// ErrInterruptWindowClosed — somebody drew, passed or ended the round
+	// between the button being armed and the message arriving.
+	ErrInterruptWindowClosed = errors.New("interrupt window closed")
+	// ErrInterruptMismatch — the discard changed under the interjecter. This is
+	// what losing an interrupt race *is*: the card matched the top the player
+	// could see, and a faster one landed on it first.
+	ErrInterruptMismatch = errors.New("interrupt card must exactly match the top discard card")
+	// ErrInterruptNotADrawCard — same race, seen during a draw chain.
+	ErrInterruptNotADrawCard = errors.New("cannot interrupt active draw chain except with an identical draw card")
+)
+
+// IsLostRace reports whether a refusal is one this game produces against
+// correct clients all match long, rather than a sign of a tampered one.
+//
+// It exists for the suspected_cheats metric. Interrupts are decided by arrival
+// order and catches live for five seconds, so losing is the normal outcome of
+// pressing the right button at the wrong millisecond; counting those made the
+// metric a measure of how contested the table was. A number that rises with
+// ordinary play is a number nobody investigates.
+func IsLostRace(err error) bool {
+	return errors.Is(err, ErrAlreadyDrawn) ||
+		errors.Is(err, ErrMustDrawBeforePass) ||
+		errors.Is(err, ErrInterruptWindowClosed) ||
+		errors.Is(err, ErrInterruptMismatch) ||
+		errors.Is(err, ErrInterruptNotADrawCard) ||
+		errors.Is(err, ErrAlreadyDeclared)
+}
+
 // CatchUndeclared allows catcherIndex to penalize targetIndex for not declaring their last card.
 func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) error {
 	if r.Status != StatusPlaying {
@@ -886,14 +927,15 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	if !r.State.catchWindowOpen(targetIndex, now) {
 		return ErrCatchWindowExpired
 	}
+	// The penalty shrinks to whatever is left; the catch itself always stands.
+	// Cancelling a call that beat its target on time because the piles happen to
+	// be empty punishes the one player who did everything right, and it is the
+	// opposite of what the failed-catch penalty ten lines below already does.
 	r.ensureDeck(undeclaredPenalty)
-	cards, ok := r.State.Deck.DrawN(undeclaredPenalty)
-	if !ok {
-		return errors.New("deck exhausted during penalty")
-	}
+	cards := r.State.Deck.DrawUpTo(undeclaredPenalty)
 	r.State.Hands[targetIndex].Add(cards...)
-	// The penalty settles the debt: this seat is no longer catchable, and it now
-	// holds three cards anyway.
+	// The penalty settles the debt: this seat is no longer catchable, whether it
+	// drew the full two cards or the last one the piles had.
 	r.State.LastCardDeclared[targetIndex] = true
 	r.State.logEvent(EventUnoCaught, catcherIndex, nil, 0)
 	return nil
@@ -918,14 +960,7 @@ func (r *Room) PenalizeFailedCatch(catcherIndex int) []Card {
 		return nil
 	}
 	r.ensureDeck(failedCatchPenalty)
-	drawn := make([]Card, 0, failedCatchPenalty)
-	for i := 0; i < failedCatchPenalty; i++ {
-		card, ok := r.State.Deck.Draw()
-		if !ok {
-			break
-		}
-		drawn = append(drawn, card)
-	}
+	drawn := r.State.Deck.DrawUpTo(failedCatchPenalty)
 	if len(drawn) == 0 {
 		return nil
 	}
@@ -985,14 +1020,14 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	// round end resolves it. No deadline, no exclusion of the last actor or of
 	// the current player: any identical card may be slammed at any moment.
 	if r.State.LastPlayBy < 0 {
-		return errors.New("interrupt window closed")
+		return ErrInterruptWindowClosed
 	}
 	// Rule: during an active draw chain, only an identical draw card may be
 	// interjected — it extends the chain from the interjecter's seat. In a
 	// consistent state the identical-to-top check below already guarantees this;
 	// the explicit guard keeps an inconsistent state from swallowing the penalty.
 	if r.State.PendingDraw > 0 && first.Kind != DrawTwo && first.Kind != WildDrawFour {
-		return errors.New("cannot interrupt active draw chain except with an identical draw card")
+		return ErrInterruptNotADrawCard
 	}
 	// Swap picks a target and GlobalSwitch rearranges every hand: stacking N of
 	// them raises questions (which target? how many rotations?) that the rules
@@ -1012,7 +1047,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	top := r.State.topCard()
 	identical := first.Color == top.Color && first.Kind == top.Kind && first.Value == top.Value
 	if !identical {
-		return errors.New("interrupt card must exactly match the top discard card")
+		return ErrInterruptMismatch
 	}
 
 	// Validate Swap target up front; defer the actual hand exchange until
@@ -1157,6 +1192,6 @@ func (r *Room) ensureDeck(needed int) {
 	}
 	top := r.State.topCard()
 	pile := r.State.Discard[:len(r.State.Discard)-1]
-	r.State.Deck.Replenish(pile, top)
+	r.State.Deck.Replenish(pile)
 	r.State.Discard = []Card{top}
 }

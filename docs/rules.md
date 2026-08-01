@@ -50,6 +50,12 @@ A card is valid if it matches the top of the discard pile by **at least one** of
 
 When the draw pile is empty: take all cards from the discard pile **except the top card**, shuffle them, and place face-down as the new draw pile.
 
+If there is nothing left to reshuffle either — every card is in somebody's hand — a draw simply
+hands over fewer cards than it asked for, possibly none. It never fails. A player who draws nothing
+still keeps the turn and may play or pass, a pending +2/+4 stack is considered settled by whatever
+the piles could give, and a Contre-LOCO! penalty shrinks rather than cancelling the catch. The
+alternative is a round nobody at the table has a legal action in.
+
 ## 6. Interjecting (Discarding Out of Turn / "Zwischenwerfen")
 
 This is a **core mechanic** of LOCO.

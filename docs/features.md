@@ -7,7 +7,7 @@
 - Host-only game start.
 - Match format selection (BO1/BO3/BO5/BO7), broadcast live in lobby.
 - Max-players configuration (2–10), live in lobby; cannot drop below current count.
-- Bot players: host adds AI bots; bots play autonomously with card-preference heuristics.
+- Bot players: host adds AI bots; bots play autonomously with card-preference heuristics, counter a draw stack, declare LOCO!, call Contre-LOCO! and interject identical cards into an open window like any other player. Every reaction is delayed and probabilistic so they stay beatable.
 
 ## Gameplay
 - 112-card deck (numbers 1–9, Skip, Reverse, +2, Swap, Wild, +4, Global Swap).
@@ -17,7 +17,7 @@
 - Wild, Wild Draw Four and Global Swap with color choice (every wild names the new active colour).
 - +2 / +4 stacking (counter chain, same card only — same kind and same colour) and out-of-turn +2 free interrupt.
 - A forced draw costs cards, not the turn: the victim takes the whole stack and then plays or passes.
-- Identical-card interrupt with 1.5 s server-enforced window (single + batch).
+- Identical-card interrupt (single + batch). The window has **no deadline**: it opens when a card is played and closes only when somebody draws, passes, or the round ends. Anyone may take it, including the player who just played and the player whose turn it is — it is a race decided by arrival order at the server.
 - Batch identical-card play on your turn (effects compound).
 - Swap (colored, opponent hand swap) and Global Swap (wild: names a colour, then rotates all hands in current direction).
 - UNO declaration + 5 s server-enforced catch window.

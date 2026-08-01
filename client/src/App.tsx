@@ -9,7 +9,18 @@ import { GameOver } from './components/GameOver'
 import { ServerMsg, ClientMsg } from './types/protocol'
 
 export default function App() {
-  const store = useGameStore()
+  // Actions only, and deliberately NOT a subscription. The store's action
+  // functions are created once by the factory, so this snapshot is stable for
+  // the life of the app and safe to close over in a deps-free callback.
+  //
+  // `useGameStore()` here subscribed App to the whole store, so every broadcast
+  // (a latency tick every 3s, any card anybody drew) re-rendered App and with
+  // it the entire game screen. Worse, it put a new object in handleSend's deps,
+  // which rebuilt GameView's memoised callbacks and defeated <GameBoard />'s
+  // memo one level down — undoing, from the parent, the exact stabilisation
+  // GameView does for itself. State this component renders is read through the
+  // narrow selectors below.
+  const store = useGameStore.getState()
 
   // Single owner of every sound in the game: one store subscription, no
   // per-component audio calls. See audio/useGameAudio.ts.
@@ -263,10 +274,10 @@ export default function App() {
 
   const handleSend = useCallback(
     (msg: ClientMsg) => {
-      store.clearError()
+      useGameStore.getState().clearError()
       send(msg)
     },
-    [send, store]
+    [send]
   )
 
   // Keep a stable ref so the E2E helper always dispatches through the latest send.
@@ -303,32 +314,44 @@ export default function App() {
     }
   }, [wsStatus, forceClose])
 
-  const myNickname =
-    store.players.find((p) => p.index === store.myIndex)?.nickname ?? ''
+  // One selector per field: App re-renders when what it actually renders
+  // changes, and not when the board's state moves. See the note at the top.
+  const screen = useGameStore((s) => s.screen)
+  const errorMsg = useGameStore((s) => s.errorMsg)
+  const roomCode = useGameStore((s) => s.roomCode)
+  const playerList = useGameStore((s) => s.players)
+  const myIndex = useGameStore((s) => s.myIndex)
+  const matchFormat = useGameStore((s) => s.matchFormat)
+  const maxPlayers = useGameStore((s) => s.maxPlayers)
+  const matchWinner = useGameStore((s) => s.matchWinner)
+  const scoreboard = useGameStore((s) => s.scoreboard)
+  const matchOver = useGameStore((s) => s.matchOver)
+
+  const myNickname = playerList.find((p) => p.index === myIndex)?.nickname ?? ''
 
   return (
     <>
-      {store.screen === 'lobby' && (
-        <Lobby onSend={handleSend} error={store.errorMsg} onClearError={store.clearError} />
+      {screen === 'lobby' && (
+        <Lobby onSend={handleSend} error={errorMsg} onClearError={store.clearError} />
       )}
-      {store.screen === 'waiting' && (
+      {screen === 'waiting' && (
         <WaitingRoom
-          roomCode={store.roomCode}
-          players={store.players}
-          myIndex={store.myIndex}
-          matchFormat={store.matchFormat}
-          maxPlayers={store.maxPlayers}
+          roomCode={roomCode}
+          players={playerList}
+          myIndex={myIndex}
+          matchFormat={matchFormat}
+          maxPlayers={maxPlayers}
           onSend={handleSend}
         />
       )}
-      {store.screen === 'game' && <GameView onSend={handleSend} wsStatus={wsStatus} />}
-      {store.screen === 'gameover' && (
+      {screen === 'game' && <GameView onSend={handleSend} wsStatus={wsStatus} />}
+      {screen === 'gameover' && (
         <GameOver
-          winner={store.matchWinner}
+          winner={matchWinner}
           myNickname={myNickname}
-          scoreboard={store.scoreboard}
-          matchOver={store.matchOver}
-          isHost={store.myIndex === 0}
+          scoreboard={scoreboard}
+          matchOver={matchOver}
+          isHost={myIndex === 0}
           onSend={handleSend}
         />
       )}

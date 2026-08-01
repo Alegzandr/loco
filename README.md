@@ -177,8 +177,19 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:3000
-- Backend health: http://localhost:8080/health
-- Metrics: http://localhost:8080/metrics (includes `goroutine_count` for runtime health monitoring)
+- Backend health: http://localhost:3000/health (proxied by nginx, like in production)
+
+The Go server itself is **not published on a host port** here, so this stack matches the
+deployed one: nginx is the only way in. `/metrics` is deliberately not proxied and is
+therefore unreachable from outside; read it from inside the container instead:
+
+```bash
+docker compose exec server wget -qO- http://localhost:8080/metrics
+```
+
+It returns JSON: room and player counts, `goroutine_count` for runtime health, and the
+abuse/pressure counters (`messages_rate_limited`, `messages_dropped_busy`,
+`slow_clients_closed`, `suspected_cheats`). `debug_mode_active` must read `false` in production.
 
 ### Development compose (hot reload, no host toolchain needed)
 
@@ -210,6 +221,8 @@ docker compose -f docker-compose.dev.yml down    # dev
 | `PORT`            | `8080`                | Go server listen port                                    |
 | `CLIENT_PORT`     | `3000`                | Nginx (frontend) listen port (production compose)        |
 | `VITE_WS_PORT`    | `8080`                | Go backend port for direct WS connections in dev (`ws://<host>:<port>/ws`) |
+| `LOCO_ALLOWED_ORIGINS` | *(unset)*        | Comma-separated exact browser origins allowed to open a WebSocket. Unset means "same hostname as the request", port-insensitive, which already covers production and dev. |
+| `LOCO_E2E`        | *(unset)*             | `1` enables `debug_set_state`, used by the Playwright suite. **Never set in production** — the server logs a startup `WARN` and `/metrics` reports `debug_mode_active`. |
 
 Copy `.env.example` to `.env` and adjust as needed.
 
@@ -353,6 +366,32 @@ It is deliberately **not** part of CI: audio devices in CI containers are unreli
 sound assertion only teaches people to ignore a red pipeline. Run it after touching
 `client/src/audio/`.
 
+### Content-Security-Policy
+
+The CSP lives in `client/nginx.conf`, and nothing in the normal loop ever meets it: unit tests read
+files, and the E2E suite runs against the Vite dev server, which sends no such header. A wrong
+policy therefore passes every build and fails only the served page.
+
+`client/src/test/csp.test.ts` pins the policy to the app it protects (no inline script, no remote
+origin, no `eval`, `$http_host` rather than `$host`). `make csp` answers the other half, whether the
+built client actually runs behind the header nginx sends:
+
+```bash
+make csp                                    # up --build, check in a real browser, down
+make csp ARGS="--url=http://localhost:3000/"   # check a stack that is already running
+```
+
+```
+"csp": "default-src 'self'; script-src 'self'; … connect-src 'self' ws://localhost:3000 …",
+"sockets": ["ws://localhost:3000/ws"], "reachedWaitingRoom": true,
+"fontsLoaded": 8, "problems": []
+✓ clean under the served CSP
+```
+
+Reaching the waiting room is the verdict: it only appears after a WebSocket round trip, so it proves
+`connect-src` lets the one connection the game is made of through. Also outside CI, and worth
+running after any change to `nginx.conf`.
+
 ### End-to-End (Playwright)
 
 Playwright starts its own isolated Vite dev server on `http://localhost:4173`.
@@ -427,7 +466,8 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
 - **Play direction on the table**: a ring of chevrons runs around the felt showing which way play is moving, chasing slowly in that direction and flipping over when a Reverse lands. The callout lasts a second; the heading lasts the rest of the round, so a player who looked away — or a viewer who just opened the stream — can still read whose turn comes next.
 - **Audio**: runtime-synthesised effects for every action and rule outcome, plus **three adaptive soundtracks** — *Neon Horizon* (uplifting trance, 138 BPM), *Pixel Rush* (electro house, 128) and *Voltage* (dark electro, 145) — each written as parts (intro, verse, chorus, bridge, break) rather than a loop. They play as a **shuffled playlist**: a track runs about two minutes, then hands over on its own, and the only control is a ⏭ next button. Two things drive what you hear: the **song form** advances by itself, so around forty bars pass before a part returns, and the **table's tension** picks how thickly it is played *and* which part comes next — a breakdown between rounds, a build-up in the lobby, a groove during play, the full drop when someone is one card from winning. Risers and crashes announce a chorus, fills close every part, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
-- **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
+- **Bots that play the whole game**: they take turns, counter a draw stack, declare LOCO! and call Contre-LOCO! — and they **interject**, slamming an identical card into an open window like anybody else. Until they did, the game's signature mechanic ran one way only, which made the hardest reaction in the game also the one nobody had to defend against. They are deliberately fallible: they take about a second to react and use the window they see roughly two times in five.
+- **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), `Origin` checking on the WebSocket upgrade (same host by default, `LOCO_ALLOWED_ORIGINS` to narrow), a closed CSP and the usual security headers from nginx, AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).
 
@@ -450,6 +490,10 @@ Full grouped list: [`docs/features.md`](docs/features.md).
 ## CI/CD & Deployment
 
 GitLab CI pipeline (`.gitlab-ci.yml`) runs `test → build → deploy`; production traffic flows `Traefik → nginx → Go server`. Full pipeline breakdown, request path, and readiness checks: [`docs/deployment.md`](docs/deployment.md).
+
+`build` depends on **every** test job — Go tests, `golangci-lint`, the client suite and the full Playwright run. Listing only a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the build started as soon as those two finished, so the lint and the E2E suite were advisory and a red `develop` still shipped.
+
+GitHub is a mirror and runs the same four jobs via `.github/workflows/test.yml` (tests only, no deploy), so a push there is not unverified. Two pipeline definitions drift: change both.
 
 ---
 

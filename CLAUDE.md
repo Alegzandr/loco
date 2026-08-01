@@ -52,9 +52,15 @@ Small cohesive modules, explicit domain types, pure domain logic, side effects a
 ## Testing
 TDD. Tests-first for non-trivial behavior. Deterministic clocks for timing logic. Integration-test critical multiplayer flows. Maintain Playwright E2E suite as living regression.
 
-Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping, score table (round history, ping banding, TAB hold vs pinned), link-preview tags vs the committed `og.png`, map draw + the loading gate (refusal while shut, timeout, disconnect, rematch re-arm) and `tableImageRect` at every board size.
+Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch windows, simultaneous resolution, reconnect (60s, nickname+room_code), rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat layout at every table size and viewport, state→sound mapping, score table (round history, ping banding, TAB hold vs pinned), link-preview tags vs the committed `og.png`, map draw + the loading gate (refusal while shut, timeout, disconnect, rematch re-arm) and `tableImageRect` at every board size, batch play and batch interrupt (hand sync, unit *and* E2E), a draw against exhausted piles, `Origin` checking, and bots interjecting.
 
 Keep tests fast, targeted, non-brittle. Cover game rules > UI details.
+
+**An untested path is where the bugs are, and the doc is not a substitute for one.** Two critical
+bugs (`DrawCard` mutating state before an all-or-nothing draw; `applyCardPlayed` removing one card
+where the server removed N) both sat in the only paths with no test at all, and `CLAUDE.md` described
+both as already fixed — one of them naming a function that did not exist. When this file states an
+invariant, there must be a test that fails without it.
 
 Review layout/colour/motion changes with `make visual` — reading four contact sheets catches what no
 assertion was going to describe (a clipped heading, a theme that never applied, seats overlapping the
@@ -73,6 +79,29 @@ Service Dockerfiles, `docker-compose.yml`, `.env.example`. Documented in README,
 ## Anti-cheat
 Defend: illegal cards, turn spoofing, hidden-state manipulation, replay, forged reactions/declarations, dup spam, tampered hand, client win claims.
 Posture: validate every message, reject illegal/out-of-turn, server-side hidden state, ignore client timestamps for outcomes, server outcomes final, crypto-random session tokens (required for reconnect), per-client rate limit (token bucket 10 msg/s, burst 20).
+
+- **The upgrade checks `Origin`** (`hub.originAllowed`). `CheckOrigin: return true` accepted a socket
+  from any page on the internet. The exposure is genuinely small — no login, no cookie, no ambient
+  credential, so a cross-site socket has nothing to borrow — but an unrestricted upgrade is a free
+  room-creation and message-flood endpoint pointed at this server from anybody's page, with only the
+  per-connection rate limit behind it. Default rule: **hostnames must match, ports need not**, which
+  holds in production (nginx serves the SPA and proxies `/ws` on one host) and in dev (Vite on
+  :5173, Go on :8080) with no configuration. `LOCO_ALLOWED_ORIGINS` (comma-separated) overrides it
+  with an exact allowlist, and once set it is the *whole* rule. A missing `Origin` is not a browser
+  and is allowed.
+- **`nginx.conf` sends the security headers** the client was already built for: a closed CSP (no
+  CDN, no analytics, self-hosted fonts), `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+  `script-src` has no `'unsafe-inline'`; `style-src` must (the pre-hydration `<style>` block in
+  `index.html`, plus framer-motion's inline style attributes). `connect-src` names `ws://$host` and
+  `wss://$host` explicitly — a page on `http://` and a socket on `ws://` are different origins as
+  far as CSP is concerned, so `'self'` alone would block the one connection the game is made of.
+- **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names the refusals a
+  correct client produces all match long — a second draw, a pass that raced its draw, an interject
+  whose window closed or whose top card changed, a second LOCO! — as sentinel errors, and
+  `Client.noteRejection(err)` is what every gameplay handler calls instead of `noteSuspect`.
+  Counting lost races made `suspected_cheats` rise fastest at the busiest, most contested tables,
+  which is exactly backwards. `errors.Is`, never a string comparison: the wire text is unchanged and
+  free to be reworded.
 
 ## Performance
 Optimize for low latency, smooth animation, minimal round trips, efficient state updates, predictable concurrent behavior. Don't add abstractions that harm responsiveness without clear benefit.
@@ -100,7 +129,7 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
   - `hub/` WS connection mgmt, rate limiting, session tokens, bot scheduling
   - `protocol/` wire types
 - `e2e/` Playwright suite
-  - `tests/`: game-flow, multi-client, mobile (Pixel 5), penalties, round-progression, reconnect, rematch, rules-coverage, special-cards
+  - `tests/`: game-flow, multi-client, mobile (Pixel 5), penalties, round-progression, reconnect, rematch, rules-coverage, special-cards, batch-play
   - `helpers/game.ts` shared helpers (createRoom, drawAndPass, takeTurn, participateInTurns, setMatchFormat, waitForPendingDraw, waitForUnoDeclared, waitForRoundNumber, clickContinue, clickRematch)
   - `types.d.ts` `Window.__LOCO_E2E__` type
   - `playwright.config.ts`
@@ -110,6 +139,8 @@ Prefer realtime responsiveness, then simpler architecture, then maintainable per
 - `tools/maps/prepare.mjs` map art cropper/encoder (→ `client/public/maps/`, see "Maps")
 - `shared/` protocol/types
 - `docs/` supplemental
+- `.gitlab-ci.yml` the pipeline that builds and deploys; `.github/workflows/test.yml` the mirror's
+  verification (tests only, no deploy)
 - root config / Docker / env
 
 Update this section when structure changes.
@@ -167,13 +198,24 @@ Update this section when structure changes.
   forced it: you tap a GlobalSwitch, the colour prompt is up, and somebody interjects a second one.
   The board under your prompt no longer exists (the lead, the discard and the colour are theirs), so
   a choice made against it would only earn a server rejection. Same for `<PlayerPicker />`.
-- **A draw never fails.** `ensureDeck` reshuffles the discard, then `Deck.DrawUpTo` hands over
-  whatever is left — possibly nothing, once every card sits in a hand. `DrawCard` sets `HasDrawn`
-  either way and `hub.handleDrawCard` passes the turn when zero cards came out. Returning an error
-  instead froze the round permanently: the drawer had no legal card, could not draw, and `PassTurn`
-  requires `HasDrawn`, so no player had a legal action; the turn timer returns without re-arming on a
-  failed auto-draw, and a bot in that seat re-scheduled itself every 800ms forever. The UNO-catch
-  penalty shrinks the same way rather than voiding the catch.
+- **A draw never fails, and the order inside `DrawCard` is the rule.** `ensureDeck` reshuffles the
+  discard, then `Deck.DrawUpTo` hands over whatever is left — possibly nothing, once every card sits
+  in a hand. `DrawCard` validates first, then draws, and only *then* clears `PendingDraw` and sets
+  `HasDrawn`: nothing above that line touches the state and nothing below it can fail.
+  - It used to clear `PendingDraw` and set `HasDrawn` **before** calling the all-or-nothing `DrawN`,
+    and return `"deck exhausted"` on an already-mutated state. A 16-card stack against 10 remaining
+    cards evaporated with nobody drawing anything, and since the handler returns before any
+    broadcast, the client kept `pending_draw: 16 / has_drawn: false`, the turn timer was never
+    re-armed, and a bot in that seat re-scheduled itself forever (`botDraw` returns false on error →
+    `maybeScheduleBot` → `BotThink` asks to draw again). `DrawUpTo` was documented here for months
+    before it existed.
+  - **The seat keeps the turn when nothing came out.** It still has `HasDrawn`, so it can play or
+    pass; auto-passing for it would take away a card it might have been holding to play. `botDraw`
+    already passes on its own when it cannot play.
+  - The UNO-catch penalty (`CatchUndeclared`) shrinks the same way rather than voiding the catch —
+    the same rule `PenalizeFailedCatch` next to it already followed.
+- `Deck.DrawN` survives for **dealing only**, where a short hand is worth refusing before any card
+  moves. Every in-play draw goes through `DrawUpTo`.
 
 ## Answering a draw stack
 `PlayCard` refuses every card while `PendingDraw > 0` ("must counter or draw pending penalty cards
@@ -349,10 +391,35 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 ## Bots
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
 - AI: `game/bot.go` `BotThink(state, playerIdx) BotAction`.
-- Scheduled via `botMove` channel with `botThinkDelay=800ms`.
-- Auto-declare UNO when playing to 1 card — **deferred, and the declaration itself is what waits**.
-  `maybeAutoDeclareUNO` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the timer
-  fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
+- Scheduled via `botMove` channel with `BotThinkDelay` (1200ms) + `BotJitterMax` (1000ms).
+- **Bots interject** (`game.BotInterrupt(state, playerIdx) *BotInterruptAction`, scheduled by
+  `hub.maybeScheduleBotInterrupt`, executed by `handleBotInterrupt`). Without it the game's
+  signature mechanic ran one way only: bots could be interrupted and never interrupted back, so the
+  hardest reaction in the game was also the one nobody had to defend against.
+  - `BotInterrupt` mirrors `InterruptPlayCards`' own rules rather than trusting the caller (window
+    open, exact card equality, draw-chain restriction, no batching a Swap or a GlobalSwitch, every
+    wild names a real colour). An interject the domain will refuse is worse than none.
+  - Armed **only after a human action**, at the same three points as `maybeScheduleBotCatch`
+    (`handlePlayCard`, `handleCounterDraw`, `handleInterruptPlay`). Bots deliberately do not answer
+    each other — the existing rule for catches, and what keeps an all-bot table from trading cards
+    with nobody watching.
+  - One message per play, not one per bot: the handler picks among the bots that can actually
+    answer, so four bots do not get four rolls of the die on the same card.
+  - The seat that just played is excluded (taking the lead back from itself). **The seat holding the
+    turn is not**: in a two-player game the bot is always the next player, so excluding it would
+    leave the mechanic one-way in the most common setup. It is not redundant with its ordinary turn
+    either — an interject slams *every* identical copy, where `BotThink` plays one.
+  - `BotInterruptDelay`+`BotInterruptJitterMax` = **0.7–1.5s**, and `BotInterruptProb` = **0.40**,
+    below `BotCatchProb`. An interrupt window has no deadline, so these are set by fairness rather
+    than by a timeout: a human has to see the card land, recognise the match and click. A bot that
+    always took the window it could see would answer every play anybody made.
+  - Stale check like every scheduled callback: `State.LastPlayAt` must equal the value it was armed
+    with, or the bot is answering a board that no longer exists.
+  - `broadcastInterrupt` is shared with the human path, so a bot taking the lead produces the exact
+    same sequence on the wire (`interrupt_success` then `card_played`).
+- Auto-declare UNO: **deferred, and the declaration itself is what waits**.
+  `maybeScheduleBotDeclarations` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the
+  timer fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
   alone settled the seat server-side while every client was still showing the 5s catch window it had
   just opened on the same `card_played`: a bot's LOCO! was uncatchable by construction and every
   Contre-LOCO! tap came back `player already declared` ("Déjà annoncé."), which reads as a broken
@@ -363,6 +430,23 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   - `BotUnoDelay`+`BotUnoJitterMax` = **1.6–2.8s** of the 5s window. It is a human reaction budget
     (spot the seat → move to the button → click), not a machine's: at the old 0.4–0.8s the mechanic
     would have been unwinnable even once the state bug was fixed.
+  - **It scans `CatchableTargets`, it is not keyed on the seat that acted.** Playing down to one card
+    is not the only way to owe a declaration: a Swap or a GlobalSwitch hands one over, and §8 makes
+    receiving your last card exactly as declarable as playing to it. Keyed on the actor, a *human's*
+    Swap scheduled nothing at all for the bot it put on one card, so that bot stayed undeclared and
+    catchable for the full window: a free +2 no human ever offers, since bots do catch humans. A
+    bot's own Swap had the same hole against a second bot. Called at the same three human entry
+    points as `maybeScheduleBotCatch` **and** after every bot action; scheduling twice for one moment
+    is harmless (the second announce finds the seat settled and returns).
+- **A bot's turn broadcasts no deadline.** `scheduleTurnTimer` arms no timeout for a bot and now also
+  `delete`s `turnStartedAt[code]` on its way out, because `turnDeadlineMs` reads that map with no
+  notion of whose turn it is. Leaving the previous human's entry behind put a half-spent deadline on
+  every `card_played` that handed the turn to a bot, and the client mounts its countdown bar on any
+  non-null deadline: it drained somebody else's clock, in urgent red, under a seat that cannot time
+  out. `turn_deadline` keeps `omitempty` precisely so the resulting 0 never reaches the client (the
+  one field here where a zero is an absence rather than a value, unlike `turn` / `drawn_count` /
+  `pending_draw`). `TestTurnDeadline_AbsentDuringBotTurn` plays a Skip first so a live deadline is
+  proven recorded before the second play asserts it gone.
 - Tracked in `hub.botSlots[code][playerID]`.
 
 ## Game event log
@@ -388,6 +472,14 @@ pending the only legal cards are the ones that stack it, so the two questions ar
 - Token bucket per client: 10/s refill, burst 20.
 - `hub/client.go` `rateLimiter` (thread-safe).
 - Drops → `error` server message. Per-connection, not per-identity.
+- **One notice per burst, not one per dropped message** (`rateLimitNoticePeriod`, 1s). Answering each
+  drop put a fresh `json.Marshal` and a queued frame on the server's own send path for every message
+  of a flood: the limiter amplified exactly what it exists to absorb, and a fast enough burst ended
+  by overflowing the send buffer and force-closing a connection that one notice would have corrected.
+  The reply is a hint to a buggy client, not an acknowledgement owed to every message.
+  `messages_rate_limited` still counts **every** drop, so the metric keeps its shape;
+  `TestRateLimit_BurstThenError` pins both halves.
+- `lastLimitNotice` needs no lock: `readPump` is the only goroutine that drops a message.
 
 ---
 
@@ -424,6 +516,14 @@ pending the only legal cards are the ones that stack it, so the two questions ar
   is blocked in the helper, so no further round is forced), and Playwright retries into the test
   timeout while the app has done exactly what was asked. `clickContinue` therefore clicks with a
   short timeout, tolerates losing that race, and returns on `showRoundSummary === false`.
+- **A `debug_set_state` fixture must set `pendingDraw: 0` whenever it expects a play to land.**
+  `PlayCard` refuses every card while a stack is pending, so a bot that landed a +2 before our turn
+  makes the test pass or fail on the deal. Same class as pinning `direction`: the fixture has to
+  state everything the assertion depends on, not only the part it is about.
+- **Do not leave the local seat on one card at the end of a bot test.** One card opens a catch
+  window, a bot answers it about two thirds of the time, and the hand the assertion is reading grows
+  under it. Emptying the hand is worse: the round ends and the next one is dealt, so the state being
+  asserted lasts milliseconds.
 - Two controls must never share an accessible name — the draw pile is `drawPile` ("Pioche"), not
   "Draw", precisely because a strict-mode locator caught the collision.
 - Canvas not inspected; verify via DOM (ActionBar, RoundSummary, GameOver) + `__LOCO_E2E__.getState()`.
@@ -436,8 +536,15 @@ Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
   - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`.
   - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs server-bin + Playwright; `needs: [backend_test, frontend_test]`.
-- `build` only on `develop` or `v*` tags, after tests pass.
+  - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
+- `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
+  Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
+  build started the moment those two finished, so the lint and the entire Playwright suite were
+  advisory — red on `develop` still shipped to dev, and a version tag still shipped to prod.
 - Deploy: `devops` runner tag + GitLab registry. `deploy_dev` auto on `develop`; `deploy_prod` auto on `v*`; `stop_dev` manual.
+- **GitLab (`origin`) owns build and deploy. GitHub is a mirror** (`gh` remote) and runs
+  `.github/workflows/test.yml`: the same four jobs, same commands, no deploy. It exists so a push or
+  a pull request on that side is not unverified. Two CI definitions drift — change both.
 
 ### Production request path
 ```
@@ -457,6 +564,32 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - All `docker compose` calls use `--env-file paths.env --env-file app.env`.
 - nginx `/ws`: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
 - nginx serves `robots.txt` `Disallow: /` on `*-d.<domain>`; prod allows indexing.
+- nginx sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` on every response (`always`).
+  See "Anti-cheat" for what the CSP may and may not allow.
+- **`connect-src` uses `$http_host`, never `$host`.** `$host` drops the port, and a CSP host source
+  with no port means the scheme's *default* one. On :443 the two are identical, so the difference is
+  invisible in production and blocks the socket everywhere else — a staging host on a non-default
+  port, or anyone running the built image locally.
+- **No test can prove the page loads under the CSP, and one pins it to the app anyway.**
+  `client/src/test/csp.test.ts` reads `nginx.conf` next to `index.html` and the client sources, and
+  couples each directive to whatever needs it: `script-src 'self'` beside the absence of any inline
+  `<script>`, `'unsafe-inline'` in `style-src` beside the pre-hydration `<style>` block that forces
+  it, `$http_host` (never `$host`) twice in `connect-src`, no remote origin in the policy *or* in
+  the sources, and no `eval` / `new Function` / `new Worker` / `blob:` anywhere. Those are the
+  regressions that would ship green and break only the served page: an added CDN font or an inline
+  script fails here instead of in front of players. What it cannot do is answer "does the built app
+  actually run behind this policy", so the manual check below is still owed after any change to
+  `nginx.conf`.
+- **`make csp` is that check** (`tools/csp/check.mjs`, deliberately outside CI): it brings the
+  production-style stack up, loads the page in a real browser and creates a room, then tears the
+  stack down. Console clean, fonts loaded and the waiting room reached is the whole verdict, because
+  the waiting room only appears after a WebSocket round trip. It collects `securitypolicyviolation`
+  events, console errors and failed requests on the way, and checks all four headers are on the
+  response. Run it after touching `nginx.conf`. `--url=…` points it at a stack that is already up;
+  `--keep` leaves the one it started running.
+  - It waits on **the SPA answering, not on `docker compose up -d` returning**. The two are not the
+    same on Docker Desktop for Windows, where the start phase can sit there for minutes after the
+    page is already being served.
 
 ## Linting
 - Client: ESLint v9 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
@@ -471,7 +604,7 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - When you change `server/protocol/messages.go`: update `protocolSchemas.ts` for any inbound shape changes (inferred types follow). `client/src/test/protocolSchemas.test.ts` exercises the schema.
 
 ## Makefile
-- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make og`, `make maps`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual` and `make maps`).
+- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make og`, `make maps`, `make csp`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual` and `make maps`).
 
 ## Art direction — "cartoon premium"
 Inspirations: **Nintendo × Gartic Phone**. Chunky rounded shapes, thick ink outlines, saturated
@@ -1136,6 +1269,18 @@ polish.
 - `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
 - `App.handleMessage` deps `[]`. Branches needing CURRENT store values use `useGameStore.getState()`. Stable Zustand actions safe.
 - React renderer relies on Zustand selector equality; expensive re-renders are avoided via stable references in the store.
+- **`App` never subscribes to the whole store.** `const store = useGameStore.getState()` is an
+  actions-only snapshot (the factory creates them once, so it is stable and safe to close over in a
+  deps-free callback), and everything App *renders* comes from one narrow selector per field.
+  `handleSend` depends on `[send]` alone.
+  - `useGameStore()` here undid, from the parent, the entire stabilisation `GameView` does for
+    itself: every broadcast — a latency tick every 3s, any card anybody drew — re-rendered App, and
+    the new store object in `handleSend`'s deps gave `onSend` a new identity, which rebuilt
+    `GameView`'s memoised callbacks and defeated `<GameBoard />`'s memo one level down. See
+    "Nothing continuous goes through React state"; the rule has to hold at *both* levels.
+  - `src/test/appSubscription.test.tsx` pins it. Its `useWebSocket` mock returns a **stable**
+    `send` on purpose: the real hook's is `useCallback([], …)`, and a mock handing back fresh arrows
+    would make `handleSend` unstable by itself and quietly prove nothing.
 
 ## Score table (hold TAB)
 `<ScoreTable />` is the in-match standings panel: seat colour + nickname, one column per finished
@@ -1206,6 +1351,15 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 - "Continue (Ns)" → `dismissRoundSummary()` (applies buffered state, clears summary). Auto-dismiss at 8s.
 
 ## Metrics
+**`/metrics` is an operator surface, not a public one, and no compose file publishes the Go server
+any more.** nginx proxies `/ws` and `/health` and deliberately not this, `deploy/compose.yml` only
+`expose`s 8080 on the `internal` network, and `docker-compose.yml` now matches it. It used to
+publish `8080:8080`, which put an unauthenticated endpoint on the LAN for no gain, since the browser
+reaches the server through nginx there like everywhere else. Read it from inside:
+`docker compose exec server wget -qO- http://localhost:8080/metrics`. `docker-compose.dev.yml` is
+the one exception and must stay published: the Vite client connects straight to `ws://<host>:8080/ws`
+with no nginx in front of it.
+
 `GET /metrics` returns JSON:
 - Gameplay: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`.
 - Health: `uptime_sec`, `goroutine_count` (low + stable).
@@ -1213,7 +1367,7 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 - `messages_dropped_busy` — should be ~0; non-zero = hub overloaded.
 - `slow_clients_closed` — per-client send buffer overflow → forced close (client into reconnect path). Sustained growth = broadcast rate too high or many bad connections.
 - `channel_retries` — botMove/expire/cleanup channel-pressure retries; ~0 healthy.
-- `suspected_cheats` — clients with ≥`suspectThreshold` rejections in 30s; one inc per burst. Investigate `WARN suspected cheat` log (`conn=`, `code=`).
+- `suspected_cheats` — clients with ≥`suspectThreshold` (5) rejections in 30s; one inc per burst. Investigate `WARN suspected cheat` log (`conn=`, `code=`). Refusals that `game.IsLostRace` recognises never count (see "Anti-cheat").
 - `reconnect_expirations` — disconnected players whose 60s window expired.
 - `debug_mode_active` — reflects `LOCO_E2E=1`. MUST be `false` in prod; `main.go` logs startup `WARN` if set.
 
@@ -1244,6 +1398,13 @@ stays short, the player empties the hand they can see, the server still holds ca
 round-end check never fires — the board freezes on "your turn" with no cards. That is exactly what
 the UNO-catch penalty (+2) and the penalty branch of the turn timeout used to do.
 
+**`turn` and `drawn_count` carry no `omitempty`**, for the same reason `pending_draw`,
+`has_drawn` and `player_index` are pointers: a zero is a value here, not an absence. `turn: 0` is
+seat 0's turn (the client defaulted to 0 and was therefore right by luck, which
+`player_index` was not), and `drawn_count: 0` is a draw against exhausted piles — the client's old
+fallback for a missing count was **1**, so every observer would have added a card nobody drew to a
+hand the server never grew. `protocol/messages_test.go` pins both onto the wire.
+
 **A `card_drawn` also carries the turn state, to everyone, always.** `pending_draw` and `has_drawn`
 are `*int`/`*bool` on `ServerMsg` precisely so `omitempty` cannot swallow a `0`/`false`, and the
 client applies them verbatim (absent = unchanged) instead of inferring anything from the fact that a
@@ -1252,11 +1413,21 @@ draw-once flag is still false, and that message reaches the whole table. Default
 to "has drawn" is what produced a seat that could neither draw (button disabled) nor pass (server:
 `you must draw a card before passing`) until the turn timer auto-acted for it.
 
-**Shrinking a hand has the mirror rule.** `applyCardPlayed` drops copies of the played card until the
-local hand matches the `hand_size` the server sent in the same message, because one `card_played` can
-represent several discards — a batch interrupt slams *every* identical copy the player holds. Removing
-exactly one left the rest as phantom cards: they rendered, they could be tapped, and the server
-refused each tap with "card not in hand".
+**Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (exported from
+`useGameStore.ts`, called by `applyCardPlayed`) drops copies of the played card until the local hand
+matches the `hand_size` the server sent in the same message, because one `card_played` can represent
+several discards — a batch play or a batch interrupt slams *every* identical copy the player holds,
+and `GameView` builds that batch by itself. Removing exactly one left the rest as phantom cards: they
+rendered, they could be tapped, and the server refused each tap with "card not in hand" until the
+round ended.
+- `card_played` always carries `Players`, so the authority is always there. With no `hand_size` to
+  compare against it falls back to a single copy; a server hand *larger* than ours removes nothing,
+  because that is a desync only a `game_state` can settle and guessing would widen it.
+- Copies come off the **end** so the survivors keep their `handCardKeys` identity and slide into the
+  gap instead of remounting.
+- `src/test/batchPlay.test.ts` covers the pure function and the store; `e2e/tests/batch-play.spec.ts`
+  covers the wire. `play_cards` had **no** E2E coverage at all, which is how a desync in the game's
+  signature mechanic survived.
 
 ## Server stability
 - Deferred async = `time.AfterFunc` (not `go func{Sleep;send}`).

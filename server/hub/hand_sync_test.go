@@ -185,8 +185,9 @@ func TestDrawCard_CarriesTurnState(t *testing.T) {
 }
 
 // TestTurnTimeout_PenaltyDrawSendsCardsToDrawer: a timed-out player facing a
-// pending draw takes the whole stack and loses their turn. They must still be
-// told which cards they took.
+// pending draw takes the whole stack. The draw itself does not cost the turn
+// (rules.md §14.5) — the timeout handler passes it for them afterwards — and
+// either way they must be told which cards they took.
 func TestTurnTimeout_PenaltyDrawSendsCardsToDrawer(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 

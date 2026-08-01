@@ -125,7 +125,13 @@ e2e_test:
 build:
   stage: build
   extends: .defaults
-  needs: ["backend_test", "frontend_test"]
+  # Every test job, not just the two unit ones. `needs` is what actually gates a
+  # deploy: naming a subset lets build start the moment those finish, so the
+  # lint and the entire Playwright suite were advisory — red on develop still
+  # shipped to dev, and a version tag still shipped to prod. The two critical
+  # bugs this list was widened for both lived in paths only e2e could have
+  # walked.
+  needs: ["backend_lint", "backend_test", "frontend_test", "e2e_test"]
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop"'
     - if: '$CI_COMMIT_TAG =~ /^v.*/'

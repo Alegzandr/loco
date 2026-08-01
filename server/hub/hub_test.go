@@ -2426,11 +2426,11 @@ func TestRateLimit_BurstThenError(t *testing.T) {
 	rateLimited := 0
 	unknown := 0
 	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && (rateLimited+unknown) < burst {
-		conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	for time.Now().Before(deadline) {
+		conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 		_, data, err := conn.ReadMessage()
 		if err != nil {
-			break
+			break // no more replies: the server has said everything it intends to
 		}
 		var msg protocol.ServerMsg
 		if json.Unmarshal(data, &msg) != nil {
@@ -2450,8 +2450,15 @@ func TestRateLimit_BurstThenError(t *testing.T) {
 	if rateLimited == 0 {
 		t.Errorf("expected at least 1 rate-limit error after %d-message burst, got %d (unknown=%d)", burst, rateLimited, unknown)
 	}
-	if got := h.GetMetrics().MessagesRateLimited; got == 0 {
-		t.Errorf("metrics MessagesRateLimited = 0 after rate-limit burst, want > 0")
+	// One notice per burst, not one per dropped message. Answering each one put
+	// a marshal and a queued frame on the server's own send path for every
+	// message of the flood, i.e. the limiter amplified what it exists to absorb.
+	if rateLimited > 1 {
+		t.Errorf("got %d rate-limit notices for a single burst, want exactly 1 (the reply is throttled, the drop is not)", rateLimited)
+	}
+	// The metric still counts every dropped message: only the reply is throttled.
+	if got := h.GetMetrics().MessagesRateLimited; got < int64(burst-20) {
+		t.Errorf("metrics MessagesRateLimited = %d after a %d-message burst over a 20-token bucket, want >= %d", got, burst, burst-20)
 	}
 }
 

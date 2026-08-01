@@ -49,6 +49,36 @@ func TestServerMsg_NoSeatStaysAbsent(t *testing.T) {
 	}
 }
 
+// The same trap, one field over. A zero turn is seat 0's turn, and a zero
+// drawn_count is a draw against exhausted piles — which the client's fallback
+// would have read as one card, growing a hand the server never grew.
+func TestServerMsg_ZeroTurnAndDrawnCountSurviveTheWire(t *testing.T) {
+	data, err := json.Marshal(ServerMsg{Type: SMsgCardDrawn, PlayerIndex: seat(0), Turn: 0, DrawnCount: 0})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, want := range []string{`"turn":0`, `"drawn_count":0`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("card_drawn dropped %s from the wire: %s", want, data)
+		}
+	}
+}
+
+// TurnDeadline is the one field here where a zero really is an absence, and it
+// must stay omitempty for that reason: the client reads `turn_deadline ?? null`
+// and mounts its countdown bar on any non-null value, so a zero left on the wire
+// would render a bar counting down from 1970. A bot's turn has no clock and is
+// broadcast exactly this way: see TestTurnDeadline_AbsentDuringBotTurn.
+func TestServerMsg_ZeroTurnDeadlineStaysOffTheWire(t *testing.T) {
+	data, err := json.Marshal(ServerMsg{Type: SMsgCardPlayed, PlayerIndex: seat(0), Turn: 1, TurnDeadline: 0})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), `"turn_deadline"`) {
+		t.Errorf("a zero turn_deadline reached the wire, so the client's null fallback never fires: %s", data)
+	}
+}
+
 func TestServerMsg_Seat(t *testing.T) {
 	if got := (ServerMsg{Type: SMsgError}).Seat(); got != -1 {
 		t.Errorf("Seat() on a seatless message = %d, want -1", got)
