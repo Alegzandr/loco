@@ -636,10 +636,10 @@ That is the disconnect people actually have, and it was the one that could not b
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
 - `test` (every push):
   - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`,
-    published as an artifact.
+    handed to `e2e_test` through the cache (see "This runner cannot upload artifacts").
   - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs `server-bin` + Playwright,
-    `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for the artifact alone.
+    `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
   - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
   Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
@@ -655,12 +655,15 @@ E2E dominates the wall clock, and the rule for every second cut out of it is the
 time, never coverage.** No test is skipped, no gate is loosened, and no reaction window is shortened.
 
 - **`parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`.** The suite is stateful, so `workers`
-  stays at 1 *within* a job and Playwright splits by spec file across jobs. This is the only change
-  here with a prerequisite outside the repo: **it needs a runner that accepts concurrent jobs**
-  (`concurrent > 1` in its `config.toml`). At `concurrent = 1` the shards queue and pay four setups
-  for one suite, which is slower than not sharding at all.
-- **`server-bin` is an artifact from `backend_test`.** `e2e_test` used to download a 70 MB Go
-  toolchain tarball and rebuild the same binary, on an image with no Go in it.
+  stays at 1 *within* a job and sharding is what parallelises it. `fullyParallel: true` is what makes
+  the split even. Left false, Playwright shards whole **spec files** and 87 tests came out
+  27/39/0/21, one job running empty. This is the only change here with a prerequisite outside the
+  repo: **it needs a runner that accepts concurrent jobs** (`concurrent > 1` in its `config.toml`).
+  At `concurrent = 1` the shards queue and pay four setups for one suite, which is slower than not
+  sharding at all.
+- **`server-bin` is built once by `backend_test`** and handed over through the cache. `e2e_test` used
+  to download a 70 MB Go toolchain tarball and rebuild the same binary, on an image with no Go in it,
+  once per shard.
 - **No `playwright install`.** The `mcr.microsoft.com/playwright:v1.52.0-jammy` image already ships
   the browsers, at the version the dependency is pinned to. Bump both together or the download comes
   back.
@@ -669,13 +672,10 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   (`go`, `golangci`, `npm-client`, `npm-e2e-$CI_NODE_INDEX`): two jobs sharing one key race on the
   upload and the loser's entry is what the next pipeline restores, which is why the shards key on
   their index.
-- **`e2e_test` needs `backend_test` only.** It consumes that job's artifact and nothing of
+- **`e2e_test` needs `backend_test` only.** It consumes that job's binary and nothing of
   `frontend_test`, so naming it just parked the pipeline's longest job behind the second-longest.
   The `build` job still `needs` every test job, so nothing red can ship — that gate is what makes
   this reordering free.
-- **Failures are collected**: `artifacts:reports:junit` puts failing specs in the merge request, and
-  `e2e/test-results/` keeps the traces and screenshots Playwright was already producing and throwing
-  away.
 - **`LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`** cut bot think time from 1.2–2.2 s to 0.25–0.45 s
   in CI (`hub.ApplyBotTimingEnv`). See "Bots": the think delay is the only bot timing nothing races.
 - **The E2E helpers wait on state, not on the clock.** `createRoom`/`joinRoom` wait for the socket to
@@ -690,6 +690,30 @@ development` still sets `import.meta.env.DEV` to false — `__LOCO_E2E__`, the t
 showcase are all tree-shaken out of the bundle. Buying those 9 s means gating the debug helpers on a
 build variable instead, trading a structural guarantee (they *cannot* exist in a production build)
 for a configuration one. Not worth it; do not revisit without a new reason.
+
+### This runner cannot upload artifacts
+**Nothing in `.gitlab-ci.yml` may use `artifacts:`** until the runner is fixed, and the reason is not
+in this repository. The helper container that performs the upload resolves the API host (GitLab's
+own external URL, `http://gitlab`) against the LAN's DNS, which does not know that name:
+`dial tcp: lookup gitlab on 192.168.1.254:53: no such host`, three retries, `FATAL`. An upload
+failure **fails the job**, so a single `artifacts:` block turns a suite where all 87 tests passed
+into a red pipeline. The fix is one line on the runner (`extra_hosts`, or joining GitLab's Docker
+network, or registering it against the FQDN), not a line of YAML.
+
+- The pipeline lived within that limit without knowing it: `e2e_test` rebuilt the Go binary itself,
+  under a comment reading "no artifact transfer needed". The first commit to actually add an
+  `artifacts:` block is what surfaced it.
+- **`server-bin` therefore travels by cache**, which works because a cache is a tarball on the
+  runner's own disk and needs no API call ("cache will not be downloaded from shared cache server").
+  Keyed **per branch**, not per commit: a per-SHA key leaves one ~15 MB cache volume behind for every
+  push and nothing ever collects them. Correctness comes from a `server-bin.sha` stamp instead:
+  `e2e_test` rebuilds unless the cached binary was built from the commit it is testing, which also
+  covers two pipelines racing on the same branch. Testing a binary from another commit is the one
+  outcome this must not have: it reports on code nobody pushed.
+- The cost is real and is **not** the binary: the JUnit report and Playwright's traces and
+  screenshots cannot be collected. `e2e_test` keeps the `junit` reporter (the file is written, just
+  never uploaded) and the block sits commented out in `.gitlab-ci.yml`, so restoring it is
+  uncommenting seven lines once the runner can reach the API.
 
 ### Production request path
 ```

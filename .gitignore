@@ -1,6 +1,7 @@
 # Go
 server/loco-server
 server-bin
+server-bin.sha
 
 # CI caches (GOPATH/GOMODCACHE/GOCACHE and npm are redirected into the project
 # because GitLab can only cache paths under it)
