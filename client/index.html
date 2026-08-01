@@ -6,7 +6,13 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ece3ff" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#150c2e" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <!-- `viewport-fit=cover` because the board paints a room and a table, and
+         without it iOS confines the page to the safe area and fills the notch
+         and home-indicator bands with the body's own colour: two dark purple
+         strips across a photograph that is meant to reach every edge. The game
+         itself still keeps clear of those bands (layout.ts: boardSpace, and the
+         --safe-* tokens the chrome offsets itself by). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>LOCO – Real-time multiplayer card game</title>

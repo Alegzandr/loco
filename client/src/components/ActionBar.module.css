@@ -16,7 +16,9 @@
 
 .actionBar {
   position: absolute;
-  bottom: 14px;
+  /* Clear of the home indicator: the swipe bar sits over the bottom band and
+     would eat taps aimed at the draw and pass buttons. */
+  bottom: calc(14px + var(--safe-bottom));
   left: 50%;
   transform: translateX(-50%);
   display: grid;
@@ -198,9 +200,9 @@
      are as stable as the desktop fixed slots — and the reaction button stays
      dead centre, under the thumb. */
   .actionBar {
-    bottom: 8px;
-    left: 8px;
-    right: 8px;
+    bottom: calc(8px + var(--safe-bottom));
+    left: calc(8px + var(--safe-left));
+    right: calc(8px + var(--safe-right));
     transform: none;
     /* The centre takes the extra share it needs for "Contre-LOCO !" — the two
        outer labels are short. */

@@ -9,6 +9,20 @@ export interface OpponentBubblePosition {
 /** Vertical space the top chrome (round badge, theme/audio/rules cluster) owns. */
 export const TOP_CHROME = 58
 
+/**
+ * The device's unusable edges, in CSS pixels (iOS notch, home indicator, and
+ * the two side bands a phone held in landscape puts around the screen).
+ * Measured by `useSafeAreaInsets`; zero on every desktop browser.
+ */
+export interface SafeAreaInsets {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
+
+export const NO_INSETS: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 }
+
 // ─── Board scale ────────────────────────────────────────────────────────────
 // The whole board is laid out in a fixed coordinate space and then scaled to
 // the viewport, exactly like a game canvas. Everything — cards, seats, felt,
@@ -66,16 +80,25 @@ export function boardScale(width: number, height: number): number {
  *
  * `offsetY` pins the top band; the height is then solved so the bottom one
  * lands exactly on the action bar.
+ *
+ * `insets` are the device's safe areas (an iOS notch, a home indicator). The
+ * page runs `viewport-fit=cover` so the room's picture reaches every edge of
+ * the screen, which means the element we are laying out into is *bigger* than
+ * the part of it a player can see and touch. Paint may use those edges; the
+ * game may not, so both reserves are measured from the safe edge rather than
+ * from the screen edge and the whole coordinate space stops short of them.
  */
 export function boardSpace(
   pxWidth: number,
   pxHeight: number,
   scale: number,
-): { width: number; height: number; offsetY: number } {
-  const offsetY = TOP_CHROME * (1 - scale)
+  insets: SafeAreaInsets = NO_INSETS,
+): { width: number; height: number; offsetX: number; offsetY: number } {
+  const offsetY = insets.top + TOP_CHROME * (1 - scale)
   return {
-    width: pxWidth / scale,
-    height: (pxHeight - BOTTOM_RESERVE - offsetY) / scale + BOTTOM_RESERVE,
+    width: (pxWidth - insets.left - insets.right) / scale,
+    height: (pxHeight - insets.bottom - BOTTOM_RESERVE - offsetY) / scale + BOTTOM_RESERVE,
+    offsetX: insets.left,
     offsetY,
   }
 }

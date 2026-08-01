@@ -200,6 +200,17 @@ export function GameView({ onSend, wsStatus }: Props) {
         onSend({ type: 'counter_draw', card, chosen_color: card.color })
         return true
       }
+      // Block clearly-invalid plays so there's no "fake" play UI flash.
+      // Server is always authoritative; this is a UX hint only.
+      //
+      // This has to come *before* the prompts, not after. The three wilds always
+      // match, so gating them made no difference — but Swap is a coloured card
+      // and obeys the ordinary matching rules, so an off-colour Swap opened its
+      // target prompt, took a choice, and was refused by the server with an
+      // "illegal card play" warning. Asking a question and then rejecting the
+      // answer is a worse refusal than the silent one every other unplayable
+      // card gives, which is what the player was reporting.
+      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return false
       if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
         setColorPicker({ card, idx: cardIdx })
         return false
@@ -208,9 +219,6 @@ export function GameView({ onSend, wsStatus }: Props) {
         setPlayerPicker({ card, idx: cardIdx })
         return false
       }
-      // Block clearly-invalid plays so there's no "fake" play UI flash.
-      // Server is always authoritative; this is a UX hint only.
-      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return false
       onSend({ type: 'play_card', card, chosen_color: card.color })
       return true
     },

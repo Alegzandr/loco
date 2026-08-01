@@ -27,7 +27,7 @@
    The room itself comes in as an inline `background-image`, which outranks the
    shorthand above and so takes the decorative orbs with it. */
 .board[data-map]:not([data-map='']) {
-  background-color: #07060f;
+  background-color: var(--room-void);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
