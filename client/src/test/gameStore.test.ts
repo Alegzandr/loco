@@ -820,6 +820,33 @@ describe('useGameStore', () => {
     expect(s.unoTimerEnd).toBeNull()
   })
 
+  // The mirror of applyCatchFailed, and the one that was missing entirely: a
+  // landed Contre-LOCO! used to close the window and announce nothing, so the
+  // caught hand simply grew by two with no cause visible anywhere on screen.
+  it('applyUnoCaught settles the caught seat and arms the verdict', () => {
+    const now = Date.now()
+    useGameStore.setState({
+      myIndex: 3,
+      catchWindows: [
+        { seat: 0, endsAt: now + 2000 },
+        { seat: 1, endsAt: now + 4000 },
+      ],
+      catchTarget: 0,
+      unoTimerEnd: now + 2000,
+      catchFlash: null,
+    })
+    useGameStore.getState().applyUnoCaught(0)
+    const s = useGameStore.getState()
+    // Seat 0 took the penalty, so nobody else may catch it. Seat 1 still owes
+    // the table a declaration and is promoted to the offered catch.
+    expect(s.catchWindows.map((w) => w.seat)).toEqual([1])
+    expect(s.catchTarget).toBe(1)
+    expect(s.catchFlash?.seat).toBe(0)
+
+    useGameStore.getState().clearCatchFlash()
+    expect(useGameStore.getState().catchFlash).toBeNull()
+  })
+
   it('applyCatchFailed names the seat that paid, clearCatchFailed retires it', () => {
     useGameStore.getState().applyCatchFailed(2)
     expect(useGameStore.getState().catchFailed?.seat).toBe(2)

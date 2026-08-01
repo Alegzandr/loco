@@ -55,6 +55,8 @@ interface LocoE2EState {
   unoTimerEnd: number | null
   /** Seat whose Contre-LOCO! missed and drew a card for it (rules §14.6). */
   catchFailed: { seat: number; at: number } | null
+  /** Seat a Contre-LOCO! just landed on (drives the verdict stamp + penalty cards). */
+  catchFlash: { seat: number; at: number } | null
   /** Last successful out-of-turn slam (drives the interception banner). */
   interruptFlash: { actorIndex: number; count: number; at: number } | null
   // Per-turn deadline

@@ -117,6 +117,11 @@ for the smallest possible delay rather than the fewest bytes:
   tap that only opens the colour/target prompt.
 - The reconnect backoff starts at 250 ms (250 / 500 / 1000 / 2000 / 4000). Most drops come straight
   back, and a dead board costs a whole interrupt window.
+- A **reload survives too**: room, nickname and session token are mirrored into `sessionStorage`, so
+  a refreshed or crashed tab boots onto a reconnect screen and reclaims its seat instead of landing
+  back on the lobby with the match still running. `sessionStorage` rather than `localStorage` on
+  purpose: it is per tab, so two seats played from one browser cannot overwrite each other's token,
+  and it dies with the tab rather than handing the next person a live seat.
 
 ### Anti-Cheat
 
@@ -441,6 +446,8 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - BO3 multi-round progression (round 2, auto-dismiss, game over)
 - Spectating banner (local player finishes before round ends)
 - WebSocket reconnect (offline/online cycle, reconnect overlay, two-client disconnect)
+- Session restore across a page reload: the seat and hand come back mid-match, the waiting room is
+  rejoined, and a session naming a dead room falls back to the lobby instead of hanging
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch colour prompt + discard update
 - Swap / Global Swap on-screen notification banner + Framer Motion card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch, wilds included), interrupt window open/closed
@@ -463,11 +470,11 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - **Score table**: hold `TAB` during a match (or tap the **Scores** button, which is how it opens on a phone) for the standings: seat colour, nickname, one column per finished round, cumulative total, rounds won, and a live ping per player coloured by how much it costs in a race (green under 60 ms, red past 220 ms). Both the per-round history and the ping are measured and broadcast by the server, so they survive a reconnect and cannot be self-reported.
 - **Maps**: every match is dealt into one of four rooms: **Neon** (a rooftop club above the skyline), **Rune** (the back room of an arcane tavern), **Velvet** (an art-deco lounge) and **Orbit** (a starship hangar). A map is a backdrop, a table and an accent colour; it changes no rule and no card. The **server** draws it once per match and tells every seat, so the whole table plays in one room and a clip cut between two players does not jump between two rooms. A rematch draws a new one. The accent tints the light the table casts and the direction ring, never the brand red, the active seat's gold or a card face, because those are how a viewer reads the game, and a state cue that changes colour with the scenery has to be re-learned four times.
 - **Synchronised loading**: between "hands dealt" and "clock running" the table stays shut while every client downloads and decodes the map, on a screen that names the room, describes it in a line, and shows who is still loading. The turn clock starts when the last player is in, not before. A map is around 600 kB, and in a game decided by arrival order, starting the first turn while somebody's table is still a grey rectangle is a head start rather than a slow paint. Gameplay messages are refused server-side until then, so skipping the screen buys nothing, and a 20 s deadline means one backgrounded tab cannot hold the room hostage.
-- **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
+- **Streamable moments**: interception slam (banner + screen shake + sting) on a successful out-of-turn steal, Contre-LOCO! verdict stamp (with the two penalty cards flying to the caught seat), UNO punch-in banner, floating SKIP/REVERSE/+N callouts, per-seat identity colours, exact card counts on every opponent.
 - **Play direction on the table**: a ring of chevrons runs around the felt showing which way play is moving, chasing slowly in that direction and flipping over when a Reverse lands. The callout lasts a second; the heading lasts the rest of the round, so a player who looked away — or a viewer who just opened the stream — can still read whose turn comes next.
 - **Audio**: runtime-synthesised effects for every action and rule outcome, plus **three adaptive soundtracks** — *Neon Horizon* (uplifting trance, 138 BPM), *Pixel Rush* (electro house, 128) and *Voltage* (dark electro, 145) — each written as parts (intro, verse, chorus, bridge, break) rather than a loop. They play as a **shuffled playlist**: a track runs about two minutes, then hands over on its own, and the only control is a ⏭ next button. Two things drive what you hear: the **song form** advances by itself, so around forty bars pass before a part returns, and the **table's tension** picks how thickly it is played *and* which part comes next — a breakdown between rounds, a build-up in the lobby, a groove during play, the full drop when someone is one card from winning. Risers and crashes announce a chorus, fills close every part, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
 - **Bots that play the whole game**: they take turns, counter a draw stack, declare LOCO! and call Contre-LOCO! — and they **interject**, slamming an identical card into an open window like anybody else. Until they did, the game's signature mechanic ran one way only, which made the hardest reaction in the game also the one nobody had to defend against. They are deliberately fallible: they take about a second to react and use the window they see roughly two times in five.
-- **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery, session tokens, per-client rate limiting (10 msg/s, burst 20), `Origin` checking on the WebSocket upgrade (same host by default, `LOCO_ALLOWED_ORIGINS` to narrow), a closed CSP and the usual security headers from nginx, AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
+- **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery (a page reload reclaims the seat too, not just a dropped socket), session tokens, per-client rate limiting (10 msg/s, burst 20), `Origin` checking on the WebSocket upgrade (same host by default, `LOCO_ALLOWED_ORIGINS` to narrow), a closed CSP and the usual security headers from nginx, AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).
 

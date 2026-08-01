@@ -78,6 +78,11 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // ── Transport ────────────────────────────────────────────────────────────
   [/rate limit exceeded/i, 'rateLimited'],
   [/server busy/i, 'serverBusy'],
+  // The one entry here the server never sends: a seat reclaim that timed out is
+  // decided client-side (useRestoreTimeout), and it lands in the same errorMsg
+  // slot as every refusal, so it resolves through the same table rather than
+  // reaching the screen as the developer string it is.
+  [/reconnect (failed|cancell?ed)/i, 'reconnectFailed'],
   // There is deliberately no rule for an exhausted deck: a draw cannot fail any
   // more (Deck.DrawUpTo), so no server path can produce that refusal. A rule
   // kept for a message nobody sends is a rule nobody maintains.

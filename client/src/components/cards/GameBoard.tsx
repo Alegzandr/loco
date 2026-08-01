@@ -23,7 +23,12 @@ import {
 import { MapDef } from './maps'
 import { ACTIVE_RING, CARD_W, CARD_H, flightFor } from './cardTheme'
 import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
-import { SwapNotice, LastPlay } from '../../hooks/useGameStore'
+import {
+  SwapNotice,
+  LastPlay,
+  CatchFlash,
+  CATCH_PENALTY_CARDS,
+} from '../../hooks/useGameStore'
 import styles from './GameBoard.module.css'
 
 interface Props {
@@ -59,6 +64,14 @@ interface Props {
   fxTexts: FxTexts
   /** swap / global_switch notice from the store; triggers trail animation. */
   swapNotice: SwapNotice | null
+  /**
+   * A Contre-LOCO! that landed; flies the penalty cards to the caught seat.
+   *
+   * The penalty arrives on the wire as an ordinary `card_drawn`, and on a board
+   * where hands grow all match long that is indistinguishable from somebody
+   * taking their turn. The cards have to be seen leaving the deck for that seat.
+   */
+  catchFlash: CatchFlash | null
   /** Last play from the store; drives the opponent seat→discard card flight. */
   lastPlay: LastPlay | null
   /** True while reconnect overlay is visible; board fades back in afterwards. */
@@ -85,6 +98,15 @@ export interface GameBoardHandle {
 const SWAP_TRAIL_W = 28
 const SWAP_TRAIL_H = 40
 const SWAP_TRAIL_R = 4
+
+// Penalty cards flown to a caught seat. Bigger than a swap trail — this one is
+// the point of the moment rather than a hint that hands moved — and still well
+// short of a full card, which would bury the seat pill it is landing on.
+const CATCH_CARD_W = 42
+const CATCH_CARD_H = 60
+const CATCH_CARD_R = 6
+const CATCH_CARD_MS = 440
+const CATCH_CARD_STAGGER_MS = 130
 
 /** Localised labels for the floating callouts over the discard pile. */
 export interface FxTexts {
@@ -379,6 +401,58 @@ export const GameBoard = memo(function GameBoard(props: Props) {
     // Triggered only when a fresh notice arrives (keyed by .at).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.swapNotice?.at, ready])
+
+  // ─── Animation effect: a Contre-LOCO! landed ────────────────────────────
+  // The penalty cards leave the deck for the caught seat, and a red +N lands on
+  // it. Without this the whole mechanic is invisible: the caught hand grows the
+  // way it grows on any ordinary draw, and the player who won the race sees
+  // nothing at all happen.
+  useEffect(() => {
+    if (!ready || !props.catchFlash) return
+    const seat = seatPosition(props.catchFlash.seat, props.players, props.myIndex, width, height)
+    const deck = deckPosition(width, height, topReserve)
+    const from = {
+      x: deck.x + CARD_W / 2 - CATCH_CARD_W / 2,
+      y: deck.y + CARD_H / 2 - CATCH_CARD_H / 2,
+    }
+    const to = { x: seat.x - CATCH_CARD_W / 2, y: seat.y - CATCH_CARD_H / 2 }
+    setFliers((cur) => [
+      ...cur,
+      ...Array.from({ length: CATCH_PENALTY_CARDS }, (_, i) => ({
+        id: newId(),
+        kind: 'back' as const,
+        from: { ...from, rotation: 0 },
+        // Fanned apart on arrival so two cards read as two, not as one card
+        // landing twice.
+        to: { ...to, rotation: (i - (CATCH_PENALTY_CARDS - 1) / 2) * 0.34 },
+        size: { w: CATCH_CARD_W, h: CATCH_CARD_H, r: CATCH_CARD_R },
+        startAlpha: 0.2,
+        startScale: 0.6,
+        duration: CATCH_CARD_MS,
+        delayMs: i * CATCH_CARD_STAGGER_MS,
+        arcHeight: 46,
+        fadeOut: true,
+      })),
+    ])
+    setEffectTexts((cur) => [
+      ...cur,
+      {
+        id: newId(),
+        text: `+${CATCH_PENALTY_CARDS}`,
+        color: '#e63946',
+        x: seat.x,
+        // Just above the pill, not across it: the callout drifts upward as it
+        // plays, and a seat whose name is covered by its own penalty is a seat
+        // nobody can identify at the moment it matters most.
+        y: seat.y - CATCH_CARD_H / 2,
+        // Announces the cards landing, not the message that carried them —
+        // same rule the SKIP / REVERSE / +N callouts follow.
+        delayMs: CATCH_CARD_MS + (CATCH_PENALTY_CARDS - 1) * CATCH_CARD_STAGGER_MS,
+      },
+    ])
+    // Triggered only when a fresh catch arrives (keyed by .at).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.catchFlash?.at, ready])
 
   function spawnSwapTrail(from: { x: number; y: number }, to: { x: number; y: number }, delayMs: number) {
     setFliers((cur) => [

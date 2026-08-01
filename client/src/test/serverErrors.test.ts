@@ -51,6 +51,10 @@ describe('resolveServerError', () => {
       'rematch is only available once the match is over',
       'rate limit exceeded',
       'server busy, please retry',
+      // Client-authored, but it lands in the same errorMsg slot and is rendered
+      // through the same table, so it belongs to the same guarantee.
+      'reconnect failed',
+      'reconnect cancelled',
     ]
 
     for (const message of raw) {

@@ -72,8 +72,8 @@ func TestRematch_ReopensRoomForBothPlayers(t *testing.T) {
 		if msg.RoomCode != code {
 			t.Errorf("client %d: room_code = %q, want %q", i, msg.RoomCode, code)
 		}
-		if msg.PlayerID != i {
-			t.Errorf("client %d: player_id = %d, want %d", i, msg.PlayerID, i)
+		if msg.OwnSeat() != i {
+			t.Errorf("client %d: player_id = %d, want %d", i, msg.OwnSeat(), i)
 		}
 		if len(msg.Players) != 2 {
 			t.Errorf("client %d: players = %d, want 2", i, len(msg.Players))
@@ -163,8 +163,8 @@ func TestRematch_PrunesPlayerWhoLeftAfterMatchEnd(t *testing.T) {
 	if msg.Players[0].Nickname != "Alice" || msg.Players[0].Index != 0 {
 		t.Errorf("remaining player = %+v, want Alice at index 0", msg.Players[0])
 	}
-	if msg.PlayerID != 0 {
-		t.Errorf("host player_id = %d, want 0", msg.PlayerID)
+	if msg.OwnSeat() != 0 {
+		t.Errorf("host player_id = %d, want 0", msg.OwnSeat())
 	}
 
 	// One human alone cannot start: the room stays a usable lobby awaiting a

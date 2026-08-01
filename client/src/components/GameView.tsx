@@ -17,6 +17,7 @@ import { ActionBar } from './ActionBar'
 import { RoundSummary } from './RoundSummary'
 import { ScoreTable } from './ScoreTable'
 import { InterruptBanner } from './InterruptBanner'
+import { CatchBanner } from './CatchBanner'
 import { ThemeToggle } from './ThemeToggle'
 import { AudioSettings } from './AudioSettings'
 import { playSfx } from '../audio/sfx'
@@ -121,6 +122,7 @@ export function GameView({ onSend, wsStatus }: Props) {
     errorMsg,
     swapNotice,
     catchFailed,
+    catchFlash,
     lastPlay,
     interruptFlash,
     dismissRoundSummary,
@@ -129,6 +131,7 @@ export function GameView({ onSend, wsStatus }: Props) {
     pruneCatchWindows,
     noteCatchAttempt,
     clearCatchFailed,
+    clearCatchFlash,
     clearInterrupt,
     clearError,
   } = useGameStore()
@@ -292,13 +295,22 @@ export function GameView({ onSend, wsStatus }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [swapNotice?.at])
 
-  // Interception shake. Driven through the Web Animations API rather than a CSS
-  // class so a second interception replays it immediately — a class toggle would
-  // need the element to remount, which would tear down the whole board.
+  // Screen shake, driven through the Web Animations API rather than a CSS class
+  // so a second one replays immediately — a class toggle would need the element
+  // to remount, which would tear down the whole board.
+  const shakeScreen = useCallback((frames: Keyframe[], durationMs: number, delayMs = 0) => {
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    const el = containerRef.current
+    // Guarded like kickBoard: the Web Animations API is absent under jsdom, and
+    // a missing shake must never take the banner down with it.
+    if (!el || typeof el.animate !== 'function') return
+    el.animate(frames, { duration: durationMs, delay: delayMs, easing: 'ease-out' })
+  }, [])
+
+  // Interception: a rattle, the board knocked sideways by a card slammed onto it.
   useEffect(() => {
     if (!interruptFlash) return
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
-    containerRef.current?.animate(
+    shakeScreen(
       [
         { transform: 'translate(0, 0)' },
         { transform: 'translate(-11px, 6px)' },
@@ -307,10 +319,30 @@ export function GameView({ onSend, wsStatus }: Props) {
         { transform: 'translate(3px, -2px)' },
         { transform: 'translate(0, 0)' },
       ],
-      { duration: 420, easing: 'ease-out' },
+      420,
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [interruptFlash?.at])
+
+  // Contre-LOCO!: a single vertical thump, matching the stamp coming down. The
+  // two loudest moments in the game must not shake the screen the same way, or
+  // a clipped highlight cannot tell them apart with the sound off.
+  useEffect(() => {
+    if (!catchFlash) return
+    shakeScreen(
+      [
+        { transform: 'translate(0, 0)' },
+        { transform: 'translate(0, 14px)', offset: 0.35 },
+        { transform: 'translate(0, -6px)', offset: 0.62 },
+        { transform: 'translate(0, 0)' },
+      ],
+      340,
+      // Held back to the frame the stamp actually lands on: a board that jumps
+      // while the verdict is still falling reads as two unrelated events.
+      180,
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catchFlash?.at])
 
   // Countdown ticks over the last few seconds of our own turn. Time pressure is
   // the one piece of state a spectator cannot read off the board, and the bar at
@@ -452,6 +484,7 @@ export function GameView({ onSend, wsStatus }: Props) {
         turnTexts={turnTexts}
         fxTexts={fxTexts}
         swapNotice={swapNotice}
+        catchFlash={catchFlash}
         lastPlay={lastPlay}
         isReconnecting={isReconnecting || showReconnectOverlay}
         map={map}
@@ -662,6 +695,16 @@ export function GameView({ onSend, wsStatus }: Props) {
         players={players}
         t={t}
         onDone={clearInterrupt}
+      />
+
+      {/* A Contre-LOCO! that landed. The penalty cards fly to the caught seat on
+          the board underneath; this says whose seat it is and what it cost. */}
+      <CatchBanner
+        flash={catchFlash}
+        myIndex={myIndex}
+        players={players}
+        t={t}
+        onDone={clearCatchFlash}
       />
 
       {unoDeclared && (
