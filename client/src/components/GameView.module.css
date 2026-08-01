@@ -269,32 +269,7 @@
   z-index: 46;
 }
 
-/* Fixed Rules button */
-.rulesBtn {
-  padding: 9px 18px;
-  border-radius: var(--radius-full);
-  border: var(--stroke) solid var(--color-stroke);
-  background: var(--color-surface-card);
-  color: var(--color-ink);
-  font: 600 14px/1.2 var(--font-display);
-  cursor: pointer;
-  min-height: 40px;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  box-shadow: 0 3px 0 var(--color-stroke-soft);
-  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
-  z-index: 15;
-}
-
-.rulesBtn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 5px 0 var(--color-stroke-soft);
-}
-
-.rulesBtn:active {
-  transform: translateY(2px);
-  box-shadow: 0 1px 0 var(--color-stroke-soft);
-}
+/* The rules opener is <RulesButton />, which carries its own chip styling. */
 
 /* Scores toggle — square icon button, and deliberately absent on desktop.
    Holding TAB is the faster way in and every pointer device has the key, so a

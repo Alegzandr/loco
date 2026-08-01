@@ -22,6 +22,8 @@ export const T = {
   rematch: 'Rematch',
   rematchWaiting: 'The host is deciding on a rematch…',
   leaveRoom: 'Leave the table',
+  leaveConfirmYes: 'Yes, leave',
+  leaveConfirmStay: 'Stay',
   gameOver: 'That is the match',
   youWin: 'YOU WIN!',
   winsRound: 'takes the round!',

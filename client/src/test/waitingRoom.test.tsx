@@ -77,16 +77,44 @@ describe('WaitingRoom max players', () => {
 
 // A table nobody can leave is a dead end: the only way out was closing the tab,
 // which drops the socket and holds the seat for 60s instead of freeing it.
+//
+// Leaving is one-way — the code is gone from this screen and the seat with it —
+// so the press asks before it acts. The confirmation lives in place rather than
+// in a modal: it is a question about the thing directly above it.
 describe('WaitingRoom leaving', () => {
-  it('lets the host give the table up', () => {
+  it('asks before the host gives the table up', () => {
     const { onLeave } = renderSeat(0)
     fireEvent.click(screen.getByRole('button', { name: 'Leave the table' }))
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(screen.getByText('Leave this table?')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, leave' }))
     expect(onLeave).toHaveBeenCalledTimes(1)
   })
 
-  it('lets a guest give their seat up', () => {
+  it('asks before a guest gives their seat up', () => {
     const { onLeave } = renderSeat(1)
     fireEvent.click(screen.getByRole('button', { name: 'Leave the table' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, leave' }))
     expect(onLeave).toHaveBeenCalledTimes(1)
+  })
+
+  it('puts the player back where they were on Stay', () => {
+    const { onLeave } = renderSeat(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Leave the table' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Stay' }))
+
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(screen.queryByText('Leave this table?')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Leave the table' })).toBeInTheDocument()
+  })
+
+  it('takes Escape as Stay', () => {
+    const { onLeave } = renderSeat(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Leave the table' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(onLeave).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Leave the table' })).toBeInTheDocument()
   })
 })

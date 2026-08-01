@@ -74,7 +74,14 @@ test.describe('multi-client synchronization', () => {
       await joinRoom(page2, 'Bob', roomCode)
       await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
 
+      // Backing out first: the question must actually hold the seat, not just
+      // delay the same outcome by one press.
       await page2.getByRole('button', { name: T.leaveRoom }).click()
+      await page2.getByRole('button', { name: T.leaveConfirmStay }).click()
+      await expect(page1.getByText('Bob')).toBeVisible()
+
+      await page2.getByRole('button', { name: T.leaveRoom }).click()
+      await page2.getByRole('button', { name: T.leaveConfirmYes }).click()
 
       await page2.waitForFunction(
         () => window.__LOCO_E2E__?.getState?.()?.screen === 'lobby',

@@ -269,6 +269,13 @@ something a person at the table would say, and rewriting one means keeping it in
 - **A refusal says what to do next, and never blames.** "Someone beat you to it", not "Too late" —
   the window closed because somebody else was faster, and that is information, not a scolding. One
   pill, read in under a second, no wire vocabulary (`interrupt`, `session`, `payload`).
+- **The one destructive press asks, and the safe answer is a word.** Leaving the table is the only
+  thing on that screen a player cannot undo (a guest loses the table code with the seat), so the
+  link swaps itself for `Tu quittes la table ?` with `Rester` and `Oui, je pars`. The question takes
+  the link's place instead of opening a modal over it: the answer lands where the finger already is
+  and nothing else on the screen moves. `Rester` comes first and is the coloured one — the safe
+  answer should be the easy one to hit — and Escape means it too. Nothing else in the game gets a
+  confirmation: it is a reaction game, and a second press on every action is how it stops being one.
 - **Nothing is exclamatory twice.** The banners shout (`INTERCEPTED!`, `CAUGHT!`, `LOCO!`) because
   they are the streamable moments; everything around them stays calm so those keep their weight.
 - **No em dash in copy**, in either language: a colon, a full stop, or two sentences.

@@ -32,22 +32,7 @@
   gap: var(--space-sm);
 }
 
-.rulesLink {
-  padding: 9px 18px;
-  border: var(--stroke) solid var(--color-stroke);
-  border-radius: var(--radius-full);
-  background: var(--color-surface-card);
-  color: var(--color-ink);
-  font: 600 14px/1.2 var(--font-display);
-  cursor: pointer;
-  min-height: 40px;
-  touch-action: manipulation;
-  box-shadow: 0 3px 0 var(--color-stroke-soft);
-  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
-}
-
-.rulesLink:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
-.rulesLink:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
+/* The rules opener is <RulesButton />, which carries its own chip styling. */
 
 /* Logo: stacked hard shadows give the letters real thickness, and the whole
    wordmark breathes so the screen is never fully static. */

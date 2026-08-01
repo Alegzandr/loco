@@ -184,6 +184,7 @@ function SceneScreen({ scene }: { scene: Scene }) {
           maxPlayers={maxPlayers}
           onSend={noop}
           onLeave={noop}
+          initialConfirmLeave={scene.confirmLeave}
         />
       )
     case 'game':
