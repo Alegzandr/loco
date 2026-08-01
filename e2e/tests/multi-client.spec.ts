@@ -253,8 +253,8 @@ test.describe('multi-client synchronization', () => {
       await waitForRoundSummary(page1, 20_000)
       await waitForRoundSummary(page2, 20_000)
 
-      await expect(page1.getByText(/wins the round!/)).toBeVisible()
-      await expect(page2.getByText(/wins the round!/)).toBeVisible()
+      await expect(page1.getByText(new RegExp(T.winsRound))).toBeVisible()
+      await expect(page2.getByText(new RegExp(T.winsRound))).toBeVisible()
     } finally {
       await ctx1.close()
       await ctx2.close()

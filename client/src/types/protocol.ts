@@ -35,6 +35,13 @@ export type ClientMsgType =
   | 'set_match_format'
   | 'set_max_players'
   | 'rematch'
+  // Matchmaking. The queue is anonymous: nothing the server sends back says how
+  // many people are in it, so nothing here asks.
+  | 'find_match'
+  | 'cancel_matchmaking'
+  // Gives up the seat this socket holds without dropping the connection. In a
+  // matchmade match in progress it is a deliberate forfeit.
+  | 'leave_room'
   | 'play_card'
   | 'draw_card'
   | 'pass_turn'

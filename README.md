@@ -123,6 +123,9 @@ for the smallest possible delay rather than the fewest bytes:
   back on the lobby with the match still running. `sessionStorage` rather than `localStorage` on
   purpose: it is per tab, so two seats played from one browser cannot overwrite each other's token,
   and it dies with the tab rather than handing the next person a live seat.
+- The **last nickname is remembered across visits** (`localStorage`, written when a room is created or
+  joined) and prefills the lobby field, so a returning player types a room code and nothing else. It
+  is only a suggestion: the field stays editable and an empty one still refuses to send.
 
 ### Anti-Cheat
 
@@ -231,6 +234,8 @@ docker compose -f docker-compose.dev.yml down    # dev
 | `LOCO_E2E`        | *(unset)*             | `1` enables `debug_set_state`, used by the Playwright suite. **Never set in production** — the server logs a startup `WARN` and `/metrics` reports `debug_mode_active`. |
 | `LOCO_BOT_THINK_MS` | `1200`              | Bot thinking time before playing a card. Read **only** when `LOCO_E2E=1`; ignored (with a `WARN`) if malformed or negative. Shortened in CI to cut dead time out of the E2E suite. |
 | `LOCO_BOT_JITTER_MS` | `1000`             | Random jitter added to `LOCO_BOT_THINK_MS`. Same gate and same validation. Bot *reaction* windows (catch, LOCO! declaration, interrupt) are deliberately not tunable. |
+| `LOCO_DRAIN_TIMEOUT` | `15m`              | On `SIGTERM`, how long the server waits for the matches already running to finish before it snapshots them and exits. A Go duration (`90s`, `15m`) or bare seconds. Malformed values fall back to the default with a `WARN`, never to zero. Prod `15m`, dev `90s`, local compose `5s`. |
+| `LOCO_SNAPSHOT_PATH` | *(unset)*          | Where matches in flight are parked across a restart, so the players reconnect into them instead of losing the match. Unset disables the mechanism entirely, which is what local dev and the E2E suite run with. Production: `/data/snapshot.json`, bind-mounted from `${DATA_DIR}/snapshots`. |
 
 Copy `.env.example` to `.env` and adjust as needed.
 
@@ -453,7 +458,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Session restore across a page reload: the seat and hand come back mid-match, the waiting room is
   rejoined, and a session naming a dead room falls back to the lobby instead of hanging
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch colour prompt + discard update
-- Swap / Global Swap on-screen notification banner + Framer Motion card-back trail animation between affected seats
+- Swap / Global Switch on-screen notification banner + Framer Motion card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch, wilds included), interrupt window open/closed
 - Rematch: host reopens the finished room and plays a full new match; a joined player is pulled back to the waiting room and keeps their seat
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
@@ -462,8 +467,10 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 
 ## Implemented Features
 
-- **Lobby**: nickname-only rooms, 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
-- **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Swap), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`; one call per single card, and the button is spent once the server confirms it) + a per-seat 5 s catch window that also covers the players a Swap or a Global Swap leaves holding a single card (Contre-LOCO! is a wager: a call that arrives after the declaration, after the hand grew, or after the window closed costs the caller 1 card — `docs/rules.md` §14.6), single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
+- **Lobby**: nickname-only rooms (the last nickname is remembered and prefilled), 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
+- **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Switch), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`; one call per single card, and the button is spent once the server confirms it) + a per-seat 5 s catch window that also covers the players a Swap or a Global Switch leaves holding a single card (Contre-LOCO! is a wager: a call that arrives after the declaration, after the hand grew, or after the window closed costs the caller 1 card — `docs/rules.md` §14.6), single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
+- **1v1 matchmaking**: one button on the home screen puts a player in a queue and pairs them with whoever else is looking. There is no host, no code to share and no lobby: two searchers get a versus reveal naming their opponent, and the match deals itself two and a half seconds later, in a single round. At the end either player can ask for another: a matchmade rematch is an **agreement**, so both offers are public and the same two are dealt in again only once both are in. Whoever wants a different opponent instead goes straight back into the queue from the same screen. **The queue's size is never on the wire**: not as a count, not as a position, not as an estimate. So the searching screen times its own wait instead and says, at fifteen and at forty-five seconds, that it is still looking and that this can take a while; past that it also offers to open a private table. A number that reads "1 player searching" is an instruction to give up, and every player who leaves on it is the opponent the next one was about to get. The mode carries no rank and does not call itself unranked: there is one queue today, and a ranked ladder would introduce itself.
+- **Nobody waits for somebody who is not there**: a matchmade match holds a dropped seat for **15 s** rather than 60, and the player still at the table watches that countdown on the board. Two consecutive turn timeouts (instead of four) end it the same way. Either way the match is **forfeited** to whoever stayed: named as a forfeit on the game-over screen, with no confetti and no points invented for a round nobody finished. Quitting on purpose does the same thing immediately. Ordinary rooms are untouched: they are people who came in together, and the 60 s hold is there so a drop is not the end.
 - **Rematch**: after a match the host reopens the same room (same code, same roster, cleared scores); absent seats are pruned, everyone else is pulled back to the waiting room.
 - **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
   copy rather than showing the server's own English string), light + dark themes. On a phone with a notch the page runs edge to edge (`viewport-fit=cover`) so the
@@ -481,7 +488,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - **Play direction on the table**: a ring of chevrons runs around the felt showing which way play is moving, chasing slowly in that direction and flipping over when a Reverse lands. The callout lasts a second; the heading lasts the rest of the round, so a player who looked away — or a viewer who just opened the stream — can still read whose turn comes next.
 - **Audio**: runtime-synthesised effects for every action and rule outcome, plus **three adaptive soundtracks** — *Neon Horizon* (uplifting trance, 138 BPM), *Pixel Rush* (electro house, 128) and *Voltage* (dark electro, 145) — each written as parts (intro, verse, chorus, bridge, break) rather than a loop. They play as a **shuffled playlist**: a track runs about two minutes, then hands over on its own, and the only control is a ⏭ next button. Two things drive what you hear: the **song form** advances by itself, so around forty bars pass before a part returns, and the **table's tension** picks how thickly it is played *and* which part comes next — a breakdown between rounds, a build-up in the lobby, a groove during play, the full drop when someone is one card from winning. Risers and crashes announce a chorus, fills close every part, and the bed ducks under the win/lose fanfares. Per-bus mixer (overall / effects / music) with mute, persisted across sessions. Nothing plays before the first user gesture.
 - **Bots that play the whole game**: they take turns, counter a draw stack, declare LOCO! and call Contre-LOCO! — and they **interject**, slamming an identical card into an open window like anybody else. Until they did, the game's signature mechanic ran one way only, which made the hardest reaction in the game also the one nobody had to defend against. They are deliberately fallible: they take about a second to react and use the window they see roughly two times in five.
-- **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery (a page reload reclaims the seat too, not just a dropped socket), session tokens, per-client rate limiting (10 msg/s, burst 20), `Origin` checking on the WebSocket upgrade (same host by default, `LOCO_ALLOWED_ORIGINS` to narrow), a closed CSP and the usual security headers from nginx, AFK auto-kick, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, Docker dev + prod compose.
+- **Server / infra**: per-player personalized state, 60 s reconnect window with visual recovery (a page reload reclaims the seat too, not just a dropped socket), session tokens, per-client rate limiting (10 msg/s, burst 20), `Origin` checking on the WebSocket upgrade (same host by default, `LOCO_ALLOWED_ORIGINS` to narrow), a closed CSP and the usual security headers from nginx, AFK auto-kick (a forfeit rather than a kick in a matchmade 1v1), a 1v1 matchmaking queue whose size is exposed only on `/metrics`, append-only event log, `GET /health` + `GET /metrics`, structured logging, empty-room cleanup, **a graceful shutdown that lets the matches in progress finish and carries across a restart whatever they do not** (see below), Docker dev + prod compose.
 
 Full grouped list: [`docs/features.md`](docs/features.md).
 
@@ -489,8 +496,9 @@ Full grouped list: [`docs/features.md`](docs/features.md).
 
 ## Known Limitations
 
-- No persistence: rooms and game state are in-memory only; server restart clears everything
-- Reconnect window is 60 seconds; longer disconnects permanently drop the player
+- No persistence: rooms and game state are in-memory only. A *graceful* restart is covered (see "Deploying without interrupting a match" below), but a crash or a `SIGKILL` still clears everything
+- Reconnect window is 60 seconds in an ordinary room (15 in a matchmade 1v1); longer disconnects permanently drop the player
+- Matchmaking is a single first-come queue: no rating and no region. A ranked ladder would be a second queue beside it
 - No spectator mode
 - No chat
 - Maps are drawn at random and cannot be chosen; the four that ship are cosmetic only and have no effect on play
@@ -508,6 +516,15 @@ GitLab CI pipeline (`.gitlab-ci.yml`) runs `test → build → deploy`; producti
 `build` depends on **every** test job — Go tests, `golangci-lint`, the client suite and the full Playwright run. Listing only a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the build started as soon as those two finished, so the lint and the E2E suite were advisory and a red `develop` still shipped.
 
 GitLab is the only CI. The GitHub remote is a plain mirror with no pipeline of its own, so `.gitlab-ci.yml` is the single definition and there is nothing to keep in sync.
+
+### Deploying without interrupting a match
+
+A deploy used to end every match in progress, silently: nothing caught `SIGTERM`, so the process died mid-turn and the clients that reconnected a moment later were told "no table with that code". Two mechanisms replace that, and both run on every shutdown.
+
+- **Drain.** On `SIGTERM` the server stops accepting anything that would start a new match (`create_room`, `start_game`, `rematch`, `find_match`, and joining a table it does not have) and empties the matchmaking queue with an explanation. Everything already running is left completely alone: same turn clock, same reaction windows, same bots, same reconnects. Tables in progress get one `server_updating`, which the client shows as a quiet line in the top chrome. The process exits as soon as the last match ends, or after `LOCO_DRAIN_TIMEOUT`.
+- **Snapshot.** Whatever the drain did not finish is written to `LOCO_SNAPSHOT_PATH` on the way out and read back by the next process before its listener is up. Clients reconnect into the restored rooms on their own with the token they already hold, so from a seat it is the one-second reconnect overlay a dropped wifi frame produces. Only matches in flight travel; a snapshot is never replayed, and one from another build or older than two minutes is discarded whole.
+
+`deploy/compose.yml` sets `stop_grace_period` above `LOCO_DRAIN_TIMEOUT` (without it Docker `SIGKILL`s after 10 s and none of the above exists) and bind-mounts `${DATA_DIR}/snapshots`. The rollout recreates the **server first, the client second**, so a fresh bundle is never served against a server that is still draining on the old version. Full detail: [`docs/deployment.md`](docs/deployment.md).
 
 ### Pipeline speed
 

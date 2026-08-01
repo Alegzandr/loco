@@ -210,6 +210,19 @@ type Hub struct {
 	// When the count reaches AFKKickThreshold the player is force-disconnected.
 	afkTimeouts map[string]map[int]int
 
+	// queue is the 1v1 matchmaking queue, oldest wait first. Its length is a
+	// metric and nothing else: no client is ever told how long it is.
+	// See matchmaking.go.
+	queue []queuedPlayer
+	// rematchOffers[code] is the set of seats that have asked for another match
+	// in a finished matchmade room. Both have to be in before it is dealt.
+	rematchOffers map[string]map[int]struct{}
+	// matchmade[code] = the instant that room was paired. Its presence means the
+	// room came out of the queue, which shortens the reconnect hold and the AFK
+	// threshold, refuses every host-only lobby control, and turns an abandoned
+	// seat into a forfeit instead of an indefinite wait.
+	matchmade map[string]time.Time
+
 	register       chan *Client
 	unregister     chan *Client
 	inbound        chan inboundMsg
@@ -221,7 +234,20 @@ type Hub struct {
 	botCatch       chan botCatchMsg       // scheduled bot catch-UNO attempts
 	botInterrupt   chan botInterruptMsg   // scheduled bot interject attempts
 	mapLoadTimeout chan mapLoadTimeoutMsg // "start without the stragglers" deadline
+	mmStart        chan mmStartMsg        // matchmade pair: the versus reveal is over, deal them in
+	drain          chan struct{}          // BeginDrain(): stop accepting new matches (see drain.go)
+	snapshotSave   chan snapshotReq       // SaveSnapshot(): read every room, on the loop (see snapshot.go)
+	snapshotLoad   chan snapshotReq       // LoadSnapshot(): put rooms back, on the loop
 	quit           chan struct{}          // closed by Stop() to terminate Run()
+
+	// draining is read from the HTTP goroutines (/health, /metrics) as well as
+	// from the event loop, which is the only reason it is atomic; every write
+	// goes through the drain channel and lands in Run.
+	draining atomic.Bool
+	// drained is closed once the last match in flight has ended. drainedClosed
+	// guards the close, and is only ever touched by the event loop.
+	drained       chan struct{}
+	drainedClosed bool
 
 	// afterRegisterHook is called in the register case after the client is added
 	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
@@ -240,6 +266,9 @@ type Hub struct {
 	statChannelRetries       atomic.Int64 // botMove/expire/cleanup channel-pressure retries
 	statSuspectedCheats      atomic.Int64 // gameplay validation rejections that look like exploit attempts
 	statReconnectExpirations atomic.Int64 // reconnect windows that expired without the player coming back
+	statMatchmakingQueue     atomic.Int32 // players currently waiting for a 1v1 opponent (operator-only)
+	statMatchesMatchmade     atomic.Int32 // matches created by pairing two queued players
+	statMatchesInFlight      atomic.Int32 // matches a shutdown would interrupt; only maintained while draining
 	startTime                time.Time
 }
 
@@ -249,6 +278,12 @@ type HealthStats struct {
 	Rooms     int32  `json:"rooms"`
 	Clients   int32  `json:"clients"`
 	UptimeSec int64  `json:"uptime_sec"`
+	// Draining means this process has been asked to go and is only finishing
+	// the matches it already had. It stays on /health rather than turning the
+	// endpoint red: a draining server is serving its players perfectly well,
+	// and a container Docker considers unhealthy is a container something
+	// else may decide to kill out from under them.
+	Draining bool `json:"draining"`
 }
 
 // MetricsStats is the full metrics payload for GET /metrics.
@@ -266,7 +301,19 @@ type MetricsStats struct {
 	ChannelRetries       int64 `json:"channel_retries"`
 	SuspectedCheats      int64 `json:"suspected_cheats"`
 	ReconnectExpirations int64 `json:"reconnect_expirations"`
-	DebugModeActive      bool  `json:"debug_mode_active"`
+	// MatchmakingQueue is the only place the queue's size is ever readable, and
+	// /metrics is an operator surface that no compose file publishes. It is what
+	// tells an operator whether an empty-feeling queue is empty or broken.
+	MatchmakingQueue int32 `json:"matchmaking_queue"`
+	MatchesMatchmade int32 `json:"matches_matchmade"`
+	DebugModeActive  bool  `json:"debug_mode_active"`
+	// Draining, plus MatchesInFlight, is what an operator watches during a
+	// deploy: the second is the number the shutdown is waiting to reach zero.
+	// It is only maintained while draining and reads 0 before that, because
+	// counting it the rest of the time would mean scanning every room after
+	// every event for a number nobody is looking at.
+	Draining        bool  `json:"draining"`
+	MatchesInFlight int32 `json:"matches_in_flight"`
 }
 
 // New creates and returns a Hub.
@@ -282,6 +329,8 @@ func New() *Hub {
 		turnStartedAt:  make(map[string]time.Time),
 		mapLoading:     make(map[string]*mapLoadState),
 		afkTimeouts:    make(map[string]map[int]int),
+		matchmade:      make(map[string]time.Time),
+		rematchOffers:  make(map[string]map[int]struct{}),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
 		inbound:        make(chan inboundMsg, 256),
@@ -293,21 +342,50 @@ func New() *Hub {
 		botCatch:       make(chan botCatchMsg, 64),
 		botInterrupt:   make(chan botInterruptMsg, 64),
 		mapLoadTimeout: make(chan mapLoadTimeoutMsg, 64),
+		mmStart:        make(chan mmStartMsg, 64),
+		drain:          make(chan struct{}),
+		drained:        make(chan struct{}),
+		snapshotSave:   make(chan snapshotReq),
+		snapshotLoad:   make(chan snapshotReq),
 		quit:           make(chan struct{}),
 		startTime:      time.Now(),
 	}
 }
 
 // generateSessionToken produces a cryptographically random 32-hex-char token.
+//
+// There is no math/rand fallback, and there must not be one: this token is the
+// only thing proving that whoever claims a held seat is the player who left it.
+// Degrading it to a predictable source on an error path would turn the one
+// authentication check in the game into a guessable number, and it was dead
+// code besides: since Go 1.24 rand.Read never returns an error, it panics if
+// the OS entropy source is genuinely broken, which is the correct outcome for a
+// server that can no longer issue a trustworthy token.
 func generateSessionToken() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// fallback: use math/rand (should never happen)
-		for i := range b {
-			b[i] = byte(mrand.Intn(256))
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// randIndex returns a uniformly distributed index in [0, n) drawn from
+// crypto/rand. The mask-and-retry keeps the distribution flat for any n; for
+// the 32-character room alphabet the mask is exact and nothing is ever redrawn.
+func randIndex(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	mask := 1
+	for mask < n {
+		mask <<= 1
+	}
+	mask--
+	var b [1]byte
+	for {
+		_, _ = rand.Read(b[:])
+		if v := int(b[0]) & mask; v < n {
+			return v
 		}
 	}
-	return hex.EncodeToString(b)
 }
 
 // issueToken creates and stores a session token for the given player slot.
@@ -340,6 +418,7 @@ func (h *Hub) GetStats() HealthStats {
 		Rooms:     h.statRooms.Load(),
 		Clients:   h.statClients.Load(),
 		UptimeSec: int64(time.Since(h.startTime).Seconds()),
+		Draining:  h.draining.Load(),
 	}
 }
 
@@ -359,7 +438,11 @@ func (h *Hub) GetMetrics() MetricsStats {
 		ChannelRetries:       h.statChannelRetries.Load(),
 		SuspectedCheats:      h.statSuspectedCheats.Load(),
 		ReconnectExpirations: h.statReconnectExpirations.Load(),
+		MatchmakingQueue:     h.statMatchmakingQueue.Load(),
+		MatchesMatchmade:     h.statMatchesMatchmade.Load(),
 		DebugModeActive:      os.Getenv("LOCO_E2E") == "1",
+		Draining:             h.draining.Load(),
+		MatchesInFlight:      h.statMatchesInFlight.Load(),
 	}
 }
 
@@ -426,6 +509,28 @@ func (h *Hub) Run() {
 
 		case mlm := <-h.mapLoadTimeout:
 			h.handleMapLoadTimeout(mlm)
+
+		case sm := <-h.mmStart:
+			h.handleMatchmakingStart(sm)
+
+		case <-h.drain:
+			h.beginDrain()
+
+		case req := <-h.snapshotSave:
+			req.done <- h.saveSnapshot(req.path)
+
+		case req := <-h.snapshotLoad:
+			req.done <- h.loadSnapshot(req.path)
+		}
+
+		// After every event, not hooked onto the handful that can end a match.
+		// A match stops being in flight through several paths — the last card,
+		// a forfeit, an expired reconnect window, the empty-room cleanup — and
+		// the one that gets forgotten is the one that leaves a deploy hanging
+		// until its timeout. Scanning a map of rooms costs nothing next to the
+		// work the loop just did.
+		if h.draining.Load() {
+			h.checkDrained()
 		}
 	}
 }
@@ -480,6 +585,12 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleSetMaxPlayers(c, msg)
 	case protocol.CMsgRematch:
 		h.handleRematch(c, msg)
+	case protocol.CMsgFindMatch:
+		h.handleFindMatch(c, msg)
+	case protocol.CMsgCancelMatchmaking:
+		h.handleCancelMatchmaking(c)
+	case protocol.CMsgLeaveRoom:
+		h.handleLeaveRoom(c)
 	case protocol.CMsgPlayCard:
 		h.resetAFK(c.roomCode, c.playerID)
 		h.handlePlayCard(c, msg)
@@ -521,7 +632,44 @@ func validateNickname(c *Client, raw string) string {
 	return n
 }
 
+// alreadySeated reports whether this socket already holds a seat, and is the
+// guard on both room-entry handlers.
+//
+// A seat lives in two places at once: the socket knows it as c.roomCode /
+// c.playerID, and the room knows it as the *Client pointer at index playerID in
+// h.roomMembers. Re-entering a room moves only the first. The pointer stays
+// behind at the old index while c.playerID names a seat in the new room, and
+// every personalised broadcast for the old room (broadcastPersonalizedGameState,
+// the per-recipient game_started of a new round) is then built from the wrong
+// index. A player seated at 1 who rebinds to 0 elsewhere is handed seat 0's
+// hand here, which is the entire hidden state the server exists to keep.
+//
+// The stale slot also never empties, so the room outlives its players and the
+// abandoned seat never opens its reconnect window.
+//
+// Reconnects do not come through here: they arrive on a fresh socket, whose
+// roomCode is still "". A room that no longer exists is not a seat, so a client
+// left pointing at a deleted room is released rather than locked out.
+func (h *Hub) alreadySeated(c *Client) bool {
+	if c.roomCode == "" {
+		return false
+	}
+	if _, ok := h.rooms[c.roomCode]; !ok {
+		c.roomCode = ""
+		c.playerID = 0
+		return false
+	}
+	return true
+}
+
 func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
+	if h.refuseWhileDraining(c) {
+		return
+	}
+	if h.alreadySeated(c) {
+		c.sendError("already in a room")
+		return
+	}
 	nickname := validateNickname(c, msg.Nickname)
 	if nickname == "" {
 		return
@@ -555,6 +703,10 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 }
 
 func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
+	if h.alreadySeated(c) {
+		c.sendError("already in a room")
+		return
+	}
 	nickname := validateNickname(c, msg.Nickname)
 	if nickname == "" {
 		return
@@ -567,6 +719,13 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	code := strings.ToUpper(msg.RoomCode)
 	room, ok := h.rooms[code]
 	if !ok {
+		// While draining, a table this process does not have is very likely a
+		// table the *previous* process had: saying "no table with that code"
+		// would blame the player for a code that was real. Reconnects are not
+		// affected, they land in the branch below on a room that exists.
+		if h.refuseWhileDraining(c) {
+			return
+		}
 		c.sendError("room not found")
 		return
 	}
@@ -622,6 +781,14 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
+	// Dealing during a drain is what would keep the deploy waiting without
+	// bound; see drain.go.
+	if h.refuseWhileDraining(c) {
+		return
+	}
+	if h.refuseInMatchmade(c) {
+		return
+	}
 	if c.playerID != 0 {
 		c.sendError("only the room owner can start the game")
 		return
@@ -630,21 +797,38 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
+	h.dealMatch(c.roomCode, room)
+}
 
+// startMatch is the matchmaking entry point into the same deal a host's
+// start_game produces: nobody presses anything in a matchmade room, so the
+// reveal timer calls this instead.
+func (h *Hub) startMatch(code string, room *game.Room) {
+	if err := room.Start(); err != nil {
+		log.Printf("WARN matchmade start failed code=%s err=%v", code, err)
+		return
+	}
+	h.dealMatch(code, room)
+}
+
+// dealMatch broadcasts the freshly dealt match and opens the loading gate. The
+// two callers differ only in who decided to start.
+func (h *Hub) dealMatch(code string, room *game.Room) {
 	h.statMatchesStarted.Add(1)
-	log.Printf("match started code=%s players=%d format=%s", c.roomCode, len(room.Players), matchFormatString(room.Format))
+	log.Printf("match started code=%s players=%d format=%s matchmade=%t",
+		code, len(room.Players), matchFormatString(room.Format), h.isMatchmade(code))
 
 	// Send each player their personalized game state. Build the shared player
 	// list once and reuse it across all recipients.
-	members := h.roomMembers[c.roomCode]
+	members := h.roomMembers[code]
 	pl := h.playerList(room)
-	for _, member := range members {
+	for seat, member := range members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameStateUsing(room, member.playerID, pl),
+			State: h.playerGameStateUsing(room, seat, pl),
 		})
 	}
 
@@ -654,7 +838,7 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	// first turn used to start ticking while somebody's table was still a grey
 	// rectangle, which in a game decided by arrival order is a head start, not
 	// a cosmetic problem.
-	h.beginMapLoading(c.roomCode, room)
+	h.beginMapLoading(code, room)
 }
 
 // handleRematch reopens a finished room as a lobby so the same group can play
@@ -664,6 +848,18 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
 	if !ok {
+		return
+	}
+	// A matchmade rematch deals immediately, and an ordinary one leads to a
+	// start_game the drain is going to refuse anyway. Refusing here is the
+	// honest version of both.
+	if h.refuseWhileDraining(c) {
+		return
+	}
+	// A matchmade room has no host, so a rematch there is an agreement rather
+	// than a decision: see handleRematchOffer.
+	if h.isMatchmade(c.roomCode) {
+		h.handleRematchOffer(c, room)
 		return
 	}
 	if c.playerID != 0 {
@@ -747,6 +943,9 @@ func (h *Hub) handleSetMatchFormat(c *Client, msg protocol.ClientMsg) {
 	if !ok {
 		return
 	}
+	if h.refuseInMatchmade(c) {
+		return
+	}
 	if c.playerID != 0 {
 		c.sendError("only the host can change match format")
 		return
@@ -770,6 +969,9 @@ func (h *Hub) handleSetMatchFormat(c *Client, msg protocol.ClientMsg) {
 func (h *Hub) handleSetMaxPlayers(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
 	if !ok {
+		return
+	}
+	if h.refuseInMatchmade(c) {
 		return
 	}
 	if c.playerID != 0 {
@@ -903,13 +1105,13 @@ func (h *Hub) handleRoundOrMatchEnd(code string, room *game.Room) {
 	h.scheduleTurnTimer(code, room)
 	members := h.roomMembers[code]
 	pl := h.playerList(room)
-	for _, member := range members {
+	for seat, member := range members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameStateUsing(room, member.playerID, pl),
+			State: h.playerGameStateUsing(room, seat, pl),
 		})
 	}
 	h.maybeScheduleBot(code, room)
@@ -1150,6 +1352,9 @@ func (h *Hub) broadcastInterrupt(code string, room *game.Room, playerID int, car
 // --- Disconnect handling ---
 
 func (h *Hub) handleDisconnect(c *Client) {
+	// A socket that has gone away must not be paired with somebody who is still
+	// there, so the queue is the first thing it leaves.
+	h.dequeue(c)
 	if c.roomCode == "" {
 		log.Printf("player disconnected conn=%s addr=%s (no room)", c.connID, c.conn.RemoteAddr())
 		return
@@ -1177,11 +1382,16 @@ func (h *Hub) handleDisconnect(c *Client) {
 		disconnectTime := time.Now()
 		h.disconnectedAt[c.roomCode][c.playerID] = disconnectTime
 
+		// The forfeit deadline rides this message in a matchmade room: the player
+		// still at the table is owed a number rather than an open-ended notice,
+		// and 15s of "they might come back" is short enough to sit through only
+		// because it is visibly counting down.
 		h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
-			Type:        protocol.SMsgPlayerDisconnected,
-			PlayerIndex: intPtr(c.playerID),
-			Nickname:    nickname,
-			Players:     h.playerList(room),
+			Type:            protocol.SMsgPlayerDisconnected,
+			PlayerIndex:     intPtr(c.playerID),
+			Nickname:        nickname,
+			Players:         h.playerList(room),
+			ForfeitDeadline: h.forfeitDeadlineMs(c.roomCode, disconnectTime),
 		})
 
 		// A seat that left during the loading gate is no longer a seat the table
@@ -1192,26 +1402,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 			h.maybeOpenTable(c.roomCode, room)
 		}
 
-		// Schedule reconnect expiry using time.AfterFunc to avoid long-lived goroutines.
-		// If the expire channel is full, retry once after 5s; dropping permanently would
-		// leave the player slot in disconnectedAt forever.
-		code, pid := c.roomCode, c.playerID
-		em := expireMsg{roomCode: code, playerID: pid, disconnectedAt: disconnectTime}
-		time.AfterFunc(ReconnectTimeout, func() {
-			select {
-			case h.expire <- em:
-			default:
-				h.statChannelRetries.Add(1)
-				log.Printf("expire channel full, retrying in 5s code=%s player=%d", code, pid)
-				time.AfterFunc(5*time.Second, func() {
-					select {
-					case h.expire <- em:
-					default:
-						log.Printf("WARN expire retry dropped, slot may not be reclaimed code=%s player=%d", code, pid)
-					}
-				})
-			}
-		})
+		h.scheduleReconnectExpiry(c.roomCode, c.playerID, disconnectTime)
 
 		// If all slots are now empty, start the room cleanup timer.
 		if h.allSlotsEmpty(c.roomCode) {
@@ -1249,6 +1440,34 @@ func (h *Hub) handleDisconnect(c *Client) {
 		Type:     protocol.SMsgPlayerLeft,
 		Nickname: nickname,
 		Players:  h.playerList(room),
+	})
+}
+
+// scheduleReconnectExpiry arms the close of a held seat's reconnect window.
+//
+// time.AfterFunc rather than a goroutine per absent seat. If the expire channel
+// is full the send is retried once after 5s: dropping it permanently would
+// leave the slot in disconnectedAt forever, held for a player who is not
+// coming back and reclaimable by nobody else.
+//
+// Shared with the snapshot restore, which arms exactly this window on every
+// seat of a match carried across a restart.
+func (h *Hub) scheduleReconnectExpiry(code string, playerID int, at time.Time) {
+	em := expireMsg{roomCode: code, playerID: playerID, disconnectedAt: at}
+	time.AfterFunc(h.reconnectHold(code), func() {
+		select {
+		case h.expire <- em:
+		default:
+			h.statChannelRetries.Add(1)
+			log.Printf("expire channel full, retrying in 5s code=%s player=%d", code, playerID)
+			time.AfterFunc(5*time.Second, func() {
+				select {
+				case h.expire <- em:
+				default:
+					log.Printf("WARN expire retry dropped, slot may not be reclaimed code=%s player=%d", code, playerID)
+				}
+			})
+		}
 	})
 }
 
@@ -1387,6 +1606,8 @@ func (h *Hub) deleteRoom(code string) {
 	delete(h.turnStartedAt, code)
 	delete(h.mapLoading, code)
 	delete(h.afkTimeouts, code)
+	delete(h.matchmade, code)
+	delete(h.rematchOffers, code)
 	h.statRooms.Add(-1)
 	log.Printf("room deleted code=%s", code)
 }
@@ -1433,6 +1654,14 @@ func (h *Hub) handleExpireReconnect(em expireMsg) {
 		Nickname: nickname,
 		Players:  h.playerList(room),
 	})
+
+	// In a matchmade room the hold is the whole wait: nobody here agreed to sit
+	// through an opponent who is not coming back, so the match is given to
+	// whoever is still at the table instead of grinding on with a seat that
+	// auto-passes every turn until the round runs out.
+	if room.Status == game.StatusPlaying && h.isMatchmade(em.roomCode) {
+		h.forfeitMatch(em.roomCode, room, em.playerID)
+	}
 
 	// If no connected members remain, let the room cleanup timer handle deletion
 	// (already scheduled when the last player disconnected).
@@ -1494,6 +1723,13 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 		Nickname:    nickname,
 		Players:     h.playerList(room),
 	}, c)
+
+	// Someone who comes back mid-drain missed the announcement: they were on a
+	// dead socket when it went out, and their table is one of the ones being
+	// waited on.
+	if h.draining.Load() {
+		c.Send(protocol.ServerMsg{Type: protocol.SMsgServerUpdating})
+	}
 
 	// Someone who comes back while the table is still shut has to be told so,
 	// their client would otherwise never send map_ready, and the room would wait
@@ -1643,6 +1879,9 @@ func nextBotName(room *game.Room) string {
 func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
 	if !ok {
+		return
+	}
+	if h.refuseInMatchmade(c) {
 		return
 	}
 	if c.playerID != 0 {
@@ -2239,16 +2478,37 @@ func (h *Hub) memberClient(code string, playerID int) *Client {
 	return nil
 }
 
-// kickIfAFK bumps the AFK counter for human players and force-disconnects them
-// once the threshold is reached. Bots are exempt — their timeouts are driven by
-// the scheduler, not player inactivity. Returns true if the player was kicked.
+// kickIfAFK bumps the AFK counter for human players and acts once the threshold
+// is reached. Bots are exempt: their timeouts are driven by the scheduler, not
+// player inactivity. Returns true when the player was dealt with and the caller
+// must not go on to auto-act for them.
+//
+// In a matchmade room the threshold is lower and the outcome is different: the
+// match is forfeited on the spot rather than the socket being closed. Closing it
+// would only start a second wait (the reconnect hold) for a player who has
+// already proved they are not there, and the opponent has now sat through both.
 func (h *Hub) kickIfAFK(code string, playerID int, client *Client) bool {
 	if bots, ok := h.botSlots[code]; ok {
 		if _, isBot := bots[playerID]; isBot {
 			return false
 		}
 	}
-	if h.bumpAFK(code, playerID) < AFKKickThreshold || client == nil {
+	if h.bumpAFK(code, playerID) < h.afkThreshold(code) {
+		return false
+	}
+	if h.isMatchmade(code) {
+		room, ok := h.rooms[code]
+		if !ok || room.Status != game.StatusPlaying {
+			return false
+		}
+		log.Printf("AFK forfeit code=%s player=%d threshold=%d", code, playerID, h.afkThreshold(code))
+		if client != nil {
+			client.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: "afk_forfeit"})
+		}
+		h.forfeitMatch(code, room, playerID)
+		return true
+	}
+	if client == nil {
 		return false
 	}
 	log.Printf("AFK kick code=%s player=%d threshold=%d", code, playerID, AFKKickThreshold)
@@ -2358,15 +2618,24 @@ func (h *Hub) refuseAction(c *Client, room *game.Room, err error) {
 
 // broadcastPersonalizedGameState sends each connected player their personalized game state.
 // Used after Swap and GlobalSwitch when all hands change simultaneously.
+// broadcastPersonalizedGameState sends every member the board as only they may
+// see it.
+//
+// The seat comes from the slot index, never from member.playerID. The two agree
+// for a correctly seated client, and hub.alreadySeated is what keeps them
+// agreeing, but this is the call that hands out a hand, so it reads the
+// authority (where the room filed this client) rather than the claim (what the
+// client's own record says it is). The same rule applies to every personalised
+// send below.
 func (h *Hub) broadcastPersonalizedGameState(code string, room *game.Room) {
 	pl := h.playerList(room)
-	for _, member := range h.roomMembers[code] {
+	for seat, member := range h.roomMembers[code] {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameState,
-			State: h.playerGameStateUsing(room, member.playerID, pl),
+			State: h.playerGameStateUsing(room, seat, pl),
 		})
 	}
 }
@@ -2744,12 +3013,21 @@ func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
 // --- Code generation ---
 
 // generateCode produces a unique 6-character room code and guarantees no collision.
+//
+// crypto/rand, not math/rand: the code is the only thing standing between a
+// private lobby and a stranger: there is no login and no invite to check
+// behind it. math/rand is a predictable sequence, and an attacker who creates
+// rooms in a loop is reading that sequence's output directly, which is exactly
+// the observation needed to infer its state and name the codes handed to
+// everyone else in between. A 32-character alphabet is 5 bits per byte, so the
+// rejection loop below keeps the draw uniform rather than folding 256 values
+// onto 32 and skewing the first eight letters.
 func (h *Hub) generateCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	for {
 		code := make([]byte, 6)
 		for i := range code {
-			code[i] = chars[mrand.Intn(len(chars))]
+			code[i] = chars[randIndex(len(chars))]
 		}
 		s := string(code)
 		if _, exists := h.rooms[s]; !exists {

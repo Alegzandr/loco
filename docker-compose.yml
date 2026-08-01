@@ -5,6 +5,14 @@ services:
             dockerfile: Dockerfile
         environment:
             - PORT=${PORT:-8080}
+            # Short so `docker compose down` on a local stack is not a wait.
+            # Production sets minutes (see deploy/app.env); the mechanism is the
+            # same one either way, which is the point of running it here at all.
+            - LOCO_DRAIN_TIMEOUT=${LOCO_DRAIN_TIMEOUT:-5s}
+        # Long enough for the 5s drain above plus the shutdown itself. At
+        # Docker's 10s default a drain that used its whole budget would be
+        # SIGKILLed while closing.
+        stop_grace_period: 20s
         # Not published, exactly like deploy/compose.yml: the browser reaches
         # this server through nginx (/ws, /health) and never directly, so a host
         # port would only put /metrics on the LAN. Read it from inside instead:

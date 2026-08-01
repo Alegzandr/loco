@@ -145,11 +145,39 @@
   text-shadow: none;
 }
 
-/* Second entry point on the home screen ("join"): equal weight, different hue. */
+/* The two table entry points under the 1v1 button: equal weight between
+   themselves, each with its own hue so neither reads as the other's fallback. */
 .btnAlt {
   composes: btn;
   background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
   color: #4a2c00;
+  text-shadow: none;
+}
+
+.btnJoin {
+  composes: btn;
+  background: linear-gradient(180deg, #8a7cff 0%, var(--color-tertiary) 100%);
+  text-shadow: 0 2px 0 rgba(30, 16, 90, 0.4);
+}
+
+/* The 1v1 button carries a second line: "find an opponent" says nothing about
+   what a player is signing up for, and "one round against a stranger, right
+   now" is the entire pitch of the mode. Stacked inside the button rather than
+   set beneath it so the whole promise is the thing being pressed. */
+.btn:has(.btnHint) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+
+.btnHint {
+  font: 600 12px/1.2 var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
   text-shadow: none;
 }
 

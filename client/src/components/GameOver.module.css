@@ -148,6 +148,28 @@
 .btn:hover { transform: translateY(-3px); box-shadow: 0 8px 0 var(--color-stroke-soft); filter: brightness(1.06); }
 .btn:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
 
+/* The rematch offer before anybody has answered: an equal-weight alternative to
+   finding the next opponent, so it gets its own hue rather than competing with
+   the primary. Once the opponent has asked first it becomes `.btn`: at that
+   point it is not an alternative, it is the answer somebody is waiting for. */
+.btnRematch {
+  composes: btn;
+  background: linear-gradient(180deg, #8a7cff 0%, var(--color-tertiary) 100%);
+  text-shadow: 0 2px 0 rgba(30, 16, 90, 0.4);
+}
+
+/* Waiting on the other side. Still a button in the layout so the card does not
+   reflow when the answer lands, but visibly not pressable. */
+.btnRematch:disabled,
+.btn:disabled {
+  background: var(--color-surface-strong);
+  color: var(--color-muted);
+  cursor: default;
+  box-shadow: none;
+  text-shadow: none;
+  transform: none;
+}
+
 .btnSecondary {
   width: 100%;
   padding: 11px 20px;

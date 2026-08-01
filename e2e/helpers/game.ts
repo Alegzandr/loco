@@ -2,28 +2,42 @@ import { Page, expect } from '@playwright/test'
 
 /** Text labels from the English translations (en.ts). */
 export const T = {
-  createRoom: 'Create Room',
-  joinRoom: 'Join Room',
-  createGame: 'Create Game',
-  joinGame: 'Join Game',
-  addBot: '+ Add Bot',
-  startGame: 'Start Game',
-  waitingRoom: 'Waiting Room',
+  createRoom: 'New table',
+  joinRoom: 'Join a table',
+  createGame: 'Open the table',
+  joinGame: 'Take a seat',
+  yourNickname: 'Your name',
+  roomCodeLabel: 'Table code',
+  addBot: '+ Add a bot',
+  startGame: 'Deal',
+  waitingRoom: 'The table',
   draw: 'Draw',
   pass: 'Pass',
   unoBtn: 'LOCO!',
   catchBtn: 'Catch!',
   catchBannerTitle: 'CAUGHT!',
   rulesBtn: 'Rules',
-  continueBtn: 'Continue',
+  rulesTitle: 'How to play',
+  continueBtn: 'Next round',
   rematch: 'Rematch',
-  rematchWaiting: 'Waiting for the host to start a rematch…',
-  leaveRoom: 'Leave room',
-  gameOver: 'Game Over',
-  youWin: 'You Win!',
-  winsRound: 'wins the round!',
+  rematchWaiting: 'The host is deciding on a rematch…',
+  leaveRoom: 'Leave the table',
+  gameOver: 'That is the match',
+  youWin: 'YOU WIN!',
+  winsRound: 'takes the round!',
   drawPile: 'Draw pile',
   interruptTitle: 'INTERCEPTED!',
+  rebuildingTable: 'Setting the table back up…',
+  scoreTableEmptyRounds: 'Nothing settled yet',
+  choosePlayer: 'Whose hand do you want?',
+  findMatch: 'Play 1v1',
+  findMatchGo: 'Find an opponent',
+  searchTitle: 'Looking for an opponent',
+  searchCancel: 'Stop looking',
+  matchFoundKicker: 'Opponent found',
+  findAnotherOpponent: 'Find another opponent',
+  forfeitWon: 'They walked',
+  rematchAccept: 'They want another. Go.',
 } as const
 
 interface DebugHandOverride {
@@ -78,7 +92,7 @@ export async function createRoom(page: Page, nickname: string): Promise<string> 
   await waitForSocket(page)
   await expect(page.getByText('LOCO')).toBeVisible()
   await page.getByRole('button', { name: T.createRoom }).click()
-  await page.getByPlaceholder('Your nickname').fill(nickname)
+  await page.getByPlaceholder(T.yourNickname).fill(nickname)
 
   for (let i = 0; i < 3; i++) {
     await clickWithRetry(page.getByRole('button', { name: T.createGame }))
@@ -113,8 +127,8 @@ export async function joinRoom(page: Page, nickname: string, roomCode: string): 
   await page.waitForLoadState('domcontentloaded')
   await waitForSocket(page)
   await page.getByRole('button', { name: T.joinRoom }).click()
-  await page.getByPlaceholder('Your nickname').fill(nickname)
-  await page.getByPlaceholder('Room code').fill(roomCode)
+  await page.getByPlaceholder(T.yourNickname).fill(nickname)
+  await page.getByPlaceholder(T.roomCodeLabel).fill(roomCode)
 
   for (let i = 0; i < 3; i++) {
     await clickWithRetry(page.getByRole('button', { name: T.joinGame }))
@@ -132,6 +146,39 @@ export async function joinRoom(page: Page, nickname: string, roomCode: string): 
     }
     await page.waitForTimeout(400)
   }
+}
+
+/**
+ * Enter the 1v1 queue from the home screen.
+ *
+ * Returns once the client is on the searching screen, which is optimistic: the
+ * server's acknowledgement carries nothing (the queue's size is never on the
+ * wire), so there is nothing else to wait for. What proves the pairing landed
+ * is the opponent's own page reaching 'matchfound'.
+ */
+export async function findMatch(page: Page, nickname: string): Promise<void> {
+  await forceEnglish(page)
+  await page.goto('/')
+  await page.waitForLoadState('domcontentloaded')
+  await waitForSocket(page)
+  await page.getByRole('button', { name: T.findMatch }).click()
+  await page.getByPlaceholder(T.yourNickname).fill(nickname)
+  await clickWithRetry(page.getByRole('button', { name: T.findMatchGo }))
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.screen === 'searching',
+    undefined,
+    { timeout: 10_000 },
+  )
+}
+
+/** Wait for a matchmade pairing to deal and open its table. */
+export async function waitForMatchmadeGame(page: Page, timeoutMs = 30_000): Promise<void> {
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.screen === 'game',
+    undefined,
+    { timeout: timeoutMs },
+  )
+  await waitForTableOpen(page, timeoutMs)
 }
 
 /** Add one bot in the waiting room (host only). */

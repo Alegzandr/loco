@@ -57,9 +57,9 @@ test.describe('gameplay flow (single player vs bot)', () => {
   test('rules modal opens and closes from waiting room', async ({ page }) => {
     await createRoom(page, 'Alice')
     await page.getByRole('button', { name: T.rulesBtn }).click()
-    await expect(page.getByText('Game Rules')).toBeVisible()
+    await expect(page.getByText(T.rulesTitle)).toBeVisible()
     await closeRulesModal(page)
-    await expect(page.getByText('Game Rules')).not.toBeVisible()
+    await expect(page.getByText(T.rulesTitle)).not.toBeVisible()
   })
 
   /**
@@ -103,7 +103,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await waitForRoundSummary(page, 20_000)
 
     // Summary shows round winner and "Complete"
-    await expect(page.getByText(/wins the round!/)).toBeVisible()
+    await expect(page.getByText(new RegExp(T.winsRound))).toBeVisible()
     await expect(page.getByText(T.continueBtn, { exact: false })).toBeVisible()
 
     // Dismiss summary → game over (BO1 ends after one round)
@@ -196,11 +196,11 @@ test.describe('gameplay flow (single player vs bot)', () => {
 
     // Rules button is top-right of game view
     await page.getByRole('button', { name: T.rulesBtn }).click()
-    await expect(page.getByText('Game Rules')).toBeVisible()
+    await expect(page.getByText(T.rulesTitle)).toBeVisible()
 
     // Close by pressing Escape
     await page.keyboard.press('Escape')
-    await expect(page.getByText('Game Rules')).not.toBeVisible()
+    await expect(page.getByText(T.rulesTitle)).not.toBeVisible()
 
     // Game is still running
     await expect(gameBoard(page)).toBeVisible()

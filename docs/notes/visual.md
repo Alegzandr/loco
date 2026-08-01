@@ -573,6 +573,11 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 - **Show, don't tell**: the duck, the wordmark and a five-card fan, one line of copy. Discord renders
   this at ~400px wide; a paragraph is unread there. The +4 sits mid-arc, where a crop or an avatar
   overlay can't take it.
+- **The tagline is typeset one sentence per line** (`.taglineLine`), because the shared string
+  (`t.tagline`, the same one the lobby shows) is two sentences and the column broke it mid-clause:
+  "Cards at speed. Nobody / waits their turn." reads as a text box that ran out of room. The line is
+  a `block`, not `nowrap`, so a longer sentence in another language wraps inside its own line rather
+  than running out of the frame.
 - The PNG is **committed** — CI builds the client with `npm run build` and has no browser.
 - **Absolute URLs are mandatory** (crawlers resolve `og:image` against nothing) and the tags must be
   in the served HTML, since neither Discord nor X runs JS. `index.html` carries a `%OG_ORIGIN%` token

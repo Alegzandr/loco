@@ -14,6 +14,7 @@
  */
 import { test, expect } from '@playwright/test'
 import {
+  T,
   createRoom,
   addBot,
   startGame,
@@ -124,7 +125,7 @@ test.describe('in-game score table', () => {
 
     // Before any round ends there is nothing to tabulate, and the table says so.
     await holdScores(page, async () => {
-      await expect(scoreTable(page).getByText('First round in progress')).toBeVisible()
+      await expect(scoreTable(page).getByText(T.scoreTableEmptyRounds)).toBeVisible()
       await expect(scoreTable(page).getByText('R1')).toBeHidden()
     })
 

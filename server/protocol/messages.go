@@ -14,6 +14,15 @@ const (
 	CMsgSetMaxPlayers  ClientMsgType = "set_max_players"
 	// CMsgRematch returns a finished room to the lobby with the same players.
 	CMsgRematch ClientMsgType = "rematch"
+	// Matchmaking: a 1v1 against whoever is looking for the same thing. The
+	// queue is anonymous and its size is never on the wire. See
+	// SMsgMatchmakingQueued.
+	CMsgFindMatch          ClientMsgType = "find_match"
+	CMsgCancelMatchmaking  ClientMsgType = "cancel_matchmaking"
+	// CMsgLeaveRoom gives up the seat this socket holds without dropping the
+	// connection. It is what "search for another opponent" is built on, and in a
+	// matchmade match in progress it is a deliberate forfeit.
+	CMsgLeaveRoom ClientMsgType = "leave_room"
 	// Gameplay
 	CMsgPlayCard    ClientMsgType = "play_card"
 	CMsgDrawCard    ClientMsgType = "draw_card"
@@ -46,6 +55,21 @@ const (
 	SMsgPlayerReconnected  ServerMsgType = "player_reconnected"
 	SMsgLobbyConfigChanged ServerMsgType = "lobby_config_changed"
 	SMsgGameStarted        ServerMsgType = "game_started"
+	// SMsgMatchmakingQueued acknowledges a find_match. It carries no queue size,
+	// no position and no estimate, on purpose: how many people are looking for a
+	// game is nobody's business but the operator's, and a number that reads "1"
+	// tells a player to give up. The client times its own wait instead.
+	SMsgMatchmakingQueued ServerMsgType = "matchmaking_queued"
+	// SMsgMatchmakingCancelled acknowledges leaving the queue. Also sent when the
+	// server drops somebody from it (a pairing that fell apart before it began).
+	SMsgMatchmakingCancelled ServerMsgType = "matchmaking_cancelled"
+	// SMsgMatchFound seats both players at once. It carries everything
+	// room_joined carries, plus StartsInMs: the match deals itself after that
+	// delay, and nobody has to press anything.
+	SMsgMatchFound ServerMsgType = "match_found"
+	// SMsgLeftRoom acknowledges leave_room. The client is seatless again and
+	// back on the home screen.
+	SMsgLeftRoom ServerMsgType = "left_room"
 	// SMsgMatchLoading is sent right after game_started while the table waits for
 	// everybody to finish downloading the map, and again on each arrival so the
 	// loading screen can show who is still missing. PlayersReady names the seats
@@ -75,10 +99,20 @@ const (
 	// live ping per player without any client self-reporting.
 	SMsgLatency ServerMsgType = "latency"
 
+	// SMsgRematchOffered names a seat that has asked for another match. In a
+	// matchmade room a rematch is an agreement between two strangers rather than
+	// a host's decision, so both offers are public: the player who has not
+	// answered yet needs to know somebody is waiting on them.
+	SMsgRematchOffered ServerMsgType = "rematch_offered"
 	// SMsgRematchStarted tells every remaining member that the finished room is
 	// back in the lobby. Sent per-recipient because pruning absent players can
 	// shift player indices.
 	SMsgRematchStarted ServerMsgType = "rematch_started"
+	// SMsgServerUpdating tells a table in progress that this process is being
+	// replaced. It is information, not an instruction: the match plays out to
+	// its end, and nothing about it changes. Sent once, when the drain starts,
+	// and again to anyone who reconnects into a draining server.
+	SMsgServerUpdating ServerMsgType = "server_updating"
 	// Errors
 	SMsgError ServerMsgType = "error"
 )
@@ -249,6 +283,24 @@ type ServerMsg struct {
 	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 	MatchOver   bool                 `json:"match_over,omitempty"`
 	MatchWinner string               `json:"match_winner,omitempty"`
+	// SMsgMatchEnd: this match ended because somebody stopped being there, not
+	// because a round was won. PlayerIndex above names the seat that left, so
+	// the survivor's screen can say what happened instead of celebrating a
+	// victory nobody played for. Absent means an ordinary end, the one thing an
+	// omitted bool can mean here, since the field rides a single message type.
+	Forfeit bool `json:"forfeit,omitempty"`
+
+	// SMsgPlayerDisconnected: unix milliseconds at which the absent seat's match
+	// is forfeited if they have not come back. Only sent for matchmade rooms,
+	// where the wait is short and the player still at the table is owed a number
+	// rather than an indefinite "opponent disconnected". 0/absent = no such
+	// deadline (an ordinary room, where the seat is simply held).
+	ForfeitDeadline int64 `json:"forfeit_deadline,omitempty"`
+
+	// SMsgMatchFound: how long the reveal lasts before the match deals itself.
+	// Absent means "immediately", which is the right reading: the countdown is
+	// presentation, and game_started arriving is what actually opens the match.
+	StartsInMs int64 `json:"starts_in_ms,omitempty"`
 	// RoundHistory[k][playerIndex] = points scored in round k+1. Sent with
 	// round_end so the score table updates without waiting for the next
 	// game_state (which the client buffers behind the round summary).

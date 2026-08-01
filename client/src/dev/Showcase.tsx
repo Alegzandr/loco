@@ -11,6 +11,8 @@
 import { useEffect, useState } from 'react'
 import { useGameStore } from '../hooks/useGameStore'
 import { Lobby } from '../components/Lobby'
+import { Searching } from '../components/Searching'
+import { MatchFound } from '../components/MatchFound'
 import { WaitingRoom } from '../components/WaitingRoom'
 import { GameView } from '../components/GameView'
 import { GameOver } from '../components/GameOver'
@@ -58,6 +60,10 @@ function applyScene(scene: Scene) {
     isReconnecting: false,
     matchWinner: '',
     matchOver: false,
+    isMatchmade: false,
+    forfeitBy: null,
+    opponentAway: null,
+    rematchOffers: [],
     // A scene names its room explicitly; anything else falls back to the
     // built-in felt rather than inheriting the previous scene's map.
     mapId: '',
@@ -128,6 +134,9 @@ function SceneScreen({ scene }: { scene: Scene }) {
   const matchOver = useGameStore((s) => s.matchOver)
   const restoreTarget = useGameStore((s) => s.restoreTarget)
   const scoreboard = useGameStore((s) => s.scoreboard)
+  const isMatchmade = useGameStore((s) => s.isMatchmade)
+  const forfeitBy = useGameStore((s) => s.forfeitBy)
+  const rematchOffers = useGameStore((s) => s.rematchOffers)
 
   switch (scene.screen) {
     case 'cards':
@@ -135,7 +144,34 @@ function SceneScreen({ scene }: { scene: Scene }) {
     case 'og':
       return <OgCard />
     case 'lobby':
-      return <Lobby onSend={noop} error={errorMsg} onClearError={noop} initialMode={scene.lobbyMode} />
+      return (
+        <Lobby
+          onSend={noop}
+          onFindMatch={noop}
+          error={errorMsg}
+          onClearError={noop}
+          initialMode={scene.lobbyMode}
+        />
+      )
+    case 'searching':
+      return (
+        <Searching
+          startedAt={Date.now() - (scene.searchingFor ?? 0) * 1000}
+          nickname="Nova"
+          onCancel={noop}
+          onCreateTable={noop}
+        />
+      )
+    case 'matchfound':
+      return (
+        <MatchFound
+          myNickname="Nova"
+          opponentNickname="Kiwi"
+          mySeat={0}
+          startsAt={Date.now() + 2500}
+          format="BO1"
+        />
+      )
     case 'restoring':
       return <Reconnecting roomCode={roomCode} target={restoreTarget ?? 'game'} onCancel={noop} />
     case 'waiting':
@@ -159,7 +195,14 @@ function SceneScreen({ scene }: { scene: Scene }) {
           scoreboard={scoreboard}
           matchOver={matchOver}
           isHost={myIndex === 0}
+          isMatchmade={isMatchmade}
+          forfeitBy={forfeitBy}
+          mySeat={myIndex}
+          rematchOffers={rematchOffers}
           onSend={noop}
+          onRematch={noop}
+          onFindMatch={noop}
+          onLeave={noop}
         />
       )
   }

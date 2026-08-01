@@ -36,6 +36,9 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   [/room is full/i, 'roomFull'],
   [/game already (in progress|started)/i, 'gameInProgress'],
   [/invalid session token/i, 'sessionInvalid'],
+  // Before `not in a room`: the two differ by one word and the broader rule
+  // would otherwise have to be trusted not to drift into matching both.
+  [/already in a room/i, 'alreadyInRoom'],
   [/not in a room/i, 'notInRoom'],
 
   // ── Turn legality ────────────────────────────────────────────────────────
@@ -75,9 +78,25 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   [/max players cannot|cannot set max players/i, 'maxPlayersInvalid'],
   [/rematch is only available/i, 'rematchTooEarly'],
 
+  // ── Matchmaking ──────────────────────────────────────────────────────────
+  [/already searching for an opponent/i, 'alreadySearching'],
+  [/not available in a matchmade game/i, 'matchmadeUnavailable'],
+  [/cannot leave a match in progress/i, 'cannotLeaveMatch'],
+  [/opponent has left the table/i, 'opponentGone'],
+  // Two sentinels rather than prose: the server sends these as machine strings
+  // (afk_forfeit, afk_kicked) precisely because they are read after the fact,
+  // on a game-over screen, by somebody who was not looking.
+  [/afk_forfeit/i, 'afkForfeit'],
+  [/afk_kicked/i, 'afkKicked'],
+
   // ── Transport ────────────────────────────────────────────────────────────
   [/rate limit exceeded/i, 'rateLimited'],
   [/server busy/i, 'serverBusy'],
+  // A deploy in progress. Above nothing in particular, but it must never fall
+  // through to the generic: the whole point of the string is that the player
+  // learns their table code was fine and the wait is short. See
+  // server/hub/drain.go.
+  [/server updating/i, 'serverUpdating'],
   // The one entry here the server never sends: a seat reclaim that timed out is
   // decided client-side (useRestoreTimeout), and it lands in the same errorMsg
   // slot as every refusal, so it resolves through the same table rather than

@@ -92,6 +92,10 @@ export const serverMsgTypeSchema = z.enum([
   'player_reconnected',
   'lobby_config_changed',
   'game_started',
+  'matchmaking_queued',
+  'matchmaking_cancelled',
+  'match_found',
+  'left_room',
   'match_loading',
   'match_ready',
   'game_state',
@@ -106,6 +110,8 @@ export const serverMsgTypeSchema = z.enum([
   'match_end',
   'latency',
   'rematch_started',
+  'rematch_offered',
+  'server_updating',
   'error',
 ])
 
@@ -138,6 +144,17 @@ export const serverMsgSchema = z.object({
   max_players: z.number().optional(),
   round_history: roundHistorySchema.optional(),
   latencies: z.array(latencyEntrySchema).optional(),
+  // match_end: this match ended because somebody stopped being there. The seat
+  // that left is in player_index above, so the survivor's screen can say what
+  // happened rather than celebrate a victory nobody played for.
+  forfeit: z.boolean().optional(),
+  // player_disconnected, matchmade rooms only: when the absent seat's match is
+  // given away. The player still at the table gets a countdown instead of an
+  // open-ended notice.
+  forfeit_deadline: z.number().optional(),
+  // match_found: how long the versus reveal lasts before the match deals
+  // itself. Absent means immediately.
+  starts_in_ms: z.number().optional(),
   // match_loading: the seats whose client has the map decoded. Absent means
   // "none yet": the field rides exactly one message type, so there is no
   // earlier value it could be leaving unchanged.

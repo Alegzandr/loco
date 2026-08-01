@@ -33,3 +33,6 @@ e2e/playwright-report/
 
 # OS
 .DS_Store
+
+# Claude Code
+.claude

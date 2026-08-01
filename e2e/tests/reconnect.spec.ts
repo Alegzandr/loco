@@ -195,7 +195,7 @@ test.describe('WebSocket reconnect', () => {
       { timeout: 10_000 },
     ).catch(() => {})
 
-    const overlay = page.getByText('Rebuilding table\u2026')
+    const overlay = page.getByText(T.rebuildingTable)
     const sawOverlay = await overlay.isVisible().catch(() => false)
     if (sawOverlay) {
       await expect(overlay).toBeVisible({ timeout: 2_000 })

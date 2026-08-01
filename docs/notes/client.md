@@ -116,6 +116,62 @@ That is the disconnect people actually have, and it was the one that could not b
   derive it from and the rejoin is keyed on the nickname. `<Reconnecting />` names the room so the
   player recognises it and offers the way out; scenes `reconnecting-game` / `reconnecting-room`.
 
+## Remembering the nickname
+A returning player should not retype their name on every visit, so `hooks/nicknameMemory.ts` keeps the
+last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mount.
+
+- **`localStorage` here, not `sessionStorage`**, which is the exact opposite of the choice above and
+  for the same reason it was made: `loco_session` is a live claim on a seat (token-bearing, TTL'd,
+  and catastrophic if the wrong tab reclaims it), while this is a keyboard shortcut that authenticates
+  nothing. Surviving the tab and being shared across tabs is the whole point of it. Two seats played
+  from one browser now start from the same suggested name, and either can overwrite it: nothing is
+  lost, because the field is still editable and the server still refuses a duplicate nickname in a
+  room.
+- **Written on submit, never on keystroke.** A half-typed name is not what anyone wants handed back,
+  and the write would land on the realtime path for no benefit.
+- Seeded via `useState(readNickname)`, i.e. **read once at mount**. Re-reading storage while the lobby
+  is open would fight whatever the player is typing.
+- It is a prefill, not a submission: an emptied field still refuses to send. In the join form
+  `autoFocus` follows the same fact, landing on the room code when the name is already known and on
+  the name when it is not, which is the only thing a returning player still has to type.
+
+## The 1v1 queue on screen
+Three screens: the home button, `<Searching />` and `<MatchFound />`. `screen: 'searching'` and
+`screen: 'matchfound'` are screens rather than flags over the lobby, for the same reason `'restoring'`
+is: there is no board to draw behind either of them.
+
+- **The screen is entered optimistically.** `findMatch` sets `screen: 'searching'` and *then* sends
+  `find_match`. The acknowledgement carries nothing (the server never says how long the queue is), so
+  waiting a round trip would make the one button in the game with nothing behind it feel like the
+  slowest. `matchmaking_queued` is only acted on when we are *not* already searching, which is the
+  case the server can produce on its own: a pairing whose other half closed their tab during the
+  reveal puts the survivor back in the queue unprompted.
+- **`endSearch` is guarded on the screen.** A cancel that raced a pairing arrives after the seat does,
+  and acting on it would drag a seated player out of a match about to be dealt.
+- **The wait is timed locally, and the copy is staged off it** (`searchStage`: 0-15s, 15-45s, 45s+).
+  None of the three things it says may imply the queue is empty. "Nobody is searching" reads as "close
+  the tab", and it is self-fulfilling: the player who leaves on that sentence is the opponent the next
+  one was about to get. So the third stage says the honest thing, that this can take a while, stay here,
+  you get the next arrival, and adds the one alternative that needs a friend rather than a stranger:
+  open a private table. `matchmaking.test.tsx` asserts none of the copy can name a number.
+- The empty chair opposite is drawn as an empty chair. A spinner would be a smaller promise than the
+  truth.
+- **The reveal counts down but decides nothing.** `starts_in_ms` sizes the counter; the match starts
+  when `game_started` lands. A counter that reaches zero first holds on "dealing", which is the right
+  behaviour for a screen whose server is the one deciding.
+- **A forfeit never renders as a victory.** `<GameOver />` with `forfeitBy` set drops the confetti and
+  the trophy and says what happened, on both sides: the player who left is told they left. It also
+  drops the rematch button entirely: the opponent is gone from the room, the server would refuse the
+  offer, and a button that cannot work is worse than no button.
+- **The rematch button has three states, and the middle one is the point.** Ask, wait, accept. A
+  matchmade rematch is an agreement, so `rematchOffers` holds both seats' offers and the button reads
+  "they want another, go" once the other side has asked first: an offer nobody can see is an offer
+  nobody answers. `player_left` clears the offers, because there is no longer anybody to agree with.
+- `<OpponentAway />` is the only thing on the board that reads `opponentAway`, and the store only fills
+  it when the server sent a `forfeit_deadline`, i.e. never in an ordinary room, where the seat is
+  simply held and a countdown to losing would be a worse table. Its bar is a `useDrainBar` animation:
+  a board frozen on somebody else's connection is exactly when the main thread must stay free.
+
 ## Protocol validation (client)
 - `client/src/types/protocolSchemas.ts` defines Zod schemas for inbound `ServerMsg`. `client/src/types/protocol.ts` infers `CardDTO`/`PlayerDTO`/`GameStateDTO`/`ServerMsg`/etc. from the schemas — single source of truth.
 - `useWebSocket` runs `serverMsgSchema.safeParse` on every WS payload. In dev: invalid → log + drop (surfaces Go↔TS drift in tests). In prod: log + pass through (forward-compat with new server fields).
@@ -154,6 +210,32 @@ seat layout, hand slots, pile positions and every card, re-derived sixty times a
   `onDraw={() => …}` were doing: a latency broadcast every 3s, an error toast or a
   catch window rebuilt the whole board.
 
+## A deploy, from the player's seat
+- `server_updating` sets `serverUpdating` in the store, and `<ServerUpdating />` renders a line of
+  text. That is the entire client side of the graceful shutdown, and the smallness is the point: the
+  server drains, the match plays to its end, and if the process is replaced before the last card the
+  restart costs the one-second reconnect the client already does on its own. **No new screen was
+  needed** because a restart is indistinguishable from a dropped socket, which
+  `sessionPersistence` + `getReconnectMsg` have handled since they were written.
+- It is the quietest thing on the board on purpose. Everything else that appears over the felt is
+  either a deadline (OpponentAway, the turn bar, the catch window) or a moment (InterruptBanner,
+  CatchBanner) and all of them are asking for something. This asks for nothing: no countdown, no
+  colour from the alert ramp, no blinking dot, nothing disabled. A player who ignores it entirely
+  loses nothing, which is what it is telling them.
+- It exists at all because a board that quietly changes behaviour is worse than one that says so:
+  during a drain the rematch button stops working, and with no line of text that reads as a bug.
+- **Two slots, not one.** Wide: the top chrome row, in the gap between the round pill and the icon
+  row. Narrow: that gap does not exist, so it drops under the chrome and steps down again when
+  OpponentAway is using the slot. The obvious placement (the OpponentAway slot at both widths) put a
+  *permanent* pill on top of the top-centre seat pod, hiding an opponent's card count for as long as
+  the drain lasted. A transient countdown may cover that pod; a notice that can sit there for a
+  fifteen-minute drain may not.
+- `serverUpdating` is cleared on `player_reconnected`, because the process answering may be the new
+  one. If it is draining too, it re-sends `server_updating` right after.
+- The refusal side is ordinary `serverErrors.ts` work: `server updating` maps to `serverUpdating`.
+  The one thing that matters is that it must never fall through to `roomNotFound`, which is what a
+  `join_room` during a deploy used to produce: "Aucune table avec ce code" for a code that was real.
+
 ## Reconnect visual recovery
 - On `player_reconnected`: store `isReconnecting:true` before applying state.
 - `useReconnectAnimation(isReconnecting, onComplete)` shows "Rebuilding table…" overlay for 600ms then calls onComplete (which clears `isReconnecting`).
@@ -168,6 +250,38 @@ seat layout, hand slots, pile positions and every card, re-derived sixty times a
 - Add language: create `xx.ts` impl `Translations`, add to `translations` map in `index.tsx`, add `{code, label}` to `LANGS` in `LanguageSwitcher.tsx`.
 - `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
 - Storage key: `'loco_lang'`.
+
+### The voice
+The copy is the cheapest thing in the product and the first thing a player judges it by. A screen
+that says "Waiting Room", "Create Room" and "Game Rules" is a website with cards on it; the same
+screen saying "The table", "New table" and "How to play" is a game. Every string is written as
+something a person at the table would say, and rewriting one means keeping it inside these rules.
+
+- **The place is a table, never a room.** `salle`, `salon`, `lobby` and `room` are venue-booking
+  words. A player opens a table, shares a table code, takes a seat, leaves the table. The store's
+  internal names (`room_code` on the wire, `screen === 'waiting'`) are unaffected: this is copy.
+- **French is tutoiement**, stated at the top of `fr.ts`. `vous` puts a service counter between the
+  game and four friends on a sofa. It is a translation convention, not a per-string decision.
+- **A button is a verb the player is about to perform**, in as few words as the control allows.
+  `Deal`, `Take a seat`, `Next round`. `rulesBtn` stays one word (`Rules` / `Règles`) because it
+  lives in a row of icons in-game; the modal it opens is the one allowed a sentence
+  (`rulesTitle`). Keeping them distinct also keeps `getByText` unambiguous in the E2E suite.
+- **A refusal says what to do next, and never blames.** "Someone beat you to it", not "Too late" —
+  the window closed because somebody else was faster, and that is information, not a scolding. One
+  pill, read in under a second, no wire vocabulary (`interrupt`, `session`, `payload`).
+- **Nothing is exclamatory twice.** The banners shout (`INTERCEPTED!`, `CAUGHT!`, `LOCO!`) because
+  they are the streamable moments; everything around them stays calm so those keep their weight.
+- **No em dash in copy**, in either language: a colon, a full stop, or two sentences.
+
+The rules modal follows the same voice and one extra constraint: **it is read once, standing up,
+by somebody who wants to play now.** Section headings are the promise (`The cards that hurt`,
+`Photo finish`, `One card left: say it`), items are one sentence each, and the sentence leads with
+what the player does. Nothing in there is phrased as a specification, and every LOCO deviation from
+ordinary UNO is stated where a player would trip over it, not in a footnote. `docs/rules.md` stays
+the authoritative spec; the modal is its player-facing telling and must not contradict it.
+
+The card names in the copy are the domain's: **Global Switch** (`global_switch`), not "Global Swap".
+FR uses `Rotation` and `Échange`, and both banners and rules use those same two words.
 
 ### Refused actions never show a wire string
 `i18n/serverErrors.ts` maps the server's error prose onto `Translations.errors` (`ErrorCopy` in

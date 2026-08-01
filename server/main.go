@@ -1,14 +1,34 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
 	"time"
 
 	"loco/server/hub"
 )
+
+// defaultDrainTimeout is how long a shutdown waits for the matches in flight to
+// finish before it stops waiting and writes a snapshot instead. Overridden by
+// LOCO_DRAIN_TIMEOUT (a Go duration, e.g. "90s" or "15m").
+//
+// The value is a deploy policy, not a game rule, which is why it is set per
+// environment rather than shipped: dev redeploys on every push to develop and
+// cannot park the runner for a quarter of an hour, production redeploys on a
+// tag and can afford to wait out a best-of-7. See .gitlab-ci.yml.
+const defaultDrainTimeout = 15 * time.Minute
+
+// shutdownGrace is how long the HTTP server is given to close its connections
+// once there is nothing left to protect. Short on purpose: by this point every
+// match has either ended or been written to the snapshot.
+const shutdownGrace = 5 * time.Second
 
 func main() {
 	port := os.Getenv("PORT")
@@ -22,6 +42,14 @@ func main() {
 
 	h := hub.New()
 	go h.Run()
+
+	// Before the listener is up, so no socket can arrive into a half-restored
+	// room. An empty LOCO_SNAPSHOT_PATH disables the whole mechanism, which is
+	// what local dev and the E2E suite run with.
+	snapshotPath := os.Getenv("LOCO_SNAPSHOT_PATH")
+	if err := h.LoadSnapshot(snapshotPath); err != nil {
+		log.Printf("WARN snapshot restore failed, starting empty err=%v", err)
+	}
 
 	http.HandleFunc("/ws", h.ServeWS)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -48,8 +76,85 @@ func main() {
 	if os.Getenv("LOCO_E2E") == "1" {
 		log.Printf("WARN debug mode enabled (LOCO_E2E=1) — debug_set_state is unauthenticated; do NOT use in production")
 	}
+
+	// SIGTERM is what `docker compose up -d` sends the container it is
+	// replacing. Before this existed it killed the process where it stood:
+	// every match in flight died mid-turn, and the clients that came back two
+	// hundred milliseconds later were told "room not found", which reads to a
+	// player like they mistyped their own table code.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		// Restores the default handlers: a second signal from here on kills the
+		// process the old way, which is the escape hatch an operator needs if a
+		// drain is taking longer than they are willing to give it.
+		stop()
+		shutdown(srv, h, snapshotPath)
+	}()
+
 	log.Printf("loco server listening on :%s", port)
-	if err := srv.ListenAndServe(); err != nil {
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+// shutdown drains, then snapshots whatever the drain did not finish, then
+// closes.
+//
+// The two halves are complementary rather than alternative: the drain is what
+// gets the number of interrupted matches to zero in the ordinary case, and the
+// snapshot is what makes the case where it runs out of time survivable instead
+// of fatal. Neither is enough on its own, so both run every time.
+//
+// None of this is worth anything without `stop_grace_period` on the compose
+// service: Docker's default is to wait 10s after SIGTERM and then SIGKILL, and
+// a SIGKILL lands in the middle of all of it. See deploy/compose.yml.
+func shutdown(srv *http.Server, h *hub.Hub, snapshotPath string) {
+	timeout := drainTimeout()
+	log.Printf("shutdown signal received, draining timeout=%s", timeout)
+
+	h.BeginDrain()
+	select {
+	case <-h.DrainDone():
+		log.Printf("drain finished, no match was interrupted")
+	case <-time.After(timeout):
+		log.Printf("WARN drain timed out after %s with %d match(es) still in flight",
+			timeout, h.GetMetrics().MatchesInFlight)
+	}
+
+	if err := h.SaveSnapshot(snapshotPath); err != nil {
+		log.Printf("WARN snapshot write failed, matches in flight will be lost err=%v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("WARN http shutdown err=%v", err)
+	}
+	h.Stop()
+}
+
+// drainTimeout reads LOCO_DRAIN_TIMEOUT. A malformed or absent value leaves the
+// shipped default rather than falling back to zero: a typo must not silently
+// turn a graceful deploy back into the abrupt one this exists to replace.
+func drainTimeout() time.Duration {
+	return parseDrainTimeout(os.Getenv("LOCO_DRAIN_TIMEOUT"))
+}
+
+func parseDrainTimeout(raw string) time.Duration {
+	if raw == "" {
+		return defaultDrainTimeout
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	// Bare seconds are what an env file tends to grow, so they are accepted
+	// rather than rejected on a technicality.
+	if secs, err := strconv.Atoi(raw); err == nil && secs > 0 {
+		return time.Duration(secs) * time.Second
+	}
+	log.Printf("WARN LOCO_DRAIN_TIMEOUT=%q is not a duration, using %s", raw, defaultDrainTimeout)
+	return defaultDrainTimeout
 }
