@@ -12,7 +12,8 @@ All messages are JSON over a single WebSocket per player.
 | `add_bot`           | — (host-only)                                            |
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
 | `set_max_players`   | `max_players` (2–10) (host-only)                         |
-| `rematch`           | — (host-only; reopens a finished room as a lobby)        |
+| `kick_player`       | `target_index` (seat to free; host-only, lobby-only, never seat 0) |
+| `rematch`           | — (one seat's ask for another match; every room, every seat) |
 | `find_match`        | `nickname` (enter the 1v1 queue)                         |
 | `cancel_matchmaking`| —                                                        |
 | `leave_room`        | — (give up the seat without dropping the socket; a forfeit in a matchmade match in progress) |
@@ -46,10 +47,11 @@ All messages are JSON over a single WebSocket per player.
 | `match_end`           | `match_winner`, `scoreboard`, `forfeit`, `player_index` (the seat that left, on a forfeit) |
 | `rematch_started`     | `room_code`, `player_id`, `players`, `match_format`, `max_players` (per-recipient) |
 | `matchmaking_queued`  | — (deliberately empty: see the notes)                                       |
-| `rematch_offered`     | `player_index` (a seat has asked for another match; matchmade rooms)         |
+| `rematch_offered`     | `rematch_offers[]`, `rematch_needed`, `player_index` (whoever just asked; absent when the change was a departure) |
 | `matchmaking_cancelled` | —                                                                        |
 | `match_found`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players`, `starts_in_ms` (per-recipient) |
 | `left_room`           | — (acknowledges `leave_room`)                                               |
+| `kicked`              | — (the host freed this client's seat; sent to the removed client only)      |
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `latency`             | `latencies[]` (per-seat round trip; broadcast on a timer to playing rooms)   |
 | `server_updating`     | — (this process is being replaced; the match is unaffected: see the notes)   |
@@ -81,13 +83,29 @@ All messages are JSON over a single WebSocket per player.
   `starts_in_ms`: the match deals itself after that delay with nobody pressing start. Absent means
   "immediately": the countdown is presentation, and the authoritative start is the `game_started`
   that follows.
-- A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format` and `set_max_players`
-  are all refused in one with `not available in a matchmade game`.
-- **`rematch` means something else in a matchmade room**: an offer rather than a decision. Each side
-  sends it, every offer is broadcast as `rematch_offered` (so the player who has not answered knows
-  somebody is waiting), and once both are in the pair is dealt again through a fresh `match_found`
-  and the same reveal. Asked for after the opponent has gone it is refused with
-  `your opponent has left the table`.
+- A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format`, `set_max_players` and
+  `kick_player` are all refused in one with `not available in a matchmade game`.
+- **`kick_player` is a departure to the table and a message to the player.** The room sees the
+  ordinary `player_left` (roster re-based, seats above the freed one moved down); the removed client
+  gets `kicked` on its own socket, because a table disappearing with no explanation reads as a bug.
+  It is refused off the lobby (`can only remove players in the lobby`), from any seat but 0
+  (`only the room owner can remove players`), and on seat 0 itself or any seat the room does not have
+  (`invalid player index`). A seat with no socket behind it is a bot, and removing it is the only way
+  to take one back. It is **not** a ban: the removed player still has the code and may rejoin.
+- **`rematch` is an ask, not a decision, in every room.** Any seat sends it, every ask is broadcast as
+  `rematch_offered` (so the players who have not answered know somebody is waiting on them), and the
+  next match is dealt only once everybody still connected has asked. What that deal is depends on the
+  room: a matchmade pair gets a fresh `match_found` and the same reveal, an ordinary table gets
+  `rematch_started` back to its waiting room, where the host still owns the format, the size and the
+  start. In a matchmade room, asked for after the opponent has gone, it is refused with
+  `your opponent has left the table`; an ordinary table has no such floor, since whoever is left can
+  reopen the room and wait in it.
+- **`rematch_offered` carries the whole state, never the increment.** A seat leaving retires its ask
+  and re-bases the ones above it exactly as every other `player_id`-keyed structure is re-based, so a
+  client accumulating seat numbers would keep a departed player's ask forever and wait on a count
+  that can never complete. `rematch_offers` may legitimately be **empty**, which is why it is
+  nullable on the wire rather than `omitempty`-dropped. A departure that completes what is left of
+  the agreement deals the next match on the spot: nobody waits on somebody who is not there.
 - `match_end` with `forfeit: true` means the match ended because a seat stopped being there, not
   because a round was won; `player_index` names that seat. The scoreboard is unchanged: no points are
   invented for a round nobody finished.

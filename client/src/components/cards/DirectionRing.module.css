@@ -24,7 +24,7 @@
   stroke-width: 5.4;
   stroke-linecap: round;
   stroke-linejoin: round;
-  /* Resting state, and the one prefers-reduced-motion keeps: the heading is in
+  /* Resting state, and the one reduced motion keeps: the heading is in
      the geometry, so a frozen ring still says which way play goes. */
   opacity: 0.36;
   animation: dirChase 3.2s linear infinite;
@@ -43,8 +43,8 @@
   100% { opacity: 0.3; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .chevron { opacity: 0.42; }
+:root[data-motion="reduce"] .chevron {
+  opacity: 0.42;
 }
 
 /* A Reverse is one of the game's loud moments: the ring flips over and flashes

@@ -97,6 +97,42 @@ describe('rematch_started wire message', () => {
   })
 })
 
+describe('rematch offers', () => {
+  it('validates the wire message it arrives on', () => {
+    const parsed = serverMsgSchema.safeParse({
+      type: 'rematch_offered',
+      player_index: 1,
+      rematch_offers: [0, 1],
+      rematch_needed: 3,
+    })
+    expect(parsed.success).toBe(true)
+  })
+
+  // The server sends the whole state, never the increment: a seat leaving
+  // retires its ask and re-bases the ones above it, so a client that added
+  // names one at a time would keep a departed player's ask forever and wait on
+  // a count that can never complete.
+  it('stores the offers as sent rather than accumulating them', () => {
+    const store = useGameStore.getState()
+    store.applyRematchOffers([0, 1], 3)
+    expect(useGameStore.getState().rematchOffers).toEqual([0, 1])
+    expect(useGameStore.getState().rematchNeeded).toBe(3)
+
+    // Seat 0 left: seat 1's ask moved down to 0, and the table is smaller.
+    store.applyRematchOffers([0], 2)
+    expect(useGameStore.getState().rematchOffers).toEqual([0])
+    expect(useGameStore.getState().rematchNeeded).toBe(2)
+  })
+
+  it('clears the count with the offers, so no stale x/y survives', () => {
+    const store = useGameStore.getState()
+    store.applyRematchOffers([0], 2)
+    store.clearRematchOffers()
+    expect(useGameStore.getState().rematchOffers).toEqual([])
+    expect(useGameStore.getState().rematchNeeded).toBe(0)
+  })
+})
+
 describe('seat re-indexing after someone leaves', () => {
   it('follows our own nickname so a promoted player gains host controls', () => {
     useGameStore.setState({

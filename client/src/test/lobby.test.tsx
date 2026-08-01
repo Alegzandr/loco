@@ -66,6 +66,55 @@ describe('Lobby', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('answers a nickname the client can already refuse, as it is typed', () => {
+    const onSend = vi.fn()
+    renderLobby(onSend)
+    fireEvent.click(screen.getByText(en.createRoom))
+    const input = screen.getByPlaceholderText(en.yourNickname)
+    // A zero-width space between two ordinary letters: nothing to see, and a
+    // seat label that is not the name anybody else can type.
+    fireEvent.change(input, { target: { value: 'Ali​ce' } })
+    expect(screen.getByRole('alert')).toHaveTextContent(en.errors.nicknameRejected)
+    fireEvent.submit(input.closest('form')!)
+    expect(onSend).not.toHaveBeenCalled()
+
+    // And it clears the moment the field becomes acceptable again.
+    fireEvent.change(input, { target: { value: 'Alice' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.submit(input.closest('form')!)
+    expect(onSend).toHaveBeenCalledWith({ type: 'create_room', nickname: 'Alice' })
+  })
+
+  it('says the same thing for every reason a nickname is refused', () => {
+    // The client checks the shape and the server owns the word list, but a
+    // player must not be able to tell the two apart: one line, both times.
+    // See server/game/nickname.go.
+    renderLobby(vi.fn(), 'nickname not allowed')
+    fireEvent.click(screen.getByText(en.createRoom))
+    expect(screen.getByRole('alert')).toHaveTextContent(en.errors.nicknameRejected)
+    const input = screen.getByPlaceholderText(en.yourNickname)
+    fireEvent.change(input, { target: { value: 'Alice\u{1f525}' } })
+    expect(screen.getByRole('alert')).toHaveTextContent(en.errors.nicknameRejected)
+  })
+
+  it('sends the canonical nickname, not what sat in the field', () => {
+    const onSend = vi.fn()
+    renderLobby(onSend)
+    fireEvent.click(screen.getByText(en.joinRoom))
+    fireEvent.change(screen.getByPlaceholderText(en.yourNickname), {
+      target: { value: '  Jean   Luc  ' },
+    })
+    fireEvent.change(screen.getByPlaceholderText(en.roomCodeLabel), {
+      target: { value: 'abcdef' },
+    })
+    fireEvent.submit(screen.getByPlaceholderText(en.yourNickname).closest('form')!)
+    expect(onSend).toHaveBeenCalledWith({
+      type: 'join_room',
+      nickname: 'Jean Luc',
+      room_code: 'ABCDEF',
+    })
+  })
+
   it('nickname input has maxLength 20', () => {
     renderLobby()
     fireEvent.click(screen.getByText(en.createRoom))
@@ -77,8 +126,47 @@ describe('Lobby', () => {
     renderLobby()
     fireEvent.click(screen.getByText(en.joinRoom))
     const codeInput = screen.getByPlaceholderText(en.roomCodeLabel)
-    fireEvent.change(codeInput, { target: { value: 'abc123' } })
-    expect((codeInput as HTMLInputElement).value).toBe('ABC123')
+    fireEvent.change(codeInput, { target: { value: 'abc23d' } })
+    expect((codeInput as HTMLInputElement).value).toBe('ABC23D')
+  })
+
+  it('keeps only what the server draws a code from', () => {
+    // I, O, 0 and 1 are outside the alphabet on purpose: a code is read out
+    // loud off a stream. See server/hub/hub.go.
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    const codeInput = screen.getByPlaceholderText(en.roomCodeLabel)
+    fireEvent.change(codeInput, { target: { value: ' ab-c 1o0i 23d! ' } })
+    expect((codeInput as HTMLInputElement).value).toBe('ABC23D')
+  })
+
+  it('grays out take a seat until the table code is a whole one', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    const button = screen.getByRole('button', { name: en.joinGame })
+    expect(button).toBeDisabled()
+
+    const codeInput = screen.getByPlaceholderText(en.roomCodeLabel)
+    fireEvent.change(codeInput, { target: { value: 'ABC2' } })
+    expect(button).toBeDisabled()
+
+    fireEvent.change(codeInput, { target: { value: 'ABC23D' } })
+    expect(button).toBeEnabled()
+
+    // And back: a player clearing the field is not left with a live button.
+    fireEvent.change(codeInput, { target: { value: 'ABC23' } })
+    expect(button).toBeDisabled()
+  })
+
+  it('an incomplete table code does not call onSend', () => {
+    const onSend = vi.fn()
+    renderLobby(onSend)
+    fireEvent.click(screen.getByText(en.joinRoom))
+    const input = screen.getByPlaceholderText(en.yourNickname)
+    fireEvent.change(input, { target: { value: 'Alice' } })
+    fireEvent.change(screen.getByPlaceholderText(en.roomCodeLabel), { target: { value: 'ABC' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(onSend).not.toHaveBeenCalled()
   })
 
   it('announces a server error in the player’s own words, never the raw string', () => {
@@ -137,7 +225,7 @@ describe('Lobby', () => {
     renderLobby()
     fireEvent.click(screen.getByText(en.joinRoom))
     fireEvent.change(screen.getByPlaceholderText(en.yourNickname), { target: { value: 'Bob' } })
-    fireEvent.change(screen.getByPlaceholderText(en.roomCodeLabel), { target: { value: 'abc123' } })
+    fireEvent.change(screen.getByPlaceholderText(en.roomCodeLabel), { target: { value: 'abc23d' } })
     fireEvent.submit(screen.getByPlaceholderText(en.yourNickname).closest('form')!)
     expect(localStorage.getItem(NICKNAME_KEY)).toBe('Bob')
   })

@@ -31,7 +31,8 @@ import (
 //   - **Nobody presses start.** Two players are seated, given a couple of
 //     seconds to see who they drew, and dealt in. A matchmade room has no host,
 //     no lobby config and no bots: handleAddBot, handleStartGame,
-//     set_match_format and set_max_players are all refused in one. `rematch` is
+//     set_match_format, set_max_players and kick_player are all refused in one.
+//     There is nobody with standing to remove the stranger they drew. `rematch` is
 //     not refused, it means something else there: an offer both sides have to
 //     make, rather than a decision one of them takes (handleRematchOffer).
 
@@ -357,46 +358,13 @@ func (h *Hub) afkThreshold(code string) int {
 
 // --- Rematch, by agreement ---
 
-// handleRematchOffer is what `rematch` means in a matchmade room.
-//
-// There is no host to decide, and the one thing known about the player opposite
-// is that they came here to play somebody: they may want another and they may
-// want the next stranger instead. So a rematch is an agreement. Each side asks,
-// both asks are public (the player who has not answered needs to know somebody
-// is waiting on them), and the match is dealt only once both are in.
+// A rematch is an agreement in every room, and handleRematch owns it. What is
+// specific to a matchmade one is only the shape of the deal: the same two are
+// paired again rather than sent back to a lobby this mode does not have.
 //
 // Nothing here is a countdown. An offer that is never answered costs the offerer
 // nothing: the other button on that screen still finds the next opponent, and
 // leaving is what retires the offer.
-func (h *Hub) handleRematchOffer(c *Client, room *game.Room) {
-	code := c.roomCode
-	if room.Status != game.StatusFinished {
-		c.sendError("rematch is only available once the match is over")
-		return
-	}
-	// The seat opposite has to still be there. After a forfeit it usually is not:
-	// the player who left is gone from the roster, and there is nobody to agree
-	// with. The client's other button is the answer to that.
-	if len(room.Players) < 2 || h.connectedMembers(code) < 2 {
-		c.sendError("your opponent has left the table")
-		return
-	}
-
-	offers, ok := h.rematchOffers[code]
-	if !ok {
-		offers = make(map[int]struct{})
-		h.rematchOffers[code] = offers
-	}
-	offers[c.playerID] = struct{}{}
-	h.broadcastToRoomAll(code, protocol.ServerMsg{
-		Type:        protocol.SMsgRematchOffered,
-		PlayerIndex: intPtr(c.playerID),
-	})
-	if len(offers) < 2 {
-		return
-	}
-	h.startRematchedMatch(code, room)
-}
 
 // startRematchedMatch deals the same two players in again.
 //
@@ -462,6 +430,7 @@ func (h *Hub) releaseSeat(c *Client) {
 	if c.playerID < len(room.Players) {
 		nickname = room.Players[c.playerID].Nickname
 	}
+	leavingID := c.playerID
 	members := h.roomMembers[code]
 	if h.reindexLobbyDisconnect(c, room, members) {
 		h.broadcastToRoomAll(code, protocol.ServerMsg{
@@ -474,9 +443,9 @@ func (h *Hub) releaseSeat(c *Client) {
 	}
 	c.roomCode = ""
 	c.playerID = 0
-	// Any standing rematch offer dies with the seat: there is nobody left to
-	// agree with, and a stale offer would pair the next arrival by accident.
-	delete(h.rematchOffers, code)
+	// This seat's ask goes with it, and the ones above it move down: they are
+	// keyed by playerID like everything else the re-index just shifted.
+	h.releaseRematchOffer(code, leavingID)
 	log.Printf("player left room code=%s nickname=%s", code, nickname)
 }
 

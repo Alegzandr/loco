@@ -88,8 +88,11 @@
     0 0 0 4px rgba(108, 92, 255, 0.35);
 }
 
+/* The placeholder is the only instruction this field ever gives, so it is held
+   at the same contrast as the rest of the quiet copy rather than at the
+   next step down. */
 .input::placeholder {
-  color: var(--color-muted-soft);
+  color: var(--color-muted);
   font-weight: 500;
 }
 
@@ -109,7 +112,7 @@
   min-height: 54px;
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  background: var(--gradient-primary);
   color: var(--color-on-primary);
   text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
   font: 700 19px/1.2 var(--font-display);
@@ -134,14 +137,14 @@
    themselves, each with its own hue so neither reads as the other's fallback. */
 .btnAlt {
   composes: btn;
-  background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
-  color: #4a2c00;
+  background: var(--gradient-secondary);
+  color: var(--color-on-secondary);
   text-shadow: none;
 }
 
 .btnJoin {
   composes: btn;
-  background: linear-gradient(180deg, #8a7cff 0%, var(--color-tertiary) 100%);
+  background: var(--gradient-tertiary);
   text-shadow: 0 2px 0 rgba(30, 16, 90, 0.4);
 }
 
@@ -199,7 +202,7 @@
   border: var(--stroke-thin) solid var(--color-stroke);
   border-radius: var(--radius-md);
   padding: 10px 18px;
-  color: #fff;
+  color: var(--color-on-dark);
   max-width: 340px;
   text-align: left;
   text-wrap: balance;
@@ -240,6 +243,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .error { animation: none; }
+:root[data-motion="reduce"] .error {
+  animation: none;
 }

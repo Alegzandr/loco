@@ -142,7 +142,10 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   because the registry depends on the engine.
 - `make audio-verify` (`tools/audio/verify.mjs`) is the only thing that can catch a broken envelope
   or a mis-wired node: those produce **silence**, not an error, so no unit test would ever go red.
-  It plays every voice through a real AudioContext and measures peak amplitude on the bus, then
+  It plays every voice through a real AudioContext and measures peak amplitude on the bus. **Every
+  voice, read from `sfx.SFX_NAMES` rather than from a list in the harness**: it carried a
+  hand-written copy for a while, which quietly exempted every sound added after that copy was
+  written from the only check that can see silence. Then it
   checks the properties of the bed that are claims rather than code: **every registered track makes
   sound** (a track is pure data, so a typo in it is silence, not an error), that **the form moves on
   its own** at a fixed intensity (the direct test of "it's just a chorus on repeat" — ≥3 distinct

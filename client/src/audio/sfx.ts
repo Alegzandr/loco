@@ -155,6 +155,7 @@ export type SfxName =
   | 'matchWin'
   | 'matchLose'
   | 'playerJoin'
+  | 'matchFound'
   | 'countdown'
 
 const VOICES: Record<SfxName, () => void> = {
@@ -244,6 +245,15 @@ const VOICES: Record<SfxName, () => void> = {
     arp([67, 72, 76], 0.06, 0.14, 'triangle')
   },
 
+  // The queue found somebody. Stacked fifths rather than the thirds every other
+  // cue is built on, so it reads as a call across a room instead of as a result:
+  // nothing has been won here, somebody has arrived. Short, because the reveal
+  // that follows it has its own countdown to fill.
+  matchFound: () => {
+    arp([64, 71, 76, 83], 0.075, 0.2, 'triangle')
+    tone({ freq: mtof(40), type: 'sine', dur: 0.5, gain: 0.15, delay: 0.02 })
+  },
+
   roundWin: () => {
     arp([72, 76, 79, 84], 0.085, 0.22, 'triangle')
     tone({ freq: mtof(48), type: 'sine', dur: 0.6, gain: 0.16, delay: 0.02 })
@@ -263,6 +273,16 @@ const VOICES: Record<SfxName, () => void> = {
     tone({ freq: mtof(33), type: 'sine', dur: 0.9, gain: 0.14, delay: 0.05 })
   },
 }
+
+/**
+ * Every voice, in declaration order.
+ *
+ * `tools/audio/verify.mjs` renders this list rather than one of its own. It used
+ * to carry a hand-written copy, which meant a new sound was silently exempt from
+ * the only check that can catch a broken envelope — and a broken envelope is
+ * silence, not an error.
+ */
+export const SFX_NAMES = Object.keys(VOICES) as SfxName[]
 
 /**
  * Plays a one-shot effect. Silent (and free) until the engine is unlocked, so

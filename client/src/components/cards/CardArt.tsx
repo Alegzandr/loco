@@ -1,22 +1,25 @@
-// Everything that is painted *inside* a card face, in one SVG per card.
+// Everything that is painted *inside* a card face.
 //
-// Face, watermark, wild fan and action glyphs all live in the same 1000x1500
-// user space, so they scale as one object and stay in register whatever size
-// the card is drawn at — hand, discard, a flier mid-flight or a 12px mini fan.
-// Two separate layers (a CSS gradient for the face, an SVG for the mark) drift
-// apart the moment the element's aspect ratio is not the reference's.
-import { useId } from 'react'
+// Face, watermark and wild fan all live in the same 1000x1500 space, so they
+// scale as one object and stay in register whatever size the card is drawn at —
+// hand, discard, a flier mid-flight or a 12px mini fan. That space and the card
+// are both 2:3, so expressing it as percentages of the card box reproduces it
+// exactly, rotations included.
+//
+// It used to be one SVG per card, and that was the board's single biggest
+// rendering cost: fifty live copies of the mark's geometry, most of them under a
+// scale animation and so re-filled every frame. The gradients are CSS now and
+// the mark is a shared mask image; see MARK_MASK_URL in cardArtSpace.ts for the
+// measurement and for why it must stay one.
+import { CSSProperties } from 'react'
 import { CardDTO, CardColor } from '../../types/protocol'
-import { SUIT_PAINT, CARD_GLYPH, CARD_GLYPH_INK } from './cardTheme'
-import { LOCO_MARK_PATH } from './locoMark'
+import { SUIT_PAINT, SUIT_ANGLE_DEG, CARD_GLYPH, CARD_GLYPH_INK } from './cardTheme'
 import {
   CARD_ART_W as W,
   CARD_ART_H as H,
-  CARD_ART_VIEWBOX,
-  CARD_AXIS as AXIS,
-  MARK_AXIS,
-  MARK_CROP_TRANSFORM,
+  MARK_MASK_URL,
 } from './cardArtSpace'
+import styles from './CardArt.module.css'
 
 /** The four suits shown on a wild, left to right, as the reference fans them. */
 const FAN: { color: Exclude<CardColor, 'wild'>; cx: number; rot: number }[] = [
@@ -28,11 +31,11 @@ const FAN: { color: Exclude<CardColor, 'wild'>; cx: number; rot: number }[] = [
 const FAN_CY = 789
 const FAN_W = 164
 const FAN_H = 336
-// The reference strokes these hairline-thin, which is a choice made at 890px.
-// At 72px a mini card is 12px wide and a scaled-down hairline disappears, so the
-// stroke is held at a width that still draws a line there — the fan is the whole
+// The stroke around each mini card lives in CardArt.module.css (`.fanFace`'s
+// inset). The reference strokes these hairline-thin, which is a choice made at
+// 890px: at 72px a mini card is 12px wide and a scaled-down hairline disappears,
+// so it is held at a width that still draws a line there — the fan is the whole
 // meaning of a wild and it has to survive the hand, not just the mockup.
-const FAN_STROKE = 18
 
 interface Props {
   card: CardDTO
@@ -49,87 +52,72 @@ function showsFan(card: CardDTO): boolean {
   return card.kind === 'wild' || card.kind === 'wild_draw_four'
 }
 
+/** The suit's face gradient, on the card's own axis. */
+function faceGradient(color: CardColor): string {
+  const p = SUIT_PAINT[color]
+  return `linear-gradient(${SUIT_ANGLE_DEG}deg, ${p.from}, ${p.to})`
+}
+
+/** The same gradient run backwards: what the watermark is painted in. */
+function markGradient(color: CardColor): string {
+  const p = SUIT_PAINT[color]
+  return `linear-gradient(${SUIT_ANGLE_DEG}deg, ${p.mark[0]}, ${p.mark[1]})`
+}
+
+/**
+ * A mini card on the wild's fan: corner to corner, like the reference.
+ *
+ * `to top right`, and not the angle of the box's diagonal: they are different
+ * gradients on anything that is not square, and this one is 164x336. The
+ * reference was an SVG `objectBoundingBox` gradient, whose colour bands stay
+ * parallel to the *other* diagonal because the unit square is stretched onto
+ * the box after the gradient is laid out. CSS's corner keyword does exactly
+ * that; an explicit angle keeps its bands perpendicular to itself instead, and
+ * swaps the two off-diagonal corners. Caught by eye on `make visual`, which is
+ * the only thing that was ever going to catch it.
+ */
+function fanGradient(color: Exclude<CardColor, 'wild'>): string {
+  const p = SUIT_PAINT[color]
+  return `linear-gradient(to top right, ${p.from}, ${p.to})`
+}
+
+const pct = (n: number, total: number) => `${(n / total) * 100}%`
+
 export function CardArt({ card, className }: Props) {
-  const paint = SUIT_PAINT[card.color]
   const isWild = showsFan(card)
-  // Per instance, not per suit: several cards of the same suit are on screen at
-  // once, and duplicate ids make `url(#…)` resolve to whichever copy happens to
-  // be first in the document — which changes as cards mount and unmount.
-  const id = useId().replace(/:/g, '')
+  const face = faceGradient(card.color)
 
   return (
-    <svg
-      className={className}
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
+    <div
+      className={`${styles.art} ${className ?? ''}`}
+      style={{
+        ['--face' as string]: face,
+        ['--mark' as string]: markGradient(card.color),
+        ['--mark-mask' as string]: MARK_MASK_URL,
+      } as CSSProperties}
       aria-hidden="true"
-      focusable="false"
     >
-      <defs>
-        <linearGradient id={`${id}-face`} gradientUnits="userSpaceOnUse" {...AXIS}>
-          <stop offset="0" stopColor={paint.from} />
-          <stop offset="1" stopColor={paint.to} />
-        </linearGradient>
-        <linearGradient id={`${id}-mark`} gradientUnits="userSpaceOnUse" {...MARK_AXIS}>
-          <stop offset="0" stopColor={paint.mark[0]} />
-          <stop offset="1" stopColor={paint.mark[1]} />
-        </linearGradient>
-        {isWild && FAN.map((f) => (
-          <linearGradient
-            key={f.color}
-            id={`${id}-fan-${f.color}`}
-            gradientUnits="objectBoundingBox"
-            x1="0" y1="1" x2="1" y2="0"
-          >
-            <stop offset="0" stopColor={SUIT_PAINT[f.color].from} />
-            <stop offset="1" stopColor={SUIT_PAINT[f.color].to} />
-          </linearGradient>
-        ))}
-        {isWild && FAN.map((f) => (
-          <clipPath key={f.color} id={`${id}-clip-${f.color}`}>
-            <rect width={FAN_W} height={FAN_H} rx={FAN_W * 0.09} />
-          </clipPath>
-        ))}
-      </defs>
-
-      <rect width={W} height={H} fill={`url(#${id}-face)`} />
-      <g transform={MARK_CROP_TRANSFORM}>
-        <path d={LOCO_MARK_PATH} fillRule="evenodd" fill={`url(#${id}-mark)`} />
-      </g>
+      <div className={styles.mark} />
 
       {isWild && FAN.map((f) => (
-        <g
+        <div
           key={f.color}
-          transform={`translate(${f.cx} ${FAN_CY}) rotate(${f.rot}) translate(${-FAN_W / 2} ${-FAN_H / 2})`}
+          className={styles.fanCard}
+          style={{
+            left: pct(f.cx - FAN_W / 2, W),
+            top: pct(FAN_CY - FAN_H / 2, H),
+            width: pct(FAN_W, W),
+            height: pct(FAN_H, H),
+            transform: `rotate(${f.rot}deg)`,
+            ['--fan' as string]: fanGradient(f.color),
+          } as CSSProperties}
         >
-          <g clipPath={`url(#${id}-clip-${f.color})`}>
-            <svg
-              width={FAN_W}
-              height={FAN_H}
-              viewBox={CARD_ART_VIEWBOX}
-              preserveAspectRatio="none"
-            >
-              <g transform={MARK_CROP_TRANSFORM}>
-                <path
-                  d={LOCO_MARK_PATH}
-                  fillRule="evenodd"
-                  fill={`url(#${id}-fan-${f.color})`}
-                  opacity="0.9"
-                />
-              </g>
-            </svg>
-          </g>
-          <rect
-            width={FAN_W}
-            height={FAN_H}
-            rx={FAN_W * 0.09}
-            fill="none"
-            stroke={`url(#${id}-fan-${f.color})`}
-            strokeWidth={FAN_STROKE}
-          />
-        </g>
+          <div className={styles.fanFace}>
+            <div className={styles.fanMark} />
+          </div>
+        </div>
       ))}
-    </svg>
+    </div>
   )
 }
 

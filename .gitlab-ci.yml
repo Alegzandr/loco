@@ -86,7 +86,8 @@ backend_test:
 
 frontend_test:
   stage: test
-  image: node:20-alpine
+  # Astro 7 declares engines.node >= 22.12; npm ci fails on node:20.
+  image: node:22-alpine
   tags:
     - devops
   cache:
@@ -314,7 +315,13 @@ build:
     - if: '$CI_COMMIT_TAG =~ /^v.*/'
   script:
     - docker build -t "${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}" -f server/Dockerfile server
-    - docker build -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
+    # The canonical, hreflang and og: tags are absolute and cannot be filled in
+    # at runtime — crawlers do not run JS. Without this build-arg the client
+    # falls back to the production origin, so the image built for
+    # loco-d.kisukesaama.com served a canonical and an og:url naming production.
+    # APP_HOST comes from .defaults and is already `-d.` on develop and the bare
+    # host on a v* tag, which is exactly the distinction needed here.
+    - docker build --build-arg "VITE_PUBLIC_ORIGIN=https://${APP_HOST}" -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
     - docker push "${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}"
     - docker push "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}"
 

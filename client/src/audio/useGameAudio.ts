@@ -135,6 +135,11 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
     out.push('playerJoin')
   }
 
+  // The queue paid off. This is the one moment in the game the player is most
+  // likely to be missing — a search runs for minutes and people go and do
+  // something else — so it is also the one that most needs a sound.
+  if (next.screen === 'matchfound' && prev.screen !== 'matchfound') out.push('matchFound')
+
   return out
 }
 

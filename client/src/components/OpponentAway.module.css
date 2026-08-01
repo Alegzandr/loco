@@ -92,7 +92,10 @@
   50% { opacity: 0.25; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .banner { animation: none; }
-  .dot { animation: none; }
+:root[data-motion="reduce"] .banner {
+  animation: none;
+}
+
+:root[data-motion="reduce"] .dot {
+  animation: none;
 }

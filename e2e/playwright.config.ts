@@ -56,16 +56,30 @@ export default defineConfig({
     },
   ],
 
-  // Start Vite dev server automatically; reuse if already running (local dev).
+  // Start the client's dev server automatically; never reuse one.
   // The Go server must already be running (docker-compose or CI script).
   webServer: {
-    // Pass --port explicitly so Vite binds on 4173 rather than its default.
+    // Pass --port explicitly so the server binds on 4173 rather than its default.
+    //
+    // `--ignore-lock` because `astro dev` is a singleton: it takes a lock file,
+    // and a second invocation prints "dev server already running" and exits
+    // without ever binding 4173. Without this the whole suite times out for the
+    // sole reason that `make dev` is up in another terminal.
+    //
     // Environment goes through `env` rather than a shell prefix: the prefix form
     // is POSIX-only and fails when the suite is run from Windows.
-    command: `npm run dev -- --port 4173`,
+    command: `npm run dev -- --port 4173 --ignore-lock`,
     env: {
       VITE_WS_PORT: '8080',
       VITE_HMR_CLIENT_PORT: '4173',
+      // `astro dev` auto-backgrounds itself when it detects an agentic
+      // environment, and a backgrounded server refuses --ignore-lock. Playwright
+      // owns this server's lifetime, so it must stay in the foreground. The
+      // detector treats an empty value as absent.
+      CLAUDECODE: '',
+      CURSOR_TRACE_ID: '',
+      AGENT: '',
+      REPL_ID: '',
     },
     cwd: resolve(__dirname, '../client'),
     port: 4173,

@@ -34,6 +34,9 @@ export type ClientMsgType =
   | 'add_bot'
   | 'set_match_format'
   | 'set_max_players'
+  // Frees a seat at the host's table, named by target_index. Lobby only, and
+  // never the host's own seat: giving up your own is 'leave_room'.
+  | 'kick_player'
   | 'rematch'
   // Matchmaking. The queue is anonymous: nothing the server sends back says how
   // many people are in it, so nothing here asks.
@@ -71,6 +74,7 @@ export interface ClientMsg {
   chosen_player?: number
   // catch_uno: which seat is being caught. Several players can owe a
   // declaration at once (Swap / GlobalSwitch), so the catcher names one.
+  // kick_player: which seat the host is freeing. Required there.
   target_index?: number
   match_format?: MatchFormat
   max_players?: number

@@ -10,7 +10,7 @@ describe('resolveServerError', () => {
     const raw = [
       'nickname "Alice" already taken',
       'nickname already taken',
-      'nickname must be 1–20 characters',
+      'nickname not allowed',
       'room not found',
       'invalid room code',
       'room is full (max 10 players)',
@@ -88,6 +88,13 @@ describe('resolveServerError', () => {
     // The bare form, without an interpolated nickname, must map too.
     expect(resolveServerError('nickname already taken', fr.errors))
       .toBe(fr.errors.nicknameTaken)
+    // Every nickname refusal is one server string and one line of copy: the
+    // player must not be able to read the rule that fired off the message and
+    // walk around it. See server/game/nickname.go.
+    expect(resolveServerError('nickname not allowed', fr.errors))
+      .toBe(fr.errors.nicknameRejected)
+    expect(resolveServerError('nickname not allowed', en.errors))
+      .toBe(en.errors.nicknameRejected)
     expect(resolveServerError('interrupt window closed', fr.errors))
       .toBe(fr.errors.interruptClosed)
     // A refusal during a deploy must never read as "no table with that code":

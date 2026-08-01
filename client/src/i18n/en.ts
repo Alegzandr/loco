@@ -1,3 +1,5 @@
+﻿import type { CardKind } from '../types/protocol'
+
 export interface RulesSection {
   heading: string
   items: readonly string[]
@@ -19,7 +21,9 @@ export interface ErrorCopy {
 
   // Joining
   nicknameTaken: string
-  nicknameLength: string
+  /** Every nickname refusal, whatever rule fired. One string on purpose:
+   *  see server/game/nickname.go. */
+  nicknameRejected: string
   roomNotFound: string
   roomFull: string
   gameInProgress: string
@@ -59,6 +63,10 @@ export interface ErrorCopy {
 
   // Lobby & host
   hostOnly: string
+  // Not a refusal: what the removed player is told. It reaches the same slot
+  // every refusal does, because a seat vanishing needs a reason more than a
+  // wrong tap does.
+  kicked: string
   notEnoughPlayers: string
   lobbyOnly: string
   maxPlayersInvalid: string
@@ -98,6 +106,23 @@ export interface Translations {
   back: string
   rulesBtn: string
 
+  // ─── Preferences ──────────────────────────────────────────────
+  // The gear in the top bar. Language used to sit there bare; streamer mode is
+  // the second preference, and two of them belong in a panel.
+  prefsBtn: string
+  prefsTitle: string
+  prefsLanguage: string
+  prefsTheme: string
+  prefsThemeLight: string
+  prefsThemeDark: string
+  prefsStreamer: string
+  prefsColorAssist: string
+  prefsColorAssistHint: string
+  prefsMotion: string
+  prefsMotionHint: string
+  prefsStreamerHint: string
+  prefsCodeHidden: string
+
   // ─── 1v1 matchmaking ──────────────────────────────────────────
   // The mode never names itself "unranked": there is one queue today, and the
   // day a ranked ladder exists it will introduce itself. Nothing here says how
@@ -117,6 +142,9 @@ export interface Translations {
   searchCancel: string
   searchCreateTable: string     // offered only once the wait is long
   matchFoundKicker: string
+  // Shown in the browser tab, alternating with the page title, and only while
+  // the player is on another tab. See hooks/useTabAlert.ts.
+  matchFoundTab: string
   matchFoundYou: string
   matchFoundStartingIn: string  // contains %n (seconds)
   matchFoundDealing: string
@@ -135,10 +163,15 @@ export interface Translations {
   forfeitYouLeft: string
   forfeitYouLeftSub: string
   findAnotherOpponent: string
-  // A matchmade rematch is an agreement between two strangers, so the button has
-  // three states: ask, wait, accept.
+  // A rematch is an agreement, not a decision, so the button has three states:
+  // ask, wait, accept. `rematchWaitingOpponent` is the 1v1 wording; past two
+  // seats the wait is on the table rather than on one named opponent, and the
+  // count of who has answered rides `rematchProgress`.
   rematchWaitingOpponent: string
+  rematchWaitingTable: string
   rematchAccept: string
+  // "{done}/{total}", appended to the button past two seats.
+  rematchProgress: (done: number, total: number) => string
 
   // ─── Waiting Room ─────────────────────────────────────────────
   waitingRoom: string
@@ -173,6 +206,9 @@ export interface Translations {
   directionCcw: string
   drawPile: string
   hostBadge: string
+  // The host's control over one row of the roster. Label of an icon button, so
+  // it is read out with the nickname beside it.
+  kickPlayer: string
   matchFormat: string
   maxPlayersLabel: string
   addBot: string
@@ -194,6 +230,7 @@ export interface Translations {
   catchBtn: string
   chooseColor: string
   choosePlayer: string
+  pickerCancel: string          // the ✕ on both pickers: puts the card back in the hand
   // Hand size of a swap target. Two entries because one card is the size that
   // matters most here and "1 cards" is wrong in both languages.
   swapTargetCards: string             // contains %n
@@ -249,6 +286,7 @@ export interface Translations {
   scoreTableTitle: string
   scoreTableHint: string       // "Hold TAB"
   scoreTableBtn: string        // accessible name + tooltip of the touch-only icon button
+  scoreTableClose: string      // the ✕, shown only while the table is pinned
   scoreTableRoundCol: string   // per-round column header, %n = round number
   scoreTablePingCol: string
   scoreTableYou: string        // marker next to your own row
@@ -275,8 +313,7 @@ export interface Translations {
   finalScores: string
   winsGame: string      // "{nickname} wins!"
   winsMatch: string     // "{nickname} wins the match!"
-  rematch: string             // host button: reopen the room for another match
-  rematchWaiting: string      // shown to non-hosts while they wait for the host
+  rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
 
   // ─── Language ────────────────────────────────────────────────
@@ -285,7 +322,19 @@ export interface Translations {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: string
   rulesClose: string
+  /** Link out of the modal to the full rules page (opens in a new tab). */
+  rulesFullPage: string
   rules: readonly RulesSection[]
+  /**
+   * A readable name per card kind. `cardLabel()` only ever returns the glyph
+   * (⊘ ⇄ +2 W +4 ⇋ ↻), and the names existed nowhere else but buried inside the
+   * sentences of `rules`, so nothing could name a card in a table or a heading.
+   */
+  cardNames: Record<CardKind, string>
+
+  // Privacy, terms and credits are not here: they are pages, and their copy
+  // lives in `src/content/legal.ts`, which no bundle carries. See
+  // `docs/notes/legal.md`.
 
   // ─── Refused actions ─────────────────────────────────────────
   errors: ErrorCopy
@@ -318,6 +367,27 @@ export const en: Translations = {
   // tooltip. The modal it opens is the one that gets to be a sentence.
   rulesBtn: 'Rules',
 
+  // ─── Preferences ──────────────────────────────────────────────
+  prefsBtn: 'Preferences',
+  prefsTitle: 'Preferences',
+  prefsLanguage: 'Language',
+  prefsTheme: 'Theme',
+  prefsThemeLight: 'Light',
+  prefsThemeDark: 'Dark',
+  prefsStreamer: 'Streamer mode',
+  prefsColorAssist: 'Colour shapes',
+  // Named after what appears, not after a condition: nobody should have to
+  // self-diagnose to find the setting that makes the game playable.
+  prefsColorAssistHint: 'Marks every suit with its own shape, so colour is never the only thing telling two cards apart.',
+  prefsMotion: 'Reduced motion',
+  // Names the two things a player would miss, so the switch is not a leap of
+  // faith. Follows the system setting until it is touched.
+  prefsMotionHint: 'Stops card flights and confetti. Follows your system until you set it here.',
+  // Says what it does to the code, not what the mode is called: a player who
+  // has to guess the effect will leave it off.
+  prefsStreamerHint: 'Blurs the table code on screen. Hover it to read it yourself.',
+  prefsCodeHidden: 'Hidden. Hover to read it.',
+
   // ─── 1v1 matchmaking ──────────────────────────────────────────
   findMatch: 'Play 1v1',
   findMatchHint: 'We find you someone',
@@ -330,6 +400,7 @@ export const en: Translations = {
   searchCancel: 'Stop looking',
   searchCreateTable: 'Open a table instead',
   matchFoundKicker: 'Opponent found',
+  matchFoundTab: 'Opponent found, come back!',
   matchFoundYou: 'You',
   matchFoundStartingIn: 'Dealing in %n…',
   matchFoundDealing: 'Dealing…',
@@ -342,7 +413,9 @@ export const en: Translations = {
   forfeitYouLeftSub: 'The match went to your opponent.',
   findAnotherOpponent: 'Find another opponent',
   rematchWaitingOpponent: 'Waiting on them…',
+  rematchWaitingTable: 'Waiting on the table…',
   rematchAccept: 'They want another. Go.',
+  rematchProgress: (done, total) => `${done}/${total}`,
 
   // ─── Waiting Room ─────────────────────────────────────────────
   waitingRoom: 'The table',
@@ -376,6 +449,7 @@ export const en: Translations = {
   directionCcw: 'Play order: counter-clockwise',
   drawPile: 'Draw pile',
   hostBadge: 'Host',
+  kickPlayer: 'Remove from the table',
   matchFormat: 'Match length',
   maxPlayersLabel: 'Seats',
   addBot: '+ Add a bot',
@@ -397,6 +471,7 @@ export const en: Translations = {
   catchBtn: 'Catch!',
   chooseColor: 'Call the color',
   choosePlayer: 'Whose hand do you want?',
+  pickerCancel: 'Put it back',
   swapTargetCards: '%n cards',
   swapTargetCardOne: '1 card',
   catchWindow: 'Catch them!',
@@ -462,6 +537,7 @@ export const en: Translations = {
   scoreTableTitle: 'Scores',
   scoreTableHint: 'Hold TAB',
   scoreTableBtn: 'Scores',
+  scoreTableClose: 'Close',
   scoreTableRoundCol: 'R%n',
   scoreTablePingCol: 'Ping',
   scoreTableYou: 'you',
@@ -488,7 +564,6 @@ export const en: Translations = {
   winsGame: 'wins!',
   winsMatch: 'takes the match!',
   rematch: 'Rematch',
-  rematchWaiting: 'The host is deciding on a rematch…',
   leaveRoom: 'Leave the table',
 
   // ─── Language ────────────────────────────────────────────────
@@ -497,6 +572,18 @@ export const en: Translations = {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: 'How to play',
   rulesClose: 'Close',
+  rulesFullPage: 'All 112 cards',
+
+  cardNames: {
+    number: 'Number',
+    skip: 'Skip',
+    reverse: 'Reverse',
+    draw_two: '+2',
+    wild: 'Wild',
+    wild_draw_four: '+4',
+    swap: 'Swap',
+    global_switch: 'Global Switch',
+  },
 
   rules: [
     {
@@ -591,7 +678,7 @@ export const en: Translations = {
     generic: 'That one did not go through.',
 
     nicknameTaken: 'Someone at this table already goes by that.',
-    nicknameLength: 'One to twenty characters.',
+    nicknameRejected: 'Pick another nickname.',
     roomNotFound: 'No table with that code.',
     roomFull: 'That table is full.',
     gameInProgress: 'Cards are already out at that table.',
@@ -625,6 +712,7 @@ export const en: Translations = {
     swapTargetInvalid: 'That seat cannot be your target.',
 
     hostOnly: 'That one is the host’s call.',
+    kicked: 'The host freed your seat.',
     notEnoughPlayers: 'Not enough players to deal.',
     lobbyOnly: 'Too late, the cards are out.',
     maxPlayersInvalid: 'That seat count is not allowed.',

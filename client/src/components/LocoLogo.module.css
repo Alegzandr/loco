@@ -56,6 +56,6 @@
   50%      { transform: rotate(-2deg) scale(1.028); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animated { animation: none; transform: rotate(-2deg); }
+:root[data-motion="reduce"] .animated {
+  animation: none; transform: rotate(-2deg);
 }

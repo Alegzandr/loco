@@ -1,0 +1,296 @@
+import { test, expect } from '@playwright/test'
+import { en } from '../../client/src/i18n/en'
+import { fr } from '../../client/src/i18n/fr'
+
+/**
+ * The indexable surface, checked the way a crawler meets it.
+ *
+ * Every test here runs with **JavaScript disabled**, which is the whole point:
+ * the content pages are built to be readable without running a script, and
+ * nothing else in the repo can prove that. A unit test reads sources, and the
+ * rest of this suite drives an app that only exists once React has mounted.
+ *
+ * These need no Go server: they never open a socket.
+ */
+
+// A context with scripts off. `test.use` applies to the file, so the last case —
+// which does need the game to boot — lives in its own describe block below.
+test.describe('read without JavaScript', () => {
+  test.use({ javaScriptEnabled: false })
+
+  test('the rules page carries every rule, in English', async ({ page }) => {
+    await page.goto('/rules/')
+    const body = await page.locator('main').innerText()
+
+    for (const section of en.rules) {
+      expect(body, `heading: ${section.heading}`).toContain(section.heading)
+      for (const item of section.items) {
+        // Whole sentences, not keywords: a page that dropped half a rule would
+        // still contain every heading.
+        expect(body, `rule: ${item.slice(0, 45)}`).toContain(item)
+      }
+    }
+  })
+
+  test('the rules page carries every rule, in French', async ({ page }) => {
+    await page.goto('/fr/regles/')
+    const body = await page.locator('main').innerText()
+
+    for (const section of fr.rules) {
+      expect(body, `titre : ${section.heading}`).toContain(section.heading)
+      for (const item of section.items) {
+        expect(body, `règle : ${item.slice(0, 45)}`).toContain(item)
+      }
+    }
+  })
+
+  test('the rules page names every card and totals the deck', async ({ page }) => {
+    await page.goto('/rules/')
+    const body = await page.locator('main').innerText()
+    for (const name of Object.values(en.cardNames)) {
+      expect(body, `card: ${name}`).toContain(name)
+    }
+    expect(body, 'the deck total').toContain('112')
+  })
+
+  test('each language declares itself and points at the other', async ({ page }) => {
+    for (const [url, lang, otherPath] of [
+      ['/rules/', 'en', '/fr/regles/'],
+      ['/fr/regles/', 'fr', '/rules/'],
+    ] as const) {
+      await page.goto(url)
+      await expect(page.locator('html')).toHaveAttribute('lang', lang)
+
+      // A real link, not an in-app toggle: it is the href that makes the
+      // hreflang pair navigable, and a crawler only follows hrefs.
+      const link = page.locator(`footer a[href$="${otherPath}"]`)
+      await expect(link).toHaveCount(1)
+
+      // Reciprocal alternates plus exactly one x-default. Google drops a set
+      // whose pages do not point back at each other.
+      const alts = page.locator('link[rel="alternate"]')
+      await expect(alts).toHaveCount(3)
+      await expect(page.locator('link[rel="alternate"][hreflang="x-default"]')).toHaveCount(1)
+      await expect(page.locator('link[rel="canonical"]')).toHaveCount(1)
+    }
+  })
+
+  test('the cards page draws the deck rather than describing it', async ({ page }) => {
+    await page.goto('/cards/')
+
+    // 36 numbers + 16 actions + 3 wilds: the whole deck without its duplicates.
+    // Counted by row children rather than by <svg>, because one card draws
+    // several (the face, and a glyph on the ones that have one).
+    await expect(page.locator('main .cardRow > *')).toHaveCount(36 + 16 + 3)
+
+    // The art is the game's own React component rendered at build time, so it
+    // has to already be in the document rather than mounted later — and this
+    // page runs with scripts off, so nothing could mount it.
+    //
+    // Probed on the art layer rather than on <svg>: a card face is CSS
+    // gradients plus a shared mask image now, and only the rule cards still
+    // carry an SVG glyph. Counting <svg> would pass on a page showing 28 glyphs
+    // over 55 blank cards, which is precisely the failure this guards.
+    await expect(page.locator('main .cardRow [style*="--mark-mask"]'))
+      .toHaveCount(36 + 16 + 3)
+
+    const body = await page.locator('main').innerText()
+    for (const name of Object.values(en.cardNames)) {
+      if (name === 'Number') continue // the group has its own heading
+      expect(body, `card: ${name}`).toContain(name)
+    }
+  })
+
+  test('the tables page shows all four rooms', async ({ page }) => {
+    await page.goto('/tables/')
+    const body = await page.locator('main').innerText()
+    for (const id of ['neon', 'rune', 'velvet', 'orbit'] as const) {
+      expect(body, `room: ${id}`).toContain(en.maps[id].name)
+      expect(body, `tagline: ${id}`).toContain(en.maps[id].tagline)
+    }
+    // Room plus table for each: the page composites them exactly as the board
+    // does, so a missing one is a room with no table in it.
+    await expect(page.locator('main img')).toHaveCount(8)
+  })
+
+  test('the FAQ answers every question it declares to a search engine', async ({ page }) => {
+    await page.goto('/faq/')
+    const body = await page.locator('main').innerText()
+
+    const raw = await page.locator('script[type="application/ld+json"]').innerText()
+    const ld = JSON.parse(raw) as {
+      '@type': string
+      mainEntity: { name: string; acceptedAnswer: { text: string } }[]
+    }
+    // FAQPage is the one structured-data type here that can put content straight
+    // into a result, so the data and the page have to be the same questions.
+    expect(ld['@type']).toBe('FAQPage')
+    expect(ld.mainEntity.length).toBeGreaterThan(5)
+    for (const q of ld.mainEntity) {
+      expect(body, `question: ${q.name}`).toContain(q.name)
+      expect(q.acceptedAnswer.text.length, `answer to: ${q.name}`).toBeGreaterThan(40)
+    }
+  })
+
+  test('the friends page leads with the three steps', async ({ page }) => {
+    await page.goto('/play-with-friends/')
+    // Ordered, and there are three: the order is the answer for somebody trying
+    // to get a game going right now.
+    await expect(page.locator('main ol.steps > li')).toHaveCount(3)
+  })
+
+  test('the home page says what the game is, and links to the rest', async ({ page }) => {
+    await page.goto('/')
+    // In the served HTML: with scripts off nothing has mounted, so anything
+    // readable here is what a crawler gets. The prose sits inside the sheet,
+    // which is markup either way — hence textContent rather than innerText.
+    const intro = page.locator('.homeIntro')
+    await expect(intro).toBeVisible()
+    expect(((await page.locator('.homeSheetCard').textContent()) ?? '').length)
+      .toBeGreaterThan(200)
+
+    // The only links from `/` to the content pages, and they are in the open:
+    // the sitemap lists them, but a link is what carries weight between them.
+    //
+    // `.homeLinks`, not `.homeIntro`: the same five are rendered a second time
+    // inside the drawer, which is the phone's menu. Only one of the two is ever
+    // on screen — this project runs at a desktop viewport, so it is this one —
+    // and both are built from `NAV`, so neither can lose a page on its own.
+    for (const href of ['/rules/', '/cards/', '/tables/', '/play-with-friends/', '/faq/']) {
+      await expect(page.locator(`.homeLinks a[href="${href}"]`)).toBeVisible()
+      await expect(page.locator(`.navPopLinks a[href="${href}"]`)).toHaveCount(1)
+    }
+  })
+
+  test('the home page never scrolls, and the prose opens without a script', async ({ page }) => {
+    await page.goto('/')
+    // The complaint this replaced: text parked under the fold. Nothing on this
+    // page is reached by scrolling, at the lobby or in a match.
+    const scrolls = () =>
+      page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1)
+    expect(await scrolls()).toBe(false)
+
+    // <details> is why: it opens with scripts disabled, which is the state this
+    // whole describe block runs in.
+    await expect(page.locator('.homeSheetCard')).toBeHidden()
+    await page.locator('.homeSheetBtn').click()
+    await expect(page.locator('.homeSheetCard')).toBeVisible()
+    expect(await scrolls()).toBe(false)
+  })
+
+  test('the footer is gone once a seat is taken', async ({ page }) => {
+    await page.goto('/')
+    // App writes this attribute (see appSubscription.test.tsx); this is the CSS
+    // half of the same contract. A board that scrolls off-screen mid-match is
+    // what it prevents.
+    await page.evaluate(() => document.documentElement.setAttribute('data-seated', '1'))
+    await expect(page.locator('.homeIntro')).toBeHidden()
+    await expect(page.locator('body')).toHaveCSS('overflow', 'hidden')
+  })
+
+  test('the pages are reachable from one another without scripts', async ({ page }) => {
+    // The nav is the only path a crawler has from the game to the rules.
+    await page.goto('/')
+    // The game page is the app shell, so the crawl starts at a content page and
+    // has to be able to get back to the game.
+    await page.goto('/rules/')
+    await expect(page.locator('header a[href="/"]')).not.toHaveCount(0)
+  })
+
+  test('every content page carries the whole navigation in its footer bar', async ({ page }) => {
+    // The same row the home page has, on every page: a reader who followed a
+    // link from `/` finds the other four where they left them, and a crawler
+    // that landed on one page can reach the rest without going back.
+    await page.goto('/faq/')
+    for (const href of ['/rules/', '/cards/', '/tables/', '/play-with-friends/', '/faq/']) {
+      await expect(page.locator(`footer nav a[href="${href}"]`), href).toBeVisible()
+    }
+    // And "Play", where the home page's sheet button stands.
+    await expect(page.locator('footer a[href="/"]')).toBeVisible()
+  })
+
+  test('the language chooser opens and closes without a script', async ({ page }) => {
+    await page.goto('/rules/')
+    const panel = page.locator('#langPop')
+    // Scoped to the bar: there is a second globe in the mobile drawer, which is
+    // the same navigation at a width this project never runs at.
+    // A native popover: the button opens it, Escape closes it, and this whole
+    // describe block runs with JavaScript disabled. `<dialog>` would need one.
+    await expect(panel).toBeHidden()
+    await page.locator('.siteFooter .langBtn').click()
+    await expect(panel).toBeVisible()
+    // The other language is a real link inside it, not a toggle.
+    await expect(panel.locator('a[href="/fr/regles/"]')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+
+    // And the way out a phone has: no Escape key, and no outside to click that
+    // is not also a link. `popovertargetaction="hide"` is native too, which is
+    // the only reason it works in this JavaScript-disabled block.
+    await page.locator('.siteFooter .langBtn').click()
+    await expect(panel).toBeVisible()
+    await panel.locator('.langPopClose').click()
+    await expect(panel).toBeHidden()
+  })
+
+  test('a content page never scrolls sideways', async ({ page }) => {
+    // The deck table and the rows of cards are wider than a phone and scroll
+    // inside their own box. The page itself doing it is the bug.
+    await page.setViewportSize({ width: 390, height: 844 })
+    for (const url of ['/rules/', '/cards/', '/fr/tables/']) {
+      await page.goto(url)
+      const overflows = await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth + 1,
+      )
+      expect(overflows, url).toBe(false)
+    }
+  })
+
+  test('an unknown page is not the game with a 200 on it', async ({ page }) => {
+    // The dev server has no nginx behind it, so the status code is nginx's job
+    // and is asserted in seo.test.ts. What is checked here is the other half: a
+    // 404 page exists, says so, and refuses indexing.
+    await page.goto('/404.html')
+    await expect(page.locator('meta[name="robots"][content*="noindex"]')).toHaveCount(1)
+    await expect(page.locator('link[rel="canonical"]')).toHaveCount(0)
+    await expect(page.locator('h1')).not.toBeEmpty()
+  })
+})
+
+test.describe('with JavaScript, it is still the game', () => {
+  test('the theme switch follows the reader from page to page', async ({ page }) => {
+    await page.goto('/rules/')
+    const button = page.locator('.siteFooter .themeBtn')
+    // Hidden in the markup and revealed by theme-boot: a switch that cannot
+    // store a choice is a button that does nothing.
+    await expect(button).toBeVisible()
+
+    const theme = async () => page.locator('html').getAttribute('data-theme')
+    const before = await theme()
+    await button.click()
+    expect(await theme()).not.toBe(before)
+
+    // There are two of these — one in the bar, one in the drawer — and they are
+    // painted together, so the one in the drawer is already showing the theme
+    // the reader is on by the time they open it.
+    await expect(page.locator('.navPop .themeBtn')).toHaveAttribute(
+      'data-theme-state',
+      (await theme())!,
+    )
+
+    // Stored under the key `useTheme` reads, so the choice survives the walk
+    // back to the game as well as the walk to the next page.
+    const chosen = await theme()
+    await page.goto('/faq/')
+    expect(await theme()).toBe(chosen)
+    expect(await page.evaluate(() => localStorage.getItem('loco_theme'))).toBe(chosen)
+  })
+
+
+  test('the home page boots the app', async ({ page }) => {
+    await page.goto('/')
+    // The lobby's tagline only exists once React has mounted, so this is the
+    // proof that turning the site into pages did not turn the game into one.
+    await expect(page.locator('#root')).toContainText(en.tagline, { timeout: 15_000 })
+  })
+})

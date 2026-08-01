@@ -1,0 +1,9 @@
+---
+import ContentPage from '../../layouts/ContentPage.astro'
+import CardsArticle from '../../content/CardsArticle.astro'
+import { CARDS, pageJsonLd } from '../../seo/meta'
+---
+
+<ContentPage page={CARDS} lang="fr" jsonLd={pageJsonLd(CARDS, 'fr')}>
+  <CardsArticle lang="fr" />
+</ContentPage>

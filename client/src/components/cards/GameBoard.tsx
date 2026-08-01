@@ -30,6 +30,7 @@ import {
   CatchFlash,
   CATCH_PENALTY_CARDS,
 } from '../../hooks/useGameStore'
+import { prefersReducedMotion } from '../../hooks/useMotionPref'
 import styles from './GameBoard.module.css'
 
 interface Props {
@@ -220,8 +221,7 @@ export const GameBoard = memo(function GameBoard(props: Props) {
   function kickBoard() {
     const el = stageRef.current
     if (!el || typeof el.animate !== 'function') return
-    if (typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     el.animate(
       [
         { translate: '0 0' },

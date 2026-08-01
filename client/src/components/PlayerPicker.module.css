@@ -69,8 +69,8 @@
 .playerBtn:focus-visible {
   transform: translateY(-2px);
   box-shadow: 0 6px 0 var(--color-stroke-soft);
-  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
-  color: #fff;
+  background: var(--gradient-tertiary);
+  color: var(--color-on-dark);
 }
 
 .playerBtn:active {
@@ -100,8 +100,8 @@
   color: var(--color-muted);
   font: 600 15px/1 var(--font-display);
   cursor: pointer;
-  width: 38px;
-  height: 38px;
+  width: var(--touch-target);
+  height: var(--touch-target);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -123,6 +123,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .picker, .overlay { animation: none; }
+:root[data-motion="reduce"] .picker,
+:root[data-motion="reduce"] .overlay {
+  animation: none;
 }

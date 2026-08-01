@@ -3,8 +3,8 @@ import { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
-import { LanguageSwitcher } from './LanguageSwitcher'
-import { ThemeToggle } from './ThemeToggle'
+import { Preferences } from './Preferences'
+import { TableCode } from './TableCode'
 import { AudioSettings } from './AudioSettings'
 import { seatColor, seatInitial } from './playerColors'
 import styles from './WaitingRoom.module.css'
@@ -24,6 +24,23 @@ interface Props {
 }
 
 const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
+
+// Drawn, not a glyph: a `×` is a different object on every platform and lands
+// somewhere between a multiplication sign and a letter. Same rule as the
+// preference icons.
+function KickIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden focusable="false">
+      <path
+        d="M6 6 L18 18 M18 6 L6 18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
 
 // Mirrors the server's serverMinPlayers / serverMaxPlayers (game/room.go). A cap of 1
 // is a room that can never start, so the field must not even offer it.
@@ -99,8 +116,7 @@ export function WaitingRoom({
   return (
     <div className={styles.container}>
       <div className={styles.topBar}>
-        <LanguageSwitcher />
-        <ThemeToggle />
+        <Preferences />
         <AudioSettings />
         <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
@@ -110,7 +126,7 @@ export function WaitingRoom({
           copying it should never mean selecting six characters by hand. */}
       <button className={styles.code} onClick={copyCode} aria-label={`${t.roomCode} ${roomCode}`}>
         <span className={copied ? styles.copied : undefined}>{copied ? t.copyCode : t.roomCode}</span>
-        <span className={styles.codeVal}>{roomCode}</span>
+        <TableCode code={roomCode} className={styles.codeVal} />
       </button>
       <p className={styles.hint}>{t.shareCode}</p>
 
@@ -126,6 +142,24 @@ export function WaitingRoom({
               </span>
             </span>
             {p.index === 0 && <span className={styles.owner}>{t.hostBadge}</span>}
+            {/* The host's control over one row. Never on their own: giving up
+                the seat you are sitting in is the link at the bottom, and a
+                kick that could do it would hand the table away silently.
+
+                No confirmation, deliberately: this table's one question is the
+                one about leaving, and unlike leaving a mistake here costs
+                nothing — the code is still in the removed player's hands and
+                they sit back down. */}
+            {isOwner && p.index !== myIndex && (
+              <button
+                className={styles.kick}
+                aria-label={`${t.kickPlayer}: ${p.nickname}`}
+                title={t.kickPlayer}
+                onClick={() => onSend({ type: 'kick_player', target_index: p.index })}
+              >
+                <KickIcon />
+              </button>
+            )}
           </li>
         ))}
       </ul>

@@ -1,0 +1,51 @@
+---
+// Privacy, terms and credits, in one column.
+//
+// One page and not three: they answer three different questions, but only one of
+// them is ever the one somebody came for, and a reader who lands on the wrong
+// one of three URLs has to go looking. The jump list under the lede is what a
+// tab strip was, minus the state and minus the script.
+//
+// The copy is `src/content/legal.ts`, read at build time. It used to be `t.legal`
+// in the i18n bundle, behind a modal; nothing in the game renders it now, so it
+// no longer travels to every player who never opens it.
+import { LEGAL, LEGAL_UPDATED } from './legal'
+import { ui } from './ui'
+import type { Lang } from '../seo/meta'
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+// The anchor comes from the document (`doc.slug`), so a link points at the
+// terms rather than at the page, and the same fragment resolves in both
+// languages. It used to be a positional array declared here.
+const docs = LEGAL[lang]
+---
+
+<h1>{ui('legalH1', lang)}</h1>
+<p class="lede">{ui('legalLede', lang)}</p>
+
+{/* Labelled for what it does, not with the page's own <h1>: a landmark that
+    repeats the heading above it tells a screen-reader user nothing they have
+    not just heard. */}
+<nav class="docJump" aria-label={ui('legalJump', lang)}>
+  {docs.map((doc) => <a href={`#${doc.slug}`}>{doc.title}</a>)}
+</nav>
+
+{docs.map((doc) => (
+  <section id={doc.slug}>
+    <h2>{doc.title}</h2>
+    {doc.sections.map((section) => (
+      <>
+        <h3>{section.heading}</h3>
+        <ul>
+          {section.items.map((item) => <li>{item}</li>)}
+        </ul>
+      </>
+    ))}
+  </section>
+))}
+
+<p class="docUpdated">{LEGAL_UPDATED[lang]}</p>

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -467,7 +468,7 @@ func (h *Hub) Run() {
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			h.statClients.Add(1)
-			log.Printf("player connected conn=%s addr=%s", c.connID, c.conn.RemoteAddr())
+			log.Printf("player connected conn=%s addr=%s", c.connID, c.netPrefix())
 			if h.afterRegisterHook != nil {
 				h.afterRegisterHook()
 			}
@@ -537,13 +538,14 @@ func (h *Hub) Run() {
 
 // ServeWS upgrades an HTTP connection to WebSocket and registers the client.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	log.Printf("ws request addr=%s origin=%q method=%s", r.RemoteAddr, r.Header.Get("Origin"), r.Method)
+	addr := truncateAddr(r.RemoteAddr)
+	log.Printf("ws request addr=%s origin=%q method=%s", addr, r.Header.Get("Origin"), r.Method)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Printf("ws upgrade FAILED addr=%s origin=%q err=%v", r.RemoteAddr, r.Header.Get("Origin"), err)
+		log.Printf("ws upgrade FAILED addr=%s origin=%q err=%v", addr, r.Header.Get("Origin"), err)
 		return
 	}
-	log.Printf("ws upgrade OK addr=%s", conn.RemoteAddr())
+	log.Printf("ws upgrade OK addr=%s", addr)
 	c := newClient(h, conn)
 	h.register <- c
 }
@@ -583,6 +585,8 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.handleSetMatchFormat(c, msg)
 	case protocol.CMsgSetMaxPlayers:
 		h.handleSetMaxPlayers(c, msg)
+	case protocol.CMsgKickPlayer:
+		h.handleKickPlayer(c, msg)
 	case protocol.CMsgRematch:
 		h.handleRematch(c, msg)
 	case protocol.CMsgFindMatch:
@@ -621,12 +625,19 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 
 // --- Lobby handlers ---
 
-// validateNickname trims and length-checks an inbound nickname. Returns the
-// canonical form on success, or sends an error to the client and returns "".
+// validateNickname canonicalises and checks an inbound nickname through
+// game.ValidateNickname. Returns the canonical form on success, or sends an
+// error to the client and returns "".
+//
+// The refusal is one string for every rule the domain has (length, charset,
+// blocked term) because the player is deliberately never told which one fired:
+// see server/game/nickname.go. The reason is kept for the log line, without the
+// nickname itself, which is a string somebody chose and no operator needs.
 func validateNickname(c *Client, raw string) string {
-	n := strings.TrimSpace(raw)
-	if len(n) == 0 || len(n) > 20 {
-		c.sendError("nickname must be 1–20 characters")
+	n, err := game.ValidateNickname(raw)
+	if err != nil {
+		log.Printf("nickname refused conn=%s reason=%v", c.connID, err)
+		c.sendError(game.ErrNicknameRejected.Error())
 		return ""
 	}
 	return n
@@ -841,10 +852,17 @@ func (h *Hub) dealMatch(code string, room *game.Room) {
 	h.beginMapLoading(code, room)
 }
 
-// handleRematch reopens a finished room as a lobby so the same group can play
-// again without recreating the room and re-sharing the code. Players who never
-// came back from a mid-match disconnect are pruned first, so the next match is
-// dealt only to people who are actually present.
+// handleRematch records this seat's ask for another match, and deals one once
+// everybody still at the table has asked.
+//
+// It used to be the host's decision, and it is an agreement in every room now,
+// for the reason it already was one between two strangers: nobody at a table
+// owes anybody else another twenty minutes. The host has standing over the
+// format and the size, which are things about a table that has not dealt yet;
+// they have none over whether four people want to keep playing. So the button
+// is an offer on every screen, the offers are public, and the ask is what the
+// next match is dealt from. See openRematchedLobby / startRematchedMatch for
+// the two shapes that deal takes.
 func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
 	room, ok := h.roomOf(c)
 	if !ok {
@@ -856,54 +874,146 @@ func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
 	if h.refuseWhileDraining(c) {
 		return
 	}
-	// A matchmade room has no host, so a rematch there is an agreement rather
-	// than a decision: see handleRematchOffer.
-	if h.isMatchmade(c.roomCode) {
-		h.handleRematchOffer(c, room)
-		return
-	}
-	if c.playerID != 0 {
-		c.sendError("only the host can start a rematch")
-		return
-	}
 	if room.Status != game.StatusFinished {
 		c.sendError("rematch is only available once the match is over")
 		return
 	}
+	// A matchmade table is two strangers and nothing else. Once one of them has
+	// gone there is nobody to agree with, and the survivor's client requeues
+	// rather than waiting on an answer that cannot come. An ordinary table has
+	// no such floor: whoever is left may reopen the room and wait there.
+	if h.isMatchmade(c.roomCode) && (len(room.Players) < 2 || h.connectedMembers(c.roomCode) < 2) {
+		c.sendError("your opponent has left the table")
+		return
+	}
 
-	h.pruneAbsentPlayers(c.roomCode, room)
+	offers, ok := h.rematchOffers[c.roomCode]
+	if !ok {
+		offers = make(map[int]struct{})
+		h.rematchOffers[c.roomCode] = offers
+	}
+	offers[c.playerID] = struct{}{}
+	h.broadcastRematchOffers(c.roomCode, intPtr(c.playerID))
+	if len(offers) < h.rematchQuorum(c.roomCode) {
+		return
+	}
+	h.dealAgreedRematch(c.roomCode, room)
+}
+
+// rematchQuorum is how many asks it takes: every human still connected to the
+// table. Bots are not asked, and a seat inside its reconnect window is not
+// waited for — it left a room that is over, and holding the others there until
+// a timer expires would be the one thing this screen must never do.
+func (h *Hub) rematchQuorum(code string) int {
+	if n := h.connectedMembers(code); n > 0 {
+		return n
+	}
+	return 1
+}
+
+// broadcastRematchOffers publishes the whole offer state. The list travels
+// rather than the increment because a seat leaving retires its offer and
+// re-bases the rest: a client accumulating names would keep a departed player's
+// ask forever. seat names whoever just asked, and is nil when the change was a
+// departure.
+func (h *Hub) broadcastRematchOffers(code string, seat *int) {
+	offers := make([]int, 0, len(h.rematchOffers[code]))
+	for id := range h.rematchOffers[code] {
+		offers = append(offers, id)
+	}
+	sort.Ints(offers)
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:          protocol.SMsgRematchOffered,
+		PlayerIndex:   seat,
+		RematchOffers: &offers,
+		RematchNeeded: h.rematchQuorum(code),
+	})
+}
+
+// dealAgreedRematch runs the deal everybody has now asked for. The two shapes
+// are genuinely different: a matchmade pair goes straight back into a match
+// through the pairing path, and an ordinary table returns to its lobby, where
+// the host still owns the format, the size and the start.
+func (h *Hub) dealAgreedRematch(code string, room *game.Room) {
+	if h.isMatchmade(code) {
+		h.startRematchedMatch(code, room)
+		return
+	}
+	h.openRematchedLobby(code, room)
+}
+
+// openRematchedLobby reopens a finished room as a lobby so the same group can
+// play again without recreating the room and re-sharing the code. Players who
+// never came back from a mid-match disconnect are pruned first, so the next
+// match is dealt only to people who are actually present.
+func (h *Hub) openRematchedLobby(code string, room *game.Room) {
+	delete(h.rematchOffers, code)
+	h.pruneAbsentPlayers(code, room)
 
 	if err := room.ResetForRematch(); err != nil {
-		c.sendError(err.Error())
+		log.Printf("WARN rematch reset failed code=%s err=%v", code, err)
 		return
 	}
 
 	// Per-match hub bookkeeping must not leak into the new match.
-	delete(h.turnStartedAt, c.roomCode)
+	delete(h.turnStartedAt, code)
 	// A gate belonging to the match that just ended would otherwise keep the next
 	// one shut: its timeout has already fired and nothing would ever reopen it.
-	delete(h.mapLoading, c.roomCode)
-	delete(h.afkTimeouts, c.roomCode)
-	delete(h.disconnectedAt, c.roomCode)
-	delete(h.emptyRooms, c.roomCode)
+	delete(h.mapLoading, code)
+	delete(h.afkTimeouts, code)
+	delete(h.disconnectedAt, code)
+	delete(h.emptyRooms, code)
 
 	log.Printf("rematch opened code=%s players=%d format=%s",
-		c.roomCode, len(room.Players), matchFormatString(room.Format))
+		code, len(room.Players), matchFormatString(room.Format))
 
 	// Sent per-recipient: pruning may have shifted playerIDs, and each client
 	// needs its own new index to render the waiting room correctly.
-	for _, member := range h.roomMembers[c.roomCode] {
+	for _, member := range h.roomMembers[code] {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:        protocol.SMsgRematchStarted,
-			RoomCode:    c.roomCode,
+			RoomCode:    code,
 			PlayerID:    intPtr(member.playerID),
 			Players:     h.playerList(room),
 			MatchFormat: matchFormatString(room.Format),
 			MaxPlayers:  room.MaxPlayers,
 		})
+	}
+}
+
+// releaseRematchOffer retires the offer of a seat that has just left a finished
+// room and re-bases the seats above it, exactly as every other playerID-keyed
+// structure is re-based. Called after the departure has been applied.
+//
+// The deal it can trigger is the point rather than a side effect: a table of
+// four where three had asked was waiting on one player, and that player leaving
+// answers the question. Nobody is left staring at a button that will never
+// complete.
+func (h *Hub) releaseRematchOffer(code string, seat int) {
+	offers, ok := h.rematchOffers[code]
+	if !ok {
+		return
+	}
+	offers = shiftIntKeySet(offers, seat)
+	h.rematchOffers[code] = offers
+
+	room, ok := h.rooms[code]
+	if !ok || room.Status != game.StatusFinished {
+		delete(h.rematchOffers, code)
+		return
+	}
+	// A matchmade table cannot fill the gap: there is no lobby to wait in and
+	// the survivor's client goes back to the queue. Nothing to publish.
+	if h.isMatchmade(code) {
+		delete(h.rematchOffers, code)
+		return
+	}
+	h.broadcastRematchOffers(code, nil)
+	if len(offers) > 0 && len(offers) >= h.rematchQuorum(code) {
+		h.dealAgreedRematch(code, room)
 	}
 }
 
@@ -986,6 +1096,104 @@ func (h *Hub) handleSetMaxPlayers(c *Client, msg protocol.ClientMsg) {
 		Type:        protocol.SMsgLobbyConfigChanged,
 		MatchFormat: matchFormatString(room.Format),
 		MaxPlayers:  room.MaxPlayers,
+	})
+}
+
+// handleKickPlayer frees a seat on the host's say-so.
+//
+// It is the one lobby control that acts on somebody else, so it is the
+// strictest: the host only, their own table only, the lobby only, and never
+// their own seat — giving up the seat you are sitting in is leave_room, and
+// letting a kick do it would hand the table to whoever was sitting in seat 1
+// through a button that says nothing of the sort.
+//
+// A bot is a seat like any other here. It is the only way to take one back, and
+// a roster offering the control on every row except those would be lying about
+// which of them the host owns.
+//
+// Deliberately not a ban. The table code is already in the kicked player's
+// hands and nothing here stops them typing it again: there is no account to
+// refuse and the game holds no identity to build one on, so a ban would be
+// theatre, and a mistaken press stays cheap — the player rejoins. What this
+// buys is a table the host can shape: an arrival at the wrong code, a seat that
+// will not ready up, one bot too many.
+func (h *Hub) handleKickPlayer(c *Client, msg protocol.ClientMsg) {
+	room, ok := h.roomOf(c)
+	if !ok {
+		return
+	}
+	if h.refuseInMatchmade(c) {
+		return
+	}
+	if c.playerID != 0 {
+		c.sendError("only the room owner can remove players")
+		return
+	}
+	if room.Status != game.StatusLobby {
+		c.sendError("can only remove players in the lobby")
+		return
+	}
+	if msg.TargetIndex == nil {
+		c.sendError("invalid player index")
+		return
+	}
+	seat := *msg.TargetIndex
+	// seat 0 is the host's own, and c.playerID is 0 here by the check above.
+	if seat <= 0 || seat >= len(room.Players) {
+		c.sendError("invalid player index")
+		return
+	}
+
+	code := c.roomCode
+	nickname := room.Players[seat].Nickname
+	members := h.roomMembers[code]
+	var target *Client
+	if seat < len(members) {
+		target = members[seat]
+	}
+	if target == nil {
+		// No socket at that slot: in a lobby that is a bot.
+		h.removeUnmannedSeat(code, room, seat)
+		log.Printf("player kicked code=%s nickname=%s bot=true", code, nickname)
+		return
+	}
+	// The seat goes first and the notice second: releaseSeat is what makes it
+	// stop being theirs, and it broadcasts the departure to everybody still at
+	// the table. The removed client is out of roomMembers by then, so it gets
+	// this message instead of the player_left about itself.
+	h.releaseSeat(target)
+	target.Send(protocol.ServerMsg{Type: protocol.SMsgKicked})
+	log.Printf("player kicked code=%s nickname=%s bot=false", code, nickname)
+}
+
+// removeUnmannedSeat drops a seat with no socket behind it (a bot) and re-bases
+// every playerID-keyed structure above it, exactly as a leaving human's seat is
+// re-based. The bot counter is only touched when the slot really was a bot: a
+// finished-then-reopened table can carry a seat that is neither.
+func (h *Hub) removeUnmannedSeat(code string, room *game.Room, seat int) {
+	nickname := room.Players[seat].Nickname
+	if _, err := room.RemoveLobbyPlayer(seat); err != nil {
+		log.Printf("WARN RemoveLobbyPlayer failed code=%s player=%d err=%v", code, seat, err)
+		return
+	}
+	if members := h.roomMembers[code]; seat < len(members) {
+		h.roomMembers[code] = append(members[:seat], members[seat+1:]...)
+	}
+	for newIdx, m := range h.roomMembers[code] {
+		if m != nil {
+			m.playerID = newIdx
+		}
+	}
+	if _, wasBot := h.botSlots[code][seat]; wasBot {
+		h.statBotsActive.Add(-1)
+	}
+	h.botSlots[code] = shiftIntKeySet(h.botSlots[code], seat)
+	h.sessionTokens[code] = shiftIntKeyMap(h.sessionTokens[code], seat)
+
+	h.broadcastToRoomAll(code, protocol.ServerMsg{
+		Type:     protocol.SMsgPlayerLeft,
+		Nickname: nickname,
+		Players:  h.playerList(room),
 	})
 }
 
@@ -1356,7 +1564,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 	// there, so the queue is the first thing it leaves.
 	h.dequeue(c)
 	if c.roomCode == "" {
-		log.Printf("player disconnected conn=%s addr=%s (no room)", c.connID, c.conn.RemoteAddr())
+		log.Printf("player disconnected conn=%s addr=%s (no room)", c.connID, c.netPrefix())
 		return
 	}
 	room, ok := h.rooms[c.roomCode]
@@ -1411,20 +1619,23 @@ func (h *Hub) handleDisconnect(c *Client) {
 		return
 	}
 
-	// Finished room: treat it exactly like a lobby. The host may call rematch to
-	// reopen the room, so the roster and every playerID-keyed structure must stay
+	// Finished room: treat it exactly like a lobby. The room can be reopened by
+	// a rematch, so the roster and every playerID-keyed structure must stay
 	// consistent — leaving a phantom player here would deal a hand to nobody in
 	// the next match.
 	if room.Status == game.StatusFinished {
+		code, leavingID := c.roomCode, c.playerID
 		if !h.reindexLobbyDisconnect(c, room, members) {
-			h.scheduleRoomCleanup(c.roomCode)
+			h.scheduleRoomCleanup(code)
 			return
 		}
-		h.broadcastToRoomAll(c.roomCode, protocol.ServerMsg{
+		h.broadcastToRoomAll(code, protocol.ServerMsg{
 			Type:     protocol.SMsgPlayerLeft,
 			Nickname: nickname,
 			Players:  h.playerList(room),
 		})
+		// Whoever is left may have been waiting on exactly this player.
+		h.releaseRematchOffer(code, leavingID)
 		return
 	}
 

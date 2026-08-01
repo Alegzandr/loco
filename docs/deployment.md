@@ -13,7 +13,7 @@ Defined in `.gitlab-ci.yml`, three stages:
 ### Test jobs
 
 - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` and builds the static Linux binary `e2e_test` runs.
-- `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
+- `frontend_test` (`node:22-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
 - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
   Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
 - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.

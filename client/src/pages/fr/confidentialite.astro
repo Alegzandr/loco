@@ -1,0 +1,9 @@
+---
+import ContentPage from '../../layouts/ContentPage.astro'
+import LegalArticle from '../../content/LegalArticle.astro'
+import { LEGAL, pageJsonLd } from '../../seo/meta'
+---
+
+<ContentPage page={LEGAL} lang="fr" jsonLd={pageJsonLd(LEGAL, 'fr')}>
+  <LegalArticle lang="fr" />
+</ContentPage>

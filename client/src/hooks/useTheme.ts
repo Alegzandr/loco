@@ -1,33 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
+import { applyTheme, readInitialTheme, THEME_STORAGE_KEY, type Theme } from '../theme'
 
-export type Theme = 'light' | 'dark'
+// The theme itself lives in `src/theme.ts`, free of React, so the content pages
+// can apply it without mounting anything. Re-exported here because this is where
+// the rest of the app has always imported it from.
+export type { Theme }
+export { initTheme } from '../theme'
 
-const STORAGE_KEY = 'loco_theme'
-
-function readInitialTheme(): Theme {
-  if (typeof window === 'undefined') return 'light'
-  const stored = window.localStorage.getItem(STORAGE_KEY)
-  if (stored === 'light' || stored === 'dark') return stored
-  if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) return 'dark'
-  return 'light'
-}
-
-function applyTheme(theme: Theme) {
-  document.documentElement.setAttribute('data-theme', theme)
-}
-
-/**
- * Applies the stored theme once, at startup.
- *
- * Without this the attribute is only written by <ThemeToggle />'s hook, so any
- * screen that does not render the toggle — the game-over screen, or a reload
- * straight into a match — silently falls back to the light palette. Called from
- * main.tsx before the first render, which also removes the flash of the wrong
- * theme on load.
- */
-export function initTheme(): void {
-  applyTheme(readInitialTheme())
-}
+const STORAGE_KEY = THEME_STORAGE_KEY
 
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(readInitialTheme)

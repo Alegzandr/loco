@@ -18,7 +18,7 @@
   position: absolute;
   inset: 0;
   background: var(--color-scrim);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(5px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -69,8 +69,8 @@
   left: 50%;
   font: 700 clamp(30px, 5.6vw, 56px)/1 var(--font-display);
   letter-spacing: -1px;
-  color: #fff;
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  color: var(--color-on-dark);
+  background: var(--gradient-primary);
   padding: 14px 40px;
   border: 5px solid var(--color-stroke);
   border-radius: var(--radius-lg);
@@ -112,8 +112,8 @@
   position: absolute;
   top: 20%;
   left: 50%;
-  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
-  color: #fff;
+  background: var(--gradient-tertiary);
+  color: var(--color-on-dark);
   font: 600 17px/1.25 var(--font-display);
   text-shadow: 0 1px 0 rgba(30, 10, 90, 0.45);
   padding: 11px 24px;
@@ -133,8 +133,8 @@
   position: absolute;
   top: 29%;
   left: 50%;
-  background: linear-gradient(180deg, #ff8a6b 0%, var(--color-error) 100%);
-  color: #fff;
+  background: var(--gradient-error);
+  color: var(--color-on-dark);
   font: 600 17px/1.25 var(--font-display);
   text-shadow: 0 1px 0 rgba(90, 10, 10, 0.45);
   padding: 11px 24px;
@@ -227,7 +227,7 @@
   gap: var(--space-sm);
   max-width: min(300px, 84vw);
   background: var(--color-error);
-  color: #fff;
+  color: var(--color-on-dark);
   font: 600 15px/1.3 var(--font-body);
   text-align: left;
   text-wrap: balance;
@@ -278,6 +278,9 @@
    TAB either, and it is wider than 480px). */
 .scoresBtn {
   display: none;
+  /* This one only ever exists on a coarse pointer, which is exactly the case
+     `.hit-target` is for. */
+  position: relative;
   width: 40px;
   height: 40px;
   padding: 0;

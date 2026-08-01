@@ -6,6 +6,37 @@ see `visual.md`.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## How the game gets on the page
+
+The site is built by Astro, and the game is **not** an island. Three things pushed that decision, in
+descending order of how expensive they would have been to discover later.
+
+**The CSP forbids it.** `client/nginx.conf` sends `script-src 'self'` with no `'unsafe-inline'`. A
+`client:*` directive makes Astro emit its hydration runtime as two *inline* `<script>` blocks: not
+`is:inline`, not opt-in, not removable by configuration. In production those are refused, the island
+never hydrates, and the page is blank. Nothing in the normal loop would catch it either, because the
+dev server sends no CSP and the built HTML is only ever served by nginx. Astro's own `security.csp`
+generates hashes for exactly these scripts, but emits them in a `<meta>`, and a meta policy does not
+loosen a header policy: both are enforced, so the header still blocks them. `csp.test.ts` now fails
+on any `client:*` directive anywhere in `src/`.
+
+**Server rendering buys nothing here.** `initTheme()` and `initSessionRestore()` read `localStorage`
+and `sessionStorage`, the language comes from `localStorage` then `navigator.language`, and the whole
+board is measured from the viewport (`boardSpace`, `useElementSize`, `useSafeAreaInsets`). A server
+knows none of those. Rendering the app there would produce a hydration mismatch on every one of them
+in exchange for markup no crawler wants: the lobby is a nickname field.
+
+**So `src/pages/index.astro` carries `<div id="root">` and an ordinary `<script>` importing
+`src/entry.tsx`**, which Astro bundles to an external module. That is the same mechanism the app used
+under Vite, `#root` keeps the `html, body, #root` rule in `tokens.css` working unchanged, and the
+content pages around it mount no React at all.
+
+One consequence worth knowing: `@astrojs/react` injects the Fast Refresh preamble as a
+`before-hydration` script, which Astro only emits on pages that hydrate an island. With no island the
+preamble never lands, and every transformed `.tsx` throws "can't detect preamble" in dev. It is
+injected as a plain page script from `astro.config.mjs` instead, dev-only, so it is bundled rather
+than inlined and the production HTML keeps exactly one external script and nothing inline.
+
 ## The realtime path (tap → wire → table)
 Every hop between a player's finger and the other clients' boards is on the critical path of a
 mechanic that is decided by arrival order. Treat a delay added here as a rules change, not as
@@ -45,6 +76,16 @@ polish.
 - `src/test/realtime.test.tsx` owns all of the above on the client side.
 
 ## Client transport
+- **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and Astro does not expose that name
+  by default.** Astro narrows Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
+  in the transformed module verbatim and reading `undefined` in the browser, with no warning at any
+  layer. `useWebSocket` then took its production branch in dev and dialled same-origin `/ws`, which
+  is the Vite dev server proxying nothing: `ws://localhost:5173/ws` closed before it opened, and the
+  symptom a player got was a table that never opened and a queue that never paired.
+  `astro.config.mjs` restores the prefix (`envPrefix: ['PUBLIC_', 'VITE_']`) rather than renaming the
+  variable, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
+  README all already name it. `src/test/wsEnv.test.ts` fails whenever the hook reads a prefix the
+  config does not expose. Anything else the app needs from the environment obeys the same rule.
 - `useWebSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
 - Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
   (250ms, 500ms, 1s, 2s, 4s, then held), max 10 attempts, `attemptsRef` resets on `onopen`.
@@ -84,7 +125,7 @@ That is the disconnect people actually have, and it was the one that could not b
   overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
   navigation and a crash restore, which is every case this exists for; and it dies with the tab
   rather than handing the next person a live seat.
-- `initSessionRestore()` runs in `main.tsx` **before the first render**, next to `initTheme()` and for
+- `initSessionRestore()` runs in `entry.tsx` **before the first render**, next to `initTheme()` and for
   the same reason: `useWebSocket` connects in an effect on App's first mount and the rejoin goes out
   from that very first `onopen`, so the store has to already know what it is reclaiming.
 - `screen: 'restoring'` is its own screen, not a flag over `'game'`: the board has no hand, no discard
@@ -135,6 +176,65 @@ last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mo
   `autoFocus` follows the same fact, landing on the room code when the name is already known and on
   the name when it is not, which is the only thing a returning player still has to type.
 
+## Answering a nickname as it is typed
+`components/nicknameRules.ts`, used by `<Lobby />` on every keystroke and again on submit. It mirrors
+the **shape** half of `server/game/nickname.go`: 20 characters counted as characters, the Latin /
+Greek / Cyrillic allowlist, `-_.'` and one space, at most one combining mark per letter, at least one
+letter or digit.
+
+- **It decides nothing.** The server validates again on `create_room`, `join_room` and `find_match`,
+  and its answer is the one that seats a player. This exists so the refusal is instant instead of a
+  round trip; a client that skipped it would be refused a fraction of a second later.
+- **The word list is not shipped.** It is 19 embedded files on the server. Downloading a few thousand
+  slurs on every page load, in a bundle anyone can read, for a check the server has to repeat anyway,
+  buys nothing — and a blocked term is rare enough that a round trip for it is the right trade.
+- **One line for both halves.** `t.errors.nicknameRejected` is what the shape check shows and what
+  `nickname not allowed` resolves to, so a player cannot tell whether the client or the server
+  refused them, and cannot read the rule off the message. That is the same reason the server sends
+  one string for all three of its rules; see `docs/notes/server.md`.
+- The message appears in the alert the lobby already had, and clears the moment the field becomes
+  acceptable again — the same behaviour a server error has there.
+- The canonical form (trimmed, runs of spaces squeezed) is what is sent and what is remembered, so
+  `  Jean   Luc  ` and `Jean Luc` are one player and one seat label.
+
+## Answering a table code the same way
+`components/tableCodeRules.ts`, the same idea applied to the join form's second field. It mirrors
+`hub.roomCodeRe` and the alphabet `hub.generateRoomCode` draws from: six characters of `A-Z2-9`,
+minus `I`, `O`, `0` and `1`.
+
+- **Those four are missing for a product reason, not a technical one.** A table code is read out loud
+  on a stream and typed back by somebody watching it, and in that setting `I`/`1` and `O`/`0` are the
+  same character. The server never generates one, so the client never has to accept one.
+- **The field drops, it does not refuse.** `sanitizeTableCode` uppercases, strips everything outside
+  the alphabet and caps the length, on every keystroke and on paste. A code copied out of a chat
+  message with a trailing space, a newline or surrounding punctuation is still the right code, and a
+  player typing `0` where they meant `O` gets nothing rather than a character that fails six
+  keystrokes later, in an error line, after a round trip.
+- **"Take a seat" is disabled until the code is whole**, which is the difference between a button
+  that does nothing and a button that says why. `handleJoin` checks it again anyway: the guard is not
+  the disabled attribute.
+- **It decides nothing either.** `join_room` is validated server-side, and an unknown table still
+  comes back as `room not found` — the code being *shaped* like a table is not the code being one.
+  The nickname is unaffected: it keeps its own instant refusal, and a valid code does not make an
+  unacceptable name sendable.
+
+## The host's control over a row
+`WaitingRoom.tsx` puts one icon button on every roster row but the host's own, sending
+`kick_player` with that seat. Guests render none of them, on any row.
+
+- **Never on seat 0.** The way out of your own seat is the quit link at the bottom, which asks first.
+  A control that could take seat 0 would hand the table away through a button that says nothing of
+  the sort, and it sits two pixels from every other row's.
+- **It asks nothing.** This screen has exactly one question, the one about leaving, and it earns it:
+  leaving is one-way and costs the guest the table code. A kick costs the host nothing to undo —
+  the removed player still has the code, and the server runs no ban list — so a second confirmation
+  would only teach people to click through both.
+- **A bot's row carries it too.** There is no other way to take a bot's seat back, and a roster with
+  the control on every row except those would be lying about which of them the host owns.
+- **The removed player is told, and it lands where every refusal lands.** `kicked` resets the store
+  like `left_room` and then writes `removed by the host`, which `serverErrors.ts` resolves to
+  `errors.kicked` under the lobby form. Order matters: `resetToHome` clears `errorMsg`.
+
 ## The 1v1 queue on screen
 Three screens: the home button, `<Searching />` and `<MatchFound />`. `screen: 'searching'` and
 `screen: 'matchfound'` are screens rather than flags over the lobby, for the same reason `'restoring'`
@@ -156,17 +256,39 @@ is: there is no board to draw behind either of them.
   open a private table. `matchmaking.test.tsx` asserts none of the copy can name a number.
 - The empty chair opposite is drawn as an empty chair. A spinner would be a smaller promise than the
   truth.
+- **The searching screen carries the same top bar as every other screen.** It is the longest single
+  screen in the game, and turning the music down or reading the rules is exactly what somebody does
+  while queueing. It was the one screen without the row.
+- **Being found reaches a player who is not looking, two ways, and both are deliberately bounded.**
+  `soundsForTransition` plays `matchFound` on the transition into `screen: 'matchfound'` (stacked
+  fifths rather than the thirds every other cue uses: nothing has been *won*, somebody has arrived),
+  and `useTabAlert` alternates the browser tab's title with `t.matchFoundTab`. The alert **only ever
+  arms while the tab is hidden**, and coming back disarms it and restores the real title on the spot,
+  never re-arming: a title blinking under the player's eyes says nothing the screen does not, and one
+  still blinking after they came back is a bug they can only fix by reloading. `tabAlert.test.tsx`
+  pins both rules. The two are a pair rather than a redundancy: a backgrounded tab is exactly where a
+  mobile browser has parked the AudioContext, so the sound covers the player who is on the page and
+  the title covers the one who is not.
 - **The reveal counts down but decides nothing.** `starts_in_ms` sizes the counter; the match starts
   when `game_started` lands. A counter that reaches zero first holds on "dealing", which is the right
   behaviour for a screen whose server is the one deciding.
 - **A forfeit never renders as a victory.** `<GameOver />` with `forfeitBy` set drops the confetti and
-  the trophy and says what happened, on both sides: the player who left is told they left. It also
-  drops the rematch button entirely: the opponent is gone from the room, the server would refuse the
-  offer, and a button that cannot work is worse than no button.
-- **The rematch button has three states, and the middle one is the point.** Ask, wait, accept. A
-  matchmade rematch is an agreement, so `rematchOffers` holds both seats' offers and the button reads
-  "they want another, go" once the other side has asked first: an offer nobody can see is an offer
-  nobody answers. `player_left` clears the offers, because there is no longer anybody to agree with.
+  the trophy and says what happened, on both sides: the player who left is told they left. The
+  rematch button stays where it is and goes grey rather than disappearing: a reaction game does not
+  reflow its buttons, and the state being shown is "there is nobody to agree with", which is a state
+  and not an absence.
+- **The rematch button has three states, and the middle one is the point.** Ask, wait, accept, at
+  every table and for every seat: `rematchOffers` and `rematchNeeded` come straight off
+  `rematch_offered`, and the button reads "they want another, go" once somebody else has asked first,
+  because an ask nobody can see is an ask nobody answers. Past two seats the wait is on the table
+  rather than on one named opponent, and the button carries `x/y`; at two the count is noise.
+  `player_left` clears the pair, and the server republishes right behind it in every room that still
+  has an agreement to publish.
+- **A matchmade table with nobody left at it requeues by itself** (the effect in `App.tsx`,
+  `rematchRequeue.test.tsx`). The ask cannot complete, the only other thing on the screen is the
+  queue, and making the player press it is asking them to confirm the only remaining option.
+  Cancelling the search is how they leave. Ordinary tables are left alone: there is a room, a code
+  and a lobby to reopen, and nobody there queued for a stranger.
 - `<OpponentAway />` is the only thing on the board that reads `opponentAway`, and the store only fills
   it when the server sent a `forfeit_deadline`, i.e. never in an ordinary room, where the seat is
   simply held and a countdown to losing would be a worse table. Its bar is a `useDrainBar` animation:
@@ -241,15 +363,90 @@ seat layout, hand slots, pile positions and every card, re-derived sixty times a
 - `useReconnectAnimation(isReconnecting, onComplete)` shows "Rebuilding table…" overlay for 600ms then calls onComplete (which clears `isReconnecting`).
 - `<GameBoard />` hides its children while reconnecting; on the false→true→false transition it bumps an internal `rebuildKey`, replaying a 350ms board fade-in CSS keyframe.
 - Visual only; server is authoritative.
+- **Nothing but that timer ends the overlay, so nothing may be allowed to swallow it.** The hook used
+  to hold a ref guarding against replaying the animation, and the ref outlived the timer it guarded:
+  a reload mounts `<GameView />` with `isReconnecting` already true, so the effect runs for the first
+  time *on mount*, which is where StrictMode double-invokes it in dev. The first pass set the ref and
+  armed the timer, the cleanup cleared the timer, and the second pass returned early on the ref
+  without arming another. The seat was reclaimed correctly and the board was live underneath, but the
+  card sat over it saying "setting the table back up" for the rest of the match, and `isReconnecting`
+  was never cleared so the fade-in never played. The effect re-runs only when `isReconnecting`
+  actually changes, so re-arming on every run is the whole guard needed, and a reconnect that
+  resolves early now takes the overlay down with it instead of leaving it on a cancelled timeout.
+  It was invisible to the store-level tests by construction: every assertion about the seat, the hand
+  and the discard passed. `reconnectAnimation.test.tsx` renders the hook under `StrictMode`, and the
+  reload E2E asserts the overlay is gone rather than only that the state came back.
 
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
-- `I18nProvider` (`client/src/i18n/index.tsx`) wraps app in `main.tsx`. `useI18n()` → `{ lang, t, setLang }`.
+- `I18nProvider` (`client/src/i18n/index.tsx`) wraps app in `entry.tsx`. `useI18n()` → `{ lang, t, setLang }`.
 - Detect order: `localStorage('loco_lang')` → `navigator.language` prefix (`fr` → French, else English).
 - `setLang` persists to localStorage + syncs `document.documentElement.lang`.
 - Add language: create `xx.ts` impl `Translations`, add to `translations` map in `index.tsx`, add `{code, label}` to `LANGS` in `LanguageSwitcher.tsx`.
+- The switcher is no longer mounted bare: it renders inside the preferences panel (below).
 - `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
 - Storage key: `'loco_lang'`.
+
+## Preferences
+`Preferences.tsx` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
+the board. It holds the language pair (`LanguageSwitcher`, unchanged, now a child), the theme, and
+three switches: streamer mode, colour shapes, reduced motion.
+
+- **Why a panel.** Language and theme sat bare in the top bar, which is right for one or two
+  preferences. The row also carries sound and rules; one more bare control makes it a settings strip,
+  and the one after that makes it unreadable on a phone. The gear replaced the theme chip rather than
+  being added beside it, so the cluster is the same size it was.
+- **The chip is a drawn SVG**, like `RulesButton`. A `⚙` font character renders as a different object
+  on every platform, and the first attempt here (a small circle with eight long spokes) read as a
+  sun, which in a row that used to toggle the theme is the wrong word entirely. Teeth are short thick
+  stubs on a large ring.
+- **The on/off preferences share one store factory** (`hooks/prefStore.ts`). Three copies of the same
+  subscribe/persist boilerplate is how they drift.
+- **Streamer mode blurs the table code.** Six characters read off a stream is an open table, and the
+  waiting room — the one screen a streamer is guaranteed to sit on while friends join — prints them
+  at display size. `useStreamerMode` (`localStorage`, key `loco_streamer_mode`) is a module store,
+  not store or context state: the flag is read by two screens with no common parent and written from
+  a third, and it must survive a reload with no round trip. Nothing about it reaches the wire.
+- **`TableCode.tsx` is the only way a screen prints the code.** The blur is a CSS filter over the
+  real text, so the copy button still copies the real code and hover/focus clears it for the owner —
+  reading the code out loud is a normal thing to want. A screen that renders `roomCode` directly
+  leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
+- **The lobby's join field is deliberately not masked.** It holds what the player is typing, and a
+  blurred input is a typo you cannot see. The leak there is the code the player already knows.
+- Showcase: `streamerMode`, `colorAssist` and `prefsOpen` scene flags (`dev/scenes.ts`), scenes
+  `waiting-streamer`, `lobby-prefs`, `card-sheet-assist` and `game-color-picker-assist`. `applyScene`
+  resets both module stores so neither leaks into later captures.
+
+## Colour assist
+Colour is the rule in this game: a card is legal because it matches the pile. Red-green is the most
+common colour-vision deficiency there is, and the four suits are separated in luminance as well as
+hue for that reason, but "survives" is not "reads".
+
+- **`SUIT_SHAPE` (`cardTheme.ts`) is the vocabulary**: triangle (red), circle (yellow), square
+  (green), diamond (blue). They differ at every corner count, which is the only property that
+  survives a card overlapped down to a sliver. `suitMark.tsx` draws them the way every card glyph is
+  drawn: an ink pass under an off-white fill, because off-white on the green suit is 1.18:1 alone.
+- **Three sites, and they are the whole set**: under the value on the card (top-left, the corner a
+  fanned hand still shows), on each `ColorPicker` swatch (four discs that differ *only* in hue: the
+  one control that is unusable without this), and inside the active-colour chip on the discard pile
+  (after a wild, the only place the answer to "what can I play?" is written).
+- **Never a letter.** `R` is red in both languages, `V` is `vert` in one and nothing in the other,
+  and a rotated `B` is a `D`. **A wild has no suit** and gets no mark: inventing a fifth shape for it
+  would say the opposite of what the card does.
+- Off by default: the card face is the brand and this adds a mark to it.
+
+## Reduced motion
+The setting has three values (`auto` / `reduce` / `full`, `hooks/useMotionPref.ts`) and the UI shows
+two, because `auto` is what the switch reads before it is ever touched.
+
+- **`:root[data-motion="reduce"]` is the single source of truth in CSS**, written by `initMotion()`
+  before the first paint. The media query is deliberately gone: it cannot be overridden, and a player
+  whose system is set to reduce for reasons of their own is allowed to ask this game for its
+  animations back. `reducedMotionCss.test.ts` fails on any new `@media (prefers-reduced-motion)`.
+- framer-motion goes through `<MotionGate>` in `entry.tsx` (`always`/`never`, not `user`), and the two
+  Web Animations shakes (`GameBoard.kickBoard`, `GameView.shakeScreen`) call `prefersReducedMotion()`.
+- The capture harness still works unchanged: Playwright emulates the media query, `initMotion` reads
+  it, and the attribute lands before the first paint.
 
 ### The voice
 The copy is the cheapest thing in the product and the first thing a player judges it by. A screen
@@ -308,10 +505,61 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
 
+## Every panel closes twice
+
+Two ways out, on everything that opens over the board, and they are not interchangeable:
+
+- **Escape**, through `hooks/useEscapeKey.ts`. One `document` listener rather than one `useEffect`
+  per panel, which is how the wild colour picker and the swap target picker ended up with a scrim, a
+  ✕ and nothing on the keyboard while the rules modal, the legal modal, the gear, the mixer and the
+  waiting room's leave confirmation all answered it. The panels do not take focus — a picker opens
+  under the pointer, not under the caret — so the listener cannot live on the element. `enabled`
+  keeps a shut dropdown from eating an Escape aimed at whatever is actually open.
+- **A control that can be pressed**, because Escape is a key a phone does not have and a scrim is
+  not an obvious thing to tap. The pinned score table is the case that was missing one: it is pinned
+  by a touch-only button that its own scrim then covers, and the header's "Hold TAB" hint names a
+  key that device does not have either, so pinned it shows a ✕ where the hint sits. Held with TAB it
+  shows the hint and no ✕: there is nothing to close, and a button that exists for a fifth of a
+  second is noise.
+
+`src/test/escapeClose.test.tsx` owns the rule for the surfaces that had no coverage; the rules,
+legal, preferences and waiting-room panels are pinned in their own test files. A dropdown anchored
+to its own opener (the gear, the mixer) needs no ✕ — the button that opened it is the button that
+shuts it, and it is never behind a scrim.
+
 ## Rules modal
 - `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").
 - Close: ✕, footer Close, backdrop click, `Escape`.
 - Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, max-height 92vh).
 - `document.body.style.overflow='hidden'` while open; restored on unmount.
 - Content lives in translations; component is content-agnostic.
+
+## Privacy and terms
+Not a modal any more. Privacy, terms and credits are one content page (`/privacy/`,
+`/fr/confidentialite/`), linked at the right-hand end of both footers: the fixed bar on the content
+pages, and the row under the game on the home page. What changed and why:
+
+- **A policy has to be linkable.** The modal existed on one screen of one application, so there was
+  no way to send somebody the terms, no way to reach it from a content page, and nothing for a
+  crawler or a store listing to point at. That outweighs the navigation it costs, which is a
+  navigation away from the *lobby* — no seat is taken there, and nothing is lost by leaving.
+- **One page, three sections, with a jump list.** The three documents still answer three unrelated
+  questions, and only one of them is ever the one somebody came for; `#privacy`, `#terms` and
+  `#credits` do what the tab strip did, minus the component state and minus the script, and each one
+  is a URL that can be sent on its own.
+- **The copy left the i18n bundle.** It is `src/content/legal.ts`, typed `Record<Lang, LegalDoc[]>`
+  so a document still cannot exist in one language only, and read at build time by
+  `content/LegalArticle.astro`. `src/i18n/en.ts` is downloaded by every player on every visit; these
+  three documents are read by almost nobody and they are long. Tutoiement applies here too: a policy
+  that suddenly switches to `vous` is a policy written by somebody else, and it reads that way.
+- **The footer link, not the gear.** It has to be reachable before typing a name and before taking a
+  seat. Preferences are things a player changes; this is something they read once, if ever, and a
+  link they cannot find is the same as no link. The home footer is hidden on `data-seated`, which is
+  exactly the screens where nobody is reading a policy.
+
+Where the game's voice and legal accuracy pull apart, accuracy wins and the sentence gets longer.
+`src/test/legal.test.tsx` pins the disclosures that are obligations rather than prose, so rewording
+is free and deleting substance is not; it also pins that the page is built, is in the registry, is
+linked from both footers and ships no script. Reasoning and the open questions:
+[`docs/notes/legal.md`](legal.md).
 

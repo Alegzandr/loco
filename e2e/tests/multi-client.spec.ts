@@ -97,6 +97,46 @@ test.describe('multi-client synchronization', () => {
   })
 
   /**
+   * The host's control over their own table. The removed player is told why —
+   * a table vanishing with no explanation reads as a bug — and the seat is
+   * freed immediately on both sides.
+   *
+   * It is a kick, not a ban: the code is still in their hands, so the last
+   * thing this checks is that sitting back down works.
+   */
+  test('the host can free a guest’s seat, and the guest is told why', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const page1 = await ctx1.newPage()
+    const page2 = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(page1, 'Alice')
+      await joinRoom(page2, 'Bob', roomCode)
+      await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
+
+      // A guest has no such control on anybody's row, including the host's.
+      await expect(page2.getByRole('button', { name: new RegExp(T.kickPlayer) })).toHaveCount(0)
+
+      await page1.getByRole('button', { name: `${T.kickPlayer}: Bob` }).click()
+
+      await page2.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'lobby',
+        undefined,
+        { timeout: 5_000 },
+      )
+      await expect(page2.getByText(T.kicked)).toBeVisible({ timeout: 5_000 })
+      await expect(page1.getByText('Bob')).toBeHidden({ timeout: 5_000 })
+
+      await joinRoom(page2, 'Bob', roomCode)
+      await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
    * Both players see the game start (canvas + action bar) when host starts.
    */
   test('game start is visible to both clients', async ({ browser }: { browser: Browser }) => {

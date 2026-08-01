@@ -1,0 +1,9 @@
+---
+import ContentPage from '../layouts/ContentPage.astro'
+import RulesArticle from '../content/RulesArticle.astro'
+import { RULES, pageJsonLd } from '../seo/meta'
+---
+
+<ContentPage page={RULES} lang="en" jsonLd={pageJsonLd(RULES, 'en')}>
+  <RulesArticle lang="en" />
+</ContentPage>

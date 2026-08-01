@@ -6,9 +6,10 @@
 - Real-time lobby with live player list updates.
 - Host-only game start.
 - Leaving a table before the deal: host and guest alike get a quit button in the waiting room, behind an in-place confirmation (Stay / Yes, leave; Escape stays). Confirmed, the seat is released immediately (`leave_room`) and the rest of the table sees the roster update. Once the cards are out, an ordinary match has no way out.
+- The host can free any seat but their own before the deal (`kick_player`): one icon button per roster row, no confirmation, bots included since nothing else takes a bot's seat back. The table sees an ordinary departure and the removed player is told why. It is not a ban — the code is still theirs and they may rejoin. Refused once the cards are out, and in a matchmade room, which has no host.
 - Match format selection (BO1/BO3/BO5/BO7), broadcast live in lobby.
 - Max-players configuration (2–10), live in lobby; cannot drop below current count.
-- **1v1 matchmaking**: a single FIFO queue on the home screen. Two searchers are paired, shown a versus reveal naming their opponent, and dealt in 2.5 s later (a single round) with nobody pressing start. No host, no code, no lobby. The queue's size is never sent to a client in any form; the searching screen times its own wait and restates it at 15 s and 45 s, offering a private table past that. At the end either player may offer a rematch: both offers are broadcast, and the same two are dealt in again only once both are in. No rank, and nothing calls the mode "unranked".
+- **1v1 matchmaking**: a single FIFO queue on the home screen. Two searchers are paired, shown a versus reveal naming their opponent, and dealt in 2.5 s later (a single round) with nobody pressing start. No host, no code, no lobby. The queue's size is never sent to a client in any form; the searching screen times its own wait and restates it at 15 s and 45 s, offering a private table past that. At the end either player may ask for a rematch: both asks are broadcast, and the same two are dealt in again only once both are in. If the opponent leaves instead, there is nobody to agree with, so the player who stayed goes back into the queue by default and cancelling the search is how they leave. No rank, and nothing calls the mode "unranked".
 - **Forfeit instead of an empty seat** (matchmade matches only): a dropped opponent is held 15 s rather than 60, with the countdown on the board, and two consecutive turn timeouts end the match instead of four. Either way the match goes to whoever stayed, announced as a forfeit with the scoreboard untouched. Quitting on purpose (`leave_room`) does it immediately. Ordinary rooms keep the 60 s hold and the 4-timeout threshold.
 - Bot players: host adds AI bots; bots play autonomously with card-preference heuristics, counter a draw stack, declare LOCO!, call Contre-LOCO! and interject identical cards into an open window like any other player. Every reaction is delayed and probabilistic so they stay beatable.
 
@@ -28,7 +29,7 @@
 - Multi-round matches with persistent scoreboard.
 - Tiebreakers: highest score → rounds won → lowest lost-hand total → sudden-death extra round.
 - Win detection (empty hand) and deck replenishment from the discard pile.
-- Rematch: once a match is over the host reopens the same room — same code, same roster, cleared scores — instead of everyone rebuilding a room from scratch. Seats with nobody behind them are pruned first.
+- Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
 
 ## UI / UX
 - React + Framer Motion game view. All card movement is expressed as GPU-composited `x`/`y`/`rotate` transforms — never `left`/`top` — so multiple cards can fly at once without triggering layout.
@@ -43,6 +44,7 @@
 - Mobile support: responsive layout, 44 px+ tap targets, 400 ms double-tap guard, touch-friendly wild color picker, `user-scalable=no`.
 - Rules modal accessible from Lobby, Waiting Room, and Game View; bottom-sheet on mobile.
 - Internationalisation: English + French, automatic browser detection, manual switcher persisted to `localStorage`.
+- Privacy, terms and credits as one content page (`/privacy/`, `/fr/confidentialite/`), linked at the right-hand end of every footer, in both languages. Three anchored sections; the copy is read at build time and ships in no bundle.
 
 ## Server / infra
 - Per-player personalized state (hidden hand info never leaks to other clients).

@@ -1,0 +1,9 @@
+---
+import ContentPage from '../layouts/ContentPage.astro'
+import TablesArticle from '../content/TablesArticle.astro'
+import { TABLES, pageJsonLd } from '../seo/meta'
+---
+
+<ContentPage page={TABLES} lang="en" jsonLd={pageJsonLd(TABLES, 'en')}>
+  <TablesArticle lang="en" />
+</ContentPage>

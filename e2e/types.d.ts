@@ -88,6 +88,9 @@ interface LocoE2EState {
   forfeitBy: number | null
   /** An opponent who dropped, and when their match is given away. */
   opponentAway: { seat: number; deadline: number } | null
+  /** Seats that have asked for another match, and how many asks deal it. */
+  rematchOffers: number[]
+  rematchNeeded: number
   // Error
   errorMsg: string
   // Reconnect animation

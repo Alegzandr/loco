@@ -31,7 +31,11 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // (`nickname %q already taken`), but the bare form exists too and must not
   // fall through to the generic message.
   [/nickname\b.*already taken/i, 'nicknameTaken'],
-  [/nickname must be/i, 'nicknameLength'],
+  // One rule for every way a nickname can be refused (length, charset, blocked
+  // term): the server sends one string for all three, deliberately, so that a
+  // player cannot read the rule off the refusal and step around it. See
+  // server/game/nickname.go.
+  [/nickname not allowed/i, 'nicknameRejected'],
   [/room not found|invalid room code/i, 'roomNotFound'],
   [/room is full/i, 'roomFull'],
   [/game already (in progress|started)/i, 'gameInProgress'],
@@ -69,10 +73,16 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
 
   // ── Swap ─────────────────────────────────────────────────────────────────
   [/cannot swap with yourself/i, 'swapSelf'],
-  [/invalid chosen_player/i, 'swapTargetInvalid'],
+  // `invalid player index` is the same answer for the same reason: a seat the
+  // server will not act on. Only a client that made its own message can see it
+  // — the kick button never offers an unseated row.
+  [/invalid chosen_player|invalid player index/i, 'swapTargetInvalid'],
 
   // ── Lobby & host ─────────────────────────────────────────────────────────
   [/only the (host|room owner)/i, 'hostOnly'],
+  // Not a refusal: the one line here that answers a message the player did not
+  // send. `kicked` carries it so the seat disappearing has a reason attached.
+  [/removed by the host/i, 'kicked'],
   [/need at least \d+ players/i, 'notEnoughPlayers'],
   [/can only (add bots|remove players) in the lobby|cannot change (format|max players) after/i, 'lobbyOnly'],
   [/max players cannot|cannot set max players/i, 'maxPlayersInvalid'],

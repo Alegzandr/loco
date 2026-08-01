@@ -21,7 +21,7 @@
 import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { ROOT, startVite } from '../lib/vite.mjs'
+import { ROOT, startDevServer } from '../lib/devserver.mjs'
 
 const require = createRequire(path.join(ROOT, 'e2e', 'package.json'))
 const { chromium } = require('playwright')
@@ -42,7 +42,7 @@ const OUT = path.resolve(ROOT, String(args.out ?? path.join('client', 'public', 
 const W = 1200
 const H = 630
 
-const vite = await startVite(PORT)
+const dev = await startDevServer(PORT)
 try {
   const browser = await chromium.launch()
   const ctx = await browser.newContext({
@@ -84,7 +84,7 @@ try {
 
   await browser.close()
   console.log(`✓ ${W}×${H} (${LANG}) → ${path.relative(ROOT, OUT)}`)
-  console.log('  Discord et X mettent l\'aperçu en cache : bump ?v= dans client/index.html après un changement d\'art.')
+  console.log('  Discord et X mettent l\'aperçu en cache : bump OG_VERSION dans client/src/seo/meta.ts après un changement d\'art.')
 } finally {
-  vite.kill()
+  dev.kill()
 }

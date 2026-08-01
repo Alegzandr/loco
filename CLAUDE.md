@@ -30,6 +30,8 @@ matching note before working on a subsystem; do not restate its contents here.
 | [`docs/notes/visual.md`](docs/notes/visual.md) | art direction, board geometry, seats, maps, card face, motion, streamable moments |
 | [`docs/notes/audio.md`](docs/notes/audio.md) | synthesis engine, track format, arrangement ladder |
 | [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md) | Playwright, GitLab pipeline, linting, Docker stacks |
+| [`docs/notes/seo.md`](docs/notes/seo.md) | indexable pages, the page registry, hreflang, robots/sitemap/404, build-time origin |
+| [`docs/notes/legal.md`](docs/notes/legal.md) | what is processed and why, the no-banner position, address truncation, the trademark line, what is still open |
 
 Also: `docs/rules.md` is the authoritative game spec, `DESIGN.md` the written design system,
 `docs/protocol.md`, `docs/features.md`, `docs/deployment.md`.
@@ -49,9 +51,9 @@ client and E2E targets do need Node.
 | Full E2E | `make test-e2e` (needs the Go server on :8080; Playwright boots its own Vite on :4173) |
 | One E2E file / case | `cd e2e && npx playwright test tests/matchmaking.spec.ts -g "<title substring>"` |
 | Lint | `make lint` (golangci-lint in docker + ESLint) |
-| Type-check | `make build-client` (`tsc && vite build`); there is no separate typecheck script |
+| Type-check | `make build-client` (`astro check && astro build`); there is no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make maps ARGS="--src=<folder>"` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make maps ARGS="--src=<folder>"` |
 
 ## Workflow loop
 1. Understand behavior. 2. Tests first (non-trivial). 3. Smallest correct change. 4. Run tests.
@@ -103,15 +105,21 @@ Beware assertions that only restate the fixture. An E2E test once sent an interr
 the discard and turn that `debug_set_state` had itself just configured: it passed for months while
 the server rejected every interrupt with "interrupt window closed".
 
-Required coverage: room create/join, nickname entry, game start, turn progression, legal/illegal
+Required coverage: room create/join, nickname entry **and its validation** (the shapes refused, the
+disguises the normalisation is supposed to see through, and the legitimate names that must keep
+playing — a filter is only as good as its false-positive list), game start, turn progression, legal/illegal
 moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch
 windows, simultaneous resolution, reconnect (60s, nickname + room_code) **and session restore across a
-page reload**, rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat
-layout at every table size and viewport, state-to-sound mapping, score table, matchmaking (pairing,
-cancel, disconnect-out-of-queue, the host controls a matchmade room refuses, the rematch **both**
-sides have to ask for, and every forfeit path: quit, disconnect and AFK), link-preview tags vs the
+page reload**, rematch (the ask **everybody** at the table has to make, one ask dealing nothing, a
+departure retiring an ask and completing what is left of the agreement, seat pruning, re-indexing),
+protocol validation/rejection, seat
+layout at every table size and viewport, state-to-sound mapping, the host freeing a seat (the refusals,
+the re-based roster, the bot's row, and the line the removed player is left holding), score table, matchmaking (pairing,
+cancel, disconnect-out-of-queue, the host controls a matchmade room refuses, the requeue an
+opponent's departure triggers, and every forfeit path: quit, disconnect and AFK), link-preview tags vs the
 committed `og.png`, map draw + the loading gate and `tableImageRect` at every board size, batch play
-and batch interrupt (unit *and* E2E), a draw against exhausted piles, `Origin` checking, bots
+and batch interrupt (unit *and* E2E), a draw against exhausted piles, `Origin` checking, the legal
+disclosures and the truncation of every logged address, bots
 interjecting, and the graceful shutdown: what a drain refuses, what it leaves alone, and a full
 restart where a match is snapshotted, reloaded by a fresh hub and reclaimed by both players with
 their original tokens. That last one has **no E2E counterpart on purpose**, because the Playwright
@@ -124,9 +132,24 @@ assertion was going to describe. Assertions own behaviour; screenshots own appea
 Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
 
 ## Repository structure
-- `client/` frontend
-  - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings,
-    InterruptBanner, CatchBanner, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
+- `client/` Astro site + React game. `astro.config.mjs` (integrations, dev server, dev toolbar off,
+  the React fast-refresh preamble); no `vite.config.ts`, no `index.html`, no `main.tsx`
+  - `src/pages/` one `.astro` file per URL  ·  `src/layouts/` `Base.astro` (the shared `<head>`),
+    `GamePage.astro` (the game at `/` and `/fr/`), `ContentPage.astro` (header, column, footer)
+  - `src/entry.tsx` mounts React into `#root` through a bundled module script, **never an island**
+  - `src/homeSheet.ts` Esc + scrim-click on the home page's `<details>` sheet, and the mobile
+    drawer's close-on-widen, same bundling rule
+  - `src/theme.ts` the theme, free of React, so a content page can apply it without mounting one
+  - `src/seo/meta.ts` the page registry plus the link-preview tags, as data rather than markup
+  - `src/content/` the prose and data behind the content pages, plus `content.css`, `legal.ts` (the
+    three legal documents), `HomeProse.astro` (what `/` says about the game, rendered by both the
+    sheet and the mobile drawer), `navMenu.ts` (the drawer's close-on-widen, imported by the two
+    page scripts) and `theme-boot.ts` (the pages' one script: the theme, the back-to-top button and
+    that drawer call). **Never imported by the app**: it would grow the bundle every player downloads
+  - `src/components/` UI screens + shared (RulesModal, Preferences + LanguageSwitcher, TableCode,
+    AudioSettings, InterruptBanner, CatchBanner, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
+    `nicknameRules.ts` (the shape half of nickname validation, mirrored from the server),
+    `tableCodeRules.ts` (the table code's alphabet and length, mirrored from the server),
     ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`, and the 1v1 queue's three:
     `Searching.tsx`, `MatchFound.tsx`, `OpponentAway.tsx`)
   - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack,
@@ -137,26 +160,30 @@ Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
     `useGameAudio.ts` (store-to-sound bridge)
   - `src/dev/` dev-only visual showcase (`scenes.ts` registry + `Showcase.tsx` + `CardSheet.tsx` +
     `OgCard.tsx`), tree-shaken from prod
-  - `public/` `favicon.svg`, `apple-touch-icon.png`, `og.png`, `maps/<id>/{room,table}.webp`
+  - `public/` `favicon.svg`, `apple-touch-icon.png`, `og.png`, `maps/<id>/{room,table}.webp`,
+    `licenses.txt` (the OFL notice travelling with the self-hosted fonts)
   - `src/styles/tokens.css` design tokens, single source of truth for colour/type/shape/motion
   - `src/i18n/` i18n context, en/fr translations, `serverErrors.ts`
   - `src/hooks/` WebSocket + Zustand store + `useElementSize` + `useSafeAreaInsets` + `useTheme` +
-    `useHeldKey` + `useDrainBar` + `useMapPreload` + `useCountdown` + `useReconnectAnimation` +
-    `sessionPersistence` + `useSessionRestore` + `nicknameMemory`
+    `useStreamerMode` + `useHeldKey` + `useDrainBar` + `useMapPreload` + `useCountdown` + `useReconnectAnimation` +
+    `sessionPersistence` + `useSessionRestore` + `nicknameMemory` + `useTabAlert`
   - `src/types/` protocol types  ·  `src/test/` Vitest unit tests
 - `server/` authoritative game server
-  - `game/` pure domain (room, deck, hand, rules, bot, maps, event log)
+  - `game/` pure domain (room, deck, hand, rules, bot, maps, event log, `nickname.go` +
+    `wordlists/` the vendored LDNOOBW lists)
   - `hub/` WS connection mgmt, rate limiting, session tokens, bot scheduling, map-loading gate,
     `matchmaking.go` (the 1v1 queue, the pairing, the rematch-by-agreement and the forfeit path),
-    `drain.go` + `snapshot.go` (the graceful shutdown: finish what is running, carry across the rest)
+    `drain.go` + `snapshot.go` (the graceful shutdown: finish what is running, carry across the rest),
+    `privacy.go` (address truncation, the only thing allowed to read a remote address)
   - `protocol/` wire types
 - `e2e/` Playwright suite: `tests/` (game-flow, multi-client, mobile, penalties, round-progression,
   reconnect, rematch, rules-coverage, special-cards, batch-play, score-table, matchmaking),
   `helpers/game.ts`,
   `types.d.ts`, `playwright.config.ts`
-- `tools/` `lib/vite.mjs` (shared dev-server boot), `visual/shoot.mjs`, `og/shoot.mjs`,
+- `tools/` `lib/devserver.mjs` (shared dev-server boot), `visual/shoot.mjs`, `og/shoot.mjs`,
   `maps/prepare.mjs`, `audio/verify.mjs`, `csp/check.mjs`
 - `shared/` protocol/types  ·  `docs/` spec + `docs/notes/` engineering notes
+- `LICENSE` (MIT)  ·  `NOTICE.md` (trademark position + third-party licences)
 - `.gitlab-ci.yml` the only CI definition  ·  root config / Docker / env
 
 Update this section when structure changes.
@@ -224,6 +251,18 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `generateSessionToken`), and neither has a `math/rand` fallback. The code is the only thing
   guarding a private lobby and the token the only proof behind a seat reclaim; a predictable
   sequence on either is the whole control. `math/rand` is for bot jitter and nothing else.
+- **The nickname is validated in the domain, and refused with one string.**
+  `game.ValidateNickname` (called by `hub.validateNickname` on `create_room`, `join_room` and
+  `find_match`) owns length **in runes**, an allowlist charset (Latin/Greek/Cyrillic letters, digits,
+  one space, `-_.'`, at most one combining mark per letter), and the blocked-term check. Length,
+  charset and blocked term all wrap `ErrNicknameRejected` and reach the player as
+  `nickname not allowed`: **never tell them which rule fired**, or the next attempt is the same
+  nickname one character apart. The words are `server/game/wordlists/` (LDNOOBW, CC BY 4.0, 19
+  languages, `go:embed`-ed, attributed in `NOTICE.md`), matched on a folded form (case, diacritics,
+  leet, separators, repeats) whole-token first, as a substring only from 6 characters up, with
+  `nicknameAllowSeed` for the Scunthorpe collisions. That threshold and that allowlist are the
+  false-positive control and they are the reason Constance and Dominique can play: do not lower it
+  without a test proving the names still pass. See `docs/notes/server.md`.
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names the refusals a
   correct client produces all match long; gameplay handlers call `Client.noteRejection(err)`, not
   `noteSuspect`. Always `errors.Is`, never string comparison.
@@ -241,15 +280,32 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **1v1 matchmaking is one FIFO queue** (`hub/matchmaking.go`) and its size is **never on the wire**:
   `matchmaking_queued` is an empty acknowledgement, and the number lives only on `/metrics`. A client
   that could render it would render "1" at exactly the moment the queue is trying to fill, which
-  reads as "close the tab". A matchmade room has no host: `add_bot`, `start_game`, `set_match_format`
-  and `set_max_players` are all refused by `refuseInMatchmade`. Nothing player-facing says
+  reads as "close the tab". A matchmade room has no host: `add_bot`, `start_game`, `set_match_format`,
+  `set_max_players` and `kick_player` are all refused by `refuseInMatchmade`. Nothing player-facing says
   "unranked"; a ranked ladder would be a second queue and would introduce itself.
-- **`rematch` is the one lobby control a matchmade room keeps, and it means something else there**
-  (`hub.handleRematchOffer`, deliberately *not* behind `refuseInMatchmade`). In an ordinary room the
-  host decides for everyone; between two strangers nobody has that standing, so each side asks
-  (`rematch_offered`, broadcast so the offer is public) and the same two are dealt in again only once
-  both have (`startRematchedMatch`). Whoever wants a different opponent requeues from the same
-  screen instead.
+- **`kick_player` is the one host control that acts on a person, so it is the strictest**
+  (`hub.handleKickPlayer`): host only, lobby only, matchmade never, and **never seat 0** — giving up
+  your own seat is `leave_room`, and a kick that could take the host's would hand the table to seat 1
+  through a button that says nothing of the sort. The table sees the ordinary `player_left` because
+  the work is `releaseSeat`, the same bookkeeping a quit and a lobby disconnect do; the removed client
+  gets `kicked` on its own socket, since a table vanishing with no explanation reads as a bug. A seat
+  with no socket behind it is a bot and goes through `removeUnmannedSeat`, which is the only way to
+  take one back. **It is not a ban and must not become one**: the code is already in that player's
+  hands, there is no identity here to refuse them by, and an address is the one handle
+  `truncateAddr` exists to never keep. That is what makes a mistaken press cheap, and why the button
+  asks nothing first.
+- **`rematch` is an ask, not a decision, and that is true in every room** (`hub.handleRematch`,
+  deliberately *not* behind `refuseInMatchmade`). It was the host's call and is nobody's now: the
+  host owns the format, the size and the start, which are things about a table that has not dealt
+  yet, and has no standing over whether the others want another twenty minutes. So every seat gets
+  the same button, every ask is broadcast (`rematch_offered`, carrying the **whole** offer state and
+  the quorum, never the increment), and the next match is dealt only once every connected human has
+  asked (`rematchQuorum`; bots are not asked). The deal itself differs: `startRematchedMatch` deals a
+  matchmade pair through the pairing path, `openRematchedLobby` returns an ordinary table to its
+  waiting room. **A departure retires that seat's ask and re-bases the rest**
+  (`hub.releaseRematchOffer`), and completes the agreement on the spot when what is left of the table
+  has already asked: nobody is made to wait on somebody who is not there. In a matchmade room the
+  survivor has nobody to agree with at all, so the client requeues them instead.
 - **Nobody waits for somebody who is not there.** A matchmade room holds a dropped seat for 15s
   (`MatchmakingReconnectTimeout`) instead of 60 and treats 2 consecutive turn timeouts as away
   (`MatchmakingAFKThreshold`) instead of 4, and **both expiries forfeit the match** to whoever stayed
@@ -281,6 +337,21 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 ## Client
 Detail: [`docs/notes/client.md`](docs/notes/client.md).
 
+- **The game is never an Astro island.** A `client:*` directive makes Astro emit its hydration
+  runtime as two **inline** `<script>` blocks, and `nginx.conf` sends `script-src 'self'`: they are
+  refused, nothing mounts, and the page is blank **in production only**. Astro's `security.csp`
+  answers this with hashes in a `<meta>`, which does not help, because a meta policy and a header
+  policy are both enforced and the header still blocks them. `src/entry.tsx` is mounted by an
+  ordinary bundled `<script>` in `index.astro` instead, which is what the app already did under
+  Vite. `csp.test.ts` fails on any `client:*` directive, and on any `is:inline` script.
+  The same rule is why `@astrojs/react`'s fast-refresh preamble is injected as a page script from
+  `astro.config.mjs`: the integration only injects it on pages that hydrate an island, so without it
+  dev throws "can't detect preamble" and nothing renders.
+- **Astro narrows Vite's `envPrefix` to `PUBLIC_`, so `astro.config.mjs` puts `VITE_` back.** Without
+  it `import.meta.env.VITE_WS_PORT` survives the transform and reads `undefined` in the browser,
+  nothing warns, and `useWebSocket` falls back to same-origin `/ws`: in dev that is the Vite server
+  proxying nothing, so every table and every match request died on `ws://localhost:5173/ws`.
+  `src/test/wsEnv.test.ts` fails on a prefix the hook reads and the config does not expose.
 - **Nothing continuous goes through React state.** Countdown bars use `useDrainBar` (a CSS animation
   with a negative delay), never a percentage in state. `<GameBoard />` is `memo`'d and its props are
   kept referentially stable in `GameView`; `App` never subscribes to the whole store. One `setState`
@@ -290,6 +361,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   refuses opens no picker either: the legality check runs *before* the prompts.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its
   target). One shared lockout ate draw-then-pass.
+- **Anything that opens over the board closes two ways: `Escape` and a control that can be pressed.**
+  Escape goes through `hooks/useEscapeKey.ts` — one hook, not one `useEffect` per panel, which is how
+  the two pickers ended up with a scrim and a ✕ and nothing on the keyboard. The visible half is not
+  optional either: a phone has no Escape key, and a scrim is not an obvious thing to tap. A dropdown
+  anchored to its own opener (the gear, the mixer) is the one exception — the button that opened it
+  shuts it, and nothing covers it. `escapeClose.test.tsx` owns the rule.
 - **A refused action never shows a wire string.** `i18n/serverErrors.ts` maps server prose onto
   `Translations.errors` by ordered regex, resolved at render. **Add the string there when you add a
   server error**; `serverErrors.test.ts` asserts every reachable one resolves.
@@ -302,6 +379,57 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   scolds, and only the streamable moments shout. The rules modal is written to be read once,
   standing up: one sentence per item, headings that promise something. `docs/notes/client.md` holds
   the full voice, and `docs/rules.md` stays the spec the modal must not contradict.
+- **The host's kick is one icon button per roster row, never on their own row, and it asks nothing**
+  (`WaitingRoom.tsx`). The quit link below it is the screen's one question and earns it: leaving is
+  one-way and costs a guest the code. A kick costs nothing to undo, so a second confirmation would
+  only teach people to click through both. A bot's row carries it too — nothing else takes a bot's
+  seat back. The removed player is reset like `left_room` and then told why (`errors.kicked`), in
+  that order, because `resetToHome` clears `errorMsg`.
+- **Player preferences live behind one gear** (`Preferences.tsx`), on every screen including the
+  board: language, theme, streamer mode, colour shapes, reduced motion. The theme used to be a bare
+  chip; a top bar that also carries sound and rules does not grow a control per setting. Each
+  on/off preference is a `createBooleanPref` module store (`hooks/prefStore.ts`, `localStorage`,
+  presentation only, never on the wire) because they are read by screens with no common parent.
+  Icons in that row are **drawn SVG, never a font character**: a `⚙` glyph is a different object on
+  every platform, and long thin spokes read as a sun.
+- **A control drawn smaller than 44px gets its target from `.hit-target`, not from its own box.**
+  The global utility in `tokens.css` grows the hit area with a pseudo-element, so the top-right
+  cluster stays a row of 40px chips (which is what `DESIGN.md` sizes it at) while the thumb gets
+  `--touch-target`. Segmented options are the exception and keep their own height: expanding them
+  would have them stealing each other's taps. The same file's `.btn-chunky` and `.t-*` classes were
+  deleted in the same pass — they claimed to be what every control extended and nothing had ever
+  imported them.
+- **Quiet is a hue, never an opacity.** `--color-muted` resolving to `--color-ink` on hover, not
+  `--color-ink` at 0.34: an opacity dims the object *and* its contrast, which is how the lobby's
+  legal link, the home footer and the content pages' navigation all ended up between 2:1 and 3:1.
+- **Streamer mode blurs the table code** through `TableCode.tsx`, the single component every screen
+  renders the code with. The blur is CSS over the real text: copy still copies the code, and
+  hover/focus clears it so the owner can read it out. A new screen that prints the code must go
+  through `TableCode` or the mode silently leaks it.
+- **Colour is a rule, not decoration, so colour assist gives each suit a silhouette**
+  (`SUIT_SHAPE` in `cardTheme.ts`, drawn by `suitMark.tsx`): triangle, circle, square, diamond, on
+  the card under the value, on every picker swatch and on the active-colour chip. Never a letter:
+  `R` and `V` name different colours in the two languages. A wild has no suit and stays unmarked.
+  Anything new that means something by hue alone needs the mark too.
+- **Reduced motion is a preference, not just a media query.** Every reduced-motion rule is scoped to
+  `:root[data-motion="reduce"]`, which `useMotionPref` writes from the system setting *and* the
+  player's answer, so the choice can win in both directions (`initMotion()` in `entry.tsx`, framer-
+  motion through `<MotionGate>`, `prefersReducedMotion()` for the two WAAPI shakes). A new
+  `@media (prefers-reduced-motion: reduce)` block would ignore the preference: `reducedMotionCss.test.ts`
+  fails on one.
+- **The lobby answers a nickname as it is typed, and says nothing the server would not have.**
+  `components/nicknameRules.ts` mirrors the *shape* rules of `game.ValidateNickname` so a refusal is
+  instant, and the word list stays server-side: it is 19 files, and a bundle carrying them would be
+  downloading a few thousand slurs on every page load for a check the server repeats anyway. Both
+  halves render `t.errors.nicknameRejected`, the same line `nickname not allowed` resolves to, so a
+  player cannot tell which half refused them, nor read the rule off the message.
+- **"Take a seat" is disabled until the table code is a whole one, in the server's alphabet.**
+  `components/tableCodeRules.ts` mirrors `hub.roomCodeRe`: six characters of `A-Z2-9` minus `I`, `O`,
+  `0` and `1`, which a code is never drawn from because it is read out loud off a stream. The field
+  drops everything else as it is typed or pasted, so a stray space or a `0` typed for `O` never
+  becomes a request whose only outcome is an error line under a form the player has not finished.
+  It decides nothing: `join_room` is validated again server-side, and an unknown table still comes
+  back as `room not found`.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`, written on submit and
   read once at mount). It is a prefill that authenticates nothing, which is exactly why it is not the
   `sessionStorage` `loco_session` record: an emptied field still refuses to send.
@@ -312,14 +440,128 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   queue screen is entered optimistically (the acknowledgement carries nothing to wait for), and
   `endSearch` is guarded on the screen so a cancel that raced a pairing cannot unseat a matched
   player. **A forfeit never renders as a victory**: no confetti, no trophy, and the player who left is
-  told they left.
-- **A matchmade game-over screen asks, it does not command.** The rematch button is an offer with two
-  states (asked / waiting on the other side), the opponent's offer shows as it arrives, and requeuing
-  sits beside it as an equal choice. Never render a matchmade rematch as though pressing it started
-  anything.
-- `initTheme()` and `initSessionRestore()` run in `main.tsx` before the first render.
+  told they left. It is also the longest single screen in the game, so it carries the same top bar as
+  every other one.
+- **Being found has to reach a player who is not looking.** `soundsForTransition` plays `matchFound`
+  on the way into `screen: 'matchfound'`, and `useTabAlert` alternates the browser tab's title with
+  `t.matchFoundTab`. That second one is only acceptable under two rules, both pinned by
+  `tabAlert.test.tsx`: it **arms only while the tab is hidden**, and coming back disarms it, restores
+  the real title and never re-arms. A title blinking at somebody who is watching the board is an ad.
+- **The game-over screen asks, it does not command.** The rematch button is an ask with three states
+  (ask / waiting on the others / they asked first), on every screen and at every table, because the
+  server deals only once everybody has asked. Never render it as though pressing it started anything.
+  Past two seats the wait is on the table rather than on one named opponent and the button carries
+  the count (`rematchProgress`), which at two would be noise. A table nobody is left at keeps the
+  button **in place and disabled**: a reaction game does not reflow its buttons, and the answer may
+  still be one reconnect away. The exception is a matchmade table, where there is nothing to wait
+  for: App requeues that player without being asked (`rematchRequeue.test.tsx`), and cancelling the
+  search is how they leave. Requeuing sits beside the ask as an equal choice, matchmade only.
+- `initTheme()` and `initSessionRestore()` run in `entry.tsx` before the first render.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`, so a missing
   key is a TS error.
+
+## Findability
+Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
+
+- **A content page restates what the game already knows, so it is pinned to the source.** The rules
+  page maps `t.rules`, the array `RulesModal` maps, rather than copying it; the deck table is checked
+  against `server/game/deck.go` and `server/game/card.go` by `contentPages.test.ts`, because points
+  and card counts are the server's to define and a page is free to drift from them in silence.
+- **A content page ships no JavaScript except `theme-boot.ts`.** React components render with no
+  `client:` directive, so `<LocoLogo />` and every `<Card />` on `/cards/` are static markup: the
+  card on the page is the card in the hand, not a picture of it. The one script exists because `tokens.css`
+  keys the dark palette on `[data-theme]`: without it a player who chose dark lands on a white page
+  one tap later. It imports `src/theme.ts`, not the hook, or it would drag React onto the page.
+  Anything interactive is therefore a **native control**: the home page's sheet is `<details>`, the
+  language chooser is a `[popover]`, and both dismiss on Escape with nothing behind them.
+- **One `--shell`, one bar, no backdrop.** Header, column and footer of a content page share a single
+  width — three container widths made the logo, the title and the footer start at three different x
+  and the page read as three strips. The **navigation is a fixed footer bar**, the same five links in
+  the same order as the home page's row, with `Play` where its sheet button is: a player who came
+  from `/` meets what they left. Nothing is pinned behind the text: `body.doc` is flat canvas and
+  `background-attachment: fixed` is gone from `tokens.css`, because prose sliding over a stationary
+  gradient is the one effect that dates a page instantly. `contentPages.test.ts` fails on its return.
+  These pages also put **text selection back** (`body.doc`), which the board's reset takes away.
+- **The header is pinned and the bar is fixed, so both ways out are always on screen.** `.headerBar`
+  is a full-width `position: sticky` band and `.siteHeader` is the `--shell` row inside it, which is
+  what keeps the logo on the `<h1>`'s x. It carries everything that leaves the document — the mark,
+  the CTA, and under 46rem the burger that is the whole navigation — and scrolling it away sent a
+  reader deep in the rules back to the top of a long page to reach any of it. Sticky, not fixed: it
+  is the column's first child, so `--bar` stays the only room the page reserves. `scroll-padding-top`
+  on `html:has(body.doc)` is not optional with it — without it the skip link and every in-page anchor
+  land under the band.
+- **Under 46rem the bar is gone and one burger is the whole navigation**, top left, on the content
+  pages *and* on `/` (`.menuBtn` + `#navPop`, styled once in `content.css`). Ten items folded into
+  two rows of 12px text with nothing on them taller than the type; the drawer's rows are 2.75rem.
+  The items differ by page — the content pages' drawer is the bar entire (Play, the five, privacy,
+  theme, globe), the game's carries the five, privacy and the sheet's prose, and **no Play**. Four
+  things break it, three of them silently: `display` belongs on `.navPop:popover-open` and nowhere
+  else (an author `display` beats the UA's `[popover]:not(:popover-open)` by cascade **origin**, so
+  the drawer stood open on every page); a popover is `height: fit-content` until told otherwise;
+  hiding the bar is only allowed inside `@supports selector([popover])`, or a browser without the API
+  gets a page with no navigation at all; and **widening the window has to close it**
+  (`content/navMenu.ts`, one `matchMedia` listener, imported by `theme-boot.ts` and `homeSheet.ts`,
+  holding the second copy of the breakpoint `contentPages.test.ts` pins to the CSS).
+- **The language chooser is a globe and a modal, and the links inside it are real.** Both languages
+  are `<a href>`s with `hreflang`/`lang`, in the document open or shut, because the href is what makes
+  an `hreflang` pair navigable and a crawler follows nothing else. `@supports not selector([popover])`
+  degrades the panel to a plain row in the bar rather than losing the switch. It closes three ways,
+  all native and all script-free: Escape, a click outside, and a ✕ that is
+  `popovertargetaction="hide"` — the first two are invisible and neither exists on a phone. Write
+  the attribute as `popover="auto"` in full: an invalid value falls back to the *manual* state,
+  which has neither of the first two and fails as a panel that will not close.
+- **The dark palette is in `tokens.css` twice, and that is the point.** `[data-theme]` is written by a
+  script and a script cannot paint the first frame, so a dark system met one white flash per
+  navigation. The same block sits behind `@media (prefers-color-scheme: dark)` on
+  `:root:not([data-theme='light'])` — known at parse time, and still beaten by an explicit choice.
+  `themeFlash.test.ts` compares the two declaration by declaration; they may not drift.
+- **The theme switch on a content page is `theme-boot.ts` wiring one button**, beside the globe in the
+  bar, and it is `hidden` in the markup until that script reveals it: a toggle that cannot store a
+  choice is a dead control, and the reader who has no script already has their system's theme. It
+  writes the key `useTheme` reads, so the choice crosses between the pages and the game.
+- **`src/seo/meta.ts` is the single source.** A page appears once in `PAGES`, with its path, title
+  and description **per language**; the sitemap, the `hreflang` sets, the canonical and
+  `seo.test.ts` all read it. Every failure in this area is silent by nature (a page declared but
+  never built, a `hreflang` set that does not point back, two pages sharing a title), so the test
+  asserts the properties rather than the markup, and **a declared path with no source file behind it
+  is a failure**: the sitemap would hand Google a URL that 404s.
+- **The home page is exactly one viewport and never scrolls.** `body` is a flex column, `#root` takes
+  what is left, and the indexable markup is a quiet footer row under it: the only links from `/` to
+  the content pages, in the open, plus the prose one press away in a **native `<details>` sheet**.
+  Nothing on this page is reached by scrolling, at the lobby or in a match — **a board that can be
+  scrolled off-screen mid-match is a bug**, and so is a lobby that hides text under the fold. The
+  footer vanishes on `data-seated`, which `App.tsx` writes for every screen but the lobby. Never make
+  it React's to unmount, and never make the sheet a React modal: it is markup Astro rendered, which
+  is what puts the prose in front of a crawler and keeps `src/content/` out of the bundle. It must
+  keep opening with **scripts disabled** (`seo.spec.ts` clicks it that way); `src/homeSheet.ts` adds
+  Esc and scrim-click and nothing the sheet depends on. Under 46rem that row is not on screen at all:
+  the burger replaces it and the drawer carries the links **and** the prose, links first. The sheet
+  and the drawer both render `content/HomeProse.astro`, so they cannot describe the game differently.
+- **The FAQ is the `FAQPage` payload, rendered.** It is the one structured-data type here that can
+  put content straight into a result, so `src/content/faq.ts` is the data and the page is a view of
+  it. Its answers describe real server behaviour (the 60s seat hold, 15s matchmade; the turn clock
+  and its four-timeout limit), so a change to those changes this file too.
+- **English at `/`, French under `/fr/`, every path slash-terminated.** `/` stays the game's URL
+  because it is the address people paste. Never add a redirect from the unslashed form: `/nope` has
+  no directory either, so redirecting on a `try_files` miss loops forever. The canonical resolves
+  the duplicate.
+- **A French URL opens in French**, whatever the browser asks for, via `data-served-lang` on
+  `<html>`. Never read `<html lang>` for this: the i18n provider writes it, so detecting from it
+  makes the app read its own last output.
+- **The origin is decided at build time** (`VITE_PUBLIC_ORIGIN` → `site` + `ORIGIN`). Crawlers do not
+  run JS, and a relative `og:image` is never fetched. `client/Dockerfile` takes it as an `ARG`,
+  `.gitlab-ci.yml` passes `https://${APP_HOST}`.
+- **nginx answers a missing page with a real 404**, never with the game: `try_files … /index.html`
+  is a soft 404, which Google reports as an error and which hides broken links. `robots.txt`
+  advertises the sitemap on production hosts and nothing at all on `-d.`.
+- `make og` and `make icons` **commit their output**: CI has no browser.
+- The ceiling here is real but bounded. What is not is off-site: a one-click table link, an IGDB
+  entry so Twitch has a category at all, and browser-game directories. None of those is a meta tag.
+- **A content page is a player-facing surface, so it never says UNO either.** Same rule as the game,
+  for the same reason: the disclaimer that names the mark is only true while nothing else does. That
+  costs the obvious keyword on purpose, and the pages are written to answer the *descriptive*
+  queries instead. `seo.test.ts` extends `legal.test.tsx`'s guard over `PAGES`, `UI` and every
+  `src/content/**` file.
 
 ## Visual
 Detail: [`docs/notes/visual.md`](docs/notes/visual.md). Spec: `DESIGN.md`.
@@ -345,6 +587,12 @@ stated at the top of `styles/tokens.css`:
 - **The card face does not follow the theme.** A card is a physical object; the same card in two
   themes is two cards. `LOCO_MARK_PATH` comes straight from the designer's source file: do not
   redraw, retrace or tidy it.
+- **On a card the mark is a mask, never a `<path>`.** The face is CSS gradients and the mark is one
+  shared mask image (`MARK_MASK_URL`, `MARK_MASK_BOLD_URL`), so the browser rasterises that geometry
+  once and all ~50 faces and backs on a busy table composite the same bitmap. As live paths under the
+  scale animations they all sit inside, they cost 2.3-3.3x the frame rate wherever the compositing is
+  done in software. `card.test.tsx` fails on a live path and on a second mask URL; nothing else can
+  see it. Same rule for any new card art: one cached image, not geometry per instance.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under `prefers-reduced-motion`.
 - **The action bar never reflows.** Fixed three-column grid, Catch mounted-but-disabled all match in
@@ -370,6 +618,37 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 - `make audio-verify` is the only thing that catches a broken envelope or a mis-wired node, because
   those produce silence rather than an error. Run it after touching `sfx.ts`, `music.ts` or
   `engine.ts`. Deliberately outside CI.
+
+## Legal and privacy
+Detail: [`docs/notes/legal.md`](docs/notes/legal.md).
+
+- **Collecting nothing is the compliance strategy.** No account, no cookie, no analytics, no tracker,
+  no third-party request, nothing persisted but a match in flight across a deploy. Every obligation
+  in the GDPR scales with what is held, so the cheapest way to keep satisfying them is to keep
+  holding nothing. **Anything that would break that is a legal change, not a technical one**: the
+  first measurement cookie makes a consent banner mandatory and rewrites the policy.
+- **No address is ever written in full.** `hub.truncateAddr` / `Client.netPrefix` and the
+  `anonymised` `log_format` in `client/nginx.conf` cut every address to `/24` or `/48` **at the point
+  of writing**, so the full one is never stored rather than promised away. Log lines are correlated
+  by `conn=`. **Never log `RemoteAddr()` directly**; `legal.test.tsx` fails on any non-test file in
+  `server/hub/` that does.
+- **Privacy, terms and credits are a page, not a modal** (`/privacy/`, `/fr/confidentialite/`),
+  linked at the right-hand end of every footer, without typing a name. A policy has to be linkable:
+  the modal existed on one screen of one application, so there was no way to send somebody the terms
+  and nothing for a crawler or a store listing to point at. The copy is `src/content/legal.ts`,
+  typed `Record<Lang, LegalDoc[]>` so a document cannot exist in one language only, read at build
+  time and shipped in **no bundle**: `src/i18n/en.ts` is downloaded by every player and these three
+  documents are read by almost nobody.
+- **A line in that copy is a disclosure before it is prose.** `legal.test.tsx` pins the legal basis,
+  the retention period, the rights list, the CNIL, the EU statement, the storage disclosure, the
+  no-banner explanation, the Mattel disclaimer and the governing law. Reword freely; keep it passing.
+- **The game never says UNO to a player.** The documentation does, the disclaimer names the mark in
+  order to disclaim it, and every other player-facing string in both languages is asserted clear of
+  it. The whole trademark position rests on that.
+- Fonts are OFL and self-hosted, so the licence ships with them as `client/public/licenses.txt`.
+  Regenerate it if a font is bumped.
+- **Publisher identity, host and contact address are deliberately absent from the modal.** An
+  editorial decision, already taken: do not add them back and do not reopen it.
 
 ## Testing, CI and environments
 Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).

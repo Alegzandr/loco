@@ -1,0 +1,70 @@
+---
+// The rules, in one column.
+//
+// The sections come straight from `t.rules`, the same array `RulesModal.tsx`
+// maps. That is the point: the page and the in-game modal are one source, so
+// they cannot end up telling a player two different things about a +2. The deck
+// table is the reference the modal has no room for.
+import { en } from '../i18n/en'
+import { fr } from '../i18n/fr'
+import { DECK, DECK_SIZE } from './deck'
+import { ui } from './ui'
+import type { Lang } from '../seo/meta'
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+const t = lang === 'fr' ? fr : en
+---
+
+<h1>{ui('rulesH1', lang)}</h1>
+<p class="lede">{ui('rulesLede', lang)}</p>
+
+{t.rules.map((section) => (
+  <section>
+    <h2>{section.heading}</h2>
+    <ul>
+      {section.items.map((item) => <li>{item}</li>)}
+    </ul>
+  </section>
+))}
+
+<section>
+  <h2>{ui('deckH2', lang)}</h2>
+  <p>{ui('deckLede', lang)}</p>
+
+  <div class="tableWrap">
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">{ui('colCard', lang)}</th>
+          <th scope="col" class="num">{ui('colCopies', lang)}</th>
+          <th scope="col" class="num">{ui('colPoints', lang)}</th>
+          <th scope="col">{ui('colDetail', lang)}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {DECK.map((entry) => (
+          <tr>
+            <th scope="row">{t.cardNames[entry.kind]}</th>
+            <td class="num">{entry.copies}</td>
+            {/* Numbers are worth what is printed on them, so there is no single
+                figure to put here. */}
+            <td class="num">{entry.points ?? ui('faceValue', lang)}</td>
+            <td>{entry.detail[lang]}</td>
+          </tr>
+        ))}
+        <tr>
+          <th scope="row">{ui('deckTotal', lang)}</th>
+          <td class="num">{DECK_SIZE}</td>
+          <td class="num"></td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<p>{ui('rulesOutro', lang)}</p>

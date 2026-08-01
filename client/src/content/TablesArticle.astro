@@ -1,0 +1,61 @@
+---
+// The four rooms a match is dealt in.
+//
+// Names and taglines come from `t.maps`, the same copy the loading screen shows,
+// and the art from `MAPS`, the same registry the board paints from. Nothing here
+// describes a room a second time.
+import { MAPS, MAP_IDS } from '../components/cards/maps'
+import { ui } from './ui'
+import { en } from '../i18n/en'
+import { fr } from '../i18n/fr'
+import type { Lang } from '../seo/meta'
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+const t = lang === 'fr' ? fr : en
+---
+
+<h1>{ui('tablesH1', lang)}</h1>
+<p class="lede">{ui('tablesLede', lang)}</p>
+
+{MAP_IDS.map((id) => {
+  const map = MAPS[id]
+  const copy = t.maps[id]
+  return (
+    <article class="room">
+      <h2>{copy.name}</h2>
+      {/*
+        Two images because a room is two things on the board: the backdrop it
+        sits in and the table itself. `loading="lazy"` on all but the first —
+        this page is four large photographs and none but the top one is on
+        screen when it opens. Width and height are declared so the column does
+        not jump as they arrive.
+      */}
+      <div class="roomArt" style={`--accent: ${map.accent}`}>
+        <img
+          src={map.room}
+          alt=""
+          width="1280"
+          height="720"
+          loading={id === MAP_IDS[0] ? 'eager' : 'lazy'}
+          decoding="async"
+        />
+        <img
+          class="roomTable"
+          src={map.table}
+          alt=""
+          width="1280"
+          height="720"
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+      <p>{copy.tagline}</p>
+    </article>
+  )
+})}
+
+<p>{ui('tablesOutro', lang)}</p>

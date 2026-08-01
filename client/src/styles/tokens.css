@@ -18,7 +18,7 @@
 
 :root {
   /* ── Device safe areas ─────────────────────────────────────────────────────
-     The page runs `viewport-fit=cover` (see index.html), so it owns the notch
+     The page runs `viewport-fit=cover` (see layouts/Base.astro), so it owns the notch
      and the home-indicator band and the room's picture reaches every edge of
      the screen. Nothing a player has to read or press may sit there, so every
      piece of chrome anchored to an edge offsets itself by these, and the board's
@@ -43,8 +43,28 @@
   --color-secondary-active: #eaa900;
   --color-tertiary: #6c5cff;         /* electric indigo — info, direction */
   --color-mint: #12c48f;             /* confirmations, playable glow */
-  --color-luxe: #6c5cff;             /* legacy alias */
-  --color-plus: #ff3d68;             /* legacy alias */
+  /* A link inside a paragraph is body text and has to measure like body text.
+     The brand indigo does not: `--color-tertiary` lands near 3.8:1 on the light
+     canvas and 3.6:1 on the dark one, and the content pages are the only place
+     in the product with prose long enough to hold links. Same hue, moved far
+     enough in each theme to clear AA. */
+  --color-link: #4a35c9;
+
+  /* ── Button gradients ───────────────────────────────────────────────────
+     Every pressable object in the game is the same vertical gradient: a lighter
+     stop at the top falling into the flat brand colour, which is what gives the
+     object a moulded top face instead of a printed one. That lighter stop was
+     written out by hand at 21 call sites across 13 files, so "the colour of a
+     primary button" had nowhere to be changed. Each hue keeps its own pair, and
+     the error gradient is the one an alert wears — never a button. */
+  --color-primary-lift: #ff6d84;
+  --color-secondary-lift: #ffe07a;
+  --color-tertiary-lift: #8a7cff;
+  --color-error-lift: #ff8a6b;
+  --gradient-primary: linear-gradient(180deg, var(--color-primary-lift) 0%, var(--color-primary) 100%);
+  --gradient-secondary: linear-gradient(180deg, var(--color-secondary-lift) 0%, var(--color-secondary) 100%);
+  --gradient-tertiary: linear-gradient(180deg, var(--color-tertiary-lift) 0%, var(--color-tertiary) 100%);
+  --gradient-error: linear-gradient(180deg, var(--color-error-lift) 0%, var(--color-error) 100%);
 
   /* ── Ink outline & solid shadow (the "sticker" look) ───────────────────── */
   --stroke: 3px;
@@ -57,7 +77,6 @@
   --shadow-pop:
     0 6px 0 var(--color-stroke-soft),
     0 14px 30px rgba(28, 14, 56, 0.22);
-  --shadow-float: 0 4px 0 var(--color-stroke-soft), 0 10px 24px rgba(28, 14, 56, 0.16);
 
   /* ── Surfaces (light / "day") ──────────────────────────────────────────── */
   --color-canvas: #f4ecff;
@@ -85,7 +104,6 @@
 
   /* ── Hairlines & borders ───────────────────────────────────────────────── */
   --color-hairline: #ded2f5;
-  --color-hairline-soft: #eee7fb;
   --color-border-strong: #b7a6dd;
 
   /* ── Text ──────────────────────────────────────────────────────────────── */
@@ -94,13 +112,17 @@
   --color-muted: #6f5f95;
   --color-muted-soft: #9587b6;
   --color-on-primary: #ffffff;
+  /* White is only ever legible on the saturated fills, never on the yellow: at
+     this saturation `#fff` on `--color-secondary` measures ~1.7:1, which is why
+     the yellow carries a dark brown instead and the mint a dark green. These
+     three are the whole "text on a coloured object" vocabulary — a fill that
+     needs a fourth needs a token, not a literal. */
   --color-on-dark: #ffffff;
-  --color-star-rating: #241546;
+  --color-on-secondary: #4a2c00;
+  --color-on-mint: #05301f;
 
   /* ── Semantic ──────────────────────────────────────────────────────────── */
   --color-error: #e5304b;
-  --color-error-hover: #c81f39;
-  --color-legal-link: #4d6dff;
   --color-scrim: rgba(28, 14, 56, 0.55);
 
   /* ── Card back ─────────────────────────────────────────────────────────── */
@@ -134,7 +156,11 @@
   --space-section: 64px;
 
   /* ── Touch ─────────────────────────────────────────────────────────────── */
-  --touch-target: 48px;
+  /* The floor for anything a thumb has to hit. Several chrome controls are
+     drawn smaller than this on purpose — a 40px gear next to a 40px speaker is
+     the right *picture* — so the rule is about the hit area, not the paint:
+     `.hit-target` below grows the target without moving a pixel. */
+  --touch-target: 44px;
 
   /* ── Motion ────────────────────────────────────────────────────────────── */
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -166,10 +192,8 @@
   --shadow-pop:
     0 6px 0 var(--color-stroke-soft),
     0 16px 34px rgba(0, 0, 0, 0.5);
-  --shadow-float: 0 4px 0 var(--color-stroke-soft), 0 12px 26px rgba(0, 0, 0, 0.45);
 
   --color-hairline: #3d2b6e;
-  --color-hairline-soft: #2c1e56;
   --color-border-strong: #5b449b;
 
   --color-ink: #f6f1ff;
@@ -177,12 +201,67 @@
   --color-muted: #ab9dd2;
   --color-muted-soft: #8577ad;
   --color-on-dark: #ffffff;
-  --color-star-rating: #f6f1ff;
+  --color-link: #b3a6ff;
 
   --color-scrim: rgba(8, 4, 20, 0.68);
 
   --card-back-bg: #0e0e0e;
   --card-back-bg-top: #191919;
+}
+
+/*
+ * The same palette, before anything has run.
+ *
+ * `[data-theme]` is written by a script, and a script cannot paint the first
+ * frame: a content page is a stylesheet and a deferred module, so a player whose
+ * system is dark got one white flash on every navigation between pages. This
+ * block is what the browser already knows at parse time. `:not([data-theme=
+ * 'light'])` is what keeps the choice above the system: once the script has
+ * written an explicit `light`, the media query stops applying.
+ *
+ * It is a duplicate of the block above and that is deliberate — CSS has no way
+ * to add a selector to a rule conditionally, and `light-dark()` would rewrite
+ * every token in this file against a two-year-old baseline. `themeFlash.test.ts`
+ * fails the moment the two stop declaring exactly the same thing.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-canvas: #150c2e;
+    --color-surface-soft: #1e1440;
+    --color-surface-card: #271a4f;
+    --color-surface-strong: #33235f;
+
+    --bg-gradient:
+      radial-gradient(120% 90% at 12% 0%, #3a1f6b 0%, rgba(58, 31, 107, 0) 55%),
+      radial-gradient(110% 80% at 92% 6%, #16365e 0%, rgba(22, 54, 94, 0) 52%),
+      linear-gradient(168deg, #1b1038 0%, #150c2e 52%, #100a24 100%);
+
+    --table-felt-1: #262b3a;
+    --table-felt-2: #12151f;
+    --table-rim: #06080e;
+    --table-rim-light: #5b6480;
+
+    --color-stroke: #0b0618;
+    --color-stroke-soft: rgba(6, 3, 16, 0.55);
+    --shadow-pop:
+      0 6px 0 var(--color-stroke-soft),
+      0 16px 34px rgba(0, 0, 0, 0.5);
+
+    --color-hairline: #3d2b6e;
+    --color-border-strong: #5b449b;
+
+    --color-ink: #f6f1ff;
+    --color-body: #ded4f5;
+    --color-muted: #ab9dd2;
+    --color-muted-soft: #8577ad;
+    --color-on-dark: #ffffff;
+    --color-link: #b3a6ff;
+
+    --color-scrim: rgba(8, 4, 20, 0.68);
+
+    --card-back-bg: #0e0e0e;
+    --card-back-bg-top: #191919;
+  }
 }
 
 html,
@@ -205,7 +284,6 @@ body {
     radial-gradient(26% 34% at 93% 26%, rgba(108, 92, 255, 0.22) 0%, rgba(108, 92, 255, 0) 70%),
     radial-gradient(30% 26% at 76% 90%, rgba(255, 61, 104, 0.16) 0%, rgba(255, 61, 104, 0) 70%),
     var(--bg-gradient);
-  background-attachment: fixed;
   transition: background-color 0.25s ease;
 }
 
@@ -219,42 +297,29 @@ body {
 html[data-room],
 html[data-room] body {
   background: var(--room-void);
-  background-attachment: scroll;
 }
 
-/* ── Typography utilities ────────────────────────────────────────────────
-   Display sizes are deliberately larger than a productivity app's: this UI is
-   read on a stream, over someone's shoulder, at 720p. */
-.t-display-xl { font: 700 40px/1.1 var(--font-display); letter-spacing: -0.5px; }
-.t-display-lg { font: 600 30px/1.15 var(--font-display); letter-spacing: -0.3px; }
-.t-display-md { font: 600 24px/1.2 var(--font-display); letter-spacing: -0.2px; }
-.t-display-sm { font: 600 20px/1.25 var(--font-display); }
-.t-title-md   { font: 600 17px/1.3 var(--font-display); }
-.t-title-sm   { font: 600 15px/1.3 var(--font-display); }
-.t-body-md    { font: 500 16px/1.5 var(--font-body); }
-.t-body-sm    { font: 500 14px/1.45 var(--font-body); }
-.t-caption    { font: 600 13px/1.3 var(--font-body); }
-.t-caption-sm { font: 500 12px/1.3 var(--font-body); }
-.t-badge      { font: 700 11px/1.2 var(--font-display); letter-spacing: 0.4px; }
-.t-button-md  { font: 600 17px/1.2 var(--font-display); }
-.t-button-sm  { font: 600 14px/1.2 var(--font-display); }
+/* ── Hit target ──────────────────────────────────────────────────────────
+   A control that is drawn smaller than --touch-target gets its target back
+   here rather than by growing. The pseudo-element is centred on the control
+   and absolutely positioned, so it costs no layout and moves nothing next to
+   it: the picture stays a 40px chip and the thumb gets 44px. The control needs
+   `position: relative`, which every one of them already has.
 
-/* ── Chunky button base ──────────────────────────────────────────────────
-   Shared by every pressable control. The object sits on a solid ledge and
-   travels down into it on press — the whole "physical" feel of the UI comes
-   from these six lines, so components extend this rather than reinventing it. */
-.btn-chunky {
-  border: var(--stroke) solid var(--color-stroke);
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-hard);
-  font: 600 17px/1 var(--font-display);
-  cursor: pointer;
-  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out),
-    filter 0.12s ease;
+   Applied through `className` in TSX, so it is deliberately a plain global
+   class and not a CSS-module one — the alternative is repeating five lines in
+   every module that owns a small chip. */
+.hit-target::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: max(100%, var(--touch-target));
+  height: max(100%, var(--touch-target));
+  transform: translate(-50%, -50%);
+  /* Behind the control's own content, and never a paint of its own. */
+  pointer-events: auto;
 }
-.btn-chunky:hover:not(:disabled) { transform: translateY(-2px); box-shadow: var(--shadow-hard-lg); filter: brightness(1.05); }
-.btn-chunky:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
-.btn-chunky:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 
 /* ── Scrollbars ──────────────────────────────────────────────────────────
    The one widget the browser draws for us, and it shows: a grey system bar
@@ -326,23 +391,25 @@ html[data-room] body {
    Users who ask their OS for less motion get a static board: no card flights,
    no pulses, no sliding panels. Everything still renders and remains playable —
    only the movement between states is removed. framer-motion is handled
-   separately via <MotionConfig reducedMotion="user"> in main.tsx. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
+   separately, off the same preference, by <MotionGate /> in entry.tsx.
 
-  /* A countdown bar is not decoration: it is the only place the remaining time
-     is written down, and a player who asked for less motion still has to know
-     their turn is about to be auto-passed. It keeps draining, at exactly the
-     same speed. The duration comes back from the element's own custom
-     property, which the blanket rule above cannot see. */
-  .loco-draining {
-    animation-duration: var(--drain-ms, 0ms) !important;
-  }
+   `data-motion` is written by `initMotion()`, which entry.tsx calls before the
+   first render. Nothing below applies until it has. */
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* A countdown bar is not decoration: it is the only place the remaining time
+is written down, and a player who asked for less motion still has to know
+their turn is about to be auto-passed. It keeps draining, at exactly the
+same speed. The duration comes back from the element's own custom
+property, which the blanket rule above cannot see. */
+
+:root[data-motion="reduce"] .loco-draining {
+  animation-duration: var(--drain-ms, 0ms) !important;
 }

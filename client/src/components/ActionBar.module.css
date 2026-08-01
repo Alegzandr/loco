@@ -33,8 +33,13 @@
   --slot-w: 126px;
   --slot-w-mid: 172px;
   padding: var(--space-sm) var(--space-md);
-  background: color-mix(in srgb, var(--color-surface-card) 82%, transparent);
-  backdrop-filter: blur(10px);
+  /* Solid, not glass. This is the one always-on control surface in the game and
+     it was the only backdrop-filtered *panel* in the client: every other blur
+     here is a modal scrim, which is the single place the system allows one. A
+     translucent bar also put whatever card happened to be behind it into the
+     contrast of its own labels, which on the felt changes from round to round.
+     Opaque, inked and ledged, like every other object a player presses. */
+  background: var(--color-surface-card);
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
   box-shadow: var(--shadow-hard);
@@ -98,10 +103,17 @@
   box-shadow: 0 1px 0 var(--color-stroke-soft);
 }
 
-/* Disabled state */
+/* Disabled state.
+   Deliberately *not* the fill swap the rest of the game uses (surface-strong +
+   muted label): on this bar `.btnPass` already wears surface-strong while it is
+   enabled, so a fill swap would draw a disabled button and a live Pass as the
+   same object. The ledge is what carries the meaning instead — a disabled
+   object is flat and has stopped being a body. Held at 0.55 rather than 0.42
+   because Catch sits here disabled for most of the match and a spectator still
+   has to be able to read what the centre column is for. */
 .btnDisabled,
 .btn:disabled {
-  opacity: 0.42;
+  opacity: 0.55;
   cursor: not-allowed;
   pointer-events: none;
   box-shadow: none;
@@ -109,7 +121,7 @@
 
 /* Draw button — primary */
 .btnDraw {
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  background: var(--gradient-primary);
   color: var(--color-on-primary);
   text-shadow: 0 1px 0 rgba(120, 10, 40, 0.4);
 }
@@ -129,8 +141,8 @@
 
 /* UNO button — the signature move, so it gets the signature colour. */
 .btnUno {
-  background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
-  color: #4a2c00;
+  background: var(--gradient-secondary);
+  color: var(--color-on-secondary);
   font-weight: 700;
   letter-spacing: 0.3px;
   --arm-glow: rgba(255, 196, 46, 0.6);
@@ -183,8 +195,8 @@
 /* Catch button — live only inside the 5s window, so it must grab the eye then,
    and stay a recognisable dead object the rest of the time (see `.armed`). */
 .btnCatch {
-  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
-  color: #fff;
+  background: var(--gradient-tertiary);
+  color: var(--color-on-dark);
   text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
   --arm-glow: rgba(155, 139, 255, 0.62);
   --arm-glow-0: rgba(155, 139, 255, 0);
@@ -230,15 +242,14 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .btnPenalty {
-    animation: none;
-  }
+:root[data-motion="reduce"] .btnPenalty {
+  animation: none;
+}
 
-  /* Degrades to a static halo rather than to nothing: "this button just became
-     clickable" is information, not decoration. */
-  .armed {
-    animation: none;
-    box-shadow: 0 3px 0 var(--color-stroke-soft), 0 0 0 5px var(--arm-glow);
-  }
+/* Degrades to a static halo rather than to nothing: "this button just became
+clickable" is information, not decoration. */
+
+:root[data-motion="reduce"] .armed {
+  animation: none;
+  box-shadow: 0 3px 0 var(--color-stroke-soft), 0 0 0 5px var(--arm-glow);
 }

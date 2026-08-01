@@ -105,7 +105,7 @@
 }
 
 .slot.active .label {
-  color: #4a2c00;
+  color: var(--color-on-secondary);
   font-weight: 700;
 }
 
@@ -128,7 +128,7 @@
   border-radius: var(--radius-full);
   background: var(--color-tertiary);
   border: var(--stroke-thin) solid var(--color-stroke);
-  color: #fff;
+  color: var(--color-on-dark);
   font: 700 14px/1 var(--font-display);
   box-shadow: 0 2px 0 var(--color-stroke-soft);
 }
@@ -173,7 +173,7 @@
 }
 
 .slot.active .overflow {
-  color: #4a2c00;
+  color: var(--color-on-secondary);
 }
 
 /* Bouncing marker above the active pill — the same "it's you" language
@@ -197,15 +197,13 @@
   50%      { transform: translateY(5px); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .slot,
-  .miniBack,
-  .overflow {
-    transition: none;
-  }
+:root[data-motion="reduce"] .slot,
+:root[data-motion="reduce"] .miniBack,
+:root[data-motion="reduce"] .overflow {
+  transition: none;
+}
 
-  .dot,
-  .countDanger {
-    animation: none;
-  }
+:root[data-motion="reduce"] .dot,
+:root[data-motion="reduce"] .countDanger {
+  animation: none;
 }

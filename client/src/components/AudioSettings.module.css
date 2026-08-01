@@ -4,6 +4,9 @@
 }
 
 .toggle {
+  /* The 40px chip is the row's decision (DESIGN.md sizes this cluster), so the
+     thumb gets its 44px from `.hit-target` instead of from the paint. */
+  position: relative;
   width: 40px;
   height: 40px;
   border-radius: var(--radius-full);
@@ -93,7 +96,7 @@
   width: 20px;
   height: 20px;
   border-radius: var(--radius-full);
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  background: var(--gradient-primary);
   border: var(--stroke-thin) solid var(--color-stroke);
   box-shadow: 0 2px 0 var(--color-stroke-soft);
 }
@@ -163,6 +166,6 @@
 .muteBtn:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
 .muteBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
 
-@media (prefers-reduced-motion: reduce) {
-  .panel { animation: none; }
+:root[data-motion="reduce"] .panel {
+  animation: none;
 }

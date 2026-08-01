@@ -8,22 +8,31 @@ const OVERLAY_MS = 600
 //
 // The fade-in itself lives in <GameBoard /> (keyed by an internal rebuildKey
 // that bumps when isReconnecting transitions back to false).
+//
+// Nothing but the timer ends this overlay, so anything that can swallow the
+// timer strands it over a live table. A ref used to guard against replaying the
+// animation, and it outlived the timer it was guarding: a reload mounts
+// <GameView /> with isReconnecting already true, StrictMode mounts the effect
+// twice in dev, and the second pass returned early on the ref the first pass had
+// set while its cleanup had already cleared the timer. The overlay never came
+// down and isReconnecting was never cleared. The effect re-runs only when
+// isReconnecting actually changes, so re-arming on every run is both correct and
+// the whole guard that is needed. See src/test/reconnectAnimation.test.tsx.
 export function useReconnectAnimation(
   isReconnecting: boolean,
   onComplete: () => void,
 ): boolean {
   const [showOverlay, setShowOverlay] = useState(false)
-  const animatedRef = useRef(false)
   const onCompleteRef = useRef(onComplete)
   onCompleteRef.current = onComplete
 
   useEffect(() => {
+    // A reconnect that resolves before the timer must take the overlay with it,
+    // rather than leave it standing on a cancelled timeout.
     if (!isReconnecting) {
-      animatedRef.current = false
+      setShowOverlay(false)
       return
     }
-    if (animatedRef.current) return
-    animatedRef.current = true
 
     setShowOverlay(true)
     const id = setTimeout(() => {

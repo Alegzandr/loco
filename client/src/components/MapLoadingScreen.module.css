@@ -47,7 +47,7 @@
   position: relative;
   width: min(560px, calc(100vw - 48px));
   text-align: center;
-  color: #ffffff;
+  color: var(--color-on-dark);
   animation: mapCopyIn 0.5s var(--ease-out) 0.12s both;
 }
 
@@ -142,7 +142,7 @@
 }
 
 .seatReady {
-  color: #ffffff;
+  color: var(--color-on-dark);
   border-color: rgba(255, 255, 255, 0.38);
   background: rgba(22, 18, 42, 0.72);
 }
@@ -185,6 +185,6 @@
 /* The bar is the only place the remaining work is written down, so it keeps its
    transition, the same exception the countdown bars take. The entrance animations
    do collapse, which is what the blanket rule in tokens.css already does. */
-@media (prefers-reduced-motion: reduce) {
-  .fill { transition-duration: 0.01ms !important; }
+:root[data-motion="reduce"] .fill {
+  transition-duration: 0.01ms !important;
 }

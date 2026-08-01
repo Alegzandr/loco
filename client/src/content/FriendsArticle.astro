@@ -1,0 +1,56 @@
+---
+// How three people end up at the same table.
+//
+// The highest-intent query in this category is somebody trying to get a game
+// going right now, so the page is three steps and then the caveats — not a
+// feature list with the answer buried in it.
+import { ui } from './ui'
+import { FAQ } from './faq'
+import { FAQ_PAGE, RULES, type Lang } from '../seo/meta'
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+
+// The questions a table-opener actually hits next, pulled from the FAQ rather
+// than answered a second time here.
+const PICKED = ['Can I play against the computer?', 'Does it work on a phone?', 'What if I lose my connection mid-match?']
+const extras = FAQ.filter((item) => PICKED.includes(item.q.en))
+---
+
+<h1>{ui('friendsH1', lang)}</h1>
+<p class="lede">{ui('friendsLede', lang)}</p>
+
+<ol class="steps">
+  <li>
+    <h2>{ui('friendsStep1', lang)}</h2>
+    <p>{ui('friendsStep1Body', lang)}</p>
+  </li>
+  <li>
+    <h2>{ui('friendsStep2', lang)}</h2>
+    <p>{ui('friendsStep2Body', lang)}</p>
+  </li>
+  <li>
+    <h2>{ui('friendsStep3', lang)}</h2>
+    <p>{ui('friendsStep3Body', lang)}</p>
+  </li>
+</ol>
+
+<section>
+  <h2>{ui('friendsMoreH2', lang)}</h2>
+  {extras.map((item) => (
+    <article>
+      <h3>{item.q[lang]}</h3>
+      {item.a[lang].map((para) => <p>{para}</p>)}
+    </article>
+  ))}
+  <p>
+    <a href={FAQ_PAGE.path[lang]}>{FAQ_PAGE.navLabel?.[lang]}</a>
+    <span aria-hidden="true"> · </span>
+    <a href={RULES.path[lang]}>{RULES.navLabel?.[lang]}</a>
+  </p>
+</section>
+
+<p>{ui('friendsOutro', lang)}</p>

@@ -9,7 +9,7 @@
   justify-content: center;
   padding: var(--space-base);
   background: var(--color-scrim);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(5px);
   z-index: 40;
   animation: summaryFade 0.25s ease-out both;
 }
@@ -71,10 +71,10 @@
 }
 
 .roundScoreHeader {
-  font: 700 10px/1.2 var(--font-display);
+  font: 700 11px/1.2 var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: var(--color-muted-soft);
+  color: var(--color-muted);
   padding: 0 12px;
 }
 
@@ -88,8 +88,8 @@
 }
 
 .roundScoreRowWinner {
-  background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
-  color: #4a2c00;
+  background: var(--gradient-secondary);
+  color: var(--color-on-secondary);
   box-shadow: 0 3px 0 var(--color-stroke-soft);
 }
 
@@ -178,7 +178,7 @@
   min-height: 52px;
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  background: var(--gradient-primary);
   color: var(--color-on-primary);
   text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
   font: 700 17px/1.2 var(--font-display);
@@ -199,6 +199,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .roundSummary, .roundSummaryCard { animation: none; }
+:root[data-motion="reduce"] .roundSummary,
+:root[data-motion="reduce"] .roundSummaryCard {
+  animation: none;
 }

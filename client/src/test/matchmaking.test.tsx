@@ -75,6 +75,18 @@ describe('Searching screen', () => {
     expect(screen.getByText(en.searchCreateTable)).toBeInTheDocument()
   })
 
+  // A search can last minutes, and it is exactly where somebody turns the music
+  // down or reads the rules while they wait. Every other screen carries the same
+  // three controls; this one used to be the hole in the row.
+  it('keeps preferences, sound and rules reachable while waiting', () => {
+    renderWithI18n(
+      <Searching startedAt={Date.now()} nickname="Alice" onCancel={noop} onCreateTable={noop} />,
+    )
+    expect(screen.getByLabelText(en.prefsBtn)).toBeInTheDocument()
+    expect(screen.getByLabelText(en.audioTitle)).toBeInTheDocument()
+    expect(screen.getByLabelText(en.rulesBtn)).toBeInTheDocument()
+  })
+
   // The rule the whole mode rests on. None of the three things this screen can
   // say may report, imply or hint at how many people are in the queue: a screen
   // that could render "1 searching" would eventually render it, and every
@@ -233,11 +245,9 @@ describe('GameOver after a forfeit', () => {
         myNickname="Alice"
         scoreboard={[]}
         matchOver
-        isHost
         isMatchmade
         forfeitBy={1}
         mySeat={0}
-        onSend={vi.fn()}
         onRematch={vi.fn()}
         onFindMatch={vi.fn()}
         onLeave={vi.fn()}
@@ -255,11 +265,9 @@ describe('GameOver after a forfeit', () => {
         myNickname="Alice"
         scoreboard={[]}
         matchOver
-        isHost
         isMatchmade
         forfeitBy={0}
         mySeat={0}
-        onSend={vi.fn()}
         onRematch={vi.fn()}
         onFindMatch={vi.fn()}
         onLeave={vi.fn()}
@@ -279,12 +287,10 @@ describe('GameOver after a forfeit', () => {
         myNickname="Alice"
         scoreboard={[]}
         matchOver
-        isHost
         isMatchmade
         forfeitBy={null}
         mySeat={0}
         rematchOffers={[]}
-        onSend={vi.fn()}
         onRematch={onRematch}
         onFindMatch={onFindMatch}
         onLeave={vi.fn()}
@@ -304,12 +310,10 @@ describe('GameOver after a forfeit', () => {
         myNickname="Alice"
         scoreboard={[]}
         matchOver
-        isHost
         isMatchmade
         forfeitBy={null}
         mySeat={0}
         rematchOffers={[1]}
-        onSend={vi.fn()}
         onRematch={vi.fn()}
         onFindMatch={vi.fn()}
         onLeave={vi.fn()}
@@ -325,12 +329,10 @@ describe('GameOver after a forfeit', () => {
         myNickname="Alice"
         scoreboard={[]}
         matchOver
-        isHost
         isMatchmade
         forfeitBy={null}
         mySeat={0}
         rematchOffers={[0]}
-        onSend={vi.fn()}
         onRematch={vi.fn()}
         onFindMatch={vi.fn()}
         onLeave={vi.fn()}
@@ -342,26 +344,26 @@ describe('GameOver after a forfeit', () => {
   })
 
   // After a forfeit there is nobody left to agree with, and the server refuses
-  // the offer. The screen must not put a button there that cannot work.
-  it('drops the rematch entirely after a forfeit', () => {
+  // the offer. The button stays where it is, disabled, so the card does not
+  // reflow, and App requeues this player without being asked, which is what
+  // actually resolves the screen.
+  it('greys the rematch out after a forfeit and keeps the queue on offer', () => {
     renderWithI18n(
       <GameOver
         winner="Alice"
         myNickname="Alice"
         scoreboard={[]}
         matchOver
-        isHost
         isMatchmade
         forfeitBy={1}
         mySeat={0}
         rematchOffers={[]}
-        onSend={vi.fn()}
         onRematch={vi.fn()}
         onFindMatch={vi.fn()}
         onLeave={vi.fn()}
       />,
     )
-    expect(screen.queryByText(en.rematch)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: en.rematch })).toBeDisabled()
     expect(screen.getByText(en.findAnotherOpponent)).toBeInTheDocument()
   })
 })

@@ -28,8 +28,6 @@
   transform: scale(1.08) translateY(-14px);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .card {
-    transition: none;
-  }
+:root[data-motion="reduce"] .card {
+  transition: none;
 }

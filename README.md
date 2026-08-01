@@ -24,13 +24,14 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 | Backend   | **Go**                  | Low latency, native concurrency, small binary, excellent stdlib       |
 | Realtime  | **WebSockets** (gorilla)| Persistent bidirectional connection; lowest latency for game events   |
 | Frontend  | **React + TypeScript**  | Component model, type safety, wide ecosystem                          |
-| Bundler   | **Vite**                | Near-instant dev server, fast HMR                                     |
+| Site      | **Astro** (static output) | Builds the game page and the content pages from one project. The game is *not* server-rendered: it mounts client-side exactly as before, so nothing about theme, language, session or board geometry has to be guessed on a server. Output stays static files behind nginx, no Node runtime in production |
+| Bundler   | **Vite** (via Astro)    | Near-instant dev server, fast HMR                                     |
 | Rendering | **React + Framer Motion** | DOM-based card rendering with declarative motion-driven animations    |
 | State     | **Zustand**             | Minimal, fast React global state without boilerplate                  |
 | Validation| **Zod**                 | Runtime schema for inbound `ServerMsg`; static types are inferred from it (no Go↔TS type drift) |
 | Audio     | **Web Audio API** (hand-rolled) | Every sound is synthesised at runtime: no files to download, no licences, no cache-miss silence |
 | Type      | **Fredoka + Nunito** (self-hosted, `@fontsource`) | Rounded display faces that match the art direction; self-hosted so the CSP stays closed |
-| Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest integrates natively with Vite             |
+| Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest runs on Astro's own Vite config (`getViteConfig`), so tests resolve modules exactly as the build does |
 | Visual QA | **Playwright** screenshot harness | Renders every screen/state without a server and contact-sheets them (`make visual`) |
 | Lint      | **ESLint** + **golangci-lint** | Catches dead code / unchecked errors before CI                 |
 | Infra     | **Docker + Compose**    | Reproducible builds, simple one-command local run                     |
@@ -47,13 +48,20 @@ loco/
 │   ├── protocol/          # Wire message schema (client ↔ server)
 │   ├── main.go
 │   └── Dockerfile
-├── client/                # React + TypeScript + Vite frontend
+├── client/                # Astro site + React/TypeScript game
+│   ├── astro.config.mjs   # Integrations, dev server, dev-toolbar off, React fast-refresh preamble
 │   ├── src/
+│   │   ├── pages/         # One .astro per URL: /, rules, cards, tables, play-with-friends, faq, /fr/…
+│   │   ├── layouts/       # Base.astro (<head>), GamePage.astro, ContentPage.astro
+│   │   ├── content/       # Prose + data behind the content pages; never imported by the app
+│   │   ├── entry.tsx      # Mounts React into #root (a bundled module script, never an island)
+│   │   ├── theme.ts       # The theme, React-free, so a content page can apply it too
+│   │   ├── seo/           # meta.ts: the page registry + link-preview tags, as data
 │   │   ├── components/    # UI screens (Lobby, WaitingRoom, GameView, GameOver, RulesModal, …)
 │   │   ├── components/cards/  # React + Framer Motion card renderer (GameBoard, Hand, Card, AnimationLayer, …)
 │   │   ├── audio/         # Synthesised SFX, music engine, tracks/ (music as data), store bridge
 │   │   ├── dev/           # Dev-only visual showcase (scene registry, tree-shaken in prod)
-│   │   ├── hooks/         # WebSocket transport + Zustand store + held-key hook
+│   │   ├── hooks/         # WebSocket transport + Zustand store + held-key hook + preferences (theme, streamer mode)
 │   │   ├── i18n/          # I18nProvider + en/fr translations + server-error copy
 │   │   ├── styles/        # Design tokens (single source of truth for colour/type/shape)
 │   │   ├── types/         # Protocol TypeScript types
@@ -63,7 +71,8 @@ loco/
 │   └── Dockerfile
 ├── e2e/                   # Playwright suite (separate package.json)
 ├── tools/visual/          # Screenshot harness (shoot.mjs) — see "Visual QA"
-├── tools/og/              # Link-preview generator (shoot.mjs → client/public/og.png)
+├── tools/og/              # Link-preview generator (shoot.mjs → client/public/og.png, og.fr.png)
+├── tools/icons/           # favicon.svg → manifest icons + favicon.ico (shoot.mjs)
 ├── tools/maps/            # Map art cropper/encoder (prepare.mjs), see "Map art"
 ├── docs/                  # Rules spec and supplemental docs
 │   └── notes/             # Engineering notes: the reasoning behind CLAUDE.md's rules
@@ -154,7 +163,7 @@ See [`docs/rules.md`](docs/rules.md) for the full, canonical rules specification
 
 ### Prerequisites
 - Go 1.22+
-- Node.js 20+
+- Node.js 22.12+ (Astro 7 declares it in `engines`; `npm ci` fails on 20)
 
 ### Backend
 
@@ -208,9 +217,9 @@ Use `docker-compose.dev.yml` during active development. Go and Node run inside c
 docker compose -f docker-compose.dev.yml up --build
 ```
 
-- Frontend (Vite): http://localhost:5173
+- Frontend (Astro dev): http://localhost:5173
 - Backend (go run): http://localhost:8080
-- WebSocket: `ws://localhost:8080/ws` (browser connects directly — no Vite proxy)
+- WebSocket: `ws://localhost:8080/ws` (browser connects directly — no dev-server proxy)
 
 Go module downloads are cached in a named volume (`go-mod-cache`) and `node_modules` are isolated inside the container (`client-node-modules`), so restarts are fast.
 
@@ -295,6 +304,28 @@ theme that never applied) that no assertion was ever going to describe.
 The showcase is gated behind `import.meta.env.DEV`, so Rollup drops it — and its
 chunk — from production builds.
 
+### Being findable (SEO)
+
+Full reasoning in [`docs/notes/seo.md`](docs/notes/seo.md). The short version:
+
+- **`client/src/seo/meta.ts` is the single source.** A page appears once in `PAGES`, with its path,
+  title and description per language; the sitemap, the `hreflang` sets, the canonical and
+  `src/test/seo.test.ts` all read it. The test refuses a page declared there with no source file
+  behind it — the sitemap would otherwise hand Google a URL that 404s.
+- **English at `/`, French under `/fr/`**, generated by Astro's `i18n` with
+  `prefixDefaultLocale: false` so the game's own URL stays `/`. A French URL opens in French even
+  for an English browser, via `data-served-lang` on `<html>`.
+- **Twelve indexable pages**: the game, the rules, the cards, the tables, playing with friends and
+  the FAQ, each in both languages. All are readable with JavaScript disabled, which
+  `e2e/tests/seo.spec.ts` checks by turning it off.
+- **`VITE_PUBLIC_ORIGIN` must reach the build.** Canonical, `hreflang` and `og:` are absolute and
+  cannot be filled in at runtime. `client/Dockerfile` takes it as an `ARG`; `.gitlab-ci.yml` passes
+  `https://${APP_HOST}`, already `-d.` on `develop` and the bare host on a `v*` tag.
+- **nginx answers a missing page with a real 404**, advertises `sitemap-index.xml` on production
+  hosts only, gzips text and caches `/_astro/` for a year.
+- `make icons` rasterises `favicon.svg` into the manifest sizes and `favicon.ico`. Committed, like
+  `og.png`, because CI has no browser.
+
 ### Link preview (Discord / X)
 
 The game is meant to be shared as a link, so the preview card is a product
@@ -311,12 +342,12 @@ The PNG is **committed**: the client image is built by `npm run build` in CI,
 which has no browser, and a preview that 404s is worse than no preview.
 
 - Absolute URLs are required — crawlers resolve `og:image` against nothing.
-  `client/index.html` uses a `%OG_ORIGIN%` token substituted at build time by the
-  `loco-og-origin` plugin in `vite.config.ts`; it defaults to the production
-  origin and is overridable with `VITE_PUBLIC_ORIGIN`.
-- Discord and X **cache a preview by URL** for days. Bump the `?v=` on
-  `og:image`/`twitter:image` in `index.html` whenever the art changes, then
-  re-scrape from X's Card Validator or by re-posting the link.
+  `client/src/seo/meta.ts` holds the origin (`ORIGIN`, defaulting to production,
+  overridable with `VITE_PUBLIC_ORIGIN`) and builds every tag through
+  `absolute()`. `src/layouts/Base.astro` renders them.
+- Discord and X **cache a preview by URL** for days. Bump `OG_VERSION` in
+  `client/src/seo/meta.ts` whenever the art changes, then re-scrape from X's
+  Card Validator or by re-posting the link.
 - `twitter:card` is `summary_large_image`; without it X renders a 120px
   thumbnail instead of the card.
 - Previews will **not** render on the `-d.` dev host: nginx serves
@@ -383,8 +414,15 @@ sound assertion only teaches people to ignore a red pipeline. Run it after touch
 ### Content-Security-Policy
 
 The CSP lives in `client/nginx.conf`, and nothing in the normal loop ever meets it: unit tests read
-files, and the E2E suite runs against the Vite dev server, which sends no such header. A wrong
+files, and the E2E suite runs against the dev server, which sends no such header. A wrong
 policy therefore passes every build and fails only the served page.
+
+This is also why **the game is mounted by a bundled module script and never by an Astro island**:
+a `client:*` directive makes Astro emit its hydration runtime as two *inline* `<script>` blocks,
+which `script-src 'self'` refuses. Astro's own `security.csp` answers that with hashes in a
+`<meta>`, which does not help — a meta policy and this header are both enforced, so the header
+still blocks them and the page renders blank in production alone. `csp.test.ts` fails on any
+`client:*` directive for exactly this reason.
 
 `client/src/test/csp.test.ts` pins the policy to the app it protects (no inline script, no remote
 origin, no `eval`, `$http_host` rather than `$host`). `make csp` answers the other half, whether the
@@ -408,8 +446,12 @@ running after any change to `nginx.conf`.
 
 ### End-to-End (Playwright)
 
-Playwright starts its own isolated Vite dev server on `http://localhost:4173`.
+Playwright starts its own isolated dev server on `http://localhost:4173`.
 Only the Go server must be available on `:8080`.
+
+It passes `--ignore-lock`: `astro dev` is a singleton, and without that flag a second invocation
+prints "dev server already running" and exits without binding 4173, so the whole suite times out
+for the sole reason that `make dev` is up in another terminal.
 
 **Quickest local setup — use Docker Compose:**
 
@@ -460,7 +502,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch colour prompt + discard update
 - Swap / Global Switch on-screen notification banner + Framer Motion card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch, wilds included), interrupt window open/closed
-- Rematch: host reopens the finished room and plays a full new match; a joined player is pulled back to the waiting room and keeps their seat
+- Rematch: one ask deals nothing, everybody's asks reopen the finished room and play a full new match, a player leaving retires their ask and completes what is left of the agreement
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
 
 ---
@@ -468,10 +510,17 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 ## Implemented Features
 
 - **Lobby**: nickname-only rooms (the last nickname is remembered and prefilled), 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
+- **The host owns their table before the deal**: any seat but their own can be freed from the roster with one press, bots included — that is the only way to take a bot's seat back. The table sees an ordinary departure and the removed player is told why, on the screen they land on. It is deliberately **not** a ban: the code is still in their hands and they can sit back down. There is no identity in this game to refuse somebody by, and the one handle that would remain is an address, which is exactly what is never kept. Refused once the cards are out, and in a matchmade room, which has no host at all.
+- **Nickname validation**, server-authoritative (`server/game/nickname.go`), because the nickname is the one string a player authors and it ends up on a seat, in the score table and in somebody's clip. Up to 20 *characters* (not bytes), written in Latin, Greek or Cyrillic letters, digits, single spaces and `-_.'`; that allowlist is what keeps out the zero-width characters, the right-to-left overrides that reverse a seat label, emoji, and stacked combining marks. Insults and hate terms are filtered on a normalised form (case, diacritics, leetspeak, separators and repeated letters all folded), against Shutterstock's [LDNOOBW lists](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) in 19 languages, embedded in the binary — no service, no key, no request. Short terms only match a whole word so that Constance, Dominique, Cassandra and Scunthorpe still get to play. **Every refusal is the same one line**, in both languages, whichever rule fired: a message that names the rule is a hint for the next attempt. The client (`client/src/components/nicknameRules.ts`) checks the shape as you type so the answer is instant, and ships none of the word list.
 - **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Switch), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`; one call per single card, and the button is spent once the server confirms it) + a per-seat 5 s catch window that also covers the players a Swap or a Global Switch leaves holding a single card (Contre-LOCO! is a wager: a call that arrives after the declaration, after the hand grew, or after the window closed costs the caller 1 card — `docs/rules.md` §14.6), single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
 - **1v1 matchmaking**: one button on the home screen puts a player in a queue and pairs them with whoever else is looking. There is no host, no code to share and no lobby: two searchers get a versus reveal naming their opponent, and the match deals itself two and a half seconds later, in a single round. At the end either player can ask for another: a matchmade rematch is an **agreement**, so both offers are public and the same two are dealt in again only once both are in. Whoever wants a different opponent instead goes straight back into the queue from the same screen. **The queue's size is never on the wire**: not as a count, not as a position, not as an estimate. So the searching screen times its own wait instead and says, at fifteen and at forty-five seconds, that it is still looking and that this can take a while; past that it also offers to open a private table. A number that reads "1 player searching" is an instruction to give up, and every player who leaves on it is the opponent the next one was about to get. The mode carries no rank and does not call itself unranked: there is one queue today, and a ranked ladder would introduce itself.
 - **Nobody waits for somebody who is not there**: a matchmade match holds a dropped seat for **15 s** rather than 60, and the player still at the table watches that countdown on the board. Two consecutive turn timeouts (instead of four) end it the same way. Either way the match is **forfeited** to whoever stayed: named as a forfeit on the game-over screen, with no confetti and no points invented for a round nobody finished. Quitting on purpose does the same thing immediately. Ordinary rooms are untouched: they are people who came in together, and the 60 s hold is there so a drop is not the end.
-- **Rematch**: after a match the host reopens the same room (same code, same roster, cleared scores); absent seats are pruned, everyone else is pulled back to the waiting room.
+- **Preferences** (the gear in the top bar of every screen, board included): language, theme, and three switches.
+  - **Streamer mode** blurs the table code everywhere it is drawn, the waiting room and the reconnect splash. A code read off a stream is an open table, and the waiting room is the one screen a streamer is guaranteed to sit on. The code itself is untouched: copy still copies it, and hovering or focusing the value clears the blur so the owner can read it out loud.
+  - **Colour shapes** give each suit a silhouette (triangle, circle, square, diamond) on the card, on every colour picker and on the active-colour chip, so hue is never the only thing telling two cards apart. Colour is a rule in this game, not decoration.
+  - **Reduced motion** stops the card flights and the confetti. It follows the system setting until it is set here, and then wins over it in both directions.
+  All of them live in `localStorage` and none is ever sent to the server.
+- **Rematch**: after a match, another one is an agreement rather than a decision. Every seat gets the same button, every ask is public, and the room reopens (same code, same roster, cleared scores) once everybody still at the table has asked; absent seats are pruned and everyone else is pulled back to the waiting room. A player leaving takes their ask with them and stops being waited on, so a table that was only waiting on them reopens right there. Bots are not asked, so a solo table with bots reopens on one press.
 - **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
   copy rather than showing the server's own English string), light + dark themes. On a phone with a notch the page runs edge to edge (`viewport-fit=cover`) so the
   room's picture reaches every edge of the screen, while the board, the action bar and the top cluster
@@ -506,6 +555,21 @@ Full grouped list: [`docs/features.md`](docs/features.md).
 - Only English and French are currently translated; adding a language requires a new file in `client/src/i18n/` and an entry in the `translations` map
 - Audio is synthesised, not recorded: the result is deliberately arcade-like rather than orchestral
 - The visual showcase and its screenshot harness are development tooling; they are excluded from production builds
+
+---
+
+## Privacy and legal
+
+The game is free, non-commercial and account-free, and its compliance position is simply that it holds almost nothing.
+
+- **No account, no password, no email.** A nickname, typed at the door.
+- **No cookie, no banner.** Browser storage carries only the session token (strictly necessary for reclaiming a seat) and preferences the player set themselves. Both are exempt from consent under ePrivacy. There is no analytics, no tracker and no third-party request of any kind; the CSP in `client/nginx.conf` enforces that, and `client/src/test/csp.test.ts` asserts it.
+- **No address is ever logged in full.** `hub.truncateAddr` and the `anonymised` `log_format` in `client/nginx.conf` cut every address down to a `/24` or `/48` prefix at the point of writing.
+- **Nothing is persisted** but a match in flight across a deploy, which is dropped as soon as it is reclaimed. A nickname lives in the room for the length of the match: there is no scoreboard that outlives it and no profile behind it, so there is no stored entry to erase.
+- **Privacy, terms and credits** are one content page (`/privacy/`, `/fr/confidentialite/`), linked at the right-hand end of every footer, in English and French. The copy is `client/src/content/legal.ts`, read at build time, so it ships in no bundle; `client/src/test/legal.test.tsx` pins the disclosures that are legal obligations rather than prose.
+- **LOCO is not UNO.** It is an independent game with no connection to Mattel, Inc.; the mark appears in this repository's documentation descriptively and in the disclaimer that names it in order to disclaim it, and nowhere else. See [`NOTICE.md`](NOTICE.md).
+
+Code is MIT ([`LICENSE`](LICENSE)); the map art is AI-generated and deliberately outside it. The reasoning, the data inventory and what is still open: [`docs/notes/legal.md`](docs/notes/legal.md).
 
 ---
 

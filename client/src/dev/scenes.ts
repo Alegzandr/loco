@@ -104,7 +104,15 @@ const ROUND_SCORES: RoundScoreEntry[] = [
 // ─── Scene registry ─────────────────────────────────────────────────────────
 
 /** Extra element layered over the base screen (component-local state we can't set from the store). */
-export type SceneOverlay = 'color-picker' | 'player-picker' | 'rules' | 'scores' | null
+export type SceneOverlay =
+  | 'color-picker'
+  | 'player-picker'
+  | 'rules'
+  | 'scores'
+  // Pinned by the touch button rather than held with TAB: the header swaps the
+  // "Hold TAB" hint for a ✕, and that is the only way out a phone has.
+  | 'scores-pinned'
+  | null
 
 export interface Scene {
   id: string
@@ -140,6 +148,12 @@ export interface Scene {
   wsStatus?: 'connecting' | 'open' | 'closed'
   /** Waiting room: mount straight into the leave confirmation. */
   confirmLeave?: boolean
+  /** Preferences: hide the table code, the way a streamer would. */
+  streamerMode?: boolean
+  /** Lobby: mount with the preferences panel open. */
+  prefsOpen?: boolean
+  /** Colour assist: every suit also carries its silhouette. */
+  colorAssist?: boolean
 }
 
 const gameBase = {
@@ -164,6 +178,15 @@ export const SCENES: Scene[] = [
     id: 'card-sheet',
     title: 'Le jeu complet · toutes les cartes',
     screen: 'cards',
+  },
+  {
+    // The whole deck again, the way a colour-blind player sees it. Reviewed on
+    // the sheet rather than on the board because what matters is that the four
+    // silhouettes stay apart at hand size, on all four faces.
+    id: 'card-sheet-assist',
+    title: 'Le jeu complet · formes des couleurs',
+    screen: 'cards',
+    colorAssist: true,
   },
   {
     // Not a screen either: the 1200×630 link preview, captured by
@@ -242,11 +265,20 @@ export const SCENES: Scene[] = [
     state: { roomCode: 'KX7QP2', restoreTarget: 'waiting' },
   },
   {
+    id: 'lobby-prefs',
+    title: 'Accueil · préférences',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    prefsOpen: true,
+  },
+  {
     id: 'lobby-rules',
     title: 'Règles du jeu',
     screen: 'lobby',
     overlay: 'rules',
   },
+  // Confidentialité, conditions et crédits ne sont plus une modale : ce sont des
+  // pages Astro (/privacy/, /fr/confidentialite/), donc rien à photographier ici.
   {
     id: 'waiting-host',
     title: 'Salon · hôte',
@@ -283,6 +315,21 @@ export const SCENES: Scene[] = [
       myIndex: 2,
       matchFormat: 'BO1',
       maxPlayers: 10,
+    },
+  },
+  {
+    // The screen a streamer actually leaves on camera: everything readable
+    // except the six characters that open the table.
+    id: 'waiting-streamer',
+    title: 'Salon · mode streamer',
+    screen: 'waiting',
+    streamerMode: true,
+    state: {
+      roomCode: 'KX7QP2',
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchFormat: 'BO3',
+      maxPlayers: 6,
     },
   },
   {
@@ -542,6 +589,17 @@ export const SCENES: Scene[] = [
     deadlineIn: 16,
   },
   {
+    // The same four swatches with the assist on. This is the control that is
+    // unusable without it: four circles that differ in nothing but hue.
+    id: 'game-color-picker-assist',
+    title: 'Partie · choix de couleur (formes)',
+    screen: 'game',
+    state: gameBase,
+    overlay: 'color-picker',
+    colorAssist: true,
+    deadlineIn: 16,
+  },
+  {
     id: 'game-player-picker',
     title: 'Partie · choix de joueur',
     screen: 'game',
@@ -601,6 +659,22 @@ export const SCENES: Scene[] = [
       latencies: LATENCIES,
     },
     overlay: 'scores',
+  },
+  {
+    // The same standings pinned on a phone: no TAB to hold, so the hint gives
+    // way to a ✕ and the scrim is no longer the only way back to the board.
+    id: 'game-scores-pinned',
+    title: 'Partie · scores épinglés',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      roundNumber: 4,
+      matchFormat: 'BO7' as const,
+      scoreboard: SCOREBOARD_HISTORIC,
+      roundHistory: ROUND_HISTORY,
+      latencies: LATENCIES,
+    },
+    overlay: 'scores-pinned',
   },
   {
     id: 'round-summary',
@@ -679,8 +753,26 @@ export const SCENES: Scene[] = [
       matchOver: true,
       isMatchmade: true,
       rematchOffers: [1],
+      rematchNeeded: 2,
       scoreboard: SCOREBOARD.slice(0, 2),
       players: PLAYERS_4.slice(0, 2),
+      myIndex: 0,
+    },
+  },
+  {
+    // Past two seats the wait is on the table rather than on one opponent, and
+    // the count is the only thing saying how far off the next match is. Ours is
+    // in, so this is the state that has to hold without looking broken.
+    id: 'gameover-rematch-table',
+    title: 'Fin de match · revanche à 4',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Kiwi',
+      matchOver: true,
+      rematchOffers: [0, 3],
+      rematchNeeded: 4,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
       myIndex: 0,
     },
   },

@@ -2,7 +2,7 @@
 /**
  * Visual capture harness.
  *
- * Boots the client's Vite dev server, walks the showcase scene registry
+ * Boots the client's dev server, walks the showcase scene registry
  * (client/src/dev/scenes.ts) and screenshots every scene at every requested
  * viewport/theme into `.visual/`. Also renders a single contact sheet so the
  * whole UI can be reviewed in one image.
@@ -20,7 +20,7 @@
 import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { ROOT, startVite } from '../lib/vite.mjs'
+import { ROOT, startDevServer } from '../lib/devserver.mjs'
 
 const OUT_DIR = path.join(ROOT, '.visual')
 
@@ -208,7 +208,7 @@ function escapeHtml(s) {
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
-const vite = await startVite(PORT)
+const dev = await startDevServer(PORT)
 try {
   const shots = await capture()
   console.log(`\n✓ ${shots.length} captures → .visual/`)
@@ -216,5 +216,5 @@ try {
     console.log(`  planche : .visual/_sheet-${k}.png`)
   }
 } finally {
-  vite.kill()
+  dev.kill()
 }

@@ -70,7 +70,7 @@ export function AudioSettings() {
   return (
     <div className={styles.wrap} ref={ref}>
       <button
-        className={styles.toggle}
+        className={`${styles.toggle} hit-target`}
         onClick={() => {
           void audio.unlock()
           setOpen((v) => !v)

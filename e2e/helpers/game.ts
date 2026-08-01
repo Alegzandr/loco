@@ -20,7 +20,7 @@ export const T = {
   rulesTitle: 'How to play',
   continueBtn: 'Next round',
   rematch: 'Rematch',
-  rematchWaiting: 'The host is deciding on a rematch…',
+  rematchWaitingOpponent: 'Waiting on them…',
   leaveRoom: 'Leave the table',
   leaveConfirmYes: 'Yes, leave',
   leaveConfirmStay: 'Stay',
@@ -40,6 +40,9 @@ export const T = {
   findAnotherOpponent: 'Find another opponent',
   forfeitWon: 'They walked',
   rematchAccept: 'They want another. Go.',
+  nicknameRejected: 'Pick another nickname.',
+  kickPlayer: 'Remove from the table',
+  kicked: 'The host freed your seat.',
 } as const
 
 interface DebugHandOverride {
@@ -47,7 +50,7 @@ interface DebugHandOverride {
   hand: E2ECard[]
 }
 
-async function forceEnglish(page: Page): Promise<void> {
+export async function forceEnglish(page: Page): Promise<void> {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem('loco_lang', 'en')
@@ -66,7 +69,7 @@ async function forceEnglish(page: Page): Promise<void> {
  * idle machine, and not always long enough on a loaded CI runner, which is what
  * the retry loops below were absorbing.
  */
-async function waitForSocket(page: Page, timeoutMs = 15_000): Promise<void> {
+export async function waitForSocket(page: Page, timeoutMs = 15_000): Promise<void> {
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getWsStatus?.() === 'open',
     undefined,
@@ -92,7 +95,10 @@ export async function createRoom(page: Page, nickname: string): Promise<string> 
   await page.goto('/')
   await page.waitForLoadState('domcontentloaded')
   await waitForSocket(page)
-  await expect(page.getByText('LOCO')).toBeVisible()
+  // `.first()`: the home page's indexable footer names the game too ("More about
+  // LOCO", "What LOCO is"), so a bare getByText matches several nodes and fails
+  // strict mode. All this line has to prove is that the page rendered.
+  await expect(page.getByText('LOCO').first()).toBeVisible()
   await page.getByRole('button', { name: T.createRoom }).click()
   await page.getByPlaceholder(T.yourNickname).fill(nickname)
 
@@ -314,6 +320,24 @@ export async function waitForGameOver(page: Page, timeoutMs = 120_000): Promise<
 }
 
 /** Click Rematch on the game-over screen (host only) and wait for the lobby. */
+/**
+ * Asks for a rematch. A rematch is an agreement, so this waits for the ask to
+ * be registered rather than for the room to reopen: on a table where somebody
+ * else still has to answer, the waiting room is not where this lands.
+ */
+export async function askRematch(page: Page): Promise<void> {
+  await page.getByRole('button', { name: T.rematch }).click()
+  await page.waitForFunction(
+    () => (window.__LOCO_E2E__?.getState?.()?.rematchOffers?.length ?? 0) > 0,
+    undefined,
+    { timeout: 10_000 },
+  )
+}
+
+/**
+ * Asks, and expects that ask to be the last one the table was waiting on: the
+ * room reopens and everybody lands back in the waiting room.
+ */
 export async function clickRematch(page: Page): Promise<void> {
   await page.getByRole('button', { name: T.rematch }).click()
   await page.waitForFunction(

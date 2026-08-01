@@ -2,6 +2,8 @@ import { CSSProperties, forwardRef, KeyboardEvent, MouseEvent } from 'react'
 import { CardDTO } from '../../types/protocol'
 import { cardLabel, hasGlyph } from './cardTheme'
 import { CardArt, CardGlyph } from './CardArt'
+import { SuitMark } from './suitMark'
+import { useColorAssist } from '../../hooks/useColorAssist'
 import styles from './Card.module.css'
 
 interface Props {
@@ -34,6 +36,9 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
   ref,
 ) {
   const label = cardLabel(card)
+  // Subscribes every card on screen, which costs one re-render on the rare
+  // frame the preference is flipped and nothing at all otherwise.
+  const assist = useColorAssist()
   const icon = hasGlyph(card.kind)
   const isWild = card.color === 'wild'
   // The colour-change card already *is* the four-suit fan at full size; a second
@@ -94,6 +99,12 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
       >
         {icon ? <CardGlyph kind={card.kind} /> : label}
       </div>
+      {/* Under the value, where a printed card puts its suit: in a fan the
+          cards overlap down to their top-left corner, so this is the only
+          place a mark is still visible in a full hand. */}
+      {assist && card.color !== 'wild' && (
+        <SuitMark color={card.color} className={styles.suitMark} />
+      )}
       <div className={`${styles.corner} ${styles.cornerBR}`}>L</div>
     </div>
   )

@@ -38,8 +38,6 @@
 }
 
 /* Falling debris is exactly the kind of motion reduced-motion users opt out of. */
-@media (prefers-reduced-motion: reduce) {
-  .layer {
-    display: none;
-  }
+:root[data-motion="reduce"] .layer {
+  display: none;
 }

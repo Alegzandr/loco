@@ -38,6 +38,9 @@ visual: ## Screenshot every showcase scene into .visual/ (no server needed)
 og: ## Regenerate the link preview (client/public/og.png, 1200x630) — commit the result
 	node tools/og/shoot.mjs $(ARGS)
 
+icons: ## Rasterise favicon.svg into the manifest icons + favicon.ico — commit the result
+	node tools/icons/shoot.mjs $(ARGS)
+
 maps: ## Re-encode map art into client/public/maps/ (needs ARGS="--src=<folder>")
 	node tools/maps/prepare.mjs $(ARGS)
 

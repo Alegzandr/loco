@@ -1,0 +1,70 @@
+---
+// Served by nginx for anything that is not a page (error_page 404 /404.html).
+//
+// A real 404, not the app behind a catch-all: answering 200 with the game for
+// an unknown URL is a soft 404, which Google reports as an error and which hides
+// broken links from everyone else.
+import Base from '../layouts/Base.astro'
+import type { PageDef } from '../seo/meta'
+
+// Not in PAGES: it is noindex, so it belongs to neither the sitemap nor the
+// hreflang graph. The shape is only here to reuse the shared <head>.
+const page: PageDef = {
+  id: '404',
+  path: { en: '/404.html', fr: '/404.html' },
+  title: { en: 'LOCO · Nothing at this address', fr: 'LOCO · Rien à cette adresse' },
+  description: {
+    en: 'This page does not exist. The tables are this way.',
+    fr: 'Cette page n’existe pas. Les tables sont par ici.',
+  },
+}
+---
+
+<Base page={page} lang="en" noindex>
+  <main class="page">
+    <h1>Nothing at this address</h1>
+    <p>The page you asked for does not exist. Nothing is lost, though: a table takes ten seconds.</p>
+    <p class="links">
+      <a href="/">Play</a>
+      <span aria-hidden="true">·</span>
+      <a href="/fr/" hreflang="fr" lang="fr">En français</a>
+    </p>
+  </main>
+</Base>
+
+<style>
+  /* Deliberately self-contained: this page is served when something is already
+     wrong, so it must not depend on anything the build might not have emitted. */
+  .page {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 2rem 1.5rem;
+    text-align: center;
+  }
+
+  h1 {
+    font-family: var(--font-display, inherit);
+    font-size: clamp(1.75rem, 6vw, 3rem);
+    line-height: 1.1;
+  }
+
+  p {
+    max-width: 34rem;
+    font-size: 1.05rem;
+  }
+
+  .links {
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+  }
+
+  a {
+    color: var(--color-primary, currentColor);
+    font-weight: 700;
+  }
+</style>

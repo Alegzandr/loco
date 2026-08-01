@@ -7,7 +7,9 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
 
 ## Playwright E2E
 - Lives in `e2e/` (separate `package.json`). `@playwright/test` + Chromium + Pixel 5.
-- Needs Go server `:8080`. Playwright starts isolated Vite on `:4173`.
+- Needs Go server `:8080`. Playwright starts an isolated dev server on `:4173`, with `--ignore-lock`
+  because `astro dev` is a singleton: without it a second invocation prints "dev server already
+  running", never binds 4173, and the suite times out because `make dev` happens to be up.
   - Local: `docker compose -f docker-compose.dev.yml up --build` then `cd e2e && npm test`.
   - CI: `backend_test` builds `server-bin`; `e2e_test` runs it + Playwright.
 - `window.__LOCO_E2E__` exposed in dev only (`import.meta.env.DEV`):
@@ -73,7 +75,7 @@ Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
 - `test` (every push):
   - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`,
     handed to `e2e_test` through the cache (see "This runner cannot upload artifacts").
-  - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
+  - `frontend_test` (`node:22-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs `server-bin` + Playwright,
     `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
   - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
@@ -183,10 +185,12 @@ Browser (HTTPS) → Traefik (:443 websecure)
   invisible in production and blocks the socket everywhere else — a staging host on a non-default
   port, or anyone running the built image locally.
 - **No test can prove the page loads under the CSP, and one pins it to the app anyway.**
-  `client/src/test/csp.test.ts` reads `nginx.conf` next to `index.html` and the client sources, and
-  couples each directive to whatever needs it: `script-src 'self'` beside the absence of any inline
-  `<script>`, `'unsafe-inline'` in `style-src` beside the pre-hydration `<style>` block that forces
-  it, `$http_host` (never `$host`) twice in `connect-src`, no remote origin in the policy *or* in
+  `client/src/test/csp.test.ts` reads `nginx.conf` next to the `.astro` markup and the client
+  sources, and couples each directive to whatever needs it: `script-src 'self'` beside the absence
+  of any `is:inline` script **and of any `client:*` island directive** (Astro's hydration runtime is
+  inline by construction, so one island is a blank production page), `'unsafe-inline'` in
+  `style-src` beside the framer-motion style attributes that force it, `$http_host` (never `$host`)
+  twice in `connect-src`, no remote origin in the policy *or* in
   the sources, and no `eval` / `new Function` / `new Worker` / `blob:` anywhere. Those are the
   regressions that would ship green and break only the served page: an added CDN font or an inline
   script fails here instead of in front of players. What it cannot do is answer "does the built app
@@ -212,11 +216,13 @@ Browser (HTTPS) → Traefik (:443 websecure)
 ## Dev Docker Compose
 - `docker-compose.dev.yml` — hot-reload, no host Go/Node needed.
 - Backend: `golang:1.24.7-alpine`, bind `./server:/app`, `go run .`, `:8080`.
-- Frontend: `node:20-alpine`, bind `./client:/app`, `npm ci && npm run dev`, `:5173` (container 3000).
-- **No Vite WS proxy** — browser connects directly to `ws://<host>:8080/ws` (Vite proxy unreliable under Docker).
+- Frontend: `node:22-alpine` (Astro 7 declares `engines.node >= 22.12`), bind `./client:/app`,
+  `npm ci && npm run dev`, `:5173` (container 3000).
+- **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).
 - `useWebSocket.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
-- `vite.config.ts`: no proxy.
+- `astro.config.mjs`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
+  `VITE_HMR_CLIENT_PORT` so HMR dials the published 5173 rather than the container's 3000.
 - Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
 - Start: `docker compose -f docker-compose.dev.yml up --build`.
 

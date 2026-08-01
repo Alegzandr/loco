@@ -23,7 +23,8 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
 3. Type is display-weight and large — a spectator reads it at 720p, not a designer at arm's length.
 
 - Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
-  `@fontsource-variable/*` and imported in `main.tsx`. No CDN — the CSP stays closed.
+  `@fontsource-variable/*` and imported in `layouts/Base.astro`, not from the game's entry: the
+  content pages mount no React at all and still have to be typeset. No CDN — the CSP stays closed.
 - Press feedback: `.btn-chunky` in `tokens.css` (hover lifts, active travels *into* the ledge).
   Components extend it rather than reinventing the six lines.
 - Scrollbars: styled globally in `tokens.css` (`scrollbar-width`/`scrollbar-color` for Firefox, the
@@ -36,9 +37,25 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   the LOCO mark — and it is the one part of the UI that does **not** follow the app's chunky-sticker
   language or its theme. A card is an object, not a control.
 - `--ease-bounce` for anything that should feel physical; `--ease-out` for travel.
-- **Theme is applied by `initTheme()` in `main.tsx`, before first render.** It used to be written
-  only by `<ThemeToggle />`'s hook, so any screen without a toggle (game over, a reload straight
-  into a match) silently rendered light.
+- **Theme is applied by `initTheme()` in `entry.tsx`, before first render.** It used to be written
+  only by the toggle's own hook, so any screen without one (game over, a reload straight into a
+  match) silently rendered light. The control now lives in the preferences panel, which makes that
+  init call the only thing standing between a reload and the wrong palette.
+- **Reduced motion is applied the same way and for the same reason**, by `initMotion()`: every
+  reduced-motion rule in the CSS hangs off `:root[data-motion="reduce"]` instead of a media query,
+  so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
+
+### Colour assist (the suit silhouettes)
+`SUIT_SHAPE` in `cardTheme.ts`, drawn by `suitMark.tsx`, off by default and switched on from the
+preferences panel. Triangle red, circle yellow, square green, diamond blue, sized at 15cqh under the
+top-left value, plus the picker swatches and the active-colour chip.
+
+- The card face is the brand and this writes on it, which is why it is a preference rather than the
+  default. It is also the only accessibility setting in the game that decides whether somebody can
+  play at all: legality is a colour match.
+- Reviewed at **hand size**, not at hero size. At 72px wide the mark is ~13px and the square and the
+  diamond start to converge, which is why 12cqh was raised to 15. Scene `card-sheet-assist`.
+- Same two-pass ink as every other glyph: off-white alone is 1.18:1 on the green suit.
 
 ## Board scale (`layout.ts: boardScale` / `boardSpace`)
 The board is laid out in a **fixed coordinate space** and scaled to the element by `<div .stage>` in
@@ -255,10 +272,27 @@ Reproduced from the brand's own card art. Review any change to it with
 `make visual ARGS="--scenes=card-sheet"` — the whole deck on one screen, which no gameplay scene
 shows.
 
-- **One SVG paints the whole face.** Background rect, watermark, wild fan and rule glyphs all live in
-  the same `1000x1500` user space (`preserveAspectRatio="none"`), so they scale as one object at any
-  card size — hand, discard, a flier mid-flight, a 12px mini fan. A CSS gradient for the face plus a
-  separate SVG for the mark drift apart the moment the element's aspect ratio is not the reference's.
+- **The face is CSS; the mark is a shared mask image; only the rule glyphs are still SVG.** Face,
+  watermark and wild fan are all laid out in the same `1000x1500` space, expressed as percentages of
+  the card box, and the two are both 2:3, so the mapping is uniform and a CSS rotation lands where the
+  SVG one did.
+  - This used to be one `<svg>` per card, and it was **the board's single biggest rendering cost**. A
+    busy table carries ~50 card faces and backs at once (hand, both piles, every opponent's mini fan)
+    and most of them sit under a scale animation, so each one re-filled the mark's 130-odd even-odd
+    segments under a gradient, every frame. Measured on the showcase, median of five runs: Firefox
+    compositing in software went **3.0 → 9.8 fps** on a full hand and **4.7 → 14.9** on a map, i.e.
+    2.3–3.3× depending on the scene. Chromium throttled 6× on CPU went 55 → 59 and sat on the vsync
+    ceiling elsewhere, because that throttle constrains script far more than raster, which is why it barely
+    registers a raster fix. The win is a cache: `MARK_MASK_URL` is **one string for the whole app**,
+    so the browser rasterises the path once per used size and every card composites the same bitmap.
+    Build it per card or per suit and the cost comes straight back.
+  - `card.test.tsx` guards both halves: no live `<path>` carrying `LOCO_MARK_PATH`, and one mask URL
+    across every suit. Nothing else in the suite can see this regression happen.
+  - **An `objectBoundingBox` gradient is `to top right`, never the angle of the diagonal.** The two
+    differ on any non-square box: SVG lays the gradient out on the unit square and *then* stretches
+    it onto the box, so its colour bands stay parallel to the other diagonal, which is exactly what
+    CSS's corner keyword does. An explicit angle keeps its bands perpendicular to itself and swaps
+    the two off-diagonal corners. This shipped wrong once and only `make visual` caught it.
 - **The card box and the mark box are two different boxes** (`cardArtSpace.ts`). The card box has the
   card's proportions; the mark is landscape. Reusing the mark's viewBox as the card's — which the
   previous portrait mark got away with — stretches the drawing to the card and turns the duck into a
@@ -273,9 +307,11 @@ shows.
   crop silently stops being a crop and the dead bands come back.
   - A landscape mark sitting politely centred in a portrait card leaves two dead bands and reads as a
     placeholder. The crop is what makes a card look *printed*, with artwork running under the value.
-- Because the mark is drawn inside a transform, its gradient axis is the **card's** axis mapped back
-  through that transform (`MARK_AXIS`). Both gradients have to span the same line on the card or the
-  reversal below stops being a reversal.
+- The crop applies to the **shape alone**, because it lives inside the mask. The gradient underneath
+  never leaves card space, so both gradients span the same line on the card by construction and the
+  reversal below is simply the same angle with the stops swapped. (As a filled path it was not: the
+  mark's gradient lived in the mark's own space and its axis had to be the card's axis mapped back
+  through the crop, inverse rotation included.)
 - **The watermark is the face gradient reversed.** `SUIT_PAINT[suit].mark` is `[to, from]`. That one
   trick is the entire art: the mark is brighter than the card where the card is dark and darker where
   it is light, so it never needs an outline, a tint or an opacity to stay legible. Run the two
@@ -392,7 +428,7 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     "Testing" section names, an invariant asserted with no test behind it.
 
 ### Reduced motion
-- `<MotionConfig reducedMotion="user">` in `main.tsx` covers framer-motion; a `@media (prefers-reduced-motion: reduce)` block at the end of `styles/tokens.css` neutralises CSS transitions/animations globally.
+- `<MotionConfig reducedMotion="user">` in `entry.tsx` covers framer-motion; a `@media (prefers-reduced-motion: reduce)` block at the end of `styles/tokens.css` neutralises CSS transitions/animations globally.
 - When adding motion, verify it degrades to a readable static state rather than disappearing.
 
 ## Player bubble (`<PlayerSlot />`)
@@ -510,7 +546,7 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
   in a cluster of four. The coarse-pointer half of the query is what covers a tablet, which has no
   TAB either and is wider than 480px.
 - **It is an icon** (a table glyph, drawn inline in `GameView` like every other rule glyph in this
-  UI, never a font character), 40×40 like `<ThemeToggle />` beside it: at phone width the cluster
+  UI, never a font character), 40×40 like the preferences gear beside it: at phone width the cluster
   has no room for a word, and the three buttons next to it are already square. `t.scoreTableBtn`
   survives as its `aria-label` + `title`, so the accessible name is unchanged and the E2E locator
   still finds it. `aria-pressed` tints it with `--color-primary` when pinned — the panel can be
@@ -544,9 +580,10 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 ## Visual showcase & screenshot harness
 `client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,
 `?showcase=<id>` renders one scene full-screen with no server, no WebSocket and no second player.
-Gated behind `import.meta.env.DEV` (dynamic import in `main.tsx`), so Rollup drops the chunk in prod.
+Gated behind `import.meta.env.DEV` (dynamic import in `entry.tsx`), so Rollup drops the chunk in prod.
 
-`tools/visual/shoot.mjs` (`make visual`) boots Vite, walks the registry and writes
+`tools/visual/shoot.mjs` (`make visual`) boots the dev server through
+`tools/lib/devserver.mjs`, walks the registry and writes
 `.visual/<scene>__<viewport>__<theme>.png` plus one contact sheet per viewport/theme.
 
 - **Add a scene in the same change set as any new screen or visual state.**
@@ -586,11 +623,12 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
   than running out of the frame.
 - The PNG is **committed** — CI builds the client with `npm run build` and has no browser.
 - **Absolute URLs are mandatory** (crawlers resolve `og:image` against nothing) and the tags must be
-  in the served HTML, since neither Discord nor X runs JS. `index.html` carries a `%OG_ORIGIN%` token
-  substituted at build time by the `loco-og-origin` plugin in `vite.config.ts` (default = prod
-  origin, override with `VITE_PUBLIC_ORIGIN`).
-- Both platforms **cache the image by URL** for days: bump the `?v=` on `og:image`/`twitter:image`
-  after regenerating. `twitter:card` must stay `summary_large_image` or X shows a 120px thumbnail.
+  in the served HTML, since neither Discord nor X runs JS. `src/seo/meta.ts` holds `ORIGIN` (default
+  = prod, override with `VITE_PUBLIC_ORIGIN`) and builds every URL through `absolute()`;
+  `layouts/Base.astro` renders the tags. The tags are data rather than markup so `ogCard.test.ts`
+  can assert the values instead of running a regex over a template.
+- Both platforms **cache the image by URL** for days: bump `OG_VERSION` in `src/seo/meta.ts` after
+  regenerating. `twitter:card` must stay `summary_large_image` or X shows a 120px thumbnail.
 - No preview on the `-d.` host by design — nginx serves `robots.txt: Disallow: /` there and
   Twitterbot honours it.
 - `client/src/test/ogCard.test.ts` is the only thing watching this: nothing else in the app renders

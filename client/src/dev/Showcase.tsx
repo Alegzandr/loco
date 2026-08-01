@@ -10,6 +10,8 @@
  */
 import { useEffect, useState } from 'react'
 import { useGameStore } from '../hooks/useGameStore'
+import { setStreamerMode } from '../hooks/useStreamerMode'
+import { setColorAssist } from '../hooks/useColorAssist'
 import { Lobby } from '../components/Lobby'
 import { Searching } from '../components/Searching'
 import { MatchFound } from '../components/MatchFound'
@@ -64,12 +66,17 @@ function applyScene(scene: Scene) {
     forfeitBy: null,
     opponentAway: null,
     rematchOffers: [],
+    rematchNeeded: 0,
     // A scene names its room explicitly; anything else falls back to the
     // built-in felt rather than inheriting the previous scene's map.
     mapId: '',
     mapLoading: null,
     ...(scene.state ?? {}),
   }
+  // Module state, not store state: reset explicitly so a streamer scene does
+  // not leak its blur into every scene captured after it.
+  setStreamerMode(scene.streamerMode ?? false)
+  setColorAssist(scene.colorAssist ?? false)
   if (scene.deadlineIn !== undefined) patch.turnDeadline = Date.now() + scene.deadlineIn * 1000
   if (scene.unoIn !== undefined) patch.unoTimerEnd = Date.now() + scene.unoIn * 1000
   useGameStore.setState(patch as never)
@@ -83,11 +90,19 @@ function SceneOverlayEl({ scene }: { scene: Scene }) {
     case 'rules':
       return <RulesModal onClose={noop} />
     case 'color-picker':
-      return <ColorPicker label={t.chooseColor} onChoose={noop} onCancel={noop} />
+      return (
+        <ColorPicker
+          label={t.chooseColor}
+          cancelLabel={t.pickerCancel}
+          onChoose={noop}
+          onCancel={noop}
+        />
+      )
     case 'player-picker':
       return (
         <PlayerPicker
           label={t.choosePlayer}
+          cancelLabel={t.pickerCancel}
           cardsLabel={(n) =>
             n === 1 ? t.swapTargetCardOne : t.swapTargetCards.replace('%n', String(n))
           }
@@ -98,13 +113,15 @@ function SceneOverlayEl({ scene }: { scene: Scene }) {
       )
     case 'scores':
       return <ScoresOverlay />
+    case 'scores-pinned':
+      return <ScoresOverlay pinned />
     default:
       return null
   }
 }
 
 /** The TAB standings, which GameView gates behind component-local state. */
-function ScoresOverlay() {
+function ScoresOverlay({ pinned = false }: { pinned?: boolean }) {
   const { t } = useI18n()
   const players = useGameStore((s) => s.players)
   const myIndex = useGameStore((s) => s.myIndex)
@@ -119,6 +136,7 @@ function ScoresOverlay() {
       latencies={latencies}
       myIndex={myIndex}
       t={t}
+      onDismiss={pinned ? noop : undefined}
     />
   )
 }
@@ -136,6 +154,7 @@ function SceneScreen({ scene }: { scene: Scene }) {
   const scoreboard = useGameStore((s) => s.scoreboard)
   const isMatchmade = useGameStore((s) => s.isMatchmade)
   const forfeitBy = useGameStore((s) => s.forfeitBy)
+  const rematchNeeded = useGameStore((s) => s.rematchNeeded)
   const rematchOffers = useGameStore((s) => s.rematchOffers)
 
   switch (scene.screen) {
@@ -151,6 +170,7 @@ function SceneScreen({ scene }: { scene: Scene }) {
           error={errorMsg}
           onClearError={noop}
           initialMode={scene.lobbyMode}
+          initialPrefsOpen={scene.prefsOpen}
         />
       )
     case 'searching':
@@ -196,12 +216,12 @@ function SceneScreen({ scene }: { scene: Scene }) {
           myNickname={players.find((p) => p.index === myIndex)?.nickname ?? ''}
           scoreboard={scoreboard}
           matchOver={matchOver}
-          isHost={myIndex === 0}
           isMatchmade={isMatchmade}
           forfeitBy={forfeitBy}
           mySeat={myIndex}
           rematchOffers={rematchOffers}
-          onSend={noop}
+          rematchNeeded={rematchNeeded}
+          hasTablemates={players.some((p) => p.index !== myIndex)}
           onRematch={noop}
           onFindMatch={noop}
           onLeave={noop}
@@ -239,6 +259,17 @@ export function Showcase() {
 
   useEffect(() => {
     if (scene) applyScene(scene)
+
+    // What App.tsx does for every screen but the lobby, and the showcase does
+    // not mount App. Without it `GamePage.astro`'s footer stays up in every
+    // captured scene, and its burger — positioned top left, z-index 61 — lands
+    // on the round indicator in every board screenshot. The contact sheets are
+    // the review tool, so a scene that lies about its own chrome is worse than
+    // no scene at all.
+    const root = document.documentElement
+    if (scene && scene.screen !== 'lobby') root.setAttribute('data-seated', '1')
+    else root.removeAttribute('data-seated')
+
     setReady(true)
     // Signal to the capture script that the scene is mounted and painted.
     requestAnimationFrame(() => {

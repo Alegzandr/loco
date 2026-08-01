@@ -3,6 +3,7 @@ package hub_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"loco/server/protocol"
@@ -62,10 +63,13 @@ func winMatchFromHostTurn(t *testing.T, host *websocket.Conn, others ...*websock
 	}
 }
 
-func TestRematch_ReopensRoomForBothPlayers(t *testing.T) {
+func TestRematch_ReopensRoomOnceEverybodyHasAsked(t *testing.T) {
 	conn1, conn2, code := winBO1(t)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgRematch})
+	readMsgOfType(t, conn1, protocol.SMsgRematchOffered)
+	readMsgOfType(t, conn2, protocol.SMsgRematchOffered)
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgRematch})
 
 	for i, conn := range []*websocket.Conn{conn1, conn2} {
 		msg := readMsgOfType(t, conn, protocol.SMsgRematchStarted)
@@ -105,13 +109,99 @@ func TestRematch_ReopensRoomForBothPlayers(t *testing.T) {
 	}
 }
 
-func TestRematch_RejectedForNonHost(t *testing.T) {
-	_, conn2, _ := winBO1(t)
+// The host owns the format, the size and the start. They do not own whether
+// anybody else wants another match, so the button is an offer on every screen.
+//
+// The negative read ends this test, deliberately: a read that times out leaves
+// a gorilla connection permanently broken.
+func TestRematch_AnySeatMayAskAndOneAskDealsNothing(t *testing.T) {
+	conn1, conn2, _ := winBO1(t)
 
 	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgRematch})
-	msg := readMsgOfType(t, conn2, protocol.SMsgError)
-	if !strings.Contains(msg.Error, "host") {
-		t.Errorf("error = %q, want it to mention the host restriction", msg.Error)
+
+	// The whole offer state travels, to both of them: the player who has not
+	// answered has to know somebody is waiting on them.
+	for i, conn := range []*websocket.Conn{conn2, conn1} {
+		msg := readMsgOfType(t, conn, protocol.SMsgRematchOffered)
+		if msg.Seat() != 1 {
+			t.Errorf("client %d: rematch_offered named seat %d, want 1", i, msg.Seat())
+		}
+		if got := msg.Offers(); len(got) != 1 || got[0] != 1 {
+			t.Errorf("client %d: offers = %v, want [1]", i, got)
+		}
+		if msg.RematchNeeded != 2 {
+			t.Errorf("client %d: rematch_needed = %d, want 2", i, msg.RematchNeeded)
+		}
+	}
+
+	conn2.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, _, err := conn2.ReadMessage(); err == nil {
+		t.Error("a single ask reopened the room on its own")
+	}
+}
+
+// Nobody is left waiting on a player who is not there. The ask that could not
+// be answered is retired with the seat, and the answer to the table's question
+// is the departure itself.
+func TestRematch_DepartureCompletesTheAgreement(t *testing.T) {
+	conn1, conn2, _ := winBO1(t)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgRematch})
+	readMsgOfType(t, conn1, protocol.SMsgRematchOffered)
+	readMsgOfType(t, conn2, protocol.SMsgRematchOffered)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
+
+	msg := readMsgOfType(t, conn1, protocol.SMsgRematchStarted)
+	if len(msg.Players) != 1 || msg.Players[0].Nickname != "Alice" {
+		t.Fatalf("players after the departure = %+v, want Alice alone", msg.Players)
+	}
+}
+
+// The seats above a departure move down, and so do their asks. Alice at seat 0
+// leaves a table of three: Bob's ask must follow him from seat 1 to seat 0
+// rather than being read as Carol's.
+func TestRematch_ReindexesOffersWhenASeatLeaves(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	code := readMsgOfType(t, conn1, protocol.SMsgRoomCreated).RoomCode
+
+	conns := []*websocket.Conn{conn1}
+	for _, name := range []string{"Bob", "Carol"} {
+		c := dialWS(t, srv)
+		t.Cleanup(func() { c.Close() })
+		sendMsg(t, c, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: name, RoomCode: code})
+		readMsgOfType(t, c, protocol.SMsgRoomJoined)
+		conns = append(conns, c)
+	}
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	for _, c := range conns {
+		readMsgOfType(t, c, protocol.SMsgGameStarted)
+	}
+	completeMapLoad(t, conns...)
+	winMatchFromHostTurn(t, conn1, conns[1], conns[2])
+
+	sendMsg(t, conns[1], protocol.ClientMsg{Type: protocol.CMsgRematch})
+	if msg := readMsgOfType(t, conns[2], protocol.SMsgRematchOffered); msg.RematchNeeded != 3 {
+		t.Errorf("rematch_needed = %d, want 3", msg.RematchNeeded)
+	}
+
+	conn1.Close()
+	msg := readMsgOfType(t, conns[2], protocol.SMsgRematchOffered)
+	if got := msg.Offers(); len(got) != 1 || got[0] != 0 {
+		t.Errorf("offers after the host left = %v, want [0] (Bob, re-based)", got)
+	}
+	if msg.RematchNeeded != 2 {
+		t.Errorf("rematch_needed = %d, want 2", msg.RematchNeeded)
+	}
+
+	// Carol answering is now the whole table.
+	sendMsg(t, conns[2], protocol.ClientMsg{Type: protocol.CMsgRematch})
+	if started := readMsgOfType(t, conns[1], protocol.SMsgRematchStarted); len(started.Players) != 2 {
+		t.Errorf("players in the reopened room = %d, want 2", len(started.Players))
 	}
 }
 
