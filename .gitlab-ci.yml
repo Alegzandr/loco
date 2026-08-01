@@ -58,16 +58,31 @@ backend_test:
           - server/go.sum
       paths:
         - .gocache/
+    # The binary reaches e2e_test through the cache, not through `artifacts:`.
+    # This runner cannot upload artifacts at all: its helper container resolves
+    # the API host (`http://gitlab`) against the LAN DNS, which does not know
+    # that name, so the upload dies with `no such host` and takes the job with
+    # it. The cache has no such problem: it is a tarball on the runner's own
+    # disk ("cache will not be downloaded from shared cache server").
+    #
+    # Keyed per branch, not per commit: a per-SHA key would leave one ~15 MB
+    # cache volume behind on the runner for every push, and nothing ever
+    # collects those. Correctness comes from server-bin.sha instead: e2e_test
+    # rebuilds unless the cached binary was built from the commit it is testing,
+    # which also covers two pipelines racing on the same branch.
+    # `policy: push` because there is nothing here worth restoring.
+    - key: server-bin-$CI_COMMIT_REF_SLUG
+      policy: push
+      paths:
+        - server-bin
+        - server-bin.sha
   script:
     - cd server && go test ./...
     # Built here, not in e2e_test: that job runs on the Playwright image, which
     # has no Go, and used to download a 70 MB toolchain tarball on every push to
     # produce this same binary. Static so it runs on the Playwright image as-is.
     - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
-  artifacts:
-    expire_in: 1 day
-    paths:
-      - server-bin
+    - echo "$CI_COMMIT_SHA" > ../server-bin.sha
 
 frontend_test:
   stage: test
@@ -90,10 +105,17 @@ frontend_test:
 
 e2e_test:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.52.0-jammy
+  # The image ships the browsers, and it ships only the ones its own Playwright
+  # needs, so the tag and e2e/package-lock.json are one decision, not two.
+  # Declared once here and asserted below, because getting it wrong reports as
+  # "Executable doesn't exist at /ms-playwright/chromium_headless_shell-…",
+  # which names neither of the two files that have to change.
+  variables:
+    PLAYWRIGHT_VERSION: "1.58.2"
+  image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy
   tags:
     - devops
-  # The 87 specs run sequentially inside a job (the suite is stateful, so
+  # The 87 tests run sequentially inside a job (the suite is stateful, so
   # `workers` stays at 1); sharding is what parallelises them. `fullyParallel:
   # true` in playwright.config.ts is what makes the split even — sharding whole
   # spec files instead gave 27/39/0/21, one job running empty.
@@ -102,13 +124,15 @@ e2e_test:
   # `concurrent = 1` in the runner's config.toml the shards queue behind each
   # other and pay four setups for the same work.
   parallel: 4
-  # backend_test alone: the artifact above is a real dependency. frontend_test is
-  # deliberately not in this list — nothing here consumes its output, so naming
-  # it only parked the longest job in the pipeline behind it. The `build` job
-  # still needs every test job, so a red unit test can never ship.
+  # backend_test alone: it is what fills the server-bin cache below.
+  # frontend_test is deliberately not in this list, because nothing here uses its
+  # output, so naming it only parked the longest job in the pipeline behind it.
+  # The `build` job still needs every test job, so a red unit test can never
+  # ship. `artifacts: false` because this runner cannot pass artifacts at all
+  # (see backend_test).
   needs:
     - job: backend_test
-      artifacts: true
+      artifacts: false
   cache:
     # Keyed per shard: four jobs sharing one cache key race each other on the
     # upload, and the loser's entry is the one the next pipeline restores.
@@ -119,29 +143,67 @@ e2e_test:
           - e2e/package-lock.json
       paths:
         - .npm/
+    - key: server-bin-$CI_COMMIT_REF_SLUG
+      policy: pull
+      paths:
+        - server-bin
+        - server-bin.sha
   script:
     # LOCO_E2E=1 enables debug_set_state. The bot think delay is shortened from
     # 1.2–2.2 s to 0.25–0.45 s: it is dead time no test races (see
     # hub.ApplyBotTimingEnv). Reaction windows — catch, declaration, interrupt —
     # keep their shipped timing, because tests are meant to be able to win them.
+    #
+    # The cache normally carries backend_test's binary. A restore is best-effort
+    # by design (a miss is a warning, not an error) and the branch key means the
+    # entry can also belong to another commit, so the shard verifies the stamp
+    # and rebuilds rather than trusting what it found. Testing a binary from a
+    # different commit is the one failure this must not have: it would report on
+    # code nobody pushed. This is the path the whole job took before, on every
+    # push; it is now the exception.
+    - |
+      if [ ! -s server-bin ] || [ "$(cat server-bin.sha 2>/dev/null)" != "$CI_COMMIT_SHA" ]; then
+        echo "no server-bin for $CI_COMMIT_SHA in the cache, rebuilding it"
+        curl -fsSL https://go.dev/dl/go1.24.7.linux-amd64.tar.gz | tar -C /usr/local -xz
+        (cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 /usr/local/go/bin/go build -o ../server-bin .)
+      fi
     - chmod +x server-bin
     - PORT=8080 LOCO_E2E=1 LOCO_BOT_THINK_MS=250 LOCO_BOT_JITTER_MS=200 ./server-bin &
     - timeout 30 sh -c 'until wget -qO- http://localhost:8080/health; do sleep 1; done'
     # Client deps: Playwright's `webServer` starts Vite from client/ on :4173.
     - cd client && npm ci $NPM_FLAGS && cd ..
-    # No `playwright install`: this image ships the browsers, and the version is
-    # pinned to the same v1.52.0 as the dependency.
+    # No `playwright install`: this image ships the browsers already. That step
+    # used to hide a drift instead of costing only time: `^1.52.0` in
+    # package.json had resolved to 1.58.2 in the lockfile while the image stayed
+    # on v1.52.0, and the download quietly fetched the missing browser on every
+    # push. The dependency is now pinned exactly, and this asserts the pair
+    # rather than letting the next drift surface as a missing executable.
     - cd e2e && npm ci $NPM_FLAGS
+    - |
+      installed="$(npx playwright --version | sed 's/^Version //')"
+      if [ "$installed" != "$PLAYWRIGHT_VERSION" ]; then
+        echo "Playwright $installed is installed, but this job runs on the v$PLAYWRIGHT_VERSION image," >&2
+        echo "which ships only its own browsers. Set PLAYWRIGHT_VERSION in .gitlab-ci.yml and" >&2
+        echo "@playwright/test in e2e/package.json to the same version, then commit the lockfile." >&2
+        exit 1
+      fi
     - CI=true npx playwright test --shard=$CI_NODE_INDEX/$CI_NODE_TOTAL
-  artifacts:
-    when: always
-    expire_in: 1 week
-    # Surfaces failing specs in the merge request instead of only in the job log.
-    reports:
-      junit: e2e/playwright-results.xml
-    paths:
-      # Traces and failure screenshots were being produced and then thrown away.
-      - e2e/test-results/
+  # No `artifacts:` here either, and this one costs something real: the JUnit
+  # report (failing specs surfaced in the merge request) and the traces and
+  # screenshots Playwright already writes to e2e/test-results/. A failed upload
+  # fails the job, so with a runner that cannot reach the API those two lines
+  # would turn a suite where all 87 tests passed into a red pipeline, strictly
+  # worse than not collecting them. Restore the block below once the runner can
+  # resolve the GitLab API host; nothing else has to change.
+  #
+  #  artifacts:
+  #    when: always
+  #    expire_in: 1 week
+  #    reports:
+  #      junit: e2e/playwright-results.xml
+  #    paths:
+  #      - e2e/test-results/
+
 # ──────────────────────────────────────────────────────────────────
 # Shared config for Docker build/deploy jobs
 # ──────────────────────────────────────────────────────────────────

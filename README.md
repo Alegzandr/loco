@@ -513,11 +513,16 @@ GitLab is the only CI. The GitHub remote is a plain mirror with no pipeline of i
 E2E dominates the wall clock. Everything done to shorten it spends dead time, never coverage: no test is skipped, no gate is loosened, and no reaction window is shortened.
 
 - **`e2e_test` runs as 4 parallel shards** (`--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`). This needs a GitLab runner that accepts concurrent jobs (`concurrent > 1` in its `config.toml`); at `concurrent = 1` the shards queue and pay four setups for one suite.
-- **`server-bin` is built once** by `backend_test` and passed to `e2e_test` as an artifact, instead of downloading a 70 MB Go toolchain onto the Playwright image to rebuild it.
-- **No `playwright install`** — the pinned Playwright image already ships the browsers.
+- **`server-bin` is built once** by `backend_test` and handed to `e2e_test` through the cache, instead of downloading a 70 MB Go toolchain onto the Playwright image and rebuilding it once per shard.
+- **No `playwright install` in CI** (it stays in the local setup above). The image already ships the browsers, and only the ones its own Playwright needs. `PLAYWRIGHT_VERSION` is declared once in `e2e_test`, interpolated into the image tag and asserted against the installed version before the suite runs, and `@playwright/test` is pinned exactly rather than by caret: the runtime here is a docker image, not a version range. Bump the two together and commit the lockfile.
 - **Go and npm caches** are redirected under `$CI_PROJECT_DIR` (GitLab can only cache paths inside the project) and keyed per job family.
 - **Bots think faster in CI only**: `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`, applied by the server at startup and gated on `LOCO_E2E=1`. The think delay is the one bot timing nothing races. Catch, declaration and interrupt delays keep their shipped values — those are reaction windows tests are meant to be able to win.
-- **Failures are kept**: JUnit results surface failing specs in the merge request, and Playwright traces and screenshots are published as artifacts.
+
+### The runner cannot upload artifacts
+
+`.gitlab-ci.yml` deliberately contains no `artifacts:` block. The runner's upload helper resolves the GitLab API host (`http://gitlab`) against the LAN DNS, which does not know that name, and a failed upload fails the job, so one `artifacts:` line turns a fully green suite into a red pipeline. That is why `server-bin` travels by cache (local to the runner, no API call) with a `server-bin.sha` stamp so a shard never runs a binary built from another commit.
+
+The cost is the JUnit report and Playwright's traces: they are still written, just not collected. Fixing the runner (`extra_hosts`, joining GitLab's Docker network, or registering it against the FQDN) is what restores them. The block is commented out in `e2e_test`, ready to uncomment.
 
 ---
 

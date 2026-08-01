@@ -12,10 +12,10 @@ Defined in `.gitlab-ci.yml`, three stages:
 
 ### Test jobs
 
-- `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` and builds a static Linux binary as an artifact for `e2e_test`.
+- `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` and builds the static Linux binary `e2e_test` runs.
 - `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
-- `e2e_test` (`mcr.microsoft.com/playwright:v1.52.0-jammy`): runs the server binary, runs Playwright as
-  4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
+- `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
+  Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
 - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
 
 `build` **needs all four**. `needs` is what actually gates a deploy: naming only `backend_test` and
@@ -33,16 +33,46 @@ nothing is skipped, no gate is loosened, no reaction window is shortened.
 | Change | Why |
 |---|---|
 | `parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL` | The suite is stateful, so `workers` stays at 1 *inside* a job; sharding is what parallelises it. `fullyParallel: true` is what makes the split even — left false, Playwright shards whole spec files and 87 tests came out 27/39/0/21. |
-| `server-bin` as an artifact from `backend_test` | `e2e_test` used to download a 70 MB Go toolchain onto an image with no Go and rebuild the same binary. |
-| No `playwright install` | The pinned image ships the browsers. Bump the image and the dependency together. |
+| `server-bin` built once by `backend_test`, handed over by cache | `e2e_test` used to download a 70 MB Go toolchain onto an image with no Go and rebuild the same binary, once per shard. Cache rather than artifact: see below. |
+| No `playwright install` | The image ships the browsers, and only the ones its own Playwright needs. `PLAYWRIGHT_VERSION` is declared once, interpolated into the image tag, and asserted against the installed version before the suite runs; `@playwright/test` is pinned exactly. Bump the two together and commit the lockfile. |
 | Go + npm caches under `$CI_PROJECT_DIR` | GitLab only caches paths inside the project. Keys are per job family; the shards key on `$CI_NODE_INDEX` so four jobs don't race on one cache upload. |
 | `e2e_test needs: [backend_test]` only | It consumes nothing from `frontend_test`, so naming it just parked the longest job behind the second-longest. `build` still needs every test job, so nothing red ships. |
 | `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` | Bot think time is dead time nothing races. Catch, LOCO! declaration and interrupt delays keep their shipped values — tests are meant to be able to win those races. |
-| `artifacts:reports:junit` + `e2e/test-results/` | Failing specs show up in the merge request, and the traces Playwright was already producing stop being thrown away. |
 
 **The sharding has a prerequisite outside the repository**: the runner must accept concurrent jobs
 (`concurrent > 1` in its `config.toml`). At `concurrent = 1` the four shards queue behind each other
 and pay four setups for one suite, which is slower than not sharding at all.
+
+### The runner cannot upload artifacts
+
+`.gitlab-ci.yml` uses no `artifacts:` block anywhere, and that is a workaround, not a preference.
+The upload helper posts to GitLab's own external URL, `http://gitlab`, and resolves it against the
+LAN DNS, which does not know that name:
+
+```
+POST against http://gitlab/api/v4/jobs/<id>/artifacts …
+dial tcp: lookup gitlab on 192.168.1.254:53: no such host
+FATAL: invalid argument       →  ERROR: Job failed: exit code 1
+```
+
+A failed upload **fails the job**, so a single `artifacts:` line turns a run where all 87 E2E tests
+passed into a red pipeline. The limitation predates the speed work: `e2e_test` rebuilt the Go
+binary in-job under a comment reading "no artifact transfer needed", and it only surfaced when a job
+first tried to publish one.
+
+Consequences, and how to undo them:
+
+- `server-bin` is passed to `e2e_test` **through the cache**, which is a tarball on the runner's own
+  disk and needs no API call. Keyed per branch (a per-commit key leaves a ~15 MB cache volume behind
+  on every push, and nothing collects those); a `server-bin.sha` stamp makes `e2e_test` rebuild
+  unless the cached binary was built from the commit under test, which also covers two pipelines
+  racing on one branch.
+- The JUnit report and Playwright's traces and screenshots are **written but not collected**. The
+  `artifacts:` block sits commented out at the end of `e2e_test`.
+
+**The fix is on the runner, in one line of its `config.toml`**: `extra_hosts = ["gitlab:<ip>"]`,
+or putting the runner on GitLab's Docker network, or re-registering it against the FQDN so
+`CI_SERVER_URL` is publicly resolvable. Then uncomment the block; nothing else has to change.
 
 ### GitHub mirror
 
