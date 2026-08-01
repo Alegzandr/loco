@@ -9,6 +9,16 @@ variables:
   DOCKER_TLS_CERTDIR: ""
   APP_SUBDOMAIN: loco
   DOCKER_HOST: unix:///var/run/docker.sock
+  # GitLab can only cache paths inside the project directory, so both toolchains
+  # are pointed at one. Without this every job re-downloads the Go module graph
+  # and every npm dependency from the network on each push.
+  GOPATH: $CI_PROJECT_DIR/.gocache/path
+  GOMODCACHE: $CI_PROJECT_DIR/.gocache/mod
+  GOCACHE: $CI_PROJECT_DIR/.gocache/build
+  npm_config_cache: $CI_PROJECT_DIR/.npm
+  # npm's own progress rendering and audit/funding round trips are pure latency
+  # in a non-interactive job.
+  NPM_FLAGS: --prefer-offline --no-audit --no-fund
 
 # ──────────────────────────────────────────────────────────────────
 # Test jobs — run on every push, no Docker/registry required
@@ -19,6 +29,20 @@ backend_lint:
   image: golangci/golangci-lint:v1.64-alpine
   tags:
     - devops
+  variables:
+    GOLANGCI_LINT_CACHE: $CI_PROJECT_DIR/.golangci-cache
+  # Its own cache key rather than backend_test's: the two run concurrently, and
+  # two jobs pushing one key race on the upload — the loser's entry is what the
+  # next pipeline restores. The analysis cache is also most of what this job
+  # spends its time rebuilding.
+  cache:
+    - key:
+        prefix: golangci
+        files:
+          - server/go.sum
+      paths:
+        - .gocache/
+        - .golangci-cache/
   script:
     - cd server && golangci-lint run ./...
 
@@ -27,17 +51,39 @@ backend_test:
   image: golang:1.24.7-alpine
   tags:
     - devops
+  cache:
+    - key:
+        prefix: go
+        files:
+          - server/go.sum
+      paths:
+        - .gocache/
   script:
     - cd server && go test ./...
+    # Built here, not in e2e_test: that job runs on the Playwright image, which
+    # has no Go, and used to download a 70 MB toolchain tarball on every push to
+    # produce this same binary. Static so it runs on the Playwright image as-is.
+    - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - server-bin
 
 frontend_test:
   stage: test
   image: node:20-alpine
   tags:
     - devops
+  cache:
+    - key:
+        prefix: npm-client
+        files:
+          - client/package-lock.json
+      paths:
+        - .npm/
   script:
     - cd client
-    - npm ci
+    - npm ci $NPM_FLAGS
     - npm run lint
     - npm run test
     - npm run build
@@ -47,26 +93,55 @@ e2e_test:
   image: mcr.microsoft.com/playwright:v1.52.0-jammy
   tags:
     - devops
+  # The 87 specs run sequentially inside a job (the suite is stateful, so
+  # `workers` stays at 1); sharding is what parallelises them. `fullyParallel:
+  # true` in playwright.config.ts is what makes the split even — sharding whole
+  # spec files instead gave 27/39/0/21, one job running empty.
+  #
+  # This is only a win if the runner accepts concurrent jobs — with
+  # `concurrent = 1` in the runner's config.toml the shards queue behind each
+  # other and pay four setups for the same work.
+  parallel: 4
+  # backend_test alone: the artifact above is a real dependency. frontend_test is
+  # deliberately not in this list — nothing here consumes its output, so naming
+  # it only parked the longest job in the pipeline behind it. The `build` job
+  # still needs every test job, so a red unit test can never ship.
   needs:
     - job: backend_test
-    - job: frontend_test
+      artifacts: true
+  cache:
+    # Keyed per shard: four jobs sharing one cache key race each other on the
+    # upload, and the loser's entry is the one the next pipeline restores.
+    - key:
+        prefix: npm-e2e-$CI_NODE_INDEX
+        files:
+          - client/package-lock.json
+          - e2e/package-lock.json
+      paths:
+        - .npm/
   script:
-    # Install Go 1.24.7 explicitly (distro golang-go is too old and version-mismatched)
-    - curl -fsSL https://go.dev/dl/go1.24.7.linux-amd64.tar.gz | tar -C /usr/local -xz
-    - export PATH="/usr/local/go/bin:$PATH"
-    # Build a static binary (no artifact transfer needed)
-    - cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin . && cd ..
-    # Start the Go server binary in the background (LOCO_E2E=1 enables debug_set_state)
+    # LOCO_E2E=1 enables debug_set_state. The bot think delay is shortened from
+    # 1.2–2.2 s to 0.25–0.45 s: it is dead time no test races (see
+    # hub.ApplyBotTimingEnv). Reaction windows — catch, declaration, interrupt —
+    # keep their shipped timing, because tests are meant to be able to win them.
     - chmod +x server-bin
-    - PORT=8080 LOCO_E2E=1 ./server-bin &
-    # Wait for the server to be ready
+    - PORT=8080 LOCO_E2E=1 LOCO_BOT_THINK_MS=250 LOCO_BOT_JITTER_MS=200 ./server-bin &
     - timeout 30 sh -c 'until wget -qO- http://localhost:8080/health; do sleep 1; done'
-    # Install client dependencies so the webServer (Vite dev) can start
-    - cd client && npm ci && cd ..
-    # Install Playwright and run tests
-    - cd e2e && npm ci
-    - npx playwright install chromium
-    - CI=true npx playwright test
+    # Client deps: Playwright's `webServer` starts Vite from client/ on :4173.
+    - cd client && npm ci $NPM_FLAGS && cd ..
+    # No `playwright install`: this image ships the browsers, and the version is
+    # pinned to the same v1.52.0 as the dependency.
+    - cd e2e && npm ci $NPM_FLAGS
+    - CI=true npx playwright test --shard=$CI_NODE_INDEX/$CI_NODE_TOTAL
+  artifacts:
+    when: always
+    expire_in: 1 week
+    # Surfaces failing specs in the merge request instead of only in the job log.
+    reports:
+      junit: e2e/playwright-results.xml
+    paths:
+      # Traces and failure screenshots were being produced and then thrown away.
+      - e2e/test-results/
 # ──────────────────────────────────────────────────────────────────
 # Shared config for Docker build/deploy jobs
 # ──────────────────────────────────────────────────────────────────
@@ -131,7 +206,19 @@ build:
   # shipped to dev, and a version tag still shipped to prod. The two critical
   # bugs this list was widened for both lived in paths only e2e could have
   # walked.
-  needs: ["backend_lint", "backend_test", "frontend_test", "e2e_test"]
+  # Long form purely to say `artifacts: false`: this job gates on the test
+  # results, not on their output, and the default would pull `server-bin` down
+  # into a job that only builds images. Naming `e2e_test` waits on all four of
+  # its parallel instances.
+  needs:
+    - job: backend_lint
+      artifacts: false
+    - job: backend_test
+      artifacts: false
+    - job: frontend_test
+      artifacts: false
+    - job: e2e_test
+      artifacts: false
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop"'
     - if: '$CI_COMMIT_TAG =~ /^v.*/'

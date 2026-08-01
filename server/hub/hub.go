@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1519,6 +1520,63 @@ var BotThinkDelay = 1200 * time.Millisecond
 // BotJitterMax is the maximum random jitter added to bot think delays.
 // Exported so tests can set it to 0 to make bot timing deterministic.
 var BotJitterMax = 1000 * time.Millisecond
+
+// ApplyBotTimingEnv shortens the bot think delay from the environment
+// (LOCO_BOT_THINK_MS / LOCO_BOT_JITTER_MS), for CI only.
+//
+// The think delay is the one bot timing that is pure dead time: nothing races
+// it, so a shorter one changes how long a test takes and not what it proves.
+// Every *other* bot delay is a reaction window somebody is meant to be able to
+// win — BotCatchDelay against a human's Contre-LOCO!, BotUnoDelay against the
+// catch it invites, BotInterruptDelay against an open interrupt window — and
+// shortening those would quietly rewrite the verdict of the tests that cover
+// them. They are deliberately not tunable here.
+//
+// Gated on LOCO_E2E for the same reason debug_set_state is: a production server
+// must not grow instant bots because a stray variable was set on the host.
+// Called once from main, before the hub starts.
+func ApplyBotTimingEnv() {
+	think, jitter, ok := botTimingOverride(os.Getenv, BotThinkDelay, BotJitterMax)
+	if !ok {
+		return
+	}
+	BotThinkDelay, BotJitterMax = think, jitter
+	log.Printf("WARN bot think delay overridden think_ms=%d jitter_ms=%d (LOCO_E2E=1; test builds only)",
+		think.Milliseconds(), jitter.Milliseconds())
+}
+
+// botTimingOverride resolves the think-delay override. Pure, so the precedence
+// rules are testable without touching package state or the real environment.
+// An absent or malformed value leaves that field on its shipped default rather
+// than falling back to zero: a typo must not silently produce an instant bot.
+func botTimingOverride(getenv func(string) string, defThink, defJitter time.Duration) (think, jitter time.Duration, ok bool) {
+	think, jitter = defThink, defJitter
+	if getenv("LOCO_E2E") != "1" {
+		return think, jitter, false
+	}
+	if d, valid := millisEnv(getenv, "LOCO_BOT_THINK_MS"); valid {
+		think, ok = d, true
+	}
+	if d, valid := millisEnv(getenv, "LOCO_BOT_JITTER_MS"); valid {
+		jitter, ok = d, true
+	}
+	return think, jitter, ok
+}
+
+// millisEnv reads a non-negative millisecond count. Zero is a value (an instant
+// bot is a legitimate thing to ask a test harness for); negative is not.
+func millisEnv(getenv func(string) string, name string) (time.Duration, bool) {
+	raw := getenv(name)
+	if raw == "" {
+		return 0, false
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms < 0 {
+		log.Printf("WARN ignoring %s=%q (want a non-negative integer of milliseconds)", name, raw)
+		return 0, false
+	}
+	return time.Duration(ms) * time.Millisecond, true
+}
 
 // BotUnoDelay is the base delay before a bot declares its UNO after playing to
 // 1 card. It is the window in which a human can beat it to the Contre-LOCO!
