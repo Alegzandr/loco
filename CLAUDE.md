@@ -570,12 +570,26 @@ Browser (HTTPS) → Traefik (:443 websecure)
   with no port means the scheme's *default* one. On :443 the two are identical, so the difference is
   invisible in production and blocks the socket everywhere else — a staging host on a non-default
   port, or anyone running the built image locally.
-- **Nothing automated tests the CSP** — a wrong policy passes every build and fails only the page,
-  in production. Verify it by hand against a real build after touching `nginx.conf`: serve
-  `client/dist` through the actual config (`docker run … -v client/dist:/usr/share/nginx/html:ro -v
-  client/nginx.conf:/etc/nginx/conf.d/default.conf:ro`, on the dev compose network so `server:8080`
-  resolves), then load it and create a room. Console clean, fonts loaded, and the waiting room
-  reached is the whole check — the waiting room only appears after a WebSocket round trip.
+- **No test can prove the page loads under the CSP, and one pins it to the app anyway.**
+  `client/src/test/csp.test.ts` reads `nginx.conf` next to `index.html` and the client sources, and
+  couples each directive to whatever needs it: `script-src 'self'` beside the absence of any inline
+  `<script>`, `'unsafe-inline'` in `style-src` beside the pre-hydration `<style>` block that forces
+  it, `$http_host` (never `$host`) twice in `connect-src`, no remote origin in the policy *or* in
+  the sources, and no `eval` / `new Function` / `new Worker` / `blob:` anywhere. Those are the
+  regressions that would ship green and break only the served page: an added CDN font or an inline
+  script fails here instead of in front of players. What it cannot do is answer "does the built app
+  actually run behind this policy", so the manual check below is still owed after any change to
+  `nginx.conf`.
+- **`make csp` is that check** (`tools/csp/check.mjs`, deliberately outside CI): it brings the
+  production-style stack up, loads the page in a real browser and creates a room, then tears the
+  stack down. Console clean, fonts loaded and the waiting room reached is the whole verdict, because
+  the waiting room only appears after a WebSocket round trip. It collects `securitypolicyviolation`
+  events, console errors and failed requests on the way, and checks all four headers are on the
+  response. Run it after touching `nginx.conf`. `--url=…` points it at a stack that is already up;
+  `--keep` leaves the one it started running.
+  - It waits on **the SPA answering, not on `docker compose up -d` returning**. The two are not the
+    same on Docker Desktop for Windows, where the start phase can sit there for minutes after the
+    page is already being served.
 
 ## Linting
 - Client: ESLint v9 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
@@ -590,7 +604,7 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - When you change `server/protocol/messages.go`: update `protocolSchemas.ts` for any inbound shape changes (inferred types follow). `client/src/test/protocolSchemas.test.ts` exercises the schema.
 
 ## Makefile
-- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make og`, `make maps`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual` and `make maps`).
+- Root `Makefile` has docker-first targets so Go isn't needed on host: `make dev`, `make down`, `make test`, `make test-server`, `make test-client`, `make test-e2e`, `make visual`, `make og`, `make maps`, `make csp`, `make lint`, `make lint-server`, `make lint-client`, `make build-server`, `make build-client`. `make help` lists them. Pass flags through with `ARGS="…"` (used by `make visual` and `make maps`).
 
 ## Art direction — "cartoon premium"
 Inspirations: **Nintendo × Gartic Phone**. Chunky rounded shapes, thick ink outlines, saturated
@@ -1337,6 +1351,15 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 - "Continue (Ns)" → `dismissRoundSummary()` (applies buffered state, clears summary). Auto-dismiss at 8s.
 
 ## Metrics
+**`/metrics` is an operator surface, not a public one, and no compose file publishes the Go server
+any more.** nginx proxies `/ws` and `/health` and deliberately not this, `deploy/compose.yml` only
+`expose`s 8080 on the `internal` network, and `docker-compose.yml` now matches it. It used to
+publish `8080:8080`, which put an unauthenticated endpoint on the LAN for no gain, since the browser
+reaches the server through nginx there like everywhere else. Read it from inside:
+`docker compose exec server wget -qO- http://localhost:8080/metrics`. `docker-compose.dev.yml` is
+the one exception and must stay published: the Vite client connects straight to `ws://<host>:8080/ws`
+with no nginx in front of it.
+
 `GET /metrics` returns JSON:
 - Gameplay: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`.
 - Health: `uptime_sec`, `goroutine_count` (low + stable).

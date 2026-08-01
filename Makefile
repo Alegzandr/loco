@@ -10,7 +10,7 @@ E2E_DIR         := $(CURDIR)/e2e
 DOCKER_GO = docker run --rm -v $(SERVER_DIR):/app -w /app
 DOCKER_LINT = docker run --rm -v $(SERVER_DIR):/app -w /app
 
-.PHONY: help dev down test test-server test-client test-e2e visual og maps audio-verify lint lint-server lint-client build-server build-client
+.PHONY: help dev down test test-server test-client test-e2e visual og maps audio-verify csp lint lint-server lint-client build-server build-client
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?##"}{printf "  %-16s %s\n", $$1, $$2}'
@@ -43,6 +43,9 @@ maps: ## Re-encode map art into client/public/maps/ (needs ARGS="--src=<folder>"
 
 audio-verify: ## Assert every synthesised voice actually produces signal (not in CI)
 	node tools/audio/verify.mjs $(ARGS)
+
+csp: ## Load the built client behind the real nginx and report CSP violations (not in CI)
+	node tools/csp/check.mjs $(ARGS)
 
 lint: lint-server lint-client ## Run all linters
 

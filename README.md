@@ -177,8 +177,19 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:3000
-- Backend health: http://localhost:8080/health
-- Metrics: http://localhost:8080/metrics (includes `goroutine_count` for runtime health monitoring)
+- Backend health: http://localhost:3000/health (proxied by nginx, like in production)
+
+The Go server itself is **not published on a host port** here, so this stack matches the
+deployed one: nginx is the only way in. `/metrics` is deliberately not proxied and is
+therefore unreachable from outside; read it from inside the container instead:
+
+```bash
+docker compose exec server wget -qO- http://localhost:8080/metrics
+```
+
+It returns JSON: room and player counts, `goroutine_count` for runtime health, and the
+abuse/pressure counters (`messages_rate_limited`, `messages_dropped_busy`,
+`slow_clients_closed`, `suspected_cheats`). `debug_mode_active` must read `false` in production.
 
 ### Development compose (hot reload, no host toolchain needed)
 
@@ -354,6 +365,32 @@ intensity ramp reaches its targets, and that ducking attenuates.
 It is deliberately **not** part of CI: audio devices in CI containers are unreliable, and a flaky
 sound assertion only teaches people to ignore a red pipeline. Run it after touching
 `client/src/audio/`.
+
+### Content-Security-Policy
+
+The CSP lives in `client/nginx.conf`, and nothing in the normal loop ever meets it: unit tests read
+files, and the E2E suite runs against the Vite dev server, which sends no such header. A wrong
+policy therefore passes every build and fails only the served page.
+
+`client/src/test/csp.test.ts` pins the policy to the app it protects (no inline script, no remote
+origin, no `eval`, `$http_host` rather than `$host`). `make csp` answers the other half, whether the
+built client actually runs behind the header nginx sends:
+
+```bash
+make csp                                    # up --build, check in a real browser, down
+make csp ARGS="--url=http://localhost:3000/"   # check a stack that is already running
+```
+
+```
+"csp": "default-src 'self'; script-src 'self'; … connect-src 'self' ws://localhost:3000 …",
+"sockets": ["ws://localhost:3000/ws"], "reachedWaitingRoom": true,
+"fontsLoaded": 8, "problems": []
+✓ clean under the served CSP
+```
+
+Reaching the waiting room is the verdict: it only appears after a WebSocket round trip, so it proves
+`connect-src` lets the one connection the game is made of through. Also outside CI, and worth
+running after any change to `nginx.conf`.
 
 ### End-to-End (Playwright)
 
