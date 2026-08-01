@@ -26,6 +26,12 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   `@fontsource-variable/*` and imported in `main.tsx`. No CDN — the CSP stays closed.
 - Press feedback: `.btn-chunky` in `tokens.css` (hover lifts, active travels *into* the ledge).
   Components extend it rather than reinventing the six lines.
+- Scrollbars: styled globally in `tokens.css` (`scrollbar-width`/`scrollbar-color` for Firefox, the
+  `::-webkit-scrollbar*` pseudo-elements elsewhere). Thin, no track, thumb in `--color-border-strong`
+  with a transparent border plus `background-clip: padding-box` so it never touches the panel edge.
+  A default OS scrollbar is the only widget in the UI the browser draws, and it is grey chrome
+  sitting on a candy panel in every stream capture. A panel that scrolls needs no scrollbar CSS of
+  its own; do not re-declare it per component.
 - Card faces: see "Card face" below. The deck has its own identity — full-bleed suit gradients and
   the LOCO mark — and it is the one part of the UI that does **not** follow the app's chunky-sticker
   language or its theme. A card is an object, not a control.

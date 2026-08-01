@@ -98,3 +98,41 @@ func TestTurnDeadline_AbsentDuringBotTurn(t *testing.T) {
 			bot.TurnDeadline)
 	}
 }
+
+// The turn that follows a timeout gets a clock like any other. Regression:
+// handleTurnTimeout read the deadline before re-arming the timer, so the
+// turn_changed it broadcast carried the timestamp of the turn that had just run
+// out — a moment already in the past. useDrainBar stands a bar down on a
+// deadline that has passed, so the next player spent their whole turn with no
+// countdown at all.
+func TestTurnDeadline_LiveAfterATimeout(t *testing.T) {
+	orig := hub.TurnTimeout
+	hub.TurnTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { hub.TurnTimeout = orig })
+
+	_, srv := newTestHub(t)
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, conn1, protocol.SMsgRoomCreated)
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode})
+	readMsgOfType(t, conn2, protocol.SMsgRoomJoined)
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	readMsgOfType(t, conn1, protocol.SMsgGameStarted)
+	readMsgOfType(t, conn2, protocol.SMsgGameStarted)
+	completeMapLoad(t, conn1, conn2)
+
+	// Nobody acts: the seat on the clock is auto-drawn and auto-passed.
+	changed := readMsgOfType(t, conn1, protocol.SMsgTurnChanged)
+	if changed.TurnDeadline == 0 {
+		t.Fatal("turn_changed after a timeout carries no deadline at all")
+	}
+	if changed.TurnDeadline <= time.Now().UnixMilli() {
+		t.Errorf("turn_changed after a timeout carries deadline %d, already in the past: "+
+			"the next player's countdown bar never starts", changed.TurnDeadline)
+	}
+}

@@ -77,16 +77,7 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.body::-webkit-scrollbar {
-  width: 6px;
-}
-.body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.body::-webkit-scrollbar-thumb {
-  background: var(--color-hairline);
-  border-radius: var(--radius-full);
-}
+/* The scrollbar itself is styled globally in tokens.css. */
 
 .section {
   margin-bottom: var(--space-lg);

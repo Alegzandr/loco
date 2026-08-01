@@ -256,6 +256,31 @@ html[data-room] body {
 .btn-chunky:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
 .btn-chunky:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
 
+/* ── Scrollbars ──────────────────────────────────────────────────────────
+   The one widget the browser draws for us, and it shows: a grey system bar
+   with a boxed track sitting on a candy panel reads as browser chrome that
+   leaked into the game, and it is captured by every stream. Thin, no track,
+   inked in the panel's own palette. Firefox takes the two standard
+   properties, Chromium/WebKit the pseudo-elements; the transparent border
+   plus `background-clip` is what keeps the thumb clear of the panel edge. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-full);
+}
+/* `background-color`, not the shorthand: the shorthand would reset
+   `background-clip` and the thumb would grow back into its border. */
+::-webkit-scrollbar-thumb:hover { background-color: var(--color-muted-soft); }
+::-webkit-scrollbar-corner { background: transparent; }
+
 /* Keyboard focus stays visible on every surface, light or dark. */
 :where(button, a, input, select, [tabindex]):focus-visible {
   outline: 3px solid var(--color-tertiary);

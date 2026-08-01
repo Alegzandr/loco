@@ -2442,14 +2442,18 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 		log.Printf("turn timeout pass error code=%s player=%d err=%v", code, tm.playerID, err)
 		return
 	}
-	dl := h.turnDeadlineMs(code)
+	// Re-arm before reading the deadline, not after. Read first, this broadcast
+	// carried the deadline of the turn that had *just expired*: every client
+	// applied a timestamp already in the past, useDrainBar found nothing left to
+	// drain and took the countdown bar down for the whole of the next player's
+	// turn — until some unrelated message happened to carry a live one.
+	h.scheduleTurnTimer(code, room)
 	h.broadcastToRoomAll(code, protocol.ServerMsg{
 		Type:         protocol.SMsgTurnChanged,
 		Turn:         room.State.CurrentTurn,
-		TurnDeadline: dl,
+		TurnDeadline: h.turnDeadlineMs(code),
 	})
 	h.maybeScheduleBot(code, room)
-	h.scheduleTurnTimer(code, room)
 }
 
 // turnTimeoutTarget validates that the timer message still applies: the room
