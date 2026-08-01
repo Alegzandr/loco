@@ -66,6 +66,7 @@ loco/
 ├── tools/og/              # Link-preview generator (shoot.mjs → client/public/og.png)
 ├── tools/maps/            # Map art cropper/encoder (prepare.mjs), see "Map art"
 ├── docs/                  # Rules spec and supplemental docs
+│   └── notes/             # Engineering notes: the reasoning behind CLAUDE.md's rules
 ├── deploy/                # Production compose + traefik config
 ├── docker-compose.yml     # Production-style full-stack compose
 ├── docker-compose.dev.yml # Development compose (bind mounts, hot reload)
@@ -532,4 +533,6 @@ The cost is the JUnit report and Playwright's traces: they are still written, ju
 feature branch → tests → implementation → all tests green → update docs → commit
 ```
 
-See `CLAUDE.md` for full engineering rules and conventions.
+See `CLAUDE.md` for the engineering rules and conventions, and `docs/notes/` for the reasoning behind
+each one: the bug that produced it, the alternative that was measured and rejected, and the edge
+cases a one-line rule cannot express.

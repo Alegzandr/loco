@@ -475,17 +475,17 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		return errors.New("game not in progress")
 	}
 	if r.State.CurrentTurn != playerIndex {
-		return errors.New("not your turn")
+		return ErrNotYourTurn
 	}
 	if r.State.PendingDraw > 0 {
-		return errors.New("must counter or draw pending penalty cards first")
+		return ErrMustAnswerPenalty
 	}
 	if !r.State.Hands[playerIndex].Contains(card) {
-		return errors.New("card not in hand")
+		return ErrCardNotInHand
 	}
 
 	if !CanPlay(card, r.State.topCard(), r.State.ActiveColor) {
-		return errors.New("illegal card play")
+		return ErrIllegalPlay
 	}
 
 	// A wild carries no colour of its own; the player must name the one that
@@ -578,16 +578,16 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 		return errors.New("game not in progress")
 	}
 	if r.State.CurrentTurn != playerIndex {
-		return errors.New("not your turn")
+		return ErrNotYourTurn
 	}
 	if r.State.PendingDraw > 0 {
-		return errors.New("must counter or draw pending penalty cards first")
+		return ErrMustAnswerPenalty
 	}
 	if have := r.State.countInHand(playerIndex, first); have < len(cards) {
-		return fmt.Errorf("hand has %d copies, need %d", have, len(cards))
+		return stale(fmt.Errorf("hand has %d copies, need %d", have, len(cards)))
 	}
 	if !CanPlay(first, r.State.topCard(), r.State.ActiveColor) {
-		return errors.New("illegal card play")
+		return ErrIllegalPlay
 	}
 	if first.IsWild() && chosenColor == Wild {
 		return errors.New("must choose a color for a wild card")
@@ -772,7 +772,7 @@ func (r *Room) DrawCard(playerIndex int) error {
 		return errors.New("game not in progress")
 	}
 	if r.State.CurrentTurn != playerIndex {
-		return errors.New("not your turn")
+		return ErrNotYourTurn
 	}
 
 	// A forced draw does not cost the turn (rules.md §14.5): the victim takes the
@@ -816,7 +816,7 @@ func (r *Room) PassTurn(playerIndex int) error {
 		return errors.New("game not in progress")
 	}
 	if r.State.CurrentTurn != playerIndex {
-		return errors.New("not your turn")
+		return ErrNotYourTurn
 	}
 	if !r.State.HasDrawn {
 		return ErrMustDrawBeforePass
@@ -889,6 +889,45 @@ var (
 	// ErrInterruptNotADrawCard — same race, seen during a draw chain.
 	ErrInterruptNotADrawCard = errors.New("cannot interrupt active draw chain except with an identical draw card")
 )
+
+// The refusals that can only mean the client was acting on a board the server
+// no longer has: the colour in play moved, the turn moved, or the hand it is
+// offering is not the hand held for it. They carry the same wire strings as
+// before; what is new is that the hub can hand that client a fresh snapshot
+// instead of leaving it to re-offer an action the server will refuse again.
+//
+// A lost race is deliberately NOT one of these. Losing an interrupt is the
+// normal outcome of a contested window and the client's board is correct, so
+// answering it with a snapshot would put a full personalised game_state on the
+// wire at the busiest moment of the busiest table. See IsLostRace.
+var ErrStateMismatch = errors.New("client state is stale")
+
+// staleState marks an error as a state mismatch without touching its text: the
+// wire string is what the player reads, and it is not this rule's business.
+type staleState struct{ err error }
+
+func (e staleState) Error() string        { return e.err.Error() }
+func (e staleState) Unwrap() error        { return e.err }
+func (e staleState) Is(target error) bool { return target == ErrStateMismatch }
+
+func stale(err error) error { return staleState{err} }
+
+var (
+	// ErrNotYourTurn — the seat moved on between the tap and the message.
+	ErrNotYourTurn = stale(errors.New("not your turn"))
+	// ErrIllegalPlay — the card does not match the top discard or the active
+	// colour. A correct client never sends this: it checks the same rule first.
+	ErrIllegalPlay = stale(errors.New("illegal card play"))
+	// ErrCardNotInHand — the hand the client is playing from is not ours.
+	ErrCardNotInHand = stale(errors.New("card not in hand"))
+	// ErrMustAnswerPenalty — a play arrived while a draw stack was pending, so
+	// the client had not seen the +2/+4 land.
+	ErrMustAnswerPenalty = stale(errors.New("must counter or draw pending penalty cards first"))
+)
+
+// IsStateMismatch reports whether a refusal proves the client's board had
+// drifted from the server's, i.e. whether it is worth re-sending the state.
+func IsStateMismatch(err error) bool { return errors.Is(err, ErrStateMismatch) }
 
 // IsLostRace reports whether a refusal is one this game produces against
 // correct clients all match long, rather than a sign of a tampered one.
@@ -1041,7 +1080,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		return errors.New("must choose a color for a wild card")
 	}
 	if r.State.countInHand(playerIndex, first) < len(cards) {
-		return errors.New("card not in hand")
+		return ErrCardNotInHand
 	}
 
 	top := r.State.topCard()
@@ -1116,13 +1155,13 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 		return errors.New("game not in progress")
 	}
 	if r.State.CurrentTurn != playerIndex {
-		return errors.New("not your turn")
+		return ErrNotYourTurn
 	}
 	if r.State.PendingDraw == 0 {
 		return errors.New("no pending draw to counter")
 	}
 	if !r.State.Hands[playerIndex].Contains(card) {
-		return errors.New("card not in hand")
+		return ErrCardNotInHand
 	}
 
 	top := r.State.topCard()

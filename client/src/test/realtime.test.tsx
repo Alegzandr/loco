@@ -174,6 +174,70 @@ describe('the board animates only a committed play', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  // A prompt is a promise about a board, and it was opened because the card was
+  // legal on that board. Only a card landing used to retire it (the lastPlay
+  // effect), so every other way the board moves left the prompt up over a table
+  // that had gone: the choice then went out against a state the server had
+  // already replaced, and came back "illegal card play" after the player had
+  // answered a question nobody should have asked.
+  it('closes the swap prompt when the turn moves without a card being played', () => {
+    const { onSend } = renderGame()
+    act(() =>
+      useGameStore.setState({ myHand: [blueSwap], discard: blue7, activeColor: 'blue' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+    expect(screen.getByRole('button', { name: /Bob/ })).toBeInTheDocument()
+
+    // The turn timed out and the server passed for us: card_drawn / turn_changed
+    // move the seat on, and neither of them sets lastPlay.
+    act(() => useGameStore.setState({ currentTurn: 1 }))
+    expect(screen.queryByRole('button', { name: /Bob/ })).toBeNull()
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  // Swap and GlobalSwitch are followed by a personalised game_state, so the
+  // hand under an open prompt can be replaced wholesale without any card of
+  // ours being played.
+  it('closes the swap prompt when the card leaves our hand', () => {
+    renderGame()
+    act(() =>
+      useGameStore.setState({ myHand: [blueSwap], discard: blue7, activeColor: 'blue' }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+    expect(screen.getByRole('button', { name: /Bob/ })).toBeInTheDocument()
+
+    act(() => useGameStore.setState({ myHand: [blue7] }))
+    expect(screen.queryByRole('button', { name: /Bob/ })).toBeNull()
+  })
+
+  // The colour prompt answers to the same rule: a wild always matches, so what
+  // retires it is losing the turn rather than the colour in play changing.
+  it('closes the colour prompt when the turn moves under it', () => {
+    renderGame()
+    fireEvent.click(screen.getByRole('button', { name: 'wild wild' }))
+    expect(screen.getByRole('button', { name: 'green' })).toBeInTheDocument()
+
+    act(() => useGameStore.setState({ currentTurn: 1 }))
+    expect(screen.queryByRole('button', { name: 'green' })).toBeNull()
+  })
+
+  // The picker is chrome like everything else: it must not hand a French player
+  // an English card count. The count was the one string in this dialog written
+  // straight into the component, so it stayed English under a French label.
+  it('states the target hand size in the player language', () => {
+    localStorage.setItem('loco_lang', 'fr')
+    try {
+      renderGame()
+      act(() =>
+        useGameStore.setState({ myHand: [blueSwap], discard: blue7, activeColor: 'blue' }),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+      expect(screen.getByRole('button', { name: /Bob/ })).toHaveTextContent('3 cartes')
+    } finally {
+      localStorage.removeItem('loco_lang')
+    }
+  })
+
   it('flies a legal ordinary play', () => {
     const { onSend, container } = renderGame()
     fireEvent.click(screen.getByRole('button', { name: 'red number 3' }))

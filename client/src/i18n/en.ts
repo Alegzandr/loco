@@ -132,6 +132,10 @@ export interface Translations {
   catchBtn: string
   chooseColor: string
   choosePlayer: string
+  // Hand size of a swap target. Two entries because one card is the size that
+  // matters most here and "1 cards" is wrong in both languages.
+  swapTargetCards: string             // contains %n
+  swapTargetCardOne: string
   catchWindow: string
   // A Contre-LOCO! that arrived after the target's own call: it costs the
   // caller one card, so the table is told whose it was.
@@ -285,6 +289,8 @@ export const en: Translations = {
   catchBtn: 'Catch!',
   chooseColor: 'Choose a color',
   choosePlayer: 'Choose a player to swap hands with',
+  swapTargetCards: '%n cards',
+  swapTargetCardOne: '1 card',
   catchWindow: 'Catch window!',
   catchFailedYou: 'Too late! +1 card',
   catchFailedOther: '%player called too late — +1 card',

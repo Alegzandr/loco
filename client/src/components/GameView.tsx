@@ -250,6 +250,33 @@ export function GameView({ onSend, wsStatus }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastPlay?.at])
 
+  // ...and a card landing is not the only way the board moves. The turn timing
+  // out, a forced draw, a fresh game_state after a Swap: none of them set
+  // lastPlay, so the prompt above stayed up over a table that had gone, and the
+  // choice went out against a state the server had already replaced. It came
+  // back "illegal card play" *after* the player had answered a question nobody
+  // should have asked, which is the one refusal this game gives that feels like
+  // a broken promise rather than an illegal card.
+  //
+  // The condition is deliberately the same one that opened the prompt, read
+  // again: a prompt is only owed while the card behind it is still playable.
+  const pendingPick = colorPicker ?? playerPicker
+  useEffect(() => {
+    if (!pendingPick) return
+    const { card, interrupt } = pendingPick
+    const stillHeld = myHand.some(
+      (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
+    )
+    const stillLegal =
+      stillHeld &&
+      (interrupt
+        ? clientMayInterrupt(card, discard, pendingDraw)
+        : currentTurn === myIndex && clientMayPlay(card, discard, activeColor, pendingDraw))
+    if (stillLegal) return
+    setColorPicker(null)
+    setPlayerPicker(null)
+  }, [pendingPick, myHand, discard, activeColor, pendingDraw, currentTurn, myIndex])
+
   // Reconnect visual recovery: 600ms overlay → board fades back in via GameBoard's
   // internal rebuildKey effect.
   const showReconnectOverlay = useReconnectAnimation(
@@ -649,6 +676,9 @@ export function GameView({ onSend, wsStatus }: Props) {
       {playerPicker && (
         <PlayerPicker
           label={t.choosePlayer}
+          cardsLabel={(n) =>
+            n === 1 ? t.swapTargetCardOne : t.swapTargetCards.replace('%n', String(n))
+          }
           players={players.filter((p) => p.index !== myIndex)}
           onChoose={(targetIdx: number) => {
             onSend({

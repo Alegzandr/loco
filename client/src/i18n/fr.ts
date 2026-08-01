@@ -60,6 +60,8 @@ export const fr: Translations = {
   catchBtn: 'Contre-LOCO !',
   chooseColor: 'Choisissez une couleur',
   choosePlayer: 'Choisissez un joueur avec qui échanger votre main',
+  swapTargetCards: '%n cartes',
+  swapTargetCardOne: '1 carte',
   catchWindow: 'Contre-LOCO possible !',
   catchFailedYou: 'Trop tard ! +1 carte',
   catchFailedOther: '%player a crié trop tard — +1 carte',
