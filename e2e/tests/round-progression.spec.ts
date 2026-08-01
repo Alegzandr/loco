@@ -84,7 +84,7 @@ test.describe('round summary and match progression', () => {
 
     await forceRoundEndAsLocalWinner(page)
     await waitForRoundSummary(page, 20_000)
-    await expect(page.getByText(/wins the round!/)).toBeVisible()
+    await expect(page.getByText(new RegExp(T.winsRound))).toBeVisible()
 
     const summaryState = await getState(page)
     expect(summaryState?.roundNumber_completed).toBe(1)

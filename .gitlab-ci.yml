@@ -246,13 +246,41 @@ e2e_test:
           "APP_HOST=${APP_HOST}" \
           "IMAGE_TAG=${IMAGE_TAG}" \
           "CI_REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}" \
+          "LOCO_DRAIN_TIMEOUT=${LOCO_DRAIN_TIMEOUT}" \
+          "STOP_GRACE_PERIOD=${STOP_GRACE_PERIOD}" \
+          "LOCO_SNAPSHOT_PATH=${LOCO_SNAPSHOT_PATH}" \
           > "${target}"
+      }
+      # How long a deploy is willing to wait for the matches already running
+      # before it snapshots them and goes. The two environments want opposite
+      # things from the same mechanism: prod redeploys on a tag and can wait
+      # out a best-of-7, dev redeploys on every push to develop and must not
+      # park the runner for a quarter of an hour. STOP_GRACE_PERIOD stays
+      # above it: it is what Docker waits before SIGKILL, and a SIGKILL lands
+      # in the middle of the shutdown. See deploy/compose.yml.
+      set_drain_policy() {
+        case "$1" in
+          prod) export LOCO_DRAIN_TIMEOUT=15m STOP_GRACE_PERIOD=16m ;;
+          *)    export LOCO_DRAIN_TIMEOUT=90s STOP_GRACE_PERIOD=150s ;;
+        esac
+      }
+      # The server first, the client second, and never one `up -d` over both.
+      #
+      # Recreating the server is the slow half: it drains, and for as long as
+      # it does, the players still in a match are talking to the OLD process.
+      # Serving them the new client during that window would put a fresh
+      # bundle against a server one version behind, for the whole length of
+      # the drain. Doing the client afterwards narrows that mismatch to the
+      # seconds between the two commands.
+      rollout() {
+        docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait server
+        docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait client
       }
     - set -a
     - source deploy/app.env
     - set +a
     - validate_paths
-    - mkdir -p "${DEPLOY_DIR}/dev" "${DEPLOY_DIR}/prod" "${DATA_DIR}"
+    - mkdir -p "${DEPLOY_DIR}/dev" "${DEPLOY_DIR}/prod" "${DATA_DIR}" "${DATA_DIR}/snapshots"
     - echo "${CI_REGISTRY_PASSWORD:-${CI_JOB_TOKEN}}" | docker login --username "${CI_REGISTRY_USER:-gitlab-ci-token}" --password-stdin "${CI_REGISTRY}"
 
 # ──────────────────────────────────────────────────────────────────
@@ -304,12 +332,13 @@ deploy_dev:
     - export APP_HOST="${APP_SUBDOMAIN}-d.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_REF_SLUG}"
     - export DEPLOY_ENV=dev
+    - set_drain_policy dev
     - TARGET_DIR="${DEPLOY_DIR}/dev"
     - cp deploy/compose.yml "${TARGET_DIR}/compose.yml"
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
     - write_app_env "${TARGET_DIR}/app.env"
     - cd "${TARGET_DIR}"
-    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d
+    - rollout
 
 stop_dev:
   stage: deploy
@@ -320,6 +349,9 @@ stop_dev:
     - export APP_HOST="${APP_SUBDOMAIN}-d.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_REF_SLUG:-dev}"
     - export DEPLOY_ENV=dev
+    # `down` sends SIGTERM and honours stop_grace_period like any other stop,
+    # so this decides how long a manual stop waits on the tables that are up.
+    - set_drain_policy dev
     - TARGET_DIR="${DEPLOY_DIR}/dev"
     - mkdir -p "${TARGET_DIR}"
     - cp deploy/compose.yml "${TARGET_DIR}/compose.yml"
@@ -332,15 +364,22 @@ deploy_prod:
   stage: deploy
   extends: .defaults
   needs: ["build"]
+  # Above LOCO_DRAIN_TIMEOUT plus the image pulls, and stated rather than left
+  # to the instance default: this job legitimately blocks while people finish
+  # the match they are in.
+  timeout: 30m
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v.*/'
   script:
     - export APP_HOST="${APP_SUBDOMAIN}.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_TAG}"
     - export DEPLOY_ENV=prod
+    - set_drain_policy prod
     - TARGET_DIR="${DEPLOY_DIR}/prod"
     - cp deploy/compose.yml "${TARGET_DIR}/compose.yml"
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
     - write_app_env "${TARGET_DIR}/app.env"
     - cd "${TARGET_DIR}"
-    - docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d
+    # This job can now sit for as long as LOCO_DRAIN_TIMEOUT: it is waiting on
+    # a match somebody is playing. That wait is the feature.
+    - rollout

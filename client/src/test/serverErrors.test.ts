@@ -18,6 +18,7 @@ describe('resolveServerError', () => {
       'game already started',
       'invalid session token for reconnect',
       'not in a room',
+      'already in a room',
       'not your turn',
       'must counter or draw pending penalty cards first',
       'you have already drawn this turn',
@@ -51,6 +52,18 @@ describe('resolveServerError', () => {
       'rematch is only available once the match is over',
       'rate limit exceeded',
       'server busy, please retry',
+      // Matchmaking. The two sentinels are machine strings on purpose: they are
+      // read after the fact, on a game-over screen, so they must resolve like
+      // any other refusal rather than reach the player as an identifier.
+      'already searching for an opponent',
+      'not available in a matchmade game',
+      'you cannot leave a match in progress',
+      'your opponent has left the table',
+      'afk_forfeit',
+      'afk_kicked',
+      // A deploy in progress. Every action that would start a new match answers
+      // with this while the server drains; see server/hub/drain.go.
+      'server updating, try again in a moment',
       // Client-authored, but it lands in the same errorMsg slot and is rendered
       // through the same table, so it belongs to the same guarantee.
       'reconnect failed',
@@ -77,6 +90,12 @@ describe('resolveServerError', () => {
       .toBe(fr.errors.nicknameTaken)
     expect(resolveServerError('interrupt window closed', fr.errors))
       .toBe(fr.errors.interruptClosed)
+    // A refusal during a deploy must never read as "no table with that code":
+    // the code the player typed was real, the server just cannot open it yet.
+    expect(resolveServerError('server updating, try again in a moment', fr.errors))
+      .toBe(fr.errors.serverUpdating)
+    expect(resolveServerError('server updating, try again in a moment', en.errors))
+      .not.toBe(en.errors.roomNotFound)
   })
 
   it('prefers the narrower rule when two could match', () => {
@@ -86,6 +105,10 @@ describe('resolveServerError', () => {
     // "hand has N copies" is a batch-play shortfall, i.e. cards you do not hold.
     expect(resolveServerError('hand has 2 copies, need 3', en.errors))
       .toBe(en.errors.cardNotInHand)
+    // One word apart, opposite meanings: a socket refused a second seat versus a
+    // socket that holds none. Neither may resolve to the other's copy.
+    expect(resolveServerError('already in a room', en.errors)).toBe(en.errors.alreadyInRoom)
+    expect(resolveServerError('not in a room', en.errors)).toBe(en.errors.notInRoom)
   })
 
   it('falls back to a localised generic for anything unrecognised', () => {

@@ -18,7 +18,18 @@ export const UNO_CATCH_WINDOW_MS = 5000
 // than a flag over 'game' because the board has nothing to render at that point
 // (no hand, no discard, no players), and a table drawn from an empty state
 // behind an overlay is a broken table with a curtain over it.
-export type AppScreen = 'lobby' | 'waiting' | 'game' | 'gameover' | 'restoring'
+// 'searching' and 'matchfound' are the two screens of the 1v1 queue. They are
+// screens rather than flags for the same reason 'restoring' is: there is no
+// board to render behind either of them, and neither has a room the player
+// could act in yet.
+export type AppScreen =
+  | 'lobby'
+  | 'searching'
+  | 'matchfound'
+  | 'waiting'
+  | 'game'
+  | 'gameover'
+  | 'restoring'
 
 export interface SwapNotice {
   kind: 'swap' | 'global_switch'
@@ -186,6 +197,36 @@ interface GameStore {
   // Reconnect animation state
   isReconnecting: boolean
 
+  // The server told this table it is being replaced (`server_updating`). The
+  // match plays out to its end and nothing about it changes, so this is a line
+  // of text and nothing else: no countdown, no disabled control, no urgency.
+  // Cleared on reconnect, because the process that comes back may not be the
+  // one that said it.
+  serverUpdating: boolean
+
+  // --- 1v1 matchmaking ---
+  // When this search began, so the searching screen can time its own wait. It
+  // times it locally on purpose: the server never says how many people are in
+  // the queue, and an honest "this can take a while" beats a number that reads
+  // like an instruction to give up.
+  searchStartedAt: number | null
+  // The opponent we drew, held for the versus reveal. `startsAt` is when the
+  // server deals, so the reveal counts down to something real.
+  matchFound: { opponentNickname: string; mySeat: number; startsAt: number } | null
+  // This match came out of the queue: no host controls, a short abandon window,
+  // and a game-over screen that offers another opponent rather than a rematch.
+  isMatchmade: boolean
+  // The seat that abandoned, when the match ended because somebody stopped
+  // being there. null = the match ended on the cards.
+  forfeitBy: number | null
+  // An opponent who dropped and the instant their match is given away, so the
+  // board can say how long this lasts instead of freezing with no explanation.
+  opponentAway: { seat: number; deadline: number } | null
+  // Seats that have asked for another match on the game-over screen. A matchmade
+  // rematch is an agreement, so both offers are public: the button has to be
+  // able to say "they are waiting on you" as well as "you are waiting on them".
+  rematchOffers: number[]
+
   setScreen: (s: AppScreen) => void
   setRoomCode: (code: string) => void
   setMyIndex: (idx: number) => void
@@ -219,13 +260,30 @@ interface GameStore {
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[], roundHistory?: number[][]) => void
   applyLatencies: (latencies: LatencyEntryDTO[]) => void
-  applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
+  applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[], forfeitBy?: number) => void
+  beginSearch: () => void
+  endSearch: () => void
+  applyMatchFound: (found: {
+    roomCode: string
+    mySeat: number
+    sessionToken: string
+    players: PlayerDTO[]
+    matchFormat: MatchFormat
+    maxPlayers: number
+    startsInMs: number
+  }) => void
+  applyOpponentAway: (seat: number, deadline: number) => void
+  applyRematchOffer: (seat: number) => void
+  clearRematchOffers: () => void
+  clearOpponentAway: (seat: number) => void
+  resetToHome: () => void
   applyRematch: (myIndex: number, players: PlayerDTO[], format: MatchFormat, maxPlayers: number) => void
   setPendingGameState: (state: GameStateDTO) => void
   setPendingMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
   applyPendingGameState: () => void
   dismissRoundSummary: () => void
   setIsReconnecting: (val: boolean) => void
+  setServerUpdating: (val: boolean) => void
   clearError: () => void
 }
 
@@ -361,6 +419,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
   lastPlay: null,
   interruptFlash: null,
   isReconnecting: false,
+  serverUpdating: false,
+  searchStartedAt: null,
+  matchFound: null,
+  isMatchmade: false,
+  forfeitBy: null,
+  opponentAway: null,
+  rematchOffers: [],
 
   // Leaving 'restoring' is what "the reclaim landed" means, and every landing
   // path goes through here (player_reconnected, room_joined, match_loading), so
@@ -683,8 +748,128 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }),
 
-  applyMatchEnd: (matchWinner, scoreboard) =>
-    set({ matchWinner, matchOver: true, scoreboard, screen: 'gameover' }),
+  applyMatchEnd: (matchWinner, scoreboard, forfeitBy) =>
+    set({
+      matchWinner,
+      matchOver: true,
+      scoreboard,
+      screen: 'gameover',
+      // A forfeit is the one match end that can land while a round summary is
+      // still up: the opponent quits, and nothing is waiting on a dismissal any
+      // more. The ordinary path never gets here with a summary showing.
+      showRoundSummary: false,
+      forfeitBy: typeof forfeitBy === 'number' ? forfeitBy : null,
+      // The countdown is over one way or the other: either they came back or
+      // the match was given away, and both end the notice.
+      opponentAway: null,
+    }),
+
+  // --- 1v1 matchmaking ---
+
+  // The search screen owns its own clock. Nothing about the queue arrives from
+  // the server beyond "you are in it", which is the point: a client that could
+  // render the queue's size would eventually render "1".
+  beginSearch: () =>
+    set({ screen: 'searching', searchStartedAt: Date.now(), matchFound: null, errorMsg: '' }),
+
+  // Leaving the queue, whether the player cancelled or the server dropped them
+  // out of a pairing that fell apart. Guarded on the screen so an acknowledgement
+  // that arrives after a match was found cannot yank a seated player home.
+  endSearch: () =>
+    set((s) =>
+      s.screen === 'searching' ? { screen: 'lobby' as AppScreen, searchStartedAt: null } : s,
+    ),
+
+  // An opponent, a seat and a token, all at once: a matchmade room skips the
+  // waiting room entirely, so this does the work room_joined does plus the
+  // reveal.
+  applyMatchFound: (found) =>
+    set({
+      screen: 'matchfound',
+      searchStartedAt: null,
+      isMatchmade: true,
+      roomCode: found.roomCode,
+      myIndex: found.mySeat,
+      sessionToken: found.sessionToken,
+      players: found.players,
+      myNickname: found.players.find((p) => p.index === found.mySeat)?.nickname ?? '',
+      matchFormat: found.matchFormat,
+      maxPlayers: found.maxPlayers,
+      forfeitBy: null,
+      opponentAway: null,
+      rematchOffers: [],
+      errorMsg: '',
+      matchFound: {
+        opponentNickname: found.players.find((p) => p.index !== found.mySeat)?.nickname ?? '',
+        mySeat: found.mySeat,
+        startsAt: Date.now() + found.startsInMs,
+      },
+    }),
+
+  // Only a deadline makes this worth showing: an ordinary room holds the seat
+  // for a minute and says so through the roster, where a matchmade one is about
+  // to end the match and owes the player at the table a number.
+  applyOpponentAway: (seat, deadline) =>
+    set(deadline > 0 ? { opponentAway: { seat, deadline } } : {}),
+
+  clearOpponentAway: (seat) =>
+    set((s) => (s.opponentAway?.seat === seat ? { opponentAway: null } : s)),
+
+  applyRematchOffer: (seat) =>
+    set((s) =>
+      seat < 0 || s.rematchOffers.includes(seat)
+        ? s
+        : { rematchOffers: [...s.rematchOffers, seat] },
+    ),
+
+  // A seat that left takes every standing offer with it: there is nobody to
+  // agree with any more, and a button still reading "accept" would refuse.
+  clearRematchOffers: () => set({ rematchOffers: [] }),
+
+  // Back to the front door with nothing carried over. The seat is gone
+  // server-side by the time this runs, so the token and the room code are not
+  // stale state, they are wrong state.
+  resetToHome: () =>
+    set({
+      screen: 'lobby',
+      roomCode: '',
+      sessionToken: '',
+      myIndex: -1,
+      players: [],
+      myHand: [],
+      discard: null,
+      isMatchmade: false,
+      matchFound: null,
+      searchStartedAt: null,
+      forfeitBy: null,
+      opponentAway: null,
+      rematchOffers: [],
+      matchWinner: '',
+      matchOver: false,
+      scoreboard: [],
+      roundHistory: [],
+      roundScores: [],
+      latencies: [],
+      showRoundSummary: false,
+      pendingGameState: null,
+      pendingMatchEnd: null,
+      mapId: '',
+      mapLoading: null,
+      turnDeadline: null,
+      catchWindows: [],
+      catchTarget: null,
+      unoTimerEnd: null,
+      unoDeclared: false,
+      unoDeclaredByIndex: -1,
+      myDeclared: false,
+      catchFailed: null,
+      catchFlash: null,
+      swapNotice: null,
+      lastPlay: null,
+      interruptFlash: null,
+      isReconnecting: false,
+      errorMsg: '',
+    }),
 
   // The host reopened the finished room: drop all match state and go back to the
   // waiting room. myIndex comes from the server because pruning absent players
@@ -783,6 +968,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setIsReconnecting: (isReconnecting) => set({ isReconnecting }),
+
+  setServerUpdating: (serverUpdating) => set({ serverUpdating }),
 
   clearError: () => set({ errorMsg: '' }),
 }))

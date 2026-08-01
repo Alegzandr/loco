@@ -313,6 +313,15 @@ func NewRoom(code string) *Room {
 	}
 }
 
+// ensureRNG gives the room a source if it has none. A Room built by NewRoom
+// always has one; a Room decoded from JSON never does, because rng is
+// unexported and no serialisation can carry it.
+func (r *Room) ensureRNG() {
+	if r.rng == nil {
+		r.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	}
+}
+
 // SetFormat sets the match format (lobby only).
 func (r *Room) SetFormat(f MatchFormat) error {
 	if r.Status != StatusLobby {
@@ -405,9 +414,7 @@ func (r *Room) Start() error {
 	r.LostHandTotal = make([]int, n)
 	r.RoundHistory = nil
 	r.RoundNumber = 1
-	if r.rng == nil {
-		r.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-	}
+	r.ensureRNG()
 
 	// Drawn once per match, not per round: the table is the room the whole match
 	// is played in, and swapping it between rounds would read as a bug.
@@ -422,6 +429,11 @@ func (r *Room) Start() error {
 // startingPlayer is the player index who plays first; the first card's effect
 // (if it is an action card) is applied from that player's seat.
 func (r *Room) dealRound(startingPlayer int) {
+	// Here as well as in Start, because a Room can also arrive from a snapshot
+	// (hub/snapshot.go): rng is unexported, so a restored room comes back with a
+	// nil source and would deal the next round off the global one without ever
+	// saying so.
+	r.ensureRNG()
 	n := len(r.Players)
 	deck := NewDeck()
 	deck.Shuffle(r.rng)
@@ -661,6 +673,32 @@ func (r *Room) endRound(winnerIdx int) {
 			r.State.logEvent(EventMatchEnd, -1, nil, 0)
 		}
 	}
+}
+
+// ForfeitTo ends the match immediately and awards it to winnerIdx, without a
+// round having finished. It is what happens when the other side of a match
+// stops being there: a seat whose reconnect window closed, one that timed out
+// of enough turns in a row to be declared away, or one that quit on purpose.
+//
+// The scoreboard is deliberately left exactly as it was. A forfeit is not a win
+// on points, and dealing the abandoned round out to the survivor would write a
+// row into the score table for a round nobody played to the end. What the
+// player sees instead is a match that ended, and the reason for it: the hub
+// says who left on the match_end that follows.
+func (r *Room) ForfeitTo(winnerIdx int) error {
+	if r.Status != StatusPlaying {
+		return errors.New("forfeit is only possible during a match")
+	}
+	if winnerIdx < 0 || winnerIdx >= len(r.Players) {
+		return fmt.Errorf("invalid player index %d", winnerIdx)
+	}
+	r.MatchWinner = r.Players[winnerIdx].Nickname
+	r.MatchOver = true
+	r.Status = StatusFinished
+	if r.State != nil {
+		r.State.logEvent(EventMatchEnd, winnerIdx, nil, 0)
+	}
+	return nil
 }
 
 // BeginNextRound advances the room to the next round (incrementing RoundNumber

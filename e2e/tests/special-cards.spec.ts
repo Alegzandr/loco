@@ -118,13 +118,13 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     })
 
     // PlayerPicker modal must be visible.
-    await expect(page.getByText('Choose a player to swap hands with')).toBeVisible({
+    await expect(page.getByText(T.choosePlayer)).toBeVisible({
       timeout: 5_000,
     })
 
     // Cancel to avoid sending a partial message.
     await page.getByRole('button', { name: '✕' }).click()
-    await expect(page.getByText('Choose a player to swap hands with')).not.toBeVisible()
+    await expect(page.getByText(T.choosePlayer)).not.toBeVisible()
   })
 
   /**

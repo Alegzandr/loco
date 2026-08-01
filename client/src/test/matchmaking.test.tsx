@@ -1,0 +1,367 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import { I18nProvider } from '../i18n'
+import { en } from '../i18n/en'
+import { useGameStore } from '../hooks/useGameStore'
+import { Searching } from '../components/Searching'
+import {
+  searchStage,
+  formatElapsed,
+  SEARCH_PATIENT_MS,
+  SEARCH_LONG_MS,
+} from '../components/searchStages'
+import { MatchFound } from '../components/MatchFound'
+import { GameOver } from '../components/GameOver'
+
+const players = [
+  { index: 0, nickname: 'Alice', hand_size: 8, connected: true },
+  { index: 1, nickname: 'Bob', hand_size: 8, connected: true },
+]
+
+function renderWithI18n(node: React.ReactElement) {
+  return render(<I18nProvider>{node}</I18nProvider>)
+}
+
+describe('search stages', () => {
+  it('moves through three stages on elapsed time alone', () => {
+    expect(searchStage(0)).toBe('fresh')
+    expect(searchStage(SEARCH_PATIENT_MS - 1)).toBe('fresh')
+    expect(searchStage(SEARCH_PATIENT_MS)).toBe('patient')
+    expect(searchStage(SEARCH_LONG_MS - 1)).toBe('patient')
+    expect(searchStage(SEARCH_LONG_MS)).toBe('long')
+  })
+
+  it('formats the wait as m:ss', () => {
+    expect(formatElapsed(0)).toBe('0:00')
+    expect(formatElapsed(9_400)).toBe('0:09')
+    expect(formatElapsed(65_000)).toBe('1:05')
+    expect(formatElapsed(-500)).toBe('0:00')
+  })
+})
+
+describe('Searching screen', () => {
+  const noop = () => {}
+
+  it('says the wait is ordinary at first', () => {
+    renderWithI18n(
+      <Searching startedAt={Date.now()} nickname="Alice" onCancel={noop} onCreateTable={noop} />,
+    )
+    expect(screen.getByText(en.searchFresh)).toBeInTheDocument()
+    expect(screen.queryByText(en.searchCreateTable)).not.toBeInTheDocument()
+  })
+
+  it('admits it is still looking once the wait is long enough', () => {
+    renderWithI18n(
+      <Searching
+        startedAt={Date.now() - SEARCH_PATIENT_MS - 1000}
+        nickname="Alice"
+        onCancel={noop}
+        onCreateTable={noop}
+      />,
+    )
+    expect(screen.getByText(en.searchPatient)).toBeInTheDocument()
+  })
+
+  it('offers a private table instead once the wait is indeterminate', () => {
+    renderWithI18n(
+      <Searching
+        startedAt={Date.now() - SEARCH_LONG_MS - 1000}
+        nickname="Alice"
+        onCancel={noop}
+        onCreateTable={noop}
+      />,
+    )
+    expect(screen.getByText(en.searchLong)).toBeInTheDocument()
+    expect(screen.getByText(en.searchCreateTable)).toBeInTheDocument()
+  })
+
+  // The rule the whole mode rests on. None of the three things this screen can
+  // say may report, imply or hint at how many people are in the queue: a screen
+  // that could render "1 searching" would eventually render it, and every
+  // player who leaves on that sentence is the opponent the next one was about
+  // to get. The server never sends the number either (matchmaking_queued is an
+  // empty acknowledgement), so this is belt and braces on the copy.
+  it('never reports how many players are searching', () => {
+    for (const copy of [en.searchFresh, en.searchPatient, en.searchLong, en.searchTitle]) {
+      expect(copy).not.toMatch(/\d+\s*(player|opponent|people|in (the )?queue)/i)
+      expect(copy).not.toMatch(/queue/i)
+    }
+  })
+})
+
+describe('MatchFound reveal', () => {
+  it('names both players and counts down to the deal', () => {
+    renderWithI18n(
+      <MatchFound
+        myNickname="Alice"
+        opponentNickname="Bob"
+        mySeat={0}
+        startsAt={Date.now() + 2500}
+        format="BO1"
+      />,
+    )
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText('VS')).toBeInTheDocument()
+    expect(screen.getByText(en.matchFoundStartingIn.replace('%n', '3'))).toBeInTheDocument()
+    // The badge says what is about to be played, not the wire's name for it.
+    expect(screen.getByText(en.bestOf1)).toBeInTheDocument()
+    expect(screen.queryByText('BO1')).not.toBeInTheDocument()
+  })
+
+  // The countdown is presentation: the match begins when the server deals. A
+  // reveal that ran out first must hold, not act.
+  it('holds on the dealing message once the countdown is spent', () => {
+    renderWithI18n(
+      <MatchFound
+        myNickname="Alice"
+        opponentNickname="Bob"
+        mySeat={0}
+        startsAt={Date.now() - 1000}
+        format="BO1"
+      />,
+    )
+    expect(screen.getByText(en.matchFoundDealing)).toBeInTheDocument()
+  })
+})
+
+describe('matchmaking store transitions', () => {
+  beforeEach(() => {
+    useGameStore.setState({
+      screen: 'lobby',
+      isMatchmade: false,
+      matchFound: null,
+      searchStartedAt: null,
+      forfeitBy: null,
+      opponentAway: null,
+      players: [],
+      myIndex: -1,
+      sessionToken: '',
+      roomCode: '',
+    })
+  })
+
+  it('enters the search screen with its own clock', () => {
+    useGameStore.getState().beginSearch()
+    const s = useGameStore.getState()
+    expect(s.screen).toBe('searching')
+    expect(s.searchStartedAt).toBeGreaterThan(0)
+  })
+
+  it('seats both players straight from match_found, with no waiting room', () => {
+    useGameStore.getState().applyMatchFound({
+      roomCode: 'KX7QP2',
+      mySeat: 1,
+      sessionToken: 'tok',
+      players,
+      matchFormat: 'BO1',
+      maxPlayers: 2,
+      startsInMs: 2500,
+    })
+    const s = useGameStore.getState()
+    expect(s.screen).toBe('matchfound')
+    expect(s.isMatchmade).toBe(true)
+    expect(s.myIndex).toBe(1)
+    expect(s.myNickname).toBe('Bob')
+    expect(s.sessionToken).toBe('tok')
+    expect(s.matchFound?.opponentNickname).toBe('Alice')
+    expect(s.matchFound?.startsAt).toBeGreaterThan(Date.now())
+  })
+
+  // A cancel that raced a pairing arrives after the seat does. Acting on it
+  // would drag a seated player out of a match that is about to be dealt.
+  it('will not pull a seated player back to the lobby on a late cancel', () => {
+    useGameStore.getState().applyMatchFound({
+      roomCode: 'KX7QP2',
+      mySeat: 0,
+      sessionToken: 'tok',
+      players,
+      matchFormat: 'BO1',
+      maxPlayers: 2,
+      startsInMs: 2500,
+    })
+    useGameStore.getState().endSearch()
+    expect(useGameStore.getState().screen).toBe('matchfound')
+  })
+
+  it('records who abandoned when a match ends on a forfeit', () => {
+    useGameStore.getState().applyMatchEnd('Alice', [], 1)
+    const s = useGameStore.getState()
+    expect(s.screen).toBe('gameover')
+    expect(s.forfeitBy).toBe(1)
+    expect(s.showRoundSummary).toBe(false)
+  })
+
+  it('leaves forfeitBy null for a match that ended on the cards', () => {
+    useGameStore.getState().applyMatchEnd('Alice', [])
+    expect(useGameStore.getState().forfeitBy).toBeNull()
+  })
+
+  // Only a deadline makes the banner worth showing: an ordinary room sends none
+  // and must not get a countdown on a seat that is simply being held.
+  it('only tracks an absent opponent when the server gave a deadline', () => {
+    const deadline = Date.now() + 15_000
+    useGameStore.getState().applyOpponentAway(1, deadline)
+    expect(useGameStore.getState().opponentAway).toEqual({ seat: 1, deadline })
+
+    useGameStore.getState().clearOpponentAway(0)
+    expect(useGameStore.getState().opponentAway).not.toBeNull()
+    useGameStore.getState().clearOpponentAway(1)
+    expect(useGameStore.getState().opponentAway).toBeNull()
+
+    useGameStore.getState().applyOpponentAway(1, 0)
+    expect(useGameStore.getState().opponentAway).toBeNull()
+  })
+
+  it('drops the seat, the token and the match on the way home', () => {
+    useGameStore.setState({ roomCode: 'KX7QP2', sessionToken: 'tok', myIndex: 1, isMatchmade: true })
+    useGameStore.getState().resetToHome()
+    const s = useGameStore.getState()
+    expect(s.screen).toBe('lobby')
+    expect(s.roomCode).toBe('')
+    expect(s.sessionToken).toBe('')
+    expect(s.myIndex).toBe(-1)
+    expect(s.isMatchmade).toBe(false)
+  })
+})
+
+describe('GameOver after a forfeit', () => {
+  it('tells the survivor the opponent left instead of celebrating a win', () => {
+    renderWithI18n(
+      <GameOver
+        winner="Alice"
+        myNickname="Alice"
+        scoreboard={[]}
+        matchOver
+        isHost
+        isMatchmade
+        forfeitBy={1}
+        mySeat={0}
+        onSend={vi.fn()}
+        onRematch={vi.fn()}
+        onFindMatch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(en.forfeitWon)).toBeInTheDocument()
+    expect(screen.getByText(en.forfeitWonSub)).toBeInTheDocument()
+    expect(screen.queryByText(en.matchWon)).not.toBeInTheDocument()
+  })
+
+  it('tells the player who walked that they walked', () => {
+    renderWithI18n(
+      <GameOver
+        winner="Bob"
+        myNickname="Alice"
+        scoreboard={[]}
+        matchOver
+        isHost
+        isMatchmade
+        forfeitBy={0}
+        mySeat={0}
+        onSend={vi.fn()}
+        onRematch={vi.fn()}
+        onFindMatch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(en.forfeitYouLeft)).toBeInTheDocument()
+  })
+
+  // A matchmade rematch is an agreement, so the screen offers both: ask this
+  // opponent again, or go and find the next one.
+  it('offers both another round with this opponent and another opponent', () => {
+    const onRematch = vi.fn()
+    const onFindMatch = vi.fn()
+    renderWithI18n(
+      <GameOver
+        winner="Alice"
+        myNickname="Alice"
+        scoreboard={[]}
+        matchOver
+        isHost
+        isMatchmade
+        forfeitBy={null}
+        mySeat={0}
+        rematchOffers={[]}
+        onSend={vi.fn()}
+        onRematch={onRematch}
+        onFindMatch={onFindMatch}
+        onLeave={vi.fn()}
+      />,
+    )
+    screen.getByText(en.rematch).click()
+    expect(onRematch).toHaveBeenCalled()
+    screen.getByText(en.findAnotherOpponent).click()
+    expect(onFindMatch).toHaveBeenCalled()
+  })
+
+  // The point of making the offers public: knowing somebody is waiting on you.
+  it('says the opponent is waiting once they have asked first', () => {
+    renderWithI18n(
+      <GameOver
+        winner="Alice"
+        myNickname="Alice"
+        scoreboard={[]}
+        matchOver
+        isHost
+        isMatchmade
+        forfeitBy={null}
+        mySeat={0}
+        rematchOffers={[1]}
+        onSend={vi.fn()}
+        onRematch={vi.fn()}
+        onFindMatch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(en.rematchAccept)).toBeInTheDocument()
+  })
+
+  it('holds the button once we are the one waiting', () => {
+    renderWithI18n(
+      <GameOver
+        winner="Alice"
+        myNickname="Alice"
+        scoreboard={[]}
+        matchOver
+        isHost
+        isMatchmade
+        forfeitBy={null}
+        mySeat={0}
+        rematchOffers={[0]}
+        onSend={vi.fn()}
+        onRematch={vi.fn()}
+        onFindMatch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    )
+    const waiting = screen.getByText(en.rematchWaitingOpponent)
+    expect(waiting).toBeInTheDocument()
+    expect(waiting).toBeDisabled()
+  })
+
+  // After a forfeit there is nobody left to agree with, and the server refuses
+  // the offer. The screen must not put a button there that cannot work.
+  it('drops the rematch entirely after a forfeit', () => {
+    renderWithI18n(
+      <GameOver
+        winner="Alice"
+        myNickname="Alice"
+        scoreboard={[]}
+        matchOver
+        isHost
+        isMatchmade
+        forfeitBy={1}
+        mySeat={0}
+        rematchOffers={[]}
+        onSend={vi.fn()}
+        onRematch={vi.fn()}
+        onFindMatch={vi.fn()}
+        onLeave={vi.fn()}
+      />,
+    )
+    expect(screen.queryByText(en.rematch)).not.toBeInTheDocument()
+    expect(screen.getByText(en.findAnotherOpponent)).toBeInTheDocument()
+  })
+})

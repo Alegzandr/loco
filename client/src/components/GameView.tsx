@@ -25,6 +25,8 @@ import { clientMayInterrupt, clientMayPlay, isCounterCard } from './interruptHel
 import { GameBoard, GameBoardHandle } from './cards/GameBoard'
 import { resolveMap } from './cards/maps'
 import { MapLoadingScreen } from './MapLoadingScreen'
+import { OpponentAway } from './OpponentAway'
+import { ServerUpdating } from './ServerUpdating'
 import { useMapPreload } from '../hooks/useMapPreload'
 import styles from './GameView.module.css'
 
@@ -119,6 +121,8 @@ export function GameView({ onSend, wsStatus }: Props) {
     mapId,
     mapLoading,
     isReconnecting,
+    opponentAway,
+    serverUpdating,
     errorMsg,
     swapNotice,
     catchFailed,
@@ -536,6 +540,20 @@ export function GameView({ onSend, wsStatus }: Props) {
           <div ref={turnFillRef} className={`${styles.turnTimerFill} loco-heat`} />
         </div>
       )}
+
+      {/* An opponent who dropped out of a matchmade match, and the clock their
+          seat is on. Nothing sends a deadline in an ordinary room, so nothing
+          renders here in one. */}
+      {opponentAway && (
+        <OpponentAway
+          nickname={players.find((p) => p.index === opponentAway.seat)?.nickname ?? ''}
+          deadline={opponentAway.deadline}
+        />
+      )}
+
+      {/* A deploy is under way. The match is unaffected, which is the whole
+          message: see ServerUpdating for why it is the quietest thing here. */}
+      {serverUpdating && <ServerUpdating offset={opponentAway !== null} />}
 
       {/* Reconnect overlay — server-triggered (player_reconnected) */}
       {showReconnectOverlay && (

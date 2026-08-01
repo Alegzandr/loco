@@ -38,7 +38,7 @@ test.describe('mobile viewport', () => {
     await page.goto('/')
     await page.getByRole('button', { name: T.rulesBtn }).click()
 
-    const rulesTitle = page.getByText('Game Rules')
+    const rulesTitle = page.getByText(T.rulesTitle)
     await expect(rulesTitle).toBeVisible()
 
     await closeRulesModal(page)
@@ -154,7 +154,7 @@ test.describe('mobile viewport', () => {
     await startGame(page)
 
     await page.getByRole('button', { name: T.rulesBtn }).click()
-    const rulesTitle = page.getByText('Game Rules')
+    const rulesTitle = page.getByText(T.rulesTitle)
     await expect(rulesTitle).toBeVisible()
 
     await closeRulesModal(page)

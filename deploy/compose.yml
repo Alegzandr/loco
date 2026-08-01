@@ -8,6 +8,19 @@ services:
       - "8080"
     networks:
       - internal
+    # The single most important line in this file for anybody mid-match.
+    # Docker's default is SIGTERM, wait 10s, SIGKILL, and the graceful
+    # shutdown in server/main.go needs minutes, not ten seconds. Left at the
+    # default, every match in flight is killed exactly the way it was before
+    # any of the drain existed, and nothing would say so. Kept a minute above
+    # LOCO_DRAIN_TIMEOUT so the snapshot write always fits inside it.
+    stop_grace_period: ${STOP_GRACE_PERIOD:-16m}
+    volumes:
+      # Where the shutdown parks the matches the drain could not finish, and
+      # where the next container picks them up. A named path under DATA_DIR
+      # rather than a volume so an operator can see, and delete, exactly one
+      # file. See server/hub/snapshot.go.
+      - ${DATA_DIR}/snapshots:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 10s

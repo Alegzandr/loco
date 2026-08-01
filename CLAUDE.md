@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Mission
 Premium real-time multiplayer UNO-style card game **built to be streamed**. Goals: low-latency
 multiplayer, nickname-only access, server-authoritative anti-cheat, polished visuals *and* audio,
@@ -31,6 +33,25 @@ matching note before working on a subsystem; do not restate its contents here.
 
 Also: `docs/rules.md` is the authoritative game spec, `DESIGN.md` the written design system,
 `docs/protocol.md`, `docs/features.md`, `docs/deployment.md`.
+
+## Commands
+`make help` lists every target. They are docker-first so a host Go install is not required; the
+client and E2E targets do need Node.
+
+| Task | Command |
+| --- | --- |
+| Dev stack, hot reload | `make dev` (client :5173, server :8080) then `make down` |
+| All unit tests | `make test` (server + client) |
+| Go tests | `make test-server`, or `cd server && go test ./...` |
+| One Go test | `cd server && go test ./game/ -run TestRoom_ResetForRematch -v` |
+| Client tests | `make test-client`, watch mode `cd client && npm run test:watch` |
+| One client file / case | `cd client && npx vitest run src/test/matchmaking.test.tsx -t "<title substring>"` |
+| Full E2E | `make test-e2e` (needs the Go server on :8080; Playwright boots its own Vite on :4173) |
+| One E2E file / case | `cd e2e && npx playwright test tests/matchmaking.spec.ts -g "<title substring>"` |
+| Lint | `make lint` (golangci-lint in docker + ESLint) |
+| Type-check | `make build-client` (`tsc && vite build`); there is no separate typecheck script |
+| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make maps ARGS="--src=<folder>"` |
 
 ## Workflow loop
 1. Understand behavior. 2. Tests first (non-trivial). 3. Smallest correct change. 4. Run tests.
@@ -86,10 +107,16 @@ Required coverage: room create/join, nickname entry, game start, turn progressio
 moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter/catch
 windows, simultaneous resolution, reconnect (60s, nickname + room_code) **and session restore across a
 page reload**, rematch (host-only, seat pruning, re-indexing), protocol validation/rejection, seat
-layout at every table size and viewport, state-to-sound mapping, score table, link-preview tags vs the
+layout at every table size and viewport, state-to-sound mapping, score table, matchmaking (pairing,
+cancel, disconnect-out-of-queue, the host controls a matchmade room refuses, the rematch **both**
+sides have to ask for, and every forfeit path: quit, disconnect and AFK), link-preview tags vs the
 committed `og.png`, map draw + the loading gate and `tableImageRect` at every board size, batch play
 and batch interrupt (unit *and* E2E), a draw against exhausted piles, `Origin` checking, bots
-interjecting.
+interjecting, and the graceful shutdown: what a drain refuses, what it leaves alone, and a full
+restart where a match is snapshotted, reloaded by a fresh hub and reclaimed by both players with
+their original tokens. That last one has **no E2E counterpart on purpose**, because the Playwright
+suite cannot restart the server underneath itself; the integration tests in `server/hub/` are the
+coverage, and that is why they go through real sockets rather than the marshalling alone.
 
 Review layout/colour/motion changes with `make visual`: reading four contact sheets catches what no
 assertion was going to describe. Assertions own behaviour; screenshots own appearance.
@@ -99,8 +126,9 @@ Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
 ## Repository structure
 - `client/` frontend
   - `src/components/` UI screens + shared (RulesModal, LanguageSwitcher, AudioSettings,
-    InterruptBanner, CatchBanner, Confetti, MapLoadingScreen, Reconnecting, ScoreTable +
-    `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`)
+    InterruptBanner, CatchBanner, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
+    ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`, and the 1v1 queue's three:
+    `Searching.tsx`, `MatchFound.tsx`, `OpponentAway.tsx`)
   - `src/components/cards/` React + Framer Motion card renderer (GameBoard, Hand, Card, CardBack,
     Deck, DiscardPile, PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` pure
     pixel math, `CardArt.tsx` + `cardArtSpace.ts` + `locoMark.ts` the card face, `maps.ts` the four
@@ -114,14 +142,17 @@ Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
   - `src/i18n/` i18n context, en/fr translations, `serverErrors.ts`
   - `src/hooks/` WebSocket + Zustand store + `useElementSize` + `useSafeAreaInsets` + `useTheme` +
     `useHeldKey` + `useDrainBar` + `useMapPreload` + `useCountdown` + `useReconnectAnimation` +
-    `sessionPersistence` + `useSessionRestore`
+    `sessionPersistence` + `useSessionRestore` + `nicknameMemory`
   - `src/types/` protocol types  ·  `src/test/` Vitest unit tests
 - `server/` authoritative game server
   - `game/` pure domain (room, deck, hand, rules, bot, maps, event log)
-  - `hub/` WS connection mgmt, rate limiting, session tokens, bot scheduling, map-loading gate
+  - `hub/` WS connection mgmt, rate limiting, session tokens, bot scheduling, map-loading gate,
+    `matchmaking.go` (the 1v1 queue, the pairing, the rematch-by-agreement and the forfeit path),
+    `drain.go` + `snapshot.go` (the graceful shutdown: finish what is running, carry across the rest)
   - `protocol/` wire types
 - `e2e/` Playwright suite: `tests/` (game-flow, multi-client, mobile, penalties, round-progression,
-  reconnect, rematch, rules-coverage, special-cards, batch-play, score-table), `helpers/game.ts`,
+  reconnect, rematch, rules-coverage, special-cards, batch-play, score-table, matchmaking),
+  `helpers/game.ts`,
   `types.d.ts`, `playwright.config.ts`
 - `tools/` `lib/vite.mjs` (shared dev-server boot), `visual/shoot.mjs`, `og/shoot.mjs`,
   `maps/prepare.mjs`, `audio/verify.mjs`, `csp/check.mjs`
@@ -180,6 +211,19 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   burst 20) with **one notice per burst**.
 - **The upgrade checks `Origin`** (`hub.originAllowed`). Default: hostnames must match, ports need
   not. `LOCO_ALLOWED_ORIGINS` overrides with an exact allowlist. A missing `Origin` is allowed.
+- **A socket holds one seat for its lifetime.** `create_room` and `join_room` both refuse a client
+  that is already seated (`hub.alreadySeated`). A seat lives in two places (`c.playerID` and the
+  `*Client` pointer at that index in `roomMembers`) and re-entering moved only the first, leaving
+  the pointer behind at the old index while personalised broadcasts were built from the new one:
+  a player who rebound to seat 0 elsewhere was handed seat 0's **hand** in the room they had left.
+  Reconnects are unaffected; they arrive on a fresh socket.
+- **Personalised sends index by slot, never by `member.playerID`.** The slot is where the room filed
+  the client; `playerID` is what the client's own record claims. Anything that builds a hand
+  (`broadcastPersonalizedGameState`, the per-recipient `game_started`) reads the former.
+- **Room codes and session tokens both come from `crypto/rand`** (`randIndex`,
+  `generateSessionToken`), and neither has a `math/rand` fallback. The code is the only thing
+  guarding a private lobby and the token the only proof behind a seat reclaim; a predictable
+  sequence on either is the whole control. `math/rand` is for bot jitter and nothing else.
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names the refusals a
   correct client produces all match long; gameplay handlers call `Client.noteRejection(err)`, not
   `noteSuspect`. Always `errors.Is`, never string comparison.
@@ -194,6 +238,35 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   the same domain calls and the same broadcasts as humans. Only `LOCO_BOT_THINK_MS` /
   `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on `LOCO_E2E=1`); every other bot delay
   is a reaction window somebody is meant to be able to win.
+- **1v1 matchmaking is one FIFO queue** (`hub/matchmaking.go`) and its size is **never on the wire**:
+  `matchmaking_queued` is an empty acknowledgement, and the number lives only on `/metrics`. A client
+  that could render it would render "1" at exactly the moment the queue is trying to fill, which
+  reads as "close the tab". A matchmade room has no host: `add_bot`, `start_game`, `set_match_format`
+  and `set_max_players` are all refused by `refuseInMatchmade`. Nothing player-facing says
+  "unranked"; a ranked ladder would be a second queue and would introduce itself.
+- **`rematch` is the one lobby control a matchmade room keeps, and it means something else there**
+  (`hub.handleRematchOffer`, deliberately *not* behind `refuseInMatchmade`). In an ordinary room the
+  host decides for everyone; between two strangers nobody has that standing, so each side asks
+  (`rematch_offered`, broadcast so the offer is public) and the same two are dealt in again only once
+  both have (`startRematchedMatch`). Whoever wants a different opponent requeues from the same
+  screen instead.
+- **Nobody waits for somebody who is not there.** A matchmade room holds a dropped seat for 15s
+  (`MatchmakingReconnectTimeout`) instead of 60 and treats 2 consecutive turn timeouts as away
+  (`MatchmakingAFKThreshold`) instead of 4, and **both expiries forfeit the match** to whoever stayed
+  (`game.Room.ForfeitTo` + `hub.forfeitMatch`), as does `leave_room`. The scoreboard is left alone: no
+  points are invented for a round nobody finished. Ordinary rooms keep 60s and 4: those are people
+  who came in together. `leave_room` is refused mid-match in one.
+- **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub.BeginDrain`,
+  `hub/drain.go`): nothing that would start a new match is accepted, the matchmaking queue is emptied
+  with an explanation, and **everything already running is left completely alone**. The refusal list
+  (`create_room`, `start_game`, `rematch`, `find_match`, `join_room` on an unknown table) is chosen so
+  the drain terminates; joining an existing lobby stays allowed because a lobby cannot deal during
+  one. Whatever the drain does not finish is written to `LOCO_SNAPSHOT_PATH` and read back by the next
+  process (`hub/snapshot.go`), and the clients reconnect into it with the token they already hold.
+  Only matches in flight travel, a snapshot is never replayed, and a foreign `SnapshotSchemaVersion`
+  or an age over `SnapshotMaxAge` drops the file whole. **`stop_grace_period` in `deploy/compose.yml`
+  must stay above `LOCO_DRAIN_TIMEOUT`**: at Docker's 10s default the `SIGKILL` lands in the middle
+  and none of this exists. See `docs/notes/server.md`.
 - **The map-loading gate refuses every gameplay message while open** and the turn clock starts at
   `match_ready`, not at `game_started`. Per match, not per round.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
@@ -220,6 +293,27 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - New inbound message types go in `serverMsgTypeSchema` (`protocolSchemas.ts`) or `useWebSocket` drops
   them in dev; new outbound types go in `ClientMsgType`. The schemas are the single source of truth
   for inbound types.
+- **The copy is the game talking, not a website.** Players open a **table**, share a table code and
+  take a seat; there is no "room" and no "lobby" in any player-facing string. French is
+  **tutoiement**. A button is the verb about to happen, a refusal says what to do next and never
+  scolds, and only the streamable moments shout. The rules modal is written to be read once,
+  standing up: one sentence per item, headings that promise something. `docs/notes/client.md` holds
+  the full voice, and `docs/rules.md` stays the spec the modal must not contradict.
+- **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`, written on submit and
+  read once at mount). It is a prefill that authenticates nothing, which is exactly why it is not the
+  `sessionStorage` `loco_session` record: an emptied field still refuses to send.
+- **The searching screen times its own wait, and none of its copy may imply the queue is empty.**
+  The server sends no count, so `searchStage` (0-15s / 15-45s / 45s+) stages three honest sentences
+  off elapsed time and the last one offers a private table instead. "Nobody is searching" is
+  self-fulfilling: the player who leaves on it is the opponent the next one was about to get. The
+  queue screen is entered optimistically (the acknowledgement carries nothing to wait for), and
+  `endSearch` is guarded on the screen so a cancel that raced a pairing cannot unseat a matched
+  player. **A forfeit never renders as a victory**: no confetti, no trophy, and the player who left is
+  told they left.
+- **A matchmade game-over screen asks, it does not command.** The rematch button is an offer with two
+  states (asked / waiting on the other side), the opponent's offer shows as it arrives, and requeuing
+  sits beside it as an equal choice. Never render a matchmade rematch as though pressing it started
+  anything.
 - `initTheme()` and `initSessionRestore()` run in `main.tsx` before the first render.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`, so a missing
   key is a TS error.
@@ -299,6 +393,11 @@ Service Dockerfiles, `docker-compose.yml`, `docker-compose.dev.yml`, `.env.examp
 `README.md` and kept current. Production path: Traefik to nginx (:80) to Go (:8080, internal only);
 nginx proxies `/ws` and `/health`, serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` /
 `Permissions-Policy` on every response.
+
+**Run `docker run` through `make` or PowerShell, never raw from Git Bash on Windows.** MSYS rewrites
+`-v src:/app` into `src;C:/Program Files/Git/app`; the `-w` errors out but the mount has already made
+an empty `server;C` directory at the repo root that `git status` cannot see. `MSYS_NO_PATHCONV=1` if
+Bash is unavoidable. See `docs/notes/testing-ci.md`.
 
 Root `Makefile` is docker-first so Go is not needed on the host. `make help` lists everything:
 `dev`, `down`, `test`, `test-server`, `test-client`, `test-e2e`, `visual`, `og`, `maps`,

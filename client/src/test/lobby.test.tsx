@@ -3,11 +3,22 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { I18nProvider } from '../i18n'
 import { Lobby } from '../components/Lobby'
 import { en } from '../i18n/en'
+import { NICKNAME_KEY } from '../hooks/nicknameMemory'
 
-function renderLobby(onSend = vi.fn(), error = '', onClearError = vi.fn()) {
+function renderLobby(
+  onSend = vi.fn(),
+  error = '',
+  onClearError = vi.fn(),
+  onFindMatch = vi.fn(),
+) {
   return render(
     <I18nProvider>
-      <Lobby onSend={onSend} error={error} onClearError={onClearError} />
+      <Lobby
+        onSend={onSend}
+        onFindMatch={onFindMatch}
+        error={error}
+        onClearError={onClearError}
+      />
     </I18nProvider>
   )
 }
@@ -98,5 +109,67 @@ describe('Lobby', () => {
     fireEvent.change(input, { target: { value: 'Alice' } })
     fireEvent.submit(input.closest('form')!)
     expect(onSend).toHaveBeenCalledWith({ type: 'create_room', nickname: 'Alice' })
+  })
+
+  it('starts with an empty nickname on a first visit', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.createRoom))
+    expect((screen.getByPlaceholderText(en.yourNickname) as HTMLInputElement).value).toBe('')
+  })
+
+  it('prefills the nickname used on the previous visit', () => {
+    localStorage.setItem(NICKNAME_KEY, 'Alice')
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    expect((screen.getByPlaceholderText(en.yourNickname) as HTMLInputElement).value).toBe('Alice')
+  })
+
+  it('remembers the nickname a created room was entered with', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.createRoom))
+    const input = screen.getByPlaceholderText(en.yourNickname)
+    fireEvent.change(input, { target: { value: '  Alice  ' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(localStorage.getItem(NICKNAME_KEY)).toBe('Alice')
+  })
+
+  it('remembers the nickname a joined room was entered with', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    fireEvent.change(screen.getByPlaceholderText(en.yourNickname), { target: { value: 'Bob' } })
+    fireEvent.change(screen.getByPlaceholderText(en.roomCodeLabel), { target: { value: 'abc123' } })
+    fireEvent.submit(screen.getByPlaceholderText(en.yourNickname).closest('form')!)
+    expect(localStorage.getItem(NICKNAME_KEY)).toBe('Bob')
+  })
+
+  it('does not remember a name that was never submitted', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.createRoom))
+    fireEvent.change(screen.getByPlaceholderText(en.yourNickname), { target: { value: 'Half' } })
+    expect(localStorage.getItem(NICKNAME_KEY)).toBeNull()
+  })
+
+  it('prefilled or not, an emptied field still refuses to send', () => {
+    localStorage.setItem(NICKNAME_KEY, 'Alice')
+    const onSend = vi.fn()
+    renderLobby(onSend)
+    fireEvent.click(screen.getByText(en.createRoom))
+    const input = screen.getByPlaceholderText(en.yourNickname)
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.submit(input.closest('form')!)
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('puts the caret on the room code when the nickname is already known', () => {
+    localStorage.setItem(NICKNAME_KEY, 'Alice')
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    expect(screen.getByPlaceholderText(en.roomCodeLabel)).toHaveFocus()
+  })
+
+  it('puts the caret on the nickname on a first visit', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    expect(screen.getByPlaceholderText(en.yourNickname)).toHaveFocus()
   })
 })

@@ -20,6 +20,9 @@ function renderGameOver(opts: { isHost: boolean; onSend?: ReturnType<typeof vi.f
         matchOver
         isHost={opts.isHost}
         onSend={onSend}
+        onRematch={vi.fn()}
+        onFindMatch={vi.fn()}
+        onLeave={vi.fn()}
       />
     </I18nProvider>
   )

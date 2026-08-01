@@ -26,6 +26,13 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
   is not playable, so `handleCardClick` refuses to open its picker — a fixture using a
   `{ color: 'wild', kind: 'swap' }`, a card that exists in no deck, failed on every run once the
   legality check moved ahead of the prompt.
+- **The graceful shutdown is deliberately not covered here.** A drain and a snapshot restore are
+  properties of the *process*, and the suite runs against a server it does not own and cannot restart
+  underneath itself. `server/hub/drain_test.go` and `server/hub/snapshot_test.go` are the coverage,
+  and they earn it by going through real WebSockets rather than testing the marshalling: the restart
+  test stands up one hub, plays a match on it, snapshots, stands up a *second* hub, and has both
+  players reconnect with their original tokens and get their hands back card for card. If a way to
+  restart the binary mid-suite ever appears, this is the first thing worth an E2E.
 - `webServer` env vars go in `playwright.config.ts`'s `env` object, **not** a `VAR=x cmd` shell prefix — the prefix form is POSIX-only and breaks when the suite runs from Windows.
 - Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
 - **Update E2E in same commit as gameplay/UI/protocol changes.**
@@ -212,4 +219,17 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - `vite.config.ts`: no proxy.
 - Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
 - Start: `docker compose -f docker-compose.dev.yml up --build`.
+
+### An ad-hoc `docker run` from Git Bash on Windows corrupts its own paths
+Git Bash (MSYS) rewrites any argument that looks like a POSIX path list: the `:` separator becomes a
+Windows `;`. So `-v /f/dev/loco/server:/app -w /app` reaches Docker as
+`-v 'F:\dev\loco\server;C:/Program Files/Git/app' -w 'C:/Program Files/Git/app'`. The `-w` fails
+loudly ("invalid, it needs to be an absolute path"), but the `-v` fails *silently first*: Docker
+Desktop creates the missing bind source, so a stray empty `server;C` directory appears at the repo
+root, invisible to `git status` because git does not track empty directories. One appeared that way
+on 2026-07-30 and sat there unexplained for two days.
+
+Three ways out, in order of preference: use `make` (it runs from PowerShell or from a container, so
+no conversion happens); run the `docker run` through PowerShell with a Windows source
+(`-v "F:\dev\loco\server:/app"`); or, if it must be Bash, prefix `MSYS_NO_PATHCONV=1`.
 

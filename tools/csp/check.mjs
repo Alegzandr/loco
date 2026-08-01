@@ -120,13 +120,13 @@ async function check(url) {
   }
 
   // Creating a room is the first thing that needs the socket.
-  await page.getByRole('button', { name: /Create Room|Créer une partie/ }).click()
-  await page.getByPlaceholder(/nickname|pseudo/i).fill('CspProbe')
-  await page.getByRole('button', { name: /Create Game|Créer/ }).click()
+  await page.getByRole('button', { name: /New table|Nouvelle table/ }).click()
+  await page.getByPlaceholder(/Your name|Ton pseudo/i).fill('CspProbe')
+  await page.getByRole('button', { name: /Open the table|Ouvrir la table/ }).click()
 
   let reachedWaitingRoom = true
   try {
-    await page.getByText(/Waiting Room|Salle d'attente/i).first().waitFor({ timeout: 10_000 })
+    await page.getByText(/The table|La table/i).first().waitFor({ timeout: 10_000 })
   } catch {
     reachedWaitingRoom = false
     problems.push('never reached the waiting room: the WebSocket round trip did not complete')

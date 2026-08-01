@@ -94,11 +94,86 @@ Browser (HTTPS) → Traefik (:443, entrypoint websecure)
 - nginx bridges the `traefik` and `internal` Docker networks; the Go server is isolated on `internal` and is never directly reachable by Traefik.
 - The Go server container exposes port 8080 internally (`expose`, not `ports`).
 
+## A deploy does not interrupt the matches on the server
+
+A deploy used to end every match in progress, silently. `docker compose up -d`
+recreated the `server` container, `main.go` caught no signal, and the process
+died mid-turn. The clients retried 250 ms later with the session token they
+still held, found the room gone, and were answered `room not found`, which the
+client renders as "Aucune table avec ce code": the player lost the match and was
+shown a message that reads like they mistyped their own table code.
+
+Two mechanisms replace that, and they are complementary rather than
+alternative. Both run on every shutdown.
+
+### 1. The drain
+
+On `SIGTERM` (`server/main.go` → `hub.BeginDrain`, `server/hub/drain.go`):
+
+- Nothing new starts. `create_room`, `start_game`, `rematch`, `find_match` and a
+  `join_room` aimed at a table this process does not have are all answered
+  `server updating, try again in a moment`. The matchmaking queue is emptied and
+  everybody in it is told why.
+- **Everything already running is left completely alone**: same turn clock, same
+  reaction windows, same bots, same reconnects. A match that started before the
+  signal plays out exactly as it would have.
+- Tables in progress get one `server_updating` message, which the client renders
+  as a quiet line in the top chrome. It is information: nothing is disabled and
+  there is no countdown.
+- The process exits as soon as the last match ends, or after
+  `LOCO_DRAIN_TIMEOUT`, whichever comes first.
+
+The refusal list is chosen so **the drain terminates**. Every entry on it is an
+action that would add a match to the set being waited on. Joining a lobby that
+already exists is deliberately *not* on it: a lobby cannot deal during a drain,
+so sitting down in one costs the deploy nothing. Were `start_game` allowed, two
+players could hold a deploy open indefinitely by rematching.
+
+### 2. The snapshot
+
+For the case the drain runs out of time (`server/hub/snapshot.go`): the matches
+still in flight are written to `LOCO_SNAPSHOT_PATH` as the process exits, and
+the next one reads them back before its listener is up. The clients reconnect
+into the restored rooms on their own, with the token they have had in
+`sessionStorage` since they joined. From a seat it is the one-second
+"Reconnexion" overlay a dropped wifi frame already produces, which is why none
+of this needed a new client screen.
+
+Three deliberate limits:
+
+- **Only matches in flight travel.** A lobby has nothing to lose and its players
+  are on the table screen, not in a hand.
+- **A snapshot is never replayed.** The file is removed as it is read.
+- **`SnapshotSchemaVersion` is a hard gate, not a merge.** A room shaped by
+  another build is dropped whole, with a `WARN`. So is one older than
+  `SnapshotMaxAge` (2 min), by which point the clients have given up anyway.
+  This is the other half of why the drain exists: it is what makes a dropped
+  snapshot rare rather than routine.
+
+### What the deploy has to get right
+
+| Piece | Why it matters |
+|---|---|
+| `stop_grace_period` on the `server` service | The single most important line. Docker's default is SIGTERM, wait 10 s, SIGKILL, and a SIGKILL lands in the middle of all of the above. Left at the default, none of this exists. Kept above `LOCO_DRAIN_TIMEOUT` so the snapshot write always fits inside it. |
+| `${DATA_DIR}/snapshots:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file. |
+| `rollout()` does **server first, client second** | Recreating the server is the slow half, and for as long as it drains the players in a match are talking to the *old* process. Serving them the new bundle during that window would pair a fresh client with a server one version behind for the whole drain. Doing the client afterwards narrows the mismatch to the seconds between the two commands. |
+| `set_drain_policy` per environment | prod `15m` / `16m`, dev `90s` / `150s`. Prod redeploys on a tag and can wait out a best-of-7; dev redeploys on every push to `develop` and must not park the runner. `deploy_prod` carries `timeout: 30m` because it legitimately blocks while people finish their match. |
+
+`/health` and `/metrics` both report `draining`; `/metrics` also carries
+`matches_in_flight`, which is the number the shutdown is waiting to reach zero.
+It is only maintained while draining and reads 0 before that.
+
+Coverage is `server/hub/drain_test.go` and `server/hub/snapshot_test.go`,
+including a full restart: a match on one hub, snapshot, a second hub loads it,
+and both players reconnect with their original tokens and get their hands back
+card for card. There is deliberately **no Playwright coverage**: the E2E suite
+cannot restart the server underneath itself.
+
 ## Production readiness
 
 - The `server` service in `deploy/compose.yml` has a healthcheck (`GET /health`, 10 s interval, 5 s timeout, 3 retries, 5 s start period).
 - The `client` service waits for `server` to be `healthy` before starting (`condition: service_healthy`), preventing nginx from routing to a not-yet-listening Go server.
-- Compose-interpolation variables (`DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`) are written to `app.env` by `write_app_env` and loaded via `--env-file app.env`, so a manual `docker compose up` on the server works without CI shell exports.
+- Compose-interpolation variables (`DEPLOY_ENV`, `APP_HOST`, `IMAGE_TAG`, `CI_REGISTRY_IMAGE`, `STOP_GRACE_PERIOD`) and the server's own `LOCO_DRAIN_TIMEOUT` / `LOCO_SNAPSHOT_PATH` are written to `app.env` by `write_app_env` and loaded via `--env-file app.env`, so a manual `docker compose up` on the server works without CI shell exports.
 - Dev hosts (`*-d.<domain>`) serve `robots.txt` with `Disallow: /`; production hosts allow indexing.
 - nginx WebSocket timeouts: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
 - nginx sends security headers on every response (`always`): a closed CSP, `X-Content-Type-Options`,

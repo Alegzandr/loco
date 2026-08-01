@@ -111,7 +111,16 @@ export interface Scene {
   /** Human label shown in the gallery index. */
   title: string
   /** Which top-level screen to mount. */
-  screen: 'lobby' | 'waiting' | 'game' | 'gameover' | 'restoring' | 'cards' | 'og'
+  screen:
+    | 'lobby'
+    | 'searching'
+    | 'matchfound'
+    | 'waiting'
+    | 'game'
+    | 'gameover'
+    | 'restoring'
+    | 'cards'
+    | 'og'
   /**
    * Store patch applied before mounting. `deadlineIn`/`unoIn` are relative so
    * captures stay stable regardless of when they run.
@@ -122,8 +131,11 @@ export interface Scene {
   /** Seconds left in the UNO catch window. */
   unoIn?: number
   overlay?: SceneOverlay
-  /** Lobby sub-screen ('home' | 'create' | 'join') — drives Lobby's internal mode. */
-  lobbyMode?: 'home' | 'create' | 'join'
+  /** Lobby sub-screen: drives Lobby's internal mode. */
+  lobbyMode?: 'home' | 'find' | 'create' | 'join'
+  /** Seconds already spent searching, so the three stages of the copy can each
+   *  be captured (see Searching.tsx: 0-15s, 15-45s, 45s+). */
+  searchingFor?: number
   /** Simulated transport state for the game screen. */
   wsStatus?: 'connecting' | 'open' | 'closed'
 }
@@ -176,6 +188,37 @@ export const SCENES: Scene[] = [
     title: 'Accueil · rejoindre une partie',
     screen: 'lobby',
     lobbyMode: 'join',
+  },
+  {
+    id: 'lobby-find',
+    title: 'Accueil · 1v1',
+    screen: 'lobby',
+    lobbyMode: 'find',
+  },
+  {
+    id: 'matchmaking-searching',
+    title: '1v1 · recherche',
+    screen: 'searching',
+    searchingFor: 4,
+  },
+  {
+    id: 'matchmaking-searching-patient',
+    title: '1v1 · recherche qui dure',
+    screen: 'searching',
+    searchingFor: 22,
+  },
+  {
+    // The stage that matters most: the queue is empty and the screen has to say
+    // so without ever saying so.
+    id: 'matchmaking-searching-long',
+    title: '1v1 · attente indéterminée',
+    screen: 'searching',
+    searchingFor: 70,
+  },
+  {
+    id: 'matchmaking-found',
+    title: '1v1 · adversaire trouvé',
+    screen: 'matchfound',
   },
   {
     id: 'lobby-error',
@@ -577,6 +620,91 @@ export const SCENES: Scene[] = [
       scoreboard: SCOREBOARD,
       players: PLAYERS_4,
       myIndex: 0,
+    },
+  },
+  {
+    // The screen a walkover produces. It must not look like the victory above:
+    // no confetti, no trophy, and copy that names what happened.
+    id: 'gameover-forfeit-won',
+    title: 'Fin de match · adversaire parti',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      isMatchmade: true,
+      forfeitBy: 1,
+      scoreboard: SCOREBOARD.slice(0, 2),
+      players: PLAYERS_4.slice(0, 2),
+      myIndex: 0,
+    },
+  },
+  {
+    id: 'gameover-forfeit-left',
+    title: 'Fin de match · tu as quitté',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Kiwi',
+      matchOver: true,
+      isMatchmade: true,
+      forfeitBy: 0,
+      scoreboard: SCOREBOARD.slice(0, 2),
+      players: PLAYERS_4.slice(0, 2),
+      myIndex: 0,
+    },
+  },
+  {
+    // The whole point of making a rematch offer public: the other side has
+    // asked, and this screen has to say so.
+    id: 'gameover-rematch-offered',
+    title: 'Fin de match · revanche proposée',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Kiwi',
+      matchOver: true,
+      isMatchmade: true,
+      rematchOffers: [1],
+      scoreboard: SCOREBOARD.slice(0, 2),
+      players: PLAYERS_4.slice(0, 2),
+      myIndex: 0,
+    },
+  },
+  {
+    // The board a disconnected opponent leaves behind, with the clock their
+    // seat is on. Only a matchmade room ever renders this.
+    id: 'game-opponent-away',
+    title: 'Partie · adversaire déconnecté',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: PLAYERS_4.slice(0, 2),
+      isMatchmade: true,
+      opponentAway: { seat: 1, deadline: Date.now() + 11_000 },
+    },
+  },
+  {
+    // A deploy landing mid-match. The one thing to check here is that it reads
+    // as a note and not as a warning: nothing about the board changes, and a
+    // player who never sees it loses nothing.
+    id: 'game-server-updating',
+    title: 'Partie · mise à jour du serveur',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      serverUpdating: true,
+    },
+  },
+  {
+    // Both at once, which is the only reason the banner has an offset: the
+    // countdown owns the slot, the deploy note waits its turn under it.
+    id: 'game-server-updating-with-away',
+    title: 'Partie · mise à jour + adversaire absent',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: PLAYERS_4.slice(0, 2),
+      isMatchmade: true,
+      opponentAway: { seat: 1, deadline: Date.now() + 11_000 },
+      serverUpdating: true,
     },
   },
 ]

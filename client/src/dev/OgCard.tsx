@@ -69,7 +69,15 @@ export function OgCard() {
 
         <div className={styles.brand}>
           <LocoLogo size="118px" stacked className={styles.logo} />
-          <p className={styles.tagline}>{t.tagline}</p>
+          {/* One line per sentence. Left to itself the column breaks the
+              tagline wherever the width runs out ("Cards at speed. Nobody /
+              waits their turn."), which reads as a text box that ran out of
+              room rather than as a line somebody wrote. */}
+          <p className={styles.tagline}>
+            {t.tagline.split(/(?<=[.!?])\s+/).map((line) => (
+              <span key={line} className={styles.taglineLine}>{line}</span>
+            ))}
+          </p>
         </div>
 
         <div className={styles.fan} aria-hidden="true">

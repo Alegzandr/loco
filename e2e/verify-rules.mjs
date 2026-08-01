@@ -34,18 +34,18 @@ async function newCtx() {
 }
 
 async function createRoomWithBot(page, nick) {
-  await page.locator('button:has-text("Create Room")').click()
+  await page.locator('button:has-text("New table")').click()
   await page.locator('input[placeholder*="ickname" i]').first().fill(nick)
-  await page.locator('button:has-text("Create Game")').click()
+  await page.locator('button:has-text("Open the table")').click()
   await page.waitForFunction(() => window.__LOCO_E2E__.getState()?.screen === 'waiting')
-  await page.locator('button:has-text("Add Bot")').click()
+  await page.locator('button:has-text("Add a bot")').click()
   await page.waitForFunction(() => (window.__LOCO_E2E__.getState()?.players?.length ?? 0) >= 2)
-  await page.locator('button:has-text("Start Game")').click()
+  await page.locator('button:has-text("Deal")').click()
   await page.waitForFunction(() => window.__LOCO_E2E__.getState()?.screen === 'game')
 }
 
 async function joinRoom(page, nick, code) {
-  await page.locator('button:has-text("Join Room")').click()
+  await page.locator('button:has-text("Join a table")').click()
   await page.locator('input[placeholder*="ickname" i]').first().fill(nick)
   await page.locator('input[placeholder*="oom code" i]').first().fill(code)
   await page.locator('button[type=submit]').last().click()
@@ -208,13 +208,13 @@ async function runRulesTests() {
   // ===== two-browser block: §6 interjection, §7.3 +2, §7.5 +4, §7.6 swap, §7.7 global, §8 LOCO, §9/§10 win+score =====
   const aliceCtx = await newCtx()
   const bobCtx = await newCtx()
-  await aliceCtx.page.locator('button:has-text("Create Room")').click()
+  await aliceCtx.page.locator('button:has-text("New table")').click()
   await aliceCtx.page.locator('input[placeholder*="ickname" i]').first().fill('Alice')
-  await aliceCtx.page.locator('button:has-text("Create Game")').click()
+  await aliceCtx.page.locator('button:has-text("Open the table")').click()
   await aliceCtx.page.waitForFunction(() => window.__LOCO_E2E__.getState()?.screen === 'waiting')
   const code = await aliceCtx.page.evaluate(() => window.__LOCO_E2E__.getState()?.roomCode)
   await joinRoom(bobCtx.page, 'Bob', code)
-  await aliceCtx.page.locator('button:has-text("Start Game")').click()
+  await aliceCtx.page.locator('button:has-text("Deal")').click()
   await Promise.all([
     aliceCtx.page.waitForFunction(() => window.__LOCO_E2E__.getState()?.screen === 'game'),
     bobCtx.page.waitForFunction(() => window.__LOCO_E2E__.getState()?.screen === 'game'),

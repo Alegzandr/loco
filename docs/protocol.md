@@ -13,6 +13,9 @@ All messages are JSON over a single WebSocket per player.
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
 | `set_max_players`   | `max_players` (2–10) (host-only)                         |
 | `rematch`           | — (host-only; reopens a finished room as a lobby)        |
+| `find_match`        | `nickname` (enter the 1v1 queue)                         |
+| `cancel_matchmaking`| —                                                        |
+| `leave_room`        | — (give up the seat without dropping the socket; a forfeit in a matchmade match in progress) |
 | `play_card`         | `card`, `chosen_color` — or `play_cards[]` for a batch of identical cards, which takes precedence over `card`. There is no separate `play_cards` message type. |
 | `draw_card`         | —                                                        |
 | `pass_turn`         | —                                                        |
@@ -30,7 +33,7 @@ All messages are JSON over a single WebSocket per player.
 | `lobby_config_changed`| `match_format`, `max_players`                                               |
 | `player_joined`       | `nickname`, `players`                                                       |
 | `player_left`         | `nickname`, `players`                                                       |
-| `player_disconnected` | `player_index`, `nickname`, `players`                                       |
+| `player_disconnected` | `player_index`, `nickname`, `players`, `forfeit_deadline` (matchmade rooms only) |
 | `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`                       |
 | `game_started`        | `state` (personalized per player; includes `round_number`, `match_format`, `scoreboard`) |
 | `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players`, `chosen_player` (swap only) |
@@ -40,10 +43,16 @@ All messages are JSON over a single WebSocket per player.
 | `uno_declared`        | `player_index`                                                              |
 | `uno_caught`          | `player_index`                                                              |
 | `round_end`           | `round_number`, `round_winner`, `scoreboard`, `round_history`               |
-| `match_end`           | `match_winner`, `scoreboard`                                                |
+| `match_end`           | `match_winner`, `scoreboard`, `forfeit`, `player_index` (the seat that left, on a forfeit) |
 | `rematch_started`     | `room_code`, `player_id`, `players`, `match_format`, `max_players` (per-recipient) |
+| `matchmaking_queued`  | — (deliberately empty: see the notes)                                       |
+| `rematch_offered`     | `player_index` (a seat has asked for another match; matchmade rooms)         |
+| `matchmaking_cancelled` | —                                                                        |
+| `match_found`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players`, `starts_in_ms` (per-recipient) |
+| `left_room`           | — (acknowledges `leave_room`)                                               |
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `latency`             | `latencies[]` (per-seat round trip; broadcast on a timer to playing rooms)   |
+| `server_updating`     | — (this process is being replaced; the match is unaffected: see the notes)   |
 | `error`               | `error`                                                                     |
 
 ## DTO shapes
@@ -63,4 +72,33 @@ All messages are JSON over a single WebSocket per player.
 - `rematch_started` is sent **per recipient**, not broadcast: the server first prunes seats with no connected client behind them (bots excepted), which can re-base every surviving `player_id`. Clients must adopt the `player_id` they receive.
 - `latency` is server-measured: the hub times its own WebSocket ping frames against the pongs the browser answers in the transport layer, smooths them (0.6 old + 0.4 new) and broadcasts every 3 s to rooms that are playing. Nothing is self-reported by the client, and a room where nothing has been measured yet is skipped rather than sent a table of `-1`.
 - `round_history` is server-owned so a reconnecting player recovers the same table: cumulative scores cannot be split back into rounds client-side once a player has won twice.
-- `play_cards` (turn-time) and `interrupt_play_card` with `play_cards` (out-of-turn) require N identical cards; effects stack: N×+2 = `2N` pending draw, N skips skip N players, N reverses flip parity. Swap and Global Swap cannot batch.
+- **`matchmaking_queued` carries nothing, and that is the design.** No queue size, no position, no
+  estimated wait, on any message. The number is available to an operator on `/metrics`
+  (`matchmaking_queue`) and nowhere else: a client that could render it would eventually render "1",
+  which reads as "close the tab" at exactly the moment the queue is trying to fill. The searching
+  screen times its own wait locally instead.
+- `match_found` does the work `room_joined` does (room, seat, token, roster, format) and adds
+  `starts_in_ms`: the match deals itself after that delay with nobody pressing start. Absent means
+  "immediately": the countdown is presentation, and the authoritative start is the `game_started`
+  that follows.
+- A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format` and `set_max_players`
+  are all refused in one with `not available in a matchmade game`.
+- **`rematch` means something else in a matchmade room**: an offer rather than a decision. Each side
+  sends it, every offer is broadcast as `rematch_offered` (so the player who has not answered knows
+  somebody is waiting), and once both are in the pair is dealt again through a fresh `match_found`
+  and the same reveal. Asked for after the opponent has gone it is refused with
+  `your opponent has left the table`.
+- `match_end` with `forfeit: true` means the match ended because a seat stopped being there, not
+  because a round was won; `player_index` names that seat. The scoreboard is unchanged: no points are
+  invented for a round nobody finished.
+- `forfeit_deadline` rides `player_disconnected` **only in a matchmade room**, where the hold is 15 s
+  and the player still at the table is owed a countdown. An ordinary room sends no deadline and the
+  seat is simply held for 60 s.
+- **`server_updating` carries nothing and asks for nothing.** It is sent once to every table in
+  progress when the process is asked to shut down, and again to anyone who reconnects while it is
+  still draining. The match plays out unchanged; if the process is replaced before the last card, the
+  restart costs the one-second reconnect the client already does on its own. Meanwhile every action
+  that would start a *new* match is refused with `server updating, try again in a moment`, including
+  `join_room` on a table this process does not have: the code the player typed was almost certainly
+  real, and answering `room not found` there blames them for a deploy. See `docs/deployment.md`.
+- `play_cards` (turn-time) and `interrupt_play_card` with `play_cards` (out-of-turn) require N identical cards; effects stack: N×+2 = `2N` pending draw, N skips skip N players, N reverses flip parity. Swap and Global Switch cannot batch.

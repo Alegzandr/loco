@@ -25,6 +25,7 @@ export interface ErrorCopy {
   gameInProgress: string
   sessionInvalid: string
   notInRoom: string
+  alreadyInRoom: string
 
   // Turn legality
   notYourTurn: string
@@ -62,10 +63,24 @@ export interface ErrorCopy {
   lobbyOnly: string
   maxPlayersInvalid: string
   rematchTooEarly: string
+  // Matchmaking refusals.
+  alreadySearching: string
+  matchmadeUnavailable: string
+  cannotLeaveMatch: string
+  // A rematch asked for after the other side has already gone.
+  opponentGone: string
+  // Sent by the server the instant before it gives a match away, so it is read
+  // on the game-over screen rather than as a toast over a live board.
+  afkForfeit: string
+  afkKicked: string
 
   // Transport
   rateLimited: string
   serverBusy: string
+  // A deploy is under way: new tables are refused for a minute or two while
+  // the matches already running finish. Never "no table with that code": the
+  // code the player typed was real.
+  serverUpdating: string
   // Client-side: a seat reclaim that timed out or was cancelled. The only
   // entry here with no server string behind it.
   reconnectFailed: string
@@ -82,6 +97,48 @@ export interface Translations {
   roomCodeLabel: string
   back: string
   rulesBtn: string
+
+  // ─── 1v1 matchmaking ──────────────────────────────────────────
+  // The mode never names itself "unranked": there is one queue today, and the
+  // day a ranked ladder exists it will introduce itself. Nothing here says how
+  // many people are searching, because nothing on the wire does.
+  findMatch: string             // home screen: the headline entry point
+  findMatchHint: string         // its second line, inside the button
+  findMatchGo: string           // submit on the nickname form
+  searchTitle: string
+  // Three stages of the same wait, chosen from elapsed time alone. None of them
+  // may imply the queue is empty: "nobody is searching" reads as "close the
+  // tab", and every player who leaves on that sentence is the opponent the next
+  // one was about to get.
+  searchFresh: string
+  searchPatient: string
+  searchLong: string
+  searchElapsed: string
+  searchCancel: string
+  searchCreateTable: string     // offered only once the wait is long
+  matchFoundKicker: string
+  matchFoundYou: string
+  matchFoundStartingIn: string  // contains %n (seconds)
+  matchFoundDealing: string
+  // An opponent who dropped mid-match, on the board's banner. No pronoun: a
+  // nickname says nothing about who is behind it.
+  opponentAway: string
+  opponentAwayHint: string
+  // A deploy is under way and this table is one of the ones the server is
+  // waiting on. It promises the one thing that matters, that the match is not
+  // going to be taken away, and asks for nothing.
+  serverUpdatingBanner: string
+  // A match that ended because somebody stopped being there. Never phrased as a
+  // victory: nobody played for it.
+  forfeitWon: string
+  forfeitWonSub: string
+  forfeitYouLeft: string
+  forfeitYouLeftSub: string
+  findAnotherOpponent: string
+  // A matchmade rematch is an agreement between two strangers, so the button has
+  // three states: ask, wait, accept.
+  rematchWaitingOpponent: string
+  rematchAccept: string
 
   // ─── Waiting Room ─────────────────────────────────────────────
   waitingRoom: string
@@ -229,22 +286,64 @@ export interface Translations {
   errors: ErrorCopy
 }
 
+/**
+ * English copy, and the source of truth every other language is typed against.
+ *
+ * The voice, in one line: this is a game talking to somebody sitting at a table
+ * with their friends, not a website talking to a user. Players open a **table**,
+ * share a table code and take a seat. A button is the verb about to happen. A
+ * refusal says what to do next and never scolds. Only the streamable moments
+ * shout, so that INTERCEPTED! and CAUGHT! keep their weight.
+ *
+ * `docs/notes/client.md` ("The voice") carries the rest, including what the
+ * rules modal is allowed to sound like.
+ */
 export const en: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
-  tagline: 'Real-time multiplayer card game',
-  createRoom: 'Create Room',
-  joinRoom: 'Join Room',
-  createGame: 'Create Game',
-  joinGame: 'Join Game',
-  yourNickname: 'Your nickname',
-  roomCodeLabel: 'Room code',
+  tagline: 'Cards at speed. Nobody waits their turn.',
+  createRoom: 'New table',
+  joinRoom: 'Join a table',
+  createGame: 'Open the table',
+  joinGame: 'Take a seat',
+  yourNickname: 'Your name',
+  roomCodeLabel: 'Table code',
   back: 'Back',
+  // The button sits in a row of icons, in-game as well as in the lobby, so it
+  // stays one word. The modal it opens is the one that gets to be a sentence.
   rulesBtn: 'Rules',
 
+  // ─── 1v1 matchmaking ──────────────────────────────────────────
+  findMatch: 'Play 1v1',
+  findMatchHint: 'We find you someone',
+  findMatchGo: 'Find an opponent',
+  searchTitle: 'Looking for an opponent',
+  searchFresh: 'Sit tight. This usually takes seconds.',
+  searchPatient: 'Still looking. Nobody has sat down opposite you yet.',
+  searchLong: 'This one is taking a while. Stay here and you get the next player who shows up, or open a table and bring someone yourself.',
+  searchElapsed: 'Waiting',
+  searchCancel: 'Stop looking',
+  searchCreateTable: 'Open a table instead',
+  matchFoundKicker: 'Opponent found',
+  matchFoundYou: 'You',
+  matchFoundStartingIn: 'Dealing in %n…',
+  matchFoundDealing: 'Dealing…',
+  opponentAway: 'lost connection',
+  opponentAwayHint: 'If they do not come back, the match is yours.',
+  serverUpdatingBanner: 'New version landing. This match plays to the end.',
+  forfeitWon: 'They walked',
+  forfeitWonSub: 'The seat opposite is empty. The match is yours.',
+  forfeitYouLeft: 'You left',
+  forfeitYouLeftSub: 'The match went to your opponent.',
+  findAnotherOpponent: 'Find another opponent',
+  rematchWaitingOpponent: 'Waiting on them…',
+  rematchAccept: 'They want another. Go.',
+
   // ─── Waiting Room ─────────────────────────────────────────────
-  waitingRoom: 'Waiting Room',
-  roomCode: 'Room Code',
-  shareCode: 'Share this code with friends!',
+  waitingRoom: 'The table',
+  roomCode: 'Table code',
+  // The screen already says "The table" and "Table code": a third one in the
+  // same column reads as a half-filled template.
+  shareCode: 'Send this code. They are one tap away.',
   copyCode: 'Copied!',
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: 'Sound',
@@ -258,8 +357,8 @@ export const en: Translations = {
 
   // ─── Interrupt ────────────────────────────────────────────────────
   interruptTitle: 'INTERCEPTED!',
-  interruptBy: '%actor stole the lead',
-  interruptByYou: 'You stole the lead',
+  interruptBy: '%actor cut in',
+  interruptByYou: 'You cut in',
   interruptCombo: '×%n',
   fxSkip: 'SKIP!',
   fxReverse: 'REVERSE!',
@@ -268,15 +367,15 @@ export const en: Translations = {
   directionCcw: 'Play order: counter-clockwise',
   drawPile: 'Draw pile',
   hostBadge: 'Host',
-  matchFormat: 'Match Format',
-  maxPlayersLabel: 'Max Players',
-  addBot: '+ Add Bot',
-  startGame: 'Start Game',
-  waitingForPlayers: 'Waiting for players…',
-  waitingForHost: 'Waiting for host to start…',
+  matchFormat: 'Match length',
+  maxPlayersLabel: 'Seats',
+  addBot: '+ Add a bot',
+  startGame: 'Deal',
+  waitingForPlayers: 'Waiting on players…',
+  waitingForHost: 'Waiting on the host to deal…',
 
   // ─── Format labels ────────────────────────────────────────────
-  bestOf1: 'Best of 1',
+  bestOf1: 'One round',
   bestOf3: 'Best of 3',
   bestOf5: 'Best of 5',
   bestOf7: 'Best of 7',
@@ -287,34 +386,34 @@ export const en: Translations = {
   unoBtn: 'LOCO!',
   unoBanner: 'LOCO!',
   catchBtn: 'Catch!',
-  chooseColor: 'Choose a color',
-  choosePlayer: 'Choose a player to swap hands with',
+  chooseColor: 'Call the color',
+  choosePlayer: 'Whose hand do you want?',
   swapTargetCards: '%n cards',
   swapTargetCardOne: '1 card',
-  catchWindow: 'Catch window!',
-  catchFailedYou: 'Too late! +1 card',
-  catchFailedOther: '%player called too late — +1 card',
+  catchWindow: 'Catch them!',
+  catchFailedYou: 'Too late. +1 card',
+  catchFailedOther: '%player called too late: +1 card',
   catchBannerTitle: 'CAUGHT!',
   catchBannerYou: 'You never called LOCO!',
   catchBannerOther: '%player never called LOCO!',
   catchBannerPenalty: '+%n cards',
-  swapNotice: '%actor swapped hands with %target',
-  swapNoticeYouTarget: '%actor swapped hands with you',
-  swapNoticeYouActor: 'You swapped hands with %target',
-  globalSwitchNoticeCw: '%actor triggered Global Switch — hands passed →',
-  globalSwitchNoticeCcw: '%actor triggered Global Switch — hands passed ←',
-  reconnected: 'Reconnected',
-  rebuildingTable: 'Rebuilding table…',
+  swapNotice: '%actor took %target’s hand',
+  swapNoticeYouTarget: '%actor took your hand',
+  swapNoticeYouActor: 'You took %target’s hand',
+  globalSwitchNoticeCw: '%actor called Global Switch. Every hand moves →',
+  globalSwitchNoticeCcw: '%actor called Global Switch. Every hand moves ←',
+  reconnected: 'Back in',
+  rebuildingTable: 'Setting the table back up…',
   reconnectingGame: 'Getting your seat back…',
-  reconnectingRoom: 'Rejoining the room…',
-  reconnectingHint: 'Your hand and score are kept on the server for a minute after you drop.',
-  reconnectingHintRoom: 'The match has not started yet, nothing to lose.',
+  reconnectingRoom: 'Heading back to the table…',
+  reconnectingHint: 'Your hand and your score are held for a minute. Nothing is lost yet.',
+  reconnectingHintRoom: 'No cards are out yet. Nothing to lose.',
   reconnectCancel: 'Back to the menu',
   wsLostConnection: 'Connection lost',
   wsReconnecting: 'Reconnecting…',
   mapLoadingTitle: 'Tonight you play in',
-  mapLoadingWaiting: 'Waiting for the table…',
-  mapLoadingReady: 'You are in. Waiting for the others…',
+  mapLoadingWaiting: 'Setting the table…',
+  mapLoadingReady: 'You are seated. Waiting on the others…',
   mapLoadingCount: '%ready of %total ready',
   maps: {
     neon: {
@@ -336,16 +435,19 @@ export const en: Translations = {
   },
   round: 'Round',
   of: 'of',
-  complete: 'Complete',
-  winsRound: 'wins the round!',
+  complete: 'down',
+  winsRound: 'takes the round!',
   player: 'Player',
-  placementLabel: 'Place',
+  // The rank column is 40px wide and its cells already read "1st", "2nd": any
+  // word here spills into the player column, in every language. A leaderboard
+  // hash says the same thing and cannot overflow.
+  placementLabel: '#',
   ptsLabel: '+pts',
   totalLabel: 'Total',
   winsLabel: 'Wins',
-  matchScoreboard: 'Match Scoreboard',
-  continueBtn: 'Continue',
-  spectating: 'You finished! Watching the round…',
+  matchScoreboard: 'Where the match stands',
+  continueBtn: 'Next round',
+  spectating: 'Hand empty. Enjoy the show…',
 
   // ─── In-game score table (hold TAB) ───────────────────────────
   scoreTableTitle: 'Scores',
@@ -356,11 +458,11 @@ export const en: Translations = {
   scoreTableYou: 'you',
   scoreTableBot: 'BOT',
   scoreTableNoPing: '--',
-  scoreTableEmptyRounds: 'First round in progress',
+  scoreTableEmptyRounds: 'Nothing settled yet',
 
   // ─── PixiGame in-canvas strings ───────────────────────────────
   yourTurn: 'Your turn',
-  drawOrCounter: 'Draw %n or counter!',
+  drawOrCounter: 'Draw %n or fight back!',
   drawPenalty: 'Draw %n',
   playerTurnSuffix: "'s turn",
   ord1: '1st',
@@ -369,156 +471,165 @@ export const en: Translations = {
   ordN: 'th',
 
   // ─── Game Over ────────────────────────────────────────────────
-  matchWon: 'Match Won!',
-  gameOver: 'Game Over',
-  youWin: 'You Win!',
-  playAgain: 'Play Again',
-  finalScores: 'Final Scores',
+  matchWon: 'THE MATCH IS YOURS!',
+  gameOver: 'That is the match',
+  youWin: 'YOU WIN!',
+  playAgain: 'Play again',
+  finalScores: 'Final standings',
   winsGame: 'wins!',
-  winsMatch: 'wins the match!',
+  winsMatch: 'takes the match!',
   rematch: 'Rematch',
-  rematchWaiting: 'Waiting for the host to start a rematch…',
-  leaveRoom: 'Leave room',
+  rematchWaiting: 'The host is deciding on a rematch…',
+  leaveRoom: 'Leave the table',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Language',
 
   // ─── Rules ───────────────────────────────────────────────────
-  rulesTitle: 'Game Rules',
+  rulesTitle: 'How to play',
   rulesClose: 'Close',
 
   rules: [
     {
-      heading: 'Players & Setup',
+      heading: 'The table',
       items: [
-        '2 to 10 players per game (recommended 2–6).',
-        'Each player is dealt 8 cards at the start of each round.',
-        'The first card flipped to start the discard pile is always a Number card.',
-        'Round 1 starter is chosen at random; later rounds start with the player who has the lowest score so far.',
+        '2 to 10 players. It breathes best between 2 and 6.',
+        'Eight cards each, dealt fresh every round.',
+        'The pile always opens on a number card, so nobody eats a +4 before their first turn.',
+        'Round 1 opens on a random seat. After that, whoever is last on points goes first.',
       ],
     },
     {
-      heading: 'On Your Turn',
+      heading: 'Your turn',
       items: [
-        'Play a card matching the top card by color or value, play a Wild, or draw a card.',
-        'If you draw, you may play that card immediately if it is legal; otherwise press Pass to end your turn.',
+        'Match the top card by color or by value, drop a wild, or take one from the pile.',
+        'A card you just drew can go straight back down if it fits. If it does not, pass.',
+        'One draw per turn. Not two.',
       ],
     },
     {
-      heading: 'Playing Multiple Identical Cards',
+      heading: 'Doubles go down together',
       items: [
-        'You may play several cards of the exact same color and value at once.',
-        'Stacked effects compound — three +2s force the next player to draw 6, two Skips skip two players, and so on.',
+        'Holding the exact same card twice? Play both. Three, four, all of them, in one tap.',
+        'The effects stack: three +2s means the next player draws six, two Skips burn two seats.',
       ],
     },
     {
-      heading: 'Special Cards',
+      heading: 'The cards that hurt',
       items: [
-        'Skip — the next player loses their turn.',
-        'Reverse — flips play direction (acts as Skip with 2 players).',
-        'Draw Two (+2) — next player draws 2 unless they stack an identical +2. Taking the cards does not cost them the turn: they draw, then play or pass.',
-        'Wild — choose the next active color.',
-        'Wild Draw Four (+4) — choose the color; next player draws 4 unless they stack.',
-        'Swap (⇋) — colored card; on your turn, pick an opponent and exchange entire hands. No stacking.',
-        'Global Swap (↻) — wild card; choose the active colour, then every player passes their hand to the next player in the current direction.',
+        'Skip: the next player loses their turn.',
+        'Reverse: play changes direction. In a duel, it simply skips.',
+        '+2: the next player draws two, unless they answer with a +2 of their own. Taking the cards does not cost them the turn: they draw, then play or pass.',
+        'Wild: lands on anything. You call the color.',
+        '+4: the wild that bites. Call the color, and the next player draws four unless they stack.',
+        'Swap (⇋): a colored card, played on your turn. Pick anyone and take their whole hand. Yes, all of it.',
+        'Global Switch (↻): call the color, then every hand at the table slides one seat along. Nobody keeps anything.',
       ],
     },
     {
-      heading: 'Lead-Taking (Identical-Card Interrupt)',
+      heading: 'Cut in whenever you like',
       items: [
-        'While a card sits on the pile, anyone holding an identical card (same color, kind, AND value) may slam it down and take the lead — even when it is not their turn.',
-        'No deadline: the window stays open until somebody plays, draws or passes. That includes the player who just played and the player whose turn it is.',
-        'The fastest server-received play wins: the interrupter takes the lead and play continues from their seat.',
-        'If you hold multiple identical copies, you may play them all in one tap — effects stack just like a turn-time batch play.',
-        'Every card can interrupt, wilds and Global Swap included: a Wild lands on a Wild, a +4 extends a +4 chain. The only rule is being identical to the top of the pile.',
+        'A card is sitting on the pile. Hold one exactly like it, same color and same value? Slam it down, even out of turn.',
+        'There is no deadline. The window stays open until somebody plays, draws or passes.',
+        'Nobody is shut out: the player who just played can cut straight back in, and so can the player whose turn it was.',
+        'Several copies go down in the same tap, effects and all.',
+        'Every card can interrupt, wilds and Global Switch included. A Wild lands on a Wild, a +4 extends a +4. Identical is the only rule.',
       ],
     },
     {
-      heading: 'Priority',
+      heading: 'Photo finish',
       items: [
-        'When several reactions overlap, the first interrupt received by the server wins.',
-        'Server timing is final.',
+        'Two players slam at the same instant? The server decides, and the first one it receives takes the lead.',
+        'Its clock is the only clock. No arguing with the table.',
       ],
     },
     {
-      heading: 'LOCO! Declaration & Catch',
+      heading: 'One card left: say it',
       items: [
-        'When you play down to exactly 1 card you must press LOCO!',
-        'Being handed your last card counts too: after a Swap or a Global Swap, everyone left on one card must press LOCO!',
-        'If you forget, any other player has 5 seconds to press Catch! — penalty: you draw 2 cards.',
-        'Catch! is a wager: it only counts inside those 5 seconds, and a call that arrives after the LOCO! costs the caller 1 card.',
+        'Down to your last card, hit LOCO! Right away.',
+        'Being handed your last card counts too: after a Swap or a Global Switch, everyone sitting on one card owes the call.',
+        'Stay quiet and any opponent has five seconds to hit Catch! You draw two.',
+        'Catch! is a bet, not a free shot: thrown after the LOCO!, it costs the caller a card.',
       ],
     },
     {
-      heading: 'Turn Timer & AFK',
+      heading: 'The clock',
       items: [
-        'Every turn is time-limited; if the timer expires the server auto-draws and passes for you.',
-        'AFK across roughly 2 rounds (4 consecutive auto-acted turns) gets you removed from the game.',
+        'Every turn is timed. Let it run out and the server draws and passes in your place.',
+        'Four turns in a row like that, roughly two rounds, and your seat is given up.',
       ],
     },
     {
-      heading: 'Round End & Scoring',
+      heading: 'Points',
       items: [
-        'A round ends the moment one player empties their hand. That player wins the round.',
-        'Round winner scores the sum of all opponents’ remaining card values; everyone else scores 0.',
-        'Number cards = face value (1–9). Reverse = 10 pts. Skip = 20 pts. +2 / Swap = 30 pts. Wild / Global Swap = 40 pts. +4 = 50 pts.',
+        'A round ends the second somebody empties their hand.',
+        'They pocket the value of every card still stuck in everyone else’s hands. Everyone else scores nothing.',
+        'Numbers are worth their face. Reverse 10. Skip 20. +2 and Swap 30. Wild and Global Switch 40. +4 is 50, and you feel it.',
       ],
     },
     {
-      heading: 'Match Formats & Tiebreakers',
+      heading: 'Taking the match',
       items: [
-        'BO1 / BO3 / BO5 / BO7 — match length is the configured number of rounds.',
-        'Match winner is the highest cumulative score after all rounds.',
-        'Tiebreakers: most rounds won → lowest losing-hand total → sudden-death extra round.',
+        'Match length is set before the deal: one round, or best of 3, 5 or 7.',
+        'Highest total once the last round lands takes the whole thing.',
+        'Level on points? Most rounds won, then the smallest pile of leftovers, then one sudden-death round.',
       ],
     },
   ],
 
   // ─── Refused actions ─────────────────────────────────────────
   errors: {
-    generic: "That didn't work. Try again.",
+    generic: 'That one did not go through.',
 
-    nicknameTaken: 'That nickname is taken in this room.',
-    nicknameLength: 'Pick a nickname of 1 to 20 characters.',
-    roomNotFound: 'No room with that code.',
-    roomFull: 'That room is full.',
-    gameInProgress: 'That game has already started.',
-    sessionInvalid: 'Could not restore your seat. Rejoin the room.',
-    notInRoom: 'You are not in a room any more.',
+    nicknameTaken: 'Someone at this table already goes by that.',
+    nicknameLength: 'One to twenty characters.',
+    roomNotFound: 'No table with that code.',
+    roomFull: 'That table is full.',
+    gameInProgress: 'Cards are already out at that table.',
+    sessionInvalid: 'Your seat could not be recovered. Join again.',
+    notInRoom: 'You have left the table.',
+    alreadyInRoom: 'You are already at a table. Leave it first.',
 
-    notYourTurn: 'Not your turn yet.',
-    mustAnswerPenalty: 'Counter it, or take the cards.',
+    notYourTurn: 'Wait your turn.',
+    mustAnswerPenalty: 'Fight back, or take the cards.',
     alreadyDrew: 'One draw per turn.',
-    mustDrawFirst: 'Draw a card before passing.',
-    needColor: 'Pick a color first.',
-    cardNotInHand: 'You do not hold that card.',
-    illegalCard: 'That card does not match.',
+    mustDrawFirst: 'Draw before you pass.',
+    needColor: 'Call a color first.',
+    cardNotInHand: 'That card is not in your hand.',
+    illegalCard: 'That one does not match.',
 
     counterMismatch: 'Only the exact same card stacks.',
-    noPendingDraw: 'Nothing to counter right now.',
+    noPendingDraw: 'Nothing to fight back against.',
 
-    interruptClosed: 'Too late.',
-    interruptDrawChain: 'Only a matching draw card can cut in here.',
+    interruptClosed: 'Someone beat you to it.',
+    interruptDrawChain: 'Only a matching draw card cuts in here.',
     interruptMismatch: 'It has to be identical to the top card.',
-    batchNotAllowed: 'Swap and Global Swap cannot be played in a batch.',
-    batchMismatch: 'Batched cards must be identical.',
+    batchNotAllowed: 'Swap and Global Switch go down one at a time.',
+    batchMismatch: 'Cards played together must be identical.',
 
-    declareTooEarly: 'Call LOCO with exactly one card left.',
+    declareTooEarly: 'Call LOCO on your last card, not before.',
     alreadyDeclared: 'Already called.',
-    catchExpired: 'Too late to catch.',
+    catchExpired: 'The window has closed.',
     catchTargetSafe: 'Nothing to catch there.',
 
-    swapSelf: 'Pick another player.',
-    swapTargetInvalid: 'That player cannot be your target.',
+    swapSelf: 'Pick someone else.',
+    swapTargetInvalid: 'That seat cannot be your target.',
 
-    hostOnly: 'Only the host can do that.',
-    notEnoughPlayers: 'Not enough players to start.',
-    lobbyOnly: 'That can only be changed before the game starts.',
-    maxPlayersInvalid: 'That player limit is not allowed.',
+    hostOnly: 'That one is the host’s call.',
+    notEnoughPlayers: 'Not enough players to deal.',
+    lobbyOnly: 'Too late, the cards are out.',
+    maxPlayersInvalid: 'That seat count is not allowed.',
     rematchTooEarly: 'The match is not over yet.',
+    alreadySearching: 'You are already looking for a game.',
+    matchmadeUnavailable: 'Not a thing in a 1v1.',
+    cannotLeaveMatch: 'Cards are out. Play it through.',
+    opponentGone: 'They have left the table.',
+    afkForfeit: 'You were away too long. The match went to your opponent.',
+    afkKicked: 'You were away too long.',
 
-    rateLimited: 'Slow down a moment.',
-    serverBusy: 'Server is busy. Try again.',
-    reconnectFailed: 'Could not get your seat back. The game may be over.',
+    rateLimited: 'Easy on the taps.',
+    serverBusy: 'The server is packed. Try again.',
+    serverUpdating: 'New version landing. Tables open again in a minute.',
+    reconnectFailed: 'Your seat is gone. The match may be over.',
   },
 }

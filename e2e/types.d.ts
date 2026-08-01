@@ -81,6 +81,13 @@ interface LocoE2EState {
   matchWinner: string
   matchOver: boolean
   showRoundSummary: boolean
+  // 1v1 matchmaking
+  /** True for a match that came out of the queue: no host, no rematch. */
+  isMatchmade: boolean
+  /** Seat that abandoned, when the match ended that way; null otherwise. */
+  forfeitBy: number | null
+  /** An opponent who dropped, and when their match is given away. */
+  opponentAway: { seat: number; deadline: number } | null
   // Error
   errorMsg: string
   // Reconnect animation
