@@ -118,6 +118,17 @@ func (h *Hub) runOnLoop(ch chan snapshotReq, path string) error {
 // --- save ---
 
 func (h *Hub) saveSnapshot(path string) error {
+	// Every table is stopped before a single one is read, and that is not
+	// tidiness. A room snapshot holds the room, the session tokens and the AFK
+	// counters **by reference**, so marshalling them while their own goroutine
+	// is still running would write a hand halfway through being dealt. Stopping
+	// first is what makes the file describe one instant.
+	//
+	// It also means a hub stops serving its tables here. That is exactly what
+	// this call is: the last thing a process does with them, after the drain and
+	// immediately before it goes. Nothing plays on the far side of it.
+	h.stopTables()
+
 	snap := snapshotFile{
 		SchemaVersion: SnapshotSchemaVersion,
 		SavedAt:       time.Now(),
@@ -260,6 +271,12 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	if rs.Matchmade {
 		t.matchmadeAt = time.Now()
 	}
+
+	// Started here, and not one line earlier: everything above is this function
+	// filling the table in, and a goroutine reading fields still being written
+	// is the race table.start exists to avoid. Everything below arms a timer,
+	// which the table must be running to receive.
+	t.start(h)
 
 	now := time.Now()
 	for seat := range room.Players {

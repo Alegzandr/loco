@@ -17,32 +17,78 @@ import (
 //
 // That pointer is what personalised broadcasts index by, so a stale one is not
 // a bookkeeping wart: it is one player being handed another's hand.
+// The sweep of the old table is asked of that table now rather than reached
+// into, so this goes through the hub and both goroutines exactly as production
+// does. Reading either table's members from the test goroutine would be the
+// very race the hand-off exists to remove, so every read below is posted too.
 func TestSeatClient_LeavesNoPointerBehind(t *testing.T) {
 	h := New()
+	go h.Run()
+	defer h.Stop()
+
 	first := newTable("AAAAAA", game.NewRoom("AAAAAA"))
 	first.members = []*Client{nil, nil}
 	second := newTable("BBBBBB", game.NewRoom("BBBBBB"))
-	h.tables[first.code] = first
-	h.tables[second.code] = second
 
 	c := &Client{}
+	// Before either table is running, which is where every production caller
+	// does its own filling in. See table.start.
 	h.seatClient(first, c, 1)
-	if first.members[1] != c || c.playerID != 1 || c.roomCode != first.code {
+	if first.members[1] != c || c.playerID() != 1 || c.roomCode() != first.code {
 		t.Fatalf("first seating did not take: members=%v playerID=%d code=%q",
-			first.members, c.playerID, c.roomCode)
+			first.members, c.playerID(), c.roomCode())
 	}
+	h.tables[first.code] = first
+	h.tables[second.code] = second
+	first.start(h)
+	second.start(h)
 
-	h.seatClient(second, c, 0)
+	onTable(t, second, func() { h.seatClient(second, c, 0) })
 
-	if first.members[1] != nil {
-		t.Errorf("the old table still points at the client: %v", first.members)
+	if got := onTableValue(t, second, func() any { return second.members[0] }); got != c {
+		t.Errorf("the new table does not point at the client: %v", got)
 	}
-	if second.members[0] != c {
-		t.Errorf("the new table does not point at the client: %v", second.members)
+	if c.playerID() != 0 || c.roomCode() != second.code {
+		t.Errorf("the client's own record disagrees: playerID=%d code=%q", c.playerID(), c.roomCode())
 	}
-	if c.playerID != 0 || c.roomCode != second.code {
-		t.Errorf("the client's own record disagrees: playerID=%d code=%q", c.playerID, c.roomCode)
+	// Two hops away: the new table asks the hub, the hub asks the old table.
+	waitOnTable(t, first, func() bool { return first.members[1] == nil },
+		"the old table still points at the client")
+}
+
+// onTable runs fn on a table's goroutine and waits for it.
+func onTable(t *testing.T, tbl *table, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	if !tbl.post(tableJob{what: "test", run: func() { fn(); close(done) }}) {
+		t.Fatal("table box full")
 	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the table never ran the job")
+	}
+}
+
+// onTableValue reads something off a table's goroutine.
+func onTableValue(t *testing.T, tbl *table, fn func() any) any {
+	t.Helper()
+	var out any
+	onTable(t, tbl, func() { out = fn() })
+	return out
+}
+
+// waitOnTable polls a condition on a table's goroutine until it holds.
+func waitOnTable(t *testing.T, tbl *table, cond func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if onTableValue(t, tbl, func() any { return cond() }).(bool) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Error(msg)
 }
 
 // Re-seating inside one table is the same rule with one table: the client must
@@ -109,8 +155,8 @@ func TestDropSeat_ShiftsEverythingTogether(t *testing.T) {
 	if len(tbl.members) != 2 || tbl.members[0] != nil || tbl.members[1] != c {
 		t.Fatalf("members did not shift: %v", tbl.members)
 	}
-	if c.playerID != 1 {
-		t.Errorf("the client's own playerID did not follow: %d, want 1", c.playerID)
+	if c.playerID() != 1 {
+		t.Errorf("the client's own playerID did not follow: %d, want 1", c.playerID())
 	}
 	if !tbl.isBot(0) || tbl.isBot(1) {
 		t.Errorf("the bot set did not shift: %v", tbl.bots)

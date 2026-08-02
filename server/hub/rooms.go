@@ -60,6 +60,10 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 		MatchFormat:  matchFormatString(room.Format),
 		MaxPlayers:   room.MaxPlayers,
 	})
+
+	// Last, when the hub has finished filling this table in: from here on it is
+	// the table's goroutine that reads it. See table.start.
+	t.start(h)
 }
 
 func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
@@ -100,7 +104,23 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	// If the game is already in progress, check for a disconnected slot with this nickname.
+	// The rest of a join is the table's: the roster, the held seats, the tokens.
+	// Running it there is also what makes two people typing the same code in the
+	// same instant a queue rather than a race for the last chair.
+	if !t.post(tableJob{what: string(protocol.CMsgJoinRoom), c: c, run: func() {
+		h.joinAtTable(t, c, msg)
+	}}) {
+		c.sendError("server busy, please retry")
+	}
+}
+
+// joinAtTable is the half of join_room that belongs to the table. It runs on
+// the table's goroutine; the wrong-code budget it spends does not, so that one
+// goes back to the hub.
+func (h *Hub) joinAtTable(t *table, c *Client, msg protocol.ClientMsg) {
+	code, room := t.code, t.room
+	// If the game is already in progress, check for a disconnected slot with
+	// this nickname.
 	//
 	// The two refusals below are deliberately the same string. They used to
 	// differ, and the difference was a roster oracle: "invalid session token"
@@ -109,14 +129,13 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	// and a returning player whose token has gone stale now get the same answer,
 	// and the returning player's client already owns that case (the restore
 	// timeout in useSessionRestore), so nothing legitimate reads the difference.
-	room := t.room
 	if room.Status == game.StatusPlaying {
 		if playerID, found := t.findHeldSeat(msg.Nickname); found &&
 			t.validateToken(playerID, msg.SessionToken) {
 			h.handleReconnect(c, t, playerID, msg.Nickname)
 			return
 		}
-		h.noteFailedJoin(c)
+		h.postToRouter("failed_join", func() { h.noteFailedJoin(c) })
 		c.sendError("game already in progress")
 		return
 	}
@@ -148,11 +167,7 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	}, c)
 }
 
-func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleStartGame(t *table, c *Client, msg protocol.ClientMsg) {
 	// Dealing during a drain is what would keep the deploy waiting without
 	// bound; see drain.go.
 	if h.refuseWhileDraining(c) {
@@ -161,7 +176,7 @@ func (h *Hub) handleStartGame(c *Client, msg protocol.ClientMsg) {
 	if refuseInMatchmade(c, t) {
 		return
 	}
-	if c.playerID != 0 {
+	if c.playerID() != 0 {
 		c.sendError("only the room owner can start the game")
 		return
 	}
@@ -213,15 +228,11 @@ func (h *Hub) dealMatch(t *table) {
 	h.beginMapLoading(t)
 }
 
-func (h *Hub) handleSetMatchFormat(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleSetMatchFormat(t *table, c *Client, msg protocol.ClientMsg) {
 	if refuseInMatchmade(c, t) {
 		return
 	}
-	if c.playerID != 0 {
+	if c.playerID() != 0 {
 		c.sendError("only the host can change match format")
 		return
 	}
@@ -237,15 +248,11 @@ func (h *Hub) handleSetMatchFormat(c *Client, msg protocol.ClientMsg) {
 	h.broadcastLobbyConfig(t)
 }
 
-func (h *Hub) handleSetMaxPlayers(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleSetMaxPlayers(t *table, c *Client, msg protocol.ClientMsg) {
 	if refuseInMatchmade(c, t) {
 		return
 	}
-	if c.playerID != 0 {
+	if c.playerID() != 0 {
 		c.sendError("only the host can change max players")
 		return
 	}
@@ -285,16 +292,12 @@ func (h *Hub) broadcastLobbyConfig(t *table) {
 // theatre, and a mistaken press stays cheap — the player rejoins. What this
 // buys is a table the host can shape: an arrival at the wrong code, a seat that
 // will not ready up, one bot too many.
-func (h *Hub) handleKickPlayer(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleKickPlayer(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	if refuseInMatchmade(c, t) {
 		return
 	}
-	if c.playerID != 0 {
+	if c.playerID() != 0 {
 		c.sendError("only the room owner can remove players")
 		return
 	}
@@ -307,7 +310,7 @@ func (h *Hub) handleKickPlayer(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	seat := *msg.TargetIndex
-	// seat 0 is the host's own, and c.playerID is 0 here by the check above.
+	// seat 0 is the host's own, and c.playerID() is 0 here by the check above.
 	if seat <= 0 || seat >= len(room.Players) {
 		c.sendError("invalid player index")
 		return
@@ -326,7 +329,7 @@ func (h *Hub) handleKickPlayer(c *Client, msg protocol.ClientMsg) {
 	// stop being theirs, and it broadcasts the departure to everybody still at
 	// the table. The removed client is out of the members list by then, so it
 	// gets this message instead of the player_left about itself.
-	h.releaseSeat(target)
+	h.releaseSeat(t, target)
 	target.Send(protocol.ServerMsg{Type: protocol.SMsgKicked})
 	log.Printf("player kicked code=%s nickname=%s bot=false", code, nickname)
 }
@@ -358,33 +361,21 @@ func (h *Hub) removeUnmannedSeat(t *table, seat int) {
 // If the cleanup channel is full, retries once after 30s; dropping permanently
 // would leave an empty room in memory until the process restarts.
 func (h *Hub) scheduleRoomCleanup(t *table) {
-	code := t.code
 	now := time.Now()
 	t.emptyAt = now
-	cm := cleanupMsg{roomCode: code, emptyAt: now}
+	cm := cleanupMsg{roomCode: t.code, emptyAt: now}
 	time.AfterFunc(EmptyRoomTimeout, func() {
-		select {
-		case h.cleanup <- cm:
-		default:
-			h.metrics.channelRetries.Add(1)
-			log.Printf("cleanup channel full, retrying room cleanup in 30s code=%s", code)
-			time.AfterFunc(30*time.Second, func() {
-				select {
-				case h.cleanup <- cm:
-				default:
-					log.Printf("WARN cleanup retry dropped, room may leak code=%s", code)
-				}
-			})
-		}
+		h.postCritical(t, "room_cleanup", 30*time.Second, func() { h.handleCleanup(t, cm) })
 	})
 }
 
-// handleCleanup deletes an empty room if it has not been rejoined since the timer started.
-func (h *Hub) handleCleanup(cm cleanupMsg) {
-	t, ok := h.tables[cm.roomCode]
-	if !ok || t.emptyAt != cm.emptyAt {
-		// Room was rejoined or already deleted; the cleanup is stale.
-		log.Printf("room cleanup skipped, room rejoined or already deleted code=%s", cm.roomCode)
+// handleCleanup deletes an empty room if it has not been rejoined since the
+// timer started. It decides on the table's own goroutine and asks the hub to do
+// the deleting, because the map of tables is the one thing a table does not own.
+func (h *Hub) handleCleanup(t *table, cm cleanupMsg) {
+	if t.emptyAt != cm.emptyAt {
+		// Room was rejoined; the cleanup is stale.
+		log.Printf("room cleanup skipped, room rejoined code=%s", cm.roomCode)
 		return
 	}
 
@@ -395,21 +386,28 @@ func (h *Hub) handleCleanup(cm cleanupMsg) {
 		return
 	}
 
-	h.deleteRoom(cm.roomCode)
+	h.postToRouter("delete_room", func() { h.deleteRoom(cm.roomCode) })
 }
 
-// deleteRoom forgets a table entirely.
+// deleteRoom forgets a table entirely, and stops it.
 //
 // One delete, and that is the whole point: this used to be eleven, and adding a
 // twelfth per-table map meant remembering to come back here. Whatever the table
 // held goes with it.
+//
+// The order matters now that a table is also a goroutine. The map entry goes
+// first, so nothing new can be routed to a room that is on its way out; then the
+// goroutine is stopped and waited for, which is also what makes the read below
+// safe — after stop() returns, nobody else is touching this table's fields.
+// Runs on the event loop, the only goroutine that may write h.tables.
 func (h *Hub) deleteRoom(code string) {
 	t, ok := h.tables[code]
 	if !ok {
 		return
 	}
-	h.metrics.botsActive.Add(-int32(len(t.bots)))
 	delete(h.tables, code)
+	t.stop()
+	h.metrics.botsActive.Add(-int32(len(t.bots)))
 	h.metrics.rooms.Add(-1)
 	log.Printf("room deleted code=%s", code)
 }

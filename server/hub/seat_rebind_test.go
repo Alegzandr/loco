@@ -6,7 +6,7 @@ import (
 	"loco/server/protocol"
 )
 
-// A socket carries its seat in c.roomCode / c.playerID, but the table carries a
+// A socket carries its seat in c.roomCode() / c.playerID(), but the table carries a
 // pointer to that same socket in its members, indexed by seat. Nothing used
 // to stop a seated client from sending create_room or join_room again: the two
 // identities came apart, the pointer stayed in the old room at the old index,

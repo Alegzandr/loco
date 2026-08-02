@@ -34,29 +34,23 @@ func (h *Hub) scheduleTurnTimer(t *table) {
 	now := time.Now()
 	t.turnStartedAt = now
 	tm := turnTimerMsg{roomCode: code, playerID: turn, turnStartedAt: now}
+	// Non-critical if the box is full: the player just gets a free extra turn.
 	time.AfterFunc(TurnTimeout, func() {
-		select {
-		case h.turnTimeout <- tm:
-		default:
-			// Non-critical: if dropped the player just gets a free extra turn.
-			log.Printf("turnTimeout channel full, dropping for code=%s player=%d", code, turn)
-		}
+		t.postFromTimer("turn_timeout", func() { h.handleTurnTimeout(t, tm) })
 	})
 }
 
 // resetAFK clears the consecutive-timeout counter for a player after any
-// voluntary action. Called from the dispatch switch.
-func (h *Hub) resetAFK(c *Client) {
-	if t := h.tableOf(c); t != nil {
-		delete(t.afk, c.playerID)
-	}
+// voluntary action. Called once at the table's dispatch boundary rather than by
+// each handler, so a new gameplay message cannot forget it.
+func (h *Hub) resetAFK(t *table, c *Client) {
+	delete(t.afk, c.playerID())
 }
 
 // handleTurnTimeout fires when a human player's turn clock runs out.
 // It auto-draws (if not yet drawn) then auto-passes.
-func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
-	t, ok := h.turnTimeoutTarget(tm)
-	if !ok {
+func (h *Hub) handleTurnTimeout(t *table, tm turnTimerMsg) {
+	if !stillTheSameTurn(t, tm) {
 		return
 	}
 	code, room := t.code, t.room
@@ -89,21 +83,21 @@ func (h *Hub) handleTurnTimeout(tm turnTimerMsg) {
 	h.maybeScheduleBot(t)
 }
 
-// turnTimeoutTarget validates that the timer message still applies: the room
-// exists and is playing, the current turn matches, and the recorded turn-start
-// timestamp is the same one the timer was armed against (not a stale callback).
-func (h *Hub) turnTimeoutTarget(tm turnTimerMsg) (*table, bool) {
-	t, ok := h.tables[tm.roomCode]
-	if !ok || t.room.Status != game.StatusPlaying {
-		return nil, false
+// stillTheSameTurn validates that the timer still applies: the room is playing,
+// the current turn matches, and the recorded turn-start timestamp is the one the
+// timer was armed against rather than a stale callback.
+//
+// It no longer looks the room up. The timer is delivered to the table it was
+// armed for, so "does this room still exist" is answered by the delivery: a
+// deleted table's goroutine is gone and its box with it.
+func stillTheSameTurn(t *table, tm turnTimerMsg) bool {
+	if t.room.Status != game.StatusPlaying {
+		return false
 	}
 	if t.room.State.CurrentTurn != tm.playerID {
-		return nil, false
+		return false
 	}
-	if !t.turnStartedAt.Equal(tm.turnStartedAt) {
-		return nil, false
-	}
-	return t, true
+	return t.turnStartedAt.Equal(tm.turnStartedAt)
 }
 
 // kickIfAFK bumps the AFK counter for human players and acts once the threshold

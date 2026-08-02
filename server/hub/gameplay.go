@@ -41,11 +41,7 @@ func (h *Hub) parseCardsFromMsg(c *Client, msg protocol.ClientMsg) ([]game.Card,
 	return []game.Card{card}, chosenColor, true
 }
 
-func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	chosenPlayer := -1
 	if msg.ChosenPlayer != nil {
@@ -58,9 +54,9 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 
 	var err error
 	if len(cards) > 1 {
-		err = room.PlayCards(c.playerID, cards, chosenColor, chosenPlayer)
+		err = room.PlayCards(c.playerID(), cards, chosenColor, chosenPlayer)
 	} else {
-		err = room.PlayCard(c.playerID, cards[0], chosenColor, chosenPlayer)
+		err = room.PlayCard(c.playerID(), cards[0], chosenColor, chosenPlayer)
 	}
 	if err != nil {
 		h.refuseAction(c, t, err)
@@ -73,7 +69,7 @@ func (h *Hub) handlePlayCard(c *Client, msg protocol.ClientMsg) {
 	if len(cards) > 1 {
 		cpForBroadcast = -1
 	}
-	h.broadcastCardPlayed(t, c.playerID, cpForBroadcast)
+	h.broadcastCardPlayed(t, c.playerID(), cpForBroadcast)
 	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
 		h.broadcastPersonalizedGameState(t)
 	}
@@ -137,19 +133,15 @@ func (h *Hub) handleRoundOrMatchEnd(t *table) {
 	h.maybeScheduleBot(t)
 }
 
-func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleDrawCard(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
-	priorSize := len(room.State.Hands[c.playerID].Cards)
-	if err := room.DrawCard(c.playerID); err != nil {
+	priorSize := len(room.State.Hands[c.playerID()].Cards)
+	if err := room.DrawCard(c.playerID()); err != nil {
 		h.refuseAction(c, t, err)
 		return
 	}
 	state := room.State
-	hand := state.Hands[c.playerID]
+	hand := state.Hands[c.playerID()]
 	newCards := hand.Cards[priorSize:]
 	drawnCount := len(newCards)
 
@@ -167,7 +159,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	// Tell the drawing player all their new cards plus the updated turn state.
 	c.Send(protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(c.playerID),
+		PlayerIndex:  intPtr(c.playerID()),
 		Cards:        cardDTOs(newCards),
 		Turn:         state.CurrentTurn,
 		PendingDraw:  intPtr(state.PendingDraw),
@@ -179,7 +171,7 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	// the table, not the recipient, and a client left to infer them desyncs.
 	h.broadcastToRoom(t, protocol.ServerMsg{
 		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(c.playerID),
+		PlayerIndex:  intPtr(c.playerID()),
 		DrawnCount:   drawnCount,
 		Turn:         state.CurrentTurn,
 		PendingDraw:  intPtr(state.PendingDraw),
@@ -189,13 +181,9 @@ func (h *Hub) handleDrawCard(c *Client, msg protocol.ClientMsg) {
 	h.maybeScheduleBot(t)
 }
 
-func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handlePassTurn(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
-	if err := room.PassTurn(c.playerID); err != nil {
+	if err := room.PassTurn(c.playerID()); err != nil {
 		h.refuseAction(c, t, err)
 		return
 	}
@@ -208,13 +196,9 @@ func (h *Hub) handlePassTurn(c *Client, msg protocol.ClientMsg) {
 	h.maybeScheduleBot(t)
 }
 
-func (h *Hub) handleDeclareUno(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleDeclareUno(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
-	if err := room.DeclareLastCard(c.playerID); err != nil {
+	if err := room.DeclareLastCard(c.playerID()); err != nil {
 		c.sendError(err.Error())
 		// A second call on the same single card is a double tap or a message in
 		// flight when the first one landed, not an attack — the client already
@@ -226,15 +210,11 @@ func (h *Hub) handleDeclareUno(c *Client, msg protocol.ClientMsg) {
 	}
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoDeclared,
-		PlayerIndex: intPtr(c.playerID),
+		PlayerIndex: intPtr(c.playerID()),
 	})
 }
 
-func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	// A Swap or a GlobalSwitch can leave several seats catchable at once, so the
 	// catcher names the one they spotted. Older clients send nothing: fall back
@@ -250,14 +230,14 @@ func (h *Hub) handleCatchUno(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	priorSize := len(room.State.Hands[targetIdx].Cards)
-	if err := room.CatchUndeclared(c.playerID, targetIdx, time.Now()); err != nil {
+	if err := room.CatchUndeclared(c.playerID(), targetIdx, time.Now()); err != nil {
 		// A lost race is the mechanic working, not an attack: the button was
 		// armed when it was pressed and the target's LOCO! (or a hand that grew,
 		// or the last millisecond of the window) simply reached the hub first.
 		// It costs the caller a card and nothing else — no error toast, no
 		// suspicion, since the client shows the penalty itself.
 		if game.IsMissedCatch(err) {
-			h.penalizeFailedCatch(t, c.playerID)
+			h.penalizeFailedCatch(t, c.playerID())
 			return
 		}
 		c.sendError(err.Error())
@@ -289,11 +269,7 @@ func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int) {
 	h.sendHandGrowth(t, catcherIdx, drawn)
 }
 
-func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleCounterDraw(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	if msg.Card == nil {
 		c.sendError("card required")
@@ -304,22 +280,18 @@ func (h *Hub) handleCounterDraw(c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	if err := room.CounterDraw(c.playerID, card, chosenColor); err != nil {
+	if err := room.CounterDraw(c.playerID(), card, chosenColor); err != nil {
 		h.refuseAction(c, t, err)
 		return
 	}
-	h.broadcastCardPlayed(t, c.playerID, -1)
+	h.broadcastCardPlayed(t, c.playerID(), -1)
 	h.maybeScheduleBotCatch(t)
 	h.maybeScheduleBotDeclarations(t)
 	h.maybeScheduleBotInterrupt(t)
 	h.handleRoundOrMatchEnd(t)
 }
 
-func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	chosenPlayer := -1
 	if msg.ChosenPlayer != nil {
@@ -330,12 +302,12 @@ func (h *Hub) handleInterruptPlay(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	if err := room.InterruptPlayCards(c.playerID, cards, chosenColor, chosenPlayer); err != nil {
+	if err := room.InterruptPlayCards(c.playerID(), cards, chosenColor, chosenPlayer); err != nil {
 		h.refuseAction(c, t, err)
 		return
 	}
 
-	h.broadcastInterrupt(t, c.playerID, cards, chosenPlayer)
+	h.broadcastInterrupt(t, c.playerID(), cards, chosenPlayer)
 	h.maybeScheduleBotCatch(t)
 	h.maybeScheduleBotDeclarations(t)
 	h.maybeScheduleBotInterrupt(t)

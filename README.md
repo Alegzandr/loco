@@ -44,8 +44,9 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 loco/
 ├── server/                # Go game server
 │   ├── game/              # Authoritative domain logic (cards, deck, hand, room, rules, bot)
-│   ├── hub/               # WebSocket event loop, rate limiting, session tokens, room cleanup
-│   │                      #   table.go is one table as one object; hub.go is the loop
+│   ├── hub/               # WebSocket routing, rate limiting, session tokens, room cleanup
+│   │                      #   table.go is one table as one object; actor.go is its goroutine
+│   │                      #   hub.go is the loop that owns what is between tables
 │   │                      #   one file per thing a message leads to (rooms, gameplay, bots, …)
 │   ├── protocol/          # Wire message schema (client ↔ server)
 │   ├── main.go
@@ -111,12 +112,20 @@ The **client** owns only presentation:
 ### Realtime Model
 
 - One persistent WebSocket per player
-- The Hub runs a single-goroutine event loop (no locks needed on room state)
-- All game mutations happen in the hub's event loop
+- **One goroutine per table.** The Hub's event loop owns what is between tables (the map of them, the
+  matchmaking queue, the connected sockets, the drain) and routes each message to the table it is
+  for; that table's own goroutine handles it. No locks on room state either way: a table's fields are
+  touched by exactly one goroutine. Work crosses in two directions and both are non-blocking, because
+  a blocking send either way would deadlock the moment the other end sends back.
+- It is not a throughput change. A whole card play costs 8.6 µs and the rate limiter admits far less
+  than one goroutine absorbed, so what the split buys is **isolation**: one table's slow message is no
+  longer every other table's wait, in a game whose reaction windows are decided by arrival order. See
+  [`docs/notes/server.md`](docs/notes/server.md) for the measurements and what they rule out.
+- All game mutations for one table happen on that table's goroutine
 - Each client gets a personalized view of game state (own hand visible; others' hand size only)
 - Timing for UNO catch is enforced server-side using `time.Now()` at message receipt
-- All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` — no long-lived sleeping goroutines; goroutine count remains O(connections), not O(rooms × events)
-- Critical timer callbacks (botMove, expire, cleanup) retry once on channel-full before logging `WARN`; per-client output drops are tolerated with client notification
+- All deferred async work (bot moves, reconnect expiry, room cleanup) uses `time.AfterFunc` — no long-lived sleeping goroutines; goroutine count is O(connections + tables), not O(rooms × events)
+- Critical timer callbacks (bot moves, reconnect expiry, room cleanup, the matchmade reveal) retry once when a table is behind before logging `WARN`; per-client output drops are tolerated with client notification
 
 **Latency budget.** Interrupts are resolved by arrival order at the server, so every hop is tuned
 for the smallest possible delay rather than the fewest bytes:
@@ -151,7 +160,7 @@ for the smallest possible delay rather than the fewest bytes:
 - Session tokens: cryptographically random token issued on join/create, required to re-claim a slot on reconnect — prevents slot hijacking. Compared in constant time, and **rotated on every reclaim**: the spent token stops working the moment it is used
 - Per-client rate limiting: token bucket (10 msg/s, burst 20) — rejects flood attacks at the connection layer
 - Gameplay is refused while the room is still loading its map: the fairness of the loading gate cannot rest on every client honouring its own loading screen
-- Gameplay messages are refused outright at a table that has not dealt, and `dispatch` recovers from any handler panic. One message can cost one message: every inbound message is handled on a single goroutine, so an unhandled panic used to be the whole process and every match on it
+- Gameplay messages are refused outright at a table that has not dealt, and a handler panic is recovered on both sides of the routing hand-off (`dispatch` on the hub, `runJob` on the table). One message can cost one message: every inbound message used to be handled on a single goroutine, so an unhandled panic was the whole process and every match on it, and a table goroutine lost to one would not fail but go quiet
 - Connection and table ceilings, refused before the WebSocket upgrade (`MaxClients`, `MaxConnsPerNet`) and at `create_room` (`MaxRooms`). A table outlives the socket that opened it by five minutes, so creating them in a loop was unbounded growth for the price of a handshake
 - A wrong table code is budgeted: 20 misses per network per minute, then `join_room` is refused for the rest of the window. Table codes are read out loud on stream, so the code is not a strong secret; what this stops is a script sweeping for open tables
 - A refused reclaim never names the roster: a stranger and a returning player with a stale token get the same answer, so a table code cannot be used to test which nicknames are seated
@@ -222,8 +231,9 @@ docker compose exec server wget -qO- http://localhost:8080/metrics
 the abuse/pressure counters (`messages_rate_limited`, `messages_dropped_busy`,
 `slow_clients_closed`, `suspected_cheats`, `conns_refused`, `joins_throttled`).
 `handler_panics` is the one to alert on: the event loop recovers rather than dying, so any
-value above zero is a bug that nothing else surfaces. `debug_mode_active` must read
-`false` in production.
+value above zero is a bug that nothing else surfaces. `log_lines_dropped` above zero means
+the log you are reading has holes in it, which is worth knowing before drawing conclusions
+from what is missing. `debug_mode_active` must read `false` in production.
 
 The server container runs as an unprivileged user with no capabilities and a read-only
 root filesystem, so it can write nothing but the shutdown snapshot on its `/data` mount.
@@ -281,6 +291,23 @@ go test ./...           # all tests
 go test ./game/... -v   # domain tests with verbose output
 golangci-lint run ./... # static analysis (or: make lint-server, runs in docker)
 ```
+
+### What one message costs the server
+
+Whether one goroutine could carry every table was a measurement rather than an opinion, and
+it is still the measurement any argument about scaling has to start from. `make bench-server`
+is that measurement, and it is deliberately outside CI: a shared runner's numbers say more
+about the runner than about the code.
+
+```bash
+make bench-server
+make bench-server ARGS="-bench Dispatch -benchtime=5s"
+```
+
+A whole `play_card` at a four-player table is about 8.6 µs, which the token bucket already
+holds inbound traffic below, and one `log.Printf` used to cost nearly as much as the card
+it described. The table, and what those numbers rule out, are in
+[`docs/notes/server.md`](docs/notes/server.md).
 
 ### Frontend (Vitest + ESLint)
 

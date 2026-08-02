@@ -55,7 +55,7 @@ client and E2E targets do need Node.
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
 | Type-check | `make build-client` (`astro check && astro build`); there is no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make maps ARGS="--src=<folder>"` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make maps ARGS="--src=<folder>"`, `make bench-server` |
 
 ## Done means
 Code + tests + passing + docs + Docker still works + behavior matches docs. **Update `README.md` when
@@ -129,10 +129,12 @@ toolbar (off), the `VITE_` env prefix and the React fast-refresh preamble. **No 
 **`server/`** authoritative game server.
 - `game/` pure domain: room, deck, hand, rules, bot, maps, event log, `nickname.go` + `wordlists/`
 - `hub/` **one file per thing a message leads to**: `table.go` (**the** table, and the seat
-  bookkeeping nothing else may do), `hub.go` (the Hub, its tunables and ceilings, the loop),
+  bookkeeping nothing else may do), `actor.go` (the table's goroutine, and the two ways work crosses
+  between it and the hub), `hub.go` (the Hub, its tunables and ceilings, the loop),
   `serve.go`, `tokens.go`, `dispatch.go`, `rooms.go`, `rematch.go`, `gameplay.go`, `presence.go`,
   `bots.go`, `turntimer.go`, `broadcast.go`, `statedto.go`, `converter.go`, `metrics.go`, `debug.go`,
-  `client.go`, `maploading.go`, `matchmaking.go`, `drain.go` + `snapshot.go`, `privacy.go`
+  `client.go`, `maploading.go`, `matchmaking.go`, `drain.go` + `snapshot.go`, `privacy.go`,
+  `logsink.go` (the asynchronous log writer `main` installs)
 - `protocol/` wire types, and **the single source the client's are generated from**: `messages.go`
   (the envelopes and DTOs) and `enums.go` (the wire enums, pinned to the domain by `enums_test.go`)
 - `cmd/protocolgen/` the generator: reads `protocol/`, writes the client's two type files, and
@@ -204,13 +206,29 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   token and is issued a fresh one**.
 - **The upgrade checks `Origin`** (`hub.originAllowed`): hostnames must match, ports need not;
   `LOCO_ALLOWED_ORIGINS` overrides with an exact allowlist; a missing `Origin` is allowed.
-- **A table is one object, and the only one that may move a seat** (`hub/table.go`). Deleting is one
-  `delete`, a rematch's reset is `resetForNextMatch()`, removing a seat is `dropSeat(id)`, which
-  shifts members, surviving `playerID`s, bots and tokens **together**. Zero values mean something on
-  purpose. Add per-table state as a field here, **never as a twelfth map**.
-- **A socket holds one seat for its lifetime**: `table.seat` / `hub.seatClient` sweep the old index
-  and the old table, `hub.alreadySeated` refuses on `create_room` and `join_room`. Reconnects are
-  unaffected.
+- **A table is one object, it owns its own goroutine, and it is the only thing that may move a seat**
+  (`hub/table.go` + `hub/actor.go`). Deleting is one `delete`, a rematch's reset is
+  `resetForNextMatch()`, removing a seat is `dropSeat(id)`, which shifts members, surviving
+  `playerID`s, bots and tokens **together**. Zero values mean something on purpose. Add per-table
+  state as a field here, **never as a twelfth map and never as something another goroutine reads**.
+- **The hub routes, the table decides.** `t.post(job)` runs work on a table, `h.postToRouter(fn)` runs
+  work on the hub, and **both are non-blocking**: a blocking send either way deadlocks the moment the
+  other end sends back. Overflow is dropped and counted; the drops that would leak something (a room
+  nobody deletes, a seat nobody frees, a reveal that never deals) retry once. The hub keeps `tables`,
+  the matchmaking queue, `clients`, the wrong-code budgets and the drain, and **nothing else may
+  touch a table's fields**. `create_room` allocates on the hub; `join_room`, `find_match` and
+  `leave_room` are split, and their halves are **ordered rather than raced**.
+- **A table is started only once the hub has finished filling it in** (`t.start(h)`, never
+  `newTable`), and it **stops existing and stops running at the same moment** (`deleteRoom` removes
+  the map entry, then `stop()`s and waits, which is also what makes the read after it safe).
+- **A panic is recovered on the table as well as on the hub** (`runJob`). It matters more there: a
+  dead table goroutine does not fail, it goes quiet, and every message to that room queues behind
+  nothing forever. `handler_panics` still covers both.
+- **A socket holds one seat for its lifetime, and the seat is one atomic value** (`Client.seat`, a
+  `seatRef` of code plus index — never two fields written in pairs). `table.seat` / `hub.seatClient`
+  sweep the old index and the old table, `hub.alreadySeated` refuses on `create_room` and `join_room`,
+  and **`dispatchAtTable` re-checks the seat against the table about to act on it**, because the
+  routing and the handling no longer happen in the same instant. Reconnects are unaffected.
 - **Personalised sends index by slot, never by `member.playerID`.**
 - **Room codes and session tokens both come from `crypto/rand`**, no fallback. `math/rand` is for bot
   jitter and nothing else.
@@ -262,9 +280,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `match_ready`, not `game_started`. Per match, not per round.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
   marshal once. `Client.SendBytes` force-closes on a full send buffer.
-- **One goroutine serves every room, so the ceiling is the loop, not `MaxRooms`**: `/metrics` carries
-  `loop_queue_depth` / `loop_queue_peak` / `loop_slowest_us` beside `messages_dropped_busy`. Every
-  counter lives on one `hubMetrics` struct (`hub/metrics.go`).
+- **What the server costs is measured, not assumed** (`make bench-server`, `hub/loop_bench_test.go`):
+  8.6 µs for a whole card play, against a token bucket that admits at most 50 000 msg/s. One
+  goroutine already absorbed that; the split above was bought for **isolation between tables, not
+  throughput**. `/metrics` carries `loop_queue_depth` (the hub's routing queue), `loop_queue_peak`
+  (the deepest one table's box has been) and `loop_slowest_us` (the longest one message has taken
+  anywhere) beside `messages_dropped_busy`. Every counter lives on one `hubMetrics` struct
+  (`hub/metrics.go`), and the high-water marks are raised by CAS, not load-then-store. **Argue about
+  scaling with those numbers or not at all** — the note has the table and what it rules out.
 - `/metrics` **and `/health`** are operator surfaces: only `docker-compose.dev.yml` publishes the Go
   server, and **nginx proxies `/ws` and nothing else**. `debug_mode_active` must be `false` in prod.
 - **The server container has no privilege to lose**: uid 10001, `no-new-privileges`, `cap_drop: ALL`,
@@ -272,6 +295,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `.gitlab-ci.yml`. **Treat that directory as a secret**: every session token and every hand of every
   interrupted match.
 - Structured `key=value` logging, `conn=` on every connection-scoped line, never tokens or hands.
+- **The log never touches the event loop.** `main` installs `hub.NewAsyncLog` as the standard
+  logger's writer, so every `log.Printf` stays where it is and becomes a channel send: a line was the
+  most expensive call in a handler and the only one a reader outside the process could stall. The
+  queue is bounded, **overflow is dropped rather than waited on** (waiting is the failure being
+  removed), and what is dropped is both counted on `/metrics` (`log_lines_dropped`) and admitted in
+  the log itself. Never route that notice back through `log`. `main` closes the sink last, waits for
+  the shutdown before returning, and does not call `log.Fatal`.
 
 ## Client
 Detail: [`docs/notes/client.md`](docs/notes/client.md).

@@ -22,13 +22,9 @@ import (
 // unchanged.  After applying the overrides the handler broadcasts a personalised
 // game_state message to every connected player in the room so all clients reflect
 // the new state.
-func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
+func (h *Hub) handleDebugSetState(t *table, c *Client, msg protocol.ClientMsg) {
 	if os.Getenv("LOCO_E2E") != "1" {
 		c.sendError("debug commands are not enabled")
-		return
-	}
-	t, ok := h.requireTable(c)
-	if !ok {
 		return
 	}
 	room := t.room
@@ -45,7 +41,7 @@ func (h *Hub) handleDebugSetState(c *Client, msg protocol.ClientMsg) {
 		d = &protocol.DebugStateDTO{}
 	}
 
-	playerID := c.playerID
+	playerID := c.playerID()
 	state := room.State
 	parseHand := func(cards []protocol.CardDTO) (game.Hand, error) {
 		newHand := game.Hand{}

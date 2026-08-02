@@ -69,10 +69,10 @@ func (h *Hub) refuseAction(c *Client, t *table, err error) {
 	if !game.IsStateMismatch(err) {
 		return
 	}
-	log.Printf("state resync conn=%s code=%s player=%d reason=%v", c.connID, c.roomCode, c.playerID, err)
+	log.Printf("state resync conn=%s code=%s player=%d reason=%v", c.connID, c.roomCode(), c.playerID(), err)
 	c.Send(protocol.ServerMsg{
 		Type:  protocol.SMsgGameState,
-		State: h.playerGameStateUsing(t, c.playerID, h.playerList(t)),
+		State: h.playerGameStateUsing(t, c.playerID(), h.playerList(t)),
 	})
 }
 
@@ -184,40 +184,45 @@ func catchSeats(state *game.GameState) []protocol.CatchSeatDTO {
 // number from a previous minute. Exported so tests can shorten it.
 var LatencyBroadcastPeriod = 3 * time.Second
 
-// broadcastLatencies fans the current per-seat round trips out to every room
-// that is actually playing: the score table is an in-game overlay, and a lobby
-// has nothing to put the numbers next to.
-//
-// Runs on the hub event loop, so reading h.tables is safe; the RTT itself comes
-// from an atomic written by the connection's pumps.
+// broadcastLatencies asks every table for its round trips. The ticker is the
+// hub's, and reading h.tables from it is safe; what each table then sends is
+// decided on that table's own goroutine, because the roster and the seats are
+// its own. The RTT itself comes from an atomic written by the connection pumps.
 func (h *Hub) broadcastLatencies() {
 	for _, t := range h.tables {
-		room := t.room
-		if room.Status != game.StatusPlaying {
-			continue
-		}
-		members := t.members
-		entries := make([]protocol.LatencyEntryDTO, len(room.Players))
-		measured := false
-		for i := range room.Players {
-			entry := protocol.LatencyEntryDTO{PlayerIndex: i, RTTMs: -1}
-			if t.isBot(i) {
-				entry.Bot = true
-			} else if i < len(members) && members[i] != nil {
-				entry.RTTMs = members[i].latency()
-				measured = measured || entry.RTTMs >= 0
-			}
-			entries[i] = entry
-		}
-		// Nothing has answered a ping yet (the first seconds of a round, or a
-		// table of bots): a payload of "unknown" tells the client exactly what
-		// its own default already says.
-		if !measured {
-			continue
-		}
-		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:      protocol.SMsgLatency,
-			Latencies: entries,
-		})
+		t.postFromTimer("latency", func() { h.sendLatencies(t) })
 	}
+}
+
+// sendLatencies fans one table's per-seat round trips out, if it is actually
+// playing: the score table is an in-game overlay, and a lobby has nothing to
+// put the numbers next to.
+func (h *Hub) sendLatencies(t *table) {
+	room := t.room
+	if room.Status != game.StatusPlaying {
+		return
+	}
+	members := t.members
+	entries := make([]protocol.LatencyEntryDTO, len(room.Players))
+	measured := false
+	for i := range room.Players {
+		entry := protocol.LatencyEntryDTO{PlayerIndex: i, RTTMs: -1}
+		if t.isBot(i) {
+			entry.Bot = true
+		} else if i < len(members) && members[i] != nil {
+			entry.RTTMs = members[i].latency()
+			measured = measured || entry.RTTMs >= 0
+		}
+		entries[i] = entry
+	}
+	// Nothing has answered a ping yet (the first seconds of a round, or a table
+	// of bots): a payload of "unknown" tells the client exactly what its own
+	// default already says.
+	if !measured {
+		return
+	}
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:      protocol.SMsgLatency,
+		Latencies: entries,
+	})
 }

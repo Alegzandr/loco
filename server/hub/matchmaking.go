@@ -133,12 +133,35 @@ func (h *Hub) handleFindMatch(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	if h.alreadySeated(c) {
-		if t := h.tableOf(c); t != nil && t.room.Status == game.StatusPlaying {
-			c.sendError("already in a room")
+		t := h.tableOf(c)
+		if t == nil {
+			// alreadySeated releases a client pointing at a table that is gone,
+			// so this is the case where it just did.
+			h.enqueueAndPair(c, nickname)
 			return
 		}
-		h.releaseSeat(c)
+		// Whether the room can be left, and the leaving itself, are the table's
+		// to answer; the queue is the hub's. So the two halves are ordered
+		// rather than raced: the seat is given up first, and only then does the
+		// player go back into the queue. Being in a room and in the queue at the
+		// same time is the one state neither side could recover from.
+		if !t.post(tableJob{what: "find_match_release", c: c, run: func() {
+			if t.room.Status == game.StatusPlaying {
+				c.sendError("already in a room")
+				return
+			}
+			h.releaseSeat(t, c)
+			h.postToRouter("enqueue", func() { h.enqueueAndPair(c, nickname) })
+		}}) {
+			c.sendError("server busy, please retry")
+		}
+		return
 	}
+	h.enqueueAndPair(c, nickname)
+}
+
+// enqueueAndPair is the queue half of find_match, and runs on the hub.
+func (h *Hub) enqueueAndPair(c *Client, nickname string) {
 	if h.queueIndex(c) >= 0 {
 		c.sendError("already searching for an opponent")
 		return
@@ -223,30 +246,25 @@ func (h *Hub) pairMatch(a, b queuedPlayer) {
 		})
 	}
 
-	h.scheduleMatchmakingStart(code, pairedAt)
+	h.scheduleMatchmakingStart(t, pairedAt)
+
+	// Last, when the hub has finished filling this table in. The reveal timer
+	// above posts into a box that already exists, so arming it first loses
+	// nothing. See table.start.
+	t.start(h)
 }
 
 // scheduleMatchmakingStart arms the end of the versus reveal. Shared by a fresh
 // pairing and by a rematch between the same two, which is the same thing as far
 // as everything downstream is concerned.
-func (h *Hub) scheduleMatchmakingStart(code string, pairedAt time.Time) {
-	sm := mmStartMsg{roomCode: code, pairedAt: pairedAt}
+func (h *Hub) scheduleMatchmakingStart(t *table, pairedAt time.Time) {
+	sm := mmStartMsg{roomCode: t.code, pairedAt: pairedAt}
+	// Critical: dropping this leaves two players staring at a versus screen that
+	// never deals. Same retry discipline as the bot move.
 	time.AfterFunc(MatchmakingRevealDelay, func() {
-		select {
-		case h.mmStart <- sm:
-		default:
-			// Critical: dropping this leaves two players staring at a versus
-			// screen that never deals. Same retry discipline as botMove.
-			h.metrics.channelRetries.Add(1)
-			log.Printf("mmStart channel full, retrying in 1s code=%s", code)
-			time.AfterFunc(time.Second, func() {
-				select {
-				case h.mmStart <- sm:
-				default:
-					log.Printf("WARN mmStart retry dropped, match may never deal code=%s", code)
-				}
-			})
-		}
+		h.postCritical(t, "matchmaking_start", time.Second, func() {
+			h.handleMatchmakingStart(t, sm)
+		})
 	})
 }
 
@@ -263,9 +281,8 @@ func (h *Hub) failPairing(a, b queuedPlayer) {
 // Re-checked like every other deferred callback: the room may be gone, the pair
 // may have been superseded by a rematched room reusing the code, and either
 // player may have closed the tab during the reveal.
-func (h *Hub) handleMatchmakingStart(sm mmStartMsg) {
-	t, ok := h.tables[sm.roomCode]
-	if !ok || !t.matchmadeAt.Equal(sm.pairedAt) {
+func (h *Hub) handleMatchmakingStart(t *table, sm mmStartMsg) {
+	if !t.matchmadeAt.Equal(sm.pairedAt) {
 		return
 	}
 	if t.room.Status != game.StatusLobby {
@@ -295,18 +312,25 @@ func (h *Hub) requeueSurvivor(t *table) {
 		}
 	}
 	log.Printf("matchmaking pairing lost before start code=%s requeued=%t", code, survivor != nil)
-	h.deleteRoom(code)
-	if survivor == nil {
-		return
+	if survivor != nil {
+		survivor.leaveSeat()
 	}
-	survivor.roomCode = ""
-	survivor.playerID = 0
-	if nickname == "" {
-		survivor.Send(protocol.ServerMsg{Type: protocol.SMsgMatchmakingCancelled})
-		return
-	}
-	h.enqueue(survivor, nickname)
-	h.tryPair()
+	// Deleting the room and refilling the queue are both the hub's, and they
+	// happen together: the survivor must not be findable at a table that is
+	// being torn down. Everything this needs is captured by value, so nothing
+	// below reads a table the hub is about to stop.
+	h.postToRouter("requeue_survivor", func() {
+		h.deleteRoom(code)
+		if survivor == nil {
+			return
+		}
+		if nickname == "" {
+			survivor.Send(protocol.ServerMsg{Type: protocol.SMsgMatchmakingCancelled})
+			return
+		}
+		h.enqueue(survivor, nickname)
+		h.tryPair()
+	})
 }
 
 // refuseInMatchmade answers a host-only lobby control sent in a matchmade room.
@@ -383,7 +407,7 @@ func (h *Hub) startRematchedMatch(t *table) {
 			StartsInMs:   MatchmakingRevealDelay.Milliseconds(),
 		})
 	}
-	h.scheduleMatchmakingStart(code, pairedAt)
+	h.scheduleMatchmakingStart(t, pairedAt)
 }
 
 // --- Leaving ---
@@ -392,19 +416,13 @@ func (h *Hub) startRematchedMatch(t *table) {
 // playing, without touching the socket itself. Same bookkeeping as the lobby
 // branch of handleDisconnect, which is the point: a player who leaves and a
 // player who drops must leave the room in the same shape.
-func (h *Hub) releaseSeat(c *Client) {
-	code := c.roomCode
-	t, ok := h.tables[code]
-	if !ok {
-		c.roomCode = ""
-		c.playerID = 0
-		return
-	}
+func (h *Hub) releaseSeat(t *table, c *Client) {
+	code := t.code
 	nickname := ""
-	if c.playerID < len(t.room.Players) {
-		nickname = t.room.Players[c.playerID].Nickname
+	if c.playerID() < len(t.room.Players) {
+		nickname = t.room.Players[c.playerID()].Nickname
 	}
-	leavingID := c.playerID
+	leavingID := c.playerID()
 	if h.reindexLobbyDisconnect(c, t) {
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
 			Type:     protocol.SMsgPlayerLeft,
@@ -414,8 +432,7 @@ func (h *Hub) releaseSeat(c *Client) {
 	} else {
 		h.scheduleRoomCleanup(t)
 	}
-	c.roomCode = ""
-	c.playerID = 0
+	c.leaveSeat()
 	// This seat's ask goes with it, and the ones above it move down: they are
 	// keyed by playerID like everything else the re-index just shifted.
 	h.releaseRematchOffer(t, leavingID)
@@ -434,20 +451,39 @@ func (h *Hub) releaseSeat(c *Client) {
 // room's quit button lands here, and the seat is released on the spot instead of
 // being held the way a closed tab would hold it.
 func (h *Hub) handleLeaveRoom(c *Client) {
+	// The queue is emptied here, on the hub, and the seat at the table: a
+	// player who leaves is neither searching nor seated, and the two halves
+	// belong to different owners.
 	h.dequeue(c)
 	if !h.alreadySeated(c) {
 		c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 		return
 	}
-	t := h.tables[c.roomCode]
+	t := h.tableOf(c)
+	if t == nil {
+		c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
+		return
+	}
+	if !t.post(tableJob{what: string(protocol.CMsgLeaveRoom), c: c, run: func() {
+		h.leaveAtTable(t, c)
+	}}) {
+		c.sendError("server busy, please retry")
+	}
+}
+
+func (h *Hub) leaveAtTable(t *table, c *Client) {
+	if c.roomCode() != t.code {
+		c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
+		return
+	}
 	if t.room.Status == game.StatusPlaying {
 		if !t.isMatchmade() {
 			c.sendError("you cannot leave a match in progress")
 			return
 		}
-		h.forfeitMatch(t, c.playerID)
+		h.forfeitMatch(t, c.playerID())
 	}
-	h.releaseSeat(c)
+	h.releaseSeat(t, c)
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 }
 

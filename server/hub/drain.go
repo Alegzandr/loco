@@ -88,11 +88,17 @@ func (h *Hub) beginDrain() {
 	// Everyone at a table in progress is told once. Not a countdown and not a
 	// warning: there is nothing for them to do, and the match they are in is
 	// going to finish.
+	//
+	// Asked of each table rather than done here, because whether a table is
+	// playing and who is sitting at it are that table's to say. The status is
+	// re-checked there for the same reason.
 	for _, t := range h.tables {
-		if t.room.Status != game.StatusPlaying {
-			continue
-		}
-		h.broadcastToRoomAll(t, protocol.ServerMsg{Type: protocol.SMsgServerUpdating})
+		t.postFromTimer("drain_notice", func() {
+			if t.room.Status != game.StatusPlaying {
+				return
+			}
+			h.broadcastToRoomAll(t, protocol.ServerMsg{Type: protocol.SMsgServerUpdating})
+		})
 	}
 
 	h.checkDrained()
@@ -128,13 +134,17 @@ func (h *Hub) checkDrained() {
 // shutting down on top of it would break a match that had effectively started.
 // An ordinary lobby does not count, because a drain refuses start_game, so it
 // can never become one.
+//
+// It reads each table's published phase rather than the table itself, which is
+// how this stays a scan the hub can do after every event without asking anybody
+// anything. What decides the phase is unchanged, and it is still recomputed
+// after **every** job a table runs rather than being hooked onto the handful
+// that can end a match: that hook is the one that gets forgotten, and forgetting
+// it leaves a deploy hanging on a match that finished. See table.publishPhase.
 func (h *Hub) matchesInFlight() int {
 	n := 0
 	for _, t := range h.tables {
-		switch {
-		case t.room.Status == game.StatusPlaying:
-			n++
-		case t.room.Status == game.StatusLobby && t.isMatchmade():
+		if t.phase.Load() == phaseInFlight {
 			n++
 		}
 	}

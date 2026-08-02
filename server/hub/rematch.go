@@ -21,11 +21,7 @@ import (
 // is an offer on every screen, the offers are public, and the ask is what the
 // next match is dealt from. See openRematchedLobby / startRematchedMatch for
 // the two shapes that deal takes.
-func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleRematch(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	// A matchmade rematch deals immediately, and an ordinary one leads to a
 	// start_game the drain is going to refuse anyway. Refusing here is the
@@ -46,8 +42,8 @@ func (h *Hub) handleRematch(c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	t.rematchOffers[c.playerID] = struct{}{}
-	h.broadcastRematchOffers(t, intPtr(c.playerID))
+	t.rematchOffers[c.playerID()] = struct{}{}
+	h.broadcastRematchOffers(t, intPtr(c.playerID()))
 	if len(t.rematchOffers) < t.rematchQuorum() {
 		return
 	}
@@ -122,7 +118,7 @@ func (h *Hub) openRematchedLobby(t *table) {
 		member.Send(protocol.ServerMsg{
 			Type:        protocol.SMsgRematchStarted,
 			RoomCode:    code,
-			PlayerID:    intPtr(member.playerID),
+			PlayerID:    intPtr(member.playerID()),
 			Players:     h.playerList(t),
 			MatchFormat: matchFormatString(room.Format),
 			MaxPlayers:  room.MaxPlayers,

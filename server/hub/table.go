@@ -2,6 +2,8 @@
 package hub
 
 import (
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"loco/server/game"
@@ -18,11 +20,27 @@ import (
 // dealing on a gate belonging to the match before it, or a turn timer checked
 // against a timestamp from a round that is over.
 //
-// Nothing here is exported and nothing here is read off the event loop, which is
-// why none of it is locked. See metrics.go for the one part of the Hub that is.
+// Nothing here is exported, and nothing here is touched by any goroutine but
+// this table's own, which is why none of it is locked. The two exceptions are
+// declared as such: box and quit are how work gets in, and phase is the one
+// value the hub reads without asking. See actor.go.
 type table struct {
 	code string
 	room *game.Room
+
+	// box is this table's mailbox and the only way work reaches it. quit ends
+	// the goroutine, done says it has gone, and stopOnce is what lets the hub
+	// delete a room twice without closing a channel twice.
+	box      chan tableJob
+	quit     chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
+	started  atomic.Bool
+
+	// phase is "would a shutdown interrupt something here", published after
+	// every job so the drain can count without reading a table it does not own.
+	// See publishPhase.
+	phase atomic.Int32
 
 	// members is indexed by seat, and a nil entry is a seat whose socket has
 	// gone: held for the reconnect window during a match, removed and re-based
@@ -67,6 +85,10 @@ type table struct {
 	loading *mapLoadState
 }
 
+// newTable builds a table but does not start it. The caller finishes filling it
+// in (matchmaking sets matchmadeAt, the snapshot restore sets most of it) and
+// then calls start: a goroutine reading fields somebody is still writing is the
+// one race this split exists to make impossible.
 func newTable(code string, room *game.Room) *table {
 	return &table{
 		code:          code,
@@ -76,6 +98,9 @@ func newTable(code string, room *game.Room) *table {
 		bots:          make(map[int]struct{}),
 		afk:           make(map[int]int),
 		rematchOffers: make(map[int]struct{}),
+		box:           make(chan tableJob, tableBoxDepth),
+		quit:          make(chan struct{}),
+		done:          make(chan struct{}),
 	}
 }
 
@@ -144,8 +169,7 @@ func (t *table) seat(c *Client, id int) {
 		t.members = append(t.members, nil)
 	}
 	t.members[id] = c
-	c.roomCode = t.code
-	c.playerID = id
+	c.sitAt(t.code, id)
 	// Somebody is here, so any cleanup timer counting this table down is stale.
 	// It used to be a delete() the four seating paths each had to remember.
 	t.emptyAt = time.Time{}
@@ -165,7 +189,7 @@ func (t *table) hold(seat int, at time.Time) {
 func (t *table) reseat() (hasHuman bool) {
 	for i, m := range t.members {
 		if m != nil {
-			m.playerID = i
+			m.sitAt(t.code, i)
 			hasHuman = true
 		}
 	}
@@ -223,21 +247,21 @@ func (t *table) resetForNextMatch() {
 
 // tableOf returns the table a client is sitting at, or nil.
 func (h *Hub) tableOf(c *Client) *table {
-	if c.roomCode == "" {
+	if c.roomCode() == "" {
 		return nil
 	}
-	return h.tables[c.roomCode]
+	return h.tables[c.roomCode()]
 }
 
 // requireTable is tableOf for a message handler: it answers the client itself
 // when there is no table to act on, so every handler opens with three lines
 // instead of its own pair of error strings.
 func (h *Hub) requireTable(c *Client) (*table, bool) {
-	if c.roomCode == "" {
+	if c.roomCode() == "" {
 		c.sendError("not in a room")
 		return nil, false
 	}
-	t, ok := h.tables[c.roomCode]
+	t, ok := h.tables[c.roomCode()]
 	if !ok {
 		c.sendError("room not found")
 		return nil, false
@@ -249,17 +273,29 @@ func (h *Hub) requireTable(c *Client) (*table, bool) {
 // whatever table they were at first, so the stale-pointer case cannot be
 // reached even if a future handler forgets the alreadySeated check that is
 // supposed to make it unreachable in the first place.
+// The sweep of the old table is asked of that table rather than done here: its
+// members are its own, and this runs on whichever goroutine is doing the
+// seating. It is belt and braces for a case alreadySeated is supposed to make
+// unreachable, so a hop's delay costs nothing.
 func (h *Hub) seatClient(t *table, c *Client, id int) {
-	if c.roomCode != "" && c.roomCode != t.code {
-		if old := h.tables[c.roomCode]; old != nil {
-			for i, m := range old.members {
-				if m == c {
-					old.members[i] = nil
-				}
+	if old := c.roomCode(); old != "" && old != t.code {
+		h.postToRouter("sweep_old_seat", func() {
+			if ot := h.tables[old]; ot != nil {
+				ot.postFromTimer("sweep_old_seat", func() { ot.sweep(c) })
 			}
-		}
+		})
 	}
 	t.seat(c, id)
+}
+
+// sweep takes a socket out of this table's members without touching anything
+// else. Only seatClient uses it, for a client that has turned up elsewhere.
+func (t *table) sweep(c *Client) {
+	for i, m := range t.members {
+		if m == c {
+			t.members[i] = nil
+		}
+	}
 }
 
 // shiftIntKeySet returns a copy of m with the entry at `removed` dropped and

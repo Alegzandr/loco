@@ -146,16 +146,12 @@ func nextBotName(room *game.Room) string {
 	}
 }
 
-func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
-	t, ok := h.requireTable(c)
-	if !ok {
-		return
-	}
+func (h *Hub) handleAddBot(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
 	if refuseInMatchmade(c, t) {
 		return
 	}
-	if c.playerID != 0 {
+	if c.playerID() != 0 {
 		c.sendError("only the room owner can add bots")
 		return
 	}
@@ -183,10 +179,10 @@ func (h *Hub) handleAddBot(c *Client, msg protocol.ClientMsg) {
 
 // scheduleBotMove fires a bot turn after a short think delay.
 // Uses time.AfterFunc to avoid spawning long-lived goroutines.
-// If the botMove channel is full, retries once after 1s; dropping permanently
-// would stall the game (no player would act on that turn).
-func (h *Hub) scheduleBotMove(code string, playerID int) {
-	bm := botMoveMsg{roomCode: code, playerID: playerID}
+// Retried once if the table is behind: dropping permanently would stall the
+// game, since no player would act on that turn.
+func (h *Hub) scheduleBotMove(t *table, playerID int) {
+	bm := botMoveMsg{roomCode: t.code, playerID: playerID}
 	// Add random jitter so bots don't all act at the same instant and feel more
 	// like human reaction times. BotJitterMax can be set to 0 in tests.
 	var jitter time.Duration
@@ -194,30 +190,17 @@ func (h *Hub) scheduleBotMove(code string, playerID int) {
 		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 	}
 	time.AfterFunc(BotThinkDelay+jitter, func() {
-		select {
-		case h.botMove <- bm:
-		default:
-			h.metrics.channelRetries.Add(1)
-			log.Printf("botMove channel full, retrying in 1s code=%s player=%d", code, playerID)
-			time.AfterFunc(1*time.Second, func() {
-				select {
-				case h.botMove <- bm:
-				default:
-					log.Printf("WARN botMove retry dropped, game may stall code=%s player=%d", code, playerID)
-				}
-			})
-		}
+		h.postCritical(t, "bot_move", time.Second, func() { h.executeBotMove(t, bm) })
 	})
 }
 
 // maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
 func (h *Hub) maybeScheduleBot(t *table) {
-	code, room := t.code, t.room
-	if room.Status != game.StatusPlaying {
+	if t.room.Status != game.StatusPlaying {
 		return
 	}
-	if turn := room.State.CurrentTurn; t.isBot(turn) {
-		h.scheduleBotMove(code, turn)
+	if turn := t.room.State.CurrentTurn; t.isBot(turn) {
+		h.scheduleBotMove(t, turn)
 	}
 }
 
@@ -227,19 +210,16 @@ func (h *Hub) maybeScheduleBot(t *table) {
 // still showing the 5 s catch window it opened on the same card_played, so a
 // bot's LOCO! could never be caught and every Contre-LOCO! tap came back
 // "player already declared".
-func (h *Hub) scheduleBotUnoAnnounce(code string, playerIndex int, lastCardTime time.Time) {
+func (h *Hub) scheduleBotUnoAnnounce(t *table, playerIndex int, lastCardTime time.Time) {
 	var jitter time.Duration
 	if jm := int(BotUnoJitterMax.Milliseconds()); jm > 0 {
 		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 	}
-	um := unoMsg{roomCode: code, playerIndex: playerIndex, lastCardTime: lastCardTime}
+	um := unoMsg{roomCode: t.code, playerIndex: playerIndex, lastCardTime: lastCardTime}
+	// Non-critical if the box is full: the bot simply never declares and stays
+	// catchable until its window expires.
 	time.AfterFunc(BotUnoDelay+jitter, func() {
-		select {
-		case h.unoAnnounce <- um:
-		default:
-			// Non-critical: drop if channel full; the bot simply never declares
-			// and stays catchable until its window expires.
-		}
+		t.postFromTimer("bot_uno", func() { h.handleUnoAnnounce(t, um) })
 	})
 }
 
@@ -248,11 +228,7 @@ func (h *Hub) scheduleBotUnoAnnounce(code string, playerIndex int, lastCardTime 
 // race: it was caught (hand no longer at 1), the round moved on, or this seat
 // opened a different window in the meantime (a Swap handed it another single
 // card, which is a declaration it has not made yet).
-func (h *Hub) handleUnoAnnounce(um unoMsg) {
-	t, ok := h.tables[um.roomCode]
-	if !ok {
-		return // room deleted between schedule and fire
-	}
+func (h *Hub) handleUnoAnnounce(t *table, um unoMsg) {
 	room := t.room
 	if room.Status != game.StatusPlaying || room.State == nil {
 		return
@@ -305,12 +281,9 @@ func (h *Hub) maybeScheduleBotCatch(t *table) {
 			jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 		}
 		cm := botCatchMsg{roomCode: code, targetPlayer: target, lastCardTime: state.LastCardAt[target]}
+		// Non-critical if the box is full: the catch window just closes.
 		time.AfterFunc(BotCatchDelay+jitter, func() {
-			select {
-			case h.botCatch <- cm:
-			default:
-				// Non-critical: drop if channel full; catch window just closes naturally.
-			}
+			t.postFromTimer("bot_catch", func() { h.handleBotCatch(t, cm) })
 		})
 	}
 }
@@ -340,24 +313,17 @@ func (h *Hub) maybeScheduleBotInterrupt(t *table) {
 		jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
 	}
 	bim := botInterruptMsg{roomCode: code, lastPlayAt: room.State.LastPlayAt}
+	// Non-critical if the box is full: the bot did not react in time, which is
+	// a legal outcome of the mechanic rather than a fault.
 	time.AfterFunc(BotInterruptDelay+jitter, func() {
-		select {
-		case h.botInterrupt <- bim:
-		default:
-			// Non-critical: dropping it means the bot did not react in time,
-			// which is a legal outcome of the mechanic rather than a fault.
-		}
+		t.postFromTimer("bot_interrupt", func() { h.handleBotInterrupt(t, bim) })
 	})
 }
 
 // handleBotInterrupt fires when a scheduled interject is due. Every guard is a
 // way the moment can have passed between the schedule and the fire, and each
 // one simply means the bot lost the race.
-func (h *Hub) handleBotInterrupt(bim botInterruptMsg) {
-	t, ok := h.tables[bim.roomCode]
-	if !ok {
-		return
-	}
+func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 	room := t.room
 	if room.Status != game.StatusPlaying || room.State == nil || room.RoundEnded {
 		return
@@ -418,11 +384,7 @@ func (h *Hub) handleBotInterrupt(bim botInterruptMsg) {
 
 // handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates game state,
 // rolls the probability die, selects a random eligible bot, and issues the catch.
-func (h *Hub) handleBotCatch(cm botCatchMsg) {
-	t, ok := h.tables[cm.roomCode]
-	if !ok {
-		return // room deleted
-	}
+func (h *Hub) handleBotCatch(t *table, cm botCatchMsg) {
 	room := t.room
 	if room.Status != game.StatusPlaying {
 		return
@@ -477,13 +439,7 @@ func (h *Hub) handleBotCatch(cm botCatchMsg) {
 }
 
 // executeBotMove runs the bot's chosen action on behalf of its player slot.
-func (h *Hub) executeBotMove(bm botMoveMsg) {
-	t, ok := h.tables[bm.roomCode]
-	if !ok {
-		// Room was deleted between scheduling and firing — normal after match end or cleanup.
-		log.Printf("bot move skipped, room gone code=%s player=%d", bm.roomCode, bm.playerID)
-		return
-	}
+func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 	room := t.room
 	if room.Status != game.StatusPlaying {
 		// Game ended or not yet started between scheduling and firing.
@@ -550,7 +506,7 @@ func (h *Hub) botCounter(t *table, playerID int, action game.BotAction) {
 // Returns true when it self-reschedules to play the drawn card (caller should NOT
 // fall through to maybeScheduleBot).
 func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
-	code, room := t.code, t.room
+	room := t.room
 	priorSize := len(room.State.Hands[playerID].Cards)
 	if err := room.DrawCard(playerID); err != nil {
 		log.Printf("bot draw error: %v", err)
@@ -571,7 +527,7 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	// deviation landed — same dead code as in autoDrawOnTimeout.
 	if botCanPlayDrawn(state, playerID) {
 		// Schedule another bot move to play the drawn card.
-		h.scheduleBotMove(code, playerID)
+		h.scheduleBotMove(t, playerID)
 		return true
 	}
 	if err := room.PassTurn(playerID); err == nil {
@@ -601,7 +557,7 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 // one moment is harmless: the second announce finds the seat settled and
 // returns.
 func (h *Hub) maybeScheduleBotDeclarations(t *table) {
-	code, room := t.code, t.room
+	room := t.room
 	if room.Status != game.StatusPlaying || room.RoundEnded || room.State == nil {
 		return
 	}
@@ -612,7 +568,7 @@ func (h *Hub) maybeScheduleBotDeclarations(t *table) {
 		if !t.isBot(seat) {
 			continue // a human's own call is theirs to make or lose
 		}
-		h.scheduleBotUnoAnnounce(code, seat, room.State.LastCardAt[seat])
+		h.scheduleBotUnoAnnounce(t, seat, room.State.LastCardAt[seat])
 	}
 }
 

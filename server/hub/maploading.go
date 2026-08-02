@@ -88,15 +88,11 @@ func (h *Hub) beginMapLoading(t *table) {
 
 	h.broadcastLoadingProgress(t)
 	msg := mapLoadTimeoutMsg{roomCode: code, startedAt: st.startedAt}
+	// Non-critical, and deliberately not retried: the only cost of losing this is
+	// that the table waits for the last client instead of for the deadline, and
+	// every client that is actually alive still answers.
 	time.AfterFunc(MapLoadTimeout, func() {
-		select {
-		case h.mapLoadTimeout <- msg:
-		default:
-			// Non-critical, and deliberately not retried: the only cost of losing
-			// this is that the table waits for the last client instead of for the
-			// deadline, and every client that is actually alive still answers.
-			log.Printf("mapLoadTimeout channel full, dropping for code=%s", code)
-		}
+		t.postFromTimer("map_load_timeout", func() { h.handleMapLoadTimeout(t, msg) })
 	})
 
 	// A table of one human and three bots is ready the moment it is dealt.
@@ -145,18 +141,18 @@ func (h *Hub) broadcastLoadingProgress(t *table) {
 }
 
 // handleMapReady records one client's arrival.
-func (h *Hub) handleMapReady(c *Client) {
-	t := h.tableOf(c)
-	if t == nil || t.loading == nil {
+func (h *Hub) handleMapReady(t *table, c *Client) {
+	if t.loading == nil {
 		// The table already opened: a duplicate answer, or one that lost the race
 		// with the timeout. Neither is an error and neither is worth a rejection:
-		// the client is telling us something we no longer need.
+		// the client is telling us something we no longer need. The other half of
+		// that case, a client with no table at all, is answered in dispatch.
 		return
 	}
-	if t.loading.ready[c.playerID] {
+	if t.loading.ready[c.playerID()] {
 		return
 	}
-	t.loading.ready[c.playerID] = true
+	t.loading.ready[c.playerID()] = true
 
 	h.broadcastLoadingProgress(t)
 	h.maybeOpenTable(t)
@@ -206,10 +202,9 @@ func (h *Hub) openTable(t *table, reason string) {
 // Re-checked like every other deferred callback: the room may be gone, the gate
 // may have opened on its own, and a rematch may have opened a second gate whose
 // clock this timer knows nothing about.
-func (h *Hub) handleMapLoadTimeout(msg mapLoadTimeoutMsg) {
-	t, ok := h.tables[msg.roomCode]
-	if !ok || t.loading == nil {
-		return // room gone, or table already open
+func (h *Hub) handleMapLoadTimeout(t *table, msg mapLoadTimeoutMsg) {
+	if t.loading == nil {
+		return // table already open
 	}
 	if !t.loading.startedAt.Equal(msg.startedAt) {
 		return // this timer belongs to a previous gate

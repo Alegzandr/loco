@@ -18,3 +18,16 @@ func (h *Hub) SetRegisterHook(fn func()) {
 func (h *Hub) SetDispatchProbe(fn func()) {
 	h.dispatchProbe = fn
 }
+
+// SetTableProbe installs a callback fired at the top of every message a table
+// handles, with that table's code. It is the same idea as SetDispatchProbe on
+// the other side of the hand-off, and it is what lets a test do the two things
+// no assertion could otherwise reach: make one table's handler panic, and hold
+// one table still while another plays.
+//
+// Runs on a table's goroutine, so it must be safe to call from several at once.
+// Set it before any table exists and leave it; it is read without a lock, which
+// is fine only because tests install it once at the top. For tests only.
+func (h *Hub) SetTableProbe(fn func(code string)) {
+	h.tableProbe = fn
+}

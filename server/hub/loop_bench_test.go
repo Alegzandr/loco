@@ -41,20 +41,17 @@ func benchTable(b *testing.B, n int) (*Hub, *table, []*Client) {
 	// scheduleTurnTimer arms a fresh AfterFunc on every play and never stops the
 	// previous one (turnTimeoutTarget's stale check is what retires it). At
 	// benchmark rates a 30 s timeout would hold millions of live timers, so the
-	// clock is shortened and the channel drained by a goroutine standing in for
-	// the event loop, which is not running here. That goroutine is deliberately
-	// never stopped: a timer armed in the last iteration fires after the
-	// benchmark has finished, and a drainer that had already gone would turn
-	// that into a log line in the middle of the results.
+	// clock is shortened and the table's box drained by a goroutine standing in
+	// for its own, which is deliberately not started here: the benchmark runs
+	// the handlers itself, on its own goroutine, so that what is timed is one
+	// pass and not a channel round trip. The drainer only reads the channel and
+	// never touches the table. It is never stopped either, because a timer armed
+	// in the last iteration fires after the benchmark has finished and a drainer
+	// that had already gone would put a log line in the middle of the results.
 	prevTimeout := TurnTimeout
 	TurnTimeout = 100 * time.Millisecond
 
 	h := New()
-	h.turnTimeout = make(chan turnTimerMsg, 1<<15)
-	go func() {
-		for range h.turnTimeout { //nolint:revive // stands in for the event loop
-		}
-	}()
 	code := "BENCH1"
 	room := game.NewRoom(code)
 	room.MaxPlayers = n
@@ -65,6 +62,10 @@ func benchTable(b *testing.B, n int) (*Hub, *table, []*Client) {
 	}
 	t := newTable(code, room)
 	h.tables[code] = t
+	go func() {
+		for range t.box { //nolint:revive // stands in for the table's own goroutine
+		}
+	}()
 
 	clients := make([]*Client, n)
 	for i := range clients {
@@ -108,9 +109,14 @@ func wildPlay(color protocol.CardColor) protocol.ClientMsg {
 	}
 }
 
-// BenchmarkDispatchPlayCard is the headline number: one whole pass of the event
-// loop for the hottest message in the game, from the recover and the gate at
-// the top of dispatch through the domain call, the marshal and the fan-out.
+// BenchmarkDispatchPlayCard is the headline number: one whole pass of a table's
+// goroutine for the hottest message in the game, from the gate at the top of
+// dispatchAtTable through the domain call, the marshal and the fan-out.
+//
+// It calls dispatchAtTable rather than dispatch on purpose. What the hub does
+// with a gameplay message is look the table up and hand it over, and timing a
+// channel send would say more about the runtime's scheduler than about the
+// game; everything that costs anything happens on the far side of that hop.
 func BenchmarkDispatchPlayCard(b *testing.B) {
 	for _, n := range []int{2, 4, 10} {
 		b.Run(fmt.Sprintf("players=%d", n), func(b *testing.B) {
@@ -129,7 +135,7 @@ func BenchmarkDispatchPlayCard(b *testing.B) {
 				c := clients[seat]
 				b.StartTimer()
 
-				h.dispatch(c, msg)
+				h.dispatchAtTable(t, c, msg)
 			}
 		})
 	}
@@ -169,17 +175,41 @@ func BenchmarkBroadcastCardPlayed(b *testing.B) {
 	}
 }
 
-// BenchmarkLogLine is the only synchronous I/O left on the event loop.
+// BenchmarkLogLineSync is what a log line used to cost the event loop: a write
+// straight to the process's stderr, which in a container is a pipe with the
+// Docker daemon on the other end. It is measured against the real stderr, not
+// io.Discard, because the far side is the whole point of the number, and the
+// number moves with it: about 0.9 µs when that reader keeps up, 7 µs when it
+// does not, unbounded once the pipe buffer fills and the write starts waiting.
 //
-// Everything else the loop does is arithmetic on small slices and writes into
-// buffered channels, so a log line is the one call in a handler that reaches a
-// file descriptor and can therefore be made to wait by something outside this
-// process. It is measured against the real stderr, not io.Discard, because
-// that is the whole point of the number.
-func BenchmarkLogLine(b *testing.B) {
+// Everything else the loop does is arithmetic on small slices and sends into
+// buffered channels, so this was the one call in a handler that reached a file
+// descriptor and could therefore be made to wait by something outside this
+// process. Run it both ways to see it:
+//
+//	go test ./hub/ -run '^$' -bench LogLine 2>/dev/null      # a fast reader
+//	go test ./hub/ -run '^$' -bench LogLine                  # whatever is attached
+func BenchmarkLogLineSync(b *testing.B) {
 	prevOut := log.Writer()
 	log.SetOutput(os.Stderr)
 	b.Cleanup(func() { log.SetOutput(prevOut) })
+	b.ReportAllocs()
+	for b.Loop() {
+		log.Printf("bench room created code=%s host=%s", "BENCH1", "player0")
+	}
+}
+
+// BenchmarkLogLineAsync is the same line through the sink main installs. The
+// gap between the two is the reason logsink.go exists, and running them side by
+// side is what keeps that claim honest as the code changes.
+func BenchmarkLogLineAsync(b *testing.B) {
+	sink := NewAsyncLog(os.Stderr, LogQueueDepth)
+	prevOut := log.Writer()
+	log.SetOutput(sink)
+	b.Cleanup(func() {
+		log.SetOutput(prevOut)
+		_ = sink.Close()
+	})
 	b.ReportAllocs()
 	for b.Loop() {
 		log.Printf("bench room created code=%s host=%s", "BENCH1", "player0")

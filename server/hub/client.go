@@ -74,16 +74,39 @@ func (r *rateLimiter) allow() bool {
 	return true
 }
 
+// seatRef is where a socket is sitting: a table code, and an index into that
+// table's members.
+//
+// The two travel as one value because they are only ever true together. They
+// used to be two plain fields on Client and were written in pairs by hand,
+// which is the shape that let a client name a seat in one table while the
+// pointer to it was still at an index in another. table.seat is what made that
+// unreachable; storing the pair atomically is what keeps it unreachable now
+// that the writer and the reader are not always the same goroutine.
+//
+// A nil ref means "not at a table", which is the only honest way to say it: a
+// zero playerID is seat 0, and seat 0 is the host's.
+type seatRef struct {
+	code string
+	id   int
+}
+
 // Client represents a single WebSocket connection.
 type Client struct {
-	hub      *Hub
-	conn     *websocket.Conn
-	send     chan []byte
-	mu       sync.Mutex
-	roomCode string
-	playerID int
-	closed   bool
-	limiter  *rateLimiter
+	hub  *Hub
+	conn *websocket.Conn
+	send chan []byte
+	mu   sync.Mutex
+
+	// seat is written only by the goroutine that owns this client's table (see
+	// table.seat / reseat / dropSeat, which are the only writers) and read from
+	// wherever a message has to be routed or a log line written. Atomic for
+	// that reason and no other: within one handler the seat cannot change under
+	// it, so reading the code and the index separately is safe there.
+	seat atomic.Pointer[seatRef]
+
+	closed  bool
+	limiter *rateLimiter
 	// connID is a short random tag included in every log line involving this
 	// connection, so operators can grep a single player's actions across the
 	// log even when they move between rooms or before they have joined one.
@@ -138,6 +161,34 @@ func newClient(h *Hub, conn *websocket.Conn) *Client {
 	c.latencyMs.Store(-1) // "not measured yet", not "0 ms"
 	return c
 }
+
+// roomCode is the table this socket is sitting at, or "" for none.
+func (c *Client) roomCode() string {
+	if s := c.seat.Load(); s != nil {
+		return s.code
+	}
+	return ""
+}
+
+// playerID is this socket's seat index, or 0 when it has none. Callers that
+// need to tell "seat 0" from "no seat" ask roomCode() first, exactly as they
+// did when these were two plain fields.
+func (c *Client) playerID() int {
+	if s := c.seat.Load(); s != nil {
+		return s.id
+	}
+	return 0
+}
+
+// sitAt binds this socket to a seat. Only table.go calls it: a seat lives in
+// two places, and the point of routing every change through that file is that
+// there is no way to move one without the other.
+func (c *Client) sitAt(code string, id int) {
+	c.seat.Store(&seatRef{code: code, id: id})
+}
+
+// leaveSeat forgets where this socket was sitting.
+func (c *Client) leaveSeat() { c.seat.Store(nil) }
 
 // generateConnID produces a short (8-hex-char) correlation ID for log tracing.
 // Not used for security; uniqueness within a server lifetime is sufficient.
@@ -356,7 +407,7 @@ func (c *Client) noteSuspect(reason string) {
 	if count == suspectThreshold {
 		c.hub.metrics.suspectedCheats.Add(1)
 		log.Printf("WARN suspected cheat: %d validation rejections in 30s conn=%s code=%s player=%d last_reason=%q",
-			count, c.connID, c.roomCode, c.playerID, reason)
+			count, c.connID, c.roomCode(), c.playerID(), reason)
 	}
 }
 

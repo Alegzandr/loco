@@ -58,10 +58,25 @@ interjecting.
 
 The table's own bookkeeping (`server/hub/table_internal_test.go`): seating a client leaves no pointer
 behind on the table it left, a removal shifts the members and the bots and the tokens and the
-`playerID`s together, and a reset clears the map gate but not the roster. The hardening in
+`playerID`s together, and a reset clears the map gate but not the roster. **That first one goes
+through both goroutines now**, since the sweep of the old table is asked of that table rather than
+reached into; reading either table's members from the test goroutine would be the very race the
+hand-off exists to remove, so every read in it is posted too. The hardening in
 `server/hub/hardening_test.go`: a gameplay message at a table that has not dealt, a handler that
 panics on demand, every ceiling, the wrong-code budget **and** the mistyped code that must still get
 in, the reclaim refusal that names nothing, the reclaim that rotates its token.
+
+What a table owning its own goroutine is supposed to buy, and what it could have cost
+(`server/hub/actor_test.go`, both through real sockets):
+
+- **A table that panics answers the message and keeps playing.** On the old shared loop the question
+  was whether the process survived. It is nastier now: a panic would take that table's goroutine, and
+  a room whose goroutine is gone does not fail, it goes **quiet** — every message queued behind
+  nothing, for ever, with no error to show the players.
+- **One table held still inside a handler does not hold up another.** This is the whole change in one
+  assertion, and it is worth knowing that it does not merely pass: put the handler back on the hub
+  loop and it *hangs*, because the hub would be sitting in the first table's handler and would not
+  read the second table's messages until it came back.
 
 And the graceful shutdown: what a drain refuses, what it leaves alone, and a full restart where a
 match is snapshotted, reloaded by a fresh hub and reclaimed by both players with their original
@@ -298,6 +313,17 @@ Browser (HTTPS) → Traefik (:443 websecure)
   - It waits on **the SPA answering, not on `docker compose up -d` returning**. The two are not the
     same on Docker Desktop for Windows, where the start phase can sit there for minutes after the
     page is already being served.
+- **`make bench-server` is the third**, `server/hub/loop_bench_test.go`, and it answers a question no
+  assertion can: what one pass of the event loop costs. It is outside CI for the ordinary reason
+  benchmarks are — a shared runner's numbers describe the runner — and it is not decoration. Every
+  argument about sharding the hub, moving work off the loop or raising a ceiling starts here, and the
+  one it has already settled (an actor per table, and the log line that turned out to cost more than
+  a card play) is written up in [`server.md`](server.md).
+  - It is an **internal** benchmark, package `hub`, because it calls `dispatch` directly: going
+    through a socket would measure the kernel.
+  - `2>/dev/null` is baked into the target on purpose. The log benchmarks measure a real write to
+    stderr, so without it they measure whatever happens to be attached to your terminal, which is
+    the exact variable they exist to expose. Run it both ways when that is the number you want.
 
 ## Linting
 - Client: ESLint v10 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.

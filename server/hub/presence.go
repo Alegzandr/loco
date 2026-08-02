@@ -10,31 +10,46 @@ import (
 	"loco/server/protocol"
 )
 
+// handleDisconnect runs on the hub, because the queue and the map of tables are
+// the hub's. Everything a departure does to the room it happened in is the
+// table's, and is handed to it: critically, because losing it would leave a seat
+// occupied by a socket that no longer exists.
 func (h *Hub) handleDisconnect(c *Client) {
 	// A socket that has gone away must not be paired with somebody who is still
 	// there, so the queue is the first thing it leaves.
 	h.dequeue(c)
-	if c.roomCode == "" {
+	code := c.roomCode()
+	if code == "" {
 		log.Printf("player disconnected conn=%s addr=%s (no room)", c.connID, c.netPrefix())
 		return
 	}
-	t, ok := h.tables[c.roomCode]
+	t, ok := h.tables[code]
 	if !ok {
+		return
+	}
+	h.postCritical(t, "disconnect", time.Second, func() { h.disconnectAtTable(t, c) })
+}
+
+func (h *Hub) disconnectAtTable(t *table, c *Client) {
+	// The socket may have been seated elsewhere, or already released, between
+	// the unregister and now. See dispatchAtTable for why this is checked
+	// against the table rather than trusted.
+	if c.roomCode() != t.code {
 		return
 	}
 	room := t.room
 	nickname := ""
-	if c.playerID < len(room.Players) {
-		nickname = room.Players[c.playerID].Nickname
+	if c.playerID() < len(room.Players) {
+		nickname = room.Players[c.playerID()].Nickname
 	}
 
-	log.Printf("player disconnected code=%s nickname=%s playerID=%d", t.code, nickname, c.playerID)
+	log.Printf("player disconnected code=%s nickname=%s playerID=%d", t.code, nickname, c.playerID())
 
 	// During an active game the seat is held rather than removed: the player has
 	// the reconnect window to come back into it.
 	if room.Status == game.StatusPlaying {
 		disconnectTime := time.Now()
-		t.hold(c.playerID, disconnectTime)
+		t.hold(c.playerID(), disconnectTime)
 
 		// The forfeit deadline rides this message in a matchmade room: the player
 		// still at the table is owed a number rather than an open-ended notice,
@@ -42,7 +57,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 		// because it is visibly counting down.
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
 			Type:            protocol.SMsgPlayerDisconnected,
-			PlayerIndex:     intPtr(c.playerID),
+			PlayerIndex:     intPtr(c.playerID()),
 			Nickname:        nickname,
 			Players:         h.playerList(t),
 			ForfeitDeadline: forfeitDeadlineMs(t, disconnectTime),
@@ -56,7 +71,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 			h.maybeOpenTable(t)
 		}
 
-		h.scheduleReconnectExpiry(t, c.playerID, disconnectTime)
+		h.scheduleReconnectExpiry(t, c.playerID(), disconnectTime)
 
 		// If all slots are now empty, start the room cleanup timer.
 		if t.allSeatsEmpty() {
@@ -69,7 +84,7 @@ func (h *Hub) handleDisconnect(c *Client) {
 	// a rematch, so the roster and every playerID-keyed structure must stay
 	// consistent — leaving a phantom player here would deal a hand to nobody in
 	// the next match.
-	leavingID := c.playerID
+	leavingID := c.playerID()
 	finished := room.Status == game.StatusFinished
 
 	// Lobby: remove the player from room.Players and re-index everything keyed
@@ -101,29 +116,18 @@ func (h *Hub) handleDisconnect(c *Client) {
 // Shared with the snapshot restore, which arms exactly this window on every
 // seat of a match carried across a restart.
 func (h *Hub) scheduleReconnectExpiry(t *table, playerID int, at time.Time) {
-	code := t.code
-	em := expireMsg{roomCode: code, playerID: playerID, disconnectedAt: at}
+	em := expireMsg{roomCode: t.code, playerID: playerID, disconnectedAt: at}
 	time.AfterFunc(reconnectHold(t), func() {
-		select {
-		case h.expire <- em:
-		default:
-			h.metrics.channelRetries.Add(1)
-			log.Printf("expire channel full, retrying in 5s code=%s player=%d", code, playerID)
-			time.AfterFunc(5*time.Second, func() {
-				select {
-				case h.expire <- em:
-				default:
-					log.Printf("WARN expire retry dropped, slot may not be reclaimed code=%s player=%d", code, playerID)
-				}
-			})
-		}
+		h.postCritical(t, "reconnect_expiry", 5*time.Second, func() {
+			h.handleExpireReconnect(t, em)
+		})
 	})
 }
 
 // reindexLobbyDisconnect removes the leaving client from a lobby table and
 // re-bases every seat above it. Returns true when at least one human remains.
 func (h *Hub) reindexLobbyDisconnect(c *Client, t *table) (hasHuman bool) {
-	leavingID := c.playerID
+	leavingID := c.playerID()
 	if _, err := t.room.RemoveLobbyPlayer(leavingID); err != nil {
 		log.Printf("WARN RemoveLobbyPlayer failed code=%s player=%d err=%v", t.code, leavingID, err)
 	}
@@ -131,12 +135,7 @@ func (h *Hub) reindexLobbyDisconnect(c *Client, t *table) (hasHuman bool) {
 }
 
 // handleExpireReconnect fires when a disconnected player's reconnect window closes.
-func (h *Hub) handleExpireReconnect(em expireMsg) {
-	t, ok := h.tables[em.roomCode]
-	if !ok {
-		log.Printf("reconnect expiry skipped, room gone code=%s player=%d", em.roomCode, em.playerID)
-		return
-	}
+func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 	at, ok := t.awayAt[em.playerID]
 	if !ok {
 		// Player's slot was already cleared (reconnected or room deleted).

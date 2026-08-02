@@ -129,23 +129,19 @@ type Hub struct {
 	// See matchmaking.go.
 	queue []queuedPlayer
 
-	register       chan *Client
-	unregister     chan *Client
-	inbound        chan inboundMsg
-	expire         chan expireMsg
-	botMove        chan botMoveMsg        // scheduled bot actions
-	cleanup        chan cleanupMsg        // empty-room cleanup timers
-	turnTimeout    chan turnTimerMsg      // per-turn timeout actions
-	unoAnnounce    chan unoMsg            // delayed bot UNO declaration broadcasts
-	botCatch       chan botCatchMsg       // scheduled bot catch-UNO attempts
-	botInterrupt   chan botInterruptMsg   // scheduled bot interject attempts
-	mapLoadTimeout chan mapLoadTimeoutMsg // "start without the stragglers" deadline
-	mmStart        chan mmStartMsg        // matchmade pair: the versus reveal is over, deal them in
-	drain          chan struct{}          // BeginDrain(): stop accepting new matches (see drain.go)
-	snapshotSave   chan snapshotReq       // SaveSnapshot(): read every room, on the loop (see snapshot.go)
-	snapshotLoad   chan snapshotReq       // LoadSnapshot(): put rooms back, on the loop
-	quit           chan struct{}          // closed by Stop() to terminate Run()
-	stopped        chan struct{}          // closed by Run() on its way out; what Stop() waits on
+	register   chan *Client
+	unregister chan *Client
+	inbound    chan inboundMsg
+	// routerBox is work a table handed back because it is not a table's to do:
+	// deleting a room, putting a player back in the queue. See actor.go. Every
+	// per-table timer used to arrive here as its own channel; they go straight
+	// to the table now, which is why there are nine fewer of them.
+	routerBox    chan func()
+	drain        chan struct{}    // BeginDrain(): stop accepting new matches (see drain.go)
+	snapshotSave chan snapshotReq // SaveSnapshot(): collect every table, from the loop (see snapshot.go)
+	snapshotLoad chan snapshotReq // LoadSnapshot(): put rooms back, on the loop
+	quit         chan struct{}    // closed by Stop() to terminate Run()
+	stopped      chan struct{}    // closed by Run() on its way out; what Stop() waits on
 
 	// draining is read from the HTTP goroutines (/health, /metrics) as well as
 	// from the event loop, which is the only reason it is atomic; every write
@@ -174,6 +170,9 @@ type Hub struct {
 	// dispatchProbe is fired at the top of dispatch. Test-only; see
 	// export_test.go.
 	dispatchProbe func()
+	// tableProbe is fired at the top of every message a table handles, on that
+	// table's goroutine. Test-only; see export_test.go.
+	tableProbe func(code string)
 
 	// Everything an operator reads, and the loop's own saturation. See
 	// metrics.go: they are one struct because they are one concern, and every
@@ -181,6 +180,26 @@ type Hub struct {
 	// goroutines while this loop is writing.
 	metrics   hubMetrics
 	startTime time.Time
+
+	// logSink is the process's asynchronous log writer, if main installed one.
+	// The hub does not use it — log.Printf does, through the standard logger —
+	// and holds it only so /metrics can report what it has dropped. Atomic
+	// because it is set from main and read from the HTTP goroutines.
+	logSink atomic.Pointer[AsyncLog]
+}
+
+// SetLogSink tells the hub which asynchronous log writer to report drops from.
+// Call it once at startup, before the listener is up. Passing nil is fine and
+// means /metrics reports zero, which is what a hub with a synchronous log
+// honestly has to say.
+func (h *Hub) SetLogSink(a *AsyncLog) { h.logSink.Store(a) }
+
+// logLinesDropped is what the sink has thrown away, or 0 when there is none.
+func (h *Hub) logLinesDropped() int64 {
+	if a := h.logSink.Load(); a != nil {
+		return a.Dropped()
+	}
+	return 0
 }
 
 // HealthStats is a snapshot of hub metrics for the health endpoint.
@@ -242,6 +261,11 @@ type MetricsStats struct {
 	LoopQueuePeak     int32 `json:"loop_queue_peak"`
 	LoopSlowestUs     int64 `json:"loop_slowest_us"`
 	LoopEvents        int64 `json:"loop_events"`
+	// LogLinesDropped is how many log lines the asynchronous sink threw away
+	// because the far side was not keeping up. Above zero means the log this
+	// operator is reading has holes in it, which is worth knowing before
+	// concluding anything from what is missing. See logsink.go.
+	LogLinesDropped int64 `json:"log_lines_dropped"`
 }
 
 // New creates and returns a Hub.
@@ -251,25 +275,25 @@ func New() *Hub {
 		clients:        make(map[*Client]struct{}),
 		connsPerNet:    make(map[string]int),
 		joinBudgets:    make(map[string]*joinBudget),
-		register:       make(chan *Client, 16),
-		unregister:     make(chan *Client, 16),
-		inbound:        make(chan inboundMsg, 256),
-		expire:         make(chan expireMsg, 64),
-		botMove:        make(chan botMoveMsg, 64),
-		cleanup:        make(chan cleanupMsg, 64),
-		turnTimeout:    make(chan turnTimerMsg, 64),
-		unoAnnounce:    make(chan unoMsg, 64),
-		botCatch:       make(chan botCatchMsg, 64),
-		botInterrupt:   make(chan botInterruptMsg, 64),
-		mapLoadTimeout: make(chan mapLoadTimeoutMsg, 64),
-		mmStart:        make(chan mmStartMsg, 64),
-		drain:          make(chan struct{}),
-		drained:        make(chan struct{}),
-		snapshotSave:   make(chan snapshotReq),
-		snapshotLoad:   make(chan snapshotReq),
-		quit:           make(chan struct{}),
-		stopped:        make(chan struct{}),
-		startTime:      time.Now(),
+		register:     make(chan *Client, 16),
+		unregister:   make(chan *Client, 16),
+		inbound:      make(chan inboundMsg, 256),
+		routerBox:    make(chan func(), routerBoxDepth),
+		drain:        make(chan struct{}),
+		drained:      make(chan struct{}),
+		snapshotSave: make(chan snapshotReq),
+		snapshotLoad: make(chan snapshotReq),
+		quit:         make(chan struct{}),
+		stopped:      make(chan struct{}),
+		startTime:    time.Now(),
+	}
+}
+
+// stopTables ends every table's goroutine. Runs on the event loop, on its way
+// out, so nothing is being routed while it happens.
+func (h *Hub) stopTables() {
+	for _, t := range h.tables {
+		t.stop()
 	}
 }
 
@@ -313,6 +337,7 @@ func (h *Hub) GetMetrics() MetricsStats {
 		LoopQueuePeak:        h.metrics.loopQueuePeak.Load(),
 		LoopSlowestUs:        h.metrics.loopSlowestUs.Load(),
 		LoopEvents:           h.metrics.loopEventCount.Load(),
+		LogLinesDropped:      h.logLinesDropped(),
 	}
 }
 
@@ -335,6 +360,12 @@ func (h *Hub) Stop() {
 // Run starts the hub event loop. Call in a goroutine.
 func (h *Hub) Run() {
 	defer close(h.stopped)
+	// Every table's goroutine goes with this one, and before stopped is closed,
+	// so Stop still means what it says: when it returns, nothing in this hub is
+	// still running. That is what every test's t.Cleanup restoring a tunable
+	// depends on, and a table left running past it would put back the whole
+	// class of races Stop was made to remove.
+	defer h.stopTables()
 	latencyTicker := time.NewTicker(LatencyBroadcastPeriod)
 	defer latencyTicker.Stop()
 	for {
@@ -365,41 +396,17 @@ func (h *Hub) Run() {
 			}
 
 		case im := <-h.inbound:
-			// The one hot path, and the only one worth timing: everything else
-			// on this select is a timer the server armed itself. See
-			// hubMetrics.noteEvent for why the marks are high-water rather than
-			// averages.
-			queued := len(h.inbound)
-			start := time.Now()
+			// Every message still passes through here, but most of them only
+			// pass: dispatch looks the table up and hands the work over. What
+			// one message costs is therefore timed where it is done, on the
+			// table's own goroutine. See actor.go and hubMetrics.noteEvent.
 			h.dispatch(im.client, im.msg)
-			h.metrics.noteEvent(queued, time.Since(start))
 
-		case em := <-h.expire:
-			h.handleExpireReconnect(em)
-
-		case bm := <-h.botMove:
-			h.executeBotMove(bm)
-
-		case cm := <-h.cleanup:
-			h.handleCleanup(cm)
-
-		case tm := <-h.turnTimeout:
-			h.handleTurnTimeout(tm)
-
-		case um := <-h.unoAnnounce:
-			h.handleUnoAnnounce(um)
-
-		case cm := <-h.botCatch:
-			h.handleBotCatch(cm)
-
-		case bim := <-h.botInterrupt:
-			h.handleBotInterrupt(bim)
-
-		case mlm := <-h.mapLoadTimeout:
-			h.handleMapLoadTimeout(mlm)
-
-		case sm := <-h.mmStart:
-			h.handleMatchmakingStart(sm)
+		case fn := <-h.routerBox:
+			// Work a table handed back because it is not a table's to do. It
+			// runs here for the same reason everything else in this select
+			// does: h.tables, h.queue and h.clients are the hub's.
+			fn()
 
 		case <-h.drain:
 			h.beginDrain()

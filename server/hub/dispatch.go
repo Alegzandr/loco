@@ -33,21 +33,24 @@ const maxJoinBudgets = 4096
 func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 	// One message must never be able to cost the server.
 	//
-	// Every inbound message is handled on the single event-loop goroutine, so a
-	// panic anywhere below this line was the whole process: every match on it
-	// ended mid-turn, no drain, no snapshot, and the players were told "room not
-	// found" when they came back. Two frames did it (create_room then draw_card:
-	// room.State is nil in a lobby and handleDrawCard read it before checking the
-	// status), and the next such bug would have cost exactly the same.
+	// Every inbound message used to be handled on the single event-loop
+	// goroutine, so a panic anywhere below this line was the whole process:
+	// every match on it ended mid-turn, no drain, no snapshot, and the players
+	// were told "room not found" when they came back. Two frames did it
+	// (create_room then draw_card: room.State is nil in a lobby and
+	// handleDrawCard read it before checking the status), and the next such bug
+	// would have cost exactly the same.
 	//
-	// So the blast radius of a handler bug is one message and one WARN. This is
-	// not a licence to skip the guard below or the bounds checks in
-	// playerGameStateUsing: it is the floor under them.
+	// This recover now covers the routing and the handlers that stay on the hub;
+	// runJob in actor.go is the same floor under the ones a table runs. Either
+	// way the blast radius of a handler bug is one message and one WARN, and
+	// neither is a licence to skip the guards below or the bounds checks in
+	// playerGameStateUsing.
 	defer func() {
 		if r := recover(); r != nil {
 			h.metrics.handlerPanics.Add(1)
 			log.Printf("WARN handler panic recovered type=%s conn=%s code=%s player=%d panic=%v\n%s",
-				msg.Type, c.connID, c.roomCode, c.playerID, r, debug.Stack())
+				msg.Type, c.connID, c.roomCode(), c.playerID(), r, debug.Stack())
 			c.sendError("server error")
 		}
 	}()
@@ -55,6 +58,56 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 		h.dispatchProbe()
 	}
 
+	// map_ready is the one message with no table behind it that is not a
+	// mistake: a duplicate answer, or one that lost the race with the loading
+	// timeout, is the client telling us something we no longer need. Refusing it
+	// would be answering a correct client with an error. Everything else about
+	// it is an ordinary table message.
+	if msg.Type == protocol.CMsgMapReady && h.tableOf(c) == nil {
+		return
+	}
+
+	// A message that acts on the sender's own table has that table resolved
+	// once, here, and handed to the handler. Nothing below looks a table up:
+	// a handler that could reach h.tables by code is a handler that can reach
+	// somebody else's, which is the one thing the table object exists to make
+	// unreachable rather than merely refused.
+	if tableScoped(msg.Type) {
+		t, ok := h.requireTable(c)
+		if !ok {
+			return // requireTable has already said which of the two it was
+		}
+		// The table runs it, not this goroutine. Full box means that one table
+		// is behind, and only its own players are told so: the same policy the
+		// hub's single inbound queue had, now scoped to the room it describes.
+		if !t.post(tableJob{what: string(msg.Type), c: c, run: func() {
+			h.dispatchAtTable(t, c, msg)
+		}}) {
+			h.metrics.messagesDroppedBusy.Add(1)
+			log.Printf("table box full, dropping message type=%s conn=%s code=%s",
+				msg.Type, c.connID, t.code)
+			c.sendError("server busy, please retry")
+		}
+		return
+	}
+	h.dispatchWithoutTable(c, msg)
+}
+
+// dispatchAtTable routes the messages that act on one table, the sender's own.
+// It runs on that table's goroutine.
+func (h *Hub) dispatchAtTable(t *table, c *Client, msg protocol.ClientMsg) {
+	if h.tableProbe != nil {
+		h.tableProbe(t.code)
+	}
+	// The message was routed here while the sender was sitting at this table.
+	// Between the routing and now the seat can have been given up, held or
+	// re-based, and the socket can even be sitting somewhere else. So the claim
+	// is re-checked against the table about to act on it: a playerID that means
+	// one seat here and a different one there is the hidden-state guarantee
+	// coming apart, and it is the reason a seat is one atomic value.
+	if c.roomCode() != t.code {
+		return
+	}
 	// A gameplay message only means something at a table that has dealt.
 	//
 	// room.State is nil in a lobby (game.NewRoom) and again after a rematch
@@ -65,10 +118,6 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 	// class here rather than patching those two is deliberate: the next handler
 	// to read State before validating is covered without anybody remembering.
 	if isGameplayMsg(msg.Type) {
-		t, ok := h.requireTable(c)
-		if !ok {
-			return // requireTable has already said which of the two it was
-		}
 		if t.room.Status != game.StatusPlaying || t.room.State == nil {
 			c.sendError("game not in progress")
 			return
@@ -82,59 +131,82 @@ func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
 			c.sendError("waiting for every player to load the table")
 			return
 		}
+		// Any voluntary action clears the seat's consecutive-timeout count.
+		h.resetAFK(t, c)
 	}
 
 	switch msg.Type {
 	case protocol.CMsgMapReady:
-		h.handleMapReady(c)
+		h.handleMapReady(t, c)
+	case protocol.CMsgStartGame:
+		h.handleStartGame(t, c, msg)
+	case protocol.CMsgAddBot:
+		h.handleAddBot(t, c, msg)
+	case protocol.CMsgSetMatchFormat:
+		h.handleSetMatchFormat(t, c, msg)
+	case protocol.CMsgSetMaxPlayers:
+		h.handleSetMaxPlayers(t, c, msg)
+	case protocol.CMsgKickPlayer:
+		h.handleKickPlayer(t, c, msg)
+	case protocol.CMsgRematch:
+		h.handleRematch(t, c, msg)
+	case protocol.CMsgPlayCard:
+		h.handlePlayCard(t, c, msg)
+	case protocol.CMsgDrawCard:
+		h.handleDrawCard(t, c, msg)
+	case protocol.CMsgPassTurn:
+		h.handlePassTurn(t, c, msg)
+	case protocol.CMsgDeclareUno:
+		h.handleDeclareUno(t, c, msg)
+	case protocol.CMsgCatchUno:
+		h.handleCatchUno(t, c, msg)
+	case protocol.CMsgCounterDraw:
+		h.handleCounterDraw(t, c, msg)
+	case protocol.CMsgInterruptPlay, protocol.CMsgInterruptPlayCard:
+		h.handleInterruptPlay(t, c, msg)
+	case protocol.CMsgDebugSetState:
+		h.handleDebugSetState(t, c, msg)
+	}
+}
+
+// dispatchWithoutTable routes the rest: the messages sent by somebody who has
+// no table yet, and the ones that touch more than one thing the hub owns.
+func (h *Hub) dispatchWithoutTable(c *Client, msg protocol.ClientMsg) {
+	switch msg.Type {
 	case protocol.CMsgCreateRoom:
 		h.handleCreateRoom(c, msg)
 	case protocol.CMsgJoinRoom:
 		h.handleJoinRoom(c, msg)
-	case protocol.CMsgStartGame:
-		h.handleStartGame(c, msg)
-	case protocol.CMsgAddBot:
-		h.handleAddBot(c, msg)
-	case protocol.CMsgSetMatchFormat:
-		h.handleSetMatchFormat(c, msg)
-	case protocol.CMsgSetMaxPlayers:
-		h.handleSetMaxPlayers(c, msg)
-	case protocol.CMsgKickPlayer:
-		h.handleKickPlayer(c, msg)
-	case protocol.CMsgRematch:
-		h.handleRematch(c, msg)
 	case protocol.CMsgFindMatch:
 		h.handleFindMatch(c, msg)
 	case protocol.CMsgCancelMatchmaking:
 		h.handleCancelMatchmaking(c)
 	case protocol.CMsgLeaveRoom:
 		h.handleLeaveRoom(c)
-	case protocol.CMsgPlayCard:
-		h.resetAFK(c)
-		h.handlePlayCard(c, msg)
-	case protocol.CMsgDrawCard:
-		h.resetAFK(c)
-		h.handleDrawCard(c, msg)
-	case protocol.CMsgPassTurn:
-		h.resetAFK(c)
-		h.handlePassTurn(c, msg)
-	case protocol.CMsgDeclareUno:
-		h.resetAFK(c)
-		h.handleDeclareUno(c, msg)
-	case protocol.CMsgCatchUno:
-		h.resetAFK(c)
-		h.handleCatchUno(c, msg)
-	case protocol.CMsgCounterDraw:
-		h.resetAFK(c)
-		h.handleCounterDraw(c, msg)
-	case protocol.CMsgInterruptPlay, protocol.CMsgInterruptPlayCard:
-		h.resetAFK(c)
-		h.handleInterruptPlay(c, msg)
-	case protocol.CMsgDebugSetState:
-		h.handleDebugSetState(c, msg)
 	default:
 		c.sendError("unknown message type")
 	}
+}
+
+// tableScoped reports whether a message acts on the table its sender is already
+// sitting at, and nothing else. Those are the ones the table resolves for.
+//
+// leave_room is deliberately not one of them: it empties the matchmaking queue
+// as well as a seat, and create_room / join_room / find_match are the messages
+// sent by somebody who has no table for this to find.
+func tableScoped(t protocol.ClientMsgType) bool {
+	switch t {
+	case protocol.CMsgMapReady,
+		protocol.CMsgStartGame,
+		protocol.CMsgAddBot,
+		protocol.CMsgSetMatchFormat,
+		protocol.CMsgSetMaxPlayers,
+		protocol.CMsgKickPlayer,
+		protocol.CMsgRematch,
+		protocol.CMsgDebugSetState:
+		return true
+	}
+	return isGameplayMsg(t)
 }
 
 // validateNickname canonicalises and checks an inbound nickname through
@@ -212,10 +284,10 @@ func (h *Hub) sweepJoinBudgets(now time.Time) {
 // alreadySeated reports whether this socket already holds a seat, and is the
 // guard on both room-entry handlers.
 //
-// A seat lives in two places at once: the socket knows it as c.roomCode /
-// c.playerID, and the table knows it as the *Client pointer at index playerID
+// A seat lives in two places at once: the socket knows it as c.roomCode() /
+// c.playerID(), and the table knows it as the *Client pointer at index playerID
 // in its members. Re-entering a room used to move only the first. The pointer
-// stayed behind at the old index while c.playerID named a seat in the new room,
+// stayed behind at the old index while c.playerID() named a seat in the new room,
 // and every personalised broadcast for the old room
 // (broadcastPersonalizedGameState, the per-recipient game_started of a new
 // round) was then built from the wrong index. A player seated at 1 who rebound
@@ -233,12 +305,11 @@ func (h *Hub) sweepJoinBudgets(now time.Time) {
 // roomCode is still "". A room that no longer exists is not a seat, so a client
 // left pointing at a deleted room is released rather than locked out.
 func (h *Hub) alreadySeated(c *Client) bool {
-	if c.roomCode == "" {
+	if c.roomCode() == "" {
 		return false
 	}
-	if _, ok := h.tables[c.roomCode]; !ok {
-		c.roomCode = ""
-		c.playerID = 0
+	if _, ok := h.tables[c.roomCode()]; !ok {
+		c.leaveSeat()
 		return false
 	}
 	return true
