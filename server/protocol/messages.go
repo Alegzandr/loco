@@ -12,6 +12,11 @@ const (
 	CMsgAddBot         ClientMsgType = "add_bot"
 	CMsgSetMatchFormat ClientMsgType = "set_match_format"
 	CMsgSetMaxPlayers  ClientMsgType = "set_max_players"
+	// CMsgKickPlayer frees a seat at the host's table, named by TargetIndex. The
+	// only lobby control that acts on somebody else, and the only way to take a
+	// bot's seat back. Lobby only: once the cards are out a seat belongs to a
+	// match, not to the roster.
+	CMsgKickPlayer ClientMsgType = "kick_player"
 	// CMsgRematch returns a finished room to the lobby with the same players.
 	CMsgRematch ClientMsgType = "rematch"
 	// Matchmaking: a 1v1 against whoever is looking for the same thing. The
@@ -70,6 +75,11 @@ const (
 	// SMsgLeftRoom acknowledges leave_room. The client is seatless again and
 	// back on the home screen.
 	SMsgLeftRoom ServerMsgType = "left_room"
+	// SMsgKicked tells a client the host freed its seat. Everything left_room
+	// means — seatless, back home — plus the one thing the player did not
+	// choose, so the screen changing under them is explained rather than
+	// mysterious. Sent to the removed client only; the table sees player_left.
+	SMsgKicked ServerMsgType = "kicked"
 	// SMsgMatchLoading is sent right after game_started while the table waits for
 	// everybody to finish downloading the map, and again on each arrival so the
 	// loading screen can show who is still missing. PlayersReady names the seats
@@ -142,6 +152,9 @@ type ClientMsg struct {
 	// declaration at once (Swap / GlobalSwitch hand a single card to more than
 	// one of them), so the catcher names their target. Omitted = the window
 	// closest to expiring.
+	//
+	// CMsgKickPlayer: which seat the host is freeing. Required there — there is
+	// no sensible default seat to remove.
 	TargetIndex *int `json:"target_index,omitempty"`
 
 	// CMsgSetMatchFormat
@@ -321,6 +334,21 @@ type ServerMsg struct {
 	// unchanged. Keeping it omittable also keeps it off every other broadcast.
 	PlayersReady []int `json:"players_ready,omitempty"`
 
+	// SMsgRematchOffered: every seat that has asked for another match, and how
+	// many asks it takes. The whole state travels rather than the increment,
+	// because a seat leaving retires its offer and re-bases the rest: a client
+	// accumulating names would keep a departed player's ask forever.
+	//
+	// A pointer for the same reason PlayerIndex is one: this list has to be able
+	// to say "nobody is asking any more", and an empty slice under `omitempty`
+	// marshals to nothing, which every other message would then also carry as
+	// "no offers" and which the client could not tell from "unchanged".
+	// Read it with Offers().
+	RematchOffers *[]int `json:"rematch_offers,omitempty"`
+	// RematchNeeded is how many of those asks deal the next match: every human
+	// still at the table. Bots are not asked.
+	RematchNeeded int `json:"rematch_needed,omitempty"`
+
 	// SMsgError
 	Error string `json:"error,omitempty"`
 }
@@ -331,6 +359,16 @@ func (m ServerMsg) Seat() int {
 		return -1
 	}
 	return *m.PlayerIndex
+}
+
+// Offers returns the seats that have asked for another match. An empty list is
+// a real answer here ("nobody is asking"), so an absent field reads the same
+// way: no message but rematch_offered ever sets it.
+func (m ServerMsg) Offers() []int {
+	if m.RematchOffers == nil {
+		return nil
+	}
+	return *m.RematchOffers
 }
 
 // OwnSeat returns the recipient's own seat, or -1 when the message assigns none.

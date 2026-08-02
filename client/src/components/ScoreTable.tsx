@@ -2,7 +2,10 @@ import { LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protoco
 import { buildScoreRows, pingTier } from './scoreTableModel'
 import { Translations } from '../i18n/en'
 import { seatColor } from './playerColors'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import styles from './ScoreTable.module.css'
+
+const NOOP = () => {}
 
 interface Props {
   players: PlayerDTO[]
@@ -32,13 +35,38 @@ export function ScoreTable({
   onDismiss,
 }: Props) {
   const rows = buildScoreRows(players, scoreboard, roundHistory, latencies)
+  // Only while pinned: held open with TAB it closes when the key comes up, and
+  // an Escape listener that outlived that would be one nobody asked for.
+  useEscapeKey(!!onDismiss, onDismiss ?? NOOP)
 
   return (
     <div className={styles.overlay} onPointerDown={onDismiss} data-testid="score-table">
       <div className={styles.card} onPointerDown={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2 className={styles.title}>{t.scoreTableTitle}</h2>
-          <span className={styles.hint}>{t.scoreTableHint}</span>
+          {/* Pinned by the touch button, so the way out has to be one too: the
+              hint names a key a phone does not have, and the button that pinned
+              it is underneath the scrim. Held with TAB there is nothing to
+              close, and a ✕ that appears for a fifth of a second is noise. */}
+          {onDismiss ? (
+            <button
+              className={styles.closeBtn}
+              onClick={onDismiss}
+              aria-label={t.scoreTableClose}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                <path
+                  d="M6 6l12 12M18 6L6 18"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.6"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          ) : (
+            <span className={styles.hint}>{t.scoreTableHint}</span>
+          )}
         </div>
 
         <div className={styles.scroller}>

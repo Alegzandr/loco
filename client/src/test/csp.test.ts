@@ -17,7 +17,30 @@ import { describe, it, expect } from 'vitest'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const conf = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
-const html = readFileSync(path.join(CLIENT, 'index.html'), 'utf8')
+
+/** Every .astro file: the layouts and pages that produce the served HTML. */
+function astroSources(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry)
+    if (statSync(full).isDirectory()) astroSources(full, out)
+    else if (entry.endsWith('.astro')) out.push(full)
+  }
+  return out
+}
+
+/** Every .ts/.tsx file: the app that ends up in the bundle. */
+function reactSources(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = path.join(dir, entry)
+    if (statSync(full).isDirectory()) reactSources(full, out)
+    else if (entry.endsWith('.ts') || entry.endsWith('.tsx')) out.push(full)
+  }
+  return out
+}
+
+const astroFiles = astroSources(path.join(CLIENT, 'src'))
+/** All of them concatenated, which is what ends up in one page or another. */
+const markup = astroFiles.map((f) => readFileSync(f, 'utf8')).join('\n')
 
 /** The value of an `add_header <name> "..."` line, plus whether it is `always`. */
 function header(name: string): { value: string; always: boolean } {
@@ -50,21 +73,60 @@ function appSources(dir: string, out: string[] = []): string[] {
 }
 
 describe('Content-Security-Policy (client/nginx.conf)', () => {
-  it('keeps script-src closed, and the page keeps no inline script', () => {
-    // These two facts hold each other up. The policy can stay this tight only
-    // because index.html carries nothing but a module <script src>, and adding
-    // an inline one would fail in production alone.
+  it('keeps script-src closed, and no page inlines a script', () => {
+    // These two facts hold each other up. A plain <script> in an .astro file is
+    // bundled to an external module, which the policy allows; `is:inline` tells
+    // Astro to emit it verbatim into the HTML, which the policy refuses. The
+    // difference is one directive in the markup and a blank page in production,
+    // and nothing else would catch it: the dev server sends no CSP.
     expect(directive('script-src')).toBe("'self'")
-    const inlineScript = /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/i.test(html)
-    expect(inlineScript, 'index.html gained an inline <script>, which script-src refuses').toBe(false)
+    for (const file of astroFiles) {
+      const src = readFileSync(file, 'utf8')
+      for (const tag of src.match(/<script[^>]*\bis:inline\b[^>]*>/gi) ?? []) {
+        // The one exception, and it is not an exception to the policy: a script
+        // whose type is not a JavaScript MIME type is a data block that is never
+        // executed, so script-src does not apply to it. Structured data has to
+        // be inline to be read at all. Anything else inlined here is refused in
+        // production and nowhere else.
+        expect(
+          /type=["']application\/ld\+json["']/i.test(tag),
+          `${path.relative(CLIENT, file)} inlines an executable <script>, which script-src refuses`,
+        ).toBe(true)
+      }
+    }
   })
 
-  it("keeps 'unsafe-inline' in style-src, which the page still needs", () => {
-    // Not an oversight: index.html has a pre-hydration <style> block and
-    // framer-motion writes a style attribute on every animated node. Dropping
-    // this directive takes the whole board's animation with it.
+  it('mounts no Astro island, whose runtime is inlined by construction', () => {
+    // This is the trap the migration to Astro walked into once already. A
+    // `client:*` directive makes Astro emit its hydration runtime as two inline
+    // <script> blocks — not `is:inline`, not opt-in, and not removable by
+    // config. `security.csp` answers this with hashes in a <meta>, which does
+    // not help: a meta policy and this header are both enforced, so the header
+    // still refuses them and the page renders blank in production alone.
+    //
+    // The game is mounted by src/entry.tsx through an ordinary bundled <script>
+    // instead, and the content pages need no client JS at all.
+    for (const file of astroFiles) {
+      const src = readFileSync(file, 'utf8')
+      const island = /\bclient:(load|idle|visible|media|only)\b/.exec(src)
+      expect(island?.[0], `${path.relative(CLIENT, file)} mounts an island; its runtime is inline`).toBeUndefined()
+    }
+  })
+
+  it("keeps 'unsafe-inline' in style-src, which the app still needs", () => {
+    // Not an oversight: framer-motion writes a style attribute on every animated
+    // node, on every frame. Dropping this directive takes the whole board's
+    // animation with it. The <style> blocks in the .astro files are extracted to
+    // real stylesheets by Astro and are not what keeps this loose.
     expect(directive('style-src')).toContain("'unsafe-inline'")
-    expect(/<style[^>]*>/i.test(html), 'the pre-hydration <style> block is why style-src is loose').toBe(true)
+    // Anchored on the app rather than on one file: the mount point used to hold
+    // the <MotionConfig> and now delegates it to <MotionGate />, and neither
+    // move should decide whether this directive is still justified. What
+    // justifies it is that the library is somewhere in the bundle at all.
+    const usesFramerMotion = reactSources(path.join(CLIENT, 'src')).some((f) =>
+      readFileSync(f, 'utf8').includes('framer-motion'),
+    )
+    expect(usesFramerMotion, 'framer-motion is why style-src is loose').toBe(true)
   })
 
   it('lets the WebSocket through on the served host, port included', () => {
@@ -122,6 +184,19 @@ describe('the app stays inside the policy', () => {
     expect(offenders.map(f => path.relative(CLIENT, f))).toEqual([])
   })
 
+  it('keeps Zod off the eval path', async () => {
+    // The check above reads our sources; a dependency is free to call
+    // `Function()` on its own, and Zod 4 does, to compile a validator the first
+    // time a schema runs. Under `script-src 'self'` the call is refused, Zod
+    // catches it and interprets instead, so nothing breaks — it just reports a
+    // violation on every page load, which is indistinguishable from a real one.
+    // Importing the schema module is what applies the setting, so the assertion
+    // and the fix are the same statement.
+    const { z } = await import('zod')
+    await import('../types/protocolSchemas')
+    expect(z.config().jitless).toBe(true)
+  })
+
   it('loads nothing off a remote origin', () => {
     // A CDN font, an analytics snippet or a remote image would be blocked by
     // default-src 'self'. Self-hosting is not a preference here, it is what
@@ -129,6 +204,11 @@ describe('the app stays inside the policy', () => {
     const remote = /(?:src|href|url\()\s*=?\s*["'(]?https?:\/\//
     const offenders = sources.filter(f => remote.test(readFileSync(f, 'utf8')))
     expect(offenders.map(f => path.relative(CLIENT, f))).toEqual([])
-    expect(/(?:src|href)="https?:\/\//.test(html)).toBe(false)
+    // Same rule for the markup: a literal remote src/href in a page or layout
+    // would be fetched by the browser and blocked. The absolute URLs in the
+    // link-preview tags are exempt by nature — they are read by crawlers off the
+    // page, never fetched by it — and are built from src/seo/meta.ts, not
+    // written here.
+    expect(/(?:src|href)="https?:\/\//.test(markup)).toBe(false)
   })
 })

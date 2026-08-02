@@ -123,6 +123,24 @@
   right: 5%;
 }
 
+/* Colour assist: the suit's silhouette, tucked under the top-left value.
+   Sized against the card like every other glyph, so it holds up from the 12px
+   mini fan to the discard pile. */
+.suitMark {
+  position: absolute;
+  top: 17%;
+  left: 4.4%;
+  width: 15cqh;
+  height: 15cqh;
+  pointer-events: none;
+}
+
+/* The value sits lower on a wild, and a wild has no suit anyway; the rule is
+   here so a future coloured card with the same layout does not overlap. */
+.underFan ~ .suitMark {
+  top: 24%;
+}
+
 /* An icon corner has no glyph box to size it, so it gets an explicit one. */
 .corner svg {
   width: 12cqh;

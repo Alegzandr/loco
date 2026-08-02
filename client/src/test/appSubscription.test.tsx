@@ -89,4 +89,26 @@ describe('App does not re-render the match screen on board state', () => {
     act(() => useGameStore.setState({ screen: 'lobby' }))
     expect(() => getByTestId('game')).toThrow()
   })
+
+  // The home page carries a block of text under the game — what a crawler reads,
+  // and the only links from `/` to the content pages. It is markup Astro
+  // rendered, not React's to unmount, so App marks the document and CSS hides
+  // it. A board that can be scrolled off-screen mid-match is the bug this
+  // prevents; nothing else would catch it, because the block does not exist in
+  // any of the screens a component test renders.
+  it('marks the document as seated for every screen but the lobby', () => {
+    const root = document.documentElement
+    const { unmount } = render(<App />)
+    expect(root.getAttribute('data-seated')).toBe('1')
+
+    act(() => useGameStore.setState({ screen: 'lobby' }))
+    expect(root.hasAttribute('data-seated')).toBe(false)
+
+    act(() => useGameStore.setState({ screen: 'waiting' }))
+    expect(root.getAttribute('data-seated')).toBe('1')
+
+    // And it lets go on the way out, or a showcase scene would inherit it.
+    unmount()
+    expect(root.hasAttribute('data-seated')).toBe(false)
+  })
 })

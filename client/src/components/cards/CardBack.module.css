@@ -19,10 +19,30 @@
   overflow: hidden;
 }
 
+/* The mark across the middle, in all four suit colours at once.
+   A mask over a gradient rather than a stroked <path>, for the reason spelled
+   out in cardArtSpace.ts: backs are the most numerous card art on the board (a
+   deck stack plus up to nine per opponent seat) and every one of them used to
+   re-fill the mark's geometry on its own. */
 .art {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   pointer-events: none;
+  /* `to top right`, not the angle of the card's diagonal: see fanGradient() in
+     CardArt.tsx. The corner keyword is what reproduces the SVG
+     `objectBoundingBox` gradient this replaces; an explicit angle swaps the two
+     off-diagonal corners. */
+  background: linear-gradient(
+    to top right,
+    var(--suit-green) 0%,
+    var(--suit-blue) 34%,
+    var(--suit-red) 67%,
+    var(--suit-yellow) 100%
+  );
+  -webkit-mask-image: var(--mark-mask);
+  mask-image: var(--mark-mask);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }

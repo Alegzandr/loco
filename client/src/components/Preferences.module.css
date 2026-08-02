@@ -1,0 +1,173 @@
+.wrap {
+  position: relative;
+  display: flex;
+}
+
+/* Same chip as the sound and theme buttons: this row is one object. */
+.toggle {
+  /* Same chip, same reason: the target grows, the picture does not. */
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  transition: transform 0.12s var(--ease-bounce), box-shadow 0.12s var(--ease-out);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.toggle:hover { transform: translateY(-2px); box-shadow: 0 5px 0 var(--color-stroke-soft); }
+.toggle:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
+
+.panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  /* Anchored on the right, like the sound panel: the cluster sits at the top
+     right of every screen, so a left-anchored panel hangs off the page. */
+  right: 0;
+  width: 250px;
+  max-width: calc(100vw - 24px);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  z-index: 200;
+  animation: panelIn 0.22s var(--ease-bounce) both;
+  text-align: left;
+}
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.title {
+  font: 700 12px/1.2 var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--color-muted);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.label {
+  font: 600 13px/1.2 var(--font-display);
+  color: var(--color-ink);
+}
+
+.hint {
+  margin: 0;
+  font: 500 11px/1.35 var(--font-body);
+  color: var(--color-muted);
+}
+
+/* Same pill-of-pills as the language pair, so the two rows read as one kind of
+   choice. Kept local rather than shared: LanguageSwitcher owns its own control
+   and the list of languages with it. */
+.seg {
+  display: flex;
+  gap: 3px;
+  background: var(--color-surface-strong);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+}
+
+.segBtn {
+  padding: 5px 12px;
+  min-height: 30px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-muted);
+  font: 700 13px/1.2 var(--font-display);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  touch-action: manipulation;
+}
+
+.segBtn:hover { color: var(--color-ink); }
+
+.segBtnActive {
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  box-shadow: 0 2px 0 var(--color-stroke-soft);
+}
+
+.switchRow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  /* 44px touch target, like every other control in the game. */
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  background: var(--color-surface-strong);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  background: var(--color-surface-card);
+  transition: background 0.15s var(--ease-out);
+}
+
+.trackOn {
+  background: var(--color-primary);
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-card);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  box-shadow: 0 2px 0 var(--color-stroke-soft);
+  transition: transform 0.15s var(--ease-bounce);
+}
+
+.trackOn .knob {
+  transform: translateX(18px);
+}
+
+:root[data-motion="reduce"] .panel {
+  animation: none;
+}
+
+/* The knob still moves: its position is the state, not decoration. */
+
+:root[data-motion="reduce"] .knob {
+  transition: none;
+}

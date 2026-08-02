@@ -15,14 +15,10 @@
  *   node tools/audio/verify.mjs
  *   node tools/audio/verify.mjs --port=5199
  */
-import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import net from 'node:net'
+import { ROOT, startDevServer } from '../lib/devserver.mjs'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(HERE, '..', '..')
 const require = createRequire(path.join(ROOT, 'e2e', 'package.json'))
 const { chromium } = require('playwright')
 
@@ -34,36 +30,7 @@ const args = Object.fromEntries(
 )
 const PORT = Number(args.port ?? 5198)
 
-function waitForPort(port, timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      const sock = net.connect(port, '127.0.0.1')
-      sock.once('connect', () => { sock.destroy(); resolve() })
-      sock.once('error', () => {
-        sock.destroy()
-        if (Date.now() > deadline) reject(new Error(`vite did not start on :${port}`))
-        else setTimeout(tick, 250)
-      })
-    }
-    tick()
-  })
-}
-
-async function startVite() {
-  const bin = path.join(ROOT, 'client', 'node_modules', 'vite', 'bin', 'vite.js')
-  const child = spawn(process.execPath, [bin, '--port', String(PORT), '--strictPort'], {
-    cwd: path.join(ROOT, 'client'),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, VITE_HMR_CLIENT_PORT: String(PORT) },
-  })
-  child.stdout.on('data', () => {})
-  child.stderr.on('data', () => {})
-  await waitForPort(PORT)
-  return child
-}
-
-const vite = await startVite()
+const dev = await startDevServer(PORT)
 let failures = 0
 try {
   const browser = await chromium.launch({
@@ -108,11 +75,9 @@ try {
       return peak
     }
 
-    const names = [
-      'cardPlay', 'cardDraw', 'cardDeal', 'uiTap', 'uiBack', 'yourTurn', 'skip', 'reverse',
-      'drawStack', 'wild', 'swap', 'unoDeclare', 'unoCaught', 'interrupt', 'penalty', 'error',
-      'countdown', 'playerJoin', 'roundWin', 'roundLose', 'matchWin', 'matchLose',
-    ]
+    // Read from sfx.ts rather than listed here: a hand-written copy exempts every
+    // sound added after it was written from the only check that catches silence.
+    const names = sfx.SFX_NAMES
 
     const peaks = {}
     for (const name of names) {
@@ -387,7 +352,7 @@ try {
 
   await browser.close()
 } finally {
-  vite.kill()
+  dev.kill()
 }
 
 console.log(failures === 0 ? '\n✓ every voice produces signal' : `\n✗ ${failures} silent voice(s)`)

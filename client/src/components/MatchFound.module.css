@@ -26,7 +26,7 @@
   border-radius: var(--radius-full);
   border: var(--stroke-thin) solid var(--color-stroke);
   background: var(--color-mint);
-  color: #05301f;
+  color: var(--color-on-mint);
   font: 700 13px/1.3 var(--font-display);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -69,7 +69,7 @@
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
   box-shadow: var(--shadow-hard-lg);
-  color: #fff;
+  color: var(--color-on-dark);
   font: 700 clamp(26px, 5vw, 36px)/1 var(--font-display);
   text-shadow: 0 2px 0 rgba(36, 21, 70, 0.35);
 }
@@ -100,7 +100,7 @@
 
 .format {
   background: var(--color-tertiary);
-  color: #fff;
+  color: var(--color-on-dark);
 }
 
 .vs {
@@ -117,8 +117,8 @@
   height: clamp(48px, 9vw, 68px);
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
-  color: #fff;
+  background: var(--gradient-primary);
+  color: var(--color-on-dark);
   font: 700 clamp(18px, 3.4vw, 26px)/1 var(--font-display);
   text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
   box-shadow: var(--shadow-hard-lg);
@@ -158,6 +158,9 @@
 }
 
 /* Everything still arrives, it just arrives already in place. */
-@media (prefers-reduced-motion: reduce) {
-  .left, .right, .vs, .kicker { animation: none; }
+:root[data-motion="reduce"] .left,
+:root[data-motion="reduce"] .right,
+:root[data-motion="reduce"] .vs,
+:root[data-motion="reduce"] .kicker {
+  animation: none;
 }

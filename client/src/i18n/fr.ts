@@ -1,4 +1,4 @@
-import type { Translations } from './en'
+﻿import type { Translations } from './en'
 
 /**
  * French copy. Two conventions the whole file obeys:
@@ -23,6 +23,27 @@ export const fr: Translations = {
   // et d'infobulle. C'est la modale qu'il ouvre qui a le droit d'être une phrase.
   rulesBtn: 'Règles',
 
+  // ─── Préférences ──────────────────────────────────────────────
+  prefsBtn: 'Préférences',
+  prefsTitle: 'Préférences',
+  prefsLanguage: 'Langue',
+  prefsTheme: 'Thème',
+  prefsThemeLight: 'Clair',
+  prefsThemeDark: 'Sombre',
+  prefsStreamer: 'Mode streamer',
+  prefsColorAssist: 'Formes des couleurs',
+  // On nomme ce qui apparaît, pas une condition : personne ne devrait avoir à
+  // se diagnostiquer pour trouver le réglage qui rend le jeu jouable.
+  prefsColorAssistHint: 'Donne une forme à chaque couleur, pour que la teinte ne soit jamais seule à distinguer deux cartes.',
+  prefsMotion: 'Animations réduites',
+  // On nomme ce qui disparaît, pour que l'interrupteur ne soit pas un pari.
+  // Suit le réglage système tant qu'on n'y touche pas.
+  prefsMotionHint: 'Coupe les vols de cartes et les confettis. Suit ton système tant que tu n’y touches pas.',
+  // On dit ce que ça fait au code, pas comment le mode s'appelle : un joueur
+  // qui doit deviner l'effet laissera l'option éteinte.
+  prefsStreamerHint: 'Floute le code de la table à l’écran. Survole-le pour le lire toi-même.',
+  prefsCodeHidden: 'Masqué. Survole pour le lire.',
+
   // ─── Matchmaking 1v1 ──────────────────────────────────────────
   findMatch: 'Jouer en 1v1',
   findMatchHint: 'On te trouve quelqu’un',
@@ -35,6 +56,7 @@ export const fr: Translations = {
   searchCancel: 'Arrêter la recherche',
   searchCreateTable: 'Ouvrir une table à la place',
   matchFoundKicker: 'Adversaire trouvé',
+  matchFoundTab: 'Adversaire trouvé, reviens !',
   matchFoundYou: 'Toi',
   matchFoundStartingIn: 'Distribution dans %n…',
   matchFoundDealing: 'Distribution…',
@@ -47,18 +69,21 @@ export const fr: Translations = {
   forfeitYouLeftSub: 'Le match revient à ton adversaire.',
   findAnotherOpponent: 'Chercher un autre adversaire',
   rematchWaitingOpponent: 'On attend sa réponse…',
+  rematchWaitingTable: 'On attend la table…',
   rematchAccept: 'Il en veut une autre. Go.',
+  rematchProgress: (done, total) => `${done}/${total}`,
 
   // ─── Waiting Room ─────────────────────────────────────────────
   waitingRoom: 'La table',
   roomCode: 'Code de la table',
   // La page dit déjà « La table » et « Code de la table » : une troisième
   // occurrence dans la même colonne se lit comme un gabarit mal rempli.
-  shareCode: 'Envoie ce code. Ils sont à un clic.',
+  shareCode: 'Touche le code pour copier un lien direct vers cette table.',
   leaveConfirm: 'Tu quittes la table\u00a0?',
   leaveConfirmYes: 'Oui, je pars',
   leaveConfirmStay: 'Rester',
-  copyCode: 'Copié\u00a0!',
+  copyLink: 'Copier le lien vers cette table',
+  copyCode: 'Lien copié\u00a0!',
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: 'Son',
   audioMaster: 'Général',
@@ -81,6 +106,7 @@ export const fr: Translations = {
   directionCcw: 'Sens du jeu\u00a0: antihoraire',
   drawPile: 'Pioche',
   hostBadge: 'Hôte',
+  kickPlayer: 'Retirer de la table',
   matchFormat: 'Longueur du match',
   maxPlayersLabel: 'Places',
   addBot: '+ Ajouter un bot',
@@ -101,6 +127,7 @@ export const fr: Translations = {
   unoBanner: 'LOCO\u00a0!',
   catchBtn: 'Contre-LOCO\u00a0!',
   chooseColor: 'Annonce la couleur',
+  pickerCancel: 'Repose la carte',
   choosePlayer: 'Tu veux la main de qui\u00a0?',
   swapTargetCards: '%n cartes',
   swapTargetCardOne: '1 carte',
@@ -169,6 +196,7 @@ export const fr: Translations = {
   scoreTableTitle: 'Scores',
   scoreTableHint: 'Maintiens TAB',
   scoreTableBtn: 'Scores',
+  scoreTableClose: 'Fermer',
   scoreTableRoundCol: 'M%n',
   scoreTablePingCol: 'Ping',
   scoreTableYou: 'toi',
@@ -195,14 +223,27 @@ export const fr: Translations = {
   winsGame: 'l\'emporte\u00a0!',
   winsMatch: 'rafle le match\u00a0!',
   rematch: 'Revanche',
-  rematchWaiting: 'L\'hôte réfléchit à la revanche…',
   leaveRoom: 'Quitter la table',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Langue',
 
   // ─── Rules ───────────────────────────────────────────────────
+  // Les noms que les phrases de `rules` emploient déjà, extraits pour qu'un
+  // tableau ou un titre puisse nommer une carte sans les réécrire.
+  cardNames: {
+    number: 'Numéro',
+    skip: 'Passe',
+    reverse: 'Changement de sens',
+    draw_two: '+2',
+    wild: 'Changement de couleur',
+    wild_draw_four: '+4',
+    swap: 'Échange',
+    global_switch: 'Rotation',
+  },
+
   rulesTitle: 'Comment jouer',
+  rulesFullPage: 'Les 112 cartes',
   rulesClose: 'Fermer',
 
   rules: [
@@ -298,7 +339,7 @@ export const fr: Translations = {
     generic: 'Ça n\'est pas passé.',
 
     nicknameTaken: 'Quelqu\'un porte déjà ce nom à cette table.',
-    nicknameLength: 'Entre 1 et 20 caractères.',
+    nicknameRejected: 'Choisis un autre pseudo.',
     roomNotFound: 'Aucune table avec ce code.',
     roomFull: 'Cette table est complète.',
     gameInProgress: 'Les cartes sont déjà sorties à cette table.',
@@ -332,6 +373,7 @@ export const fr: Translations = {
     swapTargetInvalid: 'Cette place ne peut pas être ciblée.',
 
     hostOnly: 'Ça, c\'est à l\'hôte de décider.',
+    kicked: 'L\'hôte a libéré ta place.',
     notEnoughPlayers: 'Pas assez de joueurs pour distribuer.',
     lobbyOnly: 'Trop tard, les cartes sont sorties.',
     maxPlayersInvalid: 'Ce nombre de places n\'est pas autorisé.',
@@ -347,5 +389,9 @@ export const fr: Translations = {
     serverBusy: 'Le serveur est bondé. Réessaie.',
     serverUpdating: 'Nouvelle version en route. Les tables rouvrent dans une minute.',
     reconnectFailed: 'Ta place est perdue. Le match est peut-être terminé.',
+    serverFull: 'Toutes les tables sont prises. Réessaie dans une minute.',
+    tooManyAttempts: 'Trop d\'essais. Attends un instant.',
+    serverError: 'Ça a cassé de notre côté. Retente le coup.',
+    gameNotInProgress: 'Aucune carte n\'est en jeu à cette table.',
   },
 }

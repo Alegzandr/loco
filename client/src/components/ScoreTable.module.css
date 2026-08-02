@@ -66,7 +66,31 @@
   font: 700 11px/1.2 var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-muted-soft);
+  color: var(--color-muted);
+}
+
+/* The way out while the panel is pinned. Same shape as the rules modal's, so
+   the ✕ is one object across the game rather than one per panel. */
+.closeBtn {
+  align-self: center;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.closeBtn:hover,
+.closeBtn:focus-visible {
+  background: var(--color-surface-strong);
 }
 
 /* No keyboard, no TAB. On a touch device the hint is an instruction the player
@@ -89,11 +113,15 @@
   border-spacing: 0 5px;
 }
 
+/* The Label step, not below it: these name the columns a spectator reads the
+   standings out of, and --color-muted-soft put them at ~3:1 on the panel in
+   light and ~2.6:1 in dark. Quiet is a weight and a size here, not a contrast
+   the header has to be squinted through. */
 .table th {
-  font: 700 10px/1.2 var(--font-display);
+  font: 700 11px/1.2 var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  color: var(--color-muted-soft);
+  color: var(--color-muted);
   padding: 0 8px 2px;
   text-align: center;
   white-space: nowrap;
@@ -170,7 +198,7 @@
 }
 
 .you {
-  font: 700 9px/1 var(--font-display);
+  font: 700 11px/1 var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 3px 6px;

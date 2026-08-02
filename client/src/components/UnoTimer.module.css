@@ -1,9 +1,17 @@
 /* Catch window — a hard 5s deadline. Rendered as a chunky capsule so the
    pressure is visible to a spectator, not just to the player holding the mouse. */
 
+/* Above the top-right cluster, not under it.
+   The cluster is 184px wide (four 40px chips and three 8px gaps) anchored 12px
+   from the right; this capsule is 242px wide and centred. They therefore share
+   pixels on anything narrower than ~634px, which is every phone, and at
+   z-index 10 against the cluster's 46 the catch window — a five-second, match
+   deciding, streamable moment — was rendered as fragments of red text between
+   the chips. The capsule keeps `pointer-events: none`, so passing in front of
+   the cluster costs no tap: the chips underneath stay pressable. */
 .unoTimer {
   position: absolute;
-  top: 16px;
+  top: calc(16px + var(--safe-top));
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -16,8 +24,16 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-hard), 0 0 26px rgba(255, 61, 104, 0.4);
   pointer-events: none;
-  z-index: 10;
+  z-index: 47;
   animation: catchIn 0.3s var(--ease-bounce) both;
+}
+
+/* Narrow enough for the two to collide: give back what room there is by
+   shortening the bar, so the capsule covers as little of the cluster as it can
+   while it is up. */
+@media (max-width: 640px) {
+  .unoTimer { padding: 7px 14px 9px; }
+  .unoTimerBar { width: 150px; }
 }
 
 .unoTimerLabel {

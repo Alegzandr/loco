@@ -226,6 +226,15 @@ never be substituted for one another. A button is never suit-green; a card is ne
 The suits encode gameplay, the brand colours encode intent, and a player who learns one must
 not have to unlearn it in the other.
 
+**The One Recipe Rule.** A pressable object's fill is a token, never a literal. Every raised object
+is the same vertical gradient — a lighter stop falling into the flat brand colour — and it was
+written out by hand at 21 call sites across 13 files, so "the colour of a primary button" had
+nowhere to be changed. It is `--gradient-primary` / `-secondary` / `-tertiary` / `-error` now, over
+`--color-*-lift` for the top stop. The text on those fills is the same three answers every time:
+`--color-on-primary` and `--color-on-dark` for white, `--color-on-secondary` (a dark brown) for the
+yellow, `--color-on-mint` for the mint. **White never goes on the yellow**: it measures ~1.7:1, and
+the interception banner's ×N chip shipped that way while its twin on the catch banner read the ink.
+
 **The Outline Rule.** Contrast is bought with ink, never by darkening a colour. Off-white on
 the green suit measures 1.18:1 and on yellow 1.46:1; no single flat ink fixes it either. Every
 glyph is therefore drawn twice, a wider ink pass first, giving ~15:1 glyph-against-ink and
@@ -287,8 +296,10 @@ thing that communicates height.
 - **Pop** (`0 6px 0` + `0 14px 30px rgba(28,14,56,0.22)`): Raised panels — modals, the round
   summary, the score table. The solid ledge still does the structural work; the blur is
   atmosphere.
-- **Float** (`0 4px 0` + `0 10px 24px`): The same idea, one step lighter, for cards in flight
-  and the top-right cluster.
+There is no fifth step. A "Float" (`0 4px 0` + `0 10px 24px`) was documented here for cards in
+flight and the top-right cluster, and nothing in the client ever drew it: cards in flight carry the
+hard ledge and the cluster's chips carry their own 3px one. A vocabulary entry no surface uses is a
+rule the next person writes against, so it is gone rather than retrofitted.
 
 ### Named Rules
 
@@ -296,7 +307,10 @@ thing that communicates height.
 bottom shadow. An object with a blur and no ledge is a web component; an object with both is a
 toy. If you can't press it *into* something, it isn't finished.
 
-**The No-Glass Rule.** Backdrop blur is forbidden as a surface treatment. It is used in exactly
+**The No-Glass Rule.** Backdrop blur is forbidden as a surface treatment. The action bar broke this
+for a while — the one always-on control surface in the game was an 82%-opaque panel over a 10px
+blur, which also put whatever card sat behind it into the contrast of its own labels. It is opaque
+now. Blur is used in exactly
 one place — the scrim behind a modal — and never as the material of a panel.
 
 ## 5. Components
@@ -371,7 +385,16 @@ pulses at exactly one card.
   `background: transparent`.
 - **Do** buy glyph contrast with an ink outline drawn underneath, never by darkening a suit.
 - **Do** keep the felt near-black in both themes.
-- **Do** size type for a 720p stream, then check it there before shrinking it.
+- **Do** size type for a 720p stream, then check it there before shrinking it. 11px is the floor,
+  including for the Label step: the score table's column heads and its "you" badge sat at 10px and
+  9px, which is not a size a spectator reads a standing off.
+- **Do** carry "quiet" with the hue and the size, never with an opacity. An opacity dims the whole
+  object at once and takes the contrast with it: the lobby's legal link, the home footer's links,
+  the content pages' navigation and the score table's column heads all sat between 2:1 and 3:1 that
+  way. `--color-muted` is what quiet looks like, and it resolves to `--color-ink` on hover.
+- **Do** give a control drawn smaller than `--touch-target` (44px) its target back with
+  `.hit-target`, which grows the hit area from a pseudo-element and moves nothing. The top-right
+  cluster's chips are 40px on purpose; the thumb still gets 44.
 - **Do** ease with `cubic-bezier(0.16,1,0.3,1)` for travel and `cubic-bezier(0.34,1.56,0.64,1)`
   for anything that should feel physical.
 - **Do** animate transforms only. A moving node is pinned at `left:0;top:0` and positioned by

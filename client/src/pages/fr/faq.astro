@@ -1,0 +1,10 @@
+---
+import ContentPage from '../../layouts/ContentPage.astro'
+import FaqArticle from '../../content/FaqArticle.astro'
+import { faqJsonLd } from '../../content/faq'
+import { FAQ_PAGE, LOCALE } from '../../seo/meta'
+---
+
+<ContentPage page={FAQ_PAGE} lang="fr" jsonLd={faqJsonLd('fr', LOCALE.fr)}>
+  <FaqArticle lang="fr" />
+</ContentPage>

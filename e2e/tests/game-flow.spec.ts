@@ -25,6 +25,8 @@ import {
   debugSetState,
   waitForTableOpen,
   gameBoard,
+  forceEnglish,
+  waitForSocket,
 } from '../helpers/game'
 
 test.describe('gameplay flow (single player vs bot)', () => {
@@ -37,6 +39,51 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
     await expect(page.getByRole('button', { name: T.joinRoom })).toBeVisible()
     await expect(page.getByRole('button', { name: T.rulesBtn })).toBeVisible()
+  })
+
+  /**
+   * The nickname is validated in two places and refused with one sentence.
+   *
+   * The client answers the shapes it can judge on its own as they are typed;
+   * the word list is the server's, so a blocked term costs a round trip. The
+   * test asserts both, and asserts they are indistinguishable: a player who
+   * could tell which half refused them could read the rule off the message.
+   * See server/game/nickname.go.
+   */
+  test('a nickname the game refuses never opens a table, and never says why', async ({ page }) => {
+    await forceEnglish(page)
+    await page.goto('/')
+    await waitForSocket(page)
+    await page.getByRole('button', { name: T.createRoom }).click()
+    const field = page.getByPlaceholder(T.yourNickname)
+
+    // A zero-width space between two ordinary letters: invisible, and a seat
+    // label nobody else can type. Refused client-side, as it is typed.
+    await field.fill('Ali​ce')
+    await expect(page.getByRole('alert')).toHaveText(T.nicknameRejected)
+    await page.getByRole('button', { name: T.createGame }).click()
+    await expect
+      .poll(() => page.evaluate(() => window.__LOCO_E2E__?.getState?.()?.screen))
+      .toBe('lobby')
+
+    // A blocked term is shaped like a name, so it goes to the server. Same
+    // sentence back.
+    await field.fill('salope')
+    await expect(page.getByRole('alert')).toBeHidden()
+    await page.getByRole('button', { name: T.createGame }).click()
+    await expect(page.getByRole('alert')).toHaveText(T.nicknameRejected)
+    await expect
+      .poll(() => page.evaluate(() => window.__LOCO_E2E__?.getState?.()?.screen))
+      .toBe('lobby')
+
+    // And an ordinary name still opens a table from the same field.
+    await field.fill('Alice')
+    await page.getByRole('button', { name: T.createGame }).click()
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+      undefined,
+      { timeout: 5_000 },
+    )
   })
 
   /**

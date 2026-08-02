@@ -3,6 +3,10 @@ import { useI18n } from '../i18n'
 import { playSfx } from '../audio/sfx'
 import { seatColor, seatInitial } from './playerColors'
 import { LocoLogo } from './LocoLogo'
+import { Preferences } from './Preferences'
+import { AudioSettings } from './AudioSettings'
+import { RulesButton } from './RulesButton'
+import { RulesModal } from './RulesModal'
 import { searchStage, formatElapsed } from './searchStages'
 import styles from './Searching.module.css'
 
@@ -27,6 +31,7 @@ interface Props {
 export function Searching({ startedAt, nickname, onCancel, onCreateTable }: Props) {
   const { t } = useI18n()
   const [elapsed, setElapsed] = useState(() => Date.now() - startedAt)
+  const [showRules, setShowRules] = useState(false)
 
   // One tick a second, and nothing else in this screen is stateful: the ring,
   // the sweep and the cards all run on CSS. See useDrainBar for why anything
@@ -40,6 +45,15 @@ export function Searching({ startedAt, nickname, onCancel, onCreateTable }: Prop
 
   return (
     <div className={styles.container}>
+      {/* The wait is the longest a player ever spends on one screen, so the row
+          every other screen carries stays reachable here too: turning the music
+          down or reading the rules is exactly what one does while queueing. */}
+      <div className={styles.topBar}>
+        <Preferences />
+        <AudioSettings />
+        <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
+      </div>
+
       <LocoLogo size="clamp(30px, 5vw, 48px)" />
 
       <div className={styles.stage}>
@@ -99,6 +113,8 @@ export function Searching({ startedAt, nickname, onCancel, onCreateTable }: Prop
           </button>
         )}
       </div>
+
+      {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>
   )
 }

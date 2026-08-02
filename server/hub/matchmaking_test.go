@@ -161,6 +161,7 @@ func TestMatchmaking_HostControlsAreRefused(t *testing.T) {
 		{Type: protocol.CMsgStartGame},
 		{Type: protocol.CMsgSetMatchFormat, MatchFormat: "BO7"},
 		{Type: protocol.CMsgSetMaxPlayers, MaxPlayers: 4},
+		{Type: protocol.CMsgKickPlayer, TargetIndex: intPtrTest(1)},
 		// `rematch` is deliberately not in this list: it is not refused in a
 		// matchmade room, it means something else there. See the rematch tests.
 	} {

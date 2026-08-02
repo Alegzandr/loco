@@ -88,6 +88,11 @@ type Client struct {
 	// connection, so operators can grep a single player's actions across the
 	// log even when they move between rooms or before they have joined one.
 	connID string
+	// netKey is this connection's truncated network prefix, kept from the
+	// admission check so the slot can be given back on close without parsing the
+	// address again (and without ever holding the full one). It is also what the
+	// failed-join budget is charged against.
+	netKey string
 	// suspectMu / suspectCount / suspectWindowStart implement a lightweight
 	// rolling counter of gameplay validation rejections. A real player taps the
 	// occasional illegal play; a tampering client triggers many in a row. We
@@ -156,9 +161,9 @@ func (c *Client) readPump() {
 	defer func() {
 		uptime := time.Since(connectedAt)
 		if uptime < 5*time.Second {
-			log.Printf("ws immediate disconnect conn=%s addr=%s uptime=%v", c.connID, c.conn.RemoteAddr(), uptime)
+			log.Printf("ws immediate disconnect conn=%s addr=%s uptime=%v", c.connID, c.netPrefix(), uptime)
 		} else {
-			log.Printf("ws readPump exit conn=%s addr=%s uptime=%v", c.connID, c.conn.RemoteAddr(), uptime)
+			log.Printf("ws readPump exit conn=%s addr=%s uptime=%v", c.connID, c.netPrefix(), uptime)
 		}
 		c.hub.unregister <- c
 		c.conn.Close()
@@ -174,11 +179,11 @@ func (c *Client) readPump() {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("ws unexpected close conn=%s addr=%s err=%v", c.connID, c.conn.RemoteAddr(), err)
+				log.Printf("ws unexpected close conn=%s addr=%s err=%v", c.connID, c.netPrefix(), err)
 			} else {
 				// Log all other close reasons (normal close, read deadline, network reset, etc.)
 				// so we can see exactly why the connection ended.
-				log.Printf("ws connection closed conn=%s addr=%s reason=%v", c.connID, c.conn.RemoteAddr(), err)
+				log.Printf("ws connection closed conn=%s addr=%s reason=%v", c.connID, c.netPrefix(), err)
 			}
 			break
 		}
@@ -205,7 +210,7 @@ func (c *Client) readPump() {
 		case c.hub.inbound <- inboundMsg{client: c, msg: msg}:
 		default:
 			c.hub.statMessagesDroppedBusy.Add(1)
-			log.Printf("inbound channel full, dropping message conn=%s addr=%s", c.connID, c.conn.RemoteAddr())
+			log.Printf("inbound channel full, dropping message conn=%s addr=%s", c.connID, c.netPrefix())
 			c.sendError("server busy, please retry")
 		}
 	}
@@ -274,7 +279,7 @@ func (c *Client) SendBytes(data []byte) {
 		c.mu.Unlock()
 	}
 	c.hub.statSlowClientsClosed.Add(1)
-	log.Printf("WARN slow client, force-closing for clean reconnect conn=%s addr=%s", c.connID, c.conn.RemoteAddr())
+	log.Printf("WARN slow client, force-closing for clean reconnect conn=%s addr=%s", c.connID, c.netPrefix())
 	// Closing the underlying conn triggers readPump exit → hub.unregister →
 	// c.close() (which closes c.send and lets writePump exit). gorilla/websocket
 	// treats a second Close() as a no-op error, so repeated overflow is safe.

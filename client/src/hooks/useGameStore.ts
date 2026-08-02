@@ -222,10 +222,13 @@ interface GameStore {
   // An opponent who dropped and the instant their match is given away, so the
   // board can say how long this lasts instead of freezing with no explanation.
   opponentAway: { seat: number; deadline: number } | null
-  // Seats that have asked for another match on the game-over screen. A matchmade
-  // rematch is an agreement, so both offers are public: the button has to be
+  // Seats that have asked for another match on the game-over screen. A rematch
+  // is an agreement in every room, so every ask is public: the button has to be
   // able to say "they are waiting on you" as well as "you are waiting on them".
   rematchOffers: number[]
+  // How many asks deal the next match: everybody still at the table. 0 until
+  // the first one arrives, which is also when the count first means anything.
+  rematchNeeded: number
 
   setScreen: (s: AppScreen) => void
   setRoomCode: (code: string) => void
@@ -273,7 +276,7 @@ interface GameStore {
     startsInMs: number
   }) => void
   applyOpponentAway: (seat: number, deadline: number) => void
-  applyRematchOffer: (seat: number) => void
+  applyRematchOffers: (offers: number[], needed: number) => void
   clearRematchOffers: () => void
   clearOpponentAway: (seat: number) => void
   resetToHome: () => void
@@ -426,6 +429,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   forfeitBy: null,
   opponentAway: null,
   rematchOffers: [],
+  rematchNeeded: 0,
 
   // Leaving 'restoring' is what "the reclaim landed" means, and every landing
   // path goes through here (player_reconnected, room_joined, match_loading), so
@@ -798,6 +802,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       forfeitBy: null,
       opponentAway: null,
       rematchOffers: [],
+      rematchNeeded: 0,
       errorMsg: '',
       matchFound: {
         opponentNickname: found.players.find((p) => p.index !== found.mySeat)?.nickname ?? '',
@@ -815,16 +820,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   clearOpponentAway: (seat) =>
     set((s) => (s.opponentAway?.seat === seat ? { opponentAway: null } : s)),
 
-  applyRematchOffer: (seat) =>
-    set((s) =>
-      seat < 0 || s.rematchOffers.includes(seat)
-        ? s
-        : { rematchOffers: [...s.rematchOffers, seat] },
-    ),
+  // The server sends the whole offer state, not the increment, and this stores
+  // it as sent. A seat leaving retires its ask and re-bases the ones above it,
+  // so a client accumulating seat numbers would keep a departed player's ask
+  // forever and show a count that never completes.
+  applyRematchOffers: (offers, needed) => set({ rematchOffers: offers, rematchNeeded: needed }),
 
-  // A seat that left takes every standing offer with it: there is nobody to
-  // agree with any more, and a button still reading "accept" would refuse.
-  clearRematchOffers: () => set({ rematchOffers: [] }),
+  // A matchmade table has no offer state left once the opponent is gone: there
+  // is nobody to agree with, and a button still reading "accept" would refuse.
+  clearRematchOffers: () => set({ rematchOffers: [], rematchNeeded: 0 }),
 
   // Back to the front door with nothing carried over. The seat is gone
   // server-side by the time this runs, so the token and the room code are not
@@ -844,6 +848,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       forfeitBy: null,
       opponentAway: null,
       rematchOffers: [],
+      rematchNeeded: 0,
       matchWinner: '',
       matchOver: false,
       scoreboard: [],

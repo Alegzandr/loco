@@ -10,7 +10,7 @@ describe('resolveServerError', () => {
     const raw = [
       'nickname "Alice" already taken',
       'nickname already taken',
-      'nickname must be 1–20 characters',
+      'nickname not allowed',
       'room not found',
       'invalid room code',
       'room is full (max 10 players)',
@@ -64,6 +64,16 @@ describe('resolveServerError', () => {
       // A deploy in progress. Every action that would start a new match answers
       // with this while the server drains; see server/hub/drain.go.
       'server updating, try again in a moment',
+      // The admission ceilings, the wrong-code throttle and the answer a
+      // recovered handler panic sends. All four are refusals the player did not
+      // earn, and none of them may reach the screen as the wire string it is.
+      // See the caps in server/hub/hub.go.
+      'the server is full, try again in a moment',
+      'too many attempts, wait a moment',
+      'server error',
+      // Sent by dispatch for any gameplay message at a table that has not dealt.
+      // It used to fall through to the generic copy.
+      'game not in progress',
       // Client-authored, but it lands in the same errorMsg slot and is rendered
       // through the same table, so it belongs to the same guarantee.
       'reconnect failed',
@@ -88,6 +98,13 @@ describe('resolveServerError', () => {
     // The bare form, without an interpolated nickname, must map too.
     expect(resolveServerError('nickname already taken', fr.errors))
       .toBe(fr.errors.nicknameTaken)
+    // Every nickname refusal is one server string and one line of copy: the
+    // player must not be able to read the rule that fired off the message and
+    // walk around it. See server/game/nickname.go.
+    expect(resolveServerError('nickname not allowed', fr.errors))
+      .toBe(fr.errors.nicknameRejected)
+    expect(resolveServerError('nickname not allowed', en.errors))
+      .toBe(en.errors.nicknameRejected)
     expect(resolveServerError('interrupt window closed', fr.errors))
       .toBe(fr.errors.interruptClosed)
     // A refusal during a deploy must never read as "no table with that code":
@@ -109,6 +126,12 @@ describe('resolveServerError', () => {
     // socket that holds none. Neither may resolve to the other's copy.
     expect(resolveServerError('already in a room', en.errors)).toBe(en.errors.alreadyInRoom)
     expect(resolveServerError('not in a room', en.errors)).toBe(en.errors.notInRoom)
+    // Same shape, one word apart: a table that has already dealt versus one that
+    // has not dealt at all. The first is a refusal to join, the second a refusal
+    // to play, and swapping them would tell a player the opposite of what
+    // happened.
+    expect(resolveServerError('game already in progress', en.errors)).toBe(en.errors.gameInProgress)
+    expect(resolveServerError('game not in progress', en.errors)).toBe(en.errors.gameNotInProgress)
   })
 
   it('falls back to a localised generic for anything unrecognised', () => {

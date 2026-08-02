@@ -19,7 +19,7 @@ import { RoundSummary } from './RoundSummary'
 import { ScoreTable } from './ScoreTable'
 import { InterruptBanner } from './InterruptBanner'
 import { CatchBanner } from './CatchBanner'
-import { ThemeToggle } from './ThemeToggle'
+import { Preferences } from './Preferences'
 import { AudioSettings } from './AudioSettings'
 import { playSfx } from '../audio/sfx'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from './interruptHelpers'
@@ -29,6 +29,7 @@ import { MapLoadingScreen } from './MapLoadingScreen'
 import { OpponentAway } from './OpponentAway'
 import { ServerUpdating } from './ServerUpdating'
 import { useMapPreload } from '../hooks/useMapPreload'
+import { prefersReducedMotion } from '../hooks/useMotionPref'
 import styles from './GameView.module.css'
 
 interface Props {
@@ -339,7 +340,7 @@ export function GameView({ onSend, wsStatus }: Props) {
   // so a second one replays immediately — a class toggle would need the element
   // to remount, which would tear down the whole board.
   const shakeScreen = useCallback((frames: Keyframe[], durationMs: number, delayMs = 0) => {
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     const el = containerRef.current
     // Guarded like kickBoard: the Web Animations API is absent under jsdom, and
     // a missing shake must never take the banner down with it.
@@ -619,7 +620,7 @@ export function GameView({ onSend, wsStatus }: Props) {
             already has a faster way to reach. Icon-only because a square is
             what fits a phone's top-right cluster beside the other three. */}
         <button
-          className={styles.scoresBtn}
+          className={`${styles.scoresBtn} hit-target`}
           aria-pressed={pinnedScores}
           aria-label={t.scoreTableBtn}
           title={t.scoreTableBtn}
@@ -638,7 +639,7 @@ export function GameView({ onSend, wsStatus }: Props) {
             </g>
           </svg>
         </button>
-        <ThemeToggle />
+        <Preferences />
         <AudioSettings />
         <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
@@ -669,6 +670,7 @@ export function GameView({ onSend, wsStatus }: Props) {
       {colorPicker && (
         <ColorPicker
           label={t.chooseColor}
+          cancelLabel={t.pickerCancel}
           onChoose={(col: CardColor) => {
             onSend({
               type: colorPicker.interrupt
@@ -693,6 +695,7 @@ export function GameView({ onSend, wsStatus }: Props) {
       {playerPicker && (
         <PlayerPicker
           label={t.choosePlayer}
+          cancelLabel={t.pickerCancel}
           cardsLabel={(n) =>
             n === 1 ? t.swapTargetCardOne : t.swapTargetCards.replace('%n', String(n))
           }

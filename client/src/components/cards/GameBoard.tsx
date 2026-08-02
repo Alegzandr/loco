@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, MutableRefObject } from 'react'
+import { memo, useEffect, useRef, useState, RefObject } from 'react'
 import { CardDTO, CardColor, PlayerDTO } from '../../types/protocol'
 import { useElementSize } from '../../hooks/useElementSize'
 import { useSafeAreaInsets } from '../../hooks/useSafeAreaInsets'
@@ -30,6 +30,7 @@ import {
   CatchFlash,
   CATCH_PENALTY_CARDS,
 } from '../../hooks/useGameStore'
+import { prefersReducedMotion } from '../../hooks/useMotionPref'
 import styles from './GameBoard.module.css'
 
 interface Props {
@@ -60,7 +61,7 @@ interface Props {
    * confirmed later (a wild once its colour is named, a Swap once its target
    * is) call `flyFromHand` after sending, so they animate like any other play.
    */
-  flightRef?: MutableRefObject<GameBoardHandle | null>
+  flightRef?: RefObject<GameBoardHandle | null>
   turnTexts: TurnTexts
   fxTexts: FxTexts
   /** swap / global_switch notice from the store; triggers trail animation. */
@@ -220,8 +221,7 @@ export const GameBoard = memo(function GameBoard(props: Props) {
   function kickBoard() {
     const el = stageRef.current
     if (!el || typeof el.animate !== 'function') return
-    if (typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    if (prefersReducedMotion()) return
     el.animate(
       [
         { translate: '0 0' },

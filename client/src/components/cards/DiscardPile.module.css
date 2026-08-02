@@ -96,6 +96,9 @@
    table, not a swatch in a legend. Same corner discipline as .badge. */
 .chip {
   position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 38px;
   height: 38px;
   border-radius: var(--radius-full);
@@ -108,6 +111,12 @@
   z-index: 3;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ring { animation: none; }
+/* Colour assist: the suit silhouette inside the active-colour chip. */
+.chipMark {
+  width: 58%;
+  height: 58%;
+}
+
+:root[data-motion="reduce"] .ring {
+  animation: none;
 }

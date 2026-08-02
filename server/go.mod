@@ -1,7 +1,7 @@
 module loco/server
 
-go 1.24
+go 1.26
 
-toolchain go1.24.7
+toolchain go1.26.5
 
 require github.com/gorilla/websocket v1.5.3

@@ -1,7 +1,9 @@
-import { CSSProperties, forwardRef, KeyboardEvent, MouseEvent } from 'react'
+import { CSSProperties, KeyboardEvent, MouseEvent, Ref } from 'react'
 import { CardDTO } from '../../types/protocol'
 import { cardLabel, hasGlyph } from './cardTheme'
 import { CardArt, CardGlyph } from './CardArt'
+import { SuitMark } from './suitMark'
+import { useColorAssist } from '../../hooks/useColorAssist'
 import styles from './Card.module.css'
 
 interface Props {
@@ -14,6 +16,12 @@ interface Props {
   onClick?: (e: MouseEvent<HTMLDivElement>) => void
   className?: string
   style?: CSSProperties
+  /**
+   * React 19 passes the ref through as an ordinary prop, so this component is a
+   * plain function again: forwardRef is deprecated and the wrapper it created
+   * was one more object between framer-motion and the node it animates.
+   */
+  ref?: Ref<HTMLDivElement>
 }
 
 /**
@@ -29,11 +37,19 @@ interface Props {
  * Stateless and unanimated. Wrap in a <motion.div> at the call site for
  * movement or hover effects.
  */
-export const Card = forwardRef<HTMLDivElement, Props>(function Card(
-  { card, playable = false, shadow = false, onClick, className, style },
+export function Card({
+  card,
+  playable = false,
+  shadow = false,
+  onClick,
+  className,
+  style,
   ref,
-) {
+}: Props) {
   const label = cardLabel(card)
+  // Subscribes every card on screen, which costs one re-render on the rare
+  // frame the preference is flipped and nothing at all otherwise.
+  const assist = useColorAssist()
   const icon = hasGlyph(card.kind)
   const isWild = card.color === 'wild'
   // The colour-change card already *is* the four-suit fan at full size; a second
@@ -94,7 +110,13 @@ export const Card = forwardRef<HTMLDivElement, Props>(function Card(
       >
         {icon ? <CardGlyph kind={card.kind} /> : label}
       </div>
+      {/* Under the value, where a printed card puts its suit: in a fan the
+          cards overlap down to their top-left corner, so this is the only
+          place a mark is still visible in a full hand. */}
+      {assist && card.color !== 'wild' && (
+        <SuitMark color={card.color} className={styles.suitMark} />
+      )}
       <div className={`${styles.corner} ${styles.cornerBR}`}>L</div>
     </div>
   )
-})
+}

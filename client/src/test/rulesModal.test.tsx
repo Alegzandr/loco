@@ -4,6 +4,7 @@ import { I18nProvider } from '../i18n'
 import { RulesModal } from '../components/RulesModal'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
+import { RULES } from '../seo/meta'
 
 function renderModal(onClose = vi.fn()) {
   return render(
@@ -81,5 +82,35 @@ describe('RulesModal', () => {
     expect(screen.getByText(fr.rulesTitle)).toBeInTheDocument()
     // Check one French section heading
     expect(screen.getByText(fr.rules[0].heading)).toBeInTheDocument()
+  })
+
+  describe('the way out to the full rules page', () => {
+    it('opens in a new tab, because this modal opens mid-match', () => {
+      // Following it in place would unload the page, drop the socket and cost
+      // the seat. The target is the whole point of the link, not decoration.
+      renderModal()
+      const link = screen.getByRole('link', { name: en.rulesFullPage })
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+    })
+
+    it('points at the page in the language on screen', () => {
+      renderModal()
+      expect(screen.getByRole('link', { name: en.rulesFullPage })).toHaveAttribute(
+        'href',
+        RULES.path.en,
+      )
+
+      localStorage.setItem('loco_lang', 'fr')
+      render(
+        <I18nProvider>
+          <RulesModal onClose={vi.fn()} />
+        </I18nProvider>
+      )
+      expect(screen.getByRole('link', { name: fr.rulesFullPage })).toHaveAttribute(
+        'href',
+        RULES.path.fr,
+      )
+    })
   })
 })

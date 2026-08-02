@@ -6,6 +6,110 @@ room lifecycle.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## One message must never be able to cost the server
+`hub.dispatch` opens with a `recover`, and with a gate refusing every gameplay message at a table
+that has not dealt. Both come out of the same audit finding, and they are floor and wall rather than
+one fix twice.
+
+**The bug.** `room.State` is nil in a lobby (`game.NewRoom`) and again after a rematch
+(`Room.ResetForRematch`). Almost every handler delegates straight to a domain call that checks
+`Status` first, but two sized a hand *before* refusing: `handleDrawCard` read
+`len(room.State.Hands[c.playerID].Cards)` on its first line, and `handleCatchUno` read
+`len(room.State.Hands)` to bounds-check the target it had been handed. Both are nil dereferences,
+and both were reachable in **two frames** by anybody who could open a socket:
+
+```
+connect /ws  ->  {"type":"create_room","nickname":"X"}  ->  {"type":"draw_card"}
+```
+
+`originAllowed` allows a missing `Origin` on purpose (a non-browser client has no ambient credential
+to be tricked into replaying), so this needed no browser and no valid table. The map-loading gate did
+not help: it only exists for a table that has already dealt.
+
+**Why it was fatal rather than annoying.** Every inbound message is handled on the single event-loop
+goroutine in `Hub.Run`, and there was no `recover` anywhere in `server/`. So the panic was the whole
+process: every match on it ended mid-turn, `SIGTERM` was never received so neither the drain nor the
+snapshot ran, and the players who reconnected a moment later were told "room not found", the exact
+outcome the drain was built to eliminate, reachable at will for the cost of a TCP handshake.
+
+**The two answers.**
+- The **gate** (`isGameplayMsg` + `roomOf` + `Status`/`State`) fixes the class rather than the two
+  handlers. The next one to read `State` before validating is covered without anybody remembering to.
+  It answers `game not in progress`, resolved by `i18n/serverErrors.ts` like every other refusal.
+- The **recover** bounds the blast radius of whatever the gate does not anticipate: one `WARN` with
+  the stack, one `server error` to the client that sent it, `handler_panics` on `/metrics`. It is
+  explicitly *not* a licence to skip a bounds check. `playerGameStateUsing` already carried the
+  right instinct in a comment ("a panic here would kill the hub goroutine and take down every active
+  room") and its own guards; this generalises that instinct to every handler.
+
+`hub/hardening_test.go` pins both: the six gameplay messages that reach a lobby, and a probe
+(`SetDispatchProbe`, test-only) that panics on demand so the recover is proven rather than assumed.
+`handler_panics` above zero is a bug by definition and nothing else surfaces it.
+
+## Ceilings: what stops an abusive client being an unbounded one
+Nothing bounded this server's memory. The token bucket limits one socket's message rate and says
+nothing about how many sockets exist, and a table outlives the connection that opened it by
+`EmptyRoomTimeout` (5 min). So `connect, create_room, disconnect, repeat` was an allocation loop
+costing one handshake a table, and there was no answer to it anywhere in the stack.
+
+Four numbers, all exported vars in `hub.go` so tests can narrow them, all deliberately generous:
+they exist to make the abusive case terminate, not to shape the legitimate one. A server that
+refuses a real player is worse than one carrying a few thousand idle rooms, so **reaching one of
+these in production is a signal to read the logs, not a number to lower.**
+
+| Knob | Default | Refused where | Answer |
+| --- | --- | --- | --- |
+| `MaxClients` | 5000 | `ServeWS`, before the upgrade | HTTP 429 |
+| `MaxConnsPerNet` | 64 | `ServeWS`, before the upgrade | HTTP 429 |
+| `MaxRooms` | 2000 | `handleCreateRoom` | `the server is full, try again in a moment` |
+| `MaxFailedJoins` | 20 / min / network | `handleJoinRoom` | `too many attempts, wait a moment` |
+
+Two details that are not arbitrary:
+
+- **Admission is decided before the upgrade**, in `admitConn`, against its own counter rather than
+  `statClients`. `statClients` is maintained by the event loop, which leaves a window between the
+  upgrade and the register that an unbounded number of sockets can arrive in, and that window is
+  precisely where a flood lives. Refusing early also means a connection this server will not serve
+  never costs it a hijacked socket, a 256-slot send buffer and two goroutines. 429 rather than a
+  close so a refusal is distinguishable from a network failure, in the client and in nginx's log.
+- **The room cap is on `create_room`, not on the socket**, because that is the message that
+  allocates something outliving its connection.
+
+`MaxConnsPerNet` is keyed by the same truncated prefix the logs are (`truncateAddr`, `/24` or `/48`),
+so nothing here retains an address the rest of the server has already decided not to keep. 64 is high
+enough for a household, a LAN party or an office behind one address.
+
+`conns_refused` on `/metrics` is a load signal, not an incident, until it climbs.
+
+## A wrong table code is not free any more
+A table code is 6 characters of a 32-symbol alphabet, so 32^6 ≈ 1.07e9. That is a large number for
+finding *one* table and a much smaller problem for finding *any* of them: the odds scale with how
+many are open, so a busy server was walkable, and a refused `join_room` used to cost nothing at all:
+no counter, no penalty, nothing per address. `noteRejection` only ever covered the gameplay handlers.
+
+`MaxFailedJoins` wrong codes per network per minute (`joinBudget`, `joinThrottled`, `noteFailedJoin`),
+after which `join_room` is refused for the rest of the window **before the lookup**, so a throttled
+network learns nothing from the answer either. Keyed by network rather than by socket, because a
+socket is free: a sweeper reconnects between attempts and a per-connection counter would only have
+measured its patience. The map is swept of expired windows when it passes `maxJoinBudgets` (4096), so
+the ordinary path stays one lookup.
+
+A player who mistypes their code once is nowhere near 20, and
+`TestOneMistypedCodeDoesNotLockAPlayerOut` is what keeps it that way.
+
+## The reclaim refusal names nothing
+`join_room` at a table in progress used to answer two different strings: `invalid session token for
+reconnect` when the nickname matched a seat that was actually held, and `game already in progress`
+otherwise. The difference was a roster oracle (anybody with a code could test names against the
+table) and it bought nothing, because a returning player's client already owns the failed-reclaim
+case through its own restore timeout (`useSessionRestore`, `reconnectFailed`).
+
+Both now answer `game already in progress`. `i18n/serverErrors.ts` keeps its `invalid session token`
+rule for the rolling-deploy window in which a new client talks to an old server, and says so.
+
+`hub/hardening_test.go`'s `TestReclaimRefusalRevealsNothingAboutTheRoster` compares the two answers
+directly, which is the only way this stays true.
+
 ## Anti-cheat
 Defend: illegal cards, turn spoofing, hidden-state manipulation, replay, forged reactions/declarations, dup spam, tampered hand, client win claims.
 Posture: validate every message, reject illegal/out-of-turn, server-side hidden state, ignore client timestamps for outcomes, server outcomes final, crypto-random session tokens (required for reconnect), per-client rate limit (token bucket 10 msg/s, burst 20).
@@ -64,6 +168,75 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   which is exactly backwards. `errors.Is`, never a string comparison: the wire text is unchanged and
   free to be reworded.
 
+## The nickname
+`server/game/nickname.go`, called by `hub.validateNickname` on the three ways into a seat
+(`create_room`, `join_room`, `find_match`). Everything below is the server's; the client mirrors the
+shape rules only, so a refusal is instant, and is trusted for nothing.
+
+**One refusal, whatever fired it.** `ErrNicknameLength`, `ErrNicknameCharset` and
+`ErrNicknameBlocked` all wrap `ErrNicknameRejected`, and that one string, `nickname not allowed`, is
+what goes on the wire; the specific error is kept for the log line and for the tests. A refusal that
+names its rule is a tutorial: told "blocked word", the next attempt is the same insult with a letter
+moved, and the person doing it now knows which half of the filter to work on. Told "1 to 20
+characters", nobody learns anything either, because the field already stops at 20. The client
+resolves that string through `i18n/serverErrors.ts` like any other, and shows the *same* line for the
+shapes it refuses itself, so the two halves cannot be told apart from the outside.
+
+**The length is in characters.** The old check was `len(n)`, which is bytes: "Étienne" cost 8 of 20
+and a Cyrillic name cost double. `NicknameMaxRunes = 20`, counted in runes, on the canonical form.
+
+**The charset is an allowlist, not a blocklist of tricks.** Letters in Latin, Greek or Cyrillic,
+ASCII digits, one space between words, and `-_.'` for O'Brien, Anne-Marie and Mr. Bean. That single
+rule is what excludes the zero-width characters, the bidi overrides (`U+202E` and friends, which
+reverse the seat label and can make a nickname read as somebody else's), the control characters,
+emoji, and the Mathematical Alphanumeric Symbols block — whose 𝐟𝐮𝐜𝐤 is four *letters* as far as
+`unicode.IsLetter` is concerned and renders as the word, which is why "any letter" was never an
+option. Combining marks are capped at one per base letter: one is how "Á" is written when it is not
+precomposed, a stack of them is Zalgo, which paints over the seat above it and is unreadable at 720p,
+which is the product. A nickname must also contain at least one letter or digit: `---` is inside the
+charset and is not a name.
+
+**Normalisation is what keeps the list short.** A list is a losing game played one spelling at a
+time, so the input is folded first: diacritics stripped (precomposed through a table, decomposed by
+dropping the marks — Go has no NFD in the standard library and `golang.org/x/text` is not worth a
+dependency for a 20-rune string), lower-cased, leet undone (`0o 1i 3e 4a 5s 7t @a $s !i +t`),
+separators dropped so `f.u.c.k` is one word, and a second pass that squeezes repeats so `salooope`
+is `salope`. The leet map is deliberately conservative: `2` is absent, because every aggressive
+entry is a way to refuse somebody their own name.
+
+**The words are not ours.** `server/game/wordlists/` is Shutterstock's LDNOOBW list, CC BY 4.0, 19
+Latin/Greek/Cyrillic languages of it, `go:embed`-ed into the binary. Vendored rather than fetched:
+the check costs a map lookup and a walk over a few hundred short strings, once, when a player takes a
+seat, and it has no key, no quota, no rate limit and nothing that can fail at 3am because a third
+party moved a route. Refreshing it is `curl` into that directory and a test run; the attribution
+lives in `NOTICE.md`.
+
+**How it is applied is ours, because applied naively it refuses a phone book.** Three rules:
+
+1. The whole nickname, and every token in it, is matched against every term. Tokens are cut
+   structurally — on separators, on digit boundaries, and on a lower→upper transition — so
+   `Xx_Salope_xX` and `xXsalopeXx` both yield `salope` without a single entry being written for the
+   decoration.
+2. Substring matching is limited to terms of **6 characters or more**. That threshold is the whole
+   false-positive control. The short entries of these lists are `ass`, `con`, `cul`, `dick`, `rape`,
+   `bite`, `scat`, and they live inside Cassandra, Constance, Deacon, Dickson, Draper, Arbiter and
+   Scatena. The cost is a 4-letter insult glued between letters with no case change: `xxfuckxx` gets
+   through. Refusing somebody their own name is the worse of the two failures, and it is the one
+   nobody reports, they just leave.
+3. `nicknameAllowSeed` covers the collisions rule 2 still leaves: Scunthorpe, Penistone, Cockburn,
+   Niger, Nigeria. Whole nickname only, so `scunthorpe` is a name and `scunthorpefuck` is not. It is
+   the only hand-written list in the file, and it is an *allow* list on purpose: a missing entry is a
+   refusal somebody complains about, never a slur that lands on a stream.
+
+The squeezed form is matched against the terms **as written**, never against a squeezed list.
+Squeezing the list turns `nigger` into `niger`, and the country is a place people are from.
+
+**None of this is stored.** A nickname lives in `game.Room` for as long as the match does. The one
+thing that writes it anywhere is the deploy snapshot (`hub/snapshot.go`), which holds only matches in
+flight, is deleted as it is read, and is dropped whole past `SnapshotMaxAge`. There is no scoreboard
+that outlives a room, no history, no profile, so there is no stored entry to delete — and adding one
+would be the legal change described in `docs/notes/legal.md`, not a feature.
+
 ## A refusal that proves a drift carries the correction
 `hub.refuseAction(c, room, err)` is the single exit for a rejected gameplay message: the error, the
 `noteRejection`, and, when `game.IsStateMismatch(err)`, a personalised `game_state` to that one
@@ -106,11 +279,11 @@ ordinary room's on purpose.
   vanished during the reveal, `requeueSurvivor` tears the room down and puts the other back in the
   queue rather than leaving them in a two-seat room that can never start.
 - **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
-  `handleSetMaxPlayers` and `handleRematch` all begin with `refuseInMatchmade`. The format is fixed
+  `handleSetMaxPlayers` and `handleKickPlayer` all begin with `refuseInMatchmade`. The format is fixed
   (BO1: a queue is entered by somebody who wants to play *now*, and a single round is the shortest
   complete thing the game has, as well as the commitment two strangers are least likely to abandon
-  halfway), the size is two, and a rematch would need an agreement from a stranger who came here to
-  play *somebody*. The game-over screen offers the next opponent instead.
+  halfway) and the size is two. `handleRematch` is deliberately not among them: it is an agreement
+  everywhere, and the only thing the mode changes is what the agreement deals.
 - **Two strangers may have picked the same nickname**, and `Room.Join` refuses a duplicate. In a
   private lobby that refusal is right. Here it would fail a pairing neither player did anything wrong
   in, so `uniqueNickname` disambiguates the second one (`Alex (2)`), trimming the base first so a
@@ -118,25 +291,64 @@ ordinary room's on purpose.
 - The queue is left on **disconnect** as well as on cancel (`handleDisconnect` calls `dequeue` before
   anything else): a socket that has gone away must not be paired with somebody who is still there.
 
-## A rematch by agreement
-`handleRematchOffer`, which is what `rematch` means in a matchmade room. There is no host to decide,
-and the one thing known about the player opposite is that they came to play *somebody*: they may
-want another and they may want the next stranger instead.
+## Freeing a seat somebody else is in
+`handleKickPlayer`. Every other host control describes the table (the format, the size, when to
+deal); this one acts on a person, so it is the strictest thing in the lobby.
 
-- Each side sends `rematch`, every offer is broadcast as `rematch_offered`, and the match is dealt
-  only when both are in. **Both offers are public on purpose**: an offer nobody can see is an offer
-  nobody answers, and the screen has to be able to say "they are waiting on you".
-- `startRematchedMatch` goes through the **pairing** path, not the lobby one: another `match_found`,
-  another reveal, and every screen, timer and gate downstream is the one both clients already went
-  through. A matchmade rematch is a new match between the same two, not a room returning to a lobby
-  this mode does not have. Same per-match cleanup as `handleRematch`, or the finished match's loading
-  gate would keep the next one shut forever.
-- Refused once the seat opposite is gone (`your opponent has left the table`), which is the ordinary
-  case after a forfeit: the client's other button, the one that finds the next opponent, is the
-  answer to that. An offer is retired by `releaseSeat` and by `deleteRoom`.
-- **No timer on an offer.** An offer that is never answered costs the offerer nothing: the other
-  button on that screen still works, and leaving retires the offer. A countdown would only add a
-  deadline to a decision nobody is blocked on.
+- **Host only, lobby only, and never seat 0.** The host's own seat is given up with `leave_room`,
+  which asks first; a kick that could take seat 0 would hand the table to whoever was sitting in seat
+  1 through a button that says nothing of the sort. Once the cards are out a seat belongs to a match
+  rather than to a roster, and the only thing that ends one early is a forfeit — so the refusal there
+  is `can only remove players in the lobby`, not a special case of it.
+- **The table sees a departure and the player sees a reason.** `releaseSeat` does the work, which is
+  the same bookkeeping `leave_room` and a lobby disconnect do (roster, `roomMembers`, `botSlots`,
+  `sessionTokens`, the surviving clients' `playerID`), so the three cannot drift apart. The removed
+  client is out of `roomMembers` by then and gets `kicked` on its own socket instead of the
+  `player_left` about itself: a table vanishing with no explanation reads as a bug, and the client
+  puts the line under the lobby form.
+- **A bot is a seat like any other.** The slot behind it is `nil`, so it goes through
+  `removeUnmannedSeat` rather than `releaseSeat`, and that function re-bases exactly what the human
+  path re-bases. It is the only way to take a bot's seat back; there is no `remove_bot`.
+- **It is deliberately not a ban.** The table code is already in the removed player's hands, there is
+  no account to refuse them by, and the game holds no identity to build one on — an address would be
+  the only handle left, and never storing one is the whole privacy position. So a ban would be
+  theatre, and the honest consequence is that a mistaken press costs nothing: the player sits back
+  down. That is also why the button asks nothing first, unlike the quit link beside it.
+
+## A rematch by agreement
+`handleRematch`. It was the host's decision and it is nobody's now. The host's standing is over the
+things that describe a table before it deals: the format, the size, when to start. Whether four
+people want another twenty minutes is not one of them, and between two strangers out of the queue
+nobody ever had that standing to begin with. So the ask is the same everywhere and the host's only
+remaining privilege on this screen is not having one.
+
+- Any seat sends `rematch`, every ask is broadcast as `rematch_offered`, and the next match is dealt
+  only once `rematchQuorum` asks are in. **Every ask is public on purpose**: an ask nobody can see is
+  an ask nobody answers, and the screen has to be able to say "they are waiting on you".
+- **The quorum is the connected humans** (`connectedMembers`). Bots are not asked, which is what
+  makes a solo-plus-bots table reopen on one press, and a seat inside its reconnect window is not
+  waited for either: it left a room that is already over, and holding everybody else there until a
+  timer expires is the one thing this screen must never do.
+- **`rematch_offered` carries the whole state, not the increment** (`broadcastRematchOffers`):
+  `rematch_offers` plus `rematch_needed`. A departure re-bases seats, so an increment would leave
+  every client holding a stale seat number and a count that never completes. The list is nullable on
+  the wire because *empty* is a real answer here.
+- **A departure is an answer.** `releaseRematchOffer` retires the leaver's ask, shifts the rest down
+  with `shiftIntKeySet` exactly as `botSlots` and `sessionTokens` are shifted, republishes, and deals
+  when what is left of the table has already asked. It is called from `releaseSeat` and from the
+  finished-room branch of `handleDisconnect`; `deleteRoom` drops the map with the room.
+- The deal has two shapes (`dealAgreedRematch`). `startRematchedMatch` goes through the **pairing**
+  path, not the lobby one: another `match_found`, another reveal, and every screen, timer and gate
+  downstream is the one both clients already went through. A matchmade rematch is a new match between
+  the same two, not a room returning to a lobby this mode does not have. `openRematchedLobby` is the
+  ordinary table: prune the absent, `ResetForRematch`, `rematch_started` per recipient. Both do the
+  same per-match cleanup, or the finished match's loading gate would keep the next one shut forever.
+- Refused in a **matchmade** room once the seat opposite is gone (`your opponent has left the
+  table`): there is no lobby to wait in and nobody who can arrive. The client requeues that player
+  rather than leaving them on a button that cannot complete. An ordinary table has no such floor,
+  because whoever is left can reopen the room and wait in it.
+- **No timer on an ask.** One that is never answered costs the asker nothing, and leaving retires it.
+  A countdown would only add a deadline to a decision nobody is blocked on.
 
 ## Nobody waits for somebody who is not there
 The reason the mode has its own timings at all. In an ordinary room the 60s hold and the 4-timeout
@@ -245,7 +457,18 @@ strangers will not, and the player who is still at the table did nothing wrong.
 ## Session tokens
 - 32 hex chars (128-bit `crypto/rand`).
 - Issued in `room_created`/`room_joined`. Client must include `session_token` in reconnect `join_room`.
-- Invalid/missing → error, slot not reclaimed.
+- Invalid/missing → error, slot not reclaimed. The refusal is the same string a stranger gets; see
+  "The reclaim refusal names nothing".
+- **Compared with `subtle.ConstantTimeCompare`, never `==`.** A network timing attack on 128 bits of
+  hex is not a realistic threat and this is not pretending otherwise. It is that this is the only
+  identity check the game has, the replacement is one line, and an equality operator returning on the
+  first differing byte is the kind of thing that only gets noticed once it matters.
+- **A reclaim spends its token and gets a new one** (`handleReconnect` reissues, and
+  `player_reconnected` carries it). The old one has been on a socket that died, it is in
+  `sessionStorage`, and if the process restarted on the way it has also been written to a snapshot on
+  disk. A one-shot proof is worth more than a permanent one and costs nothing, because the client
+  already stores whatever the server hands it.
+  `TestReconnectRotatesTheSessionToken` also asserts the spent one no longer opens the seat.
 - `hub.sessionTokens` cleaned up on room delete.
 
 ## Rate limiting
@@ -413,6 +636,14 @@ boot after it. Bump the constant by hand whenever `game.Room` or `roomSnapshot` 
 **An empty `LOCO_SNAPSHOT_PATH` disables the whole thing**, which is what local dev and the E2E suite
 run with: nothing about their behaviour changes.
 
+**The file is the one secret this stack writes down.** It carries every session token and every hand
+in every match a shutdown interrupted, so whoever can read it can claim any of those seats and see
+all of those cards. `writeAtomic` creates it `0600` and the process runs as uid 10001, but the
+directory it lands in is a host path an operator can list: `.gitlab-ci.yml` therefore chowns
+`${DATA_DIR}/snapshots` to 10001 and chmods it `0700` on every deploy. Treat that directory as a
+secret. It is also short-lived by construction (removed as it is read, refused past `SnapshotMaxAge`),
+which is what keeps the exposure to the length of a restart rather than the life of the server.
+
 `/health` and `/metrics` both carry `draining`. `/metrics` also carries `matches_in_flight`, which is
 only maintained while draining and reads 0 before that: counting it the rest of the time would mean
 scanning every room after every event for a number nobody is looking at.
@@ -431,8 +662,13 @@ scanning every room after every event for a number nobody is looking at.
 - Both periods are exported vars so tests can shorten them; production never changes them.
 
 ## Metrics
-**`/metrics` is an operator surface, not a public one, and no compose file publishes the Go server
-any more.** nginx proxies `/ws` and `/health` and deliberately not this, `deploy/compose.yml` only
+**`/metrics` *and* `/health` are operator surfaces, and no compose file publishes the Go server any
+more.** nginx proxies `/ws` and nothing else: `/health` used to be proxied too, and it answers with
+the live room count, the connected-player count, the uptime and `draining`. None of that is anybody's
+business from the internet. The counts size the server for whoever is thinking about loading it, and
+`draining` announces the window in which new tables are refused. Nothing legitimate needed it there
+either: Docker's healthcheck runs inside the server container against `localhost:8080`, and the CI
+smoke test does the same. `deploy/compose.yml` only
 `expose`s 8080 on the `internal` network, and `docker-compose.yml` now matches it. It used to
 publish `8080:8080`, which put an unauthenticated endpoint on the LAN for no gain, since the browser
 reaches the server through nginx there like everywhere else. Read it from inside:
@@ -451,6 +687,14 @@ with no nginx in front of it.
 - `reconnect_expirations` — disconnected players whose 60s window expired.
 - `matchmaking_queue`: players waiting for a 1v1 right now, and `matches_matchmade`: pairings made since boot. **The only place either number is readable**: nothing on the wire tells a client how long the queue is (see "1v1 matchmaking"). Sustained `matchmaking_queue` ≥ 1 with a flat `matches_matchmade` means people are searching and not being paired.
 - `debug_mode_active` — reflects `LOCO_E2E=1`. MUST be `false` in prod; `main.go` logs startup `WARN` if set.
+- `handler_panics` — panics `dispatch` recovered from. **Any value above zero is a bug**, by
+  definition, and nothing else surfaces it: the process no longer dies, so the only evidence is this
+  counter and the `WARN handler panic recovered` line carrying the message type and the stack. This
+  is the one number here worth an alert.
+- `conns_refused` — upgrades turned away by `MaxClients` / `MaxConnsPerNet`. A load signal, not an
+  incident, until it climbs: see "Ceilings".
+- `joins_throttled` — `join_room` refused for burning a network's wrong-code budget. Read alongside
+  the `WARN table code sweep suspected` line, which carries the `conn=` and the prefix.
 - `draining` + `matches_in_flight` — this process has been asked to go and is finishing what it had. `matches_in_flight` is the number the shutdown is waiting to reach zero; it is only maintained while draining. `draining` also rides `/health`, which deliberately stays `200`: a draining server is serving its players perfectly well, and a container Docker considers unhealthy is one something else may decide to kill out from under them.
 
 All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
@@ -469,6 +713,15 @@ All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatc
 - `http.Server`: `ReadHeaderTimeout:10s`, `IdleTimeout:60s`.
 - Goroutine stability tests in `hub/hub_test.go`: `TestGoroutineStability_RoomLifecycle`, `_BotGame`, `_FullLifecycle`.
 - `playerGameState(room, playerIdx)` defensive: nil `room.State`, OOB `playerIdx`, empty discard → minimal `GameStateDTO` + `WARN` (not panic — would kill hub goroutine).
+- **`dispatch` recovers, and refuses gameplay at a table that has not dealt.** The floor under the
+  line above, and the reason it is no longer the only thing standing between a handler bug and a
+  total outage. See "One message must never be able to cost the server".
+- **The container has no privilege to lose.** `server/Dockerfile` runs as uid 10001 (it binds a high
+  port, reads no system path and writes one file), and `deploy/compose.yml` adds
+  `no-new-privileges`, `cap_drop: ALL`, a read-only root filesystem and a tmpfs `/tmp`. The bind
+  mount at `/data` stays writable, and `.gitlab-ci.yml` chowns it to 10001 and chmods it 0700,
+  because a mount overrides whatever the image chowned and a container that cannot write its
+  snapshot loses exactly the matches the snapshot exists to save.
 
 ## Structured logging
 - Stdlib `log` to stdout. `key=value` single line, e.g. `room created code=ABC123 host=Alice`.
@@ -476,4 +729,27 @@ All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatc
 - Events: connected (conn, addr), disconnected (conn, code, nickname, playerID), reconnected, reconnect window expired, room created/deleted, match started (count, format), match finished (winner), WS upgrade errors, callback skips with reason, channel-pressure (`WARN`), **suspected cheat (`WARN suspected cheat ... conn=<id> code=<code> player=<idx> last_reason=<msg>`)**, slow client (`WARN slow client ...`).
 - `WARN debug mode enabled (LOCO_E2E=1) ...` once at startup if gate on. Prod must never see this.
 - No sensitive data (tokens, hands) in logs.
+
+### `addr=` is a network prefix, never an address
+Every `addr=` field goes through `hub/privacy.go`: `truncateAddr` for a raw string,
+`Client.netPrefix()` for a connection. An IPv4 address is cut to its `/24` and an IPv6 one to its
+`/48`, and anything that does not parse becomes `unknown` rather than falling through verbatim,
+which is the path a proxy header or a unix socket would otherwise take.
+
+**Never pass `c.conn.RemoteAddr()` or `r.RemoteAddr` to a log call.** Two reasons, and the second is
+the operational one:
+
+1. A full address is personal data, and this server holds no other. Truncating at the point of
+   writing means it is never stored, which is a stronger guarantee than any retention policy this
+   project has the process to keep.
+2. Nothing here reads an address to identify anybody. Lines are correlated by `conn=`, which is
+   per-connection, stable and meaningless outside the process. The prefix only exists to tell two
+   networks apart when one of them is misbehaving, and a `/24` does that.
+
+The client test suite enforces it, oddly but deliberately: `client/src/test/legal.test.tsx` scans
+`server/hub/*.go` because the assertion it is protecting is a promise made in the privacy copy, and
+that is where a reader will look for it. `hub/privacy_test.go` covers the function itself. nginx
+does the same truncation for its own access log (`client/nginx.conf`, the `anonymised` format), since
+in production it is the process that sees the real client address. Full reasoning:
+[`docs/notes/legal.md`](legal.md).
 

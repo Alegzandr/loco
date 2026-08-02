@@ -114,4 +114,51 @@ describe('I18nProvider', () => {
     fireEvent.click(screen.getByText('fr'))
     expect(document.documentElement.lang).toBe('fr')
   })
+
+  describe('the language the page was served as', () => {
+    afterEach(() => {
+      delete document.documentElement.dataset.servedLang
+    })
+
+    it('opens in the language of the URL, whatever the browser asks for', () => {
+      // `/fr/` is a real, indexable URL: it can rank, be clicked from a French
+      // search result, and be shared. Rendering it in English because the
+      // browser happens to be English would waste the click and contradict the
+      // `lang="fr"` the document declares.
+      document.documentElement.dataset.servedLang = 'fr'
+      render(
+        <I18nProvider>
+          <Inspector />
+        </I18nProvider>
+      )
+      expect(screen.getByTestId('lang').textContent).toBe('fr')
+    })
+
+    it('still loses to a choice the player made', () => {
+      // Someone who switched to English and then followed a French link meant
+      // the switch. The effect above rewrites <html lang> to match, so the
+      // document stops disagreeing with what is on screen.
+      localStorage.setItem('loco_lang', 'en')
+      document.documentElement.dataset.servedLang = 'fr'
+      render(
+        <I18nProvider>
+          <Inspector />
+        </I18nProvider>
+      )
+      expect(screen.getByTestId('lang').textContent).toBe('en')
+    })
+
+    it('is not read back from <html lang>, which the provider itself writes', () => {
+      // The circularity this guards: `lang` is an output of the provider, so
+      // detecting from it would make the app read its own last render. Only
+      // `data-served-lang`, which nothing in the app writes, is an input.
+      document.documentElement.lang = 'fr'
+      render(
+        <I18nProvider>
+          <Inspector />
+        </I18nProvider>
+      )
+      expect(screen.getByTestId('lang').textContent).toBe('en')
+    })
+  })
 })

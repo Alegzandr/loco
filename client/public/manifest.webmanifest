@@ -1,0 +1,19 @@
+{
+  "name": "LOCO · Fast multiplayer card game",
+  "short_name": "LOCO",
+  "description": "Fast online card game for 2 to 10 players, free and with no signup. Pick a name, share a code, sit down: nobody waits their turn.",
+  "lang": "en",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ece3ff",
+  "theme_color": "#ece3ff",
+  "categories": ["games"],
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+  ]
+}

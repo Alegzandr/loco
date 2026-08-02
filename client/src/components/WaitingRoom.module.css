@@ -125,7 +125,7 @@
   align-items: center;
   justify-content: center;
   font: 700 16px/1 var(--font-display);
-  color: #fff;
+  color: var(--color-on-dark);
   text-shadow: 0 1px 2px rgba(20, 8, 45, 0.5);
 }
 
@@ -147,8 +147,8 @@
 
 .owner {
   font: 700 11px/1.2 var(--font-display);
-  background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
-  color: #4a2c00;
+  background: var(--gradient-secondary);
+  color: var(--color-on-secondary);
   padding: 4px 10px;
   border-radius: var(--radius-full);
   letter-spacing: 0.05em;
@@ -157,12 +157,38 @@
   flex-shrink: 0;
 }
 
+/* The host's per-row control. Quiet until it is looked at: it sits on every row
+   but one and must never compete with the roster it is attached to. The touch
+   target is a full 44px while the ink stays small. */
+.kick {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  margin: -5px -8px -5px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  border-radius: var(--radius-full);
+  color: var(--color-muted);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 0.12s var(--ease-out), background 0.12s var(--ease-out);
+}
+
+.kick:hover,
+.kick:focus-visible {
+  color: var(--color-primary);
+  background: var(--color-surface-strong);
+}
+
 .btn {
   padding: 14px 30px;
   min-height: 54px;
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  background: var(--gradient-primary);
   color: var(--color-on-primary);
   text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
   font: 700 19px/1.2 var(--font-display);
@@ -212,8 +238,12 @@
 .btnSecondary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 0 var(--color-stroke-soft); }
 .btnSecondary:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
 
+/* The same recipe as `.btn:disabled` twenty lines up: a fill swap, a muted
+   label and no ledge. It was an opacity, which made the two disabled buttons on
+   this one screen two different objects. */
 .btnSecondary:disabled {
-  opacity: 0.45;
+  background: var(--color-surface-strong);
+  color: var(--color-muted);
   cursor: not-allowed;
   box-shadow: none;
 }
@@ -283,8 +313,8 @@
 }
 
 .leaveStay {
-  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
-  color: #fff;
+  background: var(--gradient-tertiary);
+  color: var(--color-on-dark);
   text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
 }
 
@@ -300,8 +330,8 @@
 .leaveStay:active,
 .leaveGo:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--color-stroke-soft); }
 
-@media (prefers-reduced-motion: reduce) {
-  .leaveConfirm { animation: none; }
+:root[data-motion="reduce"] .leaveConfirm {
+  animation: none;
 }
 
 /* Host config panel */
@@ -355,8 +385,8 @@
 .formatBtn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--color-stroke-soft); }
 
 .formatBtnActive {
-  background: linear-gradient(180deg, #9b8bff 0%, var(--color-tertiary) 100%);
-  color: #fff;
+  background: var(--gradient-tertiary);
+  color: var(--color-on-dark);
   text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
 }
 
@@ -408,6 +438,6 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .player { animation: none; }
+:root[data-motion="reduce"] .player {
+  animation: none;
 }

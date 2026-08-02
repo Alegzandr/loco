@@ -3,7 +3,12 @@ import { useWebSocket } from './hooks/useWebSocket'
 import { useGameStore, UNO_CATCH_WINDOW_MS } from './hooks/useGameStore'
 import { reconnectMessageFor } from './hooks/sessionPersistence'
 import { useSessionPersistence, useRestoreTimeout } from './hooks/useSessionRestore'
+import { peekTableInvite, takeTableInvite } from './hooks/tableInvite'
+import { readNickname } from './hooks/nicknameMemory'
+import { canonicalNickname, isNicknameShapeValid } from './components/nicknameRules'
 import { useGameAudio } from './audio/useGameAudio'
+import { useTabAlert } from './hooks/useTabAlert'
+import { useI18n } from './i18n'
 import { Lobby } from './components/Lobby'
 import { Searching } from './components/Searching'
 import { MatchFound } from './components/MatchFound'
@@ -26,6 +31,10 @@ export default function App() {
   // GameView does for itself. State this component renders is read through the
   // narrow selectors below.
   const store = useGameStore.getState()
+
+  // The one context App reads. It changes only when the player switches
+  // language, so it costs nothing the note above is guarding against.
+  const { t } = useI18n()
 
   // Single owner of every sound in the game: one store subscription, no
   // per-component audio calls. See audio/useGameAudio.ts.
@@ -104,6 +113,15 @@ export default function App() {
           store.resetToHome()
           break
 
+        // Same reset, one difference: this player pressed nothing. Without the
+        // line the table simply vanishes from under them and the lobby they
+        // land on looks like a bug. resetToHome clears errorMsg, so the reason
+        // goes on after it, never before.
+        case 'kicked':
+          store.resetToHome()
+          store.setError('removed by the host')
+          break
+
         case 'lobby_config_changed':
           if (msg.match_format && msg.max_players) {
             store.setLobbyConfig(msg.match_format, msg.max_players)
@@ -116,8 +134,11 @@ export default function App() {
 
         case 'player_left':
           store.setPlayers(msg.players ?? [])
-          // Whoever left took every standing rematch offer with them: there is
-          // nobody to agree with, and the server would refuse the button.
+          // The offers that survive a departure are the server's to say: it
+          // retires the leaver's, re-bases the rest and republishes them in a
+          // rematch_offered right behind this message. Clearing here is what
+          // holds until then, and it is the whole answer in a matchmade room,
+          // where an opponent leaving ends the agreement outright.
           store.clearRematchOffers()
           break
 
@@ -318,11 +339,12 @@ export default function App() {
           break
         }
 
-        // A matchmade rematch is an agreement: this names a seat that has asked
-        // for another, and the match is dealt (as another match_found) only once
-        // both have.
+        // A rematch is an agreement in every room: this carries every seat that
+        // has asked and how many asks it takes. The next match is dealt only
+        // once they match: as another match_found in a matchmade room, as a
+        // rematch_started back to the waiting room in an ordinary one.
         case 'rematch_offered':
-          store.applyRematchOffer(msg.player_index ?? -1)
+          store.applyRematchOffers(msg.rematch_offers ?? [], msg.rematch_needed ?? 0)
           break
 
         case 'rematch_started':
@@ -380,6 +402,12 @@ export default function App() {
   // long-wait escape hatch on the searching screen.
   const [lobbyEntry, setLobbyEntry] = useState<'home' | 'create'>('home')
 
+  // The table this tab was opened on, when it followed a shared link. Peeked
+  // during render rather than taken: StrictMode double-invokes the initialiser,
+  // and a one-shot read there would hand the second call nothing. The effect
+  // further down is the one that spends it.
+  const [inviteCode, setInviteCode] = useState(peekTableInvite)
+
   const recordedTurns = useRef<number[]>([])
   const turnRecorderStop = useRef<(() => void) | null>(null)
 
@@ -430,8 +458,18 @@ export default function App() {
   // name we go by is read from the store rather than derived from `players`.
   const storedNickname = useGameStore((s) => s.myNickname)
   const rematchOffers = useGameStore((s) => s.rematchOffers)
+  const rematchNeeded = useGameStore((s) => s.rematchNeeded)
 
   const myNickname = playerList.find((p) => p.index === myIndex)?.nickname || storedNickname
+  // Somebody to agree with. A roster of one is what a departure leaves behind,
+  // and it is the difference between a rematch button that can complete and one
+  // that never will.
+  const hasTablemates = playerList.some((p) => p.index !== myIndex)
+
+  // A search runs for minutes and people go and do something else. The sound on
+  // `matchfound` is for the player who stayed; this is for the one who did not,
+  // and it only ever runs while the tab is hidden. See hooks/useTabAlert.ts.
+  useTabAlert(t.matchFoundTab, screen === 'matchfound')
 
   // The queue screens are entered optimistically: the press is the moment the
   // player committed, and waiting a round trip to acknowledge it would make the
@@ -458,6 +496,47 @@ export default function App() {
   // Leaving the queue for a private table lands on the create form, not on the
   // home screen: the player already said what they want. Keyed so the lobby
   // re-mounts on the sub-screen it is being sent to.
+  // A matchmade table with nobody left at it has nothing to offer: the rematch
+  // cannot complete, and the screen would be two dead buttons and a scoreboard.
+  // So the default is the thing the player came for, another opponent, and the
+  // way out is cancelling the search rather than pressing anything here.
+  // Ordinary tables are left alone: there is a room, a code and a lobby to
+  // reopen, and nobody there queued for a stranger in the first place.
+  useEffect(() => {
+    if (screen !== 'gameover' || !isMatchmade || hasTablemates) return
+    findMatch(myNickname)
+  }, [screen, isMatchmade, hasTablemates, myNickname, findMatch])
+
+  // A link carries a table, never a player. So a browser that already knows the
+  // name this person plays under takes the seat on arrival, and one that does
+  // not gets the join form with the code already filled and the caret on the
+  // only thing left to type. A remembered name the client can itself tell would
+  // be refused counts as no name at all: better the field than a round trip
+  // whose only outcome is an error over a form nobody has filled in.
+  useEffect(() => {
+    if (screen !== 'lobby' || !inviteCode) return
+    const code = takeTableInvite()
+    // Spent either way, and before anything can fail: leaving this table has to
+    // land on an ordinary lobby, not back at its door.
+    setInviteCode('')
+    if (!code) return
+    const nickname = readNickname()
+    if (!isNicknameShapeValid(nickname)) return
+    sendRef.current({ type: 'join_room', nickname: canonicalNickname(nickname), room_code: code })
+  }, [screen, inviteCode])
+
+  // The home page carries a footer under the game — the links a search engine
+  // follows, and the sheet somebody who has never played opens. It has no business
+  // being there once a seat has been taken, and it is not React's to remove: it is
+  // markup Astro rendered, so the document is told instead and CSS hides it.
+  // Purely presentational, and absent from every other page.
+  useEffect(() => {
+    const root = document.documentElement
+    if (screen === 'lobby') root.removeAttribute('data-seated')
+    else root.setAttribute('data-seated', '1')
+    return () => root.removeAttribute('data-seated')
+  }, [screen])
+
   const createTableInstead = useCallback(() => {
     setLobbyEntry('create')
     useGameStore.getState().endSearch()
@@ -475,8 +554,12 @@ export default function App() {
       )}
       {screen === 'lobby' && (
         <Lobby
+          // Keyed on the entry point alone. The invite must not be part of it:
+          // spending it would change the key, remount the lobby and take the
+          // prefilled code back out from under the player.
           key={lobbyEntry}
-          initialMode={lobbyEntry}
+          initialMode={inviteCode ? 'join' : lobbyEntry}
+          initialCode={inviteCode}
           onSend={handleSend}
           onFindMatch={findMatch}
           error={errorMsg}
@@ -518,12 +601,12 @@ export default function App() {
           myNickname={myNickname}
           scoreboard={scoreboard}
           matchOver={matchOver}
-          isHost={myIndex === 0}
           isMatchmade={isMatchmade}
           forfeitBy={forfeitBy}
           mySeat={myIndex}
           rematchOffers={rematchOffers}
-          onSend={handleSend}
+          rematchNeeded={rematchNeeded}
+          hasTablemates={hasTablemates}
           onRematch={() => handleSend({ type: 'rematch' })}
           onFindMatch={() => findMatch(myNickname)}
           onLeave={leaveRoom}

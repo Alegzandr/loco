@@ -3,13 +3,23 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { Card } from '../components/cards/Card'
 import { CardBack } from '../components/cards/CardBack'
 import { cardLabel, SUIT_PAINT } from '../components/cards/cardTheme'
-import { LOCO_MARK_VIEWBOX } from '../components/cards/locoMark'
+import { LOCO_MARK_VIEWBOX, LOCO_MARK_PATH } from '../components/cards/locoMark'
 import { LocoLogo } from '../components/LocoLogo'
 import { CardDTO } from '../types/protocol'
 
 const card = (over: Partial<CardDTO> = {}): CardDTO => ({
   color: 'red', kind: 'number', value: 5, ...over,
 })
+
+/** The decoded mask image behind a card's art layer. */
+const maskOf = (el: Element) =>
+  decodeURIComponent((el as HTMLElement).style.getPropertyValue('--mark-mask'))
+
+/** The wild's four mini cards, which are the ones carrying a suit gradient. */
+const fanOf = (container: HTMLElement) =>
+  Array.from(container.querySelectorAll('div')).filter((d) =>
+    d.style.getPropertyValue('--fan') !== '',
+  )
 
 describe('cardLabel', () => {
   it('formats every kind', () => {
@@ -59,12 +69,12 @@ describe('<Card />', () => {
 describe('<CardBack />', () => {
   it('paints the LOCO mark at default size', () => {
     const { container } = render(<CardBack />)
-    expect(container.querySelectorAll('path').length).toBeGreaterThan(0)
+    expect(maskOf(container.querySelector('[aria-hidden]')!)).toContain('svg')
   })
 
   it('drops the mark when the card is too small to read it', () => {
     const { container } = render(<CardBack width={17} height={25} radius={3} />)
-    expect(container.querySelector('svg')).toBeNull()
+    expect(container.querySelector('[aria-hidden]')).toBeNull()
   })
 
   it('applies opacity from prop', () => {
@@ -75,35 +85,33 @@ describe('<CardBack />', () => {
 })
 
 describe('card face art', () => {
-  const stops = (container: HTMLElement, id: string) =>
-    Array.from(container.querySelectorAll(`linearGradient[id$="-${id}"] stop`))
-      .map((s) => s.getAttribute('stop-color'))
-
   it('paints the mark in the face gradient reversed', () => {
     // The whole face works because the watermark is brighter than the card where
     // the card is dark and darker where it is light. If the two gradients ever
     // run the same way the mark disappears into the face at both ends.
     const { container } = render(<Card card={card({ color: 'green' })} />)
-    expect(stops(container, 'face')).toEqual([SUIT_PAINT.green.from, SUIT_PAINT.green.to])
-    expect(stops(container, 'mark')).toEqual([SUIT_PAINT.green.to, SUIT_PAINT.green.from])
+    const art = container.querySelector('[aria-hidden]') as HTMLElement
+    expect(art.style.getPropertyValue('--face'))
+      .toBe(`linear-gradient(35deg, ${SUIT_PAINT.green.from}, ${SUIT_PAINT.green.to})`)
+    expect(art.style.getPropertyValue('--mark'))
+      .toBe(`linear-gradient(35deg, ${SUIT_PAINT.green.to}, ${SUIT_PAINT.green.from})`)
   })
 
   it('names the colour-change card by its four suits, never by a letter', () => {
     // Players read the shape; "W" is also a word in one of the two languages.
     const { container } = render(<Card card={card({ color: 'wild', kind: 'wild' })} />)
     expect(screen.queryByText('W')).toBeNull()
-    const fan = Array.from(container.querySelectorAll('linearGradient[id*="-fan-"]'))
-    expect(fan).toHaveLength(4)
+    expect(fanOf(container)).toHaveLength(4)
   })
 
   it('gives the fan to the two cards that ask for a colour and to no others', () => {
     for (const kind of ['wild', 'wild_draw_four'] as const) {
       const { container } = render(<Card card={card({ color: 'wild', kind })} />)
-      expect(container.querySelectorAll('linearGradient[id*="-fan-"]')).toHaveLength(4)
+      expect(fanOf(container)).toHaveLength(4)
     }
     // GlobalSwitch is wild-coloured but chooses nothing.
     const { container } = render(<Card card={card({ color: 'wild', kind: 'global_switch' })} />)
-    expect(container.querySelectorAll('linearGradient[id*="-fan-"]')).toHaveLength(0)
+    expect(fanOf(container)).toHaveLength(0)
   })
 
   it('draws rule glyphs instead of typesetting them', () => {
@@ -134,8 +142,7 @@ describe('card face art', () => {
     // centred politely in a portrait card leaves two dead bands. The logo,
     // favicon and felt show the whole duck.
     const { container } = render(<Card card={card()} />)
-    const mark = container.querySelector('svg g[transform]')!
-    expect(mark.getAttribute('transform')).toMatch(/rotate\(\d/)
+    expect(maskOf(container.querySelector('[aria-hidden]')!)).toMatch(/rotate\(\d/)
 
     const logo = render(<LocoLogo />).container.querySelector('svg')!
     expect(logo.getAttribute('viewBox')).toBe(LOCO_MARK_VIEWBOX)
@@ -146,5 +153,52 @@ describe('card face art', () => {
     render(<Card card={card({ kind: 'number', value: 6 })} />)
     expect(screen.getByText('L')).toBeInTheDocument()
     expect(screen.getAllByText('6')).toHaveLength(2) // centre + rotated corner
+  })
+})
+
+describe('card art rendering cost', () => {
+  // The board carries up to ~50 card faces and backs at once (hand, both piles,
+  // every opponent's mini fan) and most of them sit under a scale animation,
+  // which re-rasterises them every frame. Painting the mark as a live <path>
+  // meant re-filling 130-odd even-odd segments under a gradient, per card, per
+  // frame, measured at 3.0 fps against 9.8 on a full hand where the compositing
+  // is done in software. See cardArtSpace.ts for the full numbers.
+  //
+  // As a mask image it is one bitmap the browser rasterises once per used size
+  // and every card composites. These two tests are the guard: both go green
+  // again the moment somebody puts the geometry back into the markup, and no
+  // other test in the suite can see the difference.
+  it('never puts the mark geometry in the markup, however many cards are drawn', () => {
+    const { container } = render(
+      <>
+        {(['red', 'yellow', 'green', 'blue'] as const).map((color) => (
+          <Card key={color} card={card({ color })} />
+        ))}
+        <Card card={card({ color: 'wild', kind: 'wild' })} />
+        <Card card={card({ color: 'wild', kind: 'wild_draw_four' })} />
+        <CardBack />
+      </>,
+    )
+    // Counted as live <path> geometry, not as a substring of the markup: the
+    // mask's data URI legitimately carries the same path, percent-encoded, and
+    // matching on the raw string would pass for that reason rather than for the
+    // right one. What must be zero is paths the engine has to *fill*.
+    //
+    // The wild used to be the worst case on its own: the same geometry once for
+    // the face and again inside each of the four mini cards, so six cards and a
+    // back used to put fifteen of these on screen.
+    const live = Array.from(container.querySelectorAll('path'))
+      .filter((p) => p.getAttribute('d') === LOCO_MARK_PATH)
+    expect(live).toHaveLength(0)
+  })
+
+  it('shares one mask image across every suit, so the cache is hit once', () => {
+    // Per-card or per-suit URLs would be per-card or per-suit rasterisations,
+    // which hands back exactly the cost this replaces.
+    const masks = (['red', 'yellow', 'green', 'blue', 'wild'] as const).map((color) => {
+      const { container } = render(<Card card={card({ color })} />)
+      return maskOf(container.querySelector('[aria-hidden]')!)
+    })
+    expect(new Set(masks).size).toBe(1)
   })
 })

@@ -119,7 +119,7 @@ test.describe('mobile viewport', () => {
               expect(box!.height).toBeGreaterThanOrEqual(44)
             }
             // Cancel the picker to avoid sending a malformed play
-            await page.getByRole('button', { name: '✕' }).click()
+            await page.getByRole('button', { name: T.pickerCancel }).click()
           }
         } else {
           // No wild card — draw and pass to advance
@@ -163,5 +163,110 @@ test.describe('mobile viewport', () => {
     // Game is still alive
     await expect(gameBoard(page)).toBeVisible()
     await waitForTableOpen(page)
+  })
+
+  /**
+   * The navigation on a phone is one burger, top left, on the game page and on
+   * every content page. The footer bar it replaces is a row of 12px links that
+   * folded into two lines here, with nothing on it a thumb could aim at.
+   *
+   * Both halves are asserted at the size they are pressed at, because that is
+   * the failure: a link small enough to miss still passes every test that only
+   * asks whether it is there.
+   */
+  test('the burger is the whole navigation on a phone', async ({ page }) => {
+    await page.goto('/rules/')
+
+    // The bar is gone and the burger stands in for it.
+    await expect(page.locator('.siteFooter')).toBeHidden()
+    const burger = page.locator('.menuBtn')
+    await expect(burger).toBeVisible()
+    const burgerBox = await burger.boundingBox()
+    expect(burgerBox!.width).toBeGreaterThanOrEqual(38)
+    expect(burgerBox!.height).toBeGreaterThanOrEqual(38)
+
+    await burger.click()
+    const drawer = page.locator('.navPop')
+    await expect(drawer).toBeVisible()
+
+    // Everything the bar carried, at a size worth pressing.
+    for (const href of ['/', '/rules/', '/cards/', '/tables/', '/play-with-friends/', '/faq/', '/privacy/']) {
+      const link = drawer.locator(`a[href="${href}"]`)
+      await expect(link).toBeVisible()
+      expect((await link.boundingBox())!.height, href).toBeGreaterThanOrEqual(40)
+    }
+
+    // It closes on its own button, which is the only way out a phone has:
+    // Escape and a tap outside are both native and both unreachable here.
+    await page.locator('.navPopClose').click()
+    await expect(drawer).toBeHidden()
+  })
+
+  /**
+   * The same drawer on the game page, carrying the items that page has: no
+   * "Play" — this is where playing happens — and no theme or language, which
+   * are behind the lobby's own gear. It must also free the whole screen for the
+   * board.
+   */
+  test('the home page hides its footer row behind the same burger', async ({ page }) => {
+    await page.goto('/')
+
+    // The row is still in the document for a crawler; it is simply not what a
+    // phone is shown.
+    await expect(page.locator('.homeLinks')).toBeHidden()
+
+    const burger = page.locator('.homeBurger')
+    await expect(burger).toBeVisible()
+    const box = await burger.boundingBox()
+    expect(box!.height).toBeGreaterThanOrEqual(38)
+    // Top left, clear of the lobby's own row of controls on the right.
+    expect(box!.y).toBeLessThan(80)
+    expect(box!.x).toBeLessThan(80)
+
+    await burger.click()
+    const drawer = page.locator('.navPop')
+    await expect(drawer).toBeVisible()
+
+    // The five pages and the legal one, at a size worth pressing, and nothing
+    // offering to take a player to the page they are already on.
+    const links = drawer.locator('.navPopLinks a')
+    expect(await links.count()).toBe(6)
+    expect((await links.first().boundingBox())!.height).toBeGreaterThanOrEqual(40)
+    await expect(drawer.locator('a[href="/"]')).toHaveCount(0)
+
+    // And the prose the wide screen's sheet holds, under the links rather than
+    // behind a second press.
+    const prose = drawer.locator('.navPopProse')
+    expect(((await prose.textContent()) ?? '').length).toBeGreaterThan(200)
+    expect((await links.first().boundingBox())!.y).toBeLessThan(
+      (await prose.boundingBox())!.y,
+    )
+  })
+
+  /**
+   * The one thing a native popover will not do for itself: shut when it stops
+   * being the navigation. Widen the window — a tablet turned on its side, or a
+   * desktop window dragged out — and the footer bar is back underneath a drawer
+   * whose burger no longer exists to close it.
+   */
+  test('the drawer closes when the window is widened past the phone', async ({ page }) => {
+    await page.goto('/rules/')
+    await page.locator('.menuBtn').click()
+    const drawer = page.locator('.navPop')
+    await expect(drawer).toBeVisible()
+
+    await page.setViewportSize({ width: 1100, height: 800 })
+    await expect(drawer).toBeHidden()
+    // And the navigation the drawer was standing in for is back.
+    await expect(page.locator('.siteFooter')).toBeVisible()
+
+    // Same on the game page, which runs the other of the two scripts.
+    await page.setViewportSize({ width: 390, height: 780 })
+    await page.goto('/')
+    await page.locator('.homeBurger').click()
+    await expect(drawer).toBeVisible()
+    await page.setViewportSize({ width: 1100, height: 800 })
+    await expect(drawer).toBeHidden()
+    await expect(page.locator('.homeLinks')).toBeVisible()
   })
 })

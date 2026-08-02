@@ -31,10 +31,19 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // (`nickname %q already taken`), but the bare form exists too and must not
   // fall through to the generic message.
   [/nickname\b.*already taken/i, 'nicknameTaken'],
-  [/nickname must be/i, 'nicknameLength'],
+  // One rule for every way a nickname can be refused (length, charset, blocked
+  // term): the server sends one string for all three, deliberately, so that a
+  // player cannot read the rule off the refusal and step around it. See
+  // server/game/nickname.go.
+  [/nickname not allowed/i, 'nicknameRejected'],
   [/room not found|invalid room code/i, 'roomNotFound'],
   [/room is full/i, 'roomFull'],
   [/game already (in progress|started)/i, 'gameInProgress'],
+  // Kept for a client talking to a server from before the reclaim refusal was
+  // made uniform (a rolling deploy is exactly that window). Current servers
+  // answer a stale token with `game already in progress` instead, on purpose:
+  // the old pair of strings told anyone with a table code which nicknames were
+  // seated at it. See server/hub/hub.go, handleJoinRoom.
   [/invalid session token/i, 'sessionInvalid'],
   // Before `not in a room`: the two differ by one word and the broader rule
   // would otherwise have to be trusted not to drift into matching both.
@@ -69,10 +78,16 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
 
   // ── Swap ─────────────────────────────────────────────────────────────────
   [/cannot swap with yourself/i, 'swapSelf'],
-  [/invalid chosen_player/i, 'swapTargetInvalid'],
+  // `invalid player index` is the same answer for the same reason: a seat the
+  // server will not act on. Only a client that made its own message can see it
+  // — the kick button never offers an unseated row.
+  [/invalid chosen_player|invalid player index/i, 'swapTargetInvalid'],
 
   // ── Lobby & host ─────────────────────────────────────────────────────────
   [/only the (host|room owner)/i, 'hostOnly'],
+  // Not a refusal: the one line here that answers a message the player did not
+  // send. `kicked` carries it so the seat disappearing has a reason attached.
+  [/removed by the host/i, 'kicked'],
   [/need at least \d+ players/i, 'notEnoughPlayers'],
   [/can only (add bots|remove players) in the lobby|cannot change (format|max players) after/i, 'lobbyOnly'],
   [/max players cannot|cannot set max players/i, 'maxPlayersInvalid'],
@@ -92,6 +107,18 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // ── Transport ────────────────────────────────────────────────────────────
   [/rate limit exceeded/i, 'rateLimited'],
   [/server busy/i, 'serverBusy'],
+  // The admission ceilings and the recovered-panic answer. All three are
+  // refusals a player can be handed without having done anything, so the copy
+  // says what to do (wait, retry) rather than what happened. See the caps in
+  // server/hub/hub.go.
+  [/server is full/i, 'serverFull'],
+  [/too many attempts/i, 'tooManyAttempts'],
+  [/^server error$/i, 'serverError'],
+  // A gameplay message at a table that has not dealt, answered by dispatch
+  // itself. Ordinary rather than suspicious: a reconnect crossing a round end
+  // on the wire produces it. Safe this far down because `game already in
+  // progress` above needs the word "already" and cannot swallow it.
+  [/game not in progress/i, 'gameNotInProgress'],
   // A deploy in progress. Above nothing in particular, but it must never fall
   // through to the generic: the whole point of the string is that the player
   // learns their table code was fine and the wait is short. See

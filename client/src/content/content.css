@@ -1,0 +1,1088 @@
+/*
+ * The content pages: a header, a column of prose, and the footer bar the home
+ * page carries.
+ *
+ * Plain CSS on top of `styles/tokens.css`, not a CSS module, because these pages
+ * ship no JavaScript at all and the classes are written by hand in .astro files.
+ * Everything here obeys the three rules at the top of tokens.css: an ink outline
+ * and a hard bottom shadow on anything raised, never white on white, and type
+ * big enough to be read from across a room.
+ *
+ * Three measurements are declared once at the top of `.page` and everything
+ * lines up against them. Header, column and footer used to be 62rem, 46rem and
+ * 62rem, so the logo, the title and the footer each started at a different x:
+ * the page read as three unrelated strips. One `--shell` is what fixes that, and
+ * it is why nothing below sets a max-width of its own.
+ *
+ * The game page does not load this. It scopes its own `overflow: hidden` and
+ * owns the viewport; these are ordinary documents that scroll.
+ */
+
+/* A document, not the game. The reset in Base.astro kills text selection, which
+   is right for a board you drag cards across and wrong for a page of rules
+   somebody wants to quote. */
+body.doc {
+  -webkit-user-select: text;
+  user-select: text;
+  /* Flat. The board sits in a room and earns the candy gradient the game paints
+     under it; a page of prose does not, and the blurred orbs behind it read as
+     a backdrop somebody forgot to remove — the more so when they were pinned to
+     the viewport and the text slid over them. The colour stays the game's, so
+     the page still belongs to it. */
+  background: var(--color-canvas);
+}
+
+/* The header is pinned, so every in-page jump — the skip link, the table of
+   contents on the rules page, the way back to the top — has to stop short of it
+   or it lands on a heading the band is covering. Only content pages load this
+   file, so the scrolling element can be addressed directly. */
+html:has(body.doc) {
+  scroll-padding-top: calc(5rem + var(--safe-top));
+}
+
+.page {
+  /* The reading column, and the width every band of the page shares. */
+  --shell: 50rem;
+  /* The fixed footer bar: its height is the room the column has to leave. */
+  --bar: 3.25rem;
+
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Skip link ─────────────────────────────────────────────────────────── */
+
+/* Above the pinned header, or the one control that exists for a keyboard would
+   open behind the band it is meant to skip. */
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 30;
+  padding: 0.6rem 1rem;
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  font-weight: 700;
+}
+.skip:focus {
+  left: max(1rem, var(--safe-left));
+  top: max(1rem, var(--safe-top));
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+/*
+ * The band, pinned. These pages scroll for several screens and everything that
+ * leaves them is in the header: the mark back to `/`, the CTA, and under 46rem
+ * the burger that carries the whole navigation, because the footer bar is hidden
+ * at that width. A header that scrolled away meant a reader deep in the rules
+ * had to travel back to the top of the document to reach any of it.
+ *
+ * Sticky rather than fixed, unlike the bar: the header is the first thing in the
+ * flex column, so sticking it costs the column nothing and leaves `--bar` the
+ * only reserved room on the page. Full width so the canvas under it is opaque
+ * edge to edge; the row inside keeps `--shell`, which is what keeps the logo on
+ * the same x as the <h1>.
+ *
+ * Opaque, not blurred, for the reason the footer is: prose sliding under a
+ * frosted panel is still prose, half-legible. The hairline is the footer's
+ * border-top mirrored, so the page is a column between two rules.
+ */
+.headerBar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--color-canvas);
+  border-bottom: 2px solid var(--color-hairline);
+}
+
+/* Brand and one button. The pages are in the footer bar, where the home page
+   put them, so a header that repeated them would be the same five links twice
+   on a screen that has room for one set. */
+.siteHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  max-width: var(--shell);
+  margin: 0 auto;
+  /* Tighter than the 1.5rem it sat at while it scrolled away: a band that never
+     leaves is room taken off every screenful, and on a phone that was most of a
+     thumb's worth of viewport spent on nothing. */
+  padding: max(0.85rem, var(--safe-top)) max(1.5rem, var(--safe-right)) 0.85rem
+    max(1.5rem, var(--safe-left));
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  /* The mark is the link's whole accessible content, so it carries the label. */
+}
+
+.cta {
+  display: inline-block;
+  flex: none;
+  white-space: nowrap;
+  padding: 0.6rem 1.35rem;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: var(--shadow-hard);
+  transition:
+    transform 0.12s ease,
+    background-color 0.12s ease;
+}
+.cta:hover,
+.cta:focus-visible {
+  background: var(--color-primary-active);
+  transform: translateY(-1px);
+}
+.cta:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 var(--color-stroke-soft);
+}
+
+/* ── The column ────────────────────────────────────────────────────────── */
+
+.content {
+  flex: 1;
+  width: 100%;
+  max-width: var(--shell);
+  margin: 0 auto;
+  /* The bar is fixed, so the last line of the page has to clear it rather than
+     sit under it. */
+  padding: 1.5rem max(1.5rem, var(--safe-right))
+    calc(var(--bar) + 3rem + var(--safe-bottom)) max(1.5rem, var(--safe-left));
+}
+
+.content h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2.3rem, 6.5vw, 3.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.75rem;
+}
+
+/* The one sentence under the title that says what the page is for. Held short
+   of the column: a lede set to the full measure is just a first paragraph. */
+.lede {
+  max-width: 38rem;
+  font-size: clamp(1.05rem, 2.4vw, 1.2rem);
+  line-height: 1.6;
+  color: var(--color-body);
+  margin-bottom: clamp(2.5rem, 6vw, 3.5rem);
+}
+
+/* The three documents on the privacy page, as a row of jumps under the lede.
+   It is what the modal's tab strip was, minus the state and minus the script: a
+   reader who came for the terms alone gets there in one press, and the anchor is
+   a URL somebody can send. */
+.docJump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  /* Its own band between the lede and the first document, not a line stuck to
+     the bottom of the paragraph: it was pulled up under the last sentence and
+     read as a footnote to it. */
+  margin-bottom: clamp(2.75rem, 6vw, 3.75rem);
+}
+
+/* Chips, and chips obey the same rule as everything raised in this game: an ink
+   outline and a hard bottom shadow. A 2px hairline on the canvas colour was a
+   ghost outline on the dark theme, which is the one thing tokens.css says at the
+   top not to do. */
+.docJump a {
+  padding: 0.6rem 1.15rem;
+  border-radius: var(--radius-full);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  background: var(--color-surface-card);
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--color-ink);
+  text-decoration: none;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.docJump a:hover,
+.docJump a:focus-visible {
+  background: var(--color-surface-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 var(--color-stroke-soft);
+}
+
+.docJump a:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--color-stroke-soft);
+}
+
+/* A jump lands the heading a little below the top edge rather than flush
+   against it, where it reads as a page that was cut off. */
+.content section[id] {
+  scroll-margin-top: 1.5rem;
+}
+
+/* The date the substance last changed, at the foot of the page where a reader
+   who got that far can weigh it. */
+.docUpdated {
+  margin-top: clamp(2.5rem, 6vw, 3.5rem);
+  font-size: 0.95rem;
+  color: var(--color-muted);
+}
+
+/* Sections are separated by space and by the rule over the next heading, and by
+   nothing else. A full-width line was drawn in `--color-stroke-soft`, which is
+   near-black by design — it is the colour under a raised object, not a colour to
+   put *on* one — so on the dark page it read as a black bar across the prose.
+   The chapter is already marked twice: the gap, and the accent above the h2. */
+.content section + section {
+  margin-top: clamp(3rem, 6vw, 4.2rem);
+}
+
+.content h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.45rem, 3.8vw, 1.95rem);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  margin: 2.6rem 0 1rem;
+}
+.content section > h2:first-child {
+  margin-top: 0;
+}
+
+/* The bar over a heading is the one piece of decoration on these pages: it
+   marks where a chapter starts at a glance, which is how a rules page is read. */
+.content h2::before {
+  content: '';
+  display: block;
+  width: 2.5rem;
+  height: 5px;
+  margin-bottom: 0.85rem;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+.content h3 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  margin: 1.8rem 0 0.6rem;
+}
+
+.content p {
+  max-width: 42rem;
+  margin-bottom: 1.1rem;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--color-body);
+}
+
+.content ul {
+  list-style: none;
+  display: grid;
+  gap: 0.85rem;
+  max-width: 42rem;
+  margin-bottom: 1.1rem;
+}
+
+.content ul li {
+  position: relative;
+  padding-inline-start: 1.5rem;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--color-body);
+}
+.content ul li::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0.62em;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+  /* Indigo, not the brand red. LOCO Red is the colour that means *act now* —
+     the turn pill, the CTA, the one-card badge — and eighty of them down a
+     privacy page is the one thing it may not be spent on. Indigo is the
+     system's colour for information and orientation, which is what a bullet
+     is. */
+  background: var(--color-tertiary);
+}
+
+.content a {
+  color: var(--color-link);
+  font-weight: 700;
+}
+
+/* The last line of every page: a send-off, not a paragraph of the article. */
+.content > p:last-child {
+  margin-top: 2.2rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  color: var(--color-ink);
+}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+
+/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+.tableWrap {
+  overflow-x: auto;
+  margin: 1.6rem 0;
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-hard-lg);
+  background: var(--color-surface-card);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.97rem;
+}
+
+/* Every cell on one line, and the wrapper scrolls. Letting the last column wrap
+   was the obvious-looking choice and it is the wrong one on a phone: the three
+   `nowrap` columns hold their width, the last absorbs the whole squeeze, and
+   every row grows to three or four lines. A reference table is read by running
+   an eye down one column, which a row of uneven height defeats. */
+th,
+td {
+  text-align: start;
+  padding: 0.75rem 1rem;
+  /* `--color-hairline`, not `--color-stroke-soft`: a divider drawn *on* a
+     surface, which in the dark palette is a lighter line rather than a black
+     one. Stroke-soft is the shadow under a raised object and reads as ink. */
+  border-bottom: 2px solid var(--color-hairline);
+  white-space: nowrap;
+}
+
+thead th {
+  font-family: var(--font-display);
+  background: var(--color-stroke);
+  color: var(--color-on-dark);
+  border-bottom: none;
+}
+
+tbody th {
+  color: var(--color-ink);
+}
+
+tbody td {
+  color: var(--color-body);
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  border-bottom: none;
+  font-family: var(--font-display);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+
+/* A row of cards scrolls rather than wrapping: nine numbers in a suit are one
+   run, and a wrapped run reads as two suits. */
+.cardRow {
+  display: flex;
+  gap: 0.6rem;
+  overflow-x: auto;
+  /* A scroll container clips at its padding box, and a card is drawn *outside*
+     its own box: `<Card shadow />` is a 2px ring plus a soft drop, both of which
+     were being sliced off flush at the left and right edges of the row. The
+     padding is the room they need and the negative margin gives it back, so the
+     first card still starts exactly where the text above it does. */
+  padding: 0.5rem 0.7rem 0.9rem;
+  margin: 0 -0.7rem 0.4rem;
+}
+
+/* One card of the deck, on its own slab: the art is the answer on this page, so
+   it gets the outline and the hard shadow every raised object here gets. */
+.cardEntry {
+  margin-top: 1.6rem;
+  padding: 1.3rem 1.4rem 1rem;
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-hard-lg);
+}
+
+.cardEntry h3 {
+  margin: 0 0 0.9rem;
+  font-size: 1.3rem;
+}
+
+.cardEntry p {
+  margin-bottom: 0.6rem;
+}
+
+/* The two numbers a card is looked up for. */
+.cardFacts {
+  font-size: 0.95rem;
+  color: var(--color-body);
+  opacity: 0.85;
+}
+
+/* ── Steps ─────────────────────────────────────────────────────────────── */
+
+/* Numbered because the order is the answer: this page is read by somebody who
+   wants a game going now, not by somebody browsing features. */
+.steps {
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: 1.4rem;
+  margin: 0 0 2.4rem;
+  padding: 0;
+}
+
+.steps > li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.8rem 1fr;
+  gap: 0.35rem 1.1rem;
+  align-items: baseline;
+  padding: 1.2rem 1.4rem;
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-card);
+  box-shadow: var(--shadow-hard-lg);
+}
+
+.steps > li::before {
+  content: counter(step);
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: var(--radius-full);
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-secondary);
+  color: var(--color-stroke);
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 800;
+  box-shadow: var(--shadow-hard);
+  align-self: start;
+}
+
+.steps h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+/* The rule above a heading marks a chapter; a numbered step already has one. */
+.steps h2::before {
+  display: none;
+}
+
+.steps p {
+  margin: 0;
+}
+
+/* ── Questions ─────────────────────────────────────────────────────────── */
+
+.qa {
+  margin-bottom: 2.2rem;
+}
+
+.qa h2 {
+  margin-top: 0;
+  font-size: clamp(1.25rem, 3.4vw, 1.5rem);
+}
+
+/* ── Rooms ─────────────────────────────────────────────────────────────── */
+
+.room {
+  margin-bottom: 3rem;
+}
+
+.roomArt {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: var(--stroke) solid var(--color-stroke);
+  box-shadow: var(--shadow-hard-lg);
+  /* The room's own accent, so the frame belongs to the picture rather than to
+     the page. Set per room from the same registry the board paints from. */
+  outline: 2px solid var(--accent);
+  outline-offset: -6px;
+  margin-bottom: 1rem;
+  background: var(--room-void);
+}
+
+.roomArt img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* The table sits on the room, exactly as the board stacks them. */
+.roomTable {
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+}
+
+/* ── The footer bar ────────────────────────────────────────────────────── */
+
+/*
+ * The same row the home page carries under the game, pinned to the bottom of
+ * the viewport instead of to the end of the document: on `/` it is always in
+ * sight because that page is exactly one viewport, and a page that scrolls only
+ * keeps that promise by staying put. Deliberately quiet — it is navigation
+ * between pages, not the thing anybody came for — and deliberately the same five
+ * links in the same order, so arriving from the home page changes nothing.
+ *
+ * It is written here rather than shared with GamePage.astro because that page's
+ * copy has a job this one does not: it disappears on `data-seated`, and it must
+ * keep the whole page inside one viewport. Two short rulesets that look alike
+ * beat one that has to be true of both.
+ */
+.siteFooter {
+  position: fixed;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem 1.4rem;
+  padding: 0.7rem max(1.5rem, var(--safe-right)) max(0.7rem, var(--safe-bottom))
+    max(1.5rem, var(--safe-left));
+  border-top: 2px solid var(--color-hairline);
+  /* Opaque, not blurred: the bar sits over the page and text scrolling under a
+     frosted panel is still text, half-legible. */
+  background: var(--color-canvas);
+}
+
+.footerNav,
+.footerEnd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem 1.1rem;
+}
+
+/* The way back up, above the bar rather than on it: the bar is the navigation
+   and a control sitting in it would read as a sixth link. Same raised-object
+   treatment as everything else in the game — ink outline, hard bottom shadow —
+   so it belongs to the same world as the board. */
+.toTop {
+  position: fixed;
+  z-index: 21;
+  right: max(1rem, var(--safe-right));
+  bottom: calc(var(--bar) + 1rem + var(--safe-bottom));
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-full);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  /* Hidden until a screenful has gone by. `visibility` as well as opacity, so
+     it cannot be tabbed to or tapped while it is invisible. */
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(0.4rem);
+  transition: opacity 0.18s, transform 0.18s, visibility 0.18s;
+}
+
+.toTop[data-shown] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.toTop:hover,
+.toTop:focus-visible {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 var(--color-stroke-soft);
+}
+
+.toTop:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--color-stroke-soft);
+}
+
+/* Quiet by hue and size, not by opacity: at 0.55 of the ink these sat near
+   2.8:1 on the canvas, and they are the navigation. Same correction as the
+   game's own quiet links. */
+.siteFooter a,
+.langBtn {
+  color: var(--color-muted);
+  font: 600 12px/1.3 var(--font-body);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.siteFooter a:hover,
+.siteFooter a:focus-visible,
+.langBtn:hover,
+.langBtn:focus-visible {
+  color: var(--color-ink);
+}
+
+.siteFooter a[aria-current='page'] {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--color-primary);
+}
+
+/* "Play" stands where the home page's sheet button stands, and is underlined
+   the same way: the one link in the bar that leaves the pages behind. */
+.footerPlay {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.langBtn,
+.themeBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.langBtn svg,
+.themeBtn svg {
+  display: block;
+}
+
+/* One switch, two icons, and the one on show is the theme you would get by
+   pressing it: a sun while it is dark out, a moon while it is light. Drawn, not
+   `☀`/`🌙`, for the same reason the globe is. */
+.themeBtn {
+  color: var(--color-muted);
+  transition: color 0.15s;
+}
+.themeBtn:hover,
+.themeBtn:focus-visible {
+  color: var(--color-ink);
+}
+.themeBtn[hidden] {
+  display: none;
+}
+.themeBtn .themeSun {
+  display: none;
+}
+.themeBtn[data-theme-state='dark'] .themeSun {
+  display: block;
+}
+.themeBtn[data-theme-state='dark'] .themeMoon {
+  display: none;
+}
+
+/* ── The burger and its drawer ─────────────────────────────────────────── */
+
+/*
+ * The phone's navigation, and only the phone's. The footer bar is the right
+ * answer wherever its ten items fit on one line; under 46rem they folded into
+ * two lines of 12px text, jammed together, with nothing on the row big enough to
+ * aim a thumb at. So on that width the bar goes away entirely and everything it
+ * held moves into a drawer behind one button — top left, where a hand holding a
+ * phone expects it, and out of the way of the "Play" the header already carries.
+ *
+ * Native `popover`, like the language chooser: it closes on Escape and on a tap
+ * outside with no script, which is the constraint these pages are built under.
+ * Where the API is missing, the burger and the drawer both disappear and the bar
+ * stays: see the @supports block at the foot of this file.
+ */
+.menuBtn {
+  display: none;
+  place-items: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  cursor: pointer;
+}
+
+.menuBtn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--color-stroke-soft);
+}
+
+/* A drawer down the left edge rather than a centred card: it is anchored to the
+   button that opened it, and a panel hinged on the corner your thumb is already
+   at reads as that button's contents. */
+.navPop {
+  /* The reset in Base.astro zeroes the `margin: auto` the UA centres a popover
+     with, so every edge is placed by hand here. */
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  width: min(19rem, 84vw);
+  /* Stated, not left to `top: 0; bottom: 0`: the UA gives every popover
+     `height: fit-content`, and with nothing declared here the drawer stopped at
+     its last link with the scrim carrying on underneath it. */
+  height: 100dvh;
+  overflow-y: auto;
+  padding: max(1.1rem, var(--safe-top)) 1.1rem max(1.1rem, var(--safe-bottom))
+    max(1.1rem, var(--safe-left));
+  border: none;
+  border-inline-end: var(--stroke) solid var(--color-stroke);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-hard-lg);
+  animation: navPopIn 0.16s ease-out;
+}
+
+/* `display` belongs on the open state and nowhere else. A closed popover is
+   hidden by `[popover]:not(:popover-open) { display: none }` in the UA
+   stylesheet, and an author `display` on `.navPop` beats it whatever its
+   specificity — cascade origin, not weight — so the drawer would stand open on
+   every page. `.langPop` gets away with declaring none at all. */
+.navPop:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+:root[data-motion='reduce'] .navPop {
+  animation: none;
+}
+
+@keyframes navPopIn {
+  from {
+    transform: translateX(-8%);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.navPop::backdrop {
+  background: var(--color-scrim);
+}
+
+.navPopHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.navPopTitle {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+/* Escape and a tap outside are both native and both invisible; this is the one
+   a reader can see. */
+.navPopClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-full);
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.navPopClose:hover,
+.navPopClose:focus-visible {
+  color: var(--color-on-dark);
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.navPopLinks {
+  display: grid;
+  gap: 0.15rem;
+}
+
+/* Each link is a row, not a word: 2.75rem of height is what makes it a target
+   rather than a piece of text that happens to be tappable. Full width for the
+   same reason — the whole row answers, not the glyphs. */
+.navPopLinks a {
+  display: flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 0.7rem;
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.navPopLinks a:hover,
+.navPopLinks a:focus-visible {
+  background: var(--color-canvas);
+}
+
+/* The page being read, marked the way the bar marks it. */
+.navPopLinks a[aria-current='page'] {
+  color: var(--color-primary);
+  background: var(--color-canvas);
+}
+
+/* First in the list and the only one that leaves the pages behind, so it is the
+   only one that looks like a button. */
+.navPopPlay {
+  margin-bottom: 0.45rem;
+  justify-content: center;
+  border: var(--stroke) solid var(--color-stroke);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  box-shadow: var(--shadow-hard);
+}
+
+.navPopPlay:hover,
+.navPopPlay:focus-visible {
+  background: var(--color-primary-active);
+  color: var(--color-on-primary);
+}
+
+/* The two settings, side by side under a rule: they are not pages, and a row of
+   its own is what says so. */
+.navPopEnd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.2rem;
+  margin-top: auto;
+  padding-top: 1rem;
+  border-top: 2px solid var(--color-hairline);
+}
+
+.navPopEnd .themeBtn,
+.navPopEnd .langBtn {
+  min-height: 2.75rem;
+  padding: 0 0.5rem;
+  opacity: 0.75;
+  font: 700 0.95rem/1.3 var(--font-body);
+}
+
+.navPopEnd .themeBtn:hover,
+.navPopEnd .themeBtn:focus-visible,
+.navPopEnd .langBtn:hover,
+.navPopEnd .langBtn:focus-visible {
+  color: var(--color-ink);
+}
+
+/* ── The language chooser ──────────────────────────────────────────────── */
+
+/*
+ * A native popover, so Escape and a click outside both close it with no script
+ * on the page — which is the constraint these pages are built under. The links
+ * inside are ordinary <a href>s and are in the document whether it is open or
+ * not, so the hreflang pair stays navigable by a crawler that has no idea what
+ * a popover is.
+ */
+.langPop {
+  /* Centred by hand rather than by the UA: the reset in Base.astro zeroes every
+     margin, including the `margin: auto` a popover is centred with, so without
+     these four lines the panel opens in the top-left corner. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  width: min(20rem, calc(100vw - 2rem));
+  padding: 1.4rem;
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-card);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-hard-lg);
+}
+
+.langPop::backdrop {
+  background: var(--color-scrim);
+}
+
+.langPopHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.langPopTitle {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+}
+
+/* The visible way out. Escape and a click outside are already native, and are
+   both unreachable on a phone. */
+.langPopClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-full);
+  background: var(--color-canvas);
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.langPopClose:hover,
+.langPopClose:focus-visible {
+
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.langPop ul {
+  list-style: none;
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* Not a footer link: the bar's links are quiet on purpose, and these are the
+   only thing in an open panel. */
+.langPop a {
+  display: block;
+  opacity: 1;
+  padding: 0.7rem 1rem;
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.langPop a:hover,
+.langPop a:focus-visible {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+/* The language already being read: still a link, because it is the canonical
+   URL of this page in this language and a crawler is welcome to it. */
+.langPop a[aria-current='true'] {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-hard);
+}
+
+/*
+ * Nothing here may depend on the popover API. Where it is missing the panel is
+ * an ordinary element, so it becomes the row it would have opened: the globe
+ * goes, the two languages sit in the bar, and switching language still works.
+ */
+@supports not selector([popover]) {
+  .langBtn {
+    display: none;
+  }
+
+  /* The drawer is a popover and nothing else: with no API behind it the element
+     is an ordinary <div> that would land in the middle of the page, and the
+     button would open nothing. Both go, and the footer bar stays on every width
+     — which is what this file did before the drawer existed. */
+  .menuBtn,
+  .navPop {
+    display: none;
+  }
+
+  .langPop,
+  .langPop ul {
+    position: static;
+    inset: auto;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    width: auto;
+    height: auto;
+    padding: 0;
+    border: none;
+    background: none;
+    box-shadow: none;
+  }
+
+  /* Nothing is open, so nothing closes: the panel is the bar's own row here. */
+  .langPopHead {
+    display: none;
+  }
+
+  .langPop a {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    font: 600 12px/1.3 var(--font-body);
+    color: var(--color-muted);
+  }
+}
+
+/*
+ * The phone. Ten items do not fit on one line at this width: the bar used to
+ * fold into two rows of 12px text with no target on it taller than the type, so
+ * here the drawer takes the whole job and the bar goes.
+ *
+ * Gated on the popover API for the same reason the block above exists — the
+ * drawer *is* that API, and hiding the bar without it would leave the page with
+ * no navigation at all.
+ */
+@media (max-width: 46rem) {
+  @supports selector([popover]) {
+    .menuBtn {
+      display: grid;
+    }
+
+    .siteFooter {
+      display: none;
+    }
+
+    /* Nothing is pinned to the bottom any more, so the column owes it no room
+       and the way back up drops to where a floating control belongs. */
+    .page {
+      --bar: 0rem;
+    }
+
+    .toTop {
+      bottom: max(1rem, var(--safe-bottom));
+    }
+  }
+}

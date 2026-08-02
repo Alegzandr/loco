@@ -1,16 +1,19 @@
 import { useState } from 'react'
-import type { FormEvent } from 'react'
+// React 19's types deprecate the FormEvent alias (the DOM event a submit fires
+// is a SubmitEvent); SyntheticEvent is the base these handlers actually need.
+import type { SyntheticEvent } from 'react'
 import { ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { resolveServerError } from '../i18n/serverErrors'
 import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
-import { LanguageSwitcher } from './LanguageSwitcher'
-import { ThemeToggle } from './ThemeToggle'
+import { Preferences } from './Preferences'
 import { AudioSettings } from './AudioSettings'
 import { LocoLogo } from './LocoLogo'
 import { playSfx } from '../audio/sfx'
 import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
+import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
+import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from './tableCodeRules'
 import styles from './Lobby.module.css'
 
 type LobbyMode = 'home' | 'find' | 'create' | 'join'
@@ -22,18 +25,56 @@ interface Props {
   onFindMatch: (nickname: string) => void
   error: string
   onClearError: () => void
-  /** Starting sub-screen. Only set by the visual showcase; the app always starts at 'home'. */
+  /** Starting sub-screen. Set by the visual showcase, and by a table link,
+   *  which opens straight on the join form. */
   initialMode?: LobbyMode
+  /** The table code a shared link arrived with. A prefill for the field, not a
+   *  submission: the form still refuses to send without a nickname, and the
+   *  server still owns the verdict on the code. */
+  initialCode?: string
+  /** Showcase only: mounts with the preferences panel open. */
+  initialPrefsOpen?: boolean
 }
 
-export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 'home' }: Props) {
+export function Lobby({
+  onSend,
+  onFindMatch,
+  error,
+  onClearError,
+  initialMode = 'home',
+  initialCode = '',
+  initialPrefsOpen = false,
+}: Props) {
   const { t } = useI18n()
   // Read once, at mount: the field is the player's from then on, and re-reading
   // storage would fight whatever they are typing.
   const [nickname, setNickname] = useState(readNickname)
-  const [roomCode, setRoomCode] = useState('')
+  // Read once, like the nickname: from here on the field belongs to the player,
+  // and a link that has been spent must not put its code back.
+  const [roomCode, setRoomCode] = useState(() => sanitizeTableCode(initialCode))
   const [mode, setMode] = useState<LobbyMode>(initialMode)
   const [showRules, setShowRules] = useState(false)
+  // The shape rules the client can check itself, answered as the player types
+  // rather than after a round trip. It says nothing the server would not have
+  // said: the same one line, for the same reason (server/game/nickname.go).
+  const [nicknameRefused, setNicknameRefused] = useState(false)
+
+  const editNickname = (value: string) => {
+    setNickname(value)
+    setNicknameRefused(value.trim() !== '' && !isNicknameShapeValid(value))
+    onClearError()
+  }
+
+  /** Guards every entry point. Returns the form to send, or '' to refuse. */
+  const acceptNickname = (): string => {
+    if (!isNicknameShapeValid(nickname)) {
+      setNicknameRefused(nickname.trim() !== '')
+      return ''
+    }
+    const value = canonicalNickname(nickname)
+    rememberNickname(value)
+    return value
+  }
 
   // Leaving a sub-screen gets the descending blip; entering one is silent
   // because the screen change is already obvious.
@@ -42,32 +83,31 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
     setMode('home')
   }
 
-  const handleFind = (e: FormEvent) => {
+  const handleFind = (e: SyntheticEvent) => {
     e.preventDefault()
-    if (!nickname.trim()) return
-    rememberNickname(nickname)
-    onFindMatch(nickname.trim())
+    const value = acceptNickname()
+    if (!value) return
+    onFindMatch(value)
   }
 
-  const handleCreate = (e: FormEvent) => {
+  const handleCreate = (e: SyntheticEvent) => {
     e.preventDefault()
-    if (!nickname.trim()) return
-    rememberNickname(nickname)
-    onSend({ type: 'create_room', nickname: nickname.trim() })
+    const value = acceptNickname()
+    if (!value) return
+    onSend({ type: 'create_room', nickname: value })
   }
 
-  const handleJoin = (e: FormEvent) => {
+  const handleJoin = (e: SyntheticEvent) => {
     e.preventDefault()
-    if (!nickname.trim() || !roomCode.trim()) return
-    rememberNickname(nickname)
-    onSend({ type: 'join_room', nickname: nickname.trim(), room_code: roomCode.toUpperCase() })
+    const value = acceptNickname()
+    if (!value || !isTableCodeValid(roomCode)) return
+    onSend({ type: 'join_room', nickname: value, room_code: sanitizeTableCode(roomCode) })
   }
 
   return (
     <div className={styles.container}>
       <div className={styles.topBar}>
-        <LanguageSwitcher />
-        <ThemeToggle />
+        <Preferences defaultOpen={initialPrefsOpen} />
         <AudioSettings />
         <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
@@ -82,9 +122,9 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
           so it never needed to be clickable to be dismissible. Styling it as a
           filled pill the same size as the CTA below made it read as a third
           button on the screen. */}
-      {error && (
+      {(nicknameRefused || error) && (
         <p className={styles.error} role="alert">
-          {resolveServerError(error, t.errors)}
+          {nicknameRefused ? t.errors.nicknameRejected : resolveServerError(error, t.errors)}
         </p>
       )}
 
@@ -114,7 +154,7 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
             className={styles.input}
             placeholder={t.yourNickname}
             value={nickname}
-            onChange={(e) => { setNickname(e.target.value); onClearError() }}
+            onChange={(e) => editNickname(e.target.value)}
             maxLength={20}
             autoFocus
           />
@@ -133,7 +173,7 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
             className={styles.input}
             placeholder={t.yourNickname}
             value={nickname}
-            onChange={(e) => { setNickname(e.target.value); onClearError() }}
+            onChange={(e) => editNickname(e.target.value)}
             maxLength={20}
             autoFocus
           />
@@ -152,21 +192,31 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
             className={styles.input}
             placeholder={t.yourNickname}
             value={nickname}
-            onChange={(e) => { setNickname(e.target.value); onClearError() }}
+            onChange={(e) => editNickname(e.target.value)}
             maxLength={20}
             autoFocus={!nickname}
           />
           {/* A returning player already has a name in the field, so the caret
               belongs on the one thing they still have to type. */}
+          {/* The field only ever holds a possible code: the alphabet is the
+              server's (tableCodeRules.ts), and anything else is dropped as it
+              is typed or pasted rather than kept for the server to refuse. */}
           <input
             className={styles.input}
             placeholder={t.roomCodeLabel}
             value={roomCode}
-            onChange={(e) => { setRoomCode(e.target.value.toUpperCase()); onClearError() }}
-            maxLength={6}
-            autoFocus={!!nickname}
+            onChange={(e) => { setRoomCode(sanitizeTableCode(e.target.value)); onClearError() }}
+            maxLength={TABLE_CODE_LENGTH}
+            autoFocus={!!nickname && !roomCode}
+            inputMode="text"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
           />
-          <button className={styles.btn} type="submit">
+          {/* Nothing to take a seat at until the code is whole. The button says
+              so instead of sending a request whose only outcome is an error
+              line under a form the player has not finished filling in. */}
+          <button className={styles.btn} type="submit" disabled={!isTableCodeValid(roomCode)}>
             {t.joinGame}
           </button>
           <button className={styles.btnSecondary} type="button" onClick={goHome}>
@@ -174,6 +224,11 @@ export function Lobby({ onSend, onFindMatch, error, onClearError, initialMode = 
           </button>
         </form>
       )}
+
+      {/* Privacy and terms are not here any more: they are a page, linked at the
+          right-hand end of the footer this screen sits above (GamePage.astro).
+          A policy has to be linkable, and the entry screen is the one screen
+          that footer is visible on anyway. */}
 
       {showRules && <RulesModal onClose={() => setShowRules(false)} />}
     </div>

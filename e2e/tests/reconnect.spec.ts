@@ -329,6 +329,14 @@ test.describe('WebSocket reconnect', () => {
     )
     await waitForTableOpen(page)
 
+    // The recovery overlay has to come down, and a reload is the one path where
+    // it can fail to: <GameView /> mounts with isReconnecting already true, so
+    // the timer that ends the overlay is armed on mount, which is where React
+    // double-invokes effects in dev. Reading the store alone cannot see this —
+    // every assertion below passed while the board sat under "setting the table
+    // back up" for the rest of the match.
+    await expect(page.getByText(T.rebuildingTable)).not.toBeVisible({ timeout: 5_000 })
+
     const after = await getState(page)
     expect(after?.roomCode).toBe(roomCode)
     expect(after?.myIndex).toBe(myIdx)

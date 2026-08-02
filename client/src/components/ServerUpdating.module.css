@@ -65,6 +65,6 @@
 
 /* Degrades to the static, readable state rather than to nothing: the line is
    the point, the fade never was. */
-@media (prefers-reduced-motion: reduce) {
-  .banner { animation: none; }
+:root[data-motion="reduce"] .banner {
+  animation: none;
 }

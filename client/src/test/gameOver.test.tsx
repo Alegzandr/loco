@@ -9,46 +9,108 @@ const scoreboard = [
   { player_index: 1, nickname: 'Bob', score: 0, rounds_won: 0 },
 ]
 
-function renderGameOver(opts: { isHost: boolean; onSend?: ReturnType<typeof vi.fn> }) {
-  const onSend = opts.onSend ?? vi.fn()
+type Overrides = Partial<Parameters<typeof GameOver>[0]>
+
+function renderGameOver(opts: Overrides = {}) {
+  const onRematch = opts.onRematch ?? vi.fn()
   render(
     <I18nProvider>
       <GameOver
         winner="Alice"
         myNickname="Bob"
+        mySeat={1}
         scoreboard={scoreboard}
         matchOver
-        isHost={opts.isHost}
-        onSend={onSend}
-        onRematch={vi.fn()}
+        onRematch={onRematch}
         onFindMatch={vi.fn()}
         onLeave={vi.fn()}
+        {...opts}
       />
     </I18nProvider>
   )
-  return onSend
+  return onRematch
 }
 
 describe('GameOver rematch', () => {
-  it('offers the host a rematch button that sends the rematch intent', () => {
-    const onSend = renderGameOver({ isHost: true })
+  it('offers every seat the same ask, host or not', () => {
+    const onRematch = renderGameOver()
     fireEvent.click(screen.getByText(en.rematch))
-    expect(onSend).toHaveBeenCalledWith({ type: 'rematch' })
+    expect(onRematch).toHaveBeenCalled()
   })
 
-  it('tells non-hosts to wait instead of showing a dead button', () => {
-    renderGameOver({ isHost: false })
-    expect(screen.getByText(en.rematchWaiting)).toBeInTheDocument()
-    expect(screen.queryByText(en.rematch)).not.toBeInTheDocument()
+  it('says the ask is in and waits, rather than pretending it started anything', () => {
+    renderGameOver({ rematchOffers: [1], rematchNeeded: 2 })
+    const btn = screen.getByRole('button', { name: en.rematchWaitingOpponent })
+    expect(btn).toBeDisabled()
+  })
+
+  it('shows the other side asking, so the answer is one press away', () => {
+    renderGameOver({ rematchOffers: [0], rematchNeeded: 2 })
+    expect(screen.getByRole('button', { name: en.rematchAccept })).toBeEnabled()
+  })
+
+  // Past two seats "waiting on them" names nobody, and how far off the next
+  // match is only exists as a count.
+  it('counts the asks at a table bigger than a 1v1', () => {
+    renderGameOver({ rematchOffers: [0], rematchNeeded: 4 })
+    expect(
+      screen.getByRole('button', { name: `${en.rematchAccept} 1/4` })
+    ).toBeInTheDocument()
+
+    renderGameOver({ rematchOffers: [0, 1], rematchNeeded: 4 })
+    expect(
+      screen.getByRole('button', { name: `${en.rematchWaitingTable} 2/4` })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(en.rematchWaitingOpponent)).not.toBeInTheDocument()
+  })
+
+  it('keeps the count off a 1v1, where it would only be noise', () => {
+    renderGameOver({ rematchOffers: [0], rematchNeeded: 2 })
+    expect(screen.getByRole('button', { name: en.rematchAccept })).toBeInTheDocument()
+  })
+
+  // The button stays in place: the layout must not reflow around an answer that
+  // may still arrive, and a table nobody is left at is still a table.
+  it('greys the ask out once nobody is left to agree with', () => {
+    renderGameOver({ hasTablemates: false })
+    expect(screen.getByRole('button', { name: en.rematch })).toBeDisabled()
+  })
+
+  it('greys it out after a forfeit too', () => {
+    renderGameOver({ isMatchmade: true, forfeitBy: 0, mySeat: 1 })
+    expect(screen.getByRole('button', { name: en.rematch })).toBeDisabled()
+  })
+
+  // Only a matchmade table has a next opponent to offer; an ordinary one has a
+  // room, a code and the people already in it.
+  it('offers the queue only to a matchmade table', () => {
+    const { unmount } = render(
+      <I18nProvider>
+        <GameOver
+          winner="Alice"
+          myNickname="Bob"
+          mySeat={1}
+          isMatchmade
+          onRematch={vi.fn()}
+          onFindMatch={vi.fn()}
+          onLeave={vi.fn()}
+        />
+      </I18nProvider>
+    )
+    expect(screen.getByText(en.findAnotherOpponent)).toBeInTheDocument()
+    unmount()
+
+    renderGameOver()
+    expect(screen.queryByText(en.findAnotherOpponent)).not.toBeInTheDocument()
   })
 
   it('always offers a way out of the room', () => {
-    renderGameOver({ isHost: false })
+    renderGameOver()
     expect(screen.getByText(en.leaveRoom)).toBeInTheDocument()
   })
 
   it('still shows the final scoreboard', () => {
-    renderGameOver({ isHost: true })
+    renderGameOver()
     expect(screen.getByText(en.finalScores)).toBeInTheDocument()
     expect(screen.getByText('42 pts')).toBeInTheDocument()
   })

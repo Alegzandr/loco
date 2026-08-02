@@ -110,18 +110,23 @@ test.describe('1v1 matchmaking', () => {
       await sendMsg(page2, { type: 'leave_room' })
 
       await page1.waitForFunction(
-        () => window.__LOCO_E2E__?.getState?.()?.screen === 'gameover',
+        () => window.__LOCO_E2E__?.getState?.()?.matchOver === true,
         undefined,
         { timeout: 15_000 },
       )
       const s1 = await getState(page1)
-      expect(s1.matchOver).toBe(true)
-      // Named as a forfeit, not as a win on points: the screen has to be able to
-      // say what happened.
+      // Named as a forfeit, not as a win on points: nothing downstream may read
+      // this as a victory on the cards.
       expect(s1.forfeitBy).toBe(1)
-      await expect(page1.getByText(T.forfeitWon)).toBeVisible()
-      // And the way out is another opponent, not a rematch with somebody who left.
-      await expect(page1.getByRole('button', { name: T.findAnotherOpponent })).toBeVisible()
+
+      // There is nobody left to agree with, so the screen does not sit there
+      // offering a rematch that cannot complete: this player goes back into the
+      // queue by default, and cancelling the search is the way out.
+      await page1.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'searching',
+        undefined,
+        { timeout: 10_000 },
+      )
 
       // The player who left is back at the front door.
       await page2.waitForFunction(

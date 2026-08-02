@@ -124,6 +124,17 @@ describe('soundsForTransition', () => {
   it('buzzes on a rejected move', () => {
     expect(soundsForTransition(state(), state({ errorMsg: 'not your turn' }))).toContain('error')
   })
+
+  // The end of the one wait in the game somebody spends minutes on, and it used
+  // to be the only screen change in the whole app that made no sound at all.
+  it('announces the opponent the queue just found', () => {
+    const prev = state({ screen: 'searching' })
+    const next = state({ screen: 'matchfound' })
+    expect(soundsForTransition(prev, next)).toContain('matchFound')
+    // And exactly once: the reveal counts down for several seconds, and every
+    // store tick through it is another transition into the same screen.
+    expect(soundsForTransition(next, next)).not.toContain('matchFound')
+  })
 })
 
 describe('audio settings', () => {

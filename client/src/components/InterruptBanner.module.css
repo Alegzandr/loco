@@ -89,8 +89,11 @@
   right: -18px;
   padding: 5px 13px;
   font: 700 20px/1 var(--font-display);
-  color: #fff;
-  background: linear-gradient(180deg, #ffe07a 0%, var(--color-secondary) 100%);
+  /* Ink, not white: this chip is yellow, and white on it measures ~1.7:1. The
+     catch banner's ×N chip — which this one is deliberately twinned with —
+     already reads the ink. */
+  color: var(--color-stroke);
+  background: var(--gradient-secondary);
   border: var(--stroke) solid var(--color-stroke);
   border-radius: var(--radius-full);
   text-shadow: 0 2px 0 rgba(120, 80, 0, 0.5);
@@ -102,8 +105,14 @@
   to   { opacity: 1; transform: scale(1) rotate(10deg); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .slash { display: none; }
-  .banner { animation: none; transform: rotate(-2.5deg); }
-  .combo { animation: none; }
+:root[data-motion="reduce"] .slash {
+  display: none;
+}
+
+:root[data-motion="reduce"] .banner {
+  animation: none; transform: rotate(-2.5deg);
+}
+
+:root[data-motion="reduce"] .combo {
+  animation: none;
 }

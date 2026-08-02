@@ -12,11 +12,11 @@ Defined in `.gitlab-ci.yml`, three stages:
 
 ### Test jobs
 
-- `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` and builds the static Linux binary `e2e_test` runs.
-- `frontend_test` (`node:20-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
+- `backend_test` (`golang:1.26.5-alpine`): `cd server && go test ./...` and builds the static Linux binary `e2e_test` runs.
+- `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
 - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs the server binary, runs
   Playwright as 4 parallel shards; `needs: [backend_test]` for that binary and nothing else.
-- `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
+- `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
 
 `build` **needs all four**. `needs` is what actually gates a deploy: naming only `backend_test` and
 `frontend_test` let the build start as soon as those two finished, which made the lint and the whole
@@ -86,9 +86,18 @@ it got on GitLab.
 Browser (HTTPS) → Traefik (:443, entrypoint websecure)
   → client nginx (:80, networks: traefik + internal)
     → /ws     → Go server (:8080, network: internal only)   [WebSocket]
-    → /health → Go server (:8080)                            [health probe]
     → /       → nginx serves static SPA files directly
+
+Go server (:8080, internal only)
+  → /health, /metrics                                        [operator only, never proxied]
 ```
+
+- **nginx proxies `/ws` and nothing else.** `/health` used to be proxied and answers with the live
+  room count, the connected-player count and `draining`: the counts size the server for anyone
+  thinking of loading it, and `draining` announces the window in which new tables are refused.
+  Nothing legitimate needed it published, because the container's own healthcheck runs inside it
+  against `localhost:8080`, which is also how an operator reads either endpoint:
+  `docker compose exec server wget -qO- http://localhost:8080/health`.
 
 - Traefik terminates TLS and routes all traffic to the nginx container on port 80.
 - nginx bridges the `traefik` and `internal` Docker networks; the Go server is isolated on `internal` and is never directly reachable by Traefik.

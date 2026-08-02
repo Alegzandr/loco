@@ -1,4 +1,4 @@
-import { ScoreboardEntryDTO, ClientMsg } from '../types/protocol'
+import { ScoreboardEntryDTO } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { Confetti } from './Confetti'
 import styles from './GameOver.module.css'
@@ -8,18 +8,19 @@ interface Props {
   myNickname: string
   scoreboard?: ScoreboardEntryDTO[]
   matchOver?: boolean
-  /** True when this client is the room host (player index 0) — only they can rematch. */
-  isHost: boolean
-  /** This match came out of the 1v1 queue: no rematch, another opponent instead. */
+  /** This match came out of the 1v1 queue: the next one is another pairing. */
   isMatchmade?: boolean
   /** The seat that abandoned, or null when the match ended on the cards. */
   forfeitBy?: number | null
   /** Our own seat, so we know which side of a forfeit we are on. */
   mySeat?: number
-  /** Seats that have asked for another match (matchmade only). */
+  /** Seats that have asked for another match. */
   rematchOffers?: number[]
-  onSend: (msg: ClientMsg) => void
-  /** Ask the opponent for another match (matchmade only). */
+  /** How many asks deal it: everybody still at the table. 0 before the first. */
+  rematchNeeded?: number
+  /** True while somebody else is still at the table to agree with. */
+  hasTablemates?: boolean
+  /** Ask the table for another match. */
   onRematch: () => void
   /** Back into the queue for another opponent (matchmade matches only). */
   onFindMatch: () => void
@@ -32,12 +33,12 @@ export function GameOver({
   myNickname,
   scoreboard,
   matchOver,
-  isHost,
   isMatchmade,
   forfeitBy,
   mySeat,
   rematchOffers = [],
-  onSend,
+  rematchNeeded = 0,
+  hasTablemates = true,
   onRematch,
   onFindMatch,
   onLeave,
@@ -52,6 +53,15 @@ export function GameOver({
   const iForfeited = isForfeit && forfeitBy === mySeat
   const iOffered = typeof mySeat === 'number' && rematchOffers.includes(mySeat)
   const theyOffered = rematchOffers.some((seat) => seat !== mySeat)
+  // Nobody is asked to agree with an empty table. A matchmade one requeues
+  // instead (App does it without being asked); an ordinary one keeps the button
+  // in place and disabled, because the table is still there and somebody may
+  // still walk back into it.
+  const canRematch = !isForfeit && hasTablemates
+  // Past two seats "waiting on them" names nobody, and the count is the only
+  // thing that says how far off the next match is. At two it would be noise.
+  const isTable = rematchNeeded > 2
+  const progress = isTable ? ` ${t.rematchProgress(rematchOffers.length, rematchNeeded)}` : ''
 
   return (
     <div className={styles.container}>
@@ -97,43 +107,31 @@ export function GameOver({
           </div>
         )}
 
-        {isMatchmade ? (
-          /* A rematch here is an agreement, not a decision: there is no host, and
-             the one thing known about the opponent is that they came to play
-             somebody. So the button has three states, and the middle one is the
-             point of the whole thing: knowing somebody is waiting on you.
-             A forfeit removes the opponent from the room, so it removes the
-             offer too and leaves only the next opponent. */
-          <>
-            {!isForfeit && (
-              <button
-                className={theyOffered ? styles.btn : styles.btnRematch}
-                onClick={onRematch}
-                disabled={iOffered}
-              >
-                {iOffered
-                  ? t.rematchWaitingOpponent
-                  : theyOffered
-                    ? t.rematchAccept
-                    : t.rematch}
-              </button>
-            )}
-            <button
-              className={isForfeit || theyOffered ? styles.btnSecondary : styles.btn}
-              onClick={onFindMatch}
-            >
-              {t.findAnotherOpponent}
-            </button>
-          </>
-        ) : isHost ? (
-          /* Rematch keeps the room, the code and the roster; only the host may
-             trigger it. Everyone else waits — the server moves them back to the
-             waiting room when it happens. */
-          <button className={styles.btn} onClick={() => onSend({ type: 'rematch' })}>
-            {t.rematch}
+        {/* A rematch is an agreement, not a decision, and it reads the same at
+            every table: ask, wait, accept. The middle state is the point of the
+            whole thing, which is why the ask is public: knowing somebody is
+            waiting on you is what gets answered. A table nobody is left at
+            keeps the button, disabled: the offer is gone, not the room. */}
+        <button
+          className={theyOffered ? styles.btn : styles.btnRematch}
+          onClick={onRematch}
+          disabled={iOffered || !canRematch}
+        >
+          {iOffered
+            ? (isTable ? t.rematchWaitingTable : t.rematchWaitingOpponent) + progress
+            : theyOffered
+              ? t.rematchAccept + progress
+              : t.rematch}
+        </button>
+
+        {/* Only a matchmade table has a next opponent to offer. */}
+        {isMatchmade && (
+          <button
+            className={isForfeit || theyOffered ? styles.btnSecondary : styles.btn}
+            onClick={onFindMatch}
+          >
+            {t.findAnotherOpponent}
           </button>
-        ) : (
-          <p className={styles.waiting}>{t.rematchWaiting}</p>
         )}
 
         <button className={styles.btnSecondary} onClick={onLeave}>

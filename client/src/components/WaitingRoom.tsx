@@ -3,8 +3,9 @@ import { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
-import { LanguageSwitcher } from './LanguageSwitcher'
-import { ThemeToggle } from './ThemeToggle'
+import { Preferences } from './Preferences'
+import { TableCode } from './TableCode'
+import { tableInviteUrl } from '../hooks/tableInvite'
 import { AudioSettings } from './AudioSettings'
 import { seatColor, seatInitial } from './playerColors'
 import styles from './WaitingRoom.module.css'
@@ -24,6 +25,23 @@ interface Props {
 }
 
 const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
+
+// Drawn, not a glyph: a `×` is a different object on every platform and lands
+// somewhere between a multiplication sign and a letter. Same rule as the
+// preference icons.
+function KickIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden focusable="false">
+      <path
+        d="M6 6 L18 18 M18 6 L6 18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
 
 // Mirrors the server's serverMinPlayers / serverMaxPlayers (game/room.go). A cap of 1
 // is a room that can never start, so the field must not even offer it.
@@ -60,10 +78,19 @@ export function WaitingRoom({
     return () => window.removeEventListener('keydown', onKey)
   }, [confirmLeave])
 
+  // What the press copies is the link, not the six characters. A code has to be
+  // read, retyped without a slip and typed into a screen the other person has
+  // to find first; a link is a tap. The code itself stays on screen, because it
+  // is what gets read out loud on a stream and what somebody already sitting in
+  // the lobby types.
+  //
+  // The link carries no language. It gets forwarded, and the sender does not
+  // know who ends up pressing it; the language is whoever opens it to choose.
+  //
   // Clipboard is unavailable on insecure origins and in some embedded views;
   // failing silently is correct here — the code stays visible either way.
   const copyCode = () => {
-    navigator.clipboard?.writeText(roomCode).then(
+    navigator.clipboard?.writeText(tableInviteUrl(roomCode)).then(
       () => {
         setCopied(true)
         setTimeout(() => setCopied(false), 1600)
@@ -99,18 +126,23 @@ export function WaitingRoom({
   return (
     <div className={styles.container}>
       <div className={styles.topBar}>
-        <LanguageSwitcher />
-        <ThemeToggle />
+        <Preferences />
         <AudioSettings />
         <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
 
       <h2 className={styles.heading}>{t.waitingRoom}</h2>
-      {/* Tap-to-copy: this code gets read out loud and pasted into chat, so
-          copying it should never mean selecting six characters by hand. */}
-      <button className={styles.code} onClick={copyCode} aria-label={`${t.roomCode} ${roomCode}`}>
+      {/* Tap-to-copy, and what lands in the clipboard is the link. The code is
+          still what a stream reads out, so it stays the thing on screen; the
+          press is for the other way in, the one nobody has to type. */}
+      <button
+        className={styles.code}
+        onClick={copyCode}
+        title={t.copyLink}
+        aria-label={`${t.roomCode} ${roomCode}. ${t.copyLink}`}
+      >
         <span className={copied ? styles.copied : undefined}>{copied ? t.copyCode : t.roomCode}</span>
-        <span className={styles.codeVal}>{roomCode}</span>
+        <TableCode code={roomCode} className={styles.codeVal} />
       </button>
       <p className={styles.hint}>{t.shareCode}</p>
 
@@ -126,6 +158,24 @@ export function WaitingRoom({
               </span>
             </span>
             {p.index === 0 && <span className={styles.owner}>{t.hostBadge}</span>}
+            {/* The host's control over one row. Never on their own: giving up
+                the seat you are sitting in is the link at the bottom, and a
+                kick that could do it would hand the table away silently.
+
+                No confirmation, deliberately: this table's one question is the
+                one about leaving, and unlike leaving a mistake here costs
+                nothing — the code is still in the removed player's hands and
+                they sit back down. */}
+            {isOwner && p.index !== myIndex && (
+              <button
+                className={styles.kick}
+                aria-label={`${t.kickPlayer}: ${p.nickname}`}
+                title={t.kickPlayer}
+                onClick={() => onSend({ type: 'kick_player', target_index: p.index })}
+              >
+                <KickIcon />
+              </button>
+            )}
           </li>
         ))}
       </ul>

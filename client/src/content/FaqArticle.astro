@@ -1,0 +1,28 @@
+---
+// The questions, rendered from the same array the FAQPage structured data is
+// built from — so a question answered in the markup and not in the data, or the
+// reverse, cannot happen.
+import { FAQ } from './faq'
+import { ui } from './ui'
+import { RULES, type Lang } from '../seo/meta'
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+---
+
+<h1>{ui('faqH1', lang)}</h1>
+<p class="lede">{ui('faqLede', lang)}</p>
+
+{FAQ.map((item) => (
+  <article class="qa">
+    <h2>{item.q[lang]}</h2>
+    {item.a[lang].map((para) => <p>{para}</p>)}
+  </article>
+))}
+
+<p>
+  {ui('faqOutro', lang)} <a href={RULES.path[lang]}>{RULES.navLabel?.[lang]}</a>
+</p>

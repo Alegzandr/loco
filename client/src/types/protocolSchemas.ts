@@ -7,6 +7,16 @@
 // between Go (server/protocol/messages.go) and TS the moment a test runs.
 import { z } from 'zod'
 
+// Zod 4 compiles a schema's validator with `Function()` the first time it runs
+// one. `client/nginx.conf` sends `script-src 'self'`, so that call is refused in
+// production: Zod catches the throw and falls back to the interpreted path, the
+// game keeps working, and every single page load fires a
+// `securitypolicyviolation` for an eval nobody asked for. Turning the JIT off
+// makes the fallback the plan instead of the recovery. The schemas here validate
+// a few hundred bytes per message, so the compiled path was never the point.
+// `make csp` is what found this and is the only thing that could have.
+z.config({ jitless: true })
+
 export const cardColorSchema = z.enum(['red', 'yellow', 'green', 'blue', 'wild'])
 export const cardKindSchema = z.enum([
   'number',
@@ -96,6 +106,9 @@ export const serverMsgTypeSchema = z.enum([
   'matchmaking_cancelled',
   'match_found',
   'left_room',
+  // The host freed this client's seat. Everything left_room means, plus the
+  // reason: the player did not press anything.
+  'kicked',
   'match_loading',
   'match_ready',
   'game_state',
@@ -159,4 +172,10 @@ export const serverMsgSchema = z.object({
   // "none yet": the field rides exactly one message type, so there is no
   // earlier value it could be leaving unchanged.
   players_ready: z.array(z.number()).optional(),
+  // rematch_offered: every seat asking for another match, and how many asks it
+  // takes. The whole state travels because a seat leaving retires its ask and
+  // re-bases the ones above it: a client adding names one at a time would keep
+  // a departed player's ask forever.
+  rematch_offers: z.array(z.number()).optional(),
+  rematch_needed: z.number().optional(),
 })

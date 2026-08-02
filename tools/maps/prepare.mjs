@@ -35,7 +35,7 @@
 import { createRequire } from 'node:module'
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { ROOT } from '../lib/vite.mjs'
+import { ROOT } from '../lib/devserver.mjs'
 
 const require = createRequire(path.join(ROOT, 'e2e', 'package.json'))
 const { chromium } = require('playwright')

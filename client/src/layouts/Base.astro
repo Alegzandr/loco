@@ -1,0 +1,161 @@
+---
+// The <head> every page shares, plus the reset and the design tokens.
+//
+// The tags themselves come from src/seo/meta.ts as data, so a test can assert
+// the values rather than regex a template, and so a second page cannot quietly
+// disagree with the first about what the site is called.
+import {
+  absolute,
+  alternates,
+  social,
+  OG_IMAGE,
+  OG_LOCALE,
+  SITE_NAME,
+  LANGS,
+  type Lang,
+  type PageDef,
+} from '../seo/meta'
+// Self-hosted variable fonts: no CDN request, so the CSP stays closed and the
+// first paint never falls back to a system face mid-animation. Imported here
+// rather than from the game's entry so the content pages, which mount no React
+// at all, are typeset too.
+import '@fontsource-variable/fredoka'
+import '@fontsource-variable/nunito'
+import '../styles/tokens.css'
+
+interface Props {
+  page: PageDef
+  lang: Lang
+  /** Structured data for this page, serialised into one ld+json block. */
+  jsonLd?: object
+  /**
+   * Keeps the page out of the index, and out of the canonical/hreflang graph
+   * with it. A 404 that names a canonical is claiming to be a real page.
+   */
+  noindex?: boolean
+  /**
+   * Set by a layout that is a document rather than the game: `doc` turns text
+   * selection back on and stops the page's gradient behaving like a backdrop.
+   * The game wants neither, which is why it is opt-in.
+   */
+  bodyClass?: string
+}
+
+const { page, lang, jsonLd, noindex = false, bodyClass } = Astro.props
+const { title: ogTitle, description: ogDescription } = social(page, lang)
+const canonical = absolute(page.path[lang])
+const ogImage = absolute(OG_IMAGE.path[lang])
+const links = alternates(page)
+---
+
+<!doctype html>
+{/*
+  `data-served-lang` is what the page was *built* as, and nothing in the app ever
+  writes it. `lang` cannot play that role: the i18n provider rewrites it on every
+  language change, so reading it back to decide the language would be circular —
+  the app would be detecting its own last output rather than the document it was
+  served. See src/i18n/index.tsx.
+*/}
+<html lang={lang} data-served-lang={lang}>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ece3ff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#150c2e" />
+    {/*
+      `viewport-fit=cover` because the board paints a room and a table, and
+      without it iOS confines the page to the safe area and fills the notch and
+      home-indicator bands with the body's own colour: two dark purple strips
+      across a photograph that is meant to reach every edge. The game itself
+      still keeps clear of those bands (layout.ts: boardSpace, and the --safe-*
+      tokens the chrome offsets itself by).
+    */}
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+
+    <title>{page.title[lang]}</title>
+    <meta name="description" content={page.description[lang]} />
+
+    {/*
+      Canonical and hreflang. The set is reciprocal by construction — both sides
+      are generated from the same PageDef — which matters because Google drops a
+      hreflang set whose pages do not point back at each other.
+    */}
+    {noindex ? (
+      <meta name="robots" content="noindex, follow" />
+    ) : (
+      <>
+        <link rel="canonical" href={canonical} />
+        {links.map((l) => <link rel="alternate" hreflang={l.hreflang} href={l.href} />)}
+      </>
+    )}
+
+    {/*
+      Link preview (Discord, X, Slack, iMessage…). These crawlers do not run JS,
+      so every one of these tags has to be in the served HTML rather than set
+      from React.
+    */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={ogDescription} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content={OG_IMAGE.type} />
+    <meta property="og:image:width" content={String(OG_IMAGE.width)} />
+    <meta property="og:image:height" content={String(OG_IMAGE.height)} />
+    <meta property="og:image:alt" content={OG_IMAGE.alt[lang]} />
+    <meta property="og:locale" content={OG_LOCALE[lang]} />
+    {LANGS.filter((l) => l !== lang).map((l) => (
+      <meta property="og:locale:alternate" content={OG_LOCALE[l]} />
+    ))}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={ogTitle} />
+    <meta name="twitter:description" content={ogDescription} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={OG_IMAGE.alt[lang]} />
+
+    {/*
+      `is:inline` is required and is safe here: without it Astro treats the block
+      as a module and bundles it away, and structured data has to be in the
+      document for a crawler to read it. CSP's script-src does not apply — a
+      script whose type is not a JavaScript MIME type is a data block and is
+      never executed. csp.test.ts allows `is:inline` only for exactly this type.
+    */}
+    {jsonLd && (
+      <script type="application/ld+json" is:inline set:html={JSON.stringify(jsonLd)} />
+    )}
+
+    <style is:global>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      /* Prevent text selection and callout on long-press (mobile) */
+      body {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+      }
+      /* Prevent double-tap zoom on interactive elements */
+      button,
+      input,
+      select {
+        touch-action: manipulation;
+      }
+    </style>
+  </head>
+  <body class={bodyClass}>
+    <slot />
+  </body>
+</html>

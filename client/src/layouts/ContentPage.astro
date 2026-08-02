@@ -1,0 +1,370 @@
+---
+// The shell every content page shares: a header, one column, and the same
+// footer bar the home page carries.
+//
+// Zero JavaScript by construction. <LocoLogo /> is a React component rendered
+// *without* a client directive, so Astro turns it into static markup at build
+// time — the mark on the page is the mark in the game rather than a redrawn
+// copy, and it still costs nothing to load. The language chooser is a native
+// popover for the same reason: it dismisses on Escape and on a click outside
+// with no script behind it.
+//
+// The navigation lives in the footer, not in the header, because that is where
+// the home page puts it: one bar, pinned to the bottom of the viewport, holding
+// the same five links in the same order. A player who arrives from `/` meets the
+// same row they left, with "Play" where the home page's sheet button was.
+import Base from './Base.astro'
+import { LocoLogo } from '../components/LocoLogo'
+import { NAV, HOME, LEGAL, LANGS, LOCALE, type Lang, type PageDef } from '../seo/meta'
+import { ui } from '../content/ui'
+import '../content/content.css'
+
+interface Props {
+  page: PageDef
+  lang: Lang
+  jsonLd?: object
+}
+
+const { page, lang, jsonLd } = Astro.props
+---
+
+<Base page={page} lang={lang} jsonLd={jsonLd} bodyClass="doc">
+  <div class="page">
+    <a class="skip" href="#content">{ui('skipToContent', lang)}</a>
+
+    {/*
+      The header stays in sight for the whole page. These documents are long and
+      everything that leaves them lives up here — the mark back to `/`, the CTA,
+      and on a phone the burger that *is* the navigation, since the bar at the
+      foot is hidden at that width. A reader three screens into the rules had to
+      scroll back to the top to reach any of it. The band is full-width and the
+      row inside it keeps `--shell`, so the logo still starts at the same x as
+      the <h1> under it.
+    */}
+    <div class="headerBar" id="top">
+      <header class="siteHeader">
+        {/*
+          The burger, and only on a phone. The bar at the foot of the page is the
+          navigation everywhere there is room for it; under 46rem it had folded
+          into two lines of 12px text with nothing on it big enough to aim a thumb
+          at, so on that width the bar goes and everything it carried moves in
+          here. Native `popover`, like the language chooser beside it: Escape and
+          a tap outside both close it with no script on the page.
+        */}
+        <button
+          type="button"
+          class="menuBtn"
+          popovertarget="navPop"
+          aria-label={ui('menuLabel', lang)}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+            <path
+              d="M4 7h16M4 12h16M4 17h16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            ></path>
+          </svg>
+        </button>
+
+        <a class="brand" href={HOME.path[lang]} aria-label={ui('homeLabel', lang)}>
+          <LocoLogo size="1.5rem" />
+        </a>
+        <a class="cta" href={HOME.path[lang]}>{ui('play', lang)}</a>
+      </header>
+    </div>
+
+    {/*
+      Everything the footer bar holds, at a size a thumb can hit: the same links
+      in the same order, so the two are one navigation rendered twice rather than
+      two navigations. Only ever one of them is on screen.
+    */}
+    <div id="navPop" popover="auto" class="navPop">
+      <div class="navPopHead">
+        {/*
+          Named "Menu" rather than "LOCO": the header behind it already carries
+          the wordmark, and a drawer that repeats the brand says nothing about
+          what is in it.
+        */}
+        <p class="navPopTitle">{ui('menuLabel', lang)}</p>
+        <button
+          type="button"
+          class="navPopClose"
+          popovertarget="navPop"
+          popovertargetaction="hide"
+          aria-label={ui('menuClose', lang)}
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+            <path
+              d="M6 6l12 12M18 6L6 18"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            ></path>
+          </svg>
+        </button>
+      </div>
+
+      <nav class="navPopLinks" aria-label={ui('navLabel', lang)}>
+        <a class="navPopPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
+        {NAV.map((p) => (
+          <a href={p.path[lang]} aria-current={p.id === page.id ? 'page' : undefined}>
+            {p.navLabel?.[lang] ?? p.title[lang]}
+          </a>
+        ))}
+        <a href={LEGAL.path[lang]} aria-current={LEGAL.id === page.id ? 'page' : undefined}>
+          {ui('legalNav', lang)}
+        </a>
+      </nav>
+
+      {/*
+        The two settings, on one row at the foot of the drawer. The globe opens
+        the same `#langPop` the bar's does — a popover invoked from inside
+        another one nests rather than replacing it, so this one stays put behind
+        it, and where that is not honoured the language panel still opens, which
+        is the whole job of the button.
+      */}
+      <div class="navPopEnd">
+        <button type="button" class="themeBtn" hidden aria-label={ui('themeLabel', lang)}>
+          <svg
+            class="themeSun"
+            viewBox="0 0 24 24"
+            width="17"
+            height="17"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="4.2"></circle>
+              <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2"></path>
+              <path d="M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"></path>
+            </g>
+          </svg>
+          <svg
+            class="themeMoon"
+            viewBox="0 0 24 24"
+            width="17"
+            height="17"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linejoin="round"
+            ></path>
+          </svg>
+          <span>{ui('themeLabel', lang)}</span>
+        </button>
+
+        <button
+          type="button"
+          class="langBtn"
+          popovertarget="langPop"
+          aria-label={ui('langLabel', lang)}
+        >
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="9"></circle>
+              <ellipse cx="12" cy="12" rx="4.1" ry="9"></ellipse>
+              <path d="M3.2 9h17.6M3.2 15h17.6"></path>
+            </g>
+          </svg>
+          <span>{ui('langName', lang)}</span>
+        </button>
+      </div>
+    </div>
+
+    <main class="content" id="content">
+      <slot />
+    </main>
+
+    {/*
+      Appears once the reader is a screenful down, above the bar and out of the
+      column: these pages are long, the navigation is pinned to the *bottom*, and
+      the way back to the top was a scroll the whole way or a key a phone does
+      not have. `hidden` in the markup and revealed by `theme-boot.ts` for the
+      same reason the theme switch is — with no script it could neither know it
+      was wanted nor animate the return, and a reader with no script still has
+      the browser's own way home. A real `href`, so it works if the click
+      handler ever does not.
+    */}
+    <a class="toTop" href="#top" hidden aria-label={ui('toTop', lang)}>
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+        <path
+          d="M12 19V6M6 12l6-6 6 6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        ></path>
+      </svg>
+    </a>
+
+    <footer class="siteFooter">
+      {/*
+        First, on the left of the links, exactly where the home page's sheet
+        button sits: that row is the one thing these pages share with `/`, and a
+        control that moves between two pages is a different control.
+      */}
+      <a class="footerPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
+
+      <nav class="footerNav" aria-label={ui('navLabel', lang)}>
+        {NAV.map((p) => (
+          <a href={p.path[lang]} aria-current={p.id === page.id ? 'page' : undefined}>
+            {p.navLabel?.[lang] ?? p.title[lang]}
+          </a>
+        ))}
+      </nav>
+
+      <div class="footerEnd">
+        {/*
+          At the right-hand end, apart from the five: it is not a page anybody
+          came to read, it is the one that has to be findable from anywhere. Same
+          position on the home page, under the game.
+        */}
+        <a
+          class="footerLegal"
+          href={LEGAL.path[lang]}
+          aria-current={LEGAL.id === page.id ? 'page' : undefined}
+        >
+          {ui('legalNav', lang)}
+        </a>
+
+        {/*
+          Hidden until `theme-boot.ts` reveals it: a switch that cannot store a
+          choice is a button that does nothing, and a reader with no JavaScript
+          already gets their system's theme from the media query in tokens.css.
+          Both icons are in the markup and CSS shows the one that applies — the
+          state is on the button, so nothing has to be drawn at runtime.
+        */}
+        <button type="button" class="themeBtn" hidden aria-label={ui('themeLabel', lang)}>
+          <svg
+            class="themeSun"
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="4.2"></circle>
+              <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2"></path>
+              <path d="M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"></path>
+            </g>
+          </svg>
+          <svg
+            class="themeMoon"
+            viewBox="0 0 24 24"
+            width="15"
+            height="15"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linejoin="round"
+            ></path>
+          </svg>
+        </button>
+
+        {/*
+          A drawn globe, never a glyph: `🌐` is a different object on every
+          platform and renders as a coloured emoji next to flat 12px text.
+
+          The globe alone, with no language name beside it: the page is already
+          in that language, so the word only restated what the reader is looking
+          at, and in the bar it sat as a third piece of text next to the theme
+          switch and the legal link. The name is where the choice is made, on
+          the two links inside the panel. `aria-label` still says "Language",
+          which is what a button with no text owes a screen reader.
+        */}
+        <button
+          type="button"
+          class="langBtn"
+          popovertarget="langPop"
+          aria-label={ui('langLabel', lang)}
+        >
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <circle cx="12" cy="12" r="9"></circle>
+              <ellipse cx="12" cy="12" rx="4.1" ry="9"></ellipse>
+              <path d="M3.2 9h17.6M3.2 15h17.6"></path>
+            </g>
+          </svg>
+        </button>
+      </div>
+
+      {/*
+        Real links to the same page in the other language, not an in-app toggle:
+        it is the href that makes the hreflang pair navigable, and a crawler
+        follows nothing else. `hreflang` and `lang` describe the destination,
+        which is what stops a screen reader announcing French in an English
+        voice. They are inside the popover and therefore in the document either
+        way — a popover hides its contents, it does not withhold them.
+      */}
+      <div id="langPop" popover="auto" class="langPop">
+        {/*
+          A panel that opens over a scrim needs a way out that is visible, not
+          only one that is known: Escape and a click outside are both native to
+          `popover="auto"` and both are invisible to a reader on a phone, who has
+          neither key nor outside to press. `popovertargetaction="hide"` is the
+          same native control in the other direction, so the way out costs no
+          script either.
+        */}
+        <div class="langPopHead">
+          <p class="langPopTitle">{ui('langTitle', lang)}</p>
+          <button
+            type="button"
+            class="langPopClose"
+            popovertarget="langPop"
+            popovertargetaction="hide"
+            aria-label={ui('langClose', lang)}
+          >
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.4"
+                stroke-linecap="round"
+              ></path>
+            </svg>
+          </button>
+        </div>
+        <ul>
+          {LANGS.map((l) => (
+            <li>
+              <a
+                href={page.path[l]}
+                hreflang={LOCALE[l]}
+                lang={l}
+                aria-current={l === lang ? 'true' : undefined}
+              >
+                {ui('langName', l)}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </footer>
+  </div>
+
+  {/*
+    The only script on a content page, and it exists because tokens.css keys the
+    dark palette on `[data-theme]`: without it a player who picked dark in the
+    game lands on a white page one tap later. No `is:inline`, so Astro bundles it
+    to an external module and `script-src 'self'` is satisfied.
+  */}
+  <script>
+    import '../content/theme-boot'
+  </script>
+</Base>

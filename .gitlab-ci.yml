@@ -1,4 +1,4 @@
-image: docker:27
+image: docker:29
 
 stages:
   - test
@@ -26,7 +26,7 @@ variables:
 
 backend_lint:
   stage: test
-  image: golangci/golangci-lint:v1.64-alpine
+  image: golangci/golangci-lint:v2.12-alpine
   tags:
     - devops
   variables:
@@ -48,7 +48,7 @@ backend_lint:
 
 backend_test:
   stage: test
-  image: golang:1.24.7-alpine
+  image: golang:1.26.5-alpine
   tags:
     - devops
   cache:
@@ -86,7 +86,8 @@ backend_test:
 
 frontend_test:
   stage: test
-  image: node:20-alpine
+  # Astro 7 declares engines.node >= 22.12; the image is the current LTS.
+  image: node:24-alpine
   tags:
     - devops
   cache:
@@ -111,7 +112,7 @@ e2e_test:
   # "Executable doesn't exist at /ms-playwright/chromium_headless_shell-…",
   # which names neither of the two files that have to change.
   variables:
-    PLAYWRIGHT_VERSION: "1.58.2"
+    PLAYWRIGHT_VERSION: "1.62.1"
   image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy
   tags:
     - devops
@@ -164,7 +165,7 @@ e2e_test:
     - |
       if [ ! -s server-bin ] || [ "$(cat server-bin.sha 2>/dev/null)" != "$CI_COMMIT_SHA" ]; then
         echo "no server-bin for $CI_COMMIT_SHA in the cache, rebuilding it"
-        curl -fsSL https://go.dev/dl/go1.24.7.linux-amd64.tar.gz | tar -C /usr/local -xz
+        curl -fsSL https://go.dev/dl/go1.26.5.linux-amd64.tar.gz | tar -C /usr/local -xz
         (cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 /usr/local/go/bin/go build -o ../server-bin .)
       fi
     - chmod +x server-bin
@@ -211,7 +212,7 @@ e2e_test:
 .defaults: &defaults
   tags:
     - devops
-  image: docker:27
+  image: docker:29
   before_script:
     - set -euo pipefail
     - docker info
@@ -281,6 +282,14 @@ e2e_test:
     - set +a
     - validate_paths
     - mkdir -p "${DEPLOY_DIR}/dev" "${DEPLOY_DIR}/prod" "${DATA_DIR}" "${DATA_DIR}/snapshots"
+    # The server container runs as uid 10001 (server/Dockerfile), so the bind
+    # mount has to be writable by it: a mount overrides whatever the image
+    # chowned. 0700 because this file carries session tokens and every hand in
+    # every match that a deploy interrupted, and it lives on a host path an
+    # operator can list. Failing to write it silently loses those matches, which
+    # is exactly the failure the snapshot exists to prevent.
+    - chown 10001:10001 "${DATA_DIR}/snapshots"
+    - chmod 700 "${DATA_DIR}/snapshots"
     - echo "${CI_REGISTRY_PASSWORD:-${CI_JOB_TOKEN}}" | docker login --username "${CI_REGISTRY_USER:-gitlab-ci-token}" --password-stdin "${CI_REGISTRY}"
 
 # ──────────────────────────────────────────────────────────────────
@@ -314,7 +323,13 @@ build:
     - if: '$CI_COMMIT_TAG =~ /^v.*/'
   script:
     - docker build -t "${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}" -f server/Dockerfile server
-    - docker build -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
+    # The canonical, hreflang and og: tags are absolute and cannot be filled in
+    # at runtime — crawlers do not run JS. Without this build-arg the client
+    # falls back to the production origin, so the image built for
+    # loco-d.kisukesaama.com served a canonical and an og:url naming production.
+    # APP_HOST comes from .defaults and is already `-d.` on develop and the bare
+    # host on a v* tag, which is exactly the distinction needed here.
+    - docker build --build-arg "VITE_PUBLIC_ORIGIN=https://${APP_HOST}" -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
     - docker push "${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}"
     - docker push "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}"
 

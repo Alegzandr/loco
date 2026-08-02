@@ -1,7 +1,7 @@
 import { useI18n } from '../i18n'
 import { LocoLogo } from './LocoLogo'
-import { ThemeToggle } from './ThemeToggle'
-import { LanguageSwitcher } from './LanguageSwitcher'
+import { Preferences } from './Preferences'
+import { TableCode } from './TableCode'
 import styles from './Reconnecting.module.css'
 
 interface Props {
@@ -32,8 +32,7 @@ export function Reconnecting({ roomCode, target, onCancel }: Props) {
   return (
     <div className={styles.container}>
       <div className={styles.topBar}>
-        <LanguageSwitcher />
-        <ThemeToggle />
+        <Preferences />
       </div>
 
       <LocoLogo size="clamp(46px, 9vw, 88px)" animated />
@@ -51,7 +50,7 @@ export function Reconnecting({ roomCode, target, onCancel }: Props) {
         {roomCode && (
           <p className={styles.room}>
             <span className={styles.roomLabel}>{t.roomCodeLabel}</span>
-            <span className={styles.roomVal}>{roomCode}</span>
+            <TableCode code={roomCode} className={styles.roomVal} />
           </p>
         )}
         {/* The in-match promise is a 60 s clock; the pre-match one is not a

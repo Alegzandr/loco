@@ -33,6 +33,21 @@ export const SUIT_PAINT: Record<CardColor, SuitPaint> = {
   wild: { from: '#1c1c1c', to: '#141414', mark: ['#282828', '#242424'] },
 }
 
+// ─── Suit silhouettes (colour assist) ───────────────────────────────────────
+// One shape per suit, for players who cannot rely on the hue. Colour is the
+// rule in this game, not decoration: a card is legal because it matches the
+// pile. Chosen for their outlines rather than their prettiness — at the size a
+// card shows in a crowded fan the only thing left is the silhouette, and these
+// four differ at every corner count: three, none, four square, four turned.
+// Nothing here is a letter: `R` and `V` name different colours in the two
+// languages the game speaks, and a rotated `B` is a `D`.
+export const SUIT_SHAPE: Record<Exclude<CardColor, 'wild'>, string> = {
+  red: 'M50 13 L89 83 L11 83 Z',
+  yellow: 'M50 14 A36 36 0 1 1 49.99 14 Z',
+  green: 'M15 15 H85 V85 H15 Z',
+  blue: 'M50 9 L91 50 L50 91 L9 50 Z',
+}
+
 /** The gradient's own axis, in degrees, as CSS measures it. */
 export const SUIT_ANGLE_DEG = 35
 

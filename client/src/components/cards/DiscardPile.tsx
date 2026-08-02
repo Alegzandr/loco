@@ -3,6 +3,8 @@ import { motion } from 'framer-motion'
 import { CardDTO, CardColor } from '../../types/protocol'
 import { Card } from './Card'
 import { ACTIVE_RING, SUIT_PAINT, SUIT_ANGLE_DEG, CARD_W, CARD_H, cardKey, flightFor } from './cardTheme'
+import { SuitMark } from './suitMark'
+import { useColorAssist } from '../../hooks/useColorAssist'
 import { discardPosition } from './layout'
 import styles from './DiscardPile.module.css'
 
@@ -35,6 +37,7 @@ function hashTilt(card: CardDTO): number {
 
 // Top of the discard pile + active-color ring + pending-draw +N badge.
 export function DiscardPile({ card, activeColor, pendingDraw, width, height, topReserve = 0 }: Props) {
+  const assist = useColorAssist()
   // The pile reveals on impact, not on the message: the card is still crossing
   // the table, and showing the answer early makes the flight look decorative.
   // The one exception is the first card this pile ever shows (an opening
@@ -114,7 +117,11 @@ export function DiscardPile({ card, activeColor, pendingDraw, width, height, top
         initial={{ scale: 0.35, rotate: -22 }}
         animate={{ scale: 1, rotate: 0 }}
         transition={{ type: 'spring', stiffness: 520, damping: 18 }}
-      />
+      >
+        {/* The chip is the answer to "what can I play now?", and after a wild
+            it is the *only* place that answer is written. */}
+        {assist && <SuitMark color={activeColor} className={styles.chipMark} />}
+      </motion.div>
       {pendingDraw > 0 && (
         <motion.div
           className={styles.badge}

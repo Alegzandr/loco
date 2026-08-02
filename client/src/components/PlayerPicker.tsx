@@ -1,4 +1,5 @@
 import { PlayerDTO } from '../types/protocol'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import styles from './PlayerPicker.module.css'
 
 interface Props {
@@ -8,11 +9,22 @@ interface Props {
       both languages as "1 cards". */
   cardsLabel: (handSize: number) => string
   players: PlayerDTO[]
+  /** Accessible name of the ✕. Every way out of this panel says the same thing. */
+  cancelLabel: string
   onChoose: (playerIndex: number) => void
   onCancel: () => void
 }
 
-export function PlayerPicker({ label, cardsLabel, players, onChoose, onCancel }: Props) {
+export function PlayerPicker({
+  label,
+  cardsLabel,
+  players,
+  cancelLabel,
+  onChoose,
+  onCancel,
+}: Props) {
+  useEscapeKey(true, onCancel)
+
   return (
     <div className={styles.overlay} onClick={onCancel}>
       <div className={styles.picker} onClick={(e) => e.stopPropagation()}>
@@ -29,7 +41,9 @@ export function PlayerPicker({ label, cardsLabel, players, onChoose, onCancel }:
             </button>
           ))}
         </div>
-        <button className={styles.cancelBtn} onClick={onCancel}>✕</button>
+        <button className={styles.cancelBtn} onClick={onCancel} aria-label={cancelLabel}>
+          ✕
+        </button>
       </div>
     </div>
   )

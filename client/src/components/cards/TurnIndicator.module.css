@@ -23,8 +23,8 @@
 /* Your turn: the loudest label on the board. */
 .mine {
   font-size: 20px;
-  color: #fff;
-  background: linear-gradient(180deg, #ff6d84 0%, var(--color-primary) 100%);
+  color: var(--color-on-dark);
+  background: var(--gradient-primary);
   text-shadow: 0 2px 0 rgba(120, 10, 40, 0.45);
 }
 
@@ -48,6 +48,6 @@
   background: var(--color-surface-card);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .penalty { animation: none; }
+:root[data-motion="reduce"] .penalty {
+  animation: none;
 }

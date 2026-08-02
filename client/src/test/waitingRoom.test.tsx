@@ -25,6 +25,23 @@ function renderWaiting(players: PlayerDTO[], maxPlayers = 10, onSend = vi.fn()) 
   return { onSend, input: screen.getByRole('spinbutton') as HTMLInputElement }
 }
 
+function renderRoster(myIndex: number, players: PlayerDTO[], onSend = vi.fn()) {
+  render(
+    <I18nProvider>
+      <WaitingRoom
+        roomCode="ABC123"
+        players={players}
+        myIndex={myIndex}
+        matchFormat="BO1"
+        maxPlayers={4}
+        onSend={onSend}
+        onLeave={vi.fn()}
+      />
+    </I18nProvider>
+  )
+  return { onSend }
+}
+
 function renderSeat(myIndex: number, onLeave = vi.fn()) {
   render(
     <I18nProvider>
@@ -41,6 +58,36 @@ function renderSeat(myIndex: number, onLeave = vi.fn()) {
   )
   return { onLeave }
 }
+
+// The press on the code is the share: what leaves the screen is a link nobody
+// has to retype, in the language it was shared from. The code stays on screen
+// for the stream and for whoever is already at a lobby.
+describe('WaitingRoom sharing', () => {
+  it('copies the link to this table, not the six characters', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+    render(
+      <I18nProvider>
+        <WaitingRoom
+          roomCode="ABC234"
+          players={[player(0, 'Alice')]}
+          myIndex={0}
+          matchFormat="BO1"
+          maxPlayers={4}
+          onSend={vi.fn()}
+          onLeave={vi.fn()}
+        />
+      </I18nProvider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /ABC234/ }))
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/?t=ABC234`)
+    // And the code is still readable on the screen it was shared from.
+    expect(screen.getByText('ABC234')).toBeInTheDocument()
+  })
+})
 
 describe('WaitingRoom max players', () => {
   it('never offers a cap below the two players a match needs', () => {
@@ -72,6 +119,40 @@ describe('WaitingRoom max players', () => {
     const { onSend, input } = renderWaiting([player(0, 'Alice')])
     fireEvent.change(input, { target: { value: '6' } })
     expect(onSend).toHaveBeenCalledWith({ type: 'set_max_players', max_players: 6 })
+  })
+})
+
+// The host shapes their own table: an arrival at the wrong code, a seat that
+// will not ready up, one bot too many. Every row but their own carries it, and
+// nobody else's roster does.
+describe('WaitingRoom kicking', () => {
+  const roster = [player(0, 'Alice'), player(1, 'Bob'), player(2, 'Bot1')]
+
+  it('names the seat it frees', () => {
+    const { onSend } = renderRoster(0, roster)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from the table: Bob' }))
+    expect(onSend).toHaveBeenCalledWith({ type: 'kick_player', target_index: 1 })
+  })
+
+  it('offers a bot seat too: it is the only way to take one back', () => {
+    const { onSend } = renderRoster(0, roster)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from the table: Bot1' }))
+    expect(onSend).toHaveBeenCalledWith({ type: 'kick_player', target_index: 2 })
+  })
+
+  // The way out of your own seat is the link at the bottom, which asks first.
+  // A kick that could take seat 0 would hand the table away without saying so.
+  it('never appears on the host’s own row', () => {
+    renderRoster(0, roster)
+    expect(
+      screen.queryByRole('button', { name: 'Remove from the table: Alice' })
+    ).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Remove from the table/ })).toHaveLength(2)
+  })
+
+  it('is not a control a guest has at all', () => {
+    renderRoster(1, roster)
+    expect(screen.queryAllByRole('button', { name: /^Remove from the table/ })).toHaveLength(0)
   })
 })
 

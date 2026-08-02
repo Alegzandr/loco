@@ -20,6 +20,15 @@ services:
         expose:
             - "8080"
         restart: unless-stopped
+        # Same hardening as deploy/compose.yml, so the local stack is the one
+        # that ships. See there for why nginx gets only the first of these.
+        security_opt:
+            - no-new-privileges:true
+        cap_drop:
+            - ALL
+        read_only: true
+        tmpfs:
+            - /tmp
         healthcheck:
             test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
             interval: 10s
@@ -36,3 +45,5 @@ services:
             server:
                 condition: service_healthy
         restart: unless-stopped
+        security_opt:
+            - no-new-privileges:true
