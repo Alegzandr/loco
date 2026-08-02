@@ -162,10 +162,16 @@ export async function joinRoom(page: Page, nickname: string, roomCode: string): 
 /**
  * Enter the 1v1 queue from the home screen.
  *
- * Returns once the client is on the searching screen, which is optimistic: the
- * server's acknowledgement carries nothing (the queue's size is never on the
- * wire), so there is nothing else to wait for. What proves the pairing landed
- * is the opponent's own page reaching 'matchfound'.
+ * Returns once the client has left the lobby, which is optimistic: the server's
+ * acknowledgement carries nothing (the queue's size is never on the wire), so
+ * there is nothing else to wait for. What proves the pairing landed is the
+ * opponent's own page reaching 'matchfound'.
+ *
+ * It waits for "not the lobby any more" rather than for 'searching' itself,
+ * because the second searcher is paired by the server the moment the message
+ * lands: `beginSearch` and `match_found` can both run inside one frame, and
+ * `waitForFunction` polls on rAF, so pinning the intermediate screen made the
+ * fast path — the one this suite exists to prove — the flaky one.
  */
 export async function findMatch(page: Page, nickname: string): Promise<void> {
   await forceEnglish(page)
@@ -176,7 +182,10 @@ export async function findMatch(page: Page, nickname: string): Promise<void> {
   await page.getByPlaceholder(T.yourNickname).fill(nickname)
   await clickWithRetry(page.getByRole('button', { name: T.findMatchGo }))
   await page.waitForFunction(
-    () => window.__LOCO_E2E__?.getState?.()?.screen === 'searching',
+    () => {
+      const screen = window.__LOCO_E2E__?.getState?.()?.screen
+      return screen === 'searching' || screen === 'matchfound' || screen === 'game'
+    },
     undefined,
     { timeout: 10_000 },
   )
