@@ -160,6 +160,18 @@ export const UI: Record<string, Copy> = {
     legalJump: { en: "Jump to a document", fr: "Aller à un document" },
 
     // ── The block under the game on the home page ──────────────────────────
+    /**
+     * The home page's <h1>, in the served HTML and off the screen (`.sr-only`
+     * in tokens.css). `/` is a game: what stands where a heading would is the
+     * wordmark, which is a drawing, and the app's own heading does not exist
+     * until React has mounted. A crawler reads neither. So the document states
+     * once, in text, what the page is — and it says it the way somebody would
+     * search for it rather than the way the logo says it.
+     */
+    homeH1: {
+        en: "LOCO, a fast multiplayer card game you play in your browser",
+        fr: "LOCO, le jeu de cartes multijoueur rapide dans le navigateur",
+    },
     homeAboutH2: { en: "What LOCO is", fr: "LOCO, en deux mots" },
     homeAbout: {
         en: "A fast card game for 2 to 10 players, in the browser, free and with no signup. You match a card by colour or by number, and the round ends the second somebody empties their hand.",

@@ -6,7 +6,12 @@ import styles from './RulesButton.module.css'
  *  readers and for the tooltip. */
 export function RulesButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button className={styles.button} onClick={onClick} aria-label={label} title={label}>
+    <button
+      className={`${styles.button} hit-target`}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
         <g
           fill="none"

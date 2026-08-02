@@ -119,14 +119,20 @@ test.describe('read without JavaScript', () => {
 
     const raw = await page.locator('script[type="application/ld+json"]').innerText()
     const ld = JSON.parse(raw) as {
-      '@type': string
-      mainEntity: { name: string; acceptedAnswer: { text: string } }[]
+      '@graph': {
+        '@type': string
+        mainEntity?: { name: string; acceptedAnswer: { text: string } }[]
+      }[]
     }
     // FAQPage is the one structured-data type here that can put content straight
-    // into a result, so the data and the page have to be the same questions.
-    expect(ld['@type']).toBe('FAQPage')
-    expect(ld.mainEntity.length).toBeGreaterThan(5)
-    for (const q of ld.mainEntity) {
+    // into a result, so the data and the page have to be the same questions. It
+    // sits in the same @graph every other page emits — joined to the site and
+    // the game by @id, and carrying the breadcrumb they all carry.
+    const faq = ld['@graph'].find((n) => n['@type'] === 'FAQPage')
+    expect(faq, 'the FAQ page must declare an FAQPage node').toBeDefined()
+    expect(ld['@graph'].some((n) => n['@type'] === 'BreadcrumbList')).toBe(true)
+    expect(faq!.mainEntity!.length).toBeGreaterThan(5)
+    for (const q of faq!.mainEntity!) {
       expect(body, `question: ${q.name}`).toContain(q.name)
       expect(q.acceptedAnswer.text.length, `answer to: ${q.name}`).toBeGreaterThan(40)
     }
@@ -137,6 +143,20 @@ test.describe('read without JavaScript', () => {
     // Ordered, and there are three: the order is the answer for somebody trying
     // to get a game going right now.
     await expect(page.locator('main ol.steps > li')).toHaveCount(3)
+  })
+
+  test('the home page carries one heading, and it is not the logo', async ({ page }) => {
+    await page.goto('/')
+    // With scripts off nothing has mounted, so this is exactly what a crawler
+    // reads: for a long time it was a page with no heading at all, because the
+    // only <h1> was one the lobby rendered and the visible title is a drawing.
+    const h1 = page.locator('h1')
+    await expect(h1).toHaveCount(1)
+    const text = ((await h1.textContent()) ?? '').trim()
+    expect(text.length, 'the heading has to say what the page is').toBeGreaterThan(20)
+    expect(text, 'a heading reading "LOCO" is the wordmark again').not.toBe('LOCO')
+    // Off the screen, in the accessibility tree: clipped, never display:none.
+    await expect(h1).toHaveClass(/sr-only/)
   })
 
   test('the home page says what the game is, and links to the rest', async ({ page }) => {

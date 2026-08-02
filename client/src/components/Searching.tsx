@@ -79,7 +79,10 @@ export function Searching({ startedAt, nickname, onCancel, onCreateTable }: Prop
         </div>
       </div>
 
-      <h1 className={styles.title}>{t.searchTitle}</h1>
+      {/* An h2: the document's top-level heading is served by GamePage.astro and
+          describes the page itself. A screen inside the game heads its own
+          section. */}
+      <h2 className={styles.title}>{t.searchTitle}</h2>
 
       {/* aria-live so the stage change is announced rather than silently
           swapped: somebody using a screen reader is doing exactly the same

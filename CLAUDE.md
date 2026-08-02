@@ -479,7 +479,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   The global utility in `tokens.css` grows the hit area with a pseudo-element, so the top-right
   cluster stays a row of 40px chips (which is what `DESIGN.md` sizes it at) while the thumb gets
   `--touch-target`. Segmented options are the exception and keep their own height: expanding them
-  would have them stealing each other's taps. The same file's `.btn-chunky` and `.t-*` classes were
+  would have them stealing each other's taps. **The class needs `position: relative` on the control**
+  or the pseudo-element lands in some ancestor's box and the target silently stays 40px, which is how
+  `RulesButton` sat in a row of correct chips being the wrong one. The content pages' burger is the
+  other exception and is *drawn* at `--touch-target`: under 46rem it is the whole navigation, not a
+  chip in a row. The same file's `.btn-chunky` and `.t-*` classes were
   deleted in the same pass — they claimed to be what every control extended and nothing had ever
   imported them.
 - **Quiet is a hue, never an opacity.** `--color-muted` resolving to `--color-ink` on hover, not
@@ -652,6 +656,23 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   bar, and it is `hidden` in the markup until that script reveals it: a toggle that cannot store a
   choice is a dead control, and the reader who has no script already has their system's theme. It
   writes the key `useTheme` reads, so the choice crosses between the pages and the game.
+- **`/` serves its own `<h1>`, in text, and it is never the wordmark.** The home page is a game: what
+  stands where a title would is a *drawing* (`role="img"`), and the only heading it had was one the
+  lobby mounted, which no crawler waits for. `GamePage.astro` serves one `.sr-only` `<h1>`
+  (`ui('homeH1')`) saying what the page is in the words somebody would have typed. It stays the only
+  one: `Lobby`, `Searching` and `MapLoadingScreen` head themselves at `<h2>`, and `seo.test.ts` fails
+  on an `<h1>` anywhere under `src/components/` — Googlebot renders JS, so a second one mounting a
+  moment later leaves the page with two headings and the descriptive one loses.
+- **A title is ≤ 60 characters and a description is 100-155**, in both languages, pinned by
+  `seo.test.ts`. Past that the result is cut mid-word, and under it Google writes its own snippet.
+  French is **written to** the same ceiling, not translated into it.
+- **Structured data never asks a validator for something that does not exist.** Free is
+  `isAccessibleForFree`, never an `Offer`: a `VideoGame` with `offers`/`applicationCategory`/
+  `operatingSystem` is a `SoftwareApplication`, which makes `aggregateRating` mandatory and put a
+  critical error on every page. A content page is a `WebPage`, never an `Article`, for the same
+  reason — `Article` demands `author`, `datePublished` and `image`, and there is no editorial
+  identity here to name. What renders is the **breadcrumb** (every page, `breadcrumbJsonLd`) and the
+  FAQ's `FAQPage`; every node joins the one `#website` and the one `#game` by `@id`.
 - **`src/seo/meta.ts` is the single source.** A page appears once in `PAGES`, with its path, title
   and description **per language**; the sitemap, the `hreflang` sets, the canonical and
   `seo.test.ts` all read it. Every failure in this area is silent by nature (a page declared but

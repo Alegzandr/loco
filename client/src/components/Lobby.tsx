@@ -116,9 +116,13 @@ export function Lobby({
         <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
 
-      <h1 className={styles.title}>
+      {/* The mark, not the page's heading. `GamePage.astro` serves the one
+          top-level heading this document has, in text, before any of this
+          mounts; wrapping a logotype in a second one gave `/` two headings that
+          both said "LOCO" and neither of which said what the page was. */}
+      <div className={styles.title}>
         <LocoLogo size="clamp(58px, 11vw, 128px)" animated />
-      </h1>
+      </div>
       <p className={styles.tagline}>{t.tagline}</p>
 
       {/* An alert, not a control: it announces itself to assistive tech and

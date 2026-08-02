@@ -126,6 +126,10 @@ html:has(body.doc) {
   align-items: center;
   text-decoration: none;
   /* The mark is the link's whole accessible content, so it carries the label. */
+  /* The drawing is 25px tall and the link was exactly that: the way back to the
+     game, on a phone, at half the height a thumb is aimed with. The box grows,
+     the mark does not move — `align-items: center` was already holding it. */
+  min-height: var(--touch-target);
 }
 
 .cta {
@@ -752,8 +756,13 @@ tbody tr:last-child td {
   display: none;
   place-items: center;
   flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
+  /* --touch-target, not the 2.5rem chip the game's top row is drawn at. Those
+     get their target back from `.hit-target`, which needs a pseudo-element this
+     one has no reason to borrow: the burger is the *whole* navigation under
+     46rem, on `/` and on every content page, and it is the one control on the
+     page a thumb has to find. It is drawn at the size it is pressed at. */
+  width: var(--touch-target);
+  height: var(--touch-target);
   padding: 0;
   border: var(--stroke-thin) solid var(--color-stroke);
   border-radius: var(--radius-full);
