@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import * as v from 'valibot'
 import { render, act, screen } from '@testing-library/react'
 import { useGameStore } from '../hooks/useGameStore'
 import { I18nProvider } from '../i18n'
@@ -53,7 +54,7 @@ describe('being removed from a table', () => {
   it('is a message type the client accepts', () => {
     // useWebSocket drops anything the schema does not name, so a `kicked` that
     // is not in here leaves the player sitting at a table they no longer have.
-    expect(serverMsgTypeSchema.safeParse('kicked').success).toBe(true)
+    expect(v.safeParse(serverMsgTypeSchema, 'kicked').success).toBe(true)
   })
 
   it('puts the player back on the lobby with the reason', () => {

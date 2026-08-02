@@ -61,18 +61,20 @@ func TestTurnDeadline_AbsentDuringBotTurn(t *testing.T) {
 	dir := 1
 	sendMsg(t, conn, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
-		// Four cards so neither play leaves the seat on one (a catch window) or
-		// on none (the round ends and a fresh hand is dealt).
-		DebugHand: []protocol.CardDTO{
-			redSkip, red5,
-			{Color: "blue", Kind: "number", Value: 9},
-			{Color: "green", Kind: "number", Value: 3},
+		Debug: &protocol.DebugStateDTO{
+			// Four cards so neither play leaves the seat on one (a catch window)
+			// or on none (the round ends and a fresh hand is dealt).
+			Hand: []protocol.CardDTO{
+				redSkip, red5,
+				{Color: "blue", Kind: "number", Value: 9},
+				{Color: "green", Kind: "number", Value: 3},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
+			Direction:   &dir,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
-		DebugDirection:   &dir,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 

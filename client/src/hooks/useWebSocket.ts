@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import * as v from 'valibot'
 import { ClientMsg, ServerMsg } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
 
@@ -84,17 +85,17 @@ export function useWebSocket(onMessage: MessageHandler, getReconnectMsg?: GetRec
         console.error('Failed to parse server message JSON', e.data)
         return
       }
-      const result = serverMsgSchema.safeParse(raw)
+      const result = v.safeParse(serverMsgSchema, raw)
       if (!result.success) {
         // In dev this surfaces protocol drift between Go and TS immediately;
         // in prod we still pass the raw payload through so a single new field
         // doesn't take the client offline (forward-compat).
-        console.error('Server message failed schema validation', result.error.issues, raw)
+        console.error('Server message failed schema validation', result.issues, raw)
         if (import.meta.env.DEV) return
         onMessageRef.current(raw as ServerMsg)
         return
       }
-      onMessageRef.current(result.data)
+      onMessageRef.current(result.output)
     }
 
     ws.onerror = (e) => console.error('WebSocket error', e)

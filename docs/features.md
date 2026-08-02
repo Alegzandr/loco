@@ -52,7 +52,7 @@
 - 60-second reconnect window during active games (15 s in a matchmade 1v1, where it expires into a forfeit).
 - Client auto-reconnect with linear backoff.
 - JSON `GET /health` endpoint (room count, client count, uptime). Operator-only: nginx does not proxy it, and the container healthcheck reads it from inside.
-- `GET /metrics` endpoint: atomic counters for `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`, `goroutine_count`, `messages_rate_limited`, `messages_dropped_busy`, `slow_clients_closed`, `channel_retries`, `suspected_cheats`, `reconnect_expirations`, `matchmaking_queue`, `matches_matchmade`, `debug_mode_active`. The two matchmaking counters are the only place the queue's size is readable at all.
+- `GET /metrics` endpoint: atomic counters for `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`, `goroutine_count`, `messages_rate_limited`, `messages_dropped_busy`, `slow_clients_closed`, `channel_retries`, `suspected_cheats`, `reconnect_expirations`, `matchmaking_queue`, `matches_matchmade`, `debug_mode_active`, `handler_panics`, `conns_refused`, `joins_throttled`, and the event loop's own saturation (`loop_queue_depth`, `loop_queue_capacity`, `loop_queue_peak`, `loop_slowest_us`, `loop_events`). The two matchmaking counters are the only place the queue's size is readable at all.
 - Empty-room cleanup: rooms held 5 min after empty, then deleted; rejoin cancels the timer.
 - Structured server logging (room/match/connection lifecycle, channel-pressure warnings, suspected cheat).
 - Session tokens (128-bit, `crypto/rand`) required for reconnect, preventing slot hijacking.

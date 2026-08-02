@@ -331,12 +331,6 @@ describe('useGameStore', () => {
     expect(s.unoTimerEnd).toBeNull()
   })
 
-  it('applyPendingGameState with no pending state is a no-op', () => {
-    useGameStore.setState({ myHand: [], pendingGameState: null })
-    useGameStore.getState().applyPendingGameState()
-    expect(useGameStore.getState().myHand).toHaveLength(0)
-  })
-
   it('applyGameState resets showRoundSummary and pendingGameState', () => {
     useGameStore.setState({ showRoundSummary: true, pendingGameState: { your_index: 0, hand: [], players: [], discard: { color: 'red', kind: 'number', value: 1 }, active_color: 'red', turn: 0, direction: 1, round_number: 1, match_format: 'BO1', max_players: 10 } })
     const dto: GameStateDTO = {
@@ -588,10 +582,10 @@ describe('useGameStore', () => {
     expect(s.unoDeclaredByIndex).toBe(1)
   })
 
-  // The flip side, mirroring the server's openCatchWindowsAfterRearrange: a
-  // GlobalSwitch hands us a different single card, which nobody has heard
-  // called, so the button comes back live.
-  it('applyCardPlayed re-arms our declaration when a rearrange hands us a new last card', () => {
+  // The flip side: a GlobalSwitch hands us a different single card, which
+  // nobody has heard called, so the server puts our seat back on the hook
+  // (openCatchWindowsAfterRearrange) and the button comes back live.
+  it('applyCardPlayed re-arms our declaration when the server reopens our window', () => {
     useGameStore.setState({
       myIndex: 1,
       myDeclared: true,
@@ -605,7 +599,7 @@ describe('useGameStore', () => {
     useGameStore.getState().applyCardPlayed(0, gs, 1, 0, 'red', [
       { index: 0, nickname: 'alice', hand_size: 3, connected: true },
       { index: 1, nickname: 'bob', hand_size: 1, connected: true },
-    ])
+    ], undefined, undefined, [{ player_index: 1, ends_at: Date.now() + 5000 }])
     expect(useGameStore.getState().myDeclared).toBe(false)
   })
 
@@ -632,15 +626,23 @@ describe('useGameStore', () => {
       players: [{ index: 0, nickname: 'alice', hand_size: 2, connected: true }],
     })
     const card: CardDTO = { color: 'green', kind: 'number', value: 4 }
-    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    // The actor is down to one card, so the server opens a window on them, and
+    // a fresh window is what retires the previous declaration's banner.
+    useGameStore
+      .getState()
+      .applyCardPlayed(0, card, 1, 0, undefined, undefined, undefined, undefined, [
+        { player_index: 0, ends_at: Date.now() + 5000 },
+      ])
     expect(useGameStore.getState().unoDeclared).toBe(false)
   })
 
   // The catch window is what makes LOCO a race: it opens the moment somebody
   // else lands on a single card, NOT when they declare. Driving it off
   // uno_declared showed the Catch button only in the one situation where the
-  // server always refuses the catch.
-  it('applyCardPlayed opens the catch window when another player drops to 1 card', () => {
+  // server always refuses the catch. Which seat is on the hook is the server's
+  // answer now, carried on card_played; what is tested here is that the client
+  // offers it.
+  it('applyCardPlayed offers the catch the server named', () => {
     useGameStore.setState({
       myIndex: 1,
       players: [
@@ -649,10 +651,15 @@ describe('useGameStore', () => {
       ],
     })
     const card: CardDTO = { color: 'green', kind: 'number', value: 4 }
-    useGameStore.getState().applyCardPlayed(0, card, 1, 0, undefined)
+    const endsAt = Date.now() + 5000
+    useGameStore
+      .getState()
+      .applyCardPlayed(0, card, 1, 0, undefined, undefined, undefined, undefined, [
+        { player_index: 0, ends_at: endsAt },
+      ])
     const s = useGameStore.getState()
     expect(s.catchTarget).toBe(0)
-    expect(s.unoTimerEnd).not.toBeNull()
+    expect(s.unoTimerEnd).toBe(endsAt)
   })
 
   it('applyCardPlayed does not offer a catch on my own last card', () => {
@@ -685,19 +692,12 @@ describe('useGameStore', () => {
     expect(s.unoDeclaredByIndex).toBe(0)
   })
 
-  it('clearCatchWindow closes the catch affordance', () => {
-    useGameStore.setState({ catchTarget: 3, unoTimerEnd: 1700000099000 })
-    useGameStore.getState().clearCatchWindow()
-    const s = useGameStore.getState()
-    expect(s.catchTarget).toBeNull()
-    expect(s.unoTimerEnd).toBeNull()
-  })
-
   // Receiving your last card owes the table a declaration just like playing
   // down to it, and a Swap puts TWO seats on the hook at once: the actor, who
   // received the opponent's single card, and the opponent, who received the
-  // actor's leftover. Mirrors the server's per-seat catch windows.
-  it('applyCardPlayed opens a window for every seat left on one card by a swap', () => {
+  // actor's leftover. The server works that out (openCatchWindowsAfterRearrange)
+  // and names both seats; this is the client holding both of them open.
+  it('applyCardPlayed holds a window open for every seat the server named', () => {
     useGameStore.setState({
       myIndex: 2,
       catchWindows: [],
@@ -708,11 +708,15 @@ describe('useGameStore', () => {
       ],
     })
     const swap: CardDTO = { color: 'red', kind: 'swap' }
+    const endsAt = Date.now() + 5000
     useGameStore.getState().applyCardPlayed(0, swap, 1, 0, 'red', [
       { index: 0, nickname: 'alice', hand_size: 1, connected: true },
       { index: 1, nickname: 'bob', hand_size: 1, connected: true },
       { index: 2, nickname: 'carol', hand_size: 4, connected: true },
-    ], 1)
+    ], 1, undefined, [
+      { player_index: 0, ends_at: endsAt },
+      { player_index: 1, ends_at: endsAt },
+    ])
     const seats = useGameStore.getState().catchWindows.map((w) => w.seat).sort()
     expect(seats).toEqual([0, 1])
   })
@@ -728,11 +732,15 @@ describe('useGameStore', () => {
       ],
     })
     const gs: CardDTO = { color: 'wild', kind: 'global_switch' }
+    const endsAt = Date.now() + 5000
     useGameStore.getState().applyCardPlayed(0, gs, 1, 0, 'blue', [
       { index: 0, nickname: 'alice', hand_size: 1, connected: true },
       { index: 1, nickname: 'bob', hand_size: 3, connected: true },
       { index: 2, nickname: 'carol', hand_size: 1, connected: true },
-    ], -1)
+    ], -1, undefined, [
+      { player_index: 0, ends_at: endsAt },
+      { player_index: 2, ends_at: endsAt },
+    ])
     const s = useGameStore.getState()
     expect(s.catchWindows.map((w) => w.seat).sort()).toEqual([0, 2])
     // Ours is never the offered catch; carol's is.
@@ -741,7 +749,7 @@ describe('useGameStore', () => {
 
   // Closing one seat's window must not release the others — after a rotation
   // the slow ones would get a free pass.
-  it('closeCatchWindow retires one seat and promotes the next', () => {
+  it('a caught seat is retired and the next one is promoted', () => {
     const now = Date.now()
     useGameStore.setState({
       myIndex: 3,
@@ -752,7 +760,7 @@ describe('useGameStore', () => {
       catchTarget: 0,
       unoTimerEnd: now + 2000,
     })
-    useGameStore.getState().closeCatchWindow(0)
+    useGameStore.getState().applyUnoCaught(0)
     const s = useGameStore.getState()
     expect(s.catchWindows.map((w) => w.seat)).toEqual([1])
     expect(s.catchTarget).toBe(1)
@@ -930,17 +938,6 @@ describe('useGameStore', () => {
     const s = useGameStore.getState()
     expect(s.catchWindows).toEqual([])
     expect(s.catchTarget).toBeNull()
-  })
-
-  it('setUnoTimerEnd records timer timestamp', () => {
-    useGameStore.getState().setUnoTimerEnd(1700000099000)
-    expect(useGameStore.getState().unoTimerEnd).toBe(1700000099000)
-  })
-
-  it('setUnoTimerEnd clears timer with null', () => {
-    useGameStore.setState({ unoTimerEnd: 1700000099000 })
-    useGameStore.getState().setUnoTimerEnd(null)
-    expect(useGameStore.getState().unoTimerEnd).toBeNull()
   })
 
   // ──────────────────────────────────────────────────────────────

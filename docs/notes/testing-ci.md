@@ -5,6 +5,69 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## An untested path is where the bugs are
+
+TDD, tests first for non-trivial behaviour, deterministic clocks for timing logic. **When a document
+in this repository states an invariant, there must be a test that fails without it**, and the reason
+that is written as a rule rather than as advice is that it has been broken three times, expensively:
+
+- `DrawCard` mutated state before an all-or-nothing draw, and `applyCardPlayed` removed one card
+  where the server had removed N. Both sat in the only paths with no test at all, and `CLAUDE.md`
+  described both as already fixed — one of them naming a function that did not exist.
+- A card-foil system (`.foil`, `.glint`, `holoOffsetMs`) was documented in detail and existed nowhere
+  in the code. Found 2026-08-01. Prose is not compiled, which is what `docPaths.test.ts` now answers.
+
+**Beware an assertion that only restates its fixture.** An E2E test once sent an interrupt, then
+asserted the discard and the turn that `debug_set_state` had itself just configured. It passed for
+months while the server rejected every interrupt with "interrupt window closed".
+
+Keep tests fast, targeted, non-brittle, and cover game rules over UI details. Review layout, colour
+and motion changes with `make visual` instead: reading four contact sheets catches what no assertion
+was going to describe. Assertions own behaviour, screenshots own appearance.
+
+### Required coverage
+
+Room create/join. Nickname entry **and its validation** — the shapes refused, the disguises the
+normalisation is supposed to see through, and the legitimate names that must keep playing, because a
+filter is only as good as its false-positive list. Game start, turn progression, legal and illegal
+moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter and
+catch windows, simultaneous resolution.
+
+Reconnect (60s, nickname + room code) **and session restore across a page reload**. Rematch: the ask
+**everybody** at the table has to make, one ask dealing nothing, a departure retiring an ask and
+completing what is left of the agreement, seat pruning, re-indexing.
+
+Protocol validation and rejection. The two client mirrors of a server rule (the table code's alphabet
+and length, the nickname's shape) held against the Go source rather than against a second copy of the
+same belief (`serverMirrors.test.ts`). **Every path the docs name** (`docPaths.test.ts`) — and do not
+add a phantom path to that test's allowlist to make it pass: the allowlist is for paths named in
+order to say they are absent, and widening it to cover a claim about the structure is how the guard
+stops guarding. The store completing its own derived state (`catchDerivation.test.ts`).
+
+The table link: what the code's button copies, the code coming off the address bar, the arrival a
+remembered name seats and the one that is asked for a name first. Seat layout at every table size and
+viewport. State-to-sound mapping. The host freeing a seat: the refusals, the re-based roster, the
+bot's row, and the line the removed player is left holding. Score table.
+
+Matchmaking: pairing, cancel, disconnect-out-of-queue, the host controls a matchmade room refuses,
+the requeue an opponent's departure triggers, and every forfeit path (quit, disconnect, AFK).
+Link-preview tags against the committed `og.png`. Map draw, the loading gate and `tableImageRect` at
+every board size. Batch play and batch interrupt, unit **and** E2E. A draw against exhausted piles.
+`Origin` checking. The legal disclosures and the truncation of every logged address. Bots
+interjecting.
+
+The table's own bookkeeping (`server/hub/table_internal_test.go`): seating a client leaves no pointer
+behind on the table it left, a removal shifts the members and the bots and the tokens and the
+`playerID`s together, and a reset clears the map gate but not the roster. The hardening in
+`server/hub/hardening_test.go`: a gameplay message at a table that has not dealt, a handler that
+panics on demand, every ceiling, the wrong-code budget **and** the mistyped code that must still get
+in, the reclaim refusal that names nothing, the reclaim that rotates its token.
+
+And the graceful shutdown: what a drain refuses, what it leaves alone, and a full restart where a
+match is snapshotted, reloaded by a fresh hub and reclaimed by both players with their original
+tokens. That last one has **no E2E counterpart on purpose** — see "The graceful shutdown is
+deliberately not covered here" below.
+
 ## Playwright E2E
 - Lives in `e2e/` (separate `package.json`). `@playwright/test` + Chromium + Pixel 5.
 - Needs Go server `:8080`. Playwright starts an isolated dev server on `:4173`, with `--ignore-lock`
@@ -28,6 +91,24 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
   is not playable, so `handleCardClick` refuses to open its picker — a fixture using a
   `{ color: 'wild', kind: 'swap' }`, a card that exists in no deck, failed on every run once the
   legality check moved ahead of the prompt.
+- **`backend_test` runs `-race`, and gcc is installed for it.** This server is one event loop plus
+  two goroutines per socket, so a data race is not a lint finding here: it is the hidden-state
+  guarantee coming apart under load, on the one process that owns every hand at every table.
+
+  It was added after finding a real one that had been in the suite for months. `Hub.Stop` closed
+  `h.quit` and returned without waiting, so everything after it ran alongside a loop that was still
+  dispatching — in production a process that could exit mid-handler, and in the tests fourteen
+  simultaneous races, because every timing test narrows a package-level tunable (`BotThinkDelay` and
+  a dozen others) and restores it in a `t.Cleanup` the loop was still reading. One `<-h.stopped` in
+  `Stop` closed the whole class. Nothing about it was subtle; it was invisible because **nothing ever
+  passed the flag**, which is the actual defect this line fixes.
+
+  One run, not two. The instrumented binary is not the one that ships, but this suite is dominated by
+  real sleeps and reaction windows rather than by CPU, so `-race` costs it about two seconds
+  (17.5s → 19.4s) and keeping a second uninstrumented run would buy nothing this job can observe.
+  `server-bin` is still built `CGO_ENABLED=0`, stated explicitly now that the test run turns cgo on.
+  `hub/table_internal_test.go` pins `Stop`'s half of it deterministically, by parking the loop inside
+  a handler whose reply nobody is reading yet; the flag is what covers the next one.
 - **The graceful shutdown is deliberately not covered here.** A drain and a snapshot restore are
   properties of the *process*, and the suite runs against a server it does not own and cannot restart
   underneath itself. `server/hub/drain_test.go` and `server/hub/snapshot_test.go` are the coverage,
@@ -38,10 +119,15 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
 - `webServer` env vars go in `playwright.config.ts`'s `env` object, **not** a `VAR=x cmd` shell prefix — the prefix form is POSIX-only and breaks when the suite runs from Windows.
 - Prefer `waitForFunction` + store state over DOM polling. Few high-value tests > many fragile.
 - **Update E2E in same commit as gameplay/UI/protocol changes.**
+- **The fixture's payload is one nested object on the wire** (`{"type":"debug_set_state","debug":{...}}`,
+  `protocol.DebugStateDTO`), not seven `debug_*` fields on every message a client can send. No
+  player's client ever fills it; `e2e/helpers/game.ts` is the only thing that builds it, and
+  `protocol/messages_test.go` pins the bytes so a rename on one side cannot silently deal every
+  Playwright table unconfigured.
 - **Pin the direction with `debugSetState({ direction: 1 })` in any test that computes a seat.**
   `waitForMyTurn` lets the bots play first, and one Reverse among them mirrors the table: a
   3-player Skip then lands on `myIdx-2` instead of `myIdx+2`, and the run reads as a rules bug.
-  This is what `debug_direction` exists for — the CI failure it fixes reproduced roughly one run in
+  This is what `debug.direction` exists for — the CI failure it fixes reproduced roughly one run in
   ten and pointed at the Skip rule, which was correct all along.
 - The **interrupt window is only armed by a real play** — `debug_set_state` leaves it closed, so a
   successful-interrupt test must have somebody actually play first. Who interrupts no longer matters
@@ -73,17 +159,23 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
 ## CI/CD
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
 - `test` (every push):
-  - `backend_test` (`golang:1.26.5-alpine`): `cd server && go test ./...` + builds `server-bin`,
+  - `backend_test` (`golang:1.26.5-alpine`): `cd server && go test -race ./...` + builds `server-bin`,
     handed to `e2e_test` through the cache (see "This runner cannot upload artifacts").
   - `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs `server-bin` + Playwright,
     `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
   - `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
+  - `protocol_check` (`golang:1.26.5-alpine`): regenerates the client's protocol types and schemas
+    from `server/protocol/` and fails if the result differs from what is committed. Without it the
+    generator is a suggestion, and the two files drift back into being hand-maintained copies the
+    first time somebody edits one directly. No cache: the generator is stdlib-only and compiles in
+    about a second, and a third job pushing a Go cache key would race the two that already do.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
   Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
   build started the moment those two finished, so the lint and the entire Playwright suite were
   advisory — red on `develop` still shipped to dev, and a version tag still shipped to prod.
 - Deploy: `devops` runner tag + GitLab registry. `deploy_dev` auto on `develop`; `deploy_prod` auto on `v*`; `stop_dev` manual.
+- `DEPLOY_DEV` (default `"true"`) gates `deploy_dev` only, and turns it manual rather than removing it: `build` keeps pushing the images so the rollout stays one click away. Tested as `!= "true"` so a mistyped value stops the deploy instead of allowing it. See `docs/deployment.md`.
 - **GitLab (`origin`) is the only CI.** The `gh` remote is a plain mirror with no pipeline of its
   own: `.gitlab-ci.yml` is the single definition, so there is nothing to keep in sync. A push to the
   mirror is verified by whatever the same commit did on GitLab, not by GitHub.

@@ -2,24 +2,33 @@ package hub
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"loco/server/game"
 	"loco/server/protocol"
 )
 
-// --- DTO conversion ---
-
 func cardToDTO(c game.Card) *protocol.CardDTO {
 	return &protocol.CardDTO{
 		Color: colorName(c.Color),
-		Kind:  c.Kind.String(),
+		Kind:  kindName(c.Kind),
 		Value: c.Value,
 	}
 }
 
-func dtoToCard(dto *protocol.CardDTO, chosenColorStr string) (game.Card, game.Color, error) {
+// cardDTOs converts a run of cards for the wire's value-slice fields
+// (ServerMsg.Cards). Three callers built this loop by hand, and one of them
+// sized the slice from a count while filling it from a different slice, which
+// would have put a null on the wire the day the two stopped agreeing.
+func cardDTOs(cards []game.Card) []protocol.CardDTO {
+	out := make([]protocol.CardDTO, len(cards))
+	for i, c := range cards {
+		out[i] = *cardToDTO(c)
+	}
+	return out
+}
+
+func dtoToCard(dto *protocol.CardDTO, chosenColorStr protocol.CardColor) (game.Card, game.Color, error) {
 	col, err := parseColor(dto.Color)
 	if err != nil {
 		return game.Card{}, 0, err
@@ -40,69 +49,79 @@ func dtoToCard(dto *protocol.CardDTO, chosenColorStr string) (game.Card, game.Co
 	return game.Card{Color: col, Kind: kind, Value: dto.Value}, chosen, nil
 }
 
-func colorName(c game.Color) string { return c.String() }
+// The four functions below are the only crossing between the domain's enums and
+// the wire's. They name protocol constants rather than string literals so that
+// the set they translate is the set enums_test.go pins to the domain: a literal
+// here would have been a third spelling, agreeing with nothing.
 
-func parseColor(s string) (game.Color, error) {
-	switch strings.ToLower(s) {
-	case "red":
+func colorName(c game.Color) protocol.CardColor { return protocol.CardColor(c.String()) }
+
+func kindName(k game.Kind) protocol.CardKind { return protocol.CardKind(k.String()) }
+
+func parseColor(s protocol.CardColor) (game.Color, error) {
+	// An empty chosen_color reads as Wild, which is what a card carries before
+	// its owner names a colour. Every entry point still refuses a wild that
+	// reaches a play without one.
+	switch protocol.CardColor(strings.ToLower(string(s))) {
+	case protocol.ColorRed:
 		return game.Red, nil
-	case "yellow":
+	case protocol.ColorYellow:
 		return game.Yellow, nil
-	case "green":
+	case protocol.ColorGreen:
 		return game.Green, nil
-	case "blue":
+	case protocol.ColorBlue:
 		return game.Blue, nil
-	case "wild", "":
+	case protocol.ColorWild, "":
 		return game.Wild, nil
 	}
 	return 0, fmt.Errorf("unknown color: %q", s)
 }
 
-func parseKind(s string) (game.Kind, error) {
-	switch strings.ToLower(s) {
-	case "number":
+func parseKind(s protocol.CardKind) (game.Kind, error) {
+	switch protocol.CardKind(strings.ToLower(string(s))) {
+	case protocol.KindNumber:
 		return game.Number, nil
-	case "skip":
+	case protocol.KindSkip:
 		return game.Skip, nil
-	case "reverse":
+	case protocol.KindReverse:
 		return game.Reverse, nil
-	case "draw_two":
+	case protocol.KindDrawTwo:
 		return game.DrawTwo, nil
-	case "wild":
+	case protocol.KindWild:
 		return game.WildCard, nil
-	case "wild_draw_four":
+	case protocol.KindWildDrawFour:
 		return game.WildDrawFour, nil
-	case "swap":
+	case protocol.KindSwap:
 		return game.Swap, nil
-	case "global_switch":
+	case protocol.KindGlobalSwitch:
 		return game.GlobalSwitch, nil
 	}
 	return 0, fmt.Errorf("unknown kind: %q", s)
 }
 
-func matchFormatString(f game.MatchFormat) string {
+func matchFormatString(f game.MatchFormat) protocol.MatchFormat {
 	switch f {
 	case game.BO1:
-		return "BO1"
+		return protocol.FormatBO1
 	case game.BO3:
-		return "BO3"
+		return protocol.FormatBO3
 	case game.BO5:
-		return "BO5"
+		return protocol.FormatBO5
 	case game.BO7:
-		return "BO7"
+		return protocol.FormatBO7
 	}
-	return "BO1"
+	return protocol.FormatBO1
 }
 
-func parseMatchFormat(s string) (game.MatchFormat, error) {
-	switch strings.ToUpper(s) {
-	case "BO1":
+func parseMatchFormat(s protocol.MatchFormat) (game.MatchFormat, error) {
+	switch protocol.MatchFormat(strings.ToUpper(string(s))) {
+	case protocol.FormatBO1:
 		return game.BO1, nil
-	case "BO3":
+	case protocol.FormatBO3:
 		return game.BO3, nil
-	case "BO5":
+	case protocol.FormatBO5:
 		return game.BO5, nil
-	case "BO7":
+	case protocol.FormatBO7:
 		return game.BO7, nil
 	}
 	return 0, fmt.Errorf("invalid match format %q: must be BO1, BO3, BO5, or BO7", s)
@@ -112,41 +131,3 @@ func parseMatchFormat(s string) (game.MatchFormat, error) {
 // value must survive `omitempty` (see protocol.ServerMsg.PendingDraw).
 func intPtr(v int) *int    { return &v }
 func boolPtr(v bool) *bool { return &v }
-
-// --- Broadcast helpers ---
-
-// broadcastCardPlayed sends a card_played event for the top discard card to all room members.
-// It also includes the updated player list so clients learn about finish/placement changes.
-// If the round is not over, it schedules (or resets) the per-turn timer for the next player.
-// chosenPlayer is the swap target index (>= 0) when the played card was a Swap; pass -1 otherwise.
-func (h *Hub) broadcastCardPlayed(code string, playerID int, room *game.Room, chosenPlayer int) {
-	if !room.RoundEnded {
-		h.scheduleTurnTimer(code, room)
-	}
-	state := room.State
-	top := state.Discard[len(state.Discard)-1]
-	msg := protocol.ServerMsg{
-		Type:         protocol.SMsgCardPlayed,
-		PlayerIndex:  intPtr(playerID),
-		Card:         cardToDTO(top),
-		ActiveColor:  colorName(state.ActiveColor),
-		Turn:         state.CurrentTurn,
-		Direction:    state.Direction,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		Players:      h.playerList(room),
-		TurnDeadline: h.turnDeadlineMs(code),
-	}
-	if top.Kind == game.Swap && chosenPlayer >= 0 {
-		cp := chosenPlayer
-		msg.ChosenPlayer = &cp
-	}
-	h.broadcastToRoomAll(code, msg)
-}
-
-// --- Validation helpers ---
-
-var roomCodeRe = regexp.MustCompile(`^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$`)
-
-// validRoomCode returns true if code matches the 6-character room code alphabet.
-func validRoomCode(code string) bool { return roomCodeRe.MatchString(strings.ToUpper(code)) }

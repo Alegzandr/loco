@@ -28,7 +28,7 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 | Bundler   | **Vite** (via Astro)    | Near-instant dev server, fast HMR                                     |
 | Rendering | **React + Framer Motion** | DOM-based card rendering with declarative motion-driven animations    |
 | State     | **Zustand**             | Minimal, fast React global state without boilerplate                  |
-| Validation| **Zod**                 | Runtime schema for inbound `ServerMsg`; static types are inferred from it (no Go↔TS type drift) |
+| Validation| **Valibot**             | Runtime schema for inbound `ServerMsg`. Both it and the TypeScript types are **generated from `server/protocol/`** by `make protocol`, so Go↔TS drift is not caught late, it is not possible: CI regenerates and fails on any difference. Valibot rather than Zod because Zod 4 JIT-compiles schemas with `Function()`, which the production CSP refuses |
 | Audio     | **Web Audio API** (hand-rolled) | Every sound is synthesised at runtime: no files to download, no licences, no cache-miss silence |
 | Type      | **Fredoka + Nunito** (self-hosted, `@fontsource`) | Rounded display faces that match the art direction; self-hosted so the CSP stays closed |
 | Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest runs on Astro's own Vite config (`getViteConfig`), so tests resolve modules exactly as the build does |
@@ -45,6 +45,8 @@ loco/
 ├── server/                # Go game server
 │   ├── game/              # Authoritative domain logic (cards, deck, hand, room, rules, bot)
 │   ├── hub/               # WebSocket event loop, rate limiting, session tokens, room cleanup
+│   │                      #   table.go is one table as one object; hub.go is the loop
+│   │                      #   one file per thing a message leads to (rooms, gameplay, bots, …)
 │   ├── protocol/          # Wire message schema (client ↔ server)
 │   ├── main.go
 │   └── Dockerfile
@@ -61,10 +63,11 @@ loco/
 │   │   ├── components/cards/  # React + Framer Motion card renderer (GameBoard, Hand, Card, AnimationLayer, …)
 │   │   ├── audio/         # Synthesised SFX, music engine, tracks/ (music as data), store bridge
 │   │   ├── dev/           # Dev-only visual showcase (scene registry, tree-shaken in prod)
-│   │   ├── hooks/         # WebSocket transport + Zustand store + held-key hook + preferences (theme, streamer mode)
+│   │   ├── hooks/         # WebSocket transport + inbound message routing + preferences (theme, streamer mode)
+│   │   ├── hooks/store/   # The Zustand store: one state shape, five families of transitions
 │   │   ├── i18n/          # I18nProvider + en/fr translations + server-error copy
 │   │   ├── styles/        # Design tokens (single source of truth for colour/type/shape)
-│   │   ├── types/         # Protocol TypeScript types
+│   │   ├── types/         # Protocol types + schemas — GENERATED, run `make protocol`, never edit
 │   │   └── test/          # Vitest unit tests
 │   ├── public/maps/       # Map art: <id>/room.webp + table.webp, see "Map art"
 │   ├── nginx.conf         # Production reverse proxy
@@ -599,6 +602,8 @@ GitLab CI pipeline (`.gitlab-ci.yml`) runs `test → build → deploy`; producti
 `build` depends on **every** test job — Go tests, `golangci-lint`, the client suite and the full Playwright run. Listing only a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the build started as soon as those two finished, so the lint and the E2E suite were advisory and a red `develop` still shipped.
 
 GitLab is the only CI. The GitHub remote is a plain mirror with no pipeline of its own, so `.gitlab-ci.yml` is the single definition and there is nothing to keep in sync.
+
+**`DEPLOY_DEV` decides whether a push to `develop` reaches `loco-d`.** It defaults to `"true"`; set it to anything else (Settings → CI/CD → Variables, or the dropdown in the *Run pipeline* form for one run) and `deploy_dev` becomes a **manual** job instead of disappearing. `build` runs either way and pushes both images, so turning the switch off costs a click rather than another push. The condition is `!= "true"`, not `== "false"`: a variable someone typed `0` or `no` into must not read as "deploy anyway". Production is untouched by it — a `v*` tag always deploys.
 
 ### Deploying without interrupting a match
 

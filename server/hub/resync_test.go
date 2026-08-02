@@ -42,13 +42,15 @@ func TestPlayCard_IllegalPlayResyncsTheClient(t *testing.T) {
 	zero := 0
 	dir := 1
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{redSwap, {Color: "red", Kind: "number", Value: 2}},
-		DebugDiscard:     &protocol.CardDTO{Color: "yellow", Kind: "number", Value: 4},
-		DebugActiveColor: "yellow",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
-		DebugDirection:   &dir,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{redSwap, {Color: "red", Kind: "number", Value: 2}},
+			Discard:     &protocol.CardDTO{Color: "yellow", Kind: "number", Value: 4},
+			ActiveColor: "yellow",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
+			Direction:   &dir,
+		},
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
@@ -121,13 +123,15 @@ func TestInterrupt_LostRaceDoesNotResync(t *testing.T) {
 	zero := 0
 	dir := 1
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{red5, {Color: "red", Kind: "number", Value: 2}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
-		DebugDirection:   &dir,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{red5, {Color: "red", Kind: "number", Value: 2}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
+			Direction:   &dir,
+		},
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 

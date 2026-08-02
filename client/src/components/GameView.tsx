@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { CardDTO, CardColor, ClientMsg } from '../types/protocol'
-import { useGameStore, SwapNotice, UNO_CATCH_WINDOW_MS } from '../hooks/useGameStore'
+import { CardColor, ClientMsg } from '../types/protocol'
+import { useGameStore, UNO_CATCH_WINDOW_MS } from '../hooks/useGameStore'
 import { useDrainBar } from '../hooks/useDrainBar'
 import { useCountdown } from '../hooks/useCountdown'
 import { useReconnectAnimation } from '../hooks/useReconnectAnimation'
 import { useHeldKey } from '../hooks/useHeldKey'
+import { useCardPlay } from '../hooks/useCardPlay'
+import { useAutoClear } from '../hooks/useAutoClear'
+import { useBoardShake } from '../hooks/useBoardShake'
+import { useMapGate } from '../hooks/useMapGate'
+import { useTurnCountdownSfx } from '../hooks/useTurnCountdownSfx'
 import { useI18n } from '../i18n'
-import { Translations } from '../i18n/en'
 import { resolveServerError } from '../i18n/serverErrors'
 import { WsStatus } from '../hooks/useWebSocket'
 import { RulesButton } from './RulesButton'
@@ -21,15 +25,13 @@ import { InterruptBanner } from './InterruptBanner'
 import { CatchBanner } from './CatchBanner'
 import { Preferences } from './Preferences'
 import { AudioSettings } from './AudioSettings'
-import { playSfx } from '../audio/sfx'
-import { clientMayInterrupt, clientMayPlay, isCounterCard } from './interruptHelpers'
 import { GameBoard, GameBoardHandle } from './cards/GameBoard'
 import { resolveMap } from './cards/maps'
 import { MapLoadingScreen } from './MapLoadingScreen'
 import { OpponentAway } from './OpponentAway'
 import { ServerUpdating } from './ServerUpdating'
-import { useMapPreload } from '../hooks/useMapPreload'
-import { prefersReducedMotion } from '../hooks/useMotionPref'
+import { useE2EPlayCard } from '../dev/e2eBridge'
+import { resolveSwapNoticeText } from './swapNoticeText'
 import styles from './GameView.module.css'
 
 interface Props {
@@ -40,45 +42,28 @@ interface Props {
 const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
 const SWAP_NOTICE_MS = 3500
 const CATCH_FAIL_NOTICE_MS = 2800
-/** Seconds of remaining turn time at which the countdown ticks start. */
-const TURN_COUNTDOWN_FROM = 5
+/** How long an in-game refusal stays on screen. */
+const ERROR_TOAST_MS = 2500
 
-// resolveSwapNoticeText picks the right i18n template (with you-as-actor / you-as-target
-// variants for swap, or cw/ccw for global_switch) and substitutes %actor / %target.
-function resolveSwapNoticeText(
-  notice: SwapNotice,
-  myIndex: number,
-  players: { index: number; nickname: string }[],
-  t: Translations,
-): string {
-  const actor = players.find((p) => p.index === notice.actorIndex)?.nickname ?? `P${notice.actorIndex}`
-  const target = notice.targetIndex >= 0
-    ? (players.find((p) => p.index === notice.targetIndex)?.nickname ?? `P${notice.targetIndex}`)
-    : ''
-  if (notice.kind === 'swap') {
-    const tpl = notice.actorIndex === myIndex
-      ? t.swapNoticeYouActor
-      : notice.targetIndex === myIndex
-        ? t.swapNoticeYouTarget
-        : t.swapNotice
-    return tpl.replace('%actor', actor).replace('%target', target)
-  }
-  // direction === 1 means clockwise (next-seat); -1 means counter-clockwise.
-  const tpl = notice.direction >= 0 ? t.globalSwitchNoticeCw : t.globalSwitchNoticeCcw
-  return tpl.replace('%actor', actor)
+/**
+ * The board is still there, something is being waited on. Used twice with the
+ * same markup (the server rebuilding our seat, and the socket being down)
+ * because they are the same object to the player: a curtain with a reason on it.
+ */
+function StatusOverlay({ text, sub }: { text: string; sub: string }) {
+  return (
+    <div className={styles.reconnectOverlay}>
+      <div className={styles.reconnectCard}>
+        <div className={styles.reconnectSpinner} />
+        <div className={styles.reconnectText}>{text}</div>
+        <div className={styles.reconnectSub}>{sub}</div>
+      </div>
+    </div>
+  )
 }
 
 export function GameView({ onSend, wsStatus }: Props) {
   const { t } = useI18n()
-  // `interrupt` routes the confirmed choice to interrupt_play_card instead of
-  // play_card, `counter` to counter_draw (a +4 answering a pending stack still
-  // names a colour); `copies` carries a batch slam through the colour prompt.
-  const [colorPicker, setColorPicker] = useState<
-    { card: CardDTO; idx: number; interrupt?: boolean; counter?: boolean; copies?: CardDTO[] } | null
-  >(null)
-  const [playerPicker, setPlayerPicker] = useState<
-    { card: CardDTO; idx: number; interrupt?: boolean } | null
-  >(null)
   // Per-control timestamp of the last accepted tap; see guardDoubleTap.
   const lastActionRef = useRef<Map<string, number>>(new Map())
   const [showRules, setShowRules] = useState(false)
@@ -158,130 +143,32 @@ export function GameView({ onSend, wsStatus }: Props) {
     fn()
   }, [])
 
-  // Returns true when the tap actually sent a play, which is what <GameBoard />
-  // keys the hand→discard flight off. A refused card and a card that only opens
-  // a prompt both return false.
-  const handleCardClick = useCallback(
-    (card: CardDTO, cardIdx: number): boolean => {
-      // Out-of-turn path: realtime "lead-taking" interrupt. If the tapped card
-      // is an exact match of the top discard, send interrupt_play_card (the
-      // server enforces the time window and ordering). Otherwise ignore the tap.
-      if (currentTurn !== myIndex) {
-        if (!clientMayInterrupt(card, discard, pendingDraw)) return false
-        // Auto-batch: if the player holds multiple identical copies, send them all
-        // in a single interrupt — the rule allows playing any number of identical
-        // matching cards together. Swap and global_switch never batch.
-        const copies = myHand.filter(
-          (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
-        )
-        const batch = copies.length > 1 ? copies : undefined
-        // Wilds can take the lead too, and they still need their colour named
-        // global_switch included: it rotates the hands *and* sets the colour.
-        if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
-          setColorPicker({
-            card,
-            idx: cardIdx,
-            interrupt: true,
-            copies: card.kind === 'global_switch' ? undefined : batch,
-          })
-          return false
-        }
-        if (card.kind === 'swap') {
-          setPlayerPicker({ card, idx: cardIdx, interrupt: true })
-          return false
-        }
-        onSend({ type: 'interrupt_play_card', card, play_cards: batch })
-        return true
-      }
-      // Answering a pending +2/+4 stack is its own message. Any matching draw
-      // card counters, whatever its colour — the server compares kinds only.
-      // Sending play_card here is always refused ("must counter or draw pending
-      // penalty cards first"), which used to make stacking unreachable by tap.
-      if (pendingDraw > 0) {
-        if (!isCounterCard(card, discard, pendingDraw)) return false
-        if (card.kind === 'wild_draw_four') {
-          setColorPicker({ card, idx: cardIdx, counter: true })
-          return false
-        }
-        onSend({ type: 'counter_draw', card, chosen_color: card.color })
-        return true
-      }
-      // Block clearly-invalid plays so there's no "fake" play UI flash.
-      // Server is always authoritative; this is a UX hint only.
-      //
-      // This has to come *before* the prompts, not after. The three wilds always
-      // match, so gating them made no difference — but Swap is a coloured card
-      // and obeys the ordinary matching rules, so an off-colour Swap opened its
-      // target prompt, took a choice, and was refused by the server with an
-      // "illegal card play" warning. Asking a question and then rejecting the
-      // answer is a worse refusal than the silent one every other unplayable
-      // card gives, which is what the player was reporting.
-      if (!clientMayPlay(card, discard, activeColor, pendingDraw)) return false
-      if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
-        setColorPicker({ card, idx: cardIdx })
-        return false
-      }
-      if (card.kind === 'swap') {
-        setPlayerPicker({ card, idx: cardIdx })
-        return false
-      }
-      onSend({ type: 'play_card', card, chosen_color: card.color })
-      return true
-    },
-    [currentTurn, myIndex, discard, activeColor, pendingDraw, myHand, onSend]
-  )
+  // What a tap on a card means, the two prompts it can open instead, and the
+  // legality the board highlights with. See hooks/useCardPlay.ts.
+  const {
+    colorPicker,
+    playerPicker,
+    setColorPicker,
+    setPlayerPicker,
+    onCardClick,
+    isPlayable,
+    isInteractive,
+    isMyTurn,
+    hasPlayableCard,
+    canCounter,
+  } = useCardPlay({
+    myHand,
+    discard,
+    activeColor,
+    currentTurn,
+    myIndex,
+    pendingDraw,
+    onSend,
+    lastPlayAt: lastPlay?.at,
+  })
 
-  // Expose playCard on the E2E helper (dev mode only).
-  // Playwright drives the React renderer through the same handler real taps use.
-  useEffect(() => {
-    if (!import.meta.env.DEV) return
-    if (!window.__LOCO_E2E__) window.__LOCO_E2E__ = {}
-    window.__LOCO_E2E__.playCard = (card: CardDTO) => {
-      const idx = myHand.findIndex(
-        (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
-      )
-      handleCardClick(card, Math.max(0, idx))
-    }
-  }, [handleCardClick, myHand])
-
-  // A picker is a promise about a board that no longer exists once a card lands.
-  // Someone interjecting on top of the discard you were about to answer (the
-  // classic case is a second GlobalSwitch stealing the lead) invalidates both
-  // the colour and the swap target you were choosing, and the server would
-  // refuse the play anyway. Close them: the interjecter now owns the choice.
-  useEffect(() => {
-    if (!lastPlay) return
-    setColorPicker(null)
-    setPlayerPicker(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastPlay?.at])
-
-  // ...and a card landing is not the only way the board moves. The turn timing
-  // out, a forced draw, a fresh game_state after a Swap: none of them set
-  // lastPlay, so the prompt above stayed up over a table that had gone, and the
-  // choice went out against a state the server had already replaced. It came
-  // back "illegal card play" *after* the player had answered a question nobody
-  // should have asked, which is the one refusal this game gives that feels like
-  // a broken promise rather than an illegal card.
-  //
-  // The condition is deliberately the same one that opened the prompt, read
-  // again: a prompt is only owed while the card behind it is still playable.
-  const pendingPick = colorPicker ?? playerPicker
-  useEffect(() => {
-    if (!pendingPick) return
-    const { card, interrupt } = pendingPick
-    const stillHeld = myHand.some(
-      (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
-    )
-    const stillLegal =
-      stillHeld &&
-      (interrupt
-        ? clientMayInterrupt(card, discard, pendingDraw)
-        : currentTurn === myIndex && clientMayPlay(card, discard, activeColor, pendingDraw))
-    if (stillLegal) return
-    setColorPicker(null)
-    setPlayerPicker(null)
-  }, [pendingPick, myHand, discard, activeColor, pendingDraw, currentTurn, myIndex])
+  // Playwright plays a card through the same handler a real tap goes through.
+  useE2EPlayCard(onCardClick, myHand)
 
   // Reconnect visual recovery: 600ms overlay → board fades back in via GameBoard's
   // internal rebuildKey effect.
@@ -318,94 +205,19 @@ export function GameView({ onSend, wsStatus }: Props) {
     return () => clearTimeout(id)
   }, [unoTimerEnd, pruneCatchWindows])
 
-  // Auto-clear the missed-Contre-LOCO! notice. Same shape as the swap notice:
-  // a transient piece of table news, not a state anybody has to dismiss.
-  useEffect(() => {
-    if (!catchFailed) return
-    const id = setTimeout(clearCatchFailed, CATCH_FAIL_NOTICE_MS)
-    return () => clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catchFailed?.at])
+  // Three pieces of table news that take themselves off screen. The swap
+  // notice's matching trail animation lives in <GameBoard /> (keyed by
+  // swapNotice.at), and the refusal is deliberately the shortest of the three.
+  useAutoClear(catchFailed?.at, CATCH_FAIL_NOTICE_MS, clearCatchFailed)
+  useAutoClear(swapNotice?.at, SWAP_NOTICE_MS, () => setSwapNotice(null))
+  useAutoClear(errorMsg, ERROR_TOAST_MS, clearError)
 
-  // Auto-clear the swap / global_switch notice after a short window.
-  // The matching trail animation lives in <GameBoard /> (keyed by swapNotice.at).
-  useEffect(() => {
-    if (!swapNotice) return
-    const id = setTimeout(() => setSwapNotice(null), SWAP_NOTICE_MS)
-    return () => clearTimeout(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [swapNotice?.at])
+  // The two shakes: a rattle for an interception, a vertical thump for a
+  // Contre-LOCO!. Different on purpose, see hooks/useBoardShake.ts.
+  useBoardShake(containerRef, interruptFlash, catchFlash)
 
-  // Screen shake, driven through the Web Animations API rather than a CSS class
-  // so a second one replays immediately — a class toggle would need the element
-  // to remount, which would tear down the whole board.
-  const shakeScreen = useCallback((frames: Keyframe[], durationMs: number, delayMs = 0) => {
-    if (prefersReducedMotion()) return
-    const el = containerRef.current
-    // Guarded like kickBoard: the Web Animations API is absent under jsdom, and
-    // a missing shake must never take the banner down with it.
-    if (!el || typeof el.animate !== 'function') return
-    el.animate(frames, { duration: durationMs, delay: delayMs, easing: 'ease-out' })
-  }, [])
-
-  // Interception: a rattle, the board knocked sideways by a card slammed onto it.
-  useEffect(() => {
-    if (!interruptFlash) return
-    shakeScreen(
-      [
-        { transform: 'translate(0, 0)' },
-        { transform: 'translate(-11px, 6px)' },
-        { transform: 'translate(9px, -5px)' },
-        { transform: 'translate(-6px, 3px)' },
-        { transform: 'translate(3px, -2px)' },
-        { transform: 'translate(0, 0)' },
-      ],
-      420,
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interruptFlash?.at])
-
-  // Contre-LOCO!: a single vertical thump, matching the stamp coming down. The
-  // two loudest moments in the game must not shake the screen the same way, or
-  // a clipped highlight cannot tell them apart with the sound off.
-  useEffect(() => {
-    if (!catchFlash) return
-    shakeScreen(
-      [
-        { transform: 'translate(0, 0)' },
-        { transform: 'translate(0, 14px)', offset: 0.35 },
-        { transform: 'translate(0, -6px)', offset: 0.62 },
-        { transform: 'translate(0, 0)' },
-      ],
-      340,
-      // Held back to the frame the stamp actually lands on: a board that jumps
-      // while the verdict is still falling reads as two unrelated events.
-      180,
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catchFlash?.at])
-
-  // Countdown ticks over the last few seconds of our own turn. Time pressure is
-  // the one piece of state a spectator cannot read off the board, and the bar at
-  // the top of the screen is not where anyone is looking.
-  useEffect(() => {
-    if (turnDeadline === null || currentTurn !== myIndex) return
-    let lastTick = -1
-    const id = setInterval(() => {
-      const left = Math.ceil((turnDeadline - Date.now()) / 1000)
-      if (left <= 0 || left > TURN_COUNTDOWN_FROM || left === lastTick) return
-      lastTick = left
-      playSfx('countdown')
-    }, 200)
-    return () => clearInterval(id)
-  }, [turnDeadline, currentTurn, myIndex])
-
-  // Auto-clear in-game error messages after 2.5 seconds
-  useEffect(() => {
-    if (!errorMsg) return
-    const t = setTimeout(clearError, 2500)
-    return () => clearTimeout(t)
-  }, [errorMsg, clearError])
+  // Ticks over the last few seconds of our own turn.
+  useTurnCountdownSfx(turnDeadline, isMyTurn)
 
   // Auto-dismiss round summary countdown — runs while the summary is visible.
   const summaryCountdown = useCountdown(showRoundSummary, ROUND_SUMMARY_AUTO_DISMISS_MS, dismissRoundSummary)
@@ -416,32 +228,9 @@ export function GameView({ onSend, wsStatus }: Props) {
   // props below. null = the built-in felt (a map id we have no art for).
   const map = useMemo(() => resolveMap(mapId), [mapId])
 
-  // Preload while the table is shut. `useMapPreload` reports when the images are
-  // *decoded*, not merely downloaded: the whole point of the wait is that the
-  // first turn does not spend a frame on a WebP.
-  const preload = useMapPreload(map, mapLoading !== null)
-
-  // Tell the server the moment we are in, once per gate.
-  //
-  // The guard is a ref rather than a dependency because `mapLoading` gets a new
-  // identity on every progress broadcast (each time *another* player arrives),
-  // and keying the effect on the object itself would re-send map_ready once per
-  // opponent. A map we have no art for is ready immediately: there is nothing
-  // to fetch, and a client that never answers is the one outcome the gate
-  // cannot survive.
-  const gateOpen = mapLoading !== null
-  const nothingToLoad = map === null
-  const sentReady = useRef(false)
-  useEffect(() => {
-    if (!gateOpen) {
-      sentReady.current = false
-      return
-    }
-    if (sentReady.current) return
-    if (!preload.done && !nothingToLoad) return
-    sentReady.current = true
-    onSend({ type: 'map_ready' })
-  }, [gateOpen, preload.done, nothingToLoad, onSend])
+  // Preload the room's art while the table is shut, and tell the server the
+  // moment we are in. See hooks/useMapGate.ts.
+  const preload = useMapGate(map, mapLoading !== null, onSend)
 
   // Memoised: <GameBoard /> lists fxTexts in an effect's dependency array, and a
   // fresh object literal each render would replay the callout on every update.
@@ -458,30 +247,6 @@ export function GameView({ onSend, wsStatus }: Props) {
     !showRules && !colorPicker && !playerPicker && !showRoundSummary,
   )
   const showScores = scoresHeld || pinnedScores
-
-  const isMyTurn = currentTurn === myIndex
-  // True when the player has at least one card they can legally play right now.
-  // Used to de-emphasize the Draw button so it doesn't look like the required action.
-  const hasPlayableCard = isMyTurn && myHand.some(c => clientMayPlay(c, discard, activeColor, pendingDraw))
-  // While a penalty is pending the only legal cards are the ones that stack it,
-  // so "can I play something" and "can I counter" are the same question.
-  const canCounter = pendingDraw > 0 && hasPlayableCard
-
-  // Predicates passed to <GameBoard />: highlight what can be played right now.
-  // Off-turn that means exact-match slams, on-turn the normal legality rules —
-  // both delegated so the highlight can never drift from what a tap will do.
-  const cardIsPlayable = useCallback(
-    (card: CardDTO): boolean =>
-      isMyTurn
-        ? clientMayPlay(card, discard, activeColor, pendingDraw)
-        : clientMayInterrupt(card, discard, pendingDraw),
-    [isMyTurn, discard, activeColor, pendingDraw],
-  )
-  const cardIsInteractive = useCallback(
-    (card: CardDTO): boolean =>
-      isMyTurn || clientMayInterrupt(card, discard, pendingDraw),
-    [isMyTurn, discard, pendingDraw],
-  )
 
   // <GameBoard /> is memoised, and it is the expensive half of the screen: seat
   // layout, hand slots and every card are re-derived on each of its renders.
@@ -518,9 +283,9 @@ export function GameView({ onSend, wsStatus }: Props) {
         directionLabel={direction >= 0 ? t.directionCw : t.directionCcw}
         pendingDraw={pendingDraw}
         canCounter={canCounter}
-        isPlayable={cardIsPlayable}
-        isInteractive={cardIsInteractive}
-        onCardClick={handleCardClick}
+        isPlayable={isPlayable}
+        isInteractive={isInteractive}
+        onCardClick={onCardClick}
         flightRef={flightRef}
         turnTexts={turnTexts}
         fxTexts={fxTexts}
@@ -558,27 +323,13 @@ export function GameView({ onSend, wsStatus }: Props) {
       {serverUpdating && <ServerUpdating offset={opponentAway !== null} />}
 
       {/* Reconnect overlay — server-triggered (player_reconnected) */}
-      {showReconnectOverlay && (
-        <div className={styles.reconnectOverlay}>
-          <div className={styles.reconnectCard}>
-            <div className={styles.reconnectSpinner} />
-            <div className={styles.reconnectText}>{t.reconnected}</div>
-            <div className={styles.reconnectSub}>{t.rebuildingTable}</div>
-          </div>
-        </div>
-      )}
+      {showReconnectOverlay && <StatusOverlay text={t.reconnected} sub={t.rebuildingTable} />}
 
       {/* WS overlay — shown when the WebSocket transport is down mid-game.
           Prevents the blank-board regression where the board renders empty
           because no game_state arrives while the socket is reconnecting. */}
       {wsStatus !== 'open' && (
-        <div className={styles.reconnectOverlay}>
-          <div className={styles.reconnectCard}>
-            <div className={styles.reconnectSpinner} />
-            <div className={styles.reconnectText}>{t.wsLostConnection}</div>
-            <div className={styles.reconnectSub}>{t.wsReconnecting}</div>
-          </div>
-        </div>
+        <StatusOverlay text={t.wsLostConnection} sub={t.wsReconnecting} />
       )}
 
       {/* Catch window — runs while somebody is sitting on one uncalled card. */}

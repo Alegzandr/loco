@@ -61,10 +61,12 @@ func TestCatchUNO_TargetReceivesPenaltyCards(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, g.activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, g.otherConn, protocol.SMsgGameState)
@@ -114,10 +116,12 @@ func TestCatchUNO_PenaltyCarriesTurnState(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, g.activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, g.otherConn, protocol.SMsgGameState)
@@ -161,10 +165,12 @@ func TestDrawCard_CarriesTurnState(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, g.activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, g.otherConn, protocol.SMsgGameState)
@@ -201,10 +207,12 @@ func TestTurnTimeout_PenaltyDrawSendsCardsToDrawer(t *testing.T) {
 	// the turn timer armed at game start is bound to that seat.
 	pending := 2
 	sendMsg(t, g.activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "draw_two"},
-		DebugPendingDraw: &pending,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "draw_two"},
+			PendingDraw: &pending,
+		},
 	})
 	readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, g.otherConn, protocol.SMsgGameState)

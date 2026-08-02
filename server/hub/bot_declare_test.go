@@ -62,21 +62,24 @@ func TestBotDeclaresAfterAHumanSwapLeavesItOnOneCard(t *testing.T) {
 	dir := 1
 	sendMsg(t, conn, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
-		// Playing the Swap leaves us holding one card, which the swap then hands
-		// to the bot: the bot ends on exactly one card it has never announced.
-		DebugHand: []protocol.CardDTO{redSwap, {Color: "blue", Kind: "number", Value: 9}},
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: bot, Hand: []protocol.CardDTO{
-				{Color: "green", Kind: "number", Value: 3},
-				{Color: "green", Kind: "number", Value: 4},
-				{Color: "green", Kind: "number", Value: 5},
-			}},
+		Debug: &protocol.DebugStateDTO{
+			// Playing the Swap leaves us holding one card, which the swap then
+			// hands to the bot: the bot ends on exactly one card it has never
+			// announced.
+			Hand: []protocol.CardDTO{redSwap, {Color: "blue", Kind: "number", Value: 9}},
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: bot, Hand: []protocol.CardDTO{
+					{Color: "green", Kind: "number", Value: 3},
+					{Color: "green", Kind: "number", Value: 4},
+					{Color: "green", Kind: "number", Value: 5},
+				}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
+			Direction:   &dir,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
-		DebugDirection:   &dir,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
@@ -141,19 +144,21 @@ func TestBotDeclarationAfterASwapIsStillCatchable(t *testing.T) {
 	zero := 0
 	dir := 1
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:      protocol.CMsgDebugSetState,
-		DebugHand: []protocol.CardDTO{redSwap, {Color: "blue", Kind: "number", Value: 9}},
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: bot, Hand: []protocol.CardDTO{
-				{Color: "green", Kind: "number", Value: 3},
-				{Color: "green", Kind: "number", Value: 4},
-			}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand: []protocol.CardDTO{redSwap, {Color: "blue", Kind: "number", Value: 9}},
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: bot, Hand: []protocol.CardDTO{
+					{Color: "green", Kind: "number", Value: 3},
+					{Color: "green", Kind: "number", Value: 4},
+				}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
+			Direction:   &dir,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
-		DebugDirection:   &dir,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 

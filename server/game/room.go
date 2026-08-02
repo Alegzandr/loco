@@ -12,7 +12,7 @@ import (
 type Status int
 
 const (
-	StatusLobby    Status = iota
+	StatusLobby Status = iota
 	StatusPlaying
 	StatusFinished
 )
@@ -89,14 +89,14 @@ type GameEvent struct {
 
 // GameState is the authoritative server-side game state.
 type GameState struct {
-	Hands            []Hand
-	Deck             *Deck
-	Discard          []Card
-	CurrentTurn      int
-	Direction        int // 1 = clockwise, -1 = counter-clockwise
-	ActiveColor      Color
-	PendingDraw      int  // accumulated draw penalty for next player
-	HasDrawn         bool // true after a voluntary (non-penalty) draw this turn; reset on turn advance
+	Hands       []Hand
+	Deck        *Deck
+	Discard     []Card
+	CurrentTurn int
+	Direction   int // 1 = clockwise, -1 = counter-clockwise
+	ActiveColor Color
+	PendingDraw int  // accumulated draw penalty for next player
+	HasDrawn    bool // true after a voluntary (non-penalty) draw this turn; reset on turn advance
 
 	// Last-card declaration, tracked PER SEAT. A single slot cannot express the
 	// board a Swap or a GlobalSwitch produces: both rearrange hands, so several
@@ -198,6 +198,14 @@ func (s *GameState) openCatchWindowsAfterRearrange() {
 func (s *GameState) catchWindowOpen(targetIndex int, now time.Time) bool {
 	at := s.LastCardAt[targetIndex]
 	return !at.IsZero() && now.Sub(at) <= catchWindow
+}
+
+// CatchWindowEnd is when seat i's window shuts. Only meaningful for a seat
+// CatchableTargets just named: it exists so the server can tell a client how
+// long it has, instead of the client keeping its own copy of the duration and
+// its own copy of the rule that opens the window.
+func (s *GameState) CatchWindowEnd(i int) time.Time {
+	return s.LastCardAt[i].Add(catchWindow)
 }
 
 // CatchableTargets returns every seat that owes the table a declaration at now,

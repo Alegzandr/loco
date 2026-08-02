@@ -2930,3 +2930,27 @@ func TestRoom_PenalizeFailedCatch_EmptyDeck(t *testing.T) {
 		t.Errorf("catcher hand = %d, want %d unchanged", got, before)
 	}
 }
+
+// The server owns how long a catch window lasts, and now says so on the wire
+// (protocol.CatchSeatDTO.EndsAt). The client no longer holds a copy of the
+// duration, so this is the only place it is written down.
+func TestGameState_CatchWindowEnd(t *testing.T) {
+	r := NewRoom("TEST")
+	if err := r.Join("Alice"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if err := r.Join("Bob"); err != nil {
+		t.Fatalf("join: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	r.State.openCatchWindow(1)
+	opened := r.State.LastCardAt[1]
+	if got, want := r.State.CatchWindowEnd(1), opened.Add(catchWindow); !got.Equal(want) {
+		t.Errorf("CatchWindowEnd = %v, want %v", got, want)
+	}
+	if !r.State.catchWindowOpen(1, opened.Add(catchWindow-time.Millisecond)) {
+		t.Error("the window must still be open a millisecond before its end")
+	}
+}

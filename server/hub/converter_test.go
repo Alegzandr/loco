@@ -3,7 +3,14 @@ package hub
 import (
 	"strings"
 	"testing"
+
+	"loco/server/protocol"
 )
+
+// The tables below stay `string` rather than the wire types on purpose: half
+// their cases are values the wire types cannot hold ("purple", "BO2", ""), and
+// refusing those is the whole job of the functions under test. The conversion
+// happens at the call site, which is also where it happens in production.
 
 func TestParseColor(t *testing.T) {
 	cases := []struct {
@@ -21,7 +28,7 @@ func TestParseColor(t *testing.T) {
 		{"unknown", true},
 	}
 	for _, c := range cases {
-		_, err := parseColor(c.in)
+		_, err := parseColor(protocol.CardColor(c.in))
 		if (err != nil) != c.wantErr {
 			t.Errorf("parseColor(%q): got err=%v, wantErr=%v", c.in, err, c.wantErr)
 		}
@@ -44,7 +51,7 @@ func TestParseKind(t *testing.T) {
 		{"", true},
 	}
 	for _, c := range cases {
-		_, err := parseKind(c.in)
+		_, err := parseKind(protocol.CardKind(c.in))
 		if (err != nil) != c.wantErr {
 			t.Errorf("parseKind(%q): got err=%v, wantErr=%v", c.in, err, c.wantErr)
 		}
@@ -60,7 +67,7 @@ func TestValidRoomCode(t *testing.T) {
 		{"ABC234", true},   // digits 2-9 are valid
 		{"ABC123", false},  // '1' is excluded from charset
 		{"abcdef", true},   // ToUpper normalizes valid chars
-		{"ABCDE", false},  // 5 chars
+		{"ABCDE", false},   // 5 chars
 		{"ABCDEFG", false}, // 7 chars
 		{"ABCDE0", false},  // contains '0' (excluded)
 		{"ABCDEI", false},  // contains 'I' (excluded)
@@ -79,13 +86,13 @@ func TestValidRoomCode(t *testing.T) {
 func TestParseMatchFormat(t *testing.T) {
 	valid := []string{"BO1", "BO3", "BO5", "BO7", "bo1", "bo3"}
 	for _, s := range valid {
-		if _, err := parseMatchFormat(s); err != nil {
+		if _, err := parseMatchFormat(protocol.MatchFormat(s)); err != nil {
 			t.Errorf("parseMatchFormat(%q) unexpected error: %v", s, err)
 		}
 	}
 	invalid := []string{"BO2", "BO4", "BO9", "", "best-of-3"}
 	for _, s := range invalid {
-		if _, err := parseMatchFormat(s); err == nil {
+		if _, err := parseMatchFormat(protocol.MatchFormat(s)); err == nil {
 			t.Errorf("parseMatchFormat(%q) expected error, got nil", s)
 		}
 	}
@@ -99,8 +106,8 @@ func TestMatchFormatString(t *testing.T) {
 		{"BO7", "BO7"},
 	}
 	for _, c := range cases {
-		f, _ := parseMatchFormat(c.in)
-		if got := matchFormatString(f); got != c.want {
+		f, _ := parseMatchFormat(protocol.MatchFormat(c.in))
+		if got := matchFormatString(f); string(got) != c.want {
 			t.Errorf("matchFormatString(%v) = %q, want %q", c.in, got, c.want)
 		}
 	}

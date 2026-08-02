@@ -6,6 +6,52 @@ see `visual.md`.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## Where the client's logic lives
+
+`App.tsx` and `GameView.tsx` were both mostly *not* rendering: a 320-line switch over every inbound
+message in one, and eight animation timers, two prompts and the whole legality check in the other.
+Both are now what their names say, and the work sits beside the other work of its kind:
+
+| Module | What it owns |
+| --- | --- |
+| `hooks/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
+| `hooks/useGameStore.ts` | the assembly, and the re-exports every screen imports from |
+| `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
+| `hooks/useCardPlay.ts` | what a tap on a card means, the two prompts it can open, and the legality the board highlights with |
+| `hooks/useBoardShake.ts` | the rattle an interception takes, the thump a Contre-LOCO! takes |
+| `hooks/useAutoClear.ts` | a piece of table news that takes itself off screen |
+| `hooks/useMapGate.ts` | preload the room's art while the table is shut, then answer `map_ready` |
+| `hooks/useTurnCountdownSfx.ts` | the ticks over the last seconds of our own turn |
+| `dev/e2eBridge.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
+| `components/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
+
+**Derived state is completed by the store, not by the actions.** `catchTarget` and `unoTimerEnd` are
+the answer to "which open window is the button offering", read off `catchWindows` and our own seat.
+They are stored because every screen reads them, and stored derived state has exactly one failure
+mode: an action that changes the source and forgets to recompute. Eight actions had that chance.
+`store/deriveCatchMiddleware.ts` completes any write naming `catchWindows` or `myIndex` (`myIndex`
+because a snapshot can re-seat us, and our own window is never the one offered), so forgetting is
+impossible rather than unlikely. Writes from outside an action get the same treatment: the middleware
+replaces `store.setState` too, which is what keeps a test seeding a board from seeding a lie.
+
+**Who owes a declaration is not the client's to work out.** `applyCardPlayed` takes `catch_seats`
+off the message and renders it. It used to derive the list from the roster and the card kind, which
+is the server's rule (`openCatchWindowsAfterRearrange`) restated in TypeScript; what is left here is
+presentation, namely which window we have already spent a call on and whether the LOCO! banner still
+describes the table. See `domain-rules.md`.
+
+**The store is one state object and five families of transitions**, not five stores. The state is one
+object because that is what it is: the client's mirror of one match. Several actions write
+across the families on purpose, since an authoritative `game_state` settles the board, the
+declarations and the scoreboard in the same breath, and splitting the *state* would have turned one
+`set` into five. What is split is the reading.
+
+**`GameBoard.tsx` is deliberately not split.** Its eight animation effects are one state machine over
+one queue: they share `setFliers` / `setImpacts`, the `landTimers` list, the stage ref and the
+suppress-next-discard flag. Per-animation hooks would pass those five handles through six
+signatures, which is the same coupling with more indirection. If it is ever split it should be as a
+single `useBoardFx`, and reviewed with `make visual` rather than with assertions.
+
 ## How the game gets on the page
 
 The site is built by Astro, and the game is **not** an island. Three things pushed that decision, in
@@ -80,8 +126,8 @@ than inlined and the production HTML keeps exactly one external script and nothi
 
 ## The toolchain, and the one place it is deliberately not the newest
 
-React 19, Astro 7, Zustand 5, Zod 4, ESLint 10, Vitest 4. Two of those cost something worth writing
-down.
+React 19, Astro 7, Zustand 5, Valibot 1, ESLint 10, Vitest 4. Two of those cost something worth
+writing down.
 
 **React 19 removed the global `JSX` namespace and deprecated `forwardRef` and the bare event
 aliases.** `CardArt.tsx` imports `JSX` from `react` instead of reaching for a global; `Card` and
@@ -91,17 +137,9 @@ since React's `FormEvent` is now marked as a type that "doesn't actually exist" 
 submit fires is a `SubmitEvent`. `useRef<T>(null)` also yields `RefObject<T | null>` now, so a prop
 that receives one has to say so (`UnoTimer.fillRef`, `GameBoard.flightRef`).
 
-**Zod 4 compiles validators with `Function()`, and the CSP refuses that.** The first time a schema
-runs, Zod 4 JIT-compiles it. `script-src 'self'` blocks the call, Zod catches the throw and
-interprets the schema instead, so the game works perfectly — and reports a `securitypolicyviolation`
-on every page load, which is indistinguishable from a real one and would bury the next real one.
-`protocolSchemas.ts` sets `z.config({ jitless: true })` at import, making the fallback the plan
-rather than the recovery; these schemas validate a few hundred bytes a message, so the compiled path
-was never worth anything here. Worth knowing how it was found: `csp.test.ts` scans *our* sources for
-`eval(`/`new Function(` and a dependency is under no obligation to be in them, so only `make csp` —
-the built client, behind the real nginx, in a real browser — could see it. It now has a unit test
-beside it, and this is the standing argument for running that target after a dependency bump and not
-only after an `nginx.conf` edit.
+**The validator is Valibot because Zod 4 compiles with `Function()` and the CSP refuses that.** The
+full account, the test that replaced the workaround's config pin, and the rest of the generated
+protocol are under "Protocol validation (client)" below.
 
 **TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `npm run build` is
 `astro check && astro build`, and `astro check` drives `@astrojs/language-server`, which needs
@@ -127,7 +165,8 @@ polish.
 - **The client sends first and animates second.** `GameBoard.handleCardClick` calls
   `props.onCardClick` and only spawns the hand→discard flight if it returns `true`. The flight is
   local rendering; the message is what the table is waiting on.
-- **A tap that is not a play animates nothing.** `GameView.handleCardClick` returns `false` when the
+- **A tap that is not a play animates nothing.** `useCardPlay`'s `onCardClick` (which `GameView`
+  hands to the board) returns `false` when the
   client refuses the card and when the tap only opens the colour/player prompt. It used to fly the
   card on every tap, so an illegal card and an unconfirmed wild both threw the card at the pile and
   had it reappear in the fan. Plays confirmed later go through `flightRef`
@@ -137,7 +176,7 @@ polish.
   draw then pass, along with LOCO-then-catch and catching a second seat after a Swap. A control that
   ignores a deliberate tap because a *different* control was used 300ms ago reads as a dead button.
   The catch key carries its target because two seats are two taps.
-- **A prompt lives exactly as long as the play behind it stays legal.** `GameView` re-reads the
+- **A prompt lives exactly as long as the play behind it stays legal.** `useCardPlay` re-reads the
   condition that opened the colour/player picker on every state change (`clientMayInterrupt` for an
   interject, `currentTurn === myIndex && clientMayPlay` otherwise, plus the card still being in
   hand) and closes it the moment that answer turns false. The older rule closed a picker only when a
@@ -167,7 +206,14 @@ polish.
   interrupt window of dead board every time one happened. The tail still backs off, so a server
   that is genuinely down is not hammered.
 - `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
-- `App.handleMessage` deps `[]`. Branches needing CURRENT store values use `useGameStore.getState()`. Stable Zustand actions safe.
+- **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
+  `createServerMessageHandler(unoTimer)` is built once (`useMemo([])`) and takes its store snapshot
+  at creation: the action functions come from the zustand factory and are stable for the life of the
+  app, so closing over them costs nothing. Branches needing CURRENT store *values* call
+  `useGameStore.getState()` at the moment they need it: a frozen snapshot would be reading the store
+  as it was at mount, which is a different value on every branch that asks about the current screen.
+  The one thing passed in is the LOCO! banner's timer (`UnoBannerTimer`), because the ref belongs to
+  a component and the handler is not one.
 - React renderer relies on Zustand selector equality; expensive re-renders are avoided via stable references in the store.
 - **`App` never subscribes to the whole store.** `const store = useGameStore.getState()` is an
   actions-only snapshot (the factory creates them once, so it is stable and safe to close over in a
@@ -408,13 +454,50 @@ is: there is no board to draw behind either of them.
   a board frozen on somebody else's connection is exactly when the main thread must stay free.
 
 ## Protocol validation (client)
-- `client/src/types/protocolSchemas.ts` defines Zod schemas for inbound `ServerMsg`. `client/src/types/protocol.ts` infers `CardDTO`/`PlayerDTO`/`GameStateDTO`/`ServerMsg`/etc. from the schemas — single source of truth.
-- `useWebSocket` runs `serverMsgSchema.safeParse` on every WS payload. In dev: invalid → log + drop (surfaces Go↔TS drift in tests). In prod: log + pass through (forward-compat with new server fields).
-- `ClientMsg` stays hand-typed (we control what we send).
-- When you change `server/protocol/messages.go`: update `protocolSchemas.ts` for any inbound shape changes (inferred types follow). `client/src/test/protocolSchemas.test.ts` exercises the schema.
 
-## Client protocol coverage
-- New inbound message types must be added to `serverMsgTypeSchema` in `protocolSchemas.ts` or `useWebSocket` drops them in dev. New outbound types go in `ClientMsgType` (`protocol.ts`).
+**Both type files are generated. Neither is edited.** `client/src/types/protocol.ts` and
+`client/src/types/protocolSchemas.ts` come out of `server/cmd/protocolgen`, which reads
+`server/protocol/`. Change the Go, run `make protocol`, commit both. `protocol_check` in CI
+regenerates and fails on any difference, so a hand edit is undone by the next run rather than merged.
+
+The wire used to be described three times: the Go structs, a hand-written TypeScript file, and a
+hand-written file of schemas. Nothing checked that the three agreed, and the failure is silent by
+construction. That is the same shape as the mirrors this repository already pins by test
+(`serverMirrors.test.ts` for the nickname's shape and the table code's alphabet); the difference is
+that a mirror can be pinned and a copy can be deleted, and these two were copies.
+
+- `useWebSocket` runs `v.safeParse(serverMsgSchema, …)` on every payload. Dev: invalid → log and
+  drop, which is what surfaces drift in tests. Prod: log and pass through, so one new server field
+  cannot take the client offline.
+- **The generator refuses rather than guesses.** An unknown type, a slice of pointers, or a const
+  block out of step with its `All*` slice stops the build. Each of those has exactly one dishonest
+  TypeScript spelling available, and every one of them type-checks: emitting `unknown` for a type it
+  cannot read would mean the client silently stopped reading a field. `cmd/protocolgen/main_test.go`
+  covers the refusals, because the happy path is already covered from the other end by
+  `protocol_check` plus every client test that runs against the committed output.
+- **`ClientMsg` and `ServerMsg` are marked `//protocolgen:envelope`**, which makes every field but
+  `type` optional on the client. They are one flat struct standing in for thirty message types, and
+  `turn` and `drawn_count` carry no `omitempty` because a zero is a real value there. Mirroring that
+  literally would generate a validator that refuses every message not about a turn, which is the
+  client being stricter than the server: the direction nothing answers.
+- **The wire enums live in `server/protocol/enums.go`** rather than as bare `string` fields, because
+  a `string` in Go generates a `string` in TypeScript and would have thrown away a narrowing the
+  hand-written client always had. `enums_test.go` pins them to `game.Color.String()`,
+  `game.Kind.String()` and the formats `Room.SetFormat` accepts, by walking the domain rather than
+  listing it: a hand-written list there would be a third copy and would go on passing.
+
+**Valibot, not Zod.** Zod 4 JIT-compiles each schema with `Function()` the first time it runs; under
+`script-src 'self'` the call is refused, Zod catches the throw and interprets instead, so the game
+works and reports a `securitypolicyviolation` on every page load, indistinguishable from a real one.
+That was answered with `z.config({ jitless: true })` and a test pinning the flag, which tested the
+workaround rather than the property. Valibot has no such path, and `csp.test.ts` now asserts the
+property directly: it runs a real validation with `Function` behind a recording Proxy and fails if
+anything reaches for it. That test would have caught Zod, which the flag pin could not have.
+
+Worth keeping: `csp.test.ts` scans *our* sources, and a dependency is under no obligation to appear
+in them. Only `make csp`, the built client behind the real nginx in a real browser, found the Zod
+problem. That is the standing argument for running it after a dependency bump and not only after an
+`nginx.conf` edit.
 
 ### Nothing continuous goes through React state
 A value that changes every frame must never be a `useState` in a component the board

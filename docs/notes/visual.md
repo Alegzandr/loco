@@ -25,8 +25,10 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
 - Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
   `@fontsource-variable/*` and imported in `layouts/Base.astro`, not from the game's entry: the
   content pages mount no React at all and still have to be typeset. No CDN — the CSP stays closed.
-- Press feedback: `.btn-chunky` in `tokens.css` (hover lifts, active travels *into* the ledge).
-  Components extend it rather than reinventing the six lines.
+- Press feedback (hover lifts, active travels *into* the ledge) is written per component. `tokens.css`
+  used to carry a `.btn-chunky` for it, plus a family of `.t-*` type classes, both described as what
+  every control extended; **nothing had ever imported either**, and both were deleted. Do not
+  reintroduce a shared control class without a caller.
 - Scrollbars: styled globally in `tokens.css` (`scrollbar-width`/`scrollbar-color` for Firefox, the
   `::-webkit-scrollbar*` pseudo-elements elsewhere). Thin, no track, thumb in `--color-border-strong`
   with a transparent border plus `background-clip: padding-box` so it never touches the panel edge.
@@ -161,7 +163,11 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
 - All action buttons: `min-height:44px`, `touch-action:manipulation`.
 - 400ms debounce (`guardDoubleTap`) on action buttons.
 - Wild picker: 64px+ touch targets in a row.
-- HTML viewport: `user-scalable=no`, `maximum-scale=1.0`, **`viewport-fit=cover`**.
+- HTML viewport: `width=device-width, initial-scale=1.0, viewport-fit=cover` and **nothing else**.
+  It used to carry `user-scalable=no, maximum-scale=1.0` to stop a double-tap zooming the board
+  mid-match, and that took pinch-zoom with it on every page of the site. The double-tap is answered
+  by `touch-action: manipulation` on `body`, which leaves the pinch alone; a board can now be
+  pinched during a match, deliberately. `a11y.test.ts` fails on either attribute returning.
 - CSS `@media (max-width:480px)` for small screens.
 
 ### Safe areas (the notch and the home indicator)
@@ -428,7 +434,12 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     "Testing" section names, an invariant asserted with no test behind it.
 
 ### Reduced motion
-- `<MotionConfig reducedMotion="user">` in `entry.tsx` covers framer-motion; a `@media (prefers-reduced-motion: reduce)` block at the end of `styles/tokens.css` neutralises CSS transitions/animations globally.
+- **The switch is `:root[data-motion="reduce"]`, never a media query.** `initMotion()` writes it
+  before the first paint from the system setting *and* the player's answer, so the choice can win in
+  both directions; `reducedMotionCss.test.ts` fails on any new
+  `@media (prefers-reduced-motion: reduce)` block. framer-motion goes through `<MotionGate>` in
+  `entry.tsx`, which resolves to `always`/`never` — `reducedMotion="user"` reads the OS setting
+  directly and would ignore the preference. Full reasoning in `docs/notes/client.md`.
 - When adding motion, verify it degrades to a readable static state rather than disappearing.
 
 ## Player bubble (`<PlayerSlot />`)

@@ -6,6 +6,91 @@ room lifecycle.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## How the package is laid out
+`hub.go` was one 3500-line file holding the Hub, every handler, the bots, the timers, the broadcasts
+and the DTO builders. It is now **one file per thing a message leads to**, all in the same package,
+so nothing about visibility or wiring changed and no import moved:
+
+| File | What it owns |
+| --- | --- |
+| `hub.go` | the `Hub`, its tunables and ceilings, the messages its loop receives, the loop |
+| `serve.go` | `Origin`, and the two ceilings refused **before** the upgrade |
+| `tokens.go` | room codes and session tokens, both `crypto/rand`, no fallback |
+| `dispatch.go` | the `recover`, the not-playing gate, the nickname gate, the wrong-code budget |
+| `rooms.go` | opening a table, taking a seat, the host controls, `roomCodeRe`, membership lookups |
+| `rematch.go` | the ask everybody at the table has to make |
+| `gameplay.go` | play, draw, pass, declare, catch, counter, interrupt |
+| `presence.go` | leaving, the 60s hold, the reclaim |
+| `bots.go` | every bot delay and every bot decision's scheduling |
+| `turntimer.go` | the turn clock, and the consecutive timeouts that make a seat away |
+| `broadcast.go` | sending: `sendHandGrowth`, `refuseAction`, the personalised fan-out |
+| `statedto.go` | what a client is handed: player list, scoreboard, personalised state |
+| `converter.go` | DTO conversion, and nothing else since |
+| `debug.go` | `debug_set_state`, the fixture the Playwright suite deals a table with |
+
+The split is a move, not a rewrite: the same functions, the same order inside each file, the same
+tests passing without a line changed. Two things travelled with it because they were in the wrong
+place to begin with: `broadcastCardPlayed` left `converter.go` for `broadcast.go`, and
+`roomCodeRe` / `validRoomCode` left it for `rooms.go`, which is the only caller.
+
+**Where a new handler goes**: beside the others that answer the same kind of message, and its name
+goes in `dispatch.go`'s switch. A file per subsystem is what keeps `hub.go` readable as *the loop*
+rather than as an index of everything the server can do.
+
+## A table is one object (`table.go`)
+The Hub used to carry eleven maps all keyed by the same room code: `rooms`, `roomMembers`,
+`disconnectedAt`, `sessionTokens`, `emptyRooms`, `botSlots`, `turnStartedAt`, `mapLoading`,
+`afkTimeouts`, `matchmade`, `rematchOffers`. A table was not a thing you could hold; it was a string
+that eleven structures happened to agree about.
+
+That shape has one failure mode and it is never a crash:
+
+- **Opening a table was eleven writes and deleting one was eleven deletes.** `deleteRoom` was the
+  only place all eleven were named together, so a twelfth map added anywhere leaked per-match state
+  into the next match at the same code unless somebody remembered to come back. `resetForNextMatch`
+  had the same problem in three copies (`openRematchedLobby`, `startRematchedMatch`, `forfeitMatch`),
+  and the one that bites is the map gate: a `mapLoadState` left behind keeps the next match shut
+  **forever**, because its own timeout has already fired and nothing is left to reopen it.
+- **A seat number meant a seat in each of them separately.** Removing a seat meant shifting the
+  members slice, the surviving clients' own `playerID`, the bot set and the session tokens, by hand,
+  in three places (`removeUnmannedSeat`, `reindexLobbyDisconnect`, `pruneAbsentPlayers`).
+
+`hub.tables map[string]*table` replaces all eleven. One entry is one table's whole existence, so
+`deleteRoom` is one `delete`, a reset is `t.resetForNextMatch()`, and a removal is `t.dropSeat(id)`,
+which shifts the four seat-keyed structures together because it is the only thing allowed to shift
+any of them.
+
+**`table.seat` is the structural half of the seat-rebind fix below.** Binding a client to a seat
+sweeps it out of every other index on that table, and `Hub.seatClient` sweeps it off any other table
+first. `alreadySeated` is still there and still refuses, but it is now the *polite* half — it answers
+the client rather than silently moving them — instead of being the only thing standing between two
+ordinary lobby messages and one player receiving another's hand. `hub/table_internal_test.go` owns
+that invariant and fails without it; `seat_rebind_test.go` still owns the refusal.
+
+Zero values carry meaning on purpose, which is what let five of the maps become plain fields: a zero
+`turnStartedAt` is "no turn is being timed" (a bot's, or a table that has not opened), a zero
+`emptyAt` is "somebody is here", a zero `matchmadeAt` is "a player opened this", and a nil `loading`
+is "the table is open".
+
+## What bounds this server is one goroutine, and it is now measurable
+Every room is served by the single event loop, so the number of tables this process can carry is not
+`MaxRooms`: it is how long one pass through `dispatch` takes and how deep `h.inbound` gets behind it.
+`messages_dropped_busy` already reported that ceiling, but only once it had been crossed, which is a
+post-mortem rather than a warning.
+
+`/metrics` now carries the approach to it: `loop_queue_depth` (instantaneous), `loop_queue_capacity`,
+`loop_queue_peak` and `loop_slowest_us`. The last two are **high-water marks since startup, never
+reset and never averaged**: a mean hides exactly the event that matters, the one slow pass that let
+the queue build behind it. `loop_events` is the denominator.
+
+The counters they joined live on one `hubMetrics` struct (`hub/metrics.go`) instead of seventeen
+fields on the Hub, for the same reason the package is one file per thing a message leads to: a struct
+with a hundred fields hides which of them are state and which are observations.
+
+**Reaching for a shard is not the answer to a peak.** Look at `loop_slowest_us` first: a single pass
+that takes milliseconds is a handler doing something a handler should not, and every one found so far
+has been a broadcast that marshalled per recipient rather than once.
+
 ## One message must never be able to cost the server
 `hub.dispatch` opens with a `recover`, and with a gate refusing every gameplay message at a table
 that has not dealt. Both come out of the same audit finding, and they are floor and wall rather than
@@ -129,16 +214,17 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   `index.html`, plus framer-motion's inline style attributes). `connect-src` names `ws://$host` and
   `wss://$host` explicitly — a page on `http://` and a socket on `ws://` are different origins as
   far as CSP is concerned, so `'self'` alone would block the one connection the game is made of.
-- **A socket holds one seat, and the room is the authority on which.** A seat is recorded twice: the
-  connection knows it as `c.roomCode` / `c.playerID`, and the room knows it as the `*Client` pointer
-  at index `playerID` in `roomMembers`. Nothing stopped a seated client from sending `create_room` or
+- **A socket holds one seat, and the table is the authority on which.** A seat is recorded twice: the
+  connection knows it as `c.roomCode` / `c.playerID`, and the table knows it as the `*Client` pointer
+  at index `playerID` in its `members`. Nothing stopped a seated client from sending `create_room` or
   `join_room` again, and re-entering moved only the connection's copy. The pointer stayed behind in
   the old room at the old index while `c.playerID` named a seat somewhere else, and every
   personalised broadcast for the old room was then built from the wrong index, so a player seated at
   1 who rebound to seat 0 of a throwaway room was sent **seat 0's hand** in the match they had just
   left, for as long as it lasted. No tampered client, no forged message: two ordinary lobby messages
-  in sequence defeated the one guarantee the server exists to provide. `hub.alreadySeated` is the
-  guard, on both handlers. It does not touch reconnects, which arrive on a fresh socket whose
+  in sequence defeated the one guarantee the server exists to provide. `table.seat` is what makes it
+  unreachable (see "A table is one object" above) and `hub.alreadySeated` is the guard that answers
+  it, on both handlers. It does not touch reconnects, which arrive on a fresh socket whose
   `roomCode` is still `""`, and it releases a client whose room was deleted underneath it rather than
   locking it out of the lobby forever.
 
@@ -301,9 +387,10 @@ deal); this one acts on a person, so it is the strictest thing in the lobby.
   rather than to a roster, and the only thing that ends one early is a forfeit — so the refusal there
   is `can only remove players in the lobby`, not a special case of it.
 - **The table sees a departure and the player sees a reason.** `releaseSeat` does the work, which is
-  the same bookkeeping `leave_room` and a lobby disconnect do (roster, `roomMembers`, `botSlots`,
-  `sessionTokens`, the surviving clients' `playerID`), so the three cannot drift apart. The removed
-  client is out of `roomMembers` by then and gets `kicked` on its own socket instead of the
+  the same bookkeeping `leave_room` and a lobby disconnect do (roster plus `table.dropSeat`, which
+  moves the members, the bots, the tokens and the surviving clients' `playerID` together), so the
+  three cannot drift apart. The removed client is off the table by then and gets `kicked` on its own
+  socket instead of the
   `player_left` about itself: a table vanishing with no explanation reads as a bug, and the client
   puts the line under the lobby form.
 - **A bot is a seat like any other.** The slot behind it is `nil`, so it goes through
@@ -334,7 +421,7 @@ remaining privilege on this screen is not having one.
   every client holding a stale seat number and a count that never completes. The list is nullable on
   the wire because *empty* is a real answer here.
 - **A departure is an answer.** `releaseRematchOffer` retires the leaver's ask, shifts the rest down
-  with `shiftIntKeySet` exactly as `botSlots` and `sessionTokens` are shifted, republishes, and deals
+  with `shiftIntKeySet` exactly as the bot set and the session tokens are shifted, republishes, and deals
   when what is left of the table has already asked. It is called from `releaseSeat` and from the
   finished-room branch of `handleDisconnect`; `deleteRoom` drops the map with the room.
 - The deal has two shapes (`dealAgreedRematch`). `startRematchedMatch` goes through the **pairing**
@@ -444,7 +531,7 @@ strangers will not, and the player who is still at the table did nothing wrong.
     points as `maybeScheduleBotCatch` **and** after every bot action; scheduling twice for one moment
     is harmless (the second announce finds the seat settled and returns).
 - **A bot's turn broadcasts no deadline.** `scheduleTurnTimer` arms no timeout for a bot and now also
-  `delete`s `turnStartedAt[code]` on its way out, because `turnDeadlineMs` reads that map with no
+  zeroes `table.turnStartedAt` on its way out, because `turnDeadlineMs` reads it with no
   notion of whose turn it is. Leaving the previous human's entry behind put a half-spent deadline on
   every `card_played` that handed the turn to a bot, and the client mounts its countdown bar on any
   non-null deadline: it drained somebody else's clock, in urgent red, under a seat that cannot time
@@ -452,7 +539,7 @@ strangers will not, and the player who is still at the table did nothing wrong.
   one field here where a zero is an absence rather than a value, unlike `turn` / `drawn_count` /
   `pending_draw`). `TestTurnDeadline_AbsentDuringBotTurn` plays a Skip first so a live deadline is
   proven recorded before the second play asserts it gone.
-- Tracked in `hub.botSlots[code][playerID]`.
+- Tracked in `table.bots`, a set of seat numbers.
 
 ## Session tokens
 - 32 hex chars (128-bit `crypto/rand`).
@@ -469,7 +556,7 @@ strangers will not, and the player who is still at the table did nothing wrong.
   disk. A one-shot proof is worth more than a permanent one and costs nothing, because the client
   already stores whatever the server hands it.
   `TestReconnectRotatesTheSessionToken` also asserts the spent one no longer opens the seat.
-- `hub.sessionTokens` cleaned up on room delete.
+- `table.tokens` goes with the table on delete, which is now one `delete`.
 
 ## Rate limiting
 - Token bucket per client: 10/s refill, burst 20.
@@ -554,8 +641,9 @@ draw-once flag is still false, and that message reaches the whole table. Default
 to "has drawn" is what produced a seat that could neither draw (button disabled) nor pass (server:
 `you must draw a card before passing`) until the turn timer auto-acted for it.
 
-**Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (exported from
-`useGameStore.ts`, called by `applyCardPlayed`) drops copies of the played card until the local hand
+**Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (in
+`hooks/store/helpers.ts`, re-exported from `useGameStore.ts`, called by `applyCardPlayed`) drops
+copies of the played card until the local hand
 matches the `hand_size` the server sent in the same message, because one `card_played` can represent
 several discards — a batch play or a batch interrupt slams *every* identical copy the player holds,
 and `GameView` builds that batch by itself. Removing exactly one left the rest as phantom cards: they

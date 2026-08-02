@@ -8,6 +8,18 @@ stages:
 variables:
   DOCKER_TLS_CERTDIR: ""
   APP_SUBDOMAIN: loco
+  # The one switch deciding whether a push to `develop` reaches loco-d. Set it to
+  # "false" in Settings > CI/CD > Variables to stop deploying on every push, or
+  # pick it in the "Run pipeline" form for a single run. It gates `deploy_dev`
+  # only: `build` still runs and still pushes the images, so the deploy stays one
+  # manual click away instead of needing another pipeline. Nothing about prod
+  # reads it — a `v*` tag deploys whatever this says.
+  DEPLOY_DEV:
+    value: "true"
+    options:
+      - "true"
+      - "false"
+    description: "Deploy develop to loco-d automatically. false leaves deploy_dev as a manual job."
   DOCKER_HOST: unix:///var/run/docker.sock
   # GitLab can only cache paths inside the project directory, so both toolchains
   # are pointed at one. Without this every job re-downloads the Go module graph
@@ -46,6 +58,23 @@ backend_lint:
   script:
     - cd server && golangci-lint run ./...
 
+protocol_check:
+  stage: test
+  image: golang:1.26.5-alpine
+  tags:
+    - devops
+  # The client's protocol types and validation schemas are generated from
+  # server/protocol. This regenerates them and fails if the result differs from
+  # what is committed, which is the whole reason the generator is worth having:
+  # without it, generation is a suggestion and the two files drift back into
+  # being hand-maintained copies the moment somebody edits one directly.
+  #
+  # No cache on purpose. The generator is stdlib-only and compiles in about a
+  # second, and a third job pushing a Go cache key would race the two that
+  # already do (see backend_lint's note).
+  script:
+    - cd server && go run ./cmd/protocolgen -src protocol -out ../client/src/types -check
+
 backend_test:
   stage: test
   image: golang:1.26.5-alpine
@@ -77,10 +106,23 @@ backend_test:
         - server-bin
         - server-bin.sha
   script:
-    - cd server && go test ./...
+    # -race, which is why gcc is installed: this server is one event loop plus a
+    # goroutine per socket, so a data race here is not a lint finding, it is the
+    # hidden-state guarantee coming apart under load. The suite passed for months
+    # with a real one in it — Hub.Stop closed a channel and returned, leaving
+    # every caller running alongside a loop that was still dispatching — and it
+    # was invisible for exactly one reason: nothing ever passed the flag.
+    #
+    # One run rather than two. The instrumented binary is not the one that ships,
+    # but this suite is dominated by real sleeps and reaction windows rather than
+    # by CPU, so -race costs it about two seconds; paying that twice to keep an
+    # uninstrumented gate would buy nothing this job can actually observe.
+    - apk add --no-cache gcc musl-dev
+    - cd server && go test -race ./...
     # Built here, not in e2e_test: that job runs on the Playwright image, which
     # has no Go, and used to download a 70 MB toolchain tarball on every push to
-    # produce this same binary. Static so it runs on the Playwright image as-is.
+    # produce this same binary. Static so it runs on the Playwright image as-is:
+    # CGO_ENABLED=0 explicitly, because the -race run above turned cgo on.
     - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../server-bin .
     - echo "$CI_COMMIT_SHA" > ../server-bin.sha
 
@@ -314,6 +356,8 @@ build:
   needs:
     - job: backend_lint
       artifacts: false
+    - job: protocol_check
+      artifacts: false
     - job: backend_test
       artifacts: false
     - job: frontend_test
@@ -347,7 +391,15 @@ deploy_dev:
   # stated rather than left to the instance default so the ceiling is visible
   # next to the wait it bounds. Nothing here scales with the number of tables.
   timeout: 10m
+  # `DEPLOY_DEV != "true"` rather than `== "false"`: a variable someone typed
+  # "0", "no" or an empty string into must not read as "deploy anyway", since the
+  # whole point of this switch is to be able to stop a rollout. And it stays a
+  # manual job rather than disappearing — the images are built either way, so the
+  # deploy is one press on the pipeline, not another push.
   rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" && $DEPLOY_DEV != "true"'
+      when: manual
+      allow_failure: true
     - if: '$CI_COMMIT_BRANCH == "develop"'
   script:
     - export APP_HOST="${APP_SUBDOMAIN}-d.kisukesaama.com"

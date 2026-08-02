@@ -43,14 +43,16 @@ func TestForcedDraw_KeepsTurnDeadlineOnEveryMessage(t *testing.T) {
 	redDrawTwo := protocol.CardDTO{Color: "red", Kind: "draw_two"}
 	zero := 0
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:         protocol.CMsgDebugSetState,
-		DebugDiscard: &red5,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 0, Hand: []protocol.CardDTO{redDrawTwo, blue9}},
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{blue9, blue9}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Discard: &red5,
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 0, Hand: []protocol.CardDTO{redDrawTwo, blue9}},
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{blue9, blue9}},
+			},
+			PendingDraw: &zero,
+			CurrentTurn: &zero,
 		},
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &zero,
 	})
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -130,16 +132,18 @@ func TestForcedDraw_BotPlayedPenaltyCarriesTheVictimsDeadline(t *testing.T) {
 	redDrawTwo := protocol.CardDTO{Color: "red", Kind: "draw_two"}
 	zero := 0
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:      protocol.CMsgDebugSetState,
-		DebugHand: []protocol.CardDTO{red3, blue9},
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			// Only the +2 is playable on a red 5, so the bot's move is pinned.
-			{PlayerIndex: bot, Hand: []protocol.CardDTO{redDrawTwo, blue7}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand: []protocol.CardDTO{red3, blue9},
+			Hands: []protocol.DebugHandOverrideDTO{
+				// Only the +2 is playable on a red 5, so the bot's move is pinned.
+				{PlayerIndex: bot, Hand: []protocol.CardDTO{redDrawTwo, blue7}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 

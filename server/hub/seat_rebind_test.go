@@ -6,8 +6,8 @@ import (
 	"loco/server/protocol"
 )
 
-// A socket carries its seat in c.roomCode / c.playerID, but the room carries a
-// pointer to that same socket in h.roomMembers, indexed by seat. Nothing used
+// A socket carries its seat in c.roomCode / c.playerID, but the table carries a
+// pointer to that same socket in its members, indexed by seat. Nothing used
 // to stop a seated client from sending create_room or join_room again: the two
 // identities came apart, the pointer stayed in the old room at the old index,
 // and every personalised broadcast for that room was then built from the *new*
@@ -16,6 +16,9 @@ import (
 // nothing more exotic than press "create room" twice.
 //
 // Both tests below fail without the guard in handleCreateRoom / handleJoinRoom.
+// They are the refusal half; table_internal_test.go owns the other one, which
+// is that binding a client to a seat leaves no pointer behind even when the
+// refusal is not there to stop it.
 
 func TestCreateRoom_RefusedWhileSeated_KeepsOpponentHandPrivate(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
@@ -60,13 +63,15 @@ func TestCreateRoom_RefusedWhileSeated_KeepsOpponentHandPrivate(t *testing.T) {
 	swap := protocol.CardDTO{Color: "red", Kind: "swap"}
 	zero, dir := 0, 1
 	sendMsg(t, alice, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{swap, {Color: "red", Kind: "number", Value: 3}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 9},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &aliceSeat,
-		DebugDirection:   &dir,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{swap, {Color: "red", Kind: "number", Value: 3}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 9},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &aliceSeat,
+			Direction:   &dir,
+		},
 	})
 	readMsgOfType(t, bob, protocol.SMsgGameState) // the debug broadcast, not under test
 

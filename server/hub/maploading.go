@@ -36,8 +36,8 @@ import (
 // Exported so tests can shorten it; production never changes it.
 var MapLoadTimeout = 20 * time.Second
 
-// mapLoadState tracks one room's gate. Its presence in h.mapLoading is what
-// "this room is still loading" means; it is deleted the instant the table opens.
+// mapLoadState tracks one table's gate. A non-nil table.loading is what "this
+// table is still shut" means; it is cleared the instant the table opens.
 type mapLoadState struct {
 	// ready is the set of seats that have answered map_ready. Bot seats are put
 	// in at the start: they render nothing and have nothing to download.
@@ -76,16 +76,17 @@ type mapLoadTimeoutMsg struct {
 // beginMapLoading opens the gate for a freshly started match. The caller must
 // already have broadcast game_started: the client cannot preload a map it has
 // not been told the name of.
-func (h *Hub) beginMapLoading(code string, room *game.Room) {
+func (h *Hub) beginMapLoading(t *table) {
+	code, room := t.code, t.room
 	st := &mapLoadState{ready: make(map[int]bool), startedAt: time.Now()}
-	for playerID := range h.botSlots[code] {
+	for playerID := range t.bots {
 		st.ready[playerID] = true
 	}
-	h.mapLoading[code] = st
+	t.loading = st
 
-	log.Printf("map loading code=%s map=%s waiting=%d", code, room.MapID, len(h.pendingLoaders(code)))
+	log.Printf("map loading code=%s map=%s waiting=%d", code, room.MapID, len(t.pendingLoaders()))
 
-	h.broadcastLoadingProgress(code)
+	h.broadcastLoadingProgress(t)
 	msg := mapLoadTimeoutMsg{roomCode: code, startedAt: st.startedAt}
 	time.AfterFunc(MapLoadTimeout, func() {
 		select {
@@ -99,26 +100,19 @@ func (h *Hub) beginMapLoading(code string, room *game.Room) {
 	})
 
 	// A table of one human and three bots is ready the moment it is dealt.
-	h.maybeOpenTable(code, room)
-}
-
-// isMapLoading reports whether the room is still holding the table shut.
-func (h *Hub) isMapLoading(code string) bool {
-	_, ok := h.mapLoading[code]
-	return ok
+	h.maybeOpenTable(t)
 }
 
 // pendingLoaders returns the connected human seats the table is still waiting
-// on. A seat that is nil in roomMembers is mid-disconnect and cannot answer, so
+// on. A seat with no socket behind it is mid-disconnect and cannot answer, so
 // it never blocks: its reconnect is handled by the ordinary snapshot path.
-func (h *Hub) pendingLoaders(code string) []int {
-	st, ok := h.mapLoading[code]
-	if !ok {
+func (t *table) pendingLoaders() []int {
+	if t.loading == nil {
 		return nil
 	}
 	var pending []int
-	for playerID, member := range h.roomMembers[code] {
-		if member == nil || st.ready[playerID] {
+	for playerID, member := range t.members {
+		if member == nil || t.loading.ready[playerID] {
 			continue
 		}
 		pending = append(pending, playerID)
@@ -128,13 +122,12 @@ func (h *Hub) pendingLoaders(code string) []int {
 
 // readySeats returns the seats that have answered, in seat order so the loading
 // screen's list never reshuffles between two updates.
-func (h *Hub) readySeats(code string) []int {
-	st, ok := h.mapLoading[code]
-	if !ok {
+func (t *table) readySeats() []int {
+	if t.loading == nil {
 		return nil
 	}
-	seats := make([]int, 0, len(st.ready))
-	for playerID := range st.ready {
+	seats := make([]int, 0, len(t.loading.ready))
+	for playerID := range t.loading.ready {
 		seats = append(seats, playerID)
 	}
 	sort.Ints(seats)
@@ -144,58 +137,51 @@ func (h *Hub) readySeats(code string) []int {
 // broadcastLoadingProgress tells the room who is in. Sent on every arrival:
 // watching the other names light up is the whole content of the screen, and it
 // is also how a player knows the wait is somebody else's connection, not theirs.
-func (h *Hub) broadcastLoadingProgress(code string) {
-	h.broadcastToRoomAll(code, protocol.ServerMsg{
+func (h *Hub) broadcastLoadingProgress(t *table) {
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:         protocol.SMsgMatchLoading,
-		PlayersReady: h.readySeats(code),
+		PlayersReady: t.readySeats(),
 	})
 }
 
 // handleMapReady records one client's arrival.
 func (h *Hub) handleMapReady(c *Client) {
-	st, ok := h.mapLoading[c.roomCode]
-	if !ok {
+	t := h.tableOf(c)
+	if t == nil || t.loading == nil {
 		// The table already opened: a duplicate answer, or one that lost the race
 		// with the timeout. Neither is an error and neither is worth a rejection:
 		// the client is telling us something we no longer need.
 		return
 	}
-	if st.ready[c.playerID] {
+	if t.loading.ready[c.playerID] {
 		return
 	}
-	st.ready[c.playerID] = true
+	t.loading.ready[c.playerID] = true
 
-	room, ok := h.rooms[c.roomCode]
-	if !ok {
-		delete(h.mapLoading, c.roomCode)
-		return
-	}
-	h.broadcastLoadingProgress(c.roomCode)
-	h.maybeOpenTable(c.roomCode, room)
+	h.broadcastLoadingProgress(t)
+	h.maybeOpenTable(t)
 }
 
 // maybeOpenTable releases the table once nobody is left to wait for. Called on
 // every arrival and on every disconnect, since a player who leaves during the gate
 // stops being someone the table is waiting on.
-func (h *Hub) maybeOpenTable(code string, room *game.Room) {
-	if !h.isMapLoading(code) {
+func (h *Hub) maybeOpenTable(t *table) {
+	if t.loading == nil || len(t.pendingLoaders()) > 0 {
 		return
 	}
-	if len(h.pendingLoaders(code)) > 0 {
-		return
-	}
-	h.openTable(code, room, "all_ready")
+	h.openTable(t, "all_ready")
 }
 
 // openTable starts the match for real: the turn clock is armed here, and this is
 // the first moment any gameplay message is accepted.
-func (h *Hub) openTable(code string, room *game.Room, reason string) {
-	st, ok := h.mapLoading[code]
-	if !ok {
+func (h *Hub) openTable(t *table, reason string) {
+	st := t.loading
+	if st == nil {
 		return
 	}
-	delete(h.mapLoading, code)
+	t.loading = nil
 
+	code, room := t.code, t.room
 	if room.Status != game.StatusPlaying {
 		// The match ended or the room went back to the lobby while the gate was
 		// open (everyone but one player left). Nothing to open.
@@ -206,13 +192,13 @@ func (h *Hub) openTable(code string, room *game.Room, reason string) {
 		code, room.MapID, reason, time.Since(st.startedAt).Milliseconds())
 
 	// Order matters: the deadline broadcast below reads what this arms.
-	h.scheduleTurnTimer(code, room)
-	h.broadcastToRoomAll(code, protocol.ServerMsg{
+	h.scheduleTurnTimer(t)
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:         protocol.SMsgMatchReady,
 		Turn:         room.State.CurrentTurn,
-		TurnDeadline: h.turnDeadlineMs(code),
+		TurnDeadline: turnDeadlineMs(t),
 	})
-	h.maybeScheduleBot(code, room)
+	h.maybeScheduleBot(t)
 }
 
 // handleMapLoadTimeout starts the match without whoever has not answered.
@@ -221,18 +207,13 @@ func (h *Hub) openTable(code string, room *game.Room, reason string) {
 // may have opened on its own, and a rematch may have opened a second gate whose
 // clock this timer knows nothing about.
 func (h *Hub) handleMapLoadTimeout(msg mapLoadTimeoutMsg) {
-	st, ok := h.mapLoading[msg.roomCode]
-	if !ok {
-		return // table already open
+	t, ok := h.tables[msg.roomCode]
+	if !ok || t.loading == nil {
+		return // room gone, or table already open
 	}
-	if !st.startedAt.Equal(msg.startedAt) {
+	if !t.loading.startedAt.Equal(msg.startedAt) {
 		return // this timer belongs to a previous gate
 	}
-	room, ok := h.rooms[msg.roomCode]
-	if !ok {
-		delete(h.mapLoading, msg.roomCode)
-		return
-	}
-	log.Printf("WARN map load timeout code=%s waiting_on=%v", msg.roomCode, h.pendingLoaders(msg.roomCode))
-	h.openTable(msg.roomCode, room, "timeout")
+	log.Printf("WARN map load timeout code=%s waiting_on=%v", msg.roomCode, t.pendingLoaders())
+	h.openTable(t, "timeout")
 }

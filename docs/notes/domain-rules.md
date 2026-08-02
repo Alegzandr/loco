@@ -170,11 +170,19 @@ a string it is free to reword.
   and `myDeclared`, so seat 0's own LOCO! button never went out either. Read it with
   `ServerMsg.Seat()` (-1 = the message names no seat); `protocol/messages_test.go` pins seat 0 onto
   the wire for every message type that carries one.
-- Client mirrors it: `useGameStore.catchWindows: { seat, endsAt }[]`, with `catchTarget` /
-  `unoTimerEnd` **derived** (`deriveCatch`: most urgent opponent window, never our own seat) so
-  `<ActionBar />` and the timer bar stay single-target. `closeCatchWindow(seat)` on
-  `uno_declared` / `uno_caught` retires one seat only; `pruneCatchWindows()` drops expired ones and
-  promotes the next.
+- **Who is on the hook is the server's answer, and it rides `card_played`** as
+  `catch_seats: [{player_index, ends_at}]` (`protocol.CatchSeatDTO`, filled by `hub.catchSeats` from
+  `GameState.CatchableTargets` + `CatchWindowEnd`). The client used to work it out again from the
+  roster and the card kind, which put "a Swap or a GlobalSwitch catches EVERY seat left on one card"
+  in two languages with nothing checking they agreed. A drift there does not fail: it arms
+  Contre-LOCO! on a tap the server refuses, or leaves it dark on a seat the player could have caught.
+- Client holds it as `useGameStore.catchWindows: { seat, endsAt, attempted? }[]`, and adds nothing to
+  the server's list but its own memory of which button it has already pressed. `catchTarget` /
+  `unoTimerEnd` are **derived** (`deriveCatch`: most urgent opponent window, never our own seat) so
+  `<ActionBar />` and the timer bar stay single-target, and they are completed by the store itself
+  (`store/deriveCatchMiddleware.ts`) rather than by each action: stored derived state fails by an
+  action forgetting to recompute it, silently. `applyUnoCaught(seat)` on `uno_declared` /
+  `uno_caught` retires one seat only; `pruneCatchWindows()` drops expired ones and promotes the next.
 - **A hand that grows closes that seat's window** (`applyCardDrawn`). `CatchUndeclared` refuses any
   target that no longer holds exactly one card, so a window kept open past a draw is a Contre-LOCO!
   button armed on a tap that can only come back refused.
@@ -215,13 +223,21 @@ a string it is free to reword.
   twice, and a client-side accumulator would differ per client after a reconnect.
 
 ## Rematch (end of match)
-- `rematch` (host-only, client→server) reopens a finished room as a lobby. Server replies **per recipient** with `rematch_started { room_code, player_id, players, match_format, max_players }`.
+- **`rematch` is an ask every seat makes, not a host decision**, and the next match is dealt only
+  once every connected human has asked. The quorum, the broadcast (`rematch_offered`), what a
+  departure does to a pending agreement and the two shapes the deal can take all live in
+  `notes/server.md` ("A rematch by agreement"); what follows is the domain half alone.
+- Reopening a finished room as a lobby replies **per recipient** with
+  `rematch_started { room_code, player_id, players, match_format, max_players }`.
 - `Room.ResetForRematch()` (`game/room.go`): requires `StatusFinished`. Clears `State`, `Winner`, `RoundEnded`, `MatchOver`, `MatchWinner`, `RoundNumber`, and nils `Scores`/`RoundsWon`/`LostHandTotal` (so `Start()` reallocates them sized to the roster present at that moment). Keeps `Players`, `Format`, `MaxPlayers`.
-- `hub.handleRematch` first calls `pruneAbsentPlayers` — drops every seat with a nil `roomMembers` entry that is not in `botSlots` (i.e. humans who never came back), high→low, re-indexing `roomMembers`, surviving `Client.playerID`, `botSlots`, `sessionTokens`. **This is why `rematch_started` is per-recipient: playerIDs can shift.** Then deletes `turnStartedAt`, `afkTimeouts`, `disconnectedAt`, `emptyRooms` for the code.
+- `hub.handleRematch` first calls `pruneAbsentPlayers` — drops every seat with no socket behind it that is not a bot (i.e. humans who never came back), high→low, through `table.dropSeat`, which re-bases the members, the surviving `Client.playerID`, the bot set and the session tokens together. **This is why `rematch_started` is per-recipient: playerIDs can shift.** Then `table.resetForNextMatch()` clears everything the finished match left, the map gate included.
 - **A finished room's roster is mutable, exactly like a lobby.** `RemoveLobbyPlayer` accepts `StatusFinished`, and `handleDisconnect` routes the finished-room case through `reindexLobbyDisconnect` (+ `player_left` broadcast). Without this a phantom player would be dealt a hand in the rematch.
 - Client: `applyRematch(myIndex, players, format, maxPlayers)` wipes all match state → `screen:'waiting'`. **Keeps `sessionToken`** (same room, still valid for reconnect during the next match). `App` adopts the server's `player_id`.
 - `store.setPlayers` re-resolves `myIndex` by matching our own nickname in the incoming roster. Server-side re-indexing (lobby or finished-room disconnect) otherwise leaves a stale index, so a promoted player would never get host controls — e.g. the host leaves the game-over screen and nobody can rematch. Nicknames are unique per room, so the match is unambiguous.
-- `GameOver` takes `isHost` + `onSend`: host sees a Rematch button, others `rematchWaiting` text; both get `leaveRoom` (reloads). i18n keys: `rematch`, `rematchWaiting`, `leaveRoom`.
+- `GameOver` gives **every** seat the same button, in three states (ask / waiting / they asked
+  first), driven by `rematchOffers` + `rematchNeeded` off `rematch_offered`. Past two seats it
+  carries the count (`rematchWaitingTable`); at two it does not (`rematchWaitingOpponent`). See
+  "The 1v1 queue on screen" in `notes/client.md`.
 - Bots survive a rematch. `nextBotName` scans for the lowest free `BotN` rather than counting seats, so the first bot is `Bot1` and a surviving bot can't cause a duplicate-nickname `Join` failure.
 
 ## Lobby config
@@ -230,7 +246,7 @@ a string it is free to reword.
 - Any change → broadcast `lobby_config_changed` (match_format, max_players).
 - `room_created`/`room_joined` include `match_format` + `max_players`.
 - Defaults: BO1, 10 max.
-- **Lobby disconnect re-indexes everything.** `Room.RemoveLobbyPlayer` removes + re-indexes `Player.Index`; hub re-indexes `roomMembers`, surviving `Client.playerID`, `botSlots[code]`, `sessionTokens[code]`. First remaining player is always playerID 0 (host).
+- **Lobby disconnect re-indexes everything.** `Room.RemoveLobbyPlayer` removes + re-indexes `Player.Index`; `table.dropClient` re-bases the members, the surviving `Client.playerID`, the bot set and the session tokens in one move. First remaining player is always playerID 0 (host).
 - Lobby disconnect leaving no humans → schedule cleanup immediately.
 
 ## Room codes

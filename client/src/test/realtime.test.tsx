@@ -95,7 +95,7 @@ describe('double-tap guard is per control', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Catch!' }))
     // The first window is retired the way uno_caught would retire it; the
     // button now offers the other seat.
-    act(() => useGameStore.getState().closeCatchWindow(1))
+    act(() => useGameStore.getState().applyUnoCaught(1))
     fireEvent.click(screen.getByRole('button', { name: 'Catch!' }))
 
     const targets = onSend.mock.calls

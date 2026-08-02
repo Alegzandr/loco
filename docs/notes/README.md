@@ -16,6 +16,8 @@ are actually touching that subsystem belongs here.
 | [`visual.md`](visual.md) | art direction, board geometry, seats, maps, card face, motion, streamable moments |
 | [`audio.md`](audio.md) | the synthesis engine, the track format, the arrangement ladder |
 | [`testing-ci.md`](testing-ci.md) | Playwright, the GitLab pipeline, linting, the Docker stacks |
+| [`seo.md`](seo.md) | indexable pages, the page registry, hreflang, robots/sitemap/404, build-time origin |
+| [`legal.md`](legal.md) | what is processed and why, the no-banner position, address truncation, the trademark line |
 
 ## Working rules
 
@@ -27,3 +29,8 @@ are actually touching that subsystem belongs here.
   already fixed, one of them naming a function that did not exist.
 - Prose here is deliberately long-form. That is the point of the file: it is read on purpose, by
   somebody who has already decided to touch the subsystem.
+- **A note goes stale in silence, so re-read it against the code before trusting it.** The pass of
+  2026-08-02 found five passages describing things that no longer existed: a `.btn-chunky` class and
+  a `user-scalable=no` viewport that had both been deleted, a `<MotionConfig reducedMotion="user">`
+  replaced by `<MotionGate>`, a rematch still documented as host-only, and this very table listing
+  six notes when there were eight.

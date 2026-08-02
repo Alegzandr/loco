@@ -190,7 +190,7 @@ func (c *Client) readPump() {
 		if !c.limiter.allow() {
 			// Still counted per dropped message: messages_rate_limited is the
 			// metric that has to keep its shape. Only the reply is throttled.
-			c.hub.statMessagesRateLimited.Add(1)
+			c.hub.metrics.messagesRateLimited.Add(1)
 			if now := time.Now(); now.Sub(c.lastLimitNotice) >= rateLimitNoticePeriod {
 				c.lastLimitNotice = now
 				c.sendError("rate limit exceeded")
@@ -209,7 +209,7 @@ func (c *Client) readPump() {
 		select {
 		case c.hub.inbound <- inboundMsg{client: c, msg: msg}:
 		default:
-			c.hub.statMessagesDroppedBusy.Add(1)
+			c.hub.metrics.messagesDroppedBusy.Add(1)
 			log.Printf("inbound channel full, dropping message conn=%s addr=%s", c.connID, c.netPrefix())
 			c.sendError("server busy, please retry")
 		}
@@ -278,7 +278,7 @@ func (c *Client) SendBytes(data []byte) {
 	default:
 		c.mu.Unlock()
 	}
-	c.hub.statSlowClientsClosed.Add(1)
+	c.hub.metrics.slowClientsClosed.Add(1)
 	log.Printf("WARN slow client, force-closing for clean reconnect conn=%s addr=%s", c.connID, c.netPrefix())
 	// Closing the underlying conn triggers readPump exit → hub.unregister →
 	// c.close() (which closes c.send and lets writePump exit). gorilla/websocket
@@ -354,7 +354,7 @@ func (c *Client) noteSuspect(reason string) {
 	count := c.suspectCount
 	c.suspectMu.Unlock()
 	if count == suspectThreshold {
-		c.hub.statSuspectedCheats.Add(1)
+		c.hub.metrics.suspectedCheats.Add(1)
 		log.Printf("WARN suspected cheat: %d validation rejections in 30s conn=%s code=%s player=%d last_reason=%q",
 			count, c.connID, c.roomCode, c.playerID, reason)
 	}

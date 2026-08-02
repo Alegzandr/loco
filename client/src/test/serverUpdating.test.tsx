@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import * as v from 'valibot'
 import { render, screen } from '@testing-library/react'
 import { I18nProvider } from '../i18n'
 import { en } from '../i18n/en'
@@ -18,7 +19,7 @@ describe('the deploy notice', () => {
   it('is a message type the client accepts', () => {
     // useWebSocket drops anything the schema does not name, so a server_updating
     // that is not in here reaches nobody and the banner never appears.
-    expect(serverMsgTypeSchema.safeParse('server_updating').success).toBe(true)
+    expect(v.safeParse(serverMsgTypeSchema, 'server_updating').success).toBe(true)
   })
 
   it('promises the match finishes, and asks for nothing', () => {

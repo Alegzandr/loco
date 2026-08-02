@@ -70,7 +70,7 @@ func (h *Hub) beginDrain() {
 		return
 	}
 	h.draining.Store(true)
-	log.Printf("drain started rooms=%d clients=%d", h.statRooms.Load(), h.statClients.Load())
+	log.Printf("drain started rooms=%d clients=%d", h.metrics.rooms.Load(), h.metrics.clients.Load())
 
 	// The queue goes first. Nobody in it is in a match, so there is nothing to
 	// protect, and leaving them there would be the cruellest possible outcome:
@@ -79,7 +79,7 @@ func (h *Hub) beginDrain() {
 	// table their friend can join still works.
 	queued := h.queue
 	h.queue = nil
-	h.statMatchmakingQueue.Store(0)
+	h.metrics.matchmakingQueue.Store(0)
 	for _, q := range queued {
 		q.client.sendError(drainRefusal)
 		q.client.Send(protocol.ServerMsg{Type: protocol.SMsgMatchmakingCancelled})
@@ -88,11 +88,11 @@ func (h *Hub) beginDrain() {
 	// Everyone at a table in progress is told once. Not a countdown and not a
 	// warning: there is nothing for them to do, and the match they are in is
 	// going to finish.
-	for code, room := range h.rooms {
-		if room.Status != game.StatusPlaying {
+	for _, t := range h.tables {
+		if t.room.Status != game.StatusPlaying {
 			continue
 		}
-		h.broadcastToRoomAll(code, protocol.ServerMsg{Type: protocol.SMsgServerUpdating})
+		h.broadcastToRoomAll(t, protocol.ServerMsg{Type: protocol.SMsgServerUpdating})
 	}
 
 	h.checkDrained()
@@ -112,7 +112,7 @@ func (h *Hub) refuseWhileDraining(c *Client) bool {
 // loop after every event.
 func (h *Hub) checkDrained() {
 	inFlight := h.matchesInFlight()
-	h.statMatchesInFlight.Store(int32(inFlight))
+	h.metrics.matchesInFlight.Store(int32(inFlight))
 	if h.drainedClosed || inFlight > 0 {
 		return
 	}
@@ -130,11 +130,11 @@ func (h *Hub) checkDrained() {
 // can never become one.
 func (h *Hub) matchesInFlight() int {
 	n := 0
-	for code, room := range h.rooms {
+	for _, t := range h.tables {
 		switch {
-		case room.Status == game.StatusPlaying:
+		case t.room.Status == game.StatusPlaying:
 			n++
-		case room.Status == game.StatusLobby && h.isMatchmade(code):
+		case t.room.Status == game.StatusLobby && t.isMatchmade():
 			n++
 		}
 	}

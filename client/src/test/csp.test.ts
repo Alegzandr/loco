@@ -184,17 +184,41 @@ describe('the app stays inside the policy', () => {
     expect(offenders.map(f => path.relative(CLIENT, f))).toEqual([])
   })
 
-  it('keeps Zod off the eval path', async () => {
+  it('validates a server message without reaching for eval', async () => {
     // The check above reads our sources; a dependency is free to call
-    // `Function()` on its own, and Zod 4 does, to compile a validator the first
-    // time a schema runs. Under `script-src 'self'` the call is refused, Zod
-    // catches it and interprets instead, so nothing breaks — it just reports a
-    // violation on every page load, which is indistinguishable from a real one.
-    // Importing the schema module is what applies the setting, so the assertion
-    // and the fix are the same statement.
-    const { z } = await import('zod')
-    await import('../types/protocolSchemas')
-    expect(z.config().jitless).toBe(true)
+    // `Function()` on its own. Zod 4 did, to compile a validator the first time
+    // a schema ran: under `script-src 'self'` the call is refused, Zod catches
+    // it and interprets instead, so nothing breaks. It just reports a violation
+    // on every page load, indistinguishable from a real one. That was pinned by
+    // asserting a config flag, which tested the workaround rather than the
+    // property the workaround was for.
+    //
+    // Valibot has no such path, so this asserts the property directly: run a
+    // real validation with both eval doors watched, and see that neither opens.
+    // A Proxy rather than a replacement, so everything else about Function
+    // (prototype, instanceof, the internals of whatever else is loaded) is
+    // untouched. This would have caught Zod, and it catches the next one.
+    const [{ serverMsgSchema }, v] = await Promise.all([
+      import('../types/protocolSchemas'),
+      import('valibot'),
+    ])
+
+    const compiled: string[] = []
+    const realFunction = globalThis.Function
+    const record = (args: unknown[]) => compiled.push(String(args[args.length - 1] ?? ''))
+    globalThis.Function = new Proxy(realFunction, {
+      construct: (target, args, newTarget) => (record(args), Reflect.construct(target, args, newTarget)),
+      apply: (target, thisArg, args) => (record(args), Reflect.apply(target, thisArg, args)),
+    })
+
+    try {
+      const parsed = v.safeParse(serverMsgSchema, { type: 'error', error: 'nope' })
+      expect(parsed.success).toBe(true)
+    } finally {
+      globalThis.Function = realFunction
+    }
+
+    expect(compiled).toEqual([])
   })
 
   it('loads nothing off a remote origin', () => {

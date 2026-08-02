@@ -597,20 +597,22 @@ export async function debugSetState(
     direction?: number
   },
 ): Promise<void> {
-  const msg: Record<string, unknown> = { type: 'debug_set_state' }
-  if (opts.hand !== undefined) msg.debug_hand = opts.hand
+  // The payload the server reads is nested under `debug`; every key here is
+  // optional and an omitted one leaves that part of the state alone.
+  const debug: Record<string, unknown> = {}
+  if (opts.hand !== undefined) debug.hand = opts.hand
   if (opts.hands !== undefined) {
-    msg.debug_hands = opts.hands.map((h) => ({
+    debug.hands = opts.hands.map((h) => ({
       player_index: h.playerIndex,
       hand: h.hand,
     }))
   }
-  if (opts.discard !== undefined) msg.debug_discard = opts.discard
-  if (opts.activeColor !== undefined) msg.debug_active_color = opts.activeColor
-  if (opts.pendingDraw !== undefined) msg.debug_pending_draw = opts.pendingDraw
-  if (opts.currentTurn !== undefined) msg.debug_current_turn = opts.currentTurn
-  if (opts.direction !== undefined) msg.debug_direction = opts.direction
-  await sendMsg(page, msg)
+  if (opts.discard !== undefined) debug.discard = opts.discard
+  if (opts.activeColor !== undefined) debug.active_color = opts.activeColor
+  if (opts.pendingDraw !== undefined) debug.pending_draw = opts.pendingDraw
+  if (opts.currentTurn !== undefined) debug.current_turn = opts.currentTurn
+  if (opts.direction !== undefined) debug.direction = opts.direction
+  await sendMsg(page, { type: 'debug_set_state', debug })
 
   // Wait for the broadcast to actually land rather than for a flat 200ms. A
   // fixture is set once per test and the delay was paid every time: too long on

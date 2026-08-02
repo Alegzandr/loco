@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
+import * as v from 'valibot'
 import { useGameStore } from '../hooks/useGameStore'
 import { PlayerDTO } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
@@ -85,7 +86,7 @@ describe('applyRematch', () => {
 
 describe('rematch_started wire message', () => {
   it('validates against the inbound schema', () => {
-    const parsed = serverMsgSchema.safeParse({
+    const parsed = v.safeParse(serverMsgSchema, {
       type: 'rematch_started',
       room_code: 'ABC123',
       player_id: 1,
@@ -99,7 +100,7 @@ describe('rematch_started wire message', () => {
 
 describe('rematch offers', () => {
   it('validates the wire message it arrives on', () => {
-    const parsed = serverMsgSchema.safeParse({
+    const parsed = v.safeParse(serverMsgSchema, {
       type: 'rematch_offered',
       player_index: 1,
       rematch_offers: [0, 1],

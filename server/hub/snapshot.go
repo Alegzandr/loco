@@ -122,16 +122,16 @@ func (h *Hub) saveSnapshot(path string) error {
 		SchemaVersion: SnapshotSchemaVersion,
 		SavedAt:       time.Now(),
 	}
-	for code, room := range h.rooms {
-		if room.Status != game.StatusPlaying {
+	for _, t := range h.tables {
+		if t.room.Status != game.StatusPlaying {
 			continue
 		}
 		snap.Rooms = append(snap.Rooms, roomSnapshot{
-			Room:          room,
-			SessionTokens: h.sessionTokens[code],
-			BotSlots:      sortedKeys(h.botSlots[code]),
-			Matchmade:     h.isMatchmade(code),
-			AFKTimeouts:   h.afkTimeouts[code],
+			Room:          t.room,
+			SessionTokens: t.tokens,
+			BotSlots:      sortedKeys(t.bots),
+			Matchmade:     t.isMatchmade(),
+			AFKTimeouts:   t.afk,
 		})
 	}
 	if len(snap.Rooms) == 0 {
@@ -232,57 +232,53 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 		return false
 	}
 	code := room.Code
-	if _, taken := h.rooms[code]; taken {
+	if _, taken := h.tables[code]; taken {
 		log.Printf("WARN snapshot room code collides with a live room, dropped code=%s", code)
 		return false
 	}
 
-	h.rooms[code] = room
-	h.roomMembers[code] = make([]*Client, len(room.Players))
-	h.statRooms.Add(1)
+	t := newTable(code, room)
+	t.members = make([]*Client, len(room.Players))
+	h.tables[code] = t
+	h.metrics.rooms.Add(1)
 
+	// A snapshot written by an older process may carry a null where this now
+	// keeps a map, so the fields are only taken when they hold something.
 	if len(rs.SessionTokens) > 0 {
-		h.sessionTokens[code] = rs.SessionTokens
+		t.tokens = rs.SessionTokens
 	}
 	if len(rs.AFKTimeouts) > 0 {
-		h.afkTimeouts[code] = rs.AFKTimeouts
+		t.afk = rs.AFKTimeouts
 	}
-	bots := make(map[int]struct{}, len(rs.BotSlots))
 	for _, seat := range rs.BotSlots {
-		bots[seat] = struct{}{}
+		t.bots[seat] = struct{}{}
 	}
-	if len(bots) > 0 {
-		h.botSlots[code] = bots
-		h.statBotsActive.Add(int32(len(bots)))
-	}
+	bots := t.bots
+	h.metrics.botsActive.Add(int32(len(bots)))
 	// Set before the reconnect windows are armed: reconnectHold reads it, and a
 	// matchmade seat is held for 15s rather than 60.
 	if rs.Matchmade {
-		h.matchmade[code] = time.Now()
+		t.matchmadeAt = time.Now()
 	}
 
 	now := time.Now()
-	slots := make(map[int]time.Time, len(room.Players))
 	for seat := range room.Players {
-		if _, isBot := bots[seat]; isBot {
+		if t.isBot(seat) {
 			continue
 		}
-		slots[seat] = now
-		h.scheduleReconnectExpiry(code, seat, now)
-	}
-	if len(slots) > 0 {
-		h.disconnectedAt[code] = slots
+		t.awayAt[seat] = now
+		h.scheduleReconnectExpiry(t, seat, now)
 	}
 
 	// The turn clock restarts whole. The fraction of it that elapsed before the
 	// restart is not recoverable from a wall-clock stamp anyway (the process was
 	// down for part of it), and the error is in the player's favour.
-	h.scheduleTurnTimer(code, room)
-	h.maybeScheduleBot(code, room)
+	h.scheduleTurnTimer(t)
+	h.maybeScheduleBot(t)
 
 	// Nobody is at this table yet. If nobody arrives, this is what ends it
 	// rather than leaving a room on the server for the rest of its life.
-	h.scheduleRoomCleanup(code)
+	h.scheduleRoomCleanup(t)
 
 	log.Printf("room restored code=%s players=%d round=%d bots=%d matchmade=%t",
 		code, len(room.Players), room.RoundNumber, len(bots), rs.Matchmade)

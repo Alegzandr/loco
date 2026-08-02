@@ -43,11 +43,13 @@ func TestPenaltyDraw_RearmsTurnTimer(t *testing.T) {
 			// whose turn it is, so the timer armed at game start is still running.
 			pending := tc.pending
 			sendMsg(t, g.activeConn, protocol.ClientMsg{
-				Type:             protocol.CMsgDebugSetState,
-				DebugHand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
-				DebugDiscard:     &tc.discard,
-				DebugActiveColor: "blue",
-				DebugPendingDraw: &pending,
+				Type: protocol.CMsgDebugSetState,
+				Debug: &protocol.DebugStateDTO{
+					Hand:        []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 3}},
+					Discard:     &tc.discard,
+					ActiveColor: "blue",
+					PendingDraw: &pending,
+				},
 			})
 			readMsgOfType(t, g.activeConn, protocol.SMsgGameState)
 			readMsgOfType(t, g.otherConn, protocol.SMsgGameState)

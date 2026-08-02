@@ -163,6 +163,6 @@ whole set.
 
 ## Who the game says it is
 
-The modal carries no publisher identity, no host and no contact address, on
+The page carries no publisher identity, no host and no contact address, on
 purpose. That is an editorial decision made outside this note, and this note is
 not the place it gets revisited or argued with.

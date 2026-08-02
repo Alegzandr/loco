@@ -1,0 +1,344 @@
+import { useGameStore, UNO_CATCH_WINDOW_MS } from './useGameStore'
+import { ServerMsg } from '../types/protocol'
+
+/**
+ * The LOCO! banner's own timer, owned by the caller.
+ *
+ * A declaration puts a line on screen that has to come down on its own, and a
+ * second declaration arriving first must cancel the first timer rather than let
+ * it fire later over fresh state. The control is passed in rather than kept
+ * here so the handler stays a pure function of its inputs and a test can drive
+ * the timer without a fake clock.
+ */
+export interface UnoBannerTimer {
+  clear: () => void
+  arm: (ms: number, fn: () => void) => void
+}
+
+/**
+ * Everything the server can say, applied to the store.
+ *
+ * The store snapshot is taken once, at creation: the action functions come from
+ * the zustand factory and are stable for the life of the app, so closing over
+ * them costs nothing. Anything that reads *state* calls `getState()` at the
+ * moment it needs it: a frozen snapshot would be reading the store as it was
+ * at mount, which is a different value on every branch below that asks a
+ * question about the current screen.
+ */
+export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
+  const store = useGameStore.getState()
+
+  return (msg: ServerMsg) => {
+    switch (msg.type) {
+      case 'room_created':
+      case 'room_joined': {
+        const players = msg.players ?? []
+        const myIdx = msg.player_id ?? 0
+        store.setRoomCode(msg.room_code ?? '')
+        store.setMyIndex(myIdx)
+        store.setSessionToken(msg.session_token ?? '')
+        store.setPlayers(players)
+        // Persisted alongside the token: a reloaded tab has no roster to
+        // derive it from, and the rejoin is keyed on the nickname.
+        store.setMyNickname(players.find((p) => p.index === myIdx)?.nickname ?? '')
+        if (msg.match_format && msg.max_players) {
+          store.setLobbyConfig(msg.match_format, msg.max_players)
+        }
+        store.setScreen('waiting')
+        break
+      }
+
+      // --- 1v1 matchmaking ---
+
+      // The search screen is entered optimistically when the button is
+      // pressed, so this is normally a confirmation. It matters on its own
+      // when the server puts somebody back in the queue unprompted: a pairing
+      // whose other half closed their tab during the reveal.
+      case 'matchmaking_queued':
+        if (useGameStore.getState().screen !== 'searching') store.beginSearch()
+        break
+
+      case 'matchmaking_cancelled':
+        store.endSearch()
+        break
+
+      // Two players, a room and a seat in one message: a matchmade match has
+      // no waiting room and nobody presses start. The reveal holds until the
+      // server deals, which arrives as an ordinary game_started.
+      case 'match_found':
+        store.applyMatchFound({
+          roomCode: msg.room_code ?? '',
+          mySeat: msg.player_id ?? 0,
+          sessionToken: msg.session_token ?? '',
+          players: msg.players ?? [],
+          matchFormat: msg.match_format ?? 'BO1',
+          maxPlayers: msg.max_players ?? 2,
+          startsInMs: msg.starts_in_ms ?? 0,
+        })
+        break
+
+      // The seat is gone server-side; nothing local may survive it.
+      case 'left_room':
+        store.resetToHome()
+        break
+
+      // Same reset, one difference: this player pressed nothing. Without the
+      // line the table simply vanishes from under them and the lobby they
+      // land on looks like a bug. resetToHome clears errorMsg, so the reason
+      // goes on after it, never before.
+      case 'kicked':
+        store.resetToHome()
+        store.setError('removed by the host')
+        break
+
+      case 'lobby_config_changed':
+        if (msg.match_format && msg.max_players) {
+          store.setLobbyConfig(msg.match_format, msg.max_players)
+        }
+        break
+
+      case 'player_joined':
+        store.setPlayers(msg.players ?? [])
+        break
+
+      case 'player_left':
+        store.setPlayers(msg.players ?? [])
+        // The offers that survive a departure are the server's to say: it
+        // retires the leaver's, re-bases the rest and republishes them in a
+        // rematch_offered right behind this message. Clearing here is what
+        // holds until then, and it is the whole answer in a matchmade room,
+        // where an opponent leaving ends the agreement outright.
+        store.clearRematchOffers()
+        break
+
+      // In a matchmade match the server says when this seat's match is given
+      // away, so the board can count it down instead of freezing on an
+      // opponent who may never move again. An ordinary room sends no deadline
+      // and gets no countdown: there, the seat is simply held.
+      case 'player_disconnected':
+        store.setPlayers(msg.players ?? [])
+        if (msg.forfeit_deadline) {
+          store.applyOpponentAway(msg.player_index ?? -1, msg.forfeit_deadline)
+        }
+        break
+
+      // A deploy is under way. Nothing to do and nothing to decide: the match
+      // finishes, and a restart is a one-second reconnect the client already
+      // handles. It is a line of text so the board is not silently strange.
+      case 'server_updating':
+        store.setServerUpdating(true)
+        break
+
+      case 'player_reconnected':
+        store.setPlayers(msg.players ?? [])
+        store.clearOpponentAway(msg.player_index ?? -1)
+        // Cleared here rather than left standing: the process answering now
+        // may be the new one, and it re-sends server_updating right after
+        // this if it is draining too.
+        store.setServerUpdating(false)
+        if (msg.state) {
+          // Read live state via getState(): the snapshot above is frozen at
+          // creation and would lose any updates that happened after mount
+          // (e.g. roomCode/myIndex from room_created arriving before this
+          // branch fires).
+          const live = useGameStore.getState()
+          // Mark reconnecting before applying state so GameView can animate recovery
+          unoTimer.clear()
+          store.setIsReconnecting(true)
+          store.applyGameState(msg.state)
+          store.setRoomCode(msg.room_code ?? live.roomCode)
+          // `state.your_index` is the same seat by construction and is not
+          // omittable, so it is the fallback rather than the previous value:
+          // a reloaded tab has no previous value, and the one it defaults to
+          // (-1) would seat it nowhere on a board it is otherwise holding a
+          // hand for. See protocol: player_id used to drop seat 0 entirely.
+          const myIdx = msg.player_id ?? msg.state.your_index ?? live.myIndex
+          store.setMyIndex(myIdx)
+          // A reloaded tab arrives here with only the persisted nickname; the
+          // roster in this message is the authority, and re-reading it keeps
+          // the record honest if the seat was re-indexed while we were away.
+          const mine = (msg.players ?? []).find((p) => p.index === myIdx)?.nickname
+          if (mine) store.setMyNickname(mine)
+          store.setScreen('game')
+        }
+        break
+
+      case 'game_started': {
+        if (msg.state) {
+          const s = useGameStore.getState()
+          if (s.showRoundSummary) {
+            // Round summary is visible — buffer the new state; apply when player dismisses
+            store.setPendingGameState(msg.state)
+          } else {
+            unoTimer.clear()
+            store.applyGameState(msg.state)
+            store.setScreen('game')
+          }
+        }
+        break
+      }
+
+      // The table is shut while the room downloads its map. Arrives right
+      // after game_started, and again on every arrival so the loading screen
+      // can show who is still missing.
+      case 'match_loading':
+        store.applyMatchLoading(msg.players_ready ?? [])
+        store.setScreen('game')
+        break
+
+      // The table is open. This, not game_started, is where the clock
+      // starts, which is why the deadline rides this message.
+      case 'match_ready':
+        store.applyMatchReady(msg.turn ?? 0, msg.turn_deadline ?? null)
+        break
+
+      case 'game_state':
+        // Mid-game authoritative refresh (e.g. debug_set_state, swap/global_switch effects).
+        // Apply the full state snapshot so discard/turn/pendingDraw remain in sync.
+        if (msg.state) {
+          unoTimer.clear()
+          store.applyGameState(msg.state)
+          store.setScreen('game')
+        }
+        break
+
+      case 'card_played':
+        if (msg.card) {
+          store.applyCardPlayed(
+            msg.player_index ?? 0,
+            msg.card,
+            msg.turn ?? 0,
+            msg.pending_draw ?? 0,
+            msg.active_color,
+            msg.players,
+            msg.chosen_player,
+            msg.direction,
+            msg.catch_seats,
+          )
+          store.setTurnDeadline(msg.turn_deadline ?? null)
+        }
+        break
+
+      case 'card_drawn':
+        store.applyCardDrawn(
+          msg.cards?.length ? msg.cards : (msg.card ? [msg.card] : null),
+          msg.player_index ?? 0,
+          msg.turn ?? 0,
+          msg.has_drawn,
+          msg.drawn_count,
+          msg.pending_draw
+        )
+        store.setTurnDeadline(msg.turn_deadline ?? null)
+        break
+
+      case 'turn_changed':
+        useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
+        break
+
+      // A declaration closes the catch window on the declarer: from here on the
+      // server answers every catch with "player already declared". The banner
+      // stays up on its own timer so the table still sees who called it.
+      case 'uno_declared': {
+        unoTimer.clear()
+        const declarer = msg.player_index ?? -1
+        // Only that seat is off the hook: after a Swap or a GlobalSwitch
+        // somebody else may still owe a call. If it is ours, the call is now
+        // spent and the button goes with it.
+        store.applyUnoDeclared(declarer)
+        unoTimer.arm(UNO_CATCH_WINDOW_MS, () => {
+          store.setUnoDeclared(false)
+          store.setUnoDeclaredByIndex(-1)
+        })
+        break
+      }
+
+      // Penalty applied, so that target is no longer catchable by anyone. Any
+      // other seat still holding a single card remains fair game. It also
+      // arms the slam: the penalty cards arrive through the ordinary
+      // card_drawn path, which on its own reads as somebody taking a turn.
+      case 'uno_caught':
+        store.applyUnoCaught(msg.player_index ?? -1)
+        break
+
+      // A Contre-LOCO! that lost its race. The penalty card arrives through
+      // the ordinary card_drawn path; this only names the seat that paid, for
+      // the notice and so the caller learns why their hand grew.
+      case 'catch_failed':
+        store.applyCatchFailed(msg.player_index ?? -1)
+        break
+
+      // Sent immediately before the resulting card_played so the steal can be
+      // presented on its own — banner, sting, screen shake — instead of
+      // looking like an ordinary turn.
+      case 'interrupt_success':
+        store.applyInterrupt(msg.player_index ?? 0, msg.cards?.length || 1)
+        break
+
+      case 'round_end':
+        unoTimer.clear()
+        store.applyRoundEnd(
+          msg.round_winner ?? '',
+          msg.round_number ?? 0,
+          msg.scoreboard ?? [],
+          msg.round_history,
+        )
+        break
+
+      // Periodic per-seat ping, fed to the TAB score table. Informational
+      // only, never consulted for a rules decision.
+      case 'latency':
+        store.applyLatencies(msg.latencies ?? [])
+        break
+
+      case 'match_end': {
+        const s = useGameStore.getState()
+        // A forfeit is not a round result and does not queue behind one: the
+        // opponent has gone, and there is nothing left for the summary to be
+        // a summary of.
+        if (msg.forfeit) {
+          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [], msg.player_index ?? -1)
+        } else if (s.showRoundSummary) {
+          // Final round summary is still visible — buffer the match-end payload so
+          // the player sees the full round breakdown before the game over screen.
+          store.setPendingMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+        } else {
+          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+        }
+        break
+      }
+
+      // A rematch is an agreement in every room: this carries every seat that
+      // has asked and how many asks it takes. The next match is dealt only
+      // once they match: as another match_found in a matchmade room, as a
+      // rematch_started back to the waiting room in an ordinary one.
+      case 'rematch_offered':
+        store.applyRematchOffers(msg.rematch_offers ?? [], msg.rematch_needed ?? 0)
+        break
+
+      case 'rematch_started':
+        // The host reopened the finished room. player_id is authoritative: seats
+        // may have been re-based when absent players were pruned.
+        store.applyRematch(
+          msg.player_id ?? 0,
+          msg.players ?? [],
+          msg.match_format ?? 'BO1',
+          msg.max_players ?? 10,
+        )
+        break
+
+      case 'error': {
+        const reason = msg.error ?? 'Unknown error'
+        // A refusal during a seat reclaim is the end of that reclaim, not a
+        // toast over a spinner: the room is gone, the match moved on, or the
+        // token no longer matches. abortRestore drops the stored record too,
+        // so the next load does not walk into the same refusal.
+        if (useGameStore.getState().screen === 'restoring') {
+          store.abortRestore(reason)
+          break
+        }
+        store.setError(reason)
+        break
+      }
+    }
+  }
+}

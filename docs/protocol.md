@@ -2,6 +2,12 @@
 
 All messages are JSON over a single WebSocket per player.
 
+**`server/protocol/` is the source.** `messages.go` holds the envelopes and DTOs, `enums.go` the wire
+enums (pinned to the domain by `enums_test.go`), and `make protocol` generates the client's
+`src/types/protocol.ts` and `src/types/protocolSchemas.ts` from them. Those two files carry a
+"do not edit" header and CI fails on any difference. This page is prose for humans and is the one
+description of the wire that a program does not check: when it disagrees with the Go, the Go wins.
+
 ## Client → Server
 
 | Type                | Fields                                                   |
