@@ -14,6 +14,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { UI } from '../content/ui'
+import { faqJsonLd } from '../content/faq'
 import {
   PAGES,
   LANGS,
@@ -21,9 +22,12 @@ import {
   LOCALE,
   ORIGIN,
   HOME,
+  RULES,
+  FAQ_PAGE,
   absolute,
   alternates,
   homeJsonLd,
+  pageJsonLd,
   type Lang,
   type PageDef,
 } from '../seo/meta'
@@ -78,6 +82,29 @@ describe('the page registry', () => {
     }
     expect(new Set(titles).size, `duplicate title among ${titles.length}`).toBe(titles.length)
     expect(new Set(descriptions).size).toBe(descriptions.length)
+  })
+
+  it('writes every title and description at a length a result will show', () => {
+    // A `<title>` past ~60 characters and a description past ~155 are cut off
+    // mid-word in the result, and the half that carries the point is usually the
+    // half that goes. Nobody on the team ever sees these strings rendered, so
+    // the only thing that keeps them inside the box is this test: every one of
+    // them was over the line, the home page's by 30 characters, and the audit
+    // that said so was the first time anyone had looked.
+    //
+    // French runs about 15% longer than English for the same sentence, so the
+    // ceiling is one number for both and the French copy is written to it
+    // rather than translated into it.
+    for (const page of PAGES) {
+      for (const lang of LANGS) {
+        expect(page.title[lang].length, `${page.id}/${lang} title`).toBeLessThanOrEqual(60)
+        const d = page.description[lang]
+        expect(d.length, `${page.id}/${lang} description`).toBeLessThanOrEqual(155)
+        // The other failure: a description so short it says nothing, which
+        // Google answers by writing its own from the page.
+        expect(d.length, `${page.id}/${lang} description`).toBeGreaterThanOrEqual(100)
+      }
+    }
   })
 
   it('gives every page a distinct, slashed path per language', () => {
@@ -223,11 +250,105 @@ describe('structured data', () => {
     // Free, and playable by a group in a browser. Saying it in prose only leaves
     // it to be inferred; saying it as data is what a rich result can read.
     const ld = homeJsonLd('en') as {
-      '@graph': { '@type': string; offers?: { price: number }; numberOfPlayers?: { minValue: number; maxValue: number } }[]
+      '@graph': {
+        '@type': string
+        isAccessibleForFree?: boolean
+        numberOfPlayers?: { minValue: number; maxValue: number }
+      }[]
     }
     const game = ld['@graph'].find((n) => n['@type'] === 'VideoGame')!
-    expect(game.offers?.price).toBe(0)
+    expect(game.isAccessibleForFree).toBe(true)
     expect(game.numberOfPlayers).toEqual({ '@type': 'QuantitativeValue', minValue: 2, maxValue: 10 })
+  })
+
+  it('never asks a validator for a rating nobody has left', () => {
+    // A VideoGame carrying `offers`, `applicationCategory` or `operatingSystem`
+    // is a SoftwareApplication as far as a validator is concerned, and Google's
+    // software requirements then make `aggregateRating` mandatory: the block
+    // came back with a critical error on every audit, and the only way to
+    // satisfy it would have been to publish ratings that do not exist.
+    // `isAccessibleForFree` says the same thing and asks for nothing.
+    const serialised = LANGS.map((l) => JSON.stringify(homeJsonLd(l))).join(' ')
+    for (const banned of ['offers', 'applicationCategory', 'operatingSystem', 'aggregateRating']) {
+      expect(serialised, `${banned} makes this a Software App`).not.toContain(banned)
+    }
+  })
+
+  it('keeps every page joined to one site and one game', () => {
+    // The point of the graph: seven pages describing a single entity rather than
+    // seven unrelated documents. The ids are strings on both sides, so a typo is
+    // invisible — the block stays valid and the pages simply stop being related.
+    for (const lang of LANGS) {
+      for (const page of PAGES) {
+        const ld = (page.id === FAQ_PAGE.id
+          ? faqJsonLd(lang, LOCALE[lang])
+          : pageJsonLd(page, lang)) as { '@graph': Record<string, unknown>[] }
+        const nodes = ld['@graph']
+        const doc = nodes.find((n) => String(n['@type']).endsWith('Page'))!
+        expect(doc, `${page.id}/${lang} must describe its own page`).toBeDefined()
+        expect(doc.isPartOf).toEqual({ '@id': `${ORIGIN}/#website` })
+        expect(doc.about).toEqual({ '@id': `${ORIGIN}/#game` })
+        expect(doc.url).toBe(absolute(page.path[lang]))
+        // The trail under the title in a result, and the one rich result these
+        // pages earn. The FAQ used to be the only page without it.
+        const crumbs = nodes.find((n) => n['@type'] === 'BreadcrumbList')
+        expect(crumbs, `${page.id}/${lang} breadcrumb`).toBeDefined()
+        expect(doc.breadcrumb).toEqual({ '@id': crumbs!['@id'] })
+      }
+    }
+  })
+
+  it('describes a content page as a page, never as an article', () => {
+    // `Article` is a supported type, which is the problem: a validator holds it
+    // to Google's article requirements and reports `author`, `datePublished`
+    // and `image` as errors — three fields this site has no honest value for.
+    // There is no editorial identity to name (docs/notes/legal.md) and these are
+    // evergreen documents with no publication date.
+    for (const lang of LANGS) {
+      const serialised = JSON.stringify(pageJsonLd(RULES, lang))
+      expect(serialised).not.toContain('Article')
+      expect(serialised).toContain('WebPage')
+    }
+  })
+})
+
+describe('the one heading a crawler can read', () => {
+  // `/` is a game: what stands where a title would is a drawing, and the only
+  // <h1> the page had was one React mounted. A crawler reads the served HTML,
+  // and every audit came back saying the home page had no heading at all.
+  const gamePage = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+
+  it('is served as markup on the home page, in text, off the screen', () => {
+    expect(gamePage).toMatch(/<h1 class="sr-only">\{ui\('homeH1', lang\)\}<\/h1>/)
+    for (const lang of LANGS) {
+      // It has to say what the page is, which the wordmark cannot: a heading
+      // reading "LOCO" is the logo again.
+      expect(UI.homeH1[lang].length, `homeH1/${lang}`).toBeGreaterThan(20)
+      expect(UI.homeH1[lang].length, `homeH1/${lang}`).toBeLessThanOrEqual(70)
+    }
+    // Clipped, not `display: none` — that would take it out of the
+    // accessibility tree as well, which is half of what it is for.
+    const tokens = readFileSync(path.join(CLIENT, 'src', 'styles', 'tokens.css'), 'utf8')
+    expect(tokens).toMatch(/\.sr-only \{[^}]*clip-path:\s*inset\(50%\)/s)
+    expect(tokens).not.toMatch(/\.sr-only \{[^}]*display:\s*none/s)
+  })
+
+  it('stays the only one, at every moment of a match', () => {
+    // The app's screens head themselves at <h2>. A second <h1> mounting once the
+    // bundle lands gives the rendered page two headings, and the one that
+    // describes the page is the one that loses.
+    const dir = path.join(CLIENT, 'src', 'components')
+    const walk = (d: string, out: string[] = []): string[] => {
+      for (const e of readdirSync(d)) {
+        const full = path.join(d, e)
+        if (statSync(full).isDirectory()) walk(full, out)
+        else if (e.endsWith('.tsx')) out.push(full)
+      }
+      return out
+    }
+    for (const file of walk(dir)) {
+      expect(readFileSync(file, 'utf8'), path.relative(CLIENT, file)).not.toMatch(/<h1[\s>]/)
+    }
   })
 })
 

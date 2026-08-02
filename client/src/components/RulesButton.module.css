@@ -3,6 +3,11 @@
    row of round chips rather than three chips plus a word. The label survives as
    aria-label + title: an icon-only control still has to say its name. */
 .button {
+  /* `.hit-target` in tokens.css centres its pseudo-element on this box, which
+     needs somewhere to be positioned against. Without it the "?" was the one
+     chip in the row a thumb had 40px of instead of --touch-target, and the two
+     beside it hid the fact by being right. */
+  position: relative;
   width: 40px;
   height: 40px;
   padding: 0;

@@ -95,12 +95,12 @@ export const HOME: PageDef = {
   id: 'home',
   path: { en: '/', fr: '/fr/' },
   title: {
-    en: 'LOCO · Fast multiplayer card game, free and no signup',
-    fr: 'LOCO · Jeu de cartes multijoueur rapide, gratuit et sans inscription',
+    en: 'LOCO · Fast multiplayer card game, free, no signup',
+    fr: 'LOCO · Jeu de cartes multijoueur gratuit, sans inscription',
   },
   description: {
-    en: 'Fast online card game for 2 to 10 players, free and with no signup. Pick a name, share a code, sit down: nobody waits their turn. Cut in, stack the penalties, call LOCO on your last card.',
-    fr: 'Jeu de cartes en ligne pour 2 à 10 joueurs, gratuit et sans inscription. Choisis un pseudo, partage un code, assieds-toi : personne n’attend son tour. Intercepte, empile les pénalités, annonce LOCO sur ta dernière carte.',
+    en: 'Free online card game for 2 to 10 players, no signup. Pick a name, share a code, sit down: nobody waits their turn.',
+    fr: 'Jeu de cartes en ligne gratuit, de 2 à 10 joueurs, sans inscription. Un pseudo, un code, une place : personne n’attend son tour.',
   },
   ogTitle: {
     en: 'LOCO · The card game where nobody waits their turn',
@@ -121,8 +121,8 @@ export const RULES: PageDef = {
     fr: 'Règles de LOCO · Comment jouer, carte par carte',
   },
   description: {
-    en: 'The full rules: the 112-card deck, what every card does, cutting in out of turn, calling LOCO on your last card, and how a round is scored. Readable in one sitting.',
-    fr: 'Les règles complètes : le jeu de 112 cartes, l’effet de chaque carte, l’interception hors de son tour, l’annonce LOCO sur la dernière carte et le décompte des points. Lisible d’une traite.',
+    en: 'The full rules: the 112-card deck, what every card does, cutting in out of turn, calling LOCO, and how a round is scored.',
+    fr: 'Les règles complètes : les 112 cartes, l’effet de chacune, l’interception hors de son tour, l’annonce LOCO et le décompte des points.',
   },
 }
 
@@ -131,12 +131,12 @@ export const CARDS: PageDef = {
   path: { en: '/cards/', fr: '/fr/cartes/' },
   navLabel: { en: 'Cards', fr: 'Cartes' },
   title: {
-    en: 'Every LOCO card · What each one does, and what it is worth',
+    en: 'Every LOCO card · What each one does and what it is worth',
     fr: 'Toutes les cartes de LOCO · Effet et valeur de chacune',
   },
   description: {
-    en: 'The whole deck, drawn: 72 numbers, Skip, Reverse, +2, Swap, Global Switch, Wild and +4. What each card does, how many are in the deck, and what it costs you at the end of a round.',
-    fr: 'Tout le jeu, dessiné : 72 numéros, Passe, Changement de sens, +2, Échange, Rotation, Changement de couleur et +4. L’effet de chaque carte, son nombre d’exemplaires et ce qu’elle coûte en fin de manche.',
+    en: 'The whole deck, drawn: 72 numbers, Skip, Reverse, +2, Swap, Global Switch, Wild and +4. What each card does and what it is worth.',
+    fr: 'Tout le jeu, dessiné : 72 numéros, Passe, Sens, +2, Échange, Rotation, Joker et +4. L’effet de chaque carte et ce qu’elle coûte en fin de manche.',
   },
 }
 
@@ -149,8 +149,8 @@ export const TABLES: PageDef = {
     fr: 'Les quatre tables de LOCO · Neon, Rune, Velvet, Orbit',
   },
   description: {
-    en: 'Every match is dealt in a room: a rooftop club, an arcane tavern, an art-deco lounge or a station in orbit. The four rooms, and what each one looks like.',
-    fr: 'Chaque partie se joue dans une pièce : un club sur les toits, une taverne arcanique, un salon art déco ou une station en orbite. Les quatre salles, et à quoi elles ressemblent.',
+    en: 'Every match is dealt in a room: a rooftop club, an arcane tavern, an art-deco lounge or a station in orbit. The four tables.',
+    fr: 'Chaque partie se joue dans une pièce : club sur les toits, taverne arcanique, salon art déco ou station en orbite. Les quatre tables.',
   },
 }
 
@@ -159,12 +159,12 @@ export const FRIENDS: PageDef = {
   path: { en: '/play-with-friends/', fr: '/fr/jouer-entre-amis/' },
   navLabel: { en: 'With friends', fr: 'Entre amis' },
   title: {
-    en: 'Play cards online with friends · Free, no signup, one code',
-    fr: 'Jouer aux cartes en ligne entre amis · Gratuit, sans inscription',
+    en: 'Play cards online with friends · Free, no signup',
+    fr: 'Jouer aux cartes entre amis · Gratuit, sans inscription',
   },
   description: {
-    en: 'Open a table, send the code, play. Two to ten friends in the same game in about ten seconds, in any browser, with no account and nothing to install on either side.',
-    fr: 'Ouvre une table, envoie le code, jouez. De deux à dix amis dans la même partie en une dizaine de secondes, dans n’importe quel navigateur, sans compte et sans rien installer.',
+    en: 'Open a table, send the code, play. Two to ten friends in the same game in ten seconds, in any browser, with nothing to install.',
+    fr: 'Ouvre une table, envoie le code, jouez. De 2 à 10 amis dans la même partie en dix secondes, dans le navigateur, sans rien installer.',
   },
 }
 
@@ -177,8 +177,8 @@ export const FAQ_PAGE: PageDef = {
     fr: 'FAQ LOCO · Gratuit, sans compte, de 2 à 10 joueurs',
   },
   description: {
-    en: 'Is it free, does it need an account, how many can play, does it work on a phone, can you play against bots, and what happens to your seat if you drop mid-match.',
-    fr: 'Est-ce gratuit, faut-il un compte, à combien peut-on jouer, ça marche sur téléphone, peut-on affronter des bots, et que devient ta place si tu perds la connexion en pleine partie.',
+    en: 'Is it free, does it need an account, how many can play, does it work on a phone, and what happens to your seat if you drop.',
+    fr: 'Est-ce gratuit, faut-il un compte, à combien joue-t-on, ça marche sur téléphone, et que devient ta place si tu perds la connexion ?',
   },
 }
 
@@ -198,11 +198,11 @@ export const LEGAL: PageDef = {
   navLabel: { en: 'Privacy & terms', fr: 'Confidentialité et conditions' },
   title: {
     en: 'LOCO privacy & terms · No account, no cookie, no tracker',
-    fr: 'Confidentialité et conditions de LOCO · Sans compte ni cookie',
+    fr: 'Confidentialité et conditions · Sans compte ni cookie',
   },
   description: {
-    en: 'What the game knows about you, which is almost nothing: no account, no cookie banner, no analytics, no third-party request. Plus the terms of use and the credits.',
-    fr: 'Ce que le jeu sait de toi, c’est-à-dire presque rien : aucun compte, aucun bandeau cookies, aucune mesure d’audience, aucune requête tierce. Avec les conditions d’utilisation et les crédits.',
+    en: 'What the game knows about you, which is almost nothing: no account, no cookie banner, no analytics. Plus the terms and credits.',
+    fr: 'Ce que le jeu sait de toi, presque rien : aucun compte, aucun bandeau cookies, aucune mesure d’audience. Conditions et crédits.',
   },
 }
 
@@ -243,54 +243,87 @@ export function alternates(page: PageDef): Alternate[] {
 }
 
 /**
- * Structured data for an ordinary content page: what it is, and where it sits.
+ * The trail under the title in a result: `LOCO › Rules` instead of a raw URL.
  *
- * `Article` rather than `HowTo`, even for the rules. Google removed HowTo rich
- * results from search in 2023, so the extra markup would buy nothing and would
- * still have to be kept correct. The breadcrumb is what actually shows: it
- * replaces the raw URL under the title in a result.
+ * Shared, because it is the one rich result these pages actually earn and every
+ * page owes Google the same two rungs. The FAQ builds its own graph and reads
+ * this too, or it would be the single page on the site with no trail.
  */
-export function pageJsonLd(page: PageDef, lang: Lang): object {
+export function breadcrumbJsonLd(page: PageDef, lang: Lang): object {
   return {
-    '@context': 'https://schema.org',
-    '@graph': [
+    '@type': 'BreadcrumbList',
+    '@id': `${absolute(page.path[lang])}#breadcrumb`,
+    itemListElement: [
       {
-        '@type': 'Article',
-        '@id': `${absolute(page.path[lang])}#article`,
-        headline: page.title[lang],
-        description: page.description[lang],
-        inLanguage: LOCALE[lang],
-        url: absolute(page.path[lang]),
-        isPartOf: { '@id': `${ORIGIN}/#website` },
-        about: { '@id': `${ORIGIN}/#game` },
+        '@type': 'ListItem',
+        position: 1,
+        name: SITE_NAME,
+        item: absolute(HOME.path[lang]),
       },
       {
-        '@type': 'BreadcrumbList',
-        itemListElement: [
-          {
-            '@type': 'ListItem',
-            position: 1,
-            name: SITE_NAME,
-            item: absolute(HOME.path[lang]),
-          },
-          {
-            '@type': 'ListItem',
-            position: 2,
-            name: page.navLabel?.[lang] ?? page.title[lang],
-            item: absolute(page.path[lang]),
-          },
-        ],
+        '@type': 'ListItem',
+        position: 2,
+        name: page.navLabel?.[lang] ?? page.title[lang],
+        item: absolute(page.path[lang]),
       },
     ],
   }
 }
 
 /**
- * Structured data for the home page.
+ * Structured data for an ordinary content page: what it is, and where it sits.
+ *
+ * `WebPage`, not `Article`, and not `HowTo` either. HowTo lost its rich result
+ * in 2023, so the rules page would maintain markup that renders nowhere. And
+ * `Article` is a *supported* type, which is exactly the problem: a validator
+ * holds it to Google's article requirements and reports `author`,
+ * `datePublished` and `image` as **errors** on every page here — three fields
+ * this site has no honest value for. There is no editorial identity to name
+ * (see `docs/notes/legal.md`) and these are evergreen documents with no
+ * publication date. `WebPage` states the same thing with nothing to invent, and
+ * the breadcrumb beside it is what a result actually shows.
+ *
+ * The nodes are joined by `@id`: every page points at the one `#website` and
+ * the one `#game` the home page declares, so a crawler reads seven pages about
+ * a single entity rather than seven unrelated documents.
+ */
+export function pageJsonLd(page: PageDef, lang: Lang): object {
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebPage',
+        '@id': `${absolute(page.path[lang])}#webpage`,
+        name: page.title[lang],
+        description: page.description[lang],
+        inLanguage: LOCALE[lang],
+        url: absolute(page.path[lang]),
+        isPartOf: { '@id': `${ORIGIN}/#website` },
+        about: { '@id': `${ORIGIN}/#game` },
+        breadcrumb: { '@id': `${absolute(page.path[lang])}#breadcrumb` },
+      },
+      breadcrumbJsonLd(page, lang),
+    ],
+  }
+}
+
+/**
+ * Structured data for the home page: the site, the page, and the game itself.
  *
  * `VideoGame` is what describes a playable thing rather than a product page,
- * and the free/no-signup offer is the single most searched property of this
- * category, so it is stated as data and not only as prose.
+ * and free / 2-to-10 / in-a-browser are the properties this category is
+ * actually searched on, so they are stated as data and not only as prose.
+ *
+ * **Free is said with `isAccessibleForFree`, never with an `Offer`.** A
+ * `VideoGame` carrying `offers`, `applicationCategory` and `operatingSystem`
+ * is a `SoftwareApplication` as far as a validator is concerned, and Google's
+ * software requirements make `aggregateRating` mandatory: the block came back
+ * with a critical error on every audit, and the only way to satisfy it would
+ * have been to publish ratings nobody has left. The boolean says the same thing
+ * to the same crawlers and asks for nothing that does not exist.
+ *
+ * `playMode` values are the full enumeration URLs, which is what the range
+ * `GamePlayMode` means; a bare string is a text value in an enumeration slot.
  */
 export function homeJsonLd(lang: Lang): object {
   const { title } = social(HOME, lang)
@@ -306,6 +339,17 @@ export function homeJsonLd(lang: Lang): object {
         description: HOME.description[lang],
       },
       {
+        '@type': 'WebPage',
+        '@id': `${absolute(HOME.path[lang])}#webpage`,
+        url: absolute(HOME.path[lang]),
+        name: HOME.title[lang],
+        description: HOME.description[lang],
+        inLanguage: LOCALE[lang],
+        isPartOf: { '@id': `${ORIGIN}/#website` },
+        about: { '@id': `${ORIGIN}/#game` },
+        primaryImageOfPage: absolute(OG_IMAGE.path[lang]),
+      },
+      {
         '@type': 'VideoGame',
         '@id': `${ORIGIN}/#game`,
         name: SITE_NAME,
@@ -314,12 +358,11 @@ export function homeJsonLd(lang: Lang): object {
         alternateName: title,
         inLanguage: LOCALE[lang],
         image: absolute(OG_IMAGE.path[lang]),
-        applicationCategory: 'GameApplication',
+        genre: lang === 'fr' ? 'Jeu de cartes' : 'Card game',
         gamePlatform: 'Web browser',
-        playMode: ['MultiPlayer', 'SinglePlayer'],
+        playMode: ['https://schema.org/MultiPlayer', 'https://schema.org/SinglePlayer'],
         numberOfPlayers: { '@type': 'QuantitativeValue', minValue: 2, maxValue: 10 },
-        operatingSystem: 'Any',
-        offers: { '@type': 'Offer', price: 0, priceCurrency: 'EUR', availability: 'https://schema.org/InStock' },
+        isAccessibleForFree: true,
       },
     ],
   }

@@ -53,7 +53,9 @@ export function MapLoadingScreen({ map, ready, players, myIndex, progress, t }: 
 
       <div className={styles.body}>
         <div className={styles.kicker}>{t.mapLoadingTitle}</div>
-        <h1 className={styles.name}>{copy.name}</h1>
+        {/* An h2, like every screen in the game: the page's own top-level
+            heading is the one GamePage.astro serves. */}
+        <h2 className={styles.name}>{copy.name}</h2>
         <p className={styles.tagline}>{copy.tagline}</p>
 
         {/* Our own two files. Deliberately separate from the roster below: this

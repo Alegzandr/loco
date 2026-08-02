@@ -13,7 +13,7 @@
  *
  * Build-time only, like everything under `src/content/`.
  */
-import type { Lang } from '../seo/meta'
+import { absolute, breadcrumbJsonLd, FAQ_PAGE, ORIGIN, type Lang } from '../seo/meta'
 
 export interface QA {
   q: Record<Lang, string>
@@ -127,21 +127,39 @@ export const FAQ: readonly QA[] = [
 ]
 
 /**
- * The same questions as schema.org `FAQPage`.
+ * The same questions as schema.org `FAQPage`, plus the trail every other page
+ * carries.
  *
- * This is the one structured-data type on the site that can put content
+ * `FAQPage` is the one structured-data type on the site that can put content
  * *directly* into a result rather than decorate one, which is why the FAQ is
- * shaped as data first and rendered second.
+ * shaped as data first and rendered second. It replaces the shared `WebPage`
+ * node rather than sitting beside it — `FAQPage` is a `WebPage` — but it is
+ * still joined to the site and the game by `@id` and still names its
+ * breadcrumb, or this would be the single page here with no trail under its
+ * title and no link to the entity the other six describe.
  */
 export function faqJsonLd(lang: Lang, locale: string): object {
+  const url = absolute(FAQ_PAGE.path[lang])
   return {
     '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    inLanguage: locale,
-    mainEntity: FAQ.map((item) => ({
-      '@type': 'Question',
-      name: item.q[lang],
-      acceptedAnswer: { '@type': 'Answer', text: item.a[lang].join(' ') },
-    })),
+    '@graph': [
+      {
+        '@type': 'FAQPage',
+        '@id': `${url}#webpage`,
+        url,
+        name: FAQ_PAGE.title[lang],
+        description: FAQ_PAGE.description[lang],
+        inLanguage: locale,
+        isPartOf: { '@id': `${ORIGIN}/#website` },
+        about: { '@id': `${ORIGIN}/#game` },
+        breadcrumb: { '@id': `${url}#breadcrumb` },
+        mainEntity: FAQ.map((item) => ({
+          '@type': 'Question',
+          name: item.q[lang],
+          acceptedAnswer: { '@type': 'Answer', text: item.a[lang].join(' ') },
+        })),
+      },
+      breadcrumbJsonLd(FAQ_PAGE, lang),
+    ],
   }
 }

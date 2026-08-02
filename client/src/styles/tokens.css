@@ -321,6 +321,29 @@ html[data-room] body {
   pointer-events: auto;
 }
 
+/* ── Read, not seen ──────────────────────────────────────────────────────
+   In the accessibility tree and in the served HTML, off the screen. The home
+   page is the only thing that needs it and it needs it badly: `/` is a game,
+   its visible title is a *drawing* of the word LOCO, and until this class
+   existed the document had no <h1> at all until React had mounted one. A
+   crawler does not wait for that, and an audit reports the page as headingless.
+
+   Clipped rather than `display: none` or `visibility: hidden`, both of which
+   take the element out of the accessibility tree as well, and never
+   `left: -9999px`, which leaves it in the layout as a 9999px-wide empty column
+   that some browsers will still scroll to. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── Scrollbars ──────────────────────────────────────────────────────────
    The one widget the browser draws for us, and it shows: a grey system bar
    with a boxed track sitting on a candy panel reads as browser chrome that

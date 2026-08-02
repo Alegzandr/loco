@@ -121,11 +121,67 @@ That default was a live bug: nothing passed the variable anywhere, so the image 
 `seo.test.ts` asserts each of these against `nginx.conf`, because nothing else in the loop meets that
 file: unit tests read sources and the E2E suite runs against a dev server that sends none of it.
 
+## Titles and descriptions have a length, and it is not a suggestion
+
+A `<title>` past ~60 characters and a `<meta name="description">` past ~155 are cut mid-word in the
+result, and the half that goes is usually the half carrying the point. Every string in `PAGES` was
+over that line — the home page's description by 30 characters — and nobody had noticed, because
+these are the strings no one on the team ever sees rendered. `seo.test.ts` now bounds them: title
+≤ 60, description between 100 and 155.
+
+The floor matters as much as the ceiling. Google rewrites a description it finds too thin, and a
+page whose snippet it authors is a page whose pitch it authors. French runs about 15% longer than
+English for the same sentence, so both languages share one ceiling and the French copy is **written
+to it** rather than translated into it.
+
+## The home page's `<h1>` is served markup, and it is not the wordmark
+
+`/` is a game. What stands where a title would is the LOCO logotype, which is a *drawing* carrying
+`role="img"`, and the only real heading on the page was one the lobby mounted from the bundle. A
+crawler does not wait for that, so every audit read the site's most important URL as a page with no
+heading at all — the same reason the footer prose is served markup and not React.
+
+So `GamePage.astro` serves one `<h1>` with `.sr-only` (`tokens.css`), in text, before anything
+mounts. It says what the page is in the words somebody would have typed, never the word LOCO alone:
+a heading repeating the logo is the logo again. `.sr-only` clips rather than `display: none`, which
+would take it out of the accessibility tree too — a screen reader arriving before the bundle lands
+gets the heading as well.
+
+The other half of the rule is that it stays the *only* one: the app's screens (`Lobby`, `Searching`,
+`MapLoadingScreen`) head themselves at `<h2>`, and `seo.test.ts` fails on an `<h1>` anywhere under
+`src/components/`. Googlebot renders JS, so a second one mounting a moment later is a page with two
+headings, and the one that describes the page is the one that loses.
+
 ## Structured data
 
-`VideoGame` + `WebSite` on the game pages, stating the two properties this category is actually
-searched on: that it is free, and that a group can play it in a browser. Saying it in prose alone
-leaves it to be inferred.
+`VideoGame` + `WebSite` + `WebPage` on the game pages, stating the two properties this category is
+actually searched on: that it is free, and that a group can play it in a browser. Saying it in prose
+alone leaves it to be inferred.
+
+**Free is `isAccessibleForFree`, never an `Offer`.** A `VideoGame` carrying `offers`,
+`applicationCategory` and `operatingSystem` is a `SoftwareApplication` as far as a validator is
+concerned, and Google's software requirements then make `aggregateRating` mandatory: the block came
+back with a *critical error* on every audit, and the only way to satisfy it would have been to
+publish ratings nobody has left. The boolean says the same thing to the same crawlers and asks for
+nothing that does not exist. `seo.test.ts` fails on any of those four property names reappearing.
+
+**A content page is a `WebPage`, not an `Article`.** Same failure from the other direction: `Article`
+is a *supported* type, so a validator holds it to Google's article requirements and reports `author`,
+`datePublished` and `image` as errors — three fields this site has no honest value for. There is no
+editorial identity to name (`legal.md`) and these are evergreen documents with no publication date.
+`WebPage` states the same thing with nothing invented.
+
+What actually renders is the **breadcrumb**, which replaces the raw URL under the title with
+`LOCO › Rules`, and the FAQ's `FAQPage`, which can put an answer straight into a result. Every page
+now carries the trail; the FAQ was the one page without it, because it built its own graph. It still
+does — `FAQPage` *is* a `WebPage` and replaces that node rather than sitting beside it — but it
+reads `breadcrumbJsonLd` and joins the same `@id`s.
+
+Those `@id`s are the point of the graph: every page points at the one `#website` and the one `#game`
+the home page declares, so a crawler reads seven pages about a single entity rather than seven
+unrelated documents. They are strings on both sides, so a typo is invisible — the block stays valid
+and the pages simply stop being related — which is why the test compares them rather than eyeballing
+the output.
 
 The block is `is:inline`, which is required (Astro would otherwise bundle it away as a module) and
 safe: `script-src` does not apply to a script whose type is not a JavaScript MIME type, because such
@@ -550,6 +606,25 @@ during a match.
 The deck table and the card rows scroll sideways on a phone and hold nothing focusable, so the part
 past the right edge belonged to whoever could drag it. Both carry `tabindex="0"` and a
 `:focus-visible` outline.
+
+### Three controls a thumb could not hit
+
+A mobile audit came back **1/3** on tap targets while every screen looked right, and measuring the
+built pages at 360px found three boxes under `--touch-target` (44px):
+
+- `.menuBtn`, the burger — which under 46rem is the *entire* navigation, on `/` and on every content
+  page — drawn at 2.5rem like the game's chips. It is now drawn at `--touch-target` outright rather
+  than borrowing `.hit-target`: it is the one control on the page a thumb has to find, and there is
+  no chip row here for it to match.
+- `.brand`, the way back to the game, was exactly as tall as the 25px drawing inside it. It takes a
+  `min-height` and the mark does not move.
+- `RulesButton`, the "?" chip, was the one control in the top-right row with **neither** 44px nor
+  `.hit-target` — and its CSS had no `position: relative`, without which the class does nothing at
+  all. The two chips beside it were right, which is exactly how it went unnoticed.
+
+The rule is the one in `CLAUDE.md`: anything drawn under 44px gets its target from `.hit-target`,
+and the class needs a positioned box. Measure it rather than reading the CSS — a pseudo-element that
+lands in the wrong containing block is invisible in both.
 
 ### Performance
 

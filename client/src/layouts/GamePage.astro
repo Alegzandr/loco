@@ -22,6 +22,23 @@ const { lang } = Astro.props
 
 <Base page={HOME} lang={lang} jsonLd={homeJsonLd(lang)}>
   {/*
+    The document's one heading, in the markup Astro serves and off the screen.
+
+    This page is a game. What sits where a title would is the wordmark, which is
+    a drawing carrying `role="img"`, and the only real heading used to be the
+    one the lobby mounts — so the served HTML had no <h1> at all, and every
+    audit read `/` as a page with no heading. A crawler does not wait for a
+    bundle, and neither does a screen reader arriving before it lands.
+
+    It is not the word "LOCO". A heading that repeats the logo tells nobody what
+    the page is, and this is the one string on `/` that gets to say it in the
+    words somebody would have typed. The app's screens head themselves at <h2>
+    (`Lobby`, `Searching`, `MapLoadingScreen`) so this stays the only <h1> in
+    the document at every moment of a match, not only before the mount.
+  */}
+  <h1 class="sr-only">{ui('homeH1', lang)}</h1>
+
+  {/*
     #root is the mount point: tokens.css styles `html, body, #root` as one
     selector, and src/entry.tsx calls createRoot on this element exactly as
     main.tsx did under Vite. The <script> below carries no `is:inline`, so Astro
