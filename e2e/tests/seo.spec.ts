@@ -152,11 +152,22 @@ test.describe('read without JavaScript', () => {
     // The only links from `/` to the content pages, and they are in the open:
     // the sitemap lists them, but a link is what carries weight between them.
     //
-    // `.homeLinks`, not `.homeIntro`: the same five are rendered a second time
+    // `.homeLinks`, not `.homeIntro`: the same links are rendered a second time
     // inside the drawer, which is the phone's menu. Only one of the two is ever
     // on screen — this project runs at a desktop viewport, so it is this one —
     // and both are built from `NAV`, so neither can lose a page on its own.
-    for (const href of ['/rules/', '/cards/', '/tables/', '/play-with-friends/', '/faq/']) {
+    //
+    // Privacy closes the list rather than standing off at the right-hand end,
+    // which is why it is in this loop: held apart it was a second navigation of
+    // one item, and the row had two centres.
+    for (const href of [
+      '/rules/',
+      '/cards/',
+      '/tables/',
+      '/play-with-friends/',
+      '/faq/',
+      '/privacy/',
+    ]) {
       await expect(page.locator(`.homeLinks a[href="${href}"]`)).toBeVisible()
       await expect(page.locator(`.navPopLinks a[href="${href}"]`)).toHaveCount(1)
     }

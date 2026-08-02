@@ -123,6 +123,8 @@ export interface Translations {
   // the second preference, and two of them belong in a panel.
   prefsBtn: string
   prefsTitle: string
+  /** The ✕ on the phone's sheet, where the gear that opened it is not on screen. */
+  prefsClose: string
   prefsLanguage: string
   prefsTheme: string
   prefsThemeLight: string
@@ -337,8 +339,6 @@ export interface Translations {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: string
   rulesClose: string
-  /** Link out of the modal to the full rules page (opens in a new tab). */
-  rulesFullPage: string
   rules: readonly RulesSection[]
   /**
    * A readable name per card kind. `cardLabel()` only ever returns the glyph
@@ -385,6 +385,7 @@ export const en: Translations = {
   // ─── Preferences ──────────────────────────────────────────────
   prefsBtn: 'Preferences',
   prefsTitle: 'Preferences',
+  prefsClose: 'Close',
   prefsLanguage: 'Language',
   prefsTheme: 'Theme',
   prefsThemeLight: 'Light',
@@ -588,7 +589,6 @@ export const en: Translations = {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: 'How to play',
   rulesClose: 'Close',
-  rulesFullPage: 'All 112 cards',
 
   cardNames: {
     number: 'Number',

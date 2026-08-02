@@ -136,6 +136,20 @@ describe('the content stylesheet', () => {
     expect(css, 'in-page jumps must clear the pinned header').toMatch(/scroll-padding-top:/)
   })
 
+  it('never publishes the skip link to a reader who tapped', () => {
+    // "Back to top" focuses the skip link so a keyboard reader lands at the top
+    // of the document rather than in the middle of the header. On a phone that
+    // press is a tap, and a bare `:focus` rule parked "Skip to content" over the
+    // logo with nothing offering to close it.
+    const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
+    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
+    expect(boot, 'back-to-top is what moves focus there').toMatch(/\.skip'\)\?\.focus\(\)/)
+    expect(css, 'the skip link must reveal on :focus-visible only').toMatch(
+      /\.skip:focus-visible\s*\{/,
+    )
+    expect(css, 'a bare :focus reveals it on tap too').not.toMatch(/\.skip:focus\s*\{/)
+  })
+
   it('pins nothing behind the text', () => {
     // `background-attachment: fixed` made the prose slide over a gradient that
     // never moved. The board earns that gradient because it sits in a room; a
@@ -185,6 +199,39 @@ describe('the mobile menu', () => {
     expect(css).toMatch(/@supports not selector\(\[popover\]\)[\s\S]*?\.menuBtn,\s*\n\s*\.navPop/)
   })
 
+  it('keeps the language panel out of the subtree the phone hides', () => {
+    // `#langPop` lives inside the footer bar, and on a phone the drawer's globe
+    // is the only way to it. Hiding the bar with `display: none` took the panel
+    // with it: a popover under a hidden ancestor is promoted to the top layer
+    // and still renders nothing, so the button did nothing at all — the one
+    // control that switches language on a phone. The bar's *contents* go; the
+    // bar itself stays as a box-less wrapper so the panel can still open.
+    const start = layout.indexOf('<footer class="siteFooter">')
+    expect(start, 'the footer bar must exist').toBeGreaterThan(-1)
+    expect(
+      layout.slice(start, layout.indexOf('</footer>', start)),
+      'this test only matters while the panel is inside the bar',
+    ).toContain('id="langPop"')
+
+    const phone =
+      /@media\s*\(max-width:\s*[\d.]+rem\)\s*\{\s*@supports\s+selector\(\[popover\]\)[\s\S]*$/.exec(
+        css,
+      )?.[0] ?? ''
+    expect(phone, 'the phone block must exist').toBeTruthy()
+    const phoneRule = (selector: string) =>
+      new RegExp(`\\${selector.replace(/,\s*\n\s*/g, ',\\s*\\n\\s*')}\\s*\\{[^}]*\\}`).exec(
+        phone,
+      )?.[0] ?? ''
+    expect(phoneRule('.siteFooter'), 'the bar must keep rendering its subtree').toMatch(
+      /display:\s*contents/,
+    )
+    for (const selector of ['.footerPlay', '.footerNav', '.footerEnd']) {
+      expect(phone, `${selector} must be hidden on a phone`).toMatch(
+        new RegExp(`\\${selector}[,\\s]`),
+      )
+    }
+  })
+
   it('lists every page the bar lists', () => {
     // Two renderings of one navigation, both built from `NAV` and `LEGAL`, so a
     // page added to the registry cannot appear in the bar alone. The drawer
@@ -213,6 +260,127 @@ describe('the mobile menu', () => {
       /HOME\.path\[lang\]/,
     )
     expect(drawer, 'theme and language belong to the lobby gear here').not.toMatch(/themeBtn/)
+
+    // And nothing but the list. The drawer used to end with `<HomeProse />`,
+    // which made the menu on `/` a taller, wordier object than the one a
+    // content page opens one tap later: same button, same corner, two menus.
+    // The prose keeps the sheet, which is still in this file and still what
+    // puts it in front of a crawler.
+    expect(drawer, 'the drawer is a list of destinations, not a document').not.toMatch(/HomeProse/)
+    expect(home, 'the sheet still renders the prose').toMatch(/HomeProse/)
+
+    // The other half of "one menu": the game page contributes no styling to it.
+    // A `.navPop*` rule here is how the two drift apart while both keep passing
+    // every assertion above.
+    expect(home, 'content.css owns the drawer whole').not.toMatch(/^\s*\.navPop[\w-]*\s*[,{]/m)
+  })
+
+  it('opens both drawers with the wordmark rather than the word "Menu"', () => {
+    // It named the panel the reader had just opened and was looking at, and it
+    // was the one branded surface on either half of the site with no brand on
+    // it — on the game page especially, where the drawer covers the board and
+    // there is no header behind it. Static <LocoLogo />, so it is the same
+    // drawing as the one on the cards and it costs the page no JavaScript.
+    for (const file of ['ContentPage.astro', 'GamePage.astro']) {
+      const src = readFileSync(path.join(CLIENT, 'src', 'layouts', file), 'utf8')
+      expect(src, `${file}: the drawer opens with the mark`).toMatch(
+        /class="navPopTitle"><LocoLogo/,
+      )
+      expect(src, `${file}: rendered statically, never as an island`).not.toMatch(
+        /<LocoLogo[^>]*client:/,
+      )
+    }
+  })
+
+  it('gives each drawer exactly one action, and the accent that comes with it', () => {
+    // The drawers were `Play` plus five destinations on one side and six
+    // destinations on the other, so one menu had the game's colour in it and the
+    // other was a grey corridor. They carry the same object now, at opposite
+    // ends because it means opposite things: where you are going, versus what
+    // you came into the menu to change.
+    const content = readFileSync(path.join(CLIENT, 'src', 'layouts', 'ContentPage.astro'), 'utf8')
+    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    // Matched on the attribute, not the bare name: both files talk about the
+    // other one's CTA in a comment, which is the point of the pairing.
+    expect(content.match(/class="navPopCta/g), 'one CTA on a content page').toHaveLength(1)
+    expect(game.match(/class="navPopCta/g), 'one CTA on the game page').toHaveLength(1)
+    expect(content).toMatch(/class="navPopCta navPopPlay"/)
+    expect(game).toMatch(/id="navPrefs" class="navPopCta" hidden/)
+
+    // Its colour has to survive `.navPopLinks a`, which is a class *and* a type
+    // and therefore wins on specificity however far down the file the CTA sits.
+    // It went unseen while the only CTA was white-on-pink against an ink colour
+    // that is also near white in the dark theme.
+    expect(block('.navPop .navPopCta'), 'the CTA is scoped past .navPopLinks a').toMatch(
+      /color:\s*var\(--color-on-primary\)/,
+    )
+  })
+
+  it('never ships the drawer a button that opens nothing', () => {
+    // The Preferences row opens a React panel, so with no script it would be a
+    // control that does nothing — worse than one that is not there. Same
+    // contract as the content pages' theme switch: `hidden` in the markup, and
+    // the script that can honour it is the script that reveals it.
+    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    expect(game).toMatch(/id="navPrefs"[^>]*hidden/)
+    const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
+    expect(script, 'the script reveals it').toMatch(/navPrefs/)
+    expect(script, 'and asks React for the panel').toMatch(/loco:preferences/)
+  })
+
+  it('brings the served half and the mounted half up on the same frame', () => {
+    // The footer and the burger are markup; the game is a bundle. Nothing tied
+    // them together, so `/` arrived twice — background plus chrome, then the
+    // lobby. Both now hold at opacity 0 until entry.tsx says React has painted.
+    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const gate = /@media\s*\(scripting:\s*enabled\)\s*\{([\s\S]*?)\n\s{2}\}/.exec(game)?.[1]
+    expect(gate, 'the reveal must be gated on there being a script to wait for').toBeTruthy()
+
+    // What fades is what arrives, never the surface it arrives onto. `#root` and
+    // `.homeIntro` are both filled with --color-canvas, and that flat fill is
+    // the only reason the body's candy gradient is never seen: fading either of
+    // them let it through for a third of a second, and the load flashed a
+    // gradient that belongs to no screen in the game.
+    for (const selector of ['#root > \\*', '\\.homeIntroMain', '\\.homeBurger']) {
+      expect(gate, `${selector} must hold`).toMatch(
+        new RegExp(`:root:not\\(\\[data-booted\\]\\)\\s+${selector}`),
+      )
+    }
+    expect(gate, 'the mount point itself never fades').not.toMatch(
+      /:root:not\(\[data-booted\]\)\s+#root\s*[,{]/,
+    )
+    expect(gate, 'nor does the footer it paints').not.toMatch(
+      /:root:not\(\[data-booted\]\)\s+\.homeIntro\s*[,{]/,
+    )
+
+    // The reveal is spent rather than left standing: every screen is a fresh
+    // child of #root, so a live rule would replay the fade on every screen
+    // change for the rest of the match. The bare attribute lifts the hold.
+    expect(game, 'the reveal is a state, not the whole attribute').toMatch(
+      /:root\[data-booted='in'\]/,
+    )
+
+    // Without a script there is no mount to wait for, and the prose behind the
+    // sheet is the only thing on this page a crawler reads: hiding it behind a
+    // reveal that cannot fire would take the indexable half of `/` off the page.
+    // The delay inside the gate is the same promise for a bundle that 404s.
+    const delay = /animation:\s*homeBootIn[^;]*?\s([\d.]+)s\s+both/.exec(gate ?? '')?.[1]
+    expect(Number(delay), 'a bundle that never lands still reveals the page').toBeGreaterThan(0)
+
+    // Opacity, never a transform: each of these would become the containing
+    // block for the fixed burger and for every panel the app renders while it
+    // ran.
+    const frames = /@keyframes homeBootIn\s*\{([\s\S]*?)\}\s*\n/.exec(game)?.[1] ?? ''
+    expect(frames).toMatch(/opacity/)
+    expect(frames, 'no transform in the reveal').not.toMatch(/transform/)
+
+    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.tsx'), 'utf8')
+    expect(entry, 'entry.tsx writes the attribute the CSS waits on').toMatch(/dataset\.booted/)
+    expect(entry, 'and does it after the commit has been painted').toMatch(
+      /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/,
+    )
+    expect(entry, "it opens the reveal with 'in'").toMatch(/dataset\.booted = 'in'/)
+    expect(entry, 'and blanks it once the fade is over').toMatch(/dataset\.booted = ''/)
   })
 
   it('closes the drawer at the width the CSS stops drawing it', () => {

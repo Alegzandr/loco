@@ -17,6 +17,31 @@ import { closeMenuWhenWidened } from './content/navMenu'
 // wide screen's half of the same job.
 closeMenuWhenWidened()
 
+/**
+ * The drawer's one action, and the one place on this page where markup Astro
+ * rendered has to reach the application React mounted beside it.
+ *
+ * A custom event rather than a shared store: the drawer is in `#root`'s sibling,
+ * not in its tree, so there is nothing to pass a callback through, and the
+ * alternative — exporting a setter off a module both halves import — would put
+ * the app's bundle behind this script. `<Preferences />` listens for it; only
+ * one screen is ever mounted, so only one panel ever opens.
+ *
+ * The button ships `hidden` and is revealed here, for the reason the content
+ * pages' theme switch is: with no script it opens nothing, and a control that
+ * does nothing is worse than one that is not there.
+ */
+const prefsRow = document.querySelector<HTMLButtonElement>('#navPrefs')
+if (prefsRow) {
+  prefsRow.hidden = false
+  prefsRow.addEventListener('click', () => {
+    // Shut first: `hidePopover` hands the focus back to the burger, so the
+    // panel opens over a closed drawer and the way out lands somewhere real.
+    document.getElementById('navPop')?.hidePopover()
+    window.dispatchEvent(new CustomEvent('loco:preferences'))
+  })
+}
+
 const sheet = document.querySelector<HTMLDetailsElement>('.homeSheet')
 const panel = sheet?.querySelector<HTMLElement>('.homeSheetPanel')
 const control = sheet?.querySelector<HTMLElement>('.homeSheetBtn')

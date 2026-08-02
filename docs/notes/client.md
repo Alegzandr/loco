@@ -31,6 +31,47 @@ in exchange for markup no crawler wants: the lobby is a nickname field.
 under Vite, `#root` keeps the `html, body, #root` rule in `tokens.css` working unchanged, and the
 content pages around it mount no React at all.
 
+**The cost of that split is that `/` arrives twice, so the two halves are held together on purpose.**
+The footer row, the phone's burger and the prose behind the sheet are markup the server sent, and
+they paint on the first frame; the lobby paints whenever the bundle has loaded, parsed and mounted.
+On a reload that read as the background coming up with one lonely control on it — the links on a wide
+screen, the burger on a phone — and the game dropping in a few hundred milliseconds later. Nothing
+about it was broken, and it looked broken every time.
+
+The app's mounted child, the footer's row of links and the phone's burger therefore all hold at
+`opacity: 0` until `entry.tsx` writes `data-booted` on `<html>`, two `requestAnimationFrame`s after
+`render()` so the attribute lands on a commit that has actually painted rather than one still queued.
+Then a single 0.34s fade brings them up together.
+
+**What fades is what arrives, never the surface it arrives onto.** The first version of this held
+`#root` and `.homeIntro`, which is the obvious reading and is wrong: `tokens.css` fills both with
+`--color-canvas`, and those two flat fills are the entire reason the body's candy gradient is never
+seen anywhere in the game — `#root` covers the viewport down to the footer and the footer covers the
+rest. Fading either of them let the gradient through for a third of a second, so the load flashed a
+backdrop that belongs to no screen. The selectors are `#root > *`, `.homeIntroMain` and `.homeBurger`
+instead; the canvas is painted on the first frame and does not move again. Photographed mid-hold, the
+page is one flat colour, pixel for pixel the colour it settles on.
+
+Four details are what make it safe rather than a way to lose the page:
+
+- The hold is inside `@media (scripting: enabled)`. With no script there is no mount to wait for, and
+  the prose behind the sheet is the only thing on `/` a crawler reads: hiding it behind a reveal that
+  can never fire would take the indexable half of the home page off the page. `seo.spec.ts` browses
+  this page with JavaScript disabled, and it must keep seeing it immediately.
+- The same animation carries a 3s delay while the attribute is missing. A bundle that 404s, throws on
+  import or is blocked reveals the page anyway; the alternative is a blank screen with no way out.
+  The `[data-booted='in']` rule replaces it with the delay-free one the moment React reports in.
+- **The reveal is spent.** `entry.tsx` blanks the value 600ms later, leaving the bare attribute that
+  lifts the hold and no rule that animates. Every screen in the game is a fresh child of `#root`, so
+  a live `#root > *` reveal would fade the board in again on every screen change for the rest of the
+  match — the waiting room, the deal, the score table.
+- It animates `opacity` and nothing else. A transform on any of these would make it the containing
+  block for the fixed burger and for every panel the app renders, for as long as it ran.
+
+Reduced motion keeps the wait and loses the fade for free: the blanket rule in `tokens.css` cuts every
+animation's *duration* and leaves its *delay* alone, so the sync survives and the movement does not.
+`contentPages.test.ts` pins each of these, including the two selectors that must **not** be there.
+
 One consequence worth knowing: `@astrojs/react` injects the Fast Refresh preamble as a
 `before-hydration` script, which Astro only emits on pages that hydrate an island. With no island the
 preamble never lands, and every transformed `.tsx` throws "can't detect preamble" in dev. It is
@@ -452,12 +493,48 @@ seat layout, hand slots, pile positions and every card, re-derived sixty times a
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
 - `I18nProvider` (`client/src/i18n/index.tsx`) wraps app in `entry.tsx`. `useI18n()` → `{ lang, t, setLang }`.
-- Detect order: `localStorage('loco_lang')` → `navigator.language` prefix (`fr` → French, else English).
+- Detect order: `localStorage('loco_lang')` → `data-served-lang` on `<html>` → `navigator.language`
+  prefix (`fr` → French, else English).
 - `setLang` persists to localStorage + syncs `document.documentElement.lang`.
-- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `index.tsx`, add `{code, label}` to `LANGS` in `LanguageSwitcher.tsx`.
+- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `index.tsx`, add `{code, label}` to `LANGS` in `LanguageSwitcher.tsx` **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
 - The switcher is no longer mounted bare: it renders inside the preferences panel (below).
 - `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
-- Storage key: `'loco_lang'`.
+- Storage key and home paths: `src/lang.ts`, not the provider — see below.
+
+### One document, one language
+
+The key, the pair of languages and the two home paths live in `src/lang.ts`, free of React, for the
+reason `theme.ts` exists: the content pages take part in this decision and mount nothing at all.
+
+The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
+Astro built per URL — the footer row, the drawer, the sheet of prose — which no in-app state rewrites.
+So `/` opened with French stored rendered the game in French under a footer reading "With friends",
+having rewritten `<html lang>` to `fr`: a document declaring itself French while half its text was
+English, which is a lie to a screen reader before it is anything else. The lobby's switcher had
+already answered this for the *change* — at the entry screen it is two real links, so following one
+serves the whole document in the other language — but nothing answered it for the *arrival*.
+
+`initLangUrl()` does, first thing in `entry.tsx`. Three properties are what make it safe:
+
+- **It only ever acts on an explicit choice.** Landing on a French page from a search result is not a
+  choice and writes nothing to storage; only the two switches do. So this never fights the URL of a
+  reader who has never expressed a preference.
+- **It cannot loop.** The decision (`langRedirect`) is pure and is tested exhaustively over both
+  languages: every target it names is a URL served *as* the stored language, so the page it arrives
+  at has nothing left to disagree about. An unknown stored value and a missing `data-served-lang` are
+  both refused — with nothing to compare against, every load would redirect to where it already is.
+- **It runs before `initTableInvite()` and it carries the query string.** The invite is spent on
+  arrival, so redirecting after that call would drop a guest at a home page with no table in it. Done
+  in this order, `/?t=ABC234` with French stored lands at `/fr/` with the code already in the join
+  form. `location.replace`, never `assign`: an extra history entry would leave Back pointing at a URL
+  that redirects straight back, and the way out of the game would be a trap.
+
+The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
+makes an `hreflang` pair navigable and a crawler follows nothing else — and `theme-boot.ts` adds one
+delegated listener that records the choice on the way out. Without it the choice reached the pages
+and never the game: a reader who switched to French, read the rules and pressed "Jouer" arrived at
+`/fr/` with English still stored, and the stored choice won. The theme has worked this way since it
+was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does too.
 
 ## Preferences
 `Preferences.tsx` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
@@ -485,6 +562,27 @@ three switches: streamer mode, colour shapes, reduced motion.
   leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
 - **The lobby's join field is deliberately not masked.** It holds what the player is typing, and a
   blurred input is a typo you cannot see. The leak there is the code the player already knows.
+- **Below 46rem it is a sheet, not a dropdown, and on the lobby the gear stands down.** 250px of
+  panel hanging off a 40px chip is a desktop object: four settings, two of them with a sentence
+  under them, in a column narrower than the thumb that opened it. At that width it becomes what the
+  rules already are — a sheet up from the bottom edge, scrim behind it, title and ✕ pinned while the
+  settings scroll. The breakpoint is `content.css`'s, because that is where the burger's drawer takes
+  over: on `/` the drawer's `Preferences` row is the way in, so `Lobby` passes
+  `triggerBelowPhone={false}` and the chip goes. **Only the lobby may pass it.** The drawer lives in
+  the footer `data-seated` hides, so from the waiting room onwards the gear is the only entry there
+  is, at every width.
+- **Two things about that sheet are worth not rediscovering.** The scrim **wraps** the panel rather
+  than sitting beside it, which is what `RulesModal` does: as a sibling, "click outside" becomes an
+  argument about z-index, and nested it is `target === currentTarget`, a fact about the DOM. And the
+  ✕ needs `position: relative` — `.hit-target` positions its 44px pseudo-element absolutely, so
+  without it the nearest positioned ancestor was the scrim and the button's touch area sat in the
+  middle of the screen, eating every press aimed at a setting. The panel opened and could not be
+  used. `tokens.css` states the requirement; this control is the one that forgot it.
+- **The drawer opens it by event.** `#navPrefs` is markup Astro rendered, outside `#root`, so
+  `homeSheet.ts` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
+  answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had
+  the focus, because `hidePopover()` hands it back to the burger and closing the panel has to return
+  it somewhere real.
 - Showcase: `streamerMode`, `colorAssist` and `prefsOpen` scene flags (`dev/scenes.ts`), scenes
   `waiting-streamer`, `lobby-prefs`, `card-sheet-assist` and `game-color-picker-assist`. `applyScene`
   resets both module stores so neither leaks into later captures.
@@ -608,8 +706,8 @@ shuts it, and it is never behind a scrim.
 
 ## Privacy and terms
 Not a modal any more. Privacy, terms and credits are one content page (`/privacy/`,
-`/fr/confidentialite/`), linked at the right-hand end of both footers: the fixed bar on the content
-pages, and the row under the game on the home page. What changed and why:
+`/fr/confidentialite/`), linked from both footers: at the right-hand end of the content pages' fixed
+bar, and last in the row of links under the game on the home page. What changed and why:
 
 - **A policy has to be linkable.** The modal existed on one screen of one application, so there was
   no way to send somebody the terms, no way to reach it from a content page, and nothing for a

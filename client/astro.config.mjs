@@ -1,4 +1,4 @@
-// @ts-check
+﻿// @ts-check
 import { defineConfig } from 'astro/config'
 import react from '@astrojs/react'
 import sitemap from '@astrojs/sitemap'
@@ -21,7 +21,7 @@ import sitemap from '@astrojs/sitemap'
  * React Fast Refresh needs its preamble installed before the first transformed
  * .tsx module evaluates, or @vitejs/plugin-react throws "can't detect preamble"
  * and nothing mounts. @astrojs/react injects it as a `before-hydration` script,
- * which is only emitted on pages that hydrate an island — and this site mounts
+ * which is only emitted on pages that hydrate an island â€” and this site mounts
  * no islands on purpose (see src/entry.tsx: the island runtime is inline, and
  * nginx sends `script-src 'self'`). So the preamble is injected as an ordinary
  * page script instead, which Astro bundles as an external module.
@@ -89,6 +89,16 @@ export default defineConfig({
   // migration had a slice of it across the bottom edge. Nothing in this project
   // uses it, and the visual review is the thing it would break.
   devToolbar: { enabled: false },
+
+  // Every stylesheet travels in the document. The three this site emits are
+  // small (3-22 kB before compression) and all three were render-blocking
+  // requests: on a throttled phone the game page waited 753 ms on one of them
+  // before it could paint a single word, which is most of its first paint. The
+  // trade is a stylesheet re-sent per page instead of cached across them, and at
+  // this size the round trip costs more than the bytes. `style-src` allows
+  // `'unsafe-inline'` in client/nginx.conf, so nothing here is blocked â€” unlike
+  // scripts, which must stay external (see csp.test.ts).
+  build: { inlineStylesheets: 'always' },
 
   // Vite runs on container port 3000, exposed at host port 5173 by the Docker
   // port mapping. Without clientPort the HMR client dials 3000 (not exposed)

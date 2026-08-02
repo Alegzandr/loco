@@ -35,7 +35,13 @@ const t = lang === 'fr' ? fr : en
   <h2>{ui('deckH2', lang)}</h2>
   <p>{ui('deckLede', lang)}</p>
 
-  <div class="tableWrap">
+  {/*
+    `tabindex="0"` because the box scrolls: on a phone the deck table is wider
+    than the column, and a region that can only be reached by dragging is a
+    region a keyboard cannot read at all. Nothing inside it is focusable — it is
+    a table of numbers — so the box has to take the focus itself.
+  */}
+  <div class="tableWrap" tabindex="0">
     <table>
       <thead>
         <tr>

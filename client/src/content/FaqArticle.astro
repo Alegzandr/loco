@@ -23,6 +23,8 @@ const { lang } = Astro.props
   </article>
 ))}
 
-<p>
-  {ui('faqOutro', lang)} <a href={RULES.path[lang]}>{RULES.navLabel?.[lang]}</a>
-</p>
+<nav class="chipRow endLinks" aria-label={ui('readNext', lang)}>
+  <a href={RULES.path[lang]}>{RULES.navLabel?.[lang]}</a>
+</nav>
+
+<p>{ui('faqOutro', lang)}</p>

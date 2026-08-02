@@ -1,6 +1,5 @@
 import { useEffect, useCallback } from 'react'
 import { useI18n } from '../i18n'
-import { RULES } from '../seo/meta'
 import styles from './RulesModal.module.css'
 
 interface Props {
@@ -8,7 +7,7 @@ interface Props {
 }
 
 export function RulesModal({ onClose }: Props) {
-  const { t, lang } = useI18n()
+  const { t } = useI18n()
 
   // Close on Escape key
   const handleKeyDown = useCallback(
@@ -55,19 +54,10 @@ export function RulesModal({ onClose }: Props) {
 
         <div className={styles.footer}>
           {/*
-            The deck table has no room in a modal, so it lives on the page. New
-            tab, and that is not a preference: this modal opens mid-match, and
-            navigating away would drop the socket and the seat with it. The path
-            comes from the page registry so the two cannot disagree about the URL.
+            No way out to the deck page from here. This modal opens mid-match and
+            a link, even in a new tab, is an invitation to leave the table: the
+            one thing to press here is Close.
           */}
-          <a
-            className={styles.footerLink}
-            href={RULES.path[lang]}
-            target="_blank"
-            rel="noopener"
-          >
-            {t.rulesFullPage}
-          </a>
           <button className={styles.footerClose} onClick={onClose}>
             {t.rulesClose}
           </button>

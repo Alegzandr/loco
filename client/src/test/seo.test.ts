@@ -182,6 +182,25 @@ describe('hreflang', () => {
       }
     }
   })
+
+  it('is what the in-game language switch navigates by', () => {
+    // Half of `/` is markup Astro rendered per URL — the footer row, the
+    // burger's drawer, the sheet of prose — so switching language in the app
+    // without moving left the game in French under a menu still in English. At
+    // the entry screen the switch is two real links instead, and the boot-time
+    // redirect follows the same two paths when a stored choice disagrees with
+    // the URL it was opened at. They live in `src/lang.ts`, which is the only
+    // second copy of these paths in the codebase: `seo/meta.ts` would otherwise
+    // bring every page on the site into the bundle every player downloads. A
+    // copy is fine; a copy nothing compares is how it rots.
+    const src = readFileSync(path.join(CLIENT, 'src', 'lang.ts'), 'utf8')
+    const declared = /HOME_PATH: Record<Lang, string> = \{([^}]*)\}/.exec(src)?.[1] ?? ''
+    for (const lang of LANGS) {
+      expect(declared, `${lang} must be the path the registry emits`).toMatch(
+        new RegExp(`${lang}:\\s*'${HOME.path[lang]}'`),
+      )
+    }
+  })
 })
 
 describe('structured data', () => {

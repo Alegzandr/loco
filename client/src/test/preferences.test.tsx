@@ -74,14 +74,48 @@ describe('Preferences panel', () => {
     expect(screen.getByRole('switch', { name: en.prefsStreamer })).toBeInTheDocument()
   })
 
-  it('still switches the language, from inside the panel', () => {
+  /**
+   * At the entry screen the language pair is two real links to the game in the
+   * other language, because half of that page is markup Astro rendered per URL —
+   * the footer, the drawer, the sheet of prose — and `setLang` alone left the
+   * game in French under a menu still reading English. Following the link is what
+   * makes the whole document agree; `setLang` runs on the way out so the choice
+   * survives it. jsdom does not navigate, which is exactly what lets this assert
+   * the second half.
+   */
+  it('switches the language, and takes the page with it at the entry screen', () => {
     render(
       <I18nProvider>
         <Preferences defaultOpen />
       </I18nProvider>
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Switch language to FR' }))
+    const fr_ = screen.getByRole('link', { name: 'Switch language to FR' })
+    expect(fr_).toHaveAttribute('href', '/fr/')
+    expect(fr_).toHaveAttribute('hreflang', 'fr')
+
+    fireEvent.click(fr_)
     expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
+  })
+
+  /**
+   * Past a taken seat there is nothing to agree with — `data-seated` has taken
+   * the footer and the drawer off the page — and following a link would drop the
+   * match. There it is the in-app toggle it has always been.
+   */
+  it('never offers to navigate once a seat is taken', () => {
+    document.documentElement.setAttribute('data-seated', '')
+    try {
+      render(
+        <I18nProvider>
+          <Preferences defaultOpen />
+        </I18nProvider>
+      )
+      expect(screen.queryByRole('link', { name: 'Switch language to FR' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Switch language to FR' }))
+      expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
+    } finally {
+      document.documentElement.removeAttribute('data-seated')
+    }
   })
 
   it('closes on Escape', () => {
@@ -91,6 +125,41 @@ describe('Preferences panel', () => {
       </I18nProvider>
     )
     fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  /**
+   * On a phone the home page's burger carries a Preferences row, and the gear it
+   * would otherwise duplicate is hidden. That drawer is markup Astro rendered,
+   * outside `#root`, so it asks for this panel by event — the one seam between
+   * the two halves of that page, and the reason the row is not a dead control.
+   */
+  it('opens when the home page drawer asks for it', () => {
+    render(
+      <I18nProvider>
+        <Preferences />
+      </I18nProvider>
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    fireEvent(window, new CustomEvent('loco:preferences'))
+    expect(screen.getByRole('dialog', { name: en.prefsTitle })).toBeInTheDocument()
+  })
+
+  /**
+   * The gear shuts the dropdown it opened, which is why this surface is allowed
+   * no visible control at desktop widths. Opened from the drawer there is no gear
+   * on screen at all, so the ✕ is the whole way out for a thumb — CSS reveals it
+   * at the same width, and it must exist in the markup for CSS to have anything
+   * to reveal.
+   */
+  it('carries its own way out, for the width where nothing else closes it', () => {
+    render(
+      <I18nProvider>
+        <Preferences defaultOpen />
+      </I18nProvider>
+    )
+    fireEvent.click(screen.getByRole('button', { name: en.prefsClose }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

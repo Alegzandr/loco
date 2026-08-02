@@ -8,6 +8,7 @@
 // blank page in one language only.
 import Base from './Base.astro'
 import HomeProse from '../content/HomeProse.astro'
+import { LocoLogo } from '../components/LocoLogo'
 import { HOME, NAV, LEGAL, homeJsonLd, type Lang } from '../seo/meta'
 import { ui } from '../content/ui'
 import '../content/content.css'
@@ -64,23 +65,24 @@ const { lang } = Astro.props
         </div>
       </details>
 
+      {/*
+        Privacy and terms closes the row rather than standing off at the
+        right-hand end. Held apart it read as a second navigation of one item,
+        and the gap between it and the five was wide enough on a desktop that
+        the row had two centres. It is last, which is where a legal link
+        belongs, and it is in the same list as the rest — the drawer already
+        carries it that way, so the two renderings of this navigation now match
+        item for item.
+      */}
       <nav aria-label={ui('homeMoreH2', lang)}>
         <ul class="homeLinks">
           {NAV.map((p) => (
             <li><a href={p.path[lang]}>{p.navLabel?.[lang] ?? p.title[lang]}</a></li>
           ))}
+          <li><a href={LEGAL.path[lang]}>{ui('legalNav', lang)}</a></li>
         </ul>
       </nav>
     </div>
-
-    {/*
-      Privacy and terms, at the right-hand end and away from the five: they are
-      not something to read, they are something to be able to find. This is
-      where the content pages put the same link, and it is a real page now
-      rather than a modal, so it is reachable with no name typed, no seat taken
-      and no JavaScript running.
-    */}
-    <a class="homeLegal" href={LEGAL.path[lang]}>{ui('legalNav', lang)}</a>
 
     {/*
       The phone's whole navigation: the same burger, in the same corner, opening
@@ -111,7 +113,10 @@ const { lang } = Astro.props
 
     <div id="navPop" popover="auto" class="navPop">
       <div class="navPopHead">
-        <p class="navPopTitle">{ui('menuLabel', lang)}</p>
+        {/* The same wordmark the content pages' drawer opens with, and here it
+            is the only brand on screen: this panel covers the board, and `/`
+            has no header bar behind it. */}
+        <div class="navPopTitle"><LocoLogo size="1.25rem" /></div>
         <button
           type="button"
           class="navPopClose"
@@ -131,7 +136,15 @@ const { lang } = Astro.props
         </button>
       </div>
 
-      {/* The same links as the row above, built from the same registry. */}
+      {/*
+        The same links as the row above, built from the same registry — and the
+        whole drawer, nothing under them. It used to carry the sheet's prose as
+        well, which made it a different object from the one the content pages
+        open: two rows of destinations there, two rows and a page of copy here,
+        so crossing between them read as two menus rather than one. The prose is
+        still in this document for a crawler, and still one press away in the
+        sheet on a screen with room for it.
+      */}
       <nav class="navPopLinks" aria-label={ui('navLabel', lang)}>
         {NAV.map((p) => (
           <a href={p.path[lang]}>{p.navLabel?.[lang] ?? p.title[lang]}</a>
@@ -140,12 +153,25 @@ const { lang } = Astro.props
       </nav>
 
       {/*
-        And what the sheet holds on a wide screen, under the links rather than
-        behind a second press: the drawer is the only thing a phone opens here,
-        so everything the footer offered has to be inside it.
+        Where the content pages put the theme and the globe, this puts the one
+        thing a player opens a menu for during a game. It is the same `navPopEnd`
+        row under the same rule, and the same `navPopCta` the other drawer wears
+        on `Play`: the two menus carry their accent at opposite ends because
+        their action means opposite things, and neither is the grey one.
+
+        `hidden` in the markup, revealed by `homeSheet.ts`. The panel it opens is
+        React's, so with no script this row would be a button that does nothing —
+        the same reason the content pages' theme switch ships hidden. Everything
+        else in this drawer is a link and works either way.
+
+        On this page only. The drawer goes with the footer the moment a seat is
+        taken (`data-seated`), so on the table and in the waiting room the gear in
+        the top-right row is still the way in, at every width.
       */}
-      <div class="navPopProse">
-        <HomeProse lang={lang} />
+      <div class="navPopEnd">
+        <button type="button" id="navPrefs" class="navPopCta" hidden>
+          {ui('prefs', lang)}
+        </button>
       </div>
     </div>
   </footer>
@@ -188,37 +214,86 @@ const { lang } = Astro.props
     display: none;
   }
 
-  /* Three columns so the sheet and the five links stay centred on the screen
-     while the legal link sits at the right-hand end. The two 1fr columns are
-     what does the centring: pushing the link right with `margin-left: auto`
-     inside a flex row would have dragged everything else to the left edge. */
+  /* One arrival, not two.
+
+     The footer is markup Astro served and the game is React mounted from a
+     bundle, so with nothing holding them together this page came up in pieces:
+     the canvas and the links on a wide screen, the canvas and the burger on a
+     phone, then the lobby a few hundred milliseconds later when the bundle
+     landed. Both halves now wait for the mount and fade in together —
+     `data-booted` is written on <html> by entry.tsx once React has painted.
+
+     Gated on `scripting: enabled`, because with no script there is no mount to
+     wait for and the prose behind the sheet is the only thing on `/` a crawler
+     reads: it may never be hidden behind a reveal that cannot fire. The delay on
+     the same animation below is the other half of that promise — a bundle that
+     fails to load shows the page anyway rather than leaving a blank screen.
+
+     **Nothing that paints the page's background is ever what fades.** `#root`
+     and `.homeIntro` are both filled with `--color-canvas`, and the body under
+     them carries the candy gradient — which those two flat fills are the reason
+     nobody ever sees. Fading either of them let it through for a third of a
+     second, so the load flashed a gradient that is not part of any screen. The
+     animation is therefore on what arrives — the app's mounted child, the
+     footer's row of links, the phone's burger — and never on the surfaces they
+     arrive onto. The canvas is painted on the first frame and does not move
+     again.
+
+     Opacity only, deliberately: a transform here would make each of these a
+     containing block for the fixed burger and for every panel the app renders,
+     for as long as the animation runs.
+
+     `data-booted="in"` is the reveal and it is spent: entry.tsx blanks the value
+     once the fade is over. Every screen is a fresh child of #root, so a reveal
+     rule left standing would replay on every screen change for the rest of the
+     match. The bare attribute is what lifts the hold, and it stays.
+
+     Reduced motion keeps the wait and loses the fade — the blanket rule in
+     tokens.css cuts every animation's duration and leaves its delay alone. */
+  @media (scripting: enabled) {
+    :root:not([data-booted]) #root > *,
+    :root:not([data-booted]) .homeIntroMain,
+    :root:not([data-booted]) .homeBurger {
+      animation: homeBootIn 0.34s var(--ease-out) 3s both;
+    }
+  }
+
+  :root[data-booted='in'] #root > *,
+  :root[data-booted='in'] .homeIntroMain,
+  :root[data-booted='in'] .homeBurger {
+    animation: homeBootIn 0.34s var(--ease-out) both;
+  }
+
+  @keyframes homeBootIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* One centred row. It was three grid columns while the legal link stood at
+     the right-hand end, and the two 1fr columns existed only to keep the rest
+     centred against it; with that link back in the list there is one group to
+     centre and nothing to hold apart. */
   .homeIntro {
     flex: 0 0 auto;
     /* Matches #root, which tokens.css paints flat: the body's own gradient is
        fixed-attachment, so leaving this transparent drew a visible seam across
        the bottom of the screen. */
     background: var(--color-canvas);
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
+    justify-content: center;
     gap: 0.4rem 1rem;
     padding: 0.55rem max(1.1rem, var(--safe-right)) max(0.65rem, var(--safe-bottom))
       max(1.1rem, var(--safe-left));
   }
 
   .homeIntroMain {
-    grid-column: 2;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
     gap: 0.4rem 1rem;
-  }
-
-  .homeLegal {
-    grid-column: 3;
-    justify-self: end;
-    text-align: end;
   }
 
 
@@ -233,7 +308,6 @@ const { lang } = Astro.props
      thing its links must not be — `content.css` sizes them as rows a thumb can
      hit, and a blanket selector here was undoing it. */
   .homeIntroMain a,
-  .homeLegal,
   .homeSheetBtn {
     color: var(--color-muted);
     font: 600 12px/1.3 var(--font-body);
@@ -243,8 +317,6 @@ const { lang } = Astro.props
 
   .homeIntroMain a:hover,
   .homeIntroMain a:focus-visible,
-  .homeLegal:hover,
-  .homeLegal:focus-visible,
   .homeSheetBtn:hover,
   .homeSheet[open] .homeSheetBtn,
   .homeSheetBtn:focus-visible {
@@ -260,50 +332,10 @@ const { lang } = Astro.props
     gap: 0.3rem 1rem;
   }
 
-  /* The drawer's own prose. `content.css` styles the chrome — the panel, the
-     heading, the rows — and this is the only part of it that belongs to `/`:
-     the two sections the sheet holds on a wide screen, reading at the size they
-     read at there rather than at the 12px this footer row is set in. */
-  .navPopProse {
-    display: grid;
-    gap: 1.4rem;
-    padding-top: 1.1rem;
-    border-top: 2px solid var(--color-hairline);
-  }
-
-  .navPopProse h2 {
-    font-family: var(--font-display);
-    font-size: 1.15rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .navPopProse p,
-  .navPopProse li {
-    font: 400 0.95rem/1.6 var(--font-body);
-    color: var(--color-body);
-  }
-
-  .navPopProse ul {
-    list-style: none;
-    display: grid;
-    gap: 0.55rem;
-  }
-
-  .navPopProse li {
-    position: relative;
-    padding-inline-start: 1.1rem;
-  }
-
-  .navPopProse li::before {
-    content: '';
-    position: absolute;
-    inset-inline-start: 0;
-    top: 0.62em;
-    width: 0.4rem;
-    height: 0.4rem;
-    border-radius: 2px;
-    background: var(--color-primary);
-  }
+  /* Nothing here styles the drawer. `content.css` owns it whole — the panel, the
+     heading, the rows — which is what makes the menu on this page and the menu
+     on a content page one object rather than two that resemble each other. A
+     rule added here is a divergence by definition. */
 
   .homeSheetBtn {
     display: inline-flex;
@@ -348,9 +380,9 @@ const { lang } = Astro.props
   }
 
   /* The links are behind the scrim while the sheet is up: dimmed text under a
-     close button reads as a misfire. They come back with it. */
-  .homeSheet[open] ~ nav,
-  .homeIntro:has(.homeSheet[open]) .homeLegal {
+     close button reads as a misfire. They come back with it. One selector now
+     that the legal link is inside that nav. */
+  .homeSheet[open] ~ nav {
     visibility: hidden;
   }
 
@@ -424,9 +456,9 @@ const { lang } = Astro.props
   }
   /* The phone. The six links and the sheet's line do not fit on one row here,
      and stacking them ate a third of the screen the game is played on. So the
-     whole footer row goes, the burger stands in for it, and the drawer behind it
-     carries both the links and the prose the sheet held. The footer then costs
-     the board no height at all. */
+     whole footer row goes and the burger stands in for it, opening the same
+     drawer, holding the same kind of thing, as the one on every content page.
+     The footer then costs the board no height at all. */
   @media (max-width: 46rem) {
     .homeIntro {
       display: block;
@@ -434,8 +466,7 @@ const { lang } = Astro.props
       background: none;
     }
 
-    .homeIntroMain,
-    .homeLegal {
+    .homeIntroMain {
       display: none;
     }
 

@@ -80,7 +80,8 @@ to revisit, not the test.
 
 In `client/src/content/legal.ts`, as `LEGAL: Record<Lang, readonly LegalDoc[]>`,
 rendered by `content/LegalArticle.astro` onto one page: `/privacy/` and
-`/fr/confidentialite/`, linked at the right-hand end of every footer. Four
+`/fr/confidentialite/`, linked from every footer: last in the home page's row
+of links, at the right-hand end of the content pages' bar. Four
 deliberate consequences:
 
 - The type is keyed by language, so a document cannot exist in one language only.

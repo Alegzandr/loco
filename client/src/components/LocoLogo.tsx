@@ -39,7 +39,20 @@ export function LocoLogo({ size, stacked = false, animated = false, className }:
   ].filter(Boolean).join(' ')
 
   return (
-    <div className={classes} style={size ? { fontSize: size } : undefined}>
+    /*
+     * One image, not a drawing next to a word. WCAG exempts a logotype from the
+     * contrast rules, and the wordmark is one: LOCO Red carries an ink outline
+     * that a checker reads as the foreground on a dark canvas (1.07:1) and reads
+     * past on a light one, so the same drawing was failing an audit written for
+     * prose. `role="img"` says what it actually is, and the label is the word
+     * itself — which is also what a screen reader owed the mark beside it.
+     */
+    <div
+      className={classes}
+      style={size ? { fontSize: size } : undefined}
+      role="img"
+      aria-label="LOCO"
+    >
       <svg
         className={styles.mark}
         viewBox={LOCO_MARK_VIEWBOX}
@@ -75,7 +88,11 @@ export function LocoLogo({ size, stacked = false, animated = false, className }:
           strokeLinejoin="round"
         />
       </svg>
-      <span className={styles.word}>LOCO</span>
+      {/* The label above already says it; a second announcement would be the
+          word twice. */}
+      <span className={styles.word} aria-hidden="true">
+        LOCO
+      </span>
     </div>
   )
 }

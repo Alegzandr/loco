@@ -1,4 +1,4 @@
----
+﻿---
 // The whole deck, drawn.
 //
 // <Card /> is the game's own component rendered with no client directive, so
@@ -44,11 +44,16 @@ const numbers = entry('number')
   <h2>{ui('cardsNumbersH2', lang)}</h2>
   <p>{numbers.effect[lang]}</p>
   <p class="cardFacts">
-    <strong>{ui('cardsCopies', lang)}</strong> {numbers.copies} · {numbers.detail[lang]}
+    <strong>{ui('cardsCopies', lang)}</strong> {numbers.copies} Â· {numbers.detail[lang]}
   </p>
 
+  {/*
+    `tabindex="0"` on every row for the reason the deck table carries it: these
+    scroll sideways and hold nothing focusable, so without it the nine cards past
+    the right edge belong to whoever can drag them into view.
+  */}
   {SUITS.map((color) => (
-    <div class="cardRow">
+    <div class="cardRow" tabindex="0">
       {NUMBERS.map((value) => (
         <Card card={card(color, 'number', value)} shadow style={SMALL} />
       ))}
@@ -64,7 +69,7 @@ const numbers = entry('number')
       <article class="cardEntry">
         {/* h3, because each of these is a card inside the group above it. */}
         <h3>{t.cardNames[kind]}</h3>
-        <div class="cardRow">
+        <div class="cardRow" tabindex="0">
           {SUITS.map((color) => (
             <Card card={card(color, kind)} shadow style={BIG} />
           ))}
@@ -72,7 +77,7 @@ const numbers = entry('number')
         <p>{e.effect[lang]}</p>
         <p class="cardFacts">
           <strong>{ui('cardsCopies', lang)}</strong> {e.copies}
-          <span aria-hidden="true"> · </span>
+          <span aria-hidden="true"> Â· </span>
           <strong>{ui('cardsWorth', lang)}</strong> {e.points} {ui('cardsPoints', lang)}
         </p>
       </article>
@@ -87,13 +92,13 @@ const numbers = entry('number')
     return (
       <article class="cardEntry">
         <h3>{t.cardNames[kind]}</h3>
-        <div class="cardRow">
+        <div class="cardRow" tabindex="0">
           <Card card={card('wild', kind)} shadow style={BIG} />
         </div>
         <p>{e.effect[lang]}</p>
         <p class="cardFacts">
           <strong>{ui('cardsCopies', lang)}</strong> {e.copies}
-          <span aria-hidden="true"> · </span>
+          <span aria-hidden="true"> Â· </span>
           <strong>{ui('cardsWorth', lang)}</strong> {e.points} {ui('cardsPoints', lang)}
         </p>
       </article>

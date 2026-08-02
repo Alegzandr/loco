@@ -132,6 +132,24 @@ On `SIGTERM` (`server/main.go` → `hub.BeginDrain`, `server/hub/drain.go`):
 - The process exits as soon as the last match ends, or after
   `LOCO_DRAIN_TIMEOUT`, whichever comes first.
 
+**The drain is short on purpose, and it is the same everywhere: 90 s.** It was
+15 minutes in production so a best-of-7 could play out, and that made the
+duration of a pipeline a function of how long strangers played. Two things are
+wrong with that. A deploy job blocked for a quarter of an hour holds a runner
+slot nobody else gets, and the job's own ceiling at the time (`timeout: 30m`)
+was only ever a few minutes clear of the wait once the image pulls and the
+healthchecks were counted, so raising the drain to be kinder to players was one
+edit away from turning a deploy into a pipeline that fails on a match rather
+than on a fault. 90 s still lets a hand near its end finish. Past that, the
+snapshot below is not the fallback, it is the mechanism, and it is covered by a
+full restart test rather than by hope.
+
+The three deploy jobs now carry `timeout: 10m`, well clear of the 150 s grace
+period plus the two pulls, and **nothing in that arithmetic scales with the
+number of tables**. That is the property to preserve: raising
+`LOCO_DRAIN_TIMEOUT` again puts the length of a pipeline back in the players'
+hands, and `STOP_GRACE_PERIOD` and the job timeouts have to move with it.
+
 The refusal list is chosen so **the drain terminates**. Every entry on it is an
 action that would add a match to the set being waited on. Joining a lobby that
 already exists is deliberately *not* on it: a lobby cannot deal during a drain,
@@ -156,8 +174,13 @@ Three deliberate limits:
 - **`SnapshotSchemaVersion` is a hard gate, not a merge.** A room shaped by
   another build is dropped whole, with a `WARN`. So is one older than
   `SnapshotMaxAge` (2 min), by which point the clients have given up anyway.
-  This is the other half of why the drain exists: it is what makes a dropped
-  snapshot rare rather than routine.
+  That age is what the rollout has to stay inside: the file is written as the
+  old container exits and read as the new one boots, seconds apart, and a
+  rollout that ever put more than two minutes between the two would be
+  discarding the matches it stopped waiting for. With the drain at 90 s this
+  path is the ordinary one, not the exception, which is why the restart test in
+  `server/hub/snapshot_test.go` goes through real sockets and reclaims both
+  hands card for card.
 
 ### What the deploy has to get right
 
@@ -166,7 +189,7 @@ Three deliberate limits:
 | `stop_grace_period` on the `server` service | The single most important line. Docker's default is SIGTERM, wait 10 s, SIGKILL, and a SIGKILL lands in the middle of all of the above. Left at the default, none of this exists. Kept above `LOCO_DRAIN_TIMEOUT` so the snapshot write always fits inside it. |
 | `${DATA_DIR}/snapshots:/data` bind mount | Where the snapshot survives the container. A path rather than a named volume so an operator can see, and delete, exactly one file. |
 | `rollout()` does **server first, client second** | Recreating the server is the slow half, and for as long as it drains the players in a match are talking to the *old* process. Serving them the new bundle during that window would pair a fresh client with a server one version behind for the whole drain. Doing the client afterwards narrows the mismatch to the seconds between the two commands. |
-| `set_drain_policy` per environment | prod `15m` / `16m`, dev `90s` / `150s`. Prod redeploys on a tag and can wait out a best-of-7; dev redeploys on every push to `develop` and must not park the runner. `deploy_prod` carries `timeout: 30m` because it legitimately blocks while people finish their match. |
+| One drain policy, in `deploy/app.env` | `90s` / `150s` in both environments, no per-job switch. The wait a deploy can incur is now a constant, not a question about the tables that happen to be up, so `deploy_dev`, `deploy_prod` and `stop_dev` all carry `timeout: 10m` with the ceiling far clear of the wait it bounds. |
 
 `/health` and `/metrics` both report `draining`; `/metrics` also carries
 `matches_in_flight`, which is the number the shutdown is waiting to reach zero.

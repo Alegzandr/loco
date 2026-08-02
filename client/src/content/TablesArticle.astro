@@ -4,6 +4,7 @@
 // Names and taglines come from `t.maps`, the same copy the loading screen shows,
 // and the art from `MAPS`, the same registry the board paints from. Nothing here
 // describes a room a second time.
+import { Image } from 'astro:assets'
 import { MAPS, MAP_IDS } from '../components/cards/maps'
 import { ui } from './ui'
 import { en } from '../i18n/en'
@@ -16,6 +17,35 @@ interface Props {
 
 const { lang } = Astro.props
 const t = lang === 'fr' ? fr : en
+
+/*
+ * The same files the board paints from, imported rather than linked.
+ *
+ * `MAPS` gives a URL under /maps/, which is what the game needs — it picks a room
+ * at runtime and nothing can be known about it at build time. This page knows all
+ * four up front, so it can afford what the board cannot: eight 1280×720 rooms and
+ * tables handed to a phone at full size cost 1.4 MB of pixels it will never
+ * display in a 752px column, and the first of them was this page's LCP at 9.1 s.
+ * Importing them puts sharp in the middle, so each one ships at the widths the
+ * column actually has.
+ *
+ * The originals stay in `public/` untouched: they are the board's, and the board
+ * loads them by the URL in the registry.
+ */
+const rooms = import.meta.glob<{ default: ImageMetadata }>('../../public/maps/*/room.webp', {
+  eager: true,
+})
+const tables = import.meta.glob<{ default: ImageMetadata }>('../../public/maps/*/table.webp', {
+  eager: true,
+})
+const art = (set: Record<string, { default: ImageMetadata }>, id: string, file: string) =>
+  set[`../../public/maps/${id}/${file}.webp`].default
+
+/* The column is `--shell` (50rem) less its 1.5rem gutters. Stated once so the
+   `sizes` attribute and the widths sharp is asked for cannot disagree. */
+const COLUMN = 752
+const WIDTHS = [400, COLUMN, COLUMN * 1.5].map(Math.round)
+const SIZES = `(min-width: 50rem) ${COLUMN}px, calc(100vw - 3rem)`
 ---
 
 <h1>{ui('tablesH1', lang)}</h1>
@@ -24,32 +54,40 @@ const t = lang === 'fr' ? fr : en
 {MAP_IDS.map((id) => {
   const map = MAPS[id]
   const copy = t.maps[id]
+  /*
+    The top room is the only thing on screen when the page opens, so it is the
+    one the browser measures its LCP against: it loads eagerly, at high priority,
+    and so does the table sitting on it — a lazy image inside the first viewport
+    is a request the browser starts late for no reason. The three below are lazy,
+    which is what keeps this page from being 1.4 MB before a word is read.
+  */
+  const first = id === MAP_IDS[0]
   return (
     <article class="room">
       <h2>{copy.name}</h2>
       {/*
         Two images because a room is two things on the board: the backdrop it
-        sits in and the table itself. `loading="lazy"` on all but the first —
-        this page is four large photographs and none but the top one is on
-        screen when it opens. Width and height are declared so the column does
-        not jump as they arrive.
+        sits in and the table itself. `<Image />` writes width, height and the
+        srcset, so the column does not jump as they arrive and a phone downloads
+        a phone-sized picture.
       */}
       <div class="roomArt" style={`--accent: ${map.accent}`}>
-        <img
-          src={map.room}
+        <Image
+          src={art(rooms, id, 'room')}
           alt=""
-          width="1280"
-          height="720"
-          loading={id === MAP_IDS[0] ? 'eager' : 'lazy'}
+          widths={WIDTHS}
+          sizes={SIZES}
+          loading={first ? 'eager' : 'lazy'}
+          fetchpriority={first ? 'high' : 'auto'}
           decoding="async"
         />
-        <img
+        <Image
           class="roomTable"
-          src={map.table}
+          src={art(tables, id, 'table')}
           alt=""
-          width="1280"
-          height="720"
-          loading="lazy"
+          widths={WIDTHS}
+          sizes={SIZES}
+          loading={first ? 'eager' : 'lazy'}
           decoding="async"
         />
       </div>

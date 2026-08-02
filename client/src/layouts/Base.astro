@@ -22,6 +22,18 @@ import {
 import '@fontsource-variable/fredoka'
 import '@fontsource-variable/nunito'
 import '../styles/tokens.css'
+//
+// **Do not preload these two faces.** It looks like the obvious win — a font is
+// discovered only once the stylesheet naming it has been parsed, and the
+// wordmark is the LCP element on `/` — and it measured as a disaster: with
+// `<link rel="preload">` on the display face, Chrome reported **no LCP candidate
+// at all** on the home page, and a page with no LCP scores 0 on performance in
+// Lighthouse (`NO_LCP`, and `NO_FCP` in the same runs). Removing the preload
+// brings the candidate straight back, reproducibly, at the same paint time.
+//
+// It buys nothing anyway now that `build.inlineStylesheets: 'always'` puts the
+// @font-face rules in the document: there is no stylesheet round trip left to
+// race, which was the whole premise. See docs/notes/seo.md.
 
 interface Props {
   page: PageDef
@@ -73,10 +85,15 @@ const links = alternates(page)
       still keeps clear of those bands (layout.ts: boardSpace, and the --safe-*
       tokens the chrome offsets itself by).
     */}
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
-    />
+    {/*
+      No `maximum-scale` and no `user-scalable=no`. They were here to keep a
+      double-tap from zooming the board mid-match, and they took pinch-zoom with
+      them — which is somebody's only way to read this game on a phone, and which
+      an audit counts as a failure on every page of the site. The double-tap is
+      answered where it belongs, by `touch-action: manipulation` in the reset
+      below, and that costs nobody their zoom.
+    */}
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
 
@@ -146,11 +163,11 @@ const links = alternates(page)
         -webkit-user-select: none;
         user-select: none;
         -webkit-touch-callout: none;
-      }
-      /* Prevent double-tap zoom on interactive elements */
-      button,
-      input,
-      select {
+        /* The whole page, not only the controls: this is what replaces
+           `user-scalable=no` in the viewport tag. It drops the double-tap
+           gesture — the one that fires mid-match when a thumb hits a card twice
+           — and leaves pinch-zoom alone, which is the half that was worth
+           keeping. */
         touch-action: manipulation;
       }
     </style>

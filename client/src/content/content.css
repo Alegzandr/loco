@@ -66,7 +66,12 @@ html:has(body.doc) {
   border-radius: var(--radius-md);
   font-weight: 700;
 }
-.skip:focus {
+/* `:focus-visible`, never `:focus`. "Back to top" hands the focus here so a
+   keyboard reader lands at the start of the document, and on a phone that press
+   is a tap: the bare `:focus` published the link over the header for a reader
+   who has no use for it and no obvious way to dismiss it. The heuristic answers
+   both — a tap leaves it hidden, a Tab or an Enter still shows it. */
+.skip:focus-visible {
   left: max(1rem, var(--safe-left));
   top: max(1rem, var(--safe-top));
 }
@@ -133,7 +138,12 @@ html:has(body.doc) {
   background: var(--color-primary);
   color: var(--color-on-primary);
   font-family: var(--font-display);
-  font-size: 1.05rem;
+  /* 1.2rem, not the 1.05rem it sat at: white on LOCO Red is 3.43:1, which clears
+     the bar for large text (3:1) and misses it for body text (4.5:1), and 14pt
+     bold — 18.66px — is where a checker draws that line. The alternative was
+     darkening the brand red on the one control that is most obviously the brand,
+     so the type grew instead. Same reason `.navPopCta` is sized where it is. */
+  font-size: 1.2rem;
   font-weight: 800;
   text-decoration: none;
   box-shadow: var(--shadow-hard);
@@ -182,14 +192,22 @@ html:has(body.doc) {
   margin-bottom: clamp(2.5rem, 6vw, 3.5rem);
 }
 
+/* One way out of a page, drawn as an object rather than as a run of underlined
+   words. `.chipRow` is the row; `.docJump` is that row in the one place it sits
+   under a lede. Every link a page offers on its own line goes through this: a
+   pair of blue words at the end of a section reads as a footnote to the
+   paragraph above it, and this game's other buttons are pressable things. */
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
 /* The three documents on the privacy page, as a row of jumps under the lede.
    It is what the modal's tab strip was, minus the state and minus the script: a
    reader who came for the terms alone gets there in one press, and the anchor is
    a URL somebody can send. */
 .docJump {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
   /* Its own band between the lede and the first document, not a line stuck to
      the bottom of the paragraph: it was pulled up under the last sentence and
      read as a footnote to it. */
@@ -200,7 +218,7 @@ html:has(body.doc) {
    outline and a hard bottom shadow. A 2px hairline on the canvas colour was a
    ghost outline on the dark theme, which is the one thing tokens.css says at the
    top not to do. */
-.docJump a {
+.chipRow a {
   padding: 0.6rem 1.15rem;
   border-radius: var(--radius-full);
   border: var(--stroke-thin) solid var(--color-stroke);
@@ -218,16 +236,22 @@ html:has(body.doc) {
     background-color 0.12s ease;
 }
 
-.docJump a:hover,
-.docJump a:focus-visible {
+.chipRow a:hover,
+.chipRow a:focus-visible {
   background: var(--color-surface-strong);
   transform: translateY(-2px);
   box-shadow: 0 5px 0 var(--color-stroke-soft);
 }
 
-.docJump a:active {
+.chipRow a:active {
   transform: translateY(2px);
   box-shadow: 0 1px 0 var(--color-stroke-soft);
+}
+
+/* The row that ends a section, rather than the one that opens a page: it needs
+   air above it and none of the lede's band below. */
+.chipRow.endLinks {
+  margin-top: 1.6rem;
 }
 
 /* A jump lands the heading a little below the top edge rather than flush
@@ -335,6 +359,16 @@ html:has(body.doc) {
 }
 
 /* ── Tables ────────────────────────────────────────────────────────────── */
+
+/* Both scrolling boxes take the focus (see the `tabindex` in RulesArticle and
+   CardsArticle), so both have to show it. The UA's own ring is drawn tight
+   against a box that already carries an ink outline, where it reads as a border
+   that changed colour; offset, it reads as what it is. */
+.tableWrap:focus-visible,
+.cardRow:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 3px;
+}
 
 /* Wide content scrolls inside its own box; the page never scrolls sideways. */
 .tableWrap {
@@ -796,9 +830,23 @@ tbody tr:last-child td {
   gap: 1rem;
 }
 
+/* The wordmark, not the word "Menu". It said what the drawer was to somebody
+   already looking at it, and it was the one place on either half of the site
+   where a panel opened with no brand on it — on the game page especially, where
+   the drawer covers the board and the header that would have carried it does not
+   exist. The mark is four suit colours and an ink outline, so it is also the
+   first of the two things that keep this panel from reading as a grey corridor.
+   Rendered by <LocoLogo />, statically, so it is the same drawing as the one on
+   the cards.
+
+   A <div>, never the <p> this was while it held a word: <LocoLogo /> renders a
+   <div>, and a <div> inside a <p> is a parse error the browser fixes by closing
+   the paragraph early. The mark came out as a *sibling* of the title, which made
+   `.navPopHead` a three-item row and `space-between` centred the logo between an
+   empty <p> and the ✕. It rendered perfectly and sat in the wrong place. */
 .navPopTitle {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
 }
 
 /* Escape and a tap outside are both native and both invisible; this is the one
@@ -858,21 +906,53 @@ tbody tr:last-child td {
   background: var(--color-canvas);
 }
 
-/* First in the list and the only one that leaves the pages behind, so it is the
-   only one that looks like a button. */
-.navPopPlay {
-  margin-bottom: 0.45rem;
+/* The one row in a drawer that is an action rather than a destination, so it is
+   the only one that looks like a button — and the drawer's second piece of
+   colour, after the wordmark. Every drawer has exactly one: `Play` on the
+   content pages, `Preferences` on the game page. They sit at opposite ends
+   because they mean opposite things — `Play` is where you are going, the
+   settings are what you came into the menu to change — but they are the same
+   object, so the two menus carry the same amount of accent either way. */
+/* Written as a descendant of `.navPop` on purpose: `.navPopLinks a` is a class
+   *and* a type, so a bare `.navPopCta` loses `color` to it however far down the
+   file it sits — specificity beats order. It went unnoticed while the only CTA
+   was the light theme's `--color-ink` against `--color-on-primary`, which are
+   near enough the same white to hide it. */
+.navPop .navPopCta {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 0.7rem;
   border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-md);
   background: var(--color-primary);
   color: var(--color-on-primary);
+  font-family: var(--font-display);
+  /* Above 14pt bold for the reason `.cta` is: white on LOCO Red is 3.43:1, which
+     is a pass for large text and a fail for anything under it. */
+  font-size: 1.2rem;
+  font-weight: 700;
+  text-decoration: none;
   box-shadow: var(--shadow-hard);
+  cursor: pointer;
 }
 
-.navPopPlay:hover,
-.navPopPlay:focus-visible {
+.navPop .navPopCta:hover,
+.navPop .navPopCta:focus-visible {
   background: var(--color-primary-active);
   color: var(--color-on-primary);
+}
+
+.navPop .navPopCta:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--color-stroke-soft);
+}
+
+/* First in the list, and set off from the five destinations under it. */
+.navPopPlay {
+  margin-bottom: 0.45rem;
 }
 
 /* The two settings, side by side under a rule: they are not pages, and a row of
@@ -885,6 +965,13 @@ tbody tr:last-child td {
   margin-top: auto;
   padding-top: 1rem;
   border-top: 2px solid var(--color-hairline);
+}
+
+/* The game page's version of that row: one full-width action instead of two
+   quiet ones. The rule above it is the same rule, so the drawer ends the same
+   way on both halves of the site — a line, then the things that are not pages. */
+.navPopEnd:has(.navPopCta) {
+  display: block;
 }
 
 .navPopEnd .themeBtn,
@@ -1071,7 +1158,19 @@ tbody tr:last-child td {
       display: grid;
     }
 
+    /* The bar's contents go, the bar itself stays. `#langPop` is inside it, and
+       an ancestor set to `display: none` renders a popover nowhere however it
+       was opened — the drawer's globe promoted a panel to the top layer that
+       could never be painted, so on a phone the language chooser did nothing at
+       all. `display: contents` drops the bar's own box without taking its
+       subtree out of the render tree. */
     .siteFooter {
+      display: contents;
+    }
+
+    .footerPlay,
+    .footerNav,
+    .footerEnd {
       display: none;
     }
 
