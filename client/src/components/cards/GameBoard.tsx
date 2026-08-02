@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, MutableRefObject } from 'react'
+import { memo, useEffect, useRef, useState, RefObject } from 'react'
 import { CardDTO, CardColor, PlayerDTO } from '../../types/protocol'
 import { useElementSize } from '../../hooks/useElementSize'
 import { useSafeAreaInsets } from '../../hooks/useSafeAreaInsets'
@@ -61,7 +61,7 @@ interface Props {
    * confirmed later (a wild once its colour is named, a Swap once its target
    * is) call `flyFromHand` after sending, so they animate like any other play.
    */
-  flightRef?: MutableRefObject<GameBoardHandle | null>
+  flightRef?: RefObject<GameBoardHandle | null>
   turnTexts: TurnTexts
   fxTexts: FxTexts
   /** swap / global_switch notice from the store; triggers trail animation. */

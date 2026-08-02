@@ -134,7 +134,9 @@ for the smallest possible delay rather than the fewest bytes:
   and it dies with the tab rather than handing the next person a live seat.
 - The **last nickname is remembered across visits** (`localStorage`, written when a room is created or
   joined) and prefills the lobby field, so a returning player types a room code and nothing else. It
-  is only a suggestion: the field stays editable and an empty one still refuses to send.
+  is only a suggestion: the field stays editable and an empty one still refuses to send. It is also
+  what lets a **shared table link** seat somebody in one tap: the link carries the table, the browser
+  already has the name, and only a browser with neither is asked for one.
 
 ### Anti-Cheat
 
@@ -143,9 +145,13 @@ for the smallest possible delay rather than the fewest bytes:
 - Turn enforcement: out-of-turn actions are rejected
 - Client timestamps are never trusted; only server receipt time is used for catch windows
 - Hidden state (other players' hands) never sent to wrong client
-- Session tokens: cryptographically random token issued on join/create, required to re-claim a slot on reconnect — prevents slot hijacking
+- Session tokens: cryptographically random token issued on join/create, required to re-claim a slot on reconnect — prevents slot hijacking. Compared in constant time, and **rotated on every reclaim**: the spent token stops working the moment it is used
 - Per-client rate limiting: token bucket (10 msg/s, burst 20) — rejects flood attacks at the connection layer
 - Gameplay is refused while the room is still loading its map: the fairness of the loading gate cannot rest on every client honouring its own loading screen
+- Gameplay messages are refused outright at a table that has not dealt, and `dispatch` recovers from any handler panic. One message can cost one message: every inbound message is handled on a single goroutine, so an unhandled panic used to be the whole process and every match on it
+- Connection and table ceilings, refused before the WebSocket upgrade (`MaxClients`, `MaxConnsPerNet`) and at `create_room` (`MaxRooms`). A table outlives the socket that opened it by five minutes, so creating them in a loop was unbounded growth for the price of a handshake
+- A wrong table code is budgeted: 20 misses per network per minute, then `join_room` is refused for the rest of the window. Table codes are read out loud on stream, so the code is not a strong secret; what this stops is a script sweeping for open tables
+- A refused reclaim never names the roster: a stranger and a returning player with a stale token get the same answer, so a table code cannot be used to test which nicknames are seated
 
 ### Message Protocol
 
@@ -163,7 +169,7 @@ See [`docs/rules.md`](docs/rules.md) for the full, canonical rules specification
 
 ### Prerequisites
 - Go 1.22+
-- Node.js 22.12+ (Astro 7 declares it in `engines`; `npm ci` fails on 20)
+- Node.js 22.12+ (Astro 7 declares it in `engines`; `npm ci` fails on 20). The Docker images build on the current LTS, 24.
 
 ### Backend
 
@@ -195,19 +201,29 @@ docker compose up --build
 ```
 
 - Frontend: http://localhost:3000
-- Backend health: http://localhost:3000/health (proxied by nginx, like in production)
 
 The Go server itself is **not published on a host port** here, so this stack matches the
-deployed one: nginx is the only way in. `/metrics` is deliberately not proxied and is
-therefore unreachable from outside; read it from inside the container instead:
+deployed one: nginx is the only way in, and it proxies `/ws` and nothing else. Both
+`/health` and `/metrics` are operator surfaces and neither is reachable from outside:
+`/health` answers with the live room and player counts and with `draining`, which sizes
+the server for anyone thinking of loading it and announces the window in which new tables
+are refused. Docker's own healthcheck reads it from inside the container, which is also
+how you read either of them:
 
 ```bash
+docker compose exec server wget -qO- http://localhost:8080/health
 docker compose exec server wget -qO- http://localhost:8080/metrics
 ```
 
-It returns JSON: room and player counts, `goroutine_count` for runtime health, and the
-abuse/pressure counters (`messages_rate_limited`, `messages_dropped_busy`,
-`slow_clients_closed`, `suspected_cheats`). `debug_mode_active` must read `false` in production.
+`/metrics` returns JSON: room and player counts, `goroutine_count` for runtime health, and
+the abuse/pressure counters (`messages_rate_limited`, `messages_dropped_busy`,
+`slow_clients_closed`, `suspected_cheats`, `conns_refused`, `joins_throttled`).
+`handler_panics` is the one to alert on: the event loop recovers rather than dying, so any
+value above zero is a bug that nothing else surfaces. `debug_mode_active` must read
+`false` in production.
+
+The server container runs as an unprivileged user with no capabilities and a read-only
+root filesystem, so it can write nothing but the shutdown snapshot on its `/data` mount.
 
 ### Development compose (hot reload, no host toolchain needed)
 
@@ -510,13 +526,14 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 ## Implemented Features
 
 - **Lobby**: nickname-only rooms (the last nickname is remembered and prefilled), 6-char codes, host-only start, BO1/BO3/BO5/BO7 selection, max-players 2–10, AI bots.
+- **A table is shared as a link.** Pressing the code in the waiting room copies a URL that opens the game already pointed at that table (`/?t=CODE`), so the person receiving it has nothing to read out, nothing to retype and no screen to find first. The code itself stays on screen: it is what a stream reads out loud and what somebody already sitting at the join form types. The link carries no language, because it gets forwarded and the sender does not know who ends up pressing it. A link carries a table and never a player, so the arrival is asked for a name — unless this browser already remembers one, in which case they are seated on the spot. The code comes straight back out of the address bar on arrival: a reload then reclaims the seat instead of re-joining, a code never sits in the URL bar where streamer mode cannot blur it, and a URL copied later stops naming a table that has since closed.
 - **The host owns their table before the deal**: any seat but their own can be freed from the roster with one press, bots included — that is the only way to take a bot's seat back. The table sees an ordinary departure and the removed player is told why, on the screen they land on. It is deliberately **not** a ban: the code is still in their hands and they can sit back down. There is no identity in this game to refuse somebody by, and the one handle that would remain is an address, which is exactly what is never kept. Refused once the cards are out, and in a matchmade room, which has no host at all.
 - **Nickname validation**, server-authoritative (`server/game/nickname.go`), because the nickname is the one string a player authors and it ends up on a seat, in the score table and in somebody's clip. Up to 20 *characters* (not bytes), written in Latin, Greek or Cyrillic letters, digits, single spaces and `-_.'`; that allowlist is what keeps out the zero-width characters, the right-to-left overrides that reverse a seat label, emoji, and stacked combining marks. Insults and hate terms are filtered on a normalised form (case, diacritics, leetspeak, separators and repeated letters all folded), against Shutterstock's [LDNOOBW lists](https://github.com/LDNOOBW/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words) in 19 languages, embedded in the binary — no service, no key, no request. Short terms only match a whole word so that Constance, Dominique, Cassandra and Scunthorpe still get to play. **Every refusal is the same one line**, in both languages, whichever rule fired: a message that names the rule is a hint for the next attempt. The client (`client/src/components/nicknameRules.ts`) checks the shape as you type so the answer is instant, and ships none of the word list.
 - **Gameplay**: full 112-card deck, 8-card deal, all action cards (Skip, Reverse, +2, Wild, +4, Swap, Global Switch), +2/+4 stacking (eating a stack costs cards, not the turn — `docs/rules.md` §14.5), identical-card interrupt with no time limit — any card kind, any player, including the one who just played (single + batch), batch turn play, last-card declaration (the "LOCO!" button; wire type stays `declare_uno`; one call per single card, and the button is spent once the server confirms it) + a per-seat 5 s catch window that also covers the players a Swap or a Global Switch leaves holding a single card (Contre-LOCO! is a wager: a call that arrives after the declaration, after the hand grew, or after the window closed costs the caller 1 card — `docs/rules.md` §14.6), single-finisher round scoring, multi-round matches with tiebreakers and sudden-death.
 - **1v1 matchmaking**: one button on the home screen puts a player in a queue and pairs them with whoever else is looking. There is no host, no code to share and no lobby: two searchers get a versus reveal naming their opponent, and the match deals itself two and a half seconds later, in a single round. At the end either player can ask for another: a matchmade rematch is an **agreement**, so both offers are public and the same two are dealt in again only once both are in. Whoever wants a different opponent instead goes straight back into the queue from the same screen. **The queue's size is never on the wire**: not as a count, not as a position, not as an estimate. So the searching screen times its own wait instead and says, at fifteen and at forty-five seconds, that it is still looking and that this can take a while; past that it also offers to open a private table. A number that reads "1 player searching" is an instruction to give up, and every player who leaves on it is the opponent the next one was about to get. The mode carries no rank and does not call itself unranked: there is one queue today, and a ranked ladder would introduce itself.
 - **Nobody waits for somebody who is not there**: a matchmade match holds a dropped seat for **15 s** rather than 60, and the player still at the table watches that countdown on the board. Two consecutive turn timeouts (instead of four) end it the same way. Either way the match is **forfeited** to whoever stayed: named as a forfeit on the game-over screen, with no confetti and no points invented for a round nobody finished. Quitting on purpose does the same thing immediately. Ordinary rooms are untouched: they are people who came in together, and the 60 s hold is there so a drop is not the end.
 - **Preferences** (the gear in the top bar of every screen, board included): language, theme, and three switches.
-  - **Streamer mode** blurs the table code everywhere it is drawn, the waiting room and the reconnect splash. A code read off a stream is an open table, and the waiting room is the one screen a streamer is guaranteed to sit on. The code itself is untouched: copy still copies it, and hovering or focusing the value clears the blur so the owner can read it out loud.
+  - **Streamer mode** blurs the table code everywhere it is drawn, the waiting room and the reconnect splash. A code read off a stream is an open table, and the waiting room is the one screen a streamer is guaranteed to sit on. The code itself is untouched: the press still copies a working link to the table, and hovering or focusing the value clears the blur so the owner can read it out loud.
   - **Colour shapes** give each suit a silhouette (triangle, circle, square, diamond) on the card, on every colour picker and on the active-colour chip, so hue is never the only thing telling two cards apart. Colour is a rule in this game, not decoration.
   - **Reduced motion** stops the card flights and the confetti. It follows the system setting until it is set here, and then wins over it in both directions.
   All of them live in `localStorage` and none is ever sent to the server.
@@ -550,6 +567,8 @@ Full grouped list: [`docs/features.md`](docs/features.md).
 - Matchmaking is a single first-come queue: no rating and no region. A ranked ladder would be a second queue beside it
 - No spectator mode
 - No chat
+- The resource ceilings are compile-time defaults (`MaxRooms`, `MaxClients`, `MaxConnsPerNet`, `MaxFailedJoins` in `server/hub/hub.go`), not environment variables. They are set generously enough that an operator should not need to reach for them; changing one is a rebuild
+- `MaxConnsPerNet` counts per `/24` (or `/48`), which is the same truncation the logs use. On a carrier-grade NAT that groups unrelated players, so the limit is deliberately high rather than tight
 - Maps are drawn at random and cannot be chosen; the four that ship are cosmetic only and have no effect on play
 - Wild Draw Four legality (should only be legal when no matching color) not yet enforced
 - Only English and French are currently translated; adding a language requires a new file in `client/src/i18n/` and an entry in the `translations` map

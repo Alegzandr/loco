@@ -141,6 +141,8 @@ export interface Scene {
   overlay?: SceneOverlay
   /** Lobby sub-screen: drives Lobby's internal mode. */
   lobbyMode?: 'home' | 'find' | 'create' | 'join'
+  /** Lobby: the table code a shared link arrived with, already in the field. */
+  lobbyCode?: string
   /** Seconds already spent searching, so the three stages of the copy can each
    *  be captured (see Searching.tsx: 0-15s, 15-45s, 45s+). */
   searchingFor?: number
@@ -213,6 +215,15 @@ export const SCENES: Scene[] = [
     title: 'Accueil · rejoindre une partie',
     screen: 'lobby',
     lobbyMode: 'join',
+  },
+  {
+    // Arriving on a shared link with no name in this browser: the code is in,
+    // and the form is down to the one thing a link cannot carry.
+    id: 'lobby-join-invite',
+    title: 'Accueil · arrivée par lien',
+    screen: 'lobby',
+    lobbyMode: 'join',
+    lobbyCode: 'KX7QP2',
   },
   {
     id: 'lobby-find',

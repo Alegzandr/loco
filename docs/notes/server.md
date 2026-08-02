@@ -6,6 +6,110 @@ room lifecycle.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## One message must never be able to cost the server
+`hub.dispatch` opens with a `recover`, and with a gate refusing every gameplay message at a table
+that has not dealt. Both come out of the same audit finding, and they are floor and wall rather than
+one fix twice.
+
+**The bug.** `room.State` is nil in a lobby (`game.NewRoom`) and again after a rematch
+(`Room.ResetForRematch`). Almost every handler delegates straight to a domain call that checks
+`Status` first, but two sized a hand *before* refusing: `handleDrawCard` read
+`len(room.State.Hands[c.playerID].Cards)` on its first line, and `handleCatchUno` read
+`len(room.State.Hands)` to bounds-check the target it had been handed. Both are nil dereferences,
+and both were reachable in **two frames** by anybody who could open a socket:
+
+```
+connect /ws  ->  {"type":"create_room","nickname":"X"}  ->  {"type":"draw_card"}
+```
+
+`originAllowed` allows a missing `Origin` on purpose (a non-browser client has no ambient credential
+to be tricked into replaying), so this needed no browser and no valid table. The map-loading gate did
+not help: it only exists for a table that has already dealt.
+
+**Why it was fatal rather than annoying.** Every inbound message is handled on the single event-loop
+goroutine in `Hub.Run`, and there was no `recover` anywhere in `server/`. So the panic was the whole
+process: every match on it ended mid-turn, `SIGTERM` was never received so neither the drain nor the
+snapshot ran, and the players who reconnected a moment later were told "room not found", the exact
+outcome the drain was built to eliminate, reachable at will for the cost of a TCP handshake.
+
+**The two answers.**
+- The **gate** (`isGameplayMsg` + `roomOf` + `Status`/`State`) fixes the class rather than the two
+  handlers. The next one to read `State` before validating is covered without anybody remembering to.
+  It answers `game not in progress`, resolved by `i18n/serverErrors.ts` like every other refusal.
+- The **recover** bounds the blast radius of whatever the gate does not anticipate: one `WARN` with
+  the stack, one `server error` to the client that sent it, `handler_panics` on `/metrics`. It is
+  explicitly *not* a licence to skip a bounds check. `playerGameStateUsing` already carried the
+  right instinct in a comment ("a panic here would kill the hub goroutine and take down every active
+  room") and its own guards; this generalises that instinct to every handler.
+
+`hub/hardening_test.go` pins both: the six gameplay messages that reach a lobby, and a probe
+(`SetDispatchProbe`, test-only) that panics on demand so the recover is proven rather than assumed.
+`handler_panics` above zero is a bug by definition and nothing else surfaces it.
+
+## Ceilings: what stops an abusive client being an unbounded one
+Nothing bounded this server's memory. The token bucket limits one socket's message rate and says
+nothing about how many sockets exist, and a table outlives the connection that opened it by
+`EmptyRoomTimeout` (5 min). So `connect, create_room, disconnect, repeat` was an allocation loop
+costing one handshake a table, and there was no answer to it anywhere in the stack.
+
+Four numbers, all exported vars in `hub.go` so tests can narrow them, all deliberately generous:
+they exist to make the abusive case terminate, not to shape the legitimate one. A server that
+refuses a real player is worse than one carrying a few thousand idle rooms, so **reaching one of
+these in production is a signal to read the logs, not a number to lower.**
+
+| Knob | Default | Refused where | Answer |
+| --- | --- | --- | --- |
+| `MaxClients` | 5000 | `ServeWS`, before the upgrade | HTTP 429 |
+| `MaxConnsPerNet` | 64 | `ServeWS`, before the upgrade | HTTP 429 |
+| `MaxRooms` | 2000 | `handleCreateRoom` | `the server is full, try again in a moment` |
+| `MaxFailedJoins` | 20 / min / network | `handleJoinRoom` | `too many attempts, wait a moment` |
+
+Two details that are not arbitrary:
+
+- **Admission is decided before the upgrade**, in `admitConn`, against its own counter rather than
+  `statClients`. `statClients` is maintained by the event loop, which leaves a window between the
+  upgrade and the register that an unbounded number of sockets can arrive in, and that window is
+  precisely where a flood lives. Refusing early also means a connection this server will not serve
+  never costs it a hijacked socket, a 256-slot send buffer and two goroutines. 429 rather than a
+  close so a refusal is distinguishable from a network failure, in the client and in nginx's log.
+- **The room cap is on `create_room`, not on the socket**, because that is the message that
+  allocates something outliving its connection.
+
+`MaxConnsPerNet` is keyed by the same truncated prefix the logs are (`truncateAddr`, `/24` or `/48`),
+so nothing here retains an address the rest of the server has already decided not to keep. 64 is high
+enough for a household, a LAN party or an office behind one address.
+
+`conns_refused` on `/metrics` is a load signal, not an incident, until it climbs.
+
+## A wrong table code is not free any more
+A table code is 6 characters of a 32-symbol alphabet, so 32^6 ≈ 1.07e9. That is a large number for
+finding *one* table and a much smaller problem for finding *any* of them: the odds scale with how
+many are open, so a busy server was walkable, and a refused `join_room` used to cost nothing at all:
+no counter, no penalty, nothing per address. `noteRejection` only ever covered the gameplay handlers.
+
+`MaxFailedJoins` wrong codes per network per minute (`joinBudget`, `joinThrottled`, `noteFailedJoin`),
+after which `join_room` is refused for the rest of the window **before the lookup**, so a throttled
+network learns nothing from the answer either. Keyed by network rather than by socket, because a
+socket is free: a sweeper reconnects between attempts and a per-connection counter would only have
+measured its patience. The map is swept of expired windows when it passes `maxJoinBudgets` (4096), so
+the ordinary path stays one lookup.
+
+A player who mistypes their code once is nowhere near 20, and
+`TestOneMistypedCodeDoesNotLockAPlayerOut` is what keeps it that way.
+
+## The reclaim refusal names nothing
+`join_room` at a table in progress used to answer two different strings: `invalid session token for
+reconnect` when the nickname matched a seat that was actually held, and `game already in progress`
+otherwise. The difference was a roster oracle (anybody with a code could test names against the
+table) and it bought nothing, because a returning player's client already owns the failed-reclaim
+case through its own restore timeout (`useSessionRestore`, `reconnectFailed`).
+
+Both now answer `game already in progress`. `i18n/serverErrors.ts` keeps its `invalid session token`
+rule for the rolling-deploy window in which a new client talks to an old server, and says so.
+
+`hub/hardening_test.go`'s `TestReclaimRefusalRevealsNothingAboutTheRoster` compares the two answers
+directly, which is the only way this stays true.
+
 ## Anti-cheat
 Defend: illegal cards, turn spoofing, hidden-state manipulation, replay, forged reactions/declarations, dup spam, tampered hand, client win claims.
 Posture: validate every message, reject illegal/out-of-turn, server-side hidden state, ignore client timestamps for outcomes, server outcomes final, crypto-random session tokens (required for reconnect), per-client rate limit (token bucket 10 msg/s, burst 20).
@@ -353,7 +457,18 @@ strangers will not, and the player who is still at the table did nothing wrong.
 ## Session tokens
 - 32 hex chars (128-bit `crypto/rand`).
 - Issued in `room_created`/`room_joined`. Client must include `session_token` in reconnect `join_room`.
-- Invalid/missing → error, slot not reclaimed.
+- Invalid/missing → error, slot not reclaimed. The refusal is the same string a stranger gets; see
+  "The reclaim refusal names nothing".
+- **Compared with `subtle.ConstantTimeCompare`, never `==`.** A network timing attack on 128 bits of
+  hex is not a realistic threat and this is not pretending otherwise. It is that this is the only
+  identity check the game has, the replacement is one line, and an equality operator returning on the
+  first differing byte is the kind of thing that only gets noticed once it matters.
+- **A reclaim spends its token and gets a new one** (`handleReconnect` reissues, and
+  `player_reconnected` carries it). The old one has been on a socket that died, it is in
+  `sessionStorage`, and if the process restarted on the way it has also been written to a snapshot on
+  disk. A one-shot proof is worth more than a permanent one and costs nothing, because the client
+  already stores whatever the server hands it.
+  `TestReconnectRotatesTheSessionToken` also asserts the spent one no longer opens the seat.
 - `hub.sessionTokens` cleaned up on room delete.
 
 ## Rate limiting
@@ -521,6 +636,14 @@ boot after it. Bump the constant by hand whenever `game.Room` or `roomSnapshot` 
 **An empty `LOCO_SNAPSHOT_PATH` disables the whole thing**, which is what local dev and the E2E suite
 run with: nothing about their behaviour changes.
 
+**The file is the one secret this stack writes down.** It carries every session token and every hand
+in every match a shutdown interrupted, so whoever can read it can claim any of those seats and see
+all of those cards. `writeAtomic` creates it `0600` and the process runs as uid 10001, but the
+directory it lands in is a host path an operator can list: `.gitlab-ci.yml` therefore chowns
+`${DATA_DIR}/snapshots` to 10001 and chmods it `0700` on every deploy. Treat that directory as a
+secret. It is also short-lived by construction (removed as it is read, refused past `SnapshotMaxAge`),
+which is what keeps the exposure to the length of a restart rather than the life of the server.
+
 `/health` and `/metrics` both carry `draining`. `/metrics` also carries `matches_in_flight`, which is
 only maintained while draining and reads 0 before that: counting it the rest of the time would mean
 scanning every room after every event for a number nobody is looking at.
@@ -539,8 +662,13 @@ scanning every room after every event for a number nobody is looking at.
 - Both periods are exported vars so tests can shorten them; production never changes them.
 
 ## Metrics
-**`/metrics` is an operator surface, not a public one, and no compose file publishes the Go server
-any more.** nginx proxies `/ws` and `/health` and deliberately not this, `deploy/compose.yml` only
+**`/metrics` *and* `/health` are operator surfaces, and no compose file publishes the Go server any
+more.** nginx proxies `/ws` and nothing else: `/health` used to be proxied too, and it answers with
+the live room count, the connected-player count, the uptime and `draining`. None of that is anybody's
+business from the internet. The counts size the server for whoever is thinking about loading it, and
+`draining` announces the window in which new tables are refused. Nothing legitimate needed it there
+either: Docker's healthcheck runs inside the server container against `localhost:8080`, and the CI
+smoke test does the same. `deploy/compose.yml` only
 `expose`s 8080 on the `internal` network, and `docker-compose.yml` now matches it. It used to
 publish `8080:8080`, which put an unauthenticated endpoint on the LAN for no gain, since the browser
 reaches the server through nginx there like everywhere else. Read it from inside:
@@ -559,6 +687,14 @@ with no nginx in front of it.
 - `reconnect_expirations` — disconnected players whose 60s window expired.
 - `matchmaking_queue`: players waiting for a 1v1 right now, and `matches_matchmade`: pairings made since boot. **The only place either number is readable**: nothing on the wire tells a client how long the queue is (see "1v1 matchmaking"). Sustained `matchmaking_queue` ≥ 1 with a flat `matches_matchmade` means people are searching and not being paired.
 - `debug_mode_active` — reflects `LOCO_E2E=1`. MUST be `false` in prod; `main.go` logs startup `WARN` if set.
+- `handler_panics` — panics `dispatch` recovered from. **Any value above zero is a bug**, by
+  definition, and nothing else surfaces it: the process no longer dies, so the only evidence is this
+  counter and the `WARN handler panic recovered` line carrying the message type and the stack. This
+  is the one number here worth an alert.
+- `conns_refused` — upgrades turned away by `MaxClients` / `MaxConnsPerNet`. A load signal, not an
+  incident, until it climbs: see "Ceilings".
+- `joins_throttled` — `join_room` refused for burning a network's wrong-code budget. Read alongside
+  the `WARN table code sweep suspected` line, which carries the `conn=` and the prefix.
 - `draining` + `matches_in_flight` — this process has been asked to go and is finishing what it had. `matches_in_flight` is the number the shutdown is waiting to reach zero; it is only maintained while draining. `draining` also rides `/health`, which deliberately stays `200`: a draining server is serving its players perfectly well, and a container Docker considers unhealthy is one something else may decide to kill out from under them.
 
 All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
@@ -577,6 +713,15 @@ All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatc
 - `http.Server`: `ReadHeaderTimeout:10s`, `IdleTimeout:60s`.
 - Goroutine stability tests in `hub/hub_test.go`: `TestGoroutineStability_RoomLifecycle`, `_BotGame`, `_FullLifecycle`.
 - `playerGameState(room, playerIdx)` defensive: nil `room.State`, OOB `playerIdx`, empty discard → minimal `GameStateDTO` + `WARN` (not panic — would kill hub goroutine).
+- **`dispatch` recovers, and refuses gameplay at a table that has not dealt.** The floor under the
+  line above, and the reason it is no longer the only thing standing between a handler bug and a
+  total outage. See "One message must never be able to cost the server".
+- **The container has no privilege to lose.** `server/Dockerfile` runs as uid 10001 (it binds a high
+  port, reads no system path and writes one file), and `deploy/compose.yml` adds
+  `no-new-privileges`, `cap_drop: ALL`, a read-only root filesystem and a tmpfs `/tmp`. The bind
+  mount at `/data` stays writable, and `.gitlab-ci.yml` chowns it to 10001 and chmods it 0700,
+  because a mount overrides whatever the image chowned and a container that cannot write its
+  snapshot loses exactly the matches the snapshot exists to save.
 
 ## Structured logging
 - Stdlib `log` to stdout. `key=value` single line, e.g. `room created code=ABC123 host=Alice`.

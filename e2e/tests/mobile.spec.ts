@@ -119,7 +119,7 @@ test.describe('mobile viewport', () => {
               expect(box!.height).toBeGreaterThanOrEqual(44)
             }
             // Cancel the picker to avoid sending a malformed play
-            await page.getByRole('button', { name: '✕' }).click()
+            await page.getByRole('button', { name: T.pickerCancel }).click()
           }
         } else {
           // No wild card — draw and pass to advance

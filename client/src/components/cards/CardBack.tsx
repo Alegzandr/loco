@@ -1,4 +1,4 @@
-import { CSSProperties, forwardRef } from 'react'
+import { CSSProperties, Ref } from 'react'
 import { SUIT_PAINT } from './cardTheme'
 import { MARK_MASK_BOLD_URL } from './cardArtSpace'
 import styles from './CardBack.module.css'
@@ -14,6 +14,8 @@ interface Props {
   opacity?: number
   className?: string
   style?: CSSProperties
+  /** React 19 ref-as-prop; see the same note on Card. */
+  ref?: Ref<HTMLDivElement>
 }
 
 /** Below this width the mark is a smudge, so a back is painted flat instead. */
@@ -23,10 +25,15 @@ const ART_MIN_W = 26
 // same LOCO mark watermarked into it, and the mark again across the middle in
 // all four suit colours at once — the one place the full palette appears, which
 // is what makes a face-down card unmistakable in a blurred mini-fan.
-export const CardBack = forwardRef<HTMLDivElement, Props>(function CardBack(
-  { width = 72, height = 108, radius = 5, opacity = 1, className, style },
+export function CardBack({
+  width = 72,
+  height = 108,
+  radius = 5,
+  opacity = 1,
+  className,
+  style,
   ref,
-) {
+}: Props) {
   const showArt = width >= ART_MIN_W
 
   return (
@@ -58,4 +65,4 @@ export const CardBack = forwardRef<HTMLDivElement, Props>(function CardBack(
       )}
     </div>
   )
-})
+}

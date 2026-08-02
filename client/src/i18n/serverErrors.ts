@@ -39,6 +39,11 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   [/room not found|invalid room code/i, 'roomNotFound'],
   [/room is full/i, 'roomFull'],
   [/game already (in progress|started)/i, 'gameInProgress'],
+  // Kept for a client talking to a server from before the reclaim refusal was
+  // made uniform (a rolling deploy is exactly that window). Current servers
+  // answer a stale token with `game already in progress` instead, on purpose:
+  // the old pair of strings told anyone with a table code which nicknames were
+  // seated at it. See server/hub/hub.go, handleJoinRoom.
   [/invalid session token/i, 'sessionInvalid'],
   // Before `not in a room`: the two differ by one word and the broader rule
   // would otherwise have to be trusted not to drift into matching both.
@@ -102,6 +107,18 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   // ── Transport ────────────────────────────────────────────────────────────
   [/rate limit exceeded/i, 'rateLimited'],
   [/server busy/i, 'serverBusy'],
+  // The admission ceilings and the recovered-panic answer. All three are
+  // refusals a player can be handed without having done anything, so the copy
+  // says what to do (wait, retry) rather than what happened. See the caps in
+  // server/hub/hub.go.
+  [/server is full/i, 'serverFull'],
+  [/too many attempts/i, 'tooManyAttempts'],
+  [/^server error$/i, 'serverError'],
+  // A gameplay message at a table that has not dealt, answered by dispatch
+  // itself. Ordinary rather than suspicious: a reconnect crossing a round end
+  // on the wire produces it. Safe this far down because `game already in
+  // progress` above needs the word "already" and cannot swallow it.
+  [/game not in progress/i, 'gameNotInProgress'],
   // A deploy in progress. Above nothing in particular, but it must never fall
   // through to the generic: the whole point of the string is that the player
   // learns their table code was fine and the wait is short. See

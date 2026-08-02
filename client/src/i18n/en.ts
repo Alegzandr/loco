@@ -92,6 +92,18 @@ export interface ErrorCopy {
   // Client-side: a seat reclaim that timed out or was cancelled. The only
   // entry here with no server string behind it.
   reconnectFailed: string
+  // The server is at its table or connection ceiling. Not a fault the player
+  // can act on beyond waiting, so the copy says how long rather than why.
+  serverFull: string
+  // Too many wrong table codes from one network in a minute. A player who
+  // mistypes once never sees this; a script sweeping for open tables does.
+  tooManyAttempts: string
+  // A handler panicked and the event loop caught it. The player did nothing
+  // wrong and there is nothing for them to fix, so it says so plainly.
+  serverError: string
+  // A gameplay message arrived at a table that has not dealt (or has finished).
+  // Ordinary when a reconnect and a round end cross on the wire.
+  gameNotInProgress: string
 }
 
 export interface Translations {
@@ -177,7 +189,10 @@ export interface Translations {
   waitingRoom: string
   roomCode: string
   shareCode: string
+  // Pressing the code copies a link to this table, not the six characters: the
+  // person receiving it has nothing to retype and nowhere to be sent first.
   copyCode: string
+  copyLink: string
   // Leaving is one-way, so the button asks first. The question names the table,
   // and the safe answer is a word, not a dismissal.
   leaveConfirm: string
@@ -422,8 +437,9 @@ export const en: Translations = {
   roomCode: 'Table code',
   // The screen already says "The table" and "Table code": a third one in the
   // same column reads as a half-filled template.
-  shareCode: 'Send this code. They are one tap away.',
-  copyCode: 'Copied!',
+  shareCode: 'Tap the code to copy a link straight to this table.',
+  copyCode: 'Link copied!',
+  copyLink: 'Copy the link to this table',
   leaveConfirm: 'Leave this table?',
   leaveConfirmYes: 'Yes, leave',
   leaveConfirmStay: 'Stay',
@@ -728,5 +744,9 @@ export const en: Translations = {
     serverBusy: 'The server is packed. Try again.',
     serverUpdating: 'New version landing. Tables open again in a minute.',
     reconnectFailed: 'Your seat is gone. The match may be over.',
+    serverFull: 'Every table is taken. Try again in a minute.',
+    tooManyAttempts: 'Too many tries. Wait a moment.',
+    serverError: 'Something broke on our side. Try that again.',
+    gameNotInProgress: 'No cards are out at this table.',
   },
 }

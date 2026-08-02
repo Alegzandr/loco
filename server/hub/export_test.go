@@ -9,3 +9,12 @@ package hub
 func (h *Hub) SetRegisterHook(fn func()) {
 	h.afterRegisterHook = fn
 }
+
+// SetDispatchProbe installs a callback fired at the top of dispatch, before the
+// message is routed. It exists so a test can make a handler panic on demand and
+// assert the event loop survives it: there is no other way to prove the recover
+// in dispatch works without shipping a message type that crashes on purpose.
+// Runs in the hub's event-loop goroutine. Pass nil to remove. For tests only.
+func (h *Hub) SetDispatchProbe(fn func()) {
+	h.dispatchProbe = fn
+}

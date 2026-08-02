@@ -88,6 +88,11 @@ type Client struct {
 	// connection, so operators can grep a single player's actions across the
 	// log even when they move between rooms or before they have joined one.
 	connID string
+	// netKey is this connection's truncated network prefix, kept from the
+	// admission check so the slot can be given back on close without parsing the
+	// address again (and without ever holding the full one). It is also what the
+	// failed-join budget is charged against.
+	netKey string
 	// suspectMu / suspectCount / suspectWindowStart implement a lightweight
 	// rolling counter of gameplay validation rejections. A real player taps the
 	// occasional illegal play; a tampering client triggers many in a row. We

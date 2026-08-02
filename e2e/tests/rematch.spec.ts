@@ -22,6 +22,7 @@ import {
   waitForGameOver,
   clickContinue,
   askRematch,
+  acceptRematch,
   clickRematch,
   debugSetState,
 } from '../helpers/game'
@@ -103,7 +104,7 @@ test.describe('rematch', () => {
     await expect(host.getByRole('button', { name: T.rematchWaitingOpponent })).toBeDisabled()
     expect((await getState(host))?.screen).toBe('gameover')
 
-    await clickRematch(guest)
+    await acceptRematch(guest)
 
     // The guest is moved back to the waiting room by the server, keeping their seat.
     await guest.waitForFunction(
@@ -120,7 +121,7 @@ test.describe('rematch', () => {
     await guestCtx.close()
   })
 
-  test('when the host leaves the game-over screen, the remaining player is promoted and can rematch', async ({ browser }) => {
+  test('when the host leaves the game-over screen, the remaining player is promoted and the ask waits', async ({ browser }) => {
     const hostCtx = await browser.newContext()
     const guestCtx = await browser.newContext()
     const host = await hostCtx.newPage()
@@ -144,12 +145,18 @@ test.describe('rematch', () => {
       undefined,
       { timeout: 15_000 },
     )
-    await expect(guest.getByRole('button', { name: T.rematch })).toBeVisible({ timeout: 5_000 })
+    // The button stays where it was and is disabled: a rematch is an agreement,
+    // and there is nobody left to agree with. It is not removed, because the
+    // answer may still be one reconnect away and this screen does not reflow.
+    const rematchBtn = guest.getByRole('button', { name: T.rematch })
+    await expect(rematchBtn).toBeVisible({ timeout: 5_000 })
+    await expect(rematchBtn).toBeDisabled()
 
-    await clickRematch(guest)
+    // The table itself survives the departure: same code, one seat.
     const s = await getState(guest)
     expect(s?.roomCode).toBe(code)
     expect(s?.players ?? []).toHaveLength(1)
+    expect(s?.screen).toBe('gameover')
 
     await guestCtx.close()
   })

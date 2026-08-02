@@ -11,7 +11,9 @@
 // scale animation and so re-filled every frame. The gradients are CSS now and
 // the mark is a shared mask image; see MARK_MASK_URL in cardArtSpace.ts for the
 // measurement and for why it must stay one.
-import { CSSProperties } from 'react'
+// React 19 no longer declares JSX as a global namespace; it is exported from
+// 'react' instead, so the glyph tables below name it explicitly.
+import type { CSSProperties, JSX } from 'react'
 import { CardDTO, CardColor } from '../../types/protocol'
 import { SUIT_PAINT, SUIT_ANGLE_DEG, CARD_GLYPH, CARD_GLYPH_INK } from './cardTheme'
 import {

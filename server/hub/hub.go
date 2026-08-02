@@ -3,6 +3,7 @@ package hub
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +42,45 @@ var TurnTimeout = 30 * time.Second
 // action) after which a human player is kicked from the game. Default 4 ≈ two full
 // rounds in a 2-player game. Exported so tests can override it.
 var AFKKickThreshold = 4
+
+// The ceilings. Nothing bounded this server's memory: the per-client token
+// bucket limits one socket's message rate and says nothing about how many
+// sockets there are, and a table outlives the connection that opened it by
+// EmptyRoomTimeout. So connect, create_room, disconnect, repeat was an
+// unbounded allocation loop costing an attacker one TCP handshake a table.
+//
+// All three are deliberately generous: they are there to make the abusive case
+// terminate, not to shape the legitimate one. A server that refuses a real
+// player is a worse outcome than a server that carries a few thousand idle
+// rooms, so if one of these is ever reached in production it is a signal to
+// read the logs, not a number to lower. Exported so tests can narrow them.
+var (
+	// MaxRooms caps live tables, matchmade and private together.
+	MaxRooms = 2000
+	// MaxClients caps concurrent sockets, refused at the upgrade.
+	MaxClients = 5000
+	// MaxConnsPerNet caps concurrent sockets from one /24 or /48 (see
+	// truncateAddr, which is also what the logs are keyed by). High enough for a
+	// household, a LAN party or a office behind one address; low enough that a
+	// single origin cannot spend the global budget on its own.
+	MaxConnsPerNet = 64
+	// MaxFailedJoins is how many table codes one network may get wrong per
+	// failedJoinWindow before it is refused for the rest of it.
+	//
+	// A wrong code used to cost nothing at all. The space is 32^6, but a sweep is
+	// not looking for one table, it is looking for any of them, so the odds scale
+	// with how many are open and a busy server was walkable. A player who
+	// mistypes theirs is nowhere near this.
+	MaxFailedJoins = 20
+)
+
+// failedJoinWindow is the span MaxFailedJoins is counted over.
+var failedJoinWindow = time.Minute
+
+// maxJoinBudgets is when the budget map is swept of expired entries. One entry
+// per network that has ever missed, so it is bounded by the sweep, not by the
+// number of networks.
+const maxJoinBudgets = 4096
 
 // writeBufferPool is shared by every connection. gorilla otherwise allocates a
 // per-connection write buffer that lives as long as the socket; at a ten-seat
@@ -250,10 +291,24 @@ type Hub struct {
 	drained       chan struct{}
 	drainedClosed bool
 
+	// connMu guards connsPerNet. It is the one piece of hub state written from
+	// outside the event loop: ServeWS runs in an HTTP goroutine and has to decide
+	// before a Client exists, which is the whole point of refusing there.
+	connMu      sync.Mutex
+	connsPerNet map[string]int
+	connTotal   int
+
+	// joinBudgets[netPrefix] is how many table codes that network has got wrong
+	// recently. Event-loop only, like every other map here.
+	joinBudgets map[string]*joinBudget
+
 	// afterRegisterHook is called in the register case after the client is added
 	// to h.clients but before c.start(). Runs in the hub event-loop goroutine.
 	// Nil by default; set via export_test.go for deterministic race tests only.
 	afterRegisterHook func()
+	// dispatchProbe is fired at the top of dispatch. Test-only; see
+	// export_test.go.
+	dispatchProbe func()
 
 	// Atomic stats — safe to read from any goroutine (health/metrics endpoints).
 	statRooms                atomic.Int32
@@ -270,6 +325,9 @@ type Hub struct {
 	statMatchmakingQueue     atomic.Int32 // players currently waiting for a 1v1 opponent (operator-only)
 	statMatchesMatchmade     atomic.Int32 // matches created by pairing two queued players
 	statMatchesInFlight      atomic.Int32 // matches a shutdown would interrupt; only maintained while draining
+	statHandlerPanics        atomic.Int64 // handler panics the event loop recovered from; any value above 0 is a bug
+	statConnsRefused         atomic.Int64 // upgrades refused by the global or per-network connection ceiling
+	statJoinsThrottled       atomic.Int64 // join_room refused for burning through a network's wrong-code budget
 	startTime                time.Time
 }
 
@@ -315,6 +373,12 @@ type MetricsStats struct {
 	// every event for a number nobody is looking at.
 	Draining        bool  `json:"draining"`
 	MatchesInFlight int32 `json:"matches_in_flight"`
+	// The three abuse counters. HandlerPanics is the one to alert on: it is a
+	// bug by definition, recovered rather than fatal, and nothing else surfaces
+	// it. The other two are load signals, not incidents, until they climb.
+	HandlerPanics  int64 `json:"handler_panics"`
+	ConnsRefused   int64 `json:"conns_refused"`
+	JoinsThrottled int64 `json:"joins_throttled"`
 }
 
 // New creates and returns a Hub.
@@ -332,6 +396,8 @@ func New() *Hub {
 		afkTimeouts:    make(map[string]map[int]int),
 		matchmade:      make(map[string]time.Time),
 		rematchOffers:  make(map[string]map[int]struct{}),
+		connsPerNet:    make(map[string]int),
+		joinBudgets:    make(map[string]*joinBudget),
 		register:       make(chan *Client, 16),
 		unregister:     make(chan *Client, 16),
 		inbound:        make(chan inboundMsg, 256),
@@ -400,16 +466,22 @@ func (h *Hub) issueToken(code string, playerID int) string {
 }
 
 // validateToken checks the provided token against the stored one for the slot.
+//
+// subtle.ConstantTimeCompare, not ==: a network timing attack on 128 bits of
+// hex is not a realistic threat, but this is the only identity check the game
+// has, the replacement is one line, and the equality operator returning early on
+// the first differing byte is the kind of thing that is only ever noticed after
+// it matters.
 func (h *Hub) validateToken(code string, playerID int, token string) bool {
 	slots, ok := h.sessionTokens[code]
 	if !ok {
 		return false
 	}
 	stored, ok := slots[playerID]
-	if !ok {
+	if !ok || stored == "" || token == "" {
 		return false
 	}
-	return stored == token && token != ""
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(token)) == 1
 }
 
 // GetStats returns a snapshot of hub metrics safe to call from any goroutine.
@@ -444,6 +516,9 @@ func (h *Hub) GetMetrics() MetricsStats {
 		DebugModeActive:      os.Getenv("LOCO_E2E") == "1",
 		Draining:             h.draining.Load(),
 		MatchesInFlight:      h.statMatchesInFlight.Load(),
+		HandlerPanics:        h.statHandlerPanics.Load(),
+		ConnsRefused:         h.statConnsRefused.Load(),
+		JoinsThrottled:       h.statJoinsThrottled.Load(),
 	}
 }
 
@@ -480,6 +555,7 @@ func (h *Hub) Run() {
 			if _, ok := h.clients[c]; ok {
 				delete(h.clients, c)
 				h.statClients.Add(-1)
+				h.releaseConn(c.netKey)
 				c.close()
 				h.handleDisconnect(c)
 			}
@@ -540,14 +616,60 @@ func (h *Hub) Run() {
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	addr := truncateAddr(r.RemoteAddr)
 	log.Printf("ws request addr=%s origin=%q method=%s", addr, r.Header.Get("Origin"), r.Method)
+
+	// Admission is decided here, before the upgrade, on purpose: a connection
+	// this server is not going to serve should not cost it a hijacked socket, a
+	// 256-slot send buffer and two goroutines first. 429 rather than a close, so
+	// a client (and an operator reading nginx's log) can tell a refusal from a
+	// network failure.
+	if !h.admitConn(addr) {
+		h.statConnsRefused.Add(1)
+		http.Error(w, "too many connections", http.StatusTooManyRequests)
+		log.Printf("WARN ws admission refused addr=%s", addr)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		h.releaseConn(addr)
 		log.Printf("ws upgrade FAILED addr=%s origin=%q err=%v", addr, r.Header.Get("Origin"), err)
 		return
 	}
 	log.Printf("ws upgrade OK addr=%s", addr)
 	c := newClient(h, conn)
+	c.netKey = addr
 	h.register <- c
+}
+
+// admitConn takes one slot against the global and per-network ceilings, and
+// reports whether there was one. releaseConn gives it back.
+//
+// The counter is its own, not statClients: that one is maintained by the event
+// loop and would let an unbounded number of sockets arrive in the window
+// between the upgrade and the register, which is exactly the window a flood
+// lives in.
+func (h *Hub) admitConn(netKey string) bool {
+	h.connMu.Lock()
+	defer h.connMu.Unlock()
+	if h.connTotal >= MaxClients || h.connsPerNet[netKey] >= MaxConnsPerNet {
+		return false
+	}
+	h.connsPerNet[netKey]++
+	h.connTotal++
+	return true
+}
+
+func (h *Hub) releaseConn(netKey string) {
+	h.connMu.Lock()
+	defer h.connMu.Unlock()
+	if h.connsPerNet[netKey] <= 1 {
+		delete(h.connsPerNet, netKey)
+	} else {
+		h.connsPerNet[netKey]--
+	}
+	if h.connTotal > 0 {
+		h.connTotal--
+	}
 }
 
 // dispatch routes a client message to the appropriate handler.
@@ -562,6 +684,50 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 // All identity fields (playerID, roomCode) are server-assigned at registration
 // and never sourced from msg, so a replayed envelope cannot impersonate.
 func (h *Hub) dispatch(c *Client, msg protocol.ClientMsg) {
+	// One message must never be able to cost the server.
+	//
+	// Every inbound message is handled on the single event-loop goroutine, so a
+	// panic anywhere below this line was the whole process: every match on it
+	// ended mid-turn, no drain, no snapshot, and the players were told "room not
+	// found" when they came back. Two frames did it (create_room then draw_card:
+	// room.State is nil in a lobby and handleDrawCard read it before checking the
+	// status), and the next such bug would have cost exactly the same.
+	//
+	// So the blast radius of a handler bug is one message and one WARN. This is
+	// not a licence to skip the guard below or the bounds checks in
+	// playerGameStateUsing: it is the floor under them.
+	defer func() {
+		if r := recover(); r != nil {
+			h.statHandlerPanics.Add(1)
+			log.Printf("WARN handler panic recovered type=%s conn=%s code=%s player=%d panic=%v\n%s",
+				msg.Type, c.connID, c.roomCode, c.playerID, r, debug.Stack())
+			c.sendError("server error")
+		}
+	}()
+	if h.dispatchProbe != nil {
+		h.dispatchProbe()
+	}
+
+	// A gameplay message only means something at a table that has dealt.
+	//
+	// room.State is nil in a lobby (game.NewRoom) and again after a rematch
+	// (Room.ResetForRematch). Most handlers delegate straight to a domain call
+	// that checks Status first, but handleDrawCard and handleCatchUno both read
+	// State to size a hand *before* refusing, which is a nil dereference an
+	// unauthenticated stranger could reach in two messages. Gating the whole
+	// class here rather than patching those two is deliberate: the next handler
+	// to read State before validating is covered without anybody remembering.
+	if isGameplayMsg(msg.Type) {
+		room, ok := h.roomOf(c)
+		if !ok {
+			return // roomOf has already said which of the two it was
+		}
+		if room.Status != game.StatusPlaying || room.State == nil {
+			c.sendError("game not in progress")
+			return
+		}
+	}
+
 	// The table is shut while the room downloads its map. Refusing gameplay here
 	// rather than trusting the client's own loading screen is the whole point of
 	// the gate: a client that skipped it would otherwise be the only one able to
@@ -643,6 +809,60 @@ func validateNickname(c *Client, raw string) string {
 	return n
 }
 
+// joinBudget is one network's recent tally of table codes that led nowhere.
+type joinBudget struct {
+	count       int
+	windowStart time.Time
+}
+
+// joinThrottled reports whether this connection's network has spent its
+// wrong-code budget for the current window.
+//
+// Keyed by network prefix rather than by socket, because a socket is free: a
+// sweeper reconnects between attempts and a per-connection counter would only
+// have measured its patience. The prefix is the same truncated one the logs
+// carry (truncateAddr), so nothing here holds an address the rest of the server
+// has already decided not to keep.
+func (h *Hub) joinThrottled(c *Client) bool {
+	b, ok := h.joinBudgets[c.netKey]
+	if !ok {
+		return false
+	}
+	if time.Since(b.windowStart) > failedJoinWindow {
+		delete(h.joinBudgets, c.netKey)
+		return false
+	}
+	return b.count >= MaxFailedJoins
+}
+
+// noteFailedJoin charges one wrong code against this connection's network.
+func (h *Hub) noteFailedJoin(c *Client) {
+	now := time.Now()
+	b, ok := h.joinBudgets[c.netKey]
+	if !ok || now.Sub(b.windowStart) > failedJoinWindow {
+		if len(h.joinBudgets) >= maxJoinBudgets {
+			h.sweepJoinBudgets(now)
+		}
+		h.joinBudgets[c.netKey] = &joinBudget{count: 1, windowStart: now}
+		return
+	}
+	b.count++
+	if b.count == MaxFailedJoins {
+		log.Printf("WARN table code sweep suspected conn=%s addr=%s attempts=%d",
+			c.connID, c.netKey, b.count)
+	}
+}
+
+// sweepJoinBudgets drops the windows that have expired. Called only when the
+// map has grown past maxJoinBudgets, so the ordinary path stays a single lookup.
+func (h *Hub) sweepJoinBudgets(now time.Time) {
+	for key, b := range h.joinBudgets {
+		if now.Sub(b.windowStart) > failedJoinWindow {
+			delete(h.joinBudgets, key)
+		}
+	}
+}
+
 // alreadySeated reports whether this socket already holds a seat, and is the
 // guard on both room-entry handlers.
 //
@@ -685,6 +905,14 @@ func (h *Hub) handleCreateRoom(c *Client, msg protocol.ClientMsg) {
 	if nickname == "" {
 		return
 	}
+	// The ceiling is here rather than at the socket because this is the message
+	// that allocates: a table plus its members, tokens, timers and cleanup
+	// outlive the connection that asked for one by EmptyRoomTimeout.
+	if len(h.rooms) >= MaxRooms {
+		log.Printf("WARN room cap reached rooms=%d conn=%s", len(h.rooms), c.connID)
+		c.sendError("the server is full, try again in a moment")
+		return
+	}
 	msg.Nickname = nickname
 	code := h.generateCode()
 	room := game.NewRoom(code)
@@ -724,7 +952,16 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 	}
 	msg.Nickname = nickname
 	if !validRoomCode(msg.RoomCode) {
+		h.noteFailedJoin(c)
 		c.sendError("invalid room code")
+		return
+	}
+	// A sweep is refused before the lookup, so a throttled network learns nothing
+	// from the answer either. See noteFailedJoin: a player who mistypes their
+	// code once is nowhere near this.
+	if h.joinThrottled(c) {
+		h.statJoinsThrottled.Add(1)
+		c.sendError("too many attempts, wait a moment")
 		return
 	}
 	code := strings.ToUpper(msg.RoomCode)
@@ -737,21 +974,27 @@ func (h *Hub) handleJoinRoom(c *Client, msg protocol.ClientMsg) {
 		if h.refuseWhileDraining(c) {
 			return
 		}
+		h.noteFailedJoin(c)
 		c.sendError("room not found")
 		return
 	}
 
 	// If the game is already in progress, check for a disconnected slot with this nickname.
+	//
+	// The two refusals below are deliberately the same string. They used to
+	// differ, and the difference was a roster oracle: "invalid session token"
+	// came back only when the nickname matched a seat that was actually held at
+	// that table, so anyone with a code could test names against it. A stranger
+	// and a returning player whose token has gone stale now get the same answer,
+	// and the returning player's client already owns that case (the restore
+	// timeout in useSessionRestore), so nothing legitimate reads the difference.
 	if room.Status == game.StatusPlaying {
-		if playerID, found := h.findDisconnectedSlot(code, msg.Nickname); found {
-			// Validate session token to prevent slot hijacking.
-			if !h.validateToken(code, playerID, msg.SessionToken) {
-				c.sendError("invalid session token for reconnect")
-				return
-			}
+		if playerID, found := h.findDisconnectedSlot(code, msg.Nickname); found &&
+			h.validateToken(code, playerID, msg.SessionToken) {
 			h.handleReconnect(c, room, code, playerID, msg.Nickname)
 			return
 		}
+		h.noteFailedJoin(c)
 		c.sendError("game already in progress")
 		return
 	}
@@ -1918,13 +2161,24 @@ func (h *Hub) handleReconnect(c *Client, room *game.Room, code string, playerID 
 
 	log.Printf("player reconnected code=%s nickname=%s playerID=%d", code, nickname, playerID)
 
+	// The token that opened this seat is spent here and replaced.
+	//
+	// It has been on a socket that died, it is in sessionStorage, and if the
+	// process restarted on the way it has also been written to a snapshot on
+	// disk. A one-shot proof is worth far more than a permanent one, and the
+	// client already stores whatever the server hands it, so rotating costs
+	// nothing: the returning player keeps their seat, and a copy of the old
+	// token is now worth nothing to anybody who obtained one.
+	tok := h.issueToken(code, playerID)
+
 	// Send full game state to the reconnecting player.
 	c.Send(protocol.ServerMsg{
-		Type:     protocol.SMsgPlayerReconnected,
-		RoomCode: code,
-		PlayerID: intPtr(playerID),
-		State:    h.playerGameState(room, playerID),
-		Players:  h.playerList(room),
+		Type:         protocol.SMsgPlayerReconnected,
+		RoomCode:     code,
+		PlayerID:     intPtr(playerID),
+		State:        h.playerGameState(room, playerID),
+		Players:      h.playerList(room),
+		SessionToken: tok,
 	})
 
 	// Notify others of the reconnect.

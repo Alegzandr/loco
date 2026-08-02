@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import type { FormEvent } from 'react'
+// React 19's types deprecate the FormEvent alias (the DOM event a submit fires
+// is a SubmitEvent); SyntheticEvent is the base these handlers actually need.
+import type { SyntheticEvent } from 'react'
 import { ClientMsg } from '../types/protocol'
 import { useI18n } from '../i18n'
 import { resolveServerError } from '../i18n/serverErrors'
@@ -23,8 +25,13 @@ interface Props {
   onFindMatch: (nickname: string) => void
   error: string
   onClearError: () => void
-  /** Starting sub-screen. Only set by the visual showcase; the app always starts at 'home'. */
+  /** Starting sub-screen. Set by the visual showcase, and by a table link,
+   *  which opens straight on the join form. */
   initialMode?: LobbyMode
+  /** The table code a shared link arrived with. A prefill for the field, not a
+   *  submission: the form still refuses to send without a nickname, and the
+   *  server still owns the verdict on the code. */
+  initialCode?: string
   /** Showcase only: mounts with the preferences panel open. */
   initialPrefsOpen?: boolean
 }
@@ -35,13 +42,16 @@ export function Lobby({
   error,
   onClearError,
   initialMode = 'home',
+  initialCode = '',
   initialPrefsOpen = false,
 }: Props) {
   const { t } = useI18n()
   // Read once, at mount: the field is the player's from then on, and re-reading
   // storage would fight whatever they are typing.
   const [nickname, setNickname] = useState(readNickname)
-  const [roomCode, setRoomCode] = useState('')
+  // Read once, like the nickname: from here on the field belongs to the player,
+  // and a link that has been spent must not put its code back.
+  const [roomCode, setRoomCode] = useState(() => sanitizeTableCode(initialCode))
   const [mode, setMode] = useState<LobbyMode>(initialMode)
   const [showRules, setShowRules] = useState(false)
   // The shape rules the client can check itself, answered as the player types
@@ -73,21 +83,21 @@ export function Lobby({
     setMode('home')
   }
 
-  const handleFind = (e: FormEvent) => {
+  const handleFind = (e: SyntheticEvent) => {
     e.preventDefault()
     const value = acceptNickname()
     if (!value) return
     onFindMatch(value)
   }
 
-  const handleCreate = (e: FormEvent) => {
+  const handleCreate = (e: SyntheticEvent) => {
     e.preventDefault()
     const value = acceptNickname()
     if (!value) return
     onSend({ type: 'create_room', nickname: value })
   }
 
-  const handleJoin = (e: FormEvent) => {
+  const handleJoin = (e: SyntheticEvent) => {
     e.preventDefault()
     const value = acceptNickname()
     if (!value || !isTableCodeValid(roomCode)) return
@@ -197,7 +207,7 @@ export function Lobby({
             value={roomCode}
             onChange={(e) => { setRoomCode(sanitizeTableCode(e.target.value)); onClearError() }}
             maxLength={TABLE_CODE_LENGTH}
-            autoFocus={!!nickname}
+            autoFocus={!!nickname && !roomCode}
             inputMode="text"
             autoCapitalize="characters"
             autoCorrect="off"

@@ -64,6 +64,16 @@ describe('resolveServerError', () => {
       // A deploy in progress. Every action that would start a new match answers
       // with this while the server drains; see server/hub/drain.go.
       'server updating, try again in a moment',
+      // The admission ceilings, the wrong-code throttle and the answer a
+      // recovered handler panic sends. All four are refusals the player did not
+      // earn, and none of them may reach the screen as the wire string it is.
+      // See the caps in server/hub/hub.go.
+      'the server is full, try again in a moment',
+      'too many attempts, wait a moment',
+      'server error',
+      // Sent by dispatch for any gameplay message at a table that has not dealt.
+      // It used to fall through to the generic copy.
+      'game not in progress',
       // Client-authored, but it lands in the same errorMsg slot and is rendered
       // through the same table, so it belongs to the same guarantee.
       'reconnect failed',
@@ -116,6 +126,12 @@ describe('resolveServerError', () => {
     // socket that holds none. Neither may resolve to the other's copy.
     expect(resolveServerError('already in a room', en.errors)).toBe(en.errors.alreadyInRoom)
     expect(resolveServerError('not in a room', en.errors)).toBe(en.errors.notInRoom)
+    // Same shape, one word apart: a table that has already dealt versus one that
+    // has not dealt at all. The first is a refusal to join, the second a refusal
+    // to play, and swapping them would tell a player the opposite of what
+    // happened.
+    expect(resolveServerError('game already in progress', en.errors)).toBe(en.errors.gameInProgress)
+    expect(resolveServerError('game not in progress', en.errors)).toBe(en.errors.gameNotInProgress)
   })
 
   it('falls back to a localised generic for anything unrecognised', () => {

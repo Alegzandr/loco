@@ -3,7 +3,7 @@ import styles from './UnoTimer.module.css'
 
 interface Props {
   /** Drained by useDrainBar in <GameView />: this component never re-renders for it. */
-  fillRef: RefObject<HTMLDivElement>
+  fillRef: RefObject<HTMLDivElement | null>
   label: string
 }
 

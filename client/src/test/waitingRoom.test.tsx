@@ -59,6 +59,36 @@ function renderSeat(myIndex: number, onLeave = vi.fn()) {
   return { onLeave }
 }
 
+// The press on the code is the share: what leaves the screen is a link nobody
+// has to retype, in the language it was shared from. The code stays on screen
+// for the stream and for whoever is already at a lobby.
+describe('WaitingRoom sharing', () => {
+  it('copies the link to this table, not the six characters', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+
+    render(
+      <I18nProvider>
+        <WaitingRoom
+          roomCode="ABC234"
+          players={[player(0, 'Alice')]}
+          myIndex={0}
+          matchFormat="BO1"
+          maxPlayers={4}
+          onSend={vi.fn()}
+          onLeave={vi.fn()}
+        />
+      </I18nProvider>
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /ABC234/ }))
+
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/?t=ABC234`)
+    // And the code is still readable on the screen it was shared from.
+    expect(screen.getByText('ABC234')).toBeInTheDocument()
+  })
+})
+
 describe('WaitingRoom max players', () => {
   it('never offers a cap below the two players a match needs', () => {
     const { input } = renderWaiting([player(0, 'Alice')])

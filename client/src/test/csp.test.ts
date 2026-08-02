@@ -184,6 +184,19 @@ describe('the app stays inside the policy', () => {
     expect(offenders.map(f => path.relative(CLIENT, f))).toEqual([])
   })
 
+  it('keeps Zod off the eval path', async () => {
+    // The check above reads our sources; a dependency is free to call
+    // `Function()` on its own, and Zod 4 does, to compile a validator the first
+    // time a schema runs. Under `script-src 'self'` the call is refused, Zod
+    // catches it and interprets instead, so nothing breaks — it just reports a
+    // violation on every page load, which is indistinguishable from a real one.
+    // Importing the schema module is what applies the setting, so the assertion
+    // and the fix are the same statement.
+    const { z } = await import('zod')
+    await import('../types/protocolSchemas')
+    expect(z.config().jitless).toBe(true)
+  })
+
   it('loads nothing off a remote origin', () => {
     // A CDN font, an analytics snippet or a remote image would be blocked by
     // default-src 'self'. Self-hosting is not a preference here, it is what

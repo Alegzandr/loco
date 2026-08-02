@@ -16,6 +16,26 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // eslint-plugin-react-hooks 7 ships the React Compiler's static analysis in
+      // `recommended`. Most of it is kept: static-components, use-memo,
+      // preserve-manual-memoization, globals, error-boundaries and
+      // set-state-in-render all pass here and all describe real bugs.
+      //
+      // These four do not, because what they flag is this game's timing model.
+      // `purity` fires on the `Date.now()` a countdown is measured from and on
+      // Confetti's per-particle `Math.random()`; `refs` on the stable send ref
+      // App keeps for the E2E dispatcher and on the ref a hook writes its own
+      // baseline into; `set-state-in-effect` on every hook that publishes an
+      // external clock (useCountdown, useHeldKey, useTabAlert) into React;
+      // `immutability` on useWebSocket's `connect`, which schedules itself for
+      // the reconnect backoff. Rewriting those to satisfy the analysis would put
+      // the continuous values back into React state, which is the one thing
+      // CLAUDE.md forbids on this board. Off rather than warned, so the rules
+      // above stay a signal.
+      'react-hooks/purity': 'off',
+      'react-hooks/refs': 'off',
+      'react-hooks/set-state-in-effect': 'off',
+      'react-hooks/immutability': 'off',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-unused-vars': ['error', { varsIgnorePattern: '^_', argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-explicit-any': 'warn',

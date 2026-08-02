@@ -78,11 +78,12 @@ export const fr: Translations = {
   roomCode: 'Code de la table',
   // La page dit déjà « La table » et « Code de la table » : une troisième
   // occurrence dans la même colonne se lit comme un gabarit mal rempli.
-  shareCode: 'Envoie ce code. Ils sont à un clic.',
+  shareCode: 'Touche le code pour copier un lien direct vers cette table.',
   leaveConfirm: 'Tu quittes la table\u00a0?',
   leaveConfirmYes: 'Oui, je pars',
   leaveConfirmStay: 'Rester',
-  copyCode: 'Copié\u00a0!',
+  copyLink: 'Copier le lien vers cette table',
+  copyCode: 'Lien copié\u00a0!',
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: 'Son',
   audioMaster: 'Général',
@@ -388,5 +389,9 @@ export const fr: Translations = {
     serverBusy: 'Le serveur est bondé. Réessaie.',
     serverUpdating: 'Nouvelle version en route. Les tables rouvrent dans une minute.',
     reconnectFailed: 'Ta place est perdue. Le match est peut-être terminé.',
+    serverFull: 'Toutes les tables sont prises. Réessaie dans une minute.',
+    tooManyAttempts: 'Trop d\'essais. Attends un instant.',
+    serverError: 'Ça a cassé de notre côté. Retente le coup.',
+    gameNotInProgress: 'Aucune carte n\'est en jeu à cette table.',
   },
 }

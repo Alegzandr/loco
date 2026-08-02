@@ -123,7 +123,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     })
 
     // Cancel to avoid sending a partial message.
-    await page.getByRole('button', { name: '✕' }).click()
+    await page.getByRole('button', { name: T.pickerCancel }).click()
     await expect(page.getByText(T.choosePlayer)).not.toBeVisible()
   })
 

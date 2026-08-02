@@ -37,6 +37,38 @@ preamble never lands, and every transformed `.tsx` throws "can't detect preamble
 injected as a plain page script from `astro.config.mjs` instead, dev-only, so it is bundled rather
 than inlined and the production HTML keeps exactly one external script and nothing inline.
 
+## The toolchain, and the one place it is deliberately not the newest
+
+React 19, Astro 7, Zustand 5, Zod 4, ESLint 10, Vitest 4. Two of those cost something worth writing
+down.
+
+**React 19 removed the global `JSX` namespace and deprecated `forwardRef` and the bare event
+aliases.** `CardArt.tsx` imports `JSX` from `react` instead of reaching for a global; `Card` and
+`CardBack` are plain functions taking `ref` as an ordinary prop, which is one fewer wrapper object
+between framer-motion and the node it animates; `Lobby`'s submit handlers take `SyntheticEvent`,
+since React's `FormEvent` is now marked as a type that "doesn't actually exist" — the DOM event a
+submit fires is a `SubmitEvent`. `useRef<T>(null)` also yields `RefObject<T | null>` now, so a prop
+that receives one has to say so (`UnoTimer.fillRef`, `GameBoard.flightRef`).
+
+**Zod 4 compiles validators with `Function()`, and the CSP refuses that.** The first time a schema
+runs, Zod 4 JIT-compiles it. `script-src 'self'` blocks the call, Zod catches the throw and
+interprets the schema instead, so the game works perfectly — and reports a `securitypolicyviolation`
+on every page load, which is indistinguishable from a real one and would bury the next real one.
+`protocolSchemas.ts` sets `z.config({ jitless: true })` at import, making the fallback the plan
+rather than the recovery; these schemas validate a few hundred bytes a message, so the compiled path
+was never worth anything here. Worth knowing how it was found: `csp.test.ts` scans *our* sources for
+`eval(`/`new Function(` and a dependency is under no obligation to be in them, so only `make csp` —
+the built client, behind the real nginx, in a real browser — could see it. It now has a unit test
+beside it, and this is the standing argument for running that target after a dependency bump and not
+only after an `nginx.conf` edit.
+
+**TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `npm run build` is
+`astro check && astro build`, and `astro check` drives `@astrojs/language-server`, which needs
+TypeScript's programmatic API. The 7.0 native compiler does not ship one yet and the check refuses
+to start with a message naming that directly. Raising it turns the client's only type gate into an
+immediate failure, so the pin moves when the language server says it can. The E2E package is held to
+the same major for one decision rather than two.
+
 ## The realtime path (tap → wire → table)
 Every hop between a player's finger and the other clients' boards is on the critical path of a
 mechanic that is decided by arrival order. Treat a delay added here as a rules change, not as
@@ -217,6 +249,46 @@ minus `I`, `O`, `0` and `1`.
   comes back as `room not found` — the code being *shaped* like a table is not the code being one.
   The nickname is unaffected: it keeps its own instant refusal, and a valid code does not make an
   unacceptable name sendable.
+
+## The link a table is shared with
+`hooks/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
+carrying the code (`tableInviteUrl`), not the six characters. On the other end, `initTableInvite`
+reads that code off the URL before the first render and `App` acts on it.
+
+- **Why a link at all.** A code costs the receiver three steps: read it, retype it without a slip,
+  and find the screen to type it into. A link costs one tap, and the seat is the only thing on the
+  other side of it. The code stays on screen, unchanged: it is what a stream reads out loud and what
+  somebody already sitting at the join form types.
+- **It is `?t=CODE` on the home page, never `/t/CODE`.** Every URL here is a page the build emitted,
+  and `client/nginx.conf` deliberately answers a miss with a real 404 rather than the app, so there
+  is no catch-all a path form could route through — and a static build cannot emit one page per
+  table. The query form costs two characters, works identically under `astro dev`, the preview server
+  and nginx, and needs nothing added to the server config.
+- **The link carries no language.** It is always `/?t=…`, whichever language it was copied from. A
+  link gets forwarded, and the person who copied it does not know who ends up pressing it, so
+  shipping `/fr/` would decide the reader's language from the other side of the table. That choice
+  belongs to whoever opens it and the i18n provider already makes it (a stored choice, then the
+  browser). An incoming `/fr/?t=…` still works — `initTableInvite` reads the parameter on any page —
+  it is simply not what the button hands out.
+- **The code is spent on arrival.** `initTableInvite` takes the parameter back out of the address bar
+  with `replaceState` before anything else looks at it. Three reasons, and any one of them is enough:
+  a reload must not re-join a table the player has since left (a reload's job is the seat reclaim
+  below), a code sitting in the address bar is a code on stream in the one place `TableCode`'s blur
+  cannot reach, and a URL copied later would keep pointing at a table that has closed. The parameter
+  is dropped by string surgery rather than by `searchParams.delete` + `url.search`: re-encoding the
+  query rewrites the parameters it was not asked about, and `?showcase` comes back as `?showcase=`.
+- **A link outranks a stale reclaim, unless they name the same table.** A record naming another room
+  is cleared, because following a link is a fresh intent and the tab would otherwise be sent back
+  where it was last. A record naming *this* room is left alone: that is a seat to reclaim, which is
+  strictly better than a seat to take.
+- **A link carries a table, never a player.** So `App` sends `join_room` on its own only when this
+  browser already remembers a name (`nicknameMemory`), and otherwise hands the lobby the join form
+  with the code filled and the caret on the name. A remembered name the client can already tell is
+  refusable counts as no name at all — better the field than a round trip whose only outcome is an
+  error over a form nobody filled in. The invite is spent whether or not it ends in a join, so
+  leaving that table lands on an ordinary lobby and not back at its door.
+- **The lobby is keyed on its entry point alone.** Spending the invite must not change `<Lobby />`'s
+  key: a remount would take the prefilled code back out from under the player mid-typing.
 
 ## The host's control over a row
 `WaitingRoom.tsx` puts one icon button on every roster row but the host's own, sending

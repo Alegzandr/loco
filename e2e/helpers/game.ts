@@ -43,6 +43,9 @@ export const T = {
   nicknameRejected: 'Pick another nickname.',
   kickPlayer: 'Remove from the table',
   kicked: 'The host freed your seat.',
+  // The ✕ on both pickers carries an accessible name, so the glyph is not what
+  // a locator matches on. Asking for '✕' finds nothing and times out.
+  pickerCancel: 'Put it back',
 } as const
 
 interface DebugHandOverride {
@@ -340,6 +343,20 @@ export async function askRematch(page: Page): Promise<void> {
  */
 export async function clickRematch(page: Page): Promise<void> {
   await page.getByRole('button', { name: T.rematch }).click()
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+    undefined,
+    { timeout: 10_000 },
+  )
+}
+
+/**
+ * Answers an ask somebody else made. The button is the same one, but its label
+ * is not: once the table is waiting on this seat it reads `rematchAccept`, so
+ * `clickRematch` would sit on a locator that matches nothing.
+ */
+export async function acceptRematch(page: Page): Promise<void> {
+  await page.getByRole('button', { name: T.rematchAccept }).click()
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
     undefined,

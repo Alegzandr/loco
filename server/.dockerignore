@@ -1,0 +1,7 @@
+# The build compiles from source inside the image; nothing here belongs in the
+# context. `server-bin` is what CI's backend_test leaves behind at the repo root
+# on a local run, and a stale one has no business travelling into an image.
+server-bin
+server-bin.sha
+*.exe
+.gocache

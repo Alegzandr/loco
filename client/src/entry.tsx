@@ -6,6 +6,7 @@ import { MotionGate } from './components/MotionGate'
 import { initTheme } from './hooks/useTheme'
 import { initMotion } from './hooks/useMotionPref'
 import { initSessionRestore } from './hooks/useSessionRestore'
+import { initTableInvite } from './hooks/tableInvite'
 
 /**
  * The game, mounted into #root by a module script.
@@ -33,6 +34,12 @@ initTheme()
 // stylesheet. This also registers the listener that keeps `auto` following the
 // system while the tab is open.
 initMotion()
+
+// A table link carries its code in the URL, and it has to be read before the
+// line below decides whether this tab is reclaiming a seat: following a link is
+// a fresh intent and outranks a stored record naming another table. It also
+// takes the code straight back out of the address bar — see hooks/tableInvite.ts.
+initTableInvite()
 
 // A reloaded tab has to know it is reclaiming a seat *before* the socket opens:
 // the rejoin is sent from the very first onopen, and useWebSocket connects in an

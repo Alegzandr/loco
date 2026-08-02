@@ -170,6 +170,7 @@ function SceneScreen({ scene }: { scene: Scene }) {
           error={errorMsg}
           onClearError={noop}
           initialMode={scene.lobbyMode}
+          initialCode={scene.lobbyCode}
           initialPrefsOpen={scene.prefsOpen}
         />
       )

@@ -3,6 +3,7 @@
 ## Lobby & rooms
 - Auto-generated 6-character human-friendly room codes (collision-free registry; charset excludes `0/O/1/I/l`).
 - Join by room code; nickname-only entry (no accounts).
+- Join by link: the code in the waiting room is a button that copies `<origin>/?t=CODE`, with no language on it (the arriving player's browser decides that). Opening it fills the join form with the code and asks only for a name, or seats the player outright when the browser already remembers one. The parameter is removed from the address bar on arrival, so a reload reclaims the seat rather than re-joining and a copied URL never keeps naming a closed table.
 - Real-time lobby with live player list updates.
 - Host-only game start.
 - Leaving a table before the deal: host and guest alike get a quit button in the waiting room, behind an in-place confirmation (Stay / Yes, leave; Escape stays). Confirmed, the seat is released immediately (`leave_room`) and the rest of the table sees the roster update. Once the cards are out, an ordinary match has no way out.
@@ -50,7 +51,7 @@
 - Per-player personalized state (hidden hand info never leaks to other clients).
 - 60-second reconnect window during active games (15 s in a matchmade 1v1, where it expires into a forfeit).
 - Client auto-reconnect with linear backoff.
-- JSON `GET /health` endpoint (room count, client count, uptime).
+- JSON `GET /health` endpoint (room count, client count, uptime). Operator-only: nginx does not proxy it, and the container healthcheck reads it from inside.
 - `GET /metrics` endpoint: atomic counters for `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`, `uptime_sec`, `goroutine_count`, `messages_rate_limited`, `messages_dropped_busy`, `slow_clients_closed`, `channel_retries`, `suspected_cheats`, `reconnect_expirations`, `matchmaking_queue`, `matches_matchmade`, `debug_mode_active`. The two matchmaking counters are the only place the queue's size is readable at all.
 - Empty-room cleanup: rooms held 5 min after empty, then deleted; rejoin cancels the timer.
 - Structured server logging (room/match/connection lifecycle, channel-pressure warnings, suspected cheat).

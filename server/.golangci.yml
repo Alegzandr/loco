@@ -1,25 +1,45 @@
 # Minimal config: enable a useful default set without drowning the codebase
 # in style nits. Add linters here only when they catch a real bug we hit.
+#
+# Schema v2 (golangci-lint 2.x). Three things moved with it, and all three are
+# set below to keep this job reporting what it reported before:
+#   - `gosimple` no longer exists as a linter; its S1* checks are staticcheck's.
+#   - staticcheck also absorbed stylecheck (ST*) and quickfix (QF*), which is a
+#     style expansion this repo did not ask for — hence the explicit check list.
+#   - v1 applied its default exclusions unless told otherwise, v2 applies none
+#     unless asked: the presets below are that default, and dropping them turns
+#     every deferred `conn.Close()` into an errcheck failure.
+version: "2"
+
 run:
   timeout: 3m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
-    - errcheck      # unchecked errors
-    - govet         # suspicious constructs
-    - ineffassign   # ineffective assignments
-    - staticcheck   # broad set of correctness checks
-    - unused        # dead code
-    - gosimple      # simplifications
-    - misspell      # typos in comments/strings
-    - unconvert     # redundant type conversions
-    - bodyclose     # http response body left unclosed
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - bodyclose
+    - errcheck # unchecked errors
+    - govet # suspicious constructs
+    - ineffassign # ineffective assignments
+    - staticcheck # broad set of correctness checks (gosimple's are in here)
+    - unused # dead code
+    - misspell # typos in comments/strings
+    - unconvert # redundant type conversions
+    - bodyclose # http response body left unclosed
+  settings:
+    staticcheck:
+      # v1's staticcheck + gosimple, and nothing else.
+      checks:
+        - SA*
+        - S1*
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose

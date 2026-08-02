@@ -73,12 +73,12 @@ The Playwright suite, the GitLab pipeline and the Docker stacks.
 ## CI/CD
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.
 - `test` (every push):
-  - `backend_test` (`golang:1.24.7-alpine`): `cd server && go test ./...` + builds `server-bin`,
+  - `backend_test` (`golang:1.26.5-alpine`): `cd server && go test ./...` + builds `server-bin`,
     handed to `e2e_test` through the cache (see "This runner cannot upload artifacts").
-  - `frontend_test` (`node:22-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
+  - `frontend_test` (`node:24-alpine`): `cd client && npm ci && npm run lint && npm run test && npm run build`.
   - `e2e_test` (`mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy`): runs `server-bin` + Playwright,
     `parallel: 4` (see "Keeping the pipeline fast"); `needs: [backend_test]` for that binary alone.
-  - `backend_lint` (`golangci/golangci-lint:v1.64-alpine`): `cd server && golangci-lint run ./...`.
+  - `backend_lint` (`golangci/golangci-lint:v2.12-alpine`): `cd server && golangci-lint run ./...`.
 - `build` only on `develop` or `v*` tags, and **`needs` every test job**, lint and E2E included.
   Naming a subset is what actually gates a deploy: with `needs: [backend_test, frontend_test]` the
   build started the moment those two finished, so the lint and the entire Playwright suite were
@@ -208,15 +208,58 @@ Browser (HTTPS) → Traefik (:443 websecure)
     page is already being served.
 
 ## Linting
-- Client: ESLint v9 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
+- Client: ESLint v10 flat config (`eslint.config.js`). `npm run lint` / `lint:fix`.
 - Rules: `@typescript-eslint/recommended`, `react-hooks`, `react-refresh`. `no-unused-vars: error` — prefix `_` to silence.
 - CI: lint runs before tests.
-- Server: `golangci-lint` (`server/.golangci.yml`) — errcheck, govet, ineffassign, staticcheck, unused, gosimple, misspell, unconvert, bodyclose. CI job `backend_lint` uses `golangci/golangci-lint:v1.64-alpine`. Run locally via `make lint-server` (docker, no host Go required).
+- Server: `golangci-lint` (`server/.golangci.yml`) — errcheck, govet, ineffassign, staticcheck, unused, misspell, unconvert, bodyclose. CI job `backend_lint` uses `golangci/golangci-lint:v2.12-alpine`. Run locally via `make lint-server` (docker, no host Go required).
+
+### What the two major linter bumps changed, and what was pinned back
+Both tools widened what they report by default, and in both cases the widening was a style
+expansion rather than a correctness one. The configs say so explicitly rather than letting a
+future reader mistake the exclusions for neglect.
+
+- **`eslint-plugin-react-hooks` 7 ships the React Compiler's static analysis** in its `recommended`
+  set. Most of it is kept and passes: `static-components`, `use-memo`,
+  `preserve-manual-memoization`, `globals`, `error-boundaries`, `set-state-in-render`. Four are off
+  in `eslint.config.js`, because between them they flagged 27 sites that are this game's timing
+  model: `purity` on the `Date.now()` a countdown is measured from and on Confetti's per-particle
+  `Math.random()`; `refs` on the stable send ref `App` keeps for the E2E dispatcher; `set-state-in-effect`
+  on every hook publishing an external clock into React (`useCountdown`, `useHeldKey`,
+  `useTabAlert`); `immutability` on `useWebSocket`'s `connect`, which schedules itself for the
+  reconnect backoff. Satisfying them means moving continuous values back into React state, which is
+  the one thing `CLAUDE.md` forbids on this board. Off rather than warned, so the rest stays a signal.
+- **golangci-lint 2 folded `gosimple`, `stylecheck` and `quickfix` into `staticcheck`**, and stopped
+  applying v1's default exclusions unless asked. Straight off the `golangci-lint migrate` output the
+  job reported 14 new issues, none of them a bug: capitalised error strings, "could use a tagged
+  switch", and the deliberate zero-width characters in `nickname_test.go`'s fixtures — plus three
+  unchecked `conn.Close()` calls that v1's built-in `EXC0001` had always excluded. So
+  `server/.golangci.yml` names `SA*` and `S1*` under `linters.settings.staticcheck.checks` (v1's
+  staticcheck plus gosimple, and nothing else) and re-enables the four exclusion presets that
+  reproduce v1's defaults.
+
+## Image hardening and reproducibility
+- **`client/Dockerfile` copies `package-lock.json` and runs `npm ci`.** It used to copy
+  `package.json` alone and run `npm install`, so the whole transitive tree was re-resolved on every
+  build: two builds of the same commit were not the same image, and a dependency compromised between
+  them would have shipped with nothing in the diff to show it. The lockfile is committed precisely so
+  that cannot happen; it just was not being copied in.
+- **`server/Dockerfile` runs as uid 10001.** The process binds a port above 1024, reads no system
+  path and writes one file (the shutdown snapshot under `/data`), so it needs nothing it is not
+  being given. `deploy/compose.yml` and `docker-compose.yml` add `no-new-privileges`,
+  `cap_drop: ALL`, a read-only root filesystem and a tmpfs `/tmp`.
+- **nginx gets `no-new-privileges` and nothing more.** The stock image starts as root to bind :80
+  before dropping to the `nginx` user, and writes its caches and pid under `/var`, so `cap_drop: ALL`
+  and `read_only` both stop it booting. Rewriting it rootless is a separate change with its own ways
+  of going wrong, and this container serves static files and proxies a socket: the server behind it
+  is where the state is.
+- **`${DATA_DIR}/snapshots` is chowned to 10001 and chmodded 0700 by the deploy job.** A bind mount
+  overrides whatever the image chowned, and a server that cannot write its snapshot loses exactly the
+  matches the snapshot exists to save. 0700 because that file holds session tokens and hands.
 
 ## Dev Docker Compose
 - `docker-compose.dev.yml` — hot-reload, no host Go/Node needed.
-- Backend: `golang:1.24.7-alpine`, bind `./server:/app`, `go run .`, `:8080`.
-- Frontend: `node:22-alpine` (Astro 7 declares `engines.node >= 22.12`), bind `./client:/app`,
+- Backend: `golang:1.26.5-alpine`, bind `./server:/app`, `go run .`, `:8080`.
+- Frontend: `node:24-alpine` (Astro 7 declares `engines.node >= 22.12`), bind `./client:/app`,
   `npm ci && npm run dev`, `:5173` (container 3000).
 - **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).

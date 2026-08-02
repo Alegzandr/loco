@@ -5,6 +5,7 @@ import { RulesButton } from './RulesButton'
 import { RulesModal } from './RulesModal'
 import { Preferences } from './Preferences'
 import { TableCode } from './TableCode'
+import { tableInviteUrl } from '../hooks/tableInvite'
 import { AudioSettings } from './AudioSettings'
 import { seatColor, seatInitial } from './playerColors'
 import styles from './WaitingRoom.module.css'
@@ -77,10 +78,19 @@ export function WaitingRoom({
     return () => window.removeEventListener('keydown', onKey)
   }, [confirmLeave])
 
+  // What the press copies is the link, not the six characters. A code has to be
+  // read, retyped without a slip and typed into a screen the other person has
+  // to find first; a link is a tap. The code itself stays on screen, because it
+  // is what gets read out loud on a stream and what somebody already sitting in
+  // the lobby types.
+  //
+  // The link carries no language. It gets forwarded, and the sender does not
+  // know who ends up pressing it; the language is whoever opens it to choose.
+  //
   // Clipboard is unavailable on insecure origins and in some embedded views;
   // failing silently is correct here — the code stays visible either way.
   const copyCode = () => {
-    navigator.clipboard?.writeText(roomCode).then(
+    navigator.clipboard?.writeText(tableInviteUrl(roomCode)).then(
       () => {
         setCopied(true)
         setTimeout(() => setCopied(false), 1600)
@@ -122,9 +132,15 @@ export function WaitingRoom({
       </div>
 
       <h2 className={styles.heading}>{t.waitingRoom}</h2>
-      {/* Tap-to-copy: this code gets read out loud and pasted into chat, so
-          copying it should never mean selecting six characters by hand. */}
-      <button className={styles.code} onClick={copyCode} aria-label={`${t.roomCode} ${roomCode}`}>
+      {/* Tap-to-copy, and what lands in the clipboard is the link. The code is
+          still what a stream reads out, so it stays the thing on screen; the
+          press is for the other way in, the one nobody has to type. */}
+      <button
+        className={styles.code}
+        onClick={copyCode}
+        title={t.copyLink}
+        aria-label={`${t.roomCode} ${roomCode}. ${t.copyLink}`}
+      >
         <span className={copied ? styles.copied : undefined}>{copied ? t.copyCode : t.roomCode}</span>
         <TableCode code={roomCode} className={styles.codeVal} />
       </button>

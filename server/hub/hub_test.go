@@ -294,9 +294,17 @@ func TestPlayerReconnect_WrongToken_Rejected(t *testing.T) {
 		SessionToken: "wrong-token",
 	})
 
+	// The refusal is deliberately the generic one. It used to name the token,
+	// which told anyone holding a table code which nicknames were seated at it;
+	// hardening_test.go's TestReclaimRefusalRevealsNothingAboutTheRoster is what
+	// pins the two answers together. What matters here is that the seat is not
+	// handed over.
 	msg := readMsgOfType(t, conn3, protocol.SMsgError)
-	if !strings.Contains(msg.Error, "invalid session token") {
-		t.Errorf("expected 'invalid session token' error, got %q", msg.Error)
+	if strings.Contains(msg.Error, "invalid session token") {
+		t.Errorf("the refusal names the seat again: %q", msg.Error)
+	}
+	if msg.Error == "" {
+		t.Error("expected a refusal")
 	}
 }
 

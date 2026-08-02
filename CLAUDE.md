@@ -112,7 +112,8 @@ moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declarat
 windows, simultaneous resolution, reconnect (60s, nickname + room_code) **and session restore across a
 page reload**, rematch (the ask **everybody** at the table has to make, one ask dealing nothing, a
 departure retiring an ask and completing what is left of the agreement, seat pruning, re-indexing),
-protocol validation/rejection, seat
+protocol validation/rejection, the table link (what the code's button copies, the code coming off the
+address bar, the arrival a remembered name seats and the one that is asked for a name first), seat
 layout at every table size and viewport, state-to-sound mapping, the host freeing a seat (the refusals,
 the re-based roster, the bot's row, and the line the removed player is left holding), score table, matchmaking (pairing,
 cancel, disconnect-out-of-queue, the host controls a matchmade room refuses, the requeue an
@@ -120,7 +121,10 @@ opponent's departure triggers, and every forfeit path: quit, disconnect and AFK)
 committed `og.png`, map draw + the loading gate and `tableImageRect` at every board size, batch play
 and batch interrupt (unit *and* E2E), a draw against exhausted piles, `Origin` checking, the legal
 disclosures and the truncation of every logged address, bots
-interjecting, and the graceful shutdown: what a drain refuses, what it leaves alone, and a full
+interjecting, the hardening in `server/hub/hardening_test.go` (a gameplay message at a table that
+has not dealt, a handler that panics on demand, every ceiling, the wrong-code budget **and** the
+mistyped code that must still get in, the reclaim refusal that names nothing, the reclaim that
+rotates its token), and the graceful shutdown: what a drain refuses, what it leaves alone, and a full
 restart where a match is snapshotted, reloaded by a fresh hub and reclaimed by both players with
 their original tokens. That last one has **no E2E counterpart on purpose**, because the Playwright
 suite cannot restart the server underneath itself; the integration tests in `server/hub/` are the
@@ -166,7 +170,7 @@ Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
   - `src/i18n/` i18n context, en/fr translations, `serverErrors.ts`
   - `src/hooks/` WebSocket + Zustand store + `useElementSize` + `useSafeAreaInsets` + `useTheme` +
     `useStreamerMode` + `useHeldKey` + `useDrainBar` + `useMapPreload` + `useCountdown` + `useReconnectAnimation` +
-    `sessionPersistence` + `useSessionRestore` + `nicknameMemory` + `useTabAlert`
+    `sessionPersistence` + `useSessionRestore` + `nicknameMemory` + `tableInvite` + `useTabAlert`
   - `src/types/` protocol types  ·  `src/test/` Vitest unit tests
 - `server/` authoritative game server
   - `game/` pure domain (room, deck, hand, rules, bot, maps, event log, `nickname.go` +
@@ -177,7 +181,8 @@ Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
     `privacy.go` (address truncation, the only thing allowed to read a remote address)
   - `protocol/` wire types
 - `e2e/` Playwright suite: `tests/` (game-flow, multi-client, mobile, penalties, round-progression,
-  reconnect, rematch, rules-coverage, special-cards, batch-play, score-table, matchmaking),
+  reconnect, rematch, rules-coverage, special-cards, batch-play, score-table, matchmaking,
+  invite-link),
   `helpers/game.ts`,
   `types.d.ts`, `playwright.config.ts`
 - `tools/` `lib/devserver.mjs` (shared dev-server boot), `visual/shoot.mjs`, `og/shoot.mjs`,
@@ -236,6 +241,31 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **Validate every message**; reject illegal or out-of-turn; hidden state stays server-side; ignore
   client timestamps for outcomes; crypto-random session tokens; per-client token bucket (10 msg/s,
   burst 20) with **one notice per burst**.
+- **One message must never be able to cost the server.** Every inbound message is handled on one
+  goroutine, so `hub.dispatch` opens with a `recover` (one `WARN` with the stack, one `server error`
+  to the sender, `handler_panics` on `/metrics`) **and** with a gate refusing every `isGameplayMsg`
+  at a table whose `Status` is not `StatusPlaying` or whose `State` is nil. Both come from one bug:
+  `handleDrawCard` and `handleCatchUno` sized a hand before checking the status, and `room.State` is
+  nil in a lobby, so `create_room` then `draw_card` segfaulted the whole process, every match on it,
+  the drain and the snapshot. The gate closes the class rather than those two handlers; the recover
+  bounds whatever it does not anticipate. **Neither excuses a missing bounds check** (see
+  `playerGameStateUsing`), and `handler_panics` above zero is a bug by definition.
+- **Nothing is unbounded.** `MaxClients` (5000) and `MaxConnsPerNet` (64, keyed by the same
+  truncated prefix the logs use) are refused in `ServeWS` **before the upgrade**, with a 429 and
+  against `admitConn`'s own counter, never `statClients`: the window between the upgrade and the
+  register is where a flood lives. `MaxRooms` (2000) is refused in `handleCreateRoom`, because that
+  is the message allocating something that outlives its socket by `EmptyRoomTimeout`. All are
+  exported vars, deliberately generous, and **reaching one in production is a signal to read the
+  logs, not a number to lower**.
+- **A wrong table code costs something.** `MaxFailedJoins` (20) per network per minute, refused
+  before the lookup so a throttled sweep learns nothing from the answer either. Keyed by network,
+  not by socket: a socket is free, and a per-connection counter would have measured a sweeper's
+  patience. A player who mistypes theirs once is nowhere near it, and a test says so.
+- **A refusal must not name the roster.** `join_room` at a table in progress answers `game already
+  in progress` whether the nickname is seated there or not: the old pair of strings let anyone with
+  a code test names against the table. Session tokens are compared with
+  `subtle.ConstantTimeCompare`, and **a reclaim spends its token and is issued a fresh one**, since
+  the old one has been on a dead socket, in `sessionStorage`, and possibly in a snapshot on disk.
 - **The upgrade checks `Origin`** (`hub.originAllowed`). Default: hostnames must match, ports need
   not. `LOCO_ALLOWED_ORIGINS` overrides with an exact allowlist. A missing `Origin` is allowed.
 - **A socket holds one seat for its lifetime.** `create_room` and `join_room` both refuse a client
@@ -330,8 +360,17 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `match_ready`, not at `game_started`. Per match, not per round.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
   marshal once. `Client.SendBytes` force-closes on a full send buffer.
-- `/metrics` is an operator surface: no compose file publishes the Go server except
-  `docker-compose.dev.yml`. `debug_mode_active` must be `false` in prod.
+- `/metrics` **and `/health`** are operator surfaces: no compose file publishes the Go server except
+  `docker-compose.dev.yml`, and **nginx proxies `/ws` and nothing else**. `/health` used to be
+  proxied and answers with the room count, the player count and `draining`, which sizes the server
+  for anyone thinking of loading it and announces the window where tables are refused. Docker's
+  healthcheck and the CI smoke test both read it from inside on `localhost:8080`.
+  `debug_mode_active` must be `false` in prod.
+- **The server container has no privilege to lose**: uid 10001, `no-new-privileges`, `cap_drop: ALL`,
+  read-only rootfs, tmpfs `/tmp`. `${DATA_DIR}/snapshots` is chowned to 10001 and chmodded 0700 by
+  `.gitlab-ci.yml` (a mount overrides the image's chown, and a container that cannot write its
+  snapshot loses the matches it exists to save). **Treat that directory as a secret**: it holds every
+  session token and every hand of every interrupted match.
 - Structured `key=value` logging, `conn=` on every connection-scoped line, never tokens or hands.
 
 ## Client
@@ -347,6 +386,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   The same rule is why `@astrojs/react`'s fast-refresh preamble is injected as a page script from
   `astro.config.mjs`: the integration only injects it on pages that hydrate an island, so without it
   dev throws "can't detect preamble" and nothing renders.
+- **A dependency can break the policy without appearing in our sources.** Zod 4 JIT-compiles each
+  schema with `Function()` on first use; `script-src 'self'` refuses it, Zod interprets instead, and
+  the only symptom is a `securitypolicyviolation` on every page load. `protocolSchemas.ts` sets
+  `z.config({ jitless: true })` and `csp.test.ts` pins it. `csp.test.ts` greps *our* files, so
+  **`make csp` belongs after a dependency bump too**, not only after an `nginx.conf` edit: it is the
+  only check that meets the real policy with the real bundle.
 - **Astro narrows Vite's `envPrefix` to `PUBLIC_`, so `astro.config.mjs` puts `VITE_` back.** Without
   it `import.meta.env.VITE_WS_PORT` survives the transform and reads `undefined` in the browser,
   nothing warns, and `useWebSocket` falls back to same-origin `/ws`: in dev that is the Vite server
@@ -430,6 +475,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   becomes a request whose only outcome is an error line under a form the player has not finished.
   It decides nothing: `join_room` is validated again server-side, and an unknown table still comes
   back as `room not found`.
+- **A table is shared as a link, and the code is the button that copies it** (`hooks/tableInvite.ts`,
+  pressed in `WaitingRoom`). It is `/?t=CODE`, never `/t/CODE`: every URL here is a page the build
+  emitted and `nginx.conf` answers a miss with a real 404 on purpose, so there is no catch-all a path
+  form could route through. **It carries no language**, whichever one it was copied from: a link is
+  forwarded, and the sender does not get to decide what the reader opens in. The code stays on screen
+  because that is what a stream reads out loud. **The invite is spent on arrival**: `initTableInvite`
+  takes it back out of the address bar before the first render, so a reload reclaims a seat instead of
+  re-joining, a code never sits in the address bar where `TableCode`'s blur cannot reach it, and a
+  copied URL stops naming a closed table. A link naming another table clears a stale reclaim record;
+  one naming the same table leaves it alone. **A link carries a table, never a player**: App joins on
+  its own only when `nicknameMemory` already has a usable name, and otherwise opens the join form with
+  the code filled and asks for the name, which is the one thing a link cannot carry.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`, written on submit and
   read once at mount). It is a prefill that authenticates nothing, which is exactly why it is not the
   `sessionStorage` `loco_session` record: an emptied field still refuses to send.
@@ -456,9 +513,16 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   still be one reconnect away. The exception is a matchmade table, where there is nothing to wait
   for: App requeues that player without being asked (`rematchRequeue.test.tsx`), and cancelling the
   search is how they leave. Requeuing sits beside the ask as an equal choice, matchmade only.
-- `initTheme()` and `initSessionRestore()` run in `entry.tsx` before the first render.
+- `initTheme()`, `initTableInvite()` and `initSessionRestore()` run in `entry.tsx` before the first
+  render, in that order: the invite decides whether the stored reclaim record still applies.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`, so a missing
   key is a TS error.
+- **React 19 idiom: `ref` is an ordinary prop.** No `forwardRef` (`Card`, `CardBack` are plain
+  functions), `JSX` is imported from `react` rather than assumed global, and a prop taking a
+  `useRef(null)` is typed `RefObject<T | null>`. **TypeScript stays on 6.x**: `npm run build` is
+  `astro check`, whose language server needs a programmatic API the 7.0 native compiler does not
+  ship yet, so raising it removes the client's only type gate. Move the pin when that lands, not
+  before. See `docs/notes/client.md`.
 
 ## Findability
 Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
@@ -668,7 +732,8 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
   `server-bin` travels by cache, keyed per branch with a `server-bin.sha` stamp.
 - `PLAYWRIGHT_VERSION` and `e2e/package.json` are one decision: the dependency is pinned exactly and
   asserted against the image before the suite runs. There is no `playwright install` step.
-- Run `make csp` after touching `nginx.conf`: no test can prove the page loads under the CSP.
+- Run `make csp` after touching `nginx.conf` **or bumping a dependency**: no test can prove the page
+  loads under the CSP, and a package can reach for `eval` without our sources ever naming it.
 
 ## Docker and the Makefile
 Service Dockerfiles, `docker-compose.yml`, `docker-compose.dev.yml`, `.env.example`, documented in

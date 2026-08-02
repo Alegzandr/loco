@@ -1,8 +1,8 @@
 # Common dev tasks. Targets are docker-first because Go is not assumed to be
 # installed on the host (Node is). Override IMAGE_* if you bump versions.
 
-GO_IMAGE        ?= golang:1.24.7-alpine
-GOLANGCI_IMAGE  ?= golangci/golangci-lint:v1.64-alpine
+GO_IMAGE        ?= golang:1.26.5-alpine
+GOLANGCI_IMAGE  ?= golangci/golangci-lint:v2.12-alpine
 SERVER_DIR      := $(CURDIR)/server
 CLIENT_DIR      := $(CURDIR)/client
 E2E_DIR         := $(CURDIR)/e2e

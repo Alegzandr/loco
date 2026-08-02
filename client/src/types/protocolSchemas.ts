@@ -7,6 +7,16 @@
 // between Go (server/protocol/messages.go) and TS the moment a test runs.
 import { z } from 'zod'
 
+// Zod 4 compiles a schema's validator with `Function()` the first time it runs
+// one. `client/nginx.conf` sends `script-src 'self'`, so that call is refused in
+// production: Zod catches the throw and falls back to the interpreted path, the
+// game keeps working, and every single page load fires a
+// `securitypolicyviolation` for an eval nobody asked for. Turning the JIT off
+// makes the fallback the plan instead of the recovery. The schemas here validate
+// a few hundred bytes per message, so the compiled path was never the point.
+// `make csp` is what found this and is the only thing that could have.
+z.config({ jitless: true })
+
 export const cardColorSchema = z.enum(['red', 'yellow', 'green', 'blue', 'wild'])
 export const cardKindSchema = z.enum([
   'number',

@@ -1,0 +1,12 @@
+# Without this, `COPY . .` drops the host's node_modules on top of the one the
+# image just installed. On Windows that is fatal rather than merely wasteful:
+# the .bin shims are generated for the host, so `npm run build` dies with
+# `node.exe: not found` inside a Linux container. CI never saw it because a
+# fresh checkout has no node_modules — `make csp` and any local `docker build`
+# did.
+node_modules
+dist
+.astro
+npm-debug.log*
+test-results
+playwright-report

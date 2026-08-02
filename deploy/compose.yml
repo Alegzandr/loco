@@ -8,6 +8,18 @@ services:
       - "8080"
     networks:
       - internal
+    # This process needs no privilege it is not being given here. It listens on
+    # a high port, reads no system path and writes one file. Dropping the rest
+    # is what keeps a bug in a message handler from being anything more than a
+    # bug in a message handler. The image already runs as uid 10001
+    # (server/Dockerfile); these are the parts a Dockerfile cannot set.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     # The single most important line in this file for anybody mid-match.
     # Docker's default is SIGTERM, wait 10s, SIGKILL, and the graceful
     # shutdown in server/main.go needs minutes, not ten seconds. Left at the
@@ -31,6 +43,14 @@ services:
   client:
     image: ${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}
     restart: unless-stopped
+    # Only the flag that is free here. The stock nginx image starts as root to
+    # bind :80 and then drops to the nginx user, and it writes its caches and
+    # pid under /var, so `cap_drop: ALL` and `read_only` would both stop it
+    # booting. Rewriting the image to run rootless is a separate change with its
+    # own way of going wrong, and this container serves static files and proxies
+    # a socket: the server behind it is where the state is.
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       server:
         condition: service_healthy

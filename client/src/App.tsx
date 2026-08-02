@@ -3,6 +3,9 @@ import { useWebSocket } from './hooks/useWebSocket'
 import { useGameStore, UNO_CATCH_WINDOW_MS } from './hooks/useGameStore'
 import { reconnectMessageFor } from './hooks/sessionPersistence'
 import { useSessionPersistence, useRestoreTimeout } from './hooks/useSessionRestore'
+import { peekTableInvite, takeTableInvite } from './hooks/tableInvite'
+import { readNickname } from './hooks/nicknameMemory'
+import { canonicalNickname, isNicknameShapeValid } from './components/nicknameRules'
 import { useGameAudio } from './audio/useGameAudio'
 import { useTabAlert } from './hooks/useTabAlert'
 import { useI18n } from './i18n'
@@ -399,6 +402,12 @@ export default function App() {
   // long-wait escape hatch on the searching screen.
   const [lobbyEntry, setLobbyEntry] = useState<'home' | 'create'>('home')
 
+  // The table this tab was opened on, when it followed a shared link. Peeked
+  // during render rather than taken: StrictMode double-invokes the initialiser,
+  // and a one-shot read there would hand the second call nothing. The effect
+  // further down is the one that spends it.
+  const [inviteCode, setInviteCode] = useState(peekTableInvite)
+
   const recordedTurns = useRef<number[]>([])
   const turnRecorderStop = useRef<(() => void) | null>(null)
 
@@ -498,6 +507,24 @@ export default function App() {
     findMatch(myNickname)
   }, [screen, isMatchmade, hasTablemates, myNickname, findMatch])
 
+  // A link carries a table, never a player. So a browser that already knows the
+  // name this person plays under takes the seat on arrival, and one that does
+  // not gets the join form with the code already filled and the caret on the
+  // only thing left to type. A remembered name the client can itself tell would
+  // be refused counts as no name at all: better the field than a round trip
+  // whose only outcome is an error over a form nobody has filled in.
+  useEffect(() => {
+    if (screen !== 'lobby' || !inviteCode) return
+    const code = takeTableInvite()
+    // Spent either way, and before anything can fail: leaving this table has to
+    // land on an ordinary lobby, not back at its door.
+    setInviteCode('')
+    if (!code) return
+    const nickname = readNickname()
+    if (!isNicknameShapeValid(nickname)) return
+    sendRef.current({ type: 'join_room', nickname: canonicalNickname(nickname), room_code: code })
+  }, [screen, inviteCode])
+
   // The home page carries a footer under the game — the links a search engine
   // follows, and the sheet somebody who has never played opens. It has no business
   // being there once a seat has been taken, and it is not React's to remove: it is
@@ -527,8 +554,12 @@ export default function App() {
       )}
       {screen === 'lobby' && (
         <Lobby
+          // Keyed on the entry point alone. The invite must not be part of it:
+          // spending it would change the key, remount the lobby and take the
+          // prefilled code back out from under the player.
           key={lobbyEntry}
-          initialMode={lobbyEntry}
+          initialMode={inviteCode ? 'join' : lobbyEntry}
+          initialCode={inviteCode}
           onSend={handleSend}
           onFindMatch={findMatch}
           error={errorMsg}
