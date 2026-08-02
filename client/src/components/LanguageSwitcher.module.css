@@ -8,7 +8,15 @@
   box-shadow: 0 3px 0 var(--color-stroke-soft);
 }
 
+/* One rule for both shapes: at the entry screen these are <a href>s to the game
+   in the other language, past it they are buttons. The two must be the same
+   object on screen — see LanguageSwitcher.tsx — so everything an anchor brings
+   with it is undone here. */
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   padding: 5px 12px;
   border: none;
   border-radius: var(--radius-full);

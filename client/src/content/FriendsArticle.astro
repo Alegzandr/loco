@@ -46,11 +46,12 @@ const extras = FAQ.filter((item) => PICKED.includes(item.q.en))
       {item.a[lang].map((para) => <p>{para}</p>)}
     </article>
   ))}
-  <p>
+  {/* Chips, not a line of underlined words: the two pages a reader leaves for
+      are objects to press, the same ones the privacy page's jump list is. */}
+  <nav class="chipRow endLinks" aria-label={ui('readNext', lang)}>
     <a href={FAQ_PAGE.path[lang]}>{FAQ_PAGE.navLabel?.[lang]}</a>
-    <span aria-hidden="true"> · </span>
     <a href={RULES.path[lang]}>{RULES.navLabel?.[lang]}</a>
-  </p>
+  </nav>
 </section>
 
 <p>{ui('friendsOutro', lang)}</p>

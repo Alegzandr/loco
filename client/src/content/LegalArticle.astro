@@ -30,7 +30,7 @@ const docs = LEGAL[lang]
 {/* Labelled for what it does, not with the page's own <h1>: a landmark that
     repeats the heading above it tells a screen-reader user nothing they have
     not just heard. */}
-<nav class="docJump" aria-label={ui('legalJump', lang)}>
+<nav class="chipRow docJump" aria-label={ui('legalJump', lang)}>
   {docs.map((doc) => <a href={`#${doc.slug}`}>{doc.title}</a>)}
 </nav>
 

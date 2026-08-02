@@ -17,10 +17,11 @@ import (
 //
 // The drain in drain.go gets the number of interrupted matches to zero in the
 // ordinary case, by waiting. This is what covers the case where waiting is not
-// an option: the deploy's deadline expires, or the process is being replaced
-// while a best-of-7 is on its third round. The state goes to disk on the way
-// out and comes back on the way in, and the clients reconnect into it on their
-// own with the token they already hold in sessionStorage. From a player's seat
+// an option, and with the drain deliberately short (90s, so that a deploy never
+// waits on the tables that are up) that case is the ordinary one in production:
+// a process replaced while a best-of-7 is on its third round. The state goes to
+// disk on the way out and comes back on the way in, and the clients reconnect
+// into it on their own with the token they hold in sessionStorage. From a seat
 // it is a one-second "Reconnexion" overlay, the same one a dropped wifi frame
 // produces, which is why none of this needed a new client screen.
 //

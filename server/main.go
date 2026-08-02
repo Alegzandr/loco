@@ -19,11 +19,13 @@ import (
 // finish before it stops waiting and writes a snapshot instead. Overridden by
 // LOCO_DRAIN_TIMEOUT (a Go duration, e.g. "90s" or "15m").
 //
-// The value is a deploy policy, not a game rule, which is why it is set per
-// environment rather than shipped: dev redeploys on every push to develop and
-// cannot park the runner for a quarter of an hour, production redeploys on a
-// tag and can afford to wait out a best-of-7. See .gitlab-ci.yml.
-const defaultDrainTimeout = 15 * time.Minute
+// The value is a deploy policy, not a game rule, and it is deliberately short:
+// a deploy must never wait on the tables that happen to be up. It was 15m in
+// production so a best-of-7 could finish, which made the length of a pipeline
+// a function of how long strangers played. A hand near its end still finishes
+// inside 90s; past that the snapshot below is what carries the match across
+// the restart, which is the whole reason it exists. See deploy/app.env.
+const defaultDrainTimeout = 90 * time.Second
 
 // shutdownGrace is how long the HTTP server is given to close its connections
 // once there is nothing left to protect. Short on purpose: by this point every

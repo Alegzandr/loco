@@ -83,11 +83,14 @@ const { page, lang, jsonLd } = Astro.props
     <div id="navPop" popover="auto" class="navPop">
       <div class="navPopHead">
         {/*
-          Named "Menu" rather than "LOCO": the header behind it already carries
-          the wordmark, and a drawer that repeats the brand says nothing about
-          what is in it.
+          The wordmark, not the word "Menu". "Menu" named the thing the reader
+          had just opened and was already looking at; the mark puts the game's
+          own colour at the top of a panel that is otherwise a column of text,
+          and it is the same drawing on the game page's drawer, which has no
+          header behind it to carry the brand at all. Static markup — no
+          `client:` directive — so it costs the page nothing.
         */}
-        <p class="navPopTitle">{ui('menuLabel', lang)}</p>
+        <div class="navPopTitle"><LocoLogo size="1.25rem" /></div>
         <button
           type="button"
           class="navPopClose"
@@ -108,7 +111,10 @@ const { page, lang, jsonLd } = Astro.props
       </div>
 
       <nav class="navPopLinks" aria-label={ui('navLabel', lang)}>
-        <a class="navPopPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
+        {/* The drawer's one action among its destinations, and the accent that
+            comes with it. `navPopCta` is what the game page's Preferences row
+            wears too, so neither menu is the colourless one. */}
+        <a class="navPopCta navPopPlay" href={HOME.path[lang]}>{ui('play', lang)}</a>
         {NAV.map((p) => (
           <a href={p.path[lang]} aria-current={p.id === page.id ? 'page' : undefined}>
             {p.navLabel?.[lang] ?? p.title[lang]}

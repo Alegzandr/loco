@@ -252,19 +252,21 @@ e2e_test:
           "LOCO_SNAPSHOT_PATH=${LOCO_SNAPSHOT_PATH}" \
           > "${target}"
       }
-      # How long a deploy is willing to wait for the matches already running
-      # before it snapshots them and goes. The two environments want opposite
-      # things from the same mechanism: prod redeploys on a tag and can wait
-      # out a best-of-7, dev redeploys on every push to develop and must not
-      # park the runner for a quarter of an hour. STOP_GRACE_PERIOD stays
-      # above it: it is what Docker waits before SIGKILL, and a SIGKILL lands
-      # in the middle of the shutdown. See deploy/compose.yml.
-      set_drain_policy() {
-        case "$1" in
-          prod) export LOCO_DRAIN_TIMEOUT=15m STOP_GRACE_PERIOD=16m ;;
-          *)    export LOCO_DRAIN_TIMEOUT=90s STOP_GRACE_PERIOD=150s ;;
-        esac
-      }
+      # How long a deploy waits for the matches already running is one policy
+      # for every environment now, and it lives in deploy/app.env (90s drain,
+      # 150s grace) rather than being switched per job here.
+      #
+      # Prod used to wait 15m so a best-of-7 could finish, which made the
+      # length of a pipeline a function of how long strangers played. A job
+      # that can sit for a quarter of an hour is a runner slot nobody else
+      # gets, and it puts the pipeline one raised drain value away from
+      # timing out on a match rather than on a fault. The snapshot is what
+      # makes that trade affordable: whatever the 90s does not finish is
+      # written to LOCO_SNAPSHOT_PATH and picked up by the next process, so
+      # the players get the "Reconnexion" overlay a dropped wifi frame
+      # already produces instead of losing the match. See
+      # server/hub/snapshot.go.
+      #
       # The server first, the client second, and never one `up -d` over both.
       #
       # Recreating the server is the slow half: it drains, and for as long as
@@ -341,13 +343,16 @@ deploy_dev:
   stage: deploy
   extends: .defaults
   needs: ["build"]
+  # Comfortably above STOP_GRACE_PERIOD (150s) plus the two image pulls, and
+  # stated rather than left to the instance default so the ceiling is visible
+  # next to the wait it bounds. Nothing here scales with the number of tables.
+  timeout: 10m
   rules:
     - if: '$CI_COMMIT_BRANCH == "develop"'
   script:
     - export APP_HOST="${APP_SUBDOMAIN}-d.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_REF_SLUG}"
     - export DEPLOY_ENV=dev
-    - set_drain_policy dev
     - TARGET_DIR="${DEPLOY_DIR}/dev"
     - cp deploy/compose.yml "${TARGET_DIR}/compose.yml"
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
@@ -358,6 +363,7 @@ deploy_dev:
 stop_dev:
   stage: deploy
   extends: .defaults
+  timeout: 10m
   rules:
     - when: manual
   script:
@@ -365,8 +371,8 @@ stop_dev:
     - export IMAGE_TAG="${CI_COMMIT_REF_SLUG:-dev}"
     - export DEPLOY_ENV=dev
     # `down` sends SIGTERM and honours stop_grace_period like any other stop,
-    # so this decides how long a manual stop waits on the tables that are up.
-    - set_drain_policy dev
+    # so a manual stop waits on the tables that are up exactly as a deploy
+    # does: 90s, then the snapshot.
     - TARGET_DIR="${DEPLOY_DIR}/dev"
     - mkdir -p "${TARGET_DIR}"
     - cp deploy/compose.yml "${TARGET_DIR}/compose.yml"
@@ -379,22 +385,21 @@ deploy_prod:
   stage: deploy
   extends: .defaults
   needs: ["build"]
-  # Above LOCO_DRAIN_TIMEOUT plus the image pulls, and stated rather than left
-  # to the instance default: this job legitimately blocks while people finish
-  # the match they are in.
-  timeout: 30m
+  # Above STOP_GRACE_PERIOD (150s) plus the two image pulls, and stated rather
+  # than left to the instance default. It was 30m while the drain was 15m,
+  # which made the ceiling of a production pipeline a question about how long
+  # a match runs. It is not one any more: the shutdown is bounded by the grace
+  # period whatever is being played, and the snapshot carries the rest.
+  timeout: 10m
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v.*/'
   script:
     - export APP_HOST="${APP_SUBDOMAIN}.kisukesaama.com"
     - export IMAGE_TAG="${CI_COMMIT_TAG}"
     - export DEPLOY_ENV=prod
-    - set_drain_policy prod
     - TARGET_DIR="${DEPLOY_DIR}/prod"
     - cp deploy/compose.yml "${TARGET_DIR}/compose.yml"
     - cp deploy/paths.env "${TARGET_DIR}/paths.env"
     - write_app_env "${TARGET_DIR}/app.env"
     - cd "${TARGET_DIR}"
-    # This job can now sit for as long as LOCO_DRAIN_TIMEOUT: it is waiting on
-    # a match somebody is playing. That wait is the feature.
     - rollout

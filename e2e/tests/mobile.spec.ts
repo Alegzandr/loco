@@ -234,13 +234,78 @@ test.describe('mobile viewport', () => {
     expect((await links.first().boundingBox())!.height).toBeGreaterThanOrEqual(40)
     await expect(drawer.locator('a[href="/"]')).toHaveCount(0)
 
-    // And the prose the wide screen's sheet holds, under the links rather than
-    // behind a second press.
-    const prose = drawer.locator('.navPopProse')
-    expect(((await prose.textContent()) ?? '').length).toBeGreaterThan(200)
-    expect((await links.first().boundingBox())!.y).toBeLessThan(
-      (await prose.boundingBox())!.y,
-    )
+    // And no prose under them. The drawer used to end with the sheet's two
+    // paragraphs, which made it a taller, wordier object than the one a content
+    // page opens one tap later; the two are the same menu now, differing only in
+    // what they list. The prose is still in the document — the sheet holds it —
+    // so this costs a crawler nothing.
+    await expect(drawer.locator('.navPopProse')).toHaveCount(0)
+
+    // The wordmark opens it, and it is *in* the title rather than beside it.
+    // <LocoLogo /> renders a <div>, and it spent a while inside a <p>: the parser
+    // closes the paragraph before it, so the mark came out as a sibling, which
+    // made the head a three-item `space-between` row and centred the logo. It
+    // rendered perfectly and sat in the wrong place, which no unit test reading
+    // the source was ever going to catch.
+    const title = drawer.locator('.navPopTitle')
+    await expect(title.locator('svg')).toHaveCount(1)
+    const titleBox = (await title.boundingBox())!
+    const drawerBox = (await drawer.boundingBox())!
+    expect(titleBox.x - drawerBox.x, 'the mark starts at the drawer edge').toBeLessThan(28)
+
+    // The one action among the destinations, and the drawer's second piece of
+    // colour. It opens the panel React owns — the seam between the markup Astro
+    // rendered and the application mounted beside it.
+    const prefs = drawer.locator('#navPrefs')
+    await expect(prefs).toBeVisible()
+    await prefs.click()
+    await expect(drawer).toBeHidden()
+    await expect(page.getByRole('dialog')).toBeVisible()
+  })
+
+  /**
+   * The phone's preferences are a sheet, not a dropdown, and a sheet has to
+   * survive being used: every press inside it landed on the ✕'s 44px hit area,
+   * which `.hit-target` had centred on the scrim rather than on the button
+   * because the button was missing `position: relative`. The panel opened and
+   * not one setting could be changed.
+   */
+  test('the preferences sheet stays open while it is being used', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('.homeBurger').click()
+    await page.locator('#navPrefs').click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    const streamer = dialog.getByRole('switch').first()
+    await expect(streamer).toHaveAttribute('aria-checked', 'false')
+    await streamer.click()
+    await expect(streamer).toHaveAttribute('aria-checked', 'true')
+    await expect(dialog, 'a press inside must not dismiss it').toBeVisible()
+
+    // Its own way out, because the gear that opens it is not on screen at this
+    // width: the drawer's row is the way in, so the ✕ is the way back.
+    await dialog.getByRole('button', { name: /close|fermer/i }).click()
+    await expect(dialog).toBeHidden()
+  })
+
+  /**
+   * Half of `/` is markup Astro rendered per URL — the footer row, this drawer,
+   * the sheet of prose — so switching language in the app alone left the game in
+   * French under a menu still reading "With friends". At the entry screen the
+   * switch is two real links, and following one is what makes the document agree.
+   */
+  test('switching language at the entry screen takes the menu with it', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('.homeBurger').click()
+    await page.locator('#navPrefs').click()
+    await page.getByRole('link', { name: 'Switch language to FR' }).click()
+
+    await expect(page).toHaveURL(/\/fr\/$/)
+    await page.locator('.homeBurger').click()
+    await expect(page.locator('.navPopLinks')).toContainText('Règles')
+    await expect(page.locator('#navPrefs')).toHaveText('Préférences')
   })
 
   /**

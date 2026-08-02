@@ -144,6 +144,8 @@ Keep tests fast, targeted, non-brittle. Cover game rules over UI details.
   - `src/homeSheet.ts` Esc + scrim-click on the home page's `<details>` sheet, and the mobile
     drawer's close-on-widen, same bundling rule
   - `src/theme.ts` the theme, free of React, so a content page can apply it without mounting one
+  - `src/lang.ts` the language, same rule and same reason: the storage key, the two home paths, and
+    the boot-time redirect that keeps a document from being in two languages at once
   - `src/seo/meta.ts` the page registry plus the link-preview tags, as data rather than markup
   - `src/content/` the prose and data behind the content pages, plus `content.css`, `legal.ts` (the
     three legal documents), `HomeProse.astro` (what `/` says about the game, rendered by both the
@@ -355,7 +357,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   Only matches in flight travel, a snapshot is never replayed, and a foreign `SnapshotSchemaVersion`
   or an age over `SnapshotMaxAge` drops the file whole. **`stop_grace_period` in `deploy/compose.yml`
   must stay above `LOCO_DRAIN_TIMEOUT`**: at Docker's 10s default the `SIGKILL` lands in the middle
-  and none of this exists. See `docs/notes/server.md`.
+  and none of this exists. **And a deploy never waits on the tables that are up**: one policy for
+  every environment (`deploy/app.env`, 90s drain / 150s grace), so how long a shutdown can block is a
+  constant rather than a question about how long a match runs. Production waited 15 minutes for a
+  best-of-7 until 2026-08-02; that made the length of a pipeline a function of the players and left
+  the job's ceiling one raised value away from failing a deploy on a match instead of on a fault. The
+  snapshot is what pays for the shorter wait, which makes the restore the ordinary path in production
+  rather than the exceptional one. See `docs/notes/server.md`.
 - **The map-loading gate refuses every gameplay message while open** and the turn clock starts at
   `match_ready`, not at `game_started`. Per match, not per round.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
@@ -397,6 +405,20 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   nothing warns, and `useWebSocket` falls back to same-origin `/ws`: in dev that is the Vite server
   proxying nothing, so every table and every match request died on `ws://localhost:5173/ws`.
   `src/test/wsEnv.test.ts` fails on a prefix the hook reads and the config does not expose.
+- **`/` arrives in one piece, and the background is never part of the arrival.** Half the page is
+  markup Astro served (the footer row, the burger, the prose) and half is React mounted from a
+  bundle, so it used to come up as a background with one control on it and then, a few hundred
+  milliseconds later, the game. What holds at `opacity: 0` is therefore **what arrives** — `#root >
+  *`, `.homeIntroMain`, `.homeBurger` — and never `#root` or `.homeIntro` themselves: both are filled
+  with `--color-canvas`, and that flat fill is the only reason the body's candy gradient is never
+  seen, so fading either of them flashed a gradient belonging to no screen in the game. The hold is
+  inside `@media (scripting: enabled)` — with no script the served half must be visible at once,
+  which is what `seo.spec.ts` reads — and the same animation carries a 3s delay while the attribute
+  is missing, so a bundle that never lands reveals the page rather than leaving it blank.
+  `entry.tsx` writes `data-booted="in"` two rAFs after `render()` and blanks the value once the fade
+  is over: every screen is a fresh child of `#root`, so a reveal rule left standing would replay on
+  every screen change all match. Opacity only: a transform would become the containing block for the
+  fixed burger and every panel the app renders.
 - **Nothing continuous goes through React state.** Countdown bars use `useDrainBar` (a CSS animation
   with a negative delay), never a percentage in state. `<GameBoard />` is `memo`'d and its props are
   kept referentially stable in `GameView`; `App` never subscribes to the whole store. One `setState`
@@ -437,6 +459,22 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   presentation only, never on the wire) because they are read by screens with no common parent.
   Icons in that row are **drawn SVG, never a font character**: a `⚙` glyph is a different object on
   every platform, and long thin spokes read as a sun.
+- **Below 46rem that panel is a sheet, and the lobby's gear stands down.** A 250px dropdown hanging
+  off a 40px chip is a desktop object, and on `/` the chip is not even the way in at that width — the
+  burger's `Preferences` row is, so `Lobby` alone passes `triggerBelowPhone={false}`. **Only the
+  lobby may**: `data-seated` takes the drawer off the page, so from the waiting room onwards the gear
+  is the sole entry at every width. The sheet's scrim **wraps** the panel rather than sitting beside
+  it (the RulesModal pattern): as a sibling, "click outside" is a z-index argument. And its ✕ carries
+  `position: relative`, without which `.hit-target` centres a 44px pseudo-element **on the scrim** —
+  the panel opened in the middle of the screen and swallowed every press aimed at a setting.
+- **The language pair is two real `<a href>`s at the entry screen, and a toggle once seated.** Half
+  of `/` is markup Astro rendered per URL — the footer row, the drawer, the sheet of prose — so
+  `setLang` alone left the game in French under a menu still reading "With friends". Following the
+  link is what makes the whole document agree; `setLang` still runs so the choice outlives the
+  navigation. Past a taken seat there is nothing to agree with and a navigation would drop the match,
+  so it is the in-app toggle it has always been. `LanguageSwitcher.tsx` holds the only second copy of
+  `/` and `/fr/`, because importing `seo/meta.ts` would put every page on the site in the bundle;
+  `seo.test.ts` pins it against `HOME.path`.
 - **A control drawn smaller than 44px gets its target from `.hit-target`, not from its own box.**
   The global utility in `tokens.css` grows the hit area with a pseudo-element, so the top-right
   cluster stays a row of 40px chips (which is what `DESIGN.md` sizes it at) while the thumb gets
@@ -513,8 +551,21 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   still be one reconnect away. The exception is a matchmade table, where there is nothing to wait
   for: App requeues that player without being asked (`rematchRequeue.test.tsx`), and cancelling the
   search is how they leave. Requeuing sits beside the ask as an equal choice, matchmade only.
-- `initTheme()`, `initTableInvite()` and `initSessionRestore()` run in `entry.tsx` before the first
-  render, in that order: the invite decides whether the stored reclaim record still applies.
+- `initLangUrl()`, then `initTheme()`, `initTableInvite()` and `initSessionRestore()` run in
+  `entry.tsx` before the first render, in that order: the language decides whether this document is
+  the right one at all, and the invite decides whether the stored reclaim record still applies.
+- **A document is never in two languages at once, and a language is changed by navigating.** Half of
+  `/` is markup Astro built per URL, and a stored choice outranks the URL in `detectLang`, so `/`
+  with French stored rendered the game in French under a footer reading "With friends", on an
+  `<html lang="fr">` — a lie to a screen reader before it is a mess to look at. `initLangUrl()`
+  (`src/lang.ts`) sends that document to `/fr/` instead, with `location.replace` so Back is not a
+  trap, and carrying the query string so a `?t=CODE` invitation is still there to be spent on
+  arrival. It acts **only on an explicit choice**: landing on a French page from a search result
+  writes nothing. Both switches record one — the lobby's (which already navigates) and the content
+  pages' globe, whose links stay real `<a href>`s and gain nothing but a `rememberLang` on the way
+  out. Without that second half a reader could choose French, read the rules and press "Jouer" into
+  an English game at a French address. `lang.ts` holds the storage key and the two home paths for
+  the same reason `theme.ts` holds the theme: the content pages take part and mount no React.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`, so a missing
   key is a TS error.
 - **React 19 idiom: `ref` is an ordinary prop.** No `forwardRef` (`Card`, `CardBack` are plain
@@ -558,12 +609,30 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   pages *and* on `/` (`.menuBtn` + `#navPop`, styled once in `content.css`). Ten items folded into
   two rows of 12px text with nothing on them taller than the type; the drawer's rows are 2.75rem.
   The items differ by page — the content pages' drawer is the bar entire (Play, the five, privacy,
-  theme, globe), the game's carries the five, privacy and the sheet's prose, and **no Play**. Four
-  things break it, three of them silently: `display` belongs on `.navPop:popover-open` and nowhere
+  theme, globe), the game's carries the five and privacy, and **no Play**. **Only the list differs**:
+  it carried the home page's prose under its links until 2026-08-02, which made the menu on `/` a
+  taller, wordier object than the one a content page opens one tap later, and crossing between them
+  read as two menus. `GamePage.astro` styles none of it, and a rule there is a divergence by
+  definition.
+- **Both drawers open on the wordmark and carry exactly one action.** The head is `<LocoLogo />`,
+  not the word "Menu", which named a panel the reader was already looking at and left the one branded
+  surface on the site with no brand on it. It is a **`<div class="navPopTitle">`, never a `<p>`**: the
+  logo renders a `<div>`, the parser closes a paragraph before one, and the mark came out as a
+  *sibling* — a three-item `space-between` row that centred it. It rendered perfectly and sat in the
+  wrong place, which no test reading the source catches; `mobile.spec.ts` measures it instead. The
+  action is `.navPopCta`, the drawer's colour: `Play` at the top on a content page, `Preferences` at
+  the bottom on the game page, opposite ends because they mean opposite things. `#navPrefs` ships
+  `hidden` and `homeSheet.ts` reveals it, then asks React for the panel over a `loco:preferences`
+  event — the one seam between the markup Astro rendered and the app mounted beside it, and the
+  reason a scriptless page is not offered a button that opens nothing. Five
+  things break it, four of them silently: `display` belongs on `.navPop:popover-open` and nowhere
   else (an author `display` beats the UA's `[popover]:not(:popover-open)` by cascade **origin**, so
   the drawer stood open on every page); a popover is `height: fit-content` until told otherwise;
   hiding the bar is only allowed inside `@supports selector([popover])`, or a browser without the API
-  gets a page with no navigation at all; and **widening the window has to close it**
+  gets a page with no navigation at all; **the bar is hidden with `display: contents`, never `none`**,
+  because `#langPop` lives inside it and a popover under a `display: none` ancestor renders nowhere
+  however it was opened, which left the phone's only language switch doing nothing at all; and
+  **widening the window has to close it**
   (`content/navMenu.ts`, one `matchMedia` listener, imported by `theme-boot.ts` and `homeSheet.ts`,
   holding the second copy of the breakpoint `contentPages.test.ts` pins to the CSS).
 - **The language chooser is a globe and a modal, and the links inside it are real.** Both languages
@@ -599,8 +668,9 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   is what puts the prose in front of a crawler and keeps `src/content/` out of the bundle. It must
   keep opening with **scripts disabled** (`seo.spec.ts` clicks it that way); `src/homeSheet.ts` adds
   Esc and scrim-click and nothing the sheet depends on. Under 46rem that row is not on screen at all:
-  the burger replaces it and the drawer carries the links **and** the prose, links first. The sheet
-  and the drawer both render `content/HomeProse.astro`, so they cannot describe the game differently.
+  the burger replaces it and the drawer carries the links, and **only** the links — the sheet is the
+  prose's one control, and a menu is a list of destinations on both halves of the site or it is two
+  menus. The prose stays in the served HTML at every width, which is the half a crawler reads.
 - **The FAQ is the `FAQPage` payload, rendered.** It is the one structured-data type here that can
   put content straight into a result, so `src/content/faq.ts` is the data and the page is a view of
   it. Its answers describe real server behaviour (the 60s seat hold, 15s matchmade; the turn clock
@@ -626,6 +696,28 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   costs the obvious keyword on purpose, and the pages are written to answer the *descriptive*
   queries instead. `seo.test.ts` extends `legal.test.tsx`'s guard over `PAGES`, `UI` and every
   `src/content/**` file.
+- **An audit failure here is invisible by construction, so it is pinned in a test.** Lighthouse
+  scored 86-89 on accessibility while every page looked exactly as designed, and three of the four
+  causes were properties of a *file*: `client/src/test/a11y.test.ts` owns all four and
+  `docs/notes/seo.md` carries the arithmetic. **The viewport may never forbid zooming** — no
+  `user-scalable=no`, no `maximum-scale`; the double-tap is answered by `touch-action: manipulation`
+  on `body`, which leaves the pinch alone. **White on LOCO Red is 3.43:1**, so anything wearing it
+  is set at 1.2rem or larger (`.cta`, `.navPopCta`), never darkened. **A box that scrolls sideways
+  takes `tabindex="0"`** and shows a `:focus-visible` ring: the deck table and the card rows hold
+  nothing focusable, so without it what is past the right edge belongs to whoever can drag it.
+- **Two things keep a page fast, and neither is page-specific**: `build.inlineStylesheets: 'always'`
+  (the stylesheets are small and all three were render-blocking; `style-src` allows `'unsafe-inline'`
+  and **scripts still may not**) and the tables page's art rendered through `<Image />`. That second
+  one is the only place a page reads the map files by import rather than through `MAPS`: the board is
+  handed a room at runtime and cannot, this page knows all four at build time, and eight full-size
+  photographs in a 752px column were a 9.1s LCP.
+- **Never fade in the element the browser measures the LCP against.** Chrome takes its candidate at
+  the element's *first* paint and skips anything at `opacity: 0`, so a screen that arrives by fading
+  from zero can produce **no candidate at all** — `NO_LCP`, which scores the page **0** on
+  performance however fast it actually is. Both `<link rel="preload">` on the display face and the
+  home page's boot fade have done exactly that, measured. Fade a covering veil off the top instead:
+  the content is then painted opaque on the first frame and the arrival looks the same.
+  `docs/notes/seo.md` carries the measurements.
 
 ## Visual
 Detail: [`docs/notes/visual.md`](docs/notes/visual.md). Spec: `DESIGN.md`.
@@ -648,6 +740,14 @@ stated at the top of `styles/tokens.css`:
   framer-motion animates it, CSS must not set it. Layout math is radians, framer-motion `rotate` is
   degrees (`radToDeg` at the render boundary). Hand keys come from `handCardKeys(hand)`, never the
   index.
+- **The wordmark is a logotype, and the markup has to say so.** `<LocoLogo />` carries `role="img"`
+  and `aria-label="LOCO"` with the word `aria-hidden`: it is a drawing, WCAG exempts it from the
+  contrast rules, and a screen reader announcing "LOCO" twice was the other half. A checker cannot
+  know that, and it reads `-webkit-text-stroke` as the colour of the text — the ink outline is
+  1.07:1 on the dark canvas, where the red it wraps is 5.4:1. So **in dark the word carries no
+  stroke and a `::before` paints the outline over it**, declared twice like the dark palette in
+  `tokens.css`; in light the stroke stays where it is 14.7:1 and the red alone would be 2.2:1. The
+  drawing is unchanged in both. `a11y.test.ts` fails on a stroke returning to the dark word.
 - **The card face does not follow the theme.** A card is a physical object; the same card in two
   themes is two cards. `LOCO_MARK_PATH` comes straight from the designer's source file: do not
   redraw, retrace or tidy it.
@@ -697,7 +797,8 @@ Detail: [`docs/notes/legal.md`](docs/notes/legal.md).
   by `conn=`. **Never log `RemoteAddr()` directly**; `legal.test.tsx` fails on any non-test file in
   `server/hub/` that does.
 - **Privacy, terms and credits are a page, not a modal** (`/privacy/`, `/fr/confidentialite/`),
-  linked at the right-hand end of every footer, without typing a name. A policy has to be linkable:
+  linked from every footer (last in the home page's row of links, at the right-hand end of the
+  content pages' bar), without typing a name. A policy has to be linkable:
   the modal existed on one screen of one application, so there was no way to send somebody the terms
   and nothing for a crawler or a store listing to point at. The copy is `src/content/legal.ts`,
   typed `Record<Lang, LegalDoc[]>` so a document cannot exist in one language only, read at build

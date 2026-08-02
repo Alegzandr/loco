@@ -180,11 +180,14 @@ The bar is written in `content.css` rather than shared with `GamePage.astro`. Th
 this one does not — vanishing on `data-seated`, and keeping the whole page inside one viewport — and two
 short rulesets that look alike beat one that has to be true of both.
 
-**Privacy and terms sit at the right-hand end of both bars**, apart from the five: it is not a page
-anybody came to read, it is the one that has to be findable from anywhere. On the home page that
-meant giving the row three grid columns, because pushing one item right with `margin-left: auto`
-inside a centred flex row drags everything else to the left edge; under 46rem the three collapse to
-one so the five links do not wrap to five lines.
+**Privacy and terms is last, not apart.** It is not a page anybody came to read, it is the one that
+has to be findable from anywhere, and on the home page it stood off at the right-hand end for that
+reason. Held apart it read as a second navigation of one item, and the gap the centring left between
+it and the five gave the row two centres, so on `/` it closes the same list the other five are in,
+which is how both drawers had always carried it. That row is a plain centred flex again: the three
+grid columns existed only to keep the five centred against an item pushed right, and there is
+nothing to push. The content pages' bar keeps it in `.footerEnd`, beside the theme switch and the
+globe, where the far end of the bar is settings rather than empty space.
 
 **And a way back up.** These pages are long and their navigation is pinned to the *bottom*, so the
 return trip was a full scroll or a key a phone does not have. `.toTop` appears once the reader is
@@ -215,12 +218,47 @@ top left**. The same control, in the same corner, on the content pages and on `/
   privacy, the theme switch and the globe — the whole bar, in order, as rows of 2.75rem.
 - **The game page**: the burger is fixed over the board at the offsets `Lobby.module.css` gives
   `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
-  carries the five pages, privacy, and then the prose the wide screen's sheet holds. **No `Play`** —
-  this is where playing happens — and no theme or language, which are behind the lobby's own gear.
-  The footer row costs the board no height at all at that width.
+  carries the five pages and privacy. **No `Play`** — this is where playing happens — and no theme or
+  language, which are behind the lobby's own gear. The footer row costs the board no height at all at
+  that width.
+
+**Both open on the wordmark, and both carry exactly one action.** The head used to read "Menu",
+which named the panel to somebody already looking at it and left this the one branded surface on the
+site with no brand on it — on the game page especially, where the drawer covers the board and there
+is no header behind it. It is `<LocoLogo />`, rendered statically, so it is the same drawing as the
+one on the cards. Write it in a **`<div class="navPopTitle">`, never a `<p>`**: the logo renders a
+`<div>`, an HTML parser closes a paragraph before one, and the mark landed as a *sibling* of the
+title — which made `.navPopHead` a three-item row and had `space-between` centre the logo between an
+empty `<p>` and the ✕. It rendered perfectly and sat in the wrong place, and no test reading the
+source was ever going to see it; `mobile.spec.ts` measures the rendered box instead.
+
+The action is `.navPopCta`. A drawer that is six destinations and nothing else is a grey corridor,
+and the content pages had `Play` in it while the game page had nothing — one menu with the game's
+colour in it, one without. Each has one now, at opposite ends because they mean opposite things:
+`Play` is where you are going, `Preferences` is what you came into the menu to change. The scoping
+matters — `.navPop .navPopCta`, not `.navPopCta`, because `.navPopLinks a` is a class *and* a type
+and beats a bare class on specificity whatever the order. It went unnoticed while the only CTA was
+white against an ink colour that is also near white in the dark theme.
+
+`#navPrefs` is the seam between the two halves of `/`. It ships `hidden` and `homeSheet.ts` reveals
+it, for the reason the content pages' theme switch does: the panel it opens is React's, and a
+scriptless page is better off without a button than with one that does nothing. It closes the popover
+and dispatches `loco:preferences`; `<Preferences />` listens. An event rather than a shared module —
+the drawer is `#root`'s sibling, not in its tree, and a store both halves imported would put the
+app's bundle behind this page's script.
+
+**The two drawers differ in their list and in nothing else.** The game's used to end with the home
+page's prose under its links, on the reasoning that the burger is the only thing a phone opens on `/`
+and everything the footer offered had to be inside it. What that produced was two menus: a phone
+tapping `Menu` on `/` got two rows of destinations and a page of copy, tapped `Rules`, and one screen
+later the same button in the same corner opened a short list. A menu is a list of destinations, and a
+site where it is that on one half and a document on the other has two of them. The prose keeps its
+own control — the sheet — and stays in the served HTML at every width, so nothing a crawler reads
+changed. The cost is real and small: a phone can no longer read the home page's two paragraphs from
+`/` itself, and the pages the drawer lists are what it goes to instead.
 
 Both are `popover="auto"`, so Escape and a tap outside close them with **no script**, which is the
-constraint these pages are built under. Four things about that are easy to get wrong, and three of
+constraint these pages are built under. Five things about that are easy to get wrong, and four of
 them fail silently:
 
 - **`display` belongs on `:popover-open` and nowhere else.** A closed popover is hidden by
@@ -234,6 +272,13 @@ them fail silently:
   would leave the page with no navigation whatsoever. Both the burger and the drawer are hidden in
   the `@supports not` branch instead, and the bar stays at every width — which is what the file did
   before the drawer existed.
+- **The bar is hidden by `display: contents`, not by `display: none`.** `#langPop` is a child of the
+  footer bar, and the drawer's globe is the only way to it on a phone. Under `display: none` the
+  panel was promoted to the top layer and painted nothing — an ancestor set to `none` takes its whole
+  subtree out of the render tree whatever the top layer thinks — so the one control that switches
+  language on a phone did precisely nothing, silently. The bar's three rows (`.footerPlay`,
+  `.footerNav`, `.footerEnd`) are what goes; the `<footer>` stays as a box-less wrapper around the
+  panel it holds. Same trap for anything else that ever moves into that element.
 - **Widening the window has to close it.** CSS cannot close a popover: drag a window out, or turn a
   tablet on its side, and the drawer stands over a page whose own bar is already showing underneath,
   with the button that closes it no longer on screen. `content/navMenu.ts` is the exception to these
@@ -244,12 +289,12 @@ them fail silently:
 Both renderings of the navigation are built from `NAV` and `LEGAL`, so the bar and the drawer cannot
 list different pages; only one is ever on screen. That does put the same links in the document twice,
 which is ordinary — a site with a header nav and a footer nav does the same — and it is why
-`seo.spec.ts` scopes its home-page assertions to `.homeLinks` rather than to `.homeIntro`. The home
-page's prose is rendered from `content/HomeProse.astro` for the same reason: the sheet and the drawer
-are two presentations of it, not two copies.
+`seo.spec.ts` scopes its home-page assertions to `.homeLinks` rather than to `.homeIntro`.
 
-The drawer's own prose is the only part of it `GamePage.astro` styles. Everything else — the panel,
-the heading, the rows, the settings row — is `content.css`, so the two menus are one design.
+**`GamePage.astro` styles no part of the drawer.** The panel, the heading, the rows, the settings row
+are all `content.css`, which is what makes the two menus one design rather than two that resemble
+each other; a rule for `.navPop*` in that file is a divergence by definition, and the prose block that
+used to justify one is gone.
 
 ### The white flash, and the switch
 
@@ -352,6 +397,19 @@ stacks them, and the room's own `accent` is the frame's inner outline, so the bo
 picture rather than to the page. All but the first pair are `loading="lazy"`: the page is eight large
 photographs and one of them is on screen when it opens.
 
+The pictures themselves do **not** come off `MAPS`, and that is the one place this page departs from
+the registry. `MAPS` gives a URL under `/maps/`, which is what the board needs — it is handed a room
+at runtime and can know nothing about it at build time. This page knows all four up front, so
+`TablesArticle.astro` imports the same files through `import.meta.glob` and renders them with
+`<Image />`: sharp then emits each one at 400, 752 and 1128 wide and writes the `srcset`. The
+originals in `public/` are untouched and are still what the game loads.
+
+That was worth doing because the page was handing a phone eight 1280×720 photographs for a 752px
+column — 1.4 MB of pixels it would never display — and the first of them was the LCP at **9.1 s**.
+The 400-wide room is 11 kB against 147 kB. The top pair also loads eagerly at `fetchpriority="high"`,
+including the table: a lazy image inside the first viewport is a request the browser starts late for
+no reason. Measured after: LCP 2.6 s, performance 74 → 97.
+
 ### The FAQ is data first
 
 `FAQPage` is the one structured-data type on this site that can put content **directly** into a
@@ -393,9 +451,9 @@ close button, because a native `<details>` has exactly one control and a second 
 script to work.
 
 Under 46rem none of that row is on screen: the burger described above replaces it, and the drawer
-carries both the links and the prose, links first. The sheet is still the wide screen's half — one
-control, one presentation each — and `HomeProse.astro` is what the two of them render, so they cannot
-end up describing the game differently.
+carries the links. The sheet is the prose's one control — it is what opens it on a wide screen, and
+`HomeProse.astro` is rendered once, in it. The drawer held a second copy for a while; see the two
+drawers above for why it does not any more.
 
 The footer disappears the moment a seat is taken. That is not React's to do — it is markup Astro
 rendered — so `App.tsx` writes `data-seated` on `<html>` and CSS hides it. The burger and the drawer
@@ -439,3 +497,107 @@ the same reason: CI builds the client with `npm run build` and has no browser.
 `favicon.ico` is a 6-byte directory, one 16-byte entry and the PNG bytes verbatim — every browser
 since Vista reads a PNG payload directly, so there is no re-encoding and no dependency. It exists
 because crawlers and feed readers still request that exact path and read a 404 as "no icon".
+
+## What an audit sees
+
+Lighthouse scored this site 86-89 on accessibility and 74-90 on performance while every page looked
+exactly as designed. Nothing on that list is visible, which is the reason it sat there: three of the
+four accessibility failures are properties of a *file*, and the fourth is a number nobody can eyeball.
+`client/src/test/a11y.test.ts` pins all four against the source, because a checker runs on a deployed
+URL and by then the change that broke it is weeks old.
+
+### The wordmark was failing as prose
+
+`color-contrast` failed on `<span class="word">LOCO</span>` at **1.07:1**, on every page, in dark.
+The foreground it names is `#0b0618` — the ink outline, not the red. axe reads
+`-webkit-text-stroke` as the colour of the text (`getStrokeColor`, any non-zero width), and on the
+dark canvas that outline and the canvas are the same near-black.
+
+WCAG 1.4.3 exempts a logotype by name, so this is a false positive against the standard and a real
+failure against the tool. Both are answered:
+
+- `<LocoLogo />` carries `role="img"` and `aria-label="LOCO"`, with the word `aria-hidden`. That is
+  what it always was — a drawing, not a heading — and it also stops a screen reader announcing
+  "LOCO" twice, once for the mark and once for the word.
+- In **dark only**, the word carries no stroke and a `::before` paints the outline over it. The red
+  alone is 5.4:1 against the dark canvas and passes; the outline is still drawn, so the logo is
+  pixel-for-pixel what it was. In **light** the stroke stays on the word, where it is 14.7:1 and is
+  what the eye reads the letters by — the red alone would be 2.2:1 there and would fail.
+
+The `role="img"` does **not** silence the check on its own, and neither does `aria-hidden`: the rule
+is about pixels, not about the accessibility tree. Only the colours move the number.
+
+Declared twice, as `tokens.css` declares the dark palette twice — `[data-theme='dark']` for the
+choice, the media query for the first frame — and the test asserts both blocks repaint the outline.
+
+### White on LOCO Red, at 16.8px
+
+3.43:1. That is a pass for large text (3:1) and a fail for anything under 14pt bold, which is
+18.66px. `.cta` and `.navPopCta` were 1.05rem and are 1.2rem: the alternative was darkening the brand
+red on the two controls that are most obviously the brand.
+
+### The viewport forbade zooming
+
+`user-scalable=no, maximum-scale=1.0` was there to stop a double-tap zooming the board mid-match, and
+it took pinch-zoom with it — somebody's only way to read this game on a phone, and a failure on every
+page of the site. The tag now carries `width=device-width, initial-scale=1.0, viewport-fit=cover` and
+nothing else; `touch-action: manipulation` moved from the controls to `body`, which drops the
+double-tap and leaves the pinch alone. The trade is real and deliberate: a board can now be pinched
+during a match.
+
+### A box that scrolls needs a way in
+
+The deck table and the card rows scroll sideways on a phone and hold nothing focusable, so the part
+past the right edge belonged to whoever could drag it. Both carry `tabindex="0"` and a
+`:focus-visible` outline.
+
+### Performance
+
+Three changes, none of them page-specific:
+
+- `build.inlineStylesheets: 'always'` in `astro.config.mjs`. The three stylesheets are 3-22 kB and
+  all three were render-blocking requests; the game page waited 753 ms on one of them before it could
+  paint a word. `style-src` allows `'unsafe-inline'` in `client/nginx.conf`, so this is legal —
+  **scripts are not**, and must stay external (`csp.test.ts`).
+- The tables page's images, above.
+
+And one that was tried and reverted: **preloading the two Latin `woff2` files**. It is the obvious
+move — the wordmark is the LCP element on `/` and it spent its render delay waiting on a font nothing
+had asked for yet — and with the preload in place Chrome reported **no LCP candidate at all** on the
+home page. Removing it brings the candidate straight back, reproducibly, at the same paint time. It
+buys nothing now anyway: `inlineStylesheets: 'always'` puts the `@font-face` rules in the document,
+so there is no stylesheet round trip left to race, which was the whole premise.
+
+### NO_LCP scores 0, and a fade is how you get one
+
+Worth stating on its own, because it costs more than everything else on this page put together.
+Chrome takes its LCP candidate at an element's **first** paint and skips anything painted at
+`opacity: 0`; an element that starts at zero and animates up is not reconsidered. A page with no
+candidate reports `NO_LCP` (and `NO_FCP` in the same runs) and Lighthouse scores its performance
+**0** — not "slower", zero — however fast it really is.
+
+Measured on the home page, twice over: the font preload above, and the boot fade that holds
+`#root > *`, `.homeIntroMain` and `.homeBurger` at `opacity: 0` until `entry.tsx` writes
+`data-booted`. With the fade neutralised and nothing else changed, `/` goes from **perf 0, no LCP**
+to **perf 95, LCP 2.6 s**. The fade is worth having — the page arrives in two halves and looked
+broken without it — so the fix is not to drop it but to invert it: fade a veil in the canvas colour
+*off the top*, leaving the content painted opaque on the first frame. The arrival looks identical
+and the candidate is registered.
+
+The trap is that nothing about this is visible. The page is fast, it looks right, and the score is
+zero.
+
+### Re-running it
+
+There is no `make` target: Lighthouse needs a Chrome and CI has none, for the same reason `make og`
+commits its output. Against a build:
+
+```
+cd client && npm run build && npx serve dist -l 4399
+CHROME_PATH=<a chromium> npx lighthouse@12 http://localhost:4399/rules/ --output=json --quiet
+```
+
+For accessibility alone, axe against the built pages is faster and covers more than one viewport at a
+time — Lighthouse audits one width and one theme per run, and two of the four failures above only
+appear in one of the two themes. Check both, at 412 and 1440, and use the `wcag2a`/`wcag2aa` tags:
+axe's own best-practice rules (`region`, `landmark-one-main`) are not what Lighthouse scores.

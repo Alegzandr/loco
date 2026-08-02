@@ -45,7 +45,7 @@
 - Mobile support: responsive layout, 44 px+ tap targets, 400 ms double-tap guard, touch-friendly wild color picker, `user-scalable=no`.
 - Rules modal accessible from Lobby, Waiting Room, and Game View; bottom-sheet on mobile.
 - Internationalisation: English + French, automatic browser detection, manual switcher persisted to `localStorage`.
-- Privacy, terms and credits as one content page (`/privacy/`, `/fr/confidentialite/`), linked at the right-hand end of every footer, in both languages. Three anchored sections; the copy is read at build time and ships in no bundle.
+- Privacy, terms and credits as one content page (`/privacy/`, `/fr/confidentialite/`), linked from every footer (last in the home page's row of links, at the right-hand end of the content pages' bar), in both languages. Three anchored sections; the copy is read at build time and ships in no bundle.
 
 ## Server / infra
 - Per-player personalized state (hidden hand info never leaks to other clients).

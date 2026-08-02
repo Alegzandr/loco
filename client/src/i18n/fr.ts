@@ -26,6 +26,7 @@ export const fr: Translations = {
   // ─── Préférences ──────────────────────────────────────────────
   prefsBtn: 'Préférences',
   prefsTitle: 'Préférences',
+  prefsClose: 'Fermer',
   prefsLanguage: 'Langue',
   prefsTheme: 'Thème',
   prefsThemeLight: 'Clair',
@@ -243,7 +244,6 @@ export const fr: Translations = {
   },
 
   rulesTitle: 'Comment jouer',
-  rulesFullPage: 'Les 112 cartes',
   rulesClose: 'Fermer',
 
   rules: [

@@ -20,11 +20,34 @@
  * allows.
  */
 import { applyTheme, readInitialTheme, THEME_STORAGE_KEY, type Theme } from '../theme'
+import { isLang, rememberLang } from '../lang'
 import { closeMenuWhenWidened } from './navMenu'
 
 // The mobile drawer, shut the moment the window is wide enough for the bar to be
 // the navigation again. Everything else about it is native.
 closeMenuWhenWidened()
+
+// ── Language ───────────────────────────────────────────────────────────────
+//
+// The two links in `#langPop` are real `<a href>`s and stay that way: the href
+// is what makes the hreflang pair navigable, and a crawler follows nothing else.
+// This only records that the reader *chose*, on the way out.
+//
+// Without it the choice reached the pages and never the game. A reader who
+// switched to French here, read the rules and then pressed "Jouer" arrived at
+// `/fr/` with `loco_lang` still saying English — and a stored choice outranks
+// the URL — so the game opened in English at a French address. It is the same
+// line the lobby's switcher runs before following its own link; both halves of
+// the site now write the choice down in the same place.
+//
+// Delegated from the document rather than bound per link, because the panel is
+// opened by two buttons (the bar's globe and the drawer's) and its markup is
+// rendered once for both.
+document.addEventListener('click', (e) => {
+  const link = (e.target as Element | null)?.closest?.('#langPop a[lang]')
+  const chosen = link?.getAttribute('lang')
+  if (isLang(chosen)) rememberLang(chosen)
+})
 
 // ── Theme ──────────────────────────────────────────────────────────────────
 

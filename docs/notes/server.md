@@ -595,6 +595,16 @@ number of interrupted matches to zero in the ordinary case, by waiting. The snap
 where waiting runs out survivable rather than fatal. Neither is enough on its own, which is why
 neither is conditional on the other.
 
+**How long it waits is a deploy policy, and the deploy is not allowed to wait on the players.** 90 s
+in both deployed environments since 2026-08-02, down from 15 minutes in production. The long value
+was defensible as a game decision and indefensible as an operations one: it made the duration of a
+pipeline a function of how long strangers played, held a runner slot for a quarter of an hour, and
+left the job's own ceiling close enough to the wait that being kinder to players by raising the drain
+would have started failing deploys on a match rather than on a fault. The wait a shutdown can incur
+is now a constant. **This moves load onto the snapshot rather than removing it**: in production the
+restore is the ordinary path now, not the exceptional one, which is the reason its coverage restarts
+a real hub over real sockets instead of asserting the marshalling.
+
 **The drain refuses exactly the actions that would extend it, and nothing else.** `create_room`,
 `start_game`, `rematch`, `find_match`, and a `join_room` for a table this process does not have. That
 list is not "everything that touches a room": joining a lobby that already exists stays allowed,

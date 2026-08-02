@@ -25,8 +25,10 @@ services:
     # shutdown in server/main.go needs minutes, not ten seconds. Left at the
     # default, every match in flight is killed exactly the way it was before
     # any of the drain existed, and nothing would say so. Kept a minute above
-    # LOCO_DRAIN_TIMEOUT so the snapshot write always fits inside it.
-    stop_grace_period: ${STOP_GRACE_PERIOD:-16m}
+    # LOCO_DRAIN_TIMEOUT so the snapshot write always fits inside it, and it
+    # is also the real ceiling on how long a deploy can block: whatever is
+    # being played, Docker stops waiting here.
+    stop_grace_period: ${STOP_GRACE_PERIOD:-150s}
     volumes:
       # Where the shutdown parks the matches the drain could not finish, and
       # where the next container picks them up. A named path under DATA_DIR

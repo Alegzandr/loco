@@ -107,7 +107,11 @@ export function Lobby({
   return (
     <div className={styles.container}>
       <div className={styles.topBar}>
-        <Preferences defaultOpen={initialPrefsOpen} />
+        {/* The one screen where the gear stands down on a phone: this is the
+            only screen the home page's burger is on, and its drawer carries a
+            Preferences row already. Everywhere past a taken seat that drawer is
+            gone with the footer, so the chip stays at every width there. */}
+        <Preferences defaultOpen={initialPrefsOpen} triggerBelowPhone={false} />
         <AudioSettings />
         <RulesButton label={t.rulesBtn} onClick={() => setShowRules(true)} />
       </div>
