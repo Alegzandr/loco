@@ -133,7 +133,7 @@
   {#if scene.screen === 'cards'}
     <CardSheet />
   {:else if scene.screen === 'og'}
-    <OgCard />
+    <OgCard variant={scene.ogVariant ?? 'default'} />
   {:else if scene.screen === 'lobby'}
     <Lobby
       onSend={noop}

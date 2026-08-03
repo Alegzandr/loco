@@ -18,6 +18,7 @@ import {
   startGame,
   getState,
   sendMsg,
+  winWith,
   waitForRoundSummary,
   waitForGameOver,
   clickContinue,
@@ -39,7 +40,7 @@ async function winBO1(page: import('@playwright/test').Page): Promise<void> {
     pendingDraw: 0,
     currentTurn: myIdx,
   })
-  await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+  await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
   await waitForRoundSummary(page, 20_000)
   await clickContinue(page)
   await waitForGameOver(page, 30_000)

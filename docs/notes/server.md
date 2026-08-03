@@ -283,6 +283,56 @@ Two details that are not arbitrary:
 so nothing here retains an address the rest of the server has already decided not to keep. 64 is high
 enough for a household, a LAN party or an office behind one address.
 
+### Which network, though
+
+Both ceilings above are per network, and **in production this server never sees one**. The path is
+browser → Cloudflare → Traefik → nginx → here, so `r.RemoteAddr` is the nginx container on the
+`internal` Docker network and it is the same address for every player alive. Read it directly and the
+two ceilings stop being per network:
+
+- `MaxConnsPerNet` becomes the total number of sockets the site can hold. The 65th player anywhere is
+  refused with a 429 **before the upgrade**, and `conns_refused` climbs while `clients` sits at 64.
+- `MaxFailedJoins` becomes global. Twenty mistyped codes across everybody, and `join_room` is refused
+  site-wide for the rest of the minute.
+- Every `addr=` in the log is a constant, which leaves `conn=` as the only correlator and quietly
+  removes the one field an operator reads to tell two networks apart.
+
+None of that fails loudly. It reads as "the game refuses everybody past 64 players" and blames one
+address in the log while doing it.
+
+So the network is decided once, by `clientNet` (`hub/privacy.go`), and kept on `Client.netKey`, which
+is what admission, the failed-join budget and `netPrefix` all answer with. It reads `ClientIPHeaders`
+in order — `CF-Connecting-IP`, then `X-Real-IP`, `LOCO_CLIENT_IP_HEADERS` to change them — **and only
+when the peer is a trusted proxy**, `TrustedProxies` / `LOCO_TRUSTED_PROXIES`, defaulting to loopback
+and the private ranges. That default is not laxity: the Go container publishes 8080 on `internal`
+only (`expose`, never `ports`), so nginx is the single peer that can reach it and a public address
+never arrives here at all.
+
+**Two headers because production has two paths to this server, and one player can use both inside a
+single match.** The page and everything cacheable go through the CDN, which sets `CF-Connecting-IP`.
+The socket is dialled on a hostname resolved outside it, where nothing sets that header and Traefik
+is what overwrites `X-Real-IP` with the peer it accepted. **The order is a security property, not a
+preference**: on the proxied path a client can put an `X-Real-IP` of its own invention on the request
+and the CDN forwards it, so the header the CDN itself controls has to be read first.
+`TestClientNetPrefersTheHeaderTheProxySets` is that assertion.
+
+Three things it refuses to believe, each of which would hand somebody a private budget:
+
+- **A header from an untrusted peer.** It is a claim about a network, not a report of one.
+- **A multi-value header.** This is why the default is `CF-Connecting-IP` and not `X-Forwarded-For`:
+  Cloudflare *sets* the former and *appends* to the latter, so the leftmost `X-Forwarded-For` entry is
+  whatever the client invented. Anything with a comma in it falls back to the peer.
+- **An unparseable or empty one.** A topology nobody described, so the peer stands.
+
+The forwarded address is truncated on the way in like every other, so the fallback is exactly the
+behaviour that came before and no full address ever reaches a counter, a map key or a log line.
+
+`client/nginx.conf` restates the header on `/ws` with `proxy_set_header`. That is a no-op — nginx
+forwards it untouched already — and it is there so the dependency is visible in the block that
+carries it rather than inferred from its absence. An IPv6 player arrives as an IPv6 address and is
+truncated to the routed `/48`, which is why nothing in this stack needs Cloudflare's Pseudo IPv4: it
+exists for origins that cannot parse one.
+
 `conns_refused` on `/metrics` is a load signal, not an incident, until it climbs.
 
 ## A wrong table code is not free any more
@@ -327,6 +377,14 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   :5173, Go on :8080) with no configuration. `LOCO_ALLOWED_ORIGINS` (comma-separated) overrides it
   with an exact allowlist, and once set it is the *whole* rule. A missing `Origin` is not a browser
   and is allowed.
+
+  **In production that default rule no longer holds, and `LOCO_ALLOWED_ORIGINS` is now mandatory
+  there.** The page is served from `ohloco.com` and the socket is dialled on `ws.ohloco.com`, so the
+  `Origin` hostname and the request `Host` are deliberately different and every upgrade would be
+  refused — as a *refused upgrade*, which the client cannot tell from the server being down. The
+  allowlist names **the page's origin, never the socket's**: it is the document that opens the
+  connection. `write_app_env` in `.gitlab-ci.yml` writes `https://${APP_HOST}` for both environments;
+  the value committed in `deploy/app.env` is the shape.
 - **`nginx.conf` sends the security headers** the client was already built for: a closed CSP (no
   CDN, no analytics, self-hosted fonts), `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
   `script-src` has no `'unsafe-inline'`; `style-src` must (Astro inlines every stylesheet, and the

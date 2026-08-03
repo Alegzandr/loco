@@ -204,17 +204,30 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
     // The server block has to include them once, or nothing inherits anything.
     expect(conf, 'nginx.conf never includes the security headers').toContain(SNIPPET)
 
-    // Every `location … { … }` in the file, by brace matching from its opening.
+    // Every `location … { … }` served by this image, by brace matching from its
+    // opening. ws-proxy.conf is scanned beside nginx.conf because the socket's
+    // location lives there now — two server blocks include it — and a guard that
+    // stopped at the file it was written against would have narrowed silently
+    // the moment that block moved.
+    const sources = [
+      { name: 'nginx.conf', text: conf },
+      { name: 'ws-proxy.conf', text: readFileSync(path.join(CLIENT, 'ws-proxy.conf'), 'utf8') },
+    ]
     const blocks: { spec: string; body: string }[] = []
-    const opener = /location\s+([^{]+?)\s*\{/g
-    for (let m = opener.exec(conf); m; m = opener.exec(conf)) {
-      let depth = 1
-      let i = m.index + m[0].length
-      for (; i < conf.length && depth > 0; i++) {
-        if (conf[i] === '{') depth++
-        else if (conf[i] === '}') depth--
+    for (const { name, text } of sources) {
+      const opener = /location\s+([^{]+?)\s*\{/g
+      for (let m = opener.exec(text); m; m = opener.exec(text)) {
+        let depth = 1
+        let i = m.index + m[0].length
+        for (; i < text.length && depth > 0; i++) {
+          if (text[i] === '{') depth++
+          else if (text[i] === '}') depth--
+        }
+        blocks.push({
+          spec: `${m[1].trim()} (${name})`,
+          body: text.slice(m.index + m[0].length, i - 1),
+        })
       }
-      blocks.push({ spec: m[1].trim(), body: conf.slice(m.index + m[0].length, i - 1) })
     }
     expect(blocks.length, 'no location block was parsed — this guard is asserting nothing').toBeGreaterThan(2)
 

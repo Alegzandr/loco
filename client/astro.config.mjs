@@ -51,7 +51,15 @@ export default defineConfig({
     // the xhtml:link pairs in the XML; the <link rel="alternate"> tags in the
     // page head come from src/seo/meta.ts. Both are worth having: the head links
     // are what Google reads most reliably, the sitemap is what it discovers.
-    sitemap({ i18n: { defaultLocale: 'en', locales: { en: 'en-US', fr: 'fr-FR' } } }),
+    sitemap({
+      // The integration walks the *emitted* pages, not `src/seo/meta.ts`, so
+      // keeping the invite page out of `PAGES` is not enough on its own: `/i/`
+      // shipped in the sitemap the first time it was built. It is a door
+      // somebody was handed, it is served `noindex`, and a sitemap entry for it
+      // asks Google to crawl a page that then refuses to be indexed.
+      filter: (page) => !/\/i\/$/.test(page),
+      i18n: { defaultLocale: 'en', locales: { en: 'en-US', fr: 'fr-FR' } },
+    }),
   ],
 
   // Astro's dev toolbar floats over the bottom of the page, which is where the

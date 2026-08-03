@@ -58,6 +58,7 @@ func winMatchFromHostTurn(t *testing.T, host *websocket.Conn, others ...*websock
 		readMsgOfType(t, c, protocol.SMsgGameState)
 	}
 
+	declareBeforeWinning(t, host)
 	sendMsg(t, host, protocol.ClientMsg{Type: protocol.CMsgPlayCard, Card: &winCard})
 	readMsgOfType(t, host, protocol.SMsgMatchEnd)
 	for _, c := range others {

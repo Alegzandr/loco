@@ -329,6 +329,61 @@ polish.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ## Client transport
+
+### The socket does not go through the CDN, and that is worth 380 ms a message
+
+Production serves the page from `ohloco.com` and dials the socket at `ws.ohloco.com`, a hostname that
+resolves straight to the origin. The reason is a measurement, not a preference. From a Paris
+connection to a Paris origin, on a socket **already established** — so no handshake, no certificate,
+no DNS in the number:
+
+| | round trip |
+| --- | --- |
+| through the CDN | 228–696 ms, median **389 ms** |
+| direct to the origin | 7.1–10.6 ms, median **8.5 ms** |
+
+The same edge answered two other zones in 40 ms at the same moment, so this is the CDN's path to
+*this* origin rather than the player's path to the CDN, and it congests by the hour. It is also not a
+page-load cost paid once: it is every card, every catch and every interrupt, and **an interrupt is
+decided by arrival order at the server**, which makes it the mechanic rather than the polish.
+
+Only the socket leaves. The HTML, the bundle and the images all still want the edge and the cache.
+
+- **`webSocketPolicy.ts` decides the address, `webSocket.svelte.ts` only dials it.** `wsEndpoints()`
+  returns the pair — `direct` (null unless the build named one) and `proxied` (always) — and `wsUrl()`
+  picks. Both are pure, so `wsEndpoint.test.ts` needs no DOM and no socket.
+- **`VITE_WS_ORIGIN` is baked in at build time**, like `VITE_PUBLIC_ORIGIN` and for the same reason:
+  the client image is built per environment. `.gitlab-ci.yml` passes it **on a tag only** — dev has no
+  such hostname, no DNS record, no certificate for one, and does not have the problem either.
+- **The scheme comes from the page, never from the value.** A `wss://` written into an http://
+  deployment (or the reverse) is mixed content, which the browser refuses *before* attempting the
+  socket: it fails as silence and reads exactly like the server being down.
+- **The fallback is one-way, and the CSP has to keep allowing it.** After
+  `DIRECT_FAILURES_BEFORE_FALLBACK` (3) sockets that closed *without ever opening*, the client goes
+  back to the page's own origin for the rest of the page's life. Three, because that is about two
+  seconds of backoff; one-way, because resetting it on every successful connection would spend those
+  three failures again at every drop. A socket that opened and later dropped is a network event and
+  resets nothing — only a socket that never opened is evidence against the hostname. This exists
+  because **the direct hostname's certificate is the one thing in this stack that nothing renews and
+  nothing here can see expire**: a slow game beats a dead one, and a page reload is what tries the
+  direct hostname again.
+- **`security-headers.conf` carries `__WS_DIRECT_ORIGIN__`, substituted by `client/Dockerfile` from
+  the same build-arg the bundle gets**, so the policy and the socket cannot disagree. The build
+  *fails* rather than shipping an unsubstituted placeholder — a policy naming a literal
+  `__WS_DIRECT_ORIGIN__` blocks the socket the game is about to dial and reports it nowhere.
+- **The server has to be told.** `hub.originAllowed`'s default rule is "the `Origin`'s hostname equals
+  the request's `Host`", which two different hostnames do not satisfy, so production sets
+  `LOCO_ALLOWED_ORIGINS` to the **page's** origin. Without it every upgrade is refused, and a refused
+  upgrade is indistinguishable from a server that is down. See
+  [`docs/notes/server.md`](server.md).
+- **nginx serves the socket and a 404 on that hostname** (`server_name ws.*`), never the SPA: serving
+  the site there too would publish the whole thing under a second hostname with only the canonical
+  arguing against it. Both server blocks `include ws-proxy.conf`, because a socket reconnecting onto
+  the fallback must reach a server that cannot tell the difference — the seat it is reclaiming was
+  taken on the other one.
+
+### The rest of the transport
+
 - **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and Astro does not expose that name
   by default.** Astro narrows Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
   in the transformed module verbatim and reading `undefined` in the browser, with no warning at any
@@ -537,30 +592,58 @@ minus `I`, `O`, `0` and `1`.
 ## The link a table is shared with
 `hooks/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
 carrying the code (`tableInviteUrl`), not the six characters. On the other end, `initTableInvite`
-reads that code off the URL before the first render and `App` acts on it.
+reads that code off the URL before the first render and `App` acts on it. The URL is `/i/CODE`, a
+page of its own, and `src/pages/i/index.astro` plus `seo/meta.ts`'s `INVITE` are the other half of
+this section.
 
 - **Why a link at all.** A code costs the receiver three steps: read it, retype it without a slip,
   and find the screen to type it into. A link costs one tap, and the seat is the only thing on the
   other side of it. The code stays on screen, unchanged: it is what a stream reads out loud and what
   somebody already sitting at the join form types.
-- **It is `?t=CODE` on the home page, never `/t/CODE`.** Every URL here is a page the build emitted,
-  and `client/nginx.conf` deliberately answers a miss with a real 404 rather than the app, so there
-  is no catch-all a path form could route through — and a static build cannot emit one page per
-  table. The query form costs two characters, works identically under `astro dev`, the preview server
-  and nginx, and needs nothing added to the server config.
-- **The link carries no language.** It is always `/?t=…`, whichever language it was copied from. A
+- **It is `/i/?t=CODE`, and the page is the point.** It used to be `?t=CODE` on the home page, and
+  the reason it moved is the one thing a link does that the game cannot: it gets pasted into a chat
+  window, which unfurls it. An unfurler reads the *served* HTML and runs no script, so every
+  invitation previewed as "LOCO, a card game" — true, and not what somebody is being handed. `/i/`
+  is `noindex`, carries the invitation's own title, description and art (`seo/meta.ts`: `INVITE`,
+  `INVITE_OG`), and is the home page in every other respect: same mount, same bundle, same game,
+  through `GamePage` with `chrome={false}`.
+- **The code stays a query parameter, and `/i/CODE` was tried and rejected.** A path form is not a
+  page the build emitted — a static build cannot emit one per table — so it needs a fallback in
+  whoever serves the request. nginx can do that in four lines. `astro dev` cannot be made to at all,
+  and this is worth writing down because all three attempts looked correct: a Vite plugin's
+  `configureServer` never fires under Astro 7 (it does under Vitest, which is what makes it look
+  wired up), `astro:server:setup` fires but its middleware never sees the URL even at the head of
+  the connect stack — Astro routes first and answers the 404 itself — and a dynamic entry in
+  `redirects` refuses to start the server without an SSR adapter. So a path form would resolve in
+  production and 404 under `make dev` and the entire Playwright suite: a link a developer cannot
+  open and the E2E suite cannot exercise, in exchange for three characters. The query form is the
+  same URL in every environment and needs nothing in `nginx.conf`.
+
+- **The link carries no language.** It is always `/i/?t=…`, whichever language it was copied from. A
   link gets forwarded, and the person who copied it does not know who ends up pressing it, so
   shipping `/fr/` would decide the reader's language from the other side of the table. That choice
   belongs to whoever opens it and the i18n provider already makes it (a stored choice, then the
-  browser). An incoming `/fr/?t=…` still works — `initTableInvite` reads the parameter on any page —
-  it is simply not what the button hands out.
-- **The code is spent on arrival.** `initTableInvite` takes the parameter back out of the address bar
-  with `replaceState` before anything else looks at it. Three reasons, and any one of them is enough:
-  a reload must not re-join a table the player has since left (a reload's job is the seat reclaim
+  browser). It is also why `/i/` is served with **no `data-served-lang`**: `initLangUrl` treats a
+  missing attribute as "nothing to disagree with" and leaves the document where it is, so an
+  invitation never bounces through a redirect on its way to a table.
+- **The parameter is only read on `/i/`.** It used to be read on every page, because `/?t=CODE` is
+  what the button handed out before the invite page existed. One URL is an invitation now, and this
+  runs on every page load: reading a `?t=` anywhere would let a query string somebody put on the
+  home page seat a player. Elsewhere it is left in the address bar untouched, like every other
+  parameter this module was not asked about. Both spellings of the page are read, though — nginx
+  resolves `/i` through `try_files $uri/`, so a link that lost its slash in a chat client is still
+  an invitation.
+- **The code is spent on arrival.** `initTableInvite` takes it back out of the address bar with
+  `replaceState` before anything else looks at it. Three reasons, and any one of them is enough: a
+  reload must not re-join a table the player has since left (a reload's job is the seat reclaim
   below), a code sitting in the address bar is a code on stream in the one place `TableCode`'s blur
-  cannot reach, and a URL copied later would keep pointing at a table that has closed. The parameter
-  is dropped by string surgery rather than by `searchParams.delete` + `url.search`: re-encoding the
-  query rewrites the parameters it was not asked about, and `?showcase` comes back as `?showcase=`.
+  cannot reach, and a URL copied later would keep pointing at a table that has closed. **Spending it
+  on the invite page spends the page too**: what is left in the address bar is `/`, because `/i/`
+  with no code is a door with nothing behind it and a reload has to arrive somewhere real. This is
+  `replaceState` rather than a navigation, so the game itself carries on untouched. The parameter is
+  dropped by string surgery rather than by `searchParams.delete` +
+  `url.search`: re-encoding the query rewrites the parameters it was not asked about, and
+  `?showcase` comes back as `?showcase=`.
 - **A link outranks a stale reclaim, unless they name the same table.** A record naming another room
   is cleared, because following a link is a fresh intent and the tab would otherwise be sent back
   where it was last. A record naming *this* room is left alone: that is a seat to reclaim, which is
@@ -850,9 +933,11 @@ serves the whole document in the other language — but nothing answered it for 
   both refused — with nothing to compare against, every load would redirect to where it already is.
 - **It runs before `initTableInvite()` and it carries the query string.** The invite is spent on
   arrival, so redirecting after that call would drop a guest at a home page with no table in it. Done
-  in this order, `/?t=ABC234` with French stored lands at `/fr/` with the code already in the join
-  form. `location.replace`, never `assign`: an extra history entry would leave Back pointing at a URL
-  that redirects straight back, and the way out of the game would be a trap.
+  in this order, nothing one-shot is spent on a document that is about to be thrown away.
+  `location.replace`, never `assign`: an extra history entry would leave Back pointing at a URL that
+  redirects straight back, and the way out of the game would be a trap. An invitation is never
+  redirected at all: `/i/` is served with no `data-served-lang`, which this function already reads as
+  nothing to disagree with, so the reader's own language is resolved in place.
 
 The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
 makes an `hreflang` pair navigable and a crawler follows nothing else — and `theme-boot.ts` adds one

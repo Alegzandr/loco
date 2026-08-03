@@ -105,15 +105,67 @@ reason, as `IsMissedCatch` and `IsLostRace`: a refusal has a *kind*, and the hub
 a string it is free to reword.
 
 ## Interrupts & batch play
-- **Identical-card interrupt** (`Room.InterruptPlayCards(playerIndex, cards, chosenColor, chosenPlayer)`, alias `InterruptPlay`): **anyone** plays N identical cards exactly matching top discard. Effect applies from interrupter's seat; they become turn leader.
+- **Identical-card interrupt** (`Room.InterruptPlayCards(playerIndex, cards, chosenColor, chosenPlayer, declareLoco)`, alias `InterruptPlay`, which passes `false` because a single card can only empty a hand that was already down to one): **anyone** plays N identical cards exactly matching top discard. Effect applies from interrupter's seat; they become turn leader.
 - **There is no deadline and no excluded player.** The player who just played may take the lead back with a second copy, and so may the current player. Everything is a race decided by arrival order. Removing those two restrictions is what makes the mechanic feel realtime instead of turn-based — do not reinstate them.
 - **Every kind can interrupt, wilds included**: Wild on Wild, WildDrawFour extends a +4 chain, GlobalSwitch rotates hands from the interjecter's seat. Wilds share `Color: Wild`, so plain equality still keeps a Wild off a WildDrawFour. **Every** wild interject must name a real colour (`chosenColor != Wild`), GlobalSwitch included.
 - **Batch interrupt**: send N copies via `play_cards: [...]`. Effects stack (N DrawTwo = `2*N` pending; N Skips skip N players; N Reverses parity-flip). Swap and GlobalSwitch can't batch (which target? how many rotations?).
 - During a draw chain (`PendingDraw > 0`) only DrawTwo/WildDrawFour may interject — implied by identical-to-top in a consistent state, kept explicit as a guard.
 - Window state on `GameState`: `LastPlayBy` (-1=closed), `LastPlayAt` (informational). Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`/`CounterDraw`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end. Opening discard does NOT arm.
 - Resolution: fastest-server-received wins (single-goroutine event loop serializes).
-- Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards? }` — `play_cards` non-empty takes precedence. Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
+- Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards?, declare_loco? }` — `play_cards` non-empty takes precedence, and `declare_loco` is only read when the batch empties the hand (see the gate above). Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
 - **Batch play** (`Room.PlayCards`): current player plays N identical via `play_cards` (precedence over `card`). Effects stack (DrawTwo `2*N`, WildDrawFour `4*N`, Skips skip N, Reverses parity). Swap/GlobalSwitch excluded.
+
+## Forgetting LOCO! and winning anyway (the gate)
+`requireLocoToFinish(playerIndex, playing, declaring)` + `ErrMustDeclareLoco`, `docs/rules.md` §14.7.
+
+**The hole it closed.** The declaration used to be enforced by the catch alone, which made it a 5 s
+risk rather than an obligation: go down to one card, survive the window nobody was watching, win a
+turn later having told the table nothing. And there was a second, louder version of the same hole —
+a hand of **two identical cards played as one batch**. That hand goes 2 → 0. It never passes through
+one card, so `updateLastCardState` never fires, no window ever opens, no `catch_seats` ever names
+the seat, and the LOCO! button is never even offered. Sent as an *interject*, it takes the round out
+of turn, instantly, off a hand nobody at the table saw drop to one. The game's loudest moment simply
+did not happen, and a game built to be watched cannot have its ending arrive unannounced.
+
+**Two branches, and the difference is who had the opportunity.**
+- `playing == 1`: the seat has held that card since before this message, so the call was possible
+  and a whole window existed to make it in. Only `LastCardDeclared[seat]` counts. A flag on the
+  message would let the client fold the obligation into the winning tap, which is the same as not
+  having the rule at all.
+- `playing >= 2`: no declaration was ever possible, so none can be demanded of the past. The message
+  carries it (`declare_loco`), the domain records it through `declareForFinish` — which sets the
+  flag **and** logs `EventUnoDeclared`, because the log and the broadcast read the state, never the
+  message — and `hub.announceFinishingLoco` puts `uno_declared` on the wire **before** `card_played`.
+  That hub-side condition is read off the domain (`len(cards) >= 2 && hand is now empty`), not off
+  `msg.DeclareLoco`: the domain has already refused the batch if the call was absent.
+
+**Nobody is trapped by it.** `DeclareLastCard` accepts a late call at any point while the hand is one
+card — the window being shut does not close the button. So forgetting costs the risk of being caught
+and one extra press, never the round. `TestPlayCard_LastCardWithoutTheCallIsRefused` owns that
+recovery, and it is the reason this is a gate rather than a penalty.
+
+**All four win paths ask.** `PlayCard`, `PlayCards`, `InterruptPlayCards`, `CounterDraw` — the same
+four `finishRoundWin` lists. The check sits **last in each validation block**, so an illegal card is
+still refused as illegal and only an otherwise-good play is asked whether the table was warned; and
+it sits **before any mutation**, so a refusal leaves the hand, the pile and the turn untouched.
+
+**It is not a suspicious refusal.** `IsLostRace` covers it: a player forgetting is what the rule is
+about, and counting it would make `suspected_cheats` a measure of how badly the table played. It is
+deliberately **not** an `IsStateMismatch` either — the client's board is correct, so a resync would
+answer a question nobody asked.
+
+**Bots.** A bot's declaration is deferred on purpose (`BotUnoDelay`) so humans can win the race,
+which leaves a window where a bot holds one undeclared card and its turn has already come round.
+`hub.botDeclareBeforeFinish` makes the call first on the ordinary turn, the counter and the
+single-card interject; a bot's finishing batch passes `declareLoco: true`. Without it the domain
+refuses, `botPlay` logs and returns **without rescheduling**, and the seat stops playing for the rest
+of the round — a bot that goes quiet does not fail, it just stops.
+
+**Fixtures.** Any test that drives a round to its end now makes the call: `declareLast` in the
+domain suite, `declareBeforeWinning` over the wire in the hub suite. Three hub fixtures went the
+other way and were given a **second card** instead (`drain_test`, `snapshot_test`,
+`TestPlayCard_NonSwapOmitsChosenPlayer`): they assert that a play resolves, not that a round can be
+won, and a one-card hand had made them finishes by accident.
 
 ## LOCO! declaration & catch windows (per seat)
 - **Receiving your last card owes the table a declaration, exactly like playing down to it**

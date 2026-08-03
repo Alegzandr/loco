@@ -11,13 +11,32 @@ import { createRoom, forceEnglish, waitForSocket, T } from '../helpers/game'
  */
 
 test.describe('joining on a table link', () => {
+  // The half no unit test can reach: what a chat client is actually served when
+  // the link is pasted into it. An unfurler reads this HTML and runs no script,
+  // so if the invite URL resolved to the home page the link would still work
+  // perfectly and still preview wrong — a failure nobody on the team would ever
+  // see, because nobody on the team looks at their own link previews.
+  test('is a page of its own, and says it is an invitation', async ({ page }) => {
+    const res = await page.goto('/i/?t=ABC234')
+    expect(res?.status()).toBe(200)
+
+    const meta = (property: string) =>
+      page.locator(`meta[property="${property}"]`).getAttribute('content')
+    expect(await meta('og:title')).toBe('A seat is being held for you')
+    expect(await meta('og:image')).toContain('og.invite.png')
+    // A duplicate of the home page owes the index this much.
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/)
+    await expect(page.locator('link[rel="canonical"]')).toHaveCount(0)
+  })
+
+
   test('asks the arriving player for a name, with the code already in', async ({ browser }) => {
     const host = await browser.newPage()
     const code = await createRoom(host, 'Alice')
 
     const guest = await browser.newPage()
     await forceEnglish(guest)
-    await guest.goto(`/?t=${code}`)
+    await guest.goto(`/i/?t=${code}`)
     await guest.waitForLoadState('domcontentloaded')
     await waitForSocket(guest)
 
@@ -25,8 +44,10 @@ test.describe('joining on a table link', () => {
     const codeField = guest.getByPlaceholder(T.roomCodeLabel)
     await expect(codeField).toHaveValue(code)
     // And the code is out of the address bar: a reload must not re-join, and a
-    // copied URL must not keep carrying a table that has since closed.
-    expect(new URL(guest.url()).search).toBe('')
+    // copied URL must not keep carrying a table that has since closed. It lands
+    // on the home page, because `/i/` with no code is a door with nothing behind
+    // it and a reload has to arrive at a page.
+    expect(new URL(guest.url()).pathname).toBe('/')
 
     await guest.getByPlaceholder(T.yourNickname).fill('Bob')
     await guest.getByRole('button', { name: T.joinGame }).click()
@@ -57,7 +78,7 @@ test.describe('joining on a table link', () => {
         // noop
       }
     })
-    await guest.goto(`/?t=${code}`)
+    await guest.goto(`/i/?t=${code}`)
 
     await guest.waitForFunction(
       () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',

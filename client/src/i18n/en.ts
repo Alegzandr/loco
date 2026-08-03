@@ -52,6 +52,7 @@ export interface ErrorCopy {
   batchMismatch: string
 
   // LOCO declaration & catch
+  mustDeclareBeforeWinning: string
   declareTooEarly: string
   alreadyDeclared: string
   catchExpired: string
@@ -753,6 +754,7 @@ export const en: Translations = {
     batchNotAllowed: 'Swap and Global Switch go down one at a time.',
     batchMismatch: 'Cards played together must be identical.',
 
+    mustDeclareBeforeWinning: 'Call LOCO first, then take it.',
     declareTooEarly: 'Call LOCO on your last card, not before.',
     alreadyDeclared: 'Already called.',
     catchExpired: 'The window has closed.',

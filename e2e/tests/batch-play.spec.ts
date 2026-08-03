@@ -13,6 +13,8 @@
  *   - batch play (current player, N identical cards) leaves no phantom copies
  *   - the resulting hand still plays: the next card is accepted by the server
  *   - a batch +2 stacks 2N on the wire
+ *   - a slam that empties the hand is refused without the LOCO! call it has to
+ *     carry, and takes the round with it (docs/rules.md §14.7)
  *
  * Prerequisites: server with LOCO_E2E=1 on :8080.
  */
@@ -28,6 +30,7 @@ import {
   debugSetState,
   waitForMyTurn,
   waitForTableOpen,
+  waitForGameOver,
 } from '../helpers/game'
 
 const red5 = { color: 'red', kind: 'number', value: 5 } as const
@@ -200,6 +203,79 @@ test.describe('batch play', () => {
       const after = await getState(bob)
       expect(after!.errorMsg ?? '').toBe('')
       expect(after!.myHand.map((c) => c.color)).toEqual(['blue'])
+    } finally {
+      await Promise.all(ctxs.map((c) => c.close()))
+    }
+  })
+
+  /**
+   * The batch that empties the hand: two identical cards slammed out of turn,
+   * taking the round from a hand that never passed through a single card.
+   *
+   * No catch window ever opens on that hand, so nobody could have called
+   * Contre-LOCO! and the LOCO! button was never offered — which is precisely why
+   * the server refuses the slam unless the message carries the call
+   * (docs/rules.md §14.7). This is the one finish where forgetting used to be
+   * free, and the only end-to-end place both halves of the rule meet: the
+   * refusal, and the win that follows the same slam once it declares.
+   */
+  test('a slam that takes the round is refused without the call and lands with it', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctxs = await Promise.all([browser.newContext(), browser.newContext()])
+    const [alice, bob] = await Promise.all(ctxs.map((c) => c.newPage()))
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
+
+      const aliceIdx = (await getState(alice))!.myIndex
+      const bobIdx = (await getState(bob))!.myIndex
+
+      // Bob holds exactly two identical cards: the whole hand goes down at once.
+      await debugSetState(alice, {
+        hand: [red5, blue7],
+        hands: [{ playerIndex: bobIdx, hand: [red5, red5] }],
+        discard: red3,
+        activeColor: 'red',
+        pendingDraw: 0,
+        currentTurn: aliceIdx,
+        direction: 1,
+      })
+
+      // Only a real play arms the interrupt window.
+      await sendMsg(alice, { type: 'play_card', card: red5 })
+      await bob.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.discard?.value === 5,
+        undefined,
+        { timeout: 5_000 },
+      )
+
+      // Silent slam: legal in every other respect, refused for the one thing it
+      // did not say. Nothing moves — not the hand, not the round.
+      await sendMsg(bob, { type: 'interrupt_play_card', play_cards: [red5, red5] })
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') !== '',
+        undefined,
+        { timeout: 5_000 },
+      )
+      const refused = await getState(bob)
+      expect(refused!.myHand).toHaveLength(2)
+      expect(refused!.screen).toBe('game')
+
+      // The same slam, carrying the call: the round is taken out of turn, and
+      // the table hears it first.
+      await sendMsg(bob, {
+        type: 'interrupt_play_card',
+        play_cards: [red5, red5],
+        declare_loco: true,
+      })
+      await waitForGameOver(bob)
+      expect((await getState(bob))!.myHand).toHaveLength(0)
     } finally {
       await Promise.all(ctxs.map((c) => c.close()))
     }

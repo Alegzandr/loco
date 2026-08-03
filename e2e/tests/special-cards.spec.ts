@@ -149,8 +149,16 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     const myIdx = initial?.myIndex ?? 0
     const opponentIdx = (initial?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
 
+    // Two cards, and the second one is what makes this a test of the Swap at
+    // all. A lone Swap empties the hand, and a hand-emptying Swap takes the
+    // round with its exchange *aborted* (rules.md §11.1) — so the fixture was
+    // asserting the abort path under the name of the swap, and is now refused
+    // outright for want of a LOCO! call (§14.7).
     await debugSetState(page, {
-      hand: [{ color: 'red', kind: 'swap' }],
+      hand: [
+        { color: 'red', kind: 'swap' },
+        { color: 'yellow', kind: 'number', value: 2 },
+      ],
       hands: [{ playerIndex: opponentIdx, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
       discard: { color: 'red', kind: 'number', value: 5 },
       pendingDraw: 0,
@@ -160,14 +168,14 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     await page.waitForFunction(
       (idx: number) => {
         const s = window.__LOCO_E2E__?.getState?.()
-        return s !== undefined && s.currentTurn === idx && (s.myHand?.length ?? 0) === 1 && s.myHand?.[0]?.kind === 'swap'
+        return s !== undefined && s.currentTurn === idx && (s.myHand?.length ?? 0) === 2 && s.myHand?.[0]?.kind === 'swap'
       },
       myIdx,
       { timeout: 8_000 },
     )
 
     const before = await getState(page)
-    expect(before?.myHand).toHaveLength(1)
+    expect(before?.myHand).toHaveLength(2)
 
     // Choose the bot as the swap target (first non-self, non-finished player).
     const opponents = (before?.players ?? []).filter(
@@ -233,8 +241,15 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     // Inject GlobalSwitch into hand with a neutral discard.
     // Pin the opponent's hand to a non-GlobalSwitch card so that after the
     // switch our new hand cannot accidentally contain another GlobalSwitch.
+    // Two cards for the same reason as the Swap fixture above: a lone
+    // GlobalSwitch empties the hand, which takes the round with the rotation
+    // aborted (rules.md §11.1) and is refused without the LOCO! call (§14.7).
+    // What this test is about is the picker and the colour it names.
     await debugSetState(page, {
-      hand: [{ color: 'wild', kind: 'global_switch' }],
+      hand: [
+        { color: 'wild', kind: 'global_switch' },
+        { color: 'yellow', kind: 'number', value: 2 },
+      ],
       hands: [{ playerIndex: opponentIdx, hand: [{ color: 'red', kind: 'number', value: 4 }] }],
       discard: { color: 'blue', kind: 'number', value: 3 },
       currentTurn: myIdx,
@@ -242,7 +257,7 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     })
 
     const before = await getState(page)
-    expect(before?.myHand).toHaveLength(1)
+    expect(before?.myHand).toHaveLength(2)
     expect(before?.myHand[0].kind).toBe('global_switch')
 
     // Tap it: the picker must open and nothing must have been played yet.

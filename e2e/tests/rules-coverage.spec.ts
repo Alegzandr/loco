@@ -39,6 +39,7 @@ import {
   debugSetState,
   waitForTableOpen,
   gameBoard,
+  winWith,
 } from '../helpers/game'
 
 async function waitForTurn(page: Page, idx: number, timeoutMs = 10_000) {
@@ -733,7 +734,9 @@ test.describe('rules coverage — Swap as last card (§13)', () => {
         currentTurn: aliceIdx,
       })
 
-      await sendMsg(alice, {
+      // The Swap is Alice's only card, so this play takes the round: it owes
+      // the call before it lands (§14.7).
+      await winWith(alice, {
         type: 'play_card',
         card: { color: 'red', kind: 'swap' },
         chosen_player: bobIdx,
@@ -872,7 +875,10 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
       // (Alice's leftover red 1 rotated to him).
       const bobHand = (await getState(bob))?.myHand ?? []
       expect(bobHand).toHaveLength(1)
-      await sendMsg(bob, { type: 'play_card', card: bobHand[0] })
+      // The rotation handed Bob a single card, which opens his catch window and
+      // owes the table a call — and that card is also the one that would take
+      // the round, so the call comes first (§14.7).
+      await winWith(bob, { type: 'play_card', card: bobHand[0] })
       await bob.waitForFunction(
         () => window.__LOCO_E2E__?.getState?.()?.discard?.kind === 'number',
         undefined, { timeout: 10_000 })
@@ -909,7 +915,9 @@ test.describe('rules coverage — GlobalSwitch (§7, §11.3, §13)', () => {
         currentTurn: aliceIdx,
       })
 
-      await sendMsg(alice, {
+      // Alice's only card, so the rotation is aborted and the round taken —
+      // behind the call every finish owes (§14.7).
+      await winWith(alice, {
         type: 'play_card',
         card: { color: 'wild', kind: 'global_switch' },
         chosen_color: 'blue',

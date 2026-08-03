@@ -12,6 +12,25 @@ export interface ColorPick {
   interrupt?: boolean
   counter?: boolean
   copies?: CardDTO[]
+  /** Set when `copies` is the whole hand — see `finishesTheHand`. */
+  declareLoco?: boolean
+}
+
+/**
+ * Whether a batch puts down every card the player is holding.
+ *
+ * That is the one finish nobody could announce in advance: a hand of two
+ * identical cards played at once never passes through a single card, so no catch
+ * window ever opened on it and the LOCO! button was never offered. The server
+ * refuses such a batch unless the message carries the call (`declare_loco`), so
+ * the tap that takes the round *is* the call — there is no earlier moment to
+ * make it in, and no second press to demand.
+ *
+ * Every other finish is gated on a declaration that already happened, and the
+ * flag says nothing about it.
+ */
+function finishesTheHand(batch: CardDTO[] | undefined, hand: CardDTO[]): boolean {
+  return batch !== undefined && batch.length >= hand.length
 }
 
 /** A Swap waiting on a target. */
@@ -70,11 +89,13 @@ export function cardPlay(params: PlayParams) {
       // Wilds can take the lead too, and they still need their colour named —
       // global_switch included: it rotates the hands *and* sets the colour.
       if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
+        const copiesForPrompt = card.kind === 'global_switch' ? undefined : batch
         colorPicker = {
           card,
           idx: cardIdx,
           interrupt: true,
-          copies: card.kind === 'global_switch' ? undefined : batch,
+          copies: copiesForPrompt,
+          declareLoco: finishesTheHand(copiesForPrompt, myHand),
         }
         return false
       }
@@ -82,7 +103,12 @@ export function cardPlay(params: PlayParams) {
         playerPicker = { card, idx: cardIdx, interrupt: true }
         return false
       }
-      params.onSend({ type: 'interrupt_play_card', card, play_cards: batch })
+      params.onSend({
+        type: 'interrupt_play_card',
+        card,
+        play_cards: batch,
+        declare_loco: finishesTheHand(batch, myHand),
+      })
       return true
     }
     // Answering a pending +2/+4 stack is its own message. Any matching draw card

@@ -25,6 +25,7 @@ import {
   waitForRoundNumber,
   clickContinue,
   debugSetState,
+  winWith,
 } from '../helpers/game'
 
 test.describe('round summary and match progression', () => {
@@ -42,7 +43,7 @@ test.describe('round summary and match progression', () => {
       pendingDraw: 0,
       currentTurn: myIdx,
     })
-    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
   }
 
   /**
@@ -156,7 +157,7 @@ test.describe('round summary and match progression', () => {
       pendingDraw: 0,
       currentTurn: myIdx,
     })
-    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
     await expect(page.getByText(T.winsRound, { exact: false })).toBeVisible({ timeout: 5_000 })
   })
 

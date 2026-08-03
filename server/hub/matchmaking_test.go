@@ -431,6 +431,7 @@ func finishRoundForSeat(t *testing.T, winner, other *websocket.Conn) {
 		},
 	})
 	readMsgOfType(t, winner, protocol.SMsgGameState)
+	declareBeforeWinning(t, winner)
 	sendMsg(t, winner, protocol.ClientMsg{
 		Type: protocol.CMsgPlayCard,
 		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},

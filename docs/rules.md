@@ -111,6 +111,8 @@ A player may interject with an identical Take 2 (or an identical Take 4) during 
 
 The LOCO! rule (Section 8) applies to interjections. Going from 2 → 1 card via interject still requires calling "LOCO!" with the same penalty for forgetting.
 
+Interjecting **every** card you hold — two identical cards played at once, taking the round out of turn — carries the call in the play itself (§14.7). That hand never passes through a single card, so no 5 s window ever opens on it and there is no earlier moment to announce it in: the tap that takes the round is the call.
+
 ### 6.7 Simultaneous Interjects
 
 If multiple players could interject: **the first message the server dequeues wins.** The hub's single-goroutine event loop serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
@@ -151,6 +153,10 @@ cannot be repeated while that card is held. A rearranging play that hands you a
 window opened by the seat you are calling on; if that seat's own "LOCO!" got
 there first — or its hand grew, or the window had just closed — the call misses
 and *you* draw **1 card** for it.
+
+**You cannot forget the call and still take the round** (§14.7). The play that
+empties your hand is refused until the call has been made, whichever of the four
+ways you empty it: a normal play, an interject, a counter, or a batch.
 
 ## 9. End of Round
 
@@ -210,6 +216,7 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Swap Cards: full hand swap with chosen opponent
 - [ ] Change Cards All Round: simultaneous hand rotation
 - [ ] LOCO! call at 2→1 cards; penalty = draw 2 if forgotten
+- [ ] A hand-emptying play is refused without the call (§14.7); a finishing batch carries it
 - [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card
 - [ ] Round ends on last card played
 - [ ] Scoring: correct point values, configurable mode/threshold
@@ -272,3 +279,24 @@ has to aim. One card is small enough that a genuine race stays worth entering an
 large enough that a blind call is not. It is the same wager seen from both sides
 of the table: the player who forgot risks 2 cards, the player who calls too early
 risks 1. Bots pay it on the same terms as humans.
+
+### 14.7 You Cannot Forget LOCO! and Win
+**SOLO rule**: the announcement is enforced only by the other players catching
+it. Survive the moment nobody noticed and the obligation evaporates — and a hand
+of two identical cards played together never creates the moment at all, because
+it goes from two cards to none without ever holding one.
+**LOCO rule**: the play that empties your hand is **refused** unless the call has
+been made. Two shapes, because they differ in who had the opportunity:
+- **Down to one card already** — you have held that card since before this play,
+  so you had the call to make and a whole window to make it in. Only a
+  declaration that already happened counts. Forgetting is not fatal: the call can
+  still be made, late, and the round taken immediately after. It costs the risk
+  of being caught and one press, never the game.
+- **Emptying two or more at once** — the hand never passed through a single card,
+  so no window opened and no declaration was ever possible. The play carries the
+  call itself, and the table hears "LOCO!" before it sees the round end.
+**Rationale**: the announcement is the game's loudest moment and the table's only
+warning that somebody is one card away. Enforced by the catch alone it was a 5 s
+risk rather than an obligation, and the batch finish skipped even that — taking
+the round out of turn, off a hand nobody saw drop to one, in total silence. A
+game built to be watched cannot have its ending arrive unannounced.

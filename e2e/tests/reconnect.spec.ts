@@ -30,6 +30,7 @@ import {
   debugSetState,
   waitForTableOpen,
   gameBoard,
+  winWith,
 } from '../helpers/game'
 
 async function waitForGameReady(page: Parameters<typeof getState>[0], timeout = 15_000) {
@@ -469,11 +470,10 @@ test.describe('WebSocket reconnect', () => {
       currentTurn: myIdx,
       pendingDraw: 0,
     })
-    await page.evaluate(() => {
-      window.__LOCO_E2E__?.send?.({
-        type: 'play_card',
-        card: { color: 'red', kind: 'number', value: 7 },
-      })
+    // The only card in hand, so this takes the round and owes the call (§14.7).
+    await winWith(page, {
+      type: 'play_card',
+      card: { color: 'red', kind: 'number', value: 7 },
     })
     await waitForRoundSummary(page, 20_000)
 

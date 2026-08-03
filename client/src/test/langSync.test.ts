@@ -57,11 +57,10 @@ describe('the language of a document', () => {
   })
 
   it('carries the query string and the fragment across', () => {
-    // `?t=CODE` is a table invitation. Dropping it would land a guest who
-    // followed a link at a home page with no table in it — and the redirect
-    // runs before `initTableInvite()` precisely so the code is still there.
-    // `?showcase=` is how the visual harness drives this page.
-    expect(langRedirect('en', 'fr', '?t=ABC42')).toBe('/fr/?t=ABC42')
+    // A parameter belongs to whoever put it there: `?showcase=` is how the
+    // visual harness drives this page, and dropping one on the way through
+    // would be this function editing a URL it was not asked about.
+    expect(langRedirect('en', 'fr', '?showcase=lobby')).toBe('/fr/?showcase=lobby')
     expect(langRedirect('fr', 'en', '?showcase=lobby', '#top')).toBe('/?showcase=lobby#top')
   })
 
@@ -134,9 +133,11 @@ describe('both halves of the site write the choice down', () => {
     expect(layout).toMatch(/<a\s+href=\{page\.path\[l\]\}/)
   })
 
-  it('runs the redirect before the invitation is spent', () => {
-    // `initTableInvite()` takes `?t=CODE` out of the address bar. Spending it
-    // and then navigating would drop the table on the floor.
+  it('runs the redirect before anything one-shot is spent', () => {
+    // A redirect throws this document away, so nothing that can only be read
+    // once may run ahead of it. `initTableInvite()` is the example: it takes the
+    // code out of the address bar, and spending it and then navigating would
+    // drop the table on the floor.
     const entry = readFileSync(path.join(CLIENT, 'src', 'entry.ts'), 'utf8')
     const redirect = entry.indexOf('initLangUrl()')
     const invite = entry.indexOf('initTableInvite()')

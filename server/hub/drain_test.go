@@ -120,7 +120,13 @@ func TestDrain_MatchInProgressKeepsPlaying(t *testing.T) {
 	sendMsg(t, active, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
 		Debug: &protocol.DebugStateDTO{
-			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 3}},
+			// Two cards: what is asserted is that a play still resolves during a
+			// drain, not that a round can be won, and a one-card hand would make
+			// this a finish and put the LOCO! gate in front of it.
+			Hand: []protocol.CardDTO{
+				{Color: "red", Kind: "number", Value: 3},
+				{Color: "blue", Kind: "number", Value: 9},
+			},
 			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
 			ActiveColor: "red",
 			PendingDraw: &zero,

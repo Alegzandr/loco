@@ -63,6 +63,20 @@ func readMsgOfType(t *testing.T, conn *websocket.Conn, typ protocol.ServerMsgTyp
 	return protocol.ServerMsg{}
 }
 
+// declareBeforeWinning makes the LOCO! call a seat owes before it plays the card
+// that takes the round. The server refuses a finish from a seat that never made
+// it (game.ErrMustDeclareLoco), so a fixture that drives a match to its end has
+// to press the same button a player does — otherwise the winning play comes back
+// refused and the test sits reading a round_end that is never coming.
+//
+// Nothing is read back here on purpose: the uno_declared this produces is one
+// more message in a stream every caller reads with readMsgOfType, which skips
+// what it is not looking for.
+func declareBeforeWinning(t *testing.T, conn *websocket.Conn) {
+	t.Helper()
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
+}
+
 // completeMapLoad takes every connection through the map-loading handshake that
 // now sits between game_started and the first legal move.
 //
@@ -2395,6 +2409,7 @@ func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
 
 	// Alice plays her last card → wins round 1 → BO3 dealing round 2.
+	declareBeforeWinning(t, conn1)
 	sendMsg(t, conn1, protocol.ClientMsg{
 		Type: protocol.CMsgPlayCard,
 		Card: &winCard,
@@ -2629,6 +2644,9 @@ func TestPlayCard_SwapBroadcastsChosenPlayer(t *testing.T) {
 	readMsgOfType(t, activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, observerConn, protocol.SMsgGameState)
 
+	// The swap is this seat's only card, so playing it takes the round: it owes
+	// the call first, exactly like any other finish.
+	declareBeforeWinning(t, activeConn)
 	sendMsg(t, activeConn, protocol.ClientMsg{
 		Type:         protocol.CMsgPlayCard,
 		Card:         &protocol.CardDTO{Color: "red", Kind: "swap"},
@@ -2688,7 +2706,13 @@ func TestPlayCard_NonSwapOmitsChosenPlayer(t *testing.T) {
 	sendMsg(t, activeConn, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
 		Debug: &protocol.DebugStateDTO{
-			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}},
+			// Two cards, so this is an ordinary play and not a finish: the
+			// assertion is about what card_played carries, and a one-card hand
+			// would drag the LOCO! gate into a test that says nothing about it.
+			Hand: []protocol.CardDTO{
+				{Color: "red", Kind: "number", Value: 7},
+				{Color: "blue", Kind: "number", Value: 9},
+			},
 			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
 			ActiveColor: "red",
 			PendingDraw: &zero,

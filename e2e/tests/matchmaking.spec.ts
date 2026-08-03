@@ -27,6 +27,7 @@ import {
   sendMsg,
   playCard,
   debugSetState,
+  declareLoco,
 } from '../helpers/game'
 
 test.describe('1v1 matchmaking', () => {
@@ -211,6 +212,9 @@ test.describe('1v1 matchmaking', () => {
         currentTurn: mySeat,
         direction: 1,
       })
+      // The winner is page1's only card, so the round is taken and the call
+      // comes first (docs/rules.md §14.7).
+      await declareLoco(page1)
       await playCard(page1, winner)
 
       for (const page of [page1, page2]) {
@@ -285,6 +289,9 @@ test.describe('1v1 matchmaking', () => {
         currentTurn: mySeat,
         direction: 1,
       })
+      // The winner is page1's only card, so the round is taken and the call
+      // comes first (docs/rules.md §14.7).
+      await declareLoco(page1)
       await playCard(page1, winner)
 
       await page2.waitForFunction(

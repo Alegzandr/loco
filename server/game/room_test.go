@@ -451,6 +451,7 @@ func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 	// BeginNextRound is now an explicit step (the hub calls it after broadcasting
 	// round_end) so the card_played broadcast for the round-winning play sees the
 	// pre-deal state instead of the new round's freshly-flipped first card.
+	declareLast(t, r, 1)
 	if err := r.PlayCard(1, bobCard, matchColor, -1); err != nil {
 		t.Fatalf("bob play: %v", err)
 	}
@@ -533,6 +534,7 @@ func TestRoom_CardValueScoring(t *testing.T) {
 	winCard := Card{Color: top.Color, Kind: Number, Value: top.Value}
 	r.State.Hands[0].Cards = []Card{winCard}
 
+	declareLast(t, r, 0)
 	err := r.PlayCard(0, winCard, winCard.Color, -1)
 	if err != nil {
 		t.Fatalf("PlayCard error: %v", err)
@@ -610,6 +612,7 @@ func TestRoom_RoundEnd_MatchNotOver_BO3(t *testing.T) {
 	r.State.Hands[0].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
 
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("round 1 PlayCard error: %v", err)
 	}
@@ -650,6 +653,7 @@ func TestRoom_BO1_MatchOver(t *testing.T) {
 	r.State.Hands[0].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Kind: Skip}}
 
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("PlayCard error: %v", err)
 	}
@@ -683,6 +687,7 @@ func TestRoom_MatchScoreAccumulation(t *testing.T) {
 		winCard := Card{Color: Red, Kind: Number, Value: 1}
 		r.State.Hands[winnerIdx].Cards = []Card{winCard}
 		r.State.Hands[loserIdx].Cards = loserCards
+		declareLast(t, r, winnerIdx)
 		if err := r.PlayCard(winnerIdx, winCard, winCard.Color, -1); err != nil {
 			t.Fatalf("PlayCard error: %v", err)
 		}
@@ -849,6 +854,7 @@ func TestRoom_RoundEndsImmediately_FirstFinisher(t *testing.T) {
 	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Skip}}
 	r.State.Hands[2].Cards = []Card{{Kind: WildDrawFour, Color: Wild}}
 
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 1}, Red, -1); err != nil {
 		t.Fatalf("alice play: %v", err)
 	}
@@ -900,6 +906,7 @@ func TestRoom_BiggestLoserStartsNextRound(t *testing.T) {
 	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Number, Value: 1}}
 	r.State.Hands[2].Cards = []Card{{Kind: Number, Value: 3}}
 
+	declareLast(t, r, 1)
 	if err := r.PlayCard(1, Card{Color: Red, Kind: Number, Value: 1}, Red, -1); err != nil {
 		t.Fatalf("bob play: %v", err)
 	}
@@ -1171,6 +1178,7 @@ func TestRoom_GlobalSwitchAsLastCard_DoesNotLeaveWildActive(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 9}}
 	r.State.ActiveColor = Red
 
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, gsCard, Green, -1); err != nil {
 		t.Fatalf("PlayCard GlobalSwitch as last card: %v", err)
 	}
@@ -1193,6 +1201,7 @@ func TestRoom_SwapAsLastCard_EndsRoundWithoutSwapping(t *testing.T) {
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 3}}
 	r.State.ActiveColor = Red
 
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, swapCard, Red, 1); err != nil {
 		t.Fatalf("PlayCard Swap as last card: %v", err)
 	}
@@ -1226,6 +1235,7 @@ func TestRoom_GlobalSwitchAsLastCard_EndsRoundWithoutRotating(t *testing.T) {
 	r.State.ActiveColor = Red
 	r.State.Direction = 1
 
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, gsCard, Green, -1); err != nil {
 		t.Fatalf("PlayCard GlobalSwitch as last card: %v", err)
 	}
@@ -1375,6 +1385,7 @@ func TestCounterDraw_WinClosesTheInterruptWindow(t *testing.T) {
 	counter := Card{Color: Red, Kind: DrawTwo}
 	r.State.Hands[1].Cards = []Card{counter}
 
+	declareLast(t, r, 1)
 	if err := r.CounterDraw(1, counter, Red); err != nil {
 		t.Fatalf("CounterDraw: %v", err)
 	}
@@ -1861,6 +1872,7 @@ func TestRoom_InterruptPlay_EmptiesHand_EndsRound(t *testing.T) {
 	r.State.Hands[2].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Color: Red, Kind: Skip}} // bob has 1 card (20 pts)
 
+	declareLast(t, r, 2)
 	if err := r.InterruptPlay(2, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("InterruptPlay finish: %v", err)
 	}
@@ -1951,6 +1963,7 @@ func TestRoom_InterruptPlay_SwapAsLastCard_EndsRoundWithoutSwapping(t *testing.T
 	}
 	r.State.Hands[1].Cards = append([]Card{}, bobHandBefore...)
 
+	declareLast(t, r, 2)
 	if err := r.InterruptPlay(2, swap, swap.Color, 1); err != nil {
 		t.Fatalf("InterruptPlay last-card swap: %v", err)
 	}
@@ -2005,7 +2018,7 @@ func TestRoom_PlayCards_StackedDrawTwo(t *testing.T) {
 	d2 := Card{Color: Red, Kind: DrawTwo}
 	r.State.Hands[0].Cards = []Card{d2, d2, d2, {Color: Blue, Kind: Number, Value: 4}}
 
-	if err := r.PlayCards(0, []Card{d2, d2, d2}, Red, -1); err != nil {
+	if err := r.PlayCards(0, []Card{d2, d2, d2}, Red, -1, false); err != nil {
 		t.Fatalf("PlayCards 3x +2: %v", err)
 	}
 	if r.State.PendingDraw != 6 {
@@ -2039,7 +2052,7 @@ func TestRoom_PlayCards_StackedSkip_SkipsMultiplePlayers(t *testing.T) {
 	skip := Card{Color: Red, Kind: Skip}
 	r.State.Hands[0].Cards = []Card{skip, skip, {Color: Yellow, Kind: Number, Value: 9}}
 
-	if err := r.PlayCards(0, []Card{skip, skip}, Red, -1); err != nil {
+	if err := r.PlayCards(0, []Card{skip, skip}, Red, -1, false); err != nil {
 		t.Fatalf("PlayCards 2x Skip: %v", err)
 	}
 	// One Skip alone takes turn from 0 to 2 (skips 1). Two Skips take it to 3.
@@ -2055,7 +2068,7 @@ func TestRoom_PlayCards_RejectsNonIdentical(t *testing.T) {
 	a := Card{Color: Red, Kind: Number, Value: 5}
 	b := Card{Color: Red, Kind: Number, Value: 6}
 	r.State.Hands[0].Cards = []Card{a, b}
-	if err := r.PlayCards(0, []Card{a, b}, Red, -1); err == nil {
+	if err := r.PlayCards(0, []Card{a, b}, Red, -1, false); err == nil {
 		t.Error("non-identical batch should be rejected")
 	}
 }
@@ -2066,7 +2079,7 @@ func TestRoom_PlayCards_RejectsBatchSwap(t *testing.T) {
 	r.State.ActiveColor = Red
 	swap := Card{Color: Red, Kind: Swap}
 	r.State.Hands[0].Cards = []Card{swap, swap}
-	if err := r.PlayCards(0, []Card{swap, swap}, Red, 1); err == nil {
+	if err := r.PlayCards(0, []Card{swap, swap}, Red, 1, false); err == nil {
 		t.Error("batch Swap must be rejected")
 	}
 }
@@ -2273,7 +2286,7 @@ func TestRoom_InterruptPlayCards_BatchSucceeds(t *testing.T) {
 	match := Card{Color: Red, Kind: Number, Value: 3}
 	r.State.Hands[2].Cards = []Card{match, match, match, {Color: Blue, Kind: Number, Value: 5}}
 
-	if err := r.InterruptPlayCards(2, []Card{match, match, match}, match.Color, -1); err != nil {
+	if err := r.InterruptPlayCards(2, []Card{match, match, match}, match.Color, -1, false); err != nil {
 		t.Fatalf("InterruptPlayCards: %v", err)
 	}
 	// All three cards should be on top of discard (initial + 3 = 4 entries).
@@ -2304,7 +2317,7 @@ func TestRoom_InterruptPlayCards_NotInHand_DoesNotMutate(t *testing.T) {
 	handLen := r.State.Hands[2].Size()
 	turnBefore := r.State.CurrentTurn
 
-	if err := r.InterruptPlayCards(2, []Card{match, match}, match.Color, -1); err == nil {
+	if err := r.InterruptPlayCards(2, []Card{match, match}, match.Color, -1, false); err == nil {
 		t.Fatal("batch interrupt with insufficient copies must be rejected")
 	}
 	if len(r.State.Discard) != discardLen {
@@ -2328,7 +2341,7 @@ func TestRoom_InterruptPlayCards_RejectsNonIdentical(t *testing.T) {
 	a := Card{Color: Red, Kind: Number, Value: 5}
 	b := Card{Color: Red, Kind: Number, Value: 6}
 	r.State.Hands[2].Cards = []Card{a, b}
-	if err := r.InterruptPlayCards(2, []Card{a, b}, Red, -1); err == nil {
+	if err := r.InterruptPlayCards(2, []Card{a, b}, Red, -1, false); err == nil {
 		t.Error("non-identical batch interrupt must be rejected")
 	}
 }
@@ -2414,6 +2427,7 @@ func TestRoom_BeginNextRound_RejectsAfterMatchOver(t *testing.T) {
 	winCard := Card{Color: top.Color, Kind: Number, Value: top.Value}
 	r.State.Hands[0].Cards = []Card{winCard}
 	r.State.Hands[1].Cards = []Card{{Kind: Number, Value: 5}}
+	declareLast(t, r, 0)
 	if err := r.PlayCard(0, winCard, winCard.Color, -1); err != nil {
 		t.Fatalf("PlayCard: %v", err)
 	}
@@ -2981,5 +2995,16 @@ func TestGameState_CatchWindowEnd(t *testing.T) {
 	}
 	if !r.State.catchWindowOpen(1, opened.Add(catchWindow-time.Millisecond)) {
 		t.Error("the window must still be open a millisecond before its end")
+	}
+}
+
+// declareLast makes the call a seat owes before it plays the card that takes the
+// round. Every fixture that ends a round goes through it, because the domain now
+// refuses a finish from a seat that never called LOCO! (ErrMustDeclareLoco) —
+// which is the rule, and the reason so many of these fixtures grew a line.
+func declareLast(t *testing.T, r *Room, seat int) {
+	t.Helper()
+	if err := r.DeclareLastCard(seat); err != nil {
+		t.Fatalf("DeclareLastCard(%d): %v", seat, err)
 	}
 }

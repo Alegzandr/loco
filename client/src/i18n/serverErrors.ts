@@ -71,6 +71,11 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   [/batch cards must be identical/i, 'batchMismatch'],
 
   // ── LOCO declaration & catch ─────────────────────────────────────────────
+  // The one refusal here that answers a tap on a perfectly legal card: the seat
+  // is about to take the round without ever having called. The copy has to send
+  // the player to the button rather than explain a rule, because the button is
+  // on screen and the round is one press away. See game.ErrMustDeclareLoco.
+  [/must call LOCO! before/i, 'mustDeclareBeforeWinning'],
   [/can only declare with exactly 1 card/i, 'declareTooEarly'],
   [/player already declared/i, 'alreadyDeclared'],
   [/catch window expired/i, 'catchExpired'],

@@ -1,7 +1,13 @@
 import * as v from 'valibot'
 import type { ClientMsg, ServerMsg } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
-import { reconnectDelay, type WsStatus } from './webSocketPolicy'
+import {
+  DIRECT_FAILURES_BEFORE_FALLBACK,
+  reconnectDelay,
+  wsEndpoints,
+  wsUrl,
+  type WsStatus,
+} from './webSocketPolicy'
 
 export type { WsStatus }
 export { reconnectDelay }
@@ -27,6 +33,11 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
   let unmounted = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let status = $state<WsStatus>('connecting')
+  // Sockets that closed without ever reaching OPEN, and whether that has already
+  // cost the direct hostname its turn. See webSocketPolicy.ts: the fallback is
+  // one-way for the life of the page.
+  let failedOpens = 0
+  let fellBack = false
 
   function connect() {
     if (unmounted) return
@@ -35,24 +46,26 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
     // below goes through here, so the guard lives here rather than at each.
     if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return
 
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    // VITE_WS_PORT is set in docker-compose.dev.yml to the Go server's port
-    // (8080). When present, connect directly to that port, bypassing the Vite dev
-    // server entirely (Vite's WS proxy is unreliable under Docker networking). In
-    // production VITE_WS_PORT is unset, so we fall back to same-origin /ws
-    // (served by nginx, which proxies to the Go backend).
-    const wsPort = import.meta.env.VITE_WS_PORT
-    const wsUrl = wsPort
-      ? `${proto}://${window.location.hostname}:${wsPort}/ws`
-      : `${proto}://${window.location.host}/ws`
-    if (import.meta.env.DEV) console.debug('[ws] connecting to', wsUrl)
+    // Which address, and why, is webSocketPolicy.ts. In short: production dials
+    // a hostname that bypasses the CDN, because the proxy costs 380 ms on every
+    // message, and falls back to the page's own origin if that hostname will not
+    // open at all.
+    const endpoints = wsEndpoints(window.location, import.meta.env)
+    const url = wsUrl(endpoints, fellBack)
+    if (import.meta.env.DEV) console.debug('[ws] connecting to', url)
 
-    const socket = new WebSocket(wsUrl)
+    const socket = new WebSocket(url)
     ws = socket
+    // Whether *this* socket ever opened. A socket that opened and later dropped
+    // is a network event; one that never opened is the endpoint being wrong, and
+    // only the second kind is evidence against the direct hostname.
+    let opened = false
     status = 'connecting'
 
     socket.onopen = () => {
       attempts = 0
+      opened = true
+      failedOpens = 0
       status = 'open'
       // If reconnecting into an active game (or lobby), re-authenticate first.
       const reconnectMsg = getReconnectMsg?.()
@@ -94,6 +107,13 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
       if (ws !== socket) return
       if (unmounted) return
       status = 'closed'
+      if (!opened && endpoints.direct !== null && !fellBack) {
+        failedOpens++
+        if (failedOpens >= DIRECT_FAILURES_BEFORE_FALLBACK) {
+          fellBack = true
+          console.warn('[ws] direct endpoint unreachable, falling back to', endpoints.proxied)
+        }
+      }
       // No ceiling. The schedule backs off and then holds; it never runs out.
       // See webSocketPolicy.ts: a client that stops trying is a curtain that
       // never comes down, over a seat the server may still be holding.

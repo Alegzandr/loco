@@ -150,6 +150,16 @@ type ClientMsg struct {
 	// over the singular Card field. Swap and GlobalSwitch cannot be batch-played.
 	PlayCards []CardDTO `json:"play_cards,omitempty"`
 
+	// CMsgPlayCard / CMsgInterruptPlay batch: the LOCO! call the play carries.
+	//
+	// Only read when the batch empties the hand, which is the one finish the
+	// player had no chance to announce beforehand: a hand of two identical cards
+	// put down at once never passes through one card, so no catch window ever
+	// opened on it and no declaration was ever possible. The server refuses such
+	// a batch without this flag (game.ErrMustDeclareLoco). Every other finish is
+	// gated on a declaration that already happened, and ignores this field.
+	DeclareLoco bool `json:"declare_loco,omitempty"`
+
 	// CMsgCatchUno: which seat is being caught. Several players can owe a
 	// declaration at once (Swap / GlobalSwitch hand a single card to more than
 	// one of them), so the catcher names their target. Omitted = the window

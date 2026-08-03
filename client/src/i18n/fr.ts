@@ -376,6 +376,7 @@ export const fr: Translations = {
     batchNotAllowed: 'Échange et Rotation se jouent une par une.',
     batchMismatch: 'Les cartes jouées ensemble doivent être identiques.',
 
+    mustDeclareBeforeWinning: 'Annonce LOCO, puis pose-la.',
     declareTooEarly: 'On annonce LOCO sur sa dernière carte, pas avant.',
     alreadyDeclared: 'Déjà annoncé.',
     catchExpired: 'La fenêtre s\'est refermée.',

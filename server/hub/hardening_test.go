@@ -154,6 +154,64 @@ func TestConnectionsPerNetworkAreCapped(t *testing.T) {
 	}
 }
 
+// The cap above is per network, and in production this server never sees one:
+// the path is browser → Cloudflare → Traefik → nginx → here, so every socket
+// arrives from the same container. The cap therefore stopped being per network
+// and became the total number of players the site could hold, which is the kind
+// of failure that reports itself as "the game refuses everybody past 64" and
+// blames one address in the log while doing it.
+//
+// So: two players behind the proxy, on different networks, must not share a
+// bucket — and one player must still not be able to take the whole cap.
+func TestConnectionsAreCappedPerPlayerNetworkBehindAProxy(t *testing.T) {
+	defer restoreInt(&hub.MaxConnsPerNet, hub.MaxConnsPerNet)()
+	hub.MaxConnsPerNet = 2
+
+	h := hub.New()
+	go h.Run()
+	defer h.Stop()
+	srv := httptest.NewServer(http.HandlerFunc(h.ServeWS))
+	defer srv.Close()
+
+	url := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
+	dialAs := func(clientIP string) (*websocket.Conn, *http.Response, error) {
+		return websocket.DefaultDialer.Dial(url, http.Header{"Cf-Connecting-Ip": {clientIP}})
+	}
+
+	// httptest dials from loopback, which the default trusted-proxy set covers,
+	// so the forwarded address is the one that counts.
+	for i := 0; i < hub.MaxConnsPerNet; i++ {
+		conn, _, err := dialAs("203.0.113.7")
+		if err != nil {
+			t.Fatalf("first network, connection %d: %v", i, err)
+		}
+		defer conn.Close()
+	}
+
+	// That network is full. It is one household, not the server.
+	if conn, resp, err := dialAs("203.0.113.9"); err == nil {
+		conn.Close()
+		t.Fatal("the cap accepted one connection too many from a network already at it")
+	} else if resp == nil || resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %v", resp)
+	}
+
+	// Somebody else, still admitted — this is the assertion the bug broke.
+	conn, _, err := dialAs("198.51.100.4")
+	if err != nil {
+		t.Fatalf("a second network was refused a slot of its own: %v", err)
+	}
+	defer conn.Close()
+
+	// And an IPv6 player is a network of their own too, not a share of the
+	// unknown bucket.
+	conn6, _, err := dialAs("2001:861:3240:54b0::1")
+	if err != nil {
+		t.Fatalf("an IPv6 player was refused a slot of their own: %v", err)
+	}
+	defer conn6.Close()
+}
+
 // restoreInt puts an exported knob back after a test has narrowed it.
 func restoreInt(p *int, v int) func() {
 	return func() { *p = v }

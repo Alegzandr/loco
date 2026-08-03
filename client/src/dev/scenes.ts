@@ -158,6 +158,8 @@ export interface Scene {
   langOpen?: boolean
   /** Lobby: mount with the sound panel open. */
   audioOpen?: boolean
+  /** Which link preview to draw: the site's, or a table invitation's. */
+  ogVariant?: 'default' | 'invite'
   /** Colour assist: every suit also carries its silhouette. */
   colorAssist?: boolean
 }
@@ -201,6 +203,16 @@ export const SCENES: Scene[] = [
     id: 'og-card',
     title: 'Aperçu de lien (Discord / X)',
     screen: 'og',
+  },
+  {
+    // The same drawing with the invitation's line on it, captured into
+    // og.invite.png. It is a scene rather than a variant of the one above
+    // because it is a different picture shipped to a different URL, and the
+    // review pass has to see both.
+    id: 'og-invite',
+    title: 'Aperçu de lien — invitation',
+    screen: 'og',
+    ogVariant: 'invite',
   },
   {
     id: 'lobby-home',
