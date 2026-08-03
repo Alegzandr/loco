@@ -32,5 +32,12 @@ are actually touching that subsystem belongs here.
 - **A note goes stale in silence, so re-read it against the code before trusting it.** The pass of
   2026-08-02 found five passages describing things that no longer existed: a `.btn-chunky` class and
   a `user-scalable=no` viewport that had both been deleted, a `<MotionConfig reducedMotion="user">`
-  replaced by `<MotionGate>`, a rematch still documented as host-only, and this very table listing
-  six notes when there were eight.
+  replaced by a wrapper component, a rematch still documented as host-only, and this very table
+  listing six notes when there were eight.
+- **A pass with a script behind it goes stale differently, and worse.** Landing the Svelte migration
+  on 2026-08-03 meant repointing paths mechanically, and the machine wrote sentences no human would:
+  a `theme.ts` "split out of `theme.ts`", a placeholder `<the motion preference>` left in three
+  files, and a table in `client.md` whose five distinct rows had collapsed onto two modules and read
+  as duplicates. None of it is caught by `docPaths.test.ts`, because every path in it exists — they
+  are just the wrong paths, in prose that still parses. **After a bulk rename, read the prose, not
+  the diff.**

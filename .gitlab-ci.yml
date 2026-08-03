@@ -158,7 +158,7 @@ e2e_test:
   image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy
   tags:
     - devops
-  # The 87 tests run sequentially inside a job (the suite is stateful, so
+  # The 122 tests run sequentially inside a job (the suite is stateful, so
   # `workers` stays at 1); sharding is what parallelises them. `fullyParallel:
   # true` in playwright.config.ts is what makes the split even — sharding whole
   # spec files instead gave 27/39/0/21, one job running empty.
@@ -235,7 +235,7 @@ e2e_test:
   # report (failing specs surfaced in the merge request) and the traces and
   # screenshots Playwright already writes to e2e/test-results/. A failed upload
   # fails the job, so with a runner that cannot reach the API those two lines
-  # would turn a suite where all 87 tests passed into a red pipeline, strictly
+  # would turn a suite where all 122 tests passed into a red pipeline, strictly
   # worse than not collecting them. Restore the block below once the runner can
   # resolve the GitLab API host; nothing else has to change.
   #

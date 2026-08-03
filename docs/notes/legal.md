@@ -59,7 +59,7 @@ than by a retention policy:
    `conn=` (the connection ID); the prefix exists only to tell two networks
    apart when one of them is flooding.
 
-**Never log `RemoteAddr()` directly.** `src/test/legal.test.tsx` fails if any
+**Never log `RemoteAddr()` directly.** `src/test/legal.test.ts` fails if any
 non-test file in `server/hub/` does, and if the nginx `log_format` mentions
 `$remote_addr` outside the truncating `map`.
 
@@ -71,7 +71,7 @@ card game are not copyrightable in any case; what is protectable is presentation
 which is why every card face, name, sound and string here is original.
 
 The one place the mark appears in the product is the disclaimer that names it in
-order to disclaim it, which is nominative use. `legal.test.tsx` asserts that no
+order to disclaim it, which is nominative use. `legal.test.ts` asserts that no
 other player-facing string in either language contains it. If that assertion ever
 has to be relaxed, the disclaimer stops being defensible and this is the decision
 to revisit, not the test.
@@ -104,7 +104,7 @@ player their seat — but the link was on the *lobby*, where no seat has been ta
 and nothing is lost by leaving. `LEGAL` is in `PAGES` like everything else, so it
 gets a canonical, an `hreflang` pair and a sitemap entry.
 
-`legal.test.tsx` pins the disclosures that are obligations rather than prose:
+`legal.test.ts` pins the disclosures that are obligations rather than prose:
 legal basis, retention period, the rights list, the supervisory authority, the EU
 statement, the browser-storage disclosure, the no-banner explanation, the Mattel
 disclaimer and the governing law. **Reword freely, but the test has to keep

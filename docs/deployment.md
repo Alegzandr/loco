@@ -226,8 +226,9 @@ cannot restart the server underneath itself.
 - nginx WebSocket timeouts: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
 - nginx sends security headers on every response (`always`): a closed CSP, `X-Content-Type-Options`,
   `Referrer-Policy`, `Permissions-Policy`. The client is built for it — self-hosted fonts, no CDN, no
-  remote anything — so the only relaxations are `style-src 'unsafe-inline'` (the pre-hydration
-  `<style>` block plus framer-motion's inline styles) and an explicit `ws://$host wss://$host` in
+  remote anything — so the only relaxations are `style-src 'unsafe-inline'` (Astro inlines the
+  stylesheets, and the board positions every card with a `style` attribute) and an explicit
+  `ws://$host wss://$host` in
   `connect-src`, since a page on `http://` and a socket on `ws://` are different CSP origins.
 - The Go server checks the `Origin` header on the WebSocket upgrade. By default the Origin's hostname
   must match the request's (ports ignored, so the dev client on :5173 reaches :8080); set

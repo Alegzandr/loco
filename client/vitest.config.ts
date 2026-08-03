@@ -10,4 +10,11 @@ export default getViteConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
   },
+  resolve: {
+    // Svelte ships a `browser` export condition and a server one. Under jsdom
+    // Vite resolves the server build by default, whose components render to a
+    // string and never mount, so `@testing-library/svelte` finds an empty
+    // container and every query fails on a component that works in the browser.
+    conditions: ['browser'],
+  },
 })

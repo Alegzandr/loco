@@ -306,7 +306,7 @@ A player who mistypes their code once is nowhere near 20, and
 reconnect` when the nickname matched a seat that was actually held, and `game already in progress`
 otherwise. The difference was a roster oracle (anybody with a code could test names against the
 table) and it bought nothing, because a returning player's client already owns the failed-reclaim
-case through its own restore timeout (`useSessionRestore`, `reconnectFailed`).
+case through its own restore timeout (`sessionRestore`, `reconnectFailed`).
 
 Both now answer `game already in progress`. `i18n/serverErrors.ts` keeps its `invalid session token`
 rule for the rolling-deploy window in which a new client talks to an old server, and says so.
@@ -329,8 +329,8 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   and is allowed.
 - **`nginx.conf` sends the security headers** the client was already built for: a closed CSP (no
   CDN, no analytics, self-hosted fonts), `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
-  `script-src` has no `'unsafe-inline'`; `style-src` must (the pre-hydration `<style>` block in
-  `index.html`, plus framer-motion's inline style attributes). `connect-src` names `ws://$host` and
+  `script-src` has no `'unsafe-inline'`; `style-src` must (Astro inlines every stylesheet, and the
+  board writes a `style` attribute per card). `connect-src` names `ws://$host` and
   `wss://$host` explicitly — a page on `http://` and a socket on `ws://` are different origins as
   far as CSP is concerned, so `'self'` alone would block the one connection the game is made of.
 - **A socket holds one seat, and the table is the authority on which.** A seat is recorded twice: the
@@ -476,7 +476,7 @@ ordinary room's on purpose.
   feedback: a screen that could render "1 player searching" would render it during precisely the
   window when the queue is trying to fill, and it reads as an instruction to leave. Every player who
   leaves on that sentence is the opponent the next one was about to get. The client times its own
-  wait and stages its copy off elapsed seconds instead (`Searching.tsx`).
+  wait and stages its copy off elapsed seconds instead (`Searching.svelte`).
 - **Nobody presses start.** `pairMatch` creates the room, seats both players, sends `match_found`
   with `starts_in_ms`, and arms `mmStart` for `MatchmakingRevealDelay` (2.5s). `handleMatchmakingStart`
   re-checks like every deferred callback (room still there, pair not superseded, still a lobby) and
@@ -713,7 +713,7 @@ map. `hub/maploading.go`.
 - `hub.MapLoadTimeout` (var, 20s) opens the table without the stragglers: one backgrounded tab must
   not hold nine people hostage. The client's own `MAP_PRELOAD_TIMEOUT_MS` (12s) is deliberately
   shorter: if they were equal, every slow connection would look like a dead one.
-- Client: `store.mapLoading` / `applyMatchLoading` / `applyMatchReady`, `useMapPreload`
+- Client: `store.mapLoading` / `applyMatchLoading` / `applyMatchReady`, `mapPreload`
   (`img.decode()`, not the `load` event, because bytes arriving is not the same as being paintable), and
   `<MapLoadingScreen />`. **A failed or missing image still reports ready**: the board falls back to
   the felt, which is a worse-looking match, not a broken one; a client that never answers is the one
@@ -761,7 +761,7 @@ to "has drawn" is what produced a seat that could neither draw (button disabled)
 `you must draw a card before passing`) until the turn timer auto-acted for it.
 
 **Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (in
-`hooks/store/helpers.ts`, re-exported from `useGameStore.ts`, called by `applyCardPlayed`) drops
+`hooks/store/helpers.ts`, re-exported from `gameStore.ts`, called by `applyCardPlayed`) drops
 copies of the played card until the local hand
 matches the `hand_size` the server sent in the same message, because one `card_played` can represent
 several discards — a batch play or a batch interrupt slams *every* identical copy the player holds,
@@ -1040,7 +1040,7 @@ the operational one:
    per-connection, stable and meaningless outside the process. The prefix only exists to tell two
    networks apart when one of them is misbehaving, and a `/24` does that.
 
-The client test suite enforces it, oddly but deliberately: `client/src/test/legal.test.tsx` scans
+The client test suite enforces it, oddly but deliberately: `client/src/test/legal.test.ts` scans
 `server/hub/*.go` because the assertion it is protecting is a promise made in the privacy copy, and
 that is where a reader will look for it. `hub/privacy_test.go` covers the function itself. nginx
 does the same truncation for its own access log (`client/nginx.conf`, the `anonymised` format), since

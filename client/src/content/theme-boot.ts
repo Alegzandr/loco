@@ -3,9 +3,9 @@
  *
  * `tokens.css` keys its dark palette on `[data-theme='dark']`, so without this a
  * player who chose the dark theme in the game and then tapped "Rules" would land
- * on a bright white page. It is the same choice `src/entry.tsx` applies, and it
- * imports `src/theme.ts` rather than the hook so it costs a few hundred bytes
- * instead of all of React. The *system* preference no longer depends on any of
+ * on a bright white page. It is the same choice `src/entry.ts` applies, and it
+ * imports `src/theme.ts` — which pulls in no framework — so a content page pays
+ * a few hundred bytes and mounts nothing. The *system* preference no longer depends on any of
  * it: `tokens.css` carries the dark palette behind
  * `@media (prefers-color-scheme: dark)` as well, so the first frame is already
  * right and this has only the stored choice left to apply.
@@ -74,7 +74,7 @@ if (buttons.length) {
     button.hidden = false
     button.addEventListener('click', () => {
       theme = theme === 'dark' ? 'light' : 'dark'
-      // The same key `useTheme` writes, so a choice made on a page is the one
+      // The same key `theme.ts` writes, so a choice made on a page is the one
       // the game opens with, and the other way round.
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
       applyTheme(theme)

@@ -309,7 +309,7 @@ test.describe('with JavaScript, it is still the game', () => {
       (await theme())!,
     )
 
-    // Stored under the key `useTheme` reads, so the choice survives the walk
+    // Stored under the key `src/theme.ts` reads, so the choice survives the walk
     // back to the game as well as the walk to the next page.
     const chosen = await theme()
     await page.goto('/faq/')

@@ -164,7 +164,7 @@ export const UI: Record<string, Copy> = {
      * The home page's <h1>, in the served HTML and off the screen (`.sr-only`
      * in tokens.css). `/` is a game: what stands where a heading would is the
      * wordmark, which is a drawing, and the app's own heading does not exist
-     * until React has mounted. A crawler reads neither. So the document states
+     * until the bundle has mounted. A crawler reads neither. So the document states
      * once, in text, what the page is — and it says it the way somebody would
      * search for it rather than the way the logo says it.
      */

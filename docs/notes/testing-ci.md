@@ -25,6 +25,43 @@ Keep tests fast, targeted, non-brittle, and cover game rules over UI details. Re
 and motion changes with `make visual` instead: reading four contact sheets catches what no assertion
 was going to describe. Assertions own behaviour, screenshots own appearance.
 
+### The three seams a component test goes through
+
+None of these is optional plumbing. Each one exists because a whole class of test lied without it.
+
+**`src/test/setup.ts`** is the file the runner loads before anything else, and it is the only place
+the framework and the DOM are stitched together. It carries a WAAPI shim (jsdom has no
+`element.animate`, and a Svelte transition *is* `element.animate`, so without it a transition throws
+where it should play); an `eventWrapper` that flushes after every `fireEvent`, which is what lets
+hundreds of assertions keep reading the DOM on the line after the click; a `fireEvent.change` that
+also dispatches `input`, because a Svelte component listens for the real event a browser fires per
+keystroke and wiring `onchange` in the components instead would have the lobby clear a server error
+on blur; and one `resetI18n()` per test, since the language is a module that outlives the file.
+
+**`src/test/storeFlush.svelte.ts`** paints a store write before the next assertion, and the guard in
+it is the part worth reading. `flushSync()` drains batches until there are none left, so calling it
+from inside a batch Svelte is already flushing takes that batch out from under it — the effect
+mid-run finishes, Svelte goes to schedule the next one, and `current_batch` is null. What you see is
+`Cannot read properties of null (reading 'schedule')` attributed to whatever component happened to
+be mounted, naming neither the write nor the flush. The app does write the store from inside effects
+(`handleSend` clears the last error before sending), so the subscriber skips the flush whenever
+`$effect.tracking()` says Svelte is already painting. That rune is why the module is `.svelte.ts`
+and not part of `setup.ts`.
+
+**`src/test/render.ts`** is the only door to `@testing-library/svelte`. The library reads props and
+mount options out of the same argument and tells them apart by name: `target`, `anchor`, `props`,
+`events`, `context` and `intro` are options and everything else is a prop. Those are ordinary
+English words and the game already uses one — `<Reconnecting target="waiting" />` distinguishes
+coming back to a table from coming back to a match. The collision has two shapes and the quiet one
+is why this is a wrapper instead of a note: a component with a colliding prop *and* an ordinary one
+throws `UnknownSvelteOptionsError`, which points at the fix; a component whose **only** prop is a
+reserved word mounts happily into the wrong node, and fails somewhere else or not at all. Everything
+goes under `props`, so no test has to know the list and a component that gains a prop named
+`context` next month breaks nothing. Alongside it, **`src/test/renderHook.ts`** gives a module that
+is nothing but `$effect` a component to live in, and its `initialProps` is handed to the setup as an
+*accessor* — the same `Live<T>` the hooks already take — so `rerender` reaches through to a hook
+mid-flight rather than remounting it with a different argument.
+
 ### Required coverage
 
 Room create/join. Nickname entry **and its validation** — the shapes refused, the disguises the
@@ -39,7 +76,15 @@ completing what is left of the agreement, seat pruning, re-indexing.
 
 Protocol validation and rejection. The two client mirrors of a server rule (the table code's alphabet
 and length, the nickname's shape) held against the Go source rather than against a second copy of the
-same belief (`serverMirrors.test.ts`). **Every path the docs name** (`docPaths.test.ts`) — and do not
+same belief (`serverMirrors.test.ts`). **That React is gone and cannot come back** through the
+manifest, the build configuration, an import or a file extension (`noReact.test.ts`). **That a rune
+appears only where one is compiled** (`runeScope.test.ts`): a `$state()` in a plain `.ts` is not a
+build error, it survives the transform and becomes a call to a global that does not exist, thrown
+whenever that line first runs — which in a branch reached mid-match is a table that dies on a card
+nobody has played yet. That test strips comments before matching, so a module may explain in prose
+why it holds no state, and it checks that the reactive half is still non-empty: a rename turning
+every `.svelte.ts` into a plain module would otherwise read as compliance. **Every path the docs
+name** (`docPaths.test.ts`) — and do not
 add a phantom path to that test's allowlist to make it pass: the allowlist is for paths named in
 order to say they are absent, and widening it to cover a claim about the structure is how the guard
 stops guarding. The store completing its own derived state (`catchDerivation.test.ts`).
@@ -99,6 +144,16 @@ deliberately not covered here" below.
   between tests; each one creates its own room. That is what lets CI shard the suite per *test*
   (`fullyParallel: true`) instead of per spec file, which is what makes four shards even instead of
   27/39/0/21. Sequential execution is `workers: 1`'s job, not `fullyParallel`'s.
+- **Being dealt into a matchmade table is the expensive step, and the default 30s test budget is
+  built for one of them.** `waitForMatchmadeGame` waits out the match-found countdown and then the
+  map-loading gate, and the gate is real image downloads through the dev server into a browser
+  context with a cold cache: the single-deal tests in `matchmaking.spec.ts` land around 23s, and the
+  same test can take 4s on a warm run and 24s on a cold one. The rematch test is dealt in **twice**
+  and carries its own `test.setTimeout(90_000)` for that reason. The failure mode is worth knowing
+  because it lies: the test times out in whatever line the `finally` is on, with a screenshot of a
+  perfectly healthy board and every assertion having passed. Before treating one of these as a
+  regression, re-run it with `--timeout=90000` — if it goes green it was the budget, and the fix is
+  to say so on the test rather than to trim what it covers.
 - **A fixture must state everything the assertion rests on.** `debug_set_state` sets only what it is
   given, and anything left unsaid is whatever the deal and the bots produced. The pinned fields are
   `direction` (a Reverse mirrors any computed seat), `pendingDraw: 0` (a pending stack routes a tap
@@ -201,8 +256,9 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
 
 - **`parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`.** The suite is stateful, so `workers`
   stays at 1 *within* a job and sharding is what parallelises it. `fullyParallel: true` is what makes
-  the split even. Left false, Playwright shards whole **spec files** and 87 tests came out
-  27/39/0/21, one job running empty. This is the only change here with a prerequisite outside the
+  the split even. Left false, Playwright shards whole **spec files**, and the suite's files are
+  wildly uneven — `rules-coverage.spec.ts` alone holds 23 of the 122 tests. Measured back at 87, that
+  split came out 27/39/0/21: one job running empty while another carried 45% of the suite. This is the only change here with a prerequisite outside the
   repo: **it needs a runner that accepts concurrent jobs** (`concurrent > 1` in its `config.toml`).
   At `concurrent = 1` the shards queue and pay four setups for one suite, which is slower than not
   sharding at all.
@@ -248,7 +304,7 @@ for a configuration one. Not worth it; do not revisit without a new reason.
 in this repository. The helper container that performs the upload resolves the API host (GitLab's
 own external URL, `http://gitlab`) against the LAN's DNS, which does not know that name:
 `dial tcp: lookup gitlab on 192.168.1.254:53: no such host`, three retries, `FATAL`. An upload
-failure **fails the job**, so a single `artifacts:` block turns a suite where all 87 tests passed
+failure **fails the job**, so a single `artifacts:` block turns a suite where all 122 tests passed
 into a red pipeline. The fix is one line on the runner (`extra_hosts`, or joining GitLab's Docker
 network, or registering it against the FQDN), not a line of YAML.
 
@@ -296,7 +352,8 @@ Browser (HTTPS) → Traefik (:443 websecure)
   sources, and couples each directive to whatever needs it: `script-src 'self'` beside the absence
   of any `is:inline` script **and of any `client:*` island directive** (Astro's hydration runtime is
   inline by construction, so one island is a blank production page), `'unsafe-inline'` in
-  `style-src` beside the framer-motion style attributes that force it, `$http_host` (never `$host`)
+  `style-src` beside the inlined stylesheets and the per-card `style` attributes that force it,
+  `$http_host` (never `$host`)
   twice in `connect-src`, no remote origin in the policy *or* in
   the sources, and no `eval` / `new Function` / `new Worker` / `blob:` anywhere. Those are the
   regressions that would ship green and break only the served page: an added CDN font or an inline
@@ -336,16 +393,22 @@ Both tools widened what they report by default, and in both cases the widening w
 expansion rather than a correctness one. The configs say so explicitly rather than letting a
 future reader mistake the exclusions for neglect.
 
-- **`eslint-plugin-react-hooks` 7 ships the React Compiler's static analysis** in its `recommended`
-  set. Most of it is kept and passes: `static-components`, `use-memo`,
-  `preserve-manual-memoization`, `globals`, `error-boundaries`, `set-state-in-render`. Four are off
-  in `eslint.config.js`, because between them they flagged 27 sites that are this game's timing
-  model: `purity` on the `Date.now()` a countdown is measured from and on Confetti's per-particle
-  `Math.random()`; `refs` on the stable send ref `App` keeps for the E2E dispatcher; `set-state-in-effect`
-  on every hook publishing an external clock into React (`useCountdown`, `useHeldKey`,
-  `useTabAlert`); `immutability` on `useWebSocket`'s `connect`, which schedules itself for the
-  reconnect backoff. Satisfying them means moving continuous values back into React state, which is
-  the one thing `CLAUDE.md` forbids on this board. Off rather than warned, so the rest stays a signal.
+- **`eslint-plugin-svelte`'s recommended set is kept whole**, and that is a deliberate change of
+  posture from what stood here before. The React config it replaced had four rules switched off,
+  because the React Compiler's static analysis flagged 27 sites that were this game's timing model —
+  every hook publishing an external clock, the `Date.now()` a countdown is measured from, Confetti's
+  per-particle `Math.random()`. None of that is a conflict any more: a Svelte effect reading a clock
+  and writing a `$state` is the ordinary way to write one. So nothing is disabled at the config
+  level, and the two rules the game does argue with are argued with **in place, one line at a time,
+  with the reason written next to them**:
+  - `svelte/prefer-svelte-reactivity` on `GameView`'s `lastAction` map. It is the double-tap guard's
+    timestamp book, written on every accepted tap and read by nothing that renders; a `SvelteMap`
+    would make the hottest path on the board invalidate a subscriber that does not exist.
+  - `svelte/no-unused-svelte-ignore` is what catches an ignore comment that has stopped applying —
+    which is how `Deck.svelte` was found silencing the wrong a11y warning, its `role` having become
+    conditional since the comment was written.
+  A rule turned off in `eslint.config.js` is invisible; a rule turned off on one line is read by the
+  next person to touch that line. Prefer the second.
 - **golangci-lint 2 folded `gosimple`, `stylecheck` and `quickfix` into `staticcheck`**, and stopped
   applying v1's default exclusions unless asked. Straight off the `golangci-lint migrate` output the
   job reported 14 new issues, none of them a bug: capitalised error strings, "could use a tagged
@@ -381,7 +444,7 @@ future reader mistake the exclusions for neglect.
   `npm ci && npm run dev`, `:5173` (container 3000).
 - **No dev-server WS proxy** — browser connects directly to `ws://<host>:8080/ws` (the proxy is unreliable under Docker).
 - `VITE_WS_PORT=8080` env tells client which port (default 8080).
-- `useWebSocket.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
+- `hooks/webSocket.svelte.ts`: dev → `ws://${hostname}:${VITE_WS_PORT}/ws`; prod → `ws://${host}/ws` (nginx-proxied).
 - `astro.config.mjs`: no proxy. `server.ws.clientPort` (not the deprecated `server.hmr.*`) carries
   `VITE_HMR_CLIENT_PORT` so HMR dials the published 5173 rather than the container's 3000.
 - Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).

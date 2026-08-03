@@ -1,4 +1,4 @@
-import { SwapNotice } from '../hooks/useGameStore'
+import { SwapNotice } from '../hooks/gameStore'
 import { Translations } from '../i18n/en'
 
 /**

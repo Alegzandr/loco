@@ -28,12 +28,12 @@ function astroSources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** Every .ts/.tsx file: the app that ends up in the bundle. */
-function reactSources(dir: string, out: string[] = []): string[] {
+/** Every .ts/.tsx/.svelte file: the app that ends up in the bundle. */
+function bundledSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
-    if (statSync(full).isDirectory()) reactSources(full, out)
-    else if (entry.endsWith('.ts') || entry.endsWith('.tsx')) out.push(full)
+    if (statSync(full).isDirectory()) bundledSources(full, out)
+    else if (/\.(tsx?|svelte)$/.test(entry)) out.push(full)
   }
   return out
 }
@@ -59,13 +59,18 @@ function directive(name: string): string {
   return m[1].trim()
 }
 
-/** Every .ts/.tsx/.css file the app ships, tests and the dev showcase aside. */
+/**
+ * Every .ts/.tsx/.svelte/.css file the app ships, tests and the dev showcase
+ * aside. `.svelte` is in the list because a component written there is markup,
+ * script *and* style at once: leaving it out would quietly shrink this scan to
+ * whatever has not been migrated yet.
+ */
 function appSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) {
       if (entry !== 'test') appSources(full, out)
-    } else if (/\.(tsx?|css)$/.test(entry)) {
+    } else if (/\.(tsx?|svelte|css)$/.test(entry)) {
       out.push(full)
     }
   }
@@ -104,7 +109,7 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
     // not help: a meta policy and this header are both enforced, so the header
     // still refuses them and the page renders blank in production alone.
     //
-    // The game is mounted by src/entry.tsx through an ordinary bundled <script>
+    // The game is mounted by src/entry.ts through an ordinary bundled <script>
     // instead, and the content pages need no client JS at all.
     for (const file of astroFiles) {
       const src = readFileSync(file, 'utf8')
@@ -114,19 +119,24 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
   })
 
   it("keeps 'unsafe-inline' in style-src, which the app still needs", () => {
-    // Not an oversight: framer-motion writes a style attribute on every animated
-    // node, on every frame. Dropping this directive takes the whole board's
-    // animation with it. The <style> blocks in the .astro files are extracted to
-    // real stylesheets by Astro and are not what keeps this loose.
+    // Not an oversight. The board is a fixed coordinate space and every card,
+    // seat and pile is placed by a `style` attribute holding its pixel position;
+    // Astro additionally inlines the stylesheets. Dropping this directive takes
+    // the layout with it.
     expect(directive('style-src')).toContain("'unsafe-inline'")
-    // Anchored on the app rather than on one file: the mount point used to hold
-    // the <MotionConfig> and now delegates it to <MotionGate />, and neither
-    // move should decide whether this directive is still justified. What
-    // justifies it is that the library is somewhere in the bundle at all.
-    const usesFramerMotion = reactSources(path.join(CLIENT, 'src')).some((f) =>
-      readFileSync(f, 'utf8').includes('framer-motion'),
+
+    // Anchored on the thing that actually forces it, in the markup, rather than
+    // on the name of whatever wrote it. This assertion used to name
+    // framer-motion — and kept passing after framer-motion was removed, because
+    // the string survived in the comments explaining its removal. A guard that
+    // can be satisfied by prose is not a guard.
+    const inlineStyled = bundledSources(path.join(CLIENT, 'src')).filter((f) =>
+      /\sstyle=(["'{])/.test(readFileSync(f, 'utf8')),
     )
-    expect(usesFramerMotion, 'framer-motion is why style-src is loose').toBe(true)
+    expect(
+      inlineStyled.length,
+      'nothing writes an inline style any more — is style-src still meant to be loose?',
+    ).toBeGreaterThan(0)
   })
 
   it('lets the WebSocket through on the served host, port included', () => {

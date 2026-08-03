@@ -1,8 +1,8 @@
-import { StateCreator } from 'zustand'
+import { StateCreator } from './createStore'
 import { gameStateSliceFromDTO } from './helpers'
 import { GameStore, MatchActions, RoundScoreEntry } from './types'
 
-export const createMatchActions: StateCreator<GameStore, [], [], MatchActions> = (set, get) => ({
+export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
 
   applyRoundEnd: (roundWinner, roundNumber, newScoreboard, roundHistory) =>

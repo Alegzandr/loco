@@ -1,4 +1,4 @@
-import { StateCreator } from 'zustand'
+import { StateCreator } from './createStore'
 import { deriveCatch } from './helpers'
 import { GameStore } from './types'
 
@@ -19,7 +19,7 @@ import { GameStore } from './types'
  * impossible rather than merely unlikely. `src/test/catchDerivation.test.ts`
  * owns the rule.
  */
-type Creator = StateCreator<GameStore, [], [], GameStore>
+type Creator = StateCreator<GameStore>
 
 export const deriveCatchState =
   (creator: Creator): Creator =>

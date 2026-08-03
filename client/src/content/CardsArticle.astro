@@ -6,7 +6,7 @@
 // card in the hand, down to the gradient and the mark behind it, and the page
 // still ships no React. Its face is sized in container-query units against the
 // element, so a size passed as a style is all it takes to draw one bigger.
-import { Card } from '../components/cards/Card'
+import Card from '../components/cards/Card.svelte'
 import { SUITS, entry } from './deck'
 import { ui } from './ui'
 import { en } from '../i18n/en'
@@ -27,8 +27,8 @@ const card = (color: CardDTO['color'], kind: CardKind, value?: number): CardDTO 
   value,
 })
 
-const BIG = { width: '104px', height: '156px' }
-const SMALL = { width: '62px', height: '93px' }
+const BIG = 'width:104px;height:156px'
+const SMALL = 'width:62px;height:93px'
 
 const NUMBERS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 const ACTIONS: CardKind[] = ['skip', 'reverse', 'draw_two', 'swap']

@@ -28,7 +28,7 @@ Two standing constraints on every page:
 - **A content page never says UNO.** This is stricter than "do not claim to be UNO", and it is the
   same rule the game itself obeys (`CLAUDE.md`, Legal): the disclaimer that names the mark in order
   to disclaim it is only true while no other player-facing string carries it, and a page indexed by
-  Google is about as player-facing as it gets. `legal.test.tsx` asserts this over the i18n copy;
+  Google is about as player-facing as it gets. `legal.test.ts` asserts this over the i18n copy;
   `seo.test.ts` extends it over `PAGES`, `UI` and every file under `src/content/` — except
   `legal.ts`, which carries the disclaimer that names the mark in order to disclaim it, and which is
   the reason the rule exists.
@@ -90,7 +90,7 @@ French even for a browser set to English. The page declares itself with **`data-
 It is deliberately *not* `<html lang>`. The i18n provider writes that attribute on every language
 change, so reading it back would make the app detect its own last output rather than the document it
 was served — circular, and in jsdom (where one document is reused across a file's tests) it leaks the
-previous test's language into the next one. `i18n.test.tsx` pins all three cases: the URL wins over
+previous test's language into the next one. `i18n.test.ts` pins all three cases: the URL wins over
 the browser, a stored choice wins over the URL, and `<html lang>` is never an input.
 
 ## The origin has to be decided at build time
@@ -139,7 +139,7 @@ to it** rather than translated into it.
 `/` is a game. What stands where a title would is the LOCO logotype, which is a *drawing* carrying
 `role="img"`, and the only real heading on the page was one the lobby mounted from the bundle. A
 crawler does not wait for that, so every audit read the site's most important URL as a page with no
-heading at all — the same reason the footer prose is served markup and not React.
+heading at all — the same reason the footer prose is served markup and not mounted.
 
 So `GamePage.astro` serves one `<h1>` with `.sr-only` (`tokens.css`), in text, before anything
 mounts. It says what the page is in the words somebody would have typed, never the word LOCO alone:
@@ -272,8 +272,8 @@ top left**. The same control, in the same corner, on the content pages and on `/
 
 - **Content pages**: the burger sits in the header, the drawer carries `Play`, the five pages,
   privacy, the theme switch and the globe — the whole bar, in order, as rows of 2.75rem.
-- **The game page**: the burger is fixed over the board at the offsets `Lobby.module.css` gives
-  `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
+- **The game page**: the burger is fixed over the board at the offsets `Lobby.svelte`'s `<style>`
+  gives `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
   carries the five pages and privacy. **No `Play`** — this is where playing happens — and no theme or
   language, which are behind the lobby's own gear. The footer row costs the board no height at all at
   that width.
@@ -297,7 +297,8 @@ and beats a bare class on specificity whatever the order. It went unnoticed whil
 white against an ink colour that is also near white in the dark theme.
 
 `#navPrefs` is the seam between the two halves of `/`. It ships `hidden` and `homeSheet.ts` reveals
-it, for the reason the content pages' theme switch does: the panel it opens is React's, and a
+it, for the reason the content pages' theme switch does: the panel it opens belongs to the game's
+bundle, and a
 scriptless page is better off without a button than with one that does nothing. It closes the popover
 and dispatches `loco:preferences`; `<Preferences />` listens. An event rather than a shared module —
 the drawer is `#root`'s sibling, not in its tree, and a store both halves imported would put the
@@ -372,7 +373,7 @@ What is left for the script is the stored choice and the switch itself — one b
 bar, beside the globe. It is `hidden` in the markup and `theme-boot.ts` reveals it: with no
 JavaScript it could neither persist a choice nor repaint, and a dead control is worse than none now
 that the media query gives that reader the right theme anyway. It writes `loco_theme`, the key
-`useTheme` reads, so a choice made on the rules page is the one the game opens with.
+`src/theme.ts` reads, so a choice made on the rules page is the one the game opens with.
 
 ### The language chooser is a popover
 
@@ -407,7 +408,7 @@ without the API shows both languages in the bar rather than losing the switch.
 
 The exceptions run the other way, and they are the point of the whole arrangement:
 
-- **The rules page maps `t.rules`**, the same array `RulesModal.tsx` maps. It is not a copy: a rule
+- **The rules page maps `t.rules`**, the same array `RulesModal.svelte` maps. It is not a copy: a rule
   reworded for the modal is reworded on the page in the same edit. `contentPages.test.ts` asserts
   both still map it.
 - **`t.cardNames`** was added because `cardLabel()` only ever returns a glyph (`⊘ ⇄ +2 W +4 ⇋ ↻`)
@@ -431,9 +432,10 @@ the whole squeeze, and every row grows to three or four lines.
 
 `<Card />` is rendered with no client directive, so Astro turns the game's own component into static
 markup at build time: the card on the page is the card in the hand, gradient, mark and glyph
-included, and the page still ships no React. Its face is sized in container-query units against the
+included, and the page still ships no JavaScript for it. Its face is sized in container-query units against the
 element, so passing a width and height as a style is all it takes to draw one bigger. This is why
-`CardArt.tsx` importing no CSS module mattered enough to check before the migration.
+`CardArt.svelte` carrying its own `<style>` block and importing nothing mattered enough to check
+before the migration.
 
 36 numbers, 16 actions and 3 wilds: the deck without its duplicates, which is what a reference wants.
 Rows scroll rather than wrap, because nine numbers in a suit are one run and a wrapped run reads as
@@ -497,7 +499,7 @@ the home page behave like a site that happened to have a game at the top. So the
 one viewport, always: `body` is a flex column, `#root` takes what is left, and the footer is a quiet
 row of links at the bottom. The prose moved into a sheet the row opens.
 
-That sheet is a native `<details>`, not a React modal, and both halves of that matter. It is markup,
+That sheet is a native `<details>`, not a modal of ours, and both halves of that matter. It is markup,
 so the prose stays in the served HTML where a crawler reads it — content inside an expandable section
 is indexed normally, and the alternative (the copy in `i18n/`, rendered by a component) would put it
 behind a script *and* grow the bundle every player downloads. And it opens with no JavaScript at all,
@@ -511,24 +513,25 @@ carries the links. The sheet is the prose's one control — it is what opens it 
 `HomeProse.astro` is rendered once, in it. The drawer held a second copy for a while; see the two
 drawers above for why it does not any more.
 
-The footer disappears the moment a seat is taken. That is not React's to do — it is markup Astro
-rendered — so `App.tsx` writes `data-seated` on `<html>` and CSS hides it. The burger and the drawer
+The footer disappears the moment a seat is taken. That is not the app's to do — it is markup Astro
+rendered — so `App.svelte` writes `data-seated` on `<html>` and CSS hides it. The burger and the drawer
 sit inside that same element, so a seat takes them with it. The body no longer needs
 `overflow: hidden` restoring, because it never lost it: a board that can be scrolled off-screen
-mid-match is a bug, and now so is a lobby that can. `appSubscription.test.tsx` owns the attribute,
+mid-match is a bug, and now so is a lobby that can. `appSubscription.test.ts` owns the attribute,
 `seo.spec.ts` owns the CSS and the no-scroll guarantee.
 
 ### Zero JavaScript, with one exception
 
-`<LocoLogo />` is a React component rendered with **no client directive**, so Astro turns it into
-static markup at build time and ships none of React: the mark on the page is the mark in the game
-rather than a redrawn copy, and it costs nothing to load.
+`<LocoLogo />` is the game's own Svelte component rendered with **no client directive**, so Astro
+turns it into static markup at build time and ships none of the runtime: the mark on the page is the
+mark in the game rather than a redrawn copy, and it costs nothing to load.
 
 The exception is `src/content/theme-boot.ts`. `tokens.css` keys its dark palette on
 `[data-theme='dark']` and on nothing else, which is written by JS — so without it a player who chose
 the dark theme and then tapped "Rules" landed on a bright white page. It imports `src/theme.ts`,
-which was split out of `hooks/useTheme.ts` precisely so this does not drag React onto a page that
-mounts nothing. `useTheme` re-exports it, so there is still one definition of what the theme is.
+which was split out of the game's theme hook precisely so this does not drag a framework onto a page
+that mounts nothing. The hook is gone and that module is now the single definition of what the theme
+is, for the app and for a content page alike.
 
 That file also wires the back-to-top button and calls `closeMenuWhenWidened()`, and it is the same
 file on purpose: there is only ever **one** script on these pages, so a second behaviour is a few
@@ -652,7 +655,7 @@ candidate reports `NO_LCP` (and `NO_FCP` in the same runs) and Lighthouse scores
 **0** — not "slower", zero — however fast it really is.
 
 Measured on the home page, twice over: the font preload above, and the boot fade that holds
-`#root > *`, `.homeIntroMain` and `.homeBurger` at `opacity: 0` until `entry.tsx` writes
+`#root > *`, `.homeIntroMain` and `.homeBurger` at `opacity: 0` until `entry.ts` writes
 `data-booted`. With the fade neutralised and nothing else changed, `/` goes from **perf 0, no LCP**
 to **perf 95, LCP 2.6 s**. The fade is worth having — the page arrives in two halves and looked
 broken without it — so the fix is not to drop it but to invert it: fade a veil in the canvas colour

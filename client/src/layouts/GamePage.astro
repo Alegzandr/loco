@@ -8,7 +8,7 @@
 // blank page in one language only.
 import Base from './Base.astro'
 import HomeProse from '../content/HomeProse.astro'
-import { LocoLogo } from '../components/LocoLogo'
+import LocoLogo from '../components/LocoLogo.svelte'
 import { HOME, NAV, LEGAL, homeJsonLd, type Lang } from '../seo/meta'
 import { ui } from '../content/ui'
 import '../content/content.css'
@@ -40,14 +40,15 @@ const { lang } = Astro.props
 
   {/*
     #root is the mount point: tokens.css styles `html, body, #root` as one
-    selector, and src/entry.tsx calls createRoot on this element exactly as
-    main.tsx did under Vite. The <script> below carries no `is:inline`, so Astro
-    bundles it to an external module — which is what `script-src 'self'` allows.
+    selector, and src/entry.ts mounts <App /> into this element. The <script>
+    below carries no `is:inline`, so Astro bundles it to an external module —
+    which is what `script-src 'self'` allows, and it is also why the game is
+    never an island: a `client:*` directive would emit inline script instead.
   */}
   <div id="root"></div>
 
   {/*
-    The indexable half of this page, in the served HTML rather than in React: a
+    The indexable half of this page, in the served HTML rather than in the app: a
     crawler reads it without running a script, and it is the only path from the
     game to the content pages — the sitemap lists them, but a link is what
     carries weight.
@@ -177,7 +178,7 @@ const { lang } = Astro.props
         their action means opposite things, and neither is the grey one.
 
         `hidden` in the markup, revealed by `homeSheet.ts`. The panel it opens is
-        React's, so with no script this row would be a button that does nothing —
+        the app's, so with no script this row would be a button that does nothing —
         the same reason the content pages' theme switch ships hidden. Everything
         else in this drawer is a link and works either way.
 
@@ -233,12 +234,12 @@ const { lang } = Astro.props
 
   /* One arrival, not two.
 
-     The footer is markup Astro served and the game is React mounted from a
-     bundle, so with nothing holding them together this page came up in pieces:
-     the canvas and the links on a wide screen, the canvas and the burger on a
-     phone, then the lobby a few hundred milliseconds later when the bundle
-     landed. Both halves now wait for the mount and fade in together —
-     `data-booted` is written on <html> by entry.tsx once React has painted.
+     The footer is markup Astro served and the game is mounted from a bundle, so
+     with nothing holding them together this page came up in pieces: the canvas
+     and the links on a wide screen, the canvas and the burger on a phone, then
+     the lobby a few hundred milliseconds later when the bundle landed. Both
+     halves now wait for the mount and fade in together — `data-booted` is
+     written on <html> by entry.ts once <App /> has painted.
 
      Gated on `scripting: enabled`, because with no script there is no mount to
      wait for and the prose behind the sheet is the only thing on `/` a crawler
@@ -260,7 +261,7 @@ const { lang } = Astro.props
      containing block for the fixed burger and for every panel the app renders,
      for as long as the animation runs.
 
-     `data-booted="in"` is the reveal and it is spent: entry.tsx blanks the value
+     `data-booted="in"` is the reveal and it is spent: entry.ts blanks the value
      once the fade is over. Every screen is a fresh child of #root, so a reveal
      rule left standing would replay on every screen change for the rest of the
      match. The bare attribute is what lifts the hold, and it stays.
@@ -488,7 +489,7 @@ const { lang } = Astro.props
     }
 
     /* Top left, over the board rather than in a bar: `/` has no header to put
-       it in. The offsets are the ones `Lobby.module.css` gives `.topBar`, so it
+       it in. The offsets are the ones `<Lobby />` gives its own `.topBar`, so it
        lands on the line the gear, the speaker and the "?" already sit on. */
     .homeBurger {
       position: fixed;

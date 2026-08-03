@@ -1,4 +1,4 @@
-// Pure layout math for the React renderer.
+// Pure layout math for the card renderer.
 import { CARD_W, CARD_H, BOTTOM_RESERVE, SEAT_DIMS, SeatSize } from './cardTheme'
 
 export interface OpponentBubblePosition {
@@ -12,7 +12,7 @@ export const TOP_CHROME = 58
 /**
  * The device's unusable edges, in CSS pixels (iOS notch, home indicator, and
  * the two side bands a phone held in landscape puts around the screen).
- * Measured by `useSafeAreaInsets`; zero on every desktop browser.
+ * Measured by `safeAreaInsets`; zero on every desktop browser.
  */
 export interface SafeAreaInsets {
   top: number
@@ -264,8 +264,8 @@ export function calcHandSlots(n: number, width: number, height: number): HandSlo
 
 // Returns one stable key per card in hand order. Cards are value objects, so a
 // duplicate pair is disambiguated by occurrence number. Index keys would make
-// React reuse the wrong node when a card leaves the middle of the fan, and the
-// remaining cards would snap instead of sliding into the gap.
+// the `{#each}` reuse the wrong node when a card leaves the middle of the fan,
+// and the remaining cards would snap instead of sliding into the gap.
 export function handCardKeys(hand: { color: string; kind: string; value?: number }[]): string[] {
   const seen = new Map<string, number>()
   return hand.map((c) => {

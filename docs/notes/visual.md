@@ -24,7 +24,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
 
 - Fonts: **Fredoka Variable** (display) + **Nunito Variable** (body), self-hosted via
   `@fontsource-variable/*` and imported in `layouts/Base.astro`, not from the game's entry: the
-  content pages mount no React at all and still have to be typeset. No CDN — the CSP stays closed.
+  content pages mount no application at all and still have to be typeset. No CDN — the CSP stays closed.
 - Press feedback (hover lifts, active travels *into* the ledge) is written per component. `tokens.css`
   used to carry a `.btn-chunky` for it, plus a family of `.t-*` type classes, both described as what
   every control extended; **nothing had ever imported either**, and both were deleted. Do not
@@ -39,7 +39,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   the LOCO mark — and it is the one part of the UI that does **not** follow the app's chunky-sticker
   language or its theme. A card is an object, not a control.
 - `--ease-bounce` for anything that should feel physical; `--ease-out` for travel.
-- **Theme is applied by `initTheme()` in `entry.tsx`, before first render.** It used to be written
+- **Theme is applied by `initTheme()` in `entry.ts`, before first render.** It used to be written
   only by the toggle's own hook, so any screen without one (game over, a reload straight into a
   match) silently rendered light. The control now lives in the preferences panel, which makes that
   init call the only thing standing between a reload and the wrong palette.
@@ -48,7 +48,7 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
 
 ### Colour assist (the suit silhouettes)
-`SUIT_SHAPE` in `cardTheme.ts`, drawn by `suitMark.tsx`, off by default and switched on from the
+`SUIT_SHAPE` in `cardTheme.ts`, drawn by `SuitMark.svelte`, off by default and switched on from the
 preferences panel. Triangle red, circle yellow, square green, diamond blue, sized at 15cqh under the
 top-left value, plus the picker swatches and the active-colour chip.
 
@@ -132,7 +132,7 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   "this just became clickable" is information.
 - **Catch is `position:absolute`, out of the grid** (`data-slot="float"`) for the rare overlap only —
   we are on one card *and* somebody else is catchable: right of the bar on desktop, above its right
-  end on mobile, shifting nothing. `actionBar.test.tsx` asserts the slot, the enabled state and the
+  end on mobile, shifting nothing. `actionBar.test.ts` asserts the slot, the enabled state and the
   arming of every button across states.
 - The penalty draw and the ordinary draw share the left slot; `--slot-w` (126px) is sized for the
   widest label either can hold ("Piocher +4").
@@ -186,7 +186,7 @@ swipe bar and the round badge under the status bar.
   from the *safe* edge and the whole coordinate space stops short of the bands. The board element
   still runs edge to edge: the room's picture uses the difference, the game does not. `offsetX` is
   the landscape half of the same rule (a phone on its side puts the notch on one flank).
-- `useSafeAreaInsets` reads the numbers back through a hidden probe whose padding is the `--safe-*`
+- `safeAreaInsets` reads the numbers back through a hidden probe whose padding is the `--safe-*`
   tokens, and re-measures on `resize`/`orientationchange` only. An `env()` held in a custom property
   reads back as the unresolved token in several engines, so the resolved computed padding is the
   only reliable source. Reading the *tokens* rather than `env()` directly is also the seam the
@@ -197,7 +197,7 @@ swipe bar and the round badge under the status bar.
   reads as a broken layout; the same strip in the room's shadow reads as the room.
 - Review it with `make visual ARGS="--viewports=notch"` — no desktop browser reports an inset, so
   that viewport is the only place this layout is visible at all. `layout.test.ts` owns the maths and
-  `safeArea.test.tsx` owns the wiring through to the stage's transform.
+  `safeArea.test.ts` owns the wiring through to the stage's transform.
 
 ## Active colour (four readings, `<DiscardPile />` + `GameBoard`)
 The colour in play is the single most-consulted piece of state on the board, and it was stated in
@@ -222,7 +222,7 @@ it was also the only thing saying anything at all. Four readings now, at four di
   `wild_draw_four` also fires, so the two read as a sequence instead of stacking on the same pixels.
 
 All three permanent cues are keyed on the colour, so a wild resolving replays them together.
-Scene `game-wild-active-color`; `src/test/discardPile.test.tsx` covers the chip and both callout
+Scene `game-wild-active-color`; `src/test/discardPile.test.ts` covers the chip and both callout
 branches.
 
 ## Maps (the room a match is played in)
@@ -273,7 +273,7 @@ rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcan
   numbers are measured by eye off the art, so a drifted table shows up in `make visual` and nowhere
   else**, so review any change to the art or to `tableImageRect()` there.
 
-## Card face (`CardArt.tsx`, `cardArtSpace.ts`, `locoMark.ts`, `cardTheme.ts`)
+## Card face (`CardArt.svelte`, `cardArtSpace.ts`, `locoMark.ts`, `cardTheme.ts`)
 Reproduced from the brand's own card art. Review any change to it with
 `make visual ARGS="--scenes=card-sheet"` — the whole deck on one screen, which no gameplay scene
 shows.
@@ -292,7 +292,7 @@ shows.
     registers a raster fix. The win is a cache: `MARK_MASK_URL` is **one string for the whole app**,
     so the browser rasterises the path once per used size and every card composites the same bitmap.
     Build it per card or per suit and the cost comes straight back.
-  - `card.test.tsx` guards both halves: no live `<path>` carrying `LOCO_MARK_PATH`, and one mask URL
+  - `card.test.ts` guards both halves: no live `<path>` carrying `LOCO_MARK_PATH`, and one mask URL
     across every suit. Nothing else in the suite can see this regression happen.
   - **An `objectBoundingBox` gradient is `to top right`, never the angle of the diagonal.** The two
     differ on any non-square box: SVG lays the gradient out on the unit square and *then* stretches
@@ -302,7 +302,7 @@ shows.
 - **The card box and the mark box are two different boxes** (`cardArtSpace.ts`). The card box has the
   card's proportions; the mark is landscape. Reusing the mark's viewBox as the card's — which the
   previous portrait mark got away with — stretches the drawing to the card and turns the duck into a
-  goose. It lives in its own module so `CardArt.tsx` exports components only (same reason as
+  goose. It lives in its own module so `CardArt.svelte` exports components only (same reason as
   `hasGlyph`).
 - **On a card the mark is cropped and tilted; everywhere else it is whole.** `MARK_CROP_TRANSFORM`
   (`MARK_TILT_DEG` 22°, `MARK_S` 1.95) blows it past all four edges, the way the reference art does;
@@ -340,7 +340,7 @@ shows.
   three wilds one card at a glance.
 - **Rule glyphs are drawn, not typed.** ⊘ ⇄ ⇋ ↻ are the obvious characters and the wrong tool:
   Fredoka carries none of them, so the font fallback chain would decide what a rule card looks like.
-  `hasGlyph` (in `cardTheme.ts`, so `CardArt.tsx` exports components only) lists the kinds that get
+  `hasGlyph` (in `cardTheme.ts`, so `CardArt.svelte` exports components only) lists the kinds that get
   one. Swap and GlobalSwitch deliberately do not share a silhouette.
 - **GlobalSwitch is three cards in a ring, each moving to the next seat** (`rotatingHands`), not the
   single circular arrow it started as. That arrow is the "refresh" pictogram: it says *something*
@@ -371,25 +371,42 @@ shows.
   the art below `ART_MIN_W` (26px) and carries an inner light rim, without which a mini fan of eight
   backs merges into a single black bar.
 
-## Card rendering layer (React + Framer Motion)
-- `<GameBoard />` is the root; it tracks container size via `useElementSize` (ResizeObserver) and passes width/height to children that absolute-position in pixel coords.
+## Card rendering layer
+
+Svelte throughout, and the movement is the browser's: `Card.svelte`, `CardArt.svelte`,
+`CardGlyph.svelte`, `CardBack.svelte`, `SuitMark.svelte` and the glyph geometry as data in
+`cardGlyphs.ts` for the face; `Hand`, `DiscardPile`, `PlayerSlot`, `TurnIndicator`, `AnimationLayer`,
+`GameBoard`, `GameView` for everything that moves them. There is no animation runtime any more —
+flights are `element.animate` through the `use:play` action in `AnimationLayer.svelte`, and the fan's
+reflow is a CSS transition. The bridge that mounted a Svelte face inside a JSX tree is gone with the
+tree; `setNode` survived it, because handing the node back is still how the flight layer gets the
+real element.
+
+> **Two things bit during the port and will bite again.**
+> **Svelte keeps a whitespace text node where JSX dropped one**, so a card laid out one element per
+> line reads as `"     L"` instead of `"L"` and `card.test.ts` fails on the corner mark — the
+> children of `Card.svelte` and `CardArt.svelte` therefore run together with no line breaks, on
+> purpose. And **a `<script lang="ts">` keeps its imports after type-stripping**, so a type imported
+> as a value reaches the bundler and `protocol.ts` (generated, types only) is asked for a runtime
+> binding it does not have; every such import is `import type`.
+- `<GameBoard />` is the root; it tracks container size via `elementSize` (ResizeObserver) and passes width/height to children that absolute-position in pixel coords.
 - Layout helpers (`src/components/cards/layout.ts`): `clockwiseOpponents`, `opponentBubblePositions`, `calcHandSlots`, `discardPosition`, `deckPosition`, `seatPosition`, `handCardKeys` — all pure, reused by tests and animations.
-- Animations live in `<AnimationLayer />`: an array of `Flier` items (flying card faces or backs) plus `EffectText` floats. Each entry self-cleans via `onAnimationComplete` → parent `removeFlier`/`removeEffect`.
+- Animations live in `<AnimationLayer />`: an array of `Flier` items (flying card faces or backs) plus `EffectText` floats. Each entry self-cleans on its animation's `finish` → parent `removeFlier`/`removeEffect`.
 - Animation triggers (inside `<GameBoard />`), in effect-declaration order:
   - **Opponent play**: keyed on `lastPlay.at`; flies the card from `seatPosition(actor)` to the discard with `arcHeight`. Skipped when the actor is the local player. Sets `suppressNextDiscardFx`.
   - **Card play (own)**: `flyCardFromHand(card, idx)` computes the source slot from `calcHandSlots` and spawns the arced hand→discard flier. Sets `suppressNextDiscardFx`. **It only runs once the play is committed** — `props.onCardClick` returns a boolean ("did the card leave the hand?") and the flier is spawned only on `true`. A tap the client refuses (`clientMayPlay`/`clientMayInterrupt` say no) animates nothing: flying the card out and snapping it back reads as a bug, not as "illegal card". Plays confirmed later (wild colour, swap target) fire it through `flightRef` — a `GameBoardHandle` the `<ColorPicker />`/`<PlayerPicker />` callbacks in `GameView` call after `onSend`.
-  - `GameView.handleCardClick` also refuses to open a picker for a card `clientMayPlay` rejects — prompting for a colour and then having the server reject the card is the same broken promise as the animation. **The check runs before the prompts, not after**, and that order is the whole rule: the three wilds always match, so gating them changes nothing, but **Swap is a coloured card** and follows ordinary matching. Behind the prompts, an off-colour Swap was the one card in the deck that asked for a target, took the answer, and *then* came back refused with "illegal card play" — every other unplayable card ignores the tap in silence, so it read as the card behaving differently rather than as an illegal play. `realtime.test.tsx` covers both branches (refused Swap opens nothing, playable Swap still prompts).
+  - `GameView.handleCardClick` also refuses to open a picker for a card `clientMayPlay` rejects — prompting for a colour and then having the server reject the card is the same broken promise as the animation. **The check runs before the prompts, not after**, and that order is the whole rule: the three wilds always match, so gating them changes nothing, but **Swap is a coloured card** and follows ordinary matching. Behind the prompts, an off-colour Swap was the one card in the deck that asked for a target, took the answer, and *then* came back refused with "illegal card play" — every other unplayable card ignores the tap in silence, so it read as the card behaving differently rather than as an illegal play. `realtime.test.ts` covers both branches (refused Swap opens nothing, playable Swap still prompts).
   - **Discard top change (any source)**: `suppressNextDiscardFx` suppresses **only the generic pile flier**, never the SKIP/REVERSE/+N callout — playing your own Skip must announce itself too. Callout text from `effectFor(card, pendingDraw)`.
   - **Hand grew by 1**: deck→last-slot card-back flier (draws).
   - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.
-- Hover lift: CSS-only (`Hand.module.css`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
+- Hover lift: CSS-only (`Hand.svelte`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
 
 ### Motion conventions (non-negotiable)
-- **Animate transforms, never `left`/`top`.** Every moving node (`.flier`, `Hand .slot`, `PlayerSlot .slot`) is pinned at `left:0;top:0` in CSS and positioned by framer-motion `x`/`y`. Animating `left`/`top` runs layout every frame and visibly stutters once several cards move at once.
-- **A node's transform has exactly one owner.** If framer-motion animates a node's transform, its CSS must not set `transform` (and vice-versa). Where a static offset is also needed — centering the effect text, centering the turn indicator — use an outer anchor div for the CSS transform and an inner motion node for the animation (`.effectAnchor`, `TurnIndicator .anchor`). The hover lift lives on the inner `.card` for the same reason.
-- **Layout math is radians; framer-motion `rotate` is degrees.** Convert at the render boundary with `radToDeg` (`cardTheme.ts`). Passing radians straight to `rotate` silently flattens every rotation.
-- Shared motion constants in `cardTheme.ts`: `EASE_OUT_CARD` (card flights), `SPRING_HAND` (fan reflow), `DEAL_STAGGER_MS`.
-- **Hand keys come from `handCardKeys(hand)`**, not the array index — occurrence-numbered card identity. Index keys make React reuse the wrong node when a card leaves the middle of the fan, so the survivors snap instead of sliding into the gap.
+- **Animate transforms, never `left`/`top`.** Every moving node (`.flier`, `Hand .slot`, `PlayerSlot .slot`) is pinned at `left:0;top:0` in CSS and positioned by a `translate()`. Animating `left`/`top` runs layout every frame and visibly stutters once several cards move at once.
+- **A node's transform has exactly one owner.** A node whose transform a keyframe animates must not also have one set in CSS, and vice-versa. Where a static offset is also needed — centering the effect text, centering the turn indicator — use an outer anchor div for the CSS transform and an inner node for the animation (`.effectAnchor`, `TurnIndicator .anchor`). The hover lift lives on the inner `.card` for the same reason.
+- **Layout math is radians; CSS `rotate()` is degrees.** Convert at the render boundary with `radToDeg` (`cardTheme.ts`). Passing radians straight through silently flattens every rotation.
+- Shared motion constants in `cardTheme.ts`: `EASE_OUT_CARD` (card flights, as control points because that is what `element.animate` takes) and `DEAL_STAGGER_MS`. The fan's reflow curve lives in `Hand.svelte` beside the rule that uses it.
+- **Hand keys come from `handCardKeys(hand)`**, not the array index — occurrence-numbered card identity. Index keys make a keyed block reuse the wrong node when a card leaves the middle of the fan, so the survivors snap instead of sliding into the gap.
 - `Hand` staggers cards in only when the hand grows **from empty** (a deal). Any other growth is a draw, which already has its own deck→hand flier.
 - `DiscardPile`: 2 static neutral under-layers for pile thickness (deliberately untinted — the active-colour ring owns the colour there) + top card keyed on `cardKey(card)` so each new top card remounts and replays a spring settle at a deterministic `hashTilt`.
 - `store.lastPlay { actorIndex, card, at }` is set by `applyCardPlayed` and exists **only** for animation. Never read it for rules decisions.
@@ -423,7 +440,7 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   `GameBoard.landCard` for rare/legendary only. A legendary also kicks the board — via the **`translate`
   property, not `transform`**: `.stage`'s transform is the board scale, and a WAAPI transform
   animation would override it mid-kick and resize the whole table.
-- **Rarity is read in the flight and the impact, never on the face.** `Card.module.css` carries no
+- **Rarity is read in the flight and the impact, never on the face.** `Card.svelte` carries no
   per-rarity treatment at all: its only classes are `.card`, `.card.playable`, `.card.shadow`,
   `.interactive` and the corner variants. A shine or foil run across the face desaturates the suit
   colour, and suit colour is what has to survive stream compression, so `.card.playable` stays the
@@ -437,9 +454,9 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 - **The switch is `:root[data-motion="reduce"]`, never a media query.** `initMotion()` writes it
   before the first paint from the system setting *and* the player's answer, so the choice can win in
   both directions; `reducedMotionCss.test.ts` fails on any new
-  `@media (prefers-reduced-motion: reduce)` block. framer-motion goes through `<MotionGate>` in
-  `entry.tsx`, which resolves to `always`/`never` — `reducedMotion="user"` reads the OS setting
-  directly and would ignore the preference. Full reasoning in `docs/notes/client.md`.
+  `@media (prefers-reduced-motion: reduce)` block. There is no animation runtime to configure any
+  more: the attribute drives the stylesheet, and the two WAAPI shakes and the transitions ask
+  `prefersReducedMotion()` themselves. Full reasoning in `docs/notes/client.md`.
 - When adding motion, verify it degrades to a readable static state rather than disappearing.
 
 ## Player bubble (`<PlayerSlot />`)
@@ -514,7 +531,7 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   - `CATCH_PENALTY_CARDS` (2) is stated once in the store and read by both the banner and the
     flight. Against fully exhausted piles the server hands over fewer (a draw never fails, it
     shrinks), so what is approximate there is the announcement, never the hand — which always comes
-    from the server. Scene `game-catch-caught`; `src/test/catchBanner.test.tsx`.
+    from the server. Scene `game-catch-caught`; `src/test/catchBanner.test.ts`.
 - **UNO banner**: tilted sticker, punch-in, positioned *above* the pile so the play that triggered
   it stays visible.
 - **Effect callouts** (`AnimationLayer`): SKIP / REVERSE / +N, outlined rather than shadowed so they
@@ -548,7 +565,7 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding live in
 `scoreTableModel.ts` (`buildScoreRows`, `pingTier`), unit-tested; the component only renders.
 
-- **Opened by holding TAB** (`useHeldKey('Tab', enabled)`) **or pinned by the scores button** in the
+- **Opened by holding TAB** (`heldKey('Tab', enabled)`) **or pinned by the scores button** in the
   top-right cluster. Held and pinned are separate states: releasing TAB must not close a table
   somebody deliberately pinned, and a phone has no TAB key at all.
 - **That button exists on touch layouts only** — `.scoresBtn` is `display:none` until
@@ -565,7 +582,7 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 - E2E: the desktop project therefore opens the table by **holding TAB** (`holdScores` in
   `score-table.spec.ts`); one test resizes to 390×844 to exercise the button and asserts it hidden
   before the resize.
-- `useHeldKey` resets on `blur`. Alt-tabbing away swallows the keyup, and the overlay would stay
+- `heldKey` resets on `blur`. Alt-tabbing away swallows the keyup, and the overlay would stay
   stuck over the board with no way out. It `preventDefault`s TAB, so `enabled` is false while the
   rules modal, a picker or the round summary owns the screen: inside a dialog TAB is the dialog's.
 - `.topRight` sits at **z-index 46, above the panel's 45**. The button that pins the table open is
@@ -591,7 +608,7 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 ## Visual showcase & screenshot harness
 `client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,
 `?showcase=<id>` renders one scene full-screen with no server, no WebSocket and no second player.
-Gated behind `import.meta.env.DEV` (dynamic import in `entry.tsx`), so Rollup drops the chunk in prod.
+Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup drops the chunk in prod.
 
 `tools/visual/shoot.mjs` (`make visual`) boots the dev server through
 `tools/lib/devserver.mjs`, walks the registry and writes
@@ -608,18 +625,27 @@ Gated behind `import.meta.env.DEV` (dynamic import in `entry.tsx`), so Rollup dr
   down).
 - **`notch` is a phone with safe areas** (390×844 plus a 59px notch and a 34px home indicator). A
   viewport entry may carry `insets`, which the init script writes over the `--safe-*` tokens the CSS
-  offsets and `useSafeAreaInsets` both read. No desktop browser reports an inset on its own, so this
+  offsets and `safeAreaInsets` both read. No desktop browser reports an inset on its own, so this
   is the only way to see the layout that has to dodge them (see "Safe areas").
 - Viewport size goes under `viewport: {...}` in the Playwright context options — width/height at the
   top level are silently ignored and you get the 1280×720 default.
 - Captures run with `reducedMotion: 'reduce'` by default so they are deterministic; `--motion` is how
   you check confetti, springs and callouts.
+- **The harness asks for the home page of the language it is capturing** (`/fr/` by default, since
+  `--lang` defaults to `fr`), and that is load-bearing rather than tidy. It seeds `loco_lang` in
+  `localStorage`, and a document is never in two languages at once: ask for `/` with `fr` stored and
+  `initLangUrl()` `location.replace`s to `/fr/`, so every scene loads twice. One page walks all 62
+  scenes, and **Chromium stops honouring navigations on a long-lived page somewhere past a hundred
+  of them** — the run died on scene 52 with a bare `page.goto` timeout and no error on the page.
+  Reversing the scene list moved the failure to a different scene at the *same position*, which is
+  what identified it as a count rather than a scene. If the harness ever grows past ~100 scenes,
+  recycle the page rather than hunting the scene it stops on.
 
 ## Link preview (Discord / X)
 The game is shared as a link, so the OG card is a product surface. `make og` (`tools/og/shoot.mjs`)
 renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 
-- **Built from the real `<LocoLogo />` and the real `<Card />`** (`client/src/dev/OgCard.tsx`), not a
+- **Built from the real `<LocoLogo />` and the real `<Card />`** (`client/src/dev/OgCard.svelte`), not a
   redrawn copy: the duck on the preview is the duck on the cards is the duck in the tab, and a
   hand-authored twin would drift the first time either is touched. `OgCard` pins `--color-stroke` /
   `--color-primary` locally — a link preview is one picture and must not depend on which theme the

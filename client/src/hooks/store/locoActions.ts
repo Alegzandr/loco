@@ -1,7 +1,7 @@
-import { StateCreator } from 'zustand'
+import { StateCreator } from './createStore'
 import { GameStore, LocoActions } from './types'
 
-export const createLocoActions: StateCreator<GameStore, [], [], LocoActions> = (set) => ({
+export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => ({
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
 

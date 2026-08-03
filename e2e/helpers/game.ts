@@ -67,7 +67,7 @@ export async function forceEnglish(page: Page): Promise<void> {
  * Wait for the page's WebSocket to be open.
  *
  * This is the real precondition before clicking Create/Join: the click sends a
- * message, and `useWebSocket` queues anything sent before `onopen`. It replaces
+ * message, and `webSocket` queues anything sent before `onopen`. It replaces
  * a flat `waitForTimeout(600)` paid by every test in the suite — too long on an
  * idle machine, and not always long enough on a loaded CI runner, which is what
  * the retry loops below were absorbing.

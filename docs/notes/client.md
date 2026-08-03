@@ -8,21 +8,20 @@ see `visual.md`.
 
 ## Where the client's logic lives
 
-`App.tsx` and `GameView.tsx` were both mostly *not* rendering: a 320-line switch over every inbound
+`App.svelte` and `GameView.svelte` were both mostly *not* rendering: a 320-line switch over every inbound
 message in one, and eight animation timers, two prompts and the whole legality check in the other.
 Both are now what their names say, and the work sits beside the other work of its kind:
 
 | Module | What it owns |
 | --- | --- |
 | `hooks/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
-| `hooks/useGameStore.ts` | the assembly, and the re-exports every screen imports from |
+| `hooks/gameStore.ts` | the assembly, and the re-exports every screen imports from |
+| `hooks/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
 | `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
-| `hooks/useCardPlay.ts` | what a tap on a card means, the two prompts it can open, and the legality the board highlights with |
-| `hooks/useBoardShake.ts` | the rattle an interception takes, the thump a Contre-LOCO! takes |
-| `hooks/useAutoClear.ts` | a piece of table news that takes itself off screen |
-| `hooks/useMapGate.ts` | preload the room's art while the table is shut, then answer `map_ready` |
-| `hooks/useTurnCountdownSfx.ts` | the ticks over the last seconds of our own turn |
-| `dev/e2eBridge.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
+| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; preloading the room's art while the table is shut, then answering `map_ready` |
+| `hooks/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
+| `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands |
+| `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
 | `components/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
 
 **Derived state is completed by the store, not by the actions.** `catchTarget` and `unoTimerEnd` are
@@ -46,11 +45,17 @@ across the families on purpose, since an authoritative `game_state` settles the 
 declarations and the scoreboard in the same breath, and splitting the *state* would have turned one
 `set` into five. What is split is the reading.
 
-**`GameBoard.tsx` is deliberately not split.** Its eight animation effects are one state machine over
-one queue: they share `setFliers` / `setImpacts`, the `landTimers` list, the stage ref and the
-suppress-next-discard flag. Per-animation hooks would pass those five handles through six
-signatures, which is the same coupling with more indirection. If it is ever split it should be as a
-single `useBoardFx`, and reviewed with `make visual` rather than with assertions.
+**`GameBoard.svelte` is deliberately not split.** Its eight animation effects are one state machine over
+one queue: they share `fliers` and `impacts`, the `landTimers` list, the stage node and the
+suppress-next-discard flag. Per-animation modules would pass those five handles through six
+signatures, which is the same coupling with more indirection. If it is ever split it should be as
+one `boardFx` module, and reviewed with `make visual` rather than with assertions.
+
+**And its spawns go through `untrack`.** `fliers = [...fliers, x]` *reads* `fliers`, so every effect
+that spawns one depends on the list it is appending to and re-runs on the next spawn — the board
+replayed its first swap animation forever. `addFliers` reads the current value without subscribing
+to it, which is what the equivalent updater function used to mean for free. Any new effect that
+appends to a `$state` array here has to do the same.
 
 ## How the game gets on the page
 
@@ -68,14 +73,14 @@ on any `client:*` directive anywhere in `src/`.
 
 **Server rendering buys nothing here.** `initTheme()` and `initSessionRestore()` read `localStorage`
 and `sessionStorage`, the language comes from `localStorage` then `navigator.language`, and the whole
-board is measured from the viewport (`boardSpace`, `useElementSize`, `useSafeAreaInsets`). A server
+board is measured from the viewport (`boardSpace`, `elementSize`, `safeAreaInsets`). A server
 knows none of those. Rendering the app there would produce a hydration mismatch on every one of them
 in exchange for markup no crawler wants: the lobby is a nickname field.
 
 **So `src/pages/index.astro` carries `<div id="root">` and an ordinary `<script>` importing
-`src/entry.tsx`**, which Astro bundles to an external module. That is the same mechanism the app used
+`src/entry.ts`**, which Astro bundles to an external module. That is the same mechanism the app used
 under Vite, `#root` keeps the `html, body, #root` rule in `tokens.css` working unchanged, and the
-content pages around it mount no React at all.
+content pages around it mount no application at all.
 
 **The cost of that split is that `/` arrives twice, so the two halves are held together on purpose.**
 The footer row, the phone's burger and the prose behind the sheet are markup the server sent, and
@@ -85,7 +90,7 @@ screen, the burger on a phone — and the game dropping in a few hundred millise
 about it was broken, and it looked broken every time.
 
 The app's mounted child, the footer's row of links and the phone's burger therefore all hold at
-`opacity: 0` until `entry.tsx` writes `data-booted` on `<html>`, two `requestAnimationFrame`s after
+`opacity: 0` until `entry.ts` writes `data-booted` on `<html>`, two `requestAnimationFrame`s after
 `render()` so the attribute lands on a commit that has actually painted rather than one still queued.
 Then a single 0.34s fade brings them up together.
 
@@ -106,8 +111,8 @@ Four details are what make it safe rather than a way to lose the page:
   this page with JavaScript disabled, and it must keep seeing it immediately.
 - The same animation carries a 3s delay while the attribute is missing. A bundle that 404s, throws on
   import or is blocked reveals the page anyway; the alternative is a blank screen with no way out.
-  The `[data-booted='in']` rule replaces it with the delay-free one the moment React reports in.
-- **The reveal is spent.** `entry.tsx` blanks the value 600ms later, leaving the bare attribute that
+  The `[data-booted='in']` rule replaces it with the delay-free one the moment `entry.ts` reports in.
+- **The reveal is spent.** `entry.ts` blanks the value 600ms later, leaving the bare attribute that
   lifts the hold and no rule that animates. Every screen in the game is a fresh child of `#root`, so
   a live `#root > *` reveal would fade the board in again on every screen change for the rest of the
   match — the waiting room, the deal, the score table.
@@ -118,35 +123,91 @@ Reduced motion keeps the wait and loses the fade for free: the blanket rule in `
 animation's *duration* and leaves its *delay* alone, so the sync survives and the movement does not.
 `contentPages.test.ts` pins each of these, including the two selectors that must **not** be there.
 
-One consequence worth knowing: `@astrojs/react` injects the Fast Refresh preamble as a
-`before-hydration` script, which Astro only emits on pages that hydrate an island. With no island the
-preamble never lands, and every transformed `.tsx` throws "can't detect preamble" in dev. It is
-injected as a plain page script from `astro.config.mjs` instead, dev-only, so it is bundled rather
-than inlined and the production HTML keeps exactly one external script and nothing inline.
-
 ## The toolchain, and the one place it is deliberately not the newest
 
-React 19, Astro 7, Zustand 5, Valibot 1, ESLint 10, Vitest 4. Two of those cost something worth
-writing down.
+Svelte 5, Astro 7, Valibot 1, ESLint 10, Vitest 4. Several of those cost something worth writing
+down.
 
-**React 19 removed the global `JSX` namespace and deprecated `forwardRef` and the bare event
-aliases.** `CardArt.tsx` imports `JSX` from `react` instead of reaching for a global; `Card` and
-`CardBack` are plain functions taking `ref` as an ordinary prop, which is one fewer wrapper object
-between framer-motion and the node it animates; `Lobby`'s submit handlers take `SyntheticEvent`,
-since React's `FormEvent` is now marked as a type that "doesn't actually exist" — the DOM event a
-submit fires is a `SubmitEvent`. `useRef<T>(null)` also yields `RefObject<T | null>` now, so a prop
-that receives one has to say so (`UnoTimer.fillRef`, `GameBoard.flightRef`).
+**The crossing from React 19 to Svelte 5 has landed, and the way back is closed on purpose.** No
+`react`, no `react-dom`, no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`;
+`astro.config.mjs` configures one framework and the ESLint config knows one. `src/test/noReact.test.ts`
+is the guard, and it checks four different things because a return could come in through any of
+them: the manifest, the Astro and ESLint configs, every import in every source file, and every file
+extension under `src/`.
+
+What the crossing left behind is worth keeping, because it is what made it survivable:
+
+- **The state that two frameworks had to share is still framework-free.** The language
+  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`), the theme (`src/theme.ts`) and
+  every on/off preference (`hooks/prefStore.ts`) are plain modules with a subscription, read through
+  `createSubscriber` (`i18n/i18n.svelte.ts`, `hooks/prefs.svelte.ts`). They left React first
+  *because* a Svelte component could not read a React context, and they stay where they are for a
+  reason that outlived that one: a content page mounts nothing and still has to know the language
+  and the theme. Two copies of the current language is how a document ends up half translated.
+- **`hooks/` is split along the same line.** `.svelte.ts` for anything owning reactive state or an
+  effect, plain `.ts` for everything else, and the plain half is the half a page with no application
+  on it can import. The `use` prefix those files carried went with React: none of them is a hook,
+  they are constants, pure functions and plain stores, and **nothing in them may reach for a rune**.
+  That last part is not enforced by the compiler in this direction — Svelte compiles runes in
+  `.svelte` and `.svelte.ts` and nowhere else, so a `$state()` here is not a build error, it becomes
+  a call to a global that does not exist and throws whenever the line first runs.
+  `src/test/runeScope.test.ts` is what catches it instead.
+- **An Astro layout imports the `.svelte` directly.** It always did — a wrapper that mounted its
+  content in an effect answered Astro with nothing at all, and `ContentPage.astro` rendered an empty
+  header that no test reading sources would have caught. There is no wrapper left to get this wrong,
+  but the rule is why `<LocoLogo />` and every `<Card />` on `/cards/` are static markup.
+- Svelte applies a change on the microtask after it, not inside the click. Nothing on screen is
+  slower for it, but a Vitest assertion reading the DOM on the line after `fireEvent` needs a flush
+  first — which the suite does once, in `src/test/setup.ts`, rather than in three hundred tests.
+
+**Svelte prunes a CSS selector it cannot see in the markup**, silently, with a build warning nobody
+reads. Component styles live in the component's own `<style>` block now, so this is the failure mode
+to watch: a class applied at runtime by JavaScript — `drainBar`'s urgent class is the one case in
+this client — has to be bound in the markup with `class:` rather than added with `classList`, or it
+compiles away. `:global()` would also silence it, and silencing the compiler is the opposite of what
+this rule is for: **no `:global()` without a written justification.**
+
+**`astro check` does not type-check `.svelte`.** `npm run build` is `astro check && svelte-check &&
+astro build` for that reason; dropping the middle one leaves every Svelte component untyped while
+the build still reads green.
+
+**The store is ours** (`hooks/store/createStore.ts`, ~40 lines). It replaced Zustand, and not for
+weight: the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, which
+is where the sound subscription lives, `sessionRestore`, the E2E bridge) and, during the crossing, by
+two frameworks at once. What the
+dependency actually provided was `getState`, `setState`, `subscribe` and a middleware slot — four
+things with no framework in them, wrapped in a framework binding. The semantics are deliberately
+Zustand's to the letter, because
+209 reads and writes in `gameStore.test.ts` and every action in `store/` were written against them,
+and `src/test/storeCore.test.ts` states each one the client depends on. The subtle one:
+`deriveCatchMiddleware` reassigns `store.setState` while the creator runs, so the store must publish
+the property the creator mutated rather than a copy taken before it — otherwise the derivation
+applies to actions and to nothing else, and a test seeding a board writes an inconsistent state with
+nothing failing.
+
+**A component's events are the DOM's, and its props are ordinary props.** `onclick`, not `onClick`;
+a submit handler takes the `SubmitEvent` a form actually fires. The one thing to know is that
+**Svelte silently ignores a prop it does not recognise** — no warning, no type error at the call site
+if the object is built dynamically — so a name left in the old casing is a handler that never runs.
+`card.test.ts` caught exactly that on `Card`'s `onclick` after the port: the test rendered, asserted,
+and counted zero calls out of three clicks.
+
+Where a parent needs the node itself rather than a callback — the flight layer animating a real card
+— the child takes a `setNode` callback and calls it from an effect (`Card.svelte`, `CardBack.svelte`).
+A `bind:this` on the parent's side would work too; the callback is what survived the crossing and it
+keeps the ownership explicit, including the `setNode(null)` on teardown.
 
 **The validator is Valibot because Zod 4 compiles with `Function()` and the CSP refuses that.** The
 full account, the test that replaced the workaround's config pin, and the rest of the generated
 protocol are under "Protocol validation (client)" below.
 
-**TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `npm run build` is
-`astro check && astro build`, and `astro check` drives `@astrojs/language-server`, which needs
-TypeScript's programmatic API. The 7.0 native compiler does not ship one yet and the check refuses
-to start with a message naming that directly. Raising it turns the client's only type gate into an
-immediate failure, so the pin moves when the language server says it can. The E2E package is held to
-the same major for one decision rather than two.
+**TypeScript stays on 6.x, and that is a ceiling rather than a preference.** `astro check` drives
+`@astrojs/language-server`, which needs TypeScript's programmatic API. The 7.0 native compiler does
+not ship one yet and the check refuses to start with a message naming that directly. Raising it
+turns the client's type gate into an immediate failure, so the pin moves when the language server
+says it can. Two more tools now hold the same ceiling independently — `svelte-check@4` and
+`@astrojs/svelte@9` both declare `typescript: ^5 || ^6` — so this is three votes rather than one.
+The E2E package is held to the same major for one decision rather than two.
 
 ## The realtime path (tap → wire → table)
 Every hop between a player's finger and the other clients' boards is on the critical path of a
@@ -165,7 +226,7 @@ polish.
 - **The client sends first and animates second.** `GameBoard.handleCardClick` calls
   `props.onCardClick` and only spawns the hand→discard flight if it returns `true`. The flight is
   local rendering; the message is what the table is waiting on.
-- **A tap that is not a play animates nothing.** `useCardPlay`'s `onCardClick` (which `GameView`
+- **A tap that is not a play animates nothing.** `cardPlay`'s `onCardClick` (which `GameView`
   hands to the board) returns `false` when the
   client refuses the card and when the tap only opens the colour/player prompt. It used to fly the
   card on every tap, so an illegal card and an unconfirmed wild both threw the card at the pile and
@@ -176,7 +237,7 @@ polish.
   draw then pass, along with LOCO-then-catch and catching a second seat after a Swap. A control that
   ignores a deliberate tap because a *different* control was used 300ms ago reads as a dead button.
   The catch key carries its target because two seats are two taps.
-- **A prompt lives exactly as long as the play behind it stays legal.** `useCardPlay` re-reads the
+- **A prompt lives exactly as long as the play behind it stays legal.** `cardPlay` re-reads the
   condition that opened the colour/player picker on every state change (`clientMayInterrupt` for an
   interject, `currentTurn === myIndex && clientMayPlay` otherwise, plus the card still being in
   hand) and closes it the moment that answer turns false. The older rule closed a picker only when a
@@ -185,48 +246,48 @@ polish.
   setting `lastPlay`, so the prompt stayed up over a table that had gone and the choice went out
   against a state the server had already replaced. Being asked for a swap target and *then* refused
   is the one rejection in this game that reads as a broken promise rather than as an illegal card.
-- `src/test/realtime.test.tsx` owns all of the above on the client side.
+- `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ## Client transport
 - **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and Astro does not expose that name
   by default.** Astro narrows Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
   in the transformed module verbatim and reading `undefined` in the browser, with no warning at any
-  layer. `useWebSocket` then took its production branch in dev and dialled same-origin `/ws`, which
+  layer. `webSocket` then took its production branch in dev and dialled same-origin `/ws`, which
   is the Vite dev server proxying nothing: `ws://localhost:5173/ws` closed before it opened, and the
   symptom a player got was a table that never opened and a queue that never paired.
   `astro.config.mjs` restores the prefix (`envPrefix: ['PUBLIC_', 'VITE_']`) rather than renaming the
   variable, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
   README all already name it. `src/test/wsEnv.test.ts` fails whenever the hook reads a prefix the
   config does not expose. Anything else the app needs from the environment obeys the same rule.
-- `useWebSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
+- `webSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
 - Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
-  (250ms, 500ms, 1s, 2s, 4s, then held), max 10 attempts, `attemptsRef` resets on `onopen`.
+  (250ms, 500ms, 1s, 2s, 4s, then held), max 10 attempts, `attempts` resets on `onopen`. The
+  schedule and the `WsStatus` vocabulary live apart from the socket, in `hooks/webSocketPolicy.ts`:
+  a backoff curve belongs to no framework and a component that only needs the status should not
+  import the transport to get it.
   **The first retry is deliberately almost immediate.** Most drops are a single lost connection
   that comes straight back, and the flat 2s first retry it replaced cost the player an entire
   interrupt window of dead board every time one happened. The tail still backs off, so a server
   that is genuinely down is not hammered.
 - `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
 - **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
-  `createServerMessageHandler(unoTimer)` is built once (`useMemo([])`) and takes its store snapshot
-  at creation: the action functions come from the zustand factory and are stable for the life of the
-  app, so closing over them costs nothing. Branches needing CURRENT store *values* call
-  `useGameStore.getState()` at the moment they need it: a frozen snapshot would be reading the store
-  as it was at mount, which is a different value on every branch that asks about the current screen.
-  The one thing passed in is the LOCO! banner's timer (`UnoBannerTimer`), because the ref belongs to
-  a component and the handler is not one.
-- React renderer relies on Zustand selector equality; expensive re-renders are avoided via stable references in the store.
-- **`App` never subscribes to the whole store.** `const store = useGameStore.getState()` is an
-  actions-only snapshot (the factory creates them once, so it is stable and safe to close over in a
-  deps-free callback), and everything App *renders* comes from one narrow selector per field.
-  `handleSend` depends on `[send]` alone.
-  - `useGameStore()` here undid, from the parent, the entire stabilisation `GameView` does for
-    itself: every broadcast — a latency tick every 3s, any card anybody drew — re-rendered App, and
-    the new store object in `handleSend`'s deps gave `onSend` a new identity, which rebuilt
-    `GameView`'s memoised callbacks and defeated `<GameBoard />`'s memo one level down. See
-    "Nothing continuous goes through React state"; the rule has to hold at *both* levels.
-  - `src/test/appSubscription.test.tsx` pins it. Its `useWebSocket` mock returns a **stable**
-    `send` on purpose: the real hook's is `useCallback([], …)`, and a mock handing back fresh arrows
-    would make `handleSend` unstable by itself and quietly prove nothing.
+  `createServerMessageHandler(unoTimer)` is built once, during App's setup, and takes its store
+  snapshot at creation: the action functions are created once by the store factory and are stable for
+  the life of the app, so closing over them costs nothing. Branches needing CURRENT store *values*
+  call `gameStore.getState()` at the moment they need it — a frozen snapshot would be reading the
+  store as it was at mount, which is a different value on every branch that asks about the current
+  screen. The one thing passed in is the LOCO! banner's timer (`UnoBannerTimer`), because it belongs
+  to a component and the handler is not one.
+- **The match screen is built once and then left alone.** It is the most expensive tree in the app
+  and the store underneath it changes several times a second. Svelte gives this by construction —
+  `GameView` is instantiated once and only the reactive reads inside it update — but the guarantee
+  is losable in one line: a `{#key}` around the board, or a keyed block whose key moves with the
+  state, tears it down and rebuilds it on every change. That is the same bug the React version had
+  with a defeated `memo`, spelled differently.
+  - `src/test/appSubscription.test.ts` pins it by counting how many times the stub's *script body*
+    runs, which under Svelte is the number of instantiations. Its `webSocket` mock returns a
+    **stable** `send` on purpose: an unstable one would make `handleSend` unstable by itself and
+    quietly prove nothing.
 
 ## Session restore across a reload
 The socket-level reconnect only ever covered a **dropped connection**: the store was still in memory,
@@ -244,8 +305,8 @@ That is the disconnect people actually have, and it was the one that could not b
   overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
   navigation and a crash restore, which is every case this exists for; and it dies with the tab
   rather than handing the next person a live seat.
-- `initSessionRestore()` runs in `entry.tsx` **before the first render**, next to `initTheme()` and for
-  the same reason: `useWebSocket` connects in an effect on App's first mount and the rejoin goes out
+- `initSessionRestore()` runs in `entry.ts` **before the first render**, next to `initTheme()` and for
+  the same reason: `webSocket` connects in an effect on App's first mount and the rejoin goes out
   from that very first `onopen`, so the store has to already know what it is reclaiming.
 - `screen: 'restoring'` is its own screen, not a flag over `'game'`: the board has no hand, no discard
   and no players at that point, and a table drawn from an empty state behind an overlay is a broken
@@ -289,7 +350,7 @@ last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mo
   room.
 - **Written on submit, never on keystroke.** A half-typed name is not what anyone wants handed back,
   and the write would land on the realtime path for no benefit.
-- Seeded via `useState(readNickname)`, i.e. **read once at mount**. Re-reading storage while the lobby
+- Seeded from `readNickname()` during setup, i.e. **read once at mount**. Re-reading storage while the lobby
   is open would fight whatever the player is typing.
 - It is a prefill, not a submission: an emptied field still refuses to send. In the join form
   `autoFocus` follows the same fact, landing on the room code when the name is already known and on
@@ -378,7 +439,7 @@ reads that code off the URL before the first render and `App` acts on it.
   key: a remount would take the prefilled code back out from under the player mid-typing.
 
 ## The host's control over a row
-`WaitingRoom.tsx` puts one icon button on every roster row but the host's own, sending
+`WaitingRoom.svelte` puts one icon button on every roster row but the host's own, sending
 `kick_player` with that seat. Guests render none of them, on any row.
 
 - **Never on seat 0.** The way out of your own seat is the quit link at the bottom, which asks first.
@@ -412,7 +473,7 @@ is: there is no board to draw behind either of them.
   the tab", and it is self-fulfilling: the player who leaves on that sentence is the opponent the next
   one was about to get. So the third stage says the honest thing, that this can take a while, stay here,
   you get the next arrival, and adds the one alternative that needs a friend rather than a stranger:
-  open a private table. `matchmaking.test.tsx` asserts none of the copy can name a number.
+  open a private table. `matchmaking.test.ts` asserts none of the copy can name a number.
 - The empty chair opposite is drawn as an empty chair. A spinner would be a smaller promise than the
   truth.
 - **The searching screen carries the same top bar as every other screen.** It is the longest single
@@ -421,10 +482,10 @@ is: there is no board to draw behind either of them.
 - **Being found reaches a player who is not looking, two ways, and both are deliberately bounded.**
   `soundsForTransition` plays `matchFound` on the transition into `screen: 'matchfound'` (stacked
   fifths rather than the thirds every other cue uses: nothing has been *won*, somebody has arrived),
-  and `useTabAlert` alternates the browser tab's title with `t.matchFoundTab`. The alert **only ever
+  and `tabAlert` alternates the browser tab's title with `t.matchFoundTab`. The alert **only ever
   arms while the tab is hidden**, and coming back disarms it and restores the real title on the spot,
   never re-arming: a title blinking under the player's eyes says nothing the screen does not, and one
-  still blinking after they came back is a bug they can only fix by reloading. `tabAlert.test.tsx`
+  still blinking after they came back is a bug they can only fix by reloading. `tabAlert.test.ts`
   pins both rules. The two are a pair rather than a redundancy: a backgrounded tab is exactly where a
   mobile browser has parked the AudioContext, so the sound covers the player who is on the page and
   the title covers the one who is not.
@@ -443,14 +504,14 @@ is: there is no board to draw behind either of them.
   rather than on one named opponent, and the button carries `x/y`; at two the count is noise.
   `player_left` clears the pair, and the server republishes right behind it in every room that still
   has an agreement to publish.
-- **A matchmade table with nobody left at it requeues by itself** (the effect in `App.tsx`,
-  `rematchRequeue.test.tsx`). The ask cannot complete, the only other thing on the screen is the
+- **A matchmade table with nobody left at it requeues by itself** (the effect in `App.svelte`,
+  `rematchRequeue.test.ts`). The ask cannot complete, the only other thing on the screen is the
   queue, and making the player press it is asking them to confirm the only remaining option.
   Cancelling the search is how they leave. Ordinary tables are left alone: there is a room, a code
   and a lobby to reopen, and nobody there queued for a stranger.
 - `<OpponentAway />` is the only thing on the board that reads `opponentAway`, and the store only fills
   it when the server sent a `forfeit_deadline`, i.e. never in an ordinary room, where the seat is
-  simply held and a countdown to losing would be a worse table. Its bar is a `useDrainBar` animation:
+  simply held and a countdown to losing would be a worse table. Its bar is a `drainBar` animation:
   a board frozen on somebody else's connection is exactly when the main thread must stay free.
 
 ## Protocol validation (client)
@@ -466,7 +527,7 @@ construction. That is the same shape as the mirrors this repository already pins
 (`serverMirrors.test.ts` for the nickname's shape and the table code's alphabet); the difference is
 that a mirror can be pinned and a copy can be deleted, and these two were copies.
 
-- `useWebSocket` runs `v.safeParse(serverMsgSchema, …)` on every payload. Dev: invalid → log and
+- `webSocket` runs `v.safeParse(serverMsgSchema, …)` on every payload. Dev: invalid → log and
   drop, which is what surfaces drift in tests. Prod: log and pass through, so one new server field
   cannot take the client offline.
 - **The generator refuses rather than guesses.** An unknown type, a slice of pointers, or a const
@@ -499,18 +560,20 @@ in them. Only `make csp`, the built client behind the real nginx in a real brows
 problem. That is the standing argument for running it after a dependency bump and not only after an
 `nginx.conf` edit.
 
-### Nothing continuous goes through React state
-A value that changes every frame must never be a `useState` in a component the board
-hangs off. `<GameView />` owns the whole match screen, and it is not memoised against
-its own store subscription, so one `setState` per frame re-renders the board with it:
-seat layout, hand slots, pile positions and every card, re-derived sixty times a second.
+### Nothing continuous goes through reactive state
+A value that changes every frame must never be a `$state` the board hangs off.
+`<GameView />` owns the whole match screen, and a write per frame re-derives whatever
+reads it — seat layout, hand slots, pile positions — sixty times a second. Svelte's
+granularity narrows the blast radius compared to a re-render; it does not make the
+write free, and it does not help at all when the value feeds a `$derived` the board
+reads.
 
-- **Countdown bars use `useDrainBar`, not a percentage in state.** The bar is handed a
+- **Countdown bars use `drainBar`, not a percentage in state.** The bar is handed a
   CSS animation whose duration is the window and whose *negative* delay is the part
   already elapsed (`--drain-ms` / `--drain-delay`, keyframes `loco-drain` +
   `loco-drain-heat` in `tokens.css`). The browser then drains it on the compositor:
-  zero JS per frame, zero React work, and the bar stays smooth while the main thread
-  is dealing a hand. This replaced a `requestAnimationFrame` → `setState` loop that
+  zero JS per frame, zero framework work, and the bar stays smooth while the main
+  thread is dealing a hand. This replaced a `requestAnimationFrame` → state loop that
   re-rendered the entire board for the whole 30-second turn *and* the 5-second catch
   window, i.e. exactly during the two moments the game asks for a fast reaction.
 - It drains by `scaleX`, never `width`: width lays out the page every frame.
@@ -521,12 +584,12 @@ seat layout, hand slots, pile positions and every card, re-derived sixty times a
   only place the remaining time is written down, and a player who asked for less motion
   still has to know their turn is about to be auto-passed. Same principle as `.armed`
   degrading to a static halo rather than to nothing.
-- **`<GameBoard />` is `memo`'d and its props are kept referentially stable** in
-  `GameView` (`turnTexts`, `fxTexts`, `cardIsPlayable`, `cardIsInteractive`,
-  `handleCardClick`, `handleDraw`). An object literal or an arrow in that JSX defeats
-  the memo entirely, which is what an inline `turnTexts={{…}}` and
-  `onDraw={() => …}` were doing: a latency broadcast every 3s, an error toast or a
-  catch window rebuilt the whole board.
+- **`drainBar`'s own effect must not re-arm while the window runs down.** Arming is two
+  `setProperty` calls; anything that re-runs the effect writes them again and restarts
+  the animation from the top, which reads as a bar that jumps back. Every argument it
+  takes is an accessor for that reason — it is called once, during setup, and has to
+  keep seeing the current node and the current deadline without being called again.
+  `drainBar.test.ts` watches those two calls across twenty seconds of fake time.
 
 ## A deploy, from the player's seat
 - `server_updating` sets `serverUpdating` in the store, and `<ServerUpdating />` renders a line of
@@ -556,37 +619,38 @@ seat layout, hand slots, pile positions and every card, re-derived sixty times a
 
 ## Reconnect visual recovery
 - On `player_reconnected`: store `isReconnecting:true` before applying state.
-- `useReconnectAnimation(isReconnecting, onComplete)` shows "Rebuilding table…" overlay for 600ms then calls onComplete (which clears `isReconnecting`).
+- `reconnectAnimation(isReconnecting, onComplete)` shows "Rebuilding table…" overlay for 600ms then calls onComplete (which clears `isReconnecting`).
 - `<GameBoard />` hides its children while reconnecting; on the false→true→false transition it bumps an internal `rebuildKey`, replaying a 350ms board fade-in CSS keyframe.
 - Visual only; server is authoritative.
 - **Nothing but that timer ends the overlay, so nothing may be allowed to swallow it.** The hook used
-  to hold a ref guarding against replaying the animation, and the ref outlived the timer it guarded:
-  a reload mounts `<GameView />` with `isReconnecting` already true, so the effect runs for the first
-  time *on mount*, which is where StrictMode double-invokes it in dev. The first pass set the ref and
-  armed the timer, the cleanup cleared the timer, and the second pass returned early on the ref
-  without arming another. The seat was reclaimed correctly and the board was live underneath, but the
-  card sat over it saying "setting the table back up" for the rest of the match, and `isReconnecting`
-  was never cleared so the fade-in never played. The effect re-runs only when `isReconnecting`
-  actually changes, so re-arming on every run is the whole guard needed, and a reconnect that
-  resolves early now takes the overlay down with it instead of leaving it on a cancelled timeout.
-  It was invisible to the store-level tests by construction: every assertion about the seat, the hand
-  and the discard passed. `reconnectAnimation.test.tsx` renders the hook under `StrictMode`, and the
-  reload E2E asserts the overlay is gone rather than only that the state came back.
+  to hold a "have I played this already?" guard outside the effect, and that guard outlived the timer
+  it guarded. A reload mounts the board with `isReconnecting` already true, so the effect runs for the
+  first time *on mount* — and back then the dev tooling ran mount effects twice. The first pass set
+  the guard and armed the timer, the cleanup cleared the timer, and the second pass returned early on
+  the guard without arming another. The seat was reclaimed correctly and the board was live
+  underneath, but the card sat over it saying "setting the table back up" for the rest of the match,
+  and `isReconnecting` was never cleared so the fade-in never played. The effect re-runs only when
+  `isReconnecting` actually changes, so re-arming on every run is the whole guard needed, and a
+  reconnect that resolves early now takes the overlay down with it instead of leaving it on a
+  cancelled timeout. It was invisible to the store-level tests by construction: every assertion about
+  the seat, the hand and the discard passed. `reconnectAnimation.test.ts` covers both shapes —
+  arriving already true, and going false before the timer — and the reload E2E asserts the overlay is
+  gone rather than only that the state came back.
 
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
-- `I18nProvider` (`client/src/i18n/index.tsx`) wraps app in `entry.tsx`. `useI18n()` → `{ lang, t, setLang }`.
+- `initI18n()` (`client/src/i18n/store.ts`) wraps app in `entry.ts`. `i18n` → `{ lang, t, setLang }`.
 - Detect order: `localStorage('loco_lang')` → `data-served-lang` on `<html>` → `navigator.language`
   prefix (`fr` → French, else English).
 - `setLang` persists to localStorage + syncs `document.documentElement.lang`.
-- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `index.tsx`, add `{code, label}` to `LANGS` in `LanguageSwitcher.tsx` **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
+- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `store.ts`, add `{code, label}` to `LANGS` in `LanguageSwitcher.svelte` **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
 - The switcher is no longer mounted bare: it renders inside the preferences panel (below).
 - `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
 - Storage key and home paths: `src/lang.ts`, not the provider — see below.
 
 ### One document, one language
 
-The key, the pair of languages and the two home paths live in `src/lang.ts`, free of React, for the
+The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework, for the
 reason `theme.ts` exists: the content pages take part in this decision and mount nothing at all.
 
 The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
@@ -597,7 +661,7 @@ English, which is a lie to a screen reader before it is anything else. The lobby
 already answered this for the *change* — at the entry screen it is two real links, so following one
 serves the whole document in the other language — but nothing answered it for the *arrival*.
 
-`initLangUrl()` does, first thing in `entry.tsx`. Three properties are what make it safe:
+`initLangUrl()` does, first thing in `entry.ts`. Three properties are what make it safe:
 
 - **It only ever acts on an explicit choice.** Landing on a French page from a search result is not a
   choice and writes nothing to storage; only the two switches do. So this never fights the URL of a
@@ -620,7 +684,7 @@ and never the game: a reader who switched to French, read the rules and pressed 
 was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does too.
 
 ## Preferences
-`Preferences.tsx` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
+`Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
 the board. It holds the language pair (`LanguageSwitcher`, unchanged, now a child), the theme, and
 three switches: streamer mode, colour shapes, reduced motion.
 
@@ -636,10 +700,10 @@ three switches: streamer mode, colour shapes, reduced motion.
   subscribe/persist boilerplate is how they drift.
 - **Streamer mode blurs the table code.** Six characters read off a stream is an open table, and the
   waiting room — the one screen a streamer is guaranteed to sit on while friends join — prints them
-  at display size. `useStreamerMode` (`localStorage`, key `loco_streamer_mode`) is a module store,
+  at display size. `streamerMode.ts` (`localStorage`, key `loco_streamer_mode`) is a module store,
   not store or context state: the flag is read by two screens with no common parent and written from
   a third, and it must survive a reload with no round trip. Nothing about it reaches the wire.
-- **`TableCode.tsx` is the only way a screen prints the code.** The blur is a CSS filter over the
+- **`TableCode.svelte` is the only way a screen prints the code.** The blur is a CSS filter over the
   real text, so the copy button still copies the real code and hover/focus clears it for the owner —
   reading the code out loud is a normal thing to want. A screen that renders `roomCode` directly
   leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
@@ -677,7 +741,7 @@ hue for that reason, but "survives" is not "reads".
 
 - **`SUIT_SHAPE` (`cardTheme.ts`) is the vocabulary**: triangle (red), circle (yellow), square
   (green), diamond (blue). They differ at every corner count, which is the only property that
-  survives a card overlapped down to a sliver. `suitMark.tsx` draws them the way every card glyph is
+  survives a card overlapped down to a sliver. `SuitMark.svelte` draws them the way every card glyph is
   drawn: an ink pass under an off-white fill, because off-white on the green suit is 1.18:1 alone.
 - **Three sites, and they are the whole set**: under the value on the card (top-left, the corner a
   fanned hand still shows), on each `ColorPicker` swatch (four discs that differ *only* in hue: the
@@ -689,15 +753,18 @@ hue for that reason, but "survives" is not "reads".
 - Off by default: the card face is the brand and this adds a mark to it.
 
 ## Reduced motion
-The setting has three values (`auto` / `reduce` / `full`, `hooks/useMotionPref.ts`) and the UI shows
+The setting has three values (`auto` / `reduce` / `full`, `hooks/motionPref.ts`) and the UI shows
 two, because `auto` is what the switch reads before it is ever touched.
 
 - **`:root[data-motion="reduce"]` is the single source of truth in CSS**, written by `initMotion()`
   before the first paint. The media query is deliberately gone: it cannot be overridden, and a player
   whose system is set to reduce for reasons of their own is allowed to ask this game for its
   animations back. `reducedMotionCss.test.ts` fails on any new `@media (prefers-reduced-motion)`.
-- framer-motion goes through `<MotionGate>` in `entry.tsx` (`always`/`never`, not `user`), and the two
-  Web Animations shakes (`GameBoard.kickBoard`, `GameView.shakeScreen`) call `prefersReducedMotion()`.
+- There is no animation runtime left to hand the preference to: the attribute drives the stylesheet,
+  and the two Web Animations shakes (`GameBoard.kickBoard`, `GameView.shakeScreen`) ask
+  `prefersReducedMotion()` themselves before they animate anything. `motionPref.test.ts` pins the
+  wiring — that `entry.ts` calls `initMotion()` at all, that a system asking for less motion reaches
+  the attribute, and that an explicit answer wins over the system in both directions.
 - The capture harness still works unchanged: Playwright emulates the media query, `initMotion` reads
   it, and the attribute lands before the first paint.
 
@@ -762,7 +829,7 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
 
 Two ways out, on everything that opens over the board, and they are not interchangeable:
 
-- **Escape**, through `hooks/useEscapeKey.ts`. One `document` listener rather than one `useEffect`
+- **Escape**, through `hooks/escapeKey.svelte.ts`. One `document` listener rather than one effect
   per panel, which is how the wild colour picker and the swap target picker ended up with a scrim, a
   ✕ and nothing on the keyboard while the rules modal, the legal modal, the gear, the mixer and the
   waiting room's leave confirmation all answered it. The panels do not take focus — a picker opens
@@ -775,7 +842,7 @@ Two ways out, on everything that opens over the board, and they are not intercha
   shows the hint and no ✕: there is nothing to close, and a button that exists for a fifth of a
   second is noise.
 
-`src/test/escapeClose.test.tsx` owns the rule for the surfaces that had no coverage; the rules,
+`src/test/escapeClose.test.ts` owns the rule for the surfaces that had no coverage; the rules,
 legal, preferences and waiting-room panels are pinned in their own test files. A dropdown anchored
 to its own opener (the gear, the mixer) needs no ✕ — the button that opened it is the button that
 shuts it, and it is never behind a scrim.
@@ -811,7 +878,7 @@ bar, and last in the row of links under the game on the home page. What changed 
   exactly the screens where nobody is reading a policy.
 
 Where the game's voice and legal accuracy pull apart, accuracy wins and the sentence gets longer.
-`src/test/legal.test.tsx` pins the disclosures that are obligations rather than prose, so rewording
+`src/test/legal.test.ts` pins the disclosures that are obligations rather than prose, so rewording
 is free and deleting substance is not; it also pins that the page is built, is in the registry, is
 linked from both footers and ships no script. Reasoning and the open questions:
 [`docs/notes/legal.md`](legal.md).

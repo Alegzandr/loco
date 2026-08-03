@@ -9,7 +9,7 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 - Real-time, low-latency multiplayer gameplay via WebSockets
 - Nickname-only access (no accounts, no passwords)
 - Server-authoritative anti-cheat architecture
-- Smooth, polished visuals powered by React + Framer Motion
+- Smooth, polished visuals powered by Svelte, CSS transitions and the Web Animations API
 - A look worth streaming: chunky cartoon art direction (Nintendo × Gartic Phone), readable at 720p over someone's commentary
 - Fully synthesised audio — sound effects and a shuffled playlist of three adaptive soundtracks, zero audio assets shipped
 - Reaction mechanics with server-side timing windows (UNO catch, interception slam)
@@ -23,11 +23,11 @@ A premium-quality real-time browser-based card game inspired by UNO. Play with f
 |-----------|-------------------------|-----------------------------------------------------------------------|
 | Backend   | **Go**                  | Low latency, native concurrency, small binary, excellent stdlib       |
 | Realtime  | **WebSockets** (gorilla)| Persistent bidirectional connection; lowest latency for game events   |
-| Frontend  | **React + TypeScript**  | Component model, type safety, wide ecosystem                          |
+| Frontend  | **Svelte 5 + TypeScript** | Component model, type safety, and a compiler rather than a runtime: a card that moves does not re-render a tree to do it. Migrated from React 19; nothing of it remains, and `noReact.test.ts` is what keeps it that way |
 | Site      | **Astro** (static output) | Builds the game page and the content pages from one project. The game is *not* server-rendered: it mounts client-side exactly as before, so nothing about theme, language, session or board geometry has to be guessed on a server. Output stays static files behind nginx, no Node runtime in production |
 | Bundler   | **Vite** (via Astro)    | Near-instant dev server, fast HMR                                     |
-| Rendering | **React + Framer Motion** | DOM-based card rendering with declarative motion-driven animations    |
-| State     | **Zustand**             | Minimal, fast React global state without boilerplate                  |
+| Rendering | **Svelte + CSS + WAAPI** | DOM-based card rendering. Framer Motion is gone: the fan and the seats reflow on CSS transitions, and a card in flight is one `element.animate` call — the keyframe tracks the library was interpolating, handed to the browser instead |
+| State     | **`hooks/store/createStore.ts`** (~40 lines) | `getState`/`setState`/`subscribe` plus a middleware slot, with no framework in it. Replaced Zustand because the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, `hooks/sessionRestore.ts`, the E2E bridge) and by no framework in particular; `src/test/storeCore.test.ts` states every semantic the app depends on |
 | Validation| **Valibot**             | Runtime schema for inbound `ServerMsg`. Both it and the TypeScript types are **generated from `server/protocol/`** by `make protocol`, so Go↔TS drift is not caught late, it is not possible: CI regenerates and fails on any difference. Valibot rather than Zod because Zod 4 JIT-compiles schemas with `Function()`, which the production CSP refuses |
 | Audio     | **Web Audio API** (hand-rolled) | Every sound is synthesised at runtime: no files to download, no licences, no cache-miss silence |
 | Type      | **Fredoka + Nunito** (self-hosted, `@fontsource`) | Rounded display faces that match the art direction; self-hosted so the CSP stays closed |
@@ -51,22 +51,22 @@ loco/
 │   ├── protocol/          # Wire message schema (client ↔ server)
 │   ├── main.go
 │   └── Dockerfile
-├── client/                # Astro site + React/TypeScript game
-│   ├── astro.config.mjs   # Integrations, dev server, dev-toolbar off, React fast-refresh preamble
+├── client/                # Astro site + Svelte/TypeScript game
+│   ├── astro.config.mjs   # Integrations, dev server, dev-toolbar off, the VITE_ env prefix
 │   ├── src/
 │   │   ├── pages/         # One .astro per URL: /, rules, cards, tables, play-with-friends, faq, /fr/…
 │   │   ├── layouts/       # Base.astro (<head>), GamePage.astro, ContentPage.astro
 │   │   ├── content/       # Prose + data behind the content pages; never imported by the app
-│   │   ├── entry.tsx      # Mounts React into #root (a bundled module script, never an island)
-│   │   ├── theme.ts       # The theme, React-free, so a content page can apply it too
+│   │   ├── entry.ts       # Mounts the app into #root (a bundled module script, never an island)
+│   │   ├── theme.ts       # The theme, framework-free, so a content page can apply it too
 │   │   ├── seo/           # meta.ts: the page registry + link-preview tags, as data
 │   │   ├── components/    # UI screens (Lobby, WaitingRoom, GameView, GameOver, RulesModal, …)
-│   │   ├── components/cards/  # React + Framer Motion card renderer (GameBoard, Hand, Card, AnimationLayer, …)
+│   │   ├── components/cards/  # Card renderer (GameBoard, Hand, Card, CardArt, AnimationLayer, …)
 │   │   ├── audio/         # Synthesised SFX, music engine, tracks/ (music as data), store bridge
 │   │   ├── dev/           # Dev-only visual showcase (scene registry, tree-shaken in prod)
 │   │   ├── hooks/         # WebSocket transport + inbound message routing + preferences (theme, streamer mode)
-│   │   ├── hooks/store/   # The Zustand store: one state shape, five families of transitions
-│   │   ├── i18n/          # I18nProvider + en/fr translations + server-error copy
+│   │   ├── hooks/store/   # createStore.ts + one state shape, five families of transitions
+│   │   ├── i18n/          # store.ts (the language, framework-free) + en/fr translations + server-error copy
 │   │   ├── styles/        # Design tokens (single source of truth for colour/type/shape)
 │   │   ├── types/         # Protocol types + schemas — GENERATED, run `make protocol`, never edit
 │   │   └── test/          # Vitest unit tests
@@ -546,7 +546,7 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 - Session restore across a page reload: the seat and hand come back mid-match, the waiting room is
   rejoined, and a session naming a dead room falls back to the lobby instead of hanging
 - Swap card PlayerPicker UI, Swap E2E hand change, GlobalSwitch colour prompt + discard update
-- Swap / Global Switch on-screen notification banner + Framer Motion card-back trail animation between affected seats
+- Swap / Global Switch on-screen notification banner + card-back trail animation between affected seats
 - counter_draw stacking, interrupt_play_card lead-taking (single + batch, wilds included), interrupt window open/closed
 - Rematch: one ask deals nothing, everybody's asks reopen the finished room and play a full new match, a player leaving retires their ask and completes what is left of the agreement
 - Mobile touch targets (44px+), color picker, rules modal, canvas size
@@ -568,14 +568,14 @@ cd e2e && npm ci && npx playwright install chromium && npm test
   - **Reduced motion** stops the card flights and the confetti. It follows the system setting until it is set here, and then wins over it in both directions.
   All of them live in `localStorage` and none is ever sent to the server.
 - **Rematch**: after a match, another one is an agreement rather than a decision. Every seat gets the same button, every ask is public, and the room reopens (same code, same roster, cleared scores) once everybody still at the table has asked; absent seats are pruned and everyone else is pulled back to the waiting room. A player leaving takes their ask with them and stops being waited on, so a table that was only waiting on them reopens right there. Bots are not asked, so a solo table with bots reopens on one press.
-- **UI**: React + Framer Motion animations (transform-only card movement, seat→pile card flights, spring hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
+- **UI**: Svelte, CSS and WAAPI animations (transform-only card movement, seat→pile card flights, hand reflow, staggered deal, `prefers-reduced-motion` support), round summary overlay, match-end screen with confetti, mobile support (44 px+ targets), rules modal, EN/FR i18n (including every refused action, which is translated into player-facing
   copy rather than showing the server's own English string), light + dark themes. On a phone with a notch the page runs edge to edge (`viewport-fit=cover`) so the
   room's picture reaches every edge of the screen, while the board, the action bar and the top cluster
   keep clear of the notch and the home indicator: without the first half iOS paints those bands with the
   page's own colour, which laid two bright strips across a dark room.
 - **Card feel**: cards are tiered by scarcity for presentation only — a number lands clean and quick, a coloured action spins once flat, a wild spins twice, arriving bigger, ringed by a shockwave and kicking the board. Special cards carry a trading-card foil (masked to the frame so suit colour survives stream compression) with a travelling highlight desynchronised per card. The discard pile reveals its new top **on impact**, so the throw is the reveal.
 - **Art direction**: chunky cartoon system — ink outlines, solid press-down shadows, a dark table with a real rim. Seats resize and wrap so a nine-player table stays readable on a phone. Design tokens live in `client/src/styles/tokens.css`.
-- **The deck has its own identity**: each face is a full-bleed suit gradient with the LOCO mark — a geometric wireframe duck, straight from the brand's source file — behind it in the *same gradient reversed*, drawn as one SVG (`client/src/components/cards/CardArt.tsx`, `cardArtSpace.ts`, `locoMark.ts`). On a card the mark is deliberately **cropped and tilted** so the artwork runs off all four edges and under the value; the logo (`LocoLogo.tsx`), the favicon and the table watermark show it **whole**. Card faces do not follow the light/dark theme — a card is an object, not a control. Every glyph is ink-outlined: off-white on the green suit is 1.2:1, and outlined it clears 14:1 on every face.
+- **The deck has its own identity**: each face is a full-bleed suit gradient with the LOCO mark — a geometric wireframe duck, straight from the brand's source file — behind it in the *same gradient reversed*, drawn as one SVG (`client/src/components/cards/CardArt.svelte`, `cardArtSpace.ts`, `locoMark.ts`). On a card the mark is deliberately **cropped and tilted** so the artwork runs off all four edges and under the value; the logo (`LocoLogo.svelte`), the favicon and the table watermark show it **whole**. Card faces do not follow the light/dark theme — a card is an object, not a control. Every glyph is ink-outlined: off-white on the green suit is 1.2:1, and outlined it clears 14:1 on every face.
 - Review the whole deck on one screen with `make visual ARGS="--scenes=card-sheet"`.
 - **Score table**: hold `TAB` during a match (or tap the **Scores** button, which is how it opens on a phone) for the standings: seat colour, nickname, one column per finished round, cumulative total, rounds won, and a live ping per player coloured by how much it costs in a race (green under 60 ms, red past 220 ms). Both the per-round history and the ping are measured and broadcast by the server, so they survive a reconnect and cannot be self-reported.
 - **Maps**: every match is dealt into one of four rooms: **Neon** (a rooftop club above the skyline), **Rune** (the back room of an arcane tavern), **Velvet** (an art-deco lounge) and **Orbit** (a starship hangar). A map is a backdrop, a table and an accent colour; it changes no rule and no card. The **server** draws it once per match and tells every seat, so the whole table plays in one room and a clip cut between two players does not jump between two rooms. A rematch draws a new one. The accent tints the light the table casts and the direction ring, never the brand red, the active seat's gold or a card face, because those are how a viewer reads the game, and a state cue that changes colour with the scenery has to be re-learned four times.
@@ -615,7 +615,7 @@ The game is free, non-commercial and account-free, and its compliance position i
 - **No cookie, no banner.** Browser storage carries only the session token (strictly necessary for reclaiming a seat) and preferences the player set themselves. Both are exempt from consent under ePrivacy. There is no analytics, no tracker and no third-party request of any kind; the CSP in `client/nginx.conf` enforces that, and `client/src/test/csp.test.ts` asserts it.
 - **No address is ever logged in full.** `hub.truncateAddr` and the `anonymised` `log_format` in `client/nginx.conf` cut every address down to a `/24` or `/48` prefix at the point of writing.
 - **Nothing is persisted** but a match in flight across a deploy, which is dropped as soon as it is reclaimed. A nickname lives in the room for the length of the match: there is no scoreboard that outlives it and no profile behind it, so there is no stored entry to erase.
-- **Privacy, terms and credits** are one content page (`/privacy/`, `/fr/confidentialite/`), linked from every footer (last in the home page's row of links, at the right-hand end of the content pages' bar), in English and French. The copy is `client/src/content/legal.ts`, read at build time, so it ships in no bundle; `client/src/test/legal.test.tsx` pins the disclosures that are legal obligations rather than prose.
+- **Privacy, terms and credits** are one content page (`/privacy/`, `/fr/confidentialite/`), linked from every footer (last in the home page's row of links, at the right-hand end of the content pages' bar), in English and French. The copy is `client/src/content/legal.ts`, read at build time, so it ships in no bundle; `client/src/test/legal.test.ts` pins the disclosures that are legal obligations rather than prose.
 - **LOCO is not UNO.** It is an independent game with no connection to Mattel, Inc.; the mark appears in this repository's documentation descriptively and in the disclaimer that names it in order to disclaim it, and nowhere else. See [`NOTICE.md`](NOTICE.md).
 
 Code is MIT ([`LICENSE`](LICENSE)); the map art is AI-generated and deliberately outside it. The reasoning, the data inventory and what is still open: [`docs/notes/legal.md`](docs/notes/legal.md).

@@ -1,9 +1,9 @@
-import { StateCreator } from 'zustand'
+import { StateCreator } from './createStore'
 import { CardColor } from '../../types/protocol'
 import { gameStateSliceFromDTO, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
 
-export const createTableActions: StateCreator<GameStore, [], [], TableActions> = (set) => ({
+export const createTableActions: StateCreator<GameStore, TableActions> = (set) => ({
   applyGameState: (state) =>
     set((s) => {
       // Open catch windows are FILTERED against the snapshot, not wiped. A Swap

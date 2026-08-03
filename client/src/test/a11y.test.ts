@@ -19,8 +19,9 @@ const CLIENT = path.resolve(__dirname, '..', '..')
 const read = (...p: string[]) => readFileSync(path.join(CLIENT, 'src', ...p), 'utf8')
 
 const base = read('layouts', 'Base.astro')
-const logoTsx = read('components', 'LocoLogo.tsx')
-const logoCss = read('components', 'LocoLogo.module.css')
+// Markup and style are one file now: a Svelte component carries its own
+// <style>, so both halves of the wordmark's contrast fix are read from here.
+const logo = read('components', 'LocoLogo.svelte')
 const contentCss = read('content', 'content.css')
 
 describe('the viewport lets a phone zoom', () => {
@@ -46,9 +47,9 @@ describe('the wordmark is a logotype, not prose', () => {
     // WCAG exempts a logo from the contrast rules; a checker cannot tell a logo
     // from a heading unless the markup says so. It also stops a screen reader
     // reading "LOCO" twice — once for the mark, once for the word.
-    expect(logoTsx).toMatch(/role="img"/)
-    expect(logoTsx).toMatch(/aria-label="LOCO"/)
-    expect(logoTsx).toMatch(/aria-hidden="true"/)
+    expect(logo).toMatch(/role="img"/)
+    expect(logo).toMatch(/aria-label="LOCO"/)
+    expect(logo).toMatch(/aria-hidden="true"/)
   })
 
   it('drops the ink outline in dark, where it is what fails the check', () => {
@@ -61,12 +62,12 @@ describe('the wordmark is a logotype, not prose', () => {
       /:root\[data-theme='dark'\] \.word \{[^}]*-webkit-text-stroke:\s*0/s,
       /:root:not\(\[data-theme='light'\]\) \.word \{[^}]*-webkit-text-stroke:\s*0/s,
     ]) {
-      expect(logoCss, `${selector} must drop the stroke`).toMatch(selector)
+      expect(logo, `${selector} must drop the stroke`).toMatch(selector)
     }
     // Declared twice for the reason tokens.css declares the dark palette twice:
     // a scripted attribute cannot paint the first frame, and a media query
     // cannot be overridden by a choice. Both must carry the outline back.
-    const outlines = logoCss.match(/\.word::before \{[^}]*\}/gs) ?? []
+    const outlines = logo.match(/\.word::before \{[^}]*\}/gs) ?? []
     expect(outlines, 'both dark blocks must repaint the outline').toHaveLength(2)
     for (const block of outlines) {
       expect(block).toMatch(/-webkit-text-stroke:\s*0\.07em var\(--color-stroke\)/)

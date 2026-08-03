@@ -66,7 +66,7 @@ const VIEWPORTS = {
   // A notched phone. No desktop browser reports a safe-area inset, so the only
   // way to review the one layout that has to dodge a notch and a home indicator
   // is to say so: `insets` overrides the --safe-* tokens, which the CSS offsets
-  // and useSafeAreaInsets both read. This is the viewport where a control
+  // and safeAreaInsets both read. This is the viewport where a control
   // hiding under the status bar shows up.
   notch: {
     viewport: { width: 390, height: 844 },
@@ -80,6 +80,24 @@ const VIEWPORTS = {
 const themes = String(args.themes ?? 'light,dark').split(',').filter(Boolean)
 const viewports = String(args.viewports ?? 'desktop,mobile').split(',').filter(Boolean)
 const lang = String(args.lang ?? 'fr')
+
+/**
+ * The home page **for this language**, and it has to be this rather than `/`.
+ *
+ * A document is never in two languages at once: `initLangUrl()` compares the
+ * stored choice against the URL and `location.replace`s to the other one when
+ * they disagree. Seeding `loco_lang=fr` below and then asking for `/` is exactly
+ * that disagreement, so every scene used to load twice — and the count is what
+ * broke it. Chromium stops honouring navigations on a long-lived page somewhere
+ * past a hundred of them: the harness died on scene 52 of 62 with a bare
+ * `page.goto` timeout, on whichever scene happened to be 52nd (reverse the list
+ * and a different one fails, at the same position). Asking for the URL the
+ * language already agrees with halves the count and removes the class.
+ *
+ * It is also the more honest capture. A French screenshot should be taken of the
+ * document a French player is served, not of the English one on its way there.
+ */
+const HOME = lang === 'fr' ? '/fr/' : '/'
 
 // ─── Scene registry (parsed from the TS source — no build step needed) ──────
 
@@ -139,7 +157,7 @@ async function capture() {
 
       for (const scene of list) {
         const file = `${scene.id}__${vpName}__${theme}.png`
-        await page.goto(`${BASE}/?showcase=${scene.id}`, { waitUntil: 'domcontentloaded' })
+        await page.goto(`${BASE}${HOME}?showcase=${scene.id}`, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('html[data-showcase-ready]', { timeout: 15_000 })
         await page.evaluate(() => document.fonts?.ready)
         // One extra frame so late layout (ResizeObserver-driven board) settles.

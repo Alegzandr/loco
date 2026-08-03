@@ -1,7 +1,7 @@
-import { StateCreator } from 'zustand'
+﻿import { StateCreator } from './createStore'
 import { AppScreen, GameStore, QueueActions } from './types'
 
-export const createQueueActions: StateCreator<GameStore, [], [], QueueActions> = (set) => ({
+export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) => ({
   // The search screen owns its own clock. Nothing about the queue arrives from
   // the server beyond "you are in it", which is the point: a client that could
   // render the queue's size would eventually render "1".

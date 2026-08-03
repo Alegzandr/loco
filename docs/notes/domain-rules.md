@@ -176,7 +176,7 @@ a string it is free to reword.
   roster and the card kind, which put "a Swap or a GlobalSwitch catches EVERY seat left on one card"
   in two languages with nothing checking they agreed. A drift there does not fail: it arms
   Contre-LOCO! on a tap the server refuses, or leaves it dark on a seat the player could have caught.
-- Client holds it as `useGameStore.catchWindows: { seat, endsAt, attempted? }[]`, and adds nothing to
+- Client holds it as `gameStore.catchWindows: { seat, endsAt, attempted? }[]`, and adds nothing to
   the server's list but its own memory of which button it has already pressed. `catchTarget` /
   `unoTimerEnd` are **derived** (`deriveCatch`: most urgent opponent window, never our own seat) so
   `<ActionBar />` and the timer bar stay single-target, and they are completed by the store itself
@@ -195,9 +195,9 @@ a string it is free to reword.
 ## Swap / GlobalSwitch notifications
 - `card_played` includes `chosen_player` ONLY for `swap` (target's index). Omitted for everything else (incl. `global_switch`).
 - `card_played` includes `direction` (1=cw, -1=ccw) — the post-effect play direction, populated on every play (not just Reverse). Lets clients update the direction indicator immediately without waiting for the next `game_state`. Client `applyCardPlayed` writes it to `direction` and uses it for the swap/global_switch notice arrow.
-- Client `applyCardPlayed` derives `swapNotice` (`useGameStore.SwapNotice`) when `card.kind` is `swap`/`global_switch`. Carries `kind`, `actorIndex`, `targetIndex` (-1 for global_switch), `direction` (game direction at play, picks GS arrow), `at` (Date.now() — React render key).
-- `GameView` shows via `styles.swapNotice` (purple-glow pill above action bar), auto-clears after `SWAP_NOTICE_MS=3500`. i18n keys: `swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw` (`%actor`/`%target`).
-- `<GameBoard />` watches `swapNotice.at` and spawns Framer Motion mini card-back trails (actor↔target for swap, chained seat→next-seat for global_switch) via `<AnimationLayer />`.
+- Client `applyCardPlayed` derives `swapNotice` (`gameStore.SwapNotice`) when `card.kind` is `swap`/`global_switch`. Carries `kind`, `actorIndex`, `targetIndex` (-1 for global_switch), `direction` (game direction at play, picks GS arrow), `at` (Date.now() — the key that makes a second notice a second banner).
+- `GameView` shows it as a purple-glow pill above the action bar (`.swapNotice`, keyed on `at` so a second notice replays the entrance), auto-clears after `SWAP_NOTICE_MS=3500`. i18n keys: `swapNotice`, `swapNoticeYouActor`, `swapNoticeYouTarget`, `globalSwitchNoticeCw`, `globalSwitchNoticeCcw` (`%actor`/`%target`).
+- `<GameBoard />` watches `swapNotice.at` and spawns mini card-back trails (actor↔target for swap, chained seat→next-seat for global_switch) via `<AnimationLayer />`.
 
 ## Game event log
 - `GameState.EventLog []GameEvent` append-only.

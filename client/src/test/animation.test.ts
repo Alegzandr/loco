@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { handCardKeys } from '../components/cards/layout'
 import { radToDeg } from '../components/cards/cardTheme'
-import { useGameStore } from '../hooks/useGameStore'
+import { gameStore } from '../hooks/gameStore'
 import { CardDTO, PlayerDTO } from '../types/protocol'
 
 describe('handCardKeys', () => {
@@ -45,7 +45,7 @@ describe('handCardKeys', () => {
 })
 
 describe('radToDeg', () => {
-  it('converts the layout angles framer-motion expects in degrees', () => {
+  it('converts the layout angles CSS expects in degrees', () => {
     expect(radToDeg(0)).toBe(0)
     expect(radToDeg(Math.PI)).toBeCloseTo(180)
     expect(radToDeg(Math.PI / 2)).toBeCloseTo(90)
@@ -61,9 +61,9 @@ describe('lastPlay', () => {
   const card: CardDTO = { color: 'red', kind: 'skip' }
 
   it('records who played what so the renderer can fly the card from their seat', () => {
-    useGameStore.setState({ lastPlay: null, players, myIndex: 0, myHand: [] })
-    useGameStore.getState().applyCardPlayed(1, card, 0, 0, 'red', players)
-    const lp = useGameStore.getState().lastPlay
+    gameStore.setState({ lastPlay: null, players, myIndex: 0, myHand: [] })
+    gameStore.getState().applyCardPlayed(1, card, 0, 0, 'red', players)
+    const lp = gameStore.getState().lastPlay
     expect(lp).not.toBeNull()
     expect(lp!.actorIndex).toBe(1)
     expect(lp!.card).toEqual(card)
@@ -71,11 +71,11 @@ describe('lastPlay', () => {
   })
 
   it('advances `at` on every play so repeats of the same card still animate', () => {
-    useGameStore.setState({ lastPlay: null, players, myIndex: 0, myHand: [] })
-    useGameStore.getState().applyCardPlayed(1, card, 0, 0, 'red', players)
-    const first = useGameStore.getState().lastPlay!.at
-    useGameStore.setState({ lastPlay: { actorIndex: 1, card, at: first - 50 } })
-    useGameStore.getState().applyCardPlayed(1, card, 0, 0, 'red', players)
-    expect(useGameStore.getState().lastPlay!.at).toBeGreaterThan(first - 50)
+    gameStore.setState({ lastPlay: null, players, myIndex: 0, myHand: [] })
+    gameStore.getState().applyCardPlayed(1, card, 0, 0, 'red', players)
+    const first = gameStore.getState().lastPlay!.at
+    gameStore.setState({ lastPlay: { actorIndex: 1, card, at: first - 50 } })
+    gameStore.getState().applyCardPlayed(1, card, 0, 0, 'red', players)
+    expect(gameStore.getState().lastPlay!.at).toBeGreaterThan(first - 50)
   })
 })

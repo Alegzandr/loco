@@ -31,9 +31,11 @@ describe('the rules page is the rules modal, at a URL', () => {
     // Not a copy of the rules: both read `t.rules`, so a rule reworded for the
     // modal is reworded on the page in the same edit and neither can go stale
     // against the other. Inlining the prose into the page would be the drift.
-    const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.tsx'), 'utf8')
+    const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
     expect(article, 'the page must map t.rules').toMatch(/t\.rules\.map/)
-    expect(modal, 'the modal must map t.rules').toMatch(/t\.rules\.map/)
+    // The page is Astro and maps; the modal is Svelte and iterates. Different
+    // spelling, same single source — which is the thing being pinned here.
+    expect(modal, 'the modal must walk t.rules').toMatch(/#each t\.rules as/)
   })
 
   it('names cards from the shared copy rather than spelling them out', () => {
@@ -331,7 +333,7 @@ describe('the mobile menu', () => {
   it('brings the served half and the mounted half up on the same frame', () => {
     // The footer and the burger are markup; the game is a bundle. Nothing tied
     // them together, so `/` arrived twice — background plus chrome, then the
-    // lobby. Both now hold at opacity 0 until entry.tsx says React has painted.
+    // lobby. Both now hold at opacity 0 until entry.ts says React has painted.
     const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
     const gate = /@media\s*\(scripting:\s*enabled\)\s*\{([\s\S]*?)\n\s{2}\}/.exec(game)?.[1]
     expect(gate, 'the reveal must be gated on there being a script to wait for').toBeTruthy()
@@ -374,8 +376,8 @@ describe('the mobile menu', () => {
     expect(frames).toMatch(/opacity/)
     expect(frames, 'no transform in the reveal').not.toMatch(/transform/)
 
-    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.tsx'), 'utf8')
-    expect(entry, 'entry.tsx writes the attribute the CSS waits on').toMatch(/dataset\.booted/)
+    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.ts'), 'utf8')
+    expect(entry, 'entry.ts writes the attribute the CSS waits on').toMatch(/dataset\.booted/)
     expect(entry, 'and does it after the commit has been painted').toMatch(
       /requestAnimationFrame\(\(\) => \{\s*requestAnimationFrame/,
     )

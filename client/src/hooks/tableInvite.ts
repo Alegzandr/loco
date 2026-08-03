@@ -32,7 +32,7 @@ export const INVITE_PARAM = 't'
 
 /**
  * The code this page was opened on, until something claims it. Module state
- * rather than the store: it is read before the first render, by `entry.tsx`,
+ * rather than the store: it is read before the first render, by `entry.ts`,
  * next to the theme and the session record and for the same reason.
  */
 let pending = ''
@@ -53,7 +53,7 @@ export function tableInviteUrl(code: string, origin = window.location.origin): s
 
 /**
  * Reads the invite off the URL and takes it back out of the address bar. Called
- * once from `entry.tsx`, before the store is seeded from the stored session.
+ * once from `entry.ts`, before the store is seeded from the stored session.
  */
 export function initTableInvite(): void {
   let url: URL
@@ -70,7 +70,7 @@ export function initTableInvite(): void {
   //
   // Dropped by string, not by `searchParams.delete` + `url.search`: re-encoding
   // the query rewrites every other parameter on the way out, and `?showcase`
-  // (the dev-only gallery flag `entry.tsx` reads) comes back as `?showcase=`.
+  // (the dev-only gallery flag `entry.ts` reads) comes back as `?showcase=`.
   // Nothing here has any business editing a parameter it was not asked about.
   const kept = url.search
     .slice(1)

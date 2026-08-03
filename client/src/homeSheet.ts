@@ -19,7 +19,7 @@ closeMenuWhenWidened()
 
 /**
  * The drawer's one action, and the one place on this page where markup Astro
- * rendered has to reach the application React mounted beside it.
+ * rendered has to reach the application mounted beside it.
  *
  * A custom event rather than a shared store: the drawer is in `#root`'s sibling,
  * not in its tree, so there is nothing to pass a callback through, and the

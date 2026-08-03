@@ -59,7 +59,15 @@ try {
   const errors = []
   page.on('pageerror', (e) => errors.push(String(e)))
 
-  await page.goto(`http://localhost:${PORT}/?showcase=og-card`, { waitUntil: 'domcontentloaded' })
+  // The home page *of this language*: seeding `loco_lang` and then asking for `/`
+  // makes `initLangUrl()` redirect to `/fr/`, so the capture would be taken after
+  // a navigation the harness caused. Harmless here — `data-showcase-ready` is
+  // waited on below and lands on the final document — but see the same line in
+  // `tools/visual/shoot.mjs`, where the doubled navigation count is not harmless.
+  const home = LANG === 'fr' ? '/fr/' : '/'
+  await page.goto(`http://localhost:${PORT}${home}?showcase=og-card`, {
+    waitUntil: 'domcontentloaded',
+  })
   await page.waitForSelector('html[data-showcase-ready]', { timeout: 15_000 })
   // The wordmark is Fredoka; capturing before it loads ships a preview in the
   // fallback face, and nothing downstream would ever tell us.

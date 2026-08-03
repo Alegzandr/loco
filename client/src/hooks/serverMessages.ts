@@ -1,4 +1,4 @@
-import { useGameStore, UNO_CATCH_WINDOW_MS } from './useGameStore'
+import { gameStore, UNO_CATCH_WINDOW_MS } from './gameStore'
 import { ServerMsg } from '../types/protocol'
 
 /**
@@ -19,14 +19,14 @@ export interface UnoBannerTimer {
  * Everything the server can say, applied to the store.
  *
  * The store snapshot is taken once, at creation: the action functions come from
- * the zustand factory and are stable for the life of the app, so closing over
+ * the store's own factory and are stable for the life of the app, so closing over
  * them costs nothing. Anything that reads *state* calls `getState()` at the
  * moment it needs it: a frozen snapshot would be reading the store as it was
  * at mount, which is a different value on every branch below that asks a
  * question about the current screen.
  */
 export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
-  const store = useGameStore.getState()
+  const store = gameStore.getState()
 
   return (msg: ServerMsg) => {
     switch (msg.type) {
@@ -55,7 +55,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
       // when the server puts somebody back in the queue unprompted: a pairing
       // whose other half closed their tab during the reveal.
       case 'matchmaking_queued':
-        if (useGameStore.getState().screen !== 'searching') store.beginSearch()
+        if (gameStore.getState().screen !== 'searching') store.beginSearch()
         break
 
       case 'matchmaking_cancelled':
@@ -141,7 +141,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
           // creation and would lose any updates that happened after mount
           // (e.g. roomCode/myIndex from room_created arriving before this
           // branch fires).
-          const live = useGameStore.getState()
+          const live = gameStore.getState()
           // Mark reconnecting before applying state so GameView can animate recovery
           unoTimer.clear()
           store.setIsReconnecting(true)
@@ -165,7 +165,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
 
       case 'game_started': {
         if (msg.state) {
-          const s = useGameStore.getState()
+          const s = gameStore.getState()
           if (s.showRoundSummary) {
             // Round summary is visible — buffer the new state; apply when player dismisses
             store.setPendingGameState(msg.state)
@@ -232,7 +232,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         break
 
       case 'turn_changed':
-        useGameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
+        gameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
         break
 
       // A declaration closes the catch window on the declarer: from here on the
@@ -291,7 +291,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         break
 
       case 'match_end': {
-        const s = useGameStore.getState()
+        const s = gameStore.getState()
         // A forfeit is not a round result and does not queue behind one: the
         // opponent has gone, and there is nothing left for the summary to be
         // a summary of.
@@ -332,7 +332,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // toast over a spinner: the room is gone, the match moved on, or the
         // token no longer matches. abortRestore drops the stored record too,
         // so the next load does not walk into the same refusal.
-        if (useGameStore.getState().screen === 'restoring') {
+        if (gameStore.getState().screen === 'restoring') {
           store.abortRestore(reason)
           break
         }

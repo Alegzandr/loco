@@ -157,7 +157,7 @@ export interface Translations {
   searchCreateTable: string     // offered only once the wait is long
   matchFoundKicker: string
   // Shown in the browser tab, alternating with the page title, and only while
-  // the player is on another tab. See hooks/useTabAlert.ts.
+  // the player is on another tab. See hooks/tabAlert.svelte.ts.
   matchFoundTab: string
   matchFoundYou: string
   matchFoundStartingIn: string  // contains %n (seconds)

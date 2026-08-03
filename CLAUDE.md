@@ -48,12 +48,12 @@ client and E2E targets do need Node.
 | Go tests | `make test-server`, or `cd server && go test ./...` (CI runs `-race`) |
 | One Go test | `cd server && go test ./game/ -run TestRoom_ResetForRematch -v` |
 | Client tests | `make test-client`, watch mode `cd client && npm run test:watch` |
-| One client file / case | `cd client && npx vitest run src/test/matchmaking.test.tsx -t "<title substring>"` |
+| One client file / case | `cd client && npx vitest run src/test/matchmaking.test.ts -t "<title substring>"` |
 | Full E2E | `make test-e2e` (needs the Go server on :8080; Playwright boots its own Vite on :4173) |
 | One E2E file / case | `cd e2e && npx playwright test tests/matchmaking.spec.ts -g "<title substring>"` |
 | Lint | `make lint` (golangci-lint in docker + ESLint) |
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
-| Type-check | `make build-client` (`astro check && astro build`); there is no separate typecheck script |
+| Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
 | Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make maps ARGS="--src=<folder>"`, `make bench-server` |
 
@@ -86,7 +86,15 @@ Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/n
 - **An untested path is where the bugs are, and the doc is not a substitute for one. When a document
   here states an invariant, there must be a test that fails without it.** Three expensive cases are
   in the note.
-- **Beware assertions that only restate the fixture.**
+- **Beware assertions that only restate the fixture.** A count of zero over a fixture that rendered
+  nothing passes forever.
+- **A component test goes through `src/test/render.ts`, never `@testing-library/svelte` directly.**
+  The library reads props and mount options out of the same argument and tells them apart by name,
+  and `target` — which `<Reconnecting />` uses to mean a table or a match — is one of the six it
+  claims. The wrapper puts everything under `props` so the collision cannot happen; the failure it
+  prevents is the silent one, a component whose *only* prop is a reserved word mounting into the
+  wrong node. Same door for `src/test/renderHook.ts`, which is how a module that is nothing but
+  `$effect` gets a component to live in.
 - **The Go suite runs under `-race` in CI** (`backend_test`). This server is one event loop plus two
   goroutines per socket, so a race is the hidden-state guarantee coming apart rather than a style
   problem. Anything new that reads package state off the event loop has to be safe under it.
@@ -94,35 +102,53 @@ Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/n
   appearance. Cover game rules over UI details.
 
 ## Repository structure
-**`client/`** Astro site + React game. `astro.config.mjs` holds integrations, the dev server, the dev
-toolbar (off), the `VITE_` env prefix and the React fast-refresh preamble. **No `vite.config.ts`, no
-`index.html`, no `main.tsx`.**
+**`client/`** Astro site + Svelte game. `astro.config.mjs` holds integrations, the dev server, the dev
+toolbar (off) and the `VITE_` env prefix. **At the root: no `vite.config.ts` and no `index.html`** —
+Astro owns the pages; `vitest.config.ts` is the only Vite config, and it exists because the test run
+needs jsdom and the `browser` resolve condition.
 - `src/pages/` one `.astro` per URL · `src/layouts/` `Base.astro`, `GamePage.astro`, `ContentPage.astro`
-- `src/entry.tsx` mounts React into `#root` via a bundled module script, never an island
+- `src/App.svelte` the screen switch · `src/entry.ts` mounts it into `#root` via a bundled module
+  script, never an island
 - `src/homeSheet.ts` the home sheet's Esc and scrim-click · `src/theme.ts` · `src/lang.ts` (storage
-  key, the two home paths, the boot redirect); the last two are React-free so a content page can use them
+  key, the two home paths, the boot redirect); the last two pull in no framework, so a content page
+  can use them
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
-- `src/components/` screens + shared: RulesModal, Preferences + LanguageSwitcher, TableCode,
-  AudioSettings, InterruptBanner, CatchBanner, Confetti, MapLoadingScreen, Reconnecting,
-  ServerUpdating, ScoreTable + `scoreTableModel.ts`, `playerColors.ts`, `LocoLogo.tsx`,
-  `swapNoticeText.ts`, the two server mirrors `nicknameRules.ts` + `tableCodeRules.ts`, and the
-  queue's `Searching.tsx` / `MatchFound.tsx` / `OpponentAway.tsx`
+  `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
+- `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
+  RulesButton, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
+  CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
+  ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
+  `swapNoticeText.ts`, `interruptHelpers.ts`, the two server mirrors `nicknameRules.ts` +
+  `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
+  `OpponentAway.svelte`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
   PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` pure pixel math;
-  `CardArt.tsx` + `cardArtSpace.ts` + `locoMark.ts` the face; `maps.ts`; `cardTheme.ts`
-- `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, `useGameAudio.ts`
-- `src/dev/` `scenes.ts` + `Showcase.tsx` + `CardSheet.tsx` + `OgCard.tsx` + `e2eBridge.ts` (the whole
+  `CardArt.svelte` + `cardArtSpace.ts` + `locoMark.ts` the face; `CardGlyph.svelte` + `cardGlyphs.ts`
+  the drawn rule glyphs; `SuitMark.svelte`; `maps.ts`; `cardTheme.ts`
+- `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
+  the sounds and plays none of them
+- `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` + `e2eBridge.svelte.ts` (the whole
   `window.__LOCO_E2E__` surface in one file), all behind `import.meta.env.DEV`
-- `src/hooks/` `useWebSocket` · `serverMessages.ts` · `useGameStore.ts` · `store/` (`types.ts`,
-  `initialState.ts`, `helpers.ts`, `deriveCatchMiddleware.ts`, and one module per family:
-  `sessionActions` `tableActions` `locoActions` `matchActions` `queueActions`) · `useCardPlay`
-  `useEscapeKey` `useMotionPref` `prefStore.ts` `useElementSize` `useSafeAreaInsets` `useTheme`
-  `useStreamerMode` `useHeldKey` `useDrainBar` `useAutoClear` `useBoardShake` `useMapGate`
-  `useTurnCountdownSfx` `useMapPreload` `useCountdown` `useReconnectAnimation` `sessionPersistence`
-  `useSessionRestore` `nicknameMemory` `tableInvite` `useTabAlert`
-- `src/styles/tokens.css` design tokens · `src/i18n/` · `src/test/` · `public/`
+- `src/hooks/` splits in two, and the split is the point. **`.svelte.ts` is anything that owns
+  reactive state or an effect** — a rune is only compiled in a `.svelte` or `.svelte.ts` file, so the
+  extension is the declaration: `webSocket`,
+  `gameStore` (the snapshot every component reads), `appEffects` (audio, session persistence, the
+  restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
+  `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
+  insets), `drainBar`, `escapeKey`, `tabAlert`, `prefs`, `uiPrefs`. **Everything else is
+  framework-free on purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` +
+  `store/`: `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`,
+  `deriveCatchMiddleware.ts`, and one module per family — `sessionActions` `tableActions`
+  `locoActions` `matchActions` `queueActions`), `serverMessages.ts`, `sessionPersistence.ts`,
+  `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `prefStore.ts`, and the preference
+  and constant modules the reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`,
+  `webSocketPolicy`, `mapPreload`, `safeAreaInsets`). **The `use` prefix went with React**: none of
+  these is a hook, they are constants, pure functions and plain stores, and **nothing in a plain
+  `.ts` file here may reach for a rune** — it would not be compiled, and the failure is silent.
+  `src/test/runeScope.test.ts` is the guard.
+- `src/styles/tokens.css` design tokens · `src/i18n/` · `src/test/` (its three seams are in
+  [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md)) · `public/`
 - `src/types/` **generated from `server/protocol/` by `make protocol`**: `protocol.ts` (the types),
   `protocolSchemas.ts` (the Valibot schemas). Do not edit either by hand.
 
@@ -307,7 +333,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 Detail: [`docs/notes/client.md`](docs/notes/client.md).
 
 - **The game is never an Astro island.** A `client:*` directive emits inline scripts the CSP refuses,
-  so the production page is blank. `entry.tsx` is mounted by a bundled `<script>`; `csp.test.ts`
+  so the production page is blank. `entry.ts` is mounted by a bundled `<script>`; `csp.test.ts`
   fails on any `client:*` or `is:inline`. Same rule sends the fast-refresh preamble through
   `astro.config.mjs`.
 - **A dependency can break the CSP without appearing in our sources**, so **`make csp` belongs after
@@ -323,16 +349,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   lose the page are in the note, and `contentPages.test.ts` pins each.
 - **Derived state in the store is completed by the store, never by the actions**
   (`store/deriveCatchMiddleware.ts`, `catchDerivation.test.ts`).
-- **Nothing continuous goes through React state.** Countdown bars use `useDrainBar`, never a
-  percentage. `<GameBoard />` is `memo`'d with referentially stable props; `App` never subscribes to
-  the whole store.
+- **Nothing continuous goes through reactive state.** Countdown bars use `drainBar`, never a
+  percentage: the element is handed a CSS animation whose duration is the window, so the drain costs
+  zero updates. Svelte builds the board once and keeps it, which is a guarantee only until somebody
+  puts a `{#key}` around it or keys a block on something that moves with the state
+  (`appSubscription.test.ts` counts instantiations for exactly that reason).
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
-  goes through `hooks/useEscapeKey.ts`, one hook for all of them. A dropdown anchored to its own
-  opener is the one exception. `escapeClose.test.tsx`.
+  goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
+  opener is the one exception. `escapeClose.test.ts`.
 - **A refused action never shows a wire string.** `i18n/serverErrors.ts` maps server prose by ordered
   regex, resolved at render. **Add the string there when you add a server error**
   (`serverErrors.test.ts`).
@@ -346,28 +374,30 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   the verb about to happen; a refusal says what to do next and never scolds; only the streamable
   moments shout. Full voice in the note; `docs/rules.md` stays the spec the modal must not contradict.
 - **The host's kick is one icon button per roster row, never their own, and it asks nothing**
-  (`WaitingRoom.tsx`). A bot's row carries it. The quit link below is the screen's one question. The
+  (`WaitingRoom.svelte`). A bot's row carries it. The quit link below is the screen's one question. The
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
-- **Player preferences live behind one gear** (`Preferences.tsx`), on every screen: language, theme,
+- **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
   streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module
   store (`localStorage`, presentation only, never on the wire). Those icons are **drawn SVG, never a
   font character**.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
   scrim **wraps** the panel, and its ✕ needs `position: relative`.
 - **The language pair is two real `<a href>`s at the entry screen, and a toggle once seated.**
-  `setLang` still runs so the choice outlives the navigation. `LanguageSwitcher.tsx` holds the only
+  `setLang` still runs so the choice outlives the navigation. `LanguageSwitcher.svelte` holds the only
   second copy of `/` and `/fr/`, pinned by `seo.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
-- **Streamer mode blurs the table code, and `TableCode.tsx` is the only way a screen prints it.** CSS
+- **Streamer mode blurs the table code, and `TableCode.svelte` is the only way a screen prints it.** CSS
   over the real text, so copy still copies and hover/focus clears it.
-- **Colour assist gives each suit a silhouette** (`SUIT_SHAPE`, drawn by `suitMark.tsx`): on the card,
+- **Colour assist gives each suit a silhouette** (`SUIT_SHAPE`, drawn by `SuitMark.svelte`): on the card,
   every picker swatch and the active-colour chip. **Never a letter.** A wild stays unmarked. Anything
   new that means something by hue alone needs the mark.
-- **Reduced motion is scoped to `:root[data-motion="reduce"]`, never a media query** — `initMotion()`
-  writes it from the system setting *and* the player's answer, framer-motion goes through
-  `<MotionGate>`, the two WAAPI shakes call `prefersReducedMotion()`. `reducedMotionCss.test.ts`.
+- **Reduced motion is scoped to `:root[data-motion="reduce"]`, never a media query** — a media query
+  cannot be overridden, and `full` has to be able to win over a system that asks for less.
+  `initMotion()` writes the attribute from the system setting *and* the player's answer, and it is
+  now the whole mechanism: Svelte transitions and the two WAAPI shakes ask `prefersReducedMotion()`
+  themselves. `reducedMotionCss.test.ts` owns the rules, `motionPref.test.ts` the wiring.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape rules only, word list
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and
@@ -383,20 +413,47 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The searching screen times its own wait, and no copy of it may imply the queue is empty**
   (`searchStage`, three stages). Entered optimistically; `endSearch` is guarded on the screen. **A
   forfeit never renders as a victory.** Same top bar as every other screen.
-- **Being found has to reach a player who is not looking**: the `matchFound` cue plus `useTabAlert`,
-  which **arms only while the tab is hidden** and never re-arms after a return (`tabAlert.test.tsx`).
+- **Being found has to reach a player who is not looking**: the `matchFound` cue plus `tabAlert`,
+  which **arms only while the tab is hidden** and never re-arms after a return (`tabAlert.test.ts`).
 - **The game-over screen asks, it does not command.** Three states (ask / waiting / they asked
   first), every seat, every table; never render it as though pressing it started anything. Past two
   seats it carries the count. A table nobody is left at keeps the button **in place and disabled**.
-  A matchmade table requeues instead, without being asked (`rematchRequeue.test.tsx`).
-- `initLangUrl()`, then `initTheme()`, `initTableInvite()`, `initSessionRestore()` in `entry.tsx`
-  before the first render, **in that order**.
+  A matchmade table requeues instead, without being asked (`rematchRequeue.test.ts`).
+- `initLangUrl()` first and on its own, then `initTheme()`, `initMotion()`, `initI18n()`,
+  `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
+  order**. Each of the six has a reason to be where it is, written next to it.
 - **A document is never in two languages at once, and a language is changed by navigating.**
   `initLangUrl()` redirects with `location.replace`, carrying the query string so a `?t=CODE` invite
   survives, and acts **only on an explicit choice**. Both switches record one.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`.
-- **React 19 idiom: `ref` is an ordinary prop.** No `forwardRef`, `JSX` imported from `react`.
-  **TypeScript stays on 6.x** until `astro check`'s language server supports the native compiler.
+- **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, no `react-dom`,
+  no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`. `src/test/noReact.test.ts` is
+  the guard and it checks four things: the manifest, the Astro and ESLint configs, every import, and
+  every file extension. The bridge that mounted Svelte inside a React tree left with the last
+  wrapper. **What survived the crossing is the shape, not the framework**: the language
+  (`i18n/store.ts`) and the game state (`hooks/store/createStore.ts`) are still framework-free
+  stores read through `createSubscriber`, because that is what let them keep their value while the
+  screens around them were rewritten — and it is still what a content page needs in order to import
+  `lang.ts` without pulling a framework in behind it.
+- **A component's props are ordinary props and its events are lowercase DOM names.** `onclick`, not
+  `onClick`. Svelte **silently ignores a prop it does not know**, so a stale camelCase name is a
+  handler that never fires and a test that renders fine and asserts nothing.
+- **The store is ours** (`hooks/store/createStore.ts`, ~40 lines, Zustand's semantics to the letter,
+  pinned by `storeCore.test.ts`). `deriveCatchMiddleware` reassigns `store.setState` while the
+  creator runs, so the store must publish the property the creator mutated, never a copy.
+- **A component's CSS lives in its own `<style>` block, and Svelte prunes selectors it cannot see in
+  the markup.** A class applied at runtime by JS is bound with `class:`, never `classList.add`.
+  **No `:global()` without a written justification** — silencing that compiler is the failure, not
+  the fix. `reducedMotionCss.test.ts` and `csp.test.ts` scan `.svelte` for this reason.
+- **`astro check` does not type-check `.svelte`**: `make build-client` is `astro check &&
+  svelte-check && astro build`, and dropping the middle one leaves every component untyped under a
+  green build. **TypeScript stays on 6.x** — `astro check`'s language server, `svelte-check@4` and
+  `@astrojs/svelte@9` each refuse 7.x independently.
+- **A `<script lang="ts">` keeps its imports after the types are stripped**, so a type imported as a
+  value reaches the bundler and asks a types-only module for something to run. `src/types/protocol.ts`
+  is exactly that module. **Every type import is an `import type`.**
+- **Reading a piece of state inside the effect that writes it is a loop**, and Svelte will say so at
+  runtime rather than at build. `untrack` is the way out and `GameBoard.svelte` is the example.
 
 ## Findability
 Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
@@ -423,7 +480,8 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   `@media (prefers-color-scheme: dark)` on `:root:not([data-theme='light'])` for the first frame.
   `themeFlash.test.ts` compares them declaration by declaration.
 - **The content pages' theme switch is `theme-boot.ts` wiring one button**, `hidden` until that
-  script reveals it, writing the key `useTheme` reads.
+  script reveals it, writing the same `loco_theme` key `src/theme.ts` reads — one definition of the
+  theme for the app and for a page that mounts nothing.
 - **`/` serves its own `<h1>`, in text, and it is never the wordmark**, and it stays the only one:
   app screens head themselves at `<h2>`, and `seo.test.ts` fails on an `<h1>` under `src/components/`.
 - **A title is ≤ 60 characters and a description is 100-155**, both languages, pinned by
@@ -437,8 +495,8 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **The home page is exactly one viewport and never scrolls.** The indexable markup is a quiet footer
   row plus the prose in a **native `<details>` sheet** that must keep opening with **scripts
   disabled**. **A board that can be scrolled off-screen mid-match is a bug**, and so is a lobby that
-  hides text under the fold. The footer vanishes on `data-seated`: never React's to unmount, never a
-  React modal.
+  hides text under the fold. The footer vanishes on `data-seated`: it is markup Astro rendered, so it
+  is never the app's to unmount and never a modal of ours.
 - **The FAQ is the `FAQPage` payload, rendered** from `src/content/faq.ts`. Its answers describe real
   server behaviour, so a change to those changes this file.
 - **English at `/`, French under `/fr/`, every path slash-terminated.** Never redirect from the
@@ -460,7 +518,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   the first paint and skips anything at `opacity: 0`, so a screen fading up from zero can produce
   **no candidate at all** — `NO_LCP`, which scores performance **0**. Fade a veil off the top instead.
 - **A content page is a player-facing surface, so it never says UNO either** (`seo.test.ts` extends
-  `legal.test.tsx`'s guard over `PAGES`, `UI` and every `src/content/**` file).
+  `legal.test.ts`'s guard over `PAGES`, `UI` and every `src/content/**` file).
 
 ## Visual
 Detail: [`docs/notes/visual.md`](docs/notes/visual.md). Spec: `DESIGN.md`.
@@ -479,8 +537,8 @@ stated at the top of `styles/tokens.css`:
   safe-area insets, so the coordinate space stops short of the notch and the home indicator while the
   element still runs edge to edge.
 - **Animate transforms, never `left`/`top`.** A node's transform has exactly one owner. Layout math is
-  radians, framer-motion `rotate` is degrees (`radToDeg` at the render boundary). Hand keys come from
-  `handCardKeys(hand)`, never the index.
+  radians, CSS `rotate()` is degrees (`radToDeg` at the render boundary, and nowhere else). Hand keys
+  come from `handCardKeys(hand)`, never the index.
 - **The wordmark is a logotype, and the markup has to say so.** `<LocoLogo />` carries `role="img"`
   and `aria-label="LOCO"` with the word `aria-hidden`. **In dark the word carries no stroke and a
   `::before` paints the outline over it**, declared twice like the dark palette; in light the stroke
@@ -489,7 +547,7 @@ stated at the top of `styles/tokens.css`:
   straight from the designer's source file: do not redraw, retrace or tidy it.
 - **On a card the mark is a mask, never a `<path>`.** One shared mask image (`MARK_MASK_URL`,
   `MARK_MASK_BOLD_URL`), so the browser rasterises that geometry once and all ~50 faces composite the
-  same bitmap. `card.test.tsx` fails on a live path and on a second mask URL. Same rule for any new
+  same bitmap. `card.test.ts` fails on a live path and on a second mask URL. Same rule for any new
   card art: one cached image, not geometry per instance.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
@@ -503,8 +561,10 @@ stated at the top of `styles/tokens.css`:
 Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 
 - Everything is synthesised at runtime. **No audio files ship with the client.**
-- **`useGameAudio.ts` is the only place that plays anything**, through one store subscription diffing
-  snapshots (`soundsForTransition`, pure and unit-tested).
+- **The board plays nothing; one subscription does.** `gameAudio()` in `hooks/appEffects.svelte.ts`
+  is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
+  `audio/gameSounds.ts` — pure, snapshot-diffing and unit-tested. A component calling `playSfx`
+  directly is only ever a UI tap (`uiTap`, `uiBack`), never a game event.
 - **Mobile Safari loses the context three ways and all three fail as silence, not as an error**:
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at
@@ -525,13 +585,13 @@ Detail: [`docs/notes/legal.md`](docs/notes/legal.md).
   consent banner mandatory and rewrites the policy.
 - **No address is ever written in full.** `hub.truncateAddr` / `Client.netPrefix` and the `anonymised`
   `log_format` in `client/nginx.conf` cut every address to `/24` or `/48` **at the point of writing**.
-  Log lines are correlated by `conn=`. **Never log `RemoteAddr()` directly**; `legal.test.tsx` fails
+  Log lines are correlated by `conn=`. **Never log `RemoteAddr()` directly**; `legal.test.ts` fails
   on any non-test file in `server/hub/` that does.
 - **Privacy, terms and credits are a page, not a modal** (`/privacy/`, `/fr/confidentialite/`), linked
   from every footer, without typing a name. The copy is `src/content/legal.ts`, typed
   `Record<Lang, LegalDoc[]>` so a document cannot exist in one language only, read at build time and
   shipped in **no bundle**.
-- **A line in that copy is a disclosure before it is prose.** `legal.test.tsx` pins the legal basis,
+- **A line in that copy is a disclosure before it is prose.** `legal.test.ts` pins the legal basis,
   the retention period, the rights list, the CNIL, the EU statement, the storage disclosure, the
   no-banner explanation, the Mattel disclaimer and the governing law. Reword freely; keep it passing.
 - **The game never says UNO to a player.** The documentation does, and the disclaimer names the mark

@@ -9,7 +9,7 @@
  * Adding a screen or a visual state? Add a scene here in the same change set.
  */
 import type { CardDTO, LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
-import type { RoundScoreEntry } from '../hooks/useGameStore'
+import type { RoundScoreEntry } from '../hooks/gameStore'
 
 // ─── Mock builders ──────────────────────────────────────────────────────────
 

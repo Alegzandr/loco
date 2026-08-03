@@ -42,7 +42,7 @@ export interface SwapNotice {
   actorIndex: number
   targetIndex: number  // -1 for global_switch
   direction: number    // game direction at the time of the play (for global_switch arrow)
-  at: number           // Date.now() — used as a render key so React re-mounts the banner
+  at: number           // Date.now() — the key that makes a second notice a second banner
 }
 
 /**

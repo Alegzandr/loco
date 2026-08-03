@@ -1,8 +1,8 @@
-import { StateCreator } from 'zustand'
+﻿import { StateCreator } from './createStore'
 import { clearSession } from '../sessionPersistence'
 import { AppScreen, GameStore, SessionActions } from './types'
 
-export const createSessionActions: StateCreator<GameStore, [], [], SessionActions> = (set) => ({
+export const createSessionActions: StateCreator<GameStore, SessionActions> = (set) => ({
   // Leaving 'restoring' is what "the reclaim landed" means, and every landing
   // path goes through here (player_reconnected, room_joined, match_loading), so
   // this is the one place the target has to be retired.

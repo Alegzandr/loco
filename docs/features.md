@@ -33,16 +33,16 @@
 - Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
 
 ## UI / UX
-- React + Framer Motion game view. All card movement is expressed as GPU-composited `x`/`y`/`rotate` transforms — never `left`/`top` — so multiple cards can fly at once without triggering layout.
+- Svelte 5 game view, animated by the browser rather than by a runtime. All card movement is expressed as GPU-composited `translate`/`rotate` transforms — never `left`/`top` — so multiple cards can fly at once without triggering layout.
 - Motion detail: cards fly from the acting player's own seat to the discard pile (so opponents' plays are legible without watching the pile), the hand fan springs closed behind a played card, a fresh deal staggers in, the discard settles with a per-card tilt, and turn-indicator text crossfades.
 - `prefers-reduced-motion` is honoured throughout: transforms snap to their end state and CSS transitions are disabled, leaving the game fully playable without movement.
 - Round summary overlay with placements, points earned, cumulative scoreboard; auto-dismiss after 8 s or via Continue. Next-round state is buffered so the overlay never vanishes instantly.
-- Match-end screen with final scoreboard, winner highlight, host Rematch button, and Leave room.
+- Match-end screen with final scoreboard, winner highlight, the rematch ask every seat gets (see above — it is not the host's call), and Leave room.
 - Score table on held `TAB` (and on a **Scores** button, the only way in on a touch device): one row per seat with its identity colour, one column per finished round, cumulative total, rounds won, and a live ping. The ping is banded by colour (green under 60 ms, yellow under 120, orange under 220, red beyond) because an interrupt is decided by arrival order at the server. Bots are labelled rather than given a fake number, and a seat with no measurement yet says so.
 - Play direction ring: chevrons around the felt, chasing the way play is moving and flipping over when a Reverse lands. The heading is carried by the chevrons themselves, so it still reads on a paused clip or with reduced motion, long after the REVERSE callout is gone.
 - UNO reaction timer: countdown bar visible whenever a player declares UNO.
 - Reconnect visual recovery: brief "Rebuilding table…" overlay, then staggered entrance of bubbles, hand cards, and discard pile.
-- Mobile support: responsive layout, 44 px+ tap targets, 400 ms double-tap guard, touch-friendly wild color picker, `user-scalable=no`.
+- Mobile support: responsive layout, 44 px+ tap targets, 400 ms double-tap guard, touch-friendly wild color picker. Zooming is never forbidden: the double-tap is answered by `touch-action: manipulation` on `body`, not by `user-scalable=no`.
 - Rules modal accessible from Lobby, Waiting Room, and Game View; bottom-sheet on mobile.
 - Internationalisation: English + French, automatic browser detection, manual switcher persisted to `localStorage`.
 - Privacy, terms and credits as one content page (`/privacy/`, `/fr/confidentialite/`), linked from every footer (last in the home page's row of links, at the right-hand end of the content pages' bar), in both languages. Three anchored sections; the copy is read at build time and ships in no bundle.

@@ -1,4 +1,3 @@
-import { useSyncExternalStore } from 'react'
 
 /**
  * A single on/off preference, kept in a module store rather than in the game
@@ -12,7 +11,13 @@ import { useSyncExternalStore } from 'react'
 export interface BooleanPref {
   get(): boolean
   set(next: boolean): void
-  use(): boolean
+  /**
+   * How a component follows the preference: `watchPref` in
+   * `hooks/prefs.svelte.ts` wraps this, and every screen goes through that.
+   * The store itself stays framework-free, which is what let it keep its value
+   * and its listeners while the screens around it were rewritten.
+   */
+  subscribe(listener: () => void): () => void
   /** Test/showcase seam: re-read storage and notify. */
   reset(): void
 }
@@ -50,9 +55,7 @@ export function createBooleanPref(storageKey: string): BooleanPref {
       }
       listeners.forEach((l) => l())
     },
-    use() {
-      return useSyncExternalStore(subscribe, get, get)
-    },
+    subscribe,
     reset() {
       value = read()
       listeners.forEach((l) => l())
