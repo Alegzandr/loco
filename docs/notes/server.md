@@ -391,6 +391,55 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   step with `dealRound` reports "not found" for every room, safe or not — and would pass forever.
   `Deck.Replenish` still shuffles off the global source, which Go seeds randomly at startup; it is
   the deal, not the mid-round reshuffle, that was reconstructible.
+- **A refused message must never be cheaper than an accepted one.** This is the finding an audit of
+  every inbound message produced, and it is one sentence because all four bugs were the same bug.
+  The server had been read for what it *lets* a client do, which was already tight: nothing on the
+  wire carries a hand but your own, no deck, no discard pile past the top card, no queue size, no
+  roster oracle on a refusal. What had never been priced is what a client gets for a message the
+  server turns *down*, and in four places that was more than it got for playing properly.
+  - **The AFK counter was cleared before the handler ran.** `resetAFK` sat at the dispatch boundary,
+    on every gameplay message, whatever became of it — which is the right place for it and was the
+    wrong moment. A seat holding eight cards cannot declare, so `declare_uno` is refused every time,
+    and one of them a turn bought permanent immunity from the threshold: the seat timed out for
+    ever, auto-drew for ever, and was never once counted away. In a matchmade room that threshold is
+    the *only* thing between a stranger and an opponent who has walked away — the reconnect hold
+    covers a socket that left, and this covers one that stayed. Sending a message proves a socket is
+    alive; it does not prove anybody is playing.
+    The reset now runs after the handler and only if the socket was not refused, counted by
+    `Client.refusals` as a before/after pair. Not reported by each handler on purpose: `sendError`
+    is already the single funnel every refusal in the server goes through, so a handler written next
+    year cannot forget to use it, which is the property the dispatch-boundary version had and is the
+    only reason it was there.
+  - **A Contre-LOCO! on a seat that was never on the hook was charged like a lost race**, and
+    therefore *announced* like one. Every timing refusal (`IsMissedCatch`) costs the caller a card
+    and puts a `catch_failed` in front of the whole table, which is exactly right for the wager the
+    mechanic is built on and exactly wrong for a call on somebody holding eight cards: the caller
+    had nothing to lose the race to. So it was a broadcast to every seat, at whatever the token
+    bucket allows, and **free** the moment the piles ran dry and the penalty draw came back empty
+    (`PenalizeFailedCatch` returns nothing and the broadcast went out anyway). `catchGrace` (2s past
+    `catchWindow`) is the line: inside it the window was live when the button was drawn and the
+    message lost the trip, which is a wager; outside it no client was drawing that button at all, so
+    `ErrNoCatchWindow` is refused to its sender, charged nothing, told to nobody, and — being neither
+    a lost race nor a state mismatch — counted by `noteRejection` toward `suspected_cheats`.
+    The same reasoning covers a target index the table does not have: it used to answer the
+    missed-catch string and note nothing at all.
+  - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
+    broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
+    every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply
+    already true.
+  - **A stale-state refusal pulled a full personalised snapshot every time.** That correction is the
+    most expensive message this server sends, and one is enough: the drift is corrected by the
+    first, and everything the client sends in the millisecond after it was composed against the old
+    board. `resyncPeriod` (1s per socket) is the same treatment, for the same reason, that the
+    rate-limit notice already needed.
+
+  **And the gameplay gate now bounds the seat as well as the state.** `handleDrawCard` sizes a hand
+  on its first line, and `DeclareLastCard`, `CatchUndeclared` and `InterruptPlayCards` all index
+  `State.Hands` by the sender's seat on their way in. That is unreachable today — a seat is only ever
+  dropped in a lobby or a finished room — and "unreachable today" is precisely the argument the
+  `State == nil` gap two sections up was written on, four frames from an unauthenticated stranger.
+  One comparison closes the class instead of four bounds checks that have to be re-derived every time
+  a seat learns a new way to move.
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names the refusals a
   correct client produces all match long — a second draw, a pass that raced its draw, an interject
   whose window closed or whose top card changed, a second LOCO! — as sentinel errors, and
@@ -612,7 +661,10 @@ strangers will not, and the player who is still at the table did nothing wrong.
 
 ## AFK auto-kick
 - `hub.AFKKickThreshold` (var, default 4) consecutive turn-timeouts without voluntary action → kick (~2 rounds in 2-player). A matchmade room uses `MatchmakingAFKThreshold` (2) and forfeits instead of kicking; see above.
-- Bots exempt. Voluntary inbound (play_card, draw_card, pass_turn, declare_uno, catch_uno, counter_draw, interrupt_play) calls `hub.resetAFK(code, playerID)`.
+- Bots exempt. An **accepted** voluntary action (play_card, draw_card, pass_turn, declare_uno,
+  catch_uno, counter_draw, interrupt_play) calls `hub.resetAFK(t, c)`. A refused one does not: see
+  "A refused message must never be cheaper than an accepted one" above, which is the whole reason
+  the reset moved from before the handler to after it.
 - Kick: send `{type:"error", error:"afk_kicked"}`, close. Standard reconnect window applies.
 - Tests override threshold (e.g. `1<<30`).
 

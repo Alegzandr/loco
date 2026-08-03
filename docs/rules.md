@@ -262,6 +262,10 @@ downside — an unfounded or late call is simply ignored.
 lands only while the target's 5 s window is open and unanswered; the three ways
 it misses are the target's own call arriving first, the target's hand having
 grown, and the window having expired.
+The price is for **losing a race**, so it is only charged to a caller who was in
+one: a call on a seat whose window never opened, or closed more than a couple of
+seconds ago, is simply refused to whoever sent it. Nothing is drawn and the table
+is told nothing — there was no wager to settle.
 **Rationale**: without a price, mashing the button at every seat holding one card
 is free and therefore always correct, which turns a reaction into a reflex nobody
 has to aim. One card is small enough that a genuine race stays worth entering and

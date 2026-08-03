@@ -199,7 +199,9 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 5. **A forced draw does not cost the turn.** The victim takes the stack and then plays or passes;
    `hub.handleDrawCard` re-arms the turn timer on every draw.
 6. **A missed Contre-LOCO! costs the caller 1 card** (`failedCatchPenalty`,
-   `Room.PenalizeFailedCatch`).
+   `Room.PenalizeFailedCatch`) — **but only a call that lost a race**. A seat whose window never
+   opened, or shut more than `catchGrace` ago, answers `ErrNoCatchWindow`: refused to its sender,
+   charged nothing, broadcast to nobody.
 
 - **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **Swap is coloured**
   and follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
@@ -280,6 +282,19 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names what a correct
   client produces all match; handlers call `Client.noteRejection(err)`, not `noteSuspect`. Always
   `errors.Is`, never string comparison.
+- **A refused message must never be cheaper than an accepted one.** Three rules fall out of it, and
+  each closed a way a refusal paid better than a play:
+  - **A refusal does not clear the AFK counter.** `dispatchAtTable` resets it *after* the handler and
+    only when `Client.refusals` did not move; `sendError` is the single funnel that moves it. Reset
+    before the handler, one refused `declare_uno` a turn bought permanent immunity.
+  - **A refusal answers its sender and nobody else**, unless the rules say the table pays too — and
+    a Contre-LOCO! outside `catchGrace` is not one of those (see the domain rules above). Same rule
+    makes `rematch` idempotent: an ask already in the set republishes nothing.
+  - **A correction is throttled** (`resyncPeriod`, 1s per socket): one snapshot settles the drift,
+    and everything sent in the millisecond after it was composed against the old board.
+- **The gameplay gate also bounds the seat.** `dispatchAtTable` refuses a sender whose `playerID` is
+  not an index into `State.Hands`, beside the `Status`/`State` check and for the same reason: four
+  entry points index a hand before they validate anything.
 - **Every path that grows a hand goes through `hub.sendHandGrowth`**: the affected player gets the
   cards, everyone else the count.
 - **A zero is a value, not an absence.** `turn` and `drawn_count` carry no `omitempty`;
@@ -681,6 +696,10 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 
 - **Every E2E test is self-contained**: no `beforeAll`, no `describe.serial`, no state carried between
   tests. That is what lets CI shard per test (`fullyParallel: true`).
+- **The 1v1 queue is the one server-global the suite contends on**, so `matchmaking.spec.ts` claims
+  it (`helpers/matchmakingQueue.ts`: a cross-process mutex, plus a wait on `/metrics` for
+  `matchmaking_queue == 0`, plus a borrowed timeout so queuing does not spend the test's budget).
+  A lock on a shared resource, not shared state. **Anything else added to that queue takes it too.**
 - **A fixture must state everything the assertion rests on.** `debug_set_state` sets only what it is
   given: pin `direction`, `pendingDraw: 0`, `currentTurn`, and the *colour* of a coloured card.
 - The **interrupt window is only armed by a real play**, so a successful-interrupt test must have

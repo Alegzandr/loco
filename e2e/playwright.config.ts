@@ -29,6 +29,12 @@ export default defineConfig({
   // It is safe here because every test is self-contained: no beforeAll, no
   // describe.serial, no shared fixture — each one creates its own room. Keep it
   // that way, or raise workers deliberately rather than by accident.
+  //
+  // Raising them is now actually safe, which it was not: a room code is private
+  // so two tests never meet in one, but the 1v1 matchmaking queue is a single
+  // FIFO per server and would pair one test's searcher with another's. Those six
+  // tests take a cross-process lock on it (helpers/matchmakingQueue.ts) rather
+  // than the whole suite being pinned to one worker to hide it.
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

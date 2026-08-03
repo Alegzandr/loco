@@ -143,6 +143,18 @@ a string it is free to reword.
   (`ErrAlreadyDeclared`), its hand grew (`ErrTargetNotSingleCard`), the window closed
   (`ErrCatchWindowExpired`). Those are **sentinels, not new strings** — the wire text is unchanged;
   what is new is that the hub can tell a lost race from an invalid target.
+  - **All three are timing, and the price is for losing a race** — so the seat has to have been in
+    one. `catchRaceRecent` gates them: the target's window must have opened inside
+    `catchWindow + catchGrace` (5s + 2s), and anything outside that is `ErrNoCatchWindow`, which is
+    **not** an `IsMissedCatch`. Without the gate a call on a seat holding eight cards fell straight
+    into `ErrTargetNotSingleCard` and was treated as a lost race the caller never ran: it charged a
+    card, and it put a `catch_failed` in front of the whole table, at whatever rate the token bucket
+    allows. Once every card sat in a hand the penalty draw came back empty and the price went to
+    zero, leaving a free broadcast anybody could aim at any table they were sitting at. The grace is
+    a network round trip plus the frame the button was drawn in, and nothing else: a client only ever
+    arms Contre-LOCO! on a seat the server named in `catch_seats`, so past it there is nothing the
+    call can be but a message no client of ours made. `server/game/catch_window_test.go` owns both
+    sides of the line.
   - `Room.PenalizeFailedCatch(catcher)` draws the card and touches **nothing else** — not the turn,
     not `HasDrawn`, not the target. A failed call is a side bet on somebody else's obligation and its
     caller may not even be in turn. Like every draw it cannot fail: with every card in a hand the

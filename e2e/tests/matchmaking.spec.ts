@@ -9,9 +9,16 @@
  * the abandon path, which is the whole reason this mode has its own timings.
  *
  * Self-contained like every test in this suite: each one opens its own contexts
- * and carries no state from the last.
+ * and carries no state from the last. What these six cannot open their own of is
+ * the queue — there is one per server, it is a FIFO, and a searcher from another
+ * test arriving between this one's two is paired with one of them. So each test
+ * claims it for the duration and gives it back, the way it would wait on a port.
+ * That is a lock on a shared resource, not shared state: nothing crosses, no
+ * order is implied, and a failure here does not abandon the rest.
+ * See helpers/matchmakingQueue.ts.
  */
 import { test, expect, Browser } from '@playwright/test'
+import { claimMatchmakingQueue } from '../helpers/matchmakingQueue'
 import {
   T,
   findMatch,
@@ -30,6 +37,8 @@ test.describe('1v1 matchmaking', () => {
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
     const page2 = await ctx2.newPage()
+    // The one server-global this suite contends on. See helpers/matchmakingQueue.ts.
+    const queue = await claimMatchmakingQueue()
 
     try {
       await findMatch(page1, 'Alice')
@@ -58,8 +67,12 @@ test.describe('1v1 matchmaking', () => {
       // One seat each, and they are not the same one.
       expect(s1.myIndex).not.toBe(s2.myIndex)
     } finally {
+      // The contexts go first: this test can end with somebody still searching,
+      // and a searcher still in the queue when the next test claims it is
+      // exactly the ghost the lock exists to prevent.
       await ctx1.close()
       await ctx2.close()
+      queue.release()
     }
   })
 
@@ -70,6 +83,8 @@ test.describe('1v1 matchmaking', () => {
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
     const page2 = await ctx2.newPage()
+    // The one server-global this suite contends on. See helpers/matchmakingQueue.ts.
+    const queue = await claimMatchmakingQueue()
 
     try {
       await findMatch(page1, 'Alice')
@@ -85,8 +100,12 @@ test.describe('1v1 matchmaking', () => {
       await page2.waitForTimeout(1_500)
       expect((await getState(page2)).screen).toBe('searching')
     } finally {
+      // The contexts go first: this test can end with somebody still searching,
+      // and a searcher still in the queue when the next test claims it is
+      // exactly the ghost the lock exists to prevent.
       await ctx1.close()
       await ctx2.close()
+      queue.release()
     }
   })
 
@@ -100,6 +119,8 @@ test.describe('1v1 matchmaking', () => {
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
     const page2 = await ctx2.newPage()
+    // The one server-global this suite contends on. See helpers/matchmakingQueue.ts.
+    const queue = await claimMatchmakingQueue()
 
     try {
       await findMatch(page1, 'Alice')
@@ -135,8 +156,12 @@ test.describe('1v1 matchmaking', () => {
         { timeout: 10_000 },
       )
     } finally {
+      // The contexts go first: this test can end with somebody still searching,
+      // and a searcher still in the queue when the next test claims it is
+      // exactly the ghost the lock exists to prevent.
       await ctx1.close()
       await ctx2.close()
+      queue.release()
     }
   })
 
@@ -159,6 +184,8 @@ test.describe('1v1 matchmaking', () => {
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
     const page2 = await ctx2.newPage()
+    // The one server-global this suite contends on. See helpers/matchmakingQueue.ts.
+    const queue = await claimMatchmakingQueue()
 
     try {
       await findMatch(page1, 'Alice')
@@ -209,8 +236,12 @@ test.describe('1v1 matchmaking', () => {
       expect(s1.roomCode).toBe(roomCode)
       expect(s1.myHand.length).toBeGreaterThan(0)
     } finally {
+      // The contexts go first: this test can end with somebody still searching,
+      // and a searcher still in the queue when the next test claims it is
+      // exactly the ghost the lock exists to prevent.
       await ctx1.close()
       await ctx2.close()
+      queue.release()
     }
   })
 
@@ -230,6 +261,8 @@ test.describe('1v1 matchmaking', () => {
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
     const page2 = await ctx2.newPage()
+    // The one server-global this suite contends on. See helpers/matchmakingQueue.ts.
+    const queue = await claimMatchmakingQueue()
 
     try {
       await findMatch(page1, 'Alice')
@@ -276,8 +309,12 @@ test.describe('1v1 matchmaking', () => {
       // their own, which is what puts them back in the queue too.
       await page1.waitForFunction(inQueue, undefined, { timeout: 10_000 })
     } finally {
+      // The contexts go first: this test can end with somebody still searching,
+      // and a searcher still in the queue when the next test claims it is
+      // exactly the ghost the lock exists to prevent.
       await ctx1.close()
       await ctx2.close()
+      queue.release()
     }
   })
 
@@ -288,6 +325,8 @@ test.describe('1v1 matchmaking', () => {
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()
     const page2 = await ctx2.newPage()
+    // The one server-global this suite contends on. See helpers/matchmakingQueue.ts.
+    const queue = await claimMatchmakingQueue()
 
     try {
       await findMatch(page1, 'Alice')
@@ -303,8 +342,12 @@ test.describe('1v1 matchmaking', () => {
       )
       expect((await getState(page1)).errorMsg).toContain('matchmade')
     } finally {
+      // The contexts go first: this test can end with somebody still searching,
+      // and a searcher still in the queue when the next test claims it is
+      // exactly the ghost the lock exists to prevent.
       await ctx1.close()
       await ctx2.close()
+      queue.release()
     }
   })
 })

@@ -217,6 +217,54 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
   })
 
   /**
+   * §14.6's floor: the price is for losing a race, so a caller who was never in
+   * one pays nothing and the table hears nothing.
+   *
+   * This can only be sent down the socket, because no client of ours can
+   * produce it: the button is armed on the seats the server names in
+   * `catch_seats`, and Bob is holding a full hand. Which is exactly why it had
+   * to be priced — treated as a lost race it charged a card, put a catch_failed
+   * banner in front of every seat at whatever rate the limiter allows, and went
+   * free the moment the piles ran dry.
+   */
+  test('a Contre-LOCO! on a seat that was never on the hook costs nothing', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', roomCode)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
+
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+      const before = await getState(alice)
+      const handBefore = before?.myHand?.length ?? 0
+
+      await sendMsg(alice, { type: 'catch_uno', target_index: bobIdx })
+
+      // Nothing to wait for but the absence of it: give the round trip a
+      // generous margin, then assert the hand and the table are as they were.
+      await alice.waitForTimeout(1_000)
+      const after = await getState(alice)
+      expect(after?.myHand?.length ?? 0).toBe(handBefore)
+      expect(after?.catchFailed).toBeFalsy()
+      // And the seat it was aimed at was told nothing at all.
+      expect((await getState(bob))?.catchFailed).toBeFalsy()
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
    * The other half of §14.6: the button is spent the moment it is pressed, not
    * when the server answers. A call in flight already costs a card if it loses,
    * so a second tap during that round trip would buy the same opinion twice.
