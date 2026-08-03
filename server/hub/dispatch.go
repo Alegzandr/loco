@@ -117,8 +117,24 @@ func (h *Hub) dispatchAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 	// unauthenticated stranger could reach in two messages. Gating the whole
 	// class here rather than patching those two is deliberate: the next handler
 	// to read State before validating is covered without anybody remembering.
-	if isGameplayMsg(msg.Type) {
+	gameplay := isGameplayMsg(msg.Type)
+	if gameplay {
 		if t.room.Status != game.StatusPlaying || t.room.State == nil {
+			c.sendError("game not in progress")
+			return
+		}
+		// And the seat has to be one this deal has a hand for.
+		//
+		// The gate above closed "State is nil"; this closes the other half of the
+		// same class. handleDrawCard sizes a hand before it validates anything,
+		// and DeclareLastCard, CatchUndeclared and InterruptPlayCards all index
+		// State.Hands by the sender's seat on their way in, so a seat number that
+		// outran the deal is a nil-adjacent panic in four places rather than one.
+		// It is unreachable today — a seat is only ever dropped in a lobby or a
+		// finished room — and that is exactly the argument the last gap here was
+		// written on. Gating the class costs one comparison and does not have to
+		// be re-derived every time a seat learns a new way to move.
+		if seat := c.playerID(); seat < 0 || seat >= len(t.room.State.Hands) {
 			c.sendError("game not in progress")
 			return
 		}
@@ -131,9 +147,26 @@ func (h *Hub) dispatchAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 			c.sendError("waiting for every player to load the table")
 			return
 		}
-		// Any voluntary action clears the seat's consecutive-timeout count.
-		h.resetAFK(t, c)
 	}
+
+	// An action the server takes clears the seat's consecutive-timeout count.
+	// One the server refuses does not, and that is the whole of the fix: this
+	// used to run here, before the handler, on every gameplay message whatever
+	// became of it. So one declare_uno per turn — refused every time, a seat
+	// holding five cards cannot declare — bought permanent immunity from the AFK
+	// threshold, and in a matchmade room the AFK threshold is the only thing
+	// standing between a stranger and an opponent who has walked away. Sending a
+	// message proves a socket is alive; it does not prove anybody is playing.
+	//
+	// The refusal count is read as a before/after pair rather than reported by
+	// each handler, because sendError is already the single funnel every refusal
+	// goes through and a handler added later cannot forget to use it.
+	before := c.refusals.Load()
+	defer func() {
+		if gameplay && c.refusals.Load() == before {
+			h.resetAFK(t, c)
+		}
+	}()
 
 	switch msg.Type {
 	case protocol.CMsgMapReady:

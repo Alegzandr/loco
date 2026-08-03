@@ -63,12 +63,27 @@ func (h *Hub) sendHandGrowth(t *table, playerID int, newCards []game.Card) {
 // It is deliberately narrow (game.IsStateMismatch, never a lost race): a
 // personalised game_state is the most expensive message this server sends, and
 // interrupts are refused by design all match long.
+// resyncPeriod is the shortest gap between two corrections to one socket.
+//
+// A snapshot answers a client whose board has drifted, and one is enough: the
+// drift is corrected by the first, and everything the client sends in the
+// millisecond after it was composed against the old board. Without a floor, a
+// client offering the same stale card at the rate limit pulled the most
+// expensive message this server sends ten times a second — the amplification
+// the rate-limit notice already had to be given the same treatment for.
+const resyncPeriod = time.Second
+
 func (h *Hub) refuseAction(c *Client, t *table, err error) {
 	c.sendError(err.Error())
 	c.noteRejection(err)
 	if !game.IsStateMismatch(err) {
 		return
 	}
+	now := time.Now()
+	if now.Sub(c.lastResyncAt) < resyncPeriod {
+		return
+	}
+	c.lastResyncAt = now
 	log.Printf("state resync conn=%s code=%s player=%d reason=%v", c.connID, c.roomCode(), c.playerID(), err)
 	c.Send(protocol.ServerMsg{
 		Type:  protocol.SMsgGameState,

@@ -42,6 +42,13 @@ func (h *Hub) handleRematch(t *table, c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
+	// An ask is a set membership, so asking twice changes nothing — but it used
+	// to be republished anyway, which turned one socket at the rate limit into
+	// ten broadcasts a second to every seat at the table. Answered the same way
+	// map_ready is: the second one is not an error, it is simply already true.
+	if _, already := t.rematchOffers[c.playerID()]; already {
+		return
+	}
 	t.rematchOffers[c.playerID()] = struct{}{}
 	h.broadcastRematchOffers(t, intPtr(c.playerID()))
 	if len(t.rematchOffers) < t.rematchQuorum() {

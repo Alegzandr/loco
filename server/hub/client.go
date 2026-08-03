@@ -135,6 +135,18 @@ type Client struct {
 	// limited. Read and written by readPump only, which is the single goroutine
 	// that drops messages, so it needs no lock.
 	lastLimitNotice time.Time
+
+	// refusals counts every error this socket has been sent, and exists so the
+	// dispatch boundary can tell an action the server took from one it turned
+	// down without every handler having to report back. Monotonic and read as a
+	// before/after pair, never as a total, so a concurrent write from another
+	// goroutine can only make the pair differ — which reads as "refused", the
+	// safe answer. See dispatchAtTable and resetAFK.
+	refusals atomic.Int64
+
+	// lastResyncAt is when this socket was last handed a fresh personalised
+	// snapshot after a stale-state refusal. Table goroutine only.
+	lastResyncAt time.Time
 }
 
 // rateLimitNoticePeriod is how often a rate-limited connection is told so. One
@@ -365,7 +377,10 @@ func (c *Client) notePong(now time.Time) {
 // latency returns the smoothed round trip in milliseconds, or -1 if unknown.
 func (c *Client) latency() int { return int(c.latencyMs.Load()) }
 
+// sendError refuses something. It is the single funnel every refusal in the
+// server goes through, which is what lets the dispatch boundary count them.
 func (c *Client) sendError(msg string) {
+	c.refusals.Add(1)
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: msg})
 }
 

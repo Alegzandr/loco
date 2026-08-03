@@ -225,8 +225,15 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	} else if open := room.State.CatchableTargets(time.Now()); len(open) > 0 {
 		targetIdx = open[0]
 	}
+	// A seat number the table does not have is not a lost race, so it is refused
+	// rather than charged, and it is counted: the button is only ever drawn on a
+	// seat the server itself named in catch_seats, so nothing a correct client
+	// sends can arrive here. It used to answer the missed-catch string and note
+	// nothing at all, which made a forged target the one gameplay message that
+	// cost its sender nothing and told the operator nothing either.
 	if targetIdx < 0 || targetIdx >= len(room.State.Hands) {
-		c.sendError("target does not have exactly 1 card")
+		c.sendError(game.ErrNoCatchWindow.Error())
+		c.noteRejection(game.ErrNoCatchWindow)
 		return
 	}
 	priorSize := len(room.State.Hands[targetIdx].Cards)

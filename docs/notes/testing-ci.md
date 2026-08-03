@@ -144,6 +144,34 @@ deliberately not covered here" below.
   between tests; each one creates its own room. That is what lets CI shard the suite per *test*
   (`fullyParallel: true`) instead of per spec file, which is what makes four shards even instead of
   27/39/0/21. Sequential execution is `workers: 1`'s job, not `fullyParallel`'s.
+- **The 1v1 queue is the one thing a test cannot open its own of, so it is locked rather than
+  hidden.** A room code is private: two tests hold two rooms on one server and never meet. There is
+  exactly one matchmaking queue per process, it is a FIFO, and `tryPair` hands seat 0 to whoever is
+  at the front — so a searcher belonging to another test, arriving between one test's two, is paired
+  with one of them. The symptom is not a clean failure: a test waits out its timeout on a
+  `match_found` that went to a stranger, and the *other* test fails too.
+  `workers: 1` hid this and CI's four shards each start their own `server-bin`, so nothing was
+  actually broken — but `fullyParallel: true` states the opposite promise two lines above that
+  setting, and raising `workers` would have broken exactly six tests in a way that reads as flake.
+  `e2e/helpers/matchmakingQueue.ts` is a cross-process mutex (an atomic `mkdir`, a pid the next
+  claimant can check, a staleness backstop above the slowest holder) and every test in
+  `matchmaking.spec.ts` claims it. **That is a lock on a shared resource, not shared state**: nothing
+  crosses, no order is implied, and a failure does not abandon the rest, which is what
+  `describe.serial` would have bought and why the rule above refuses it.
+  Two details are the whole of why the first version of it did not work:
+  - **The lock is not the whole guarantee; an empty queue is.** Closing a context tears the socket
+    down, but the dequeue happens on the hub's goroutine a moment later, so the previous test's
+    searcher can still be at the front when the next one enqueues. A fixed sleep is the wrong
+    instrument — too short under load, wasted otherwise, silent either way. The claim polls
+    `/metrics` for `matchmaking_queue == 0` instead. It is the only place in the suite that reads an
+    operator surface, and it has to be: the queue's size is deliberately never on the wire, so there
+    is no client-visible way to ask the question at all.
+  - **Time spent queuing must not come out of the test's own budget, and it has to be borrowed
+    before the wait.** Compensating afterwards cannot work: the clock is already running, so the test
+    expires *inside* the polling loop and reports `Test timeout of 30000ms exceeded`, which reads as
+    a slow app rather than as a queue. `borrowTime()` raises the budget before the first poll and
+    trims it back to what the wait actually cost, which Playwright's "timeout counted from test
+    start" makes honest in both directions.
 - **Being dealt into a matchmade table is the expensive step, and the default 30s test budget is
   built for one of them.** `waitForMatchmadeGame` waits out the match-found countdown and then the
   map-loading gate, and the gate is real image downloads through the dev server into a browser

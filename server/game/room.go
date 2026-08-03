@@ -55,6 +55,19 @@ const (
 	failedCatchPenalty = 1
 	// catchWindow is how long after a player's last card play other players can catch them.
 	catchWindow = 5 * time.Second
+	// catchGrace is how long past that window a Contre-LOCO! is still read as a
+	// race that was lost rather than as a call on a seat that was never on the
+	// hook. It covers the round trip plus the frame the button was drawn in, and
+	// nothing else.
+	//
+	// The distinction is what stops the penalty being a free broadcast. Every
+	// timing refusal costs the caller a card, which is what makes the wager
+	// honest — but a call on a seat holding five cards was never a wager, and it
+	// was answered exactly like a lost race: a catch_failed to every seat at the
+	// table, at whatever rate the limiter allows, and free the moment the piles
+	// run dry and the penalty draw comes back empty. Outside this grace the call
+	// is refused to its sender alone.
+	catchGrace = 2 * time.Second
 )
 
 // Player holds per-player metadata.
@@ -200,6 +213,15 @@ func (s *GameState) openCatchWindowsAfterRearrange() {
 func (s *GameState) catchWindowOpen(targetIndex int, now time.Time) bool {
 	at := s.LastCardAt[targetIndex]
 	return !at.IsZero() && now.Sub(at) <= catchWindow
+}
+
+// catchRaceRecent reports whether targetIndex has been on the hook recently
+// enough for a call on it to be a race at all. A seat whose window never opened,
+// or opened long enough ago that no client is still drawing the button, is not
+// one somebody can lose a race against.
+func (s *GameState) catchRaceRecent(targetIndex int, now time.Time) bool {
+	at := s.LastCardAt[targetIndex]
+	return !at.IsZero() && now.Sub(at) <= catchWindow+catchGrace
 }
 
 // CatchWindowEnd is when seat i's window shuts. Only meaningful for a seat
@@ -940,6 +962,13 @@ var (
 	ErrTargetNotSingleCard = errors.New("target does not have exactly 1 card")
 )
 
+// ErrNoCatchWindow is a Contre-LOCO! on a seat that has not been catchable at
+// all: no window open, none shut inside catchGrace. It is deliberately NOT a
+// missed catch, so it costs nothing and tells nobody: a correct client only
+// arms the button on a seat the server named in catch_seats, so this is a
+// message that client did not make.
+var ErrNoCatchWindow = errors.New("target did not just play their last card")
+
 // IsMissedCatch reports whether a CatchUndeclared error is a lost race — the
 // only class of rejection that costs the caller a card.
 func IsMissedCatch(err error) bool {
@@ -1032,8 +1061,18 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	if targetIndex < 0 || targetIndex >= len(r.State.Hands) {
 		return fmt.Errorf("invalid target %d", targetIndex)
 	}
+	if catcherIndex < 0 || catcherIndex >= len(r.State.Hands) {
+		return fmt.Errorf("invalid catcher %d", catcherIndex)
+	}
 	if catcherIndex == targetIndex {
 		return errors.New("cannot catch yourself")
+	}
+	// Before the three timing refusals below, and above them for a reason: each
+	// of those costs the caller a card and announces the miss to the table, which
+	// is right for a race and wrong for a call on a seat that was never on the
+	// hook. See catchGrace.
+	if !r.State.catchRaceRecent(targetIndex, now) {
+		return ErrNoCatchWindow
 	}
 	if r.State.LastCardDeclared[targetIndex] {
 		return ErrAlreadyDeclared

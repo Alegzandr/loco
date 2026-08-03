@@ -41,6 +41,10 @@ describe('resolveServerError', () => {
       'catch window expired',
       'target does not have exactly 1 card',
       'target did not just play to 1 card',
+      // A Contre-LOCO! on a seat that has not been catchable at all. It reads
+      // the same way to the player as a window that shut a moment ago — the
+      // difference is what it costs, and that is the server's business.
+      'target did not just play their last card',
       'cannot swap with yourself',
       'invalid chosen_player 3 for swap',
       'only the host can start a rematch',
