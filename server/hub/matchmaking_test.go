@@ -418,15 +418,17 @@ func finishRoundForSeat(t *testing.T, winner, other *websocket.Conn) {
 	// and a BO1 round ending ends the match.
 	sendMsg(t, winner, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 0, Hand: []protocol.CardDTO{{Color: "red", Kind: "number", Value: 5}}},
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 9}}},
+		Debug: &protocol.DebugStateDTO{
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 0, Hand: []protocol.CardDTO{{Color: "red", Kind: "number", Value: 5}}},
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{{Color: "blue", Kind: "number", Value: 9}}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: intPtrTest(0),
+			CurrentTurn: intPtrTest(0),
+			Direction:   intPtrTest(1),
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: intPtrTest(0),
-		DebugCurrentTurn: intPtrTest(0),
-		DebugDirection:   intPtrTest(1),
 	})
 	readMsgOfType(t, winner, protocol.SMsgGameState)
 	sendMsg(t, winner, protocol.ClientMsg{

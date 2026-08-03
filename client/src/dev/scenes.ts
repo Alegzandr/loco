@@ -9,7 +9,7 @@
  * Adding a screen or a visual state? Add a scene here in the same change set.
  */
 import type { CardDTO, LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
-import type { RoundScoreEntry } from '../hooks/useGameStore'
+import type { RoundScoreEntry } from '../hooks/gameStore'
 
 // ─── Mock builders ──────────────────────────────────────────────────────────
 
@@ -154,6 +154,10 @@ export interface Scene {
   streamerMode?: boolean
   /** Lobby: mount with the preferences panel open. */
   prefsOpen?: boolean
+  /** Lobby: mount with the language list open inside that panel. */
+  langOpen?: boolean
+  /** Lobby: mount with the sound panel open. */
+  audioOpen?: boolean
   /** Colour assist: every suit also carries its silhouette. */
   colorAssist?: boolean
 }
@@ -281,6 +285,28 @@ export const SCENES: Scene[] = [
     screen: 'lobby',
     lobbyMode: 'home',
     prefsOpen: true,
+  },
+  {
+    // The list open, which is the shot that matters: a `<select>` drew this
+    // part itself, in the system's colours, and no screenshot of ours could
+    // ever have caught it. Worth a look at `small` too, where the panel is a
+    // sheet and the rows are thumb-sized.
+    id: 'lobby-prefs-lang',
+    title: 'Accueil · préférences · langue',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    prefsOpen: true,
+    langOpen: true,
+  },
+  {
+    // The mixer, which below 46rem is a sheet and not the dropdown this shot
+    // catches at `wide`: three sliders a thumb has to land on, so it is the
+    // `small` viewport this scene exists for.
+    id: 'lobby-audio',
+    title: 'Accueil · son',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    audioOpen: true,
   },
   {
     id: 'lobby-rules',

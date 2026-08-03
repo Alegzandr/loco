@@ -29,5 +29,9 @@ FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Not into conf.d/: nginx.conf's own `include /etc/nginx/conf.d/*.conf` would
+# pick this up as a second server-level file and refuse to start on an
+# add_header outside any server block.
+COPY security-headers.conf /etc/nginx/security-headers.conf
 
 EXPOSE 80

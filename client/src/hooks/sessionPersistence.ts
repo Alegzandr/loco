@@ -3,7 +3,7 @@ import type { ClientMsg } from '../types/protocol'
 /**
  * Session persistence: what makes a reload survivable.
  *
- * The socket-level reconnect (useWebSocket + App.getReconnectMsg) only ever
+ * The socket-level reconnect (webSocket + App.getReconnectMsg) only ever
  * covered a dropped connection: the store was still in memory, so it still knew
  * the room, the seat and the token. A refresh, a crashed tab, an accidental
  * navigation or a phone that killed the page throws all of that away, and the

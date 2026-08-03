@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import * as v from 'valibot'
 import { serverMsgSchema, gameStateSchema, cardSchema } from '../types/protocolSchemas'
 
 const sampleCard = { color: 'red' as const, kind: 'number' as const, value: 7 }
@@ -18,16 +19,16 @@ const sampleGameState = {
 
 describe('serverMsgSchema', () => {
   it('accepts a minimal error message', () => {
-    expect(serverMsgSchema.safeParse({ type: 'error', error: 'nope' }).success).toBe(true)
+    expect(v.safeParse(serverMsgSchema, { type: 'error', error: 'nope' }).success).toBe(true)
   })
 
   it('accepts a game_started message with full state', () => {
-    const r = serverMsgSchema.safeParse({ type: 'game_started', state: sampleGameState })
+    const r = v.safeParse(serverMsgSchema, { type: 'game_started', state: sampleGameState })
     expect(r.success).toBe(true)
   })
 
   it('accepts a card_played with direction + chosen_player', () => {
-    const r = serverMsgSchema.safeParse({
+    const r = v.safeParse(serverMsgSchema, {
       type: 'card_played',
       player_index: 1,
       card: { color: 'wild', kind: 'swap' },
@@ -39,7 +40,7 @@ describe('serverMsgSchema', () => {
   })
 
   it('accepts a latency broadcast', () => {
-    const r = serverMsgSchema.safeParse({
+    const r = v.safeParse(serverMsgSchema, {
       type: 'latency',
       latencies: [
         { player_index: 0, rtt_ms: 47 },
@@ -50,7 +51,7 @@ describe('serverMsgSchema', () => {
   })
 
   it('accepts a round_end carrying the per-round history', () => {
-    const r = serverMsgSchema.safeParse({
+    const r = v.safeParse(serverMsgSchema, {
       type: 'round_end',
       round_number: 2,
       round_winner: 'alice',
@@ -61,15 +62,15 @@ describe('serverMsgSchema', () => {
   })
 
   it('rejects unknown ServerMsg type (drift detector)', () => {
-    expect(serverMsgSchema.safeParse({ type: 'wat' }).success).toBe(false)
+    expect(v.safeParse(serverMsgSchema, { type: 'wat' }).success).toBe(false)
   })
 
   it('rejects unknown card kind (drift detector)', () => {
-    expect(cardSchema.safeParse({ color: 'red', kind: 'turbo' }).success).toBe(false)
+    expect(v.safeParse(cardSchema, { color: 'red', kind: 'turbo' }).success).toBe(false)
   })
 
   it('rejects game_state missing required fields', () => {
     const { round_number: _omit, ...broken } = sampleGameState
-    expect(gameStateSchema.safeParse(broken).success).toBe(false)
+    expect(v.safeParse(gameStateSchema, broken).success).toBe(false)
   })
 })

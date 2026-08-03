@@ -399,7 +399,8 @@ pulses at exactly one card.
   for anything that should feel physical.
 - **Do** animate transforms only. A moving node is pinned at `left:0;top:0` and positioned by
   `x`/`y`.
-- **Do** give each node's transform exactly one owner — framer-motion or CSS, never both.
+- **Do** give each node's transform exactly one owner — a CSS transition, a Svelte transition or one
+  `element.animate` call, never two of them on the same node.
 - **Do** degrade motion to a readable static state under `prefers-reduced-motion`; "this just
   became clickable" is information and must survive as a static halo.
 

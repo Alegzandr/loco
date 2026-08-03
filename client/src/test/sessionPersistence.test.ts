@@ -9,7 +9,7 @@ import {
   reconnectMessageFor,
   type ReconnectContext,
 } from '../hooks/sessionPersistence'
-import { useGameStore } from '../hooks/useGameStore'
+import { gameStore } from '../hooks/gameStore'
 
 const NOW = 1_700_000_000_000
 
@@ -159,7 +159,7 @@ describe('reconnectMessageFor', () => {
 describe('store restore actions', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
-    useGameStore.setState({
+    gameStore.setState({
       screen: 'lobby',
       roomCode: '',
       sessionToken: '',
@@ -171,14 +171,14 @@ describe('store restore actions', () => {
   })
 
   it('beginRestore seats the tab on the restoring screen with the persisted identity', () => {
-    useGameStore.getState().beginRestore({
+    gameStore.getState().beginRestore({
       roomCode: 'ABC123',
       nickname: 'Bob',
       sessionToken: 'tok',
       target: 'game',
       at: NOW,
     })
-    const s = useGameStore.getState()
+    const s = gameStore.getState()
     expect(s.screen).toBe('restoring')
     expect(s.restoreTarget).toBe('game')
     expect(s.roomCode).toBe('ABC123')
@@ -190,10 +190,10 @@ describe('store restore actions', () => {
   // must not leave a record behind that retries the same refusal on every load.
   it('abortRestore drops the record and returns to the lobby', () => {
     writeSession({ roomCode: 'ABC123', nickname: 'Bob', sessionToken: 'tok', target: 'game' }, NOW)
-    useGameStore.getState().beginRestore(readSession(NOW)!)
-    useGameStore.getState().abortRestore('room not found')
+    gameStore.getState().beginRestore(readSession(NOW)!)
+    gameStore.getState().abortRestore('room not found')
 
-    const s = useGameStore.getState()
+    const s = gameStore.getState()
     expect(s.screen).toBe('lobby')
     expect(s.restoreTarget).toBeNull()
     expect(s.sessionToken).toBe('')
@@ -203,9 +203,9 @@ describe('store restore actions', () => {
   })
 
   it('abortRestore does nothing once the restore has landed', () => {
-    useGameStore.setState({ screen: 'game', restoreTarget: null, roomCode: 'ABC123', sessionToken: 'tok' })
-    useGameStore.getState().abortRestore('too late')
-    const s = useGameStore.getState()
+    gameStore.setState({ screen: 'game', restoreTarget: null, roomCode: 'ABC123', sessionToken: 'tok' })
+    gameStore.getState().abortRestore('too late')
+    const s = gameStore.getState()
     expect(s.screen).toBe('game')
     expect(s.sessionToken).toBe('tok')
     expect(s.errorMsg).toBe('')

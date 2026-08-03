@@ -1,12 +1,15 @@
 /**
- * The table code's shape, mirrored from `server/hub/converter.go`
- * (`roomCodeRe`) and `server/hub/hub.go` (the alphabet codes are drawn from),
- * so the lobby can refuse an impossible code without a round trip.
+ * The table code's shape, mirrored from `server/hub/rooms.go` (`roomCodeRe`)
+ * and `server/hub/tokens.go` (the alphabet codes are drawn from), so the lobby
+ * can refuse an impossible code without a round trip.
  *
  * Like `nicknameRules.ts`, this decides nothing: the server still owns the
  * verdict on `join_room`. It exists so "Take a seat" is never live on something
  * that cannot be a table, which is the difference between a button that does
  * nothing and a button that says so.
+ *
+ * `src/test/serverMirrors.test.ts` pins both halves to those two files: a
+ * mirror is worth whatever still checks it matches.
  */
 
 /** Same bound as the input's maxLength and the server's generated codes. */

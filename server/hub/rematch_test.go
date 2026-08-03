@@ -45,11 +45,13 @@ func winMatchFromHostTurn(t *testing.T, host *websocket.Conn, others ...*websock
 	top := protocol.CardDTO{Color: "red", Kind: "number", Value: 7}
 	zero, turnIdx := 0, 0
 	sendMsg(t, host, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{winCard},
-		DebugDiscard:     &top,
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &turnIdx,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{winCard},
+			Discard:     &top,
+			PendingDraw: &zero,
+			CurrentTurn: &turnIdx,
+		},
 	})
 	readMsgOfType(t, host, protocol.SMsgGameState)
 	for _, c := range others {

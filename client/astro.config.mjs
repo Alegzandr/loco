@@ -1,15 +1,15 @@
 ﻿// @ts-check
 import { defineConfig } from 'astro/config'
-import react from '@astrojs/react'
+import svelte from '@astrojs/svelte'
 import sitemap from '@astrojs/sitemap'
 
 /**
- * Astro builds the site; the game is mounted client-side by src/entry.tsx.
+ * Astro builds the site; the game is mounted client-side by src/entry.ts.
  *
  * Nothing about the app is server-rendered, and that is deliberate. The store is
  * seeded from `sessionStorage` before the socket opens, the theme and the
  * language come from `localStorage`, and the whole board is measured from the
- * viewport (layout.ts: boardSpace, useElementSize, useSafeAreaInsets). A server
+ * viewport (layout.ts: boardSpace, hooks/boardMetrics.svelte.ts). A server
  * knows none of those, so rendering the app there buys nothing and costs a
  * hydration mismatch on every one of them. The content pages around it are pure
  * HTML with no island at all, which is the part search engines actually read.
@@ -17,37 +17,6 @@ import sitemap from '@astrojs/sitemap'
  * The output stays fully static: `client/Dockerfile` still builds `dist/` and
  * serves it from nginx, so there is no Node runtime in production.
  */
-/**
- * React Fast Refresh needs its preamble installed before the first transformed
- * .tsx module evaluates, or @vitejs/plugin-react throws "can't detect preamble"
- * and nothing mounts. @astrojs/react injects it as a `before-hydration` script,
- * which is only emitted on pages that hydrate an island â€” and this site mounts
- * no islands on purpose (see src/entry.tsx: the island runtime is inline, and
- * nginx sends `script-src 'self'`). So the preamble is injected as an ordinary
- * page script instead, which Astro bundles as an external module.
- *
- * Dev only: Fast Refresh does not exist in a production build, and the built
- * HTML must keep exactly one external script and nothing inline.
- */
-const reactPreamble = {
-  name: 'loco-react-preamble',
-  hooks: {
-    'astro:config:setup': ({ command, injectScript }) => {
-      if (command !== 'dev') return
-      injectScript(
-        'page',
-        [
-          'import RefreshRuntime from "/@react-refresh"',
-          'RefreshRuntime.injectIntoGlobalHook(window)',
-          'window.$RefreshReg$ = () => {}',
-          'window.$RefreshSig$ = () => (type) => type',
-          'window.__vite_plugin_react_preamble_installed__ = true',
-        ].join('\n'),
-      )
-    },
-  },
-}
-
 // The absolute origin the canonical, hreflang and link-preview tags are built
 // from. `src/seo/meta.ts` reads the same variable, and both default to
 // production, so an image built for the dev host stops claiming to be prod only
@@ -74,8 +43,7 @@ export default defineConfig({
   trailingSlash: 'always',
 
   integrations: [
-    react(),
-    reactPreamble,
+    svelte(),
     // Generates sitemap-index.xml plus the alternates. `i18n` here is what puts
     // the xhtml:link pairs in the XML; the <link rel="alternate"> tags in the
     // page head come from src/seo/meta.ts. Both are worth having: the head links

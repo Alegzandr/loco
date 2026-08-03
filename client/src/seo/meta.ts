@@ -34,7 +34,7 @@ export const OG_LOCALE: Record<Lang, string> = { en: 'en_US', fr: 'fr_FR' }
  * what stops an image built for the dev host from claiming to be production.
  *
  * Read through a `typeof` guard rather than directly: this module is also
- * imported by a React component (for the page paths alone), and a bare
+ * imported by client-side code (for the page paths alone), and a bare
  * `process.env` throws "process is not defined" in a browser. In that context
  * the value is never used — only the paths are.
  */

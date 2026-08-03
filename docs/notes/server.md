@@ -6,6 +6,210 @@ room lifecycle.
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
 
+## How the package is laid out
+`hub.go` was one 3500-line file holding the Hub, every handler, the bots, the timers, the broadcasts
+and the DTO builders. It is now **one file per thing a message leads to**, all in the same package,
+so nothing about visibility or wiring changed and no import moved:
+
+| File | What it owns |
+| --- | --- |
+| `hub.go` | the `Hub`, its tunables and ceilings, the messages its loop receives, the loop |
+| `serve.go` | `Origin`, and the two ceilings refused **before** the upgrade |
+| `tokens.go` | room codes and session tokens, both `crypto/rand`, no fallback |
+| `dispatch.go` | the `recover`, the not-playing gate, the nickname gate, the wrong-code budget |
+| `rooms.go` | opening a table, taking a seat, the host controls, `roomCodeRe`, membership lookups |
+| `rematch.go` | the ask everybody at the table has to make |
+| `gameplay.go` | play, draw, pass, declare, catch, counter, interrupt |
+| `presence.go` | leaving, the 60s hold, the reclaim |
+| `bots.go` | every bot delay and every bot decision's scheduling |
+| `turntimer.go` | the turn clock, and the consecutive timeouts that make a seat away |
+| `broadcast.go` | sending: `sendHandGrowth`, `refuseAction`, the personalised fan-out |
+| `statedto.go` | what a client is handed: player list, scoreboard, personalised state |
+| `converter.go` | DTO conversion, and nothing else since |
+| `debug.go` | `debug_set_state`, the fixture the Playwright suite deals a table with |
+
+The split is a move, not a rewrite: the same functions, the same order inside each file, the same
+tests passing without a line changed. Two things travelled with it because they were in the wrong
+place to begin with: `broadcastCardPlayed` left `converter.go` for `broadcast.go`, and
+`roomCodeRe` / `validRoomCode` left it for `rooms.go`, which is the only caller.
+
+**Where a new handler goes**: beside the others that answer the same kind of message, and its name
+goes in `dispatch.go`'s switch. A file per subsystem is what keeps `hub.go` readable as *the loop*
+rather than as an index of everything the server can do.
+
+## A table is one object (`table.go`)
+The Hub used to carry eleven maps all keyed by the same room code: `rooms`, `roomMembers`,
+`disconnectedAt`, `sessionTokens`, `emptyRooms`, `botSlots`, `turnStartedAt`, `mapLoading`,
+`afkTimeouts`, `matchmade`, `rematchOffers`. A table was not a thing you could hold; it was a string
+that eleven structures happened to agree about.
+
+That shape has one failure mode and it is never a crash:
+
+- **Opening a table was eleven writes and deleting one was eleven deletes.** `deleteRoom` was the
+  only place all eleven were named together, so a twelfth map added anywhere leaked per-match state
+  into the next match at the same code unless somebody remembered to come back. `resetForNextMatch`
+  had the same problem in three copies (`openRematchedLobby`, `startRematchedMatch`, `forfeitMatch`),
+  and the one that bites is the map gate: a `mapLoadState` left behind keeps the next match shut
+  **forever**, because its own timeout has already fired and nothing is left to reopen it.
+- **A seat number meant a seat in each of them separately.** Removing a seat meant shifting the
+  members slice, the surviving clients' own `playerID`, the bot set and the session tokens, by hand,
+  in three places (`removeUnmannedSeat`, `reindexLobbyDisconnect`, `pruneAbsentPlayers`).
+
+`hub.tables map[string]*table` replaces all eleven. One entry is one table's whole existence, so
+`deleteRoom` is one `delete`, a reset is `t.resetForNextMatch()`, and a removal is `t.dropSeat(id)`,
+which shifts the four seat-keyed structures together because it is the only thing allowed to shift
+any of them.
+
+**That object owns a goroutine now** (`box`, `quit`, `done`, `phase`; see "One table, one goroutine"),
+which is only possible because it was already one object: there was a single thing to hand the work
+to. **Add per-table state as a field here, never as a twelfth map** — and now also never as something
+another goroutine reads directly. `phase` is the one field the hub reads without asking, and it is
+published by the table itself rather than computed by the reader.
+
+**`table.seat` is the structural half of the seat-rebind fix below.** Binding a client to a seat
+sweeps it out of every other index on that table, and `Hub.seatClient` sweeps it off any other table
+first. `alreadySeated` is still there and still refuses, but it is now the *polite* half — it answers
+the client rather than silently moving them — instead of being the only thing standing between two
+ordinary lobby messages and one player receiving another's hand. `hub/table_internal_test.go` owns
+that invariant and fails without it; `seat_rebind_test.go` still owns the refusal.
+
+Zero values carry meaning on purpose, which is what let five of the maps become plain fields: a zero
+`turnStartedAt` is "no turn is being timed" (a bot's, or a table that has not opened), a zero
+`emptyAt` is "somebody is here", a zero `matchmadeAt` is "a player opened this", and a nil `loading`
+is "the table is open".
+
+## What bounds this server, and how it is measured
+Every room used to be served by the single event loop, so the number of tables this process could
+carry was not `MaxRooms`: it was how long one pass through `dispatch` took and how deep `h.inbound`
+got behind it. `messages_dropped_busy` already reported that ceiling, but only once it had been
+crossed, which is a post-mortem rather than a warning.
+
+`/metrics` carries the approach to it, and the numbers followed the work when a table got its own
+goroutine (next section):
+
+- `loop_queue_depth` / `loop_queue_capacity` — the **hub's** routing queue right now. Every message
+  still passes through it; most of them only pass.
+- `loop_slowest_us` — the longest a single message has taken **anywhere** on this process, timed on
+  the table that handled it. Leaving this on the hub would have quietly turned it into "the longest a
+  map lookup took", which is a number nobody can act on.
+- `loop_queue_peak` — the deepest any one **table's** box has been seen, which is where a backlog
+  shows now.
+- `loop_events` is the denominator.
+
+The last two are **high-water marks since startup, never reset and never averaged**: a mean hides
+exactly the event that matters, the one slow pass that let a queue build behind it. They are raised
+by compare-and-swap rather than load-then-store, which was enough while one goroutine wrote them and
+is not any more — two tables reading the same old maximum and both storing loses the higher of the
+two, and the one that gets lost is the slow pass somebody is looking for. Not a data race, which is
+why nothing would have reported it.
+
+The counters they joined live on one `hubMetrics` struct (`hub/metrics.go`) instead of seventeen
+fields on the Hub, for the same reason the package is one file per thing a message leads to: a struct
+with a hundred fields hides which of them are state and which are observations.
+
+**Reaching for a shard is not the answer to a peak.** Look at `loop_slowest_us` first: a single pass
+that takes milliseconds is a handler doing something a handler should not, and every one found so far
+has been a broadcast that marshalled per recipient rather than once.
+
+## One table, one goroutine
+
+`hub/actor.go`. Every room used to be served by the hub's single event loop. A table owns its own
+goroutine now, and the hub owns what is genuinely between tables: the map of them, the matchmaking
+queue, the connected sockets, the wrong-code budgets, the drain.
+
+**It is not a throughput change, and the numbers below say why.** What it buys is independence. One
+table's slowest message was every other table's wait; one handler's panic was recovered on a
+goroutine every match shared; nothing could be said about one table without saying it about all of
+them. In a game whose reaction windows are decided by arrival order, a queue shared between
+strangers' tables is a fairness question before it is a performance one.
+
+**The two directions are deliberately the same shape**, and both are non-blocking:
+
+| | |
+| --- | --- |
+| `t.post(job)` | run this on that table |
+| `h.postToRouter(fn)` | run this on the hub |
+
+Non-blocking is not an optimisation. **A blocking send in either direction deadlocks the moment the
+other end is trying to send back**, which is a state two busy tables reach on their own. What cannot
+be delivered is dropped and counted, and the cases where a drop would leak something — a room nobody
+deletes, a seat nobody frees, a reveal that never deals — retry once, on the same delays the hub's
+channel pressure used to.
+
+Four rules hold the split together, and each of them closes a way it could come apart.
+
+- **A message is routed by the hub and re-checked by the table.** `dispatch` resolves the table from
+  the sender's seat and posts; `dispatchAtTable` opens by re-reading that seat and returning if it no
+  longer names this table. Between the two the seat can have been given up, held or re-based, and a
+  `playerID` that means one seat here and another there is the hidden-state guarantee coming apart.
+  It is also why a seat is now **one atomic value** (`Client.seat`, a `seatRef` of code plus index)
+  rather than two plain fields written in pairs.
+- **A table is started when the hub has finished filling it in**, never at construction.
+  `newTable` builds, `t.start(h)` runs the goroutine, and every construction path — create_room, a
+  matchmade pairing, a snapshot restore — does all of its own writing in between. A goroutine reading
+  fields somebody is still writing is the one race this split would otherwise add.
+- **A table stops existing and stops running at the same moment.** `deleteRoom` removes the map entry
+  first, so nothing new can be routed to it, then stops the goroutine and waits. That wait is also
+  what makes the read after it safe: past `stop()`, nobody else is touching the table. Jobs left in
+  the box are abandoned on purpose — they are all addressed to a room that no longer exists.
+- **A panic is recovered on the table too** (`runJob`), and it matters more there, not less. A panic
+  on the old shared loop took the process, which is why the recover was put there; a panic on a
+  table's own goroutine would take only that table, but it would take it **silently and permanently**.
+  The room would not fail, it would go quiet: every message to it queued behind nothing, for ever,
+  with no error to show the players.
+
+`TestOneSlowTableDoesNotHoldUpAnother` is the whole thing in one assertion, and it does not merely
+pass — put the handler back on the hub loop and it hangs, because the hub would be sitting in the
+first table's handler and would not read the second table's messages until it came back.
+
+**What stayed on the hub, and why it had to.** `create_room` allocates against `MaxRooms` and inserts
+into the map. `join_room` spends the wrong-code budget and looks the code up — and then hands the
+roster, the held seats and the tokens to the table, which is also what makes two people typing the
+same code in the same instant a queue rather than a race for the last chair. `find_match` and
+`leave_room` are split down the middle: the queue is the hub's, the seat is the table's, and the two
+halves are **ordered rather than raced**, because being in a room and in the queue at once is the one
+state neither side could recover from.
+
+**What this cost.** Nine per-timer channels and their nine cases in `Run` are gone; every timer posts
+to the table it was armed for, and "does this room still exist" is answered by the delivery rather
+than by a lookup. Against that: eight operations that used to be a function call are now a hand-off
+with a window in it, and `matchesInFlight` reads a published phase instead of the tables themselves.
+Both are written down below rather than left to be rediscovered.
+
+### What the loop actually costs, measured
+
+The counters above say how loaded the loop is in production. `hub/loop_bench_test.go` says what it is
+loaded *with*, which is the number an architectural argument has to start from. It is internal
+(package `hub`) because it calls `dispatch` directly: going through a socket would measure the kernel.
+
+Run it with `make bench-server`. On a Ryzen 7 9850X3D, Go 1.26, in the container:
+
+| One pass of the loop | 2 seats | 4 seats | 10 seats |
+| --- | --- | --- | --- |
+| `dispatch(play_card)` end to end | 8.1 µs | 8.6 µs | 9.6 µs |
+| `broadcastCardPlayed` alone | 0.84 µs | 1.04 µs | 1.71 µs |
+| `broadcastPersonalizedGameState` (Swap / GlobalSwitch) | 3.4 µs | 7.9 µs | 28.8 µs |
+| `playerGameStateUsing`, one recipient | 0.29 µs | | |
+
+Two things fall out of that table, and both are load-bearing.
+
+**A single loop was never the ceiling anybody assumed it was.** At 9.6 µs for the worst gameplay
+message one goroutine absorbs about 104 000 msg/s. What the server *admits* is bounded elsewhere and
+lower: `MaxClients` (5000) times the token bucket's 10 msg/s is 50 000 msg/s, every client flooding at
+its limit forever. **The rate limiter already held inbound below what one goroutine handled, with
+room to spare**, and a realistic table load (1250 tables of four, an action per player per ten
+seconds) ran it at 0.43 % of one core.
+
+So the split that followed (one goroutine per table, next section) was **not** bought for throughput,
+and the note says so where somebody might otherwise assume it was. What it removes is head-of-line
+blocking between strangers' tables: worst case `dispatch` plus a GlobalSwitch fan-out at ten seats,
+about 38 µs. That is three orders of magnitude under the network round trip that already decides
+every interrupt race — small, and now zero, at the price of ownership rules that have to be kept.
+**Anyone proposing to go further should start from these numbers and not from an intuition about
+loops.**
+
+**The expensive call in a handler was the log line.** See "The log is off the event loop".
+
 ## One message must never be able to cost the server
 `hub.dispatch` opens with a `recover`, and with a gate refusing every gameplay message at a table
 that has not dealt. Both come out of the same audit finding, and they are floor and wall rather than
@@ -102,7 +306,7 @@ A player who mistypes their code once is nowhere near 20, and
 reconnect` when the nickname matched a seat that was actually held, and `game already in progress`
 otherwise. The difference was a roster oracle (anybody with a code could test names against the
 table) and it bought nothing, because a returning player's client already owns the failed-reclaim
-case through its own restore timeout (`useSessionRestore`, `reconnectFailed`).
+case through its own restore timeout (`sessionRestore`, `reconnectFailed`).
 
 Both now answer `game already in progress`. `i18n/serverErrors.ts` keeps its `invalid session token`
 rule for the rolling-deploy window in which a new client talks to an old server, and says so.
@@ -125,20 +329,24 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   and is allowed.
 - **`nginx.conf` sends the security headers** the client was already built for: a closed CSP (no
   CDN, no analytics, self-hosted fonts), `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
-  `script-src` has no `'unsafe-inline'`; `style-src` must (the pre-hydration `<style>` block in
-  `index.html`, plus framer-motion's inline style attributes). `connect-src` names `ws://$host` and
+  `script-src` has no `'unsafe-inline'`; `style-src` must (Astro inlines every stylesheet, and the
+  board writes a `style` attribute per card). `connect-src` names `ws://$host` and
   `wss://$host` explicitly — a page on `http://` and a socket on `ws://` are different origins as
   far as CSP is concerned, so `'self'` alone would block the one connection the game is made of.
-- **A socket holds one seat, and the room is the authority on which.** A seat is recorded twice: the
-  connection knows it as `c.roomCode` / `c.playerID`, and the room knows it as the `*Client` pointer
-  at index `playerID` in `roomMembers`. Nothing stopped a seated client from sending `create_room` or
+  They live in `client/security-headers.conf` and are `include`d, for the reason `testing-ci.md`
+  gives at length: `add_header` does not merge, so a `location` block declaring one of its own
+  inherits none of these.
+- **A socket holds one seat, and the table is the authority on which.** A seat is recorded twice: the
+  connection knows it as `c.roomCode` / `c.playerID`, and the table knows it as the `*Client` pointer
+  at index `playerID` in its `members`. Nothing stopped a seated client from sending `create_room` or
   `join_room` again, and re-entering moved only the connection's copy. The pointer stayed behind in
   the old room at the old index while `c.playerID` named a seat somewhere else, and every
   personalised broadcast for the old room was then built from the wrong index, so a player seated at
   1 who rebound to seat 0 of a throwaway room was sent **seat 0's hand** in the match they had just
   left, for as long as it lasted. No tampered client, no forged message: two ordinary lobby messages
-  in sequence defeated the one guarantee the server exists to provide. `hub.alreadySeated` is the
-  guard, on both handlers. It does not touch reconnects, which arrive on a fresh socket whose
+  in sequence defeated the one guarantee the server exists to provide. `table.seat` is what makes it
+  unreachable (see "A table is one object" above) and `hub.alreadySeated` is the guard that answers
+  it, on both handlers. It does not touch reconnects, which arrive on a fresh socket whose
   `roomCode` is still `""`, and it releases a client whose room was deleted underneath it rather than
   locking it out of the lobby forever.
 
@@ -160,6 +368,29 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   panics if the OS entropy source is broken, which is the right outcome for a server that can no
   longer issue a trustworthy token. `math/rand` survives for bot jitter, where predictability costs
   nothing.
+- **And for the room's own RNG, which is the one that took longest to see.** `game.NewRoom` seeded
+  its `*math/rand.Rand` from `time.Now().UnixNano()`, which read as harmless — it is "just the
+  shuffle", and the room code and the token, the two things obviously worth protecting, were already
+  right. But that one source decides the map, the starting seat and, through `dealRound`, the order
+  of all 112 cards for this round and every round after it. It *is* the hidden state the server
+  exists to protect, and `rand.NewSource` is deterministic, so the seed is the whole match.
+  The attack needs no privilege and no timing precision. Create a table and note the round trip: the
+  seed is somewhere in a window a few milliseconds wide, a few million candidates. Start the game
+  and read back the three things `game_started` legitimately tells you — the map, the starting seat,
+  and your own eight cards. Replay each candidate offline; the hand alone is a forty-bit filter, so
+  exactly one survives. You now hold every opponent's hand, the draw order, and the deal of every
+  remaining round of a BO7 — the later rounds computable at leisure while round 1 is still being
+  played, so the brute force is not even on a real-time budget. Interrupts, catch windows and
+  counter-draws are all built on hands nobody else can see; predictable ones make the mechanic
+  decoration and the anti-cheat work upstream pointless.
+  `game.newRNG` seeds from `crypto/rand` instead, and `ensureRNG` does too — the snapshot-restored
+  room was the worse case, since the restore instant is announced to everyone by the server coming
+  back up. `game/rng_test.go` is not a property assertion, it **runs the attack**: it brackets the
+  constructor, walks every nanosecond in the window, and fails if any of them reproduces the deal.
+  It carries a planted clock seed as a positive control, because a replay that has drifted out of
+  step with `dealRound` reports "not found" for every room, safe or not — and would pass forever.
+  `Deck.Replenish` still shuffles off the global source, which Go seeds randomly at startup; it is
+  the deal, not the mid-round reshuffle, that was reconstructible.
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names the refusals a
   correct client produces all match long — a second draw, a pass that raced its draw, an interject
   whose window closed or whose top card changed, a second LOCO! — as sentinel errors, and
@@ -271,7 +502,7 @@ ordinary room's on purpose.
   feedback: a screen that could render "1 player searching" would render it during precisely the
   window when the queue is trying to fill, and it reads as an instruction to leave. Every player who
   leaves on that sentence is the opponent the next one was about to get. The client times its own
-  wait and stages its copy off elapsed seconds instead (`Searching.tsx`).
+  wait and stages its copy off elapsed seconds instead (`Searching.svelte`).
 - **Nobody presses start.** `pairMatch` creates the room, seats both players, sends `match_found`
   with `starts_in_ms`, and arms `mmStart` for `MatchmakingRevealDelay` (2.5s). `handleMatchmakingStart`
   re-checks like every deferred callback (room still there, pair not superseded, still a lobby) and
@@ -301,9 +532,10 @@ deal); this one acts on a person, so it is the strictest thing in the lobby.
   rather than to a roster, and the only thing that ends one early is a forfeit — so the refusal there
   is `can only remove players in the lobby`, not a special case of it.
 - **The table sees a departure and the player sees a reason.** `releaseSeat` does the work, which is
-  the same bookkeeping `leave_room` and a lobby disconnect do (roster, `roomMembers`, `botSlots`,
-  `sessionTokens`, the surviving clients' `playerID`), so the three cannot drift apart. The removed
-  client is out of `roomMembers` by then and gets `kicked` on its own socket instead of the
+  the same bookkeeping `leave_room` and a lobby disconnect do (roster plus `table.dropSeat`, which
+  moves the members, the bots, the tokens and the surviving clients' `playerID` together), so the
+  three cannot drift apart. The removed client is off the table by then and gets `kicked` on its own
+  socket instead of the
   `player_left` about itself: a table vanishing with no explanation reads as a bug, and the client
   puts the line under the lobby form.
 - **A bot is a seat like any other.** The slot behind it is `nil`, so it goes through
@@ -334,7 +566,7 @@ remaining privilege on this screen is not having one.
   every client holding a stale seat number and a count that never completes. The list is nullable on
   the wire because *empty* is a real answer here.
 - **A departure is an answer.** `releaseRematchOffer` retires the leaver's ask, shifts the rest down
-  with `shiftIntKeySet` exactly as `botSlots` and `sessionTokens` are shifted, republishes, and deals
+  with `shiftIntKeySet` exactly as the bot set and the session tokens are shifted, republishes, and deals
   when what is left of the table has already asked. It is called from `releaseSeat` and from the
   finished-room branch of `handleDisconnect`; `deleteRoom` drops the map with the room.
 - The deal has two shapes (`dealAgreedRematch`). `startRematchedMatch` goes through the **pairing**
@@ -444,7 +676,7 @@ strangers will not, and the player who is still at the table did nothing wrong.
     points as `maybeScheduleBotCatch` **and** after every bot action; scheduling twice for one moment
     is harmless (the second announce finds the seat settled and returns).
 - **A bot's turn broadcasts no deadline.** `scheduleTurnTimer` arms no timeout for a bot and now also
-  `delete`s `turnStartedAt[code]` on its way out, because `turnDeadlineMs` reads that map with no
+  zeroes `table.turnStartedAt` on its way out, because `turnDeadlineMs` reads it with no
   notion of whose turn it is. Leaving the previous human's entry behind put a half-spent deadline on
   every `card_played` that handed the turn to a bot, and the client mounts its countdown bar on any
   non-null deadline: it drained somebody else's clock, in urgent red, under a seat that cannot time
@@ -452,7 +684,7 @@ strangers will not, and the player who is still at the table did nothing wrong.
   one field here where a zero is an absence rather than a value, unlike `turn` / `drawn_count` /
   `pending_draw`). `TestTurnDeadline_AbsentDuringBotTurn` plays a Skip first so a live deadline is
   proven recorded before the second play asserts it gone.
-- Tracked in `hub.botSlots[code][playerID]`.
+- Tracked in `table.bots`, a set of seat numbers.
 
 ## Session tokens
 - 32 hex chars (128-bit `crypto/rand`).
@@ -469,7 +701,7 @@ strangers will not, and the player who is still at the table did nothing wrong.
   disk. A one-shot proof is worth more than a permanent one and costs nothing, because the client
   already stores whatever the server hands it.
   `TestReconnectRotatesTheSessionToken` also asserts the spent one no longer opens the seat.
-- `hub.sessionTokens` cleaned up on room delete.
+- `table.tokens` goes with the table on delete, which is now one `delete`.
 
 ## Rate limiting
 - Token bucket per client: 10/s refill, burst 20.
@@ -507,7 +739,7 @@ map. `hub/maploading.go`.
 - `hub.MapLoadTimeout` (var, 20s) opens the table without the stragglers: one backgrounded tab must
   not hold nine people hostage. The client's own `MAP_PRELOAD_TIMEOUT_MS` (12s) is deliberately
   shorter: if they were equal, every slow connection would look like a dead one.
-- Client: `store.mapLoading` / `applyMatchLoading` / `applyMatchReady`, `useMapPreload`
+- Client: `store.mapLoading` / `applyMatchLoading` / `applyMatchReady`, `mapPreload`
   (`img.decode()`, not the `load` event, because bytes arriving is not the same as being paintable), and
   `<MapLoadingScreen />`. **A failed or missing image still reports ready**: the board falls back to
   the felt, which is a worse-looking match, not a broken one; a client that never answers is the one
@@ -554,8 +786,9 @@ draw-once flag is still false, and that message reaches the whole table. Default
 to "has drawn" is what produced a seat that could neither draw (button disabled) nor pass (server:
 `you must draw a card before passing`) until the turn timer auto-acted for it.
 
-**Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (exported from
-`useGameStore.ts`, called by `applyCardPlayed`) drops copies of the played card until the local hand
+**Shrinking a hand has the mirror rule.** `removePlayedCards(hand, card, targetSize)` (in
+`hooks/store/helpers.ts`, re-exported from `gameStore.ts`, called by `applyCardPlayed`) drops
+copies of the played card until the local hand
 matches the `hand_size` the server sent in the same message, because one `card_played` can represent
 several discards — a batch play or a batch interrupt slams *every* identical copy the player holds,
 and `GameView` builds that batch by itself. Removing exactly one left the rest as phantom cards: they
@@ -626,6 +859,21 @@ empty-room cleanup, and the path that gets forgotten is the one that leaves a de
 its timeout. Scanning a map of rooms costs nothing next to the work the loop just did. A matchmade
 room still on its versus reveal counts as in flight even though it is formally a lobby: the pair is
 made and the deal is scheduled.
+
+**That scan reads a published value now, and the discipline moved with it.** The hub cannot read a
+table it does not own, so each table computes `phase` (`table.publishPhase`) and the drain counts
+those. What decides the phase is unchanged, and it is still recomputed **after every job a table
+runs** rather than being hooked onto the handful that can end a match: the hook is the one that gets
+forgotten, and forgetting it is what leaves a deploy hanging on a match that finished. It is also
+published by `table.start`, so a room restored from a snapshot mid-match counts from its first
+instant rather than from its first message.
+
+**`SaveSnapshot` stops every table before it reads one, and that is deliberate.** A room snapshot
+holds the room, the session tokens and the AFK counters **by reference**, so marshalling them while
+their own goroutine is still running would write a hand halfway through being dealt. Stopping first
+is what makes the file describe one instant. It also means a hub stops serving its tables here, which
+is exactly what this call is: the last thing a process does with them, after the drain and
+immediately before it goes. Nothing plays on the far side of it.
 
 **A restored room comes back with every seat marked absent**, which is not a special state: it is the
 one the hub already knows how to handle, so the reconnect windows, the forfeits and the empty-room
@@ -705,17 +953,33 @@ with no nginx in front of it.
   incident, until it climbs: see "Ceilings".
 - `joins_throttled` — `join_room` refused for burning a network's wrong-code budget. Read alongside
   the `WARN table code sweep suspected` line, which carries the `conn=` and the prefix.
+- `log_lines_dropped` — lines the asynchronous sink threw away because the far side was not keeping
+  up. Above zero means **the log being read has holes in it**, which is worth knowing before
+  concluding anything from what is missing. The log says so in place as well; see "The log is off the
+  event loop".
 - `draining` + `matches_in_flight` — this process has been asked to go and is finishing what it had. `matches_in_flight` is the number the shutdown is waiting to reach zero; it is only maintained while draining. `draining` also rides `/health`, which deliberately stays `200`: a draining server is serving its players perfectly well, and a container Docker considers unhealthy is one something else may decide to kill out from under them.
 
-All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
+All counters atomic on `Hub`; `GetMetrics()` reads outside the event loop, and every table's goroutine
+writes them, which is the other reason they are atomic. `statMatchesStarted` inc'd in `handleStartGame` (per `start_game`, not per round). `statMatchesFinished` inc'd in `handleRoundOrMatchEnd` when `MatchOver`. `statBotsActive` inc in `handleAddBot`, dec in `deleteRoom` by bot count.
 
 ## Server stability
-- Deferred async = `time.AfterFunc` (not `go func{Sleep;send}`).
-- Critical channel sends (botMove/expire/cleanup) retry once on full, then `WARN`. Rationale:
-  - `botMove` retry 1s — drop stalls game.
-  - `expire` retry 5s — drop leaves slot in `disconnectedAt` forever.
-  - `cleanup` retry 30s — drop leaks empty room.
+- Deferred async = `time.AfterFunc` (not `go func{Sleep;send}`). Every one of them posts to the table
+  it was armed for (`t.postFromTimer` / `h.postCritical`), so "does this room still exist" is
+  answered by the delivery rather than by a lookup.
+- Critical posts retry once on a full box, then `WARN`. Rationale, unchanged from the channels they
+  replaced:
+  - `bot_move` retry 1s — drop stalls game.
+  - `matchmaking_start` retry 1s — drop leaves two players on a versus screen that never deals.
+  - `disconnect` retry 1s — drop leaves a seat held by a socket that no longer exists.
+  - `reconnect_expiry` retry 5s — drop leaves slot in `awayAt` forever.
+  - `room_cleanup` retry 30s — drop leaks empty room.
+  - `delete_room` / `requeue_survivor` (table → hub) retry 1s, for the same two reasons.
+- Non-critical posts (the bot's UNO, catch and interject; the map-load deadline; the latency fan-out)
+  drop quietly: each one is a reaction the bot did not get to make or a deadline the table did not
+  need, which is a legal outcome rather than a fault.
 - Non-critical sends (per-client `send`, `inbound`) = non-blocking drop + client notification.
+  `messages_dropped_busy` counts both the hub's queue and a table's box; the client is told "server
+  busy, please retry" either way, and a full box now names one room rather than the server.
 - **`Client.SendBytes` force-closes WS when send buffer (cap 256) fills.** Silent drop would desync client; close → readPump exit → unregister → reconnect window → auto-reconnect → `handleReconnect` snapshot. Inc `slow_clients_closed`.
 - **Broadcasts marshal once.** `broadcastToRoom` does `json.Marshal(msg)` once, fans `[]byte` via `Client.SendBytes`. Per-recipient personalised payloads (game_state/game_started/private card_drawn) precompute `pl := h.playerList(room)` and call `playerGameStateUsing(room, idx, pl)` so `playerList` built once per broadcast.
 - `readPump` sends to `h.inbound` non-blocking; drops notify "server busy". Prevents readPump parking on full channel deadlocking `unregister` (cap 16).
@@ -733,8 +997,54 @@ All counters atomic on `Hub`; `GetMetrics()` reads outside event loop. `statMatc
   because a mount overrides whatever the image chowned and a container that cannot write its
   snapshot loses exactly the matches the snapshot exists to save.
 
+## The log is off the event loop
+A log line was the most expensive thing a handler did, and the only thing it did whose duration
+something outside this process got to decide.
+
+`hub/loop_bench_test.go` measures it both ways. One `log.Printf` costs about **0.9 µs** when whatever
+is reading stderr keeps up and **7.3 µs** when it does not, against **8.6 µs for a whole card play**
+at a four-player table. And 7.3 µs is not the ceiling: a container's stderr is a pipe, a pipe holds
+64 KB, and once it is full a write does not get slower, it *waits*. A log consumer that stalls was
+therefore able to stop the event loop, and the event loop is every table on the server at once.
+
+`hub/logsink.go` is the answer, and its shape is chosen so that no call site had to change:
+
+- **`main` swaps the writer, not the calls.** `log.SetOutput(hub.NewAsyncLog(os.Stderr, …))`, and the
+  two hundred `log.Printf` calls stay exactly where they are. Through the sink the same line is
+  **0.15 µs** and, far more to the point, a constant.
+- **The queue is bounded and overflow is dropped, never waited on.** Waiting is the failure being
+  removed; a sink that blocks when it is full has simply moved the stall. `LogQueueDepth` is 4096,
+  sized for the burst after a deploy when every client reconnects at once and each one is a line.
+- **What is dropped is counted and announced.** `log_lines_dropped` on `/metrics`, plus a
+  `WARN log sink overflowed, N line(s) dropped` written in place. A gap nobody is told about is worse
+  than a slow log: an operator reading around an incident has to be able to see that lines are
+  missing. That notice goes to the underlying writer directly, never back through `log`, which would
+  queue it behind exactly the backlog that produced it.
+- **The line is copied on the way in.** `log.Logger` formats into a buffer it owns and reuses on the
+  very next call, so a queue holding the caller's slice hands the writer goroutine whatever the
+  following line overwrote it with. `TestAsyncLog_CopiesTheCallersBuffer` parks the writer goroutine
+  inside the sink first, so both lines are provably still queued when the buffer is overwritten: a
+  sink fast enough to drain the first one would otherwise let a missing copy pass.
+- **`Close` flushes, is idempotent, and gives up.** A shutdown runs on a signal and a second signal is
+  the escape hatch operators are told to use, so closing twice must not panic. The flush is bounded by
+  `logCloseGrace` and drains at most the queue's capacity rather than waiting for silence, because a
+  goroutine that has not noticed the shutdown yet is still logging: `readPump` logs its own exit.
+- **`log.Fatal` is gone from `main`.** `os.Exit` would leave the line saying why the server never came
+  up sitting in the queue, and that is the one line an operator cannot do without. It logs, closes the
+  sink, then exits.
+
+`main` also waits for the shutdown to finish now (`shutdownDone`). `ListenAndServe` returns the moment
+`srv.Shutdown` is **called**, not when it has finished, so `main` was free to return and take the
+process with it while the drain, the snapshot and `h.Stop` were still running. That was survivable
+while all three were fast and in memory. It stops being survivable the moment the last thing a
+shutdown does is flush a queue.
+
 ## Structured logging
-- Stdlib `log` to stdout. `key=value` single line, e.g. `room created code=ABC123 host=Alice`.
+- Stdlib `log` to **stderr** (its own default, and what `main` keeps when it installs the sink),
+  **through the asynchronous sink above**. `key=value` single line, e.g.
+  `room created code=ABC123 host=Alice`. Docker's `json-file` driver captures both streams, so this
+  has never been a distinction an operator could see; it is written down because the sink now names
+  the stream explicitly.
 - Every connection-scoped line: `conn=<8-hex>` (per-`Client` random ID via `generateConnID` in `newClient`). Room-scoped also: `code=<6-char>`.
 - Events: connected (conn, addr), disconnected (conn, code, nickname, playerID), reconnected, reconnect window expired, room created/deleted, match started (count, format), match finished (winner), WS upgrade errors, callback skips with reason, channel-pressure (`WARN`), **suspected cheat (`WARN suspected cheat ... conn=<id> code=<code> player=<idx> last_reason=<msg>`)**, slow client (`WARN slow client ...`).
 - `WARN debug mode enabled (LOCO_E2E=1) ...` once at startup if gate on. Prod must never see this.
@@ -756,7 +1066,7 @@ the operational one:
    per-connection, stable and meaningless outside the process. The prefix only exists to tell two
    networks apart when one of them is misbehaving, and a `/24` does that.
 
-The client test suite enforces it, oddly but deliberately: `client/src/test/legal.test.tsx` scans
+The client test suite enforces it, oddly but deliberately: `client/src/test/legal.test.ts` scans
 `server/hub/*.go` because the assertion it is protecting is a promise made in the privacy copy, and
 that is where a reader will look for it. `hub/privacy_test.go` covers the function itself. nginx
 does the same truncation for its own access log (`client/nginx.conf`, the `anonymised` format), since

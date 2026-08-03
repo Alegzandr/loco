@@ -1,8 +1,8 @@
 /**
- * The language, with no React in it.
+ * The language, with no framework in it.
  *
- * Split out of `i18n/index.tsx` for the reason `theme.ts` was split out of
- * `hooks/useTheme.ts`: the content pages have to take part in this decision and
+ * Split out of the i18n provider for the reason `theme.ts` was split out of its
+ * own hook: the content pages have to take part in this decision and
  * they mount nothing, so the storage key and the two home paths could not live
  * inside a provider. There is still exactly one definition of each — `i18n`,
  * `LanguageSwitcher` and `content/theme-boot.ts` all read them from here.

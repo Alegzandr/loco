@@ -8,7 +8,23 @@ Defined in `.gitlab-ci.yml`, three stages:
 |----------|----------------------------------------------------------------------|------------------------------------|
 | `test`   | `backend_lint`, `backend_test`, `frontend_test`, `e2e_test`          | Every push (all branches)          |
 | `build`  | `build` (Docker images)                                              | `develop` branch or `v*` tag only  |
-| `deploy` | `deploy_dev` (auto on `develop`), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build`                      |
+| `deploy` | `deploy_dev` (auto on `develop`, manual if `DEPLOY_DEV != "true"`), `deploy_prod` (auto on tag), `stop_dev` (manual) | After `build`                      |
+
+### `DEPLOY_DEV`
+
+The one switch deciding whether a push to `develop` reaches `loco-d`. Declared in the global
+`variables:` block with `options: ["true", "false"]`, so it is a dropdown in the *Run pipeline* form
+as well as a project variable under Settings → CI/CD → Variables.
+
+Off, `deploy_dev` becomes `when: manual` + `allow_failure: true` rather than vanishing: `build`
+still runs and still pushes both images under `$CI_COMMIT_REF_SLUG`, so deploying afterwards is one
+press on the pipeline instead of another push. That is the whole reason the gate sits on the deploy
+job and not on `build` — a `rules:` block on `build` would also take `deploy_dev`'s images with it.
+
+The condition is `$DEPLOY_DEV != "true"`, never `== "false"`. A variable someone typed `0`, `no` or
+an empty string into must fall on the *safe* side of a switch whose only job is to stop a rollout.
+
+Production ignores it entirely: `deploy_prod` keys on `$CI_COMMIT_TAG =~ /^v.*/` and nothing else.
 
 ### Test jobs
 
@@ -210,8 +226,9 @@ cannot restart the server underneath itself.
 - nginx WebSocket timeouts: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
 - nginx sends security headers on every response (`always`): a closed CSP, `X-Content-Type-Options`,
   `Referrer-Policy`, `Permissions-Policy`. The client is built for it — self-hosted fonts, no CDN, no
-  remote anything — so the only relaxations are `style-src 'unsafe-inline'` (the pre-hydration
-  `<style>` block plus framer-motion's inline styles) and an explicit `ws://$host wss://$host` in
+  remote anything — so the only relaxations are `style-src 'unsafe-inline'` (Astro inlines the
+  stylesheets, and the board positions every card with a `style` attribute) and an explicit
+  `ws://$host wss://$host` in
   `connect-src`, since a page on `http://` and a socket on `ws://` are different CSP origins.
 - The Go server checks the `Origin` header on the WebSocket upgrade. By default the Origin's hostname
   must match the request's (ports ignored, so the dev client on :5173 reaches :8080); set

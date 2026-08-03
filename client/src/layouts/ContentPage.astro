@@ -2,10 +2,12 @@
 // The shell every content page shares: a header, one column, and the same
 // footer bar the home page carries.
 //
-// Zero JavaScript by construction. <LocoLogo /> is a React component rendered
+// Zero JavaScript by construction. <LocoLogo /> is a Svelte component rendered
 // *without* a client directive, so Astro turns it into static markup at build
 // time — the mark on the page is the mark in the game rather than a redrawn
-// copy, and it still costs nothing to load. The language chooser is a native
+// copy, and it still costs nothing to load. It works because a component with no
+// `client:` directive is rendered once, on the server, and an effect never runs
+// there — so nothing on this page may put its markup inside one. The language chooser is a native
 // popover for the same reason: it dismisses on Escape and on a click outside
 // with no script behind it.
 //
@@ -14,7 +16,7 @@
 // the same five links in the same order. A player who arrives from `/` meets the
 // same row they left, with "Play" where the home page's sheet button was.
 import Base from './Base.astro'
-import { LocoLogo } from '../components/LocoLogo'
+import LocoLogo from '../components/LocoLogo.svelte'
 import { NAV, HOME, LEGAL, LANGS, LOCALE, type Lang, type PageDef } from '../seo/meta'
 import { ui } from '../content/ui'
 import '../content/content.css'

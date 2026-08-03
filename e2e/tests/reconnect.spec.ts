@@ -9,7 +9,7 @@
  *
  * Implementation notes:
  *   - `page.context().setOffline(true/false)` simulates a network drop at the browser
- *     level. The existing WebSocket closes immediately; useWebSocket.ts schedules a
+ *     level. The existing WebSocket closes immediately; webSocket.svelte.ts schedules a
  *     reconnect after RECONNECT_DELAY_MS (2 s). On re-open, getReconnectMsg() returns
  *     a join_room with the stored session_token so the server reclaims the slot.
  *   - The ReconnectTimeout on the server is 60 s by default, so the 2-3 s offline
@@ -52,7 +52,7 @@ test.describe('WebSocket reconnect', () => {
    * The test goes offline for ~300 ms (within the 60-s server reconnect window),
    * then comes back online.  The client should:
    *   1. Close the WebSocket (onerror / onclose fires).
-   *   2. Schedule a reconnect (useWebSocket exponential backoff, first attempt 2 s).
+   *   2. Schedule a reconnect (webSocket exponential backoff, first attempt 2 s).
    *   3. On re-open, send join_room with session_token.
    *   4. Server sends player_reconnected; store sets isReconnecting = true.
    *   5. Reconnect animations complete; isReconnecting = false.
@@ -343,6 +343,48 @@ test.describe('WebSocket reconnect', () => {
     expect(after?.myHand).toHaveLength(2)
     expect(after?.discard?.color).toBe('red')
     expect(after?.sessionToken).toBeTruthy()
+  })
+
+  /**
+   * And the seat is reclaimable more than once.
+   *
+   * The server spends the token on every successful reconnect and hands back a
+   * fresh one, which only works if the client stores it. It did not, so the
+   * first reload came back and every reclaim after it was refused with `game
+   * already in progress` — a lobby telling a seated player the cards were
+   * already dealt at their own table. One reload could never see it, which is
+   * why this test reloads twice.
+   */
+  test('a second reload reclaims the seat again', async ({ page }) => {
+    const roomCode = await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForGameReady(page)
+
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const firstToken = s?.sessionToken
+
+    for (const _pass of [1, 2]) {
+      await page.reload()
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'game',
+        undefined,
+        { timeout: 20_000 },
+      )
+      await waitForTableOpen(page)
+    }
+
+    const after = await getState(page)
+    expect(after?.screen).toBe('game')
+    expect(after?.roomCode).toBe(roomCode)
+    expect(after?.myIndex).toBe(myIdx)
+    // Rotated by each reclaim, and the current one is what the next reload
+    // would send: a stale copy is what the refusal was made of.
+    expect(after?.sessionToken).toBeTruthy()
+    expect(after?.sessionToken).not.toBe(firstToken)
+    expect(after?.errorMsg ?? '').toBe('')
   })
 
   /**

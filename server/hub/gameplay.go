@@ -1,0 +1,339 @@
+// The gameplay messages, each one the same shape: parse, ask the domain, and
+// broadcast what the domain decided.
+package hub
+
+import (
+	"log"
+	"time"
+
+	"loco/server/game"
+	"loco/server/protocol"
+)
+
+// parseCardsFromMsg extracts the card(s) the player wants to play from a
+// ClientMsg. The batch field (PlayCards) takes precedence over the singular
+// Card. Returns (cards, chosenColor, ok); ok=false means an error has already
+// been sent to the client and the caller should return.
+func (h *Hub) parseCardsFromMsg(c *Client, msg protocol.ClientMsg) ([]game.Card, game.Color, bool) {
+	if len(msg.PlayCards) > 0 {
+		cards := make([]game.Card, len(msg.PlayCards))
+		var chosenColor game.Color
+		for i, dto := range msg.PlayCards {
+			card, cc, err := dtoToCard(&dto, msg.ChosenColor)
+			if err != nil {
+				c.sendError(err.Error())
+				return nil, 0, false
+			}
+			cards[i] = card
+			chosenColor = cc
+		}
+		return cards, chosenColor, true
+	}
+	if msg.Card == nil {
+		c.sendError("card required")
+		return nil, 0, false
+	}
+	card, chosenColor, err := dtoToCard(msg.Card, msg.ChosenColor)
+	if err != nil {
+		c.sendError(err.Error())
+		return nil, 0, false
+	}
+	return []game.Card{card}, chosenColor, true
+}
+
+func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	if !ok {
+		return
+	}
+
+	var err error
+	if len(cards) > 1 {
+		err = room.PlayCards(c.playerID(), cards, chosenColor, chosenPlayer)
+	} else {
+		err = room.PlayCard(c.playerID(), cards[0], chosenColor, chosenPlayer)
+	}
+	if err != nil {
+		h.refuseAction(c, t, err)
+		return
+	}
+
+	// Batch plays don't carry a meaningful chosenPlayer (Swap/GlobalSwitch are
+	// excluded from batch); send -1 so card_played's swap target is omitted.
+	cpForBroadcast := chosenPlayer
+	if len(cards) > 1 {
+		cpForBroadcast = -1
+	}
+	h.broadcastCardPlayed(t, c.playerID(), cpForBroadcast)
+	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
+		h.broadcastPersonalizedGameState(t)
+	}
+	h.maybeScheduleBotCatch(t)
+	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotInterrupt(t)
+	h.handleRoundOrMatchEnd(t)
+}
+
+func (h *Hub) handleRoundOrMatchEnd(t *table) {
+	code, room := t.code, t.room
+	if !room.RoundEnded {
+		h.maybeScheduleBot(t)
+		return
+	}
+
+	room.RoundEnded = false
+	scoreboard := h.buildScoreboard(room)
+
+	// Broadcast round_end with scoreboard.
+	// At this point room.State still reflects the round-winning play (BeginNextRound
+	// has not yet been called), so RoundNumber is the just-completed round.
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:         protocol.SMsgRoundEnd,
+		RoundNumber:  room.RoundNumber,
+		RoundWinner:  room.Winner,
+		Scoreboard:   scoreboard,
+		RoundHistory: room.RoundHistory,
+	})
+
+	if room.MatchOver {
+		h.metrics.matchesFinished.Add(1)
+		log.Printf("match finished code=%s winner=%s", code, room.MatchWinner)
+		h.broadcastToRoomAll(t, protocol.ServerMsg{
+			Type:        protocol.SMsgMatchEnd,
+			MatchWinner: room.MatchWinner,
+			Scoreboard:  scoreboard,
+		})
+		return
+	}
+
+	// Deal the next round NOW that round_end has been broadcast.
+	if err := room.BeginNextRound(); err != nil {
+		log.Printf("WARN BeginNextRound failed code=%s err=%v", code, err)
+		return
+	}
+
+	// New round started: schedule turn timer then send each player their
+	// personalized state. Build the player list once and share across recipients.
+	h.scheduleTurnTimer(t)
+	pl := h.playerList(t)
+	for seat, member := range t.members {
+		if member == nil {
+			continue
+		}
+		member.Send(protocol.ServerMsg{
+			Type:  protocol.SMsgGameStarted,
+			State: h.playerGameStateUsing(t, seat, pl),
+		})
+	}
+	h.maybeScheduleBot(t)
+}
+
+func (h *Hub) handleDrawCard(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	priorSize := len(room.State.Hands[c.playerID()].Cards)
+	if err := room.DrawCard(c.playerID()); err != nil {
+		h.refuseAction(c, t, err)
+		return
+	}
+	state := room.State
+	hand := state.Hands[c.playerID()]
+	newCards := hand.Cards[priorSize:]
+	drawnCount := len(newCards)
+
+	// Drawing re-arms the turn clock. A forced draw does not cost the turn
+	// (rules.md §14.5), but the timer was armed when the +2 landed, so every
+	// second the victim spent deciding whether to counter came off the turn they
+	// are owed *after* the draw — take the stack late and the seat is auto-passed
+	// moments later, which is the exact double punishment the deviation forbids.
+	// A voluntary draw follows the same rule for the same reason: the player
+	// still has to decide play-or-pass with cards they have only just seen. There
+	// is one draw per turn, so this can extend a turn once and never repeatedly.
+	h.scheduleTurnTimer(t)
+	dl := turnDeadlineMs(t)
+
+	// Tell the drawing player all their new cards plus the updated turn state.
+	c.Send(protocol.ServerMsg{
+		Type:         protocol.SMsgCardDrawn,
+		PlayerIndex:  intPtr(c.playerID()),
+		Cards:        cardDTOs(newCards),
+		Turn:         state.CurrentTurn,
+		PendingDraw:  intPtr(state.PendingDraw),
+		HasDrawn:     boolPtr(state.HasDrawn),
+		TurnDeadline: dl,
+	})
+	// Tell others how many cards changed hands so they can update the hand-size
+	// counter. They get the same turn state: has_drawn / pending_draw describe
+	// the table, not the recipient, and a client left to infer them desyncs.
+	h.broadcastToRoom(t, protocol.ServerMsg{
+		Type:         protocol.SMsgCardDrawn,
+		PlayerIndex:  intPtr(c.playerID()),
+		DrawnCount:   drawnCount,
+		Turn:         state.CurrentTurn,
+		PendingDraw:  intPtr(state.PendingDraw),
+		HasDrawn:     boolPtr(state.HasDrawn),
+		TurnDeadline: dl,
+	}, c)
+	h.maybeScheduleBot(t)
+}
+
+func (h *Hub) handlePassTurn(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	if err := room.PassTurn(c.playerID()); err != nil {
+		h.refuseAction(c, t, err)
+		return
+	}
+	h.scheduleTurnTimer(t)
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:         protocol.SMsgTurnChanged,
+		Turn:         room.State.CurrentTurn,
+		TurnDeadline: turnDeadlineMs(t),
+	})
+	h.maybeScheduleBot(t)
+}
+
+func (h *Hub) handleDeclareUno(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	if err := room.DeclareLastCard(c.playerID()); err != nil {
+		c.sendError(err.Error())
+		// A second call on the same single card is a double tap or a message in
+		// flight when the first one landed, not an attack — the client already
+		// spends its own button. game.IsLostRace covers it (ErrAlreadyDeclared),
+		// so this is the same rule every other handler now applies, rather than
+		// a string comparison that a reworded error would silently break.
+		c.noteRejection(err)
+		return
+	}
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoDeclared,
+		PlayerIndex: intPtr(c.playerID()),
+	})
+}
+
+func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	// A Swap or a GlobalSwitch can leave several seats catchable at once, so the
+	// catcher names the one they spotted. Older clients send nothing: fall back
+	// to the window closest to expiring, which is the catch about to be lost.
+	targetIdx := -1
+	if msg.TargetIndex != nil {
+		targetIdx = *msg.TargetIndex
+	} else if open := room.State.CatchableTargets(time.Now()); len(open) > 0 {
+		targetIdx = open[0]
+	}
+	if targetIdx < 0 || targetIdx >= len(room.State.Hands) {
+		c.sendError("target does not have exactly 1 card")
+		return
+	}
+	priorSize := len(room.State.Hands[targetIdx].Cards)
+	if err := room.CatchUndeclared(c.playerID(), targetIdx, time.Now()); err != nil {
+		// A lost race is the mechanic working, not an attack: the button was
+		// armed when it was pressed and the target's LOCO! (or a hand that grew,
+		// or the last millisecond of the window) simply reached the hub first.
+		// It costs the caller a card and nothing else — no error toast, no
+		// suspicion, since the client shows the penalty itself.
+		if game.IsMissedCatch(err) {
+			h.penalizeFailedCatch(t, c.playerID())
+			return
+		}
+		c.sendError(err.Error())
+		c.noteRejection(err)
+		return
+	}
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoCaught,
+		PlayerIndex: intPtr(targetIdx),
+	})
+	// The penalty cards are a hand change like any other: the caught player must
+	// be sent the cards themselves, everyone else the new count.
+	h.sendHandGrowth(t, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
+}
+
+// penalizeFailedCatch charges one card for a Contre-LOCO! that lost its race and
+// tells the room whose call it was. Shared by the human and the bot path — a bot
+// that guesses wrong pays the same price, or the two are playing different games.
+func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int) {
+	room := t.room
+	drawn := room.PenalizeFailedCatch(catcherIdx)
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgCatchFailed,
+		PlayerIndex: intPtr(catcherIdx),
+	})
+	if len(drawn) == 0 {
+		return // deck and discard exhausted — the call goes unpunished
+	}
+	h.sendHandGrowth(t, catcherIdx, drawn)
+}
+
+func (h *Hub) handleCounterDraw(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	if msg.Card == nil {
+		c.sendError("card required")
+		return
+	}
+	card, chosenColor, err := dtoToCard(msg.Card, msg.ChosenColor)
+	if err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	if err := room.CounterDraw(c.playerID(), card, chosenColor); err != nil {
+		h.refuseAction(c, t, err)
+		return
+	}
+	h.broadcastCardPlayed(t, c.playerID(), -1)
+	h.maybeScheduleBotCatch(t)
+	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotInterrupt(t)
+	h.handleRoundOrMatchEnd(t)
+}
+
+func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	chosenPlayer := -1
+	if msg.ChosenPlayer != nil {
+		chosenPlayer = *msg.ChosenPlayer
+	}
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	if !ok {
+		return
+	}
+
+	if err := room.InterruptPlayCards(c.playerID(), cards, chosenColor, chosenPlayer); err != nil {
+		h.refuseAction(c, t, err)
+		return
+	}
+
+	h.broadcastInterrupt(t, c.playerID(), cards, chosenPlayer)
+	h.maybeScheduleBotCatch(t)
+	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotInterrupt(t)
+	h.handleRoundOrMatchEnd(t)
+}
+
+// broadcastInterrupt announces a successful interject. Shared by the human and
+// the bot path so both produce the same sequence on the wire — a bot that took
+// the lead has to look exactly like a player who did.
+func (h *Hub) broadcastInterrupt(t *table, playerID int, cards []game.Card, chosenPlayer int) {
+	// Emit a typed interrupt_success notification (in addition to the standard
+	// card_played broadcast) so clients can render distinct lead-taking visuals.
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgInterruptSuccess,
+		PlayerIndex: intPtr(playerID),
+		Cards:       cardDTOs(cards),
+	})
+	h.broadcastCardPlayed(t, playerID, chosenPlayer)
+	// Same rule as handlePlayCard: Swap and GlobalSwitch rearrange hands, so every
+	// client needs a fresh personalised snapshot. A GlobalSwitch interject is
+	// ordinary play (the deck ships four of them); the Swap case is only reachable
+	// if the deck ever ships two copies of a coloured Swap (today it ships one),
+	// but the domain permits it and a silent hand desync — the client keeps a hand
+	// it can no longer play and every tap comes back "card not in hand" — is
+	// exactly the bug this guards against.
+	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
+		h.broadcastPersonalizedGameState(t)
+	}
+}

@@ -377,9 +377,9 @@ html[data-room] body {
 
 /* ─── Countdown bars ───────────────────────────────────────────────────────
    Every timer bar in the game (turn clock, catch window) drains through these
-   two keyframes rather than through a per-frame React state update. See
-   `hooks/useDrainBar.ts` for why. They live here, outside any CSS module, so
-   the hook can name them; `--drain-ms` / `--drain-delay` are written on the
+   two keyframes rather than through a per-frame state update. See
+   `hooks/drainBar.svelte.ts` for why. They live here rather than in a component's
+   `<style>` block, which Svelte would scope out of the hook's reach; `--drain-ms` / `--drain-delay` are written on the
    element by the hook (the delay is negative: the part already elapsed).
 
    Add `loco-heat` for a bar that should also change colour: it runs on the same
@@ -413,10 +413,11 @@ html[data-room] body {
 /* ─── Reduced motion ───────────────────────────────────────────────────────
    Users who ask their OS for less motion get a static board: no card flights,
    no pulses, no sliding panels. Everything still renders and remains playable —
-   only the movement between states is removed. framer-motion is handled
-   separately, off the same preference, by <MotionGate /> in entry.tsx.
+   only the movement between states is removed. The two WAAPI shakes are handled
+   separately, off the same preference: they ask `prefersReducedMotion()` before
+   they animate, because a keyframe animation is not a CSS rule this can reach.
 
-   `data-motion` is written by `initMotion()`, which entry.tsx calls before the
+   `data-motion` is written by `initMotion()`, which entry.ts calls before the
    first render. Nothing below applies until it has. */
 :root[data-motion="reduce"] *,
 :root[data-motion="reduce"] *::before,

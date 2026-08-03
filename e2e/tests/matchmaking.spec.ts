@@ -145,6 +145,16 @@ test.describe('1v1 matchmaking', () => {
   test('a rematch needs both players and then deals them in again', async ({
     browser,
   }: { browser: Browser }) => {
+    // The only test here that is dealt in twice, and being dealt in is the
+    // expensive part: `waitForMatchmadeGame` waits out the match-found countdown
+    // and then the map-loading gate, and the gate is real image downloads
+    // through the dev server into a browser context with a cold cache. The
+    // single-deal tests in this file sit around 23s against the default 30s;
+    // two deals do not fit, and the failure reads as a bare timeout in the
+    // `finally` with every assertion having passed. Raised deliberately rather
+    // than by trimming what the test covers.
+    test.setTimeout(90_000)
+
     const ctx1 = await browser.newContext()
     const ctx2 = await browser.newContext()
     const page1 = await ctx1.newPage()

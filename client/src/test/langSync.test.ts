@@ -106,15 +106,17 @@ describe('the language of a document', () => {
 
 describe('both halves of the site write the choice down', () => {
   it('the game stores it, and the lobby switch navigates with it', () => {
-    const i18n = readFileSync(path.join(CLIENT, 'src', 'i18n', 'index.tsx'), 'utf8')
-    expect(i18n, 'one definition of the key').not.toMatch(/'loco_lang'/)
-    expect(i18n).toMatch(/rememberLang\(/)
+    // `i18n/store.ts` owns the language, and the choice is written down by the
+    // one thing that owns the value: there is no second copy to keep in step.
+    const store = readFileSync(path.join(CLIENT, 'src', 'i18n', 'store.ts'), 'utf8')
+    expect(store, 'one definition of the key').not.toMatch(/'loco_lang'/)
+    expect(store).toMatch(/rememberLang\(/)
     const switcher = readFileSync(
-      path.join(CLIENT, 'src', 'components', 'LanguageSwitcher.tsx'),
+      path.join(CLIENT, 'src', 'components', 'LanguageSwitcher.svelte'),
       'utf8',
     )
-    expect(switcher, 'the entry screen follows a real link').toMatch(/href=\{HOME_PATH\[code\]/)
-    expect(switcher, 'and records the choice on the way out').toMatch(/onClick=\{\(\) => setLang/)
+    expect(switcher, 'the entry screen follows a real link').toMatch(/href=\{HOME_PATH\[choice\]/)
+    expect(switcher, 'and records the choice on the way out').toMatch(/i18n\.setLang\(choice\)/)
   })
 
   it('a content page stores it too, without losing the href', () => {
@@ -135,10 +137,10 @@ describe('both halves of the site write the choice down', () => {
   it('runs the redirect before the invitation is spent', () => {
     // `initTableInvite()` takes `?t=CODE` out of the address bar. Spending it
     // and then navigating would drop the table on the floor.
-    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.tsx'), 'utf8')
+    const entry = readFileSync(path.join(CLIENT, 'src', 'entry.ts'), 'utf8')
     const redirect = entry.indexOf('initLangUrl()')
     const invite = entry.indexOf('initTableInvite()')
-    expect(redirect, 'entry.tsx must ask the question').toBeGreaterThan(-1)
+    expect(redirect, 'entry.ts must ask the question').toBeGreaterThan(-1)
     expect(entry, 'and boot nothing when the answer is yes').toMatch(/if \(!initLangUrl\(\)\) boot\(\)/)
     expect(invite).toBeGreaterThan(-1)
   })

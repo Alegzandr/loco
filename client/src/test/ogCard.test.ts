@@ -12,7 +12,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { OG_W, OG_H } from '../dev/OgCard'
+import { OG_W, OG_H } from '../dev/OgCard.svelte'
 import { ORIGIN, OG_IMAGE, HOME, LANGS, absolute, social, type Lang } from '../seo/meta'
 
 const CLIENT = path.resolve(__dirname, '..', '..')

@@ -1,0 +1,108 @@
+<script lang="ts">
+  type Props = {
+    /** Drained by `drainBar` in the game view: this component never re-renders for it. */
+    fillRef: { current: HTMLDivElement | null }
+    label: string
+  }
+
+  let { fillRef, label }: Props = $props()
+  let fill = $state<HTMLDivElement | null>(null)
+
+  // The bar is driven from outside by a negative-delay CSS animation, so the
+  // owner of the countdown needs the node itself, not a value to re-render on.
+  $effect(() => {
+    fillRef.current = fill
+    return () => {
+      fillRef.current = null
+    }
+  })
+</script>
+
+<div class="unoTimer">
+  <span class="unoTimerLabel">{label}</span>
+  <div class="unoTimerBar">
+    <div bind:this={fill} class="unoTimerFill"></div>
+  </div>
+</div>
+
+<style>
+  /* Catch window — a hard 5s deadline. Rendered as a chunky capsule so the
+     pressure is visible to a spectator, not just to the player holding the mouse. */
+
+  /* Above the top-right cluster, not under it.
+     The cluster is 184px wide (four 40px chips and three 8px gaps) anchored 12px
+     from the right; this capsule is 242px wide and centred. They therefore share
+     pixels on anything narrower than ~634px, which is every phone, and at
+     z-index 10 against the cluster's 46 the catch window — a five-second, match
+     deciding, streamable moment — was rendered as fragments of red text between
+     the chips. The capsule keeps `pointer-events: none`, so passing in front of
+     the cluster costs no tap: the chips underneath stay pressable. */
+  .unoTimer {
+    position: absolute;
+    top: calc(16px + var(--safe-top));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px 10px;
+    background: var(--color-surface-card);
+    border: var(--stroke) solid var(--color-stroke);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-hard), 0 0 26px rgba(255, 61, 104, 0.4);
+    pointer-events: none;
+    z-index: 47;
+    animation: catchIn 0.3s var(--ease-bounce) both;
+  }
+
+  /* Narrow enough for the two to collide: give back what room there is by
+     shortening the bar, so the capsule covers as little of the cluster as it can
+     while it is up. */
+  @media (max-width: 640px) {
+    .unoTimer {
+      padding: 7px 14px 9px;
+    }
+    .unoTimerBar {
+      width: 150px;
+    }
+  }
+
+  .unoTimerLabel {
+    font: 700 13px/1.2 var(--font-display);
+    color: var(--color-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .unoTimerBar {
+    width: 200px;
+    height: 10px;
+    background: var(--color-surface-strong);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  /* Full width, drained by scaleX (see .loco-draining in tokens.css) so the
+     5s window costs the main thread nothing while the catch is live, which is
+     exactly the moment the player needs their click handled instantly.
+     The drain animation paints the fill, so the gradient is a fallback for the
+     frame before it is armed. */
+  .unoTimerFill {
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: linear-gradient(90deg, #ffc93c 0%, var(--color-primary) 100%);
+  }
+
+  @keyframes catchIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-14px) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0) scale(1);
+    }
+  }
+</style>

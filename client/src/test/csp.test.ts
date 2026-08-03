@@ -17,6 +17,12 @@ import { describe, it, expect } from 'vitest'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const conf = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
+/**
+ * The headers themselves live here rather than in nginx.conf, because
+ * `add_header` does not merge: see the guard at the bottom of this file, and
+ * the comment at the top of the file itself.
+ */
+const headersConf = readFileSync(path.join(CLIENT, 'security-headers.conf'), 'utf8')
 
 /** Every .astro file: the layouts and pages that produce the served HTML. */
 function astroSources(dir: string, out: string[] = []): string[] {
@@ -28,12 +34,12 @@ function astroSources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-/** Every .ts/.tsx file: the app that ends up in the bundle. */
-function reactSources(dir: string, out: string[] = []): string[] {
+/** Every .ts/.tsx/.svelte file: the app that ends up in the bundle. */
+function bundledSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
-    if (statSync(full).isDirectory()) reactSources(full, out)
-    else if (entry.endsWith('.ts') || entry.endsWith('.tsx')) out.push(full)
+    if (statSync(full).isDirectory()) bundledSources(full, out)
+    else if (/\.(tsx?|svelte)$/.test(entry)) out.push(full)
   }
   return out
 }
@@ -45,8 +51,8 @@ const markup = astroFiles.map((f) => readFileSync(f, 'utf8')).join('\n')
 /** The value of an `add_header <name> "..."` line, plus whether it is `always`. */
 function header(name: string): { value: string; always: boolean } {
   const re = new RegExp(`add_header\\s+${name}\\s+"([^"]*)"\\s*(always)?\\s*;`, 'i')
-  const m = re.exec(conf)
-  if (!m) throw new Error(`nginx.conf sends no ${name} header`)
+  const m = re.exec(headersConf)
+  if (!m) throw new Error(`security-headers.conf sends no ${name} header`)
   return { value: m[1], always: m[2] === 'always' }
 }
 
@@ -59,13 +65,18 @@ function directive(name: string): string {
   return m[1].trim()
 }
 
-/** Every .ts/.tsx/.css file the app ships, tests and the dev showcase aside. */
+/**
+ * Every .ts/.tsx/.svelte/.css file the app ships, tests and the dev showcase
+ * aside. `.svelte` is in the list because a component written there is markup,
+ * script *and* style at once: leaving it out would quietly shrink this scan to
+ * whatever has not been migrated yet.
+ */
 function appSources(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = path.join(dir, entry)
     if (statSync(full).isDirectory()) {
       if (entry !== 'test') appSources(full, out)
-    } else if (/\.(tsx?|css)$/.test(entry)) {
+    } else if (/\.(tsx?|svelte|css)$/.test(entry)) {
       out.push(full)
     }
   }
@@ -104,7 +115,7 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
     // not help: a meta policy and this header are both enforced, so the header
     // still refuses them and the page renders blank in production alone.
     //
-    // The game is mounted by src/entry.tsx through an ordinary bundled <script>
+    // The game is mounted by src/entry.ts through an ordinary bundled <script>
     // instead, and the content pages need no client JS at all.
     for (const file of astroFiles) {
       const src = readFileSync(file, 'utf8')
@@ -114,19 +125,24 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
   })
 
   it("keeps 'unsafe-inline' in style-src, which the app still needs", () => {
-    // Not an oversight: framer-motion writes a style attribute on every animated
-    // node, on every frame. Dropping this directive takes the whole board's
-    // animation with it. The <style> blocks in the .astro files are extracted to
-    // real stylesheets by Astro and are not what keeps this loose.
+    // Not an oversight. The board is a fixed coordinate space and every card,
+    // seat and pile is placed by a `style` attribute holding its pixel position;
+    // Astro additionally inlines the stylesheets. Dropping this directive takes
+    // the layout with it.
     expect(directive('style-src')).toContain("'unsafe-inline'")
-    // Anchored on the app rather than on one file: the mount point used to hold
-    // the <MotionConfig> and now delegates it to <MotionGate />, and neither
-    // move should decide whether this directive is still justified. What
-    // justifies it is that the library is somewhere in the bundle at all.
-    const usesFramerMotion = reactSources(path.join(CLIENT, 'src')).some((f) =>
-      readFileSync(f, 'utf8').includes('framer-motion'),
+
+    // Anchored on the thing that actually forces it, in the markup, rather than
+    // on the name of whatever wrote it. This assertion used to name
+    // framer-motion — and kept passing after framer-motion was removed, because
+    // the string survived in the comments explaining its removal. A guard that
+    // can be satisfied by prose is not a guard.
+    const inlineStyled = bundledSources(path.join(CLIENT, 'src')).filter((f) =>
+      /\sstyle=(["'{])/.test(readFileSync(f, 'utf8')),
     )
-    expect(usesFramerMotion, 'framer-motion is why style-src is loose').toBe(true)
+    expect(
+      inlineStyled.length,
+      'nothing writes an inline style any more — is style-src still meant to be loose?',
+    ).toBeGreaterThan(0)
   })
 
   it('lets the WebSocket through on the served host, port included', () => {
@@ -170,6 +186,48 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
     }
     expect(header('X-Content-Type-Options').value).toBe('nosniff')
   })
+
+  it('sends them on assets too, not only on the document', () => {
+    // The rule nginx enforces and nothing else states: `add_header` is inherited
+    // from an outer level *only while the inner level declares none of its own*.
+    // One `add_header Cache-Control` inside a location block therefore drops
+    // every security header the server block set — for every response that block
+    // serves. `location /_astro/` did this, so the whole JS bundle and every
+    // optimised asset went out bare while the document response kept all four.
+    //
+    // Nothing else catches it. `tools/csp/check.mjs` reads headers off the
+    // page.goto() response, which is the document; the assertions above read the
+    // header values, which were always there. Only the shape of the config says
+    // whether they arrive, so this reads the shape.
+    const SNIPPET = 'include /etc/nginx/security-headers.conf;'
+
+    // The server block has to include them once, or nothing inherits anything.
+    expect(conf, 'nginx.conf never includes the security headers').toContain(SNIPPET)
+
+    // Every `location … { … }` in the file, by brace matching from its opening.
+    const blocks: { spec: string; body: string }[] = []
+    const opener = /location\s+([^{]+?)\s*\{/g
+    for (let m = opener.exec(conf); m; m = opener.exec(conf)) {
+      let depth = 1
+      let i = m.index + m[0].length
+      for (; i < conf.length && depth > 0; i++) {
+        if (conf[i] === '{') depth++
+        else if (conf[i] === '}') depth--
+      }
+      blocks.push({ spec: m[1].trim(), body: conf.slice(m.index + m[0].length, i - 1) })
+    }
+    expect(blocks.length, 'no location block was parsed — this guard is asserting nothing').toBeGreaterThan(2)
+
+    for (const { spec, body } of blocks) {
+      // proxy_set_header is a different directive and does not break inheritance.
+      if (!/^\s*add_header\s/m.test(body)) continue
+      expect(
+        body.includes(SNIPPET),
+        `location ${spec} declares an add_header, which discards every inherited one. ` +
+          `Add \`${SNIPPET}\` to that block or its responses ship with no CSP and no nosniff.`,
+      ).toBe(true)
+    }
+  })
 })
 
 describe('the app stays inside the policy', () => {
@@ -184,17 +242,41 @@ describe('the app stays inside the policy', () => {
     expect(offenders.map(f => path.relative(CLIENT, f))).toEqual([])
   })
 
-  it('keeps Zod off the eval path', async () => {
+  it('validates a server message without reaching for eval', async () => {
     // The check above reads our sources; a dependency is free to call
-    // `Function()` on its own, and Zod 4 does, to compile a validator the first
-    // time a schema runs. Under `script-src 'self'` the call is refused, Zod
-    // catches it and interprets instead, so nothing breaks — it just reports a
-    // violation on every page load, which is indistinguishable from a real one.
-    // Importing the schema module is what applies the setting, so the assertion
-    // and the fix are the same statement.
-    const { z } = await import('zod')
-    await import('../types/protocolSchemas')
-    expect(z.config().jitless).toBe(true)
+    // `Function()` on its own. Zod 4 did, to compile a validator the first time
+    // a schema ran: under `script-src 'self'` the call is refused, Zod catches
+    // it and interprets instead, so nothing breaks. It just reports a violation
+    // on every page load, indistinguishable from a real one. That was pinned by
+    // asserting a config flag, which tested the workaround rather than the
+    // property the workaround was for.
+    //
+    // Valibot has no such path, so this asserts the property directly: run a
+    // real validation with both eval doors watched, and see that neither opens.
+    // A Proxy rather than a replacement, so everything else about Function
+    // (prototype, instanceof, the internals of whatever else is loaded) is
+    // untouched. This would have caught Zod, and it catches the next one.
+    const [{ serverMsgSchema }, v] = await Promise.all([
+      import('../types/protocolSchemas'),
+      import('valibot'),
+    ])
+
+    const compiled: string[] = []
+    const realFunction = globalThis.Function
+    const record = (args: unknown[]) => compiled.push(String(args[args.length - 1] ?? ''))
+    globalThis.Function = new Proxy(realFunction, {
+      construct: (target, args, newTarget) => (record(args), Reflect.construct(target, args, newTarget)),
+      apply: (target, thisArg, args) => (record(args), Reflect.apply(target, thisArg, args)),
+    })
+
+    try {
+      const parsed = v.safeParse(serverMsgSchema, { type: 'error', error: 'nope' })
+      expect(parsed.success).toBe(true)
+    } finally {
+      globalThis.Function = realFunction
+    }
+
+    expect(compiled).toEqual([])
   })
 
   it('loads nothing off a remote origin', () => {

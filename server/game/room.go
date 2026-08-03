@@ -1,6 +1,8 @@
 package game
 
 import (
+	crand "crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -12,7 +14,7 @@ import (
 type Status int
 
 const (
-	StatusLobby    Status = iota
+	StatusLobby Status = iota
 	StatusPlaying
 	StatusFinished
 )
@@ -89,14 +91,14 @@ type GameEvent struct {
 
 // GameState is the authoritative server-side game state.
 type GameState struct {
-	Hands            []Hand
-	Deck             *Deck
-	Discard          []Card
-	CurrentTurn      int
-	Direction        int // 1 = clockwise, -1 = counter-clockwise
-	ActiveColor      Color
-	PendingDraw      int  // accumulated draw penalty for next player
-	HasDrawn         bool // true after a voluntary (non-penalty) draw this turn; reset on turn advance
+	Hands       []Hand
+	Deck        *Deck
+	Discard     []Card
+	CurrentTurn int
+	Direction   int // 1 = clockwise, -1 = counter-clockwise
+	ActiveColor Color
+	PendingDraw int  // accumulated draw penalty for next player
+	HasDrawn    bool // true after a voluntary (non-penalty) draw this turn; reset on turn advance
 
 	// Last-card declaration, tracked PER SEAT. A single slot cannot express the
 	// board a Swap or a GlobalSwitch produces: both rearrange hands, so several
@@ -200,6 +202,14 @@ func (s *GameState) catchWindowOpen(targetIndex int, now time.Time) bool {
 	return !at.IsZero() && now.Sub(at) <= catchWindow
 }
 
+// CatchWindowEnd is when seat i's window shuts. Only meaningful for a seat
+// CatchableTargets just named: it exists so the server can tell a client how
+// long it has, instead of the client keeping its own copy of the duration and
+// its own copy of the rule that opens the window.
+func (s *GameState) CatchWindowEnd(i int) time.Time {
+	return s.LastCardAt[i].Add(catchWindow)
+}
+
 // CatchableTargets returns every seat that owes the table a declaration at now,
 // oldest window first, i.e. the one about to expire is the one a catcher who
 // named no target gets. Several seats at once is the normal case after a Swap
@@ -298,8 +308,35 @@ type Room struct {
 	MatchOver   bool
 	MatchWinner string
 
-	// rng is overridable in tests; defaults to a time-seeded source.
+	// rng is overridable in tests; defaults to a crypto-seeded source.
 	rng *rand.Rand
+}
+
+// newRNG builds a room's source of randomness, seeded from crypto/rand.
+//
+// The seed is not the clock, and that is the whole point. This one source
+// decides the map, the starting seat and — through dealRound — the shuffle of
+// all 112 cards, for this round and every round after it: it *is* the hidden
+// state the server exists to protect. A math/rand source seeded from
+// time.Now().UnixNano() hands that state to anyone who can time the room's
+// creation, because rand.NewSource is deterministic and the observables leak
+// the seed. An attacker creates a table, notes the round-trip (a window of a
+// few milliseconds, so a few million candidate nanoseconds), then reads back
+// the map, the starting seat and their own eight cards from game_started. That
+// hand alone is a forty-bit filter over the candidates, so exactly one seed
+// survives — and it yields every opponent's hand, the draw order, and the deal
+// of every remaining round of a BO7 at leisure. Interrupts, catch windows and
+// counter-draws are all built on hands nobody else can see; predictable ones
+// make the whole mechanic decoration.
+//
+// No math/rand fallback on the error path, for the reason tokens.go gives:
+// since Go 1.24 crypto/rand.Read does not return an error, it panics if the OS
+// entropy source is genuinely broken, and a server that can no longer deal an
+// unpredictable hand should stop rather than deal a predictable one.
+func newRNG() *rand.Rand {
+	var b [8]byte
+	_, _ = crand.Read(b[:])
+	return rand.New(rand.NewSource(int64(binary.BigEndian.Uint64(b[:]))))
 }
 
 // NewRoom creates an empty lobby room.
@@ -309,16 +346,19 @@ func NewRoom(code string) *Room {
 		Status:     StatusLobby,
 		Format:     BO1,
 		MaxPlayers: defaultMaxPlayers,
-		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng:        newRNG(),
 	}
 }
 
 // ensureRNG gives the room a source if it has none. A Room built by NewRoom
 // always has one; a Room decoded from JSON never does, because rng is
 // unexported and no serialisation can carry it.
+//
+// A snapshot-restored room is the case where a clock seed was worst: the
+// restore instant is announced to everyone by the server coming back up.
 func (r *Room) ensureRNG() {
 	if r.rng == nil {
-		r.rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+		r.rng = newRNG()
 	}
 }
 
@@ -1203,6 +1243,20 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	}
 
 	top := r.State.topCard()
+	// The top of the discard has to actually be a draw card. Today it always is
+	// whenever PendingDraw > 0 — PlayCard refuses everything under a pending
+	// stack, InterruptPlayCards admits only DrawTwo/WildDrawFour into a chain,
+	// and stackBatchEffects adds pending for no other kind — so this guard is
+	// unreachable, and that is exactly why it is written down. The kind and
+	// colour checks below derive "is this a legal counter" from the top card
+	// alone; they say nothing on their own about the card being a draw card, so
+	// any future kind that sets PendingDraw, or any future path that sets it
+	// without landing a draw card on the pile, would silently make a Skip
+	// counter a Skip. An invariant the rules rely on belongs in the code that
+	// relies on it, not in the reachability argument above it.
+	if top.Kind != DrawTwo && top.Kind != WildDrawFour {
+		return errors.New("no draw card to counter")
+	}
 	if card.Kind != top.Kind {
 		return errors.New("counter card must match kind of draw card")
 	}

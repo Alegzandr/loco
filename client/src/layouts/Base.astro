@@ -17,7 +17,7 @@ import {
 } from '../seo/meta'
 // Self-hosted variable fonts: no CDN request, so the CSP stays closed and the
 // first paint never falls back to a system face mid-animation. Imported here
-// rather than from the game's entry so the content pages, which mount no React
+// rather than from the game's entry so the content pages, which mount nothing
 // at all, are typeset too.
 import '@fontsource-variable/fredoka'
 import '@fontsource-variable/nunito'
@@ -117,7 +117,7 @@ const links = alternates(page)
     {/*
       Link preview (Discord, X, Slack, iMessage…). These crawlers do not run JS,
       so every one of these tags has to be in the served HTML rather than set
-      from React.
+      by the app once it mounts.
     */}
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE_NAME} />

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useGameStore, removePlayedCards } from '../hooks/useGameStore'
+import { gameStore, removePlayedCards } from '../hooks/gameStore'
 import { CardDTO, PlayerDTO } from '../types/protocol'
 
 const red5: CardDTO = { color: 'red', kind: 'number', value: 5 }
@@ -14,7 +14,7 @@ function players(mySize: number): PlayerDTO[] {
 }
 
 beforeEach(() => {
-  useGameStore.setState({ myIndex: 0, myHand: [], players: players(0), pendingDraw: 0 })
+  gameStore.setState({ myIndex: 0, myHand: [], players: players(0), pendingDraw: 0 })
 })
 
 describe('removePlayedCards', () => {
@@ -53,34 +53,34 @@ describe('removePlayedCards', () => {
 
 describe('applyCardPlayed with a batch', () => {
   it('leaves no phantom copies after a batch interrupt', () => {
-    useGameStore.setState({ myHand: [red5, red5, red5, blue7] })
+    gameStore.setState({ myHand: [red5, red5, red5, blue7] })
     // A batch interrupt: the server discarded all three copies at once and
     // reports one card left.
-    useGameStore
+    gameStore
       .getState()
       .applyCardPlayed(0, red5, 1, 0, 'red', players(1), undefined, 1)
 
-    const hand = useGameStore.getState().myHand
+    const hand = gameStore.getState().myHand
     expect(hand).toHaveLength(1)
     expect(hand).toEqual([blue7])
   })
 
   it('still removes exactly one copy on an ordinary play', () => {
-    useGameStore.setState({ myHand: [red5, red5, blue7] })
-    useGameStore
+    gameStore.setState({ myHand: [red5, red5, blue7] })
+    gameStore
       .getState()
       .applyCardPlayed(0, red5, 1, 0, 'red', players(2), undefined, 1)
 
-    expect(useGameStore.getState().myHand).toEqual([red5, blue7])
+    expect(gameStore.getState().myHand).toEqual([red5, blue7])
   })
 
   it('does not touch our hand when somebody else plays', () => {
     const hand = [red5, red5, blue7]
-    useGameStore.setState({ myHand: hand })
-    useGameStore
+    gameStore.setState({ myHand: hand })
+    gameStore
       .getState()
       .applyCardPlayed(1, red5, 0, 0, 'red', players(3), undefined, 1)
 
-    expect(useGameStore.getState().myHand).toEqual(hand)
+    expect(gameStore.getState().myHand).toEqual(hand)
   })
 })

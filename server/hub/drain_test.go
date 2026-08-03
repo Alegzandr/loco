@@ -118,12 +118,14 @@ func TestDrain_MatchInProgressKeepsPlaying(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, active, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 3}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &activeIdx,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 3}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &activeIdx,
+		},
 	})
 	readMsgOfType(t, active, protocol.SMsgGameState)
 	readMsgOfType(t, observer, protocol.SMsgGameState)

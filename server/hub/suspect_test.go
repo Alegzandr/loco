@@ -1,4 +1,4 @@
-﻿package hub
+package hub
 
 import (
 	"errors"
@@ -27,7 +27,7 @@ func TestNoteRejection_LostRacesAreNotSuspicious(t *testing.T) {
 	for i := 0; i < suspectThreshold*3; i++ {
 		c.noteRejection(lost[i%len(lost)])
 	}
-	if got := h.statSuspectedCheats.Load(); got != 0 {
+	if got := h.metrics.suspectedCheats.Load(); got != 0 {
 		t.Errorf("suspected_cheats = %d after %d lost races, want 0", got, suspectThreshold*3)
 	}
 }
@@ -42,7 +42,7 @@ func TestNoteRejection_StillCatchesRealRejections(t *testing.T) {
 	for i := 0; i < suspectThreshold; i++ {
 		c.noteRejection(errors.New("illegal card play"))
 	}
-	if got := h.statSuspectedCheats.Load(); got != 1 {
+	if got := h.metrics.suspectedCheats.Load(); got != 1 {
 		t.Errorf("suspected_cheats = %d, want 1", got)
 	}
 }
@@ -56,7 +56,7 @@ func TestNoteRejection_MatchesWrappedSentinels(t *testing.T) {
 	for i := 0; i < suspectThreshold*2; i++ {
 		c.noteRejection(fmt.Errorf("play_card: %w", game.ErrInterruptMismatch))
 	}
-	if got := h.statSuspectedCheats.Load(); got != 0 {
+	if got := h.metrics.suspectedCheats.Load(); got != 0 {
 		t.Errorf("suspected_cheats = %d, want 0 for a wrapped lost race", got)
 	}
 }
@@ -67,7 +67,7 @@ func TestNoteRejection_NilIsNotARejection(t *testing.T) {
 	for i := 0; i < suspectThreshold*2; i++ {
 		c.noteRejection(nil)
 	}
-	if got := h.statSuspectedCheats.Load(); got != 0 {
+	if got := h.metrics.suspectedCheats.Load(); got != 0 {
 		t.Errorf("suspected_cheats = %d, want 0", got)
 	}
 }

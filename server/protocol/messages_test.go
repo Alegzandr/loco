@@ -121,3 +121,92 @@ func TestServerMsg_OwnSeat(t *testing.T) {
 		t.Errorf("OwnSeat() = %d, want 0", got)
 	}
 }
+
+// A catch seat is a seat number, so seat 0 has to survive the wire. It is the
+// same trap PlayerIndex fell into: `omitempty` on an int drops the host's seat,
+// and the symptom is a Contre-LOCO! button that never arms against seat 0.
+func TestServerMsg_CatchSeatsCarrySeatZero(t *testing.T) {
+	data, err := json.Marshal(ServerMsg{
+		Type:       SMsgCardPlayed,
+		CatchSeats: []CatchSeatDTO{{PlayerIndex: 0, EndsAt: 1700000000000}},
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(data), `"player_index":0`) {
+		t.Errorf("seat 0 fell off the wire: %s", data)
+	}
+	if !strings.Contains(string(data), `"ends_at":1700000000000`) {
+		t.Errorf("the window's end fell off the wire: %s", data)
+	}
+}
+
+// No open window means no field, not an empty list: the client treats the
+// absence as "nobody is catchable", and an empty array would say the same thing
+// in more bytes on every ordinary play.
+func TestServerMsg_NoCatchSeatsStaysOffTheWire(t *testing.T) {
+	data, err := json.Marshal(ServerMsg{Type: SMsgCardPlayed, PlayerIndex: seat(0)})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), `"catch_seats"`) {
+		t.Errorf("an empty catch_seats reached the wire: %s", data)
+	}
+}
+
+// The fixture payload is one nested object, and the Playwright helper is the
+// only thing that builds it. The two sides agree by hand, so this pins the
+// bytes: a rename on either side that the other misses shows up here rather
+// than as a whole E2E suite dealing tables it never configured.
+func TestClientMsg_DebugPayloadIsNested(t *testing.T) {
+	raw := `{"type":"debug_set_state","debug":{` +
+		`"hand":[{"color":"red","kind":"number","value":5}],` +
+		`"hands":[{"player_index":1,"hand":[{"color":"blue","kind":"skip"}]}],` +
+		`"discard":{"color":"green","kind":"number","value":7},` +
+		`"active_color":"green","pending_draw":0,"current_turn":0,"direction":-1}}`
+
+	var msg ClientMsg
+	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg.Debug == nil {
+		t.Fatal("debug object did not land")
+	}
+	d := msg.Debug
+	if len(d.Hand) != 1 || d.Hand[0].Value != 5 {
+		t.Errorf("hand = %+v", d.Hand)
+	}
+	if len(d.Hands) != 1 || d.Hands[0].PlayerIndex != 1 {
+		t.Errorf("hands = %+v", d.Hands)
+	}
+	if d.Discard == nil || d.Discard.Kind != "number" {
+		t.Errorf("discard = %+v", d.Discard)
+	}
+	if d.ActiveColor != "green" {
+		t.Errorf("active_color = %q", d.ActiveColor)
+	}
+	// Every one of these three is a pointer because zero is a legal value, and
+	// each has a fixture that means it: no pending draw, the host's seat, and
+	// counter-clockwise.
+	if d.PendingDraw == nil || *d.PendingDraw != 0 {
+		t.Errorf("pending_draw = %v", d.PendingDraw)
+	}
+	if d.CurrentTurn == nil || *d.CurrentTurn != 0 {
+		t.Errorf("current_turn = %v", d.CurrentTurn)
+	}
+	if d.Direction == nil || *d.Direction != -1 {
+		t.Errorf("direction = %v", d.Direction)
+	}
+}
+
+// A player's client never sends any of this, so an ordinary message must not
+// carry an empty debug object: that is the whole reason the field is a pointer.
+func TestClientMsg_NoDebugStaysOffTheWire(t *testing.T) {
+	data, err := json.Marshal(ClientMsg{Type: CMsgPlayCard})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "debug") {
+		t.Errorf("play_card carried a debug object: %s", data)
+	}
+}

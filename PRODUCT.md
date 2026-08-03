@@ -1,5 +1,8 @@
 # Product
 
+Who this is for, why it exists and what it refuses. The system that executes it is
+[`DESIGN.md`](DESIGN.md); the rules that hold it in place are [`CLAUDE.md`](CLAUDE.md).
+
 ## Register
 
 brand
@@ -45,14 +48,14 @@ group chat, and a rematch that gets asked for.
 
 **Toylike. Loud on purpose. Fair.**
 
-The voice is the game talking, not a website. Players open a **table**, share a table code and take
-a seat: there is no "room" and no "lobby" in any player-facing string. French is tutoiement. A
-button is the verb about to happen. A refusal says what to do next and never scolds, and never
-shows the player a string that came off the wire. Only the streamable moments shout, and they shout
-in the display step, not in uppercase.
+The voice is the game talking, not a website. Emotionally: the lobby should feel like picking up a
+controller, a reaction window should feel like a held breath, and a loss should not feel like a
+system error.
 
-Emotionally: the lobby should feel like picking up a controller, a reaction window should feel like
-a held breath, and a loss should not feel like a system error.
+What that means string by string — table rather than room, tutoiement, a button that is the verb
+about to happen, a refusal that says what to do next and never scolds — is a rule rather than a
+mood, and it lives in `CLAUDE.md` with the note behind it in
+[`docs/notes/client.md`](docs/notes/client.md).
 
 ## Anti-references
 
@@ -73,15 +76,17 @@ a held breath, and a loss should not feel like a system error.
 
 ## Design Principles
 
+The six that settle arguments. How each is executed — the ledge, the two palettes, the tokens — is
+`DESIGN.md`'s half.
+
 1. **Readable at 720p by someone who is not playing.** Every size, contrast and state decision is
    settled at stream resolution, not on the designer's monitor. If a value cannot survive a
    re-encode, it is too small regardless of how it measures locally.
-2. **Objects, not surfaces.** Everything pressable is a body with an ink outline and a solid ledge,
-   and pressing it travels into that ledge. Depth is constructed, never suggested by a blur. If you
-   cannot press it into something, it is not finished.
+2. **Objects, not surfaces.** Everything pressable is a body you press *into*. Depth is constructed,
+   never suggested by a blur. If you cannot press it into something, it is not finished.
 3. **Colour is a rule, not decoration.** The brand palette encodes intent and the suit palette
    encodes gameplay, and the two never substitute for one another. Anything that means something by
-   hue alone also carries a shape, because colour assist is a rule too.
+   hue alone also carries a shape.
 4. **The server is the truth and the client is the performance.** Optimism is allowed in the
    animation and nowhere else. A refusal is translated into the player's voice before it is shown,
    and a state the server corrects is corrected silently.
@@ -93,20 +98,14 @@ a held breath, and a loss should not feel like a system error.
 
 ## Accessibility & Inclusion
 
-- **Target: WCAG AA on every player-facing surface.** Contrast is bought with ink outlines rather
-  than by dimming the brand colours; card glyphs are drawn twice, an ink pass under an off-white
-  pass, which is what makes off-white legible on the green and yellow suits at all.
-- **Reduced motion is a preference, not only a media query.** The system setting and the player's
-  explicit answer both feed `:root[data-motion="reduce"]`, so the choice can win in both
-  directions. Motion degrades to a readable static state, never to nothing: "this just became
-  playable" is information and survives as a static halo, and a countdown keeps draining.
-- **Colour assist gives every suit a silhouette** (triangle, circle, square, diamond) on the card,
-  on every picker swatch and on the active-colour chip. Never a letter: R and V name different
-  colours in French and English.
-- **Keyboard: focus is a 3px indigo ring at 2px offset, applied globally through `:focus-visible`,
-  never removed and never restyled per component.**
-- **Touch targets are 44px minimum**, and the board is a fixed coordinate space that respects the
-  safe-area insets so nothing lands under a notch or a home indicator.
-- **Both languages are first class.** English is the source of truth and types the French file, so a
-  string cannot exist in one language only, and a French URL opens in French whatever the browser
-  asks for.
+**Target: WCAG AA on every player-facing surface**, and the product decision underneath it is that
+access is bought with ink and shape rather than by dimming the game. Contrast comes from outlines,
+never from darkened brand colours. Every suit carries a silhouette as well as a hue, and never a
+letter — R and V name different colours in French and English. Reduced motion is a preference rather
+than only a media query, so the player's answer can win over the system's in both directions, and
+motion degrades to a readable static state rather than to nothing: "this just became playable" is
+information. Both languages are first class, and a French URL opens in French whatever the browser
+asks for.
+
+The measurements, the tokens and the tests that hold each of those: `CLAUDE.md` and
+[`docs/notes/visual.md`](docs/notes/visual.md).

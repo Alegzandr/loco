@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useGameStore } from '../hooks/useGameStore'
+import * as v from 'valibot'
+import { gameStore } from '../hooks/gameStore'
 import { PlayerDTO } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
 
@@ -10,7 +11,7 @@ const players: PlayerDTO[] = [
 
 // Puts the store in the state a client is left in right after a match ends.
 function seedFinishedMatch() {
-  useGameStore.setState({
+  gameStore.setState({
     screen: 'gameover',
     roomCode: 'ABC123',
     myIndex: 1,
@@ -42,8 +43,8 @@ beforeEach(seedFinishedMatch)
 
 describe('applyRematch', () => {
   it('returns the player to the waiting room of the same room', () => {
-    useGameStore.getState().applyRematch(1, players, 'BO3', 6)
-    const s = useGameStore.getState()
+    gameStore.getState().applyRematch(1, players, 'BO3', 6)
+    const s = gameStore.getState()
     expect(s.screen).toBe('waiting')
     expect(s.roomCode).toBe('ABC123')
     expect(s.players).toEqual(players)
@@ -52,13 +53,13 @@ describe('applyRematch', () => {
   })
 
   it('adopts the server-assigned index, which may shift when seats are pruned', () => {
-    useGameStore.getState().applyRematch(0, [players[0]], 'BO1', 10)
-    expect(useGameStore.getState().myIndex).toBe(0)
+    gameStore.getState().applyRematch(0, [players[0]], 'BO1', 10)
+    expect(gameStore.getState().myIndex).toBe(0)
   })
 
   it('clears every trace of the finished match', () => {
-    useGameStore.getState().applyRematch(1, players, 'BO1', 10)
-    const s = useGameStore.getState()
+    gameStore.getState().applyRematch(1, players, 'BO1', 10)
+    const s = gameStore.getState()
     expect(s.matchOver).toBe(false)
     expect(s.matchWinner).toBe('')
     expect(s.scoreboard).toEqual([])
@@ -77,15 +78,15 @@ describe('applyRematch', () => {
   })
 
   it('keeps the session token so a drop during the new match can still reclaim the slot', () => {
-    useGameStore.setState({ sessionToken: 'deadbeef' })
-    useGameStore.getState().applyRematch(1, players, 'BO1', 10)
-    expect(useGameStore.getState().sessionToken).toBe('deadbeef')
+    gameStore.setState({ sessionToken: 'deadbeef' })
+    gameStore.getState().applyRematch(1, players, 'BO1', 10)
+    expect(gameStore.getState().sessionToken).toBe('deadbeef')
   })
 })
 
 describe('rematch_started wire message', () => {
   it('validates against the inbound schema', () => {
-    const parsed = serverMsgSchema.safeParse({
+    const parsed = v.safeParse(serverMsgSchema, {
       type: 'rematch_started',
       room_code: 'ABC123',
       player_id: 1,
@@ -99,7 +100,7 @@ describe('rematch_started wire message', () => {
 
 describe('rematch offers', () => {
   it('validates the wire message it arrives on', () => {
-    const parsed = serverMsgSchema.safeParse({
+    const parsed = v.safeParse(serverMsgSchema, {
       type: 'rematch_offered',
       player_index: 1,
       rematch_offers: [0, 1],
@@ -113,29 +114,29 @@ describe('rematch offers', () => {
   // names one at a time would keep a departed player's ask forever and wait on
   // a count that can never complete.
   it('stores the offers as sent rather than accumulating them', () => {
-    const store = useGameStore.getState()
+    const store = gameStore.getState()
     store.applyRematchOffers([0, 1], 3)
-    expect(useGameStore.getState().rematchOffers).toEqual([0, 1])
-    expect(useGameStore.getState().rematchNeeded).toBe(3)
+    expect(gameStore.getState().rematchOffers).toEqual([0, 1])
+    expect(gameStore.getState().rematchNeeded).toBe(3)
 
     // Seat 0 left: seat 1's ask moved down to 0, and the table is smaller.
     store.applyRematchOffers([0], 2)
-    expect(useGameStore.getState().rematchOffers).toEqual([0])
-    expect(useGameStore.getState().rematchNeeded).toBe(2)
+    expect(gameStore.getState().rematchOffers).toEqual([0])
+    expect(gameStore.getState().rematchNeeded).toBe(2)
   })
 
   it('clears the count with the offers, so no stale x/y survives', () => {
-    const store = useGameStore.getState()
+    const store = gameStore.getState()
     store.applyRematchOffers([0], 2)
     store.clearRematchOffers()
-    expect(useGameStore.getState().rematchOffers).toEqual([])
-    expect(useGameStore.getState().rematchNeeded).toBe(0)
+    expect(gameStore.getState().rematchOffers).toEqual([])
+    expect(gameStore.getState().rematchNeeded).toBe(0)
   })
 })
 
 describe('seat re-indexing after someone leaves', () => {
   it('follows our own nickname so a promoted player gains host controls', () => {
-    useGameStore.setState({
+    gameStore.setState({
       myIndex: 1,
       players: [
         { index: 0, nickname: 'Alice', hand_size: 0, connected: true },
@@ -143,31 +144,31 @@ describe('seat re-indexing after someone leaves', () => {
       ],
     })
     // Alice (the host) leaves; the server re-bases Bob to seat 0.
-    useGameStore.getState().setPlayers([{ index: 0, nickname: 'Bob', hand_size: 0, connected: true }])
-    expect(useGameStore.getState().myIndex).toBe(0)
+    gameStore.getState().setPlayers([{ index: 0, nickname: 'Bob', hand_size: 0, connected: true }])
+    expect(gameStore.getState().myIndex).toBe(0)
   })
 
   it('leaves myIndex alone when we are not in the new roster', () => {
-    useGameStore.setState({
+    gameStore.setState({
       myIndex: 1,
       players: [
         { index: 0, nickname: 'Alice', hand_size: 0, connected: true },
         { index: 1, nickname: 'Bob', hand_size: 0, connected: true },
       ],
     })
-    useGameStore.getState().setPlayers([{ index: 0, nickname: 'Alice', hand_size: 0, connected: true }])
-    expect(useGameStore.getState().myIndex).toBe(1)
+    gameStore.getState().setPlayers([{ index: 0, nickname: 'Alice', hand_size: 0, connected: true }])
+    expect(gameStore.getState().myIndex).toBe(1)
   })
 
   it('keeps our index when the roster grows below us', () => {
-    useGameStore.setState({
+    gameStore.setState({
       myIndex: 0,
       players: [{ index: 0, nickname: 'Alice', hand_size: 0, connected: true }],
     })
-    useGameStore.getState().setPlayers([
+    gameStore.getState().setPlayers([
       { index: 0, nickname: 'Alice', hand_size: 0, connected: true },
       { index: 1, nickname: 'Bob', hand_size: 0, connected: true },
     ])
-    expect(useGameStore.getState().myIndex).toBe(0)
+    expect(gameStore.getState().myIndex).toBe(0)
   })
 })

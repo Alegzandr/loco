@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-function cssFiles(dir: string, out: string[] = []): string[] {
+/**
+ * Every file that can hold a style rule. A .svelte component carries its own in
+ * a <style> block rather than in a stylesheet beside it, so a scan of .css alone
+ * would stop reading the app one component at a time, silently, and keep
+ * reporting green over rules it no longer looks at.
+ */
+function styleSources(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name)
-    if (statSync(p).isDirectory()) cssFiles(p, out)
-    else if (name.endsWith('.css')) out.push(p)
+    if (statSync(p).isDirectory()) styleSources(p, out)
+    else if (name.endsWith('.css') || name.endsWith('.svelte')) out.push(p)
   }
   return out
 }
@@ -14,7 +20,7 @@ function cssFiles(dir: string, out: string[] = []): string[] {
 /**
  * The motion preference has to be able to win over the system setting in both
  * directions, and a media query cannot be overridden from the app. So every
- * reduced-motion rule hangs off `data-motion`, which `useMotionPref` writes on
+ * reduced-motion rule hangs off `data-motion`, which `motionPref` writes on
  * <html> from the OS setting *and* the player's answer.
  *
  * A new `@media (prefers-reduced-motion: reduce)` block would still work for
@@ -22,7 +28,7 @@ function cssFiles(dir: string, out: string[] = []): string[] {
  * nobody notices until somebody reports that the switch does nothing.
  */
 describe('reduced-motion styling', () => {
-  const files = cssFiles('src')
+  const files = styleSources('src')
 
   it('scopes every rule to data-motion rather than to the media query', () => {
     // The at-rule itself, not the words: the feature is still worth naming in

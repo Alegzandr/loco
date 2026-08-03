@@ -1,4 +1,4 @@
-// Card colour palette and shared dimensions for the React rendering layer.
+// Card colour palette and shared dimensions for the card renderer.
 import { CardColor, CardDTO } from '../../types/protocol'
 
 // ─── Suits ──────────────────────────────────────────────────────────────────
@@ -75,14 +75,13 @@ export const ACTIVE_RING: Record<CardColor, string> = {
 }
 
 // ─── Motion ─────────────────────────────────────────────────────────────────
-// One easing curve and one spring shared by every card movement, so a card
-// travelling from hand to discard and the neighbours closing the gap behind it
-// decelerate on the same curve.
+// The easing every card flight decelerates on, as control points, because that
+// is the form `element.animate` takes them in (`AnimationLayer.svelte`).
+//
+// The fan's reflow used to be a spring declared next to this, for a runtime that
+// could interpolate one. It is a CSS transition in `Hand.svelte` now and its
+// curve is written there, next to the rule it belongs to.
 export const EASE_OUT_CARD = [0.16, 1, 0.3, 1] as const
-
-// Reflow of the hand fan: stiff enough to feel immediate, damped enough not to
-// wobble. `mass` is kept low so many cards settling at once stay crisp.
-export const SPRING_HAND = { type: 'spring', stiffness: 520, damping: 38, mass: 0.7 } as const
 
 // Per-card delay when a fresh hand is dealt, in ms.
 export const DEAL_STAGGER_MS = 45
@@ -140,7 +139,7 @@ export function flightFor(card: CardDTO): Flight {
   return FLIGHTS[cardRarity(card)]
 }
 
-// Layout math works in radians; framer-motion's `rotate` is in degrees.
+// Layout math works in radians; CSS `rotate()` is in degrees.
 // Convert at the render boundary so neither side has to compromise.
 export function radToDeg(rad: number): number {
   return (rad * 180) / Math.PI
@@ -156,8 +155,8 @@ export const CARD_RADIUS = 5
 // Reserved for the action bar so cards never overlap it.
 export const BOTTOM_RESERVE = 82
 
-// Opponent pill dimensions. Mirrored in PlayerSlot.module.css and consumed by
-// the seat layout, so they live here rather than in either of those files.
+// Opponent pill dimensions. Mirrored by <PlayerSlot />'s own styles and consumed
+// by the seat layout, so they live here rather than in either of those places.
 export const PILL_W = 172
 export const PILL_H = 66
 export const PILL_W_COMPACT = 124

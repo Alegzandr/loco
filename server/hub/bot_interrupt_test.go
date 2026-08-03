@@ -55,15 +55,17 @@ func TestBotInterrupt_SlamsBackOnAHumanPlay(t *testing.T) {
 	red5 := protocol.CardDTO{Color: "red", Kind: "number", Value: 5}
 	zero := 0
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:      protocol.CMsgDebugSetState,
-		DebugHand: []protocol.CardDTO{red5, {Color: "blue", Kind: "number", Value: 9}},
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: bot, Hand: []protocol.CardDTO{red5, {Color: "green", Kind: "number", Value: 3}}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand: []protocol.CardDTO{red5, {Color: "blue", Kind: "number", Value: 9}},
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: bot, Hand: []protocol.CardDTO{red5, {Color: "green", Kind: "number", Value: 3}}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
@@ -127,15 +129,17 @@ func TestBotInterrupt_ProbabilityGateIsWired(t *testing.T) {
 	red5 := protocol.CardDTO{Color: "red", Kind: "number", Value: 5}
 	zero := 0
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:      protocol.CMsgDebugSetState,
-		DebugHand: []protocol.CardDTO{red5, {Color: "blue", Kind: "number", Value: 9}},
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: bot, Hand: []protocol.CardDTO{red5, {Color: "green", Kind: "number", Value: 3}}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand: []protocol.CardDTO{red5, {Color: "blue", Kind: "number", Value: 9}},
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: bot, Hand: []protocol.CardDTO{red5, {Color: "green", Kind: "number", Value: 3}}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &me,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 3},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &me,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 

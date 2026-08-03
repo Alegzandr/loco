@@ -110,7 +110,7 @@ interface LocoE2EHelper {
   send: (msg: object) => void
   /** Return the current Zustand store state snapshot. */
   getState: () => LocoE2EState
-  /** Return the current WebSocket connection status from useWebSocket. */
+  /** Return the current WebSocket connection status from webSocket. */
   getWsStatus: () => 'connecting' | 'open' | 'closed'
   /** Force-close the active WebSocket (dev/test seam). */
   forceCloseWs: () => void

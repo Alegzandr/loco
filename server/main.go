@@ -33,6 +33,14 @@ const defaultDrainTimeout = 90 * time.Second
 const shutdownGrace = 5 * time.Second
 
 func main() {
+	// First, before anything has a line to write. From here on log.Printf hands
+	// its line to a goroutine instead of writing it: a log line was the most
+	// expensive call in any handler and the only one a process on the other end
+	// of the pipe could make wait, which meant a slow log consumer stalled the
+	// event loop and therefore every table on the server. See hub/logsink.go.
+	logSink := hub.NewAsyncLog(os.Stderr, hub.LogQueueDepth)
+	log.SetOutput(logSink)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
@@ -43,6 +51,7 @@ func main() {
 	hub.ApplyBotTimingEnv()
 
 	h := hub.New()
+	h.SetLogSink(logSink)
 	go h.Run()
 
 	// Before the listener is up, so no socket can arrive into a half-restored
@@ -87,7 +96,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer stop()
 
+	// Closed once the shutdown has run to the end. ListenAndServe returns the
+	// moment srv.Shutdown is *called*, not when it is finished, so main used to
+	// be free to return — and take the process with it — while the drain, the
+	// snapshot and h.Stop were still going. It was survivable while all three
+	// were fast and in memory; it stops being survivable the moment the last
+	// thing a shutdown does is flush a log queue.
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		// Restores the default handlers: a second signal from here on kills the
 		// process the old way, which is the escape hatch an operator needs if a
@@ -97,9 +114,17 @@ func main() {
 	}()
 
 	log.Printf("loco server listening on :%s", port)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+	err := srv.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		// Not log.Fatal: os.Exit would leave this line sitting in the sink's
+		// queue, and the line saying why the server never came up is the one
+		// line an operator cannot do without.
+		log.Printf("FATAL listen failed err=%v", err)
+		_ = logSink.Close()
+		os.Exit(1)
 	}
+	<-shutdownDone
+	_ = logSink.Close()
 }
 
 // shutdown drains, then snapshots whatever the drain did not finish, then

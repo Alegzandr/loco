@@ -19,7 +19,7 @@ closeMenuWhenWidened()
 
 /**
  * The drawer's one action, and the one place on this page where markup Astro
- * rendered has to reach the application React mounted beside it.
+ * rendered has to reach the application mounted beside it.
  *
  * A custom event rather than a shared store: the drawer is in `#root`'s sibling,
  * not in its tree, so there is nothing to pass a callback through, and the
@@ -43,8 +43,9 @@ if (prefsRow) {
 }
 
 const sheet = document.querySelector<HTMLDetailsElement>('.homeSheet')
-const panel = sheet?.querySelector<HTMLElement>('.homeSheetPanel')
+const scrim = document.querySelector<HTMLElement>('.homeSheetScrim')
 const control = sheet?.querySelector<HTMLElement>('.homeSheetBtn')
+const closeX = sheet?.querySelector<HTMLButtonElement>('.homeSheetX')
 
 function close() {
   if (!sheet?.open) return
@@ -52,12 +53,21 @@ function close() {
   control?.focus()
 }
 
-if (sheet && panel) {
-  // The scrim is the panel itself; the card sits inside it, so a click that
-  // never left the panel is a click outside the card.
-  panel.addEventListener('click', (e) => {
-    if (e.target === panel) close()
-  })
+if (sheet) {
+  // The scrim is a sibling of the card, not its parent — the card is the
+  // <details> element itself — so anything reaching this element is a press that
+  // landed beside the card rather than on it.
+  scrim?.addEventListener('click', close)
+
+  // The ✕ beside the title, which only a script can wire: the footer button is
+  // the <summary> and closes the sheet on its own, this one has nothing native
+  // behind it. Revealed here for the reason the drawer's Preferences row is —
+  // with no bundle it would be a control that does nothing.
+  if (closeX) {
+    closeX.hidden = false
+    closeX.addEventListener('click', close)
+  }
+
   // Only while open, so this never eats an Escape the game wanted. The footer is
   // display:none from the first seat onwards and cannot be open by then anyway.
   document.addEventListener('keydown', (e) => {

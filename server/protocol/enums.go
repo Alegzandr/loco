@@ -1,0 +1,68 @@
+package protocol
+
+// The wire enums.
+//
+// The domain owns these values (game.Color.String(), game.Kind.String(), and
+// the formats Room.SetFormat accepts); this file is the spelling they travel
+// under, and enums_test.go pins one to the other in both directions.
+//
+// They exist because messages.go is the single source the TypeScript client is
+// generated from. A field typed `string` there generates a field typed `string`,
+// which would have thrown away a narrowing the hand-written client always had:
+// a colour off the wire is one of five things, and the client's pickers, its
+// suit shapes and its active-colour chip are all written against that. Typing
+// the fields here also gives the server a compile-time check it did not have,
+// since a colour used to be any string at all right up to parseColor.
+//
+// These are string types, so nothing about the bytes on the wire changes.
+
+// CardColor is a card colour, or the table's active colour, as it travels.
+// ColorWild is what a wild card carries before its owner names a real one; it
+// must never reach a game state's active colour.
+type CardColor string
+
+const (
+	ColorRed    CardColor = "red"
+	ColorYellow CardColor = "yellow"
+	ColorGreen  CardColor = "green"
+	ColorBlue   CardColor = "blue"
+	ColorWild   CardColor = "wild"
+)
+
+// AllCardColors is what enums_test.go checks the domain against, and what the
+// generator checks the const block against. Keep it in declaration order.
+var AllCardColors = []CardColor{ColorRed, ColorYellow, ColorGreen, ColorBlue, ColorWild}
+
+// CardKind is a card's kind as it travels. KindWild is the plain wild card;
+// KindGlobalSwitch is LOCO's own, a wild that rotates every hand.
+type CardKind string
+
+const (
+	KindNumber       CardKind = "number"
+	KindSkip         CardKind = "skip"
+	KindReverse      CardKind = "reverse"
+	KindDrawTwo      CardKind = "draw_two"
+	KindWild         CardKind = "wild"
+	KindWildDrawFour CardKind = "wild_draw_four"
+	KindSwap         CardKind = "swap"
+	KindGlobalSwitch CardKind = "global_switch"
+)
+
+// AllCardKinds mirrors AllCardColors' contract.
+var AllCardKinds = []CardKind{
+	KindNumber, KindSkip, KindReverse, KindDrawTwo,
+	KindWild, KindWildDrawFour, KindSwap, KindGlobalSwitch,
+}
+
+// MatchFormat is the best-of-N format a table is playing.
+type MatchFormat string
+
+const (
+	FormatBO1 MatchFormat = "BO1"
+	FormatBO3 MatchFormat = "BO3"
+	FormatBO5 MatchFormat = "BO5"
+	FormatBO7 MatchFormat = "BO7"
+)
+
+// AllMatchFormats mirrors AllCardColors' contract.
+var AllMatchFormats = []MatchFormat{FormatBO1, FormatBO3, FormatBO5, FormatBO7}

@@ -5,6 +5,9 @@
 // the drawer a phone opens from the burger — two presentations of one thing, and
 // the only prose on `/` a crawler can read. Rendering it from here is what stops
 // the two copies drifting into two different descriptions of the game.
+//
+// The sections head at <h3>: the sheet is the rules modal now, and the modal
+// titles itself at <h2>. The document's one <h1> is the served heading on `/`.
 import { ui } from './ui'
 import type { Lang } from '../seo/meta'
 
@@ -16,12 +19,12 @@ const { lang } = Astro.props
 ---
 
 <section>
-  <h2>{ui('homeAboutH2', lang)}</h2>
+  <h3>{ui('homeAboutH2', lang)}</h3>
   <p>{ui('homeAbout', lang)}</p>
 </section>
 
 <section>
-  <h2>{ui('homeDiffH2', lang)}</h2>
+  <h3>{ui('homeDiffH2', lang)}</h3>
   <ul>
     <li>{ui('homeDiff1', lang)}</li>
     <li>{ui('homeDiff2', lang)}</li>

@@ -22,8 +22,8 @@ const (
 	// Matchmaking: a 1v1 against whoever is looking for the same thing. The
 	// queue is anonymous and its size is never on the wire. See
 	// SMsgMatchmakingQueued.
-	CMsgFindMatch          ClientMsgType = "find_match"
-	CMsgCancelMatchmaking  ClientMsgType = "cancel_matchmaking"
+	CMsgFindMatch         ClientMsgType = "find_match"
+	CMsgCancelMatchmaking ClientMsgType = "cancel_matchmaking"
 	// CMsgLeaveRoom gives up the seat this socket holds without dropping the
 	// connection. It is what "search for another opponent" is built on, and in a
 	// matchmade match in progress it is a deliberate forfeit.
@@ -34,7 +34,7 @@ const (
 	CMsgPassTurn    ClientMsgType = "pass_turn"
 	CMsgDeclareUno  ClientMsgType = "declare_uno"
 	CMsgCatchUno    ClientMsgType = "catch_uno"
-	CMsgCounterDraw    ClientMsgType = "counter_draw"
+	CMsgCounterDraw ClientMsgType = "counter_draw"
 	// CMsgMapReady tells the server this client has the match's map decoded and
 	// is ready to play. Sent once per match, in answer to SMsgMatchLoading.
 	CMsgMapReady ClientMsgType = "map_ready"
@@ -98,7 +98,7 @@ const (
 	// SMsgCatchFailed names the seat whose Contre-LOCO! arrived too late and was
 	// charged a card for it. Broadcast to the whole room: the wager is public,
 	// like the catch it lost to.
-	SMsgCatchFailed ServerMsgType = "catch_failed"
+	SMsgCatchFailed      ServerMsgType = "catch_failed"
 	SMsgInterruptSuccess ServerMsgType = "interrupt_success"
 	// Round / match lifecycle
 	SMsgRoundEnd ServerMsgType = "round_end"
@@ -128,6 +128,8 @@ const (
 )
 
 // ClientMsg is the envelope for all client-to-server messages.
+//
+//protocolgen:envelope
 type ClientMsg struct {
 	Type ClientMsgType `json:"type"`
 
@@ -139,9 +141,9 @@ type ClientMsg struct {
 	SessionToken string `json:"session_token,omitempty"`
 
 	// CMsgPlayCard / CMsgCounterDraw
-	Card         *CardDTO `json:"card,omitempty"`
-	ChosenColor  string   `json:"chosen_color,omitempty"`
-	ChosenPlayer *int     `json:"chosen_player,omitempty"` // target player index for Swap cards
+	Card         *CardDTO  `json:"card,omitempty"`
+	ChosenColor  CardColor `json:"chosen_color,omitempty"`
+	ChosenPlayer *int      `json:"chosen_player,omitempty"` // target player index for Swap cards
 
 	// CMsgPlayCard batch: when the player plays multiple identical cards at once.
 	// All cards must be exactly equal; if PlayCards is non-empty it takes precedence
@@ -158,20 +160,32 @@ type ClientMsg struct {
 	TargetIndex *int `json:"target_index,omitempty"`
 
 	// CMsgSetMatchFormat
-	MatchFormat string `json:"match_format,omitempty"`
+	MatchFormat MatchFormat `json:"match_format,omitempty"`
 
 	// CMsgSetMaxPlayers
 	MaxPlayers int `json:"max_players,omitempty"`
 
 	// CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
-	// Any combination of fields may be provided; omitted fields are left unchanged.
-	DebugHand        []CardDTO              `json:"debug_hand,omitempty"`          // replace this player's hand
-	DebugHands       []DebugHandOverrideDTO `json:"debug_hands,omitempty"`         // replace arbitrary players' hands
-	DebugDiscard     *CardDTO               `json:"debug_discard,omitempty"`       // replace top of discard pile
-	DebugActiveColor string                 `json:"debug_active_color,omitempty"`  // override active color
-	DebugPendingDraw *int                   `json:"debug_pending_draw,omitempty"`  // override pending draw count
-	DebugCurrentTurn *int                   `json:"debug_current_turn,omitempty"`  // override current turn player index
-	DebugDirection   *int                   `json:"debug_direction,omitempty"`     // override play direction (1 cw, -1 ccw)
+	//
+	// One pointer, not seven fields. This struct is every message a client can
+	// send, so seven flattened fixture fields were carried by play_card and
+	// catch_uno too, and a reader of ClientMsg had to know which of the twenty
+	// fields in front of them belonged to a message no player's client ever
+	// sends. Nested, the fixture is one nil check away from the wire protocol
+	// and reads as what it is: a dev-only payload hanging off a dev-only type.
+	Debug *DebugStateDTO `json:"debug,omitempty"`
+}
+
+// DebugStateDTO is the whole payload of debug_set_state. Any combination of
+// fields may be provided; omitted fields leave that part of the state alone.
+type DebugStateDTO struct {
+	Hand        []CardDTO              `json:"hand,omitempty"`         // replace this player's hand
+	Hands       []DebugHandOverrideDTO `json:"hands,omitempty"`        // replace arbitrary players' hands
+	Discard     *CardDTO               `json:"discard,omitempty"`      // replace top of discard pile
+	ActiveColor CardColor              `json:"active_color,omitempty"` // override active color
+	PendingDraw *int                   `json:"pending_draw,omitempty"` // override pending draw count
+	CurrentTurn *int                   `json:"current_turn,omitempty"` // override current turn player index
+	Direction   *int                   `json:"direction,omitempty"`    // override play direction (1 cw, -1 ccw)
 }
 
 // DebugHandOverrideDTO is one per-player hand replacement used by debug_set_state.
@@ -182,9 +196,18 @@ type DebugHandOverrideDTO struct {
 
 // CardDTO is the wire representation of a card.
 type CardDTO struct {
-	Color string `json:"color"`
-	Kind  string `json:"kind"`
-	Value int    `json:"value,omitempty"`
+	Color CardColor `json:"color"`
+	Kind  CardKind  `json:"kind"`
+	Value int       `json:"value,omitempty"`
+}
+
+// CatchSeatDTO names a seat that owes the table a declaration, and says when
+// its window shuts. EndsAt is unix milliseconds, like every other deadline on
+// the wire, so a client renders a countdown against its own clock rather than
+// holding a copy of the server's window length.
+type CatchSeatDTO struct {
+	PlayerIndex int   `json:"player_index"`
+	EndsAt      int64 `json:"ends_at"`
 }
 
 // ScoreboardEntryDTO is one player's match-level score summary.
@@ -206,6 +229,8 @@ type LatencyEntryDTO struct {
 }
 
 // ServerMsg is the envelope for all server-to-client messages.
+//
+//protocolgen:envelope
 type ServerMsg struct {
 	Type ServerMsgType `json:"type"`
 
@@ -241,9 +266,9 @@ type ServerMsg struct {
 	// it open — Contre-LOCO! stayed armed on a player who had already called it
 	// and the server refused every tap with "player already declared".
 	// Read it with Seat(); absent means "this message names no seat".
-	PlayerIndex *int     `json:"player_index,omitempty"`
-	Card        *CardDTO `json:"card,omitempty"`
-	ActiveColor string   `json:"active_color,omitempty"` // authoritative active color after card play
+	PlayerIndex *int      `json:"player_index,omitempty"`
+	Card        *CardDTO  `json:"card,omitempty"`
+	ActiveColor CardColor `json:"active_color,omitempty"` // authoritative active color after card play
 	// Set only when a Swap card resolves: the target player index whose hand was exchanged
 	// with the actor's hand. Lets clients show a "X swapped with Y" notification without
 	// exposing hand contents to non-participants.
@@ -268,6 +293,18 @@ type ServerMsg struct {
 	// display and reset the countdown when a new turn begins.
 	TurnDeadline int64 `json:"turn_deadline,omitempty"`
 
+	// SMsgCardPlayed: every seat that owes the table a declaration once this
+	// play has resolved, with the instant each window shuts.
+	//
+	// The server sends it because the server decides it. The client used to work
+	// it out again from the roster and the card kind (an ordinary play puts the
+	// actor on the hook, a Swap or a GlobalSwitch puts every seat left holding
+	// one card on it), which is the server's rule living in two places, in two
+	// languages, with nothing checking they agree. A drift there does not fail,
+	// it just arms Contre-LOCO! on a tap the server will refuse, or leaves it
+	// dark on a seat the player was entitled to catch.
+	CatchSeats []CatchSeatDTO `json:"catch_seats,omitempty"`
+
 	// SMsgCardPlayed / SMsgCardDrawn: the authoritative turn state AFTER the
 	// event.
 	//
@@ -283,7 +320,14 @@ type ServerMsg struct {
 
 	// SMsgCardDrawn: multiple cards drawn at once (penalty draw)
 	// Cards holds all drawn cards for the drawing player; DrawnCount tells observers how many.
-	Cards []*CardDTO `json:"cards,omitempty"`
+	//
+	// A slice of values, not of pointers. `[]*CardDTO` says a slot can be null,
+	// which the server has never produced and no client has ever handled, and it
+	// has no honest TypeScript spelling: the generator would have had to either
+	// invent `(CardDTO | null)[]` for a case that cannot arise, or quietly drop
+	// the nullability and be stricter than the wire. Neither is a decision worth
+	// leaving to a code generator.
+	Cards []CardDTO `json:"cards,omitempty"`
 	// No omitempty for the same reason as Turn, and here it was not luck: a draw
 	// against exhausted piles hands over nothing, and the client's fallback for
 	// an absent count was 1 — so every observer would have added a card nobody
@@ -323,8 +367,8 @@ type ServerMsg struct {
 	Latencies []LatencyEntryDTO `json:"latencies,omitempty"`
 
 	// SMsgLobbyConfigChanged
-	MatchFormat string `json:"match_format,omitempty"`
-	MaxPlayers  int    `json:"max_players,omitempty"`
+	MatchFormat MatchFormat `json:"match_format,omitempty"`
+	MaxPlayers  int         `json:"max_players,omitempty"`
 
 	// SMsgMatchLoading: the seats whose client has the map decoded.
 	//
@@ -389,11 +433,14 @@ type PlayerDTO struct {
 
 // GameEventDTO is the wire representation of a game event.
 type GameEventDTO struct {
-	Kind        string   `json:"kind"`
-	PlayerIndex int      `json:"player_index"`
-	Card        *CardDTO `json:"card,omitempty"`
-	ChosenColor string   `json:"chosen_color,omitempty"`
-	At          int64    `json:"at"` // unix milliseconds
+	// Kind stays a bare string, unlike CardDTO.Kind: these are event kinds from
+	// the domain's own log, they are read only as labels, and a server that logs
+	// a new one must not make a generated client refuse the whole snapshot.
+	Kind        string    `json:"kind"`
+	PlayerIndex int       `json:"player_index"`
+	Card        *CardDTO  `json:"card,omitempty"`
+	ChosenColor CardColor `json:"chosen_color,omitempty"`
+	At          int64     `json:"at"` // unix milliseconds
 }
 
 // GameStateDTO is the per-player view of the game state sent on join/start.
@@ -402,7 +449,7 @@ type GameStateDTO struct {
 	Hand        []CardDTO      `json:"hand"`
 	Players     []PlayerDTO    `json:"players"`
 	Discard     CardDTO        `json:"discard"`
-	ActiveColor string         `json:"active_color"`
+	ActiveColor CardColor      `json:"active_color"`
 	Turn        int            `json:"turn"`
 	Direction   int            `json:"direction"`
 	PendingDraw int            `json:"pending_draw,omitempty"`
@@ -410,14 +457,14 @@ type GameStateDTO struct {
 	EventLog    []GameEventDTO `json:"event_log,omitempty"`
 
 	// Match info
-	RoundNumber int                  `json:"round_number"`
-	MatchFormat string               `json:"match_format"`
-	MaxPlayers  int                  `json:"max_players"`
+	RoundNumber int         `json:"round_number"`
+	MatchFormat MatchFormat `json:"match_format"`
+	MaxPlayers  int         `json:"max_players"`
 	// MapID names the room this match is played in (see game/maps.go). Rides
 	// every snapshot rather than only game_started so a reconnecting player
 	// rebuilds the same table as everybody else. Empty = the built-in felt.
-	MapID string `json:"map_id,omitempty"`
-	Scoreboard  []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
+	MapID      string               `json:"map_id,omitempty"`
+	Scoreboard []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 	// RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
 	// Included in every snapshot so a reconnecting player recovers the table.
 	RoundHistory [][]int `json:"round_history,omitempty"`

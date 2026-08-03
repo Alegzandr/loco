@@ -1324,12 +1324,14 @@ func TestTurnTimer_BotGameSurvivesInterleavedTimeouts(t *testing.T) {
 	noPending := 0
 	sendMsg(t, conn, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}}},
+		Debug: &protocol.DebugStateDTO{
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			ActiveColor: "red",
+			PendingDraw: &noPending,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &noPending,
 	})
 
 	for {
@@ -1532,15 +1534,17 @@ func TestInterruptPlay_ValidMatch_AcceptedAndBroadcast(t *testing.T) {
 	blue9 := protocol.CardDTO{Color: "blue", Kind: "number", Value: 9}
 	zero := 0
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:         protocol.CMsgDebugSetState,
-		DebugDiscard: &red5,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 0, Hand: []protocol.CardDTO{red5, blue9}},
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{blue9, blue9}},
-			{PlayerIndex: 2, Hand: []protocol.CardDTO{red5, blue9}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Discard: &red5,
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 0, Hand: []protocol.CardDTO{red5, blue9}},
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{blue9, blue9}},
+				{PlayerIndex: 2, Hand: []protocol.CardDTO{red5, blue9}},
+			},
+			PendingDraw: &zero,
+			CurrentTurn: &zero,
 		},
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &zero,
 	})
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -1600,15 +1604,17 @@ func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
 	blue9 := protocol.CardDTO{Color: "blue", Kind: "number", Value: 9}
 	zero := 0
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:         protocol.CMsgDebugSetState,
-		DebugDiscard: &red3,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 0, Hand: []protocol.CardDTO{red3, blue9}},
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{blue9, blue9}},
-			{PlayerIndex: 2, Hand: []protocol.CardDTO{red3, red3, blue9}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Discard: &red3,
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 0, Hand: []protocol.CardDTO{red3, blue9}},
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{blue9, blue9}},
+				{PlayerIndex: 2, Hand: []protocol.CardDTO{red3, red3, blue9}},
+			},
+			PendingDraw: &zero,
+			CurrentTurn: &zero,
 		},
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &zero,
 	})
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -1675,15 +1681,17 @@ func TestInterruptPlay_GlobalSwitch_ResendsHands(t *testing.T) {
 	green7 := protocol.CardDTO{Color: "green", Kind: "number", Value: 7}
 	zero := 0
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:         protocol.CMsgDebugSetState,
-		DebugDiscard: &red3,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 0, Hand: []protocol.CardDTO{gs, blue9}},
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{green7}},
-			{PlayerIndex: 2, Hand: []protocol.CardDTO{gs, red3}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Discard: &red3,
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 0, Hand: []protocol.CardDTO{gs, blue9}},
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{green7}},
+				{PlayerIndex: 2, Hand: []protocol.CardDTO{gs, red3}},
+			},
+			PendingDraw: &zero,
+			CurrentTurn: &zero,
 		},
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &zero,
 	})
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -1716,7 +1724,7 @@ func TestInterruptPlay_GlobalSwitch_ResendsHands(t *testing.T) {
 	want := []struct {
 		state *protocol.GameStateDTO
 		seat  string
-		color string
+		color protocol.CardColor
 		value int
 	}{
 		{st1.State, "Alice", "green", 7},
@@ -1781,10 +1789,12 @@ func TestCatchUNO_HumanCatchesHuman(t *testing.T) {
 	// Patch the active player's hand and the shared discard to known values.
 	zero := 0
 	sendMsg(t, activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	// Both players receive a personalized game_state from debug_set_state.
 	readMsgOfType(t, activeConn, protocol.SMsgGameState)
@@ -1846,24 +1856,26 @@ func TestDebugSetState_OverridesHandsAndTurn(t *testing.T) {
 	pending := 2
 	sendMsg(t, conn1, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{
-				PlayerIndex: idx1,
-				Hand: []protocol.CardDTO{
-					{Color: "red", Kind: "number", Value: 1},
+		Debug: &protocol.DebugStateDTO{
+			Hands: []protocol.DebugHandOverrideDTO{
+				{
+					PlayerIndex: idx1,
+					Hand: []protocol.CardDTO{
+						{Color: "red", Kind: "number", Value: 1},
+					},
+				},
+				{
+					PlayerIndex: idx2,
+					Hand: []protocol.CardDTO{
+						{Color: "blue", Kind: "number", Value: 9},
+						{Color: "green", Kind: "number", Value: 2},
+					},
 				},
 			},
-			{
-				PlayerIndex: idx2,
-				Hand: []protocol.CardDTO{
-					{Color: "blue", Kind: "number", Value: 9},
-					{Color: "green", Kind: "number", Value: 2},
-				},
-			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &pending,
+			CurrentTurn: &idx2,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &pending,
-		DebugCurrentTurn: &idx2,
 	})
 
 	post1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
@@ -1917,8 +1929,10 @@ func TestDebugSetState_OverridesDirection(t *testing.T) {
 
 	ccw := -1
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:           protocol.CMsgDebugSetState,
-		DebugDirection: &ccw,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Direction: &ccw,
+		},
 	})
 	post1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
 	post2 := readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -1931,8 +1945,10 @@ func TestDebugSetState_OverridesDirection(t *testing.T) {
 
 	cw := 1
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:           protocol.CMsgDebugSetState,
-		DebugDirection: &cw,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Direction: &cw,
+		},
 	})
 	back1 := readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -1944,8 +1960,10 @@ func TestDebugSetState_OverridesDirection(t *testing.T) {
 	// and any other value would step over seats.
 	bogus := 2
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:           protocol.CMsgDebugSetState,
-		DebugDirection: &bogus,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Direction: &bogus,
+		},
 	})
 	if errMsg := readMsgOfType(t, conn1, protocol.SMsgError); errMsg.Error == "" {
 		t.Fatal("expected an error for a bogus direction")
@@ -2001,10 +2019,12 @@ func TestBotCatch_WithinWindow(t *testing.T) {
 	// Give Alice exactly 2 matching cards and a known discard.
 	zero := 0
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
@@ -2069,10 +2089,12 @@ func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
 	// Give Alice 2 matching cards.
 	zero := 0
 	sendMsg(t, conn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
@@ -2158,21 +2180,23 @@ func TestBotUno_CatchableDuringAnnounceDelay(t *testing.T) {
 	zero := 0
 	sendMsg(t, conn, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: bot, Hand: []protocol.CardDTO{
-				{Color: "red", Kind: "number", Value: 6},
-				{Color: "red", Kind: "number", Value: 7},
-			}},
-			{PlayerIndex: alice, Hand: []protocol.CardDTO{
-				{Color: "red", Kind: "number", Value: 4},
-				{Color: "blue", Kind: "number", Value: 2},
-				{Color: "green", Kind: "number", Value: 3},
-			}},
+		Debug: &protocol.DebugStateDTO{
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: bot, Hand: []protocol.CardDTO{
+					{Color: "red", Kind: "number", Value: 6},
+					{Color: "red", Kind: "number", Value: 7},
+				}},
+				{PlayerIndex: alice, Hand: []protocol.CardDTO{
+					{Color: "red", Kind: "number", Value: 4},
+					{Color: "blue", Kind: "number", Value: 2},
+					{Color: "green", Kind: "number", Value: 3},
+				}},
+			},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &alice,
 		},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &alice,
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
@@ -2359,11 +2383,13 @@ func TestRoundTransition_CardPlayedReflectsWinningPlay(t *testing.T) {
 	zero := 0
 	turnIdx := 0
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{winCard},
-		DebugDiscard:     &top,
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &turnIdx,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{winCard},
+			Discard:     &top,
+			PendingDraw: &zero,
+			CurrentTurn: &turnIdx,
+		},
 	})
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -2591,12 +2617,14 @@ func TestPlayCard_SwapBroadcastsChosenPlayer(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "swap"}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &activeIdx,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "swap"}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &activeIdx,
+		},
 	})
 	readMsgOfType(t, activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, observerConn, protocol.SMsgGameState)
@@ -2658,12 +2686,14 @@ func TestPlayCard_NonSwapOmitsChosenPlayer(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugActiveColor: "red",
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &activeIdx,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			ActiveColor: "red",
+			PendingDraw: &zero,
+			CurrentTurn: &activeIdx,
+		},
 	})
 	readMsgOfType(t, activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, observerConn, protocol.SMsgGameState)
@@ -2718,16 +2748,18 @@ func TestPlayCard_DirectionInPayload(t *testing.T) {
 	redReverse := protocol.CardDTO{Color: "red", Kind: "reverse"}
 	red7 := protocol.CardDTO{Color: "red", Kind: "number", Value: 7}
 	sendMsg(t, conn1, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugDiscard:     &red5,
-		DebugActiveColor: "red",
-		DebugHands: []protocol.DebugHandOverrideDTO{
-			{PlayerIndex: 0, Hand: []protocol.CardDTO{redReverse, red7}},
-			{PlayerIndex: 1, Hand: []protocol.CardDTO{red5, red5}},
-			{PlayerIndex: 2, Hand: []protocol.CardDTO{red5, red5}},
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Discard:     &red5,
+			ActiveColor: "red",
+			Hands: []protocol.DebugHandOverrideDTO{
+				{PlayerIndex: 0, Hand: []protocol.CardDTO{redReverse, red7}},
+				{PlayerIndex: 1, Hand: []protocol.CardDTO{red5, red5}},
+				{PlayerIndex: 2, Hand: []protocol.CardDTO{red5, red5}},
+			},
+			PendingDraw: &zero,
+			CurrentTurn: &zero,
 		},
-		DebugPendingDraw: &zero,
-		DebugCurrentTurn: &zero,
 	})
 	readMsgOfType(t, conn1, protocol.SMsgGameState)
 	readMsgOfType(t, conn2, protocol.SMsgGameState)
@@ -2942,10 +2974,12 @@ func TestCatchUNO_FailedCatchCostsACard(t *testing.T) {
 
 	zero := 0
 	sendMsg(t, activeConn, protocol.ClientMsg{
-		Type:             protocol.CMsgDebugSetState,
-		DebugHand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
-		DebugDiscard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
-		DebugPendingDraw: &zero,
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
+			PendingDraw: &zero,
+		},
 	})
 	readMsgOfType(t, activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, catcherConn, protocol.SMsgGameState)

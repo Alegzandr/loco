@@ -32,10 +32,8 @@ Shipped inside the built client:
 
 | Component | Licence |
 | --- | --- |
-| React, React DOM | MIT |
-| Zustand | MIT |
-| Zod | MIT |
-| Framer Motion | MIT |
+| Svelte | MIT |
+| Valibot | MIT |
 | Fredoka Variable (`@fontsource-variable/fredoka`) | SIL Open Font License 1.1 |
 | Nunito Variable (`@fontsource-variable/nunito`) | SIL Open Font License 1.1 |
 

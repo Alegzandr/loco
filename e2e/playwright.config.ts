@@ -22,7 +22,7 @@ export default defineConfig({
   // that with a single worker; what it changes is the granularity CI shards at.
   //
   // Left false, Playwright shards whole spec files, and these files are wildly
-  // uneven (rules-coverage alone holds 23 of 87 tests): `--shard=i/4` produced
+  // uneven (rules-coverage alone holds 23 of 122 tests): `--shard=i/4` produced
   // 27 / 39 / 0 / 21, i.e. one job running empty while another carried 45% of
   // the suite. True, it shards per test and the four jobs come out even.
   //

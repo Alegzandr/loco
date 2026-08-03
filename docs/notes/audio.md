@@ -14,7 +14,7 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   `loco_audio`, per-frame voice budget so a batch play can't stack a dozen voices.
 - **Mobile Safari loses the context in three ways, and all three fail as silence rather than as an
   error**, which is why nothing in the suite went red on them for months.
-  `src/test/audioLifecycle.test.tsx` owns all three.
+  `src/test/audioLifecycle.test.ts` owns all three.
   - **`unlock()` resumes anything that is not `running`, never just `suspended`.** WebKit parks the
     context in its own non-standard **`interrupted`** state when the page is backgrounded, when a
     call lands, or when Siri speaks. Guarded on `=== 'suspended'` the resume never fired, so
@@ -24,9 +24,9 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
     back cost the player the sound for the rest of the page's life.
   - **`unlock()` is `async` and resolves once the context is really running.** `resume()` is a
     promise, so starting the bed on the next line found `isReady()` still false and silently did
-    nothing; the sound only arrived on the player's *second* tap. `useGameAudio` starts the music
+    nothing; the sound only arrived on the player's *second* tap. `gameAudio()` starts the music
     inside the `.then()`.
-  - **`visibilitychange` + `focus` reclaim the context** (`useGameAudio`, skipped while hidden).
+  - **`visibilitychange` + `focus` reclaim the context** (`gameAudio()`, skipped while hidden).
     Coming back from another app is exactly when the context needs reclaiming and exactly when
     there is no gesture to hang it on: the player looks at the board before touching it. It does
     not replace the gesture handlers (a resume outside one may be refused), but the page keeps its
@@ -129,9 +129,12 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   - `music.duck(ms)` pulls the bed under the win/lose fanfares through the bed's own output stage,
     so it never touches the user's music volume. Two pieces of music fighting for the same moment
     makes both of them mush, and the fanfare is the one people clip.
-- `audio/useGameAudio.ts` — **the only place that plays anything**. One store subscription diffs
-  snapshots (`soundsForTransition`, pure and unit-tested) instead of audio calls scattered through
-  components: every sound stays in one readable list and can't double-fire.
+- `audio/gameSounds.ts` — **decides**, and plays nothing. `soundsForTransition` is a pure function
+  of two store snapshots, which is what makes it a unit test rather than a listening exercise.
+- `hooks/appEffects.svelte.ts` — `gameAudio()`, **the only place a game sound is played**. One store
+  subscription feeding the list above, instead of audio calls scattered through components: every
+  sound stays in one readable list and cannot double-fire. A component calling `playSfx` directly is
+  a UI tap (`uiTap`, `uiBack`) and never a game event.
 - `<AudioSettings />` sits in the top-right cluster on every screen: three sliders, a **now-playing
   line plus a ⏭ next button** (44px target), and mute. There is deliberately **no picker** — choosing
   from a list means reading three names to make a decision nobody opened the panel to make, whereas

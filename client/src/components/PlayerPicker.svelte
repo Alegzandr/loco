@@ -1,0 +1,190 @@
+<script lang="ts">
+  import type { PlayerDTO } from '../types/protocol'
+  import { escapeKey } from '../hooks/escapeKey.svelte'
+
+  type Props = {
+    label: string
+    /**
+     * Renders a hand size. A function rather than a `%n` template because one
+     * card is the most consequential size on this screen and reads wrong in both
+     * languages as "1 cards".
+     */
+    cardsLabel: (handSize: number) => string
+    players: PlayerDTO[]
+    /** Accessible name of the ✕. Every way out of this panel says the same thing. */
+    cancelLabel: string
+    onChoose: (playerIndex: number) => void
+    onCancel: () => void
+  }
+
+  let { label, cardsLabel, players, cancelLabel, onChoose, onCancel }: Props = $props()
+
+  escapeKey(() => true, () => onCancel())
+</script>
+
+<!-- The scrim's two ways out are Escape above and the ✕ below; see ColorPicker.svelte. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="overlay" onclick={onCancel}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="picker" onclick={(e) => e.stopPropagation()}>
+    <p>{label}</p>
+    <div class="playerList">
+      {#each players as p (p.index)}
+        <button class="playerBtn" onclick={() => onChoose(p.index)}>
+          {p.nickname}
+          <span class="handSize">{cardsLabel(p.hand_size)}</span>
+        </button>
+      {/each}
+    </div>
+    <button class="cancelBtn" onclick={onCancel} aria-label={cancelLabel}>✕</button>
+  </div>
+</div>
+
+<style>
+  /* Swap target chooser. Hand sizes are shown because they are the whole basis
+     for the decision. */
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--color-scrim);
+    backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    animation: pickerFade 0.18s ease-out both;
+  }
+
+  @keyframes pickerFade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .picker {
+    background: var(--color-surface-card);
+    border: 4px solid var(--color-stroke);
+    border-radius: var(--radius-xl);
+    padding: var(--space-lg) var(--space-xl);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-base);
+    color: var(--color-ink);
+    font: 700 18px/1.3 var(--font-display);
+    box-shadow: var(--shadow-pop);
+    min-width: 300px;
+    animation: pickerIn 0.32s var(--ease-bounce) both;
+  }
+
+  @keyframes pickerIn {
+    from {
+      opacity: 0;
+      transform: translateY(20px) scale(0.9);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .playerList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    width: 100%;
+  }
+
+  .playerBtn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-md);
+    padding: 12px 18px;
+    background: var(--color-surface-strong);
+    border: var(--stroke) solid var(--color-stroke);
+    border-radius: var(--radius-full);
+    color: var(--color-ink);
+    font: 600 16px/1.2 var(--font-display);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 0 var(--color-stroke-soft);
+    transition:
+      transform 0.12s var(--ease-bounce),
+      box-shadow 0.12s var(--ease-out),
+      background 0.15s;
+    min-height: 50px;
+  }
+
+  .playerBtn:hover,
+  .playerBtn:focus-visible {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 0 var(--color-stroke-soft);
+    background: var(--gradient-tertiary);
+    color: var(--color-on-dark);
+  }
+
+  .playerBtn:active {
+    transform: translateY(2px);
+    box-shadow: 0 2px 0 var(--color-stroke-soft);
+  }
+
+  .handSize {
+    font: 700 13px/1.2 var(--font-display);
+    color: var(--color-muted);
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    background: var(--color-surface-card);
+    border: 1.5px solid var(--color-stroke);
+    flex-shrink: 0;
+  }
+
+  .playerBtn:hover .handSize,
+  .playerBtn:focus-visible .handSize {
+    color: var(--color-ink);
+  }
+
+  .cancelBtn {
+    background: transparent;
+    border: var(--stroke-thin) solid var(--color-hairline);
+    border-radius: var(--radius-full);
+    color: var(--color-muted);
+    font: 600 15px/1 var(--font-display);
+    cursor: pointer;
+    width: var(--touch-target);
+    height: var(--touch-target);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      color 0.15s,
+      background 0.15s;
+  }
+
+  .cancelBtn:hover {
+    color: var(--color-ink);
+    background: var(--color-surface-strong);
+  }
+
+  @media (max-width: 480px) {
+    .picker {
+      padding: var(--space-lg);
+      width: 90vw;
+      max-width: 360px;
+    }
+  }
+
+  :root[data-motion="reduce"] .picker,
+  :root[data-motion="reduce"] .overlay {
+    animation: none;
+  }
+</style>

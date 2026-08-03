@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useGameStore } from '../hooks/useGameStore'
-import { soundsForTransition } from '../audio/useGameAudio'
+import { gameStore } from '../hooks/gameStore'
+import { soundsForTransition } from '../audio/gameSounds'
 import { audio, DEFAULT_SETTINGS } from '../audio/engine'
 
-type State = ReturnType<typeof useGameStore.getState>
+type State = ReturnType<typeof gameStore.getState>
 
 const PLAYERS = [
   { index: 0, nickname: 'Nova', hand_size: 5, connected: true },
@@ -12,7 +12,7 @@ const PLAYERS = [
 
 function state(patch: Partial<State> = {}): State {
   return {
-    ...useGameStore.getState(),
+    ...gameStore.getState(),
     screen: 'game',
     myIndex: 0,
     players: PLAYERS,
