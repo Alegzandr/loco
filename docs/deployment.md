@@ -96,6 +96,47 @@ The `gh` remote is a plain mirror and has no pipeline of its own: `.gitlab-ci.ym
 definition, so there is nothing to keep in sync. A commit pushed to the mirror is verified by the run
 it got on GitLab.
 
+## Hosts
+
+| Environment | Host | Deployed by |
+|-------------|------|-------------|
+| Production  | `ohloco.com` | `deploy_prod`, on a `v*` tag |
+| Development | `loco-d.kisukesaama.com` | `deploy_dev`, on `develop` |
+
+Both are declared once, as `PROD_HOST` and `DEV_HOST` in the global `variables:` block of
+`.gitlab-ci.yml`. Every job exports the right one into `APP_HOST`, `write_app_env` writes it to
+`app.env`, and `deploy/compose.yml` interpolates it into the Traefik `Host()` rule.
+
+`APP_SUBDOMAIN` is still `loco` and no longer has anything to do with the address. It names the stack
+— the compose project, the Traefik router, the `internal` network, the directory under `DEPLOY_DIR` —
+which is why production changing domain touched two variables and left every container name alone.
+Do not derive one from the other in either direction.
+
+The dev host must keep its `-d.` prefix: `client/nginx.conf` keys `robots.txt` on that pattern, and it
+is the only thing keeping the dev deployment out of the index. See
+[`docs/notes/seo.md`](notes/seo.md).
+
+### The edge, in front of Traefik
+
+DNS for `ohloco.com` is on Cloudflare, proxied. Three settings are load-bearing rather than
+preferences:
+
+- **SSL/TLS mode `Full (strict)`.** `Flexible` makes Cloudflare talk HTTP to an origin that redirects
+  every HTTP request to HTTPS, which is an infinite redirect and takes the whole site down.
+- **`www.ohloco.com` 301s to the apex, at the edge**, by a Cloudflare redirect rule. It never reaches
+  Traefik, which is why `compose.yml` carries one `Host()` and not two. The apex is canonical
+  everywhere — `VITE_PUBLIC_ORIGIN`, the sitemap, the `hreflang` sets — and a canonical naming a
+  redirect is the failure nothing reports.
+- **ACME over DNS-01, not HTTP-01.** Traefik resolves the certificate through the Cloudflare API
+  (`CF_DNS_API_TOKEN`, scoped `Zone:DNS:Edit` + `Zone:Zone:Read` on that one zone), so validation does
+  not depend on port 80 being reachable through the proxy and survives `Always Use HTTPS`. The token
+  lives in the server's environment and in a masked, protected GitLab variable, never in this repo.
+
+One caveat this stack has to live with: **Cloudflare closes a proxied WebSocket that has been idle for
+about 100 seconds.** The game's own traffic covers an active table, but a lobby waiting for a second
+player sends nothing, and a socket cut there costs a seat for no reason. Whatever keepalive answers it
+belongs in the hub, not in nginx — nginx is not the thing timing out.
+
 ## Production request path
 
 ```

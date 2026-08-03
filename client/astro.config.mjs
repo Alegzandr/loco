@@ -22,7 +22,10 @@ import sitemap from '@astrojs/sitemap'
 // production, so an image built for the dev host stops claiming to be prod only
 // once `VITE_PUBLIC_ORIGIN` is actually passed to the build (client/Dockerfile
 // takes it as an ARG, .gitlab-ci.yml passes it per environment).
-const SITE = (process.env.VITE_PUBLIC_ORIGIN ?? 'https://loco.kisukesaama.com').replace(/\/+$/, '')
+// The apex, never `www.`: one host is canonical and the other 301s to it at the
+// edge, so a default carrying `www.` would make every canonical point at a
+// redirect.
+const SITE = (process.env.VITE_PUBLIC_ORIGIN ?? 'https://ohloco.com').replace(/\/+$/, '')
 
 export default defineConfig({
   site: SITE,

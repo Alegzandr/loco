@@ -33,6 +33,10 @@ export const OG_LOCALE: Record<Lang, string> = { en: 'en_US', fr: 'fr_FR' }
  * runtime. Defaults to production; `VITE_PUBLIC_ORIGIN` overrides it, which is
  * what stops an image built for the dev host from claiming to be production.
  *
+ * The production default is the apex. `www.` exists as a 301 to it at the edge
+ * and nowhere else, so an origin carrying the prefix would make every canonical,
+ * every `hreflang` and the whole sitemap name a redirect instead of a page.
+ *
  * Read through a `typeof` guard rather than directly: this module is also
  * imported by client-side code (for the page paths alone), and a bare
  * `process.env` throws "process is not defined" in a browser. In that context
@@ -40,7 +44,7 @@ export const OG_LOCALE: Record<Lang, string> = { en: 'en_US', fr: 'fr_FR' }
  */
 export const ORIGIN = (
   (typeof process !== 'undefined' ? process.env?.VITE_PUBLIC_ORIGIN : undefined) ??
-  'https://loco.kisukesaama.com'
+  'https://ohloco.com'
 ).replace(/\/+$/, '')
 
 /**
