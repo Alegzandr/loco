@@ -40,6 +40,23 @@ html:has(body.doc) {
   scroll-padding-top: calc(5rem + var(--safe-top));
 }
 
+/* Every in-page jump glides: the table of contents, the privacy page's jump
+   list, the skip link and the way back to the top. A fragment that teleports
+   the reader several screens gives them nothing to tell them the page did not
+   change under them, and these documents are long enough for that to happen
+   twice a visit.
+
+   `data-scroll` rather than a media query, because a reduced-motion reader must
+   keep the instant jump and no stylesheet here may query that preference —
+   `reducedMotionCss.test.ts` owns that rule.
+   `data-motion` is not available here either: it is written by the game's
+   `initMotion()`, which these pages never mount. So `theme-boot.ts` reads the
+   system preference itself and writes the attribute, and with the script off
+   nothing is smooth, which is the safe half. */
+html[data-scroll="smooth"]:has(body.doc) {
+  scroll-behavior: smooth;
+}
+
 .page {
   /* The reading column, and the width every band of the page shares. */
   --shell: 50rem;
