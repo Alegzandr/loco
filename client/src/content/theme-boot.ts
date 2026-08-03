@@ -19,7 +19,7 @@
  * Astro bundles this to an external module, which is what `script-src 'self'`
  * allows.
  */
-import { applyTheme, readInitialTheme, THEME_STORAGE_KEY, type Theme } from '../theme'
+import { applyTheme, getTheme, setTheme, type Theme } from '../theme'
 import { isLang, rememberLang } from '../lang'
 import { closeMenuWhenWidened } from './navMenu'
 
@@ -51,7 +51,11 @@ document.addEventListener('click', (e) => {
 
 // ── Theme ──────────────────────────────────────────────────────────────────
 
-let theme: Theme = readInitialTheme()
+// `getTheme()` reads the stored choice — the same one the game reads — and
+// `applyTheme` paints it without a fade: there is nothing to fade from on the
+// first frame, and crossing into the player's own choice in front of them is the
+// flash `themeFlash.test.ts` exists to prevent, animated.
+let theme: Theme = getTheme()
 applyTheme(theme)
 
 // Two of them, and never both on screen: one in the footer bar and one in the
@@ -74,10 +78,11 @@ if (buttons.length) {
     button.hidden = false
     button.addEventListener('click', () => {
       theme = theme === 'dark' ? 'light' : 'dark'
-      // The same key `theme.ts` writes, so a choice made on a page is the one
-      // the game opens with, and the other way round.
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
-      applyTheme(theme)
+      // `setTheme` is the whole switch: it stores the choice under the key the
+      // game reads, so a theme picked on a page is the one the game opens with
+      // and the other way round, and it fades rather than cuts — one definition
+      // of what changing the theme looks like, on both halves of the site.
+      setTheme(theme)
       paint()
     })
   }

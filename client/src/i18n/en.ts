@@ -183,7 +183,10 @@ export interface Translations {
   forfeitWonSub: string
   forfeitYouLeft: string
   forfeitYouLeftSub: string
-  findAnotherOpponent: string
+  // Back into the queue from a finished 1v1. The verb about to happen is the
+  // search starting again, not the opponent being found: who turns up is the
+  // queue's to say, and the button must not promise a name.
+  searchAgain: string
   // A rematch is an agreement, not a decision, so the button has three states:
   // ask, wait, accept. `rematchWaitingOpponent` is the 1v1 wording; past two
   // seats the wait is on the table rather than on one named opponent, and the
@@ -440,7 +443,7 @@ export const en: Translations = {
   forfeitWonSub: 'The seat opposite is empty. The match is yours.',
   forfeitYouLeft: 'You left',
   forfeitYouLeftSub: 'The match went to your opponent.',
-  findAnotherOpponent: 'Find another opponent',
+  searchAgain: 'Search again',
   rematchWaitingOpponent: 'Waiting on them…',
   rematchWaitingTable: 'Waiting on the table…',
   rematchAccept: 'They want another. Go.',

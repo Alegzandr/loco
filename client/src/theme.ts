@@ -13,6 +13,14 @@ export type Theme = 'light' | 'dark'
 
 export const THEME_STORAGE_KEY = 'loco_theme'
 
+/**
+ * How long the palette takes to cross, and the length of time `data-theme-anim`
+ * sits on `<html>`. Read by the stylesheet as `--theme-fade` and by the timer
+ * below; the two are the same number written once, because the attribute coming
+ * off early is a fade that stops halfway.
+ */
+export const THEME_FADE_MS = 260
+
 export function readInitialTheme(): Theme {
   if (typeof window === 'undefined') return 'light'
   const stored = window.localStorage.getItem(THEME_STORAGE_KEY)
@@ -23,6 +31,46 @@ export function readInitialTheme(): Theme {
 
 export function applyTheme(theme: Theme): void {
   document.documentElement.setAttribute('data-theme', theme)
+}
+
+let fadeTimer: ReturnType<typeof setTimeout> | undefined
+
+/**
+ * The same swap, faded.
+ *
+ * Deliberately separate from `applyTheme`: the boot applies a theme too, and
+ * there is nothing to fade from on the first frame — arming this there would
+ * cross-fade the light palette into the player's actual choice in front of them,
+ * which is the flash `themeFlash.test.ts` exists to prevent, animated.
+ *
+ * Two details carry the whole effect:
+ *
+ * - **The attribute lands before the colours move, in its own recalc.** A
+ *   transition starts by comparing the style before the change to the style
+ *   after it, and if the element only acquires `transition` in the same pass
+ *   that its colours change, the "before" style had no transition to run: the
+ *   swap is instant and nothing in the CSS looks wrong. `offsetWidth` is the
+ *   flush that separates the two passes.
+ * - **The attribute comes back off.** The rule behind it is a blanket `*`
+ *   transition, and leaving that over a live board would put a 260ms lag on
+ *   every colour a match changes — the active-colour ring, an armed catch
+ *   button, a seat taking its turn.
+ *
+ * Reduced motion is not branched on here: the blanket rule in `tokens.css` is
+ * scoped to `:root[data-motion="reduce"]`, which outranks this one, so a player
+ * who asked for less gets the instant swap and the attribute still comes and
+ * goes harmlessly.
+ */
+function fadeToTheme(theme: Theme): void {
+  if (typeof document === 'undefined') return
+  const root = document.documentElement
+
+  root.setAttribute('data-theme-anim', '')
+  void root.offsetWidth
+  applyTheme(theme)
+
+  clearTimeout(fadeTimer)
+  fadeTimer = setTimeout(() => root.removeAttribute('data-theme-anim'), THEME_FADE_MS)
 }
 
 /**
@@ -62,7 +110,7 @@ export function setTheme(next: Theme): void {
   } catch {
     // Private mode. The session keeps the choice; the next load re-reads the OS.
   }
-  applyTheme(next)
+  fadeToTheme(next)
   for (const fn of listeners) fn()
 }
 

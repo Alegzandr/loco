@@ -131,16 +131,19 @@
           : t.rematch}
     </button>
 
-    <!-- Only a matchmade table has a next opponent to offer. -->
+    <!-- Only a matchmade table has a next opponent to offer, and the offer is the
+         search rather than the opponent: relaunching it is the whole act. -->
     {#if isMatchmade}
       {#if isForfeit || theyOffered}
-        <button class="btnSecondary" onclick={onFindMatch}>{t.findAnotherOpponent}</button>
+        <button class="btnSecondary" onclick={onFindMatch}>{t.searchAgain}</button>
       {:else}
-        <button class="btn" onclick={onFindMatch}>{t.findAnotherOpponent}</button>
+        <button class="btn" onclick={onFindMatch}>{t.searchAgain}</button>
       {/if}
     {/if}
 
-    <button class="btnSecondary" onclick={onLeave}>{t.leaveRoom}</button>
+    <!-- The way out, and the quietest thing on the card: leaving is what somebody
+         does when neither of the two things above is what they came back for. -->
+    <button class="btnQuit" onclick={onLeave}>{t.leaveRoom}</button>
   </div>
 </div>
 
@@ -354,6 +357,29 @@
 
   .btnSecondary:hover {
     background: var(--color-surface-strong);
+    color: var(--color-ink);
+  }
+
+  /* Leaving. Deliberately the quietest control on the card: no outline, no fill,
+     nothing competing with the two offers above it. Quiet is a hue here as
+     everywhere else (--color-muted, never ink at an opacity), and the row keeps
+     its 44px of target even though nothing is drawn that tall. */
+  .btnQuit {
+    width: 100%;
+    min-height: 44px;
+    padding: 4px 12px;
+    border: none;
+    background: none;
+    color: var(--color-muted);
+    font: 600 13px/1.2 var(--font-display);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: color 0.15s;
+    touch-action: manipulation;
+  }
+
+  .btnQuit:hover {
     color: var(--color-ink);
   }
 

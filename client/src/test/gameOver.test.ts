@@ -71,11 +71,11 @@ describe('GameOver rematch', () => {
   // room, a code and the people already in it.
   it('offers the queue only to a matchmade table', () => {
     const { unmount } = render(GameOver, { winner: "Alice", myNickname: "Bob", mySeat: 1, isMatchmade: true, onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() })
-    expect(screen.getByText(en.findAnotherOpponent)).toBeInTheDocument()
+    expect(screen.getByText(en.searchAgain)).toBeInTheDocument()
     unmount()
 
     renderGameOver()
-    expect(screen.queryByText(en.findAnotherOpponent)).not.toBeInTheDocument()
+    expect(screen.queryByText(en.searchAgain)).not.toBeInTheDocument()
   })
 
   it('always offers a way out of the room', () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { render, screen, fireEvent } from './render'
 import WaitingRoom from '../components/WaitingRoom.svelte'
 import { PlayerDTO } from '../types/protocol'
@@ -148,5 +149,32 @@ describe('WaitingRoom leaving', () => {
 
     expect(onLeave).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Leave the table' })).toBeInTheDocument()
+  })
+})
+
+/*
+ * The gear, the speaker and the "?" sit in an absolutely positioned row, so they
+ * take no space in the column below them: the container's top padding is the
+ * only thing holding the heading off them. This screen is the one that overflows
+ * on a phone — roster plus host panel plus two actions — and `safe center` then
+ * parks its heading right against that padding, which is where "The table" ended
+ * up printed underneath the chips. A padding written as a spacing step looks
+ * generous and is not related to the chip it has to clear, so the rule is that
+ * it names the chip.
+ */
+describe('WaitingRoom top chrome', () => {
+  const source = readFileSync('src/components/WaitingRoom.svelte', 'utf8')
+  const container = /\.container\s*\{([^}]*)\}/.exec(source)?.[1] ?? ''
+  const topBar = /\.topBar\s*\{([^}]*)\}/.exec(source)?.[1] ?? ''
+
+  it('reserves the chip row rather than a spacing step', () => {
+    expect(container).toMatch(/padding:[^;]*--topbar-h/)
+  })
+
+  it('starts the column below the bottom of a chip', () => {
+    // The row's own offset is --space-base; anything the padding adds on top of
+    // the chip's height has to keep the heading clear of it.
+    expect(topBar).toMatch(/top:\s*calc\(var\(--space-base\)/)
+    expect(container).toMatch(/padding:\s*calc\(var\(--space-base\)\s*\+\s*var\(--topbar-h\)/)
   })
 })
