@@ -304,7 +304,10 @@ test.describe('mobile viewport', () => {
     await page.locator('#navPrefs').click()
 
     const dialog = page.getByRole('dialog')
-    await dialog.getByRole('combobox', { name: /language|langue/i }).selectOption('fr')
+    // Our own list, not a `<select>`: the open half of a select is painted by the
+    // OS, which is why this is a button and a `role="listbox"` now.
+    await dialog.getByRole('combobox', { name: /language|langue/i }).click()
+    await dialog.getByRole('option', { name: 'Français' }).click()
     await dialog.getByRole('link', { name: /apply|appliquer/i }).click()
 
     await expect(page).toHaveURL(/\/fr\/$/)

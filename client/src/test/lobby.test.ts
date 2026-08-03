@@ -131,6 +131,8 @@ describe('Lobby', () => {
   })
 
   it('grays out take a seat until the table code is a whole one', () => {
+    // The name is settled first, so what this test moves is the code alone.
+    localStorage.setItem(NICKNAME_KEY, 'Alice')
     renderLobby()
     fireEvent.click(screen.getByText(en.joinRoom))
     const button = screen.getByRole('button', { name: en.joinGame })
@@ -146,6 +148,67 @@ describe('Lobby', () => {
     // And back: a player clearing the field is not left with a live button.
     fireEvent.change(codeInput, { target: { value: 'ABC23' } })
     expect(button).toBeDisabled()
+  })
+
+  it('grays out every entry point until the nickname could seat somebody', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.createRoom))
+    const button = screen.getByRole('button', { name: en.createGame })
+    expect(button).toBeDisabled()
+
+    const input = screen.getByPlaceholderText(en.yourNickname)
+    // Inside the charset and still not a name: nothing a seat label can print.
+    fireEvent.change(input, { target: { value: '---' } })
+    expect(button).toBeDisabled()
+
+    // The bar is deliberately low: one readable character is a nickname.
+    fireEvent.change(input, { target: { value: 'A' } })
+    expect(button).toBeEnabled()
+
+    // And back, so an emptied field never leaves a live button behind.
+    fireEvent.change(input, { target: { value: '  ' } })
+    expect(button).toBeDisabled()
+  })
+
+  it('grays out take a seat while the nickname is missing, code or no code', () => {
+    renderLobby()
+    fireEvent.click(screen.getByText(en.joinRoom))
+    fireEvent.change(screen.getByPlaceholderText(en.roomCodeLabel), { target: { value: 'abc23d' } })
+    const button = screen.getByRole('button', { name: en.joinGame })
+    expect(button).toBeDisabled()
+
+    fireEvent.change(screen.getByPlaceholderText(en.yourNickname), { target: { value: 'Bob' } })
+    expect(button).toBeEnabled()
+  })
+
+  it('hands the field back, selected, when the server refuses the name', () => {
+    // The word list lives on the server, so this refusal cannot grey a button
+    // out: it arrives after the ask, and the answer is "pick another one" with
+    // the caret already there and the old name ready to be typed over.
+    localStorage.setItem(NICKNAME_KEY, 'Alice')
+    render(Lobby, {
+      onSend: vi.fn(),
+      onFindMatch: vi.fn(),
+      error: 'nickname not allowed',
+      onClearError: vi.fn(),
+      initialMode: 'create',
+    })
+    const input = screen.getByPlaceholderText(en.yourNickname) as HTMLInputElement
+    expect(input).toHaveFocus()
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 'Alice'.length])
+  })
+
+  it('leaves the field alone for a refusal that is not about the name', () => {
+    localStorage.setItem(NICKNAME_KEY, 'Alice')
+    render(Lobby, {
+      onSend: vi.fn(),
+      onFindMatch: vi.fn(),
+      error: 'room not found',
+      onClearError: vi.fn(),
+      initialMode: 'join',
+    })
+    const input = screen.getByPlaceholderText(en.yourNickname) as HTMLInputElement
+    expect(input.selectionStart).toBe(input.selectionEnd)
   })
 
   it('an incomplete table code does not call onSend', () => {

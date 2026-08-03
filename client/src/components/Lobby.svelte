@@ -36,6 +36,8 @@
     initialCode?: string
     /** Showcase only: mounts with the preferences panel open. */
     initialPrefsOpen?: boolean
+    /** Showcase only: mounts with the language list open inside that panel. */
+    initialLangOpen?: boolean
     /** Showcase only: mounts with the sound panel open. */
     initialAudioOpen?: boolean
   }
@@ -48,6 +50,7 @@
     initialMode = 'home',
     initialCode = '',
     initialPrefsOpen = false,
+    initialLangOpen = false,
     initialAudioOpen = false,
   }: Props = $props()
 
@@ -65,6 +68,37 @@
   // rather than after a round trip. It says nothing the server would not have
   // said: the same one line, for the same reason (server/game/nickname.go).
   let nicknameRefused = $state(false)
+
+  // Whether the field holds something that could seat a player. The rules behind
+  // it are deliberately the loosest the seat label can survive (one readable
+  // character, up to 20, an alphabet that renders): this greys the button, and a
+  // greyed button is the one refusal a player cannot argue with, so it may only
+  // ever answer shape. The word list stays on the server and comes back as an
+  // error line, because shipping it here would mean downloading a few thousand
+  // slurs to say the same sentence a fraction of a second earlier.
+  const nicknameOk = $derived(isNicknameShapeValid(nickname))
+
+  // The field itself, so a refusal can hand it back. Only one form is mounted at
+  // a time, so one reference covers all three.
+  let nicknameField = $state<HTMLInputElement | null>(null)
+
+  /**
+   * A refusal about the name puts the player back in the field, with what they
+   * typed selected so the next keystroke replaces it. This is where the word
+   * list lands: it is not something the button can grey out, because the client
+   * does not carry the list, so the seat is refused at the moment the player
+   * asks for it and the answer is "pick another name", already focused.
+   */
+  $effect(() => {
+    if (!nicknameRejection(error)) return
+    nicknameField?.focus()
+    nicknameField?.select()
+  })
+
+  /** The server refusals that are about the name and nothing else. */
+  function nicknameRejection(msg: string): boolean {
+    return /nickname/i.test(msg)
+  }
 
   function editNickname(value: string) {
     nickname = value
@@ -118,7 +152,11 @@
          screen the home page's burger is on, and its drawer carries a Preferences
          row already. Everywhere past a taken seat that drawer is gone with the
          footer, so the chip stays at every width there. -->
-    <Preferences defaultOpen={initialPrefsOpen} triggerBelowPhone={false} />
+    <Preferences
+      defaultOpen={initialPrefsOpen}
+      defaultLangOpen={initialLangOpen}
+      triggerBelowPhone={false}
+    />
     <AudioSettings defaultOpen={initialAudioOpen} />
     <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
   </div>
@@ -163,13 +201,17 @@
       <!-- svelte-ignore a11y_autofocus -->
       <input
         class="input"
+        bind:this={nicknameField}
         placeholder={t.yourNickname}
         value={nickname}
         oninput={(e) => editNickname(e.currentTarget.value)}
         maxlength="20"
         autofocus
       />
-      <button class="btn" type="submit">{t.findMatchGo}</button>
+      <!-- Nothing to send without a name on the seat. Same guard on all three
+           forms: the button is off until the field holds a nickname the client
+           can already see is usable. -->
+      <button class="btn" type="submit" disabled={!nicknameOk}>{t.findMatchGo}</button>
       <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
     </form>
   {/if}
@@ -179,13 +221,14 @@
       <!-- svelte-ignore a11y_autofocus -->
       <input
         class="input"
+        bind:this={nicknameField}
         placeholder={t.yourNickname}
         value={nickname}
         oninput={(e) => editNickname(e.currentTarget.value)}
         maxlength="20"
         autofocus
       />
-      <button class="btn" type="submit">{t.createGame}</button>
+      <button class="btn" type="submit" disabled={!nicknameOk}>{t.createGame}</button>
       <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
     </form>
   {/if}
@@ -197,6 +240,7 @@
       <!-- svelte-ignore a11y_autofocus -->
       <input
         class="input"
+        bind:this={nicknameField}
         placeholder={t.yourNickname}
         value={nickname}
         oninput={(e) => editNickname(e.currentTarget.value)}
@@ -223,10 +267,10 @@
         autocorrect="off"
         spellcheck="false"
       />
-      <!-- Nothing to take a seat at until the code is whole. The button says so
-           instead of sending a request whose only outcome is an error line under a
-           form the player has not finished filling in. -->
-      <button class="btn" type="submit" disabled={!isTableCodeValid(roomCode)}>
+      <!-- Nothing to take a seat at until the name and the code are both whole.
+           The button says so instead of sending a request whose only outcome is an
+           error line under a form the player has not finished filling in. -->
+      <button class="btn" type="submit" disabled={!nicknameOk || !isTableCodeValid(roomCode)}>
         {t.joinGame}
       </button>
       <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>

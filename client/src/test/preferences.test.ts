@@ -35,6 +35,17 @@ function renderWaiting() {
   render(WaitingRoom, { roomCode: "ABC123", players: [player(0, 'Alice'), player(1, 'Bob')], myIndex: 0, matchFormat: "BO1", maxPlayers: 4, onSend: vi.fn(), onLeave: vi.fn() })
 }
 
+/** The language control, whichever language it is currently labelled in. */
+function langButton(): HTMLElement {
+  return screen.getByRole('combobox', { name: new RegExp(`^(${en.prefsLanguage}|${fr.prefsLanguage})$`) })
+}
+
+/** Open the list and take a language by its autonym, the way a pointer does. */
+function pickLang(autonym: string) {
+  fireEvent.click(langButton())
+  fireEvent.click(screen.getByRole('option', { name: autonym }))
+}
+
 /** The code as it is rendered, whichever element carries it. */
 function codeEl(code: string): HTMLElement {
   return screen.getAllByText(code)[0]
@@ -68,9 +79,7 @@ describe('Preferences panel', () => {
    */
   it('switches the language, and takes the page with it at the entry screen', () => {
     render(Preferences, { defaultOpen: true })
-    fireEvent.change(screen.getByRole('combobox', { name: en.prefsLanguage }), {
-      target: { value: 'fr' },
-    })
+    pickLang('Français')
 
     const apply = screen.getByRole('link', { name: en.prefsApply })
     expect(apply).toHaveAttribute('href', '/fr/')
@@ -114,9 +123,7 @@ describe('Preferences panel', () => {
       expect(screen.queryByRole('button', { name: en.prefsApply })).not.toBeInTheDocument()
       expect(screen.queryByText(en.prefsLanguageHint)).not.toBeInTheDocument()
 
-      fireEvent.change(screen.getByRole('combobox', { name: en.prefsLanguage }), {
-        target: { value: 'fr' },
-      })
+      pickLang('Français')
       expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
     } finally {
       document.documentElement.removeAttribute('data-seated')
@@ -153,6 +160,80 @@ describe('Preferences panel', () => {
   it('carries its own way out, for the width where nothing else closes it', () => {
     render(Preferences, { defaultOpen: true })
     fireEvent.click(screen.getByRole('button', { name: en.prefsClose }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The list used to be a `<select>`, which is two objects: the closed control,
+ * ours to draw, and the open list, painted by the OS. `appearance: none` only
+ * ever reached the first — so the panel dropped a white system menu with a blue
+ * system highlight over a dark board. These pin the replacement: it is our
+ * markup, and it keeps the keyboard contract a select had for free.
+ */
+describe('The language list', () => {
+  it('is ours to draw, not the platform\'s', () => {
+    const { container } = render(Preferences, { defaultOpen: true })
+    expect(container.querySelector('select')).toBeNull()
+
+    // Shut, it is one control and no options: a listbox that is always in the
+    // document is a menu hanging under the panel.
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+
+    fireEvent.click(langButton())
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'English' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('option', { name: 'Français' })).toHaveAttribute('aria-selected', 'false')
+
+    // The button that opened it shuts it, which is what lets this surface get
+    // away with no ✕ of its own.
+    fireEvent.click(langButton())
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
+
+  it('answers the keyboard the way the select did', () => {
+    render(Preferences, { defaultOpen: true })
+    const button = langButton()
+
+    fireEvent.keyDown(button, { key: 'ArrowDown' })
+    const list = screen.getByRole('listbox')
+    expect(list).toBeInTheDocument()
+
+    // Arrowing moves the keyboard, and picks nothing until Enter: that is the
+    // whole reason a language may be arrowed past at all.
+    fireEvent.keyDown(button, { key: 'ArrowDown' })
+    expect(button).toHaveAttribute(
+      'aria-activedescendant',
+      screen.getByRole('option', { name: 'Français' }).id,
+    )
+    expect(screen.getByRole('option', { name: 'English' })).toHaveAttribute('aria-selected', 'true')
+
+    // Enter is the pick. At the entry screen that is still only a choice — Apply
+    // is what spends it — so the proof is the control and the link, not the
+    // strings on screen.
+    fireEvent.keyDown(button, { key: 'Enter' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(button).toHaveTextContent('Français')
+    expect(screen.getByRole('link', { name: en.prefsApply })).toHaveAttribute('href', '/fr/')
+  })
+
+  /**
+   * One press closes one thing. The panel listens for Escape on `document`, so
+   * without the list stopping that key the first press would take the whole
+   * panel away and the list with it — a player backing out of a menu they
+   * opened by mistake would lose every other setting on screen.
+   */
+  it('takes Escape for itself, and leaves the panel where it is', () => {
+    render(Preferences, { defaultOpen: true })
+    const button = langButton()
+    fireEvent.click(button)
+
+    fireEvent.keyDown(button, { key: 'Escape' })
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: en.prefsTitle })).toBeInTheDocument()
+
+    // Shut, the key belongs to the panel again.
+    fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })

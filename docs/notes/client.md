@@ -456,6 +456,25 @@ letter or digit.
 - The canonical form (trimmed, runs of spaces squeezed) is what is sent and what is remembered, so
   `  Jean   Luc  ` and `Jean Luc` are one player and one seat label.
 
+### The button is off until the shape is there, and only until then
+The three submits — `Find an opponent`, `Open the table`, `Take a seat` — are `disabled` while
+`isNicknameShapeValid` is false, which on an empty field is the state the screen opens in. It removes
+the press whose entire outcome was an error line under a form nobody had finished filling in.
+
+- **What may grey a button out is shape and nothing else.** A disabled control gives no reason and
+  takes no answer, so it may only ever say something the player can see for themselves: the field is
+  empty, or it holds `---`, or it holds a character that will not render on a seat. The bar is
+  deliberately at the floor — **one letter or digit is a nickname** — because everything above that
+  floor is taste, and taste belongs in a refusal a player can read.
+- **The word list is therefore not part of it.** The client does not carry the list (above), so a
+  blocked term reaches the button as an ordinary name and is refused by the server on the ask. The
+  answer is `<Lobby />`'s one `$effect` on `error`: any refusal matching `/nickname/i` — the blocked
+  term, and `nickname "Bob" already taken` with it — **focuses the field and selects what is in it**,
+  so the next keystroke replaces the name instead of appending to it. Asking again *is* the refusal;
+  the alert only says the ask failed.
+- The submit handlers still call `acceptNickname()`, which checks the shape a second time. The guard
+  is not the disabled attribute, on this field for the same reason it is not on the table code.
+
 ## Answering a table code the same way
 `components/tableCodeRules.ts`, the same idea applied to the join form's second field. It mirrors
 `hub.roomCodeRe` and the alphabet `hub.generateRoomCode` draws from: six characters of `A-Z2-9`,
@@ -469,9 +488,9 @@ minus `I`, `O`, `0` and `1`.
   message with a trailing space, a newline or surrounding punctuation is still the right code, and a
   player typing `0` where they meant `O` gets nothing rather than a character that fails six
   keystrokes later, in an error line, after a round trip.
-- **"Take a seat" is disabled until the code is whole**, which is the difference between a button
-  that does nothing and a button that says why. `handleJoin` checks it again anyway: the guard is not
-  the disabled attribute.
+- **"Take a seat" is disabled until the code is whole** *and* until the nickname is (above), which is
+  the difference between a button that does nothing and a button that says why. `handleJoin` checks
+  both again anyway: the guard is not the disabled attribute.
 - **It decides nothing either.** `join_room` is validated server-side, and an unknown table still
   comes back as `room not found` — the code being *shaped* like a table is not the code being one.
   The nickname is unaffected: it keeps its own instant refusal, and a valid code does not make an
@@ -787,6 +806,31 @@ switches: streamer mode, colour shapes, reduced motion.
   type, and a 19px Apply beside a 13px dropdown is a different control. The dropdown lists autonyms
   (`English`, `Français`), never translated and never `EN`/`FR`: it is read by somebody who cannot
   read the language currently on screen.
+- **The list is ours, and that is the point.** This was a `<select>`, which is two objects: the
+  closed control, ours to draw, and the open list, painted by the platform. `appearance: none`
+  reaches the first and nothing else, so a panel of ink outlines and hard shadows dropped a white
+  system menu with a blue system highlight over a dark board — on the one screen a streamer is
+  guaranteed to open, in a game whose whole art direction is that nothing is a system object. No CSS
+  fixes that half: `color-scheme` only re-tints what the OS drew, and the shape, the radius, the
+  outline and the checkmark stay the platform's.
+
+  So it is a `<button role="combobox">` and a `<ul role="listbox">`, and the contract it replaces is
+  kept whole rather than approximated. The button keeps the focus and every key: arrows move,
+  Home/End jump, Enter picks, `aria-activedescendant` names the row, so no option ever takes focus
+  and none has to give it back. Arrowing moves the highlight and picks nothing — a language may be
+  arrowed *past*. The chosen one carries a checkmark and not only a tint, because "the pointer is
+  here" and "this is the language you are reading" cannot be the same picture, and the pointer and
+  the arrows share one highlight because two cursors on one list is two answers to "where am I".
+
+  **Escape there closes the list and only the list.** The panel around it listens for that key on
+  `document`, so the handler stops the event while the list is open and lets it through while it is
+  shut: without that, backing out of a menu opened by mistake took every other setting off the screen
+  with it. Same rule as `escapeKey`'s `enabled` getter, one level down. A press anywhere outside puts
+  the list away, and Tab closes it on the way out rather than leaving it floating over the panel.
+
+  Scene `lobby-prefs-lang` exists because this state had no screenshot before: the open list was
+  drawn by the OS, so `make visual` could not have caught it going wrong. Worth the `small` viewport
+  too — there the rows are 46px in a sheet, not 40px in a 292px dropdown.
 - **Why a panel.** Language and theme sat bare in the top bar, which is right for one or two
   preferences. The row also carries sound and rules; one more bare control makes it a settings strip,
   and the one after that makes it unreadable on a phone. The gear replaced the theme chip rather than
@@ -808,7 +852,21 @@ switches: streamer mode, colour shapes, reduced motion.
   leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
 - **The lobby's join field is deliberately not masked.** It holds what the player is typing, and a
   blurred input is a typo you cannot see. The leak there is the code the player already knows.
-- **Below 46rem it is a sheet, not a dropdown, and on the lobby the gear stands down.** 250px of
+- **Both dropdowns are 292px, and the sizes inside them are a thumb's, not a cursor's.** They were
+  250px and 230px, packed to the minimum that fit: 13px labels against their switches, hints wrapping
+  to three lines, a 30px segmented option, a 10px slider track. The pointer manages all of that and
+  nothing else does — and the panels open from one row at the top right, so two widths made the
+  cluster change shape between one press and the next. One width now, `--space-base` of padding, and
+  every control sized to be pressed: switch rows 50px, segmented options 38px, the language control
+  and its rows 42px and 40px, the slider track 14px under a 26px thumb, labels 14px and hints 12px.
+  The sheet's own sizes below are unchanged — this closed the gap from underneath.
+- **A section is told apart by space, not by a line drawn across the panel.** The mixer separated its
+  sliders from the music bed with a 2px ink rule, inside a card that already carries a 3px ink
+  outline: it read as the panel having been cut in half, and it was the loudest thing in a surface
+  whose job is to be quiet. It is gone. The gap above the block and the micro-caps `.sectionLabel`
+  heading — the same treatment as the panel title — do the grouping, and the track still sits in its
+  own recessed card. Anything new in either panel groups the same way.
+- **Below 46rem it is a sheet, not a dropdown, and on the lobby the gear stands down.** 292px of
   panel hanging off a 40px chip is a desktop object: four settings, two of them with a sentence
   under them, in a column narrower than the thumb that opened it. At that width it becomes what the
   rules already are — a sheet up from the bottom edge, scrim behind it, title and ✕ pinned while the
@@ -826,14 +884,15 @@ switches: streamer mode, colour shapes, reduced motion.
   used. `tokens.css` states the requirement; this control is the one that forgot it.
 - **The sound mixer changes shape at the same width, into the same thing.** It sits in the same row,
   it is opened by the same thumb, and it was the panel left behind: three sliders and a track card in
-  a 230px column, with a 10px track and a 20px thumb a pointer was meant to grab. It is the sheet the
+  a column too narrow for either, under a track a pointer was meant to grab. It is the sheet the
   preferences panel is now — same scrim wrapping the same `.panel`, same head with a title and a ✕,
   same `display: contents` trick keeping the dropdown untouched above the breakpoint — and it carries
   `audioClose` for that ✕, because below 46rem the speaker chip that opened it is behind the scrim and
   the ✕ is the entire pressable way out. `escapeClose.test.ts` owns both halves.
-- **On a sheet the type is not the dropdown's.** 13px labels, 11px hints and a 24px switch are sized
-  for a mouse on a 250px surface; at full-screen width they read as a dropdown that grew a scrim.
-  Labels step to 15px, hints to 13px, the switch row to 56px, the language select and Apply to 46px,
+- **On a sheet the type is not the dropdown's.** 14px labels, 12px hints and a 26px switch are sized
+  for a mouse on a 292px surface; at full-screen width they read as a dropdown that grew a scrim.
+  Labels step to 15px, hints to 13px, the switch row to 56px, the language control, its rows and
+  Apply to 46px,
   the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem` block, in
   each component, so the two shapes stay one decision.
 - **The drawer opens it by event.** `#navPrefs` is markup Astro rendered, outside `#root`, so
@@ -841,8 +900,8 @@ switches: streamer mode, colour shapes, reduced motion.
   answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had
   the focus, because `hidePopover()` hands it back to the burger and closing the panel has to return
   it somewhere real.
-- Showcase: `streamerMode`, `colorAssist`, `prefsOpen` and `audioOpen` scene flags
-  (`dev/scenes.ts`), scenes `waiting-streamer`, `lobby-prefs`, `lobby-audio`,
+- Showcase: `streamerMode`, `colorAssist`, `prefsOpen`, `langOpen` and `audioOpen` scene flags
+  (`dev/scenes.ts`), scenes `waiting-streamer`, `lobby-prefs`, `lobby-prefs-lang`, `lobby-audio`,
   `card-sheet-assist` and `game-color-picker-assist`. `applyScene`
   resets both module stores so neither leaks into later captures.
 

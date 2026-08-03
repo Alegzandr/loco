@@ -403,6 +403,16 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's
   type**: labels 15px, hints 13px, switch rows 56px, slider thumbs 30px.
+- **Both panels are one 292px dropdown above that width, and everything in them is sized to be
+  pressed**: switch rows 50px, segmented options 38px, the language control 42px, a 14px slider track
+  under a 26px thumb. **A section in either is grouped by space and a micro-caps heading, never by a
+  rule drawn across the card** — an ink line inside an ink outline cuts the panel in half.
+- **That dropdown is ours, and it has to be**: a `<select>` is the closed control plus a list the OS
+  paints, and `appearance: none` only ever reached the first, so the panel dropped a white system
+  menu with a blue system highlight over a dark board. A button plus a `role="listbox"`, arrows and
+  Enter and Home/End on the button, `aria-activedescendant` naming the row. **Escape there closes the
+  list and nothing else** — the panel listens for the same key on `document`, and one press closes one
+  thing.
 - **The language is a dropdown, and the Apply button exists only where applying reloads the page.**
   At the entry screen that press is a **real `<a href>`** — off while the choice is the language
   already showing — because a control that costs the page must not fire on the press aiming for it;
@@ -427,6 +437,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and
   both render the same line the server's refusal resolves to.
+- **Every entry point is greyed out until the field holds a nickname of a usable shape**, and
+  **greying out may only ever answer shape**: the rules behind it are the loosest a seat label
+  survives, because a disabled button is the one refusal a player cannot argue with. **A blocked term
+  is not one of them** — the list is server-side by design, so that refusal arrives after the ask and
+  is answered by handing the field back, focused with its contents selected.
 - **Both mirrors are pinned to the Go source** (`src/test/serverMirrors.test.ts`): a mirror drifts
   most quietly by going *stricter* than the server.
 - **A table is shared as a link** (`hooks/tableInvite.ts`): `/?t=CODE`, never `/t/CODE`, **carrying no

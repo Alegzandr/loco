@@ -16,6 +16,12 @@
      */
     defaultOpen?: boolean
     /**
+     * Showcase only: mounts with the language list open on top of that. The
+     * open list is drawn by us now, so it is a state a screenshot has to be
+     * able to reach.
+     */
+    defaultLangOpen?: boolean
+    /**
      * Hides the gear below 46rem, where the burger's drawer offers these settings
      * as a row and two entry points to one panel would be one too many.
      *
@@ -27,7 +33,7 @@
     triggerBelowPhone?: boolean
   }
 
-  let { defaultOpen = false, triggerBelowPhone = true }: Props = $props()
+  let { defaultOpen = false, defaultLangOpen = false, triggerBelowPhone = true }: Props = $props()
 
   const t = $derived(i18n.t)
   const streamer = watchPref(streamerModePref)
@@ -160,7 +166,7 @@
         <div class="body">
           <div class="group">
             <span class="label">{t.prefsLanguage}</span>
-            <LanguageSwitcher />
+            <LanguageSwitcher defaultOpen={defaultLangOpen} />
           </div>
 
           <!-- The theme was a bare chip in the top bar, which is right for one
@@ -290,12 +296,17 @@
     /* Anchored on the right, like the sound panel: the cluster sits at the top
        right of every screen, so a left-anchored panel hangs off the page. */
     right: 0;
-    width: 250px;
+    /* Four settings, two of them with a sentence under them: at 250px the labels
+       and their switches were pressed against each other and the hints wrapped to
+       three lines. The column is sized to the longest label instead, and the
+       padding and gaps are the panel's own breathing rather than the minimum that
+       fit. Same width as the sound panel — they open from the same row. */
+    width: 292px;
     max-width: calc(100vw - 24px);
-    padding: var(--space-md);
+    padding: var(--space-base);
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 18px;
     background: var(--color-surface-card);
     border: var(--stroke) solid var(--color-stroke);
     border-radius: var(--radius-lg);
@@ -345,18 +356,18 @@
   .group {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     align-items: flex-start;
   }
 
   .label {
-    font: 600 13px/1.2 var(--font-display);
+    font: 600 14px/1.2 var(--font-display);
     color: var(--color-ink);
   }
 
   .hint {
     margin: 0;
-    font: 500 11px/1.35 var(--font-body);
+    font: 500 12px/1.45 var(--font-body);
     color: var(--color-muted);
   }
 
@@ -366,22 +377,26 @@
      LanguageSwitcher owns its own control and the list of languages with it. */
   .seg {
     display: flex;
-    gap: 3px;
+    gap: 4px;
     background: var(--color-surface-strong);
     border: var(--stroke) solid var(--color-stroke);
     border-radius: var(--radius-full);
-    padding: 3px;
+    padding: 4px;
     box-shadow: 0 3px 0 var(--color-stroke-soft);
   }
 
+  /* A 30px option in a pill is a pointer's target and nothing else's. Segmented
+     options are allowed their own height, so this is the one place the 44px rule
+     is met by making the option itself worth pressing rather than by a
+     `.hit-target` that would overlap its neighbour. */
   .segBtn {
-    padding: 5px 12px;
-    min-height: 30px;
+    padding: 8px 16px;
+    min-height: 38px;
     border: none;
     border-radius: var(--radius-full);
     background: transparent;
     color: var(--color-muted);
-    font: 700 13px/1.2 var(--font-display);
+    font: 700 14px/1.2 var(--font-display);
     cursor: pointer;
     transition:
       background 0.15s,
@@ -404,10 +419,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 10px;
-    /* 44px touch target, like every other control in the game. */
-    min-height: 44px;
-    padding: 6px 10px;
+    gap: 12px;
+    /* Above the 44px minimum on purpose: the whole row is the switch, so it is
+       the row that has to be comfortable to hit, not just legal. */
+    min-height: 50px;
+    padding: 10px 12px;
     border-radius: var(--radius-md);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-strong);
@@ -417,8 +433,8 @@
 
   .track {
     position: relative;
-    width: 42px;
-    height: 24px;
+    width: 46px;
+    height: 26px;
     flex-shrink: 0;
     border-radius: var(--radius-full);
     border: var(--stroke-thin) solid var(--color-stroke);
@@ -432,10 +448,10 @@
 
   .knob {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
     border-radius: var(--radius-full);
     background: var(--color-surface-card);
     border: var(--stroke-thin) solid var(--color-stroke);
@@ -448,7 +464,7 @@
   }
 
   /*
-   * The phone. A 250px dropdown hanging off a 40px chip is a desktop object: four
+   * The phone. A 292px dropdown hanging off a 40px chip is a desktop object: four
    * settings, two of them with a sentence under them, in a column narrower than
    * the thumb opening it — and on the home page the chip is not even there any
    * more, since the drawer's Preferences row is the way in below this width.
@@ -490,7 +506,7 @@
 
     /*
      * A dropdown's sizes on a sheet the height of a phone read as a dropdown
-     * that grew a scrim: 13px labels, 11px hints and a 24px switch, all of it
+     * that grew a scrim: 14px labels, 12px hints and a 26px switch, all of it
      * aimed at a mouse. This is a full-screen surface driven by a thumb, so the
      * type steps up with it and every switch is a target rather than a detail.
      */
@@ -514,12 +530,12 @@
     }
 
     .group {
-      gap: 8px;
+      gap: 10px;
     }
 
     .switchRow {
       min-height: 56px;
-      padding: 10px 14px;
+      padding: 12px 16px;
       border-radius: var(--radius-lg);
     }
 
@@ -575,7 +591,7 @@
     .body {
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 22px;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       padding: var(--space-base) var(--space-lg) calc(var(--space-lg) + var(--safe-bottom));

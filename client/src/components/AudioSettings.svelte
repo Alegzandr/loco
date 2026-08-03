@@ -87,7 +87,7 @@
 
   <!--
     Below 46rem this is a sheet rather than a dropdown, for the reason
-    `Preferences.svelte` is one: three sliders and a track card in a 230px column
+    `Preferences.svelte` is one: three sliders and a track card in a 292px column
     hanging off a 40px chip is a desktop object, and a volume nobody can set is a
     game nobody can turn down. The two panels open from the same row, so they
     change shape at the same width and into the same thing.
@@ -143,7 +143,7 @@
                control is "not this one". Choosing from a list would mean reading
                three names to make a decision nobody opened this panel to make. -->
           <div class="tracks">
-            <div class="label">{t.audioTrack}</div>
+            <div class="sectionLabel">{t.audioTrack}</div>
             <div class="nowPlaying">
               <span class="trackName">{current.title}</span>
               <span class="trackBlurb">{lang === 'fr' ? current.blurb.fr : current.blurb.en}</span>
@@ -219,11 +219,14 @@
     position: absolute;
     top: calc(100% + 10px);
     right: 0;
-    width: 230px;
-    padding: var(--space-md);
+    /* Same width as the preferences panel: the two open from the same row at the
+       top right, so a player switching between them must not see the cluster
+       change shape. 230px also priced the sliders down to a hairline. */
+    width: 292px;
+    padding: var(--space-base);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 16px;
     background: var(--color-surface-card);
     border: var(--stroke) solid var(--color-stroke);
     border-radius: var(--radius-lg);
@@ -264,20 +267,24 @@
     color: var(--color-muted);
   }
 
+  /* The whole line drives the slider on it, so the line carries the height: a
+     10px track between two 8px gaps was a thread to aim at with a mouse and a
+     miss with a thumb. */
   .row {
     display: grid;
-    grid-template-columns: 62px 1fr 26px;
+    grid-template-columns: 74px 1fr 30px;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
+    min-height: 40px;
   }
 
   .label {
-    font: 600 13px/1.2 var(--font-display);
+    font: 600 14px/1.2 var(--font-display);
     color: var(--color-ink);
   }
 
   .value {
-    font: 700 12px/1.2 var(--font-display);
+    font: 700 13px/1.2 var(--font-display);
     color: var(--color-muted);
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -288,7 +295,7 @@
     -webkit-appearance: none;
     appearance: none;
     width: 100%;
-    height: 10px;
+    height: 14px;
     border-radius: var(--radius-full);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-strong);
@@ -299,8 +306,8 @@
   .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
     border-radius: var(--radius-full);
     background: var(--gradient-primary);
     border: var(--stroke-thin) solid var(--color-stroke);
@@ -308,50 +315,62 @@
   }
 
   .slider::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
+    width: 26px;
+    height: 26px;
     border-radius: var(--radius-full);
     background: var(--color-primary);
     border: var(--stroke-thin) solid var(--color-stroke);
     box-shadow: 0 2px 0 var(--color-stroke-soft);
   }
 
+  /* Two sections, not one list with a line drawn across it. A 2px ink rule inside
+     a card that already has a 3px ink outline reads as the panel having been cut
+     in half, and it was doing a job space does better: the sliders and the bed are
+     told apart by the gap above this block and by the card the track sits in. */
   .tracks {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding-top: 4px;
-    border-top: var(--stroke-thin) solid var(--color-stroke-soft);
+    gap: 10px;
+    margin-top: 2px;
+  }
+
+  /* The section's own heading, in the same micro-caps as the panel title: a
+     grouping that names itself needs no rule above it. */
+  .sectionLabel {
+    font: 700 11px/1.2 var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--color-muted);
   }
 
   .nowPlaying {
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    padding: 6px 10px;
+    gap: 3px;
+    padding: 10px 12px;
     border-radius: var(--radius-md);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-strong);
   }
 
   .trackName {
-    font: 700 13px/1.2 var(--font-display);
+    font: 700 14px/1.2 var(--font-display);
     color: var(--color-ink);
   }
   .trackBlurb {
-    font: 500 11px/1.3 var(--font-body);
+    font: 500 12px/1.4 var(--font-body);
     color: var(--color-muted);
   }
 
   .nextBtn {
-    padding: 8px 12px;
+    padding: 10px 14px;
     /* 44px minimum touch target, like every other action in the game. */
-    min-height: 44px;
+    min-height: 46px;
     border-radius: var(--radius-full);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-card);
     color: var(--color-ink);
-    font: 600 12px/1.2 var(--font-display);
+    font: 600 13px/1.2 var(--font-display);
     cursor: pointer;
     box-shadow: 0 3px 0 var(--color-stroke-soft);
     transition:
@@ -370,13 +389,13 @@
   }
 
   .muteBtn {
-    padding: 9px 14px;
-    min-height: 40px;
+    padding: 11px 16px;
+    min-height: 46px;
     border-radius: var(--radius-full);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-strong);
     color: var(--color-ink);
-    font: 600 13px/1.2 var(--font-display);
+    font: 600 14px/1.2 var(--font-display);
     cursor: pointer;
     box-shadow: 0 3px 0 var(--color-stroke-soft);
     transition:
@@ -399,7 +418,7 @@
    * `Preferences.svelte`: the two panels sit in one row at the top right, so
    * they may not become two different objects when the screen narrows.
    *
-   * The sizes go up with the shape. A 10px slider with a 20px thumb is set by a
+   * The sizes go up with the shape. A 14px slider with a 26px thumb is set by a
    * pointer; a thumb needs the track it is dragging to be something it can land
    * on, and the label beside it to be readable while it does.
    */
@@ -467,7 +486,7 @@
     .body {
       display: flex;
       flex-direction: column;
-      gap: 18px;
+      gap: 22px;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       padding: var(--space-base) var(--space-lg) calc(var(--space-lg) + var(--safe-bottom));
@@ -528,12 +547,16 @@
     }
 
     .tracks {
-      gap: 10px;
-      padding-top: 10px;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .sectionLabel {
+      font-size: 13px;
     }
 
     .nowPlaying {
-      padding: 10px 14px;
+      padding: 12px 16px;
     }
 
     .trackName {

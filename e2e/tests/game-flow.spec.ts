@@ -57,11 +57,16 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await page.getByRole('button', { name: T.createRoom }).click()
     const field = page.getByPlaceholder(T.yourNickname)
 
+    // Nothing typed at all: the button is off, so the screen never asks the
+    // server a question it already knows the answer to.
+    await expect(page.getByRole('button', { name: T.createGame })).toBeDisabled()
+
     // A zero-width space between two ordinary letters: invisible, and a seat
-    // label nobody else can type. Refused client-side, as it is typed.
+    // label nobody else can type. Refused client-side, as it is typed, and the
+    // button stays off with it.
     await field.fill('Ali​ce')
     await expect(page.getByRole('alert')).toHaveText(T.nicknameRejected)
-    await page.getByRole('button', { name: T.createGame }).click()
+    await expect(page.getByRole('button', { name: T.createGame })).toBeDisabled()
     await expect
       .poll(() => page.evaluate(() => window.__LOCO_E2E__?.getState?.()?.screen))
       .toBe('lobby')
@@ -72,6 +77,9 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await expect(page.getByRole('alert')).toBeHidden()
     await page.getByRole('button', { name: T.createGame }).click()
     await expect(page.getByRole('alert')).toHaveText(T.nicknameRejected)
+    // And the field is handed back, so the answer to "not that one" is a name
+    // typed straight over it.
+    await expect(field).toBeFocused()
     await expect
       .poll(() => page.evaluate(() => window.__LOCO_E2E__?.getState?.()?.screen))
       .toBe('lobby')
