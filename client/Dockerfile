@@ -8,7 +8,7 @@ FROM node:24-alpine AS builder
 # fetched: this has to be decided here, at build time. Defaults to production so
 # a plain `docker build` still produces a correct image; .gitlab-ci.yml passes
 # the real host per environment.
-ARG VITE_PUBLIC_ORIGIN=https://loco.kisukesaama.com
+ARG VITE_PUBLIC_ORIGIN=https://ohloco.com
 ENV VITE_PUBLIC_ORIGIN=$VITE_PUBLIC_ORIGIN
 
 WORKDIR /app

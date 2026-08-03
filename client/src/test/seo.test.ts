@@ -210,6 +210,15 @@ describe('hreflang', () => {
     }
   })
 
+  it('names the apex, never the www. host', () => {
+    // One of the two hosts is canonical and the other 301s to it. Which one is
+    // an arbitrary choice, but it has to be the same one in `meta.ts`,
+    // `astro.config.mjs` and the redirect rule at the edge — and a canonical
+    // pointing at a redirect is the failure that no page ever reports, because
+    // both URLs answer 200 to a human.
+    expect(ORIGIN).not.toMatch(/^https?:\/\/www\./)
+  })
+
   it('is what the in-game language switch navigates by', () => {
     // Half of `/` is markup Astro rendered per URL — the footer row, the
     // burger's drawer, the sheet of prose — so switching language in the app

@@ -93,6 +93,40 @@ was served — circular, and in jsdom (where one document is reused across a fil
 previous test's language into the next one. `i18n.test.ts` pins all three cases: the URL wins over
 the browser, a stored choice wins over the URL, and `<html lang>` is never an input.
 
+## The two hosts, and why production has its own domain
+
+Production is `ohloco.com`, development is `loco-d.kisukesaama.com`. They are declared once each, as
+`PROD_HOST` and `DEV_HOST` in `.gitlab-ci.yml`'s global `variables:` block, and everything else reads
+`APP_HOST`.
+
+`APP_SUBDOMAIN` stayed `loco` and is **not** the address any more. It names the *stack*: the compose
+project, the Traefik router, the internal network and the deploy directory under `DEPLOY_DIR`. That
+separation is the whole reason the move cost two lines instead of a rename of every container on the
+box — but it also means the two are now free to drift, so a host is never derived from the subdomain
+and the subdomain is never used as a hostname.
+
+The dev host has to keep the `-d.` prefix. `client/nginx.conf` keys `robots.txt` on that exact
+pattern (`~*-d\.`), and it is the only thing standing between the dev deployment and the index: a dev
+host renamed without it falls into the `default` branch and starts inviting crawlers, advertising a
+sitemap of URLs that name the wrong origin. `seo.test.ts` pins the branch's contents; nothing can pin
+the name of a host that does not exist yet, so it is written here instead.
+
+## The apex is canonical and `www.` is a redirect
+
+`ohloco.com` is the site. `www.ohloco.com` exists only as a 301 to it, done at the edge (a Cloudflare
+redirect rule), and it reaches neither Traefik nor nginx.
+
+Picking one of the two is not optional — both would answer 200, both would be crawled, and the
+duplicate would split whatever authority the pages accumulate. Which one is arbitrary; the apex wins
+here because the domain is short, it is what fits in a stream overlay, and it is what somebody types.
+
+The failure this arrangement invites is the quiet one: an origin carrying `www.` while the redirect
+points the other way makes every canonical, every `hreflang` and every sitemap entry name a redirect
+rather than a page. Google follows it and then reports the canonical it was given as invalid. Nothing
+looks wrong to a human, because both URLs load. `seo.test.ts` asserts `ORIGIN` has no `www.`, which
+is the half of the contract living in this repo; the other half is the redirect rule, and it is
+documented in `docs/deployment.md` because there is no file here that could hold it.
+
 ## The origin has to be decided at build time
 
 Crawlers do not run JS and resolve `og:image` against nothing, so a relative URL is simply not
@@ -102,8 +136,8 @@ fetched. `VITE_PUBLIC_ORIGIN` therefore feeds both `astro.config.mjs`'s `site` a
 That default was a live bug: nothing passed the variable anywhere, so the image built for
 `loco-d.kisukesaama.com` served a canonical and an `og:url` naming production. The `-d.` host's
 `Disallow: /` hid it rather than fixing it. `client/Dockerfile` now takes it as an `ARG`, and
-`.gitlab-ci.yml` passes `https://${APP_HOST}` — already `-d.` on `develop` and the bare host on a
-`v*` tag.
+`.gitlab-ci.yml` passes `https://${APP_HOST}` — `DEV_HOST` on `develop` and `PROD_HOST` on a `v*`
+tag.
 
 ## What nginx has to agree with
 

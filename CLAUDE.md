@@ -586,6 +586,14 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   the i18n provider writes, so reading it makes the app detect its own last output.
 - **The origin is decided at build time** (`VITE_PUBLIC_ORIGIN` → `site` + `ORIGIN`), passed as a
   Docker `ARG` by `.gitlab-ci.yml`. Crawlers do not run JS and never fetch a relative `og:image`.
+- **Production is `ohloco.com`, dev is `loco-d.kisukesaama.com`, each declared once** (`PROD_HOST` /
+  `DEV_HOST` in `.gitlab-ci.yml`). **`APP_SUBDOMAIN` names the stack, not the address** — compose
+  project, Traefik router, network, deploy directory — so never derive one from the other. **The dev
+  host keeps its `-d.` prefix**: `nginx.conf` keys `robots.txt` on that pattern and it is all that
+  keeps dev out of the index.
+- **The apex is canonical and `www.` only 301s to it, at the edge.** So `ORIGIN` carries no `www.`
+  (`seo.test.ts`) and `compose.yml` carries one `Host()`. A canonical naming a redirect is reported
+  as invalid by Google and looks fine to every human, because both URLs load.
 - **nginx answers a missing page with a real 404**, never with the game. `robots.txt` advertises the
   sitemap on production hosts and nothing at all on `-d.`.
 - `make og` and `make icons` **commit their output**: CI has no browser.
