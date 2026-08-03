@@ -342,8 +342,19 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // toast over a spinner: the room is gone, the match moved on, or the
         // token no longer matches. abortRestore drops the stored record too,
         // so the next load does not walk into the same refusal.
-        if (gameStore.getState().screen === 'restoring') {
+        const screen = gameStore.getState().screen
+        if (screen === 'restoring') {
           store.abortRestore(reason)
+          break
+        }
+        // The versus reveal is the one screen in the game with nothing on it to
+        // press. An error there is the end of the pairing, not a toast over it:
+        // the deal is not coming, and a player left holding a countdown that
+        // expires into nothing has no way to find that out. Every other screen
+        // has a way off itself, searching included.
+        if (screen === 'matchfound') {
+          store.resetToHome()
+          store.setError(reason)
           break
         }
         store.setError(reason)

@@ -10,8 +10,6 @@ type MessageHandler = (msg: ServerMsg) => void
 /** Returns the message to send on reconnect, or null if not in an active session. */
 type GetReconnectMsg = () => ClientMsg | null
 
-const MAX_RECONNECT_ATTEMPTS = 10
-
 /**
  * The socket the whole game runs on. The same machine the React hook ran, with
  * the refs turned back into plain variables — they were only refs because React
@@ -32,6 +30,10 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
 
   function connect() {
     if (unmounted) return
+    // A second socket opened over one that is already coming up would leave the
+    // first one's close handler to schedule a third. Every manual entry point
+    // below goes through here, so the guard lives here rather than at each.
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return
 
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
     // VITE_WS_PORT is set in docker-compose.dev.yml to the Go server's port
@@ -92,21 +94,53 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
       if (ws !== socket) return
       if (unmounted) return
       status = 'closed'
-      if (attempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.warn('WebSocket: max reconnect attempts reached')
-        return
-      }
+      // No ceiling. The schedule backs off and then holds; it never runs out.
+      // See webSocketPolicy.ts: a client that stops trying is a curtain that
+      // never comes down, over a seat the server may still be holding.
       const delay = reconnectDelay(attempts)
       attempts++
       reconnectTimer = setTimeout(connect, delay)
     }
   }
 
+  /**
+   * Try again now, from the top of the backoff.
+   *
+   * Three things ask for this and they are the same thing: the network came
+   * back, the tab came back, or the player pressed the button on the curtain.
+   * All three are evidence that the reason for the last failure is over, which
+   * is worth more than whatever the schedule was about to wait out — a tab
+   * suspended for an hour wakes up with its timer parked at the cap.
+   */
+  function reconnectNow() {
+    if (unmounted) return
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    attempts = 0
+    connect()
+  }
+
   $effect(() => {
     unmounted = false
     connect()
+
+    // Deliberately unconditional: connect() is the one that decides whether
+    // there is anything to do, and it already refuses a socket that is up.
+    const wake = () => {
+      if (document.visibilityState === 'hidden') return
+      reconnectNow()
+    }
+    window.addEventListener('online', reconnectNow)
+    document.addEventListener('visibilitychange', wake)
+    window.addEventListener('focus', wake)
+
     return () => {
       unmounted = true
+      window.removeEventListener('online', reconnectNow)
+      document.removeEventListener('visibilitychange', wake)
+      window.removeEventListener('focus', wake)
       if (reconnectTimer !== null) {
         clearTimeout(reconnectTimer)
         reconnectTimer = null
@@ -135,6 +169,7 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
     get wsStatus() {
       return status
     },
+    reconnectNow,
     forceClose() {
       ws?.close()
     },

@@ -192,9 +192,15 @@ func TestRematch_ReindexesOffersWhenASeatLeaves(t *testing.T) {
 	}
 
 	conn1.Close()
+	// The seat is held rather than removed — the match is over and the rematch is
+	// not, so a socket that drops here has the reconnect window to come back into
+	// it. Nothing is re-based for a seat that is still there: Bob keeps index 1.
+	// What goes is the quorum the absent seat was part of, which is the half of a
+	// departure that matters here — nobody waits on somebody who is not there.
+	readMsgOfType(t, conns[2], protocol.SMsgPlayerDisconnected)
 	msg := readMsgOfType(t, conns[2], protocol.SMsgRematchOffered)
-	if got := msg.Offers(); len(got) != 1 || got[0] != 0 {
-		t.Errorf("offers after the host left = %v, want [0] (Bob, re-based)", got)
+	if got := msg.Offers(); len(got) != 1 || got[0] != 1 {
+		t.Errorf("offers after the host dropped = %v, want [1] (Bob, seat unchanged)", got)
 	}
 	if msg.RematchNeeded != 2 {
 		t.Errorf("rematch_needed = %d, want 2", msg.RematchNeeded)
@@ -244,8 +250,11 @@ func TestRematch_PrunesPlayerWhoLeftAfterMatchEnd(t *testing.T) {
 	conn1, conn2, _ := winBO1(t)
 
 	conn2.Close()
-	// The host observes the departure before rematching.
-	readMsgOfType(t, conn1, protocol.SMsgPlayerLeft)
+	// The host observes the drop before rematching. A finished table holds the
+	// seat rather than releasing it, so this is player_disconnected; what makes
+	// the seat go is pruneAbsentPlayers at the moment the rematch deals, which is
+	// what this test is about.
+	readMsgOfType(t, conn1, protocol.SMsgPlayerDisconnected)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgRematch})
 	msg := readMsgOfType(t, conn1, protocol.SMsgRematchStarted)

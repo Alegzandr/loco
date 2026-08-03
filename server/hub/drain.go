@@ -3,7 +3,6 @@ package hub
 import (
 	"log"
 
-	"loco/server/game"
 	"loco/server/protocol"
 )
 
@@ -85,18 +84,23 @@ func (h *Hub) beginDrain() {
 		q.client.Send(protocol.ServerMsg{Type: protocol.SMsgMatchmakingCancelled})
 	}
 
-	// Everyone at a table in progress is told once. Not a countdown and not a
-	// warning: there is nothing for them to do, and the match they are in is
-	// going to finish.
+	// Everyone at a table is told once. Not a countdown and not a warning: there
+	// is nothing for them to do, and whatever they are in the middle of is going
+	// to finish.
 	//
-	// Asked of each table rather than done here, because whether a table is
-	// playing and who is sitting at it are that table's to say. The status is
-	// re-checked there for the same reason.
+	// Every table, not only the ones playing. The notice used to be gated on
+	// StatusPlaying, which meant the three places a drain is actually *felt* were
+	// the three that never heard about it: a waiting room, where start_game comes
+	// back refused; a game-over screen, where the rematch button does; and a
+	// matchmade pair still on its versus reveal, which is formally a lobby and
+	// deals itself seconds later into a match it was never told about. Finding
+	// out a deploy is under way by being turned down is the failure this line
+	// exists to prevent, so it goes to everyone who can be turned down.
+	//
+	// Asked of each table rather than done here, because who is sitting at one is
+	// that table's to say.
 	for _, t := range h.tables {
 		t.postFromTimer("drain_notice", func() {
-			if t.room.Status != game.StatusPlaying {
-				return
-			}
 			h.broadcastToRoomAll(t, protocol.ServerMsg{Type: protocol.SMsgServerUpdating})
 		})
 	}

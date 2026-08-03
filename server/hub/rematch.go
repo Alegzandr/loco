@@ -159,6 +159,29 @@ func (h *Hub) releaseRematchOffer(t *table, seat int) {
 	}
 }
 
+// retireRematchOffer drops the ask of a seat that is still at the table but no
+// longer connected: a socket that went on the game-over screen, whose seat is
+// being held rather than removed.
+//
+// Nothing is re-based here, and that is the whole difference from
+// releaseRematchOffer: the seat keeps its index, because it is coming back or
+// it is not, and the expiry decides. What goes is the ask and the quorum it was
+// part of — a seat that is not there is not waited on — which is why this can
+// complete an agreement on the spot exactly as a departure does.
+func (h *Hub) retireRematchOffer(t *table, seat int) {
+	if len(t.rematchOffers) == 0 {
+		return
+	}
+	delete(t.rematchOffers, seat)
+	if t.room.Status != game.StatusFinished || t.isMatchmade() {
+		return
+	}
+	h.broadcastRematchOffers(t, nil)
+	if n := len(t.rematchOffers); n > 0 && n >= t.rematchQuorum() {
+		h.dealAgreedRematch(t)
+	}
+}
+
 // pruneAbsentPlayers drops every seat with neither a live connection nor a bot
 // behind it, re-indexing all playerID-keyed structures. Iterates high→low so
 // each removal only shifts indices already processed.

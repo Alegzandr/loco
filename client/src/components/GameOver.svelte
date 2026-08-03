@@ -2,6 +2,8 @@
   import type { ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import Confetti from './Confetti.svelte'
+  import ServerUpdating from './ServerUpdating.svelte'
+  import { game } from '../hooks/gameStore.svelte'
 
   type Props = {
     winner: string
@@ -66,6 +68,9 @@
     isTable ? ` ${t.rematchProgress(rematchOffers.length, rematchNeeded)}` : '',
   )
   const ranked = $derived((scoreboard ?? []).slice().sort((a, b) => b.score - a.score))
+  // Read through a $derived rather than out of the snapshot inside the markup:
+  // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
+  const serverUpdating = $derived(game.current.serverUpdating)
 </script>
 
 <div class="container">
@@ -111,6 +116,14 @@
           </div>
         {/each}
       </div>
+    {/if}
+
+    <!-- A deploy is under way, so the button under this is going to be refused.
+         Said before it is pressed rather than after: a rematch that comes back
+         "server updating" on a screen that never mentioned a deploy reads as the
+         button being broken. -->
+    {#if serverUpdating}
+      <ServerUpdating variant="card" />
     {/if}
 
     <!-- A rematch is an agreement, not a decision, and it reads the same at every

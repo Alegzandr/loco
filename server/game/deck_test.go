@@ -186,8 +186,36 @@ func TestDeck_Replenish(t *testing.T) {
 	d.Shuffle(nil)
 	drawn, _ := d.DrawN(110)
 	discard := drawn[:109]
-	d.Replenish(discard)
+	d.Replenish(discard, nil)
 	if len(d.Cards) != 109 {
 		t.Errorf("After Replenish(), deck len = %d, want 109", len(d.Cards))
+	}
+}
+
+// The pile going back into the deck is the second half of a long round, and
+// every card in it has been seen by the table: an attacker who can predict its
+// order knows the rest of the round outright. It used to shuffle off the global
+// source; it takes the room's crypto-seeded one now, like the deal.
+//
+// Asserted by giving two rooms the same pile and the same clock-shaped seed and
+// requiring the results to differ. A shared global source would make them equal.
+func TestReplenish_UsesTheRoomsOwnSource(t *testing.T) {
+	pile := NewDeck().Cards[:60]
+
+	orderOf := func() string {
+		r := NewRoom("AAAAAA")
+		r.ensureRNG()
+		d := &Deck{}
+		d.Replenish(pile, r.rng)
+		out := make([]byte, 0, len(d.Cards))
+		for _, c := range d.Cards {
+			out = append(out, byte(c.Color), byte(c.Kind), byte(c.Value))
+		}
+		return string(out)
+	}
+
+	first, second := orderOf(), orderOf()
+	if first == second {
+		t.Error("two rooms replenished the same pile into the same order")
 	}
 }

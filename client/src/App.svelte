@@ -216,7 +216,7 @@
     onLeave={leaveRoom}
   />
 {:else if g.screen === 'game'}
-  <GameView onSend={handleSend} wsStatus={socket.wsStatus} />
+  <GameView onSend={handleSend} wsStatus={socket.wsStatus} onRetryConnection={socket.reconnectNow} />
 {:else if g.screen === 'gameover'}
   <GameOver
     winner={g.matchWinner}

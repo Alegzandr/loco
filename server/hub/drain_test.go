@@ -140,6 +140,47 @@ func TestDrain_MatchInProgressKeepsPlaying(t *testing.T) {
 	}
 }
 
+// The notice used to be gated on StatusPlaying, which meant it missed the three
+// places a drain is actually felt. A waiting room is one of them: the host is
+// about to press a start button that comes back refused, and being turned down
+// is not how a player should learn a deploy is under way.
+func TestDrain_NotifiesTablesThatHaveNotDealt(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	host := dialWS(t, srv)
+	defer host.Close()
+	sendMsg(t, host, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	created := readMsgOfType(t, host, protocol.SMsgRoomCreated)
+
+	guest := dialWS(t, srv)
+	defer guest.Close()
+	sendMsg(t, guest, protocol.ClientMsg{
+		Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: created.RoomCode,
+	})
+	readMsgOfType(t, guest, protocol.SMsgRoomJoined)
+	readMsgOfType(t, host, protocol.SMsgPlayerJoined)
+
+	h.BeginDrain()
+
+	readMsgOfType(t, host, protocol.SMsgServerUpdating)
+	readMsgOfType(t, guest, protocol.SMsgServerUpdating)
+}
+
+// The other one: a table that is over. The rematch button on that screen stops
+// working during a drain, and a refusal on the only control the screen has
+// reads as a broken button rather than as a deploy.
+func TestDrain_NotifiesFinishedTables(t *testing.T) {
+	h, conn1, conn2, _, _, _ := winBO1WithTokens(t)
+
+	h.BeginDrain()
+
+	readMsgOfType(t, conn1, protocol.SMsgServerUpdating)
+	readMsgOfType(t, conn2, protocol.SMsgServerUpdating)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgRematch})
+	expectError(t, conn1, "server updating")
+}
+
 func TestDrain_ReconnectStillWorks(t *testing.T) {
 	h, srv := newTestHub(t)
 

@@ -871,6 +871,37 @@ export const SCENES: Scene[] = [
       serverUpdating: true,
     },
   },
+  {
+    // The same deploy on a screen with no match running. The notice is an
+    // ordinary line in the column here, not an absolute pill, and it says what
+    // the deploy actually costs this screen: the start button below it.
+    id: 'waiting-server-updating',
+    title: 'Salon · mise à jour du serveur',
+    screen: 'waiting',
+    state: {
+      roomCode: 'KX7QP2',
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchFormat: 'BO3',
+      maxPlayers: 6,
+      serverUpdating: true,
+    },
+  },
+  {
+    // And on the card people screenshot. It sits above the rematch button it is
+    // about, and must not compete with the trophy at the top of the card.
+    id: 'gameover-server-updating',
+    title: 'Fin de match · mise à jour du serveur',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
+      myIndex: 0,
+      serverUpdating: true,
+    },
+  },
 ]
 
 export const SCENE_IDS = SCENES.map((s) => s.id)

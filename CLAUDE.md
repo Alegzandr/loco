@@ -267,11 +267,19 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   sweep the old index and the old table, `hub.alreadySeated` refuses on `create_room` and `join_room`,
   and **`dispatchAtTable` re-checks the seat against the table about to act on it**, because the
   routing and the handling no longer happen in the same instant. Reconnects are unaffected.
+- **A seat that is empty must read as empty, and `awayAt` only answers half of that**: the entry is
+  deleted when the hold ends, so `table.gone` (read through `hasLeft`) is what keeps a seat a running
+  match cannot remove from being broadcast as connected. **A finished ordinary table holds its seats
+  too** — the match is over, the rematch is not — so `join_room` reclaims a held seat at any table
+  that is not a lobby, the reclaim carries **no `state`** when there is none, and the expiry there
+  removes the seat for real. Matchmade tables are excluded on purpose.
 - **Personalised sends index by slot, never by `member.playerID`.**
 - **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback.
   `game.newRNG` seeds the source that picks the map, the starting seat and the shuffle: **the deal is
   hidden state, so a clock seed hands every hand to anyone who timed `create_room`**.
-  `game/rng_test.go` runs that attack. `math/rand` is for bot jitter and nothing else.
+  `game/rng_test.go` runs that attack. **Every shuffle that decides a hand takes it, the mid-round
+  `Deck.Replenish` included**: the pile going back into the deck has been seen by the whole table, so
+  predicting its order is knowing the rest of the round. `math/rand` is for bot jitter and nothing else.
 - **The nickname is validated in the domain and refused with one string.** `game.ValidateNickname`
   owns length **in runes**, an allowlist charset and the blocked-term check; all three reach the
   player as `nickname not allowed` and **never say which rule fired**. Words in
@@ -322,7 +330,9 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, refuse `leave_room` mid-match, and
   allow it in every waiting room behind one in-place confirmation, the only one in the game.
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing that
-  would start a new match is accepted, the queue is emptied with an explanation, **everything already
+  would start a new match is accepted, the queue is emptied with an explanation, **every table is
+  told once — every table, not only the ones playing: a waiting room, a game-over and a versus reveal
+  are the three that otherwise learn about the deploy by being refused** — **everything already
   running is left completely alone**, and the refusal list is chosen so the drain terminates. The rest
   is written to `LOCO_SNAPSHOT_PATH` and read back by the next process (`hub/snapshot.go`). Only
   matches in flight travel, a snapshot is never replayed, and a foreign `SnapshotSchemaVersion` or an
@@ -402,6 +412,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.
+- **The socket never stops trying to come back, and three things retry it on the spot**: `online`,
+  the tab returning, and the button on the reconnect curtain (`webSocket.reconnectNow`). A ceiling
+  on attempts is a curtain that never comes down over a seat the server may still be holding.
+- **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
+  again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own

@@ -341,7 +341,7 @@ polish.
   config does not expose. Anything else the app needs from the environment obeys the same rule.
 - `webSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
 - Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
-  (250ms, 500ms, 1s, 2s, 4s, then held), max 10 attempts, `attempts` resets on `onopen`. The
+  (250ms, 500ms, 1s, 2s, 4s, 8s, 15s, then held), `attempts` resets on `onopen`. The
   schedule and the `WsStatus` vocabulary live apart from the socket, in `hooks/webSocketPolicy.ts`:
   a backoff curve belongs to no framework and a component that only needs the status should not
   import the transport to get it.
@@ -349,7 +349,19 @@ polish.
   that comes straight back, and the flat 2s first retry it replaced cost the player an entire
   interrupt window of dead board every time one happened. The tail still backs off, so a server
   that is genuinely down is not hammered.
-- `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
+- **There is no attempt ceiling, and removing it was a bug fix rather than a tuning.** Ten attempts
+  ran out at 27.75 s, and past that the client never tried again for the life of the tab, under a
+  "Reconnexion…" curtain with nothing on it to press. A normal deploy does not produce that (compose
+  holds the old server for its whole 90 s drain), but everything around one does: a slow image pull,
+  a crash loop, `stop_grace_period` reached, a phone that suspended the tab. And the client's 27.75 s
+  could expire before the server had even started counting the 60 s it holds the seat for, which is
+  the case where giving up cost a seat that was still there.
+- **The recovery path is not the schedule.** `reconnectNow()` retries from the top and is wired to
+  three things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
+  `visibilitychange`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
+  refuses a socket that is already CONNECTING or OPEN, so every entry point is safe to fire twice.
+- `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
+  sends.
 - **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
   `createServerMessageHandler(unoTimer)` is built once, during App's setup, and takes its store
   snapshot at creation: the action functions are created once by the store factory and are stable for
@@ -377,9 +389,21 @@ while the server held their hand and their score for another minute with nobody 
 That is the disconnect people actually have, and it was the one that could not be undone.
 
 - `hooks/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`.
-  **One pure function builds the rejoin for all three cases** (a socket that dropped mid-match, one
-  that dropped in the lobby, and a tab that was reloaded), so a reclaim cannot mean two different
+  **One pure function builds the rejoin for every case**, so a reclaim cannot mean two different
   things depending on how the connection was lost.
+- **It used to answer three screens out of six, and the other three each failed silently and
+  differently.** `searching`: the server takes a dropped socket out of the queue, correctly, and the
+  client said nothing coming back — so the screen went on timing a wait in a queue the player was no
+  longer in, which is precisely what `searchStages` says no copy may imply. It re-sends `find_match`
+  now. `matchfound`: a real seat with a real token, two seconds from a deal, and saying nothing left
+  a player watching a versus screen that was never going to resolve; it reclaims like a game seat,
+  and `appEffects` stopped clearing the stored record there for the same reason. `gameover`: the
+  server holds that seat now (see the server note), so it is reclaimed with its token — **except in
+  a matchmade room**, where the seat is released outright and the pair is done.
+- **An error on `matchfound` resets to the lobby**, unlike every other screen, which gets a toast.
+  It is the one screen in the game with nothing on it to press: a pairing that fell apart there is
+  the end of that pairing, and a player left holding a countdown that expires into nothing has no
+  way to find that out. `searching` keeps the toast — it has a cancel button.
 - **`sessionStorage`, deliberately, not `localStorage`.** It is per tab, so two seats played from one
   browser (how this game is tested, and how a lot of people play with a friend on one machine) cannot
   overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
@@ -729,6 +753,11 @@ reads.
   loses nothing, which is what it is telling them.
 - It exists at all because a board that quietly changes behaviour is worse than one that says so:
   during a drain the rematch button stops working, and with no line of text that reads as a bug.
+- **Two screens beyond the board carry it**, since the server stopped gating the notice on
+  `StatusPlaying`: the waiting room and the game-over card, through `<ServerUpdating variant="card" />`
+  — static in the flow rather than absolute, and with copy that says what a deploy actually costs
+  those two (the deal is paused) instead of promising a match that is not running. Both used to find
+  out by pressing their one button and being refused.
 - **Two slots, not one.** Wide: the top chrome row, in the gap between the round pill and the icon
   row. Narrow: that gap does not exist, so it drops under the chrome and steps down again when
   OpponentAway is using the slot. The obvious placement (the OpponentAway slot at both widths) put a

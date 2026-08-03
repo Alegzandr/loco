@@ -389,8 +389,11 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   constructor, walks every nanosecond in the window, and fails if any of them reproduces the deal.
   It carries a planted clock seed as a positive control, because a replay that has drifted out of
   step with `dealRound` reports "not found" for every room, safe or not — and would pass forever.
-  `Deck.Replenish` still shuffles off the global source, which Go seeds randomly at startup; it is
-  the deal, not the mid-round reshuffle, that was reconstructible.
+  `Deck.Replenish` takes the same source. It used to shuffle off the global one, on the argument
+  that only the deal was reconstructible — but the pile going back into the deck is the second half
+  of a long round, every card in it has been seen by the table, and whoever can predict its order
+  knows the rest of the round outright. `deck_test.go` replenishes the same pile from two rooms and
+  requires the orders to differ; a shared global source makes them equal.
 - **A refused message must never be cheaper than an accepted one.** This is the finding an audit of
   every inbound message produced, and it is one sentence because all four bugs were the same bug.
   The server had been read for what it *lets* a client do, which was already tight: nothing on the
@@ -659,6 +662,35 @@ strangers will not, and the player who is still at the table did nothing wrong.
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.
 
+## A seat that is empty has to read as empty
+Two ways a seat has nobody in it, and the roster used to answer only the first.
+
+**`awayAt` is a hold, and the hold ends.** `playerList` derived `connected` from `awayAt` alone, and
+`handleExpireReconnect` deletes that entry one line before it broadcasts the departure. So the
+`player_left` announcing a player was gone carried a roster saying that player was present — and in
+an ordinary room, where nothing forfeits, it stayed that way for the rest of the match: a seat pod
+and a score table showing "here" while the turn clock auto-passed for them every 30 s. It was masked
+in matchmade rooms only because those forfeit on the same event. `table.gone` is the second half of
+the answer, and `hasLeft` is how `playerList` reads it. The seat itself cannot go: hands, scores and
+turn order are indexed by it until the round ends. Every re-basing move shifts `gone` with the rest,
+and `resetForNextMatch` clears it, for the reason every other per-match map is cleared there.
+
+**A finished table holds its seats too.** The match is over; the rematch is not. A socket that
+dropped on the game-over screen used to be released outright, so a wifi hiccup between the last card
+and the rematch button was answered `not in a room` by the only control that screen has. Now
+`disconnectAtTable` holds it for the ordinary reconnect window, `retireRematchOffer` takes that
+seat's ask out of the quorum without re-basing anybody (it is being held, not removed, so no index
+moves), and `joinAtTable` accepts the token reclaim at any table that is not a lobby. The reclaim
+sends `player_reconnected` with **no `state`** — a finished room has none, and a snapshot built from
+a nil one would hand the client an empty board and put it back at the table — followed by the whole
+`rematch_offered` state. When the hold does expire, the seat is removed for real
+(`RemoveLobbyPlayer` + `dropSeat`): a phantom at a finished table is worse than a stale flag,
+because the next match would deal a hand to nobody.
+
+**Matchmade tables are deliberately excluded from that hold.** Two strangers are done with each
+other, the survivor's client requeues the moment the roster says it is alone, and holding a seat
+would make it wait out the hold first for a rematch `handleRematch` refuses anyway.
+
 ## AFK auto-kick
 - `hub.AFKKickThreshold` (var, default 4) consecutive turn-timeouts without voluntary action → kick (~2 rounds in 2-player). A matchmade room uses `MatchmakingAFKThreshold` (2) and forfeits instead of kicking; see above.
 - Bots exempt. An **accepted** voluntary action (play_card, draw_card, pass_turn, declare_uno,
@@ -904,6 +936,15 @@ match, so there is nothing to protect, and leaving them there is the worst avail
 for an opponent this process has already stopped pairing. They get the refusal and a
 `matchmaking_cancelled`, which takes the screen back to the table view where a private table still
 works.
+
+**The notice goes to every table, not only the ones playing.** It was gated on `StatusPlaying`, which
+meant the three places a drain is actually *felt* were the three that never heard about it: a waiting
+room, whose host is about to press a start button that comes back refused; a game-over screen, whose
+rematch button does the same; and a matchmade pair still on its versus reveal, formally a lobby,
+which deals itself seconds later into a match nobody told it about. Finding out from a refusal is
+the failure the line exists to prevent, so it goes to everyone who can be refused. The copy differs
+by screen on the client (`ServerUpdating` has a `card` variant): a table that has not dealt is not
+owed "this match plays to the end".
 
 **`checkDrained` runs after every event in `Run`, not hooked onto the handlers that can end a match.**
 A match stops being in flight through the last card, a forfeit, an expired reconnect window and the

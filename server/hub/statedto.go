@@ -18,8 +18,13 @@ func (h *Hub) playerList(t *table) []protocol.PlayerDTO {
 		if room.State != nil {
 			handSize = room.State.Hands[i].Size()
 		}
+		// Two ways a seat is empty, and both have to be read: the socket is
+		// inside its reconnect window (awayAt), or that window closed and the
+		// seat stayed because a running match indexes everything by it (gone).
+		// Reading only the first reported a player as present for the rest of
+		// the match, starting with the player_left that announced them gone.
 		_, away := t.awayAt[i]
-		connected := !away
+		connected := !away && !t.hasLeft(i)
 		ps[i] = protocol.PlayerDTO{
 			Index:     p.Index,
 			Nickname:  p.Nickname,

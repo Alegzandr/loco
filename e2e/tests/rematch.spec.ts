@@ -121,7 +121,11 @@ test.describe('rematch', () => {
     await guestCtx.close()
   })
 
-  test('when the host leaves the game-over screen, the remaining player is promoted and the ask waits', async ({ browser }) => {
+  // A dropped socket on the game-over screen used to cost the seat outright, so
+  // the player who pressed the same button two seconds later was answered "not
+  // in a room" by the only control that screen has. The seat is held now and the
+  // client reclaims it with its token, exactly like a seat in a running match.
+  test('a socket that drops on the game-over screen reclaims its seat and can still rematch', async ({ browser }) => {
     const hostCtx = await browser.newContext()
     const guestCtx = await browser.newContext()
     const host = await hostCtx.newPage()
@@ -137,26 +141,84 @@ test.describe('rematch', () => {
       { timeout: 30_000 },
     )
 
-    // Host abandons the room. The server re-bases Bob to seat 0; his client must
-    // follow, otherwise the room is stranded with no one able to rematch.
-    await hostCtx.close()
+    // Only the socket goes; the tab stays, which is the disconnect this is about.
+    await guest.evaluate(() => window.__LOCO_E2E__?.forceCloseWs?.())
     await guest.waitForFunction(
-      () => window.__LOCO_E2E__?.getState?.()?.myIndex === 0,
+      () => window.__LOCO_E2E__?.getWsStatus?.() === 'open',
       undefined,
       { timeout: 15_000 },
     )
-    // The button stays where it was and is disabled: a rematch is an agreement,
-    // and there is nobody left to agree with. It is not removed, because the
-    // answer may still be one reconnect away and this screen does not reflow.
+
+    // The screen never moved, and the seat is the same one.
+    const back = await getState(guest)
+    expect(back?.screen).toBe('gameover')
+    expect(back?.roomCode).toBe(code)
+    expect(back?.myIndex).toBe(1)
+
+    // The button works, which is the whole point of holding the seat.
+    await askRematch(guest)
+    await host.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.rematchOffers ?? []).includes(1),
+      undefined,
+      { timeout: 10_000 },
+    )
+    await acceptRematch(host)
+    await guest.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+      undefined,
+      { timeout: 10_000 },
+    )
+
+    await hostCtx.close()
+    await guestCtx.close()
+  })
+
+  test('when the host drops on the game-over screen, the table is not stranded', async ({ browser }) => {
+    const hostCtx = await browser.newContext()
+    const guestCtx = await browser.newContext()
+    const host = await hostCtx.newPage()
+    const guest = await guestCtx.newPage()
+
+    const code = await createRoom(host, 'Alice')
+    await joinRoom(guest, 'Bob', code)
+    await startGame(host)
+    await winBO1(host)
+    await guest.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'gameover',
+      undefined,
+      { timeout: 30_000 },
+    )
+
+    // The host's socket goes. A finished table holds the seat for the reconnect
+    // window rather than releasing it — the match is over, the rematch is not,
+    // and a wifi hiccup between the last card and the button used to cost the
+    // seat outright. So Bob sees a seat marked absent, not a seat removed.
+    await hostCtx.close()
+    await guest.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.players ?? []).some((p) => !p.connected),
+      undefined,
+      { timeout: 15_000 },
+    )
+
+    // The button stays where it was and stays live: the answer may be one
+    // reconnect away, and this screen does not reflow.
     const rematchBtn = guest.getByRole('button', { name: T.rematch })
     await expect(rematchBtn).toBeVisible({ timeout: 5_000 })
-    await expect(rematchBtn).toBeDisabled()
+    await expect(rematchBtn).toBeEnabled()
 
-    // The table itself survives the departure: same code, one seat.
+    // And it is not a button that waits out a minute for somebody who is gone:
+    // the quorum is whoever is connected, so Bob's ask is the whole table. The
+    // room reopens with the absent seat pruned and Bob re-based onto seat 0.
+    await rematchBtn.click()
+    await guest.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+      undefined,
+      { timeout: 15_000 },
+    )
     const s = await getState(guest)
     expect(s?.roomCode).toBe(code)
+    expect(s?.myIndex).toBe(0)
     expect(s?.players ?? []).toHaveLength(1)
-    expect(s?.screen).toBe('gameover')
 
     await guestCtx.close()
   })

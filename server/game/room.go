@@ -286,10 +286,15 @@ func (s *GameState) countInHand(playerIndex int, card Card) int {
 
 // finishRoundWin handles the "actor emptied their hand" branch: it locks in the
 // chosen color, closes the interrupt window, logs the game-finished event, and
-// ends the round. Used by PlayCard, PlayCards, and InterruptPlayCards.
+// ends the round. Used by every path that can empty a hand: PlayCard,
+// PlayCards, InterruptPlayCards and CounterDraw.
 //
-// CounterDraw deliberately does NOT use this helper — its win path historically
-// omits the closeInterruptWindow call.
+// CounterDraw used to carry its own copy of the first, third and fourth lines,
+// and the missing one was this one: a counter that won the round left the
+// interrupt window armed over a round that was already over. Nothing could be
+// interjected into it, but only because of the order the hub happens to run its
+// checks in — an argument about a caller standing in for a rule about the
+// state. There is one win path now, and it is this.
 func (r *Room) finishRoundWin(playerIndex int, activeColor Color) {
 	r.State.setActiveColor(activeColor)
 	r.State.closeInterruptWindow()
@@ -1325,10 +1330,13 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 
 	r.State.updateLastCardState(playerIndex)
 
+	// The same win as every other: through finishRoundWin, not through a copy of
+	// its three lines. The copy left out closeInterruptWindow, and the only thing
+	// keeping that from arming a window over a finished round was the order the
+	// hub happens to run its checks in — an argument about a caller, standing in
+	// for a rule about the state.
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.State.setActiveColor(chosenColor)
-		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		r.endRound(playerIndex)
+		r.finishRoundWin(playerIndex, chosenColor)
 		return nil
 	}
 
@@ -1362,6 +1370,9 @@ func (r *Room) ensureDeck(needed int) {
 	}
 	top := r.State.topCard()
 	pile := r.State.Discard[:len(r.State.Discard)-1]
-	r.State.Deck.Replenish(pile)
+	// The room's source, not the global one: a room decoded from a snapshot has
+	// none until this asks for it. See newRNG.
+	r.ensureRNG()
+	r.State.Deck.Replenish(pile, r.rng)
 	r.State.Discard = []Card{top}
 }

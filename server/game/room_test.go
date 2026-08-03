@@ -1357,6 +1357,35 @@ func TestCounterDraw_StackContinues(t *testing.T) {
 	}
 }
 
+// A counter that empties the hand wins the round, and a round that is over has
+// no interrupt window. CounterDraw used to carry its own copy of the win path
+// and that copy left the window armed: nothing could be interjected into it,
+// but only because of the order the hub runs its checks in. This asserts the
+// state rather than the caller.
+func TestCounterDraw_WinClosesTheInterruptWindow(t *testing.T) {
+	r := setupTwoPlayerGame(t)
+
+	// Bob is under a red +2, holds exactly the red +2 that answers it, and the
+	// window is open from the play that put him there.
+	r.State.CurrentTurn = 1
+	r.State.PendingDraw = 2
+	r.State.Discard = []Card{{Color: Red, Kind: DrawTwo}}
+	r.State.ActiveColor = Red
+	r.State.armInterruptWindow(0)
+	counter := Card{Color: Red, Kind: DrawTwo}
+	r.State.Hands[1].Cards = []Card{counter}
+
+	if err := r.CounterDraw(1, counter, Red); err != nil {
+		t.Fatalf("CounterDraw: %v", err)
+	}
+	if !r.RoundEnded {
+		t.Fatalf("emptying the hand with a counter did not end the round")
+	}
+	if r.State.LastPlayBy >= 0 {
+		t.Errorf("LastPlayBy = %d after a round-winning counter, want the window closed", r.State.LastPlayBy)
+	}
+}
+
 // TestCounterDraw_RequiresSameColor verifies that a counter is the same card:
 // a red +2 is answered by a red +2 only. The off-colour +2 is not lost — the
 // forced draw keeps the turn (§14.5), so the victim takes the stack and then

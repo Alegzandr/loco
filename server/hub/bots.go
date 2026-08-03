@@ -167,8 +167,9 @@ func (h *Hub) handleAddBot(t *table, c *Client, msg protocol.ClientMsg) {
 	botID := len(room.Players) - 1
 	t.bots[botID] = struct{}{}
 	h.metrics.botsActive.Add(1)
-	// A bot's seat carries no socket, so its members entry stays nil.
-	t.members = append(t.members, nil)
+	// A bot's seat carries no socket, so its members entry stays nil. Asked of
+	// the table rather than appended here: members is its own.
+	t.addEmptySeat()
 
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:     protocol.SMsgPlayerJoined,

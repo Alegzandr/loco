@@ -129,7 +129,12 @@ func (h *Hub) joinAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 	// and a returning player whose token has gone stale now get the same answer,
 	// and the returning player's client already owns that case (the restore
 	// timeout in useSessionRestore), so nothing legitimate reads the difference.
-	if room.Status == game.StatusPlaying {
+	//
+	// The check is "not a lobby" rather than "playing" because a finished
+	// ordinary table holds its seats too, for the length of the rematch: see
+	// disconnectAtTable. A stranger gets the same one string at either, which is
+	// the point of it.
+	if room.Status != game.StatusLobby {
 		if playerID, found := t.findHeldSeat(msg.Nickname); found &&
 			t.validateToken(playerID, msg.SessionToken) {
 			h.handleReconnect(c, t, playerID, msg.Nickname)

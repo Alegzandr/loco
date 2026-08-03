@@ -178,6 +178,10 @@ export interface Translations {
   // waiting on. It promises the one thing that matters, that the match is not
   // going to be taken away, and asks for nothing.
   serverUpdatingBanner: string
+  // The same deploy, said on a screen where no match is running: the waiting
+  // room and the game-over card. What it costs there is the button they are
+  // looking at, so this one says that instead of promising a match to the end.
+  serverUpdatingWaiting: string
   // A match that ended because somebody stopped being there. Never phrased as a
   // victory: nobody played for it.
   forfeitWon: string
@@ -292,6 +296,7 @@ export interface Translations {
   reconnectCancel: string           // give up and go back to the lobby
   wsLostConnection: string
   wsReconnecting: string
+  wsRetryNow: string                // the one control on the curtain: try again now
   // Synchronised map loading, shown between "hands dealt" and "clock running".
   mapLoadingTitle: string           // small label above the map's name
   mapLoadingWaiting: string         // status while other players are still loading
@@ -444,6 +449,7 @@ export const en: Translations = {
   opponentAway: 'lost connection',
   opponentAwayHint: 'If they do not come back, the match is yours.',
   serverUpdatingBanner: 'New version landing. This match plays to the end.',
+  serverUpdatingWaiting: 'New version landing. Dealing is paused for a minute.',
   forfeitWon: 'They walked',
   forfeitWonSub: 'The seat opposite is empty. The match is yours.',
   forfeitYouLeft: 'You left',
@@ -534,6 +540,7 @@ export const en: Translations = {
   reconnectCancel: 'Back to the menu',
   wsLostConnection: 'Connection lost',
   wsReconnecting: 'Reconnecting…',
+  wsRetryNow: 'Try again now',
   mapLoadingTitle: 'Tonight you play in',
   mapLoadingWaiting: 'Setting the table…',
   mapLoadingReady: 'You are seated. Waiting on the others…',
