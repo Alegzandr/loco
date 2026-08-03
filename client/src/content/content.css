@@ -86,8 +86,10 @@ html[data-scroll="smooth"]:has(body.doc) {
 /* `:focus-visible`, never `:focus`. "Back to top" hands the focus here so a
    keyboard reader lands at the start of the document, and on a phone that press
    is a tap: the bare `:focus` published the link over the header for a reader
-   who has no use for it and no obvious way to dismiss it. The heuristic answers
-   both — a tap leaves it hidden, a Tab or an Enter still shows it. */
+   who has no use for it and no obvious way to dismiss it. This selector is only
+   half the guard — Safari counts a programmatic `focus()` as keyboard focus
+   whatever the gesture was — so `theme-boot.ts` moves the focus only on a
+   keyboard activation. Both halves are needed; neither alone hides it on iOS. */
 .skip:focus-visible {
   left: max(1rem, var(--safe-left));
   top: max(1rem, var(--safe-top));
