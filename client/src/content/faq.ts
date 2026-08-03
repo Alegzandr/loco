@@ -64,11 +64,11 @@ export const FAQ: readonly QA[] = [
     },
     a: {
       en: [
-        'Open a table and you are given a code. Send the code, they enter it, and you are all sitting at the same table. Nobody has to install or register anything.',
+        'Open a table and you are given a code. Pressing it copies a link straight to that table: send it, they tap it, and you are all sitting at the same table. The code still works on its own for anyone who would rather type it. Nobody has to install or register anything.',
         'You can also press Play 1v1 instead, which puts you against whoever is looking for a game at that moment.',
       ],
       fr: [
-        'Ouvre une table et un code t’est donné. Tu envoies le code, ils le saisissent, et vous êtes tous à la même table. Personne n’a rien à installer ni à créer.',
+        'Ouvre une table et un code t’est donné. Appuyer dessus copie un lien direct vers cette table : tu l’envoies, ils l’ouvrent, et vous êtes tous à la même table. Le code fonctionne toujours seul pour qui préfère le saisir. Personne n’a rien à installer ni à créer.',
         'Tu peux aussi appuyer sur Jouer en 1v1, qui te met face à qui cherche une partie à ce moment-là.',
       ],
     },

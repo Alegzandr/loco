@@ -38,6 +38,15 @@ const extras = FAQ.filter((item) => PICKED.includes(item.q.en))
   </li>
 </ol>
 
+<!-- What the three steps leave out: the two controls a table-opener reaches for
+     after the deal is running, and the one thing that decides whether a table
+     plays a second match. Both are the host's screen, not the rules. -->
+<section>
+  <h2>{ui('friendsHostH2', lang)}</h2>
+  <p>{ui('friendsHostBody', lang)}</p>
+  <p>{ui('friendsRematchBody', lang)}</p>
+</section>
+
 <section>
   <h2>{ui('friendsMoreH2', lang)}</h2>
   {extras.map((item) => (
