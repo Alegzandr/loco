@@ -103,6 +103,11 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
 
       case 'player_left':
         store.setPlayers(msg.players ?? [])
+        // A seat is named here only when it is gone for good and nothing
+        // re-based, which is the mid-match expiry: the roster still shows it,
+        // because a running match indexes hands by it, and `connected: false`
+        // alone cannot say whether it is held or finished.
+        store.noteSeatGone(msg.player_index ?? -1)
         // The offers that survive a departure are the server's to say: it
         // retires the leaver's, re-bases the rest and republishes them in a
         // rematch_offered right behind this message. Clearing here is what
@@ -342,8 +347,19 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // toast over a spinner: the room is gone, the match moved on, or the
         // token no longer matches. abortRestore drops the stored record too,
         // so the next load does not walk into the same refusal.
-        if (gameStore.getState().screen === 'restoring') {
+        const screen = gameStore.getState().screen
+        if (screen === 'restoring') {
           store.abortRestore(reason)
+          break
+        }
+        // The versus reveal is the one screen in the game with nothing on it to
+        // press. An error there is the end of the pairing, not a toast over it:
+        // the deal is not coming, and a player left holding a countdown that
+        // expires into nothing has no way to find that out. Every other screen
+        // has a way off itself, searching included.
+        if (screen === 'matchfound') {
+          store.resetToHome()
+          store.setError(reason)
           break
         }
         store.setError(reason)

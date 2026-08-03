@@ -92,9 +92,10 @@ export function langRedirect(
  * Applies that decision. Returns true when the document is leaving, so the
  * caller can stop booting.
  *
- * The query string and the fragment travel: `?t=CODE` is a table invitation and
- * dropping it would land the guest at a home page with no table in it, and
- * `?showcase=` is how the visual harness drives this page.
+ * The query string and the fragment travel. A parameter belongs to whoever put
+ * it there — `?showcase=` is how the visual harness drives this page — and a
+ * redirect that quietly dropped one would be this module editing a URL it was
+ * not asked about.
  */
 export function initLangUrl(): boolean {
   const target = langRedirect(

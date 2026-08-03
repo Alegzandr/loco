@@ -51,12 +51,22 @@ interface Props {
    * The game wants neither, which is why it is opt-in.
    */
   bodyClass?: string
+  /**
+   * Drops `data-served-lang`, for the one page that was not built as a
+   * language: the invite page has a single URL for both, so there is nothing
+   * for `initLangUrl` to disagree with and it must not redirect. That function
+   * already treats a missing attribute as "stay" (see src/lang.ts), so this is
+   * the whole mechanism — no branch anywhere reads the page id.
+   */
+  langNeutral?: boolean
 }
 
-const { page, lang, jsonLd, noindex = false, bodyClass } = Astro.props
+const { page, lang, jsonLd, noindex = false, bodyClass, langNeutral = false } = Astro.props
 const { title: ogTitle, description: ogDescription } = social(page, lang)
 const canonical = absolute(page.path[lang])
-const ogImage = absolute(OG_IMAGE.path[lang])
+// A page may carry its own art; everything else shares the site's.
+const og = page.ogImage ?? OG_IMAGE
+const ogImage = absolute(og.path[lang])
 const links = alternates(page)
 ---
 
@@ -68,7 +78,7 @@ const links = alternates(page)
   the app would be detecting its own last output rather than the document it was
   served. See src/i18n/index.tsx.
 */}
-<html lang={lang} data-served-lang={lang}>
+<html lang={lang} data-served-lang={langNeutral ? undefined : lang}>
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -125,10 +135,10 @@ const links = alternates(page)
     <meta property="og:title" content={ogTitle} />
     <meta property="og:description" content={ogDescription} />
     <meta property="og:image" content={ogImage} />
-    <meta property="og:image:type" content={OG_IMAGE.type} />
-    <meta property="og:image:width" content={String(OG_IMAGE.width)} />
-    <meta property="og:image:height" content={String(OG_IMAGE.height)} />
-    <meta property="og:image:alt" content={OG_IMAGE.alt[lang]} />
+    <meta property="og:image:type" content={og.type} />
+    <meta property="og:image:width" content={String(og.width)} />
+    <meta property="og:image:height" content={String(og.height)} />
+    <meta property="og:image:alt" content={og.alt[lang]} />
     <meta property="og:locale" content={OG_LOCALE[lang]} />
     {LANGS.filter((l) => l !== lang).map((l) => (
       <meta property="og:locale:alternate" content={OG_LOCALE[l]} />
@@ -137,7 +147,7 @@ const links = alternates(page)
     <meta name="twitter:title" content={ogTitle} />
     <meta name="twitter:description" content={ogDescription} />
     <meta name="twitter:image" content={ogImage} />
-    <meta name="twitter:image:alt" content={OG_IMAGE.alt[lang]} />
+    <meta name="twitter:image:alt" content={og.alt[lang]} />
 
     {/*
       `is:inline` is required and is safe here: without it Astro treats the block

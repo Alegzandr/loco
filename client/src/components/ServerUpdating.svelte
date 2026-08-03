@@ -4,12 +4,22 @@
   type Props = {
     /**
      * Step down below the opponent-away banner when both are up. Only does
-     * anything at the narrow width, where the two share a slot.
+     * anything at the narrow width, where the two share a slot, and only on the
+     * board.
      */
     offset?: boolean
+    /**
+     * Where this is standing. `board` is the felt, where the notice is absolute
+     * and has a top chrome row to fit around. `card` is a screen built out of
+     * cards — the waiting room, the game-over screen — where it is an ordinary
+     * line in the flow and the thing it has to say is different: no match is
+     * running there, and what the deploy costs those two screens is the button
+     * they are looking at.
+     */
+    variant?: 'board' | 'card'
   }
 
-  let { offset = false }: Props = $props()
+  let { offset = false, variant = 'board' }: Props = $props()
   const t = $derived(i18n.t)
 </script>
 
@@ -31,8 +41,10 @@
 
   Where it sits depends on the width, and it hides nothing at either: see below.
 -->
-<div class="banner" class:offset role="status">
-  <span class="text">{t.serverUpdatingBanner}</span>
+<div class="banner" class:offset={offset && variant === 'board'} class:card={variant === 'card'} role="status">
+  <span class="text">
+    {variant === 'card' ? t.serverUpdatingWaiting : t.serverUpdatingBanner}
+  </span>
 </div>
 
 <style>
@@ -78,6 +90,18 @@
   /* Below the opponent-away banner, which is two lines plus a bar. */
   .offset {
     top: calc(148px + var(--safe-top));
+  }
+
+  /* On a screen made of cards there is no chrome row to fit around and nothing
+     underneath to avoid: the notice is an ordinary line in the column, and every
+     override below is written after .banner so it wins without a media query
+     unpicking it. */
+  .banner.card {
+    position: static;
+    top: auto;
+    left: auto;
+    transform: none;
+    max-width: min(92vw, 420px);
   }
 
   .text {

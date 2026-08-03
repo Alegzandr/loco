@@ -10,8 +10,11 @@
  * Implementation notes:
  *   - `page.context().setOffline(true/false)` simulates a network drop at the browser
  *     level. The existing WebSocket closes immediately; webSocket.svelte.ts schedules a
- *     reconnect after RECONNECT_DELAY_MS (2 s). On re-open, getReconnectMsg() returns
- *     a join_room with the stored session_token so the server reclaims the slot.
+ *     reconnect on the backoff curve in webSocketPolicy.ts, whose first step is 250 ms
+ *     — most drops come straight back, and a flat two-second first retry spent an
+ *     entire interrupt window on a socket that had already reopened. On re-open,
+ *     getReconnectMsg() returns a join_room with the stored session_token so the
+ *     server reclaims the slot.
  *   - The ReconnectTimeout on the server is 60 s by default, so the 2-3 s offline
  *     window is well within the reconnect window.
  */
@@ -27,6 +30,7 @@ import {
   debugSetState,
   waitForTableOpen,
   gameBoard,
+  winWith,
 } from '../helpers/game'
 
 async function waitForGameReady(page: Parameters<typeof getState>[0], timeout = 15_000) {
@@ -52,7 +56,7 @@ test.describe('WebSocket reconnect', () => {
    * The test goes offline for ~300 ms (within the 60-s server reconnect window),
    * then comes back online.  The client should:
    *   1. Close the WebSocket (onerror / onclose fires).
-   *   2. Schedule a reconnect (webSocket exponential backoff, first attempt 2 s).
+   *   2. Schedule a reconnect (webSocket backoff, first attempt 250 ms).
    *   3. On re-open, send join_room with session_token.
    *   4. Server sends player_reconnected; store sets isReconnecting = true.
    *   5. Reconnect animations complete; isReconnecting = false.
@@ -466,11 +470,10 @@ test.describe('WebSocket reconnect', () => {
       currentTurn: myIdx,
       pendingDraw: 0,
     })
-    await page.evaluate(() => {
-      window.__LOCO_E2E__?.send?.({
-        type: 'play_card',
-        card: { color: 'red', kind: 'number', value: 7 },
-      })
+    // The only card in hand, so this takes the round and owes the call (§14.7).
+    await winWith(page, {
+      type: 'play_card',
+      card: { color: 'red', kind: 'number', value: 7 },
     })
     await waitForRoundSummary(page, 20_000)
 

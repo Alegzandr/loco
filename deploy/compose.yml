@@ -69,6 +69,25 @@ services:
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.tls=true
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}.service=${APP_SUBDOMAIN}-${DEPLOY_ENV}
       - traefik.http.services.${APP_SUBDOMAIN}-${DEPLOY_ENV}.loadbalancer.server.port=80
+      # The direct socket host, resolved outside the CDN. It is the same nginx
+      # and the same service — only the hostname differs, and nginx answers it
+      # with the socket and a 404 for everything else (client/nginx.conf).
+      #
+      # `ws.${APP_HOST}` rather than a variable of its own: the host is declared
+      # once, in .gitlab-ci.yml, and everything else is derived from it. The
+      # router is created in every environment; only production points a DNS
+      # record and a client bundle at it, so elsewhere it is inert.
+      #
+      # tls=true and no certresolver, like the router above: this Traefik has no
+      # certificatesResolvers at all and reads certificates as files. That is
+      # also the failure to recognise here — an origin serving Traefik's
+      # self-signed default means the certificate for this hostname was never
+      # installed, and the game answers it by falling back to the proxied path
+      # rather than by breaking. See docs/deployment.md.
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.rule=Host(`ws.${APP_HOST}`)
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.entrypoints=websecure
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.tls=true
+      - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.service=${APP_SUBDOMAIN}-${DEPLOY_ENV}
 
 networks:
   traefik:

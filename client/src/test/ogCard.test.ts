@@ -80,6 +80,34 @@ describe('link preview (Open Graph / X)', () => {
     expect(layout).toContain('absolute(')
   })
 
+  it('wears no class a global stylesheet also styles', () => {
+    // The scene is mounted on `/`, which loads `content/content.css`. Svelte
+    // scopes a component's own selectors; it does nothing about a rule from
+    // outside reaching in, and `.brand` — the header link on every content page,
+    // `display: inline-flex` — did exactly that: the card's left column became a
+    // row and the tagline wrapped one word per line over the artwork.
+    //
+    // Silent in the worst way, too. The committed PNGs predate the collision, so
+    // nothing on screen and nothing in CI moved; the next `make og` would have
+    // been the first sight of it, and only if somebody opened the file.
+    const card = readFileSync(path.join(CLIENT, 'src', 'dev', 'OgCard.svelte'), 'utf8')
+    const contentCss = readFileSync(
+      path.join(CLIENT, 'src', 'content', 'content.css'),
+      'utf8',
+    )
+    const markup = card.slice(card.indexOf('<div class="frame"'), card.indexOf('<style>'))
+    const used = new Set(
+      [...markup.matchAll(/class="([^"{}]+)"/g)].flatMap((m) => m[1].trim().split(/\s+/)),
+    )
+    expect(used.size).toBeGreaterThan(3)
+    for (const cls of used) {
+      expect(
+        contentCss,
+        `.${cls} is styled by content.css, which this scene loads`,
+      ).not.toMatch(new RegExp(`(^|[\\s,>~+])\\.${cls}([\\s,:.{]|$)`, 'm'))
+    }
+  })
+
   it('cache-busts each image URL', () => {
     // Both platforms cache a preview by URL for days. The ?v= is the only way
     // to make them re-fetch after the art changes.

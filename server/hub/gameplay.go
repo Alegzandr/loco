@@ -54,7 +54,7 @@ func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 
 	var err error
 	if len(cards) > 1 {
-		err = room.PlayCards(c.playerID(), cards, chosenColor, chosenPlayer)
+		err = room.PlayCards(c.playerID(), cards, chosenColor, chosenPlayer, msg.DeclareLoco)
 	} else {
 		err = room.PlayCard(c.playerID(), cards[0], chosenColor, chosenPlayer)
 	}
@@ -62,6 +62,8 @@ func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 		h.refuseAction(c, t, err)
 		return
 	}
+
+	h.announceFinishingLoco(t, c.playerID(), cards)
 
 	// Batch plays don't carry a meaningful chosenPlayer (Swap/GlobalSwitch are
 	// excluded from batch); send -1 so card_played's swap target is omitted.
@@ -77,6 +79,30 @@ func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 	h.maybeScheduleBotDeclarations(t)
 	h.maybeScheduleBotInterrupt(t)
 	h.handleRoundOrMatchEnd(t)
+}
+
+// announceFinishingLoco puts the LOCO! a hand-emptying batch carried onto the
+// wire, ahead of the cards that carried it, so the table hears the call before
+// it sees the round end. Without it the one finish nobody could see coming would
+// also be the one that goes out in silence, and the loudest moment in the game
+// would be missing from exactly the clip it was designed for.
+//
+// The condition is read off the domain, never off the message: the batch emptied
+// the hand, so the domain has already refused it if the call was absent. There
+// is nothing to announce on any other play — a single card that takes the round
+// was announced when the seat went down to one.
+func (h *Hub) announceFinishingLoco(t *table, playerID int, cards []game.Card) {
+	room := t.room
+	if len(cards) < 2 || room.State == nil {
+		return
+	}
+	if room.State.Hands[playerID].Size() != 0 {
+		return
+	}
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoDeclared,
+		PlayerIndex: intPtr(playerID),
+	})
 }
 
 func (h *Hub) handleRoundOrMatchEnd(t *table) {
@@ -266,13 +292,26 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int) {
 	room := t.room
 	drawn := room.PenalizeFailedCatch(catcherIdx)
-	h.broadcastToRoomAll(t, protocol.ServerMsg{
+	msg := protocol.ServerMsg{
 		Type:        protocol.SMsgCatchFailed,
 		PlayerIndex: intPtr(catcherIdx),
-	})
-	if len(drawn) == 0 {
-		return // deck and discard exhausted — the call goes unpunished
 	}
+	// A penalty that drew nothing — both piles dry — is not the table's business,
+	// and announcing it anyway was the last corner where a Contre-LOCO! was free.
+	// catchGrace made a call outside the window cost its sender a refusal and
+	// nobody else a message; a call *inside* somebody's window against an
+	// exhausted deck still cost nothing and still went out to everyone, so a
+	// client at the rate limit could turn its ten messages a second into ten
+	// table-wide broadcasts for the whole seven seconds the window is open.
+	// The caller is still told — their button did something — but a penalty
+	// nobody paid is not a thing the rest of the table has to render.
+	if len(drawn) == 0 {
+		if c := t.client(catcherIdx); c != nil {
+			c.Send(msg)
+		}
+		return
+	}
+	h.broadcastToRoomAll(t, msg)
 	h.sendHandGrowth(t, catcherIdx, drawn)
 }
 
@@ -309,11 +348,12 @@ func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	if err := room.InterruptPlayCards(c.playerID(), cards, chosenColor, chosenPlayer); err != nil {
+	if err := room.InterruptPlayCards(c.playerID(), cards, chosenColor, chosenPlayer, msg.DeclareLoco); err != nil {
 		h.refuseAction(c, t, err)
 		return
 	}
 
+	h.announceFinishingLoco(t, c.playerID(), cards)
 	h.broadcastInterrupt(t, c.playerID(), cards, chosenPlayer)
 	h.maybeScheduleBotCatch(t)
 	h.maybeScheduleBotDeclarations(t)

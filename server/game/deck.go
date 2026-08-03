@@ -44,8 +44,9 @@ func NewDeck() *Deck {
 }
 
 // Shuffle randomizes the deck in place using the provided rng. A nil rng falls
-// back to the global package source — convenient for callers that don't need
-// determinism (e.g. Replenish).
+// back to the global package source, which is for tests and nothing else: every
+// shuffle that decides a hand takes the room's crypto-seeded source, Replenish
+// included.
 func (d *Deck) Shuffle(rng *rand.Rand) {
 	swap := func(i, j int) { d.Cards[i], d.Cards[j] = d.Cards[j], d.Cards[i] }
 	if rng != nil {
@@ -106,8 +107,15 @@ func (d *Deck) DrawUpTo(n int) []Card {
 // Replenish replaces the deck with the shuffled discard pile. The caller keeps
 // the current top card out of `discard` — it stays on the pile so the round
 // still has something to match against.
-func (d *Deck) Replenish(discard []Card) {
+//
+// The rng is the room's, like every other shuffle that decides what lands in a
+// hand. It used to be the global source, on the argument that only the deal was
+// reconstructible; but the pile going back into the deck is the second half of
+// a long round, every card in it has been seen by the table, and an attacker who
+// can predict its order knows the rest of the round outright. A shuffle nobody
+// may predict has no business being convenient.
+func (d *Deck) Replenish(discard []Card, rng *rand.Rand) {
 	d.Cards = make([]Card, len(discard))
 	copy(d.Cards, discard)
-	d.Shuffle(nil)
+	d.Shuffle(rng)
 }

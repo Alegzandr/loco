@@ -114,26 +114,38 @@ export const UI: Record<string, Copy> = {
     },
     friendsStep1: { en: "Open a table", fr: "Ouvre une table" },
     friendsStep1Body: {
-        en: "Pick a nickname and open a table. You get a short code, and you are already sitting at it.",
-        fr: "Choisis un pseudo et ouvre une table. Tu reçois un code court, et tu y es déjà assis.",
+        en: "Pick a nickname and open a table. You get a short code, you are already sitting at it, and the table is yours: you decide how long the match runs and how many seats it has, up to ten.",
+        fr: "Choisis un pseudo et ouvre une table. Tu reçois un code court, tu y es déjà assis, et la table est à toi : c’est toi qui décides de la longueur du match et du nombre de places, jusqu’à dix.",
     },
-    friendsStep2: { en: "Send the code", fr: "Envoie le code" },
+    friendsStep2: { en: "Send the link", fr: "Envoie le lien" },
     friendsStep2Body: {
-        en: "Paste it wherever you already talk to them. It is the only thing they need: no link to click through, no invitation to accept, nothing to sign up to.",
-        fr: "Colle-le là où vous vous parlez déjà. C’est tout ce dont ils ont besoin : aucun lien à suivre, aucune invitation à accepter, aucune inscription.",
+        en: "Press the code and the link to your table lands in your clipboard. Paste it wherever you already talk to them: a tap opens the game already pointed at the table, with no invitation to accept and nothing to sign up to. The code stays on screen, because that is the version you read out loud.",
+        fr: "Appuie sur le code et le lien vers ta table arrive dans ton presse-papier. Colle-le là où vous vous parlez déjà : il leur suffit de l’ouvrir pour arriver directement à la table, sans invitation à accepter ni inscription. Le code, lui, reste affiché : c’est la version qui se lit à voix haute.",
     },
     friendsStep3: { en: "They sit down", fr: "Ils prennent place" },
     friendsStep3Body: {
-        en: "They enter the code, pick their own nickname, and take a seat. Deal when everybody is there.",
-        fr: "Ils saisissent le code, choisissent leur pseudo et prennent place. Tu distribues quand tout le monde est là.",
+        en: "The link seats them straight away when their browser already knows the name they play under, and otherwise hands them the form with the code filled in and a nickname as the only thing left to type. Deal when everybody is there, or fill the empty seats with bots rather than wait.",
+        fr: "Le lien les assoit directement quand leur navigateur connaît déjà le pseudo sous lequel ils jouent, sinon il leur donne le formulaire avec le code déjà rempli et le pseudo comme seule chose à saisir. Tu distribues quand tout le monde est là, ou tu complètes les places libres avec des bots plutôt que d’attendre.",
+    },
+    friendsHostH2: {
+        en: "While the table is open",
+        fr: "Tant que la table est ouverte",
+    },
+    friendsHostBody: {
+        en: "The seats are yours to hold: one press takes somebody off the roster before the deal, and the code still works afterwards, so a mistake costs them a click and nothing else.",
+        fr: "Les places sont à toi : une pression retire quelqu’un de la liste avant la distribution, et le code fonctionne toujours ensuite, donc une erreur ne leur coûte qu’un clic.",
+    },
+    friendsRematchBody: {
+        en: "When the match ends, every seat is asked whether to go again. Nobody starts one on their own: the table deals a new match once everybody still there has said yes, on the same code.",
+        fr: "Quand le match se termine, on demande à chaque place si elle remet ça. Personne n’en lance un tout seul : la table distribue un nouveau match une fois que tous ceux qui restent ont dit oui, sur le même code.",
     },
     friendsMoreH2: {
         en: "A few things worth knowing",
         fr: "Quelques points utiles",
     },
     friendsOutro: {
-        en: "Nothing about a table outlives the match: close the tab and it is gone, along with everything it knew.",
-        fr: "Rien d’une table ne survit au match : ferme l’onglet et elle disparaît, avec tout ce qu’elle savait.",
+        en: "None of it outlives the table itself: when the last of you leaves, it is gone, along with everything it knew about the match.",
+        fr: "Rien de tout cela ne survit à la table : quand le dernier d’entre vous s’en va, elle disparaît, avec tout ce qu’elle savait de la partie.",
     },
 
     // ── FAQ ─────────────────────────────────────────────────────────────────

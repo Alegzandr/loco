@@ -329,6 +329,61 @@ polish.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ## Client transport
+
+### The socket does not go through the CDN, and that is worth 380 ms a message
+
+Production serves the page from `ohloco.com` and dials the socket at `ws.ohloco.com`, a hostname that
+resolves straight to the origin. The reason is a measurement, not a preference. From a Paris
+connection to a Paris origin, on a socket **already established** — so no handshake, no certificate,
+no DNS in the number:
+
+| | round trip |
+| --- | --- |
+| through the CDN | 228–696 ms, median **389 ms** |
+| direct to the origin | 7.1–10.6 ms, median **8.5 ms** |
+
+The same edge answered two other zones in 40 ms at the same moment, so this is the CDN's path to
+*this* origin rather than the player's path to the CDN, and it congests by the hour. It is also not a
+page-load cost paid once: it is every card, every catch and every interrupt, and **an interrupt is
+decided by arrival order at the server**, which makes it the mechanic rather than the polish.
+
+Only the socket leaves. The HTML, the bundle and the images all still want the edge and the cache.
+
+- **`webSocketPolicy.ts` decides the address, `webSocket.svelte.ts` only dials it.** `wsEndpoints()`
+  returns the pair — `direct` (null unless the build named one) and `proxied` (always) — and `wsUrl()`
+  picks. Both are pure, so `wsEndpoint.test.ts` needs no DOM and no socket.
+- **`VITE_WS_ORIGIN` is baked in at build time**, like `VITE_PUBLIC_ORIGIN` and for the same reason:
+  the client image is built per environment. `.gitlab-ci.yml` passes it **on a tag only** — dev has no
+  such hostname, no DNS record, no certificate for one, and does not have the problem either.
+- **The scheme comes from the page, never from the value.** A `wss://` written into an http://
+  deployment (or the reverse) is mixed content, which the browser refuses *before* attempting the
+  socket: it fails as silence and reads exactly like the server being down.
+- **The fallback is one-way, and the CSP has to keep allowing it.** After
+  `DIRECT_FAILURES_BEFORE_FALLBACK` (3) sockets that closed *without ever opening*, the client goes
+  back to the page's own origin for the rest of the page's life. Three, because that is about two
+  seconds of backoff; one-way, because resetting it on every successful connection would spend those
+  three failures again at every drop. A socket that opened and later dropped is a network event and
+  resets nothing — only a socket that never opened is evidence against the hostname. This exists
+  because **the direct hostname's certificate is the one thing in this stack that nothing renews and
+  nothing here can see expire**: a slow game beats a dead one, and a page reload is what tries the
+  direct hostname again.
+- **`security-headers.conf` carries `__WS_DIRECT_ORIGIN__`, substituted by `client/Dockerfile` from
+  the same build-arg the bundle gets**, so the policy and the socket cannot disagree. The build
+  *fails* rather than shipping an unsubstituted placeholder — a policy naming a literal
+  `__WS_DIRECT_ORIGIN__` blocks the socket the game is about to dial and reports it nowhere.
+- **The server has to be told.** `hub.originAllowed`'s default rule is "the `Origin`'s hostname equals
+  the request's `Host`", which two different hostnames do not satisfy, so production sets
+  `LOCO_ALLOWED_ORIGINS` to the **page's** origin. Without it every upgrade is refused, and a refused
+  upgrade is indistinguishable from a server that is down. See
+  [`docs/notes/server.md`](server.md).
+- **nginx serves the socket and a 404 on that hostname** (`server_name ws.*`), never the SPA: serving
+  the site there too would publish the whole thing under a second hostname with only the canonical
+  arguing against it. Both server blocks `include ws-proxy.conf`, because a socket reconnecting onto
+  the fallback must reach a server that cannot tell the difference — the seat it is reclaiming was
+  taken on the other one.
+
+### The rest of the transport
+
 - **The socket's URL comes from `import.meta.env.VITE_WS_PORT`, and Astro does not expose that name
   by default.** Astro narrows Vite's `envPrefix` to `PUBLIC_`, which leaves `import.meta.env.VITE_*`
   in the transformed module verbatim and reading `undefined` in the browser, with no warning at any
@@ -341,7 +396,7 @@ polish.
   config does not expose. Anything else the app needs from the environment obeys the same rule.
 - `webSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
 - Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
-  (250ms, 500ms, 1s, 2s, 4s, then held), max 10 attempts, `attempts` resets on `onopen`. The
+  (250ms, 500ms, 1s, 2s, 4s, 8s, 15s, then held), `attempts` resets on `onopen`. The
   schedule and the `WsStatus` vocabulary live apart from the socket, in `hooks/webSocketPolicy.ts`:
   a backoff curve belongs to no framework and a component that only needs the status should not
   import the transport to get it.
@@ -349,7 +404,19 @@ polish.
   that comes straight back, and the flat 2s first retry it replaced cost the player an entire
   interrupt window of dead board every time one happened. The tail still backs off, so a server
   that is genuinely down is not hammered.
-- `getReconnectMsg`: `screen==='game'` → token-auth `join_room` reclaim; `screen==='waiting'` → plain nickname `join_room` (best-effort; may fail with "nickname already taken" → reload).
+- **There is no attempt ceiling, and removing it was a bug fix rather than a tuning.** Ten attempts
+  ran out at 27.75 s, and past that the client never tried again for the life of the tab, under a
+  "Reconnexion…" curtain with nothing on it to press. A normal deploy does not produce that (compose
+  holds the old server for its whole 90 s drain), but everything around one does: a slow image pull,
+  a crash loop, `stop_grace_period` reached, a phone that suspended the tab. And the client's 27.75 s
+  could expire before the server had even started counting the 60 s it holds the seat for, which is
+  the case where giving up cost a seat that was still there.
+- **The recovery path is not the schedule.** `reconnectNow()` retries from the top and is wired to
+  three things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
+  `visibilitychange`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
+  refuses a socket that is already CONNECTING or OPEN, so every entry point is safe to fire twice.
+- `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
+  sends.
 - **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
   `createServerMessageHandler(unoTimer)` is built once, during App's setup, and takes its store
   snapshot at creation: the action functions are created once by the store factory and are stable for
@@ -377,9 +444,21 @@ while the server held their hand and their score for another minute with nobody 
 That is the disconnect people actually have, and it was the one that could not be undone.
 
 - `hooks/sessionPersistence.ts` owns the record (`loco_session`) and `reconnectMessageFor(state)`.
-  **One pure function builds the rejoin for all three cases** (a socket that dropped mid-match, one
-  that dropped in the lobby, and a tab that was reloaded), so a reclaim cannot mean two different
+  **One pure function builds the rejoin for every case**, so a reclaim cannot mean two different
   things depending on how the connection was lost.
+- **It used to answer three screens out of six, and the other three each failed silently and
+  differently.** `searching`: the server takes a dropped socket out of the queue, correctly, and the
+  client said nothing coming back — so the screen went on timing a wait in a queue the player was no
+  longer in, which is precisely what `searchStages` says no copy may imply. It re-sends `find_match`
+  now. `matchfound`: a real seat with a real token, two seconds from a deal, and saying nothing left
+  a player watching a versus screen that was never going to resolve; it reclaims like a game seat,
+  and `appEffects` stopped clearing the stored record there for the same reason. `gameover`: the
+  server holds that seat now (see the server note), so it is reclaimed with its token — **except in
+  a matchmade room**, where the seat is released outright and the pair is done.
+- **An error on `matchfound` resets to the lobby**, unlike every other screen, which gets a toast.
+  It is the one screen in the game with nothing on it to press: a pairing that fell apart there is
+  the end of that pairing, and a player left holding a countdown that expires into nothing has no
+  way to find that out. `searching` keeps the toast — it has a cancel button.
 - **`sessionStorage`, deliberately, not `localStorage`.** It is per tab, so two seats played from one
   browser (how this game is tested, and how a lot of people play with a friend on one machine) cannot
   overwrite each other's token and reclaim the wrong seat; it survives a reload, a back/forward
@@ -513,30 +592,58 @@ minus `I`, `O`, `0` and `1`.
 ## The link a table is shared with
 `hooks/tableInvite.ts`. The waiting room's code is a button, and what the press copies is a URL
 carrying the code (`tableInviteUrl`), not the six characters. On the other end, `initTableInvite`
-reads that code off the URL before the first render and `App` acts on it.
+reads that code off the URL before the first render and `App` acts on it. The URL is `/i/CODE`, a
+page of its own, and `src/pages/i/index.astro` plus `seo/meta.ts`'s `INVITE` are the other half of
+this section.
 
 - **Why a link at all.** A code costs the receiver three steps: read it, retype it without a slip,
   and find the screen to type it into. A link costs one tap, and the seat is the only thing on the
   other side of it. The code stays on screen, unchanged: it is what a stream reads out loud and what
   somebody already sitting at the join form types.
-- **It is `?t=CODE` on the home page, never `/t/CODE`.** Every URL here is a page the build emitted,
-  and `client/nginx.conf` deliberately answers a miss with a real 404 rather than the app, so there
-  is no catch-all a path form could route through — and a static build cannot emit one page per
-  table. The query form costs two characters, works identically under `astro dev`, the preview server
-  and nginx, and needs nothing added to the server config.
-- **The link carries no language.** It is always `/?t=…`, whichever language it was copied from. A
+- **It is `/i/?t=CODE`, and the page is the point.** It used to be `?t=CODE` on the home page, and
+  the reason it moved is the one thing a link does that the game cannot: it gets pasted into a chat
+  window, which unfurls it. An unfurler reads the *served* HTML and runs no script, so every
+  invitation previewed as "LOCO, a card game" — true, and not what somebody is being handed. `/i/`
+  is `noindex`, carries the invitation's own title, description and art (`seo/meta.ts`: `INVITE`,
+  `INVITE_OG`), and is the home page in every other respect: same mount, same bundle, same game,
+  through `GamePage` with `chrome={false}`.
+- **The code stays a query parameter, and `/i/CODE` was tried and rejected.** A path form is not a
+  page the build emitted — a static build cannot emit one per table — so it needs a fallback in
+  whoever serves the request. nginx can do that in four lines. `astro dev` cannot be made to at all,
+  and this is worth writing down because all three attempts looked correct: a Vite plugin's
+  `configureServer` never fires under Astro 7 (it does under Vitest, which is what makes it look
+  wired up), `astro:server:setup` fires but its middleware never sees the URL even at the head of
+  the connect stack — Astro routes first and answers the 404 itself — and a dynamic entry in
+  `redirects` refuses to start the server without an SSR adapter. So a path form would resolve in
+  production and 404 under `make dev` and the entire Playwright suite: a link a developer cannot
+  open and the E2E suite cannot exercise, in exchange for three characters. The query form is the
+  same URL in every environment and needs nothing in `nginx.conf`.
+
+- **The link carries no language.** It is always `/i/?t=…`, whichever language it was copied from. A
   link gets forwarded, and the person who copied it does not know who ends up pressing it, so
   shipping `/fr/` would decide the reader's language from the other side of the table. That choice
   belongs to whoever opens it and the i18n provider already makes it (a stored choice, then the
-  browser). An incoming `/fr/?t=…` still works — `initTableInvite` reads the parameter on any page —
-  it is simply not what the button hands out.
-- **The code is spent on arrival.** `initTableInvite` takes the parameter back out of the address bar
-  with `replaceState` before anything else looks at it. Three reasons, and any one of them is enough:
-  a reload must not re-join a table the player has since left (a reload's job is the seat reclaim
+  browser). It is also why `/i/` is served with **no `data-served-lang`**: `initLangUrl` treats a
+  missing attribute as "nothing to disagree with" and leaves the document where it is, so an
+  invitation never bounces through a redirect on its way to a table.
+- **The parameter is only read on `/i/`.** It used to be read on every page, because `/?t=CODE` is
+  what the button handed out before the invite page existed. One URL is an invitation now, and this
+  runs on every page load: reading a `?t=` anywhere would let a query string somebody put on the
+  home page seat a player. Elsewhere it is left in the address bar untouched, like every other
+  parameter this module was not asked about. Both spellings of the page are read, though — nginx
+  resolves `/i` through `try_files $uri/`, so a link that lost its slash in a chat client is still
+  an invitation.
+- **The code is spent on arrival.** `initTableInvite` takes it back out of the address bar with
+  `replaceState` before anything else looks at it. Three reasons, and any one of them is enough: a
+  reload must not re-join a table the player has since left (a reload's job is the seat reclaim
   below), a code sitting in the address bar is a code on stream in the one place `TableCode`'s blur
-  cannot reach, and a URL copied later would keep pointing at a table that has closed. The parameter
-  is dropped by string surgery rather than by `searchParams.delete` + `url.search`: re-encoding the
-  query rewrites the parameters it was not asked about, and `?showcase` comes back as `?showcase=`.
+  cannot reach, and a URL copied later would keep pointing at a table that has closed. **Spending it
+  on the invite page spends the page too**: what is left in the address bar is `/`, because `/i/`
+  with no code is a door with nothing behind it and a reload has to arrive somewhere real. This is
+  `replaceState` rather than a navigation, so the game itself carries on untouched. The parameter is
+  dropped by string surgery rather than by `searchParams.delete` +
+  `url.search`: re-encoding the query rewrites the parameters it was not asked about, and
+  `?showcase` comes back as `?showcase=`.
 - **A link outranks a stale reclaim, unless they name the same table.** A record naming another room
   is cleared, because following a link is a fresh intent and the tab would otherwise be sent back
   where it was last. A record naming *this* room is left alone: that is a seat to reclaim, which is
@@ -729,6 +836,11 @@ reads.
   loses nothing, which is what it is telling them.
 - It exists at all because a board that quietly changes behaviour is worse than one that says so:
   during a drain the rematch button stops working, and with no line of text that reads as a bug.
+- **Two screens beyond the board carry it**, since the server stopped gating the notice on
+  `StatusPlaying`: the waiting room and the game-over card, through `<ServerUpdating variant="card" />`
+  — static in the flow rather than absolute, and with copy that says what a deploy actually costs
+  those two (the deal is paused) instead of promising a match that is not running. Both used to find
+  out by pressing their one button and being refused.
 - **Two slots, not one.** Wide: the top chrome row, in the gap between the round pill and the icon
   row. Narrow: that gap does not exist, so it drops under the chrome and steps down again when
   OpponentAway is using the slot. The obvious placement (the OpponentAway slot at both widths) put a
@@ -760,6 +872,30 @@ reads.
   the seat, the hand and the discard passed. `reconnectAnimation.test.ts` covers both shapes —
   arriving already true, and going false before the timer — and the reload E2E asserts the overlay is
   gone rather than only that the state came back.
+
+## The one way off a board that has stopped
+A match refuses `leave_room`, which is why the action bar has no quit control and must not grow one:
+walking out is not a move, and the hold exists so a dropped socket is not a departure. That refusal
+assumed there was a match left to refuse on behalf of, and there was one state where there was not —
+every other seat's hold expired, so the clock draws and passes for empty chairs until the round runs
+out, `leave_room` came back refused, and closing the browser was the only way out of the *game*.
+
+- **Held and gone read identically in the roster.** Both are `connected: false`, and only one of them
+  can come back — so the difference is remembered rather than derived. `goneSeats` is written by
+  `player_left`, and the server names a seat on exactly one of those: the mid-match expiry, the only
+  departure that cannot re-base anybody (a running match indexes hands by the seat, so nothing moves).
+  Every other `player_left` carries no index and adds nothing here, which is correct — after a lobby
+  departure the number would name somebody else.
+- **The client's question and the server's are the same question.** `tableAbandoned` in `GameView` and
+  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", so the
+  control is never drawn over a refusal. During the hold there is no button, because during the hold
+  the answer is genuinely no.
+- **It is a curtain, not a button on the bar.** The bar is fixed three columns and never reflows
+  mid-match; the board stays visible underneath, because it is still the match that was being played.
+- **It waits behind the two reconnect curtains.** Our own socket being down is the more urgent
+  problem and may be the whole reason nobody has been heard from. One curtain at a time.
+- `tableAbandoned.test.ts` owns all four cases, including the one that matters most: nothing is
+  offered while the other seat is merely disconnected.
 
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
@@ -797,9 +933,11 @@ serves the whole document in the other language — but nothing answered it for 
   both refused — with nothing to compare against, every load would redirect to where it already is.
 - **It runs before `initTableInvite()` and it carries the query string.** The invite is spent on
   arrival, so redirecting after that call would drop a guest at a home page with no table in it. Done
-  in this order, `/?t=ABC234` with French stored lands at `/fr/` with the code already in the join
-  form. `location.replace`, never `assign`: an extra history entry would leave Back pointing at a URL
-  that redirects straight back, and the way out of the game would be a trap.
+  in this order, nothing one-shot is spent on a document that is about to be thrown away.
+  `location.replace`, never `assign`: an extra history entry would leave Back pointing at a URL that
+  redirects straight back, and the way out of the game would be a trap. An invitation is never
+  redirected at all: `/i/` is served with no `data-served-lang`, which this function already reads as
+  nothing to disagree with, so the reader's own language is resolved in place.
 
 The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
 makes an `hreflang` pair navigable and a crawler follows nothing else — and `theme-boot.ts` adds one

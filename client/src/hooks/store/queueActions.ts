@@ -33,6 +33,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       maxPlayers: found.maxPlayers,
       forfeitBy: null,
       opponentAway: null,
+      goneSeats: [],
       rematchOffers: [],
       rematchNeeded: 0,
       errorMsg: '',

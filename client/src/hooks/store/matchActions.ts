@@ -51,6 +51,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       // The countdown is over one way or the other: either they came back or
       // the match was given away, and both end the notice.
       opponentAway: null,
+      goneSeats: [],
     }),
 
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),

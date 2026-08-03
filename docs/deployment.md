@@ -143,6 +143,41 @@ preferences:
   optional**: a record turned DNS-only serves a certificate every browser rejects. In exchange they
   last 15 years and renew nothing.
 
+### The socket is not behind the edge, and here is what that needs
+
+`ws.ohloco.com` is **DNS-only** — a grey cloud, an `A` record straight to the origin — and it is the
+only hostname in this stack that is. The reason is measured rather than assumed: on a socket already
+established, between a Paris connection and a Paris origin, a round trip cost **389 ms median through
+Cloudflare and 8.5 ms direct**. The same edge answered two unrelated zones in 40 ms at the same
+moment, so the slow leg is Cloudflare to *this* origin, and it congests by the hour. An interrupt in
+this game is decided by arrival order at the server, so that is the mechanic, not the polish.
+
+Three things it costs, and none of them is optional:
+
+- **A publicly trusted certificate, which the Origin Certificate above is not.** Grey cloud means the
+  browser validates the certificate itself, and a Cloudflare Origin Certificate is trusted by
+  Cloudflare and by nothing else. This host's Traefik has no `certificatesResolvers`, so today that
+  means a certificate obtained elsewhere and dropped into `/etc/traefik/certs` with an entry appended
+  to the file provider's `certificates:` list — **and nothing in this repo can tell you it expired.**
+  Adding an ACME resolver is the change that removes that trap; until it exists, the expiry date is a
+  calendar entry.
+- **The origin's address becomes public.** It was hidden behind the proxy and now resolves in DNS.
+  Whatever protects `:443` on that machine is now the whole of the protection.
+- **`LOCO_ALLOWED_ORIGINS`.** The page and the socket are on two hostnames, so the server's default
+  origin rule refuses every upgrade. `write_app_env` sets it; see
+  [`docs/notes/server.md`](notes/server.md).
+
+**The failure mode is deliberately not fatal.** If that hostname will not open a socket — expired
+certificate, missing DNS, closed port — the client falls back to `wss://ohloco.com/ws` after three
+attempts and the game keeps working at the old latency. That is why the CSP still lists both origins
+and why `client/nginx.conf` still proxies `/ws` on the main host. **A fallback in effect is silent**:
+the symptom is the game feeling like it did before this change, so if it ever does, check the
+certificate first.
+
+To deploy it the first time: create the `A` record grey-clouded, install the certificate, then tag.
+The client bundle only dials the hostname when built on a `v*` tag, so the record and the certificate
+can be in place well before anything uses them — and should be.
+
 One caveat this stack has to live with: **Cloudflare closes a proxied WebSocket that has been idle for
 about 100 seconds.** The game's own traffic covers an active table, but a lobby waiting for a second
 player sends nothing, and a socket cut there costs a seat for no reason. Whatever keepalive answers it
@@ -151,10 +186,12 @@ belongs in the hub, not in nginx — nginx is not the thing timing out.
 ## Production request path
 
 ```
-Browser (HTTPS) → Traefik (:443, entrypoint websecure)
+Browser (HTTPS, ohloco.com)     → Cloudflare → Traefik (:443, entrypoint websecure)
+Browser (WSS, ws.ohloco.com)    →   DNS-only → Traefik (:443, entrypoint websecure)
   → client nginx (:80, networks: traefik + internal)
-    → /ws     → Go server (:8080, network: internal only)   [WebSocket]
-    → /       → nginx serves static SPA files directly
+    → /ws     → Go server (:8080, network: internal only)   [WebSocket, both hostnames]
+    → /       → nginx serves static SPA files directly      [site hostname only;
+                                                             ws.* answers 404]
 
 Go server (:8080, internal only)
   → /health, /metrics                                        [operator only, never proxied]
@@ -167,6 +204,12 @@ Go server (:8080, internal only)
   against `localhost:8080`, which is also how an operator reads either endpoint:
   `docker compose exec server wget -qO- http://localhost:8080/health`.
 
+- **That chain is why the Go server reads `CF-Connecting-IP`.** Four hops in, `r.RemoteAddr` is the
+  nginx container and it is identical for every player, which silently turns `MaxConnsPerNet` (64 per
+  network) into a 64-player server and `MaxFailedJoins` (20 per network per minute) into a global
+  lockout. `hub.clientNet` takes the header instead, and only from a trusted peer — see
+  [`docs/notes/server.md`](notes/server.md). Nothing needs Cloudflare's **Pseudo IPv4**, which exists
+  for origins that cannot parse an IPv6 address: this one truncates it to a `/48` and moves on.
 - Traefik terminates TLS and routes all traffic to the nginx container on port 80.
 - nginx bridges the `traefik` and `internal` Docker networks; the Go server is isolated on `internal` and is never directly reachable by Traefik.
 - The Go server container exposes port 8080 internally (`expose`, not `ports`).

@@ -157,6 +157,13 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       return mine ? { players, myIndex: mine.index } : { players }
     }),
 
+  // A seat whose hold ran out. Only ever named by the one player_left that
+  // cannot re-base the roster — the seat is the index of a hand in a running
+  // match, so nothing moves — and idempotent, because the flag is about who is
+  // never coming back rather than about how many messages said so.
+  noteSeatGone: (seat) =>
+    set((s) => (seat < 0 || s.goneSeats.includes(seat) ? s : { goneSeats: [...s.goneSeats, seat] })),
+
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setSwapNotice: (swapNotice) => set({ swapNotice }),

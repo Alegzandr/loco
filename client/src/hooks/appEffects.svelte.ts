@@ -110,8 +110,16 @@ export function sessionPersistence(): void {
       // and must not be rewritten from a store that has not heard back yet.
       if (s.screen === 'restoring') return
 
+      // 'matchfound' persists as 'game': the versus reveal is a real seat with a
+      // real token, two seconds from a deal, and clearing the record there meant
+      // a tab reloaded during the reveal came back to the lobby while the server
+      // still had a table for it.
       const target: RestoreTarget | null =
-        s.screen === 'game' ? 'game' : s.screen === 'waiting' ? 'waiting' : null
+        s.screen === 'game' || s.screen === 'matchfound'
+          ? 'game'
+          : s.screen === 'waiting'
+            ? 'waiting'
+            : null
 
       const nickname = s.players.find((p) => p.index === s.myIndex)?.nickname || s.myNickname
       // An in-match seat is only reclaimable with its token.

@@ -167,8 +167,9 @@ func (h *Hub) handleAddBot(t *table, c *Client, msg protocol.ClientMsg) {
 	botID := len(room.Players) - 1
 	t.bots[botID] = struct{}{}
 	h.metrics.botsActive.Add(1)
-	// A bot's seat carries no socket, so its members entry stays nil.
-	t.members = append(t.members, nil)
+	// A bot's seat carries no socket, so its members entry stays nil. Asked of
+	// the table rather than appended here: members is its own.
+	t.addEmptySeat()
 
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:     protocol.SMsgPlayerJoined,
@@ -245,6 +246,35 @@ func (h *Hub) handleUnoAnnounce(t *table, um unoMsg) {
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:        protocol.SMsgUnoDeclared,
 		PlayerIndex: intPtr(um.playerIndex),
+	})
+}
+
+// botDeclareBeforeFinish makes the call a bot owes before it plays the card that
+// would take the round. A seat cannot finish on a declaration it never made
+// (game.ErrMustDeclareLoco), and a bot's declaration is deliberately deferred so
+// humans can catch it — which leaves a window where the bot is holding one
+// undeclared card and its turn has already come round. Without this the domain
+// refuses the play, botPlay logs an error and returns, and the bot never
+// reschedules: the seat stops playing for the rest of the round.
+//
+// Declaring here does not let a bot dodge a catch it should have taken. The
+// window it opened is still open, and everything that could catch it has had
+// from that moment until this one — the same race a human wins by pressing
+// Contre-LOCO! before their opponent presses LOCO!.
+func (h *Hub) botDeclareBeforeFinish(t *table, playerIndex int) {
+	room := t.room
+	if room.State == nil || playerIndex < 0 || playerIndex >= len(room.State.Hands) {
+		return
+	}
+	if room.State.Hands[playerIndex].Size() != 1 || room.State.LastCardDeclared[playerIndex] {
+		return
+	}
+	if err := room.DeclareLastCard(playerIndex); err != nil {
+		return
+	}
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgUnoDeclared,
+		PlayerIndex: intPtr(playerIndex),
 	})
 }
 
@@ -371,7 +401,16 @@ func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 	}
 	picked := candidates[mrand.Intn(len(candidates))]
 	botID, action := picked.seat, picked.action
-	if err := room.InterruptPlayCards(botID, action.Cards, action.ChosenColor, action.ChosenPlayer); err != nil {
+	// Same net as the ordinary bot turn: a single-card interject off a one-card
+	// hand takes the round, and the domain asks for the call first.
+	if len(action.Cards) == 1 {
+		h.botDeclareBeforeFinish(t, botID)
+	}
+	// A bot interjects with the call already made: a batch that empties its hand
+	// is the one finish no window ever opened on, so there is nobody the flag
+	// takes a chance away from, and a bot that withheld it would simply refuse
+	// to take a round it had won.
+	if err := room.InterruptPlayCards(botID, action.Cards, action.ChosenColor, action.ChosenPlayer, true); err != nil {
 		// Lost the race to a human or to the state moving on. Nothing to do:
 		// the bot simply did not get there, exactly like a mistimed click.
 		log.Printf("bot interrupt refused code=%s player=%d err=%v", bim.roomCode, botID, err)
@@ -478,6 +517,7 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 // botPlay handles a BotPlay action: PlayCard + post-play broadcasts + auto-UNO + round-end check.
 func (h *Hub) botPlay(t *table, playerID int, action game.BotAction) {
 	room := t.room
+	h.botDeclareBeforeFinish(t, playerID)
 	if err := room.PlayCard(playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
 		log.Printf("bot play error: %v", err)
 		return
@@ -493,6 +533,7 @@ func (h *Hub) botPlay(t *table, playerID int, action game.BotAction) {
 // botCounter handles a BotCounter action: CounterDraw + broadcast + auto-UNO + round-end check.
 func (h *Hub) botCounter(t *table, playerID int, action game.BotAction) {
 	room := t.room
+	h.botDeclareBeforeFinish(t, playerID)
 	if err := room.CounterDraw(playerID, action.Card, action.ChosenColor); err != nil {
 		log.Printf("bot counter error: %v", err)
 		return

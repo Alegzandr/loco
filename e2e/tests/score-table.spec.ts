@@ -24,6 +24,7 @@ import {
   clickContinue,
   setMatchFormat,
   debugSetState,
+  winWith,
 } from '../helpers/game'
 
 const scoreTable = (page: Parameters<typeof getState>[0]) => page.getByTestId('score-table')
@@ -57,7 +58,7 @@ test.describe('in-game score table', () => {
       pendingDraw: 0,
       currentTurn: myIdx,
     })
-    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
   }
 
   test('TAB holds the table open and releasing it closes the table', async ({ page }) => {

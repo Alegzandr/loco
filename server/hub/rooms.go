@@ -129,7 +129,12 @@ func (h *Hub) joinAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 	// and a returning player whose token has gone stale now get the same answer,
 	// and the returning player's client already owns that case (the restore
 	// timeout in useSessionRestore), so nothing legitimate reads the difference.
-	if room.Status == game.StatusPlaying {
+	//
+	// The check is "not a lobby" rather than "playing" because a finished
+	// ordinary table holds its seats too, for the length of the rematch: see
+	// disconnectAtTable. A stranger gets the same one string at either, which is
+	// the point of it.
+	if room.Status != game.StatusLobby {
 		if playerID, found := t.findHeldSeat(msg.Nickname); found &&
 			t.validateToken(playerID, msg.SessionToken) {
 			h.handleReconnect(c, t, playerID, msg.Nickname)
@@ -387,6 +392,30 @@ func (h *Hub) handleCleanup(t *table, cm cleanupMsg) {
 	}
 
 	h.postToRouter("delete_room", func() { h.deleteRoom(cm.roomCode) })
+}
+
+// closeAbandonedMatch tears down a match nobody is sitting at and nobody can
+// come back to, and reports whether it did.
+//
+// The empty-room cleanup already deletes such a table, but on a fixed five
+// minutes, and a match is not an empty lobby: the room stays StatusPlaying for
+// the whole of that wait, so the turn clock keeps re-arming and auto-drawing for
+// seats with no one behind them, and the table keeps counting as a match in
+// flight — a deploy started anywhere in that window waits on a game nobody is
+// playing. Every hold has expired and every socket has gone, so there is nothing
+// left to wait for and no information left to protect: the cleanup's job, done
+// the moment it is certain instead of on a timer.
+func (h *Hub) closeAbandonedMatch(t *table) bool {
+	if t.room.Status != game.StatusPlaying {
+		return false
+	}
+	if len(t.awayAt) > 0 || !t.allSeatsEmpty() {
+		return false
+	}
+	code := t.code
+	log.Printf("match abandoned, closing table code=%s", code)
+	h.postToRouter("delete_abandoned", func() { h.deleteRoom(code) })
+	return true
 }
 
 // deleteRoom forgets a table entirely, and stops it.

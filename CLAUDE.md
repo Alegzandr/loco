@@ -198,7 +198,13 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 4. **Voluntary draw is allowed**, still one draw per turn.
 5. **A forced draw does not cost the turn.** The victim takes the stack and then plays or passes;
    `hub.handleDrawCard` re-arms the turn timer on every draw.
-6. **A missed Contre-LOCO! costs the caller 1 card** (`failedCatchPenalty`,
+6. **Nobody forgets LOCO! and wins** (`requireLocoToFinish`, `ErrMustDeclareLoco`): every play
+   that empties a hand is refused without the call. A seat already on one card must have declared
+   **before** this message — a late call is always accepted, so forgetting costs a press and the
+   catch risk, never the round. A batch that empties two or more never passed through one card, so
+   no window ever opened on it: that message **carries** the call (`declare_loco`) and the table
+   hears `uno_declared` before `card_played`.
+7. **A missed Contre-LOCO! costs the caller 1 card** (`failedCatchPenalty`,
    `Room.PenalizeFailedCatch`) — **but only a call that lost a race**. A seat whose window never
    opened, or shut more than `catchGrace` ago, answers `ErrNoCatchWindow`: refused to its sender,
    charged nothing, broadcast to nobody.
@@ -216,6 +222,10 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 - **LOCO! tracking is per seat** (`LastCardDeclared []bool` + `LastCardAt []time.Time`). Receiving
   your last card owes a declaration exactly like playing down to it, so a Swap or GlobalSwitch opens
   catch windows on every seat left at one card. A declaration is a one-shot.
+- **The four ways to empty a hand all go through the same gate**: `PlayCard`, `PlayCards`,
+  `InterruptPlayCards` and `CounterDraw` each ask `requireLocoToFinish` before they mutate
+  anything. Add a fifth win path and it asks too — a finish that skips the gate is a round taken
+  in silence, which is the bug the rule exists for.
 - **Who is on the hook is the server's to say and it rides `card_played`** (`catch_seats`, from
   `CatchableTargets` + `CatchWindowEnd`): the client renders that list and never re-derives it.
 - **Interrupts have no deadline and exclude nobody.** Anyone may play N identical cards matching the
@@ -239,6 +249,20 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   logs, not a number to lower.**
 - **A wrong table code costs something**: `MaxFailedJoins` (20) per network per minute, refused before
   the lookup, keyed by network rather than by socket.
+- **Both of those are per network, and in production this server never sees one.** Behind
+  Cloudflare → Traefik → nginx every socket arrives from the same container, so `r.RemoteAddr` turns a
+  64-per-network ceiling into a 64-player server and a per-network join budget into a global one, in
+  silence. The network is decided once by `hub.clientNet` and kept on `Client.netKey`, which admission,
+  the join budget and `netPrefix` all answer with. It reads `ClientIPHeaders` in order
+  (`CF-Connecting-IP`, then `X-Real-IP` — two paths, and one player can use both in a match) **only
+  from a trusted peer** (`TrustedProxies`, default loopback + private, which is everything that can
+  reach `:8080` on the `internal` network) and **refuses a multi-value one** — Cloudflare *sets* the
+  first and *appends* to `X-Forwarded-For`, so the latter's leftmost entry is the client's to invent.
+  **That order is a security property**: a client can put its own `X-Real-IP` on a proxied request.
+  Anything unbelievable falls back to the peer. Truncated on the way in like every other address.
+- **`LOCO_ALLOWED_ORIGINS` is mandatory in production now.** The page and the socket are deliberately
+  on two hostnames, so `originAllowed`'s default (Origin's hostname == request's Host) refuses every
+  upgrade. It names the **page's** origin, never the socket's.
 - **A refusal must not name the roster.** `join_room` at a table in progress answers `game already in
   progress` either way. Tokens compare with `subtle.ConstantTimeCompare`, and **a reclaim spends its
   token and is issued a fresh one**.
@@ -267,11 +291,19 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   sweep the old index and the old table, `hub.alreadySeated` refuses on `create_room` and `join_room`,
   and **`dispatchAtTable` re-checks the seat against the table about to act on it**, because the
   routing and the handling no longer happen in the same instant. Reconnects are unaffected.
+- **A seat that is empty must read as empty, and `awayAt` only answers half of that**: the entry is
+  deleted when the hold ends, so `table.gone` (read through `hasLeft`) is what keeps a seat a running
+  match cannot remove from being broadcast as connected. **A finished ordinary table holds its seats
+  too** — the match is over, the rematch is not — so `join_room` reclaims a held seat at any table
+  that is not a lobby, the reclaim carries **no `state`** when there is none, and the expiry there
+  removes the seat for real. Matchmade tables are excluded on purpose.
 - **Personalised sends index by slot, never by `member.playerID`.**
 - **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback.
   `game.newRNG` seeds the source that picks the map, the starting seat and the shuffle: **the deal is
   hidden state, so a clock seed hands every hand to anyone who timed `create_room`**.
-  `game/rng_test.go` runs that attack. `math/rand` is for bot jitter and nothing else.
+  `game/rng_test.go` runs that attack. **Every shuffle that decides a hand takes it, the mid-round
+  `Deck.Replenish` included**: the pile going back into the deck has been seen by the whole table, so
+  predicting its order is knowing the rest of the round. `math/rand` is for bot jitter and nothing else.
 - **The nickname is validated in the domain and refused with one string.** `game.ValidateNickname`
   owns length **in runes**, an allowlist charset and the blocked-term check; all three reach the
   player as `nickname not allowed` and **never say which rule fired**. Words in
@@ -289,7 +321,9 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
     before the handler, one refused `declare_uno` a turn bought permanent immunity.
   - **A refusal answers its sender and nobody else**, unless the rules say the table pays too — and
     a Contre-LOCO! outside `catchGrace` is not one of those (see the domain rules above). Same rule
-    makes `rematch` idempotent: an ask already in the set republishes nothing.
+    makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that drew
+    nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells its
+    caller and not the table — otherwise a call inside somebody's window was still a free broadcast.
   - **A correction is throttled** (`resyncPeriod`, 1s per socket): one snapshot settles the drift,
     and everything sent in the millisecond after it was composed against the old board.
 - **The gameplay gate also bounds the seat.** `dispatchAtTable` refuses a sender whose `playerID` is
@@ -321,8 +355,16 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   2 consecutive turn timeouts as away, and **both expiries forfeit the match**, as does `leave_room`.
   **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, refuse `leave_room` mid-match, and
   allow it in every waiting room behind one in-place confirmation, the only one in the game.
+- **Nobody is trapped either.** That refusal assumes there is somebody to walk out on, so it lifts
+  once there is not: `table.abandonedBy` is true when every other seat is a human with no socket and
+  **no hold left**, and then `leave_room` releases the seat and takes the table with it — no forfeit,
+  because the only seat to award it to is the empty one. **And a match nobody is at and nobody can
+  return to ends where that becomes true** (`closeAbandonedMatch`, off the last expiry), rather than
+  auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy open for five minutes.
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing that
-  would start a new match is accepted, the queue is emptied with an explanation, **everything already
+  would start a new match is accepted, the queue is emptied with an explanation, **every table is
+  told once — every table, not only the ones playing: a waiting room, a game-over and a versus reveal
+  are the three that otherwise learn about the deploy by being refused** — **everything already
   running is left completely alone**, and the refusal list is chosen so the drain terminates. The rest
   is written to `LOCO_SNAPSHOT_PATH` and read back by the next process (`hub/snapshot.go`). Only
   matches in flight travel, a snapshot is never replayed, and a foreign `SnapshotSchemaVersion` or an
@@ -332,7 +374,11 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **The map-loading gate refuses every gameplay message while open**, and the turn clock starts at
   `match_ready`, not `game_started`. Per match, not per round.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
-  marshal once. `Client.SendBytes` force-closes on a full send buffer.
+  marshal once. `Client.SendBytes` force-closes on a full send buffer. **The versus reveal's deal is
+  armed twice** (`MatchmakingRevealBackstop`): every other dropped job is lossy, that one is
+  unbounded — the table stays a matchmade lobby, so it publishes `phaseInFlight` for good and no
+  later deploy can finish draining. Re-running it is free because it re-checks, like every deferred
+  callback here.
 - **What the server costs is measured, not assumed** (`make bench-server`, `hub/loop_bench_test.go`):
   8.6 µs for a whole card play, against a token bucket that admits at most 50 000 msg/s. One
   goroutine already absorbed that; the split above was bought for **isolation between tables, not
@@ -402,6 +448,28 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.
+- **The socket does not go through the CDN, and `webSocketPolicy.ts` is what decides that.** Measured
+  Paris to Paris on an **established** connection: 389 ms median through the proxy, 8.5 ms direct, and
+  an interrupt is decided by arrival order — so it is the mechanic, not the polish. Production dials
+  `VITE_WS_ORIGIN` (baked in at build time, **tag only**), takes the **scheme from the page** so mixed
+  content cannot fail as silence, and **falls back one-way** to the page's origin after
+  `DIRECT_FAILURES_BEFORE_FALLBACK` sockets that never opened — because that hostname's certificate is
+  the one thing here nothing renews and nothing can see expire, and a slow game beats a dead one. The
+  CSP keeps **both** origins for that reason, `client/Dockerfile` substitutes `__WS_DIRECT_ORIGIN__`
+  from the same build-arg as the bundle and **fails rather than shipping the placeholder**, and nginx
+  answers `ws.*` with the socket and a 404 (`ws-proxy.conf`, included by both server blocks).
+- **The socket never stops trying to come back, and three things retry it on the spot**: `online`,
+  the tab returning, and the button on the reconnect curtain (`webSocket.reconnectNow`). A ceiling
+  on attempts is a curtain that never comes down over a seat the server may still be holding.
+- **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
+  again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
+- **The board carries no way out, except when there is no game left to leave.** A match refuses
+  `leave_room` on purpose, so the action bar has no quit control and must not grow one. The single
+  exception is a curtain: every other seat's hold has expired, nothing will move again, and the card
+  carries `leaveRoom`. It reads `goneSeats` — written only by the one `player_left` that names a seat
+  — because **held and gone are both `connected: false`** and only one of them comes back. It waits
+  behind the reconnect curtains: our own socket being down may be the whole reason the table looks
+  empty.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
@@ -477,10 +545,22 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   is answered by handing the field back, focused with its contents selected.
 - **Both mirrors are pinned to the Go source** (`src/test/serverMirrors.test.ts`): a mirror drifts
   most quietly by going *stricter* than the server.
-- **A table is shared as a link** (`hooks/tableInvite.ts`): `/?t=CODE`, never `/t/CODE`, **carrying no
-  language**, and **spent on arrival** by `initTableInvite` before the first render. A link naming
-  another table clears a stale reclaim record; one naming the same table leaves it alone. **A link
-  carries a table, never a player**: join on its own only when `nicknameMemory` has a usable name.
+- **A table is shared as a link** (`hooks/tableInvite.ts`): `/i/?t=CODE`, **carrying no language**,
+  and **spent on arrival** by `initTableInvite` before the first render, which lands on `/`. A link
+  naming another table clears a stale reclaim record; one naming the same table leaves it alone. **A
+  link carries a table, never a player**: join on its own only when `nicknameMemory` has a usable
+  name. **The parameter is only read on `/i/`**: `/?t=CODE` is what the button handed out before the
+  invite page existed and now means nothing on the home page, where it is left in the URL like any
+  other parameter nobody here put there.
+- **`/i/` is a page of its own because a link preview is served HTML.** An unfurler runs no script,
+  so a link on the home page can only preview as the home page; `/i/` is `noindex`, **absent from
+  `PAGES` and filtered out of the sitemap** (which walks emitted pages, not the registry), and
+  carries the invitation's own title, description and art (`seo/meta.ts`: `INVITE`, `INVITE_OG`).
+  Everything else about it is the home page — same mount, same bundle, `GamePage` with
+  `chrome={false}`. **The code stays a query parameter**: `/i/CODE` is not a page the build emitted,
+  so it would need a fallback, and `astro dev` cannot be given one (Astro 7 routes ahead of the
+  connect stack) — it would 404 under `make dev` and the whole Playwright suite.
+  `src/test/invitePage.test.ts` pins all of it.
 - **The lobby remembers the last nickname** (`nicknameMemory`, `localStorage`, on submit). A prefill
   that authenticates nothing, which is why it is not the `loco_session` record.
 - **The searching screen times its own wait, and no copy of it may imply the queue is empty**
@@ -499,8 +579,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
   order**. Each of the six has a reason to be where it is, written next to it.
 - **A document is never in two languages at once, and a language is changed by navigating.**
-  `initLangUrl()` redirects with `location.replace`, carrying the query string so a `?t=CODE` invite
-  survives, and acts **only on an explicit choice**. Both switches record one.
+  `initLangUrl()` redirects with `location.replace`, **carrying the query string and the fragment**
+  (a parameter belongs to whoever put it there), and acts **only on an explicit choice**. Both
+  switches record one. **An invitation is not a language**, so `/i/` is served with no
+  `data-served-lang` and is left where it is.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`.
 - **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, no `react-dom`,
   no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`. `src/test/noReact.test.ts` is
@@ -732,8 +814,13 @@ Production path: Traefik to nginx (:80) to Go (:8080, internal only); nginx prox
 `/health`, serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` on
 every response.
 
+**The socket has a second hostname**, `ws.*`, DNS-only and outside the CDN, answered by the same
+nginx with `ws-proxy.conf` and a 404 for everything else. Why, and what it costs operationally, is in
+[`docs/deployment.md`](docs/deployment.md).
+
 **Those four live in `client/security-headers.conf`, and every `location` block that declares an
-`add_header` of its own must `include` it.** nginx inherits `add_header` only into a level that
+`add_header` of its own must `include` it** — in `nginx.conf` *and* in `client/ws-proxy.conf`, which
+`csp.test.ts` scans beside it. nginx inherits `add_header` only into a level that
 declares none, so one `Cache-Control` in a block silently strips all four from everything that block
 serves — which is how the whole `/_astro/` bundle shipped bare while the document response, the only
 one `make csp` looked at, reported clean. `csp.test.ts` fails on a block that declares without

@@ -7,6 +7,8 @@
   import TableCode from './TableCode.svelte'
   import { tableInviteUrl } from '../hooks/tableInvite'
   import AudioSettings from './AudioSettings.svelte'
+  import ServerUpdating from './ServerUpdating.svelte'
+  import { game } from '../hooks/gameStore.svelte'
   import { seatColor, seatInitial } from './playerColors'
 
   type Props = {
@@ -109,6 +111,10 @@
     const n = parseInt(maxInput, 10)
     if (isNaN(n) || n < minAllowed || n > MAX_PLAYERS) maxInput = String(maxPlayers)
   }
+
+  // Read through a $derived rather than out of the snapshot inside the markup:
+  // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
+  const serverUpdating = $derived(game.current.serverUpdating)
 </script>
 
 <div class="container">
@@ -132,6 +138,13 @@
     <TableCode code={roomCode} class="codeVal" />
   </button>
   <p class="hint">{t.shareCode}</p>
+
+  <!-- A deploy is under way, so the deal below is going to be refused. Said
+       before the host presses it: the alternative is a start button that answers
+       "server updating" to a table that was never told a deploy was happening. -->
+  {#if serverUpdating}
+    <ServerUpdating variant="card" />
+  {/if}
 
   <ul class="playerList">
     {#each players as p (p.index)}

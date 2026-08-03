@@ -431,6 +431,7 @@ func finishRoundForSeat(t *testing.T, winner, other *websocket.Conn) {
 		},
 	})
 	readMsgOfType(t, winner, protocol.SMsgGameState)
+	declareBeforeWinning(t, winner)
 	sendMsg(t, winner, protocol.ClientMsg{
 		Type: protocol.CMsgPlayCard,
 		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
@@ -523,5 +524,47 @@ func TestMatchmaking_FindMatchRefusedDuringAMatch(t *testing.T) {
 	got := readMsgOfType(t, conn1, protocol.SMsgError)
 	if got.Error != "already in a room" {
 		t.Errorf("error = %q, want %q", got.Error, "already in a room")
+	}
+}
+
+// The reveal's deal is armed twice: once on the reveal itself, once again a few
+// seconds later. Losing it is the one dropped job in the server whose cost is
+// unbounded — the table stays a matchmade lobby, so it publishes phaseInFlight
+// for good and no deploy from then on can ever finish draining — and postCritical
+// only retries once. The second arming is what makes that recoverable, and it is
+// only safe because running the deal again finds a room that is no longer a
+// lobby and does nothing.
+//
+// So this is the property the backstop rests on: two attempts, one deal.
+func TestMatchmaking_TheRevealBackstopDoesNotDealTwice(t *testing.T) {
+	shortReveal(t)
+	prev := hub.MatchmakingRevealBackstop
+	hub.MatchmakingRevealBackstop = 60 * time.Millisecond
+	t.Cleanup(func() { hub.MatchmakingRevealBackstop = prev })
+
+	_, srv := newTestHub(t)
+	a := queueUp(t, srv, "Alice")
+	b := queueUp(t, srv, "Bob")
+	readMsgOfType(t, a, protocol.SMsgMatchFound)
+	readMsgOfType(t, b, protocol.SMsgMatchFound)
+
+	first := readMsgOfType(t, a, protocol.SMsgGameStarted)
+	readMsgOfType(t, b, protocol.SMsgGameStarted)
+
+	// Well past the backstop. A second deal would arrive as a second
+	// game_started carrying a fresh hand, which is the failure this rules out;
+	// the map-loading gate is what legitimately speaks next.
+	a.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	for {
+		var msg protocol.ServerMsg
+		if err := a.ReadJSON(&msg); err != nil {
+			break // nothing more arrived, which is the point
+		}
+		if msg.Type == protocol.SMsgGameStarted {
+			t.Fatal("the backstop dealt the match a second time")
+		}
+	}
+	if first.State == nil {
+		t.Fatal("the first deal carried no state")
 	}
 }

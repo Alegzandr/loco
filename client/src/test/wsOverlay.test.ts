@@ -5,7 +5,7 @@
  * Reconnecting…" overlay instead of leaving the board blank.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from './render'
+import { render, screen, fireEvent } from './render'
 import GameView from '../components/GameView.svelte'
 import { gameStore } from '../hooks/gameStore'
 import { en } from '../i18n/en'
@@ -51,5 +51,15 @@ describe('GameView WS overlay', () => {
     renderGameView('closed')
     expect(screen.getByText(en.wsLostConnection)).toBeInTheDocument()
     expect(screen.getByText(en.wsReconnecting)).toBeInTheDocument()
+  })
+
+  // This curtain is the one screen in the game a player cannot act their way
+  // off, and the client used to give up retrying behind it after ten attempts —
+  // leaving it up for the rest of the tab's life with nothing on it to press.
+  it('offers a way to retry now', async () => {
+    const onRetryConnection = vi.fn()
+    render(GameView, { onSend: vi.fn(), wsStatus: 'closed', onRetryConnection: onRetryConnection })
+    await fireEvent.click(screen.getByText(en.wsRetryNow))
+    expect(onRetryConnection).toHaveBeenCalled()
   })
 })

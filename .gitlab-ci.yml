@@ -299,6 +299,7 @@ e2e_test:
           "APP_HOST=${APP_HOST}" \
           "IMAGE_TAG=${IMAGE_TAG}" \
           "CI_REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}" \
+          "LOCO_ALLOWED_ORIGINS=https://${APP_HOST}" \
           "LOCO_DRAIN_TIMEOUT=${LOCO_DRAIN_TIMEOUT}" \
           "STOP_GRACE_PERIOD=${STOP_GRACE_PERIOD}" \
           "LOCO_SNAPSHOT_PATH=${LOCO_SNAPSHOT_PATH}" \
@@ -385,7 +386,15 @@ build:
     # loco-d.kisukesaama.com served a canonical and an og:url naming production.
     # APP_HOST comes from .defaults and is already `-d.` on develop and the bare
     # host on a v* tag, which is exactly the distinction needed here.
-    - docker build --build-arg "VITE_PUBLIC_ORIGIN=https://${APP_HOST}" -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
+    # The socket bypasses the CDN in production and only there. A proxied
+    # WebSocket measured 389 ms per round trip against 8.5 ms direct, Paris to
+    # Paris, on an established connection; dev has no such hostname, no DNS
+    # record and no certificate for one, and does not have the problem either.
+    # The same value fills the bundle and the CSP (client/Dockerfile), so an
+    # empty one keeps both on the page's own origin exactly as before.
+    - WS_ORIGIN=""
+    - if [[ -n "${CI_COMMIT_TAG:-}" ]]; then WS_ORIGIN="wss://ws.${APP_HOST}"; fi
+    - docker build --build-arg "VITE_PUBLIC_ORIGIN=https://${APP_HOST}" --build-arg "VITE_WS_ORIGIN=${WS_ORIGIN}" -t "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}" -f client/Dockerfile client
     - docker push "${CI_REGISTRY_IMAGE}/server:${IMAGE_TAG}"
     - docker push "${CI_REGISTRY_IMAGE}/client:${IMAGE_TAG}"
 

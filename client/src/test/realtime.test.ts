@@ -252,11 +252,25 @@ describe('reconnect backoff', () => {
   })
 
   it('backs off monotonically and settles on a cap', () => {
-    const delays = [0, 1, 2, 3, 4, 5, 9].map(reconnectDelay)
+    const delays = [0, 1, 2, 3, 4, 5, 6, 7, 12].map(reconnectDelay)
     for (let i = 1; i < delays.length; i++) {
       expect(delays[i]).toBeGreaterThanOrEqual(delays[i - 1])
     }
     expect(delays[delays.length - 1]).toBe(delays[delays.length - 2])
-    expect(delays[delays.length - 1]).toBeLessThanOrEqual(5000)
+    // Polite to a server that is genuinely down, and never the recovery path:
+    // coming back online, coming back to the tab and pressing the button on the
+    // curtain all reconnect on the spot.
+    expect(delays[delays.length - 1]).toBeLessThanOrEqual(20000)
+  })
+
+  // The schedule does not end, and that is the fix rather than the tuning. Ten
+  // attempts ran out at 27.75 s and left the tab on a "Reconnecting…" curtain
+  // that would never come down again — while the server was still holding the
+  // seat for 60 s, sometimes without having started counting.
+  it('never runs out of attempts', () => {
+    for (const attempt of [10, 50, 5000]) {
+      expect(reconnectDelay(attempt)).toBeGreaterThan(0)
+      expect(Number.isFinite(reconnectDelay(attempt))).toBe(true)
+    }
   })
 })

@@ -104,7 +104,10 @@ func hostname(host string) string {
 
 // ServeWS upgrades an HTTP connection to WebSocket and registers the client.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	addr := truncateAddr(r.RemoteAddr)
+	// clientNet, not the peer: behind the production proxy chain every socket
+	// arrives from the same nginx container, and the two ceilings below are
+	// per-network. See hub/privacy.go for what that collapsed into.
+	addr := clientNet(r)
 	log.Printf("ws request addr=%s origin=%q method=%s", addr, r.Header.Get("Origin"), r.Method)
 
 	// Admission is decided here, before the upgrade, on purpose: a connection

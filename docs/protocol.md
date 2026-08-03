@@ -29,7 +29,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `declare_uno`       | —                                                        |
 | `catch_uno`         | `target_index` (seat being caught; omitted = the window closest to expiring) |
 | `counter_draw`      | `card`, `chosen_color`                                   |
-| `interrupt_play_card` (alias `interrupt_play`) | `card?`, `play_cards?` (out-of-turn identical-card interrupt) |
+| `interrupt_play_card` (alias `interrupt_play`) | `card?`, `play_cards?`, `declare_loco?` (out-of-turn identical-card interrupt) |
 
 ## Server → Client
 
@@ -128,3 +128,4 @@ description of the wire that a program does not check: when it disagrees with th
   `join_room` on a table this process does not have: the code the player typed was almost certainly
   real, and answering `room not found` there blames them for a deploy. See `docs/deployment.md`.
 - `play_cards` (turn-time) and `interrupt_play_card` with `play_cards` (out-of-turn) require N identical cards; effects stack: N×+2 = `2N` pending draw, N skips skip N players, N reverses flip parity. Swap and Global Switch cannot batch.
+- `declare_loco` is the LOCO! call carried by a batch that **empties the hand** — the one finish that never passes through a single card, so no catch window ever opens on it and no earlier declaration was possible (`docs/rules.md` §14.7). Without it the server refuses the batch (`must call LOCO! before playing your last card`); with it the table gets `uno_declared` immediately before `card_played`. It is ignored on every other play: a finish from a hand already down to one card is gated on a declaration that already happened, so setting the flag there buys nothing.

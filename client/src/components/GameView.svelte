@@ -37,9 +37,24 @@
   type Props = {
     onSend: (msg: ClientMsg) => void
     wsStatus: WsStatus
+    /**
+     * Try the socket again now, from the top of the backoff. The curtain below
+     * is the one screen in the game a player cannot act their way off, so it
+     * carries the one control that answers "is this stuck?" without reaching for
+     * the reload button — which on this screen costs the seat a round trip it
+     * did not have to spend.
+     */
+    onRetryConnection?: () => void
+    /**
+     * Give the seat up. Only ever reachable from the abandoned-table curtain
+     * below: an ordinary match refuses `leave_room` on purpose, because walking
+     * out is not a move, and the only case that refusal was never meant to cover
+     * is the one where there is nobody left to walk out on.
+     */
+    onLeave?: () => void
   }
 
-  let { onSend, wsStatus }: Props = $props()
+  let { onSend, wsStatus, onRetryConnection, onLeave }: Props = $props()
 
   const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
   const SWAP_NOTICE_MS = 3500
@@ -49,6 +64,17 @@
 
   const t = $derived(i18n.t)
   const g = $derived(game.current)
+
+  // Every other seat's reconnect window has run out, so no card will ever be
+  // played on this board again: the clock goes on drawing and passing for empty
+  // chairs, and until the server learned to allow it, `leave_room` came back
+  // refused and closing the tab was the only way out of the game. Held is not
+  // gone — a seat inside its hold still reads `connected: false` — so this asks
+  // `goneSeats`, which only the expiry writes, and never the roster's flag.
+  const tableAbandoned = $derived(
+    g.players.length > 1 &&
+      g.players.every((p) => p.index === g.myIndex || g.goneSeats.includes(p.index)),
+  )
 
   // Per-control timestamp of the last accepted tap; see guardDoubleTap.
   // Deliberately a plain Map and not a SvelteMap: nothing renders from it, it is
@@ -298,6 +324,26 @@
         <div class="reconnectSpinner"></div>
         <div class="reconnectText">{t.wsLostConnection}</div>
         <div class="reconnectSub">{t.wsReconnecting}</div>
+        {#if onRetryConnection}
+          <button class="wsRetry" type="button" onclick={onRetryConnection}>
+            {t.wsRetryNow}
+          </button>
+        {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- Nobody is left at this table and nobody can come back to it. The board
+       stays underneath, because it is still the match that was being played, and
+       the one control is the way out the action bar deliberately does not carry.
+       Behind the two curtains above: while the socket is down, what happened here
+       is not yet the player's problem. -->
+  {#if tableAbandoned && onLeave && wsStatus === 'open' && !reconnect.current}
+    <div class="reconnectOverlay">
+      <div class="reconnectCard">
+        <div class="reconnectText">{t.tableEmptyTitle}</div>
+        <div class="reconnectSub">{t.tableEmptyHint}</div>
+        <button class="wsRetry" type="button" onclick={onLeave}>{t.leaveRoom}</button>
       </div>
     </div>
   {/if}
@@ -392,6 +438,7 @@
           card: pick.card,
           chosen_color: col,
           play_cards: pick.copies,
+          declare_loco: pick.declareLoco,
         })
         // Send first, animate second: the table is waiting on the message, not on
         // our card leaving our own fan.
@@ -564,6 +611,36 @@
   .reconnectSub {
     font: 500 14px/1.4 var(--font-body);
     color: var(--color-muted);
+  }
+
+  /* The one control on the curtain. Quiet on purpose: the client is already
+     retrying on its own and this only shortens the wait, so it must not read as
+     the thing that has to be pressed for the game to come back. */
+  .wsRetry {
+    margin-top: 4px;
+    padding: 9px 20px;
+    min-height: 44px;
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-full);
+    background: var(--color-surface-card);
+    color: var(--color-ink);
+    font: 700 14px/1.2 var(--font-display);
+    cursor: pointer;
+    touch-action: manipulation;
+    box-shadow: 0 3px 0 var(--color-stroke-soft);
+    transition:
+      transform 0.12s var(--ease-bounce),
+      box-shadow 0.12s var(--ease-out);
+  }
+
+  .wsRetry:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 0 var(--color-stroke-soft);
+  }
+
+  .wsRetry:active {
+    transform: translateY(2px);
+    box-shadow: 0 1px 0 var(--color-stroke-soft);
   }
 
   /* ── UNO banner ───────────────────────────────────────────────────────────

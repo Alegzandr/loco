@@ -21,6 +21,7 @@ function ctx(over: Partial<ReconnectContext> = {}): ReconnectContext {
     sessionToken: 'deadbeef',
     myIndex: 1,
     myNickname: 'Bob',
+    isMatchmade: false,
     players: [
       { index: 0, nickname: 'Alice' },
       { index: 1, nickname: 'Bob' },
@@ -143,9 +144,45 @@ describe('reconnectMessageFor', () => {
     ).toEqual({ type: 'join_room', nickname: 'Bob', room_code: 'ABC123' })
   })
 
-  it('sends nothing from the lobby, from game over, or with no room', () => {
+  // The versus reveal is a real seat with a real token, two seconds from a
+  // deal. Saying nothing there left a player watching a screen that was never
+  // going to resolve.
+  it('reclaims the seat from the versus reveal', () => {
+    expect(reconnectMessageFor(ctx({ screen: 'matchfound' }))).toEqual({
+      type: 'join_room',
+      nickname: 'Bob',
+      room_code: 'ABC123',
+      session_token: 'deadbeef',
+    })
+  })
+
+  // There is no seat to reclaim while searching: the server drops a queued
+  // socket when it goes, so the ask has to be made again. A screen that goes on
+  // timing a wait in a queue nobody is in is the one thing searchStages forbids.
+  it('asks again from the searching screen', () => {
+    expect(reconnectMessageFor(ctx({ screen: 'searching', roomCode: '' }))).toEqual({
+      type: 'find_match',
+      nickname: 'Bob',
+    })
+  })
+
+  // The match is over and the rematch is not: the server holds that seat, so it
+  // is reclaimed like any other.
+  it('reclaims the seat from an ordinary game-over screen', () => {
+    expect(reconnectMessageFor(ctx({ screen: 'gameover' }))).toEqual({
+      type: 'join_room',
+      nickname: 'Bob',
+      room_code: 'ABC123',
+      session_token: 'deadbeef',
+    })
+  })
+
+  it('sends nothing from the lobby, from a matchmade game over, or with no room', () => {
     expect(reconnectMessageFor(ctx({ screen: 'lobby' }))).toBeNull()
-    expect(reconnectMessageFor(ctx({ screen: 'gameover' }))).toBeNull()
+    // Two strangers are done with each other: the seat is released outright and
+    // the client goes back to the queue rather than reclaiming a table that is
+    // over. See hub.disconnectAtTable.
+    expect(reconnectMessageFor(ctx({ screen: 'gameover', isMatchmade: true }))).toBeNull()
     expect(reconnectMessageFor(ctx({ roomCode: '' }))).toBeNull()
     expect(reconnectMessageFor(ctx({ screen: 'restoring', restoreTarget: null }))).toBeNull()
   })

@@ -283,6 +283,56 @@ Two details that are not arbitrary:
 so nothing here retains an address the rest of the server has already decided not to keep. 64 is high
 enough for a household, a LAN party or an office behind one address.
 
+### Which network, though
+
+Both ceilings above are per network, and **in production this server never sees one**. The path is
+browser → Cloudflare → Traefik → nginx → here, so `r.RemoteAddr` is the nginx container on the
+`internal` Docker network and it is the same address for every player alive. Read it directly and the
+two ceilings stop being per network:
+
+- `MaxConnsPerNet` becomes the total number of sockets the site can hold. The 65th player anywhere is
+  refused with a 429 **before the upgrade**, and `conns_refused` climbs while `clients` sits at 64.
+- `MaxFailedJoins` becomes global. Twenty mistyped codes across everybody, and `join_room` is refused
+  site-wide for the rest of the minute.
+- Every `addr=` in the log is a constant, which leaves `conn=` as the only correlator and quietly
+  removes the one field an operator reads to tell two networks apart.
+
+None of that fails loudly. It reads as "the game refuses everybody past 64 players" and blames one
+address in the log while doing it.
+
+So the network is decided once, by `clientNet` (`hub/privacy.go`), and kept on `Client.netKey`, which
+is what admission, the failed-join budget and `netPrefix` all answer with. It reads `ClientIPHeaders`
+in order — `CF-Connecting-IP`, then `X-Real-IP`, `LOCO_CLIENT_IP_HEADERS` to change them — **and only
+when the peer is a trusted proxy**, `TrustedProxies` / `LOCO_TRUSTED_PROXIES`, defaulting to loopback
+and the private ranges. That default is not laxity: the Go container publishes 8080 on `internal`
+only (`expose`, never `ports`), so nginx is the single peer that can reach it and a public address
+never arrives here at all.
+
+**Two headers because production has two paths to this server, and one player can use both inside a
+single match.** The page and everything cacheable go through the CDN, which sets `CF-Connecting-IP`.
+The socket is dialled on a hostname resolved outside it, where nothing sets that header and Traefik
+is what overwrites `X-Real-IP` with the peer it accepted. **The order is a security property, not a
+preference**: on the proxied path a client can put an `X-Real-IP` of its own invention on the request
+and the CDN forwards it, so the header the CDN itself controls has to be read first.
+`TestClientNetPrefersTheHeaderTheProxySets` is that assertion.
+
+Three things it refuses to believe, each of which would hand somebody a private budget:
+
+- **A header from an untrusted peer.** It is a claim about a network, not a report of one.
+- **A multi-value header.** This is why the default is `CF-Connecting-IP` and not `X-Forwarded-For`:
+  Cloudflare *sets* the former and *appends* to the latter, so the leftmost `X-Forwarded-For` entry is
+  whatever the client invented. Anything with a comma in it falls back to the peer.
+- **An unparseable or empty one.** A topology nobody described, so the peer stands.
+
+The forwarded address is truncated on the way in like every other, so the fallback is exactly the
+behaviour that came before and no full address ever reaches a counter, a map key or a log line.
+
+`client/nginx.conf` restates the header on `/ws` with `proxy_set_header`. That is a no-op — nginx
+forwards it untouched already — and it is there so the dependency is visible in the block that
+carries it rather than inferred from its absence. An IPv6 player arrives as an IPv6 address and is
+truncated to the routed `/48`, which is why nothing in this stack needs Cloudflare's Pseudo IPv4: it
+exists for origins that cannot parse one.
+
 `conns_refused` on `/metrics` is a load signal, not an incident, until it climbs.
 
 ## A wrong table code is not free any more
@@ -327,6 +377,14 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   :5173, Go on :8080) with no configuration. `LOCO_ALLOWED_ORIGINS` (comma-separated) overrides it
   with an exact allowlist, and once set it is the *whole* rule. A missing `Origin` is not a browser
   and is allowed.
+
+  **In production that default rule no longer holds, and `LOCO_ALLOWED_ORIGINS` is now mandatory
+  there.** The page is served from `ohloco.com` and the socket is dialled on `ws.ohloco.com`, so the
+  `Origin` hostname and the request `Host` are deliberately different and every upgrade would be
+  refused — as a *refused upgrade*, which the client cannot tell from the server being down. The
+  allowlist names **the page's origin, never the socket's**: it is the document that opens the
+  connection. `write_app_env` in `.gitlab-ci.yml` writes `https://${APP_HOST}` for both environments;
+  the value committed in `deploy/app.env` is the shape.
 - **`nginx.conf` sends the security headers** the client was already built for: a closed CSP (no
   CDN, no analytics, self-hosted fonts), `nosniff`, `Referrer-Policy`, `Permissions-Policy`.
   `script-src` has no `'unsafe-inline'`; `style-src` must (Astro inlines every stylesheet, and the
@@ -389,8 +447,11 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   constructor, walks every nanosecond in the window, and fails if any of them reproduces the deal.
   It carries a planted clock seed as a positive control, because a replay that has drifted out of
   step with `dealRound` reports "not found" for every room, safe or not — and would pass forever.
-  `Deck.Replenish` still shuffles off the global source, which Go seeds randomly at startup; it is
-  the deal, not the mid-round reshuffle, that was reconstructible.
+  `Deck.Replenish` takes the same source. It used to shuffle off the global one, on the argument
+  that only the deal was reconstructible — but the pile going back into the deck is the second half
+  of a long round, every card in it has been seen by the table, and whoever can predict its order
+  knows the rest of the round outright. `deck_test.go` replenishes the same pile from two rooms and
+  requires the orders to differ; a shared global source makes them equal.
 - **A refused message must never be cheaper than an accepted one.** This is the finding an audit of
   every inbound message produced, and it is one sentence because all four bugs were the same bug.
   The server had been read for what it *lets* a client do, which was already tight: nothing on the
@@ -422,7 +483,9 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     `ErrNoCatchWindow` is refused to its sender, charged nothing, told to nobody, and — being neither
     a lost race nor a state mismatch — counted by `noteRejection` toward `suspected_cheats`.
     The same reasoning covers a target index the table does not have: it used to answer the
-    missed-catch string and note nothing at all.
+    missed-catch string and note nothing at all. And the free-once-the-piles-are-dry half survived
+    `catchGrace` on its own, *inside* a live window: `penalizeFailedCatch` now answers an empty draw
+    to its caller alone, so a penalty nobody paid is not a table-wide send either.
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply
@@ -558,6 +621,16 @@ ordinary room's on purpose.
   calls `startMatch`, which shares `dealMatch` with the host's `start_game`. If one of the pair
   vanished during the reveal, `requeueSurvivor` tears the room down and puts the other back in the
   queue rather than leaving them in a two-seat room that can never start.
+- **That deal is armed twice**, and it is the only job here that is. Everywhere else a dropped job is
+  lossy: a turn timer lost is one free turn, a cleanup lost is one room until the next restart. This
+  one is unbounded. `postCritical` retries it once; if the retry is dropped as well the table is a
+  matchmade lobby for the rest of the process's life, which means it publishes `phaseInFlight` for the
+  rest of the process's life — so `checkDrained` can never close and **every** deploy from that moment
+  on burns its whole `LOCO_DRAIN_TIMEOUT` waiting on a table nobody is playing at, while the pair sit
+  on a versus screen that will never deal. `MatchmakingRevealBackstop` (3s after the reveal) is a
+  second `AfterFunc` at the same handler. It is safe for the same reason every deferred callback here
+  re-checks: the second run finds a room that is no longer a lobby and returns. It costs one timer per
+  pairing, and `matchmaking_test.go` pins the property it rests on — two attempts, one deal.
 - **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
   `handleSetMaxPlayers` and `handleKickPlayer` all begin with `refuseInMatchmade`. The format is fixed
   (BO1: a queue is entered by somebody who wants to play *now*, and a single round is the shortest
@@ -655,9 +728,48 @@ strangers will not, and the player who is still at the table did nothing wrong.
   everywhere and is not a forfeit at all: the waiting room has a quit button for host and guest
   alike, `releaseSeat` frees the seat on the spot and the rest of the table gets `player_left`. That
   is the whole point of sending it rather than closing the tab, which would hold the slot instead.
+- **That refusal lifts once there is nobody to refuse on behalf of.** It protects a group's match from
+  one member walking out, and it assumed there was a match left to protect. There was a state where
+  there was not: the other seat's socket goes, its hold expires, and from then on nothing at that
+  seat will ever act again — the clock auto-draws and auto-passes for it every 30 s until the round
+  runs out, `leave_room` comes back refused, and the survivor's only way out of the *game* is closing
+  the browser. That was the one state in LOCO with no in-game action available. `table.abandonedBy`
+  is the question that ends it: every other seat a human, with no socket **and no hold left**. Away
+  is not gone — while the hold is running the refusal stands, which is the whole meaning of the hold.
+  No forfeit is issued, because `remainingSeat` would award the match to the seat that is not there;
+  the seat is swept and the table is closed.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.
+
+## A seat that is empty has to read as empty
+Two ways a seat has nobody in it, and the roster used to answer only the first.
+
+**`awayAt` is a hold, and the hold ends.** `playerList` derived `connected` from `awayAt` alone, and
+`handleExpireReconnect` deletes that entry one line before it broadcasts the departure. So the
+`player_left` announcing a player was gone carried a roster saying that player was present — and in
+an ordinary room, where nothing forfeits, it stayed that way for the rest of the match: a seat pod
+and a score table showing "here" while the turn clock auto-passed for them every 30 s. It was masked
+in matchmade rooms only because those forfeit on the same event. `table.gone` is the second half of
+the answer, and `hasLeft` is how `playerList` reads it. The seat itself cannot go: hands, scores and
+turn order are indexed by it until the round ends. Every re-basing move shifts `gone` with the rest,
+and `resetForNextMatch` clears it, for the reason every other per-match map is cleared there.
+
+**A finished table holds its seats too.** The match is over; the rematch is not. A socket that
+dropped on the game-over screen used to be released outright, so a wifi hiccup between the last card
+and the rematch button was answered `not in a room` by the only control that screen has. Now
+`disconnectAtTable` holds it for the ordinary reconnect window, `retireRematchOffer` takes that
+seat's ask out of the quorum without re-basing anybody (it is being held, not removed, so no index
+moves), and `joinAtTable` accepts the token reclaim at any table that is not a lobby. The reclaim
+sends `player_reconnected` with **no `state`** — a finished room has none, and a snapshot built from
+a nil one would hand the client an empty board and put it back at the table — followed by the whole
+`rematch_offered` state. When the hold does expire, the seat is removed for real
+(`RemoveLobbyPlayer` + `dropSeat`): a phantom at a finished table is worse than a stale flag,
+because the next match would deal a hand to nobody.
+
+**Matchmade tables are deliberately excluded from that hold.** Two strangers are done with each
+other, the survivor's client requeues the moment the roster says it is alone, and holding a seat
+would make it wait out the hold first for a rematch `handleRematch` refuses anyway.
 
 ## AFK auto-kick
 - `hub.AFKKickThreshold` (var, default 4) consecutive turn-timeouts without voluntary action → kick (~2 rounds in 2-player). A matchmade room uses `MatchmakingAFKThreshold` (2) and forfeits instead of kicking; see above.
@@ -859,11 +971,23 @@ round ended.
 - `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
 - `hub.ReconnectTimeout` (var, default 60s): disconnected-in-game slot hold. `MatchmakingReconnectTimeout` (15s) replaces it in a matchmade room, and its expiry forfeits the match rather than merely freeing the seat.
 - Both vars exported for test override; restore via `t.Cleanup`.
-- Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(code)`.
-- `scheduleRoomCleanup`: records `emptyRooms[code]=time.Now()`, `time.AfterFunc` fires `cleanupMsg` after timeout. Channel-full → retry once after 30s, then `WARN`.
-- `handleCleanup`: deletes only if `emptyRooms[code]` still matches recorded time (race-safe).
-- Rejoin/reconnect calls `delete(h.emptyRooms, code)`.
-- `deleteRoom(code)`: single deletion point; cleans hub maps, adjusts `statRooms`/`statBotsActive`, structured log.
+- Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(t)`.
+- `scheduleRoomCleanup`: stamps `t.emptyAt`, `time.AfterFunc` posts `handleCleanup` after the timeout.
+  Box-full → `postCritical` retries once after 30s, then `WARN`.
+- `handleCleanup`: deletes only if `t.emptyAt` still matches the stamp it was armed against, and only
+  if the table is still empty. It decides on the table's goroutine and asks the hub to do the
+  deleting, because the map of tables is the one thing a table does not own.
+- `deleteRoom(code)`: single deletion point. One `delete`, then `stop()`; whatever the table held goes
+  with it. Adjusts `rooms`/`botsActive`, structured log.
+
+**A match is not an empty lobby, and the fixed five minutes is wrong for it.** An abandoned *lobby*
+costs a map entry. An abandoned *match* stays `StatusPlaying` for the whole wait, so the turn clock
+keeps re-arming and auto-drawing for seats with nobody behind them, and — the part that reaches other
+people — the table keeps publishing `phaseInFlight`, so a deploy started anywhere in those five
+minutes waits on a game nobody is playing. `closeAbandonedMatch` closes it the moment it is certain
+instead: no sockets, no holds left, therefore nobody who can come back and nothing left to protect.
+It runs off the last reconnect expiry and off the `leave_room` above, and it does the deleting the
+same way `handleCleanup` does, through the hub.
 
 ## A deploy does not end the matches on the server
 `server/hub/drain.go`, `server/hub/snapshot.go`, `server/main.go`. Operator-facing detail, including
@@ -904,6 +1028,15 @@ match, so there is nothing to protect, and leaving them there is the worst avail
 for an opponent this process has already stopped pairing. They get the refusal and a
 `matchmaking_cancelled`, which takes the screen back to the table view where a private table still
 works.
+
+**The notice goes to every table, not only the ones playing.** It was gated on `StatusPlaying`, which
+meant the three places a drain is actually *felt* were the three that never heard about it: a waiting
+room, whose host is about to press a start button that comes back refused; a game-over screen, whose
+rematch button does the same; and a matchmade pair still on its versus reveal, formally a lobby,
+which deals itself seconds later into a match nobody told it about. Finding out from a refusal is
+the failure the line exists to prevent, so it goes to everyone who can be refused. The copy differs
+by screen on the client (`ServerUpdating` has a `card` variant): a table that has not dealt is not
+owed "this match plays to the end".
 
 **`checkDrained` runs after every event in `Run`, not hooked onto the handlers that can end a match.**
 A match stops being in flight through the last card, a forfeit, an expired reconnect window and the

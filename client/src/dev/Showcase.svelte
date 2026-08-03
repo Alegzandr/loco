@@ -133,7 +133,7 @@
   {#if scene.screen === 'cards'}
     <CardSheet />
   {:else if scene.screen === 'og'}
-    <OgCard />
+    <OgCard variant={scene.ogVariant ?? 'default'} />
   {:else if scene.screen === 'lobby'}
     <Lobby
       onSend={noop}
@@ -175,7 +175,7 @@
       initialConfirmLeave={scene.confirmLeave}
     />
   {:else if scene.screen === 'game'}
-    <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} />
+    <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} onLeave={noop} />
   {:else if scene.screen === 'gameover'}
     <GameOver
       winner={g.matchWinner}

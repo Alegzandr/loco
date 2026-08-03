@@ -25,6 +25,16 @@ describe('the deploy notice', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
+  // A waiting room and a game-over screen have no match to promise anything
+  // about: what a deploy costs them is the button they are looking at, and
+  // saying so before it is pressed is the point of putting the notice there at
+  // all. Those two used to hear nothing and find out by being refused.
+  it('says something else on a screen where no match is running', () => {
+    render(ServerUpdating, { variant: 'card' })
+    expect(screen.getByText(en.serverUpdatingWaiting)).toBeInTheDocument()
+    expect(screen.queryByText(en.serverUpdatingBanner)).not.toBeInTheDocument()
+  })
+
   it('never takes a tap away from the board', () => {
     // It lives in the top chrome row and is pointer-events: none, because a
     // notice that can swallow a click on a reaction game's board is a bug.

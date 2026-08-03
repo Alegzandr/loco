@@ -52,9 +52,24 @@ type table struct {
 	// reissued on every reclaim, so a token is only ever good once.
 	tokens map[int]string
 
-	// awayAt[seat] is when that seat's socket went. Only ever set during a
-	// match: in a lobby the seat is removed instead of held.
+	// awayAt[seat] is when that seat's socket went. Set during a match, and on a
+	// finished ordinary table, where the rematch is still to come: in a lobby the
+	// seat is removed instead of held.
 	awayAt map[int]time.Time
+
+	// gone is the set of seats whose reconnect window closed while the match was
+	// still running.
+	//
+	// A held seat is absent because it is in awayAt, and the entry is deleted the
+	// moment the window shuts — so the seat that had just provably left was the
+	// one the roster reported as connected, from the player_left announcing its
+	// departure onwards. It cannot simply be removed instead: the hands, the
+	// scores and the turn order are indexed by it until the round ends. So the
+	// seat stays and the absence is recorded here.
+	//
+	// Only a match needs it. Every other status removes the seat outright, which
+	// is why a rematch's reset and every re-basing move clear it.
+	gone map[int]struct{}
 
 	// bots is the set of seats nobody is sitting in.
 	bots map[int]struct{}
@@ -95,6 +110,7 @@ func newTable(code string, room *game.Room) *table {
 		room:          room,
 		tokens:        make(map[int]string),
 		awayAt:        make(map[int]time.Time),
+		gone:          make(map[int]struct{}),
 		bots:          make(map[int]struct{}),
 		afk:           make(map[int]int),
 		rematchOffers: make(map[int]struct{}),
@@ -113,6 +129,21 @@ func (t *table) client(seat int) *Client {
 	return t.members[seat]
 }
 
+// hasLeft reports whether a seat's reconnect window closed without the player
+// coming back. See the gone field: it is the half of "is anybody there" that
+// awayAt stops answering the moment the window shuts.
+func (t *table) hasLeft(seat int) bool {
+	_, ok := t.gone[seat]
+	return ok
+}
+
+// addEmptySeat appends a seat with no socket behind it — a bot. members is the
+// table's, and growing it is a seat move like any other, so it goes through a
+// method here rather than an append at the call site: see seat().
+func (t *table) addEmptySeat() {
+	t.members = append(t.members, nil)
+}
+
 // isBot reports whether a seat is played by the server.
 func (t *table) isBot(seat int) bool {
 	_, ok := t.bots[seat]
@@ -129,6 +160,34 @@ func (t *table) isLoading() bool { return t.loading != nil }
 func (t *table) allSeatsEmpty() bool {
 	for _, m := range t.members {
 		if m != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// abandonedBy reports whether every seat other than this one is an absent
+// human: no socket at it and no bot behind it.
+//
+// It is what tells a lone survivor apart from a quitter. Leaving a match in
+// progress is refused at an ordinary table on purpose — walking out is not a
+// move — but the refusal assumes there is somebody being walked out on. Once
+// the other seat's socket is gone and its hold has expired, nothing at that
+// seat will ever act again: the turn clock auto-draws and auto-passes for it
+// every thirty seconds until the round runs out, and the survivor's only way
+// out of the game is closing the tab. That is the one state in the game with no
+// in-game action available, and this is the question that ends it.
+func (t *table) abandonedBy(seat int) bool {
+	for i := range t.room.Players {
+		if i == seat {
+			continue
+		}
+		if t.isBot(i) || t.client(i) != nil {
+			return false
+		}
+		if _, held := t.awayAt[i]; held {
+			// Away, not gone. The hold is the whole reason leaving is refused
+			// here: a drop is not a departure until the window says so.
 			return false
 		}
 	}
@@ -170,6 +229,10 @@ func (t *table) seat(c *Client, id int) {
 	}
 	t.members[id] = c
 	c.sitAt(t.code, id)
+	// Somebody is sitting here, so whatever this seat's last departure recorded
+	// is over. A reclaim inside the window never reaches this, but a seat reused
+	// by a re-index would.
+	delete(t.gone, id)
 	// Somebody is here, so any cleanup timer counting this table down is stale.
 	// It used to be a delete() the four seating paths each had to remember.
 	t.emptyAt = time.Time{}
@@ -209,6 +272,7 @@ func (t *table) dropSeat(id int) (hasHuman bool) {
 	}
 	t.bots = shiftIntKeySet(t.bots, id)
 	t.tokens = shiftIntKeyMap(t.tokens, id)
+	t.gone = shiftIntKeySet(t.gone, id)
 	return t.reseat()
 }
 
@@ -225,6 +289,7 @@ func (t *table) dropClient(c *Client, id int) (hasHuman bool) {
 	t.members = kept
 	t.bots = shiftIntKeySet(t.bots, id)
 	t.tokens = shiftIntKeyMap(t.tokens, id)
+	t.gone = shiftIntKeySet(t.gone, id)
 	return t.reseat()
 }
 
@@ -240,6 +305,7 @@ func (t *table) resetForNextMatch() {
 	t.rematchOffers = make(map[int]struct{})
 	t.afk = make(map[int]int)
 	t.awayAt = make(map[int]time.Time)
+	t.gone = make(map[int]struct{})
 	t.turnStartedAt = time.Time{}
 	t.emptyAt = time.Time{}
 	t.loading = nil

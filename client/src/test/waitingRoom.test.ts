@@ -35,7 +35,7 @@ describe('WaitingRoom sharing', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /ABC234/ }))
 
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/?t=ABC234`)
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/i/?t=ABC234`)
     // And the code is still readable on the screen it was shared from.
     expect(screen.getByText('ABC234')).toBeInTheDocument()
   })

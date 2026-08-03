@@ -20,6 +20,7 @@ import {
   debugSetState,
   waitForTableOpen,
   gameBoard,
+  winWith,
 } from '../helpers/game'
 
 /** Wait until the turn is NOT the local player's. */
@@ -322,7 +323,8 @@ test.describe('multi-client synchronization', () => {
         discard: { color: 'red', kind: 'number', value: 5 },
         currentTurn: aliceIndex,
       })
-      await sendMsg(page1, {
+      // Alice's only card, so this takes the round and owes the call (§14.7).
+      await winWith(page1, {
         type: 'play_card',
         card: { color: 'red', kind: 'number', value: 7 },
       })

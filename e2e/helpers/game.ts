@@ -292,6 +292,40 @@ export async function sendMsg(page: Page, msg: object): Promise<void> {
 }
 
 /**
+ * Make the LOCO! call, then send the play that takes the round.
+ *
+ * A play that empties the hand is refused until the call has been made
+ * (docs/rules.md §14.7), so a fixture that hands a seat one card and wins with
+ * it has to press the button first — the same press a player makes. Without it
+ * the play comes back refused and the test waits out its timeout on a round that
+ * never ends, which is a failure that says nothing about what it was testing.
+ *
+ * The declaration is awaited rather than fired and forgotten: the assertions
+ * that follow read `errorMsg`, and a call still in flight would be answered
+ * after the play it was meant to precede.
+ */
+export async function winWith(page: Page, msg: object): Promise<void> {
+  await declareLoco(page)
+  await sendMsg(page, msg)
+}
+
+/**
+ * Press LOCO!, and wait for the server to have heard it.
+ *
+ * Split out of `winWith` for the fixtures that take the round through the real
+ * click path (`playCard`) rather than a raw message: the declaration is the same
+ * press either way.
+ */
+export async function declareLoco(page: Page): Promise<void> {
+  await sendMsg(page, { type: 'declare_uno' })
+  await page.waitForFunction(
+    () => window.__LOCO_E2E__?.getState?.()?.myDeclared === true,
+    undefined,
+    { timeout: 8_000 },
+  )
+}
+
+/**
  * Draw then pass on our turn.
  * Useful to advance a turn without finding a playable card.
  */
@@ -500,6 +534,24 @@ export async function takeTurn(page: Page, turnTimeoutMs = 20_000): Promise<void
 
   const { myHand, discard, activeColor, pendingDraw } = state
   const hand = myHand ?? []
+
+  // A play that empties the hand is refused until the call has been made
+  // (docs/rules.md §14.7), so the seat about to take the round presses LOCO!
+  // first — the same press a player makes, and the reason the button is on
+  // screen. Without it every round driven from here stalls on its last card and
+  // the caller waits out its timeout on a turn that will never move.
+  //
+  // Guarded on myDeclared: takeTurn is called in a loop, and a second call on
+  // the same card is refused ("player already declared"), which would leave an
+  // error toast on a board a later assertion is reading.
+  if (hand.length === 1 && !state.myDeclared) {
+    await sendMsg(page, { type: 'declare_uno' })
+    await page.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.myDeclared === true,
+      undefined,
+      { timeout: 8_000 },
+    )
+  }
 
   const playable = hand.find((c) => {
     if ((pendingDraw ?? 0) > 0) {

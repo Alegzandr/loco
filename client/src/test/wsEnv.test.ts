@@ -4,7 +4,13 @@ import path from 'node:path'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const astroConfig = readFileSync(path.join(CLIENT, 'astro.config.mjs'), 'utf8')
-const socket = readFileSync(path.join(CLIENT, 'src', 'hooks', 'webSocket.svelte.ts'), 'utf8')
+// Both halves of the socket. `webSocket.svelte.ts` hands `import.meta.env`
+// straight to `webSocketPolicy.ts`, which is where the names now are, so
+// scanning only the first would leave this guard asserting nothing.
+const socket = [
+  readFileSync(path.join(CLIENT, 'src', 'hooks', 'webSocket.svelte.ts'), 'utf8'),
+  readFileSync(path.join(CLIENT, 'src', 'hooks', 'webSocketPolicy.ts'), 'utf8'),
+].join('\n')
 
 /**
  * The failure this file exists for is silent by construction. Astro narrows
@@ -19,10 +25,20 @@ describe('dev WebSocket wiring', () => {
     const declared = astroConfig.match(/envPrefix:\s*(\[[^\]]*\]|'[^']*')/)?.[1]
     expect(declared, 'astro.config.mjs must declare envPrefix').toBeTruthy()
 
-    const reads = [...socket.matchAll(/import\.meta\.env\.([A-Z0-9]+_)[A-Z0-9_]+/g)].map(
-      (m) => m[1],
+    // Every build-time name the socket path uses, however it is spelled: an
+    // `import.meta.env.VITE_X` read, or a field on the env object the hook hands
+    // to the policy. Both reach the browser through envPrefix and both are
+    // `undefined` without it.
+    const reads = [...socket.matchAll(/\b([A-Z0-9]+_)[A-Z0-9_]*\b/g)]
+      .map((m) => m[1])
+      .filter((prefix) => prefix === 'VITE_')
+    expect(
+      reads.length,
+      'the socket must read its address from the env — is envPrefix still load-bearing?',
+    ).toBeGreaterThan(0)
+    expect(socket, 'the dev socket port is what this guard was written for').toContain(
+      'VITE_WS_PORT',
     )
-    expect(reads.length, 'webSocket.svelte.ts must read the socket port from the env').toBeGreaterThan(0)
     for (const prefix of new Set(reads)) {
       expect(declared, `${prefix}* is read but not exposed`).toContain(prefix)
     }

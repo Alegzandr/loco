@@ -152,7 +152,13 @@ func TestSnapshot_RestoredSeatKeepsPlaying(t *testing.T) {
 	sendMsg(t, back1, protocol.ClientMsg{
 		Type: protocol.CMsgDebugSetState,
 		Debug: &protocol.DebugStateDTO{
-			Hand:        []protocol.CardDTO{{Color: "red", Kind: "number", Value: 3}},
+			// Two cards: this asserts that a restored room still takes a move,
+			// so the play must be an ordinary one rather than a round-winning
+			// finish, which the LOCO! gate would refuse on its own terms.
+			Hand: []protocol.CardDTO{
+				{Color: "red", Kind: "number", Value: 3},
+				{Color: "blue", Kind: "number", Value: 9},
+			},
 			Discard:     &protocol.CardDTO{Color: "red", Kind: "number", Value: 5},
 			ActiveColor: "red",
 			PendingDraw: &zero,

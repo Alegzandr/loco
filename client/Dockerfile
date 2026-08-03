@@ -11,6 +11,15 @@ FROM node:24-alpine AS builder
 ARG VITE_PUBLIC_ORIGIN=https://ohloco.com
 ENV VITE_PUBLIC_ORIGIN=$VITE_PUBLIC_ORIGIN
 
+# The hostname the WebSocket dials to bypass the CDN, e.g. wss://ws.ohloco.com.
+# Empty by default, which is every environment that has no such hostname: dev, a
+# local build, and the dev deployment, all of which keep the socket on the page's
+# own origin. Baked in here rather than read at runtime for the same reason as
+# the origin above — the bundle is built per environment — and used twice below:
+# once by the bundle, once by the CSP that has to allow what the bundle dials.
+ARG VITE_WS_ORIGIN=
+ENV VITE_WS_ORIGIN=$VITE_WS_ORIGIN
+
 WORKDIR /app
 # The lockfile travels, and `npm ci` installs exactly what is in it.
 #
@@ -30,8 +39,34 @@ FROM nginx:alpine
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Not into conf.d/: nginx.conf's own `include /etc/nginx/conf.d/*.conf` would
-# pick this up as a second server-level file and refuse to start on an
-# add_header outside any server block.
+# pick these up as second server-level files and refuse to start on an
+# add_header, or a location, outside any server block.
 COPY security-headers.conf /etc/nginx/security-headers.conf
+COPY ws-proxy.conf /etc/nginx/ws-proxy.conf
+
+# The CSP has to allow the socket the bundle was built to dial, and nothing in a
+# request says what that is — it is a property of the deployment. So the same
+# build-arg fills both, here, and the two cannot disagree.
+#
+# An ARG does not cross a stage boundary, hence the redeclaration. Both schemes
+# are emitted because the client takes the scheme from the page rather than from
+# this value (webSocketPolicy.ts), so a policy naming only wss:// would block the
+# socket on any deployment served over http.
+#
+# The grep is the point of the whole step: a substitution that silently matched
+# nothing would ship a policy containing a literal placeholder, which blocks the
+# socket on a hostname the game is about to dial and reports it nowhere.
+ARG VITE_WS_ORIGIN=
+RUN set -eux; \
+    if [ -n "${VITE_WS_ORIGIN}" ]; then \
+      host="$(printf '%s' "${VITE_WS_ORIGIN}" | sed -E 's#^wss?://##; s#/+$##')"; \
+      replacement="ws://${host} wss://${host}"; \
+    else \
+      replacement=""; \
+    fi; \
+    sed -i "s#__WS_DIRECT_ORIGIN__#${replacement}#" /etc/nginx/security-headers.conf; \
+    if grep -q '__WS_DIRECT_ORIGIN__' /etc/nginx/security-headers.conf; then \
+      echo "the CSP placeholder was not substituted" >&2; exit 1; \
+    fi
 
 EXPOSE 80

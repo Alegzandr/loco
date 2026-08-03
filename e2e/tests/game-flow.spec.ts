@@ -28,6 +28,7 @@ import {
   gameBoard,
   forceEnglish,
   waitForSocket,
+  winWith,
 } from '../helpers/game'
 
 test.describe('gameplay flow (single player vs bot)', () => {
@@ -155,7 +156,8 @@ test.describe('gameplay flow (single player vs bot)', () => {
       pendingDraw: 0,
       currentTurn: myIdx,
     })
-    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    // The only card in hand: this takes the round and owes the call (§14.7).
+    await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
     await waitForRoundSummary(page, 20_000)
 
     // Summary shows round winner and "Complete"
@@ -280,7 +282,8 @@ test.describe('gameplay flow (single player vs bot)', () => {
       pendingDraw: 0,
       currentTurn: myIdx,
     })
-    await sendMsg(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    // The only card in hand: this takes the round and owes the call (§14.7).
+    await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
     await waitForRoundSummary(page, 20_000)
     await page.getByText(T.continueBtn, { exact: false }).click()
     await waitForGameOver(page, 30_000)

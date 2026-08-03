@@ -81,6 +81,20 @@ export interface PageDef {
   /** Overrides the shared social title when a page deserves its own. */
   ogTitle?: Record<Lang, string>
   ogDescription?: Record<Lang, string>
+  /**
+   * Overrides the shared link-preview art. Only the invite page has one: a page
+   * whose whole reason to exist is how it unfurls in a chat window is also the
+   * only page whose picture has a different job from the site's.
+   */
+  ogImage?: OgImage
+}
+
+interface OgImage {
+  path: Record<Lang, string>
+  type: string
+  width: number
+  height: number
+  alt: Record<Lang, string>
 }
 
 export const OG_IMAGE = {
@@ -208,6 +222,81 @@ export const LEGAL: PageDef = {
     en: 'What the game knows about you, which is almost nothing: no account, no cookie banner, no analytics. Plus the terms and credits.',
     fr: 'Ce que le jeu sait de toi, presque rien : aucun compte, aucun bandeau cookies, aucune mesure d’audience. Conditions et crédits.',
   },
+}
+
+/**
+ * The link preview an invitation unfurls into.
+ *
+ * Same drawing as the site's, one line of copy different, and that line is the
+ * whole point: the picture has to say *somebody is waiting for you at a table*
+ * rather than *here is a card game*. It is captured from the same showcase scene
+ * as `og.png` (`make og`), so the duck and the fan cannot drift between the two.
+ *
+ * The line is written once, here, and read twice: by `<meta og:title>` through
+ * `INVITE.ogTitle` and by the card itself, which imports this module. A sentence
+ * that appears in a picture and beside it is one sentence.
+ */
+export const INVITE_OG: OgImage = {
+  path: {
+    en: `/og.invite.png?v=${OG_VERSION}`,
+    fr: `/og.invite.fr.png?v=${OG_VERSION}`,
+  },
+  type: 'image/png',
+  width: 1200,
+  height: 630,
+  alt: {
+    en: 'The LOCO duck beside a fan of cards, over the words: a seat is being held for you.',
+    fr: 'Le canard LOCO à côté d’un éventail de cartes, sur les mots : on t’a gardé une place.',
+  },
+}
+
+/**
+ * Where an invitation points, and the one page here that is not a page of the
+ * site.
+ *
+ * It exists for a single reason: a link dropped in a chat window unfurls into
+ * whatever the *served* HTML says, and `/` says "LOCO, a card game". An
+ * invitation deserves to say that a seat is waiting, and the only way to say it
+ * differently is to be a different document. Everything else about it is the
+ * home page: the same mount, the same bundle, the same game.
+ *
+ * Four things follow from that, and each is asserted by `invitePage.test.ts`:
+ *
+ *  - **It is deliberately absent from `PAGES`**, so it is in no sitemap, in no
+ *    `hreflang` set and in no navigation. It is a door somebody was handed, not
+ *    a page anybody should arrive at from a search result.
+ *  - **It is served `noindex`**, which is also what keeps it out of the
+ *    canonical graph — `Base.astro` emits no canonical for a noindex page, and a
+ *    duplicate of the home page claiming one would be competing with it.
+ *  - **It has one path in both languages.** An invitation carries no language
+ *    (see `hooks/tableInvite.ts`): the reader's browser decides, exactly as it
+ *    does at `/`. So there is no French twin to point an `hreflang` at, and the
+ *    page is served with no `data-served-lang` for `initLangUrl` to act on.
+ *  - **The code is not in the built path.** `/i/` is one emitted page; the code
+ *    rides behind it (`/i/ABC234`) and is resolved by a fallback scoped to this
+ *    directory, in `client/nginx.conf` and in `astro.config.mjs` both. A static
+ *    build cannot emit a page per table, and this is what that costs.
+ */
+export const INVITE: PageDef = {
+  id: 'invite',
+  path: { en: '/i/', fr: '/i/' },
+  title: {
+    en: 'A seat is being held for you · LOCO',
+    fr: 'On t’a gardé une place · LOCO',
+  },
+  description: {
+    en: 'A LOCO table is waiting for you. Pick a nickname, take your place, and play: no account, nothing to install, nobody waits their turn.',
+    fr: 'Une table LOCO t’attend. Choisis un pseudo, prends ta place et joue : aucun compte, rien à installer, personne n’attend son tour.',
+  },
+  ogTitle: {
+    en: 'A seat is being held for you',
+    fr: 'On t’a gardé une place',
+  },
+  ogDescription: {
+    en: 'A LOCO table is waiting. Pick a nickname, take your place: no account, nothing to install, nobody waits their turn.',
+    fr: 'Une table LOCO t’attend. Choisis un pseudo, prends ta place : aucun compte, rien à installer, personne n’attend son tour.',
+  },
+  ogImage: INVITE_OG,
 }
 
 /** Every indexable page. The sitemap, the hreflang pairs and the tests read this. */

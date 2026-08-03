@@ -148,33 +148,55 @@ export interface ReconnectContext {
   sessionToken: string
   myIndex: number
   myNickname: string
+  isMatchmade: boolean
   players: { index: number; nickname: string }[]
 }
 
 /**
  * The message to send the instant a socket opens, or null when there is nothing
- * to rejoin. One pure function for all three cases (a socket that dropped
- * mid-match, one that dropped in the lobby, and a tab that was reloaded), so
- * they cannot drift apart.
+ * to rejoin. One pure function for every case, so they cannot drift apart.
+ *
+ * There are six screens a socket can drop on, and this used to answer three of
+ * them. The other three each failed silently and each failed differently:
+ *
+ *   - **searching** — the server takes a dropped socket out of the queue, which
+ *     is right, and the client said nothing on the way back in. The screen went
+ *     on timing a wait in a queue the player was no longer in, which is the one
+ *     thing `searchStages` says no copy may imply. So the ask is made again.
+ *   - **matchfound** — the pairing is two seconds from dealing, the seat is real
+ *     and the token is in hand. Saying nothing meant staring at a versus screen
+ *     that was never going to deal.
+ *   - **gameover** — the match is over and the rematch is not. The server holds
+ *     that seat now (see `hub.disconnectAtTable`), so it is reclaimed like any
+ *     other. Not in a matchmade room, where the seat is released outright and
+ *     the two strangers are done: there the client goes back to the queue.
  *
  * A restoring tab has no player list yet, which is why the nickname falls back
  * to the persisted one: deriving it from `players` alone (the only source before
  * this existed) yields '' on a cold boot and silently sends a nameless join.
  */
 export function reconnectMessageFor(ctx: ReconnectContext): ClientMsg | null {
-  const target: RestoreTarget | null =
-    ctx.screen === 'restoring'
-      ? ctx.restoreTarget
-      : ctx.screen === 'game' || ctx.screen === 'waiting'
-        ? ctx.screen
-        : null
-  if (!target || !ctx.roomCode) return null
-
   const nickname = ctx.players.find((p) => p.index === ctx.myIndex)?.nickname || ctx.myNickname
   if (!nickname) return null
 
-  // Active gameplay: token-authenticated, or the server refuses the reclaim and
-  // the seat stays held for a stranger.
+  // Nothing to reclaim: there is no seat, only a place in a queue, and the
+  // server dropped it when the socket went. Asking again is the whole rejoin.
+  if (ctx.screen === 'searching') return { type: 'find_match', nickname }
+
+  const target: RestoreTarget | null =
+    ctx.screen === 'restoring'
+      ? ctx.restoreTarget
+      : ctx.screen === 'game' || ctx.screen === 'matchfound'
+        ? 'game'
+        : ctx.screen === 'waiting'
+          ? 'waiting'
+          : ctx.screen === 'gameover' && !ctx.isMatchmade
+            ? 'game'
+            : null
+  if (!target || !ctx.roomCode) return null
+
+  // A seat the server is holding: token-authenticated, or it refuses the reclaim
+  // and the seat stays held for a stranger.
   if (target === 'game') {
     if (!ctx.sessionToken) return null
     return { type: 'join_room', nickname, room_code: ctx.roomCode, session_token: ctx.sessionToken }

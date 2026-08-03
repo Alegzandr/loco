@@ -158,6 +158,8 @@ export interface Scene {
   langOpen?: boolean
   /** Lobby: mount with the sound panel open. */
   audioOpen?: boolean
+  /** Which link preview to draw: the site's, or a table invitation's. */
+  ogVariant?: 'default' | 'invite'
   /** Colour assist: every suit also carries its silhouette. */
   colorAssist?: boolean
 }
@@ -201,6 +203,16 @@ export const SCENES: Scene[] = [
     id: 'og-card',
     title: 'Aperçu de lien (Discord / X)',
     screen: 'og',
+  },
+  {
+    // The same drawing with the invitation's line on it, captured into
+    // og.invite.png. It is a scene rather than a variant of the one above
+    // because it is a different picture shipped to a different URL, and the
+    // review pass has to see both.
+    id: 'og-invite',
+    title: 'Aperçu de lien — invitation',
+    screen: 'og',
+    ogVariant: 'invite',
   },
   {
     id: 'lobby-home',
@@ -858,6 +870,20 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    // The one state the board used to have no answer to: every other seat's
+    // hold has run out, so nothing here will ever move again. The check is that
+    // the card reads as an ending rather than as an error, and that the match
+    // stays visible behind it — it is still the game that was being played.
+    id: 'game-table-abandoned',
+    title: 'Partie · table désertée',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: PLAYERS_4.slice(0, 2).map((p) => (p.index === 0 ? p : { ...p, connected: false })),
+      goneSeats: [1],
+    },
+  },
+  {
     // Both at once, which is the only reason the banner has an offset: the
     // countdown owns the slot, the deploy note waits its turn under it.
     id: 'game-server-updating-with-away',
@@ -868,6 +894,37 @@ export const SCENES: Scene[] = [
       players: PLAYERS_4.slice(0, 2),
       isMatchmade: true,
       opponentAway: { seat: 1, deadline: Date.now() + 11_000 },
+      serverUpdating: true,
+    },
+  },
+  {
+    // The same deploy on a screen with no match running. The notice is an
+    // ordinary line in the column here, not an absolute pill, and it says what
+    // the deploy actually costs this screen: the start button below it.
+    id: 'waiting-server-updating',
+    title: 'Salon · mise à jour du serveur',
+    screen: 'waiting',
+    state: {
+      roomCode: 'KX7QP2',
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchFormat: 'BO3',
+      maxPlayers: 6,
+      serverUpdating: true,
+    },
+  },
+  {
+    // And on the card people screenshot. It sits above the rematch button it is
+    // about, and must not compete with the trophy at the top of the card.
+    id: 'gameover-server-updating',
+    title: 'Fin de match · mise à jour du serveur',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
+      myIndex: 0,
       serverUpdating: true,
     },
   },

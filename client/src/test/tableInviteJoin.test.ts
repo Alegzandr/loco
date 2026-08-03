@@ -26,7 +26,7 @@ vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
 const { default: App } = await import('../App.svelte')
 
 function arriveOn(code: string) {
-  window.history.replaceState(null, '', `/?t=${code}`)
+  window.history.replaceState(null, '', `/i/?t=${code}`)
   initTableInvite()
 }
 

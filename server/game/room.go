@@ -195,6 +195,59 @@ func (s *GameState) updateLastCardState(playerIndex int) {
 	s.openCatchWindow(playerIndex)
 }
 
+// ErrMustDeclareLoco is a play that would empty the hand of a seat that never
+// called LOCO! for the cards it is putting down. Forgetting the call and winning
+// anyway is the one combination the rule exists to forbid (docs/rules.md §8):
+// without this gate the declaration was only ever a 5 s risk, and a seat that
+// survived its window — or, by emptying a two-card hand in one batch, never
+// opened one — took the round having told the table nothing.
+var ErrMustDeclareLoco = errors.New("must call LOCO! before playing your last card")
+
+// requireLocoToFinish gates every hand-emptying play on the declaration the
+// seat owes the table. `playing` is how many cards this play puts down and
+// `declaring` whether the message itself carried the call.
+//
+// The two branches are not the same rule wearing two shapes, and the difference
+// is who had the opportunity:
+//
+//   - Down to one card already: the seat has held that card since before this
+//     message, so it had a call to make and a whole window to make it in. Only a
+//     declaration that already happened counts. A flag on this message would let
+//     the client fold the obligation into the winning tap, which is the same as
+//     not having the rule.
+//   - Emptying two or more in one batch: the hand never passed through one card,
+//     so no declaration was ever possible and none can be demanded of the past.
+//     This message is the only place the call can be made, so it has to carry
+//     it, and the server refuses the batch that does not.
+//
+// A seat is never trapped by the first branch: DeclareLastCard accepts a late
+// call at any point while the hand is one card, so forgetting costs the catch
+// risk and a press, never the round.
+func (s *GameState) requireLocoToFinish(playerIndex, playing int, declaring bool) error {
+	if s.Hands[playerIndex].Size() != playing {
+		return nil
+	}
+	if playing == 1 {
+		if !s.LastCardDeclared[playerIndex] {
+			return ErrMustDeclareLoco
+		}
+		return nil
+	}
+	if !declaring {
+		return ErrMustDeclareLoco
+	}
+	return nil
+}
+
+// declareForFinish records the call a hand-emptying batch carried, so the round
+// the table is about to lose ends on an announcement rather than on silence. The
+// flag is set for the same reason every other declaration sets it — the log and
+// the broadcast read the state, not the message.
+func (s *GameState) declareForFinish(playerIndex int) {
+	s.LastCardDeclared[playerIndex] = true
+	s.logEvent(EventUnoDeclared, playerIndex, nil, 0)
+}
+
 // openCatchWindowsAfterRearrange puts EVERY seat holding a single card on the
 // hook after a Swap or a GlobalSwitch. Receiving your last card counts exactly
 // like playing down to it: what the rule protects is the table's right to know
@@ -286,10 +339,15 @@ func (s *GameState) countInHand(playerIndex int, card Card) int {
 
 // finishRoundWin handles the "actor emptied their hand" branch: it locks in the
 // chosen color, closes the interrupt window, logs the game-finished event, and
-// ends the round. Used by PlayCard, PlayCards, and InterruptPlayCards.
+// ends the round. Used by every path that can empty a hand: PlayCard,
+// PlayCards, InterruptPlayCards and CounterDraw.
 //
-// CounterDraw deliberately does NOT use this helper — its win path historically
-// omits the closeInterruptWindow call.
+// CounterDraw used to carry its own copy of the first, third and fourth lines,
+// and the missing one was this one: a counter that won the round left the
+// interrupt window armed over a round that was already over. Nothing could be
+// interjected into it, but only because of the order the hub happens to run its
+// checks in — an argument about a caller standing in for a rule about the
+// state. There is one win path now, and it is this.
 func (r *Room) finishRoundWin(playerIndex int, activeColor Color) {
 	r.State.setActiveColor(activeColor)
 	r.State.closeInterruptWindow()
@@ -582,6 +640,13 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		}
 	}
 
+	// Last in the validation block and last for a reason: an illegal card is
+	// refused as illegal, and only a card that would otherwise take the round is
+	// asked whether the table was told it was coming.
+	if err := r.State.requireLocoToFinish(playerIndex, 1, false); err != nil {
+		return err
+	}
+
 	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
 		return err
 	}
@@ -631,8 +696,10 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 // All cards must be present in the player's hand. The first card must be legal on top of
 // the current discard. Effects are stacked: N DrawTwos add 2*N pending; N Skips skip N
 // players; N Reverses flip direction N times. Swap and GlobalSwitch cannot be batch-played.
-// chosenColor and chosenPlayer follow PlayCard semantics.
-func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int) error {
+// chosenColor and chosenPlayer follow PlayCard semantics. declareLoco is the
+// call the message carried, and it is only ever consulted when the batch would
+// empty the hand — see requireLocoToFinish.
+func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int, declareLoco bool) error {
 	if len(cards) == 0 {
 		return errors.New("no cards specified")
 	}
@@ -666,6 +733,10 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 	if first.IsWild() && chosenColor == Wild {
 		return errors.New("must choose a color for a wild card")
 	}
+	finishing := r.State.Hands[playerIndex].Size() == len(cards)
+	if err := r.State.requireLocoToFinish(playerIndex, len(cards), declareLoco); err != nil {
+		return err
+	}
 
 	for i := 0; i < len(cards); i++ {
 		if err := r.State.Hands[playerIndex].Remove(first); err != nil {
@@ -674,6 +745,12 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 	}
 	chosenColor = resolveChosenColor(first, chosenColor)
 	r.State.Discard = append(r.State.Discard, cards...)
+
+	// The call is recorded before the cards, so the log reads in the order the
+	// table hears it: LOCO!, then the cards, then the round.
+	if finishing {
+		r.State.declareForFinish(playerIndex)
+	}
 
 	r.State.updateLastCardState(playerIndex)
 	for _, c := range cards {
@@ -1050,7 +1127,11 @@ func IsLostRace(err error) bool {
 		errors.Is(err, ErrInterruptWindowClosed) ||
 		errors.Is(err, ErrInterruptMismatch) ||
 		errors.Is(err, ErrInterruptNotADrawCard) ||
-		errors.Is(err, ErrAlreadyDeclared)
+		errors.Is(err, ErrAlreadyDeclared) ||
+		// Tapping the last card before calling LOCO! is a player forgetting, and
+		// forgetting is what the rule is about. Counting it would make the
+		// cheat metric a measure of how often the table played badly.
+		errors.Is(err, ErrMustDeclareLoco)
 }
 
 // CatchUndeclared allows catcherIndex to penalize targetIndex for not declaring their last card.
@@ -1125,9 +1206,11 @@ func (r *Room) PenalizeFailedCatch(catcherIndex int) []Card {
 	return drawn
 }
 
-// InterruptPlay is the single-card form of InterruptPlayCards.
+// InterruptPlay is the single-card form of InterruptPlayCards. A single card can
+// only empty a hand that was already down to one, and that seat owed its call
+// before this message, so there is nothing for this form to carry.
 func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chosenPlayer int) error {
-	return r.InterruptPlayCards(playerIndex, []Card{card}, chosenColor, chosenPlayer)
+	return r.InterruptPlayCards(playerIndex, []Card{card}, chosenColor, chosenPlayer, false)
 }
 
 // InterruptPlayCards allows ANY player to "take the lead" by playing one or more
@@ -1158,8 +1241,13 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chos
 // current turn, the played card's effect is applied (stacked for batch +2 /
 // Skip / Reverse), and the interrupt window is re-armed for the new top card.
 //
+// A batch that empties the interjecter's hand must carry the LOCO! call
+// (declareLoco): taking the round out of turn, off a hand nobody at the table
+// ever saw drop to one card, is the fastest way there is to win having announced
+// nothing. See requireLocoToFinish.
+//
 // On any rejection, no state is mutated.
-func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int) error {
+func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int, declareLoco bool) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
 	}
@@ -1216,6 +1304,11 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		}
 	}
 
+	finishing := r.State.Hands[playerIndex].Size() == len(cards)
+	if err := r.State.requireLocoToFinish(playerIndex, len(cards), declareLoco); err != nil {
+		return err
+	}
+
 	chosenColor = resolveChosenColor(first, chosenColor)
 
 	for i := 0; i < len(cards); i++ {
@@ -1224,6 +1317,10 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		}
 	}
 	r.State.Discard = append(r.State.Discard, cards...)
+
+	if finishing {
+		r.State.declareForFinish(playerIndex)
+	}
 
 	for _, c := range cards {
 		cc := c
@@ -1312,6 +1409,12 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 	if card.IsWild() && chosenColor == Wild {
 		return errors.New("must choose a color for a wild card")
 	}
+	// A counter is a single card like any other, so a counter that takes the
+	// round is a seat that has been on one card since before this message. It
+	// owed the call and the fourth win path is not an exemption from it.
+	if err := r.State.requireLocoToFinish(playerIndex, 1, false); err != nil {
+		return err
+	}
 
 	if err := r.State.Hands[playerIndex].Remove(card); err != nil {
 		return err
@@ -1325,10 +1428,13 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 
 	r.State.updateLastCardState(playerIndex)
 
+	// The same win as every other: through finishRoundWin, not through a copy of
+	// its three lines. The copy left out closeInterruptWindow, and the only thing
+	// keeping that from arming a window over a finished round was the order the
+	// hub happens to run its checks in — an argument about a caller, standing in
+	// for a rule about the state.
 	if r.State.Hands[playerIndex].Size() == 0 {
-		r.State.setActiveColor(chosenColor)
-		r.State.logEvent(EventGameFinished, playerIndex, nil, 0)
-		r.endRound(playerIndex)
+		r.finishRoundWin(playerIndex, chosenColor)
 		return nil
 	}
 
@@ -1362,6 +1468,9 @@ func (r *Room) ensureDeck(needed int) {
 	}
 	top := r.State.topCard()
 	pile := r.State.Discard[:len(r.State.Discard)-1]
-	r.State.Deck.Replenish(pile)
+	// The room's source, not the global one: a room decoded from a snapshot has
+	// none until this asks for it. See newRNG.
+	r.ensureRNG()
+	r.State.Deck.Replenish(pile, r.rng)
 	r.State.Discard = []Card{top}
 }

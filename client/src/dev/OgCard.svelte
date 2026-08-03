@@ -26,6 +26,19 @@
   import type { CardDTO } from '../types/protocol'
   import { elementSize } from '../hooks/boardMetrics.svelte'
   import { i18n } from '../i18n/i18n.svelte'
+  import { INVITE } from '../seo/meta'
+
+  /**
+   * Which preview this is. `invite` is the picture a shared table unfurls into
+   * (`/i/CODE`), and the only thing that changes is the line: same duck, same
+   * fan, because a link that stops looking like LOCO stops being recognised in
+   * a channel where somebody has already seen one.
+   *
+   * The line is not written here. It is `INVITE.ogTitle`, the same string
+   * `<meta og:title>` carries, so the sentence in the picture and the sentence
+   * beside it cannot drift — they are one sentence read twice.
+   */
+  let { variant = 'default' }: { variant?: 'default' | 'invite' } = $props()
 
   const card = (color: CardDTO['color'], kind: CardDTO['kind'], value?: number): CardDTO =>
     value === undefined ? { color, kind } : { color, kind, value }
@@ -61,14 +74,17 @@
       ? Math.min(1, size.current.width / OG_W, size.current.height / OG_H)
       : 1,
   )
-  const lines = $derived(t.tagline.split(/(?<=[.!?])\s+/))
+  const line = $derived(
+    variant === 'invite' ? (INVITE.ogTitle?.[i18n.lang] ?? INVITE.title[i18n.lang]) : t.tagline,
+  )
+  const lines = $derived(line.split(/(?<=[.!?])\s+/))
 </script>
 
 <div class="frame" bind:this={frame}>
   <div class="card" data-og-card="" style="transform: scale({scale})">
     <div class="glow" aria-hidden="true"></div>
 
-    <div class="brand">
+    <div class="ogBrand">
       <LocoLogo size="118px" stacked class="logo" />
       <!-- One line per sentence. Left to itself the column breaks the tagline
            wherever the width runs out ("Cards at speed. Nobody / waits their
@@ -140,7 +156,17 @@
       radial-gradient(40% 55% at 60% 100%, rgba(21, 212, 255, 0.18) 0%, rgba(21, 212, 255, 0) 70%);
   }
 
-  .brand {
+  /* `ogBrand`, not `brand`: this scene is mounted on `/`, which loads
+     `content/content.css` for the footer and the drawer, and that stylesheet has
+     a `.brand` of its own — the header link on every content page,
+     `display: inline-flex`. Svelte's scoping adds a class, it does not isolate
+     from one, so the global rule reached in here and turned this column into a
+     row: the wordmark took 291 of its 344px and the tagline was left wrapping one
+     word per line, over the fan. It failed silently and in the one place nobody
+     looks, because the committed PNGs were captured before the collision existed
+     and the next `make og` would have been the first to show it.
+     `ogCard.test.ts` now fails on any class here that content.css also defines. */
+  .ogBrand {
     position: absolute;
     left: 76px;
     top: 50%;
@@ -150,7 +176,7 @@
   }
 
   /* Global: the element wearing it is rendered by <LocoLogo />. */
-  .brand :global(.logo) {
+  .ogBrand :global(.logo) {
     /* The stacked logo centres itself; here it anchors the left column. */
     align-items: flex-start;
     justify-content: flex-start;

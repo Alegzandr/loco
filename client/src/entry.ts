@@ -119,10 +119,10 @@ function boot() {
  * `initLangUrl()` sends the document to `/fr/` instead, where both halves agree.
  * See `src/lang.ts` for why this is a navigation rather than a translation.
  *
- * It has to run before `initTableInvite()`, which takes `?t=CODE` back out of the
- * address bar: spending the invitation and then navigating would land the guest at
- * a home page with no table in it. The redirect carries the query string across
- * untouched, so the invitation is read once, on the page that keeps it.
+ * It also has to run before anything that can only be read once. `initTableInvite()`
+ * is the example: it takes the code back out of the address bar, and spending the
+ * invitation on a document that is about to be thrown away would land the guest at
+ * a home page with no table in it.
  *
  * Nothing else boots when it returns true. The page holds at `opacity: 0` until
  * `data-booted` (see layouts/GamePage.astro), so a document on its way out shows

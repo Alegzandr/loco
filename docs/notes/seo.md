@@ -626,9 +626,44 @@ browser, and hardcoding the URL beside the registry is exactly the drift the reg
 
 ## Images and icons
 
-`make og` renders the preview card in both languages (`og.png`, `og.fr.png`), `make icons`
-rasterises `favicon.svg` into the manifest sizes plus a `favicon.ico`. Both commit their output for
-the same reason: CI builds the client with `npm run build` and has no browser.
+`make og` renders the preview cards, `make icons` rasterises `favicon.svg` into the manifest sizes
+plus a `favicon.ico`. Both commit their output for the same reason: CI builds the client with
+`npm run build` and has no browser.
+
+There are four preview cards, not two: the site's (`og.png`, `og.fr.png`) and the one a table
+invitation unfurls into (`og.invite.png`, `og.invite.fr.png` — see the invite page below). Same
+duck, same fan, one line of copy different, and `make og` with no argument re-shoots all four,
+because they are one set: a change to the mark or to a card face lands in every one of them, and
+three regenerated PNGs beside a fourth nobody remembered is the failure that default prevents. The
+line on the invitation is not written in the drawing — it is `INVITE.ogTitle`, the same string the
+`og:title` tag carries, so the sentence in the picture and the sentence beside it cannot drift.
+
+**The scene is mounted on `/`, so it is exposed to that page's global stylesheet.** `content.css`
+has a `.brand` (the header link on every content page, `display: inline-flex`) and the card had one
+too; Svelte scopes a component's own selectors and does nothing about a rule reaching in from
+outside, so the card's left column silently became a row and the tagline wrapped one word per line
+over the artwork. It was invisible for as long as nobody ran `make og` — the committed PNGs predated
+the collision. The classes here are prefixed now, and `ogCard.test.ts` fails on any class this scene
+uses that `content.css` also styles.
+
+## The page an invitation points at
+
+`/i/?t=CODE` is the URL the waiting room hands out (`docs/notes/client.md` has the client half, and
+the reasoning for the query form). It is in the registry as `INVITE` and **deliberately not in
+`PAGES`**: no `hreflang` pair, no navigation, `noindex`, and therefore no canonical either — it is a
+duplicate of the home page's document, and one claiming a canonical would be competing with the page
+it duplicates.
+
+It earns a document of its own for one reason: an unfurler reads the served HTML and runs no
+JavaScript, so an invitation that lives at `/?t=CODE` can only ever preview as the home page. Its
+`<head>` is the invitation's; everything under it is `GamePage` with `chrome={false}`, because the
+footer row, the sheet and the burger are the indexable half of `/` and this page is not indexed.
+
+**Staying out of `PAGES` is not what keeps it out of the sitemap.** `@astrojs/sitemap` walks the
+pages Astro emitted, not the registry, so `/i/` shipped in `sitemap-0.xml` the first time this page
+was built — a URL submitted for crawling that then answers `noindex`. The `filter` in
+`astro.config.mjs` is what removes it, and `src/test/invitePage.test.ts` runs that predicate rather
+than restating it.
 
 `favicon.ico` is a 6-byte directory, one 16-byte entry and the PNG bytes verbatim — every browser
 since Vista reads a PNG payload directly, so there is no re-encoding and no dependency. It exists

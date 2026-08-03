@@ -9,18 +9,51 @@
 import Base from './Base.astro'
 import HomeProse from '../content/HomeProse.astro'
 import LocoLogo from '../components/LocoLogo.svelte'
-import { HOME, NAV, LEGAL, homeJsonLd, type Lang } from '../seo/meta'
+import { HOME, NAV, LEGAL, homeJsonLd, type Lang, type PageDef } from '../seo/meta'
 import { ui } from '../content/ui'
 import '../content/content.css'
 
 interface Props {
   lang: Lang
+  /**
+   * Which document this is. Defaults to the home page; the invite page passes
+   * its own so it can unfurl differently in a chat window.
+   *
+   * It is a prop rather than a second layout for the reason the two languages
+   * share this one: the mount point, the bundled entry script and the stylesheet
+   * that sizes them are the fragile part, and a copy of them drifts silently —
+   * the failure is a blank page on one URL only.
+   */
+  page?: PageDef
+  /**
+   * Defaults to the home page's graph. `null` for a page that should describe
+   * no entity at all: the invite page is the home page's document twice over,
+   * and a second `#webpage` node at a second URL is two answers to one question.
+   */
+  jsonLd?: object | null
+  noindex?: boolean
+  langNeutral?: boolean
+  /**
+   * The indexable half: the footer row, the sheet, the burger. Off for a page
+   * that is `noindex` anyway, where it would be five links and a page of prose
+   * under a table somebody was invited to rather than sent to read.
+   */
+  chrome?: boolean
 }
 
-const { lang } = Astro.props
+const { lang, page = HOME, noindex = false, langNeutral = false, chrome = true } = Astro.props
+// `undefined` is "not passed", `null` is "none": a default in the destructuring
+// could not tell the two apart.
+const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props.jsonLd
 ---
 
-<Base page={HOME} lang={lang} jsonLd={homeJsonLd(lang)}>
+<Base
+  page={page}
+  lang={lang}
+  jsonLd={jsonLd ?? undefined}
+  noindex={noindex}
+  langNeutral={langNeutral}
+>
   {/*
     The document's one heading, in the markup Astro serves and off the screen.
 
@@ -36,7 +69,7 @@ const { lang } = Astro.props
     (`Lobby`, `Searching`, `MapLoadingScreen`) so this stays the only <h1> in
     the document at every moment of a match, not only before the mount.
   */}
-  <h1 class="sr-only">{ui('homeH1', lang)}</h1>
+  {chrome && <h1 class="sr-only">{ui('homeH1', lang)}</h1>}
 
   {/*
     #root is the mount point: tokens.css styles `html, body, #root` as one
@@ -61,6 +94,7 @@ const { lang } = Astro.props
     The whole footer goes the moment a seat is taken (see App.tsx: data-seated);
     a player in a match has no use for it.
   */}
+  {chrome && (
   <footer class="homeIntro">
     <div class="homeIntroMain">
       {/*
@@ -226,6 +260,7 @@ const { lang } = Astro.props
       </div>
     </div>
   </footer>
+  )}
 
   <script>
     import '../entry'
