@@ -750,6 +750,25 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    // A 1v1 decided on the cards, nobody having asked for anything yet: the one
+    // state where the card carries all three controls at full strength. The
+    // hierarchy is the thing to look at — the revanche and the relaunch are two
+    // offers of equal weight, and the way out under them has to read as the
+    // quietest thing there without disappearing.
+    id: 'gameover-matchmade',
+    title: 'Fin de match · 1v1',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      isMatchmade: true,
+      rematchNeeded: 2,
+      scoreboard: SCOREBOARD.slice(0, 2),
+      players: PLAYERS_4.slice(0, 2),
+      myIndex: 0,
+    },
+  },
+  {
     // The screen a walkover produces. It must not look like the victory above:
     // no confetti, no trophy, and copy that names what happened.
     id: 'gameover-forfeit-won',

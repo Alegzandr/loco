@@ -237,7 +237,7 @@ describe('GameOver after a forfeit', () => {
     )
     screen.getByText(en.rematch).click()
     expect(onRematch).toHaveBeenCalled()
-    screen.getByText(en.findAnotherOpponent).click()
+    screen.getByText(en.searchAgain).click()
     expect(onFindMatch).toHaveBeenCalled()
   })
 
@@ -267,6 +267,6 @@ describe('GameOver after a forfeit', () => {
       GameOver, { winner: "Alice", myNickname: "Alice", scoreboard: [], matchOver: true, isMatchmade: true, forfeitBy: 1, mySeat: 0, rematchOffers: [], onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() },
     )
     expect(screen.getByRole('button', { name: en.rematch })).toBeDisabled()
-    expect(screen.getByText(en.findAnotherOpponent)).toBeInTheDocument()
+    expect(screen.getByText(en.searchAgain)).toBeInTheDocument()
   })
 })

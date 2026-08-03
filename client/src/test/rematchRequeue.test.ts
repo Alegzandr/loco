@@ -75,6 +75,36 @@ describe('a matchmade table nobody is left at', () => {
   })
 })
 
+describe('the two ways off a finished 1v1', () => {
+  // Relaunching the search is one message: the server gives the seat up inside
+  // find_match (hub/matchmaking.go), so a leave_room ahead of it would only add
+  // an ordering bug — and its left_room runs resetToHome, which would reset the
+  // store out from under the search screen this just opened.
+  it('relaunches the search without leaving the room first', () => {
+    seedGameOver({ isMatchmade: true })
+    const { getByRole } = render(App)
+
+    act(() => {
+      getByRole('button', { name: /Search again|Relancer/ }).click()
+    })
+
+    expect(sent).toEqual([{ type: 'find_match', nickname: 'Alice' }])
+    expect(gameStore.getState().screen).toBe('searching')
+  })
+
+  // And the quiet one below it is the front door, at every table.
+  it('leaves for the home screen on the quit link', () => {
+    seedGameOver({ isMatchmade: true })
+    const { getByRole } = render(App)
+
+    act(() => {
+      getByRole('button', { name: /Leave the table|Quitter la table/ }).click()
+    })
+
+    expect(sent).toEqual([{ type: 'leave_room' }])
+  })
+})
+
 describe('asking for a rematch', () => {
   it('sends the ask and nothing else: the deal is the server’s to decide', () => {
     seedGameOver({})

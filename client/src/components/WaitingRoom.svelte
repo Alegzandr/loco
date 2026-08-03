@@ -275,8 +275,14 @@
     justify-content: safe center;
     height: 100%;
     gap: var(--space-md);
-    padding: calc(var(--space-xl) + var(--safe-top)) calc(var(--space-base) + var(--safe-right))
-      calc(var(--space-lg) + var(--safe-bottom)) calc(var(--space-base) + var(--safe-left));
+    /* The chip row is absolute, so it reserves no space of its own: the top
+       padding is what keeps the heading off it. It has to clear the bottom of a
+       40px chip sitting at --space-base, not just look roomy — once the roster
+       and the host panel overflow, `safe center` parks the heading against this
+       padding and anything shorter puts "The table" under the gear. */
+    padding: calc(var(--space-base) + var(--topbar-h) + var(--space-sm) + var(--safe-top))
+      calc(var(--space-base) + var(--safe-right)) calc(var(--space-lg) + var(--safe-bottom))
+      calc(var(--space-base) + var(--safe-left));
     overflow-y: auto;
     position: relative;
     background: transparent;

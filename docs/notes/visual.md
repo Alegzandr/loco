@@ -47,6 +47,40 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   reduced-motion rule in the CSS hangs off `:root[data-motion="reduce"]` instead of a media query,
   so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
 
+#### Day ↔ night crosses, it does not cut
+`setTheme` writes `data-theme-anim` on `<html>` for `THEME_FADE_MS` (260ms, mirrored in `tokens.css`
+as `--theme-fade`), and the blanket rule behind that attribute transitions colour — `background-color`,
+`border-color`, `outline-color`, `box-shadow`, `color`, `fill`, `stroke` — across the whole document.
+`themeTransition.test.ts` owns both halves.
+
+It looked for a long time as though the content pages had a fade and the game did not. Nothing
+animated the theme anywhere: `body` carried a lone `transition: background-color`, and on a page of
+prose `body` **is** the visible surface, so that one property was the whole effect. In the game `#root`
+paints the canvas over it and every panel, outline, label and shadow above that comes from a token, so
+the same press swapped a full screen in one frame. That declaration is gone now and this rule is the
+one definition, which is also why `content/theme-boot.ts` switches through `setTheme` rather than
+writing `localStorage` and `data-theme` itself.
+
+Four things about it are load-bearing:
+
+- **The attribute lands in its own style recalc, before the colours move.** A transition compares the
+  style before the change to the style after it; if the element only acquires `transition` in the same
+  pass that its colours change, there was no transition in the "before" style and the swap is instant.
+  Nothing in the CSS looks wrong when that happens. `void root.offsetWidth` between the two is the flush.
+- **It comes back off.** A permanent `*` transition would put a quarter of a second of lag on every
+  colour a live match moves — the active-colour ring, a catch button arming, a seat taking its turn.
+- **Colour only.** A `transform` or an `opacity` in that rule would run over card flights, the
+  reconnect curtain and every open panel for the length of the fade.
+- **Reduced motion is not a branch in the script.** The rule is `!important` so a component's own
+  `transition: color 0.15s` cannot leave its background cutting, and it still loses to
+  `:root[data-motion="reduce"] *` — `(0,2,0)` against `(0,1,1)`, both `!important` — so a player who
+  asked for less motion gets the instant swap back through the same attribute every other animation
+  here obeys.
+
+The boot never arms it: `initTheme()` and `theme-boot.ts`'s first paint call `applyTheme`, which only
+writes `data-theme`. Fading there would cross the light palette into the player's actual choice in
+front of them, which is the flash `themeFlash.test.ts` exists to prevent, animated.
+
 ### Colour assist (the suit silhouettes)
 `SUIT_SHAPE` in `cardTheme.ts`, drawn by `SuitMark.svelte`, off by default and switched on from the
 preferences panel. Triangle red, circle yellow, square green, diamond blue, sized at 15cqh under the
@@ -198,6 +232,27 @@ swipe bar and the round badge under the status bar.
 - Review it with `make visual ARGS="--viewports=notch"` — no desktop browser reports an inset, so
   that viewport is the only place this layout is visible at all. `layout.test.ts` owns the maths and
   `safeArea.test.ts` owns the wiring through to the stage's transform.
+
+### The chip row takes no space, so the screen under it has to give some
+The gear, the speaker and the "?" are one absolutely positioned row in the top-right corner of every
+screen that has them. Absolute means they are out of the flow: the column below them has nothing
+telling it they are there, and the container's **top padding is the only thing** holding the first
+element off them. That padding used to be a spacing step chosen because it looked generous —
+`--space-xl`, 32px — while the chips are 40px tall sitting at `--space-base`, so they reach 56px. The
+24px of overlap cost nothing for as long as every screen's content was short enough to be centred.
+
+The waiting room is the one that is not. Roster plus host panel plus two actions plus the leave link
+overflows a phone, and `justify-content: safe center` then does exactly what it is there for: it
+stops centring and parks the content against the top padding. That is the state in the bug report —
+"The table" printed underneath the gear on a private table.
+
+So the reserve names the chip instead of guessing: `--topbar-h` in `tokens.css` is that 40px in one
+place, and the container's padding is `--space-base + --topbar-h + --space-sm + --safe-top`, which is
+the row's own offset, its height, and a gap. Two tests in `waitingRoom.test.ts` read the rule off the
+component's `<style>` block, because nothing renders here — jsdom applies no stylesheet and the
+overlap only exists at a width and a content height a unit test does not have. A screen that grows
+past its viewport gets the same padding; one whose content is always centred does not need it, which
+is why the other five still carry a spacing step.
 
 ## Active colour (four readings, `<DiscardPile />` + `GameBoard`)
 The colour in play is the single most-consulted piece of state on the board, and it was stated in

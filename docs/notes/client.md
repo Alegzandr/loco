@@ -621,6 +621,18 @@ is: there is no board to draw behind either of them.
   queue, and making the player press it is asking them to confirm the only remaining option.
   Cancelling the search is how they leave. Ordinary tables are left alone: there is a room, a code
   and a lobby to reopen, and nobody there queued for a stranger.
+- **The same requeue, pressed, is the `searchAgain` button** (`rematchRequeue.test.ts`, and the E2E
+  that watches the seat come free). The offer is the *search*, not the opponent — who turns up is the
+  queue's to say and the label must not promise a name, which is why "find another opponent" became
+  "Search again" / "Relancer". It stays **one message**: `find_match` releases the seat server-side
+  before it enqueues (`hub/matchmaking.go`), so a `leave_room` sent ahead of it buys nothing and costs
+  the screen — its `left_room` runs `resetToHome`, which would reset the store out from under the
+  search we just opened.
+- **Leaving is the quietest control on that card** (`.btnQuit`, under both offers): no outline, no
+  fill, `--color-muted` and 44px of target under 13px of type. Two offers and an exit is three
+  buttons, and only one of them is what somebody came back to this screen for; the exit competing
+  with them is what put two queue buttons on it in the first place. It is an ordinary `leave_room` at
+  every table, matchmade or not.
 - `<OpponentAway />` is the only thing on the board that reads `opponentAway`, and the store only fills
   it when the server sent a `forfeit_deadline`, i.e. never in an ordinary room, where the seat is
   simply held and a countdown to losing would be a worse table. Its bar is a `drainBar` animation:
@@ -861,9 +873,18 @@ switches: streamer mode, colour shapes, reduced motion.
   not store or context state: the flag is read by two screens with no common parent and written from
   a third, and it must survive a reload with no round trip. Nothing about it reaches the wire.
 - **`TableCode.svelte` is the only way a screen prints the code.** The blur is a CSS filter over the
-  real text, so the copy button still copies the real code and hover/focus clears it for the owner —
-  reading the code out loud is a normal thing to want. A screen that renders `roomCode` directly
-  leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
+  real text, so the copy button still copies the real code and hover or keyboard focus clears it for
+  the owner — reading the code out loud is a normal thing to want. A screen that renders `roomCode`
+  directly leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
+- **A click and a tap are the one gesture that must not reveal it**, because that gesture is *copy*
+  and it happens on camera. Two rules kept undoing that. `:focus` matched the mouse click as well as
+  the keyboard, so pressing the copy button uncovered the code and left it uncovered until the next
+  click landed somewhere else — the reveal outlived the pointer, on the screen the whole mode exists
+  for. And a touch screen, which has no hover, emulates one on tap and leaves it stuck on the
+  element, so a tap to copy did exactly the same thing. So the reveal is `:focus-visible`, and the
+  hover half sits behind `@media (hover: hover) and (pointer: fine)`. The consequence is deliberate:
+  **on a phone the code never uncovers**. It still copies, and a player who wants to read it turns
+  the mode off — which is the cheaper mistake of the two.
 - **The lobby's join field is deliberately not masked.** It holds what the player is typing, and a
   blurred input is a typo you cannot see. The leak there is the code the player already knows.
 - **Both dropdowns are 292px, and the sizes inside them are a thumb's, not a cursor's.** They were

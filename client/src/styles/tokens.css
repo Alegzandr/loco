@@ -162,9 +162,20 @@
      `.hit-target` below grows the target without moving a pixel. */
   --touch-target: 44px;
 
+  /* The drawn height of one chip in the top-right cluster — the gear, the
+     speaker, the "?". They sit in an absolutely positioned row, so a screen
+     that stacks content under them has nothing telling it how far down to
+     start; this is that number in one place instead of a 40 written into each
+     screen's padding. */
+  --topbar-h: 40px;
+
   /* ── Motion ────────────────────────────────────────────────────────────── */
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* How long day↔night takes to cross. The same number lives in `theme.ts` as
+     `THEME_FADE_MS`, which is what holds the attribute below on: the rule and
+     the attribute have to come off together or the fade stops halfway. */
+  --theme-fade: 260ms;
 }
 
 /*
@@ -284,7 +295,6 @@ body {
     radial-gradient(26% 34% at 93% 26%, rgba(108, 92, 255, 0.22) 0%, rgba(108, 92, 255, 0) 70%),
     radial-gradient(30% 26% at 76% 90%, rgba(255, 61, 104, 0.16) 0%, rgba(255, 61, 104, 0) 70%),
     var(--bg-gradient);
-  transition: background-color 0.25s ease;
 }
 
 /* A match played in a map: the root drops the candy gradient for the room's own
@@ -297,6 +307,43 @@ body {
 html[data-room],
 html[data-room] body {
   background: var(--room-void);
+}
+
+/* ── Day ↔ night ─────────────────────────────────────────────────────────
+   The theme crosses instead of cutting.
+
+   `body` carries a `transition: background-color` of its own above, and on a
+   content page that was the whole effect: the page is one flat colour, so one
+   property covered it. In the game `#root` paints the canvas over that body and
+   every panel, outline, label and shadow on top of it comes from a token — so
+   the same press swapped a whole screen in a single frame while the pages it
+   links to faded. This is the other half.
+
+   It is a blanket rule and that is why it is temporary: `data-theme-anim` is
+   written by `setTheme` for exactly `--theme-fade` and removed again. Left on,
+   it would put a quarter of a second of lag on every colour a live match moves —
+   the active-colour ring, a catch button arming, a seat taking its turn.
+
+   Colour only. A transform or an opacity here would run over card flights and
+   every open panel for the length of the fade.
+
+   `!important`, so a component's own `transition: color 0.15s` does not leave
+   its background cutting while everything around it fades. It stays under the
+   reduced-motion rule further down all the same: that one is `!important` too
+   and (0,2,0) against this one's (0,1,1), so a player who asked for less motion
+   gets the instant swap back without a media query or a branch in the script. */
+html[data-theme-anim],
+html[data-theme-anim] *,
+html[data-theme-anim] *::before,
+html[data-theme-anim] *::after {
+  transition:
+    background-color var(--theme-fade) ease,
+    border-color var(--theme-fade) ease,
+    outline-color var(--theme-fade) ease,
+    box-shadow var(--theme-fade) ease,
+    color var(--theme-fade) ease,
+    fill var(--theme-fade) ease,
+    stroke var(--theme-fade) ease !important;
 }
 
 /* ── Hit target ──────────────────────────────────────────────────────────

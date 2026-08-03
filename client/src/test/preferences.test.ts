@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { render, screen, fireEvent } from './render'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
@@ -286,6 +287,39 @@ describe('Streamer mode', () => {
 
     render(Reconnecting, { roomCode: "ABC123", target: "game", onCancel: vi.fn() })
     expect(codeEl('ABC123')).toHaveAttribute('data-streamer-hidden', 'true')
+  })
+
+  /**
+   * The reveal is read off the source rather than off the DOM: jsdom applies no
+   * component styles, so an assertion on a computed filter here would pass over
+   * any rule at all. The two ways a click uncovers the code are both a selector,
+   * and a selector is exactly what a source scan can hold.
+   */
+  describe('the reveal never answers a click', () => {
+    // Selectors only. The comments beside them name `:focus` and `:hover` in
+    // order to say why neither is used, and a scan that reads those matches the
+    // explanation instead of the rule.
+    const css = readFileSync('src/components/TableCode.svelte', 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      '',
+    )
+
+    it('reveals on :focus-visible and not on :focus', () => {
+      expect(css).toContain(':focus-visible')
+      // `:focus` on its own matches the mouse click that copies the code and
+      // holds the reveal after the pointer has gone. The negative lookahead is
+      // what tells the two apart.
+      expect(css).not.toMatch(/:focus(?!-visible)/)
+    })
+
+    it('puts hover behind a real pointer', () => {
+      // A touch screen emulates hover on tap and leaves it stuck there, so an
+      // unguarded :hover uncovers the code on the copy gesture and keeps it
+      // uncovered.
+      expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)/)
+      const outsideQuery = css.slice(0, css.indexOf('@media (hover: hover)'))
+      expect(outsideQuery).not.toContain(':hover')
+    })
   })
 })
 

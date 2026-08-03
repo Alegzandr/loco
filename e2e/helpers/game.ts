@@ -37,7 +37,7 @@ export const T = {
   searchTitle: 'Looking for an opponent',
   searchCancel: 'Stop looking',
   matchFoundKicker: 'Opponent found',
-  findAnotherOpponent: 'Find another opponent',
+  searchAgain: 'Search again',
   forfeitWon: 'They walked',
   rematchAccept: 'They want another. Go.',
   nicknameRejected: 'Pick another nickname.',

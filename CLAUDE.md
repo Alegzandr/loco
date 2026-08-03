@@ -435,7 +435,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
 - **Streamer mode blurs the table code, and `TableCode.svelte` is the only way a screen prints it.** CSS
-  over the real text, so copy still copies and hover/focus clears it.
+  over the real text, so copy still copies. **The reveal is hover and keyboard focus, never a click
+  or a tap** — that gesture is the copy button and it happens on camera: `:focus-visible` only, hover
+  behind `@media (hover: hover) and (pointer: fine)`, so on a phone the code copies without ever
+  uncovering.
 - **Colour assist gives each suit a silhouette** (`SUIT_SHAPE`, drawn by `SuitMark.svelte`): on the card,
   every picker swatch and the active-colour chip. **Never a letter.** A wild stays unmarked. Anything
   new that means something by hue alone needs the mark.
@@ -469,7 +472,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The game-over screen asks, it does not command.** Three states (ask / waiting / they asked
   first), every seat, every table; never render it as though pressing it started anything. Past two
   seats it carries the count. A table nobody is left at keeps the button **in place and disabled**.
-  A matchmade table requeues instead, without being asked (`rematchRequeue.test.ts`).
+  A matchmade table requeues instead, without being asked (`rematchRequeue.test.ts`). **Relaunching
+  the search is one message**: `find_match` gives the seat up before it enqueues, so no `leave_room`
+  goes ahead of it — its `left_room` would reset the store out from under the search screen. **The way
+  out is the quietest control on the card**, under both offers, and it is an ordinary `leave_room`.
 - `initLangUrl()` first and on its own, then `initTheme()`, `initMotion()`, `initI18n()`,
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
   order**. Each of the six has a reason to be where it is, written next to it.
@@ -609,8 +615,17 @@ stated at the top of `styles/tokens.css`:
   `MARK_MASK_BOLD_URL`), so the browser rasterises that geometry once and all ~50 faces composite the
   same bitmap. `card.test.ts` fails on a live path and on a second mask URL. Same rule for any new
   card art: one cached image, not geometry per instance.
+- **The top-right chip row is absolute, so it reserves nothing**: a screen whose content can overflow
+  clears it with `--space-base + --topbar-h + --space-sm + --safe-top` of top padding, never a
+  spacing step that merely looks generous. `safe center` parks overflowing content against that
+  padding, and 32px put the waiting room's heading under the gear.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
+- **The theme crosses, it does not cut, and one mechanism does it for the game and the pages alike**:
+  `setTheme` arms `data-theme-anim` on `<html>` for `THEME_FADE_MS` / `--theme-fade`, and the rule
+  behind it transitions **colour only**, over the whole document, for exactly that long. The boot
+  never arms it, the attribute must come back off, and reduced motion wins by specificity rather than
+  by a branch in the script (`themeTransition.test.ts`).
 - **The action bar never reflows.** Fixed three-column grid, Catch mounted-but-disabled all match in
   the centre column, enabled in place. A reaction game cannot move its buttons mid-match.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and

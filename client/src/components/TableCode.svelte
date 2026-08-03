@@ -25,8 +25,12 @@
   Streamer mode blurs it: six characters on a stream is an open door, and the one
   place a player is guaranteed to be showing them is the screen they are sitting
   on while they wait for friends. Nothing is masked in the DOM: the copy button
-  still copies the real code, and hovering or focusing the value clears the blur
-  so the owner can still read it out loud.
+  still copies the real code, and hovering it with a mouse or reaching it with
+  the keyboard clears the blur so the owner can still read it out loud.
+
+  What must never clear it is a click or a tap, because that is the copy gesture
+  and it happens on camera. On a touch screen the blur therefore stays put: the
+  code copies, it does not show.
 -->
 {#if streamer.current}
   <span
@@ -56,17 +60,32 @@
     border-radius: var(--radius-sm);
   }
 
-  /* Reading it out loud is a normal thing to want to do, so it is one hover away.
-     Focus works the same for a keyboard, and the enclosing control counts too:
-     in the waiting room the value lives inside the copy button. */
-  .hidden:hover,
-  .hidden:focus,
-  /* `:global` on the ancestor only, and this is the case the no-`:global` rule
-     names as the exception: the enclosing control is the waiting room's copy
-     button, which is another component's markup, so Svelte cannot see it and
-     prunes the selector as unused. It did — silently — and the code stopped
-     revealing itself when the button was hovered or focused. */
-  :global(:hover) > .hidden,
+  /* Reading it out loud is a normal thing to want to do, so it is one hover away,
+     and the enclosing control counts too: in the waiting room the value lives
+     inside the copy button.
+
+     `@media (hover: hover)` is load-bearing, not tidiness. A touch screen has no
+     hover, so it emulates one on tap and leaves it stuck on the element until
+     something else is tapped: the copy gesture uncovered the code and left it
+     uncovered, which is the one outcome this mode exists to prevent. */
+  @media (hover: hover) and (pointer: fine) {
+    .hidden:hover,
+    /* `:global` on the ancestor only, and this is the case the no-`:global` rule
+       names as the exception: the enclosing control is the waiting room's copy
+       button, which is another component's markup, so Svelte cannot see it and
+       prunes the selector as unused. It did — silently — and the code stopped
+       revealing itself when the button was hovered. */
+    :global(:hover) > .hidden {
+      filter: none;
+      background: var(--color-surface-strong);
+    }
+  }
+
+  /* Keyboard focus reveals; a mouse click must not. `:focus` matched the click
+     that copies the code and held the reveal after the pointer had left, so a
+     stream showed the six characters until the next click landed elsewhere.
+     `:focus-visible` is the same door for the keyboard without that. */
+  .hidden:focus-visible,
   :global(:focus-visible) > .hidden {
     filter: none;
     background: var(--color-surface-strong);

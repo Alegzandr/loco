@@ -72,7 +72,7 @@ export const fr: Translations = {
   forfeitWonSub: 'La place en face est vide. Le match est à toi.',
   forfeitYouLeft: 'Tu as quitté',
   forfeitYouLeftSub: 'Le match revient à ton adversaire.',
-  findAnotherOpponent: 'Chercher un autre adversaire',
+  searchAgain: 'Relancer',
   rematchWaitingOpponent: 'On attend sa réponse…',
   rematchWaitingTable: 'On attend la table…',
   rematchAccept: 'Il en veut une autre. Go.',
