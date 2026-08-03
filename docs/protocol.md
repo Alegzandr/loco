@@ -19,6 +19,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
 | `set_max_players`   | `max_players` (2–10) (host-only)                         |
 | `kick_player`       | `target_index` (seat to free; host-only, lobby-only, never seat 0) |
+| `transfer_host`     | `target_index` (seat to hand the table to; host-only, lobby-only, never seat 0, never a bot) |
 | `rematch`           | — (one seat's ask for another match; every room, every seat) |
 | `find_match`        | `nickname` (enter the 1v1 queue)                         |
 | `cancel_matchmaking`| —                                                        |
@@ -39,6 +40,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `room_joined`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players` |
 | `lobby_config_changed`| `match_format`, `max_players`                                               |
 | `player_joined`       | `nickname`, `players`                                                       |
+| `host_changed`        | `nickname` (the new host), `players`, `player_id` (the recipient's own seat) — sent per recipient, because the swap moves two seats |
 | `player_left`         | `nickname`, `players`                                                       |
 | `player_disconnected` | `player_index`, `nickname`, `players`, `forfeit_deadline` (matchmade rooms only) |
 | `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`, `session_token` (self)  |
@@ -91,8 +93,8 @@ description of the wire that a program does not check: when it disagrees with th
   `starts_in_ms`: the match deals itself after that delay with nobody pressing start. Absent means
   "immediately": the countdown is presentation, and the authoritative start is the `game_started`
   that follows.
-- A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format`, `set_max_players` and
-  `kick_player` are all refused in one with `not available in a matchmade game`.
+- A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format`, `set_max_players`,
+  `kick_player` and `transfer_host` are all refused in one with `not available in a matchmade game`.
 - **`kick_player` is a departure to the table and a message to the player.** The room sees the
   ordinary `player_left` (roster re-based, seats above the freed one moved down); the removed client
   gets `kicked` on its own socket, because a table disappearing with no explanation reads as a bug.
@@ -100,6 +102,15 @@ description of the wire that a program does not check: when it disagrees with th
   (`only the room owner can remove players`), and on seat 0 itself or any seat the room does not have
   (`invalid player index`). A seat with no socket behind it is a bot, and removing it is the only way
   to take one back. It is **not** a ban: the removed player still has the code and may rejoin.
+- **`transfer_host` is a seat swap, not a flag.** The host is seat 0 and nothing else, so the two
+  seats exchange places and every host control answers to the other player from the acknowledgement
+  onwards. `host_changed` goes out **per recipient** carrying that client's own `player_id`: half the
+  room's seat number changed, and the two players who moved cannot read their row off the roster
+  alone. Refused off the lobby (`can only hand over the table in the lobby`), from any seat but 0
+  (`only the room owner can hand over the table`), on seat 0 or a seat the room does not have
+  (`invalid player index`), and on a bot (`a bot cannot host the table` — a table whose host cannot
+  press start can never deal). The roster's `is_bot` is what lets a client not offer it in the first
+  place.
 - **`rematch` is an ask, not a decision, in every room.** Any seat sends it, every ask is broadcast as
   `rematch_offered` (so the players who have not answered know somebody is waiting on them), and the
   next match is dealt only once everybody still connected has asked. What that deal is depends on the

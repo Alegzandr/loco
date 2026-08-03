@@ -2351,6 +2351,92 @@ func TestLobbyHostDisconnect_BotsOnlyTriggersCleanup(t *testing.T) {
 	}
 }
 
+// TestLobbyReload_BotDoesNotKeepTheHostSeat is the reload bug: the host opens a
+// table, adds a bot and refreshes the page. The lobby removes the dropped seat
+// and re-bases the rest, so the bot slides into seat 0 — and seat 0 is the whole
+// definition of the host. The player comes back behind it, reads "waiting for
+// the host" pointed at a bot, and the table can never deal.
+func TestLobbyReload_BotDoesNotKeepTheHostSeat(t *testing.T) {
+	h, srv := newTestHub(t)
+
+	conn := dialWS(t, srv)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	code := readMsgOfType(t, conn, protocol.SMsgRoomCreated).RoomCode
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn, protocol.SMsgPlayerJoined)
+
+	// The reload: the socket dies and the same player dials again.
+	conn.Close()
+	waitForClients(t, h, 0)
+
+	back := dialWS(t, srv)
+	t.Cleanup(func() { back.Close() })
+	sendMsg(t, back, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Alice", RoomCode: code})
+	joined := readMsgOfType(t, back, protocol.SMsgRoomJoined)
+
+	if joined.OwnSeat() != 0 {
+		t.Fatalf("seat after reload = %d, want 0 (the bot must not hold the host seat)", joined.OwnSeat())
+	}
+	if len(joined.Players) != 2 || joined.Players[0].Nickname != "Alice" {
+		t.Fatalf("roster after reload = %+v, want Alice first", joined.Players)
+	}
+
+	// The point of the seat: the table can be dealt again.
+	sendMsg(t, back, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	if gs := readMsgOfType(t, back, protocol.SMsgGameStarted); gs.State == nil {
+		t.Fatal("game_started missing state — the host seat did not come back")
+	}
+}
+
+// TestLobbyHostDisconnect_BotNeverInheritsTheSeat is the same invariant on the
+// departure side: a bot sitting between the leaving host and the next human must
+// not become the host by re-indexing.
+func TestLobbyHostDisconnect_BotNeverInheritsTheSeat(t *testing.T) {
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	code := readMsgOfType(t, conn1, protocol.SMsgRoomCreated).RoomCode
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgAddBot})
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	conn2 := dialWS(t, srv)
+	t.Cleanup(func() { conn2.Close() })
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: "Bob", RoomCode: code})
+	if seat := readMsgOfType(t, conn2, protocol.SMsgRoomJoined).OwnSeat(); seat != 2 {
+		t.Fatalf("Bob seat = %d, want 2", seat)
+	}
+	readMsgOfType(t, conn1, protocol.SMsgPlayerJoined)
+
+	conn1.Close()
+	left := readMsgOfType(t, conn2, protocol.SMsgPlayerLeft)
+	if len(left.Players) != 2 || left.Players[0].Nickname != "Bob" {
+		t.Fatalf("roster after the host left = %+v, want Bob first", left.Players)
+	}
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	if gs := readMsgOfType(t, conn2, protocol.SMsgGameStarted); gs.State == nil {
+		t.Fatal("game_started missing state — the bot inherited the host seat")
+	}
+}
+
+// waitForClients blocks until the hub has counted the connections it is meant
+// to have. A closed socket is torn down asynchronously, and every reload test
+// rejoins under a nickname the roster is still holding until it is.
+func waitForClients(t *testing.T, h *hub.Hub, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if h.GetStats().Clients == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("clients = %d, want %d", h.GetStats().Clients, want)
+}
+
 // TestRoundTransition_CardPlayedReflectsWinningPlay is a regression test for the
 // bug where, in BO3+ matches, the card_played broadcast for the round-winning
 // play used to read room.State *after* dealRound had already run (because

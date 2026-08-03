@@ -150,6 +150,11 @@ export interface Scene {
   wsStatus?: 'connecting' | 'open' | 'closed'
   /** Waiting room: mount straight into the leave confirmation. */
   confirmLeave?: boolean
+  /** Waiting room: which roster row has its ⋯ menu open. A dropdown at `wide`,
+   *  a bottom sheet at `small` — so this scene is worth both viewports. */
+  rowMenuSeat?: number
+  /** Waiting room: that menu, mounted straight into one of its two questions. */
+  rowMenuAsk?: 'host' | 'kick'
   /** Preferences: hide the table code, the way a streamer would. */
   streamerMode?: boolean
   /** Lobby: mount with the preferences panel open. */
@@ -350,6 +355,37 @@ export const SCENES: Scene[] = [
       myIndex: 2,
       matchFormat: 'BO1',
       maxPlayers: 10,
+    },
+  },
+  {
+    // The host's two controls over one row. A dropdown hanging off the ⋯ at
+    // `wide`, a bottom sheet at `small`: shoot both, they are two objects.
+    id: 'waiting-row-menu',
+    title: 'Salon · actions sur un joueur',
+    screen: 'waiting',
+    rowMenuSeat: 1,
+    state: {
+      roomCode: 'KX7QP2',
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchFormat: 'BO3',
+      maxPlayers: 6,
+    },
+  },
+  {
+    // The other half of that panel: the question in the menu's place. This is
+    // the destructive one, so it is the one worth looking at.
+    id: 'waiting-row-menu-confirm',
+    title: 'Salon · retirer un joueur',
+    screen: 'waiting',
+    rowMenuSeat: 1,
+    rowMenuAsk: 'kick',
+    state: {
+      roomCode: 'KX7QP2',
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchFormat: 'BO3',
+      maxPlayers: 6,
     },
   },
   {

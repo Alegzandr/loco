@@ -117,9 +117,12 @@ test.describe('multi-client synchronization', () => {
       await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
 
       // A guest has no such control on anybody's row, including the host's.
-      await expect(page2.getByRole('button', { name: new RegExp(T.kickPlayer) })).toHaveCount(0)
+      await expect(page2.getByRole('button', { name: new RegExp(T.rowActions) })).toHaveCount(0)
 
-      await page1.getByRole('button', { name: `${T.kickPlayer}: Bob` }).click()
+      // Behind the row's ⋯, and it asks before it acts.
+      await page1.getByRole('button', { name: `${T.rowActions}: Bob` }).click()
+      await page1.getByRole('menuitem', { name: T.kickPlayer }).click()
+      await page1.getByRole('button', { name: T.kickPlayer }).click()
 
       await page2.waitForFunction(
         () => window.__LOCO_E2E__?.getState?.()?.screen === 'lobby',
@@ -131,6 +134,54 @@ test.describe('multi-client synchronization', () => {
 
       await joinRoom(page2, 'Bob', roomCode)
       await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
+   * The table can change hands before it deals. The host is seat 0 and nothing
+   * else, so a transfer is a swap: the controls move with it in both directions,
+   * and the player who gave it away has to be able to see they no longer own it.
+   */
+  test('the host can hand the table to somebody else', async ({ browser }: { browser: Browser }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const page1 = await ctx1.newPage()
+    const page2 = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(page1, 'Alice')
+      await joinRoom(page2, 'Bob', roomCode)
+      await expect(page1.getByText('Bob')).toBeVisible({ timeout: 5_000 })
+
+      await page1.getByRole('button', { name: `${T.rowActions}: Bob` }).click()
+      await page1.getByRole('menuitem', { name: T.makeHost }).click()
+      await page1.getByRole('button', { name: T.makeHost }).click()
+
+      // The seats swapped, and each client was told its own.
+      await page2.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.myIndex === 0,
+        undefined,
+        { timeout: 5_000 },
+      )
+      await page1.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.myIndex === 1,
+        undefined,
+        { timeout: 5_000 },
+      )
+
+      // The controls went with the seat: Bob deals, Alice cannot.
+      await expect(page2.getByRole('button', { name: T.startGame })).toBeVisible()
+      await expect(page1.getByRole('button', { name: T.startGame })).toHaveCount(0)
+      await expect(page1.getByRole('button', { name: `${T.rowActions}: Bob` })).toHaveCount(0)
+
+      await page2.getByRole('button', { name: T.startGame }).click()
+      await expect(gameBoard(page1)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page1)
+      await expect(gameBoard(page2)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(page2)
     } finally {
       await ctx1.close()
       await ctx2.close()

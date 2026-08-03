@@ -149,9 +149,14 @@ func (h *Hub) joinAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 		c.sendError(err.Error())
 		return
 	}
-	playerID := len(room.Players) - 1
-	h.seatClient(t, c, playerID)
+	h.seatClient(t, c, len(room.Players)-1)
 
+	// A table whose last human dropped keeps its bots, and the first of them is
+	// sitting in the host's seat. This arrival is what takes it back: nobody was
+	// there to promote when the seats were re-based. See keepHostHuman.
+	h.keepHostHuman(t)
+
+	playerID := c.playerID()
 	tok := t.issueToken(playerID)
 	// Notify the joining client
 	c.Send(protocol.ServerMsg{
@@ -337,6 +342,75 @@ func (h *Hub) handleKickPlayer(t *table, c *Client, msg protocol.ClientMsg) {
 	h.releaseSeat(t, target)
 	target.Send(protocol.ServerMsg{Type: protocol.SMsgKicked})
 	log.Printf("player kicked code=%s nickname=%s bot=false", code, nickname)
+}
+
+// handleTransferHost hands the table to somebody else.
+//
+// The host is seat 0 and nothing else, so the transfer is a swap of two seats
+// rather than a flag: the moment it lands, every host control answers to the
+// other player and the roster badge follows, with no second definition of who
+// owns the table to keep in step with the first.
+//
+// It is refused to a bot for the reason keepHostHuman exists — a table whose
+// host cannot press start is a table that can never deal — and refused once the
+// cards are out, like every other roster control: a seat belongs to a match by
+// then, and swapping two would swap two hands.
+//
+// No confirmation, and it is not a demotion the other player can decline. The
+// press costs nothing that cannot be pressed back, and the host who gives the
+// table away is the one who decided to.
+func (h *Hub) handleTransferHost(t *table, c *Client, msg protocol.ClientMsg) {
+	room := t.room
+	if refuseInMatchmade(c, t) {
+		return
+	}
+	if c.playerID() != 0 {
+		c.sendError("only the room owner can hand over the table")
+		return
+	}
+	if room.Status != game.StatusLobby {
+		c.sendError("can only hand over the table in the lobby")
+		return
+	}
+	if msg.TargetIndex == nil {
+		c.sendError("invalid player index")
+		return
+	}
+	seat := *msg.TargetIndex
+	// Seat 0 is the sender's own by the check above, and handing the table to
+	// yourself is not a move.
+	if seat <= 0 || seat >= len(room.Players) {
+		c.sendError("invalid player index")
+		return
+	}
+	if t.isBot(seat) {
+		c.sendError("a bot cannot host the table")
+		return
+	}
+
+	nickname := room.Players[seat].Nickname
+	if err := room.SwapLobbyPlayers(0, seat); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+	t.swapSeats(0, seat)
+
+	// Per-recipient, because the two seats that moved read their own player_id
+	// out of this message. Everybody else gets it too: the badge moved on their
+	// screen as well, and one message saying so beats a roster they have to
+	// diff.
+	for i, m := range t.members {
+		if m == nil {
+			continue
+		}
+		m.Send(protocol.ServerMsg{
+			Type:     protocol.SMsgHostChanged,
+			PlayerID: intPtr(i),
+			Nickname: nickname,
+			Players:  h.playerList(t),
+		})
+	}
+	log.Printf("host transferred code=%s nickname=%s", t.code, nickname)
 }
 
 // removeUnmannedSeat drops a seat with no socket behind it (a bot) and re-bases

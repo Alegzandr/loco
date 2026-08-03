@@ -7,6 +7,7 @@
   import TableCode from './TableCode.svelte'
   import { tableInviteUrl } from '../hooks/tableInvite'
   import AudioSettings from './AudioSettings.svelte'
+  import RosterRowMenu from './RosterRowMenu.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { seatColor, seatInitial } from './playerColors'
@@ -25,6 +26,15 @@
      * `initialMode`.
      */
     initialConfirmLeave?: boolean
+    /**
+     * Showcase only, same trick: which row's ⋯ menu is open. The panel is
+     * otherwise component-local state, so no scene could photograph it — and it
+     * is the one thing on this screen that changes shape between a dropdown and
+     * a sheet.
+     */
+    initialMenuSeat?: number | null
+    /** Showcase only: mounts that menu straight into one of its two questions. */
+    initialMenuAsk?: 'host' | 'kick' | null
   }
 
   let {
@@ -36,6 +46,8 @@
     onSend,
     onLeave,
     initialConfirmLeave = false,
+    initialMenuSeat = null,
+    initialMenuAsk = null,
   }: Props = $props()
 
   const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
@@ -48,6 +60,16 @@
   const t = $derived(i18n.t)
   const isOwner = $derived(myIndex === 0)
   const canStart = $derived(players.length >= 2)
+
+  // Which row's menu is open, by seat. One at a time and held here rather than
+  // in the row, because opening a second has to shut the first — two panels
+  // over one roster is two answers to a question that has one.
+  let openMenu = $state<number | null>(initialMenuSeat)
+
+  // A seat the server plays. It rides the roster because the nickname cannot
+  // say it: "Bot1" is a name a player is allowed to take, and the menu offers a
+  // control the server refuses on a bot.
+  const isBotSeat = (p: PlayerDTO) => p.is_bot === true
 
   let maxInput = $state(String(maxPlayers))
   let showRules = $state(false)
@@ -148,7 +170,18 @@
 
   <ul class="playerList">
     {#each players as p (p.index)}
-      <li class="player">
+      <!-- The right-click is a shortcut onto the same menu the ⋯ opens, and it
+           only exists on a row the host has controls over. `preventDefault` is
+           what makes it one: the browser's own menu over a roster row offers
+           "copy image address" and nothing this screen means. -->
+      <li
+        class="player rosterRow"
+        oncontextmenu={(e) => {
+          if (!isOwner || p.index === myIndex) return
+          e.preventDefault()
+          openMenu = p.index
+        }}
+      >
         <span class="playerMain">
           <span class="avatar" style="background: {seatColor(p.index)}" aria-hidden="true">
             {seatInitial(p.nickname)}
@@ -158,33 +191,50 @@
         {#if p.index === 0}
           <span class="owner">{t.hostBadge}</span>
         {/if}
-        <!-- The host's control over one row. Never on their own: giving up the
-             seat you are sitting in is the link at the bottom, and a kick that
-             could do it would hand the table away silently.
+        <!-- The host's controls over one row, behind one ⋯. Never on their own
+             row: giving up the seat you are sitting in is the link at the
+             bottom, and neither of these may be able to do it silently.
 
-             No confirmation, deliberately: this table's one question is the one
-             about leaving, and unlike leaving a mistake here costs nothing — the
-             code is still in the removed player's hands and they sit back down. -->
+             One button rather than two icons, because the two are not the same
+             kind of press — handing the table over is routine, taking a seat is
+             not — and a roster row that carries both in the open is a dense row
+             with a destructive target on it. The right-click below opens the
+             same menu: a shortcut for whoever looks for one, never the only way
+             in. -->
         {#if isOwner && p.index !== myIndex}
           <button
-            class="kick"
-            aria-label="{t.kickPlayer}: {p.nickname}"
-            title={t.kickPlayer}
-            onclick={() => onSend({ type: 'kick_player', target_index: p.index })}
+            class="rowMenuBtn"
+            aria-label="{t.rowActions}: {p.nickname}"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === p.index}
+            title={t.rowActions}
+            onclick={() => (openMenu = openMenu === p.index ? null : p.index)}
           >
-            <!-- Drawn, not a glyph: a `×` is a different object on every platform
-                 and lands somewhere between a multiplication sign and a letter.
-                 Same rule as the preference icons. -->
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-              <path
-                d="M6 6 L18 18 M18 6 L6 18"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="3"
-                stroke-linecap="round"
-              />
+            <!-- Drawn, not a glyph: an ellipsis character is a single piece of
+                 type that lands on the baseline, where this has to sit on the
+                 row's middle. Same rule as the preference icons. -->
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <circle cx="5" cy="12" r="1.9" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.9" fill="currentColor" />
+              <circle cx="19" cy="12" r="1.9" fill="currentColor" />
             </svg>
           </button>
+        {/if}
+        {#if openMenu === p.index}
+          <RosterRowMenu
+            nickname={p.nickname}
+            canMakeHost={!isBotSeat(p)}
+            initialAsking={initialMenuAsk}
+            onmakehost={() => {
+              onSend({ type: 'transfer_host', target_index: p.index })
+              openMenu = null
+            }}
+            onkick={() => {
+              onSend({ type: 'kick_player', target_index: p.index })
+              openMenu = null
+            }}
+            onclose={() => (openMenu = null)}
+          />
         {/if}
       </li>
     {/each}
@@ -454,10 +504,17 @@
     flex-shrink: 0;
   }
 
+  /* The row is what the menu is anchored to, so it owns the coordinate space.
+     `position: relative` and nothing else — the panel is absolute above 46rem
+     and a fixed sheet below it. */
+  .rosterRow {
+    position: relative;
+  }
+
   /* The host's per-row control. Quiet until it is looked at: it sits on every row
      but one and must never compete with the roster it is attached to. The touch
      target is a full 44px while the ink stays small. */
-  .kick {
+  .rowMenuBtn {
     flex-shrink: 0;
     width: 44px;
     height: 44px;
@@ -476,8 +533,8 @@
       background 0.12s var(--ease-out);
   }
 
-  .kick:hover,
-  .kick:focus-visible {
+  .rowMenuBtn:hover,
+  .rowMenuBtn:focus-visible {
     color: var(--color-primary);
     background: var(--color-surface-strong);
   }

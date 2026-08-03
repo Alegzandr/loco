@@ -474,6 +474,32 @@ func (r *Room) SetMaxPlayers(n int) error {
 	return nil
 }
 
+// SwapLobbyPlayers exchanges two seats (lobby only).
+//
+// It exists for one caller, transfer_host, and it is a swap rather than a move
+// to the front because a move re-bases every seat between the two and a swap
+// moves exactly two. The hub mirrors it seat for seat: whatever this does to the
+// roster, table.swapSeats does to the members, the tokens and the bot set.
+//
+// Lobby only, and deliberately not allowed in a finished room the way
+// RemoveLobbyPlayer is: Scores, RoundsWon and LostHandTotal are indexed by seat
+// and would follow the wrong player into the next match.
+func (r *Room) SwapLobbyPlayers(a, b int) error {
+	if r.Status != StatusLobby {
+		return errors.New("can only reorder seats in the lobby")
+	}
+	if a < 0 || a >= len(r.Players) || b < 0 || b >= len(r.Players) {
+		return fmt.Errorf("invalid player index")
+	}
+	if a == b {
+		return nil
+	}
+	r.Players[a], r.Players[b] = r.Players[b], r.Players[a]
+	r.Players[a].Index = a
+	r.Players[b].Index = b
+	return nil
+}
+
 // RemoveLobbyPlayer removes the player at playerIdx from the lobby, re-indexes
 // the remaining players, and returns true if the removed player was the host.
 // Allowed in a finished room too: its roster is still mutable because the host

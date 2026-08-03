@@ -49,6 +49,7 @@ export const clientMsgTypeSchema = v.picklist([
   'set_match_format',
   'set_max_players',
   'kick_player',
+  'transfer_host',
   'rematch',
   'find_match',
   'cancel_matchmaking',
@@ -79,6 +80,7 @@ export const serverMsgTypeSchema = v.picklist([
   'matchmaking_cancelled',
   'match_found',
   'left_room',
+  'host_changed',
   'kicked',
   'match_loading',
   'match_ready',
@@ -156,6 +158,9 @@ export const clientMsgSchema = v.object({
   //
   // CMsgKickPlayer: which seat the host is freeing. Required there — there is
   // no sensible default seat to remove.
+  //
+  // CMsgTransferHost: which seat is being handed the table. Required there too,
+  // and for the same reason.
   target_index: v.optional(v.number()),
   // CMsgSetMatchFormat
   match_format: v.optional(matchFormatSchema),
@@ -205,6 +210,16 @@ export const playerSchema = v.object({
   nickname: v.string(),
   hand_size: v.number(),
   connected: v.boolean(),
+  // IsBot marks a seat the server plays. Carried because the roster offers
+  // controls a bot cannot answer — the table cannot be handed to one — and the
+  // nickname is not a way to tell: "Bot1" is a name a player is allowed to
+  // take.
+  //
+  // omitempty, unlike Connected: absent and false are the same statement here,
+  // where an absent `connected` would be a player the roster stopped
+  // mentioning. Most seats are people, so most rosters carry it for none of
+  // them.
+  is_bot: v.optional(v.boolean()),
 })
 
 // GameEventDTO is the wire representation of a game event.

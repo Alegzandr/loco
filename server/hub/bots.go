@@ -178,6 +178,47 @@ func (h *Hub) handleAddBot(t *table, c *Client, msg protocol.ClientMsg) {
 	})
 }
 
+// keepHostHuman moves every bot sitting ahead of the first human to the back of
+// the lobby, so seat 0 is never one of them.
+//
+// The host is seat 0 and nothing else: add_bot, start_game, set_match_format,
+// set_max_players and kick_player are all gated on that index. So a re-index
+// that lands a bot there does not merely put the badge on the wrong row, it
+// hands the table to something that can never press start, and the humans read
+// "waiting for the host" at a bot until they close the tab. It is one reload
+// away: open a table, add a bot, refresh, and the bot shifts down into seat 0
+// while the reloading player rejoins behind it.
+//
+// A bot is moved by removing it and re-joining under the same name — the same
+// two calls a lobby departure and an add_bot already make — so no seat-keyed
+// structure learns a new way to move. Lobby only: a finished room's scores are
+// indexed by seat and Join is refused there anyway.
+//
+// It terminates because every pass puts one more bot behind the first human,
+// and it does nothing at all at a table with no human left to host it.
+func (h *Hub) keepHostHuman(t *table) {
+	if t.room.Status != game.StatusLobby {
+		return
+	}
+	for t.connected() > 0 && len(t.room.Players) > 0 && t.isBot(0) {
+		name := t.room.Players[0].Nickname
+		if _, err := t.room.RemoveLobbyPlayer(0); err != nil {
+			log.Printf("WARN host promotion failed code=%s err=%v", t.code, err)
+			return
+		}
+		t.dropSeat(0)
+		if err := t.room.Join(name); err != nil {
+			// The bot is out of the roster already, so its seat is gone with it
+			// rather than left behind: a phantom would deal a hand to nobody.
+			h.metrics.botsActive.Add(-1)
+			log.Printf("WARN bot reseat failed code=%s nickname=%s err=%v", t.code, name, err)
+			return
+		}
+		t.bots[len(t.room.Players)-1] = struct{}{}
+		t.addEmptySeat()
+	}
+}
+
 // scheduleBotMove fires a bot turn after a short think delay.
 // Uses time.AfterFunc to avoid spawning long-lived goroutines.
 // Retried once if the table is behind: dropping permanently would stall the

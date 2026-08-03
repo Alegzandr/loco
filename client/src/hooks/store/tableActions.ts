@@ -157,6 +157,12 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       return mine ? { players, myIndex: mine.index } : { players }
     }),
 
+  // The table changed hands, which moves exactly two seats: the old host's and
+  // the new one's. Taken from the message rather than re-derived from our own
+  // nickname the way setPlayers does it — the server sends this one per
+  // recipient precisely so nobody has to.
+  applyHostChange: (myIndex, players) => set({ myIndex, players }),
+
   // A seat whose hold ran out. Only ever named by the one player_left that
   // cannot re-base the roster — the seat is the index of a hand in a running
   // match, so nothing moves — and idempotent, because the flag is about who is

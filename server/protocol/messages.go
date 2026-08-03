@@ -17,6 +17,12 @@ const (
 	// bot's seat back. Lobby only: once the cards are out a seat belongs to a
 	// match, not to the roster.
 	CMsgKickPlayer ClientMsgType = "kick_player"
+	// CMsgTransferHost hands the table to the seat named by TargetIndex. The host
+	// is seat 0 and nothing else, so this is a seat swap and every host control
+	// answers to the other player from the acknowledgement onwards. Lobby only,
+	// never to a bot: a table nobody can start is the one thing this must not be
+	// able to produce.
+	CMsgTransferHost ClientMsgType = "transfer_host"
 	// CMsgRematch returns a finished room to the lobby with the same players.
 	CMsgRematch ClientMsgType = "rematch"
 	// Matchmaking: a 1v1 against whoever is looking for the same thing. The
@@ -75,6 +81,13 @@ const (
 	// SMsgLeftRoom acknowledges leave_room. The client is seatless again and
 	// back on the home screen.
 	SMsgLeftRoom ServerMsgType = "left_room"
+	// SMsgHostChanged announces the table's new owner after a transfer_host.
+	// Sent per-recipient, like SMsgRematchStarted and for the same reason: the
+	// swap moves two seats, so half the room's own player_id changes with it and
+	// a broadcast would leave the two players who moved reading somebody else's
+	// row as their own. Nickname names the new host, Players carries the roster
+	// in its new order, PlayerID the recipient's own seat.
+	SMsgHostChanged ServerMsgType = "host_changed"
 	// SMsgKicked tells a client the host freed its seat. Everything left_room
 	// means — seatless, back home — plus the one thing the player did not
 	// choose, so the screen changing under them is explained rather than
@@ -167,6 +180,9 @@ type ClientMsg struct {
 	//
 	// CMsgKickPlayer: which seat the host is freeing. Required there — there is
 	// no sensible default seat to remove.
+	//
+	// CMsgTransferHost: which seat is being handed the table. Required there too,
+	// and for the same reason.
 	TargetIndex *int `json:"target_index,omitempty"`
 
 	// CMsgSetMatchFormat
@@ -439,6 +455,16 @@ type PlayerDTO struct {
 	Nickname  string `json:"nickname"`
 	HandSize  int    `json:"hand_size"`
 	Connected bool   `json:"connected"`
+	// IsBot marks a seat the server plays. Carried because the roster offers
+	// controls a bot cannot answer — the table cannot be handed to one — and the
+	// nickname is not a way to tell: "Bot1" is a name a player is allowed to
+	// take.
+	//
+	// omitempty, unlike Connected: absent and false are the same statement here,
+	// where an absent `connected` would be a player the roster stopped
+	// mentioning. Most seats are people, so most rosters carry it for none of
+	// them.
+	IsBot bool `json:"is_bot,omitempty"`
 }
 
 // GameEventDTO is the wire representation of a game event.

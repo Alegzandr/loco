@@ -632,7 +632,8 @@ ordinary room's on purpose.
   re-checks: the second run finds a room that is no longer a lobby and returns. It costs one timer per
   pairing, and `matchmaking_test.go` pins the property it rests on — two attempts, one deal.
 - **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
-  `handleSetMaxPlayers` and `handleKickPlayer` all begin with `refuseInMatchmade`. The format is fixed
+  `handleSetMaxPlayers`, `handleKickPlayer` and `handleTransferHost` all begin with
+  `refuseInMatchmade`. The format is fixed
   (BO1: a queue is entered by somebody who wants to play *now*, and a single round is the shortest
   complete thing the game has, as well as the commitment two strangers are least likely to abandon
   halfway) and the size is two. `handleRematch` is deliberately not among them: it is an agreement
@@ -667,7 +668,42 @@ deal); this one acts on a person, so it is the strictest thing in the lobby.
   no account to refuse them by, and the game holds no identity to build one on — an address would be
   the only handle left, and never storing one is the whole privacy position. So a ban would be
   theatre, and the honest consequence is that a mistaken press costs nothing: the player sits back
-  down. That is also why the button asks nothing first, unlike the quit link beside it.
+  down.
+- **It asks first anyway** (client-side, in the row's own menu). Not because it is expensive to undo
+  — it is not — but because it is one of two controls sharing one ⋯ on a roster row, the other one
+  hands the table over, and a two-item menu where one item fires on the press and the other does not
+  is a menu you have to read twice. Both ask. See
+  [`docs/notes/client.md`](client.md) for the panel.
+
+## Handing the table over
+`handleTransferHost`, answering `transfer_host`. The host is seat 0 and nothing else, so this is a
+swap of two seats and not a flag: the moment it lands, every `c.playerID() != 0` check answers the
+other player and the roster badge follows. A second definition of who owns the table is a second
+thing to keep in step with the first, which is the bug `keepHostHuman` above exists to clean up
+after.
+
+- **Why it exists.** A lobby's re-index already moves the table when the host drops, which is right,
+  but it is the *only* way it moves: a host who is not going to be there for the match, or who opened
+  the table for somebody else, had nothing to press. The passation was a departure.
+- **`game.SwapLobbyPlayers` + `table.swapSeats`, mirrored seat for seat.** Whatever the roster does,
+  the members, the bot set and the session tokens do. **The token travels with the player**, because
+  it is the proof that seat is theirs: left behind, it would hand a reloading player the seat that is
+  now somebody else's — and on this table that is the host's.
+  `TestTransferHost_TheTokenFollowsThePlayer`.
+- **A swap, not a move to the front.** A move re-bases every seat between the two and a swap moves
+  exactly two. Fewer seats moving is fewer seat-keyed structures to get wrong.
+- **Lobby only, never to a bot, never to seat 0, never in a matchmade room.** The lobby rule is the
+  kick's — once the cards are out a seat belongs to a match, and swapping two would swap two hands,
+  which is why `SwapLobbyPlayers` refuses a finished room the way `RemoveLobbyPlayer` allows one
+  (`Scores`, `RoundsWon` and `LostHandTotal` are indexed by seat). The bot rule is `keepHostHuman`'s:
+  a table whose host cannot press start can never deal. Seat 0 is the sender's own.
+- **`host_changed` is per-recipient**, like `rematch_started` and for the same reason: two seats moved,
+  so half the room's own `player_id` changed with them. A broadcast would leave exactly the two
+  players who moved reading somebody else's row as their own. Everybody gets it, not only the pair —
+  the badge moved on their screen too.
+- **No confirmation on the server and no refusal for the recipient.** It is not a demotion anybody
+  can decline, and the press costs nothing that cannot be pressed back. The client asks first; that
+  is a UI decision about a two-item menu, not a protocol one.
 
 ## A rematch by agreement
 `handleRematch`. It was the host's decision and it is nobody's now. The host's standing is over the
@@ -782,6 +818,27 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
 
 ## Bots
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
+- **A bot never sits in seat 0** (`Hub.keepHostHuman`). The host is seat 0 and nothing else: five
+  controls are gated on `c.playerID() != 0`, the roster badge is `p.index === 0`, and a kick is
+  refused on that index. So a lobby re-index that lands a bot there does not mislabel a row, it hands
+  the table to something that can never press start — the humans read *waiting for the host* pointed
+  at a bot until they close the tab, and the room is a five-minute cleanup timer away from existing
+  for nothing.
+  - It was one reload away. Open a table, add a bot, refresh: a lobby seat is removed rather than
+    held (see *A seat that is empty has to read as empty*), the bot shifts down into 0, and the
+    player who reloads rejoins **behind** it. Two players and a bot in the middle produce the same
+    thing on an ordinary departure.
+  - Called from the two places a lobby's seats move: `reindexLobbyDisconnect` (which is both
+    `leave_room` and a dropped socket) and `joinAtTable`. Both are needed and neither is enough —
+    the reload case has nobody left to promote at the moment the seat goes, so the promotion is the
+    *arrival's*; the departure case has no join coming.
+  - The move is `RemoveLobbyPlayer` + `Join` under the same name, i.e. exactly the pair a departure
+    and an `add_bot` already make, so `members`, `bots`, `tokens` and `gone` shift through
+    `dropSeat`/`addEmptySeat` and learn no new way to move. Lobby only: a finished room indexes its
+    scores by seat and refuses `Join` anyway.
+  - It terminates because each pass puts one more bot behind the first human, and it does nothing at
+    a table with no human left to host it — that one is the cleanup timer's.
+  - `TestLobbyReload_BotDoesNotKeepTheHostSeat` and `TestLobbyHostDisconnect_BotNeverInheritsTheSeat`.
 - AI: `game/bot.go` `BotThink(state, playerIdx) BotAction`.
 - Scheduled via `botMove` channel with `BotThinkDelay` (1200ms) + `BotJitterMax` (1000ms).
 - **The think delay, and only the think delay, is tunable from the environment**
