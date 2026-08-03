@@ -166,6 +166,34 @@ func (t *table) allSeatsEmpty() bool {
 	return true
 }
 
+// abandonedBy reports whether every seat other than this one is an absent
+// human: no socket at it and no bot behind it.
+//
+// It is what tells a lone survivor apart from a quitter. Leaving a match in
+// progress is refused at an ordinary table on purpose — walking out is not a
+// move — but the refusal assumes there is somebody being walked out on. Once
+// the other seat's socket is gone and its hold has expired, nothing at that
+// seat will ever act again: the turn clock auto-draws and auto-passes for it
+// every thirty seconds until the round runs out, and the survivor's only way
+// out of the game is closing the tab. That is the one state in the game with no
+// in-game action available, and this is the question that ends it.
+func (t *table) abandonedBy(seat int) bool {
+	for i := range t.room.Players {
+		if i == seat {
+			continue
+		}
+		if t.isBot(i) || t.client(i) != nil {
+			return false
+		}
+		if _, held := t.awayAt[i]; held {
+			// Away, not gone. The hold is the whole reason leaving is refused
+			// here: a drop is not a departure until the window says so.
+			return false
+		}
+	}
+	return true
+}
+
 // connected counts the sockets still at the table.
 func (t *table) connected() int {
 	n := 0

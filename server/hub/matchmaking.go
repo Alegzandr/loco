@@ -42,6 +42,22 @@ var (
 	// human is on the other side, short enough that it never feels like a menu.
 	MatchmakingRevealDelay = 2500 * time.Millisecond
 
+	// MatchmakingRevealBackstop arms a second, later attempt at the same deal.
+	//
+	// Losing the reveal's job is the one dropped job in the server whose cost is
+	// unbounded rather than merely lossy. postCritical retries it once; if that
+	// retry is dropped too, the table stays a matchmade lobby for good — which
+	// means it publishes phaseInFlight for good, so checkDrained can never close
+	// and every deploy from then on burns its whole LOCO_DRAIN_TIMEOUT waiting on
+	// a table nobody is playing at, while the two players hold a versus screen
+	// that will never deal.
+	//
+	// The handler was already written to be re-checked (wrong pairing, room gone,
+	// somebody left), so running it a second time is free when the first one
+	// landed: it finds a room that is no longer a lobby and returns. That is the
+	// whole backstop.
+	MatchmakingRevealBackstop = 3 * time.Second
+
 	// MatchmakingFormat is what a matchmade match plays: one round.
 	//
 	// A queue is entered by somebody who wants to play now, and a single round is
@@ -266,6 +282,13 @@ func (h *Hub) scheduleMatchmakingStart(t *table, pairedAt time.Time) {
 			h.handleMatchmakingStart(t, sm)
 		})
 	})
+	// And once more, later, in case both of those were dropped. See
+	// MatchmakingRevealBackstop.
+	time.AfterFunc(MatchmakingRevealDelay+MatchmakingRevealBackstop, func() {
+		t.postFromTimer("matchmaking_start_backstop", func() {
+			h.handleMatchmakingStart(t, sm)
+		})
+	})
 }
 
 // failPairing puts both players back at the front of the queue after a pairing
@@ -477,11 +500,24 @@ func (h *Hub) leaveAtTable(t *table, c *Client) {
 		return
 	}
 	if t.room.Status == game.StatusPlaying {
-		if !t.isMatchmade() {
+		switch {
+		case t.isMatchmade():
+			h.forfeitMatch(t, c.playerID())
+		case t.abandonedBy(c.playerID()):
+			// Nobody left to walk out on, so there is nothing to refuse. No
+			// forfeit either: there is no one to award the match to, and
+			// remainingSeat would hand it to the player who is not there. The
+			// seat goes and the table goes with it.
+			log.Printf("leave allowed, match abandoned code=%s player=%d", t.code, c.playerID())
+			t.sweep(c)
+			c.leaveSeat()
+			h.closeAbandonedMatch(t)
+			c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
+			return
+		default:
 			c.sendError("you cannot leave a match in progress")
 			return
 		}
-		h.forfeitMatch(t, c.playerID())
 	}
 	h.releaseSeat(t, c)
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})

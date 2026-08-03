@@ -230,6 +230,12 @@ export interface GameState {
   // An opponent who dropped and the instant their match is given away, so the
   // board can say how long this lasts instead of freezing with no explanation.
   opponentAway: { seat: number; deadline: number } | null
+  // Seats whose reconnect window ran out mid-match. Held and gone read the same
+  // in the roster — both are `connected: false` — and only one of them can come
+  // back, so the difference has to be remembered rather than derived. It is what
+  // decides whether this player still has anybody to play against, and the
+  // server answers the same question the same way (hub: table.abandonedBy).
+  goneSeats: number[]
 }
 
 /** Identity, screen and the two ways out of a table. */
@@ -254,6 +260,7 @@ export interface TableActions {
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number, direction?: number, catchSeats?: CatchSeatDTO[]) => void
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number, pendingDraw?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
+  noteSeatGone: (seat: number) => void
   setTurnDeadline: (ts: number | null) => void
   setSwapNotice: (notice: SwapNotice | null) => void
   applyInterrupt: (actorIndex: number, count: number) => void

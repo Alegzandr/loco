@@ -213,11 +213,21 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 		}
 	}
 
-	h.broadcastToRoomAll(t, protocol.ServerMsg{
+	// The seat rides this one. Every other player_left is a departure that
+	// re-bases the roster, so a seat number in it would name somebody else by the
+	// time it was read; this is the one that cannot — a running match indexes
+	// hands by the seat, so nothing moves. The client needs it to tell "held" from
+	// "gone for good", which is what decides whether it still has anybody to play
+	// against. See table.abandonedBy for the server's half of the same question.
+	left := protocol.ServerMsg{
 		Type:     protocol.SMsgPlayerLeft,
 		Nickname: nickname,
 		Players:  h.playerList(t),
-	})
+	}
+	if !removed {
+		left.PlayerIndex = intPtr(em.playerID)
+	}
+	h.broadcastToRoomAll(t, left)
 
 	// Whoever is left at a finished table may have been waiting on exactly this
 	// player. Their asks have just been re-based with the seat.
@@ -233,8 +243,13 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 		h.forfeitMatch(t, em.playerID)
 	}
 
-	// If no connected members remain, let the room cleanup timer handle deletion
-	// (already scheduled when the last player disconnected).
+	// The seat that just expired may have been the last one anybody could have
+	// come back to. If it was, the match ends here rather than auto-passing to
+	// itself for five minutes. See closeAbandonedMatch.
+	h.closeAbandonedMatch(t)
+
+	// Otherwise no connected members remain and the room cleanup timer handles
+	// deletion (already scheduled when the last player disconnected).
 }
 
 // findHeldSeat returns the seat held for a disconnected player of that

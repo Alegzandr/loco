@@ -297,6 +297,9 @@ export interface Translations {
   wsLostConnection: string
   wsReconnecting: string
   wsRetryNow: string                // the one control on the curtain: try again now
+  // Every other seat's hold has run out: nothing on this board will move again.
+  tableEmptyTitle: string           // what happened
+  tableEmptyHint: string            // and why the one control below exists
   // Synchronised map loading, shown between "hands dealt" and "clock running".
   mapLoadingTitle: string           // small label above the map's name
   mapLoadingWaiting: string         // status while other players are still loading
@@ -541,6 +544,8 @@ export const en: Translations = {
   wsLostConnection: 'Connection lost',
   wsReconnecting: 'Reconnecting…',
   wsRetryNow: 'Try again now',
+  tableEmptyTitle: 'Everyone else has left.',
+  tableEmptyHint: 'Nothing else is going to happen at this table.',
   mapLoadingTitle: 'Tonight you play in',
   mapLoadingWaiting: 'Setting the table…',
   mapLoadingReady: 'You are seated. Waiting on the others…',

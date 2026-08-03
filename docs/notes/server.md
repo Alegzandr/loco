@@ -425,7 +425,9 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     `ErrNoCatchWindow` is refused to its sender, charged nothing, told to nobody, and — being neither
     a lost race nor a state mismatch — counted by `noteRejection` toward `suspected_cheats`.
     The same reasoning covers a target index the table does not have: it used to answer the
-    missed-catch string and note nothing at all.
+    missed-catch string and note nothing at all. And the free-once-the-piles-are-dry half survived
+    `catchGrace` on its own, *inside* a live window: `penalizeFailedCatch` now answers an empty draw
+    to its caller alone, so a penalty nobody paid is not a table-wide send either.
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply
@@ -561,6 +563,16 @@ ordinary room's on purpose.
   calls `startMatch`, which shares `dealMatch` with the host's `start_game`. If one of the pair
   vanished during the reveal, `requeueSurvivor` tears the room down and puts the other back in the
   queue rather than leaving them in a two-seat room that can never start.
+- **That deal is armed twice**, and it is the only job here that is. Everywhere else a dropped job is
+  lossy: a turn timer lost is one free turn, a cleanup lost is one room until the next restart. This
+  one is unbounded. `postCritical` retries it once; if the retry is dropped as well the table is a
+  matchmade lobby for the rest of the process's life, which means it publishes `phaseInFlight` for the
+  rest of the process's life — so `checkDrained` can never close and **every** deploy from that moment
+  on burns its whole `LOCO_DRAIN_TIMEOUT` waiting on a table nobody is playing at, while the pair sit
+  on a versus screen that will never deal. `MatchmakingRevealBackstop` (3s after the reveal) is a
+  second `AfterFunc` at the same handler. It is safe for the same reason every deferred callback here
+  re-checks: the second run finds a room that is no longer a lobby and returns. It costs one timer per
+  pairing, and `matchmaking_test.go` pins the property it rests on — two attempts, one deal.
 - **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
   `handleSetMaxPlayers` and `handleKickPlayer` all begin with `refuseInMatchmade`. The format is fixed
   (BO1: a queue is entered by somebody who wants to play *now*, and a single round is the shortest
@@ -658,6 +670,16 @@ strangers will not, and the player who is still at the table did nothing wrong.
   everywhere and is not a forfeit at all: the waiting room has a quit button for host and guest
   alike, `releaseSeat` frees the seat on the spot and the rest of the table gets `player_left`. That
   is the whole point of sending it rather than closing the tab, which would hold the slot instead.
+- **That refusal lifts once there is nobody to refuse on behalf of.** It protects a group's match from
+  one member walking out, and it assumed there was a match left to protect. There was a state where
+  there was not: the other seat's socket goes, its hold expires, and from then on nothing at that
+  seat will ever act again — the clock auto-draws and auto-passes for it every 30 s until the round
+  runs out, `leave_room` comes back refused, and the survivor's only way out of the *game* is closing
+  the browser. That was the one state in LOCO with no in-game action available. `table.abandonedBy`
+  is the question that ends it: every other seat a human, with no socket **and no hold left**. Away
+  is not gone — while the hold is running the refusal stands, which is the whole meaning of the hold.
+  No forfeit is issued, because `remainingSeat` would award the match to the seat that is not there;
+  the seat is swept and the table is closed.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.
@@ -891,11 +913,23 @@ round ended.
 - `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
 - `hub.ReconnectTimeout` (var, default 60s): disconnected-in-game slot hold. `MatchmakingReconnectTimeout` (15s) replaces it in a matchmade room, and its expiry forfeits the match rather than merely freeing the seat.
 - Both vars exported for test override; restore via `t.Cleanup`.
-- Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(code)`.
-- `scheduleRoomCleanup`: records `emptyRooms[code]=time.Now()`, `time.AfterFunc` fires `cleanupMsg` after timeout. Channel-full → retry once after 30s, then `WARN`.
-- `handleCleanup`: deletes only if `emptyRooms[code]` still matches recorded time (race-safe).
-- Rejoin/reconnect calls `delete(h.emptyRooms, code)`.
-- `deleteRoom(code)`: single deletion point; cleans hub maps, adjusts `statRooms`/`statBotsActive`, structured log.
+- Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(t)`.
+- `scheduleRoomCleanup`: stamps `t.emptyAt`, `time.AfterFunc` posts `handleCleanup` after the timeout.
+  Box-full → `postCritical` retries once after 30s, then `WARN`.
+- `handleCleanup`: deletes only if `t.emptyAt` still matches the stamp it was armed against, and only
+  if the table is still empty. It decides on the table's goroutine and asks the hub to do the
+  deleting, because the map of tables is the one thing a table does not own.
+- `deleteRoom(code)`: single deletion point. One `delete`, then `stop()`; whatever the table held goes
+  with it. Adjusts `rooms`/`botsActive`, structured log.
+
+**A match is not an empty lobby, and the fixed five minutes is wrong for it.** An abandoned *lobby*
+costs a map entry. An abandoned *match* stays `StatusPlaying` for the whole wait, so the turn clock
+keeps re-arming and auto-drawing for seats with nobody behind them, and — the part that reaches other
+people — the table keeps publishing `phaseInFlight`, so a deploy started anywhere in those five
+minutes waits on a game nobody is playing. `closeAbandonedMatch` closes it the moment it is certain
+instead: no sockets, no holds left, therefore nobody who can come back and nothing left to protect.
+It runs off the last reconnect expiry and off the `leave_room` above, and it does the deleting the
+same way `handleCleanup` does, through the hub.
 
 ## A deploy does not end the matches on the server
 `server/hub/drain.go`, `server/hub/snapshot.go`, `server/main.go`. Operator-facing detail, including

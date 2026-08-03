@@ -266,13 +266,26 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int) {
 	room := t.room
 	drawn := room.PenalizeFailedCatch(catcherIdx)
-	h.broadcastToRoomAll(t, protocol.ServerMsg{
+	msg := protocol.ServerMsg{
 		Type:        protocol.SMsgCatchFailed,
 		PlayerIndex: intPtr(catcherIdx),
-	})
-	if len(drawn) == 0 {
-		return // deck and discard exhausted — the call goes unpunished
 	}
+	// A penalty that drew nothing — both piles dry — is not the table's business,
+	// and announcing it anyway was the last corner where a Contre-LOCO! was free.
+	// catchGrace made a call outside the window cost its sender a refusal and
+	// nobody else a message; a call *inside* somebody's window against an
+	// exhausted deck still cost nothing and still went out to everyone, so a
+	// client at the rate limit could turn its ten messages a second into ten
+	// table-wide broadcasts for the whole seven seconds the window is open.
+	// The caller is still told — their button did something — but a penalty
+	// nobody paid is not a thing the rest of the table has to render.
+	if len(drawn) == 0 {
+		if c := t.client(catcherIdx); c != nil {
+			c.Send(msg)
+		}
+		return
+	}
+	h.broadcastToRoomAll(t, msg)
 	h.sendHandGrowth(t, catcherIdx, drawn)
 }
 

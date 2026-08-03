@@ -394,6 +394,30 @@ func (h *Hub) handleCleanup(t *table, cm cleanupMsg) {
 	h.postToRouter("delete_room", func() { h.deleteRoom(cm.roomCode) })
 }
 
+// closeAbandonedMatch tears down a match nobody is sitting at and nobody can
+// come back to, and reports whether it did.
+//
+// The empty-room cleanup already deletes such a table, but on a fixed five
+// minutes, and a match is not an empty lobby: the room stays StatusPlaying for
+// the whole of that wait, so the turn clock keeps re-arming and auto-drawing for
+// seats with no one behind them, and the table keeps counting as a match in
+// flight — a deploy started anywhere in that window waits on a game nobody is
+// playing. Every hold has expired and every socket has gone, so there is nothing
+// left to wait for and no information left to protect: the cleanup's job, done
+// the moment it is certain instead of on a timer.
+func (h *Hub) closeAbandonedMatch(t *table) bool {
+	if t.room.Status != game.StatusPlaying {
+		return false
+	}
+	if len(t.awayAt) > 0 || !t.allSeatsEmpty() {
+		return false
+	}
+	code := t.code
+	log.Printf("match abandoned, closing table code=%s", code)
+	h.postToRouter("delete_abandoned", func() { h.deleteRoom(code) })
+	return true
+}
+
 // deleteRoom forgets a table entirely, and stops it.
 //
 // One delete, and that is the whole point: this used to be eleven, and adding a

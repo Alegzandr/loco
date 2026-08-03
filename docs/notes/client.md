@@ -790,6 +790,30 @@ reads.
   arriving already true, and going false before the timer — and the reload E2E asserts the overlay is
   gone rather than only that the state came back.
 
+## The one way off a board that has stopped
+A match refuses `leave_room`, which is why the action bar has no quit control and must not grow one:
+walking out is not a move, and the hold exists so a dropped socket is not a departure. That refusal
+assumed there was a match left to refuse on behalf of, and there was one state where there was not —
+every other seat's hold expired, so the clock draws and passes for empty chairs until the round runs
+out, `leave_room` came back refused, and closing the browser was the only way out of the *game*.
+
+- **Held and gone read identically in the roster.** Both are `connected: false`, and only one of them
+  can come back — so the difference is remembered rather than derived. `goneSeats` is written by
+  `player_left`, and the server names a seat on exactly one of those: the mid-match expiry, the only
+  departure that cannot re-base anybody (a running match indexes hands by the seat, so nothing moves).
+  Every other `player_left` carries no index and adds nothing here, which is correct — after a lobby
+  departure the number would name somebody else.
+- **The client's question and the server's are the same question.** `tableAbandoned` in `GameView` and
+  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", so the
+  control is never drawn over a refusal. During the hold there is no button, because during the hold
+  the answer is genuinely no.
+- **It is a curtain, not a button on the bar.** The bar is fixed three columns and never reflows
+  mid-match; the board stays visible underneath, because it is still the match that was being played.
+- **It waits behind the two reconnect curtains.** Our own socket being down is the more urgent
+  problem and may be the whole reason nobody has been heard from. One curtain at a time.
+- `tableAbandoned.test.ts` owns all four cases, including the one that matters most: nothing is
+  offered while the other seat is merely disconnected.
+
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
 - `initI18n()` (`client/src/i18n/store.ts`) wraps app in `entry.ts`. `i18n` → `{ lang, t, setLang }`.

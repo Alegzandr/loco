@@ -297,7 +297,9 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
     before the handler, one refused `declare_uno` a turn bought permanent immunity.
   - **A refusal answers its sender and nobody else**, unless the rules say the table pays too — and
     a Contre-LOCO! outside `catchGrace` is not one of those (see the domain rules above). Same rule
-    makes `rematch` idempotent: an ask already in the set republishes nothing.
+    makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that drew
+    nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells its
+    caller and not the table — otherwise a call inside somebody's window was still a free broadcast.
   - **A correction is throttled** (`resyncPeriod`, 1s per socket): one snapshot settles the drift,
     and everything sent in the millisecond after it was composed against the old board.
 - **The gameplay gate also bounds the seat.** `dispatchAtTable` refuses a sender whose `playerID` is
@@ -329,6 +331,12 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   2 consecutive turn timeouts as away, and **both expiries forfeit the match**, as does `leave_room`.
   **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, refuse `leave_room` mid-match, and
   allow it in every waiting room behind one in-place confirmation, the only one in the game.
+- **Nobody is trapped either.** That refusal assumes there is somebody to walk out on, so it lifts
+  once there is not: `table.abandonedBy` is true when every other seat is a human with no socket and
+  **no hold left**, and then `leave_room` releases the seat and takes the table with it — no forfeit,
+  because the only seat to award it to is the empty one. **And a match nobody is at and nobody can
+  return to ends where that becomes true** (`closeAbandonedMatch`, off the last expiry), rather than
+  auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy open for five minutes.
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing that
   would start a new match is accepted, the queue is emptied with an explanation, **every table is
   told once — every table, not only the ones playing: a waiting room, a game-over and a versus reveal
@@ -342,7 +350,11 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **The map-loading gate refuses every gameplay message while open**, and the turn clock starts at
   `match_ready`, not `game_started`. Per match, not per round.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
-  marshal once. `Client.SendBytes` force-closes on a full send buffer.
+  marshal once. `Client.SendBytes` force-closes on a full send buffer. **The versus reveal's deal is
+  armed twice** (`MatchmakingRevealBackstop`): every other dropped job is lossy, that one is
+  unbounded — the table stays a matchmade lobby, so it publishes `phaseInFlight` for good and no
+  later deploy can finish draining. Re-running it is free because it re-checks, like every deferred
+  callback here.
 - **What the server costs is measured, not assumed** (`make bench-server`, `hub/loop_bench_test.go`):
   8.6 µs for a whole card play, against a token bucket that admits at most 50 000 msg/s. One
   goroutine already absorbed that; the split above was bought for **isolation between tables, not
@@ -417,6 +429,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   on attempts is a curtain that never comes down over a seat the server may still be holding.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
+- **The board carries no way out, except when there is no game left to leave.** A match refuses
+  `leave_room` on purpose, so the action bar has no quit control and must not grow one. The single
+  exception is a curtain: every other seat's hold has expired, nothing will move again, and the card
+  carries `leaveRoom`. It reads `goneSeats` — written only by the one `player_left` that names a seat
+  — because **held and gone are both `connected: false`** and only one of them comes back. It waits
+  behind the reconnect curtains: our own socket being down may be the whole reason the table looks
+  empty.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own

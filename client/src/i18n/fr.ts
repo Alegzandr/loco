@@ -163,6 +163,8 @@ export const fr: Translations = {
   wsLostConnection: 'Connexion perdue',
   wsReconnecting: 'Reconnexion…',
   wsRetryNow: 'Réessayer maintenant',
+  tableEmptyTitle: 'Tous les autres sont partis.',
+  tableEmptyHint: 'Il ne se passera plus rien à cette table.',
   mapLoadingTitle: 'Ce soir, direction',
   mapLoadingWaiting: 'On dresse la table…',
   mapLoadingReady: 'Tu es en place. On attend les autres…',

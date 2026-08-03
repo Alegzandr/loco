@@ -175,7 +175,7 @@
       initialConfirmLeave={scene.confirmLeave}
     />
   {:else if scene.screen === 'game'}
-    <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} />
+    <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} onLeave={noop} />
   {:else if scene.screen === 'gameover'}
     <GameOver
       winner={g.matchWinner}

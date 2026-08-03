@@ -164,6 +164,12 @@ a string it is free to reword.
     through it — a bot that mistimes pays the same price, or the two are playing different games. A
     miss deliberately does **not** `noteSuspect` and sends no error toast: the button was armed when
     it was pressed, and the client shows the penalty itself.
+  - **A penalty that drew nothing is told to its caller and to nobody else.** `catchGrace` closed the
+    call from *outside* a window; this is the one from inside it. Once both piles are dry the draw
+    comes back empty, so the call costs nothing — and announcing it anyway made it the one gameplay
+    message that was free to send *and* free to fan out, at ten a second for the whole seven seconds
+    a target's window is open. There is also nothing to announce: the table would be rendering a
+    penalty nobody paid. The caller still gets the frame, because their button did do something.
 - **The client spends the catch button on press, not on the reply** (`noteCatchAttempt` sets
   `CatchWindow.attempted`, which `deriveCatch` skips). The server answers a round trip later, and now
   that a miss costs a card, a window left armed in the meantime lets one impatient double tap pay

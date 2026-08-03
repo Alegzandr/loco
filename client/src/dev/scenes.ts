@@ -858,6 +858,20 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    // The one state the board used to have no answer to: every other seat's
+    // hold has run out, so nothing here will ever move again. The check is that
+    // the card reads as an ending rather than as an error, and that the match
+    // stays visible behind it — it is still the game that was being played.
+    id: 'game-table-abandoned',
+    title: 'Partie · table désertée',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: PLAYERS_4.slice(0, 2).map((p) => (p.index === 0 ? p : { ...p, connected: false })),
+      goneSeats: [1],
+    },
+  },
+  {
     // Both at once, which is the only reason the banner has an offset: the
     // countdown owns the slot, the deploy note waits its turn under it.
     id: 'game-server-updating-with-away',
