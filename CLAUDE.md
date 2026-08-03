@@ -519,6 +519,11 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   is a **fixed footer bar**, the same five links in the same order as the home page's row. `body.doc`
   is flat canvas, `background-attachment: fixed` is gone, and text selection is put back.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
+- **Every in-page jump glides**, anchors and "back to top" alike: `scroll-behavior: smooth` behind
+  `html[data-scroll="smooth"]`, which `theme-boot.ts` writes from the system preference — a media
+  query is refused here and `data-motion` is the game's. **Anything that focuses an element after a
+  smooth scroll passes `preventScroll: true`**, or the scroll-into-view cancels the animation before
+  its first frame.
 - **Under 46rem the bar is gone and one burger is the whole navigation**, on the content pages *and*
   on `/`, styled once in `content.css`. **Only the list differs** (the game's carries no `Play`); a
   `.navPop*` rule in `GamePage.astro` is a divergence by definition. Both drawers open on the

@@ -145,11 +145,38 @@ describe('the content stylesheet', () => {
     // logo with nothing offering to close it.
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
     const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
-    expect(boot, 'back-to-top is what moves focus there').toMatch(/\.skip'\)\?\.focus\(\)/)
+    expect(boot, 'back-to-top is what moves focus there').toMatch(
+      /\.skip'\)\?\.focus\(\{ preventScroll: true \}\)/,
+    )
     expect(css, 'the skip link must reveal on :focus-visible only').toMatch(
       /\.skip:focus-visible\s*\{/,
     )
     expect(css, 'a bare :focus reveals it on tap too').not.toMatch(/\.skip:focus\s*\{/)
+  })
+
+  it('glides to an anchor, and only for a reader who did not ask for less', () => {
+    // A fragment jump on a page this long teleports the reader with nothing to
+    // say the page did not change under them. The two halves of the wiring live
+    // in two files, and either alone is silent: the stylesheet with no attribute
+    // never glides, the attribute with no rule does nothing.
+    const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
+    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
+
+    expect(css, 'the smooth rule must hang off the attribute').toMatch(
+      /html\[data-scroll="smooth"\][^{]*\{[^}]*scroll-behavior:\s*smooth/,
+    )
+    // One declaration, and the assertion above says which rule carries it: a
+    // second one anywhere would be smooth scrolling nothing can take back.
+    expect(
+      [...css.matchAll(/scroll-behavior:\s*smooth/g)],
+      'the guarded rule is the only one allowed to declare it',
+    ).toHaveLength(1)
+    expect(boot, 'the preference is what writes it').toMatch(
+      /prefers-reduced-motion[\s\S]{0,400}dataset\.scroll = 'smooth'/,
+    )
+    expect(boot, 'and it has to come back off when the reader flips it').toMatch(
+      /delete document\.documentElement\.dataset\.scroll/,
+    )
   })
 
   it('pins nothing behind the text', () => {

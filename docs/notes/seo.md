@@ -254,6 +254,25 @@ home. The `href="#top"` is real, so the control works even if the handler does n
 adds the smooth scroll (skipped when the system asks for reduced motion — there is no `data-motion`
 here, that attribute is the game's) and moves focus back to the skip link.
 
+**And the smooth scroll had to be made to survive that focus call.** The button animated nothing for
+as long as it existed, and `window.scrollTo` was never the problem: the line after it focused
+`.skip`, which sits at `top: 0` nine thousand pixels off to the left, so the browser scrolled it into
+view — instantly — and an instant scroll cancels a smooth one already in flight. The animation
+started every time and never got a frame. `focus({ preventScroll: true })` is the whole fix; the
+keyboard reader still lands at the top of the document.
+
+**An anchor glides too**, which is the same problem one press earlier: the rules page's table of
+contents and the privacy page's jump list moved the reader several screens with nothing to say the
+page had not been replaced under them. `scroll-behavior: smooth` on the scrolling element covers
+every route at once — a fragment link, the skip link, `#top`, and the handler's own `scrollTo`. It
+hangs off `html[data-scroll="smooth"]`, written by `theme-boot.ts` from the system preference,
+because a reduced-motion reader has to keep the instant jump and neither answer is available to this
+stylesheet: `@media` on that preference is refused across the whole client by
+`reducedMotionCss.test.ts`, and `data-motion` is written by the game's `initMotion()`, which these
+pages never mount. The listener is live rather than read once at boot, and with the script off
+nothing glides, which is the safe half of the fallback. `contentPages.test.ts` pins both halves —
+either alone is silent.
+
 `body.doc` also puts text selection back: the reset in `Base.astro` disables it for the board, where
 dragging a card must not select the table, and a page of rules nobody can quote is a different kind
 of broken.

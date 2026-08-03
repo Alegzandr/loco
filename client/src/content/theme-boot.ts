@@ -85,6 +85,22 @@ if (buttons.length) {
   paint()
 }
 
+// ── Smooth in-page travel ──────────────────────────────────────────────────
+//
+// The attribute `content.css` hangs `scroll-behavior: smooth` off. Read here
+// rather than declared in the stylesheet because a reduced-motion reader has to
+// keep the instant jump and that file may not carry the media query; there is no
+// `data-motion` on these pages either, so the system preference is the only
+// answer available. A live listener, not a boot-time read: the setting can be
+// flipped while the page is open, and this costs one line to follow.
+const fluid = window.matchMedia('(prefers-reduced-motion: reduce)')
+const syncScrollMode = () => {
+  if (fluid.matches) delete document.documentElement.dataset.scroll
+  else document.documentElement.dataset.scroll = 'smooth'
+}
+syncScrollMode()
+fluid.addEventListener('change', syncScrollMode)
+
 // ── Back to top ────────────────────────────────────────────────────────────
 //
 // Wired here rather than shipped as a second script: there is only ever one
@@ -131,10 +147,15 @@ if (toTop) {
     // Smooth unless the reader asked for less. There is no `data-motion` here:
     // that attribute is the game's, written by a hook these pages never mount,
     // so the system preference is the only answer available.
-    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    window.scrollTo({ top: 0, behavior: still ? 'auto' : 'smooth' })
+    window.scrollTo({ top: 0, behavior: fluid.matches ? 'auto' : 'smooth' })
     // The href alone would have moved focus to the header; taking it back to the
     // top of the document is what a keyboard reader expects from "back to top".
-    document.querySelector<HTMLElement>('.skip')?.focus()
+    //
+    // `preventScroll`, and it is the whole reason the button used to snap: the
+    // skip link sits at `top: 0` a screenful off to the left, so focusing it made
+    // the browser scroll it into view — instantly, and an instant scroll cancels
+    // the smooth one that had just started. The animation was there all along and
+    // never got a frame.
+    document.querySelector<HTMLElement>('.skip')?.focus({ preventScroll: true })
   })
 }
