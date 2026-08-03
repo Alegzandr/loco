@@ -6,6 +6,7 @@ import { FANFARES, intensityOf, sceneFor, soundsForTransition } from '../audio/g
 import { clearSession, touchSession, writeSession } from './sessionPersistence'
 import type { RestoreTarget } from './sessionPersistence'
 import { RESTORE_TIMEOUT_MS } from './sessionRestore'
+import { live } from './live.svelte'
 
 /**
  * The three app-level effects, ported from their `use*` hooks. All three are
@@ -159,8 +160,13 @@ export function sessionPersistence(): void {
  * instant the store leaves the restoring screen.
  */
 export function restoreTimeout(restoring: () => boolean, timeoutReason: string): void {
+  // Through `live()` like every other timer in the client: the deadline is
+  // measured from the moment the reclaim went out, and an effect that re-ran on
+  // any store write would push it back by 12s each time. See `live.svelte.ts`.
+  const inFlight = live(restoring)
+
   $effect(() => {
-    if (!restoring()) return
+    if (!inFlight()) return
     const id = setTimeout(() => {
       gameStore.getState().abortRestore(timeoutReason)
     }, RESTORE_TIMEOUT_MS)

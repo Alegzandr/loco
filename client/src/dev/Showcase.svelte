@@ -143,6 +143,7 @@
       initialMode={scene.lobbyMode}
       initialCode={scene.lobbyCode}
       initialPrefsOpen={scene.prefsOpen}
+      initialAudioOpen={scene.audioOpen}
     />
   {:else if scene.screen === 'searching'}
     <Searching

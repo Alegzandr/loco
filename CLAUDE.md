@@ -77,7 +77,9 @@ the window, and applies documented tie-breaks.
   "no" alone. Lost races are excluded on purpose.
 - **Reconnect**: 60s slot hold; rejoin via nickname + room code + session token restores the slot
   with a full snapshot. The identity is mirrored into `sessionStorage`, so a **page reload** reclaims
-  the seat too, not only a dropped socket.
+  the seat too, not only a dropped socket. **A reclaim spends its token and is answered with a fresh
+  one, which the client stores** (`player_reconnected` → `setSessionToken`): keeping the spent one
+  costs nothing on this reclaim and refuses the *next* one, so it is the second reload that breaks.
 
 ## Testing
 Detail, and the full required-coverage list: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
@@ -109,7 +111,7 @@ needs jsdom and the `browser` resolve condition.
 - `src/pages/` one `.astro` per URL · `src/layouts/` `Base.astro`, `GamePage.astro`, `ContentPage.astro`
 - `src/App.svelte` the screen switch · `src/entry.ts` mounts it into `#root` via a bundled module
   script, never an island
-- `src/homeSheet.ts` the home sheet's Esc and scrim-click · `src/theme.ts` · `src/lang.ts` (storage
+- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
   key, the two home paths, the boot redirect); the last two pull in no framework, so a content page
   can use them
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
@@ -136,7 +138,8 @@ needs jsdom and the `browser` resolve condition.
   `gameStore` (the snapshot every component reads), `appEffects` (audio, session persistence, the
   restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
   `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
-  insets), `drainBar`, `escapeKey`, `tabAlert`, `prefs`, `uiPrefs`. **Everything else is
+  insets), `drainBar`, `escapeKey`, `tabAlert`, `prefs`, `uiPrefs`, and `live` (the one narrowing
+  every effect above watches its own field through). **Everything else is
   framework-free on purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` +
   `store/`: `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`,
   `deriveCatchMiddleware.ts`, and one module per family — `sessionActions` `tableActions`
@@ -256,8 +259,10 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   and **`dispatchAtTable` re-checks the seat against the table about to act on it**, because the
   routing and the handling no longer happen in the same instant. Reconnects are unaffected.
 - **Personalised sends index by slot, never by `member.playerID`.**
-- **Room codes and session tokens both come from `crypto/rand`**, no fallback. `math/rand` is for bot
-  jitter and nothing else.
+- **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback.
+  `game.newRNG` seeds the source that picks the map, the starting seat and the shuffle: **the deal is
+  hidden state, so a clock seed hands every hand to anyone who timed `create_room`**.
+  `game/rng_test.go` runs that attack. `math/rand` is for bot jitter and nothing else.
 - **The nickname is validated in the domain and refused with one string.** `game.ValidateNickname`
   owns length **in runes**, an allowlist charset and the blocked-term check; all three reach the
   player as `nickname not allowed` and **never say which rule fired**. Words in
@@ -349,6 +354,20 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   lose the page are in the note, and `contentPages.test.ts` pins each.
 - **Derived state in the store is completed by the store, never by the actions**
   (`store/deriveCatchMiddleware.ts`, `catchDerivation.test.ts`).
+- **An effect that watches one field of the store reads it through `live()`** (`hooks/live.svelte.ts`),
+  or through a `$derived` when it is written in a component. `game.current` is **one** `$state.raw`
+  replaced whole on every message, so a `$effect` reading `g.x` depends on the entire match and
+  re-runs several times a second — which for these effects means clearing and re-arming the timer
+  they own. React compared dependencies by value and this is what the crossing lost: a notice that
+  never comes down, a reconnect curtain over a table that is already back, a drain bar snapping to
+  full on every play, a colour picker closing itself under the player's thumb.
+  `src/test/liveDeps.test.ts` moves a field nobody is watching and asserts nothing noticed.
+- **A child gets no narrowing either: reading a prop is not depending on its value.** A sibling prop
+  being re-evaluated re-runs the effect, and every component under `GameView` is handed a dozen props
+  off the same snapshot. So **an effect that spawns an animation guards on its trigger's timestamp**
+  (the board's `lastPlayAt` / `lastSwapAt` / `lastCatchAt`, `DiscardPile`'s `key` + `untrack`) and
+  **an effect that holds a timer works to an absolute deadline** (`Hand`'s `dealUntil`, `drainBar`),
+  never to "one timeout from whenever this last ran" — the cleanup takes the timer with it.
 - **Nothing continuous goes through reactive state.** Countdown bars use `drainBar`, never a
   percentage: the element is handed a CSS animation whose duration is the window, so the drain costs
   zero updates. Svelte builds the board once and keeps it, which is a guarantee only until somebody
@@ -381,10 +400,16 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   store (`localStorage`, presentation only, never on the wire). Those icons are **drawn SVG, never a
   font character**.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
-  scrim **wraps** the panel, and its ✕ needs `position: relative`.
-- **The language pair is two real `<a href>`s at the entry screen, and a toggle once seated.**
-  `setLang` still runs so the choice outlives the navigation. `LanguageSwitcher.svelte` holds the only
-  second copy of `/` and `/fr/`, pinned by `seo.test.ts`.
+  scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
+  sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's
+  type**: labels 15px, hints 13px, switch rows 56px, slider thumbs 30px.
+- **The language is a dropdown, and the Apply button exists only where applying reloads the page.**
+  At the entry screen that press is a **real `<a href>`** — off while the choice is the language
+  already showing — because a control that costs the page must not fire on the press aiming for it;
+  the sentence promising the reload renders there and only there. **Once seated the pick applies
+  itself**: `setLang` swaps the strings in place, nothing reloads, so no button and no confirmation
+  step. `setLang` still runs on the way out so the choice outlives the navigation.
+  `LanguageSwitcher.svelte` holds the only second copy of `/` and `/fr/`, pinned by `seo.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
@@ -497,6 +522,10 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   disabled**. **A board that can be scrolled off-screen mid-match is a bug**, and so is a lobby that
   hides text under the fold. The footer vanishes on `data-seated`: it is markup Astro rendered, so it
   is never the app's to unmount and never a modal of ours.
+- **Open, that sheet is `RulesModal` down to the measurements**, and the three things that let a
+  native disclosure wear them are in the note: the card **is** the `<details>`, the `<summary>` is the
+  footer button (`order`), the scrim is a **sibling** of the card, and the ✕ ships `hidden` for
+  `homeSheet.ts` to reveal. `contentPages.test.ts` reads the card off `RulesModal.svelte`.
 - **The FAQ is the `FAQPage` payload, rendered** from `src/content/faq.ts`. Its answers describe real
   server behaviour, so a change to those changes this file.
 - **English at `/`, French under `/fr/`, every path slash-terminated.** Never redirect from the
@@ -625,6 +654,13 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 Production path: Traefik to nginx (:80) to Go (:8080, internal only); nginx proxies `/ws` and
 `/health`, serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` on
 every response.
+
+**Those four live in `client/security-headers.conf`, and every `location` block that declares an
+`add_header` of its own must `include` it.** nginx inherits `add_header` only into a level that
+declares none, so one `Cache-Control` in a block silently strips all four from everything that block
+serves — which is how the whole `/_astro/` bundle shipped bare while the document response, the only
+one `make csp` looked at, reported clean. `csp.test.ts` fails on a block that declares without
+including.
 
 **Run `docker run` through `make` or PowerShell, never raw from Git Bash on Windows.** MSYS rewrites
 `-v src:/app` into `src;C:/Program Files/Git/app`; the `-w` errors out but the mount has already made

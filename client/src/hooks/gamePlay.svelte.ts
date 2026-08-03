@@ -3,6 +3,7 @@ import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/
 import { type MapDef, mapAssets } from '../components/cards/maps'
 import { MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
 import { prefersReducedMotion } from './motionPref'
+import { live } from './live.svelte'
 
 /** A card waiting on a colour. `copies` carries a batch slam through the prompt. */
 export interface ColorPick {
@@ -124,8 +125,16 @@ export function cardPlay(params: PlayParams) {
   // classic case is a second GlobalSwitch stealing the lead) invalidates both the
   // colour and the swap target you were choosing, and the server would refuse the
   // play anyway. Close them: the interjecter now owns the choice.
+  //
+  // "Once a card lands" is the whole condition, so the timestamp is read through
+  // `live()` and nothing else is read at all. Reading it off the snapshot meant
+  // depending on the entire match: every message closed the prompt, so from the
+  // second card of the round onwards a wild could not be given a colour and a
+  // Swap could not be given a target — the picker shut itself under the player's
+  // thumb.
+  const lastLanded = live(() => params.lastPlayAt())
   $effect(() => {
-    if (params.lastPlayAt() === undefined) return
+    if (lastLanded() === undefined) return
     colorPicker = null
     playerPicker = null
   })
@@ -259,19 +268,25 @@ export function boardShake(
     node.animate(frames, { duration: durationMs, delay: delayMs, easing: 'ease-out' })
   }
 
-  // Both read `at`, not just the object. Two interrupts in a row are two flashes
+  // Both watch `at`, not just the object. Two interrupts in a row are two flashes
   // that differ by their timestamp and nothing else, and an effect that only
   // looked at whether there was one would run for the first and sit still for
   // the second — one shake per match instead of one per interrupt.
+  //
+  // And `live()` is what makes the timestamp the dependency rather than merely
+  // the thing read: the flash stays in the store for the length of its banner,
+  // so an effect tracking the snapshot rattled the board again on every message
+  // that arrived while it was up.
+  const interruptAt = live(() => interruptFlash()?.at)
+  const catchAt = live(() => catchFlash()?.at)
+
   $effect(() => {
-    const at = interruptFlash()?.at
-    if (at === undefined) return
+    if (interruptAt() === undefined) return
     shake(INTERRUPT_FRAMES, INTERRUPT_MS)
   })
 
   $effect(() => {
-    const at = catchFlash()?.at
-    if (at === undefined) return
+    if (catchAt() === undefined) return
     shake(CATCH_FRAMES, CATCH_MS, CATCH_DELAY_MS)
   })
 }

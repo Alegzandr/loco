@@ -470,9 +470,17 @@ which `script-src 'self'` refuses. Astro's own `security.csp` answers that with 
 still blocks them and the page renders blank in production alone. `csp.test.ts` fails on any
 `client:*` directive for exactly this reason.
 
+The header values themselves live in `client/security-headers.conf`, which `nginx.conf` `include`s —
+once in the server block, and again in every `location` block that declares an `add_header` of its
+own. That is not style: nginx inherits `add_header` into an inner level only while that level
+declares none, so a lone `Cache-Control` in a block replaces all four for everything that block
+serves. `location /_astro/` did, and the whole bundle went out with no CSP and no `nosniff` while
+the document response looked clean.
+
 `client/src/test/csp.test.ts` pins the policy to the app it protects (no inline script, no remote
-origin, no `eval`, `$http_host` rather than `$host`). `make csp` answers the other half, whether the
-built client actually runs behind the header nginx sends:
+origin, no `eval`, `$http_host` rather than `$host`, and no `location` block declaring a header
+without the include). `make csp` answers the other half, whether the built client actually runs
+behind the header nginx sends — on an `/_astro/` asset as well as on the page:
 
 ```bash
 make csp                                    # up --build, check in a real browser, down

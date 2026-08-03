@@ -126,6 +126,13 @@ export interface Translations {
   /** The ✕ on the phone's sheet, where the gear that opened it is not on screen. */
   prefsClose: string
   prefsLanguage: string
+  /**
+   * The button beside the language dropdown, at the entry screen only: there
+   * the choice reloads the page, so it is not applied on the pick. Once seated
+   * it is, and neither this nor the hint below is rendered.
+   */
+  prefsApply: string
+  prefsLanguageHint: string
   prefsTheme: string
   prefsThemeLight: string
   prefsThemeDark: string
@@ -202,6 +209,8 @@ export interface Translations {
   leaveConfirmStay: string
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: string
+  /** The sheet's ✕ below 46rem, where the speaker chip is not what shuts it. */
+  audioClose: string
   audioMaster: string
   audioSfx: string
   audioMusic: string
@@ -387,6 +396,10 @@ export const en: Translations = {
   prefsTitle: 'Preferences',
   prefsClose: 'Close',
   prefsLanguage: 'Language',
+  // The verb about to happen. Picking in the dropdown changes nothing on its
+  // own, and at the entry screen this press leaves the page.
+  prefsApply: 'Apply',
+  prefsLanguageHint: 'The page reloads so every word changes with it.',
   prefsTheme: 'Theme',
   prefsThemeLight: 'Light',
   prefsThemeDark: 'Dark',
@@ -446,6 +459,7 @@ export const en: Translations = {
   leaveConfirmStay: 'Stay',
   // ─── Audio ────────────────────────────────────────────────────────
   audioTitle: 'Sound',
+  audioClose: 'Close',
   audioMaster: 'Overall',
   audioSfx: 'Effects',
   audioMusic: 'Music',

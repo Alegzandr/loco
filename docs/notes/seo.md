@@ -504,9 +504,33 @@ so the prose stays in the served HTML where a crawler reads it — content insid
 is indexed normally, and the alternative (the copy in `i18n/`, rendered by a component) would put it
 behind a script *and* grow the bundle every player downloads. And it opens with no JavaScript at all,
 which `seo.spec.ts` proves by clicking it in a context with scripts disabled. `src/homeSheet.ts` adds
-only Esc and a click on the scrim; the sheet is fully usable without it. Open, the `<summary>` is the
-close button, because a native `<details>` has exactly one control and a second one would need a
-script to work.
+only Esc, a click on the scrim and the ✕; the sheet is fully usable without any of them. Open, the
+`<summary>` is the close button, because a native `<details>` has exactly one control and a second one
+would need a script to work.
+
+**Open, it is the rules modal.** Same card, same 4px stroke, same headed title with a ✕, same scrolling
+body, same single button at the foot — `components/RulesModal.svelte` is where every measurement comes
+from, and `contentPages.test.ts` reads them off that file rather than restating them. The two are the
+same object seen from two screens: a player who opens both in one session is entitled to meet one game
+and not two ideas of what a panel over the board is. It was a bordered card floating on a scrim with a
+pill fixed at the bottom edge of the *screen*, which was a third thing, resembling neither.
+
+Three details make that shape work on a native disclosure, and each of them fails silently if undone:
+
+- **The card is the `<details>` element itself.** A `<summary>` must be that element's first child, so
+  it cannot live inside a card that is one of its siblings. `order: 1` sends it to the foot of the flex
+  column, where the modal's footer button is; lose that declaration and the button sits above the
+  title with nothing else broken.
+- **The scrim is a sibling of the `<details>`, not a child of it.** As a child it would be painted over
+  the card's own background — a positioned element's background is painted by the stacking context
+  root before any child, so a full-screen `z-index: -1` scrim tints the card it is meant to sit behind.
+- **The ✕ ships `hidden` and `homeSheet.ts` reveals it**, the same contract as the drawer's Preferences
+  row: the summary closes the sheet with no bundle in flight, this one cannot. `.homeSheetX[hidden] {
+  display: none }` is load-bearing — the `display: flex` that draws it beats the attribute otherwise,
+  and the control appears with nothing behind it.
+
+`HomeProse.astro`'s sections head at `<h3>`, under the sheet's own `<h2>` title, which keeps the
+document's heading order the served `<h1>` establishes.
 
 Under 46rem none of that row is on screen: the burger described above replaces it, and the drawer
 carries the links. The sheet is the prose's one control — it is what opens it on a wide screen, and

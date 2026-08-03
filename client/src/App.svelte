@@ -22,6 +22,12 @@
 
   const t = $derived(i18n.t)
   const g = $derived(game.current)
+  // The one field the effects below turn on, derived rather than read out of `g`
+  // inside them. `g` is a single snapshot replaced on every message, so an effect
+  // reading it depends on the whole match and re-runs several times a second —
+  // see `hooks/live.svelte.ts`, which is the same rule for everything under
+  // `hooks/`.
+  const screen = $derived(g.screen)
 
   // Single owner of every sound in the game: one store subscription, no
   // per-component audio calls. See hooks/appEffects.svelte.ts.
@@ -30,7 +36,7 @@
   // Mirrors room + seat + token into sessionStorage so a reload can reclaim the
   // seat, and gives a reclaim that never lands a way out.
   sessionPersistence()
-  restoreTimeout(() => g.screen === 'restoring', 'reconnect failed')
+  restoreTimeout(() => screen === 'restoring', 'reconnect failed')
 
   // The LOCO! banner comes down on its own, and a second declaration arriving
   // first has to cancel the first timer rather than let it fire later over fresh
@@ -92,7 +98,7 @@
   // A search runs for minutes and people go and do something else. The sound on
   // `matchfound` is for the player who stayed; this is for the one who did not,
   // and it only ever runs while the tab is hidden.
-  tabAlert(() => t.matchFoundTab, () => g.screen === 'matchfound')
+  tabAlert(() => t.matchFoundTab, () => screen === 'matchfound')
 
   // The queue screens are entered optimistically: the press is the moment the
   // player committed, and waiting a round trip to acknowledge it would make the
@@ -129,7 +135,7 @@
   // tables are left alone: there is a room, a code and a lobby to reopen, and
   // nobody there queued for a stranger in the first place.
   $effect(() => {
-    if (g.screen !== 'gameover' || !g.isMatchmade || hasTablemates) return
+    if (screen !== 'gameover' || !g.isMatchmade || hasTablemates) return
     findMatch(myNickname)
   })
 
@@ -140,7 +146,7 @@
   // refused counts as no name at all: better the field than a round trip whose
   // only outcome is an error over a form nobody has filled in.
   $effect(() => {
-    if (g.screen !== 'lobby' || !inviteCode) return
+    if (screen !== 'lobby' || !inviteCode) return
     const code = takeTableInvite()
     // Spent either way, and before anything can fail: leaving this table has to
     // land on an ordinary lobby, not back at its door.
@@ -158,7 +164,7 @@
   // Purely presentational, and absent from every other page.
   $effect(() => {
     const root = document.documentElement
-    if (g.screen === 'lobby') root.removeAttribute('data-seated')
+    if (screen === 'lobby') root.removeAttribute('data-seated')
     else root.setAttribute('data-seated', '1')
     return () => root.removeAttribute('data-seated')
   })

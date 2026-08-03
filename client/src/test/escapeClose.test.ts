@@ -109,6 +109,19 @@ describe('Escape closes every dismissible surface', () => {
     escape()
     expect(screen.queryByText(en.audioMaster)).not.toBeInTheDocument()
   })
+
+  /**
+   * Below 46rem the mixer is a sheet over the whole screen and the speaker chip
+   * that opened it is behind the scrim, so the ✕ is the entire pressable way
+   * out — the same hole `Preferences.svelte` had before it grew one. CSS reveals
+   * it at that width and can only reveal something that is in the markup.
+   */
+  it('gives the mixer its own way out, for the width where the chip is covered', () => {
+    render(AudioSettings)
+    fireEvent.click(screen.getByRole('button', { name: en.audioTitle }))
+    fireEvent.click(screen.getByRole('button', { name: en.audioClose }))
+    expect(screen.queryByText(en.audioMaster)).not.toBeInTheDocument()
+  })
 })
 
 /**

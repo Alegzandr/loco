@@ -1,16 +1,7 @@
+import { live, type Live } from './live.svelte'
+
 /** How long each half of the title alternation is shown. `tabAlert.test.ts` advances the clock by it. */
 export const TAB_ALERT_PERIOD_MS = 1200
-
-/**
- * A live getter, or a value that cannot change.
- *
- * The app hands these accessors getters, because what they watch moves. A test
- * that pins one of them in isolation hands a constant, and a constant needs no
- * subscription — so both spellings are accepted and only the getter is tracked.
- */
-type Live<T> = T | (() => T)
-const read = <T,>(v: Live<T>): T => (typeof v === 'function' ? (v as () => T)() : v)
-
 
 /**
  * Alternates the browser tab's title while something is waiting for a player who
@@ -36,14 +27,16 @@ const read = <T,>(v: Live<T>): T => (typeof v === 'function' ? (v as () => T)() 
  */
 export function tabAlert(message: Live<string>, trigger: Live<boolean>): void {
   let armed = $state(false)
+  const waiting = live(trigger)
+  const title = live(message)
 
   $effect(() => {
-    if (read(trigger) && document.visibilityState === 'hidden') armed = true
+    if (waiting() && document.visibilityState === 'hidden') armed = true
   })
 
   $effect(() => {
     if (!armed) return
-    const text = read(message)
+    const text = title()
 
     // Captured at arming time rather than at mount: nothing else in the app
     // writes the title, so whatever is there now is the page's own.

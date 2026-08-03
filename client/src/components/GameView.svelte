@@ -117,8 +117,16 @@
   // The catch bar is only mounted once a target is on the hook, so the deadline
   // handed to it has to go null with it, otherwise the effect would not re-run
   // when the element finally appears, and the bar would never arm.
+  //
+  // The three deadlines below are `$derived` for the same reason every hook in
+  // `hooks/` reads its arguments through `live()`: `g` is one snapshot replaced
+  // on every message, so an effect reading `g.turnDeadline` straight out of it
+  // depends on the whole match and re-arms its timer on every card anybody
+  // plays. A derivation is compared, so what changes here is the deadline.
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
-  drainBar(() => turnFill, () => g.turnDeadline, 'auto')
+  const turnDeadline = $derived(g.turnDeadline)
+  const catchWindowEnd = $derived(g.unoTimerEnd)
+  drainBar(() => turnFill, () => turnDeadline, 'auto')
   drainBar(() => catchFill, () => catchDeadline, UNO_CATCH_WINDOW_MS)
 
   // The urgency pulse is a `class:` directive rather than the `classList.add` the
@@ -129,7 +137,7 @@
   // discrete change, which is exactly what state is for.
   let turnUrgent = $state(false)
   $effect(() => {
-    const deadline = g.turnDeadline
+    const deadline = turnDeadline
     turnUrgent = false
     if (deadline === null) return
     const remaining = deadline - Date.now()
@@ -148,7 +156,7 @@
   // deadlines, and the next one becomes the offered catch. The server enforces the
   // same 5 s, so a late click would only earn an error toast.
   $effect(() => {
-    const end = g.unoTimerEnd
+    const end = catchWindowEnd
     if (end === null) return
     const remaining = end - Date.now()
     if (remaining <= 0) {

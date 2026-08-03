@@ -108,15 +108,46 @@ async function check(url) {
   const sockets = []
   page.on('websocket', ws => sockets.push(ws.url()))
 
-  const res = await page.goto(url, { waitUntil: 'networkidle' })
-  const headers = res.headers()
-  for (const name of [
+  const REQUIRED_HEADERS = [
     'content-security-policy',
     'x-content-type-options',
     'referrer-policy',
     'permissions-policy',
-  ]) {
+  ]
+
+  // Every response the page pulled in, kept by URL, so the headers on a
+  // sub-resource can be checked and not just the ones on the document.
+  //
+  // That distinction is the whole reason this block exists. nginx inherits
+  // `add_header` into a location block only while that block declares none of
+  // its own, so a single `add_header Cache-Control` under /_astro/ silently
+  // strips the security headers from the entire bundle — while the document
+  // response, which is all this script used to look at, still carries all four
+  // and reports clean. Checking the document alone cannot see it.
+  const responses = []
+  page.on('response', r => responses.push(r))
+
+  const res = await page.goto(url, { waitUntil: 'networkidle' })
+  const headers = res.headers()
+  for (const name of REQUIRED_HEADERS) {
     if (!headers[name]) problems.push(`missing header: ${name} (is nginx serving client/nginx.conf?)`)
+  }
+
+  const assets = responses.filter(r => new URL(r.url()).pathname.startsWith('/_astro/'))
+  if (assets.length === 0) {
+    problems.push('no /_astro/ asset was requested — the header check below asserted nothing')
+  }
+  for (const asset of assets) {
+    const h = await asset.allHeaders()
+    for (const name of REQUIRED_HEADERS) {
+      if (!h[name]) {
+        problems.push(
+          `missing header on asset: ${name} on ${new URL(asset.url()).pathname} — ` +
+            'the location block declares an add_header, which discards the inherited ones ' +
+            '(include /etc/nginx/security-headers.conf in it)',
+        )
+      }
+    }
   }
 
   // Creating a room is the first thing that needs the socket.

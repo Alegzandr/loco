@@ -154,6 +154,8 @@ export interface Scene {
   streamerMode?: boolean
   /** Lobby: mount with the preferences panel open. */
   prefsOpen?: boolean
+  /** Lobby: mount with the sound panel open. */
+  audioOpen?: boolean
   /** Colour assist: every suit also carries its silhouette. */
   colorAssist?: boolean
 }
@@ -281,6 +283,16 @@ export const SCENES: Scene[] = [
     screen: 'lobby',
     lobbyMode: 'home',
     prefsOpen: true,
+  },
+  {
+    // The mixer, which below 46rem is a sheet and not the dropdown this shot
+    // catches at `wide`: three sliders a thumb has to land on, so it is the
+    // `small` viewport this scene exists for.
+    id: 'lobby-audio',
+    title: 'Accueil · son',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    audioOpen: true,
   },
   {
     id: 'lobby-rules',

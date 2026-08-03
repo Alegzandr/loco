@@ -214,7 +214,7 @@ describe('hreflang', () => {
     // Half of `/` is markup Astro rendered per URL — the footer row, the
     // burger's drawer, the sheet of prose — so switching language in the app
     // without moving left the game in French under a menu still in English. At
-    // the entry screen the switch is two real links instead, and the boot-time
+    // the entry screen Apply is a real link instead, and the boot-time
     // redirect follows the same two paths when a stored choice disagrees with
     // the URL it was opened at. They live in `src/lang.ts`, which is the only
     // second copy of these paths in the codebase: `seo/meta.ts` would otherwise

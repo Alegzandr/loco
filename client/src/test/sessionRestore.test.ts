@@ -143,6 +143,67 @@ describe('reload into a live match', () => {
     expect(screen.getByTestId('game')).toBeTruthy()
   })
 
+  /**
+   * The reclaim spends its token, and the answer carries the next one.
+   *
+   * The server rotates it on every successful reconnect and says why in
+   * `hub/handleReconnect`: the old one has been on a socket that died, it is in
+   * sessionStorage, and if the process restarted on the way it has also been
+   * written to a snapshot on disk, so a one-shot proof is worth more than a
+   * permanent one. That trade only holds because "the client already stores
+   * whatever the server hands it" — and this branch did not. The seat came back
+   * once, the record kept a token that had just been spent, and the *second*
+   * reclaim of that tab (another reload, a dropped socket, a deploy) was refused
+   * with `game already in progress`: the player was handed a lobby saying the
+   * cards were already dealt at a table they were sitting at.
+   */
+  it('keeps the fresh token the reclaim was answered with', () => {
+    writeSession({ roomCode: 'ABC123', nickname: 'Bob', sessionToken: 'tok', target: 'game' })
+    initSessionRestore()
+    renderApp()
+
+    act(() => {
+      capturedOnMessage?.({
+        type: 'player_reconnected',
+        room_code: 'ABC123',
+        player_id: 1,
+        session_token: 'tok2',
+        players: [
+          { index: 0, nickname: 'Alice', hand_size: 4, connected: true },
+          { index: 1, nickname: 'Bob', hand_size: 3, connected: true },
+        ],
+        state: {
+          your_index: 1,
+          hand: [{ color: 'red', kind: 'number', value: 7 }],
+          players: [
+            { index: 0, nickname: 'Alice', hand_size: 4, connected: true },
+            { index: 1, nickname: 'Bob', hand_size: 3, connected: true },
+          ],
+          discard: { color: 'blue', kind: 'skip' },
+          active_color: 'blue',
+          turn: 1,
+          direction: 1,
+          pending_draw: 0,
+          has_drawn: false,
+          round_number: 2,
+          match_format: 'BO3',
+          max_players: 4,
+        },
+      } as ServerMsg)
+    })
+
+    expect(gameStore.getState().sessionToken).toBe('tok2')
+    // And it is the one the next reclaim would go out with, from the record as
+    // well as from the store: the second reload is the one that used to fail.
+    expect(readSession()?.sessionToken).toBe('tok2')
+    expect(capturedReconnect?.()).toEqual({
+      type: 'join_room',
+      nickname: 'Bob',
+      room_code: 'ABC123',
+      session_token: 'tok2',
+    })
+  })
+
   // A refused reclaim ends the restore and takes the record with it: replaying
   // the same refusal on every load is how a tab becomes permanently unusable.
   it('a refusal drops the record and returns to the lobby with a reason', () => {

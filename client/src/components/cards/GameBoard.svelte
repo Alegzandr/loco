@@ -452,11 +452,18 @@
   }
 
   // ─── Animation effect: swap / global_switch notice ──────────────────────
+  // Guarded on the timestamp like the three effects above, and for a reason that
+  // is not stylistic: the notice stays in the store for the 3.5s it is on screen,
+  // and reading a prop is not a dependency on that prop's *value* — any of the
+  // dozen props this board takes moving re-runs this. So every message that
+  // arrived while a Swap was announced drew the trails again, and a resize drew
+  // them once per frame.
+  let lastSwapAt = p.swapNotice?.at ?? 0
   $effect(() => {
-    // Triggered only when a fresh notice arrives (keyed by .at).
     p.swapNotice?.at
     const sn = p.swapNotice
-    if (!ready || !sn) return
+    if (!ready || !sn || sn.at === lastSwapAt) return
+    lastSwapAt = sn.at
     if (sn.kind === 'swap' && sn.targetIndex >= 0) {
       const a = seatPosition(sn.actorIndex, p.players, p.myIndex, width, height)
       const b = seatPosition(sn.targetIndex, p.players, p.myIndex, width, height)
@@ -481,11 +488,15 @@
   // it. Without this the whole mechanic is invisible: the caught hand grows the way
   // it grows on any ordinary draw, and the player who won the race sees nothing at
   // all happen.
+  // Same guard as the swap trails, same reason: the flash outlives the message
+  // that carried it, so without it the penalty cards left the deck again on every
+  // update for as long as the banner was up.
+  let lastCatchAt = p.catchFlash?.at ?? 0
   $effect(() => {
-    // Triggered only when a fresh catch arrives (keyed by .at).
     p.catchFlash?.at
     const cf = p.catchFlash
-    if (!ready || !cf) return
+    if (!ready || !cf || cf.at === lastCatchAt) return
+    lastCatchAt = cf.at
     const seat = seatPosition(cf.seat, p.players, p.myIndex, width, height)
     const deck = deckPosition(width, height, topReserve)
     const from = {

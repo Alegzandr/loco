@@ -58,7 +58,7 @@ describe('Preferences panel', () => {
   })
 
   /**
-   * At the entry screen the language pair is two real links to the game in the
+   * At the entry screen applying a language is a real link to the game in the
    * other language, because half of that page is markup Astro rendered per URL —
    * the footer, the drawer, the sheet of prose — and `setLang` alone left the
    * game in French under a menu still reading English. Following the link is what
@@ -68,25 +68,55 @@ describe('Preferences panel', () => {
    */
   it('switches the language, and takes the page with it at the entry screen', () => {
     render(Preferences, { defaultOpen: true })
-    const fr_ = screen.getByRole('link', { name: 'Switch language to FR' })
-    expect(fr_).toHaveAttribute('href', '/fr/')
-    expect(fr_).toHaveAttribute('hreflang', 'fr')
+    fireEvent.change(screen.getByRole('combobox', { name: en.prefsLanguage }), {
+      target: { value: 'fr' },
+    })
 
-    fireEvent.click(fr_)
+    const apply = screen.getByRole('link', { name: en.prefsApply })
+    expect(apply).toHaveAttribute('href', '/fr/')
+    expect(apply).toHaveAttribute('hreflang', 'fr')
+
+    fireEvent.click(apply)
     expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
+  })
+
+  /**
+   * The only reason the dropdown has a button at all: at the entry screen this
+   * control reloads the page, so picking must not be what fires it. Until a
+   * different language is chosen the button is off, and pressing it navigates
+   * nowhere.
+   */
+  it('does nothing until a different language is picked', () => {
+    render(Preferences, { defaultOpen: true })
+    const apply = screen.getByRole('link', { name: en.prefsApply })
+    expect(apply).toHaveAttribute('aria-disabled', 'true')
+
+    // The href still points at the language on screen, so even a press that
+    // slipped past the guard is a no-op rather than a wrong navigation.
+    expect(apply).toHaveAttribute('href', '/')
+    fireEvent.click(apply)
+    expect(screen.getByRole('dialog', { name: en.prefsTitle })).toBeInTheDocument()
   })
 
   /**
    * Past a taken seat there is nothing to agree with — `data-seated` has taken
    * the footer and the drawer off the page — and following a link would drop the
-   * match. There it is the in-app toggle it has always been.
+   * match. `setLang` swaps the strings where they stand, so the pick *is* the
+   * application: no navigation, no button, and no sentence promising a reload
+   * that never comes. A step asked for nothing is the thing being removed here,
+   * so the assertion is that neither is rendered.
    */
-  it('never offers to navigate once a seat is taken', () => {
+  it('applies on the pick once a seat is taken, with nothing to press', () => {
     document.documentElement.setAttribute('data-seated', '')
     try {
       render(Preferences, { defaultOpen: true })
-      expect(screen.queryByRole('link', { name: 'Switch language to FR' })).not.toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Switch language to FR' }))
+      expect(screen.queryByRole('link', { name: en.prefsApply })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: en.prefsApply })).not.toBeInTheDocument()
+      expect(screen.queryByText(en.prefsLanguageHint)).not.toBeInTheDocument()
+
+      fireEvent.change(screen.getByRole('combobox', { name: en.prefsLanguage }), {
+        target: { value: 'fr' },
+      })
       expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
     } finally {
       document.documentElement.removeAttribute('data-seated')

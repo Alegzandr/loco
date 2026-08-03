@@ -318,6 +318,64 @@ describe('the mobile menu', () => {
     )
   })
 
+  /*
+   * The sheet and the rules modal are the same object seen from two screens, and
+   * the way they come apart is one of them being restyled on its own — nothing
+   * fails, the game simply has two ideas of what a panel over the board is. What
+   * is pinned here is the shape they share and the two things that made the
+   * sheet a *native* one: a <summary> that closes it with no bundle in flight,
+   * and a scrim that is not inside the card it darkens.
+   */
+  it('opens the prose as the rules modal, and closes it with no script', () => {
+    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
+    // Escaped whole: these selectors carry an attribute, so the `[open]` in them
+    // is a character class the moment it reaches a regex unescaped — and one
+    // that matches nothing, which is a test that passes by finding no rule.
+    const rule = (src: string, selector: string) =>
+      new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`).exec(
+        src,
+      )?.[0] ?? ''
+
+    // The card: the modal's border, radius and shadow, on the <details> itself.
+    const card = rule(game, '.homeSheet[open]')
+    expect(card, 'the open sheet must be a card').toMatch(/border:\s*4px solid var\(--color-stroke\)/)
+    expect(card).toMatch(/border-radius:\s*var\(--radius-xl\)/)
+    expect(card).toMatch(/box-shadow:\s*var\(--shadow-pop\)/)
+    expect(rule(modal, '.modal'), 'read off the modal, not invented here').toMatch(
+      /border:\s*4px solid var\(--color-stroke\)/,
+    )
+
+    // A headed title and a footer, both held while the prose scrolls between
+    // them — the modal's arrangement, and the reason the way out never moves.
+    expect(game).toMatch(/class="homeSheetHead"/)
+    expect(rule(game, '.homeSheetCard'), 'the prose is the only part that moves').toMatch(
+      /overflow-y:\s*auto/,
+    )
+
+    // The one control a player without a bundle can press. `order` is what puts
+    // it at the foot: a <summary> must come first in the markup, and losing this
+    // rule would leave the footer button sitting above the title.
+    expect(rule(game, '.homeSheet[open] .homeSheetBtn'), 'the summary is the footer').toMatch(
+      /order:\s*1/,
+    )
+
+    // Outside the <details>, or it would be painted over the card's own
+    // background: the card here *is* the element the scrim would be a child of.
+    expect(game, 'the scrim is a sibling of the sheet').toMatch(
+      /<\/details>[\s\S]*?class="homeSheetScrim"/,
+    )
+    expect(game).toMatch(/\.homeSheet\[open\]\s*~\s*\.homeSheetScrim/)
+
+    // The ✕ is the scripted second way out, so it ships hidden — and `hidden`
+    // has to be stated in the CSS as well, or the `display: flex` that draws it
+    // wins over the attribute and it is on screen with nothing behind it.
+    expect(game).toMatch(/class="homeSheetX"\s*\n?\s*hidden/)
+    expect(rule(game, '.homeSheetX[hidden]')).toMatch(/display:\s*none/)
+    const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
+    expect(script, 'the script reveals it and wires it').toMatch(/homeSheetX/)
+  })
+
   it('never ships the drawer a button that opens nothing', () => {
     // The Preferences row opens a React panel, so with no script it would be a
     // control that does nothing — worse than one that is not there. Same

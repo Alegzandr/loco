@@ -132,6 +132,16 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
       case 'player_reconnected':
         store.setPlayers(msg.players ?? [])
         store.clearOpponentAway(msg.player_index ?? -1)
+        // The reclaim spent the token it was made with, and this is the
+        // replacement (`hub.handleReconnect` rotates it and counts on the client
+        // keeping whatever it is handed). Without this the record kept a token
+        // that was already worthless: the seat came back once, and the next
+        // reclaim of that tab — a second reload, a dropped socket, a deploy —
+        // was refused with `game already in progress`. Guarded because the same
+        // message is broadcast to everyone else at the table, carrying neither a
+        // token nor a state, and blanking ours on somebody else's return is the
+        // same bug with more steps.
+        if (msg.session_token) store.setSessionToken(msg.session_token)
         // Cleared here rather than left standing: the process answering now
         // may be the new one, and it re-sends server_updating right after
         // this if it is draining too.

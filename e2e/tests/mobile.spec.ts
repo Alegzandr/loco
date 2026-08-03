@@ -293,14 +293,19 @@ test.describe('mobile viewport', () => {
   /**
    * Half of `/` is markup Astro rendered per URL — the footer row, this drawer,
    * the sheet of prose — so switching language in the app alone left the game in
-   * French under a menu still reading "With friends". At the entry screen the
-   * switch is two real links, and following one is what makes the document agree.
+   * French under a menu still reading "With friends". At the entry screen Apply
+   * is a real link, and following it is what makes the document agree. Picking in
+   * the dropdown is deliberately not enough: the press that reloads the page has
+   * to be its own.
    */
   test('switching language at the entry screen takes the menu with it', async ({ page }) => {
     await page.goto('/')
     await page.locator('.homeBurger').click()
     await page.locator('#navPrefs').click()
-    await page.getByRole('link', { name: 'Switch language to FR' }).click()
+
+    const dialog = page.getByRole('dialog')
+    await dialog.getByRole('combobox', { name: /language|langue/i }).selectOption('fr')
+    await dialog.getByRole('link', { name: /apply|appliquer/i }).click()
 
     await expect(page).toHaveURL(/\/fr\/$/)
     await page.locator('.homeBurger').click()

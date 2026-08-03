@@ -36,6 +36,8 @@
     initialCode?: string
     /** Showcase only: mounts with the preferences panel open. */
     initialPrefsOpen?: boolean
+    /** Showcase only: mounts with the sound panel open. */
+    initialAudioOpen?: boolean
   }
 
   let {
@@ -46,6 +48,7 @@
     initialMode = 'home',
     initialCode = '',
     initialPrefsOpen = false,
+    initialAudioOpen = false,
   }: Props = $props()
 
   const t = $derived(i18n.t)
@@ -116,7 +119,7 @@
          row already. Everywhere past a taken seat that drawer is gone with the
          footer, so the chip stays at every width there. -->
     <Preferences defaultOpen={initialPrefsOpen} triggerBelowPhone={false} />
-    <AudioSettings />
+    <AudioSettings defaultOpen={initialAudioOpen} />
     <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
   </div>
 

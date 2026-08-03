@@ -1,5 +1,9 @@
 // debug_set_state, the fixture the Playwright suite deals a table with. Gated
-// on LOCO_DEBUG and reported by /metrics as debug_mode_active.
+// on LOCO_E2E and reported by /metrics as debug_mode_active. Name the variable
+// correctly here: this line is what an auditor reads to find the gate, and it
+// said LOCO_DEBUG — a variable nothing in the server has ever read — which
+// sends anyone checking whether the gate is closed in production to grep for
+// the wrong string and find it absent everywhere, including where it is set.
 package hub
 
 import (

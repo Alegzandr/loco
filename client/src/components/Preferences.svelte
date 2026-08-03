@@ -88,7 +88,7 @@
 <!--
   Gear button opening the player's own settings.
 
-  The language pair used to sit bare in the top bar, and so did the theme, which
+  The language used to sit bare in the top bar, and so did the theme, which
   worked exactly as long as there were one or two preferences. They share a panel
   now, next to the settings that have no business being a chip: the streamer's
   blurred table code and the motion setting.
@@ -164,8 +164,9 @@
           </div>
 
           <!-- The theme was a bare chip in the top bar, which is right for one
-               preference and wrong for four. It is the same kind of choice as the
-               language, so it gets the same segmented control. -->
+               preference and wrong for four. Two options, applied on the press:
+               a segmented control is exactly that, which is also why the
+               language above it stopped being one. -->
           <div class="group">
             <span class="label">{t.prefsTheme}</span>
             <div class="seg" role="group" aria-label={t.prefsTheme}>
@@ -359,9 +360,10 @@
     color: var(--color-muted);
   }
 
-  /* Same pill-of-pills as the language pair, so the two rows read as one kind of
-     choice. Kept local rather than shared: LanguageSwitcher owns its own control
-     and the list of languages with it. */
+  /* A pill of pills: two options, applied on the press, nothing reloaded. The
+     language above it is a dropdown and a button precisely because it is *not*
+     that kind of choice — it leaves the page. Kept local rather than shared:
+     LanguageSwitcher owns its own control and the list of languages with it. */
   .seg {
     display: flex;
     gap: 3px;
@@ -480,10 +482,61 @@
     }
 
     .title {
-      font: 700 18px/1.2 var(--font-display);
+      font: 700 20px/1.2 var(--font-display);
       text-transform: none;
       letter-spacing: 0;
       color: var(--color-ink);
+    }
+
+    /*
+     * A dropdown's sizes on a sheet the height of a phone read as a dropdown
+     * that grew a scrim: 13px labels, 11px hints and a 24px switch, all of it
+     * aimed at a mouse. This is a full-screen surface driven by a thumb, so the
+     * type steps up with it and every switch is a target rather than a detail.
+     */
+    .label {
+      font-size: 15px;
+    }
+
+    .hint {
+      font: 500 13px/1.4 var(--font-body);
+    }
+
+    .seg {
+      gap: 4px;
+      padding: 4px;
+    }
+
+    .segBtn {
+      padding: 7px 16px;
+      min-height: 40px;
+      font-size: 15px;
+    }
+
+    .group {
+      gap: 8px;
+    }
+
+    .switchRow {
+      min-height: 56px;
+      padding: 10px 14px;
+      border-radius: var(--radius-lg);
+    }
+
+    .track {
+      width: 52px;
+      height: 30px;
+    }
+
+    .knob {
+      top: 3px;
+      left: 3px;
+      width: 22px;
+      height: 22px;
+    }
+
+    .trackOn .knob {
+      transform: translateX(22px);
     }
 
     .close {
@@ -497,8 +550,8 @@
          every press aimed at a setting — the panel opened and could not be used.
          tokens.css states the requirement; this is the control that forgot it. */
       position: relative;
-      width: 32px;
-      height: 32px;
+      width: 40px;
+      height: 40px;
       padding: 0;
       border: none;
       border-radius: var(--radius-full);
@@ -512,10 +565,17 @@
       background: var(--color-surface-strong);
     }
 
+    /* The drawn ✕ grows with the button under it: 17px of stroke in a 40px
+       target is a control a thumb has to aim at. */
+    .close svg {
+      width: 20px;
+      height: 20px;
+    }
+
     .body {
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 18px;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       padding: var(--space-base) var(--space-lg) calc(var(--space-lg) + var(--safe-bottom));

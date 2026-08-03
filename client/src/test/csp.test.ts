@@ -17,6 +17,12 @@ import { describe, it, expect } from 'vitest'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const conf = readFileSync(path.join(CLIENT, 'nginx.conf'), 'utf8')
+/**
+ * The headers themselves live here rather than in nginx.conf, because
+ * `add_header` does not merge: see the guard at the bottom of this file, and
+ * the comment at the top of the file itself.
+ */
+const headersConf = readFileSync(path.join(CLIENT, 'security-headers.conf'), 'utf8')
 
 /** Every .astro file: the layouts and pages that produce the served HTML. */
 function astroSources(dir: string, out: string[] = []): string[] {
@@ -45,8 +51,8 @@ const markup = astroFiles.map((f) => readFileSync(f, 'utf8')).join('\n')
 /** The value of an `add_header <name> "..."` line, plus whether it is `always`. */
 function header(name: string): { value: string; always: boolean } {
   const re = new RegExp(`add_header\\s+${name}\\s+"([^"]*)"\\s*(always)?\\s*;`, 'i')
-  const m = re.exec(conf)
-  if (!m) throw new Error(`nginx.conf sends no ${name} header`)
+  const m = re.exec(headersConf)
+  if (!m) throw new Error(`security-headers.conf sends no ${name} header`)
   return { value: m[1], always: m[2] === 'always' }
 }
 
@@ -179,6 +185,48 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
       expect(header(name).always, `${name} is not marked always`).toBe(true)
     }
     expect(header('X-Content-Type-Options').value).toBe('nosniff')
+  })
+
+  it('sends them on assets too, not only on the document', () => {
+    // The rule nginx enforces and nothing else states: `add_header` is inherited
+    // from an outer level *only while the inner level declares none of its own*.
+    // One `add_header Cache-Control` inside a location block therefore drops
+    // every security header the server block set — for every response that block
+    // serves. `location /_astro/` did this, so the whole JS bundle and every
+    // optimised asset went out bare while the document response kept all four.
+    //
+    // Nothing else catches it. `tools/csp/check.mjs` reads headers off the
+    // page.goto() response, which is the document; the assertions above read the
+    // header values, which were always there. Only the shape of the config says
+    // whether they arrive, so this reads the shape.
+    const SNIPPET = 'include /etc/nginx/security-headers.conf;'
+
+    // The server block has to include them once, or nothing inherits anything.
+    expect(conf, 'nginx.conf never includes the security headers').toContain(SNIPPET)
+
+    // Every `location … { … }` in the file, by brace matching from its opening.
+    const blocks: { spec: string; body: string }[] = []
+    const opener = /location\s+([^{]+?)\s*\{/g
+    for (let m = opener.exec(conf); m; m = opener.exec(conf)) {
+      let depth = 1
+      let i = m.index + m[0].length
+      for (; i < conf.length && depth > 0; i++) {
+        if (conf[i] === '{') depth++
+        else if (conf[i] === '}') depth--
+      }
+      blocks.push({ spec: m[1].trim(), body: conf.slice(m.index + m[0].length, i - 1) })
+    }
+    expect(blocks.length, 'no location block was parsed — this guard is asserting nothing').toBeGreaterThan(2)
+
+    for (const { spec, body } of blocks) {
+      // proxy_set_header is a different directive and does not break inheritance.
+      if (!/^\s*add_header\s/m.test(body)) continue
+      expect(
+        body.includes(SNIPPET),
+        `location ${spec} declares an add_header, which discards every inherited one. ` +
+          `Add \`${SNIPPET}\` to that block or its responses ship with no CSP and no nosniff.`,
+      ).toBe(true)
+    }
   })
 })
 

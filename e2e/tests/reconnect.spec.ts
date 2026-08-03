@@ -346,6 +346,48 @@ test.describe('WebSocket reconnect', () => {
   })
 
   /**
+   * And the seat is reclaimable more than once.
+   *
+   * The server spends the token on every successful reconnect and hands back a
+   * fresh one, which only works if the client stores it. It did not, so the
+   * first reload came back and every reclaim after it was refused with `game
+   * already in progress` — a lobby telling a seated player the cards were
+   * already dealt at their own table. One reload could never see it, which is
+   * why this test reloads twice.
+   */
+  test('a second reload reclaims the seat again', async ({ page }) => {
+    const roomCode = await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await waitForGameReady(page)
+
+    const s = await getState(page)
+    const myIdx = s?.myIndex ?? 0
+    const firstToken = s?.sessionToken
+
+    for (const _pass of [1, 2]) {
+      await page.reload()
+      await page.waitForLoadState('domcontentloaded')
+      await page.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'game',
+        undefined,
+        { timeout: 20_000 },
+      )
+      await waitForTableOpen(page)
+    }
+
+    const after = await getState(page)
+    expect(after?.screen).toBe('game')
+    expect(after?.roomCode).toBe(roomCode)
+    expect(after?.myIndex).toBe(myIdx)
+    // Rotated by each reclaim, and the current one is what the next reload
+    // would send: a stale copy is what the refusal was made of.
+    expect(after?.sessionToken).toBeTruthy()
+    expect(after?.sessionToken).not.toBe(firstToken)
+    expect(after?.errorMsg ?? '').toBe('')
+  })
+
+  /**
    * The same for a room that has not started. The seat is released the moment
    * the socket closes, so this is an ordinary rejoin rather than a token
    * reclaim, but from the player's side it is the same promise: a reload does

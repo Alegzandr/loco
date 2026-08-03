@@ -16,6 +16,7 @@ Both are now what their names say, and the work sits beside the other work of it
 | --- | --- |
 | `hooks/serverMessages.ts` | every inbound message, applied to the store. `App` builds it once |
 | `hooks/gameStore.ts` | the assembly, and the re-exports every screen imports from |
+| `hooks/live.svelte.ts` | the narrowing every effect below watches one field through. Three lines, and the reason they exist is the section under this table |
 | `hooks/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
 | `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
 | `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; preloading the room's art while the table is shut, then answering `map_ready` |
@@ -23,6 +24,71 @@ Both are now what their names say, and the work sits beside the other work of it
 | `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands |
 | `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
 | `components/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
+
+### One snapshot, and what that costs an effect
+
+`hooks/gameStore.svelte.ts` holds the whole store in a single `$state.raw` and replaces it on every
+write. That is the right shape for reading — the board is props off one object, and a deep proxy
+would clone its identity on every read for nothing — and it is a trap for *watching*. Svelte tracks
+the signal that was read, not the value: an effect reading `g.errorMsg` through a getter subscribes
+to the snapshot, so every message the server sends re-runs it. React's `useEffect(fn, [errorMsg])`
+compared the dependency by value and did not.
+
+A re-render would have been affordable. The cleanup is not. These effects own timers, and re-running
+one clears its timer and arms a fresh one, so a window measured in seconds never reaches its own end
+while the table is busy. It shipped as four symptoms that look unrelated and are one bug:
+
+- a refusal, a Swap notice or a missed Contre-LOCO! that stays on screen for the rest of the round
+  (`autoClear`);
+- **the reconnect curtain over a table that is already back** (`reconnectAnimation`): a reclaim lands
+  as a burst of writes and the match carries on underneath, so the 600ms timer was pushed back by
+  every one of them and `isReconnecting` was never cleared — which is also `GameBoard` hiding its
+  children, so the board underneath stayed blank;
+- the turn bar dropping its class, forcing a reflow and restarting from full on every play
+  (`drainBar`), i.e. the per-frame cost that hook exists to avoid, paid on the hottest path there is;
+- the board rattling again on every message while an interception banner was up (`boardShake`), and
+  **the colour and swap prompts closing themselves** (`cardPlay`) — from the second card of the round
+  onwards, since `lastPlay` is set from then on and the effect that closes a stale prompt re-ran on
+  everything.
+
+`hooks/live.svelte.ts` is the answer and it is three lines: wrap the getter in a `$derived`, which
+Svelte compares, and hand the effect the accessor. The derivation re-evaluates whenever the snapshot
+moves and notifies nothing when the field came back equal, which is the dependency React gave for
+free. Every hook that takes a `Live<T>` now reads it that way — it also replaced the three private
+copies of `Live`/`read` that had grown in `viewEffects`, `drainBar` and `tabAlert` — and the two
+effects written inline in `GameView` plus the three in `App` read a `$derived` for the same reason.
+
+**The same thing happens one level down, where what moves is a prop.** A child does not get the
+narrowing either: reading `p.watched` subscribes to the prop, and a *sibling* prop being
+re-evaluated re-runs the effect even when the value it read came back equal. Every component under
+`GameView` is handed a dozen props off the same snapshot, so "a message arrived" invalidates all of
+them at once. Four effects were written as though the trigger were the dependency:
+
+- the board's Swap trails and Contre-LOCO! penalty cards, which are spawned off a notice that stays
+  in the store for as long as it is on screen — so they were drawn again on every message underneath
+  them, and once per frame during a resize;
+- `DiscardPile`'s staged reveal, which waits out the card's flight before showing it. The cleanup
+  dropped the staged timer and the new run waited out a fresh flight, so on a busy board the pile
+  went on showing the card before last. That is the card every legality decision in the game is read
+  off;
+- `Hand`'s deal stagger, which armed once, lost its timer to the next message and never re-armed —
+  leaving every card wearing its deal delay for the rest of the round.
+
+Two shapes fix all four, and both were already in the file next door. **An effect that spawns
+something guards on the trigger's timestamp** (`lastPlayAt`, and now `lastSwapAt` / `lastCatchAt`;
+`DiscardPile` reads its `key` derivation and takes the card itself out of the dependency list with
+`untrack`), which also makes it immune to a resize. **An effect that holds a timer works to an
+absolute deadline** (`Hand`'s `dealUntil`, like `drainBar`'s), so any number of re-runs still ends at
+the same moment. A guard that only decides whether to *start* is the shape that fails, and it is the
+same one `reconnectAnimation` was bitten by: the cleanup runs whether or not the guard lets the body
+through.
+
+**A test that hands a hook a constant cannot see any of this**, which is why every per-hook test
+passed while the game misbehaved: the snapshot never moved underneath them. `src/test/liveDeps.test.ts`
+is the shape that catches it — move a field the hook is *not* watching, assert it did not notice —
+and anything new taking a `Live<T>`, or holding a timer behind a prop, belongs in it. Its second half
+does the same to the components, through the real store: `gameStore.setState({ latencies })` is a
+message that changes nothing anybody animates.
 
 **Derived state is completed by the store, not by the actions.** `catchTarget` and `unoTimerEnd` are
 the answer to "which open window is the button offering", read off `catchWindows` and our own seat.
@@ -333,6 +399,19 @@ That is the disconnect people actually have, and it was the one that could not b
   with `ServerMsg.OwnSeat()` (-1 = the message assigns no seat); `protocol/messages_test.go` now pins
   seat 0 onto the wire for **both** fields. `player_reconnected` additionally falls back to
   `state.your_index`, which is the same seat and is not omittable.
+- **The token is one-shot, so the answer to a reclaim carries the next one and the client has to keep
+  it.** `hub.handleReconnect` spends the token the reclaim was made with and issues a fresh one on
+  `player_reconnected`, and the reasoning it gives for rotating is explicitly that the client stores
+  whatever it is handed: the old token has been on a socket that died, it is in `sessionStorage`, and
+  if the process restarted on the way it has also been written to a snapshot on disk. The client's
+  branch did not store it. Everything looked right — the seat came back, the hand came back — and the
+  record kept a token that had just been spent, so the *next* reclaim of that tab was refused. That
+  refusal is `game already in progress`, deliberately the same string a stranger knocking on a live
+  table gets (the server must not confirm the roster), so what a player who reloaded twice, dropped a
+  socket after a reload, or sat through a deploy saw was a lobby telling them the cards were already
+  dealt at the table they were sitting at. **Only the second reclaim fails**, which is why a test
+  that reloads once cannot see it: `sessionRestore.test.ts` asserts the fresh token reaches the store
+  *and* the record, and the E2E reloads twice.
 - Client: `store.myNickname` is kept separately from `players` because a reloaded tab has no roster to
   derive it from and the rejoin is keyed on the nickname. `<Reconnecting />` names the room so the
   player recognises it and offers the way out; scenes `reconnecting-game` / `reconnecting-room`.
@@ -643,8 +722,9 @@ reads.
 - Detect order: `localStorage('loco_lang')` → `data-served-lang` on `<html>` → `navigator.language`
   prefix (`fr` → French, else English).
 - `setLang` persists to localStorage + syncs `document.documentElement.lang`.
-- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `store.ts`, add `{code, label}` to `LANGS` in `LanguageSwitcher.svelte` **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
-- The switcher is no longer mounted bare: it renders inside the preferences panel (below).
+- Add language: create `xx.ts` impl `Translations`, add to `translations` map in `store.ts`, add `{code, label}` to `LANGS` in `LanguageSwitcher.svelte` — **the label is the autonym, untranslated** — **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
+- The chooser is no longer mounted bare: it renders inside the preferences panel (below), as a
+  dropdown plus an Apply button rather than a segmented pair.
 - `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
 - Storage key and home paths: `src/lang.ts`, not the provider — see below.
 
@@ -657,8 +737,8 @@ The bug that produced it. A stored choice outranks the URL in `detectLang`, and 
 Astro built per URL — the footer row, the drawer, the sheet of prose — which no in-app state rewrites.
 So `/` opened with French stored rendered the game in French under a footer reading "With friends",
 having rewritten `<html lang>` to `fr`: a document declaring itself French while half its text was
-English, which is a lie to a screen reader before it is anything else. The lobby's switcher had
-already answered this for the *change* — at the entry screen it is two real links, so following one
+English, which is a lie to a screen reader before it is anything else. The lobby's chooser had
+already answered this for the *change* — at the entry screen Apply is a real link, so following it
 serves the whole document in the other language — but nothing answered it for the *arrival*.
 
 `initLangUrl()` does, first thing in `entry.ts`. Three properties are what make it safe:
@@ -685,9 +765,28 @@ was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does
 
 ## Preferences
 `Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
-the board. It holds the language pair (`LanguageSwitcher`, unchanged, now a child), the theme, and
-three switches: streamer mode, colour shapes, reduced motion.
+the board. It holds the language chooser (`LanguageSwitcher`, a child), the theme, and three
+switches: streamer mode, colour shapes, reduced motion.
 
+- **The language is a dropdown, and the Apply button is there only where applying costs the page.**
+  The theme below it is a segmented pair applied on the press, which is right for a setting that
+  changes the screen in place — and that is exactly what the language is *once a seat is taken*, so
+  there it applies on the pick too and no button is rendered at all. A confirmation step that
+  confirms nothing is a step asked for nothing.
+
+  At the entry screen it is not that setting. Applying there *leaves the page* (see below: half of
+  `/` is markup built per URL), and a control that reloads must not fire on the press that was
+  aiming for it — a thumb sliding across a segmented pair on a phone hit a language and lost the
+  page it was reading. So there the choice is made first and spent second: `choice` is local state,
+  Apply is a real `<a href>` that is off while it equals the language on screen, and
+  `t.prefsLanguageHint` says the page will reload. Both the button and that sentence are behind the
+  same `{#if !seated}`, and they have to stay behind it: rendering the button where nothing reloads
+  puts the step back, and rendering the sentence there promises a reload that never comes.
+
+  Apply wears the raised-chip surface, not LOCO Red — white on that red is 3.43:1 and needs 1.2rem
+  type, and a 19px Apply beside a 13px dropdown is a different control. The dropdown lists autonyms
+  (`English`, `Français`), never translated and never `EN`/`FR`: it is read by somebody who cannot
+  read the language currently on screen.
 - **Why a panel.** Language and theme sat bare in the top bar, which is right for one or two
   preferences. The row also carries sound and rules; one more bare control makes it a settings strip,
   and the one after that makes it unreadable on a phone. The gear replaced the theme chip rather than
@@ -725,13 +824,26 @@ three switches: streamer mode, colour shapes, reduced motion.
   without it the nearest positioned ancestor was the scrim and the button's touch area sat in the
   middle of the screen, eating every press aimed at a setting. The panel opened and could not be
   used. `tokens.css` states the requirement; this control is the one that forgot it.
+- **The sound mixer changes shape at the same width, into the same thing.** It sits in the same row,
+  it is opened by the same thumb, and it was the panel left behind: three sliders and a track card in
+  a 230px column, with a 10px track and a 20px thumb a pointer was meant to grab. It is the sheet the
+  preferences panel is now — same scrim wrapping the same `.panel`, same head with a title and a ✕,
+  same `display: contents` trick keeping the dropdown untouched above the breakpoint — and it carries
+  `audioClose` for that ✕, because below 46rem the speaker chip that opened it is behind the scrim and
+  the ✕ is the entire pressable way out. `escapeClose.test.ts` owns both halves.
+- **On a sheet the type is not the dropdown's.** 13px labels, 11px hints and a 24px switch are sized
+  for a mouse on a 250px surface; at full-screen width they read as a dropdown that grew a scrim.
+  Labels step to 15px, hints to 13px, the switch row to 56px, the language select and Apply to 46px,
+  the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem` block, in
+  each component, so the two shapes stay one decision.
 - **The drawer opens it by event.** `#navPrefs` is markup Astro rendered, outside `#root`, so
   `homeSheet.ts` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
   answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had
   the focus, because `hidePopover()` hands it back to the burger and closing the panel has to return
   it somewhere real.
-- Showcase: `streamerMode`, `colorAssist` and `prefsOpen` scene flags (`dev/scenes.ts`), scenes
-  `waiting-streamer`, `lobby-prefs`, `card-sheet-assist` and `game-color-picker-assist`. `applyScene`
+- Showcase: `streamerMode`, `colorAssist`, `prefsOpen` and `audioOpen` scene flags
+  (`dev/scenes.ts`), scenes `waiting-streamer`, `lobby-prefs`, `lobby-audio`,
+  `card-sheet-assist` and `game-color-picker-assist`. `applyScene`
   resets both module stores so neither leaks into later captures.
 
 ## Colour assist

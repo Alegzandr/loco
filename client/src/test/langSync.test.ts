@@ -115,8 +115,8 @@ describe('both halves of the site write the choice down', () => {
       path.join(CLIENT, 'src', 'components', 'LanguageSwitcher.svelte'),
       'utf8',
     )
-    expect(switcher, 'the entry screen follows a real link').toMatch(/href=\{HOME_PATH\[code\]/)
-    expect(switcher, 'and records the choice on the way out').toMatch(/onclick=\{\(\) => i18n\.setLang/)
+    expect(switcher, 'the entry screen follows a real link').toMatch(/href=\{HOME_PATH\[choice\]/)
+    expect(switcher, 'and records the choice on the way out').toMatch(/i18n\.setLang\(choice\)/)
   })
 
   it('a content page stores it too, without losing the href', () => {

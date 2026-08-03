@@ -333,6 +333,9 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   board writes a `style` attribute per card). `connect-src` names `ws://$host` and
   `wss://$host` explicitly — a page on `http://` and a socket on `ws://` are different origins as
   far as CSP is concerned, so `'self'` alone would block the one connection the game is made of.
+  They live in `client/security-headers.conf` and are `include`d, for the reason `testing-ci.md`
+  gives at length: `add_header` does not merge, so a `location` block declaring one of its own
+  inherits none of these.
 - **A socket holds one seat, and the table is the authority on which.** A seat is recorded twice: the
   connection knows it as `c.roomCode` / `c.playerID`, and the table knows it as the `*Client` pointer
   at index `playerID` in its `members`. Nothing stopped a seated client from sending `create_room` or
@@ -365,6 +368,29 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
   panics if the OS entropy source is broken, which is the right outcome for a server that can no
   longer issue a trustworthy token. `math/rand` survives for bot jitter, where predictability costs
   nothing.
+- **And for the room's own RNG, which is the one that took longest to see.** `game.NewRoom` seeded
+  its `*math/rand.Rand` from `time.Now().UnixNano()`, which read as harmless — it is "just the
+  shuffle", and the room code and the token, the two things obviously worth protecting, were already
+  right. But that one source decides the map, the starting seat and, through `dealRound`, the order
+  of all 112 cards for this round and every round after it. It *is* the hidden state the server
+  exists to protect, and `rand.NewSource` is deterministic, so the seed is the whole match.
+  The attack needs no privilege and no timing precision. Create a table and note the round trip: the
+  seed is somewhere in a window a few milliseconds wide, a few million candidates. Start the game
+  and read back the three things `game_started` legitimately tells you — the map, the starting seat,
+  and your own eight cards. Replay each candidate offline; the hand alone is a forty-bit filter, so
+  exactly one survives. You now hold every opponent's hand, the draw order, and the deal of every
+  remaining round of a BO7 — the later rounds computable at leisure while round 1 is still being
+  played, so the brute force is not even on a real-time budget. Interrupts, catch windows and
+  counter-draws are all built on hands nobody else can see; predictable ones make the mechanic
+  decoration and the anti-cheat work upstream pointless.
+  `game.newRNG` seeds from `crypto/rand` instead, and `ensureRNG` does too — the snapshot-restored
+  room was the worse case, since the restore instant is announced to everyone by the server coming
+  back up. `game/rng_test.go` is not a property assertion, it **runs the attack**: it brackets the
+  constructor, walks every nanosecond in the window, and fails if any of them reproduces the deal.
+  It carries a planted clock seed as a positive control, because a replay that has drifted out of
+  step with `dealRound` reports "not found" for every room, safe or not — and would pass forever.
+  `Deck.Replenish` still shuffles off the global source, which Go seeds randomly at startup; it is
+  the deal, not the mid-round reshuffle, that was reconstructible.
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names the refusals a
   correct client produces all match long — a second draw, a pass that raced its draw, an interject
   whose window closed or whose top card changed, a second LOCO! — as sentinel errors, and

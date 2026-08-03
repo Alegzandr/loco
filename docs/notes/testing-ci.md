@@ -343,6 +343,27 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - nginx serves `robots.txt` `Disallow: /` on `*-d.<domain>`; prod allows indexing.
 - nginx sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` on every response (`always`).
   See "Anti-cheat" in `server.md` for what the CSP may and may not allow.
+- **The four headers live in `client/security-headers.conf`, and every `location` block that declares
+  an `add_header` must `include` it.** This is the one nginx rule that fails silently in the
+  direction that matters: `add_header` is inherited into an inner level *only while that level
+  declares none of its own*, so it is not "these are added to what the server block set", it is
+  "declare one here and you have replaced all of them". `location /_astro/` set `Cache-Control` and
+  by doing so shipped the entire JavaScript bundle and every `<Image />`-optimised asset with **no
+  CSP, no nosniff, no Referrer-Policy and no Permissions-Policy**.
+  Nothing saw it, and the two checks that exist are why. `make csp` read headers off the
+  `page.goto()` response — the document, which kept all four — and reported clean. `csp.test.ts`
+  regexed `add_header` lines out of the config text and asserted their *values*, which were never
+  wrong; the question was never what the headers said, it was which responses got them. A guard that
+  reads a directive cannot see an inheritance rule.
+  The exposure that makes it worth fixing rather than noting is `nosniff`: anything under `/_astro/`
+  a browser can be talked into rendering as a document is a document **with no policy at all** on
+  this origin, and Astro emits optimised images there, SVG included. Nothing user-controlled lands in
+  that directory today, which is exactly the argument for closing it before something does.
+  Both checks were fixed to see the shape rather than the values: `csp.test.ts` brace-matches every
+  `location` block and fails on one that declares an `add_header` without the include, and
+  `tools/csp/check.mjs` now asserts the four headers on an actual `/_astro/` sub-resource response —
+  and reports a problem if the page pulled in no asset to check, so it cannot pass by finding
+  nothing.
 - **`connect-src` uses `$http_host`, never `$host`.** `$host` drops the port, and a CSP host source
   with no port means the scheme's *default* one. On :443 the two are identical, so the difference is
   invisible in production and blocks the socket everywhere else — a staging host on a non-default

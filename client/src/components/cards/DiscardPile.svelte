@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { CardDTO, CardColor } from '../../types/protocol'
   import Card from './Card.svelte'
   import {
@@ -56,9 +57,16 @@
   const key = $derived(card ? cardKey(card) : '')
 
   $effect(() => {
-    // Read the identity, not the object: a re-render must not restage the reveal.
+    // The card's identity is the *only* dependency, and on this board a
+    // re-render is what an arriving message is. Reading the object as well
+    // meant every message restaged the reveal: the cleanup dropped the staged
+    // timer and the new run waited out a fresh flight, so while the table was
+    // busy the pile went on showing the card before last — the one card in the
+    // game every legality decision is read off. `key` is a `$derived`, so it
+    // notifies only when the card actually changes; `untrack` is what keeps the
+    // object out of the dependency list (same reason `GameBoard` uses it).
     key
-    const next = card
+    const next = untrack(() => card)
     if (!next) {
       shown = null
       return
