@@ -986,9 +986,20 @@ something a person at the table would say, and rewriting one means keeping it in
 - **French is tutoiement**, stated at the top of `fr.ts`. `vous` puts a service counter between the
   game and four friends on a sofa. It is a translation convention, not a per-string decision.
 - **A button is a verb the player is about to perform**, in as few words as the control allows.
-  `Deal`, `Take a seat`, `Next round`. `rulesBtn` stays one word (`Rules` / `Règles`) because it
-  lives in a row of icons in-game; the modal it opens is the one allowed a sentence
-  (`rulesTitle`). Keeping them distinct also keeps `getByText` unambiguous in the E2E suite.
+  `Deal`, `Take a seat`, `Next round`.
+- **The rules opener says what it opens everywhere except at the table.** `RulesButton` has two
+  variants and the screen picks one. In `GameView` it is `variant="icon"`: the top-right row there is
+  a cluster of round chips, mid-match nobody is reading words, and a question mark is read faster at
+  720p — `rulesBtn` (`Rules` / `Règles`) is its aria-label and its tooltip, never drawn. On the lobby,
+  the waiting room and the search screen it is `variant="text"`, a pill drawing `rulesHowBtn`
+  (`How to play` / `Comment jouer`): those screens are where somebody who has never played is
+  deciding whether to, and a glyph makes them guess at what is the one piece of onboarding the game
+  has. The pill keeps the chips' height, outline and shadow so the row still reads as one row, and
+  **it carries no aria-label**: the visible word is the accessible name, and a label over it would
+  give the control a name voice control cannot say.
+  - `rulesHowBtn` and `rulesTitle` are deliberately the same words, so **the E2E suite scopes the
+    modal's heading to its dialog** (`rulesModalTitle()` in `e2e/helpers/game.ts`). A bare
+    `getByText(T.rulesTitle)` matches the opener too and resolves to two nodes under strict mode.
 - **A refusal says what to do next, and never blames.** "Someone beat you to it", not "Too late" —
   the window closed because somebody else was faster, and that is information, not a scolding. One
   pill, read in under a second, no wire vocabulary (`interrupt`, `session`, `payload`).

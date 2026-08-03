@@ -22,6 +22,7 @@ import {
   waitForGameOver,
   sendMsg,
   closeRulesModal,
+  rulesModalTitle,
   debugSetState,
   waitForTableOpen,
   gameBoard,
@@ -38,7 +39,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible()
     await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
     await expect(page.getByRole('button', { name: T.joinRoom })).toBeVisible()
-    await expect(page.getByRole('button', { name: T.rulesBtn })).toBeVisible()
+    await expect(page.getByRole('button', { name: T.rulesHowBtn })).toBeVisible()
   })
 
   /**
@@ -111,10 +112,10 @@ test.describe('gameplay flow (single player vs bot)', () => {
    */
   test('rules modal opens and closes from waiting room', async ({ page }) => {
     await createRoom(page, 'Alice')
-    await page.getByRole('button', { name: T.rulesBtn }).click()
-    await expect(page.getByText(T.rulesTitle)).toBeVisible()
+    await page.getByRole('button', { name: T.rulesHowBtn }).click()
+    await expect(rulesModalTitle(page)).toBeVisible()
     await closeRulesModal(page)
-    await expect(page.getByText(T.rulesTitle)).not.toBeVisible()
+    await expect(rulesModalTitle(page)).not.toBeVisible()
   })
 
   /**
@@ -251,11 +252,11 @@ test.describe('gameplay flow (single player vs bot)', () => {
 
     // Rules button is top-right of game view
     await page.getByRole('button', { name: T.rulesBtn }).click()
-    await expect(page.getByText(T.rulesTitle)).toBeVisible()
+    await expect(rulesModalTitle(page)).toBeVisible()
 
     // Close by pressing Escape
     await page.keyboard.press('Escape')
-    await expect(page.getByText(T.rulesTitle)).not.toBeVisible()
+    await expect(rulesModalTitle(page)).not.toBeVisible()
 
     // Game is still running
     await expect(gameBoard(page)).toBeVisible()

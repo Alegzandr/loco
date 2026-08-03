@@ -117,6 +117,7 @@ export interface Translations {
   roomCodeLabel: string
   back: string
   rulesBtn: string
+  rulesHowBtn: string
 
   // ─── Preferences ──────────────────────────────────────────────
   // The gear in the top bar. Language used to sit there bare; streamer mode is
@@ -389,10 +390,14 @@ export const en: Translations = {
   yourNickname: 'Your name',
   roomCodeLabel: 'Table code',
   back: 'Back',
-  // The button is a question-mark chip in a row of icons, in-game as well as in
-  // the lobby, so this string is never drawn: it is the aria-label and the
-  // tooltip. The modal it opens is the one that gets to be a sentence.
+  // The button is a question-mark chip in a row of icons *at the table*, where
+  // the row is a cluster of round chips and a glyph is read faster than a word:
+  // there this string is never drawn, it is the aria-label and the tooltip.
+  // Before the deal there is room to say it, and a player who has never seen the
+  // game reads the offer rather than guessing at a glyph, so every screen ahead
+  // of the match draws `rulesHowBtn` instead. The modal is the same one.
   rulesBtn: 'Rules',
+  rulesHowBtn: 'How to play',
 
   // ─── Preferences ──────────────────────────────────────────────
   prefsBtn: 'Preferences',

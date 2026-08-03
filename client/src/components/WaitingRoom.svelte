@@ -115,7 +115,7 @@
   <div class="topBar">
     <Preferences />
     <AudioSettings />
-    <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
+    <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />
   </div>
 
   <h2 class="heading">{t.waitingRoom}</h2>
@@ -300,7 +300,8 @@
     z-index: 5;
   }
 
-  /* The rules opener is <RulesButton />, which carries its own chip styling. */
+  /* The rules opener is <RulesButton />, which carries its own styling: the
+     "How to play" pill here, the question-mark chip at the table. */
 
   .heading {
     font: 700 26px/1.15 var(--font-display);

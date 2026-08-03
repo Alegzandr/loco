@@ -425,6 +425,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module
   store (`localStorage`, presentation only, never on the wire). Those icons are **drawn SVG, never a
   font character**.
+- **The rules opener is a "How to play" pill before the deal and the "?" chip at the table**
+  (`RulesButton`, `variant="text"` / `"icon"`): a glyph is faster mid-match, and a word is the only
+  onboarding a first-time player gets on the screens where they are still deciding. The pill's
+  visible label **is** its accessible name, so it carries no `aria-label`.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's

@@ -53,7 +53,7 @@
   <div class="topBar">
     <Preferences />
     <AudioSettings />
-    <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
+    <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />
   </div>
 
   <LocoLogo size="clamp(30px, 5vw, 48px)" />

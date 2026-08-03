@@ -1,21 +1,41 @@
 <script lang="ts">
-  type Props = { label: string; onclick: () => void }
-  let { label, onclick }: Props = $props()
+  type Props = { label: string; onclick: () => void; variant?: 'icon' | 'text' }
+  let { label, onclick, variant = 'icon' }: Props = $props()
 </script>
 
 <!--
-  The rules opener, shared by the lobby, the waiting room and the table.
-  Icon-only: the button sits in a cluster of round chips, and a question mark is
-  read faster than a word at 720p. `t.rulesBtn` still names it for screen readers
-  and for the tooltip.
+  The rules opener, shared by the lobby, the waiting room, the search and the
+  table. It wears two shapes, and which one is a matter of what the screen is
+  asking of the player.
+
+  At the table (`variant="icon"`) it is a question mark in a cluster of round
+  chips: the row is glyphs, mid-match nobody is reading it, and a glyph is read
+  faster than a word at 720p. `t.rulesBtn` names it for screen readers and for
+  the tooltip.
+
+  Ahead of the deal (`variant="text"`) the row is not the point of the screen
+  and there is room to say it, so the chip becomes a pill reading "How to play"
+  — the offer, not a symbol somebody has to try. The visible word IS the
+  accessible name there: an aria-label over it would give the control two names
+  and make it unspeakable to voice control.
 -->
-<button class="button hit-target" {onclick} aria-label={label} title={label}>
-  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-    <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M9 8.8a3.1 3.1 0 1 1 4.3 2.85c-.85.42-1.3 1.1-1.3 2.05v.6" />
-      <path d="M12 18h.01" />
-    </g>
-  </svg>
+<button
+  class="button hit-target"
+  class:text={variant === 'text'}
+  {onclick}
+  aria-label={variant === 'icon' ? label : undefined}
+  title={variant === 'icon' ? label : undefined}
+>
+  {#if variant === 'icon'}
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+      <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 8.8a3.1 3.1 0 1 1 4.3 2.85c-.85.42-1.3 1.1-1.3 2.05v.6" />
+        <path d="M12 18h.01" />
+      </g>
+    </svg>
+  {:else}
+    {label}
+  {/if}
 </button>
 
 <style>
@@ -47,6 +67,18 @@
     transition:
       transform 0.12s var(--ease-bounce),
       box-shadow 0.12s var(--ease-out);
+  }
+
+  /* The pill. Same height, same outline, same hard shadow as the chips beside
+     it, so the row still reads as one row: only the width and the label change.
+     `white-space: nowrap` because "Comment jouer" is two words and a pill that
+     wraps is a pill that grew a second line in the corner of the screen. */
+  .button.text {
+    width: auto;
+    padding: 0 var(--space-base);
+    border-radius: var(--radius-full);
+    font: 700 15px/1 var(--font-display);
+    white-space: nowrap;
   }
 
   .button:hover {

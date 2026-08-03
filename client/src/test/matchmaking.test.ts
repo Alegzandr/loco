@@ -69,7 +69,7 @@ describe('Searching screen', () => {
     )
     expect(screen.getByLabelText(en.prefsBtn)).toBeInTheDocument()
     expect(screen.getByLabelText(en.audioTitle)).toBeInTheDocument()
-    expect(screen.getByLabelText(en.rulesBtn)).toBeInTheDocument()
+    expect(screen.getByText(en.rulesHowBtn)).toBeInTheDocument()
   })
 
   // The rule the whole mode rests on. None of the three things this screen can
