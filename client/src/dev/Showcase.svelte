@@ -173,6 +173,8 @@
       onSend={noop}
       onLeave={noop}
       initialConfirmLeave={scene.confirmLeave}
+      initialMenuSeat={scene.rowMenuSeat ?? null}
+      initialMenuAsk={scene.rowMenuAsk ?? null}
     />
   {:else if scene.screen === 'game'}
     <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} onLeave={noop} />

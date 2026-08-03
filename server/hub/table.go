@@ -293,6 +293,56 @@ func (t *table) dropClient(c *Client, id int) (hasHuman bool) {
 	return t.reseat()
 }
 
+// swapSeats exchanges two seats and everything keyed by them: the sockets, the
+// clients' own playerID, the bot set and the session tokens, in one move — the
+// same rule dropSeat is written to, for the same reason.
+//
+// The token travels with the player, not with the index: it is the proof that
+// seat is theirs, and leaving it behind would hand a returning player the other
+// one's seat. awayAt and gone are not swapped because this is lobby-only and a
+// lobby has neither: a seat whose socket goes is removed there, not held.
+func (t *table) swapSeats(a, b int) {
+	if a == b {
+		return
+	}
+	for len(t.members) <= max(a, b) {
+		t.members = append(t.members, nil)
+	}
+	t.members[a], t.members[b] = t.members[b], t.members[a]
+
+	_, aBot := t.bots[a]
+	_, bBot := t.bots[b]
+	setMembership(t.bots, a, bBot)
+	setMembership(t.bots, b, aBot)
+
+	aTok, aHad := t.tokens[a]
+	bTok, bHad := t.tokens[b]
+	setToken(t.tokens, a, bTok, bHad)
+	setToken(t.tokens, b, aTok, aHad)
+
+	t.reseat()
+}
+
+// setMembership makes a set say yes or no about one key. Written out because a
+// swap has to be able to move an *absence* as readily as a presence: assigning
+// only the true side leaves the other key claiming a bot that has moved.
+func setMembership(m map[int]struct{}, key int, present bool) {
+	if present {
+		m[key] = struct{}{}
+		return
+	}
+	delete(m, key)
+}
+
+// setToken is setMembership for the session tokens.
+func setToken(m map[int]string, key int, val string, present bool) {
+	if present {
+		m[key] = val
+		return
+	}
+	delete(m, key)
+}
+
 // resetForNextMatch clears everything that belonged to the match that has just
 // ended. It is one call rather than five deletes at each of the three places a
 // table starts over, and the gate is the one that bites: a mapLoadState left

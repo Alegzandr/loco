@@ -181,6 +181,8 @@ func (h *Hub) dispatchAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 		h.handleSetMaxPlayers(t, c, msg)
 	case protocol.CMsgKickPlayer:
 		h.handleKickPlayer(t, c, msg)
+	case protocol.CMsgTransferHost:
+		h.handleTransferHost(t, c, msg)
 	case protocol.CMsgRematch:
 		h.handleRematch(t, c, msg)
 	case protocol.CMsgPlayCard:
@@ -235,6 +237,7 @@ func tableScoped(t protocol.ClientMsgType) bool {
 		protocol.CMsgSetMatchFormat,
 		protocol.CMsgSetMaxPlayers,
 		protocol.CMsgKickPlayer,
+		protocol.CMsgTransferHost,
 		protocol.CMsgRematch,
 		protocol.CMsgDebugSetState:
 		return true

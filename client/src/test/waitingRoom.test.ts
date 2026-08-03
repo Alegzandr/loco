@@ -8,6 +8,12 @@ function player(index: number, nickname: string): PlayerDTO {
   return { index, nickname, hand_size: 0, connected: true }
 }
 
+// A seat the server plays. The flag rides the roster because the nickname says
+// nothing: "Bot1" is a name a player is allowed to take.
+function bot(index: number, nickname: string): PlayerDTO {
+  return { ...player(index, nickname), is_bot: true }
+}
+
 function renderWaiting(players: PlayerDTO[], maxPlayers = 10, onSend = vi.fn()) {
   render(WaitingRoom, { roomCode: "ABC123", players: players, myIndex: 0, matchFormat: "BO1", maxPlayers: maxPlayers, onSend: onSend, onLeave: vi.fn() })
   return { onSend, input: screen.getByRole('spinbutton') as HTMLInputElement }
@@ -75,36 +81,101 @@ describe('WaitingRoom max players', () => {
 })
 
 // The host shapes their own table: an arrival at the wrong code, a seat that
-// will not ready up, one bot too many. Every row but their own carries it, and
-// nobody else's roster does.
-describe('WaitingRoom kicking', () => {
-  const roster = [player(0, 'Alice'), player(1, 'Bob'), player(2, 'Bot1')]
+// will not ready up, one bot too many, and a table handed to somebody else
+// because they are the one who is going to be there.
+//
+// Both controls live behind one ⋯ per row, both ask before they act, and every
+// row but the host's own carries it. Nobody else's roster does.
+describe('WaitingRoom row menu', () => {
+  const roster = [player(0, 'Alice'), player(1, 'Bob'), bot(2, 'Bot1')]
 
-  it('names the seat it frees', () => {
+  const openMenu = (nickname: string) =>
+    fireEvent.click(screen.getByRole('button', { name: `Actions: ${nickname}` }))
+
+  it('asks before it frees a seat, and names the row', () => {
     const { onSend } = renderRoster(0, roster)
-    fireEvent.click(screen.getByRole('button', { name: 'Remove from the table: Bob' }))
+    openMenu('Bob')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from the table' }))
+
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByText('Remove Bob?')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from the table' }))
     expect(onSend).toHaveBeenCalledWith({ type: 'kick_player', target_index: 1 })
   })
 
-  it('offers a bot seat too: it is the only way to take one back', () => {
+  it('asks before it hands the table over', () => {
     const { onSend } = renderRoster(0, roster)
-    fireEvent.click(screen.getByRole('button', { name: 'Remove from the table: Bot1' }))
+    openMenu('Bob')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hand over the table' }))
+
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByText('Hand the table to Bob?')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hand over the table' }))
+    expect(onSend).toHaveBeenCalledWith({ type: 'transfer_host', target_index: 1 })
+  })
+
+  it('backs out of the question without acting', () => {
+    const { onSend } = renderRoster(0, roster)
+    openMenu('Bob')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Hand over the table' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onSend).not.toHaveBeenCalled()
+    expect(screen.getByRole('menuitem', { name: 'Hand over the table' })).toBeInTheDocument()
+  })
+
+  // Escape backs out one step at a time. A single press that closed the whole
+  // menu would make the question the only thing on this screen that cannot be
+  // answered with the key everything else answers.
+  it('takes Escape as one step back', () => {
+    renderRoster(0, roster)
+    openMenu('Bob')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from the table' }))
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('menuitem', { name: 'Remove from the table' })).toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
+
+  it('offers a bot seat the kick — the only way to take one back', () => {
+    const { onSend } = renderRoster(0, roster)
+    openMenu('Bot1')
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from the table' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove from the table' }))
     expect(onSend).toHaveBeenCalledWith({ type: 'kick_player', target_index: 2 })
   })
 
+  // A bot cannot press start, so a table handed to one is a table that can never
+  // deal. The server refuses it; the menu does not offer it in the first place.
+  it('never offers the table to a bot', () => {
+    renderRoster(0, roster)
+    openMenu('Bot1')
+    expect(screen.queryByRole('menuitem', { name: 'Hand over the table' })).not.toBeInTheDocument()
+  })
+
   // The way out of your own seat is the link at the bottom, which asks first.
-  // A kick that could take seat 0 would hand the table away without saying so.
   it('never appears on the host’s own row', () => {
     renderRoster(0, roster)
-    expect(
-      screen.queryByRole('button', { name: 'Remove from the table: Alice' })
-    ).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /^Remove from the table/ })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Actions: Alice' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /^Actions:/ })).toHaveLength(2)
   })
 
   it('is not a control a guest has at all', () => {
     renderRoster(1, roster)
-    expect(screen.queryAllByRole('button', { name: /^Remove from the table/ })).toHaveLength(0)
+    expect(screen.queryAllByRole('button', { name: /^Actions:/ })).toHaveLength(0)
+  })
+
+  // One panel over one roster: opening a second row's menu shuts the first.
+  it('keeps one menu open at a time', () => {
+    renderRoster(0, roster)
+    openMenu('Bob')
+    openMenu('Bot1')
+    expect(screen.getAllByRole('menu')).toHaveLength(1)
+    expect(screen.getByText('Bot1', { selector: 'p' })).toBeInTheDocument()
   })
 })
 

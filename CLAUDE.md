@@ -345,6 +345,15 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes
   through `removeUnmannedSeat`. **It is not a ban and must not become one.**
+- **`transfer_host` hands the table over, and it is a seat swap** (`handleTransferHost`,
+  `game.SwapLobbyPlayers` + `table.swapSeats`, mirrored seat for seat, **the token travelling with
+  the player**). Host only, lobby only, matchmade never, **never seat 0 and never a bot**. `host_changed`
+  is sent **per recipient**: two seats moved, so half the room's own `player_id` moved with them.
+- **The host is seat 0, so a bot never sits there** (`hub.keepHostHuman`, called from
+  `reindexLobbyDisconnect` **and** `joinAtTable`). A lobby removes a departed seat and re-bases the
+  rest, so a bot slides into 0 and the table is handed to something that can never press start. Both
+  call sites are needed: a host who reloads leaves nobody behind to promote, so the promotion is the
+  arrival's.
 - **`rematch` is an ask, not a decision, in every room** (deliberately *not* behind
   `refuseInMatchmade`). Every seat gets the same button, every ask is broadcast (`rematch_offered`,
   carrying the **whole** offer state and the quorum, never the increment), and the deal happens only
@@ -486,8 +495,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   a seat: no "room", no "lobby", in any player-facing string. French is **tutoiement**. A button is
   the verb about to happen; a refusal says what to do next and never scolds; only the streamable
   moments shout. Full voice in the note; `docs/rules.md` stays the spec the modal must not contradict.
-- **The host's kick is one icon button per roster row, never their own, and it asks nothing**
-  (`WaitingRoom.svelte`). A bot's row carries it. The quit link below is the screen's one question. The
+- **The host's two controls over a row live behind one ⋯, never their own row, and both ask**
+  (`WaitingRoom.svelte` + `RosterRowMenu.svelte`): hand the table over, remove from the table. A bot's
+  row carries the second only — `is_bot` rides the roster because a nickname cannot say it. Right-click
+  opens the same menu and is never the only way in. **The question takes the menu's place**, Escape
+  backs out one step at a time, and **below 46rem the dropdown is a bottom sheet with a scrim**. The
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
 - **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
   streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module

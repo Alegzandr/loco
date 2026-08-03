@@ -241,9 +241,24 @@ export interface Translations {
   directionCcw: string
   drawPile: string
   hostBadge: string
-  // The host's control over one row of the roster. Label of an icon button, so
-  // it is read out with the nickname beside it.
+  // The host's controls over one row of the roster. They live behind a single
+  // ⋯ button per row, which is what `rowActions` labels — read out with the
+  // nickname beside it, since the icon says nothing on its own.
+  //
+  // Both actions ask before they act, in the menu's own place: giving the table
+  // away and taking somebody's seat are the two presses on this screen that act
+  // on another person, and neither is undone by pressing again. The question
+  // names them, because it is the row it was opened from that has to be
+  // recognised, not the verb.
+  rowActions: string
   kickPlayer: string
+  kickConfirm: (nickname: string) => string
+  makeHost: string
+  makeHostConfirm: (nickname: string) => string
+  // The safe answer, shared by both questions. The destructive ones reuse
+  // `kickPlayer` / `makeHost`: the verb the menu offered is the verb that
+  // confirms it.
+  rowActionCancel: string
   matchFormat: string
   maxPlayersLabel: string
   addBot: string
@@ -498,7 +513,12 @@ export const en: Translations = {
   directionCcw: 'Play order: counter-clockwise',
   drawPile: 'Draw pile',
   hostBadge: 'Host',
+  rowActions: 'Actions',
   kickPlayer: 'Remove from the table',
+  kickConfirm: (nickname) => `Remove ${nickname}?`,
+  makeHost: 'Hand over the table',
+  makeHostConfirm: (nickname) => `Hand the table to ${nickname}?`,
+  rowActionCancel: 'Cancel',
   matchFormat: 'Match length',
   maxPlayersLabel: 'Seats',
   addBot: '+ Add a bot',

@@ -101,6 +101,13 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         store.setPlayers(msg.players ?? [])
         break
 
+      // The table changed hands. player_id is authoritative and this message is
+      // personalised for it: a transfer swaps two seats, so for the two players
+      // who moved the roster alone would not say which row is theirs.
+      case 'host_changed':
+        store.applyHostChange(msg.player_id ?? 0, msg.players ?? [])
+        break
+
       case 'player_left':
         store.setPlayers(msg.players ?? [])
         // A seat is named here only when it is gone for good and nothing

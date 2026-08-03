@@ -30,6 +30,7 @@ func (h *Hub) playerList(t *table) []protocol.PlayerDTO {
 			Nickname:  p.Nickname,
 			HandSize:  handSize,
 			Connected: connected,
+			IsBot:     t.isBot(i),
 		}
 	}
 	return ps

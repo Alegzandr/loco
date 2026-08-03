@@ -165,7 +165,12 @@ func (h *Hub) reindexLobbyDisconnect(c *Client, t *table) (hasHuman bool) {
 	if _, err := t.room.RemoveLobbyPlayer(leavingID); err != nil {
 		log.Printf("WARN RemoveLobbyPlayer failed code=%s player=%d err=%v", t.code, leavingID, err)
 	}
-	return t.dropClient(c, leavingID)
+	hasHuman = t.dropClient(c, leavingID)
+	// The host's departure re-bases the seats above it, and the seat that moves
+	// into 0 is whatever was next — a bot as readily as a player. See
+	// keepHostHuman.
+	h.keepHostHuman(t)
+	return hasHuman
 }
 
 // handleExpireReconnect fires when a disconnected player's reconnect window closes.

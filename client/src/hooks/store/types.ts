@@ -260,6 +260,7 @@ export interface TableActions {
   applyCardPlayed: (playerIndex: number, card: CardDTO, turn: number, pendingDraw: number, activeColor: CardColor | undefined, players?: PlayerDTO[], chosenPlayer?: number, direction?: number, catchSeats?: CatchSeatDTO[]) => void
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number, pendingDraw?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
+  applyHostChange: (myIndex: number, players: PlayerDTO[]) => void
   noteSeatGone: (seat: number) => void
   setTurnDeadline: (ts: number | null) => void
   setSwapNotice: (notice: SwapNotice | null) => void

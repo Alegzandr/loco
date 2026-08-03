@@ -45,7 +45,13 @@ export const T = {
   forfeitWon: 'They walked',
   rematchAccept: 'They want another. Go.',
   nicknameRejected: 'Pick another nickname.',
+  // The host's two controls over one roster row, behind one ⋯ per row. Both ask
+  // before they act, and the verb the menu offered is the verb that confirms it
+  // — so `kickPlayer` / `makeHost` name two buttons in a row, the menu item then
+  // the answer.
+  rowActions: 'Actions',
   kickPlayer: 'Remove from the table',
+  makeHost: 'Hand over the table',
   kicked: 'The host freed your seat.',
   // The ✕ on both pickers carries an accessible name, so the glyph is not what
   // a locator matches on. Asking for '✕' finds nothing and times out.

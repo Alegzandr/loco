@@ -657,22 +657,47 @@ this section.
 - **The lobby is keyed on its entry point alone.** Spending the invite must not change `<Lobby />`'s
   key: a remount would take the prefilled code back out from under the player mid-typing.
 
-## The host's control over a row
-`WaitingRoom.svelte` puts one icon button on every roster row but the host's own, sending
-`kick_player` with that seat. Guests render none of them, on any row.
+## The host's controls over a row
+`WaitingRoom.svelte` puts one ⋯ button on every roster row but the host's own, and
+`RosterRowMenu.svelte` is what it opens: hand the table over (`transfer_host`), remove from the table
+(`kick_player`). Guests render neither, on any row.
 
 - **Never on seat 0.** The way out of your own seat is the quit link at the bottom, which asks first.
   A control that could take seat 0 would hand the table away through a button that says nothing of
   the sort, and it sits two pixels from every other row's.
-- **It asks nothing.** This screen has exactly one question, the one about leaving, and it earns it:
-  leaving is one-way and costs the guest the table code. A kick costs the host nothing to undo —
-  the removed player still has the code, and the server runs no ban list — so a second confirmation
-  would only teach people to click through both.
-- **A bot's row carries it too.** There is no other way to take a bot's seat back, and a roster with
-  the control on every row except those would be lying about which of them the host owns.
+- **One button, not two icons.** The two presses are not the same kind of thing — handing the table
+  over is routine, taking somebody's seat is not — and a roster row carrying both in the open is a
+  dense row with a destructive target on it, at phone widths, next to the row above. The ⋯ is one
+  44px target and the panel is where the two are told apart.
+- **Both ask, and the question takes the menu's place.** The kick used to ask nothing, on the
+  argument that it costs nothing to undo — which is still true, and is no longer the point: two items
+  in one menu where one fires on the press and the other does not is a menu that has to be read
+  twice. The question is the same move the quit link makes below the roster: it lands where the
+  finger already is, and nothing else on the screen shifts. It **names the row**, because on a phone
+  the sheet covers the roster it was opened from.
+- **Escape backs out one step at a time** (`escapeKey`, like every other dismissible surface):
+  the question first, then the menu. `pointerdown` outside the row shuts it, scoped to the row so the
+  ⋯ keeps working as a toggle.
+- **Right-click opens the same menu, and is never the only way in.** It is a shortcut for whoever
+  reaches for one; a control nothing announces is a control nobody finds. `preventDefault` is what
+  makes it one — the browser's own menu over a roster row offers nothing this screen means.
+- **Below 46rem the dropdown is a bottom sheet with a scrim**, at the same row heights as the
+  preferences and audio sheets: same thumb, same reach. A 244px panel hanging off a roster row is a
+  desktop object; on a phone it opens under the finger that summoned it and half of it is off the
+  side. The scrim exists only there — above that width a full-screen veil over a two-item list would
+  be the heaviest thing on the page.
+- **A bot's row carries the kick and not the transfer.** There is no other way to take a bot's seat
+  back, and a roster with the kick on every row except those would be lying about which of them the
+  host owns. The transfer is absent because the server refuses it: a table handed to a bot can never
+  deal. **`is_bot` rides the roster** for exactly this — `Bot1` is a nickname a player is allowed to
+  take, so the name is not a way to tell.
 - **The removed player is told, and it lands where every refusal lands.** `kicked` resets the store
   like `left_room` and then writes `removed by the host`, which `serverErrors.ts` resolves to
   `errors.kicked` under the lobby form. Order matters: `resetToHome` clears `errorMsg`.
+- **`host_changed` is applied from the message, not re-derived** (`applyHostChange`). The server sends
+  it per recipient carrying that client's own seat; `setPlayers` re-resolves `myIndex` from the
+  nickname instead, which is right for a departure and one indirection too many for a swap the server
+  has already resolved.
 
 ## The 1v1 queue on screen
 Three screens: the home button, `<Searching />` and `<MatchFound />`. `screen: 'searching'` and
