@@ -192,9 +192,15 @@
   // no art for).
   const map = $derived(resolveMap(g.mapId))
 
+  // Whether the gate is open at all, narrowed to a boolean before the effect
+  // sees it: `g.mapLoading` gets a new identity on every arrival, so reading it
+  // inside the effect makes the preload re-run several times per gate for a
+  // question whose answer has not changed.
+  const gateOpen = $derived(g.mapLoading !== null)
+
   // Preload the room's art while the table is shut, and tell the server the
   // moment we are in. See hooks/gamePlay.svelte.ts.
-  const preload = mapGate(() => map, () => g.mapLoading !== null, onSend)
+  const preload = mapGate(() => map, () => gateOpen, onSend)
 
   const fxTexts = $derived({ skip: t.fxSkip, reverse: t.fxReverse, colors: t.fxColors })
   const turnTexts = $derived({

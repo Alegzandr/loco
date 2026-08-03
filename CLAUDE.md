@@ -35,7 +35,13 @@ shaped the way it is and what breaks if you reshape it. Update both in the same 
 | [`docs/notes/legal.md`](docs/notes/legal.md) | what is processed and why, the no-banner position, address truncation, the trademark line |
 
 Also: `docs/rules.md` is the authoritative game spec, `DESIGN.md` the written design system,
-`docs/protocol.md`, `docs/features.md`, `docs/deployment.md`.
+`PRODUCT.md` its audiences and anti-references, `docs/protocol.md`, `docs/features.md`,
+`docs/deployment.md`.
+
+**One subject, one file.** `README.md` is the stack and how to run it, `docs/features.md` the list of
+what ships, `docs/deployment.md` the pipeline, the notes the reasoning. A section that restates
+another file goes stale on its own schedule and then contradicts it, which is how the same feature
+list ended up written twice with a link between the two copies. Write it once and link.
 
 ## Commands
 `make help` lists every target. They are docker-first so a host Go install is not required; the
@@ -59,8 +65,9 @@ client and E2E targets do need Node.
 
 ## Done means
 Code + tests + passing + docs + Docker still works + behavior matches docs. **Update `README.md` when
-setup, commands, architecture, features, limits or env change, and `CLAUDE.md` plus the matching note
-when a rule, a convention or the structure does — in the same change set.**
+setup, commands, architecture, limits or env change, `docs/features.md` when a feature does, and
+`CLAUDE.md` plus the matching note when a rule, a convention or the structure does — in the same
+change set.**
 
 Priorities when they conflict, in order: latency, server correctness, UX smoothness, determinism,
 maintainability, testability, local DX. **Avoid persistence and services without product
@@ -367,7 +374,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   off the same snapshot. So **an effect that spawns an animation guards on its trigger's timestamp**
   (the board's `lastPlayAt` / `lastSwapAt` / `lastCatchAt`, `DiscardPile`'s `key` + `untrack`) and
   **an effect that holds a timer works to an absolute deadline** (`Hand`'s `dealUntil`, `drainBar`),
-  never to "one timeout from whenever this last ran" — the cleanup takes the timer with it.
+  never to "one timeout from whenever this last ran" — the cleanup takes the timer with it. And
+  **an effect that starts work once per key abandons it on that same key, never in the effect's
+  cleanup** (`mapPreload`): a re-run that the guard sends straight back cancelled a download nothing
+  would restart, so `map_ready` never went out and every two-human table opened on the server's 20s
+  backstop.
 - **Nothing continuous goes through reactive state.** Countdown bars use `drainBar`, never a
   percentage: the element is handed a CSS animation whose duration is the window, so the drain costs
   zero updates. Svelte builds the board once and keeps it, which is a guarantee only until somebody

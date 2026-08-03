@@ -83,6 +83,20 @@ the same moment. A guard that only decides whether to *start* is the shape that 
 same one `reconnectAnimation` was bitten by: the cleanup runs whether or not the guard lets the body
 through.
 
+**The fifth one did not look like a motion bug at all, and it cost twenty seconds a match.**
+`mapPreload` starts the room's downloads once per map id and answers the loading gate when they
+settle; `GameView` asked whether the gate was open by reading `g.mapLoading !== null` *inside* the
+effect, and `mapLoading` gets a new identity every time another seat reports in. So the effect re-ran
+on each arrival, its cleanup cancelled the download in flight, and the once-per-id guard then refused
+to start it again: `done` never came, `map_ready` never went out, and the table opened on the
+server's 20s `MapLoadTimeout` with the player still watching a progress bar. **A table with a bot
+never showed it** — nobody else was there to re-broadcast anything — so the whole E2E suite and every
+solo run were clean while every real two-human table paid the full backstop. The fix is both halves:
+the question is narrowed to a `$derived` boolean before the effect sees it, and **abandoning a
+download is keyed on the map id like starting one is, instead of riding the effect's cleanup**. A
+cancellation that is not keyed on the same thing as the guard is the general shape of this bug.
+`mapLoading.test.ts` moves a seat in mid-download and asserts the answer still goes out.
+
 **A test that hands a hook a constant cannot see any of this**, which is why every per-hook test
 passed while the game misbehaved: the snapshot never moved underneath them. `src/test/liveDeps.test.ts`
 is the shape that catches it — move a field the hook is *not* watching, assert it did not notice —

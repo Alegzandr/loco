@@ -143,6 +143,25 @@ describe('map loading screen', () => {
     expect(readies).toHaveLength(1)
   })
 
+  // The one that cost twenty seconds a match at every table with two humans in
+  // it. Another seat arriving re-broadcasts the gate, the preload effect re-ran
+  // on it, and its cleanup cancelled a download that was still in flight while
+  // the once-per-map guard refused to start it again — so `done` never came,
+  // map_ready was never sent, and the table opened on the server's 20s backstop
+  // with this player still on the loading screen. A table with a bot never
+  // showed it: nobody else was there to re-broadcast anything.
+  it('still answers map_ready when a seat arrives mid-download', async () => {
+    holdDecodes = true
+    const onSend = renderGame()
+    await screen.findByTestId('map-loading')
+
+    act(() => { gameStore.getState().applyMatchLoading([1]) })
+    act(() => { gameStore.getState().applyMatchLoading([1, 2]) })
+
+    await act(async () => { flushDecodes() })
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith({ type: 'map_ready' }))
+  })
+
   it('lifts the screen and starts the clock when the table opens', async () => {
     renderGame()
     await screen.findByTestId('map-loading')

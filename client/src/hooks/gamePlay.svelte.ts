@@ -307,11 +307,25 @@ function mapPreload(
   // Keyed on the map id, not the object, so an update with an equal-but-new
   // definition does not restart a load that is already half done.
   let startedFor: string | null = null
+  // Abandoning a download is keyed on the same id, deliberately, and is *not*
+  // the effect's cleanup. The two were the same thing once, and a re-run — one
+  // arrives every time another seat answers the gate — cancelled a load in
+  // flight that the guard above then refused to restart: `done` never came, so
+  // map_ready never went out and the table opened on the server's 20s backstop
+  // with this player still watching a bar. Cancel when the load is genuinely
+  // over (the gate shut, or a different map), never because an effect ran twice.
+  let abandon: (() => void) | null = null
 
   $effect(() => {
     const m = map()
-    if (!enabled() || !m) return
+    if (!enabled() || !m) {
+      abandon?.()
+      abandon = null
+      startedFor = null
+      return
+    }
     if (startedFor === m.id) return
+    abandon?.()
     startedFor = m.id
 
     const files = mapAssets(m)
@@ -342,7 +356,7 @@ function mapPreload(
       }
     }
 
-    return () => {
+    abandon = () => {
       cancelled = true
       window.clearTimeout(timer)
     }
