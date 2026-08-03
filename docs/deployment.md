@@ -127,10 +127,21 @@ preferences:
   Traefik, which is why `compose.yml` carries one `Host()` and not two. The apex is canonical
   everywhere — `VITE_PUBLIC_ORIGIN`, the sitemap, the `hreflang` sets — and a canonical naming a
   redirect is the failure nothing reports.
-- **ACME over DNS-01, not HTTP-01.** Traefik resolves the certificate through the Cloudflare API
-  (`CF_DNS_API_TOKEN`, scoped `Zone:DNS:Edit` + `Zone:Zone:Read` on that one zone), so validation does
-  not depend on port 80 being reachable through the proxy and survives `Always Use HTTPS`. The token
-  lives in the server's environment and in a masked, protected GitLab variable, never in this repo.
+- **The origin certificate is a Cloudflare Origin Certificate, and there is no ACME anywhere.** The
+  host's Traefik runs with no `certificatesResolvers` at all: certificates are files under
+  `/etc/traefik/certs`, declared as `tls.certificates` pairs in its file provider, which watches the
+  directory and reloads without a restart. `compose.yml` therefore asks for `tls=true` and names no
+  resolver — **adding a `certresolver` label would name something that does not exist.**
+
+  The consequence is the one that took production down the day it moved: **a new domain needs a new
+  certificate posted by hand, and nothing in this repo can tell you it is missing.** Cloudflare in
+  `Full (strict)` answers an origin serving Traefik's self-signed default with **error 526**, which is
+  the symptom to recognise. One Origin Certificate per zone (`ohloco.com` + `*.ohloco.com`), an entry
+  appended to the existing `certificates:` list, and Traefik picks the right one by SNI.
+
+  These certificates are trusted by Cloudflare and by nothing else, so **the orange cloud is not
+  optional**: a record turned DNS-only serves a certificate every browser rejects. In exchange they
+  last 15 years and renew nothing.
 
 One caveat this stack has to live with: **Cloudflare closes a proxied WebSocket that has been idle for
 about 100 seconds.** The game's own traffic covers an active table, but a lobby waiting for a second

@@ -12,7 +12,7 @@
  * This spec runs in the 'mobile-chrome' Playwright project (see playwright.config.ts).
  */
 import { test, expect } from '@playwright/test'
-import { T, createRoom, addBot, startGame, waitForMyTurn, getState, sendMsg, closeRulesModal, gameBoard, waitForTableOpen } from '../helpers/game'
+import { T, createRoom, addBot, startGame, waitForMyTurn, getState, sendMsg, closeRulesModal, rulesModalTitle, gameBoard, waitForTableOpen } from '../helpers/game'
 
 test.describe('mobile viewport', () => {
   /**
@@ -36,9 +36,9 @@ test.describe('mobile viewport', () => {
    */
   test('rules modal is accessible and closable on mobile', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('button', { name: T.rulesBtn }).click()
+    await page.getByRole('button', { name: T.rulesHowBtn }).click()
 
-    const rulesTitle = page.getByText(T.rulesTitle)
+    const rulesTitle = rulesModalTitle(page)
     await expect(rulesTitle).toBeVisible()
 
     await closeRulesModal(page)
@@ -154,7 +154,7 @@ test.describe('mobile viewport', () => {
     await startGame(page)
 
     await page.getByRole('button', { name: T.rulesBtn }).click()
-    const rulesTitle = page.getByText(T.rulesTitle)
+    const rulesTitle = rulesModalTitle(page)
     await expect(rulesTitle).toBeVisible()
 
     await closeRulesModal(page)

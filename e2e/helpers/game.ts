@@ -16,7 +16,11 @@ export const T = {
   unoBtn: 'LOCO!',
   catchBtn: 'Catch!',
   catchBannerTitle: 'CAUGHT!',
+  // The same modal, opened by two different-looking controls: a question-mark
+  // chip at the table (named by its aria-label) and a "How to play" pill on
+  // every screen ahead of the deal (named by the word it draws).
   rulesBtn: 'Rules',
+  rulesHowBtn: 'How to play',
   rulesTitle: 'How to play',
   continueBtn: 'Next round',
   rematch: 'Rematch',
@@ -314,6 +318,17 @@ export async function waitForRoundSummary(page: Page, timeoutMs = 60_000): Promi
 }
 
 /** Close the rules modal via the explicit aria-label close button. */
+/**
+ * The rules modal's own heading, scoped to the dialog.
+ *
+ * The opener ahead of the deal draws the same words ("How to play"), so a bare
+ * getByText would match the button as well as the modal and resolve to two
+ * nodes.
+ */
+export function rulesModalTitle(page: Page) {
+  return page.getByRole('dialog').getByText(T.rulesTitle)
+}
+
 export async function closeRulesModal(page: Page): Promise<void> {
   const close = page.getByLabel('Close').first()
   await expect(close).toBeVisible({ timeout: 5_000 })

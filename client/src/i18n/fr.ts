@@ -18,10 +18,13 @@ export const fr: Translations = {
   yourNickname: 'Ton pseudo',
   roomCodeLabel: 'Code de la table',
   back: 'Retour',
-  // Le bouton est une pastille point d'interrogation dans une rangée d'icônes,
-  // en jeu comme au lobby : ce texte n'est jamais dessiné, il sert d'aria-label
-  // et d'infobulle. C'est la modale qu'il ouvre qui a le droit d'être une phrase.
+  // Le bouton est une pastille point d'interrogation dans une rangée d'icônes
+  // *à la table* : là ce texte n'est jamais dessiné, il sert d'aria-label et
+  // d'infobulle. Avant la donne il y a la place de le dire, et quelqu'un qui
+  // découvre le jeu lit la proposition au lieu de deviner un glyphe : tous les
+  // écrans d'avant-partie dessinent `rulesHowBtn`. La modale est la même.
   rulesBtn: 'Règles',
+  rulesHowBtn: 'Comment jouer',
 
   // ─── Préférences ──────────────────────────────────────────────
   prefsBtn: 'Préférences',

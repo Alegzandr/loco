@@ -158,7 +158,7 @@
       triggerBelowPhone={false}
     />
     <AudioSettings defaultOpen={initialAudioOpen} />
-    <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
+    <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />
   </div>
 
   <!-- The mark, not the page's heading. `GamePage.astro` serves the one top-level
@@ -319,7 +319,8 @@
     gap: var(--space-sm);
   }
 
-  /* The rules opener is <RulesButton />, which carries its own chip styling. */
+  /* The rules opener is <RulesButton />, which carries its own styling: the
+     "How to play" pill here, the question-mark chip at the table. */
 
   /* The wordmark and its treatment live in <LocoLogo />, which the waiting room
      and the game-over card share. All this owns is the space around it. */
