@@ -77,6 +77,19 @@ describe('applyRematch', () => {
     expect(s.errorMsg).toBe('')
   })
 
+  // The bug: a second match at the same table opened its game-over screen with
+  // the button already disabled and waiting on an opponent nobody had asked.
+  // Our own ask from the match before was still in the set, so `iOffered` was
+  // true and there was nothing left to press. The server had cleared its half
+  // (`table.resetForNextMatch`); this is the client's.
+  it('clears the asks that dealt it, so the next game over is asked afresh', () => {
+    gameStore.getState().applyRematchOffers([0, 1], 2)
+    gameStore.getState().applyRematch(1, players, 'BO1', 10)
+    const s = gameStore.getState()
+    expect(s.rematchOffers).toEqual([])
+    expect(s.rematchNeeded).toBe(0)
+  })
+
   it('keeps the session token so a drop during the new match can still reclaim the slot', () => {
     gameStore.setState({ sessionToken: 'deadbeef' })
     gameStore.getState().applyRematch(1, players, 'BO1', 10)
