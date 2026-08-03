@@ -141,12 +141,18 @@ describe('the content stylesheet', () => {
   it('never publishes the skip link to a reader who tapped', () => {
     // "Back to top" focuses the skip link so a keyboard reader lands at the top
     // of the document rather than in the middle of the header. On a phone that
-    // press is a tap, and a bare `:focus` rule parked "Skip to content" over the
-    // logo with nothing offering to close it.
+    // press is a tap, and both halves of the guard are needed: a bare `:focus`
+    // rule parked "Skip to content" over the logo, and `:focus-visible` alone did
+    // not save it either, because Safari calls a programmatic `focus()` keyboard
+    // focus whatever the gesture was. So the focus move is fenced behind a
+    // keyboard activation, `detail === 0`.
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
     const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
     expect(boot, 'back-to-top is what moves focus there').toMatch(
       /\.skip'\)\?\.focus\(\{ preventScroll: true \}\)/,
+    )
+    expect(boot, 'a pointer press must move no focus at all').toMatch(
+      /if \(e\.detail === 0\)[\s\S]{0,120}\.skip'\)\?\.focus\(/,
     )
     expect(css, 'the skip link must reveal on :focus-visible only').toMatch(
       /\.skip:focus-visible\s*\{/,

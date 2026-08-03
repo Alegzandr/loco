@@ -156,11 +156,19 @@ if (toTop) {
     // The href alone would have moved focus to the header; taking it back to the
     // top of the document is what a keyboard reader expects from "back to top".
     //
-    // `preventScroll`, and it is the whole reason the button used to snap: the
-    // skip link sits at `top: 0` a screenful off to the left, so focusing it made
-    // the browser scroll it into view — instantly, and an instant scroll cancels
-    // the smooth one that had just started. The animation was there all along and
+    // `detail === 0` is a keyboard activation — Enter or Space on the link — and
+    // it is the whole condition, because `:focus-visible` cannot answer this one:
+    // Safari treats a programmatic `focus()` as keyboard focus whatever the
+    // gesture was, so a tap published "Skip to content" over the wordmark with
+    // nothing offering to close it. A pointer press moves no focus at all now.
+    //
+    // `preventScroll`, and it is the reason the button used to snap: the skip
+    // link sits at `top: 0` a screenful off to the left, so focusing it made the
+    // browser scroll it into view — instantly, and an instant scroll cancels the
+    // smooth one that had just started. The animation was there all along and
     // never got a frame.
-    document.querySelector<HTMLElement>('.skip')?.focus({ preventScroll: true })
+    if (e.detail === 0) {
+      document.querySelector<HTMLElement>('.skip')?.focus({ preventScroll: true })
+    }
   })
 }
