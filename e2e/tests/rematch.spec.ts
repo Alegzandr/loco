@@ -73,6 +73,15 @@ test.describe('rematch', () => {
     )
     const after = await getState(page)
     expect(after?.roundNumber).toBe(1)
+
+    // And the table can be rematched again. The asks that dealt this match are
+    // spent: a set left standing made the second game over open on a disabled
+    // button waiting on an opponent nobody had asked, with no ask left to send.
+    await winBO1(page)
+    expect((await getState(page))?.rematchOffers ?? []).toHaveLength(0)
+    await expect(page.getByRole('button', { name: T.rematch })).toBeEnabled()
+    await clickRematch(page)
+    expect((await getState(page))?.screen).toBe('waiting')
   })
 
   test('both players have to ask, and the second ask reopens the room for both', async ({ browser }) => {

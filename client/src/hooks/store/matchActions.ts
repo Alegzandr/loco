@@ -103,10 +103,10 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
   // is nobody to agree with, and a button still reading "accept" would refuse.
   clearRematchOffers: () => set({ rematchOffers: [], rematchNeeded: 0 }),
 
-  // The host reopened the finished room: drop all match state and go back to the
-  // waiting room. myIndex comes from the server because pruning absent players
-  // can re-seat everyone. sessionToken is deliberately kept — the room is the
-  // same, so it still authenticates a reconnect during the next match.
+  // The table agreed and reopened as a lobby: drop all match state and go back
+  // to the waiting room. myIndex comes from the server because pruning absent
+  // players can re-seat everyone. sessionToken is deliberately kept — the room
+  // is the same, so it still authenticates a reconnect during the next match.
   applyRematch: (myIndex, players, matchFormat, maxPlayers) =>
     set({
       screen: 'waiting',
@@ -134,6 +134,16 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       roundNumber_completed: 0,
       matchWinner: '',
       matchOver: false,
+      // The asks belonged to the match that has just been agreed away, and the
+      // server drops them in the same breath (`table.resetForNextMatch`). Kept
+      // here they were still ours at the *next* game over: `iOffered` read true
+      // off a set nobody had asked into, so the button greeted the second match
+      // disabled and waiting on an opponent who had not been asked anything —
+      // and there was no ask left to send, since the offer was ours already.
+      // The matchmade path clears them in `applyMatchFound`; this is the
+      // ordinary table's half of the same reset.
+      rematchOffers: [],
+      rematchNeeded: 0,
       showRoundSummary: false,
       pendingGameState: null,
       pendingMatchEnd: null,

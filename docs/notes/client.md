@@ -748,6 +748,15 @@ is: there is no board to draw behind either of them.
   rather than on one named opponent, and the button carries `x/y`; at two the count is noise.
   `player_left` clears the pair, and the server republishes right behind it in every room that still
   has an agreement to publish.
+- **The asks are per match, so the deal spends them** (`applyRematch`, beside `applyMatchFound`,
+  which was already doing it). They are the one piece of game-over state that survives into the
+  match it dealt if nothing drops it, and the seat it strands is the one that pressed the button:
+  our own ask still in `rematchOffers` makes `iOffered` true at the *next* game over, so that screen
+  opens on a disabled button waiting on an opponent who was never asked — and there is no ask left
+  to send, because as far as the client is concerned it is already ours. A private table with a bot
+  reaches it in one press, since the quorum there is one. The server clears its half in
+  `table.resetForNextMatch`, which is why nothing on the wire contradicted the button: the ask it
+  was waiting on genuinely did not exist.
 - **A matchmade table with nobody left at it requeues by itself** (the effect in `App.svelte`,
   `rematchRequeue.test.ts`). The ask cannot complete, the only other thing on the screen is the
   queue, and making the player press it is asking them to confirm the only remaining option.
