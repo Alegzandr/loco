@@ -513,9 +513,23 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   and fails on any difference, so a hand edit is undone rather than merged. Details, and what the
   generator refuses to guess, in [`docs/notes/client.md`](docs/notes/client.md).
 - **The copy is the game talking, not a website.** Players open a **table**, share a table code, take
-  a seat: no "room", no "lobby", in any player-facing string. French is **tutoiement**. A button is
+  a seat: no "lobby", in any player-facing string. French is **tutoiement**. A button is
   the verb about to happen; a refusal says what to do next and never scolds; only the streamable
   moments shout. Full voice in the note; `docs/rules.md` stays the spec the modal must not contradict.
+- **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
+  seats a code is shared for, always. A **room** — *décor* in French — is one of the four places a
+  match is dealt in, always. `salle`, `salon` and `pièce` name neither and are banned outright:
+  `vocabulary.test.ts` fails on any of the three in player copy. The internal naming (`maps`,
+  `game/maps.go`, `mapPreload`, `cardTheme`) is untouched — this is a rule about copy. **The URLs
+  and the `<title>`s keep "tables"**: they carry the search value, and a path is not copy.
+- **The rules page opens on what is different, and the rules modal does not** (`content/contrasts.ts`,
+  eight lines, **numbers taken from the server, never typed**). A visitor arrives holding a model of a
+  card game of colours and symbols and is looking for the delta; the modal is a reference read
+  standing up mid-round and is not the place for an argument. `contentPages.test.ts` pins both halves.
+- **Under 46rem the burger is the only way to anything the footer row carried, prose included.**
+  `#navAbout` is the drawer's first line, ships `hidden`, is revealed by `homeSheet.ts` and opens the
+  same `<details>` sheet — same contract as `#navPrefs`. Without it a first visit on a phone was a
+  logo, a tagline, two buttons and a burger, and nothing at all about the game.
 - **The host's two controls over a row live behind one ⋯, never their own row, and both ask**
   (`WaitingRoom.svelte` + `RosterRowMenu.svelte`): hand the table over, remove from the table. A bot's
   row carries the second only — `is_bot` rides the roster because a nickname cannot say it. Right-click

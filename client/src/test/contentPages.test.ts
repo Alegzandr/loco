@@ -16,6 +16,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
+import { CONTRASTS, HAND_SIZE, NUMBER_HIGH, NUMBER_LOW } from '../content/contrasts'
 import { DECK, DECK_SIZE } from '../content/deck'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
@@ -409,6 +410,33 @@ describe('the mobile menu', () => {
     expect(script, 'the script reveals it and wires it').toMatch(/homeSheetX/)
   })
 
+  it('gives the phone a way to the prose at all', () => {
+    // Under 46rem the footer row is display:none and the drawer deliberately
+    // carries no prose, so a first-time visitor met a logo, a tagline, two
+    // buttons and a burger — and nothing about the game. The prose was in the
+    // document the whole time; this is the row that reaches it.
+    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    expect(game, 'the row is first in the drawer').toMatch(
+      /<nav class="navPopLinks"[^>]*>\s*<button type="button" id="navAbout"/,
+    )
+    // Same contract as the Preferences row: hidden in the markup, revealed by
+    // the script that can honour it.
+    expect(game).toMatch(/id="navAbout"[^>]*hidden/)
+    const script = readFileSync(path.join(CLIENT, 'src', 'homeSheet.ts'), 'utf8')
+    expect(script, 'the script reveals it and opens the sheet').toMatch(/navAbout/)
+
+    // The sheet lives inside the row that is display:none at this width, so it
+    // has to be allowed back while it is open or the press opens nothing.
+    expect(game, 'the open sheet survives the phone breakpoint').toMatch(
+      /\.homeIntroMain:has\(\.homeSheet\[open\]\)\s*\{[^}]*display:\s*block/,
+    )
+
+    // content.css owns the drawer. A .navPop* rule here would be a divergence
+    // between the two menus by definition.
+    const gameStyle = game.slice(game.indexOf('<style'))
+    expect(gameStyle.match(/\.navPop[A-Za-z]*\s*[,{]/g) ?? [], 'no .navPop rule in GamePage').toEqual([])
+  })
+
   it('never ships the drawer a button that opens nothing', () => {
     // The Preferences row opens a React panel, so with no script it would be a
     // control that does nothing — worse than one that is not there. Same
@@ -498,6 +526,69 @@ describe('the mobile menu', () => {
     for (const selector of ['.navPopLinks a', '.navPopEnd .themeBtn']) {
       const rule = new RegExp(`\\${selector.replace(/ /g, '\\s+')}[^{]*\\{[^}]*\\}`).exec(css)?.[0]
       expect(rule, `${selector} must be sized as a row`).toMatch(/min-height:\s*2\.75rem/)
+    }
+  })
+})
+
+describe('the block that answers "what is different"', () => {
+  it('opens the rules page, before the rules themselves', () => {
+    // The reader arrived with a model of another card game and is looking for
+    // the delta. Putting it after ten sections of rules is putting it after the
+    // point they gave up.
+    const contrast = article.indexOf('CONTRASTS.map')
+    const rules = article.indexOf('t.rules.map')
+    expect(contrast, 'the page must render CONTRASTS').toBeGreaterThan(-1)
+    expect(rules, 'the page must still map t.rules').toBeGreaterThan(-1)
+    expect(contrast, 'the contrast block comes first').toBeLessThan(rules)
+  })
+
+  it('stays out of the in-game rules modal', () => {
+    // The modal is a reference read standing up in the middle of a round. This
+    // is an argument read before the first one, and it is not the same object.
+    const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
+    expect(modal).not.toMatch(/CONTRASTS|contrasts/)
+  })
+
+  it('takes its hand size from the server rather than from a memory of it', () => {
+    // Same rule as the deck table: a number typed here is right on the day it is
+    // written, and this is the copy nobody plays against, so it goes wrong
+    // silently.
+    const src = readFileSync(path.join(REPO, 'server', 'game', 'room.go'), 'utf8')
+    const m = /initialHandSize\s*=\s*(\d+)/.exec(src)
+    expect(m, 'initialHandSize not found — this test is reading the wrong file').toBeTruthy()
+    expect(HAND_SIZE).toBe(Number(m![1]))
+  })
+
+  it('takes the number range from the deck the server builds', () => {
+    const src = readFileSync(path.join(REPO, 'server', 'game', 'deck.go'), 'utf8')
+    const body = /func NewDeck\(\)[^]*?\n}/.exec(src)?.[0]
+    expect(body, 'NewDeck() not found').toBeTruthy()
+    const m = /for v := (\d+); v <= (\d+); v\+\+/.exec(body!)
+    expect(m, 'the number loop not found').toBeTruthy()
+    expect(NUMBER_LOW).toBe(Number(m![1]))
+    expect(NUMBER_HIGH).toBe(Number(m![2]))
+  })
+
+  it('states the numbers it claims, in both languages', () => {
+    // The constants are interpolated, so this is what catches a line that
+    // quietly stopped using them.
+    const en = CONTRASTS.map((c) => c.en).join(' ')
+    const fr = CONTRASTS.map((c) => c.fr).join(' ')
+    for (const text of [en, fr]) {
+      expect(text).toContain(String(HAND_SIZE))
+      expect(text).toContain(String(DECK_SIZE))
+      expect(text).toContain(String(NUMBER_HIGH))
+    }
+  })
+
+  it('says all eight things, in both languages, and says them differently', () => {
+    expect(CONTRASTS).toHaveLength(8)
+    for (const line of CONTRASTS) {
+      for (const lang of LANGS) {
+        expect(line[lang]?.trim(), lang).toBeTruthy()
+      }
+      // A `Record<Lang, string>` is satisfied by pasting the English in twice.
+      expect(line.fr, `still in English: ${line.en}`).not.toBe(line.en)
     }
   })
 })

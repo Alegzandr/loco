@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { CONTRASTS } from '../../client/src/content/contrasts'
 import { en } from '../../client/src/i18n/en'
 import { fr } from '../../client/src/i18n/fr'
 
@@ -41,6 +42,23 @@ test.describe('read without JavaScript', () => {
       for (const item of section.items) {
         expect(body, `règle : ${item.slice(0, 45)}`).toContain(item)
       }
+    }
+  })
+
+  // The delta a visitor arrived looking for, above the rules rather than spread
+  // through them — and served rather than mounted, because the reader who needs
+  // it most is the one who has not decided to load anything yet.
+  test('the rules page opens on what is different, in both languages', async ({ page }) => {
+    for (const [url, lang] of [['/rules/', 'en'], ['/fr/regles/', 'fr']] as const) {
+      await page.goto(url)
+      const body = await page.locator('main').innerText()
+      for (const line of CONTRASTS) {
+        expect(body, `${lang}: ${line[lang].slice(0, 45)}`).toContain(line[lang])
+      }
+      // Above the first rule section, which is the whole point of it.
+      const first = body.indexOf(CONTRASTS[0][lang])
+      const rules = body.indexOf((lang === 'fr' ? fr : en).rules[0].heading)
+      expect(first, `${lang}: the block comes first`).toBeLessThan(rules)
     }
   })
 

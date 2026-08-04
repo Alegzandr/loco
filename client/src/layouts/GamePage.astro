@@ -230,7 +230,22 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
         still in this document for a crawler, and still one press away in the
         sheet on a screen with room for it.
       */}
+      {/*
+        First row, and the only one that is not a destination: it shuts the
+        drawer and opens the sheet. Under 46rem the footer row is gone and this
+        drawer deliberately carries no prose, so a first-time visitor on a phone
+        met a logo, a tagline, two buttons and a burger — and nothing at all
+        about the game. The prose is in this document either way; this is what
+        makes it reachable.
+
+        `hidden` in the markup and revealed by `homeSheet.ts`, the same contract
+        as the Preferences row below and for the same reason: with no bundle it
+        would be a control that does nothing.
+      */}
       <nav class="navPopLinks" aria-label={ui('navLabel', lang)}>
+        <button type="button" id="navAbout" class="navPopAbout" hidden>
+          {ui('homeSheetBtn', lang)}
+        </button>
         {NAV.map((p) => (
           <a href={p.path[lang]}>{p.navLabel?.[lang] ?? p.title[lang]}</a>
         ))}
@@ -661,6 +676,21 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
     }
 
     .homeIntroMain {
+      display: none;
+    }
+
+    /* The row goes; what the row could open does not. The drawer's first line
+       opens the same sheet at this width, and the sheet lives inside the row —
+       so the container comes back while it is up, with the links taken out of
+       the flow rather than merely hidden (they are behind the scrim and would
+       otherwise still push the footer's height around under it). The sheet and
+       its scrim are both `position: fixed`, so nothing here re-enters the
+       layout: the footer stays worth no height at all to the board. */
+    .homeIntroMain:has(.homeSheet[open]) {
+      display: block;
+    }
+
+    .homeIntroMain:has(.homeSheet[open]) > nav {
       display: none;
     }
 

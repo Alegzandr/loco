@@ -910,7 +910,8 @@ tbody tr:last-child td {
 /* Each link is a row, not a word: 2.75rem of height is what makes it a target
    rather than a piece of text that happens to be tappable. Full width for the
    same reason — the whole row answers, not the glyphs. */
-.navPopLinks a {
+.navPopLinks a,
+.navPopLinks button {
   display: flex;
   align-items: center;
   min-height: 2.75rem;
@@ -923,8 +924,21 @@ tbody tr:last-child td {
   text-decoration: none;
 }
 
+/* The game drawer's first row opens the sheet on this page rather than going
+   anywhere, so it is a <button> — there is no URL to give it. It wears the row
+   style above and undoes the three things a button brings with it. */
+.navPopLinks button {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
 .navPopLinks a:hover,
-.navPopLinks a:focus-visible {
+.navPopLinks a:focus-visible,
+.navPopLinks button:hover,
+.navPopLinks button:focus-visible {
   background: var(--color-canvas);
 }
 
@@ -978,9 +992,21 @@ tbody tr:last-child td {
   box-shadow: 0 1px 0 var(--color-stroke-soft);
 }
 
-/* First in the list, and set off from the five destinations under it. */
-.navPopPlay {
+/* First in the list, and set off from the five destinations under it. Two
+   rows wear this: `Play` on the content pages, and the game page's row that
+   opens the sheet. Neither is a page, and the gap is what says so. */
+.navPopPlay,
+.navPopAbout {
   margin-bottom: 0.45rem;
+}
+
+/* Shipped `hidden` and revealed by `homeSheet.ts`. Stated here rather than left
+   to the attribute alone because `.navPopLinks button` sets `display: flex`,
+   which beats the UA's `[hidden] { display: none }` on specificity — the row
+   would be visible with no bundle behind it, which is the one thing shipping it
+   hidden exists to prevent. */
+.navPopLinks button[hidden] {
+  display: none;
 }
 
 /* The two settings, side by side under a rule: they are not pages, and a row of

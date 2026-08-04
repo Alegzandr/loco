@@ -35,6 +35,10 @@ rules, `docs/notes/` the reasoning.
 - Tiebreakers: most rounds won → highest score → lowest lost-hand total → sudden-death extra round.
 - **Evening recap on the game-over screen**: one column per match this table has finished, with each seat's rounds won and points, and its total of matches taken. A rematch wipes the scoreboard, so without it a group playing six matches on one code ends up with nobody able to say who won the night. Hidden until the table has rematched, since one column would be the standings above it said twice.
 - Win detection (empty hand) and deck replenishment from the discard pile.
+- **The rules page opens on what is different**: eight lines for a visitor who already knows a card
+  game of colours and symbols, above the rules themselves. The hand size, the deck size and the
+  number range in it are read from the server rather than written down. It is deliberately absent
+  from the in-game rules modal, which is a reference rather than an argument.
 - Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
 
 ## UI / UX

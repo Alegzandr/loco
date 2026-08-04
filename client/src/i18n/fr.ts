@@ -5,8 +5,10 @@
  *
  * - **Tutoiement.** The game speaks to a player sitting at a table with their
  *   friends, not to a user of a service. `vous` put a counter between the two.
- * - **The table, not the room.** `salle` / `salon` are venue-booking words;
- *   everything a player joins, shares or leaves here is a *table*.
+ * - **The table, not the room.** `salle` / `salon` / `pièce` are venue-booking
+ *   words; everything a player joins, shares or leaves here is a *table*, and
+ *   one of the four places a match is dealt in is a *décor*. One word per thing:
+ *   `src/test/vocabulary.test.ts` fails if any of the three comes back.
  */
 export const fr: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
@@ -183,11 +185,11 @@ export const fr: Translations = {
     },
     rune: {
       name: 'Rune',
-      tagline: 'L’arrière-salle d’une taverne arcanique. Chêne sculpté, gemmes, chandelles.',
+      tagline: 'Le fond d’une taverne arcanique. Chêne sculpté, gemmes, chandelles.',
     },
     velvet: {
       name: 'Velvet',
-      tagline: 'Un salon art déco. Laiton, feutre bordeaux et lampes en veilleuse.',
+      tagline: 'Un fumoir art déco. Laiton, feutre bordeaux et lampes en veilleuse.',
     },
     orbit: {
       name: 'Orbit',

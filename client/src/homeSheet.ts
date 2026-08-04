@@ -44,13 +44,22 @@ if (prefsRow) {
 
 const sheet = document.querySelector<HTMLDetailsElement>('.homeSheet')
 const scrim = document.querySelector<HTMLElement>('.homeSheetScrim')
-const control = sheet?.querySelector<HTMLElement>('.homeSheetBtn')
+const summary = sheet?.querySelector<HTMLElement>('.homeSheetBtn')
 const closeX = sheet?.querySelector<HTMLButtonElement>('.homeSheetX')
+
+/**
+ * What the focus goes back to when the sheet shuts.
+ *
+ * The summary on a wide screen, the drawer's row on a phone — where the summary
+ * is `display: none` and focusing it would drop the caret on the body, which is
+ * the top of the document and not where the reader was.
+ */
+let opener: HTMLElement | null | undefined = summary
 
 function close() {
   if (!sheet?.open) return
   sheet.open = false
-  control?.focus()
+  opener?.focus()
 }
 
 if (sheet) {
@@ -72,5 +81,36 @@ if (sheet) {
   // display:none from the first seat onwards and cannot be open by then anyway.
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && sheet.open) close()
+  })
+
+  /*
+   * The phone's way into the same sheet.
+   *
+   * Under 46rem the footer row is display:none and the drawer carries no prose,
+   * so a first visit on a phone was a logo, a tagline, two buttons and a burger
+   * — and nothing about the game. The prose was in the document the whole time;
+   * this is the press that reaches it.
+   *
+   * Revealed here for the reason the Preferences row is: with no bundle there is
+   * nothing to open. The drawer is shut first, so the sheet's own way out (the
+   * scrim, the ✕, Escape) lands on a screen with one thing on it.
+   */
+  const aboutRow = document.querySelector<HTMLButtonElement>('#navAbout')
+  if (aboutRow) {
+    aboutRow.hidden = false
+    aboutRow.addEventListener('click', () => {
+      document.getElementById('navPop')?.hidePopover()
+      // The way back is this row, not the summary: at this width the summary is
+      // `display: none` and focusing it would put the caret on the body.
+      opener = aboutRow
+      sheet.open = true
+    })
+  }
+
+  // Opened from the footer button again, so the way back is the footer button
+  // again. Without this the caret stayed on a row nobody can see once the window
+  // is wide enough for the drawer to be gone.
+  summary?.addEventListener('click', () => {
+    opener = summary
   })
 }

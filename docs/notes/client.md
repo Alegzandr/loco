@@ -1152,9 +1152,21 @@ that says "Waiting Room", "Create Room" and "Game Rules" is a website with cards
 screen saying "The table", "New table" and "How to play" is a game. Every string is written as
 something a person at the table would say, and rewriting one means keeping it inside these rules.
 
-- **The place is a table, never a room.** `salle`, `salon`, `lobby` and `room` are venue-booking
-  words. A player opens a table, shares a table code, takes a seat, leaves the table. The store's
-  internal names (`room_code` on the wire, `screen === 'waiting'`) are unaffected: this is copy.
+- **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
+  seats a code is shared for — a player opens one, shares its code, takes a seat, leaves it. A
+  **room** (French: *décor*) is one of the four places a match is dealt in, and nothing else.
+  `lobby` is still banned outright, and so are `salle`, `salon` and `pièce`: they are
+  venue-booking words that named both objects at different times.
+
+  Three words for two things is what this replaced, and the navigation was the worst of it: an entry
+  labelled **Tables** opened a page about the four *places*, so the one control whose job is to say
+  which of the two you are about to read said the wrong one. The label is `Rooms` / `Les décors`
+  now, the `<h1>` follows it, and **the path and the `<title>` deliberately do not** — `/tables/`
+  carries the search value, and a URL is not copy. The store's internal names (`room_code` on the
+  wire, `screen === 'waiting'`, `maps`, `mapPreload`) are unaffected for the same reason.
+  `src/test/vocabulary.test.ts` fails on any of the three banned words in `fr.ts`, in `UI`, in
+  `PAGES` or anywhere under `src/content/`, and it also asserts the positive half: having banned
+  the synonyms, the page about the four places has to actually say *décor*.
 - **French is tutoiement**, stated at the top of `fr.ts`. `vous` puts a service counter between the
   game and four friends on a sofa. It is a translation convention, not a per-string decision.
 - **A button is a verb the player is about to perform**, in as few words as the control allows.
@@ -1185,6 +1197,39 @@ something a person at the table would say, and rewriting one means keeping it in
 - **Nothing is exclamatory twice.** The banners shout (`INTERCEPTED!`, `CAUGHT!`, `LOCO!`) because
   they are the streamable moments; everything around them stays calm so those keep their weight.
 - **No em dash in copy**, in either language: a colon, a full stop, or two sentences.
+
+### What is different, and where it is allowed to be said
+
+A visitor arrives holding a model of a card game of colours and symbols, and the only question they
+have is the delta. The showcase used to answer it badly in two places at once: the home page carried
+three bullets of which exactly one was about the rules (the other two were the LOCO call and there
+being no signup, which is already `homeAbout`'s second sentence), and the real differences were
+spread across ten sections of the rules page — which is a rulebook's worth of reading to find out
+whether a game is worth ten seconds.
+
+- **`src/content/contrasts.ts`** is that answer, eight lines, first thing on the rules page and
+  above the `t.rules` mapping. **Its numbers are constants checked against the server**, exactly as
+  the deck table is: `HAND_SIZE` against `initialHandSize` in `server/game/room.go`, the number
+  range against `NewDeck()`'s loop, the deck size against `DECK_SIZE`. A hand size typed by hand is
+  right on the day it is written, and this is the copy nobody plays against, so it goes wrong
+  silently.
+- **It is not in the rules modal, and must not be put there.** The modal is a reference read
+  standing up in the middle of a round; this is an argument read before the first one. Same content
+  in two registers is two features as far as a player is concerned, and the modal's whole discipline
+  is that every line is a rule.
+- **The home page's three bullets are three mechanics.** Interception with no deadline, doubles going
+  down together, and the two cards that move whole hands. Nothing there spends the visitor's
+  attention on something the other game also does.
+- **The sheet's control asks the question rather than offering a section.** `homeSheetBtn` is
+  `What is LOCO?` / `C'est quoi LOCO ?`, and it heads the sheet as well as opening it.
+- **The phone has to be able to reach that prose.** Under 46rem `.homeIntroMain` is
+  `display: none` and the drawer deliberately carries no copy, so a first visit was a logo, a
+  tagline, two buttons and a burger. `#navAbout` is the drawer's first row: it shuts the popover and
+  opens the same `<details>`. It ships `hidden` and `homeSheet.ts` reveals it — the same contract as
+  `#navPrefs`, for the same reason. Two details make it work rather than look like it does:
+  `.homeIntroMain:has(.homeSheet[open])` puts the container back at that width (the sheet lives
+  inside the row that is hidden), and `homeSheet.ts` remembers **which** control opened the sheet, so
+  closing it hands the focus back to the drawer row rather than to a `display: none` summary.
 
 The rules modal follows the same voice and one extra constraint: **it is read once, standing up,
 by somebody who wants to play now.** Section headings are the promise (`The cards that hurt`,
