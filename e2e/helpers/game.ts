@@ -70,6 +70,9 @@ export const T = {
   // The evening's recap, drawn on the game-over card once the table has played
   // more than one match.
   recapTitle: 'Tonight',
+  // `M%n`, never a word: a label set over a two-digit column sizes the grid on
+  // itself, and four matches ran off a 360px screen that way.
+  recapMatchCol: 'M%n',
   recapWonCol: 'Won',
   nicknameRejected: 'Pick another nickname.',
   // The host's two controls over one roster row, behind one ⋯ per row. Both ask
