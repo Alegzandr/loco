@@ -293,6 +293,22 @@ e2e_test:
       }
       write_app_env() {
         local target="$1"
+        # The socket's certresolver travels as a whole label line rather than as
+        # a value, because in dev the label must not exist at all. Production is
+        # the only environment with a direct socket — it is the only one with a
+        # CDN to escape — so it is the only one whose `ws.` hostname has a DNS
+        # record. A dev router naming the resolver would have Traefik ask Let's
+        # Encrypt for a certificate for a name that resolves nowhere, over and
+        # over, against a quota of five failed validations an hour, and the
+        # account it burns is the one production renews on.
+        #
+        # The dev value is an inert Docker label rather than an empty string:
+        # Traefik reads nothing that does not start with `traefik.`, and an
+        # empty entry in a compose `labels:` list does not parse.
+        local ws_cert_label="loco.ws.certresolver=none"
+        if [ "${DEPLOY_ENV}" = "prod" ]; then
+          ws_cert_label="traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.tls.certresolver=letsencrypt"
+        fi
         printf '%s\n' \
           "PORT=${PORT}" \
           "DEPLOY_ENV=${DEPLOY_ENV}" \
@@ -303,6 +319,7 @@ e2e_test:
           "LOCO_DRAIN_TIMEOUT=${LOCO_DRAIN_TIMEOUT}" \
           "STOP_GRACE_PERIOD=${STOP_GRACE_PERIOD}" \
           "LOCO_SNAPSHOT_PATH=${LOCO_SNAPSHOT_PATH}" \
+          "WS_CERT_LABEL=${ws_cert_label}" \
           > "${target}"
       }
       # How long a deploy waits for the matches already running is one policy

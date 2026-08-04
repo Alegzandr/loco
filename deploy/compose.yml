@@ -78,15 +78,30 @@ services:
       # router is created in every environment; only production points a DNS
       # record and a client bundle at it, so elsewhere it is inert.
       #
-      # tls=true and no certresolver, like the router above: this Traefik has no
-      # certificatesResolvers at all and reads certificates as files. That is
-      # also the failure to recognise here — an origin serving Traefik's
-      # self-signed default means the certificate for this hostname was never
-      # installed, and the game answers it by falling back to the proxied path
-      # rather than by breaking. See docs/deployment.md.
+      # This one names a certresolver and the router above does not, and the
+      # asymmetry is the whole point. The site is proxied, so Cloudflare is the
+      # only thing that validates the origin's certificate and the zone's
+      # Origin Certificate satisfies it. This hostname is grey-clouded, so the
+      # browser validates it itself — and an Origin Certificate is trusted by
+      # Cloudflare and by nothing else. It served one, every browser refused the
+      # upgrade before it happened, and the game fell back to the proxied path
+      # at 389 ms for everybody whose machine did not happen to carry
+      # Cloudflare's Origin CA. A fallback in effect is silent, so nothing
+      # reported it. ACME is what stops that returning, expiry included.
+      #
+      # `letsencrypt` must exist in the host Traefik's static configuration
+      # (certificatesResolvers, HTTP-01 on the :80 entrypoint). Naming a
+      # resolver that does not exist drops the router. See docs/deployment.md.
+      #
+      # WS_CERT_LABEL is the certresolver label, whole, and it is written by
+      # write_app_env in .gitlab-ci.yml because only production carries it: dev
+      # has no `ws.` record and asking ACME for a name that resolves nowhere
+      # fails on a loop. In dev the line is an inert Docker label, which is what
+      # keeps this list parsing.
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.rule=Host(`ws.${APP_HOST}`)
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.entrypoints=websecure
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.tls=true
+      - ${WS_CERT_LABEL}
       - traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.service=${APP_SUBDOMAIN}-${DEPLOY_ENV}
 
 networks:
