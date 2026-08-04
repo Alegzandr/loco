@@ -291,8 +291,11 @@ test.describe('rematch', () => {
     expect((s?.matchHistory ?? []).map((m) => m.winner_index)).toEqual([0, 0])
 
     await expect(page.getByText(T.recapTitle)).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText('Match 1')).toBeVisible()
-    await expect(page.getByText('Match 2')).toBeVisible()
+    // Scoped to the recap's own head row: `M1` is two characters and the round
+    // columns of the scoreboard above it carry the same convention.
+    const heads = page.locator('.recapTable th')
+    await expect(heads.filter({ hasText: T.recapMatchCol.replace('%n', '1') })).toBeVisible()
+    await expect(heads.filter({ hasText: T.recapMatchCol.replace('%n', '2') })).toBeVisible()
     await expect(page.getByText(T.recapWonCol)).toBeVisible()
   })
 })
