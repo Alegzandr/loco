@@ -119,8 +119,8 @@ needs jsdom and the `browser` resolve condition.
 - `src/App.svelte` the screen switch · `src/entry.ts` mounts it into `#root` via a bundled module
   script, never an island
 - `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
-  key, the two home paths, the boot redirect); the last two pull in no framework, so a content page
-  can use them
+  key, the two home paths, the boot redirect) — those two pull in no framework, so a content page can
+  use them · `src/pinchGuard.ts` the seated half of "no accidental zoom", installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
@@ -369,12 +369,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   matchmade timings exist because a stranger will not wait for you.
 - **Three fixed emotes, on the game-over screen, and no free text anywhere in this game**
   (`hub/emotes.go`, `protocol.AllEmotes`). The set is **closed and server-side** — an identifier this
-  server does not know is refused and counted, never relayed. **Nothing is kept**: not in the event
-  log, not on the `Room`, not in the snapshot; the only state is `table.emoteAt`, which is *when* a
-  seat last spoke and never what it said, and it goes with the match. Refused anywhere but a finished
-  match, **never to or from a bot**, and capped at one per seat per `EmoteCooldown` — **both refusals
-  answer their sender and broadcast nothing.** Free text would be a moderation surface, and
-  collecting nothing is the compliance strategy.
+  server does not know is refused and counted, never relayed. **Nothing is kept, anywhere**: not in
+  the event log, not on the `Room`, not in the snapshot, and not on the table either — `hub/emotes.go`
+  holds no state at all. Refused anywhere but a finished match and **never to or from a bot**; **both
+  refusals answer their sender and broadcast nothing.** **A seat changes its mind as often as it
+  likes**: the 2s per-seat cooldown is gone, because the client *replaces* a seat's line instead of
+  stacking it — so the screen never needed a cap, and the cap only ever refused somebody rewording.
+  The per-client token bucket is the bound, as it is for every other message. Free text would be a
+  moderation surface, and collecting nothing is the compliance strategy.
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes
@@ -836,7 +838,12 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   sitemap on production hosts and nothing at all on `-d.`.
 - `make og` and `make icons` **commit their output**: CI has no browser.
 - **The viewport may never forbid zooming** (no `user-scalable=no`, no `maximum-scale`; the
-  double-tap is answered by `touch-action: manipulation` on `body`). **White on LOCO Red is 3.43:1**,
+  double-tap is answered by `touch-action: manipulation` on `body`). **The seat is what costs the
+  pinch, never the tag**: under `[data-seated]` the reset drops to `touch-action: pan-x pan-y` and
+  `pinchGuard.ts` refuses WebKit's `gesturestart` — a board already scaled to the viewport is only
+  ever zoomed by accident, and everything a visitor *reads* (`/`, the prose sheet, every content
+  page) keeps the gesture. Safari has ignored `user-scalable=no` since iOS 10, so the tag would have
+  cost the audit and fixed nothing. **White on LOCO Red is 3.43:1**,
   so anything wearing it is 1.2rem or larger, never darkened. **A box that scrolls sideways takes
   `tabindex="0"`** and a `:focus-visible` ring. All four pinned by `client/src/test/a11y.test.ts`.
 - **Two things keep a page fast**: `build.inlineStylesheets: 'always'` (`style-src` allows
@@ -887,9 +894,13 @@ stated at the top of `styles/tokens.css`:
   behind it transitions **colour only**, over the whole document, for exactly that long. The boot
   never arms it, the attribute must come back off, and reduced motion wins by specificity rather than
   by a branch in the script (`themeTransition.test.ts`).
-- **The action bar never reflows.** Fixed three-column grid, **Catch mounted in the centre column all
-  match and nothing else ever in it**, enabled and armed in place. A reaction game cannot move its
-  buttons mid-match. Three states: dead, pressable from three cards out and until every seat on one
+- **The action bar never reflows, and it never empties either.** Fixed three-column grid, **Catch
+  mounted in the centre column all match and nothing else ever in it**, enabled and armed in place. A
+  reaction game cannot move its buttons mid-match. **All three columns hold their button the whole
+  match and go dead rather than away**: draw and pass used to be rendered only on our turn, which
+  left one lone pill in a wide trough and pinched the bar's outline to a point at each end of it —
+  little teeth that came and went with the turn. The penalty draw is the one recolour left, and it is
+  ours only. Three states: dead, pressable from three cards out and until every seat on one
   card has called it (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
   centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
   dead unless we hold one uncalled card. Never a fourth column, never something that appears: a

@@ -1,8 +1,6 @@
 package hub
 
 import (
-	"time"
-
 	"loco/server/game"
 	"loco/server/protocol"
 )
@@ -20,10 +18,9 @@ import (
 //   - **The set is closed and server-side** (`protocol.AllEmotes`). An
 //     identifier this server does not know is refused, never relayed, so a
 //     client cannot invent a fourth.
-//   - **Nothing is kept.** Not in the event log, not in the room, not in the
-//     drain snapshot. An emote is broadcast, shown for a few seconds and
-//     forgotten. The only state here is the last-sent stamp the throttle needs,
-//     and it goes with the match.
+//   - **Nothing is kept at all.** Not in the event log, not in the room, not in
+//     the drain snapshot, and not here either: an emote is broadcast, shown and
+//     forgotten, and this file holds no state of any kind.
 //   - **The game-over screen and nowhere else.** Anywhere earlier it would be
 //     something to do to somebody mid-round, which is the thing a reaction game
 //     least needs.
@@ -32,15 +29,18 @@ import (
 //     every rate-limited message in this server is written to.
 //   - **Never to or from a bot.** A seat the server plays does not have opinions
 //     about the match, and it has no socket to receive one either.
-
-// EmoteCooldown is how long a seat waits between two of them.
 //
-// The per-socket token bucket already bounds the traffic; this bounds the
-// *screen*. Ten a second inside the bucket's budget would be a wall of pills
-// over a scoreboard somebody is reading, which is spam whatever the byte count
-// says. Two seconds is slower than anybody types and faster than anybody
-// notices.
-var EmoteCooldown = 2 * time.Second
+// And one thing that is deliberately *not* a refusal: **a seat changes its mind
+// as often as it likes.** There was a two-second per-seat cooldown here, and it
+// was answering a problem the screen does not have — the client *replaces* what
+// a seat is saying rather than adding to it, so a seat pressing all three in a
+// second is one pill changing its word, never a feed growing under the two
+// offers and the way out. What the cap actually cost was the one gesture the
+// feature exists for: pressing "gg", thinking better of it, and pressing "close
+// one". That is a change of mind, and it arrived as a refusal. The traffic is
+// bounded where every other message on this socket is bounded, by the per-client
+// token bucket (10/s, burst 20); a second, narrower ceiling said nothing the
+// first one did not.
 
 // handleSendEmote relays one of the three, or refuses to its sender alone.
 func (h *Hub) handleSendEmote(t *table, c *Client, msg protocol.ClientMsg) {
@@ -62,15 +62,6 @@ func (h *Hub) handleSendEmote(t *table, c *Client, msg protocol.ClientMsg) {
 	if t.isBot(seat) {
 		return
 	}
-
-	now := time.Now()
-	if last, ok := t.emoteAt[seat]; ok && now.Sub(last) < EmoteCooldown {
-		// Refused to its sender and to nobody else: a broadcast here would make
-		// the refused emote the cheaper of the two.
-		c.sendError("one at a time")
-		return
-	}
-	t.emoteAt[seat] = now
 
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:        protocol.SMsgEmote,

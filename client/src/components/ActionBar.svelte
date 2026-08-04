@@ -67,6 +67,13 @@
   // and quiet on purpose — forgetting the call is a turn of the game, not a
   // mistake the interface is meant to prevent.
   const locoOwed = $derived(handSize === 1 && !hasDeclared)
+
+  // The two outer columns are drawn all match and go dead rather than away, so
+  // the only thing these decide is whether the button is pressable — never
+  // whether it is there. One draw a turn, and a pass costs that draw first;
+  // outside our turn neither is ours to take.
+  const canDraw = $derived(isMyTurn && !hasDrawn)
+  const canPass = $derived(isMyTurn && pendingDraw === 0 && hasDrawn)
 </script>
 
 <!--
@@ -74,20 +81,33 @@
   slots keep their width whether or not they hold a button, so every control sits
   at the same screen pixel all match long and can be aimed at before it lights up
   — this is a speed game, and a bar that reflows under the cursor costs a win.
+
+  And every column holds its button the whole match, dead when the action is not
+  available, exactly like Catch and LOCO!. Reserving the width was only half of
+  it: on somebody else's turn the two outer slots emptied, and the bar became one
+  lone pill floating in a wide trough — the outline pinching to a point at each
+  end of it, four little teeth that appeared and went with the turn. The
+  silhouette a thumb aims at cannot be one shape on our turn and another on
+  theirs, and a control that is drawn only while it is pressable is one the
+  player has never once looked at before the moment they need it.
 -->
 <div class="actionBar">
   <div class="slot" data-slot="left">
+    <!-- The penalty draw is the one swap left in the bar, and it is deliberate:
+         it is the same button in the same column, recoloured and pulsing because
+         the stack is the most urgent thing that happens in a round. It is ours
+         only — on somebody else's turn the stack is theirs to answer, so the
+         column stays the ordinary draw, dead. -->
     {#if isMyTurn && pendingDraw > 0}
       <button class="btn btnPenalty" onclick={onDraw}>{t.draw} +{pendingDraw}</button>
-    {/if}
-    {#if isMyTurn && pendingDraw === 0}
+    {:else}
       <button
         class="btn"
-        class:btnDisabled={hasDrawn}
-        class:btnDrawSecondary={!hasDrawn && hasPlayableCard}
-        class:btnDraw={!hasDrawn && !hasPlayableCard}
+        class:btnDisabled={!canDraw}
+        class:btnDrawSecondary={!canDraw || hasPlayableCard}
+        class:btnDraw={canDraw && !hasPlayableCard}
         onclick={onDraw}
-        disabled={hasDrawn}
+        disabled={!canDraw}
       >
         {t.draw}
       </button>
@@ -110,11 +130,9 @@
   </div>
 
   <div class="slot" data-slot="right">
-    {#if isMyTurn && pendingDraw === 0}
-      <button class="btn btnPass" class:btnDisabled={!hasDrawn} onclick={onPass} disabled={!hasDrawn}>
-        {t.pass}
-      </button>
-    {/if}
+    <button class="btn btnPass" class:btnDisabled={!canPass} onclick={onPass} disabled={!canPass}>
+      {t.pass}
+    </button>
   </div>
 
   <!-- Always here, above the bar and out of the grid flow, so neither its arming
@@ -139,12 +157,14 @@
      ink outline, solid ledge underneath, travels down on press.
 
      Layout is a THREE-COLUMN GRID OF FIXED WIDTH, not a content-sized flex row:
-     draw left, reaction button centre, pass right. Slots keep their column whether
-     or not they hold a button, and the bar's own width never changes, so each
-     control stays on the same screen pixel for the whole match. LOCO is a reaction
-     game — the player parks the cursor over the centre before the card that needs
-     it lands, and a bar that reflows (penalty draw appearing) moves the target out
-     from under them.
+     draw left, reaction button centre, pass right. Every column holds its button
+     for the whole match — dead when the action is not ours, never absent — and the
+     bar's own width never changes, so each control stays on the same screen pixel
+     from the deal to the last card. LOCO is a reaction game: the player parks the
+     cursor over the centre before the card that needs it lands, and a bar that
+     reflows (penalty draw appearing) moves the target out from under them. A slot
+     that *empties* moves nothing, but it changes the shape the thumb is aiming at,
+     which is the same failure one step further out — see the markup above.
 
      The centre column is Contre-LOCO's and holds nothing else, ever. It is the
      one control in the game whose window is measured in seconds and opens on

@@ -12,7 +12,6 @@ import {
   createRoom,
   joinRoom,
   startGame,
-  getState,
   debugSetState,
   winWith,
   waitForRoundSummary,
@@ -66,17 +65,11 @@ test.describe('the three things', () => {
     )
     await expect(host.locator('.emoteFeed')).toContainText(T.emoteGG)
 
-    // A second press inside the cooldown is refused to its sender and reaches
-    // nobody: what the seat is saying does not change.
-    await guest.getByRole('button', { name: T.emoteNice }).click()
-    await host.waitForTimeout(600)
-    const during = (await getState(host))?.emotes ?? []
-    expect(during).toHaveLength(1)
-    expect(during[0].emote).toBe('gg')
-
-    // Past the cooldown it is one line per seat, replaced: the second thing
-    // said takes the first one's place rather than adding a bubble under it.
-    await host.waitForTimeout(2000)
+    // Straight away, with no cooldown to wait out: a seat changes its mind as
+    // often as it likes, and it is one line per seat, replaced — the second
+    // thing said takes the first one's place rather than adding a bubble under
+    // it, which is why the card's height is the table's size and nothing under
+    // the thumb moves.
     await guest.getByRole('button', { name: T.emoteNice }).click()
     await host.waitForFunction(
       () => {

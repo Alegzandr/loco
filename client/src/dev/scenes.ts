@@ -460,6 +460,25 @@ export const SCENES: Scene[] = [
     deadlineIn: 9,
   },
   {
+    // The action bar at its emptiest, and the reason `.slotFill` exists: it is
+    // not our turn, so Piocher and Passer are gone, and nobody is close enough
+    // to finishing for Contre-LOCO to be pressable either. Every button in the
+    // bar is absent or dead at once — which is the only moment the two outer
+    // columns are drawn rather than merely reserved. Reviewed on a phone
+    // because that is where the bar runs edge to edge.
+    id: 'game-opponent-turn-quiet',
+    title: 'Partie · tour adverse, barre au repos',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 2,
+      players: [player(0, 'Nova', 3), player(1, 'Kiwi', 6), player(2, 'Bot1', 6)],
+      myHand: HAND_7.slice(0, 3),
+      scoreboard: SCOREBOARD.slice(0, 3),
+    },
+    deadlineIn: 9,
+  },
+  {
     // The direction ring is the only lasting record of a Reverse: the callout
     // lasts a second, the heading lasts the rest of the round. Both states are
     // captured so the flip is reviewable side by side.

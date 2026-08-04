@@ -154,6 +154,23 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   every control sits on the same screen pixel all match long. LOCO is a reaction game — a player
   parks the cursor over the centre *before* the card that needs it lands, and a bar that reflows when
   the penalty draw appears moves the target out from under them.
+- **Reserving the column was only half of it: every column holds its button all match and goes dead
+  rather than away.** Draw and pass used to be rendered only on our turn, and the slot they left
+  behind was empty — the grid held, so nothing moved, but on somebody else's turn the bar became one
+  lone pill floating in a wide trough. That is not a neutral state: the bar's outline and the pill's
+  outline pinch to a point where they pass each other, so a shape appears at each end of the button —
+  little teeth that come and go with the turn, on the one surface that exists to be aimed at without
+  being looked at. The silhouette must be the same object all match. It is also the same argument the
+  centre column and the LOCO! chip are already written to: a control drawn only while it is pressable
+  is one the player has never once looked at before the moment they need it. `game-opponent-turn-quiet`
+  is the scene — the bar at its emptiest, every button absent or dead at once.
+  - **The penalty draw is the one swap left, and it is ours only.** `Piocher +N` recolours and pulses
+    in the left column because a live stack is the most urgent thing in a round; on somebody else's
+    turn the stack is theirs to answer, so the column stays the ordinary draw, dead. The loudest
+    object on the screen does not belong to a turn we are not taking.
+  - **A dead draw wears the neutral fill** (`.btnDrawSecondary`), not the primary gradient and not a
+    bare button: an unstyled disabled slot reads as a hole in the bar rather than as the same object,
+    off.
 - **The other half of that decision is that there is no keyboard shortcut for any of it**, and there
   never will be: the controls hold their coordinates so they can be aimed at, and aiming is the only
   way in. The reasoning, and the global-versus-focused line that keeps the accessibility path intact,

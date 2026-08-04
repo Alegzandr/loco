@@ -6,6 +6,7 @@ import { initMotion } from './hooks/motionPref'
 import { initSessionRestore } from './hooks/sessionRestore'
 import { initTableInvite } from './hooks/tableInvite'
 import { initLangUrl } from './lang'
+import { initPinchGuard } from './pinchGuard'
 
 /**
  * The game, mounted into #root by a module script.
@@ -89,6 +90,13 @@ function boot() {
   // from here on. It used to be the provider's first render; there is no provider
   // now, so it is a line in the boot sequence like the two above.
   initI18n()
+
+  // Order-free, unlike the five around it: it installs listeners that decide
+  // nothing until a gesture arrives, and what they answer to (`data-seated`) is
+  // written by App.svelte long after this returns. It is here rather than in a
+  // component because a table can be left and taken again, and the guard is the
+  // document's for the life of the tab either way. See pinchGuard.ts.
+  initPinchGuard()
 
   // A table link carries its code in the URL, and it has to be read before the
   // line below decides whether this tab is reclaiming a seat: following a link is

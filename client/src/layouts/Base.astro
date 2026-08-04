@@ -180,6 +180,30 @@ const links = alternates(page)
            keeping. */
         touch-action: manipulation;
       }
+      /*
+        …and past the entry screen, the pinch goes too.
+
+        `data-seated` is set from the waiting room onwards (App.svelte), and
+        every screen it covers is a fixed board scaled to the viewport: there is
+        no small type on it, nothing runs off an edge, and zooming it only ever
+        happens by accident — a thumb spreading over the fan mid-round, leaving
+        the player scrolling a magnified table with a five-second window open.
+        `pan-x pan-y` is `manipulation` minus pinch-zoom: panning still works, so
+        nothing that scrolls (the standings, the evening's recap) stops scrolling.
+
+        Deliberately NOT the viewport tag. `user-scalable=no` would take the zoom
+        away from `/`, from the prose behind its sheet and from every content
+        page — the pages somebody actually reads, and the reason that tag stays
+        clean (see the note above it). Scoped here, the seat is what costs the
+        gesture, and leaving the table gives it back.
+
+        Safari answers `touch-action` for the double-tap but keeps pinch-zoom as
+        a browser gesture of its own, so the other half of this lives in
+        `pinchGuard.ts`. Both halves are pinned by `src/test/a11y.test.ts`.
+      */
+      :root[data-seated] body {
+        touch-action: pan-x pan-y;
+      }
     </style>
   </head>
   <body class={bodyClass}>
