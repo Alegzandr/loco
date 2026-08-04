@@ -75,7 +75,6 @@ export interface ErrorCopy {
   // Matchmaking refusals.
   alreadySearching: string
   matchmadeUnavailable: string
-  cannotLeaveMatch: string
   // A rematch asked for after the other side has already gone.
   opponentGone: string
   // Sent by the server the instant before it gives a match away, so it is read
@@ -157,7 +156,7 @@ export interface Translations {
   // the same offer with the wait taken out: nothing to configure, a hand now.
   // It never apologises for the opponent — a player who wants a human has the
   // button above it, and one who presses this wants to play, not to be sorry.
-  playBot: string               // home screen: the line under the 1v1 button
+  playBot: string               // home screen: the fourth button of the menu
   playBotGo: string             // submit on its nickname form
   playBotAgain: string          // game over, where there is nobody to ask
   searchTitle: string
@@ -392,14 +391,25 @@ export interface Translations {
   recapWonCol: string     // matches taken, the total column
   rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
-  // Walking out of a match in progress, which a table of four or more can
-  // afford. The chip is icon-only in the board's top-right cluster, so this is
-  // its accessible name and its tooltip; the question below takes the chip's
-  // place, exactly as the waiting room's does, and the safe answer comes first.
+  // Walking out of a match in progress, which every table allows. The chip is
+  // icon-only in the board's top-right cluster, so this is its accessible name
+  // and its tooltip; the question below takes the chip's place, exactly as the
+  // waiting room's does, and the safe answer comes first.
   leaveMatchBtn: string
   leaveMatchAsk: string
   leaveMatchYes: string
   leaveMatchStay: string
+  // One of these four sits under the question, and it is what the player cannot
+  // see from their own screen: what their leaving does to the others. The table
+  // it names is the one they are at — a bot, a stranger who is handed the match,
+  // a table that keeps playing, a table that stops.
+  leaveMatchNoteSolo: string
+  leaveMatchNoteRanked: string
+  leaveMatchNoteTable: string
+  leaveMatchNoteEnds: string
+  // A seat that is out for the rest of the match, told to everybody still
+  // holding cards: walked out, or held until the window closed. %player.
+  departureNotice: string
   // The whole vocabulary the game has: three fixed things, on the game-over
   // screen and nowhere else. Free text would be a moderation surface, and
   // "we collect nothing" is the compliance strategy rather than an accident.
@@ -506,7 +516,7 @@ export const en: Translations = {
   findMatch: 'Play 1v1',
   findMatchHint: 'We find you someone',
   findMatchGo: 'Find an opponent',
-  playBot: 'Or play the bot',
+  playBot: 'Play the bot',
   playBotGo: 'Deal me in',
   playBotAgain: 'Play the bot again',
   searchTitle: 'Looking for an opponent',
@@ -700,9 +710,14 @@ export const en: Translations = {
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',
   leaveMatchBtn: 'Leave the match',
-  leaveMatchAsk: 'Leave the match? Your seat is out for good.',
+  leaveMatchAsk: 'Leave the match?',
   leaveMatchYes: 'Yes, leave',
   leaveMatchStay: 'Stay',
+  leaveMatchNoteSolo: 'Nobody is waiting on you. The bot will live.',
+  leaveMatchNoteRanked: 'Somebody across the table is really playing. They take the match.',
+  leaveMatchNoteTable: 'The match carries on without you and your seat is out for good. Tell the others before you go.',
+  leaveMatchNoteEnds: 'The match ends here for everyone, and goes to whoever stayed. Tell them before you go.',
+  departureNotice: '%player has left the match',
   emotesLabel: 'Say something',
   emotes: {
     gg: 'GG',
@@ -880,7 +895,6 @@ export const en: Translations = {
     rematchTooEarly: 'The match is not over yet.',
     alreadySearching: 'You are already looking for a game.',
     matchmadeUnavailable: 'Not a thing in a 1v1.',
-    cannotLeaveMatch: 'Cards are out. Play it through.',
     opponentGone: 'They have left the table.',
     afkForfeit: 'You were away too long. The match went to your opponent.',
     afkKicked: 'You were away too long.',

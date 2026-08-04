@@ -916,12 +916,36 @@ reads.
   arriving already true, and going false before the timer — and the reload E2E asserts the overlay is
   gone rather than only that the state came back.
 
-## The one way off a board that has stopped
-A match refuses `leave_room`, which is why the action bar has no quit control and must not grow one:
-walking out is not a move, and the hold exists so a dropped socket is not a departure. That refusal
-assumed there was a match left to refuse on behalf of, and there was one state where there was not —
-every other seat's hold expired, so the clock draws and passes for empty chairs until the round runs
-out, `leave_room` came back refused, and closing the browser was the only way out of the *game*.
+## Leaving a match, and what it costs the others
+The board carries one way out, drawn at every table: a chip in the top-right chrome row, never on the
+action bar (that bar is a fixed three-column grid a reaction is aimed at, and it must not grow a
+fourth control). It asks first, in place, and the question is two lines rather than one.
+
+**The second line is the whole feature.** "Leave the match?" is a question the player can already
+answer; what they cannot see from their own screen is what leaving does to everybody else, and that
+is different at each of the four tables this game has. So `leaveNote` picks one of four strings —
+the bot minds nothing, a stranger is handed the match, a table of four keeps playing without the
+seat, a table of two ends where it stands and goes to whoever stayed — and the count behind it is the
+server's own (`Hub.canWalkOut`, `WalkOutFloor`): a seat counts while it is a bot, or a human whose
+hold has not run out. If the two ever disagree the server still decides; what is at stake in the
+client is the wording, not the permission.
+
+**Nothing is greyed out here.** A player who has to go is going either way, and the alternative exit
+is the turn clock auto-passing for an empty chair until the AFK threshold — two rounds spoiled for
+everybody else rather than one player leaving. A disabled way out only ever produced a closed tab.
+
+**And the table is told, by name** (`departureNotice`, the pill above the swap notice's). A departure
+mid-match moves the turn, puts a hand back into the deck and takes a chair out of the order, and
+until this notice the only sign of it was a bubble going quiet: held and gone read identically in the
+roster. It rides `noteSeatGone`, so it is idempotent with the seat record — a repeat says nothing new
+and must not put the banner back up over a board the table has moved on from — and it covers both
+departures, the walk-out and the hold that ran out, because to everybody else they are the same news.
+
+### The curtain underneath it
+Every other seat's hold has expired, so the clock draws and passes for empty chairs until the round
+runs out and nothing on this board will ever move again. The chip alone would be enough now that
+leaving is never refused, but the state still deserves saying out loud rather than leaving the player
+to work out that the table is empty.
 
 - **Held and gone read identically in the roster.** Both are `connected: false`, and only one of them
   can come back — so the difference is remembered rather than derived. `goneSeats` is written by
@@ -930,9 +954,9 @@ out, `leave_room` came back refused, and closing the browser was the only way ou
   Every other `player_left` carries no index and adds nothing here, which is correct — after a lobby
   departure the number would name somebody else.
 - **The client's question and the server's are the same question.** `tableAbandoned` in `GameView` and
-  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", so the
-  control is never drawn over a refusal. During the hold there is no button, because during the hold
-  the answer is genuinely no.
+  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", and the
+  hub answers it the same way: the seat goes and the table goes with it, with no forfeit, because
+  there is nobody to award the match to.
 - **It is a curtain, not a button on the bar.** The bar is fixed three columns and never reflows
   mid-match; the board stays visible underneath, because it is still the match that was being played.
 - **It waits behind the two reconnect curtains.** Our own socket being down is the more urgent
@@ -1332,7 +1356,7 @@ shuts it, and it is never behind a scrim.
 ## Rules modal
 - `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").
 - Close: ✕, footer Close, backdrop click, `Escape`.
-- Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, max-height 92vh).
+- Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, height 92vh).
 - `document.body.style.overflow='hidden'` while open; restored on unmount.
 - Content lives in translations; component is content-agnostic.
 
@@ -1376,6 +1400,20 @@ never seen. The tab row is `role="tablist"` with arrows/Home/End **on the focuse
 accessibility path the no-shortcuts rule keeps open, not a global listener. `Escape` still closes the
 modal: a tab is not a layer, and one press closes one thing. The `tab` prop only exists so the dev
 gallery can shoot the second half (`lobby-rules-cards`); it is read once, not tracked.
+
+**The switch is a change of contents and nothing else, which took three things.** It read as brutal
+because all three moved at once. The card was sized to its own contents under a `max-height`, and the
+two panels are nothing like the same length — so pressing a tab resized the whole modal, and the
+header, the tab row and the footer all travelled with it, including the control that had just been
+pressed. It is `height: min(88vh, 640px)` now (92vh as a sheet): one box, whatever is in it. The
+scroller was declared `scroll-behavior: smooth`, which turned the `scrollTop` reset into a second
+movement — the outgoing panel scrolling up the card while the new one arrived — so the declaration is
+gone and the jump is instant, which is invisible under the third thing. And the third is the fade:
+each panel is wrapped in a `.panel` div that is mounted fresh on every switch, so a 0.18s
+opacity-only CSS animation runs itself with no state to hold. **Opacity only** — anything that slides
+moves copy towards a player who is reading it, and `select()` returns early on the tab already
+showing so pressing it again replays nothing. Reduced motion drops the animation like every other one
+here.
 
 ## Privacy and terms
 Not a modal any more. Privacy, terms and credits are one content page (`/privacy/`,

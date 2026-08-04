@@ -1,17 +1,17 @@
 /**
  * walk-out.spec.ts
  *
- * Leaving a match in progress at a table that can spare the seat.
+ * Leaving a match in progress, which every table allows.
  *
- * "The cards are out, go and finish the round" is the right answer at three
- * seats. At four or more it is not: the only exit somebody who genuinely has to
- * leave can reach is the turn clock, which auto-draws and auto-passes for them
- * until the AFK threshold — two rounds spoiled for everybody else rather than
- * one player leaving.
+ * The only other exit somebody who genuinely has to leave can reach is the turn
+ * clock, which auto-draws and auto-passes for them until the AFK threshold —
+ * two rounds spoiled for everybody else rather than one player leaving. What the
+ * table size decides is what happens to the match: above the floor the round
+ * carries on without the seat, and at two seats it ends and goes to whoever
+ * stayed.
  *
- * Four seats here, two of them bots: the rule counts seats that can still act,
- * and a bot can act. Self-contained like every test in this suite, and it takes
- * no lock — nothing here touches the matchmaking queue.
+ * Both cases here. Self-contained like every test in this suite, and neither
+ * takes the lock — nothing here touches the matchmaking queue.
  */
 import { test, expect } from '@playwright/test'
 import {
@@ -43,6 +43,8 @@ test.describe('walking out of a match', () => {
     const leave = guest.getByRole('button', { name: T.leaveMatchBtn })
     await expect(leave).toBeVisible({ timeout: 10_000 })
     await leave.click()
+    // And the question says what the table keeps: the match, minus the seat.
+    await expect(guest.getByText(T.leaveMatchNoteTable)).toBeVisible()
 
     // It asks first, and the safe answer is the one that backs out.
     await expect(guest.getByText(T.leaveMatchAsk)).toBeVisible()
@@ -52,6 +54,12 @@ test.describe('walking out of a match', () => {
 
     await leave.click()
     await guest.getByRole('button', { name: T.leaveMatchYes }).click()
+
+    // The table is told, by name: a bubble going quiet is not an explanation for
+    // a turn order that just changed shape.
+    await expect(
+      host.getByText(T.departureNotice.replace('%player', 'Bob')),
+    ).toBeVisible({ timeout: 10_000 })
 
     // The leaver is back at the front door.
     await guest.waitForFunction(
@@ -82,7 +90,7 @@ test.describe('walking out of a match', () => {
     await guestCtx.close()
   })
 
-  test('a table of three offers no way out at all', async ({ browser }) => {
+  test('a table of two ends the match and hands it to whoever stayed', async ({ browser }) => {
     const hostCtx = await browser.newContext()
     const guestCtx = await browser.newContext()
     const host = await hostCtx.newPage()
@@ -90,14 +98,33 @@ test.describe('walking out of a match', () => {
 
     const code = await createRoom(host, 'Alice')
     await joinRoom(guest, 'Bob', code)
-    await addBot(host)
     await startGame(host)
     await waitForTableOpen(host)
     await waitForTableOpen(guest)
 
-    // One leaving would leave two, and this game is not any good at two people
-    // who did not choose it. The control is simply not drawn.
-    await expect(guest.getByRole('button', { name: T.leaveMatchBtn })).toHaveCount(0)
+    // The way out is drawn here too — but the note under it says what leaving
+    // costs at this table, which is the match itself.
+    const leave = guest.getByRole('button', { name: T.leaveMatchBtn })
+    await expect(leave).toBeVisible({ timeout: 10_000 })
+    await leave.click()
+    await expect(guest.getByText(T.leaveMatchNoteEnds)).toBeVisible()
+    await guest.getByRole('button', { name: T.leaveMatchYes }).click()
+
+    await guest.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'lobby',
+      undefined,
+      { timeout: 10_000 },
+    )
+
+    // Alice is not left in front of a board nothing will move again: the match
+    // is over and it is hers.
+    await host.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'gameover',
+      undefined,
+      { timeout: 10_000 },
+    )
+    const s = await getState(host)
+    expect(s?.matchWinner).toBe('Alice')
 
     await hostCtx.close()
     await guestCtx.close()

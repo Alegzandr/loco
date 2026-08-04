@@ -389,22 +389,26 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   already asked. In a matchmade room the client requeues the survivor instead.
 - **Nobody waits for somebody who is not there.** A matchmade room holds a dropped seat 15s and treats
   2 consecutive turn timeouts as away, and **both expiries forfeit the match**, as does `leave_room`.
-  **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, refuse `leave_room` mid-match, and
-  allow it in every waiting room behind one in-place confirmation, the only one in the game.
-- **Nobody is trapped either.** That refusal assumes there is somebody to walk out on, so it lifts
-  once there is not: `table.abandonedBy` is true when every other seat is a human with no socket and
-  **no hold left**, and then `leave_room` releases the seat and takes the table with it — no forfeit,
-  because the only seat to award it to is the empty one. **And a match nobody is at and nobody can
-  return to ends where that becomes true** (`closeAbandonedMatch`, off the last expiry), rather than
-  auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy open for five minutes.
-- **A table of four or more can spare a seat, and says so** (`Hub.canWalkOut`, `WalkOutFloor` = 3,
-  `Room.RetireSeat`). "Go and finish the round" is right at three seats and wrong at six, where the
-  only exit is the turn clock — two rounds spoiled for five people rather than one player leaving.
-  **Evaluated once, at the ask**, and **never in a 1v1** of either kind. The seat is *retired*, not
-  removed: **the hand goes back to the deck**, the turn steps over it, its catch window shuts, it is
-  dealt nothing thereafter — and **the scoreboard is left exactly as it stood**, because leaving is a
-  departure and not a forfeit. `nextTurn`, `rotateSeats`, `biggestLoser` and the Swap target all
-  know about it. **The control is a chip in the board's chrome row, never on the action bar.**
+  **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, and every room allows `leave_room`
+  in its waiting room behind one in-place confirmation, the only one in the game.
+- **`leave_room` is refused nowhere, and the table decides what it does** (`leaveAtTable`, four
+  branches in this order): a matchmade match **forfeits**; a solo game **or** a table nobody can come
+  back to (`table.abandonedBy`: every other seat a human with no socket and **no hold left**) is
+  **closed**, seat swept, no forfeit, because the only seat to award it to is empty or a bot; above
+  the floor the round **carries on** without the seat; at or below it the match **ends and goes to
+  the seat that stayed**, announced as a forfeit with the scoreboard untouched. **And a match nobody
+  is at and nobody can return to ends where that becomes true** (`closeAbandonedMatch`, off the last
+  expiry), rather than auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy
+  open for five minutes.
+- **`WalkOutFloor` = 2 is what a match needs to keep being a match**, not a permission (`Hub.canWalkOut`,
+  `Room.RetireSeat`). A player who has to go has one other exit — the turn clock auto-passing for an
+  empty chair until the AFK threshold — so refusing only ever bought a closed tab. **Evaluated once,
+  at the ask.** Above it the seat is *retired*, not removed: **the hand goes back to the deck**, the
+  turn steps over it, its catch window shuts, it is dealt nothing thereafter — and **the scoreboard is
+  left exactly as it stood**, because leaving is a departure and not a forfeit. `nextTurn`,
+  `rotateSeats`, `biggestLoser` and the Swap target all know about it. **The control is a chip in the
+  board's chrome row, never on the action bar**, and **the seats that stay are told who left, by
+  name.**
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing that
   would start a new match is accepted, the queue is emptied with an explanation, **every table is
   told once — every table, not only the ones playing: a waiting room, a game-over and a versus reveal
@@ -507,13 +511,20 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   on attempts is a curtain that never comes down over a seat the server may still be holding.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
-- **The board carries no way out, except when there is no game left to leave.** A match refuses
-  `leave_room` on purpose, so the action bar has no quit control and must not grow one. The single
-  exception is a curtain: every other seat's hold has expired, nothing will move again, and the card
-  carries `leaveRoom`. It reads `goneSeats` — written only by the one `player_left` that names a seat
-  — because **held and gone are both `connected: false`** and only one of them comes back. It waits
-  behind the reconnect curtains: our own socket being down may be the whole reason the table looks
-  empty.
+- **The board's way out is a chip in the chrome row, at every table, and never on the action bar** —
+  that bar is a fixed three-column grid a reaction is aimed at and must not grow a fourth control.
+  It asks in place, and **the line under the question is the feature**: what the player cannot see
+  from their own screen is what leaving costs everybody else, so `leaveNote` picks one of four
+  strings (bot / matchmade opponent / a table that keeps playing / a table that stops), counted the
+  way `Hub.canWalkOut` counts. **Nothing here is greyed out**: the server refuses none of it, and a
+  disabled exit only ever produced a closed tab.
+- **A seat leaving is told to the table, by name** (`departureNotice`, riding `noteSeatGone` so it is
+  idempotent with the seat record). Held and gone are both `connected: false`, so a bubble going
+  quiet cannot explain a turn order that just changed shape.
+- **A board that has stopped still says so.** Every other seat's hold has expired, nothing will move
+  again, and the curtain carries `leaveRoom`. It reads `goneSeats` — written only by the one
+  `player_left` that names a seat — and waits behind the reconnect curtains: our own socket being
+  down may be the whole reason the table looks empty.
 - **There are no gameplay keyboard shortcuts and there must never be any.** No key plays, draws,
   passes, calls LOCO! or throws a Contre-LOCO!. Aiming at a button that lights up for a few
   seconds *is* the skill the game measures, and a shortcut deletes that gesture rather than
@@ -578,7 +589,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   itself), `t.cardNames` the names and `t.cardBriefs` the one-liners; **nothing about a card is
   spelled out twice**. It stays eight lines: the copies, the points and the long form are the
   `/cards/` page, and **this modal still links nowhere** — a link mid-match is an invitation to leave
-  the table. `rulesModal.test.ts` pins both halves.
+  the table. `rulesModal.test.ts` pins both halves. **Switching between them changes the contents and
+  nothing else**: the card holds one height for both, the scroll reset is instant, and the arriving
+  panel fades in on opacity alone — a card sized to its own contents resized under the tab row on
+  every press, and took the control that had just been pressed with it.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's
@@ -623,6 +637,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `initMotion()` writes the attribute from the system setting *and* the player's answer, and it is
   now the whole mechanism: Svelte transitions and the two WAAPI shakes ask `prefersReducedMotion()`
   themselves. `reducedMotionCss.test.ts` owns the rules, `motionPref.test.ts` the wiring.
+- **The home menu is four buttons and they are all drawn alike** (`Lobby.svelte`): 1v1, the bot, new
+  table, join a table, in that order. **Hierarchy is a hue, never a smaller kind of control** — the
+  bot's is the one neutral fill, and it used to be a line of underlined text under the queue's
+  button, which between two ledged buttons reads as a footnote and gets pressed like one.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape rules only, word list
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and

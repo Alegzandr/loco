@@ -680,27 +680,39 @@ to be a press.
   beside the queue’s own number, because the two answer one operator question together: whether an
   empty-feeling queue is sending people to the bot or sending them away.
 
-## Walking out of a match a table can spare the seat from
+## Leaving a match in progress
 
-`Hub.canWalkOut` + `Room.RetireSeat`. Leaving mid-match is still refused by default and the reason
-has not changed: walking out is not a move, and the 60 s hold exists precisely so a drop is not the
-end. What changed is that the refusal was answering a question it had never been asked at six seats.
+`handleLeaveRoom` / `leaveAtTable`, `Hub.canWalkOut` + `Room.RetireSeat`. **There is no room and no
+moment in which leaving is refused.** What the table decides is what the departure *does*, never
+whether the player may go.
 
-**The problem it fixes is not the leaver’s.** Somebody who genuinely has to go has exactly one exit
-today: stop pressing things and let the turn clock auto-draw and auto-pass for them until the AFK
-threshold. That is four timeouts, roughly two rounds, played out at thirty seconds a turn by five
-other people watching an empty chair take its turn. One player leaving is cheaper than that for
-everybody, including the ones who stayed.
+**The problem it fixes is not the leaver’s.** Somebody who genuinely has to go used to have exactly
+one exit: stop pressing things and let the turn clock auto-draw and auto-pass for them until the AFK
+threshold. That is four timeouts, roughly two rounds, played out at thirty seconds a turn by
+everybody else, watching an empty chair take its turn. One player leaving is cheaper than that for
+the whole table — and at two or three seats, where the refusal used to stand hardest, it is cheaper
+still: the alternative there was not a spoiled round but a board nobody could get off.
 
-- **The floor is three seats that can still play** (`WalkOutFloor`). Three is the smallest table this
-  game is any good at, and `playableSeats` counts what can act: a bot, or a human who is here or
-  inside their reconnect window. A seat whose hold has run out is not one — nothing at it will ever
-  move again.
+The four answers, in the order `leaveAtTable` asks them:
+
+- **A matchmade match forfeits.** The honest answer between two strangers, unchanged.
+- **A solo game and an abandoned match close the table.** One case in the code, because it is one
+  case in fact: nothing at that table will act again once this socket goes. No forfeit either —
+  `remainingSeat` would hand the match to a bot or to a player who is not there.
+- **Above the floor the round carries on** (`canWalkOut`, `retireSeat`). `playableSeats` counts what
+  can act: a bot, or a human who is here or inside their reconnect window. A seat whose hold has run
+  out is not one.
+- **At or below it the match ends and goes to the seat that stayed**, announced as a forfeit with the
+  scoreboard untouched. A table of two is a 1v1 whichever door it was opened through, and the
+  alternative is leaving the survivor in front of a board that will never move again — which is the
+  state `abandonedBy` exists to end, arrived at deliberately instead of by an expiry.
+
+- **`WalkOutFloor` is 2**: what a match needs to keep being a match, not a politeness threshold. It
+  was 3 when leaving was a privilege a big table could afford; it is now the line between the two
+  endings above.
 - **Evaluated once, at the moment of the ask.** If a later disconnect takes the table under the floor
-  while the round runs, the permission does not retract: what was allowed was the departure, and
-  re-deciding it afterwards would mean a player who left is somehow still at the table.
-- **Never in a 1v1 of either kind.** A matchmade one already answers a player who wants out, with a
-  forfeit, which is the honest answer between two strangers; a solo game is one seat and a server.
+  while the round runs, nothing is re-decided: what happened was a departure, and reconsidering it
+  afterwards would mean a player who left is somehow still at the table.
 - **The seat is retired, not removed.** Hands, scores, rounds won and the turn order are all indexed
   by it, and a running match cannot re-base any of them. So the seat stays, `table.gone` records the
   absence exactly as an expiry does, and the domain takes it out of the *round*: the hand goes back
@@ -720,8 +732,11 @@ everybody, including the ones who stayed.
   bar is a fixed three-column grid so a reaction can be aimed at it, and it must not grow a fourth
   control (see `visual.md`). The question takes the chip’s place, out of the flow, so nothing on the
   board moves for it — the safe answer first and coloured, Escape through the one hook, exactly as
-  the waiting room’s own confirmation works. It is the only confirmation the game gains, and the
-  client only draws it where the roster says the server will allow it.
+  the waiting room’s own confirmation works. It is drawn at every table now, and what changes with
+  the table is the line under the question: what leaving costs the people still holding cards.
+- **The seats that stay are told, by name.** `player_left` already carried the nickname and the seat;
+  the client turns it into a pill on the board. A departure moves the turn and shortens the order,
+  and the roster alone cannot explain that — held and gone are both `connected: false`.
 
 ## Freeing a seat somebody else is in
 `handleKickPlayer`. Every other host control describes the table (the format, the size, when to
@@ -864,22 +879,21 @@ strangers will not, and the player who is still at the table did nothing wrong.
 - **The AFK path forfeits rather than kicks.** Closing the socket would only start a second wait (the
   reconnect hold) for somebody who has already proved they are not there, and the opponent would have
   sat through both. The away player is sent `afk_forfeit` first so their own screen can explain it.
-- `leave_room` is the deliberate version: immediate, no wait. It is **refused** in an ordinary match
-  in progress (`you cannot leave a match in progress`): that UI offers no way out once the cards are
-  dealt, and one arriving on the wire would hand a group's match away. Before the deal it is allowed
-  everywhere and is not a forfeit at all: the waiting room has a quit button for host and guest
-  alike, `releaseSeat` frees the seat on the spot and the rest of the table gets `player_left`. That
-  is the whole point of sending it rather than closing the tab, which would hold the slot instead.
-- **That refusal lifts once there is nobody to refuse on behalf of.** It protects a group's match from
-  one member walking out, and it assumed there was a match left to protect. There was a state where
-  there was not: the other seat's socket goes, its hold expires, and from then on nothing at that
-  seat will ever act again — the clock auto-draws and auto-passes for it every 30 s until the round
-  runs out, `leave_room` comes back refused, and the survivor's only way out of the *game* is closing
-  the browser. That was the one state in LOCO with no in-game action available. `table.abandonedBy`
-  is the question that ends it: every other seat a human, with no socket **and no hold left**. Away
-  is not gone — while the hold is running the refusal stands, which is the whole meaning of the hold.
-  No forfeit is issued, because `remainingSeat` would award the match to the seat that is not there;
-  the seat is swept and the table is closed.
+- `leave_room` is the deliberate version: immediate, no wait, and **refused nowhere**. In a match of
+  two it does exactly what the two expiries above do — the match ends and goes to the seat that
+  stayed — and at a bigger table the round carries on without the seat. The full set of answers is in
+  *Leaving a match in progress* above. Before the deal it is not a forfeit at all: the waiting room
+  has a quit button for host and guest alike, `releaseSeat` frees the seat on the spot and the rest
+  of the table gets `player_left`. That is the whole point of sending it rather than closing the tab,
+  which would hold the slot instead.
+- **A table nobody can come back to is closed rather than forfeited.** The other seat's socket goes,
+  its hold expires, and from then on nothing at that seat will ever act again — the clock auto-draws
+  and auto-passes for it every 30 s until the round runs out. `table.abandonedBy` is the question:
+  every other seat a human, with no socket **and no hold left**. Away is not gone — while the hold is
+  running the seat is somebody who may return, so leaving in front of it is the ordinary 1v1 ending
+  and the match is theirs to come back to. Once it is gone, no forfeit is issued at all, because
+  `remainingSeat` would award the match to the seat that is not there: the seat is swept and the
+  table is closed.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.

@@ -23,8 +23,11 @@
 
   // The two panels share one scroller, so a player who read the rules to the
   // bottom and then asked for the cards would land halfway down a grid they had
-  // never seen.
+  // never seen. The jump is instant — the scroller carries no `scroll-behavior`
+  // for that reason: animating it scrolls the outgoing panel up the card while
+  // the new one is arriving, which is two movements for one press.
   function select(next: Tab) {
+    if (next === tab) return
     tab = next
     if (body) body.scrollTop = 0
   }
@@ -112,32 +115,40 @@
       aria-labelledby="rulesTab-{tab}"
       tabindex="0"
     >
+      <!-- The panel arrives, it does not cut. The wrapper is mounted fresh on
+           every switch, so the fade is one CSS animation and no state: opacity
+           only, because the card is already the size it will stay and anything
+           that slides would move the copy a player is reading towards. -->
       {#if tab === 'rules'}
-        {#each t.rules as section (section.heading)}
-          <section class="section">
-            <h3 class="sectionHeading">{section.heading}</h3>
-            <ul class="list">
-              {#each section.items as item, i (i)}
-                <li class="listItem">{item}</li>
-              {/each}
-            </ul>
-          </section>
-        {/each}
-      {:else}
-        <p class="lede">{t.rulesCardsLede}</p>
-        <ul class="deck">
-          {#each CARD_CATALOGUE as card (card.kind)}
-            <li class="entry">
-              <!-- The game's own card, at the size a hand is read at. Nothing
-                   here is a picture of a card: it is the card. -->
-              <div class="face"><Card {card} shadow style="width:72px;height:108px" /></div>
-              <div class="entryText">
-                <h3 class="cardName">{t.cardNames[card.kind]}</h3>
-                <p class="cardBrief">{t.cardBriefs[card.kind]}</p>
-              </div>
-            </li>
+        <div class="panel">
+          {#each t.rules as section (section.heading)}
+            <section class="section">
+              <h3 class="sectionHeading">{section.heading}</h3>
+              <ul class="list">
+                {#each section.items as item, i (i)}
+                  <li class="listItem">{item}</li>
+                {/each}
+              </ul>
+            </section>
           {/each}
-        </ul>
+        </div>
+      {:else}
+        <div class="panel">
+          <p class="lede">{t.rulesCardsLede}</p>
+          <ul class="deck">
+            {#each CARD_CATALOGUE as card (card.kind)}
+              <li class="entry">
+                <!-- The game's own card, at the size a hand is read at. Nothing
+                     here is a picture of a card: it is the card. -->
+                <div class="face"><Card {card} shadow style="width:72px;height:108px" /></div>
+                <div class="entryText">
+                  <h3 class="cardName">{t.cardNames[card.kind]}</h3>
+                  <p class="cardBrief">{t.cardBriefs[card.kind]}</p>
+                </div>
+              </li>
+            {/each}
+          </ul>
+        </div>
       {/if}
     </div>
 
@@ -174,7 +185,12 @@
     border-radius: var(--radius-xl);
     width: 100%;
     max-width: 680px;
-    max-height: 88vh;
+    /* A height, not just a ceiling. The two panels are nothing like the same
+       length, so a card sized to its contents resized under the tab row on
+       every press: the header, the tabs and the footer all jumped, and the
+       control that had just been pressed moved out from under the pointer. A
+       fixed box makes the switch a change of contents and nothing else. */
+    height: min(88vh, 640px);
     display: flex;
     flex-direction: column;
     box-shadow: var(--shadow-pop);
@@ -275,8 +291,20 @@
     overflow-y: auto;
     padding: var(--space-lg);
     flex: 1;
-    scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .panel {
+    animation: panelIn 0.18s var(--ease-out) both;
+  }
+
+  @keyframes panelIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   /* The panel scrolls, so it is reachable from the keyboard and says where it
@@ -413,7 +441,7 @@
     }
 
     .modal {
-      max-height: 92vh;
+      height: 92vh;
       border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     }
 
@@ -449,7 +477,8 @@
     }
   }
 
-  :root[data-motion="reduce"] .modal {
+  :root[data-motion="reduce"] .modal,
+  :root[data-motion="reduce"] .panel {
     animation: none;
   }
 </style>

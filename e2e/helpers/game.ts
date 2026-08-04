@@ -31,12 +31,17 @@ export const T = {
   rematchWaitingOpponent: 'Waiting on them…',
   leaveRoom: 'Leave the table',
   leaveConfirmYes: 'Yes, leave',
-  // Walking out of a match a table of four or more can spare a seat from. Its
-  // own strings: the question is about the match, not about the table.
+  // Walking out of a match, which every table allows. Its own strings: the
+  // question is about the match, not about the table, and the note under it is
+  // what leaving costs the people still holding cards.
   leaveMatchBtn: 'Leave the match',
-  leaveMatchAsk: 'Leave the match? Your seat is out for good.',
+  leaveMatchAsk: 'Leave the match?',
   leaveMatchYes: 'Yes, leave',
   leaveMatchStay: 'Stay',
+  leaveMatchNoteTable: 'The match carries on without you and your seat is out for good. Tell the others before you go.',
+  leaveMatchNoteEnds: 'The match ends here for everyone, and goes to whoever stayed. Tell them before you go.',
+  // What the seats still holding cards are told, %player substituted.
+  departureNotice: '%player has left the match',
   // The whole vocabulary the game has, on the game-over screen only.
   emoteGG: 'GG',
   emoteClose: 'That was close',
@@ -53,7 +58,7 @@ export const T = {
   findMatch: 'Play 1v1',
   findMatchGo: 'Find an opponent',
   // The 1v1 against the server: the same offer with the wait taken out.
-  playBot: 'Or play the bot',
+  playBot: 'Play the bot',
   playBotGo: 'Deal me in',
   playBotAgain: 'Play the bot again',
   searchTitle: 'Looking for an opponent',

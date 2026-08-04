@@ -468,13 +468,14 @@ func (h *Hub) releaseSeat(t *table, c *Client) {
 	log.Printf("player left room code=%s nickname=%s", code, nickname)
 }
 
-// handleLeaveRoom gives up a seat on purpose. In a matchmade match in progress
-// it is a forfeit, announced as one, so the other player is told the match
-// ended rather than left watching a board that stopped moving.
+// handleLeaveRoom gives up a seat on purpose, and there is no room and no
+// moment in which it is refused. What changes is what the table does with the
+// departure, never whether the player is allowed to go.
 //
-// In an ordinary room mid-match it is refused: those rooms are groups of people
-// who came in together, the 60s hold exists precisely so a drop is not the end,
-// and the board offers no way out to send it from.
+// In a matchmade match in progress it is a forfeit, announced as one, so the
+// other player is told the match ended rather than left watching a board that
+// stopped moving. In an ordinary match it is a walk-out where the table can
+// spare the seat and the end of the match where it cannot.
 //
 // Before the deal it is nobody's forfeit and every room allows it: the waiting
 // room's quit button lands here, and the seat is released on the spot instead of
@@ -509,12 +510,14 @@ func (h *Hub) leaveAtTable(t *table, c *Client) {
 		switch {
 		case t.isMatchmade():
 			h.forfeitMatch(t, c.playerID())
-		case t.abandonedBy(c.playerID()):
-			// Nobody left to walk out on, so there is nothing to refuse. No
-			// forfeit either: there is no one to award the match to, and
-			// remainingSeat would hand it to the player who is not there. The
-			// seat goes and the table goes with it.
-			log.Printf("leave allowed, match abandoned code=%s player=%d", t.code, c.playerID())
+		case t.solo || t.abandonedBy(c.playerID()):
+			// One case, not two: nothing at this table will act again once this
+			// socket goes. A solo game is a seat and a server, and a match every
+			// other seat has left is the same board. No forfeit either — there is
+			// nobody to award it to, and remainingSeat would hand it to a bot or
+			// to the player who is not there. The seat goes and the table with it.
+			log.Printf("leave allowed, nothing left to play code=%s player=%d solo=%t",
+				t.code, c.playerID(), t.solo)
 			t.sweep(c)
 			c.leaveSeat()
 			h.closeAbandonedMatch(t)
@@ -525,35 +528,36 @@ func (h *Hub) leaveAtTable(t *table, c *Client) {
 			c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 			return
 		default:
-			c.sendError("you cannot leave a match in progress")
-			return
+			// The match cannot go on without this seat, so it ends here rather
+			// than leaving whoever stayed in front of a board that will never
+			// move again. It is announced as a forfeit, which is what it is: the
+			// seat that stayed takes the match, and the scoreboard is untouched.
+			h.forfeitMatch(t, c.playerID())
 		}
 	}
 	h.releaseSeat(t, c)
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 }
 
-// WalkOutFloor is how many seats have to be left able to play for a player to
-// be allowed out of a match in progress.
+// WalkOutFloor is how many seats a match needs to keep being a match.
 //
-// "The cards are out, go and finish the round" is the right answer at two or
-// three seats. At six it is not: the only exit somebody who genuinely has to
-// leave can reach is the turn clock, which auto-draws and auto-passes for them
-// until the AFK threshold — two rounds spoiled for five other people rather
-// than one player leaving. Three is the smallest table this game is any good
-// at, so it is the floor a departure may not take the table below.
-const WalkOutFloor = 3
+// It is not a permission any more — leaving is always allowed — it is the line
+// between the two things a departure can do. Above it the round carries on
+// without the seat; at it or below there is no match left to carry on, so the
+// one that ends is announced rather than left standing on a board nothing will
+// move again. Two: this game is played by two people or more.
+const WalkOutFloor = 2
 
-// canWalkOut reports whether this table can spare a seat.
+// canWalkOut reports whether the match goes on without this seat.
 //
 // **Evaluated once, at the moment of the ask.** If a later disconnect takes the
-// table under the floor while the round is running, the permission does not
-// retract: what was allowed was the departure, and re-deciding it afterwards
-// would mean a player who left is somehow still at the table.
+// table under the floor while the round is running, nothing is re-decided: what
+// happened was a departure, and reconsidering it afterwards would mean a player
+// who left is somehow still at the table.
 //
-// Never in a 1v1. A matchmade one already has an answer for a player who wants
-// out — a forfeit, which is the honest one between two strangers — and a solo
-// game has one seat and a server.
+// Never in a 1v1 of either kind, and both are answered before this is asked: a
+// matchmade one ends in a forfeit between two strangers, a solo one ends with
+// the table.
 func (h *Hub) canWalkOut(t *table) bool {
 	if t.isMatchmade() || t.solo {
 		return false

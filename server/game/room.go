@@ -922,12 +922,11 @@ var ErrSeatAlreadyRetired = errors.New("that seat has already left the match")
 
 // RetireSeat takes a seat out of the match it is in the middle of, for good.
 //
-// "Go and finish the round" is the right answer at two or three seats and the
-// wrong one at six: the player who has to leave has no exit but the turn clock,
-// which auto-draws and auto-passes for them until the AFK threshold, and that is
-// two rounds spoiled for five other people rather than one player leaving.
-// Whether a table can afford it is the hub's question (three playable seats must
-// remain); this is what happens once it has answered yes.
+// A player who has to go has no other exit but the turn clock, which auto-draws
+// and auto-passes for them until the AFK threshold — two rounds spoiled for
+// everybody else rather than one player leaving. Whether the match goes on
+// afterwards is the hub's question (two playable seats must remain, or it ends
+// the match instead); this is what happens when the answer is yes.
 //
 //   - **The hand goes back to the deck**, shuffled in. Those cards were hidden,
 //     so nothing is learnt by their new position, and leaving them in a hand

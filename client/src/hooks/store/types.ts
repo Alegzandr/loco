@@ -48,6 +48,16 @@ export interface SwapNotice {
 }
 
 /**
+ * A seat that left the match for good: walked out on purpose, or held until the
+ * reconnect window ran out. The two are the same news to everybody else — that
+ * chair is empty for the rest of the match — so they get the same line.
+ */
+export interface SeatDeparture {
+  nickname: string
+  at: number // Date.now() — the key that makes a second departure a second banner
+}
+
+/**
  * One seat the server says is on the hook, straight off `card_played`. The
  * client turns these into `CatchWindow`s and adds nothing to them but its own
  * memory of which button it has already pressed.
@@ -274,6 +284,13 @@ export interface GameState {
   // decides whether this player still has anybody to play against, and the
   // server answers the same question the same way (hub: table.abandonedBy).
   goneSeats: number[]
+  // The seat that just left, for the players who are still holding cards. A
+  // departure mid-match moves the turn, shrinks the table and puts a hand back
+  // into the deck, and until this notice the only sign of it was a bubble going
+  // quiet: the roster's `connected` flag reads the same for somebody who left
+  // for good and somebody whose wifi blinked. Cleared by the GameView after a
+  // short timeout, exactly like the swap notice.
+  departureNotice: SeatDeparture | null
 }
 
 /** Identity, screen and the two ways out of a table. */
@@ -299,7 +316,8 @@ export interface TableActions {
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number, pendingDraw?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   applyHostChange: (myIndex: number, players: PlayerDTO[]) => void
-  noteSeatGone: (seat: number) => void
+  noteSeatGone: (seat: number, nickname?: string) => void
+  clearDepartureNotice: () => void
   setTurnDeadline: (ts: number | null) => void
   setSwapNotice: (notice: SwapNotice | null) => void
   applyInterrupt: (actorIndex: number, count: number) => void

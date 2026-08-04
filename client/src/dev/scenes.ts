@@ -584,8 +584,8 @@ export const SCENES: Scene[] = [
     deadlineIn: 18,
   },
   {
-    // Walking out of a match a table of four can spare a seat from. The chip is
-    // in the chrome row, never on the action bar, and the question takes its
+    // Leaving a match at a table that keeps playing without the seat. The chip
+    // is in the chrome row, never on the action bar, and the question takes its
     // place out of the flow so the board does not move for it.
     id: 'game-leave-ask',
     title: 'Partie · quitter le match',
@@ -596,6 +596,36 @@ export const SCENES: Scene[] = [
     },
     confirmLeave: true,
     deadlineIn: 18,
+  },
+  {
+    // The same question at a table that cannot spare the seat: the line under it
+    // is the one that changes, and it is the half of the decision the player
+    // cannot read off their own screen.
+    id: 'game-leave-ask-ends',
+    title: 'Partie · quitter un 1v1',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      players: [player(0, 'Nova', 5), player(1, 'Kiwi', 4)],
+    },
+    confirmLeave: true,
+    deadlineIn: 18,
+  },
+  {
+    // What the seats that stayed are told. Held and gone read identically in the
+    // roster, so this pill is the only thing that says the chair is empty for
+    // the rest of the match.
+    id: 'game-departure-notice',
+    title: 'Partie · un siège est parti',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 1,
+      goneSeats: [3],
+      departureNotice: { nickname: 'Pixel', at: 1 },
+    },
+    deadlineIn: 20,
   },
   {
     id: 'game-swap-notice',

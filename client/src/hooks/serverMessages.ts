@@ -114,7 +114,9 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // re-based, which is the mid-match expiry: the roster still shows it,
         // because a running match indexes hands by it, and `connected: false`
         // alone cannot say whether it is held or finished.
-        store.noteSeatGone(msg.player_index ?? -1)
+        // The nickname rides it so the table can be told who left rather than
+        // watching a bubble go quiet: held and gone both read `connected: false`.
+        store.noteSeatGone(msg.player_index ?? -1, msg.nickname)
         // The offers that survive a departure are the server's to say: it
         // retires the leaver's, re-bases the rest and republishes them in a
         // rematch_offered right behind this message. Clearing here is what

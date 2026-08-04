@@ -43,6 +43,19 @@ describe('the way in', () => {
     expect(buttons[3]).toContain(en.joinRoom)
   })
 
+  it('is drawn as one of the four, not as a line under one of them', () => {
+    // It was underlined text tucked under the queue's button, which between two
+    // ledged buttons reads as a footnote and gets pressed like one. Hierarchy
+    // is the hue — `.btnBot` is the only neutral fill on the screen — and the
+    // object is the same object.
+    renderLobby()
+    const bot = [...document.querySelectorAll('.buttonGroup button')].find((b) =>
+      b.textContent?.includes(en.playBot),
+    )
+    expect(bot, 'the bot entry point is in the menu').toBeTruthy()
+    expect([...bot!.classList]).toContain('btn')
+  })
+
   it('asks for a name and nothing else', () => {
     const onPlayBot = renderLobby()
     fireEvent.click(screen.getByText(en.playBot))

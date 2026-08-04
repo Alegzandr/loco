@@ -7,12 +7,13 @@ import (
 	"loco/server/protocol"
 )
 
-// Leaving a match in progress, at a table that can spare the seat.
+// Leaving a match in progress, which every table allows.
 //
-// The refusal is right at two or three seats and wrong at six: the only exit a
-// player who has to leave can reach there is the turn clock, which auto-passes
-// for them until the AFK threshold — two rounds spoiled for five people rather
-// than one player leaving.
+// The exit is never refused: a player who has to go has only one other way out,
+// the turn clock auto-passing for an empty chair until the AFK threshold — two
+// rounds spoiled for everybody else rather than one player leaving. What the
+// table size decides is what happens next: above the floor the round carries on
+// without the seat, at or below it the match ends and goes to whoever stayed.
 
 // openTable seats `names` at one table and deals. The first is the host.
 func openTable(t *testing.T, names ...string) ([]*websocket.Conn, string) {
@@ -86,14 +87,39 @@ func TestWalkOut_AllowedWhenThreeSeatsAreLeft(t *testing.T) {
 	}
 }
 
-// Three seats: one leaving would leave two, and this game is not any good at
-// two people who did not choose it.
-func TestWalkOut_RefusedWhenItWouldTakeTheTableUnderThree(t *testing.T) {
+// Three seats: one leaving leaves two, which is still a match, so the round goes
+// on without the seat rather than ending for the two who stayed.
+func TestWalkOut_ATableOfThreeKeepsPlayingWithTwo(t *testing.T) {
 	conns, _ := openTable(t, "Alice", "Bob", "Carol")
 	sendMsg(t, conns[2], protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
-	got := readMsgOfType(t, conns[2], protocol.SMsgError)
-	if got.Error != "you cannot leave a match in progress" {
-		t.Errorf("error = %q, want the mid-match refusal", got.Error)
+	readMsgOfType(t, conns[2], protocol.SMsgLeftRoom)
+
+	for i, c := range conns[:2] {
+		if left := readMsgOfType(t, c, protocol.SMsgPlayerLeft); left.Seat() != 2 {
+			t.Errorf("client %d: player_left seat = %d, want 2", i, left.Seat())
+		}
+		// The board again, and no match_end behind it: the match is not over.
+		gs := readMsgOfType(t, c, protocol.SMsgGameState)
+		if gs.State == nil {
+			t.Fatalf("client %d: game_state without state", i)
+		}
+	}
+}
+
+// Two seats: there is no match left to carry on, so it ends where it stands and
+// goes to the seat that stayed. Everything a 1v1 does, at a table that only
+// became one.
+func TestWalkOut_ATableOfTwoEndsTheMatch(t *testing.T) {
+	conns, _ := openTable(t, "Alice", "Bob")
+	sendMsg(t, conns[1], protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
+	readMsgOfType(t, conns[1], protocol.SMsgLeftRoom)
+
+	end := readMsgOfType(t, conns[0], protocol.SMsgMatchEnd)
+	if !end.Forfeit || end.MatchWinner != "Alice" {
+		t.Errorf("match_end: forfeit=%t winner=%q, want true and Alice", end.Forfeit, end.MatchWinner)
+	}
+	if end.Seat() != 1 {
+		t.Errorf("match_end: player_index = %d, want 1, the seat that left", end.Seat())
 	}
 }
 

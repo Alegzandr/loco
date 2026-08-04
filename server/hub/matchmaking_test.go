@@ -442,16 +442,26 @@ func finishRoundForSeat(t *testing.T, winner, other *websocket.Conn) {
 
 func intPtrTest(v int) *int { return &v }
 
-// An ordinary match has no quit button and must not gain one through the wire:
-// leaving one mid-match would hand a group's game away on a stray message.
-func TestMatchmaking_LeaveRoomRefusedInAnOrdinaryMatch(t *testing.T) {
+// An ordinary match of two is a 1v1 whatever the door it was opened through, so
+// it ends the way every other 1v1 does: the match goes to the seat that stayed,
+// announced as a forfeit rather than left standing on a board that will never
+// move again.
+func TestLeaveRoom_OrdinaryMatchOfTwoGoesToWhoeverStayed(t *testing.T) {
 	_, srv := newTestHub(t)
-	conn1, _, _ := setupTwoPlayerGame(t, srv)
+	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
-	got := readMsgOfType(t, conn1, protocol.SMsgError)
-	if got.Error != "you cannot leave a match in progress" {
-		t.Errorf("error = %q, want the mid-match refusal", got.Error)
+	readMsgOfType(t, conn1, protocol.SMsgLeftRoom)
+
+	end := readMsgOfType(t, conn2, protocol.SMsgMatchEnd)
+	if !end.Forfeit {
+		t.Error("match_end: forfeit = false, want the match announced as one")
+	}
+	if end.MatchWinner != "Bob" {
+		t.Errorf("match_end: winner = %q, want Bob, the seat that stayed", end.MatchWinner)
+	}
+	if end.Seat() != 0 {
+		t.Errorf("match_end: player_index = %d, want 0, the seat that left", end.Seat())
 	}
 }
 

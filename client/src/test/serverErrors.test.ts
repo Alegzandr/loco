@@ -61,7 +61,6 @@ describe('resolveServerError', () => {
       // any other refusal rather than reach the player as an identifier.
       'already searching for an opponent',
       'not available in a matchmade game',
-      'you cannot leave a match in progress',
       'your opponent has left the table',
       'afk_forfeit',
       'afk_kicked',

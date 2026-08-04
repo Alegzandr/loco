@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import RulesModal from '../components/RulesModal.svelte'
@@ -152,6 +154,50 @@ describe('RulesModal', () => {
     renderModal()
     fireEvent.click(screen.getByRole('tab', { name: fr.rulesTabCards }))
     expect(texts('.cardBrief')).toEqual(CARD_CATALOGUE.map((c) => fr.cardBriefs[c.kind]))
+  })
+
+  /*
+   * Switching tabs changes the contents and nothing else. jsdom lays nothing
+   * out, so what a rendering test can see here is the wrapper; the three
+   * declarations that stop the card moving are read off the source, which is
+   * where they would silently be undone. All three were the same report: the
+   * switch felt brutal because the card resized, the scroller animated and the
+   * new panel cut in, all on one press.
+   */
+  describe('the switch is a change of contents', () => {
+    const src = readFileSync(
+      path.resolve(__dirname, '..', 'components', 'RulesModal.svelte'),
+      'utf8',
+    )
+    const rule = (selector: string) =>
+      new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`).exec(
+        src,
+      )?.[0] ?? ''
+
+    it('gives the card a height rather than a ceiling', () => {
+      // The two panels are nothing like the same length. Sized to its contents,
+      // the modal resized under the tab row on every press and carried the
+      // header, the tabs and the footer with it.
+      expect(rule('.modal'), 'the modal must hold one height').toMatch(/\bheight:\s*min\(/)
+    })
+
+    it('resets the scroll instantly', () => {
+      // `scroll-behavior: smooth` turns the reset into a second movement: the
+      // outgoing panel scrolling up the card while the new one arrives.
+      expect(rule('.body')).not.toMatch(/scroll-behavior/)
+    })
+
+    it('fades the arriving panel in, on opacity alone', () => {
+      // Anything that slides moves copy towards somebody who is reading it.
+      const panel = rule('.panel')
+      expect(panel, 'each panel is wrapped and animated').toMatch(/animation:\s*panelIn/)
+      expect(src).toMatch(/@keyframes panelIn\s*\{[^@]*?\}\s*\}/)
+      const frames = /@keyframes panelIn\s*\{([\s\S]*?)\n {2}\}/.exec(src)?.[1] ?? ''
+      expect(frames, 'opacity and nothing else').toMatch(/opacity/)
+      expect(frames).not.toMatch(/transform|translate|scale/)
+      // Reduced motion drops it like every other animation in this file.
+      expect(src).toMatch(/data-motion="reduce"\][^{]*\.panel/)
+    })
   })
 
   it('offers no link out of the game', () => {

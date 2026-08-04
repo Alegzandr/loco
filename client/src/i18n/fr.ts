@@ -1,4 +1,4 @@
-﻿import type { Translations } from './en'
+import type { Translations } from './en'
 
 /**
  * French copy. Two conventions the whole file obeys:
@@ -58,7 +58,7 @@ export const fr: Translations = {
   findMatch: 'Jouer en 1v1',
   findMatchHint: 'On te trouve quelqu’un',
   findMatchGo: 'Trouver un adversaire',
-  playBot: 'Ou joue contre un bot',
+  playBot: 'Jouer contre un bot',
   playBotGo: 'Distribuer',
   playBotAgain: 'Rejouer contre un bot',
   searchTitle: 'Recherche d’un adversaire',
@@ -254,9 +254,16 @@ export const fr: Translations = {
   rematch: 'Revanche',
   leaveRoom: 'Quitter la table',
   leaveMatchBtn: 'Quitter le match',
-  leaveMatchAsk: 'Tu quittes le match ? Ta place est perdue pour de bon.',
+  leaveMatchAsk: 'Tu quittes le match ?',
   leaveMatchYes: 'Oui, je pars',
   leaveMatchStay: 'Rester',
+  leaveMatchNoteSolo: 'Personne ne t\'attend. Le bot s\'en remettra.',
+  leaveMatchNoteRanked: 'En face, quelqu\'un joue pour de vrai. Le match est pour lui.',
+  leaveMatchNoteTable:
+    'La partie continue sans toi et ta place est perdue pour de bon. Préviens les autres avant de filer.',
+  leaveMatchNoteEnds:
+    'La partie s\'arrête là pour tout le monde, et revient à celui qui reste. Préviens-le avant de filer.',
+  departureNotice: '%player quitte la partie',
   emotesLabel: 'Dis quelque chose',
   emotes: {
     gg: 'GG',
@@ -440,7 +447,6 @@ export const fr: Translations = {
     rematchTooEarly: 'Le match n\'est pas encore terminé.',
     alreadySearching: 'Tu cherches déjà une partie.',
     matchmadeUnavailable: 'Pas en 1v1.',
-    cannotLeaveMatch: 'Les cartes sont en jeu. Va au bout.',
     opponentGone: 'La place en face est vide.',
     afkForfeit: 'Trop longtemps sans jouer. Le match va à ton adversaire.',
     afkKicked: 'Trop longtemps sans jouer.',

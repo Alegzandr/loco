@@ -95,6 +95,26 @@ func TestPlayBot_HostControlsAreRefused(t *testing.T) {
 	}
 }
 
+// Leaving a solo game costs nobody anything: there is no one to walk out on and
+// nothing to award the match to, so the seat goes and the table goes with it.
+func TestPlayBot_LeavingTakesTheTableWithIt(t *testing.T) {
+	_, srv := newTestHub(t)
+	conn := dialWS(t, srv)
+	t.Cleanup(func() { conn.Close() })
+
+	started := playBot(t, conn, "Alice")
+	readMsgOfType(t, conn, protocol.SMsgMatchLoading)
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgMapReady})
+	readMsgOfType(t, conn, protocol.SMsgMatchReady)
+
+	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
+	readMsgOfType(t, conn, protocol.SMsgLeftRoom)
+
+	if !roomGone(t, srv, started.RoomCode) {
+		t.Error("the solo table outlived the only player at it")
+	}
+}
+
 // A rematch is an ask in every room but this one. Here the ask has no addressee:
 // the other seat is the server. Another game is another play_bot, which is what
 // the game-over screen sends.

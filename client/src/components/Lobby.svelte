@@ -207,12 +207,13 @@
         {t.findMatch}
         <span class="btnHint">{t.findMatchHint}</span>
       </button>
-      <!-- Attached to the button above rather than to the two below, because it
-           is the same offer with the wait taken out: no code, no waiting room,
-           nothing to set, a hand on the press. It is quiet on purpose — the
-           human queue is the one being led with, and the two table buttons keep
-           their order and their weight underneath. -->
-      <button class="btnLink" onclick={() => (mode = 'bot')}>{t.playBot}</button>
+      <!-- An entry point like the other three, drawn like the other three. It
+           sits under the queue because it is the same offer with the wait taken
+           out — no code, no waiting room, nothing to set, a hand on the press —
+           and it is the quietest fill of the four so the human queue is still
+           the one being led with. Underlined text between two ledged buttons
+           read as a footnote nobody pressed. -->
+      <button class="btn btnBot" onclick={() => (mode = 'bot')}>{t.playBot}</button>
       <button class="btn btnAlt" onclick={() => (mode = 'create')}>{t.createRoom}</button>
       <button class="btn btnJoin" onclick={() => (mode = 'join')}>{t.joinRoom}</button>
     </div>
@@ -502,29 +503,15 @@
     text-shadow: none;
   }
 
-  /* The bot line, tucked under the 1v1 button it belongs to. Pulled up out of
-     the group's own gap so it reads as a second line of that button rather than
-     as a fourth entry point competing with the two tables below. Quiet is a hue
-     here as everywhere, never an opacity on the ink. The row keeps 44px of
-     target even though nothing is drawn that tall. */
-  .btnLink {
-    width: 100%;
-    min-height: 44px;
-    margin-top: -6px;
-    padding: 4px 12px;
-    border: none;
-    background: none;
-    color: var(--color-muted);
-    font: 700 14px/1.2 var(--font-display);
-    text-decoration: underline;
-    text-underline-offset: 3px;
-    cursor: pointer;
-    transition: color 0.15s;
-    touch-action: manipulation;
-  }
-
-  .btnLink:hover {
+  /* The bot button: the same object as the three above it — same height, same
+     outline, same ledge — with the only neutral fill on the screen. Hierarchy
+     is carried by the hue, so the mode nobody has to be organised for is still
+     the loudest and this one still stands down, without stopping being a
+     button. */
+  .btnBot {
+    background: var(--color-surface-card);
     color: var(--color-ink);
+    text-shadow: none;
   }
 
   /* Back / cancel — deliberately quiet so it never competes with the submit. */

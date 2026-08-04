@@ -353,8 +353,9 @@ won, and a one-card hand had made them finishes by accident.
 
 ## A seat that walks out of a match
 
-`Room.RetireSeat`, and the rule that lets it happen at all is the hub’s (`notes/server.md`: three
-seats able to play have to be left). This is what the domain does once the answer is yes.
+`Room.RetireSeat`, and which of the two endings a departure gets is the hub’s (`notes/server.md`:
+two seats able to play have to be left, or the match ends and goes to whoever stayed). Leaving itself
+is never refused. This is what the domain does when the round carries on without the seat.
 
 - **The seat stays and stops playing.** Hands, scores, rounds won and the turn order are indexed by
   it, so removing it mid-match would re-base every one of them under a running round. `Room.Retired`
