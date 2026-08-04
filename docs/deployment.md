@@ -127,11 +127,12 @@ preferences:
   Traefik, which is why `compose.yml` carries one `Host()` and not two. The apex is canonical
   everywhere — `VITE_PUBLIC_ORIGIN`, the sitemap, the `hreflang` sets — and a canonical naming a
   redirect is the failure nothing reports.
-- **The origin certificate is a Cloudflare Origin Certificate, and there is no ACME anywhere.** The
-  host's Traefik runs with no `certificatesResolvers` at all: certificates are files under
-  `/etc/traefik/certs`, declared as `tls.certificates` pairs in its file provider, which watches the
-  directory and reloads without a restart. `compose.yml` therefore asks for `tls=true` and names no
-  resolver — **adding a `certresolver` label would name something that does not exist.**
+- **The site's origin certificate is a Cloudflare Origin Certificate, and it is a file rather than
+  an ACME issuance.** Certificates live under `/etc/traefik/certs`, declared as `tls.certificates`
+  pairs in the host Traefik's file provider, which watches the directory and reloads without a
+  restart. The site's router therefore asks for `tls=true` and names no resolver: behind the proxy,
+  Cloudflare is the only thing that validates this certificate and it is issued for exactly that.
+  **`ws.*` is the opposite case and names one** — see below.
 
   The consequence is the one that took production down the day it moved: **a new domain needs a new
   certificate posted by hand, and nothing in this repo can tell you it is missing.** Cloudflare in
@@ -156,11 +157,26 @@ Three things it costs, and none of them is optional:
 
 - **A publicly trusted certificate, which the Origin Certificate above is not.** Grey cloud means the
   browser validates the certificate itself, and a Cloudflare Origin Certificate is trusted by
-  Cloudflare and by nothing else. This host's Traefik has no `certificatesResolvers`, so today that
-  means a certificate obtained elsewhere and dropped into `/etc/traefik/certs` with an entry appended
-  to the file provider's `certificates:` list — **and nothing in this repo can tell you it expired.**
-  Adding an ACME resolver is the change that removes that trap; until it exists, the expiry date is a
-  calendar entry.
+  Cloudflare and by nothing else. **This is the failure that shipped**, and it is worth knowing by
+  sight: the zone's Origin Certificate answered on `ws.ohloco.com`, every browser refused the upgrade
+  before it happened, and the game fell back to `wss://ohloco.com/ws` at 389 ms for every player.
+  Only the machines carrying Cloudflare's Origin CA in their trust store — the ones the origin was
+  set up from — ever saw the direct socket, which is what made it look like a browser difference.
+  So the socket's router names a `letsencrypt` **certresolver**, HTTP-01 on the `:80` entrypoint:
+  `ws.*` is grey-clouded, so the challenge reaches this origin directly. Two things follow. **The
+  resolver must exist in the host Traefik's static configuration before the label ships**, because a
+  router naming a resolver that does not exist is a router that does not load. And **the record must
+  stay grey-clouded**, or the challenge lands on Cloudflare and no certificate is ever issued.
+  ACME also renews it, which is what removes the trap this used to carry: nothing in this repo could
+  tell you the certificate had expired.
+
+  **Only production carries that label**, and it travels as a whole line: `WS_CERT_LABEL`, written by
+  `write_app_env` and interpolated into the `labels:` list. Dev gets an inert Docker label instead of
+  an empty string, which would not parse. The reason is that the direct socket is a production
+  mechanism — it exists to escape a CDN, and dev has none — so no `ws.` record is ever created for the
+  dev host. A dev router naming the resolver would ask Let's Encrypt for a name that resolves nowhere,
+  fail, retry, and spend against a quota of five failed validations an hour on the account production
+  renews on.
 - **The origin's address becomes public.** It was hidden behind the proxy and now resolves in DNS.
   Whatever protects `:443` on that machine is now the whole of the protection.
 - **`LOCO_ALLOWED_ORIGINS`.** The page and the socket are on two hostnames, so the server's default
@@ -174,9 +190,18 @@ and why `client/nginx.conf` still proxies `/ws` on the main host. **A fallback i
 the symptom is the game feeling like it did before this change, so if it ever does, check the
 certificate first.
 
-To deploy it the first time: create the `A` record grey-clouded, install the certificate, then tag.
-The client bundle only dials the hostname when built on a `v*` tag, so the record and the certificate
-can be in place well before anything uses them — and should be.
+To deploy it the first time: create the `A` record grey-clouded, add the `letsencrypt` resolver to
+the host Traefik, deploy so the router asks for the certificate, check it, then tag. The client
+bundle only dials the hostname when built on a `v*` tag, so the record and the certificate can be in
+place well before anything uses them — and should be. What "check it" means, from anywhere:
+
+```
+echo | openssl s_client -connect ws.ohloco.com:443 -servername ws.ohloco.com 2>&1 \
+  | grep -E 'Verify return code|issuer'
+```
+
+`Verify return code: 0 (ok)` and a Let's Encrypt issuer. Anything else and every player is on the
+proxied path, quietly.
 
 One caveat this stack has to live with: **Cloudflare closes a proxied WebSocket that has been idle for
 about 100 seconds.** The game's own traffic covers an active table, but a lobby waiting for a second
