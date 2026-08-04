@@ -13,10 +13,19 @@
  * opponent the next one was about to get.
  */
 
-/** When the copy admits the search is taking longer than usual. */
-export const SEARCH_PATIENT_MS = 15_000
+/**
+ * When the copy admits the search is taking longer than usual.
+ *
+ * The stages are also the only exit this screen offers, and the exit used to
+ * arrive far too late: 45 s to be told a table is an option is 45 s a first-time
+ * visitor does not spend. They spend about ten, and then they close the tab —
+ * so the door is at 20 s now, and the second stage that leads up to it at 10.
+ * What the numbers cannot change is the rule above: at every one of the three
+ * stages the queue is still a queue somebody may be joining.
+ */
+export const SEARCH_PATIENT_MS = 10_000
 /** When it stops promising anything about the wait and offers a private table. */
-export const SEARCH_LONG_MS = 45_000
+export const SEARCH_LONG_MS = 20_000
 
 export type SearchStage = 'fresh' | 'patient' | 'long'
 

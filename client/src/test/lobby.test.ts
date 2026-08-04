@@ -9,8 +9,9 @@ function renderLobby(
   error = '',
   onClearError = vi.fn(),
   onFindMatch = vi.fn(),
+  onPlayBot = vi.fn(),
 ) {
-  return render(Lobby, { onSend: onSend, onFindMatch: onFindMatch, error: error, onClearError: onClearError })
+  return render(Lobby, { onSend: onSend, onFindMatch: onFindMatch, onPlayBot: onPlayBot, error: error, onClearError: onClearError })
 }
 
 describe('Lobby', () => {
@@ -189,6 +190,7 @@ describe('Lobby', () => {
     render(Lobby, {
       onSend: vi.fn(),
       onFindMatch: vi.fn(),
+      onPlayBot: vi.fn(),
       error: 'nickname not allowed',
       onClearError: vi.fn(),
       initialMode: 'create',
@@ -203,6 +205,7 @@ describe('Lobby', () => {
     render(Lobby, {
       onSend: vi.fn(),
       onFindMatch: vi.fn(),
+      onPlayBot: vi.fn(),
       error: 'room not found',
       onClearError: vi.fn(),
       initialMode: 'join',

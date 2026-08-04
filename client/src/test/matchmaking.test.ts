@@ -26,6 +26,16 @@ describe('search stages', () => {
     expect(searchStage(SEARCH_LONG_MS)).toBe('long')
   })
 
+  // The thresholds themselves, because they are the decision rather than an
+  // implementation detail: the way out of the queue used to be at 45 s, which on
+  // a first visit is a tab that was closed at ten.
+  it('puts the way out inside the first twenty seconds', () => {
+    expect(SEARCH_PATIENT_MS).toBe(10_000)
+    expect(SEARCH_LONG_MS).toBe(20_000)
+    expect(searchStage(19_999)).toBe('patient')
+    expect(searchStage(20_000)).toBe('long')
+  })
+
   it('formats the wait as m:ss', () => {
     expect(formatElapsed(0)).toBe('0:00')
     expect(formatElapsed(9_400)).toBe('0:09')

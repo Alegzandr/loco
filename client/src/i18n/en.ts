@@ -153,6 +153,13 @@ export interface Translations {
   findMatch: string             // home screen: the headline entry point
   findMatchHint: string         // its second line, inside the button
   findMatchGo: string           // submit on the nickname form
+  // A 1v1 against the server, sitting under the queue's button because it is
+  // the same offer with the wait taken out: nothing to configure, a hand now.
+  // It never apologises for the opponent — a player who wants a human has the
+  // button above it, and one who presses this wants to play, not to be sorry.
+  playBot: string               // home screen: the line under the 1v1 button
+  playBotGo: string             // submit on its nickname form
+  playBotAgain: string          // game over, where there is nobody to ask
   searchTitle: string
   // Three stages of the same wait, chosen from elapsed time alone. None of them
   // may imply the queue is empty: "nobody is searching" reads as "close the
@@ -462,6 +469,9 @@ export const en: Translations = {
   findMatch: 'Play 1v1',
   findMatchHint: 'We find you someone',
   findMatchGo: 'Find an opponent',
+  playBot: 'Or play the bot',
+  playBotGo: 'Deal me in',
+  playBotAgain: 'Play the bot again',
   searchTitle: 'Looking for an opponent',
   searchFresh: 'Sit tight. This usually takes seconds.',
   searchPatient: 'Still looking. Nobody has sat down opposite you yet.',

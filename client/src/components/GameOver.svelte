@@ -17,6 +17,8 @@
     matchOver?: boolean
     /** This match came out of the 1v1 queue: the next one is another pairing. */
     isMatchmade?: boolean
+    /** This match was against the server: there is nobody to ask for another. */
+    isSolo?: boolean
     /** The seat that abandoned, or null when the match ended on the cards. */
     forfeitBy?: number | null
     /** Our own seat, so we know which side of a forfeit we are on. */
@@ -31,6 +33,8 @@
     onRematch: () => void
     /** Back into the queue for another opponent (matchmade matches only). */
     onFindMatch: () => void
+    /** Deal another game against the server (solo matches only). */
+    onPlayBot?: () => void
     /** Give the seat up and go back to the home screen. */
     onLeave: () => void
   }
@@ -43,6 +47,7 @@
     matchHistory = [],
     matchOver,
     isMatchmade,
+    isSolo,
     forfeitBy,
     mySeat,
     rematchOffers = [],
@@ -50,6 +55,7 @@
     hasTablemates = true,
     onRematch,
     onFindMatch,
+    onPlayBot,
     onLeave,
   }: Props = $props()
 
@@ -186,6 +192,15 @@
       <ServerUpdating variant="card" />
     {/if}
 
+    <!-- A solo game has nobody to agree with, so it offers a press instead of an
+         ask: another hand against the server, or the queue, which is the other
+         half of the same offer the entry screen made. Nothing here is ever
+         rendered as a rematch — a button that said "waiting on them" over a seat
+         the server is playing would be a lie the screen tells itself. -->
+    {#if isSolo}
+      <button class="btn" onclick={() => onPlayBot?.()}>{t.playBotAgain}</button>
+      <button class="btn btnRematch" onclick={onFindMatch}>{t.findMatch}</button>
+    {:else}
     <!-- A rematch is an agreement, not a decision, and it reads the same at every
          table: ask, wait, accept. The middle state is the point of the whole
          thing, which is why the ask is public: knowing somebody is waiting on you
@@ -212,6 +227,7 @@
       {:else}
         <button class="btn" onclick={onFindMatch}>{t.searchAgain}</button>
       {/if}
+    {/if}
     {/if}
 
     <!-- The way out, and the quietest thing on the card: leaving is what somebody

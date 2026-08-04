@@ -61,6 +61,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       myHand: [],
       discard: null,
       isMatchmade: false,
+      isSolo: false,
       matchFound: null,
       searchStartedAt: null,
       forfeitBy: null,

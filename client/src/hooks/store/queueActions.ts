@@ -24,6 +24,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       screen: 'matchfound',
       searchStartedAt: null,
       isMatchmade: true,
+      isSolo: false,
       roomCode: found.roomCode,
       myIndex: found.mySeat,
       sessionToken: found.sessionToken,
@@ -42,6 +43,27 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
         mySeat: found.mySeat,
         startsAt: Date.now() + found.startsInMs,
       },
+    }),
+
+  // A 1v1 against the server. It has no message before game_started — no room
+  // code screen, no versus reveal — so the identity arrives on the deal itself
+  // and this is what records it. `isSolo` is what the game-over screen reads to
+  // offer another press instead of an ask nobody could answer.
+  applySoloStarted: (roomCode, mySeat, sessionToken) =>
+    set({
+      isSolo: true,
+      isMatchmade: false,
+      searchStartedAt: null,
+      matchFound: null,
+      roomCode,
+      myIndex: mySeat,
+      sessionToken,
+      forfeitBy: null,
+      opponentAway: null,
+      goneSeats: [],
+      rematchOffers: [],
+      rematchNeeded: 0,
+      errorMsg: '',
     }),
 
   // Only a deadline makes this worth showing: an ordinary room holds the seat

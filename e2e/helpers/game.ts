@@ -38,6 +38,10 @@ export const T = {
   choosePlayer: 'Whose hand do you want?',
   findMatch: 'Play 1v1',
   findMatchGo: 'Find an opponent',
+  // The 1v1 against the server: the same offer with the wait taken out.
+  playBot: 'Or play the bot',
+  playBotGo: 'Deal me in',
+  playBotAgain: 'Play the bot again',
   searchTitle: 'Looking for an opponent',
   searchCancel: 'Stop looking',
   matchFoundKicker: 'Opponent found',

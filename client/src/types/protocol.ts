@@ -62,6 +62,11 @@ export type ClientMsgType =
   // SMsgMatchmakingQueued.
   | 'find_match'
   | 'cancel_matchmaking'
+  // CMsgPlayBot deals a 1v1 against the server, immediately. It is the queue's
+  // shape without the queue: a nickname, one press, a hand — no code, no
+  // waiting room, no host and nothing to configure. The table it opens has no
+  // host for that reason, exactly like a matchmade one.
+  | 'play_bot'
   // CMsgLeaveRoom gives up the seat this socket holds without dropping the
   // connection. It is what "search for another opponent" is built on, and in a
   // matchmade match in progress it is a deliberate forfeit.
@@ -94,6 +99,11 @@ export type ServerMsgType =
   | 'player_disconnected'
   | 'player_reconnected'
   | 'lobby_config_changed'
+  // SMsgGameStarted hands every seat its dealt state. A solo table's copy also
+  // carries RoomCode, PlayerID and SessionToken: that mode has no message
+  // before this one — no room_created, no match_found — because it has no
+  // screen before this one either, and a client still needs those three to
+  // reclaim the seat after a reload.
   | 'game_started'
   // SMsgMatchmakingQueued acknowledges a find_match. It carries no queue size,
   // no position and no estimate, on purpose: how many people are looking for a

@@ -138,6 +138,7 @@
     <Lobby
       onSend={noop}
       onFindMatch={noop}
+      onPlayBot={noop}
       error={g.errorMsg}
       onClearError={noop}
       initialMode={scene.lobbyMode}

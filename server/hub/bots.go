@@ -148,7 +148,7 @@ func nextBotName(room *game.Room) string {
 
 func (h *Hub) handleAddBot(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
-	if refuseInMatchmade(c, t) {
+	if refuseWithoutHost(c, t) {
 		return
 	}
 	if c.playerID() != 0 {

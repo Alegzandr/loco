@@ -235,6 +235,11 @@ export interface GameState {
   // This match came out of the queue: no host controls, a short abandon window,
   // and a game-over screen that offers another opponent rather than a rematch.
   isMatchmade: boolean
+  // A 1v1 against the server: one human, one bot, dealt on the press. Set from
+  // the identity its `game_started` carries, which no other path sends. The
+  // game-over screen reads it to offer another press rather than a rematch
+  // nobody is there to agree to.
+  isSolo: boolean
   // The seat that abandoned, when the match ended because somebody stopped
   // being there. null = the match ended on the cards.
   forfeitBy: number | null
@@ -330,6 +335,8 @@ export interface QueueActions {
     maxPlayers: number
     startsInMs: number
   }) => void
+  /** A solo game was dealt: the identity its `game_started` carried. */
+  applySoloStarted: (roomCode: string, mySeat: number, sessionToken: string) => void
   applyOpponentAway: (seat: number, deadline: number) => void
   clearOpponentAway: (seat: number) => void
 }

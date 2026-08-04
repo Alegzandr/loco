@@ -645,6 +645,41 @@ ordinary room's on purpose.
 - The queue is left on **disconnect** as well as on cancel (`handleDisconnect` calls `dequeue` before
   anything else): a socket that has gone away must not be paired with somebody who is still there.
 
+## The 1v1 against the server (`play_bot`)
+
+The queue's *experience* with the queue taken out: a nickname, one press, a hand. It exists because
+the searching screen's own copy admits, at twenty seconds, that the wait may not end — and the only
+thing it could offer next was "open a table", which is three screens and a code nobody is going to
+share. A first-time visitor spends about ten seconds before closing the tab, so the alternative had
+to be a press.
+
+- **It is not "open a table and add a bot".** That path exists and is unchanged; this one produces no
+  code, no waiting room, no host controls and no configuration, because every one of those is a
+  decision the mode’s whole promise is that you do not have to make.
+- **The table is hostless, like a matchmade one** (`table.solo` → `table.hostless` →
+  `refuseWithoutHost`). What it does **not** borrow is the matchmade *timing*: the 15 s reconnect
+  hold and the two-timeout AFK threshold exist because a stranger will not wait for you, and the seat
+  opposite this player is the server. Reconnect, drain and the snapshot treat it as any other table
+  in progress, and `solo` travels in `roomSnapshot` so a restored match does not come back offering
+  host controls over a game that has none.
+- **The deal carries the identity.** Every other way into a match announces the seat first
+  (`room_created`, `room_joined`, `match_found`); this one deliberately has no screen before the
+  board, so `game_started` carries `room_code`, `player_id` and `session_token`. Without them a
+  reload could not reclaim the seat, and with a separate message in front of it the client would
+  flash a screen it has no state for. The client tells the two paths apart by exactly that: a
+  `game_started` carrying a room code is a solo deal.
+- **`rematch` is refused here, and only here.** The ask has no addressee: the quorum would be one, so
+  the "agreement" would be a decision wearing an agreement’s clothes, and the deal it triggered would
+  drop the player into a lobby this mode has no host to start. Another game is another `play_bot`,
+  which is what the game-over screen sends — and which releases the finished seat first, exactly as
+  `find_match` does.
+- **It touches nothing the queue owns.** No `h.queue`, no `matchmaking_queue`, no
+  `matches_matchmade`. That is not tidiness: the queue is the one server-global the E2E suite has to
+  serialise around (`helpers/matchmakingQueue.ts`), and a second entry point quietly joining it would
+  make every parallel run flaky in a way nothing points at. `/metrics` gains `matches_solo` instead,
+  beside the queue’s own number, because the two answer one operator question together: whether an
+  empty-feeling queue is sending people to the bot or sending them away.
+
 ## Freeing a seat somebody else is in
 `handleKickPlayer`. Every other host control describes the table (the format, the size, when to
 deal); this one acts on a person, so it is the strictest thing in the lobby.

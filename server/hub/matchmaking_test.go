@@ -167,8 +167,8 @@ func TestMatchmaking_HostControlsAreRefused(t *testing.T) {
 	} {
 		sendMsg(t, a, msg)
 		got := readMsgOfType(t, a, protocol.SMsgError)
-		if got.Error != "not available in a matchmade game" {
-			t.Errorf("%s: error = %q, want the matchmade refusal", msg.Type, got.Error)
+		if got.Error != "not available in this game" {
+			t.Errorf("%s: error = %q, want the hostless refusal", msg.Type, got.Error)
 		}
 	}
 }

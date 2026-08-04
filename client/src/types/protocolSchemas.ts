@@ -53,6 +53,7 @@ export const clientMsgTypeSchema = v.picklist([
   'rematch',
   'find_match',
   'cancel_matchmaking',
+  'play_bot',
   'leave_room',
   'play_card',
   'draw_card',

@@ -347,9 +347,19 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   humans. Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
   `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
-  is an empty acknowledgement, the number lives only on `/metrics`. A matchmade room has no host:
-  `add_bot`, `start_game`, `set_match_format`, `set_max_players`, `kick_player` all hit
-  `refuseInMatchmade`. Nothing player-facing says "unranked".
+  is an empty acknowledgement, the number lives only on `/metrics`. Nothing player-facing says
+  "unranked".
+- **A table with no host is a shape, not a mode** (`table.hostless`, `refuseWithoutHost`). Two answer
+  to it — a matchmade pair and a solo game — and `add_bot`, `start_game`, `set_match_format`,
+  `set_max_players`, `kick_player` and `transfer_host` are refused at both.
+- **`play_bot` is a 1v1 against the server, and it is the queue's shape without the queue**
+  (`hub/solo.go`): a nickname, one press, a hand — no code, no waiting room, nothing to configure,
+  BO1. **It touches nothing the queue owns** (no `h.queue`, no `matchmaking_queue`), which is a
+  property the E2E suite depends on. Its `game_started` carries `room_code` / `player_id` /
+  `session_token`, because it is the only message the mode sends and a reload still has to reclaim
+  the seat. **`rematch` is the one room where it is refused** — there is nobody to ask; another press
+  is another `play_bot`. Reconnect, drain and the snapshot treat it as an ordinary table: the
+  matchmade timings exist because a stranger will not wait for you.
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes

@@ -356,15 +356,21 @@ func (h *Hub) requeueSurvivor(t *table) {
 	})
 }
 
-// refuseInMatchmade answers a host-only lobby control sent in a matchmade room.
-// There is no host in one: the format is fixed, the size is two, the match
-// starts by itself and there are no bots to add. `rematch` is deliberately not
-// among them: see handleRematchOffer.
-func refuseInMatchmade(c *Client, t *table) bool {
-	if !t.isMatchmade() {
+// refuseWithoutHost answers a host-only lobby control sent at a table that has
+// no host. The format is fixed, the size is fixed, the match starts by itself
+// and there are no bots to add — and there is nobody with standing to remove the
+// other seat, which is the one that matters. Two shapes answer to it: a
+// matchmade pair, and a solo game against the server.
+//
+// `rematch` is deliberately not among them at a matchmade table, where it means
+// an agreement between the two strangers rather than a decision one of them
+// takes. At a solo table it *is* refused, and for the opposite reason: there is
+// nobody to agree with. See handleRematch.
+func refuseWithoutHost(c *Client, t *table) bool {
+	if !t.hostless() {
 		return false
 	}
-	c.sendError("not available in a matchmade game")
+	c.sendError("not available in this game")
 	return true
 }
 

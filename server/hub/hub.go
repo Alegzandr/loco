@@ -236,6 +236,10 @@ type MetricsStats struct {
 	// tells an operator whether an empty-feeling queue is empty or broken.
 	MatchmakingQueue int32 `json:"matchmaking_queue"`
 	MatchesMatchmade int32 `json:"matches_matchmade"`
+	// MatchesSolo counts the 1v1s against the server. Beside the queue's own
+	// number because the two answer one operator question together: whether an
+	// empty-feeling queue is sending people to the bot or sending them away.
+	MatchesSolo int32 `json:"matches_solo"`
 	DebugModeActive  bool  `json:"debug_mode_active"`
 	// Draining, plus MatchesInFlight, is what an operator watches during a
 	// deploy: the second is the number the shutdown is waiting to reach zero.
@@ -326,6 +330,7 @@ func (h *Hub) GetMetrics() MetricsStats {
 		ReconnectExpirations: h.metrics.reconnectExpirations.Load(),
 		MatchmakingQueue:     h.metrics.matchmakingQueue.Load(),
 		MatchesMatchmade:     h.metrics.matchesMatchmade.Load(),
+		MatchesSolo:          h.metrics.matchesSolo.Load(),
 		DebugModeActive:      os.Getenv("LOCO_E2E") == "1",
 		Draining:             h.draining.Load(),
 		MatchesInFlight:      h.metrics.matchesInFlight.Load(),

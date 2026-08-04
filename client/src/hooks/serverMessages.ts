@@ -186,6 +186,20 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         break
 
       case 'game_started': {
+        // The solo mode has no message in front of this one — no room_created,
+        // no match_found — because it has no screen in front of the board
+        // either. So its game_started carries the identity the other two would
+        // have carried, and this is where the client picks it up. Absent on
+        // every other path, which is how the store tells the two apart.
+        if (msg.room_code && msg.session_token) {
+          const mySeat = msg.player_id ?? msg.state?.your_index ?? 0
+          store.applySoloStarted(msg.room_code, mySeat, msg.session_token)
+          // The roster is the authority on our own name, exactly as it is on
+          // every other seating path: the client sent what the player typed and
+          // the server canonicalised it, and the reclaim is keyed on the result.
+          const mine = msg.state?.players.find((p) => p.index === mySeat)?.nickname
+          if (mine) store.setMyNickname(mine)
+        }
         if (msg.state) {
           const s = gameStore.getState()
           if (s.showRoundSummary) {

@@ -89,6 +89,8 @@ interface LocoE2EState {
   // 1v1 matchmaking
   /** True for a match that came out of the queue: no host, no rematch. */
   isMatchmade: boolean
+  /** True for a 1v1 against the server: no host, and nobody to ask for another. */
+  isSolo: boolean
   /** Seat that abandoned, when the match ended that way; null otherwise. */
   forfeitBy: number | null
   /** An opponent who dropped, and when their match is given away. */

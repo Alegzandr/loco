@@ -140,11 +140,11 @@ export interface Scene {
   unoIn?: number
   overlay?: SceneOverlay
   /** Lobby sub-screen: drives Lobby's internal mode. */
-  lobbyMode?: 'home' | 'find' | 'create' | 'join'
+  lobbyMode?: 'home' | 'find' | 'bot' | 'create' | 'join'
   /** Lobby: the table code a shared link arrived with, already in the field. */
   lobbyCode?: string
   /** Seconds already spent searching, so the three stages of the copy can each
-   *  be captured (see Searching.tsx: 0-15s, 15-45s, 45s+). */
+   *  be captured (see components/searchStages.ts: 0-10s, 10-20s, 20s+). */
   searchingFor?: number
   /** Simulated transport state for the game screen. */
   wsStatus?: 'connecting' | 'open' | 'closed'
@@ -253,6 +253,13 @@ export const SCENES: Scene[] = [
     lobbyMode: 'find',
   },
   {
+    // The queue's form with the wait taken out: one field, one button, no code.
+    id: 'lobby-bot',
+    title: 'Accueil · contre un bot',
+    screen: 'lobby',
+    lobbyMode: 'bot',
+  },
+  {
     id: 'matchmaking-searching',
     title: '1v1 · recherche',
     screen: 'searching',
@@ -262,7 +269,7 @@ export const SCENES: Scene[] = [
     id: 'matchmaking-searching-patient',
     title: '1v1 · recherche qui dure',
     screen: 'searching',
-    searchingFor: 22,
+    searchingFor: 14,
   },
   {
     // The stage that matters most: the queue is empty and the screen has to say
@@ -804,6 +811,27 @@ export const SCENES: Scene[] = [
         { rounds_won: [1, 0, 2, 0], scores: [40, 5, 85, 15], winner_index: 2 },
         { rounds_won: [0, 2, 1, 0], scores: [12, 88, 44, 0], winner_index: 1 },
         { rounds_won: [2, 0, 1, 0], scores: [95, 10, 35, 5], winner_index: 0 },
+      ],
+    },
+  },
+  {
+    // No rematch to negotiate: the other seat is the server. Another press, or
+    // the queue.
+    id: 'gameover-solo',
+    title: 'Fin de match · contre un bot',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      isSolo: true,
+      myIndex: 0,
+      players: [
+        { index: 0, nickname: 'Nova', hand_size: 0, connected: true },
+        { index: 1, nickname: 'Bot1', hand_size: 4, connected: true, is_bot: true },
+      ],
+      scoreboard: [
+        { player_index: 0, nickname: 'Nova', score: 46, rounds_won: 1 },
+        { player_index: 1, nickname: 'Bot1', score: 0, rounds_won: 0 },
       ],
     },
   },

@@ -12,7 +12,7 @@
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
   import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from './tableCodeRules'
 
-  type LobbyMode = 'home' | 'find' | 'create' | 'join'
+  type LobbyMode = 'home' | 'find' | 'bot' | 'create' | 'join'
 
   type Props = {
     onSend: (msg: ClientMsg) => void
@@ -21,6 +21,12 @@
      * entered optimistically, before the server has acknowledged anything.
      */
     onFindMatch: (nickname: string) => void
+    /**
+     * Deals a 1v1 against the server. Separate from onSend for the same reason
+     * onFindMatch is: the caller records the nickname before anything is sent,
+     * and this mode has no message in front of the deal to carry it.
+     */
+    onPlayBot: (nickname: string) => void
     error: string
     onClearError: () => void
     /**
@@ -45,6 +51,7 @@
   let {
     onSend,
     onFindMatch,
+    onPlayBot,
     error,
     onClearError,
     initialMode = 'home',
@@ -131,6 +138,15 @@
     onFindMatch(value)
   }
 
+  // The same form as the queue's, and deliberately the same shape of act: a
+  // name and one press. What it skips is the wait, not a step.
+  function handlePlayBot(e: SubmitEvent) {
+    e.preventDefault()
+    const value = acceptNickname()
+    if (!value) return
+    onPlayBot(value)
+  }
+
   function handleCreate(e: SubmitEvent) {
     e.preventDefault()
     const value = acceptNickname()
@@ -191,6 +207,12 @@
         {t.findMatch}
         <span class="btnHint">{t.findMatchHint}</span>
       </button>
+      <!-- Attached to the button above rather than to the two below, because it
+           is the same offer with the wait taken out: no code, no waiting room,
+           nothing to set, a hand on the press. It is quiet on purpose — the
+           human queue is the one being led with, and the two table buttons keep
+           their order and their weight underneath. -->
+      <button class="btnLink" onclick={() => (mode = 'bot')}>{t.playBot}</button>
       <button class="btn btnAlt" onclick={() => (mode = 'create')}>{t.createRoom}</button>
       <button class="btn btnJoin" onclick={() => (mode = 'join')}>{t.joinRoom}</button>
     </div>
@@ -212,6 +234,23 @@
            forms: the button is off until the field holds a nickname the client
            can already see is usable. -->
       <button class="btn" type="submit" disabled={!nicknameOk}>{t.findMatchGo}</button>
+      <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
+    </form>
+  {/if}
+
+  {#if mode === 'bot'}
+    <form class="form" onsubmit={handlePlayBot}>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="input"
+        bind:this={nicknameField}
+        placeholder={t.yourNickname}
+        value={nickname}
+        oninput={(e) => editNickname(e.currentTarget.value)}
+        maxlength="20"
+        autofocus
+      />
+      <button class="btn" type="submit" disabled={!nicknameOk}>{t.playBotGo}</button>
       <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
     </form>
   {/if}
@@ -461,6 +500,31 @@
     text-transform: uppercase;
     opacity: 0.85;
     text-shadow: none;
+  }
+
+  /* The bot line, tucked under the 1v1 button it belongs to. Pulled up out of
+     the group's own gap so it reads as a second line of that button rather than
+     as a fourth entry point competing with the two tables below. Quiet is a hue
+     here as everywhere, never an opacity on the ink. The row keeps 44px of
+     target even though nothing is drawn that tall. */
+  .btnLink {
+    width: 100%;
+    min-height: 44px;
+    margin-top: -6px;
+    padding: 4px 12px;
+    border: none;
+    background: none;
+    color: var(--color-muted);
+    font: 700 14px/1.2 var(--font-display);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: color 0.15s;
+    touch-action: manipulation;
+  }
+
+  .btnLink:hover {
+    color: var(--color-ink);
   }
 
   /* Back / cancel — deliberately quiet so it never competes with the submit. */

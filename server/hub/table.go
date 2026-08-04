@@ -104,8 +104,17 @@ type table struct {
 	emptyAt time.Time
 
 	// matchmadeAt is when the queue paired this table. Zero means a player
-	// opened it, which is what every host control is gated on.
+	// opened it.
 	matchmadeAt time.Time
+
+	// solo marks a 1v1 against the server: one human, one bot, dealt on the spot
+	// with no code and no waiting room. It is hostless for the same reason a
+	// matchmade table is — there is nothing to configure and nobody to configure
+	// it for — but it deliberately keeps the *ordinary* table's timing: the 15 s
+	// hold and the two-timeout AFK threshold exist because a stranger will not
+	// wait for you, and the seat opposite this player is not a stranger. See
+	// solo.go.
+	solo bool
 
 	// loading is the map-loading gate. Non-nil means the table is shut: no turn
 	// timer, no bots, no gameplay message accepted. See maploading.go.
@@ -252,6 +261,12 @@ func (t *table) isBot(seat int) bool {
 
 // isMatchmade reports whether this table came out of the 1v1 queue.
 func (t *table) isMatchmade() bool { return !t.matchmadeAt.IsZero() }
+
+// hostless reports whether this table has nobody with standing over it: the
+// format is fixed, the size is fixed, the match starts by itself and there is
+// nobody to remove. Two shapes answer yes — a matchmade pair and a solo game —
+// and every host control asks this question rather than either of them.
+func (t *table) hostless() bool { return t.isMatchmade() || t.solo }
 
 // isLoading reports whether the table is still shut behind the map gate.
 func (t *table) isLoading() bool { return t.loading != nil }

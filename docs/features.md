@@ -41,6 +41,14 @@ rules, `docs/notes/` the reasoning.
   from the in-game rules modal, which is a reference rather than an argument.
 - Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
 
+- **Play the bot**: a 1v1 against the server from the home screen — a nickname, one press, a dealt
+  hand. No table code, no waiting room, no host controls, one round. It is the queue's offer with the
+  wait taken out, and it sits under the queue's button for that reason. The game-over screen offers
+  another press or the queue; there is no rematch to negotiate.
+- **The way out of the queue arrives inside twenty seconds**: the searching screen's three stages are
+  0-10 s, 10-20 s and 20 s+, and the last of them is where a private table is offered. At 45 s it was
+  a tab that had been closed at ten.
+
 ## UI / UX
 - Svelte 5 game view, animated by the browser rather than by a runtime. All card movement is expressed as GPU-composited `translate`/`rotate` transforms — never `left`/`top` — so multiple cards can fly at once without triggering layout.
 - Motion detail: cards fly from the acting player's own seat to the discard pile (so opponents' plays are legible without watching the pile), the hand fan springs closed behind a played card, a fresh deal staggers in, the discard settles with a per-card tilt, and turn-indicator text crossfades.

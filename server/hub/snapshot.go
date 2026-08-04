@@ -68,6 +68,11 @@ type roomSnapshot struct {
 	SessionTokens map[int]string `json:"session_tokens,omitempty"`
 	BotSlots      []int          `json:"bot_slots,omitempty"`
 	Matchmade     bool           `json:"matchmade,omitempty"`
+	// Solo is a 1v1 against the server. It travels because the table is hostless
+	// on the far side of a restart too: without it a restored solo match would
+	// come back as an ordinary table with a bot in it, and offer the player host
+	// controls over a game that has none.
+	Solo          bool           `json:"solo,omitempty"`
 	AFKTimeouts   map[int]int    `json:"afk_timeouts,omitempty"`
 	// MatchHistory is the evening behind this match. A table on its fourth
 	// rematch has three finished matches nothing else on the server remembers,
@@ -147,6 +152,7 @@ func (h *Hub) saveSnapshot(path string) error {
 			SessionTokens: t.tokens,
 			BotSlots:      sortedKeys(t.bots),
 			Matchmade:     t.isMatchmade(),
+			Solo:          t.solo,
 			AFKTimeouts:   t.afk,
 			MatchHistory:  t.matchHistory,
 		})
@@ -280,6 +286,7 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	if rs.Matchmade {
 		t.matchmadeAt = time.Now()
 	}
+	t.solo = rs.Solo
 
 	// Started here, and not one line earlier: everything above is this function
 	// filling the table in, and a goroutine reading fields still being written
