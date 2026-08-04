@@ -859,6 +859,24 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    // The three fixed things, and one already said. Nothing about it is kept:
+    // it is on screen for four seconds and gone.
+    id: 'gameover-emotes',
+    title: 'Fin de match · émotes',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
+      myIndex: 0,
+      emotes: [
+        { seat: 1, emote: 'gg', at: 1 },
+        { seat: 0, emote: 'close', at: 2 },
+      ],
+    },
+  },
+  {
     id: 'gameover-lose',
     title: 'Fin de match · défaite',
     screen: 'gameover',

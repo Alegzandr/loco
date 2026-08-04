@@ -24,6 +24,16 @@ turns a two-screen policy into a real one.
 | Network prefix (`a.b.c.0/24`, `pfx::/48`) | Server + nginx logs | Diagnosing faults, seeing abuse | 30 days maximum |
 | A match in flight | `LOCO_SNAPSHOT_PATH` on disk | Surviving a deploy without ending matches | Minutes, dropped once reclaimed |
 
+**There is no user-generated text on that list, and that is a position rather than
+an omission.** The only things a player can say to another are the three fixed
+emotes on the game-over screen (`hub/emotes.go`), and they travel as an
+identifier out of a closed server-side set: a client cannot invent a fourth, and
+nothing said is stored, logged or carried across a deploy. Free text would be a
+moderation surface, and a moderation surface means retention, reports and a
+process — none of which this game has, and all of which the "collect nothing"
+position would have to be rewritten around. **Anything that would put free text
+between two players is a legal change, not a technical one.**
+
 **Legal basis: legitimate interest** (Art. 6(1)(f)) for running the service and
 keeping it playable. Not consent, because there is nothing here a player could
 meaningfully refuse and still play, and a consent banner over the ordinary

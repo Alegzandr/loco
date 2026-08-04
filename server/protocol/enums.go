@@ -66,3 +66,41 @@ const (
 
 // AllMatchFormats mirrors AllCardColors' contract.
 var AllMatchFormats = []MatchFormat{FormatBO1, FormatBO3, FormatBO5, FormatBO7}
+
+// Emote is one of the three things a player can say at the end of a match, and
+// the whole vocabulary the game has.
+//
+// A closed set, decided here and travelling as an identifier, because the
+// alternative is free text — and free text is a moderation surface, which is a
+// promise this game cannot keep: "we collect nothing" is the compliance
+// strategy, not an accident. Three is enough to be gracious and too few to be
+// abusive, which is the only property that matters.
+//
+// The words themselves are the client's (`t.emotes`), in the player's own
+// language. Nothing here is stored, logged or snapshotted: an emote is
+// broadcast, shown for a few seconds, and forgotten.
+type Emote string
+
+const (
+	// EmoteGG — the one this exists for: a close 1v1 against a stranger and no
+	// way to say anything at all about it.
+	EmoteGG Emote = "gg"
+	// EmoteClose — that was close.
+	EmoteClose Emote = "close"
+	// EmoteNice — nicely played, addressed to the table rather than to a seat.
+	EmoteNice Emote = "nice"
+)
+
+// AllEmotes mirrors AllCardColors' contract, and is what the server validates
+// an inbound identifier against: a fourth one cannot be invented by a client.
+var AllEmotes = []Emote{EmoteGG, EmoteClose, EmoteNice}
+
+// ValidEmote reports whether an inbound identifier is one of the three.
+func ValidEmote(e Emote) bool {
+	for _, known := range AllEmotes {
+		if known == e {
+			return true
+		}
+	}
+	return false
+}

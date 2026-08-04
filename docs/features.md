@@ -33,6 +33,12 @@ rules, `docs/notes/` the reasoning.
 - Single-finisher round scoring (number = face; Reverse = 10; Skip = 20; +2 and Swap = 30; Wild and Global Switch = 40; +4 = 50).
 - Multi-round matches with persistent scoreboard. **The match is taken by rounds won**, and it ends the moment the lead cannot be caught: 2–0 in a BO3, 3–1 in a BO5, 4–3 in a BO7. Points are still accumulated and shown, as the measure of the gap rather than the thing being raced to.
 - Tiebreakers: most rounds won → highest score → lowest lost-hand total → sudden-death extra round.
+- **Three fixed things to say, on the game-over screen, at every table**: GG, that was close, nicely
+  played. A closed set decided by the server and sent as an identifier, so no client can invent a
+  fourth, and **no free text anywhere in the game** — that would be a moderation surface, and
+  collecting nothing is the compliance strategy rather than an accident. Nothing said is stored,
+  logged or carried across a deploy: it is shown for a few seconds and forgotten. One per seat every
+  two seconds, refused to its sender alone, never to or from a bot.
 - **Evening recap on the game-over screen**: one column per match this table has finished, with each seat's rounds won and points, and its total of matches taken. A rematch wipes the scoreboard, so without it a group playing six matches on one code ends up with nobody able to say who won the night. Hidden until the table has rematched, since one column would be the standings above it said twice.
 - Win detection (empty hand) and deck replenishment from the discard pile.
 - **The rules page opens on what is different**: eight lines for a visitor who already knows a card

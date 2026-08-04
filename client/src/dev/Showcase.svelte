@@ -189,8 +189,11 @@
       winner={g.matchWinner}
       myNickname={g.players.find((p) => p.index === g.myIndex)?.nickname ?? ''}
       scoreboard={g.scoreboard}
+      players={g.players}
+      matchHistory={g.matchHistory}
       matchOver={g.matchOver}
       isMatchmade={g.isMatchmade}
+      isSolo={g.isSolo}
       forfeitBy={g.forfeitBy}
       mySeat={g.myIndex}
       rematchOffers={g.rematchOffers}
@@ -198,6 +201,8 @@
       hasTablemates={g.players.some((p) => p.index !== g.myIndex)}
       onRematch={noop}
       onFindMatch={noop}
+      onPlayBot={noop}
+      onEmote={noop}
       onLeave={noop}
     />
   {/if}

@@ -35,6 +35,27 @@ export type MatchFormat =
   | 'BO5'
   | 'BO7'
 
+// Emote is one of the three things a player can say at the end of a match, and
+// the whole vocabulary the game has.
+//
+// A closed set, decided here and travelling as an identifier, because the
+// alternative is free text — and free text is a moderation surface, which is a
+// promise this game cannot keep: "we collect nothing" is the compliance
+// strategy, not an accident. Three is enough to be gracious and too few to be
+// abusive, which is the only property that matters.
+//
+// The words themselves are the client's (`t.emotes`), in the player's own
+// language. Nothing here is stored, logged or snapshotted: an emote is
+// broadcast, shown for a few seconds, and forgotten.
+export type Emote =
+  // EmoteGG — the one this exists for: a close 1v1 against a stranger and no
+  // way to say anything at all about it.
+  | 'gg'
+  // EmoteClose — that was close.
+  | 'close'
+  // EmoteNice — nicely played, addressed to the table rather than to a seat.
+  | 'nice'
+
 // ClientMsgType enumerates message types sent from client to server.
 export type ClientMsgType =
   // Lobby
@@ -57,6 +78,10 @@ export type ClientMsgType =
   | 'transfer_host'
   // CMsgRematch returns a finished room to the lobby with the same players.
   | 'rematch'
+  // CMsgSendEmote says one of three fixed things, on the game-over screen and
+  // nowhere else. The set is closed and lives in enums.go: a client cannot
+  // invent a fourth, and there is no free text anywhere in this game.
+  | 'send_emote'
   // Matchmaking: a 1v1 against whoever is looking for the same thing. The
   // queue is anonymous and its size is never on the wire. See
   // SMsgMatchmakingQueued.
@@ -159,6 +184,10 @@ export type ServerMsgType =
   // timer to rooms that are playing, so the in-game score table can show a
   // live ping per player without any client self-reporting.
   | 'latency'
+  // SMsgEmote carries one seat saying one of the three things. Broadcast,
+  // shown for a few seconds and forgotten: nothing about it is stored, logged
+  // or snapshotted.
+  | 'emote'
   // SMsgRematchOffered names a seat that has asked for another match. In a
   // matchmade room a rematch is an agreement between two strangers rather than
   // a host's decision, so both offers are public: the player who has not
@@ -216,6 +245,9 @@ export interface ClientMsg {
   match_format?: MatchFormat
   // CMsgSetMaxPlayers
   max_players?: number
+  // CMsgSendEmote: which of the three. Validated against AllEmotes, so an
+  // identifier this server does not know is refused rather than relayed.
+  emote?: Emote
   // CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
   //
   // One pointer, not seven fields. This struct is every message a client can
@@ -446,6 +478,8 @@ export interface ServerMsg {
   // RematchNeeded is how many of those asks deal the next match: every human
   // still at the table. Bots are not asked.
   rematch_needed?: number
+  // SMsgEmote: what was said, and PlayerIndex above says who said it.
+  emote?: Emote
   // SMsgError
   error?: string
 }

@@ -257,6 +257,12 @@ export const fr: Translations = {
   leaveMatchAsk: 'Tu quittes le match ? Ta place est perdue pour de bon.',
   leaveMatchYes: 'Oui, je pars',
   leaveMatchStay: 'Rester',
+  emotesLabel: 'Dis quelque chose',
+  emotes: {
+    gg: 'GG',
+    close: 'C’était serré',
+    nice: 'Bien joué',
+  },
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Langue',

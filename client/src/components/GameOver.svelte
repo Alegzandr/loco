@@ -1,10 +1,13 @@
 <script lang="ts">
-  import type { MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
+  import type { Emote, MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import Confetti from './Confetti.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
+  import { gameStore } from '../hooks/gameStore'
+  import { EMOTE_TTL_MS } from '../hooks/store/types'
+  import { EMOTE_ORDER } from './emotes'
 
   type Props = {
     winner: string
@@ -35,6 +38,8 @@
     onFindMatch: () => void
     /** Deal another game against the server (solo matches only). */
     onPlayBot?: () => void
+    /** Say one of the three things. The set is the server's; this only sends. */
+    onEmote?: (emote: Emote) => void
     /** Give the seat up and go back to the home screen. */
     onLeave: () => void
   }
@@ -56,6 +61,7 @@
     onRematch,
     onFindMatch,
     onPlayBot,
+    onEmote,
     onLeave,
   }: Props = $props()
 
@@ -92,6 +98,26 @@
   // Read through a $derived rather than out of the snapshot inside the markup:
   // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
+  const emotes = $derived(game.current.emotes)
+  const nameOf = $derived((s: number) => players.find((p) => p.index === s)?.nickname ?? '')
+
+  /*
+   * What is on screen comes off it on its own.
+   *
+   * The timer is armed to the **oldest bubble's absolute deadline**, never to
+   * "four seconds from whenever this last ran": a second emote arriving would
+   * otherwise re-arm the timer and hold the first one up for as long as the
+   * table kept talking. Same rule the drain bar and the deal animation follow.
+   */
+  $effect(() => {
+    if (emotes.length === 0) return
+    const oldest = Math.min(...emotes.map((e) => e.at))
+    const id = setTimeout(
+      () => gameStore.getState().pruneEmotes(),
+      Math.max(0, oldest + EMOTE_TTL_MS - Date.now()),
+    )
+    return () => clearTimeout(id)
+  })
 </script>
 
 <div class="container">
@@ -228,6 +254,31 @@
         <button class="btn" onclick={onFindMatch}>{t.searchAgain}</button>
       {/if}
     {/if}
+    {/if}
+
+    <!-- Three fixed things, and the whole vocabulary the game has. After a close
+         1v1 against a stranger there was no way to say anything at all, and free
+         text would be a moderation surface this game promises not to have.
+         Nothing said here is stored, logged or carried anywhere: it is shown for
+         a few seconds and forgotten. -->
+    {#if onEmote}
+      <div class="emotes">
+        {#if emotes.length > 0}
+          <ul class="emoteFeed">
+            {#each emotes as e (e.at)}
+              <li class="emoteBubble" class:emoteMine={e.seat === mySeat}>
+                <span class="emoteWho">{nameOf(e.seat)}</span>
+                <span class="emoteWhat">{t.emotes[e.emote]}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="emoteRow" role="group" aria-label={t.emotesLabel}>
+          {#each EMOTE_ORDER as id (id)}
+            <button class="emoteBtn" onclick={() => onEmote?.(id)}>{t.emotes[id]}</button>
+          {/each}
+        </div>
+      </div>
     {/if}
 
     <!-- The way out, and the quietest thing on the card: leaving is what somebody
@@ -539,6 +590,105 @@
      nothing competing with the two offers above it. Quiet is a hue here as
      everywhere else (--color-muted, never ink at an opacity), and the row keeps
      its 44px of target even though nothing is drawn that tall. */
+  /* The three things, under the two offers and above the way out: it is the
+     smallest thing on the card that is not leaving. */
+  .emotes {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .emoteFeed {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+  }
+
+  .emoteBubble {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 5px 11px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--color-surface-strong);
+    font: 600 13px/1.3 var(--font-body);
+    color: var(--color-ink);
+    animation: emoteIn 0.22s var(--ease-bounce) both;
+  }
+
+  /* Our own, on the other side, so a table of six can tell who said what
+     without reading every name. */
+  .emoteMine {
+    align-self: flex-end;
+    background: var(--gradient-tertiary);
+    color: var(--color-on-dark);
+    border-color: var(--color-stroke);
+  }
+
+  .emoteWho {
+    font: 700 11px/1.3 var(--font-display);
+    color: var(--color-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 10ch;
+  }
+
+  .emoteMine .emoteWho {
+    color: var(--color-on-dark);
+    opacity: 0.75;
+  }
+
+  @keyframes emoteIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .emoteRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .emoteBtn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    padding: 6px 10px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--color-surface-strong);
+    color: var(--color-body);
+    font: 700 13px/1.2 var(--font-display);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      transform 0.12s var(--ease-bounce),
+      color 0.15s;
+  }
+
+  .emoteBtn:hover {
+    color: var(--color-ink);
+    transform: translateY(-2px);
+  }
+
+  .emoteBtn:active {
+    transform: translateY(1px);
+  }
+
   .btnQuit {
     width: 100%;
     min-height: 44px;
@@ -561,5 +711,16 @@
   :root[data-motion="reduce"] .card,
   :root[data-motion="reduce"] .emoji {
     animation: none;
+  }
+
+  /* Degrades to a readable static state, never to nothing: what somebody said is
+     information, and only the way it arrives was motion. */
+  :root[data-motion="reduce"] .emoteBubble {
+    animation: none;
+  }
+
+  :root[data-motion="reduce"] .emoteBtn:hover,
+  :root[data-motion="reduce"] .emoteBtn:active {
+    transform: none;
   }
 </style>

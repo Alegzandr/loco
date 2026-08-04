@@ -1,4 +1,4 @@
-﻿import type { CardKind } from '../types/protocol'
+﻿import type { CardKind, Emote } from '../types/protocol'
 
 export interface RulesSection {
   heading: string
@@ -400,6 +400,12 @@ export interface Translations {
   leaveMatchAsk: string
   leaveMatchYes: string
   leaveMatchStay: string
+  // The whole vocabulary the game has: three fixed things, on the game-over
+  // screen and nowhere else. Free text would be a moderation surface, and
+  // "we collect nothing" is the compliance strategy rather than an accident.
+  // The identifiers are the server's; these are the words they are drawn as.
+  emotesLabel: string
+  emotes: Record<Emote, string>
 
   // ─── Language ────────────────────────────────────────────────
   language: string
@@ -697,6 +703,12 @@ export const en: Translations = {
   leaveMatchAsk: 'Leave the match? Your seat is out for good.',
   leaveMatchYes: 'Yes, leave',
   leaveMatchStay: 'Stay',
+  emotesLabel: 'Say something',
+  emotes: {
+    gg: 'GG',
+    close: 'That was close',
+    nice: 'Nicely played',
+  },
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Language',

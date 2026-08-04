@@ -95,6 +95,8 @@ interface LocoE2EState {
   forfeitBy: number | null
   /** An opponent who dropped, and when their match is given away. */
   opponentAway: { seat: number; deadline: number } | null
+  /** What the table is saying on the game-over screen. Dropped after a few seconds. */
+  emotes: Array<{ seat: number; emote: string; at: number }>
   /** Seats that have asked for another match, and how many asks deal it. */
   rematchOffers: number[]
   rematchNeeded: number

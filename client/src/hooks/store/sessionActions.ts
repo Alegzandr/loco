@@ -69,6 +69,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       goneSeats: [],
       rematchOffers: [],
       rematchNeeded: 0,
+      emotes: [],
       matchWinner: '',
       matchOver: false,
       scoreboard: [],

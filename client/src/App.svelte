@@ -245,6 +245,7 @@
     isMatchmade={g.isMatchmade}
     isSolo={g.isSolo}
     onPlayBot={() => playBot(myNickname)}
+    onEmote={(emote) => handleSend({ type: 'send_emote', emote })}
     forfeitBy={g.forfeitBy}
     mySeat={g.myIndex}
     rematchOffers={g.rematchOffers}

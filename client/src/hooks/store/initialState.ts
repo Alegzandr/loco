@@ -53,6 +53,7 @@ export const initialState: GameState = {
   pendingMatchEnd: null,
   rematchOffers: [],
   rematchNeeded: 0,
+  emotes: [],
 
   searchStartedAt: null,
   matchFound: null,

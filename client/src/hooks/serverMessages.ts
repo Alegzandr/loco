@@ -352,6 +352,12 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         break
       }
 
+      // One of the three things somebody said. Nothing is kept: it is rendered
+      // for a few seconds and dropped, here as on the server.
+      case 'emote':
+        if (msg.emote) store.applyEmote(msg.player_index ?? -1, msg.emote)
+        break
+
       // A rematch is an agreement in every room: this carries every seat that
       // has asked and how many asks it takes. The next match is dealt only
       // once they match: as another match_found in a matchmade room, as a

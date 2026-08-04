@@ -25,6 +25,10 @@ const (
 	CMsgTransferHost ClientMsgType = "transfer_host"
 	// CMsgRematch returns a finished room to the lobby with the same players.
 	CMsgRematch ClientMsgType = "rematch"
+	// CMsgSendEmote says one of three fixed things, on the game-over screen and
+	// nowhere else. The set is closed and lives in enums.go: a client cannot
+	// invent a fourth, and there is no free text anywhere in this game.
+	CMsgSendEmote ClientMsgType = "send_emote"
 	// Matchmaking: a 1v1 against whoever is looking for the same thing. The
 	// queue is anonymous and its size is never on the wire. See
 	// SMsgMatchmakingQueued.
@@ -132,6 +136,10 @@ const (
 	// live ping per player without any client self-reporting.
 	SMsgLatency ServerMsgType = "latency"
 
+	// SMsgEmote carries one seat saying one of the three things. Broadcast,
+	// shown for a few seconds and forgotten: nothing about it is stored, logged
+	// or snapshotted.
+	SMsgEmote ServerMsgType = "emote"
 	// SMsgRematchOffered names a seat that has asked for another match. In a
 	// matchmade room a rematch is an agreement between two strangers rather than
 	// a host's decision, so both offers are public: the player who has not
@@ -200,6 +208,10 @@ type ClientMsg struct {
 
 	// CMsgSetMaxPlayers
 	MaxPlayers int `json:"max_players,omitempty"`
+
+	// CMsgSendEmote: which of the three. Validated against AllEmotes, so an
+	// identifier this server does not know is refused rather than relayed.
+	Emote Emote `json:"emote,omitempty"`
 
 	// CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
 	//
@@ -451,6 +463,9 @@ type ServerMsg struct {
 	// RematchNeeded is how many of those asks deal the next match: every human
 	// still at the table. Bots are not asked.
 	RematchNeeded int `json:"rematch_needed,omitempty"`
+
+	// SMsgEmote: what was said, and PlayerIndex above says who said it.
+	Emote Emote `json:"emote,omitempty"`
 
 	// SMsgError
 	Error string `json:"error,omitempty"`

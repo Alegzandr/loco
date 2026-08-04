@@ -7,6 +7,7 @@ import {
   ScoreboardEntryDTO,
   LatencyEntryDTO,
   MatchRecordDTO,
+  Emote,
 } from '../../types/protocol'
 import type { PersistedSession, RestoreTarget } from '../sessionPersistence'
 
@@ -91,6 +92,23 @@ export interface InterruptFlash {
 export interface CatchFlash {
   /** The caught seat, i.e. the one taking the penalty. */
   seat: number
+  at: number
+}
+
+/**
+ * How long one of the three things stays on screen.
+ *
+ * Long enough to read at a glance, short enough that two people saying "gg" do
+ * not build a wall over the scoreboard somebody is reading. The server's own
+ * cooldown is two seconds, so a seat can never have more than two up at once.
+ */
+export const EMOTE_TTL_MS = 4000
+
+/** One seat saying one of the three things. Nothing about it is kept. */
+export interface EmoteFlash {
+  seat: number
+  emote: Emote
+  /** Arrival, and the deadline this is dropped at. Also the render key. */
   at: number
 }
 
@@ -222,6 +240,10 @@ export interface GameState {
   // How many asks deal the next match: everybody still at the table. 0 until
   // the first one arrives, which is also when the count first means anything.
   rematchNeeded: number
+  // What the table is saying on the game-over screen, and the only thing in this
+  // store that is deliberately forgotten rather than replaced: an emote is shown
+  // for a few seconds and dropped. Nothing persists it, here or on the server.
+  emotes: EmoteFlash[]
 
   // --- 1v1 matchmaking ---
   // When this search began, so the searching screen can time its own wait. It
@@ -317,6 +339,10 @@ export interface MatchActions {
     matchHistory: MatchRecordDTO[],
   ) => void
   dismissRoundSummary: () => void
+  /** One of the three things arrived. Appends, and drops anything expired. */
+  applyEmote: (seat: number, emote: Emote) => void
+  /** Drops what has been on screen long enough. Armed to an absolute deadline. */
+  pruneEmotes: () => void
   applyRematchOffers: (offers: number[], needed: number) => void
   clearRematchOffers: () => void
   applyRematch: (myIndex: number, players: PlayerDTO[], format: MatchFormat, maxPlayers: number) => void

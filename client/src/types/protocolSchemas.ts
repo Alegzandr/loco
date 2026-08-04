@@ -40,6 +40,24 @@ export const matchFormatSchema = v.picklist([
   'BO7',
 ])
 
+// Emote is one of the three things a player can say at the end of a match, and
+// the whole vocabulary the game has.
+//
+// A closed set, decided here and travelling as an identifier, because the
+// alternative is free text — and free text is a moderation surface, which is a
+// promise this game cannot keep: "we collect nothing" is the compliance
+// strategy, not an accident. Three is enough to be gracious and too few to be
+// abusive, which is the only property that matters.
+//
+// The words themselves are the client's (`t.emotes`), in the player's own
+// language. Nothing here is stored, logged or snapshotted: an emote is
+// broadcast, shown for a few seconds, and forgotten.
+export const emoteSchema = v.picklist([
+  'gg',
+  'close',
+  'nice',
+])
+
 // ClientMsgType enumerates message types sent from client to server.
 export const clientMsgTypeSchema = v.picklist([
   'create_room',
@@ -51,6 +69,7 @@ export const clientMsgTypeSchema = v.picklist([
   'kick_player',
   'transfer_host',
   'rematch',
+  'send_emote',
   'find_match',
   'cancel_matchmaking',
   'play_bot',
@@ -96,6 +115,7 @@ export const serverMsgTypeSchema = v.picklist([
   'round_end',
   'match_end',
   'latency',
+  'emote',
   'rematch_offered',
   'rematch_started',
   'server_updating',
@@ -167,6 +187,9 @@ export const clientMsgSchema = v.object({
   match_format: v.optional(matchFormatSchema),
   // CMsgSetMaxPlayers
   max_players: v.optional(v.number()),
+  // CMsgSendEmote: which of the three. Validated against AllEmotes, so an
+  // identifier this server does not know is refused rather than relayed.
+  emote: v.optional(emoteSchema),
   // CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
   //
   // One pointer, not seven fields. This struct is every message a client can
@@ -434,6 +457,8 @@ export const serverMsgSchema = v.object({
   // RematchNeeded is how many of those asks deal the next match: every human
   // still at the table. Bots are not asked.
   rematch_needed: v.optional(v.number()),
+  // SMsgEmote: what was said, and PlayerIndex above says who said it.
+  emote: v.optional(emoteSchema),
   // SMsgError
   error: v.optional(v.string()),
 })

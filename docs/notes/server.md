@@ -783,6 +783,34 @@ after.
   can decline, and the press costs nothing that cannot be pressed back. The client asks first; that
   is a UI decision about a two-item menu, not a protocol one.
 
+## The three things a player can say
+
+`hub/emotes.go`, `protocol.AllEmotes`. After a close 1v1 against a stranger there was no way to say
+anything at all — not “good game”, not anything. Three fixed emotes is the smallest thing that fixes
+that, and the smallest is the point.
+
+- **No free text, ever.** Free text is a moderation surface, and this game has no way to keep the
+  promise that comes with one: “we collect nothing” is the compliance strategy rather than an
+  accident (`notes/legal.md`). Three is enough to be gracious and too few to be abusive, which is
+  the only property that matters here.
+- **The set is closed and it is the server’s.** An identifier travels, not a string, and one this
+  server does not know is refused and counted (`noteSuspect`) rather than relayed: a client cannot
+  invent a fourth. The words are the client’s (`t.emotes`), in the player’s own language.
+- **Nothing is kept.** Not in the event log, not on the `Room`, not in the drain snapshot. The only
+  state anywhere is `table.emoteAt`, which is *when* a seat last spoke and never what it said, and
+  it goes with the match (`resetForNextMatch`). The client drops a bubble after four seconds.
+- **The game-over screen and nowhere else.** Anywhere earlier it would be something to do *to*
+  somebody mid-round, which is what a reaction game least needs. Refused through the same door every
+  other out-of-context message uses.
+- **A refusal answers its sender and nobody else.** The per-socket token bucket already bounds the
+  traffic; `EmoteCooldown` (2 s per seat) bounds the *screen*, because ten a second inside the
+  bucket’s budget is a wall of pills over a scoreboard somebody is reading. Both refusals broadcast
+  nothing, or a refused emote would be cheaper to send than an accepted one — the rule every
+  rate-limited message in this server is written to.
+- **Never to or from a bot.** A seat the server plays has no opinion about the match and no socket to
+  receive one. The guard is written down even though it is unreachable: the rule is about the seat,
+  not about the transport.
+
 ## A rematch by agreement
 `handleRematch`. It was the host's decision and it is nobody's now. The host's standing is over the
 things that describe a table before it deals: the format, the size, when to start. Whether four

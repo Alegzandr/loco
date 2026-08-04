@@ -37,6 +37,10 @@ export const T = {
   leaveMatchAsk: 'Leave the match? Your seat is out for good.',
   leaveMatchYes: 'Yes, leave',
   leaveMatchStay: 'Stay',
+  // The whole vocabulary the game has, on the game-over screen only.
+  emoteGG: 'GG',
+  emoteClose: 'That was close',
+  emoteNice: 'Nicely played',
   leaveConfirmStay: 'Stay',
   gameOver: 'That is the match',
   youWin: 'YOU WIN!',

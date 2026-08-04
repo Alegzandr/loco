@@ -360,6 +360,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   the seat. **`rematch` is the one room where it is refused** — there is nobody to ask; another press
   is another `play_bot`. Reconnect, drain and the snapshot treat it as an ordinary table: the
   matchmade timings exist because a stranger will not wait for you.
+- **Three fixed emotes, on the game-over screen, and no free text anywhere in this game**
+  (`hub/emotes.go`, `protocol.AllEmotes`). The set is **closed and server-side** — an identifier this
+  server does not know is refused and counted, never relayed. **Nothing is kept**: not in the event
+  log, not on the `Room`, not in the snapshot; the only state is `table.emoteAt`, which is *when* a
+  seat last spoke and never what it said, and it goes with the match. Refused anywhere but a finished
+  match, **never to or from a bot**, and capped at one per seat per `EmoteCooldown` — **both refusals
+  answer their sender and broadcast nothing.** Free text would be a moderation surface, and
+  collecting nothing is the compliance strategy.
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes
