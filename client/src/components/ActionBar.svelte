@@ -10,9 +10,18 @@
     /**
      * True while another player sits on a single card without having called it.
      * Driven by the catch window, not by uno_declared — a declaration is exactly
-     * the moment catching stops being possible.
+     * the moment catching stops being possible. This arms the button; it is not
+     * what makes it pressable.
      */
-    canCatch: boolean
+    catchArmed: boolean
+    /**
+     * True while some other seat is close enough to finishing to be worth
+     * watching (`catchAvailability.ts`). This is what makes the button pressable,
+     * and it is deliberately looser than `catchArmed`: a press that finds nobody
+     * on the hook is a card, not a refusal, so the player can commit to the
+     * gesture before the server has named anybody.
+     */
+    catchLive: boolean
     /**
      * True once we have already called it on the card we hold. A declaration is
      * spent — the server refuses the second one — so the button must stop asking.
@@ -31,7 +40,8 @@
     handSize,
     hasDrawn,
     hasPlayableCard,
-    canCatch,
+    catchArmed,
+    catchLive,
     hasDeclared,
     onDraw,
     onPass,
@@ -40,14 +50,21 @@
     t,
   }: Props = $props()
 
-  // The centre column is CATCH's home, and LOCO only borrows it while we are the
-  // one on a single card. Catch is by far the hardest button in the game to hit:
-  // it opens on someone else's mistake and lives for seconds, so it has to sit —
-  // greyed out, but present and in place — on the pixel the player already knows,
-  // long before the window opens. LOCO borrows the column at `handSize === 1`
-  // because declaring is ours to lose and outranks an opportunity; Catch then
-  // floats beside the bar for that rare overlap.
-  const locoTurn = $derived(handSize === 1)
+  // The centre column is CATCH's, all match, with nothing else ever in it. It is
+  // by far the hardest button in the game to hit — it opens on someone else's
+  // mistake and lives for seconds — so it has to be the one control the player
+  // never has to look for, and it has to be pressable *before* the server names
+  // a target, or the gesture is always a reply and never a read. `catchLive` is
+  // that: somebody is close to finishing, so the wager is on the table.
+  //
+  // LOCO! sits above the bar, on the same axis, on screen the whole match and
+  // dead until it is owed. Two reasons it is not a fourth column and not a thing
+  // that appears: the bar may not grow a fourth target a reaction is aimed at,
+  // and a control that only exists for the seconds it matters is a control the
+  // player has never once looked at before the moment they need it. Drawn small
+  // and quiet on purpose — forgetting the call is a turn of the game, not a
+  // mistake the interface is meant to prevent.
+  const locoOwed = $derived(handSize === 1 && !hasDeclared)
 </script>
 
 <!--
@@ -76,25 +93,18 @@
   </div>
 
   <div class="slot" data-slot="center">
-    {#if locoTurn}
-      <!-- We are on one card: LOCO is live by definition — until we call it. The
-           declaration is a one-shot, so afterwards the button stays in place
-           (nothing may move in this bar) as a spent, dead object, the same way
-           Catch waits out the match greyed in this very column. -->
-      <button
-        class="btn btnUno"
-        class:btnDisabled={hasDeclared}
-        class:armed={!hasDeclared}
-        onclick={onUno}
-        disabled={hasDeclared}
-      >
-        {t.unoBtn}
-      </button>
-    {:else}
-      <button class="btn btnCatch" class:armed={canCatch} onclick={onCatch} disabled={!canCatch}>
-        {t.catchBtn}
-      </button>
-    {/if}
+    <!-- Never anything else, and never absent. Pressable as soon as any seat is
+         within reach of finishing; armed only once one of them actually owes the
+         call. Pressing it in between costs a card, which is what makes pressing
+         it a read rather than a reflex test. -->
+    <button
+      class="btn btnCatch"
+      class:armed={catchArmed}
+      onclick={onCatch}
+      disabled={!catchLive}
+    >
+      {t.catchBtn}
+    </button>
   </div>
 
   <div class="slot" data-slot="right">
@@ -105,14 +115,21 @@
     {/if}
   </div>
 
-  <!-- Overlap only: we are on one card (so LOCO borrows the centre) AND somebody
-       else is catchable. Out of the grid flow entirely, so its arrival cannot push
-       the three fixed slots. -->
-  {#if canCatch && locoTurn}
-    <div class="catchSlot" data-slot="float">
-      <button class="btn btnCatch armed" onclick={onCatch}>{t.catchBtn}</button>
-    </div>
-  {/if}
+  <!-- Always here, above the bar and out of the grid flow, so neither its arming
+       nor its spending can push the three fixed slots. Dead unless we are sitting
+       on a single uncalled card: the player learns where it is over a whole match
+       instead of hunting for it in the two seconds it is worth pressing. -->
+  <div class="locoSlot" data-slot="loco">
+    <button
+      class="btn btnUno"
+      class:armed={locoOwed}
+      class:hit-target={locoOwed}
+      onclick={onUno}
+      disabled={!locoOwed}
+    >
+      {t.unoBtn}
+    </button>
+  </div>
 </div>
 
 <style>
@@ -127,10 +144,12 @@
      it lands, and a bar that reflows (penalty draw appearing) moves the target out
      from under them.
 
-     The centre column carries whichever race is live: Catch while somebody else
-     sits on an undeclared single card, LOCO when we are the one on a single card.
-     Both are the same target, which is what makes a few-second catch window
-     actually hittable. */
+     The centre column is Contre-LOCO's and holds nothing else, ever. It is the
+     one control in the game whose window is measured in seconds and opens on
+     somebody else's mistake, so it gets the pixel the thumb is already resting
+     on. LOCO! is a chip centred above the bar, out of the grid and permanently on
+     screen: it is ours, it has no deadline, and the hand is dealt clear of it
+     (`BOTTOM_RESERVE`) so nothing moves when it lights up. */
 
   .actionBar {
     position: absolute;
@@ -172,20 +191,29 @@
     min-width: 0;
   }
 
-  /* Catch only sits beside the bar when LOCO already owns the centre (we are on
-     one card and somebody else is catchable). Out of the grid, so it shifts
-     nothing. */
-  .catchSlot {
+  /* LOCO! — centred above the bar, on the axis the hand is centred on, out of the
+     grid so it shifts none of the three columns.
+
+     Drawn deliberately smaller and quieter than a bar button. Forgetting to call
+     it is one of the game's turns, not a mistake the interface exists to prevent:
+     a chip the size of Catch, sat over the fan all match, would read as a fourth
+     action and pull the eye away from the centre column every round. The 10px gap
+     is what keeps its 44px hit target (`.hit-target`) clear of the bar's top
+     edge — the target is 7px taller than the paint on each side, and the button
+     it must not steal a tap from is Catch. */
+  .locoSlot {
     position: absolute;
-    left: 100%;
-    margin-left: var(--space-sm);
-    top: 50%;
-    transform: translateY(-50%);
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translateX(-50%);
   }
 
-  .catchSlot .btn {
+  .locoSlot .btn {
     width: auto;
-    padding: 10px 18px;
+    min-height: 30px;
+    padding: 5px 18px;
+    font-size: 13px;
+    letter-spacing: 0.4px;
   }
 
   /* Base button */
@@ -227,8 +255,8 @@
      enabled, so a fill swap would draw a disabled button and a live Pass as the
      same object. The ledge is what carries the meaning instead — a disabled
      object is flat and has stopped being a body. Held at 0.55 rather than 0.42
-     because Catch sits here disabled for most of the match and a spectator still
-     has to be able to read what the centre column is for. */
+     because Catch sits here disabled through the opening of every round, and a
+     spectator still has to be able to read what the centre column is for. */
   .btnDisabled,
   .btn:disabled {
     opacity: 0.55;
@@ -319,8 +347,10 @@
     animation: penaltyPulse 0.9s ease-in-out infinite alternate;
   }
 
-  /* Catch button — live only inside the 5s window, so it must grab the eye then,
-     and stay a recognisable dead object the rest of the time (see `.armed`). */
+  /* Catch button — pressable whenever somebody is close to finishing, armed only
+     once one of them owes the call. Three readable states, not two: dead while
+     nothing is in reach, awake and pressable while it is a wager, and `.armed`
+     for the seconds it is a certainty. */
   .btnCatch {
     background: var(--gradient-tertiary);
     color: var(--color-on-dark);
@@ -366,15 +396,9 @@
       font-size: 14px;
     }
 
-    /* No room to the side of a full-width bar — catch floats above its right end. */
-    .catchSlot {
-      left: auto;
-      right: 0;
-      top: auto;
-      bottom: calc(100% + 8px);
-      margin-left: 0;
-      transform: none;
-    }
+    /* The chip keeps its own size here: the rule above is more specific than this
+       block's `.btn`, which is deliberate. A 44px LOCO! chip on a phone would be
+       a second full-height button sat directly over the centre column. */
   }
 
   :root[data-motion="reduce"] .btnPenalty {

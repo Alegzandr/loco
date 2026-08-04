@@ -347,7 +347,10 @@ test.describe('1v1 matchmaking', () => {
         undefined,
         { timeout: 10_000 },
       )
-      expect((await getState(page1)).errorMsg).toContain('matchmade')
+      // One string for both hostless shapes — a matchmade pair and a solo game
+      // — because neither has anybody with standing over the table, and a player
+      // can see which of the two they are in.
+      expect((await getState(page1)).errorMsg).toContain('not available in this game')
     } finally {
       // The contexts go first: this test can end with somebody still searching,
       // and a searcher still in the queue when the next test claims it is

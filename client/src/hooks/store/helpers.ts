@@ -98,6 +98,7 @@ export function gameStateSliceFromDTO(state: GameStateDTO) {
     maxPlayers: state.max_players ?? 10,
     scoreboard: state.scoreboard ?? [],
     roundHistory: state.round_history ?? [],
+    matchHistory: state.match_history ?? [],
     turnDeadline: state.turn_deadline ?? null,
   }
 }

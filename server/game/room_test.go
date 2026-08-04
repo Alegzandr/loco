@@ -2944,7 +2944,10 @@ func TestRoom_PenalizeFailedCatch(t *testing.T) {
 	turn, hasDrawn := r.State.CurrentTurn, r.State.HasDrawn
 	targetBefore := r.State.Hands[0].Size()
 
-	cards := r.PenalizeFailedCatch(1)
+	cards, charged := r.PenalizeFailedCatch(1)
+	if !charged {
+		t.Fatal("the first failed catch on a board must be charged")
+	}
 	if len(cards) != failedCatchPenalty {
 		t.Fatalf("PenalizeFailedCatch drew %d cards, want %d", len(cards), failedCatchPenalty)
 	}
@@ -2966,11 +2969,61 @@ func TestRoom_PenalizeFailedCatch_EmptyDeck(t *testing.T) {
 	r.State.Deck.Cards = nil
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
 	before := r.State.Hands[1].Size()
-	if cards := r.PenalizeFailedCatch(1); len(cards) != 0 {
+	cards, charged := r.PenalizeFailedCatch(1)
+	if len(cards) != 0 {
 		t.Fatalf("PenalizeFailedCatch on an exhausted deck drew %d cards, want 0", len(cards))
+	}
+	// Charged all the same: the wager was taken, the table simply had no card
+	// left to take it with. Otherwise a dry deck would refund every press.
+	if !charged {
+		t.Error("a call against dry piles is still the seat's one charge for this board")
 	}
 	if got := r.State.Hands[1].Size(); got != before {
 		t.Errorf("catcher hand = %d, want %d unchanged", got, before)
+	}
+}
+
+// The anti-spam rule, and the reason the button can afford to be live for most
+// of a round: a seat pays for one misread per board, not per press. Anything
+// else would tax the reflex the whole mechanic is asking for.
+func TestRoom_PenalizeFailedCatch_ChargesOncePerBoard(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	if _, charged := r.PenalizeFailedCatch(1); !charged {
+		t.Fatal("the first press must be charged")
+	}
+	before := r.State.Hands[1].Size()
+
+	for i := 0; i < 5; i++ {
+		cards, charged := r.PenalizeFailedCatch(1)
+		if charged || len(cards) != 0 {
+			t.Fatalf("press %d on an unchanged board charged again", i+2)
+		}
+	}
+	if got := r.State.Hands[1].Size(); got != before {
+		t.Errorf("catcher hand = %d, want %d — spamming the button must cost nothing more", got, before)
+	}
+}
+
+// And the other half: the guard is "since the last card", not "once a round".
+// A board that moved is a new obligation to misread.
+func TestRoom_PenalizeFailedCatch_ChargesAgainOnceACardIsPlayed(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	if _, charged := r.PenalizeFailedCatch(1); !charged {
+		t.Fatal("the first press must be charged")
+	}
+
+	// A real play, through the real path: the epoch is the discard's, and a test
+	// that bumped the counter by hand would pass over a play site that forgot to.
+	top := r.State.topCard()
+	card := Card{Color: r.State.ActiveColor, Kind: Number, Value: top.Value}
+	r.State.Hands[0].Add(card)
+	r.State.CurrentTurn = 0
+	if err := r.PlayCard(0, card, 0, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+
+	if _, charged := r.PenalizeFailedCatch(1); !charged {
+		t.Error("a card was played, so the next misread is a new one and is charged")
 	}
 }
 

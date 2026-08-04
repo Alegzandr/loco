@@ -100,8 +100,10 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
 
   // ── Matchmaking ──────────────────────────────────────────────────────────
   [/already searching for an opponent/i, 'alreadySearching'],
-  [/not available in a matchmade game/i, 'matchmadeUnavailable'],
-  [/cannot leave a match in progress/i, 'cannotLeaveMatch'],
+  // One string for both hostless shapes: a matchmade pair and a solo game
+  // against the server. Neither has anybody with standing over the table, and
+  // the player is not told which of the two they are in — they can see that.
+  [/not available in this game/i, 'matchmadeUnavailable'],
   [/opponent has left the table/i, 'opponentGone'],
   // Two sentinels rather than prose: the server sends these as machine strings
   // (afk_forfeit, afk_kicked) precisely because they are read after the fact,

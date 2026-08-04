@@ -108,6 +108,9 @@ export type SceneOverlay =
   | 'color-picker'
   | 'player-picker'
   | 'rules'
+  // La même modale sur son autre onglet : le jeu dessiné, huit visuels et une
+  // grille qui passe en une colonne sous 480px.
+  | 'rules-cards'
   | 'scores'
   // Pinned by the touch button rather than held with TAB: the header swaps the
   // "Hold TAB" hint for a ✕, and that is the only way out a phone has.
@@ -140,11 +143,11 @@ export interface Scene {
   unoIn?: number
   overlay?: SceneOverlay
   /** Lobby sub-screen: drives Lobby's internal mode. */
-  lobbyMode?: 'home' | 'find' | 'create' | 'join'
+  lobbyMode?: 'home' | 'find' | 'bot' | 'create' | 'join'
   /** Lobby: the table code a shared link arrived with, already in the field. */
   lobbyCode?: string
   /** Seconds already spent searching, so the three stages of the copy can each
-   *  be captured (see Searching.tsx: 0-15s, 15-45s, 45s+). */
+   *  be captured (see components/searchStages.ts: 0-10s, 10-20s, 20s+). */
   searchingFor?: number
   /** Simulated transport state for the game screen. */
   wsStatus?: 'connecting' | 'open' | 'closed'
@@ -253,6 +256,13 @@ export const SCENES: Scene[] = [
     lobbyMode: 'find',
   },
   {
+    // The queue's form with the wait taken out: one field, one button, no code.
+    id: 'lobby-bot',
+    title: 'Accueil · contre un bot',
+    screen: 'lobby',
+    lobbyMode: 'bot',
+  },
+  {
     id: 'matchmaking-searching',
     title: '1v1 · recherche',
     screen: 'searching',
@@ -262,7 +272,7 @@ export const SCENES: Scene[] = [
     id: 'matchmaking-searching-patient',
     title: '1v1 · recherche qui dure',
     screen: 'searching',
-    searchingFor: 22,
+    searchingFor: 14,
   },
   {
     // The stage that matters most: the queue is empty and the screen has to say
@@ -330,6 +340,12 @@ export const SCENES: Scene[] = [
     title: 'Règles du jeu',
     screen: 'lobby',
     overlay: 'rules',
+  },
+  {
+    id: 'lobby-rules-cards',
+    title: 'Règles · les cartes',
+    screen: 'lobby',
+    overlay: 'rules-cards',
   },
   // Confidentialité, conditions et crédits ne sont plus une modale : ce sont des
   // pages Astro (/privacy/, /fr/confidentialite/), donc rien à photographier ici.
@@ -509,9 +525,26 @@ export const SCENES: Scene[] = [
     deadlineIn: 14,
   },
   {
-    // The overlap: we are on one card AND Pixel is catchable. LOCO keeps the
-    // centre column (declaring is ours to lose) and Catch floats beside the bar
-    // — the only state where the floating slot is used at all.
+    // The in-between state, and the common one: Kiwi is on two cards, so the
+    // wager is on the table and the centre button is pressable — but nobody
+    // owes the call yet, so it is awake rather than armed. Three readable
+    // states, and this is the one that has to be legible at 720p without the
+    // halo doing the work.
+    id: 'game-catch-live',
+    title: 'Partie · attrapage armé sans cible',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchTarget: null,
+      players: [player(0, 'Nova', 5), player(1, 'Kiwi', 2), player(2, 'Bot1', 9), player(3, 'Pixel', 6)],
+    },
+    deadlineIn: 16,
+  },
+  {
+    // The overlap: we are on one card AND Pixel is catchable. Catch keeps the
+    // centre column, always, and the LOCO! chip above the bar — on screen and
+    // dead in every other scene — is the only thing that changes.
     id: 'game-catch-and-loco',
     title: 'Partie · attraper + LOCO',
     screen: 'game',
@@ -566,6 +599,50 @@ export const SCENES: Scene[] = [
       players: [player(0, 'Nova', 1), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 3)],
     },
     deadlineIn: 18,
+  },
+  {
+    // Leaving a match at a table that keeps playing without the seat. The chip
+    // is in the chrome row, never on the action bar, and the question takes its
+    // place out of the flow so the board does not move for it.
+    id: 'game-leave-ask',
+    title: 'Partie · quitter le match',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+    },
+    confirmLeave: true,
+    deadlineIn: 18,
+  },
+  {
+    // The same question at a table that cannot spare the seat: the line under it
+    // is the one that changes, and it is the half of the decision the player
+    // cannot read off their own screen.
+    id: 'game-leave-ask-ends',
+    title: 'Partie · quitter un 1v1',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      players: [player(0, 'Nova', 5), player(1, 'Kiwi', 4)],
+    },
+    confirmLeave: true,
+    deadlineIn: 18,
+  },
+  {
+    // What the seats that stayed are told. Held and gone read identically in the
+    // roster, so this pill is the only thing that says the chair is empty for
+    // the rest of the match.
+    id: 'game-departure-notice',
+    title: 'Partie · un siège est parti',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 1,
+      goneSeats: [3],
+      departureNotice: { nickname: 'Pixel', at: 1 },
+    },
+    deadlineIn: 20,
   },
   {
     id: 'game-swap-notice',
@@ -783,6 +860,67 @@ export const SCENES: Scene[] = [
       scoreboard: SCOREBOARD,
       players: PLAYERS_4,
       myIndex: 0,
+    },
+  },
+  {
+    // The evening's recap: only drawn once the table has rematched, so the
+    // scene is the one that has. Four seats and four matches is the widest the
+    // block gets before it starts scrolling sideways, which is the case worth
+    // looking at.
+    id: 'gameover-recap',
+    title: 'Fin de match · récap de soirée',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchHistory: [
+        { rounds_won: [2, 1, 0, 0], scores: [90, 55, 20, 10], winner_index: 0 },
+        { rounds_won: [1, 0, 2, 0], scores: [40, 5, 85, 15], winner_index: 2 },
+        { rounds_won: [0, 2, 1, 0], scores: [12, 88, 44, 0], winner_index: 1 },
+        { rounds_won: [2, 0, 1, 0], scores: [95, 10, 35, 5], winner_index: 0 },
+      ],
+    },
+  },
+  {
+    // No rematch to negotiate: the other seat is the server. Another press, or
+    // the queue.
+    id: 'gameover-solo',
+    title: 'Fin de match · contre un bot',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      isSolo: true,
+      myIndex: 0,
+      players: [
+        { index: 0, nickname: 'Nova', hand_size: 0, connected: true },
+        { index: 1, nickname: 'Bot1', hand_size: 4, connected: true, is_bot: true },
+      ],
+      scoreboard: [
+        { player_index: 0, nickname: 'Nova', score: 46, rounds_won: 1 },
+        { player_index: 1, nickname: 'Bot1', score: 0, rounds_won: 0 },
+      ],
+    },
+  },
+  {
+    // The three fixed things, and one already said. Nothing about it is kept:
+    // it is on screen for four seconds and gone.
+    id: 'gameover-emotes',
+    title: 'Fin de match · émotes',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
+      myIndex: 0,
+      emotes: [
+        { seat: 1, emote: 'gg', at: 1 },
+        { seat: 0, emote: 'close', at: 2 },
+      ],
     },
   },
   {

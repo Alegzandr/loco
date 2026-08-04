@@ -56,6 +56,15 @@ export const UI: Record<string, Copy> = {
         en: "Everything the game does, in the order you meet it. Written to be read once, standing up, in the middle of a round.",
         fr: "Tout ce que fait le jeu, dans l’ordre où tu le rencontres. Écrit pour être lu une fois, debout, au milieu d’une manche.",
     },
+    /**
+     * The contrast block, first thing on the rules page. It names the other game
+     * by describing it, which is the only way this copy is ever allowed to refer
+     * to it.
+     */
+    contrastH2: {
+        en: "If you have played a game of colours and symbols",
+        fr: "Si tu as déjà joué à un jeu de couleurs et de symboles",
+    },
     deckH2: { en: "The 112 cards", fr: "Les 112 cartes" },
     deckLede: {
         en: "Every kind in the deck, how many of it there are, and what it costs you to still be holding it when somebody else goes out.",
@@ -96,14 +105,21 @@ export const UI: Record<string, Copy> = {
     },
 
     // ── The tables page ─────────────────────────────────────────────────────
-    tablesH1: { en: "The four tables", fr: "Les quatre tables" },
+    /*
+     * One word per thing. A **table** is the group of seats a code is shared for;
+     * a **room** (fr: *décor*) is one of the four places a match is dealt in.
+     * Three words used to name two objects here — table, pièce, salle — and the
+     * menu made it worse by sending "Tables" to a page about the four places.
+     * The URL and the <title> keep the old word: they carry the search value.
+     */
+    tablesH1: { en: "The four rooms", fr: "Les quatre décors" },
     tablesLede: {
         en: "A match is dealt in a room, and the room is picked for you. Everyone at one table plays in the same one, so a clip of a game is a clip of a place.",
-        fr: "Une partie se joue dans une pièce, et la pièce t’est attribuée. Tout le monde à une même table y joue, donc un extrait de partie est un extrait d’un lieu.",
+        fr: "Une partie se joue dans un décor, et le décor t’est attribué. Tout le monde à une même table y joue, donc un extrait de partie est un extrait d’un lieu.",
     },
     tablesOutro: {
         en: "The room changes how the felt is painted and nothing else: the seats, the pile and the reach of a card are the same at every table.",
-        fr: "La pièce change la façon dont le tapis est peint, et rien d’autre : les places, la pile et la portée d’une carte sont identiques à toutes les tables.",
+        fr: "Le décor change la façon dont le tapis est peint, et rien d’autre : les places, la pile et la portée d’une carte sont identiques à toutes les tables.",
     },
 
     // ── Playing with friends ────────────────────────────────────────────────
@@ -190,21 +206,32 @@ export const UI: Record<string, Copy> = {
         fr: "Un jeu de cartes rapide pour 2 à 10 joueurs, dans le navigateur, gratuit et sans inscription. Tu poses une carte de la même couleur ou du même chiffre, et la manche s’arrête à la seconde où quelqu’un vide sa main.",
     },
     homeDiffH2: { en: "What makes it different", fr: "Ce qui le distingue" },
+    /*
+     * Three mechanics, and only mechanics. The visitor arrives holding a model of
+     * a card game of colours and symbols and is looking for the delta; two of
+     * these three used to spend that attention on things that game also does, and
+     * one of them on there being no signup — which is already `homeAbout`'s
+     * second sentence, and is not a reason to play rather than a reason to stay.
+     */
     homeDiff1: {
-        en: "Nobody waits their turn. Hold the card that is sitting on the pile and you can slam it down out of turn, any time, until somebody plays.",
-        fr: "Personne n’attend son tour. Si tu as la carte posée sur la pile, tu peux l’abattre hors de ton tour, à n’importe quel moment, jusqu’à ce que quelqu’un joue.",
+        en: "Nobody waits their turn. Hold the card sitting on the pile and you can slam it down out of turn — the window has no deadline, and nobody is shut out of it, not even the player who just played.",
+        fr: "Personne n’attend son tour. Si tu as la carte posée sur la pile, tu peux l’abattre hors de ton tour : la fenêtre n’a aucun délai, et personne n’en est exclu, pas même celui qui vient de jouer.",
     },
     homeDiff2: {
-        en: "Down to one card, you have to say so. Stay quiet and anyone has five seconds to catch you out.",
-        fr: "À une carte, tu dois l’annoncer. Reste silencieux et n’importe qui a cinq secondes pour te prendre en défaut.",
+        en: "Doubles go down together. Two identical cards, three, four — one tap, and the effects stack: three +2s make the next player draw six.",
+        fr: "Les doublons partent ensemble. Deux cartes identiques, trois, quatre — un seul geste, et les effets se cumulent : trois +2 font piocher six cartes.",
     },
     homeDiff3: {
-        en: "A name is all it asks. No account, no password, nothing kept about you between matches.",
-        fr: "Il ne demande qu’un pseudo. Pas de compte, pas de mot de passe, rien de conservé sur toi d’une partie à l’autre.",
+        en: "Swap and Global Switch move whole hands. One takes somebody’s entire hand off them; the other slides every hand at the table one seat along.",
+        fr: "Échange et Rotation déplacent des mains entières. L’une te donne toute la main de quelqu’un, l’autre fait glisser chaque main d’une place autour de la table.",
     },
     homeMoreH2: { en: "Read more", fr: "En savoir plus" },
-    /** Opens the sheet the prose lives in. The home page never scrolls. */
-    homeSheetBtn: { en: "About LOCO", fr: "En savoir plus" },
+    /**
+     * Opens the sheet the prose lives in, and heads it. The home page never
+     * scrolls, so this line is the whole invitation — it asks the question the
+     * visitor already has rather than offering them a section.
+     */
+    homeSheetBtn: { en: "What is LOCO?", fr: "C’est quoi LOCO ?" },
     homeSheetClose: { en: "Close", fr: "Fermer" },
 };
 

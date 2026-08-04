@@ -11,9 +11,22 @@
      * layout does not move when the mode is switched mid-screen.
      */
     class?: string
+    /**
+     * Draw the chain beside the code, for the one place the plate is pressable.
+     *
+     * Pressing the code copies a *link*, not the six characters, and the toast
+     * says so — but only after the press. The first one surprised every tester:
+     * they pressed the thing labelled "table code" and got a URL. The icon is
+     * what says it beforehand.
+     *
+     * Off by default: `<Reconnecting />` prints the code as information, with
+     * nothing to press and nothing to copy, and a chain there would promise a
+     * gesture that does not exist.
+     */
+    link?: boolean
   }
 
-  let { code, class: extra = '' }: Props = $props()
+  let { code, class: extra = '', link = false }: Props = $props()
 
   const streamer = watchPref(streamerModePref)
   const t = $derived(i18n.t)
@@ -32,21 +45,72 @@
   and it happens on camera. On a touch screen the blur therefore stays put: the
   code copies, it does not show.
 -->
-{#if streamer.current}
-  <span
-    class="hidden {extra}"
-    data-streamer-hidden="true"
-    tabindex="0"
-    title={t.prefsCodeHidden}
-    aria-label="{t.prefsCodeHidden} {code}"
-  >
-    {code}
-  </span>
-{:else}
-  <span class={extra}>{code}</span>
-{/if}
+<span class="tableCode" class:tableCodeLinked={link}>
+  <!--
+    The chain, and it is deliberately *outside* everything streamer mode blurs:
+    what has to stay off a stream is the six characters, not the fact that the
+    plate copies a link. Drawn rather than a font character, like every other
+    icon in the game — a glyph lands on the baseline where this has to sit on the
+    code's middle, and it would carry the code's own 2px ink stroke with it.
+
+    `aria-hidden`: the button around it already carries the accessible name, and
+    a second name for the same control is a control voice access cannot say.
+  -->
+  {#if link}
+    <svg
+      class="linkIcon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        d="M9.5 14.5l5-5M10.8 7.2l1.6-1.6a3.7 3.7 0 015.2 5.2l-1.6 1.6M13.2 16.8l-1.6 1.6a3.7 3.7 0 01-5.2-5.2l1.6-1.6"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.4"
+        stroke-linecap="round"
+      />
+    </svg>
+  {/if}
+  {#if streamer.current}
+    <span
+      class="hidden {extra}"
+      data-streamer-hidden="true"
+      tabindex="0"
+      title={t.prefsCodeHidden}
+      aria-label="{t.prefsCodeHidden} {code}"
+    >
+      {code}
+    </span>
+  {:else}
+    <span class={extra}>{code}</span>
+  {/if}
+</span>
 
 <style>
+  /* A row only when there is an icon in it. Without one this is a plain wrapper
+     and the value keeps whatever the host screen laid out for it — which is why
+     `<Reconnecting />`'s code did not have to change. */
+  .tableCode {
+    display: contents;
+  }
+
+  .tableCodeLinked {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35em;
+  }
+
+  /* Sized off the code beside it rather than set in pixels: the value is
+     `clamp(34px, 8vw, 46px)` and the chain has to shrink with it on a phone. */
+  .linkIcon {
+    flex: none;
+    width: clamp(19px, 4.4vw, 25px);
+    height: clamp(19px, 4.4vw, 25px);
+    color: var(--color-muted);
+  }
+
   /* Blur strong enough that a 720p capture gives nothing away, and no letter
      shape survives it. The value stays selectable and copyable underneath. */
   .hidden {

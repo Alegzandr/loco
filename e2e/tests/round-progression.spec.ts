@@ -103,14 +103,14 @@ test.describe('round summary and match progression', () => {
   })
 
   /**
-   * BO3 — the match ends with a game-over screen after all rounds complete.
+   * A best of 3 ends the moment the lead cannot be caught, which is what "best
+   * of 3" has always meant everywhere else: first to two.
    *
-   * Uses 2 bots to drive the game quickly.  The test plays through up to 3 rounds,
-   * dismissing each summary, until the gameover screen appears.
-   *
-   * Total expected wall time: ≈ 2–3 minutes (each round ~30–60 s with bots).
+   * This used to play three rounds because the match was decided on points, so
+   * the format ran to its end whatever the standings were. Two rounds now, and
+   * the third is never dealt — which is the assertion, not the shortcut.
    */
-  test('BO3 match completes and shows game-over screen', async ({ page }) => {
+  test('a BO3 stops the moment the lead cannot be caught', async ({ page }) => {
     test.setTimeout(120_000)
 
     await createRoom(page, 'Alice')
@@ -118,16 +118,21 @@ test.describe('round summary and match progression', () => {
     await addBot(page)
     await startGame(page)
 
-    for (let round = 1; round <= 3; round++) {
-      await forceRoundEndAsLocalWinner(page)
-      await waitForRoundSummary(page, 20_000)
-      await clickContinue(page)
-      if (round < 3) {
-        await waitForRoundNumber(page, round + 1, 10_000)
-      }
-    }
+    // One round of three is still catchable, so the match deals another.
+    await forceRoundEndAsLocalWinner(page)
+    await waitForRoundSummary(page, 20_000)
+    await clickContinue(page)
+    await waitForRoundNumber(page, 2, 10_000)
 
+    // Two nil with one round left is not, so the match stops here.
+    await forceRoundEndAsLocalWinner(page)
+    await waitForRoundSummary(page, 20_000)
+    await clickContinue(page)
     await waitForGameOver(page, 15_000)
+
+    const s = await getState(page)
+    const mine = (s?.scoreboard ?? []).find((e) => e.nickname === 'Alice')
+    expect(mine?.rounds_won, 'the match was taken on rounds, at two of three').toBe(2)
     await expect(page.getByRole('button', { name: T.rematch })).toBeVisible()
   })
 

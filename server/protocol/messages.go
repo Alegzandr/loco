@@ -25,11 +25,20 @@ const (
 	CMsgTransferHost ClientMsgType = "transfer_host"
 	// CMsgRematch returns a finished room to the lobby with the same players.
 	CMsgRematch ClientMsgType = "rematch"
+	// CMsgSendEmote says one of three fixed things, on the game-over screen and
+	// nowhere else. The set is closed and lives in enums.go: a client cannot
+	// invent a fourth, and there is no free text anywhere in this game.
+	CMsgSendEmote ClientMsgType = "send_emote"
 	// Matchmaking: a 1v1 against whoever is looking for the same thing. The
 	// queue is anonymous and its size is never on the wire. See
 	// SMsgMatchmakingQueued.
 	CMsgFindMatch         ClientMsgType = "find_match"
 	CMsgCancelMatchmaking ClientMsgType = "cancel_matchmaking"
+	// CMsgPlayBot deals a 1v1 against the server, immediately. It is the queue's
+	// shape without the queue: a nickname, one press, a hand — no code, no
+	// waiting room, no host and nothing to configure. The table it opens has no
+	// host for that reason, exactly like a matchmade one.
+	CMsgPlayBot ClientMsgType = "play_bot"
 	// CMsgLeaveRoom gives up the seat this socket holds without dropping the
 	// connection. It is what "search for another opponent" is built on, and in a
 	// matchmade match in progress it is a deliberate forfeit.
@@ -65,7 +74,12 @@ const (
 	SMsgPlayerDisconnected ServerMsgType = "player_disconnected"
 	SMsgPlayerReconnected  ServerMsgType = "player_reconnected"
 	SMsgLobbyConfigChanged ServerMsgType = "lobby_config_changed"
-	SMsgGameStarted        ServerMsgType = "game_started"
+	// SMsgGameStarted hands every seat its dealt state. A solo table's copy also
+	// carries RoomCode, PlayerID and SessionToken: that mode has no message
+	// before this one — no room_created, no match_found — because it has no
+	// screen before this one either, and a client still needs those three to
+	// reclaim the seat after a reload.
+	SMsgGameStarted ServerMsgType = "game_started"
 	// SMsgMatchmakingQueued acknowledges a find_match. It carries no queue size,
 	// no position and no estimate, on purpose: how many people are looking for a
 	// game is nobody's business but the operator's, and a number that reads "1"
@@ -122,6 +136,10 @@ const (
 	// live ping per player without any client self-reporting.
 	SMsgLatency ServerMsgType = "latency"
 
+	// SMsgEmote carries one seat saying one of the three things. Broadcast,
+	// shown for a few seconds and forgotten: nothing about it is stored, logged
+	// or snapshotted.
+	SMsgEmote ServerMsgType = "emote"
 	// SMsgRematchOffered names a seat that has asked for another match. In a
 	// matchmade room a rematch is an agreement between two strangers rather than
 	// a host's decision, so both offers are public: the player who has not
@@ -191,6 +209,10 @@ type ClientMsg struct {
 	// CMsgSetMaxPlayers
 	MaxPlayers int `json:"max_players,omitempty"`
 
+	// CMsgSendEmote: which of the three. Validated against AllEmotes, so an
+	// identifier this server does not know is refused rather than relayed.
+	Emote Emote `json:"emote,omitempty"`
+
 	// CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
 	//
 	// One pointer, not seven fields. This struct is every message a client can
@@ -242,6 +264,22 @@ type ScoreboardEntryDTO struct {
 	Nickname    string `json:"nickname"`
 	Score       int    `json:"score"`
 	RoundsWon   int    `json:"rounds_won"`
+}
+
+// MatchRecordDTO is one finished match at this table, kept so a group playing
+// six in a row can see who actually won the evening.
+//
+// Both halves travel because both are read: RoundsWon is what decided that
+// match, Scores is the gap it was decided by. Indexed by seat, exactly like the
+// scoreboard, so a client renders one column per match against the roster it
+// already has.
+type MatchRecordDTO struct {
+	RoundsWon []int `json:"rounds_won"`
+	Scores    []int `json:"scores"`
+	// WinnerIndex is the seat that took the match, or -1 when the seat that took
+	// it has since left the table. No omitempty: seat 0 is a winner like any
+	// other, and dropping it would hand the match to nobody.
+	WinnerIndex int `json:"winner_index"`
 }
 
 // LatencyEntryDTO is one seat's measured round-trip time.
@@ -389,6 +427,13 @@ type ServerMsg struct {
 	// game_state (which the client buffers behind the round summary).
 	RoundHistory [][]int `json:"round_history,omitempty"`
 
+	// SMsgMatchEnd: every match this table has finished, oldest first, the one
+	// just ended included. A rematch wipes the scoreboard, so without this a
+	// group that plays six matches on one code ends the evening with nobody able
+	// to say who won it. Only the game-over screen reads it, so it rides the one
+	// message that opens that screen.
+	MatchHistory []MatchRecordDTO `json:"match_history,omitempty"`
+
 	// SMsgLatency
 	Latencies []LatencyEntryDTO `json:"latencies,omitempty"`
 
@@ -418,6 +463,9 @@ type ServerMsg struct {
 	// RematchNeeded is how many of those asks deal the next match: every human
 	// still at the table. Bots are not asked.
 	RematchNeeded int `json:"rematch_needed,omitempty"`
+
+	// SMsgEmote: what was said, and PlayerIndex above says who said it.
+	Emote Emote `json:"emote,omitempty"`
 
 	// SMsgError
 	Error string `json:"error,omitempty"`
@@ -504,6 +552,10 @@ type GameStateDTO struct {
 	// RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
 	// Included in every snapshot so a reconnecting player recovers the table.
 	RoundHistory [][]int `json:"round_history,omitempty"`
+	// MatchHistory is the table's finished matches (see ServerMsg). Carried here
+	// too so a player who reconnects mid-match still has the evening behind them
+	// when this match ends.
+	MatchHistory []MatchRecordDTO `json:"match_history,omitempty"`
 
 	// Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
 	TurnDeadline int64 `json:"turn_deadline,omitempty"`

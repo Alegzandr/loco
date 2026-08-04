@@ -1,6 +1,6 @@
 import { StateCreator } from './createStore'
 import { gameStateSliceFromDTO } from './helpers'
-import { GameStore, MatchActions, RoundScoreEntry } from './types'
+import { EMOTE_TTL_MS, GameStore, MatchActions, RoundScoreEntry } from './types'
 
 export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
@@ -37,17 +37,20 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       }
     }),
 
-  applyMatchEnd: (matchWinner, scoreboard, forfeitBy) =>
+  applyMatchEnd: (matchWinner, scoreboard, matchHistory, forfeitBy) =>
     set({
       matchWinner,
       matchOver: true,
       scoreboard,
+      matchHistory,
       screen: 'gameover',
       // A forfeit is the one match end that can land while a round summary is
       // still up: the opponent quits, and nothing is waiting on a dismissal any
       // more. The ordinary path never gets here with a summary showing.
       showRoundSummary: false,
       forfeitBy: typeof forfeitBy === 'number' ? forfeitBy : null,
+      // A fresh screen says nothing yet.
+      emotes: [],
       // The countdown is over one way or the other: either they came back or
       // the match was given away, and both end the notice.
       opponentAway: null,
@@ -56,8 +59,8 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
 
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),
 
-  setPendingMatchEnd: (matchWinner, scoreboard) =>
-    set({ pendingMatchEnd: { matchWinner, scoreboard } }),
+  setPendingMatchEnd: (matchWinner, scoreboard, matchHistory) =>
+    set({ pendingMatchEnd: { matchWinner, scoreboard, matchHistory } }),
 
   dismissRoundSummary: () => {
     const s = get()
@@ -67,6 +70,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         matchWinner: s.pendingMatchEnd.matchWinner,
         matchOver: true,
         scoreboard: s.pendingMatchEnd.scoreboard,
+        matchHistory: s.pendingMatchEnd.matchHistory,
         screen: 'gameover',
         showRoundSummary: false,
         pendingMatchEnd: null,
@@ -92,6 +96,24 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
     // Default: just hide the summary (e.g. BO1 game-over path).
     set({ showRoundSummary: false })
   },
+
+  // Appended, and the expired dropped in the same write: an emote that is old
+  // enough to go is old enough to go whether or not a timer has fired yet, and
+  // this is the write that already knows the time.
+  applyEmote: (seat, emote) =>
+    set((s) => {
+      const now = Date.now()
+      return { emotes: [...s.emotes.filter((e) => e.at + EMOTE_TTL_MS > now), { seat, emote, at: now }] }
+    }),
+
+  pruneEmotes: () =>
+    set((s) => {
+      const now = Date.now()
+      const kept = s.emotes.filter((e) => e.at + EMOTE_TTL_MS > now)
+      // Returned unchanged when nothing expired, so a timer that fired a
+      // fraction early does not publish a new array to every subscriber.
+      return kept.length === s.emotes.length ? s : { emotes: kept }
+    }),
 
   // The server sends the whole offer state, not the increment, and this stores
   // it as sent. A seat leaving retires its ask and re-bases the ones above it,
@@ -128,6 +150,10 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       mapLoading: null,
       scoreboard: [],
       roundHistory: [],
+      // matchHistory is deliberately NOT cleared: it belongs to the table, not
+      // to the match, and the whole point of it is that a rematch does not wipe
+      // the evening. The server re-sends it on the next game_state anyway, so
+      // clearing here would only produce a window where the table forgets.
       latencies: [],
       roundWinner: '',
       roundScores: [],
@@ -144,6 +170,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       // ordinary table's half of the same reset.
       rematchOffers: [],
       rematchNeeded: 0,
+      emotes: [],
       showRoundSummary: false,
       pendingGameState: null,
       pendingMatchEnd: null,

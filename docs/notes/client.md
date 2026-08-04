@@ -600,6 +600,15 @@ this section.
   and find the screen to type it into. A link costs one tap, and the seat is the only thing on the
   other side of it. The code stays on screen, unchanged: it is what a stream reads out loud and what
   somebody already sitting at the join form types.
+- **The plate says so before it is pressed.** `<TableCode link />` draws a chain beside the code, and
+  it exists because every tester was surprised once: they pressed a plate labelled "table code" and
+  got a URL. The toast said "Link copied!" — afterwards, which is the wrong side of the press. Two
+  details make it the right icon rather than any icon: it is **drawn**, like every other icon in the
+  game (a font glyph lands on the baseline where this has to sit on the code's middle, and it would
+  inherit the code's own 2px ink stroke), and it sits **outside everything streamer mode blurs**.
+  What has to stay off a stream is the six characters; that the plate copies a link is not a secret.
+  The prop is off by default, because `<Reconnecting />` prints the code as information with nothing
+  to press, and a chain there would promise a gesture that does not exist.
 - **It is `/i/?t=CODE`, and the page is the point.** It used to be `?t=CODE` on the home page, and
   the reason it moved is the one thing a link does that the game cannot: it gets pasted into a chat
   window, which unfurls it. An unfurler reads the *served* HTML and runs no script, so every
@@ -907,12 +916,36 @@ reads.
   arriving already true, and going false before the timer — and the reload E2E asserts the overlay is
   gone rather than only that the state came back.
 
-## The one way off a board that has stopped
-A match refuses `leave_room`, which is why the action bar has no quit control and must not grow one:
-walking out is not a move, and the hold exists so a dropped socket is not a departure. That refusal
-assumed there was a match left to refuse on behalf of, and there was one state where there was not —
-every other seat's hold expired, so the clock draws and passes for empty chairs until the round runs
-out, `leave_room` came back refused, and closing the browser was the only way out of the *game*.
+## Leaving a match, and what it costs the others
+The board carries one way out, drawn at every table: a chip in the top-right chrome row, never on the
+action bar (that bar is a fixed three-column grid a reaction is aimed at, and it must not grow a
+fourth control). It asks first, in place, and the question is two lines rather than one.
+
+**The second line is the whole feature.** "Leave the match?" is a question the player can already
+answer; what they cannot see from their own screen is what leaving does to everybody else, and that
+is different at each of the four tables this game has. So `leaveNote` picks one of four strings —
+the bot minds nothing, a stranger is handed the match, a table of four keeps playing without the
+seat, a table of two ends where it stands and goes to whoever stayed — and the count behind it is the
+server's own (`Hub.canWalkOut`, `WalkOutFloor`): a seat counts while it is a bot, or a human whose
+hold has not run out. If the two ever disagree the server still decides; what is at stake in the
+client is the wording, not the permission.
+
+**Nothing is greyed out here.** A player who has to go is going either way, and the alternative exit
+is the turn clock auto-passing for an empty chair until the AFK threshold — two rounds spoiled for
+everybody else rather than one player leaving. A disabled way out only ever produced a closed tab.
+
+**And the table is told, by name** (`departureNotice`, the pill above the swap notice's). A departure
+mid-match moves the turn, puts a hand back into the deck and takes a chair out of the order, and
+until this notice the only sign of it was a bubble going quiet: held and gone read identically in the
+roster. It rides `noteSeatGone`, so it is idempotent with the seat record — a repeat says nothing new
+and must not put the banner back up over a board the table has moved on from — and it covers both
+departures, the walk-out and the hold that ran out, because to everybody else they are the same news.
+
+### The curtain underneath it
+Every other seat's hold has expired, so the clock draws and passes for empty chairs until the round
+runs out and nothing on this board will ever move again. The chip alone would be enough now that
+leaving is never refused, but the state still deserves saying out loud rather than leaving the player
+to work out that the table is empty.
 
 - **Held and gone read identically in the roster.** Both are `connected: false`, and only one of them
   can come back — so the difference is remembered rather than derived. `goneSeats` is written by
@@ -921,9 +954,9 @@ out, `leave_room` came back refused, and closing the browser was the only way ou
   Every other `player_left` carries no index and adds nothing here, which is correct — after a lobby
   departure the number would name somebody else.
 - **The client's question and the server's are the same question.** `tableAbandoned` in `GameView` and
-  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", so the
-  control is never drawn over a refusal. During the hold there is no button, because during the hold
-  the answer is genuinely no.
+  `table.abandonedBy` in the hub both mean "every other seat is a human who cannot come back", and the
+  hub answers it the same way: the seat goes and the table goes with it, with no forfeit, because
+  there is nobody to award the match to.
 - **It is a curtain, not a button on the bar.** The bar is fixed three columns and never reflows
   mid-match; the board stays visible underneath, because it is still the match that was being played.
 - **It waits behind the two reconnect curtains.** Our own socket being down is the more urgent
@@ -1152,9 +1185,21 @@ that says "Waiting Room", "Create Room" and "Game Rules" is a website with cards
 screen saying "The table", "New table" and "How to play" is a game. Every string is written as
 something a person at the table would say, and rewriting one means keeping it inside these rules.
 
-- **The place is a table, never a room.** `salle`, `salon`, `lobby` and `room` are venue-booking
-  words. A player opens a table, shares a table code, takes a seat, leaves the table. The store's
-  internal names (`room_code` on the wire, `screen === 'waiting'`) are unaffected: this is copy.
+- **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
+  seats a code is shared for — a player opens one, shares its code, takes a seat, leaves it. A
+  **room** (French: *décor*) is one of the four places a match is dealt in, and nothing else.
+  `lobby` is still banned outright, and so are `salle`, `salon` and `pièce`: they are
+  venue-booking words that named both objects at different times.
+
+  Three words for two things is what this replaced, and the navigation was the worst of it: an entry
+  labelled **Tables** opened a page about the four *places*, so the one control whose job is to say
+  which of the two you are about to read said the wrong one. The label is `Rooms` / `Les décors`
+  now, the `<h1>` follows it, and **the path and the `<title>` deliberately do not** — `/tables/`
+  carries the search value, and a URL is not copy. The store's internal names (`room_code` on the
+  wire, `screen === 'waiting'`, `maps`, `mapPreload`) are unaffected for the same reason.
+  `src/test/vocabulary.test.ts` fails on any of the three banned words in `fr.ts`, in `UI`, in
+  `PAGES` or anywhere under `src/content/`, and it also asserts the positive half: having banned
+  the synonyms, the page about the four places has to actually say *décor*.
 - **French is tutoiement**, stated at the top of `fr.ts`. `vous` puts a service counter between the
   game and four friends on a sofa. It is a translation convention, not a per-string decision.
 - **A button is a verb the player is about to perform**, in as few words as the control allows.
@@ -1186,6 +1231,39 @@ something a person at the table would say, and rewriting one means keeping it in
   they are the streamable moments; everything around them stays calm so those keep their weight.
 - **No em dash in copy**, in either language: a colon, a full stop, or two sentences.
 
+### What is different, and where it is allowed to be said
+
+A visitor arrives holding a model of a card game of colours and symbols, and the only question they
+have is the delta. The showcase used to answer it badly in two places at once: the home page carried
+three bullets of which exactly one was about the rules (the other two were the LOCO call and there
+being no signup, which is already `homeAbout`'s second sentence), and the real differences were
+spread across ten sections of the rules page — which is a rulebook's worth of reading to find out
+whether a game is worth ten seconds.
+
+- **`src/content/contrasts.ts`** is that answer, eight lines, first thing on the rules page and
+  above the `t.rules` mapping. **Its numbers are constants checked against the server**, exactly as
+  the deck table is: `HAND_SIZE` against `initialHandSize` in `server/game/room.go`, the number
+  range against `NewDeck()`'s loop, the deck size against `DECK_SIZE`. A hand size typed by hand is
+  right on the day it is written, and this is the copy nobody plays against, so it goes wrong
+  silently.
+- **It is not in the rules modal, and must not be put there.** The modal is a reference read
+  standing up in the middle of a round; this is an argument read before the first one. Same content
+  in two registers is two features as far as a player is concerned, and the modal's whole discipline
+  is that every line is a rule.
+- **The home page's three bullets are three mechanics.** Interception with no deadline, doubles going
+  down together, and the two cards that move whole hands. Nothing there spends the visitor's
+  attention on something the other game also does.
+- **The sheet's control asks the question rather than offering a section.** `homeSheetBtn` is
+  `What is LOCO?` / `C'est quoi LOCO ?`, and it heads the sheet as well as opening it.
+- **The phone has to be able to reach that prose.** Under 46rem `.homeIntroMain` is
+  `display: none` and the drawer deliberately carries no copy, so a first visit was a logo, a
+  tagline, two buttons and a burger. `#navAbout` is the drawer's first row: it shuts the popover and
+  opens the same `<details>`. It ships `hidden` and `homeSheet.ts` reveals it — the same contract as
+  `#navPrefs`, for the same reason. Two details make it work rather than look like it does:
+  `.homeIntroMain:has(.homeSheet[open])` puts the container back at that width (the sheet lives
+  inside the row that is hidden), and `homeSheet.ts` remembers **which** control opened the sheet, so
+  closing it hands the focus back to the drawer row rather than to a `display: none` summary.
+
 The rules modal follows the same voice and one extra constraint: **it is read once, standing up,
 by somebody who wants to play now.** Section headings are the promise (`The cards that hurt`,
 `Photo finish`, `One card left: say it`), items are one sentence each, and the sentence leads with
@@ -1214,6 +1292,46 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
 
+## No gameplay keyboard shortcuts, ever
+
+There is no key that plays a card, draws, passes, calls LOCO! or throws a Contre-LOCO!, and
+there is not going to be one. It has been asked for by competitive players and it is refused.
+
+**Aiming a mouse at a button that lights up for a few seconds *is* the skill the game measures.**
+A reaction window is not a prompt to acknowledge; it is a target to find, under time pressure,
+while the rest of the board is moving. LOCO! and Contre-LOCO! on a key do not assist that
+gesture, they delete it — you stop aiming and start pressing, and the thing being timed stops
+being a reaction and becomes a reflex with nothing to point at. Drawing, passing and playing the
+n-th card go the same way for the same reason.
+
+**This and the fixed action bar are one decision seen from two sides.** The bar is a fixed
+three-column grid with Catch mounted in the centre all match and nothing else ever in it (see
+`visual.md`, "Action bar") precisely so a player can park the cursor on the button before the card
+that needs it lands — and it goes live from three cards out, so the cursor can be there *and*
+committed before the server has named anybody. That work only means something if aiming is the only way in. A shortcut would make the
+geometry pointless — the controls hold their coordinates so they can be aimed at, and there is
+no way not to aim at them.
+
+**The line is global versus focused, and it matters in both directions.**
+
+- A **global** handler (`window` / `document`) fires on a press nobody aimed. That is the thing
+  being refused.
+- A **focused** control demands that you got there first: a card and the draw pile carry their
+  own `onkeydown` and act on Enter/Space once tabbed to, and the language listbox answers arrows
+  and Home/End on its own button. That is not a shortcut, it is the accessibility path, and
+  `PRODUCT.md` commits to WCAG AA on every player-facing surface. **It must not be removed,
+  reduced or made conditional in the name of this rule** — reading the rule that way is reading
+  it backwards.
+
+Three global key listeners exist and no fourth may be added: `heldKey` in
+`hooks/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves
+nothing on the board), `hooks/escapeKey.svelte.ts` (the one Escape hook, below), and the audio
+unlock in `hooks/appEffects.svelte.ts`, which listens for a key press as evidence a human is
+there and reads no key at all. Anywhere else, a global key listener may read `Escape` and nothing
+else — the panels that own their own lifetime (the gear, the mixer, the leave confirmation, the
+home sheet) do exactly that. `src/test/noKeyboardShortcuts.test.ts` holds the whole rule,
+including the check that the allowlist has not gone stale, and it deliberately does not look at
+handlers bound to an element.
 ## Every panel closes twice
 
 Two ways out, on everything that opens over the board, and they are not interchangeable:
@@ -1239,9 +1357,64 @@ shuts it, and it is never behind a scrim.
 ## Rules modal
 - `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").
 - Close: ✕, footer Close, backdrop click, `Escape`.
-- Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, max-height 92vh).
+- Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, height 92vh).
 - `document.body.style.overflow='hidden'` while open; restored on unmount.
 - Content lives in translations; component is content-agnostic.
+
+### Two halves, and why the second one exists
+
+The modal answers two questions and only one of them is the rulebook. "What happens now" is read
+standing up in the middle of a round; "what is this card" is read before the first deal, and it was
+answered nowhere the player could reach in one press.
+
+The report was about the opener: a first-time player opens "How to play", reads that a Swap takes
+somebody's whole hand and a Global Switch slides every hand one seat along, and still cannot
+recognise either of them when one turns up in their hand thirty seconds later. That is not a wording
+problem. They arrive holding a model of a card game of colours and symbols, that model has a slot for
+Skip, Reverse and +2, and it has no slot at all for the two cards this game adds. A bullet naming a
+card asks somebody to picture it; the face is the thing that makes it recognisable.
+
+So the second tab draws the deck: `components/cardCatalogue.ts` is the faces — one kind per entry,
+`<Card />` itself rather than a picture of one, each coloured kind in a different suit so all four
+colours appear once — and the copy is `t.cardNames` plus `t.cardBriefs`, one line each. The lede is
+the only place the four suits are stated, because a catalogue that drew all four of every coloured
+kind is 16 faces of the same information.
+
+What it is deliberately not:
+
+- **Not the `/cards/` page.** That one is a catalogue for somebody who came looking for one card:
+  copies, points, the long form, every suit drawn. This is eight lines for somebody who wants to be
+  ready in the next thirty seconds. Same reason the two sets of prose are separate — `src/content/`
+  is build-time only and the app never imports it, so a brief here is not a copy of an effect there,
+  it is a shorter sentence with a different job.
+- **Not a link to it either.** The rule the footer comment carries is unchanged: this opens mid-match,
+  and anything navigable is an invitation to leave the table, new tab or not. The tab is how the
+  cards got here *instead of* a link. `rulesModal.test.ts` still asserts zero links.
+- **Not a third place the card numbers live.** No copies, no points. Those are checked against the Go
+  source on the page that prints them, and a number typed here would be right on the day it was
+  written.
+
+Mechanics worth knowing before touching it: the two panels share **one** scroller (a card is a fixed
+height and a second scrolling box inside it is a scrollbar over a scrollbar), so `select()` resets
+`scrollTop` — otherwise a player who read the rules to the bottom lands halfway down a grid they have
+never seen. The tab row is `role="tablist"` with arrows/Home/End **on the focused row**, which is the
+accessibility path the no-shortcuts rule keeps open, not a global listener. `Escape` still closes the
+modal: a tab is not a layer, and one press closes one thing. The `tab` prop only exists so the dev
+gallery can shoot the second half (`lobby-rules-cards`); it is read once, not tracked.
+
+**The switch is a change of contents and nothing else, which took three things.** It read as brutal
+because all three moved at once. The card was sized to its own contents under a `max-height`, and the
+two panels are nothing like the same length — so pressing a tab resized the whole modal, and the
+header, the tab row and the footer all travelled with it, including the control that had just been
+pressed. It is `height: min(88vh, 640px)` now (92vh as a sheet): one box, whatever is in it. The
+scroller was declared `scroll-behavior: smooth`, which turned the `scrollTop` reset into a second
+movement — the outgoing panel scrolling up the card while the new one arrived — so the declaration is
+gone and the jump is instant, which is invisible under the third thing. And the third is the fade:
+each panel is wrapped in a `.panel` div that is mounted fresh on every switch, so a 0.18s
+opacity-only CSS animation runs itself with no state to hold. **Opacity only** — anything that slides
+moves copy towards a player who is reading it, and `select()` returns early on the tab already
+showing so pressing it again replays nothing. Reduced motion drops the animation like every other one
+here.
 
 ## Privacy and terms
 Not a modal any more. Privacy, terms and credits are one content page (`/privacy/`,

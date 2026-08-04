@@ -87,6 +87,15 @@
     setColorAssist(s.colorAssist ?? false)
     if (s.deadlineIn !== undefined) patch.turnDeadline = Date.now() + s.deadlineIn * 1000
     if (s.unoIn !== undefined) patch.unoTimerEnd = Date.now() + s.unoIn * 1000
+    // Same relative-to-now rule as the two above, and for the same reason: an
+    // emote carries the instant it arrived and is dropped a few seconds later,
+    // so a fixed timestamp in a scene is a bubble that has already expired by
+    // the time the shot is taken. The order in the scene is the order they were
+    // said in.
+    if (Array.isArray(patch.emotes)) {
+      const said = patch.emotes as { seat: number; emote: string; at: number }[]
+      patch.emotes = said.map((e, i) => ({ ...e, at: Date.now() - (said.length - 1 - i) * 300 }))
+    }
     gameStore.setState(patch as never)
   }
 
@@ -138,6 +147,7 @@
     <Lobby
       onSend={noop}
       onFindMatch={noop}
+      onPlayBot={noop}
       error={g.errorMsg}
       onClearError={noop}
       initialMode={scene.lobbyMode}
@@ -177,14 +187,22 @@
       initialMenuAsk={scene.rowMenuAsk ?? null}
     />
   {:else if scene.screen === 'game'}
-    <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} onLeave={noop} />
+    <GameView
+      onSend={noop}
+      wsStatus={scene.wsStatus ?? 'open'}
+      onLeave={noop}
+      initialConfirmLeave={scene.confirmLeave}
+    />
   {:else if scene.screen === 'gameover'}
     <GameOver
       winner={g.matchWinner}
       myNickname={g.players.find((p) => p.index === g.myIndex)?.nickname ?? ''}
       scoreboard={g.scoreboard}
+      players={g.players}
+      matchHistory={g.matchHistory}
       matchOver={g.matchOver}
       isMatchmade={g.isMatchmade}
+      isSolo={g.isSolo}
       forfeitBy={g.forfeitBy}
       mySeat={g.myIndex}
       rematchOffers={g.rematchOffers}
@@ -192,6 +210,8 @@
       hasTablemates={g.players.some((p) => p.index !== g.myIndex)}
       onRematch={noop}
       onFindMatch={noop}
+      onPlayBot={noop}
+      onEmote={noop}
       onLeave={noop}
     />
   {/if}
@@ -200,6 +220,8 @@
        could reach from outside. -->
   {#if scene.overlay === 'rules'}
     <RulesModal onClose={noop} />
+  {:else if scene.overlay === 'rules-cards'}
+    <RulesModal onClose={noop} tab="cards" />
   {:else if scene.overlay === 'color-picker'}
     <ColorPicker label={t.chooseColor} cancelLabel={t.pickerCancel} onChoose={noop} onCancel={noop} />
   {:else if scene.overlay === 'player-picker'}

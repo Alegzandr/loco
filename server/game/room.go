@@ -91,6 +91,9 @@ const (
 	EventGameFinished EventKind = "game_finished"
 	EventRoundEnd     EventKind = "round_end"
 	EventMatchEnd     EventKind = "match_end"
+	// EventSeatRetired is a seat that walked out of a match in progress. See
+	// Room.RetireSeat.
+	EventSeatRetired EventKind = "seat_retired"
 )
 
 // GameEvent records a single action taken during the game.
@@ -120,6 +123,24 @@ type GameState struct {
 	LastCardDeclared []bool
 	LastCardAt       []time.Time // when this seat's catch window opened; zero = closed
 
+	// PlayEpoch counts the cards that have reached the discard this round. It is
+	// the unit a fruitless Contre-LOCO! is rationed by: the button is live from
+	// the moment any seat is within reach of finishing, so a player who presses
+	// it twice against a board that has not moved has made one misread, not two.
+	// It starts at 1 so the zero value of CatchPenaltyEpoch reads as "never".
+	PlayEpoch int
+	// CatchPenaltyEpoch[i] is the PlayEpoch at which seat i last paid for a
+	// Contre-LOCO! that found nothing. 0 = never. Indexed by player index like
+	// every other seat-keyed slice here, and sized in dealRound.
+	CatchPenaltyEpoch []int
+
+	// Retired marks the seats that have left the match for good, copied from
+	// Room.Retired at every deal. The seat stays in every index — hands, scores
+	// and turn order are keyed by it, and its score is kept exactly as it was —
+	// but it holds no cards, takes no turns and is dealt none. See
+	// Room.RetireSeat.
+	Retired []bool
+
 	EventLog []GameEvent
 
 	// Interrupt window: explicit state for the realtime "lead taking" / jump-in
@@ -133,6 +154,16 @@ type GameState struct {
 	// / CounterDraw resolves the chain, or after round end).
 	LastPlayBy int
 	LastPlayAt time.Time
+}
+
+// pushDiscard puts played cards on the pile and moves the play epoch on. The
+// two belong together and that is the whole reason this is a method: the epoch
+// means "has the board changed since", so a play site that appends without
+// bumping it hands its player a second free Contre-LOCO!. Replenish is not a
+// play and deliberately does not go through here.
+func (s *GameState) pushDiscard(cards ...Card) {
+	s.Discard = append(s.Discard, cards...)
+	s.PlayEpoch++
 }
 
 // topCard returns the current top of the discard pile. Callers must ensure
@@ -377,6 +408,10 @@ type Room struct {
 	Scores        []int // cumulative match scores per playerID
 	RoundsWon     []int // rounds won per playerID
 	LostHandTotal []int // sum of remaining hand values for the round losers (tiebreaker)
+	// Retired marks the seats that walked out of this match. Match-level, not
+	// per round: leaving is for the rest of the match, so it survives every deal
+	// and is cleared only when a new match starts. See RetireSeat.
+	Retired []bool
 	// RoundHistory[k][playerID] = points scored by that player in round k+1.
 	// Cumulative Scores alone cannot be broken back down per round once a player
 	// wins twice, and the in-game score table shows every round played so far,
@@ -558,6 +593,7 @@ func (r *Room) Start() error {
 	r.Scores = make([]int, n)
 	r.RoundsWon = make([]int, n)
 	r.LostHandTotal = make([]int, n)
+	r.Retired = make([]bool, n)
 	r.RoundHistory = nil
 	r.RoundNumber = 1
 	r.ensureRNG()
@@ -584,8 +620,16 @@ func (r *Room) dealRound(startingPlayer int) {
 	deck := NewDeck()
 	deck.Shuffle(r.rng)
 
+	// A seat that walked out is dealt nothing. It keeps its index — the scores,
+	// the roster and the turn order are all keyed by it — and holds no cards, so
+	// it can neither be caught, be swapped with, nor score.
+	retired := make([]bool, n)
+	copy(retired, r.Retired)
 	hands := make([]Hand, n)
 	for i := range hands {
+		if retired[i] {
+			continue
+		}
 		cards, _ := deck.DrawN(initialHandSize)
 		hands[i].Add(cards...)
 	}
@@ -620,6 +664,19 @@ func (r *Room) dealRound(startingPlayer int) {
 		LastPlayBy:       -1,
 		LastCardDeclared: make([]bool, n),
 		LastCardAt:       make([]time.Time, n),
+		// The opening discard is not a play, but the epoch still starts past the
+		// zero value: CatchPenaltyEpoch says "never paid" by holding 0, so epoch 0
+		// would make the round's first Contre-LOCO! free.
+		PlayEpoch:         1,
+		CatchPenaltyEpoch: make([]int, n),
+		Retired:           retired,
+	}
+
+	// The seat that opens the round has to be one that can play. biggestLoser
+	// already skips the retired, and this is the belt: startingPlayer also
+	// arrives from the random draw of round 1 and from a caller.
+	if r.State.isRetired(r.State.CurrentTurn) {
+		r.State.CurrentTurn = r.State.nextTurn(r.State.CurrentTurn)
 	}
 
 	r.State.logEvent(EventGameStarted, -1, nil, 0)
@@ -664,6 +721,9 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		if chosenPlayer == playerIndex {
 			return errors.New("cannot swap with yourself")
 		}
+		if r.State.isRetired(chosenPlayer) {
+			return errors.New("that seat has left the match")
+		}
 	}
 
 	// Last in the validation block and last for a reason: an illegal card is
@@ -679,7 +739,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 
 	chosenColor = resolveChosenColor(card, chosenColor)
 
-	r.State.Discard = append(r.State.Discard, card)
+	r.State.pushDiscard(card)
 	c := card
 	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
 
@@ -698,9 +758,12 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if card.Kind == GlobalSwitch {
 		newHands := make([]Hand, n)
+		// Through rotateSeats, not the modular step it looks like: a retired seat
+		// is not in the circle, and handing it a hand would take the next
+		// player's away into a seat nobody can play from.
+		src := r.State.rotateSeats(r.State.Direction)
 		for i := range newHands {
-			from := ((i-r.State.Direction)%n + n) % n
-			newHands[i] = r.State.Hands[from]
+			newHands[i] = r.State.Hands[src[i]]
 		}
 		r.State.Hands = newHands
 	}
@@ -770,7 +833,7 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 		}
 	}
 	chosenColor = resolveChosenColor(first, chosenColor)
-	r.State.Discard = append(r.State.Discard, cards...)
+	r.State.pushDiscard(cards...)
 
 	// The call is recorded before the cards, so the log reads in the order the
 	// table hears it: LOCO!, then the cards, then the round.
@@ -827,9 +890,15 @@ func (r *Room) endRound(winnerIdx int) {
 	r.State.logEvent(EventRoundEnd, winnerIdx, nil, 0)
 	r.RoundEnded = true
 
-	// Match-over check: only after the configured number of rounds AND
-	// only if a clear winner exists; otherwise sudden-death continues.
-	if r.RoundNumber >= int(r.Format) {
+	// Match-over check. Two ways a match can stop, and only one of them is the
+	// format running out: a lead in rounds won that the rounds left cannot catch
+	// ends it on the spot, which is what "best of 3" has always meant everywhere
+	// else and what the format labels now say. See decisiveLeader.
+	//
+	// Sudden death is still the answer when the last round lands on a table
+	// nothing separates: determineMatchWinner returns "" and the room keeps
+	// dealing.
+	if r.decisiveLeader() >= 0 || r.RoundNumber >= int(r.Format) {
 		matchWinner := r.determineMatchWinner()
 		if matchWinner != "" {
 			r.MatchWinner = matchWinner
@@ -863,6 +932,82 @@ func (r *Room) ForfeitTo(winnerIdx int) error {
 	if r.State != nil {
 		r.State.logEvent(EventMatchEnd, winnerIdx, nil, 0)
 	}
+	return nil
+}
+
+// IsRetired reports whether a seat has walked out of the match. Read off the
+// match-level flags rather than the round's, so it answers the same between two
+// deals; bounds-checked because seat numbers arrive from the wire.
+func (r *Room) IsRetired(playerIndex int) bool {
+	return playerIndex >= 0 && playerIndex < len(r.Retired) && r.Retired[playerIndex]
+}
+
+// ErrSeatAlreadyRetired is a second departure from the same seat: a duplicate
+// message, or one already in flight when the first landed.
+var ErrSeatAlreadyRetired = errors.New("that seat has already left the match")
+
+// RetireSeat takes a seat out of the match it is in the middle of, for good.
+//
+// A player who has to go has no other exit but the turn clock, which auto-draws
+// and auto-passes for them until the AFK threshold — two rounds spoiled for
+// everybody else rather than one player leaving. Whether the match goes on
+// afterwards is the hub's question (two playable seats must remain, or it ends
+// the match instead); this is what happens when the answer is yes.
+//
+//   - **The hand goes back to the deck**, shuffled in. Those cards were hidden,
+//     so nothing is learnt by their new position, and leaving them in a hand
+//     nobody holds would shrink the deck for everybody else every time somebody
+//     left.
+//   - **The seat stays.** Hands, scores, rounds won and the turn order are all
+//     indexed by it, and the scoreboard keeps the row exactly as it stood: this
+//     is a departure, not a forfeit, and the player neither wins nor loses the
+//     match by it.
+//   - **The turn moves on immediately** if it was theirs. Waiting for the clock
+//     to notice is the thing this exists to stop.
+//   - **It closes their catch window**, because a seat that cannot be caught and
+//     cannot declare must not be sitting on an obligation the table can press a
+//     button at.
+func (r *Room) RetireSeat(playerIndex int) error {
+	if r.Status != StatusPlaying || r.State == nil {
+		return errors.New("game not in progress")
+	}
+	if playerIndex < 0 || playerIndex >= len(r.State.Hands) {
+		return fmt.Errorf("invalid player index %d", playerIndex)
+	}
+	if r.State.isRetired(playerIndex) {
+		return ErrSeatAlreadyRetired
+	}
+
+	returned := r.State.Hands[playerIndex].Cards
+	r.State.Hands[playerIndex] = Hand{}
+	if len(returned) > 0 {
+		r.ensureRNG()
+		r.State.Deck.Cards = append(r.State.Deck.Cards, returned...)
+		r.State.Deck.Shuffle(r.rng)
+	}
+
+	if playerIndex < len(r.Retired) {
+		r.Retired[playerIndex] = true
+	}
+	r.State.Retired[playerIndex] = true
+
+	// No cards, so no obligation and no window. Set rather than left alone: the
+	// flag is what CatchableTargets reads, and a stale one would arm
+	// Contre-LOCO! on a seat that is not there.
+	r.State.LastCardDeclared[playerIndex] = true
+	r.State.LastCardAt[playerIndex] = time.Time{}
+
+	if r.State.CurrentTurn == playerIndex {
+		r.State.HasDrawn = false
+		// A pending stack dies with the seat it was aimed at: passing it on would
+		// be a penalty the next player never earned, and holding it would be a
+		// debt nobody can pay.
+		r.State.PendingDraw = 0
+		r.State.CurrentTurn = r.State.nextTurn(playerIndex)
+		r.State.closeInterruptWindow()
+	}
+
+	r.State.logEvent(EventSeatRetired, playerIndex, nil, 0)
 	return nil
 }
 
@@ -906,25 +1051,93 @@ func (r *Room) ResetForRematch() error {
 	r.Scores = nil
 	r.RoundsWon = nil
 	r.LostHandTotal = nil
+	r.Retired = nil
 	r.RoundHistory = nil
 	return nil
 }
 
-// biggestLoser returns the player index with the lowest cumulative score.
-// Ties are broken by lowest player index (deterministic).
+// decisiveLeader returns the seat whose lead in rounds won can no longer be
+// caught, or -1 when the match is still open.
+//
+// One expression covers both endings the match has. A seat is decisive when its
+// rounds won are strictly greater than every other seat's plus every round still
+// to be played, and `remaining` is zero once the format is exhausted — so the
+// same test that stops a best-of-7 at 4–0 is the one that says a best-of-1 ended
+// on its only round. What it deliberately does not answer is a table it cannot
+// separate: that is determineMatchWinner's chain, and past it, sudden death.
+//
+// Written as "strictly greater than everyone else" rather than "reached the
+// majority" because the majority is only the right number at two seats. Six
+// players sharing a best-of-7 never reach 4, and the match still has to end.
+func (r *Room) decisiveLeader() int {
+	remaining := int(r.Format) - r.RoundNumber
+	if remaining < 0 {
+		remaining = 0
+	}
+	for i := range r.RoundsWon {
+		decisive := true
+		for j := range r.RoundsWon {
+			if i == j {
+				continue
+			}
+			if r.RoundsWon[i] <= r.RoundsWon[j]+remaining {
+				decisive = false
+				break
+			}
+		}
+		if decisive {
+			return i
+		}
+	}
+	return -1
+}
+
+// biggestLoser returns the player index with the lowest cumulative score, i.e.
+// the seat that opens the next round. Ties are broken by lowest player index
+// (deterministic).
+//
+// **It stays indexed on points, and that is deliberate now that points no longer
+// decide the match.** Rounds won is exactly the wrong signal here: only one seat
+// per round wins one, so past two players half the table sits on zero and the
+// "biggest loser" would be whichever of them happens to hold the lowest index,
+// every round, all match. The score is the fine-grained measure of how far behind
+// somebody is — which is the whole reason it survived the rule change — and that
+// is what this question is asking for.
 func (r *Room) biggestLoser() int {
-	loser := 0
-	for i := 1; i < len(r.Scores); i++ {
-		if r.Scores[i] < r.Scores[loser] {
+	loser := -1
+	for i := range r.Scores {
+		// A seat that walked out cannot open a round. It is skipped here rather
+		// than corrected afterwards so the answer is a seat that can actually
+		// play, whatever the caller does with it.
+		if i < len(r.Retired) && r.Retired[i] {
+			continue
+		}
+		if loser < 0 || r.Scores[i] < r.Scores[loser] {
 			loser = i
 		}
+	}
+	if loser < 0 {
+		return 0
 	}
 	return loser
 }
 
 // determineMatchWinner finds the match winner using tiebreaker rules:
-// (1) highest total score, (2) most rounds won, (3) lowest lost-hand total,
+// (1) most rounds won, (2) highest total score, (3) lowest lost-hand total,
 // then sudden death (returns "").
+//
+// **Rounds won decides the match, and the score is what measures the gap.** It
+// used to be the other way round, which meant a player could take three rounds
+// of a best-of-5 and lose the match to somebody who took one expensive one — a
+// result nothing on screen explained, because "best of 5" does not read as "most
+// points after 5". The score is still computed, still kept and still shown: it
+// is the finer measure of how far apart two seats are, it is what breaks a tie
+// here, it is what picks the seat that opens the next round (see biggestLoser),
+// and it is what a rating would be built on.
+//
+// A decisive leader (see decisiveLeader) is by construction strictly ahead of
+// every other seat on rounds won, so the first filter below resolves them and
+// this can be asked at any point in a match, not only at the end of the format.
 func (r *Room) determineMatchWinner() string {
 	n := len(r.Players)
 	candidates := make([]int, n)
@@ -932,11 +1145,11 @@ func (r *Room) determineMatchWinner() string {
 		candidates[i] = i
 	}
 
-	candidates = filterBest(candidates, func(i int) int { return r.Scores[i] })
+	candidates = filterBest(candidates, func(i int) int { return r.RoundsWon[i] })
 	if len(candidates) == 1 {
 		return r.Players[candidates[0]].Nickname
 	}
-	candidates = filterBest(candidates, func(i int) int { return r.RoundsWon[i] })
+	candidates = filterBest(candidates, func(i int) int { return r.Scores[i] })
 	if len(candidates) == 1 {
 		return r.Players[candidates[0]].Nickname
 	}
@@ -1204,9 +1417,19 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	return nil
 }
 
-// PenalizeFailedCatch charges catcherIndex one card for a Contre-LOCO! that lost
-// its race (IsMissedCatch). It returns the cards actually drawn so the hub can
-// send them to their owner.
+// PenalizeFailedCatch charges catcherIndex one card for a Contre-LOCO! that
+// found nothing: a race lost to a faster LOCO! (IsMissedCatch), or a press made
+// against a table where no seat owed the call at all. Both are the same wager
+// misread, so both cost the same card. It returns the cards actually drawn so
+// the hub can send them to their owner, and whether the seat was charged at all.
+//
+// **It charges at most once per card played.** The button is live from the
+// moment any seat is close to finishing, which is most of a round, so a player
+// who presses it twice on a board that has not moved since is repeating one
+// misread rather than making a second one — and a game that answered the second
+// press with another card would be taxing the reflex it spends the whole match
+// asking for. `charged == false` means exactly that: the press cost nothing,
+// changed nothing, and is nobody else's business.
 //
 // It deliberately touches nothing else: not the turn, not HasDrawn, not the
 // target. A failed call is a side bet on somebody else's obligation, and the
@@ -1215,21 +1438,27 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 // Like every other draw in this game it cannot fail — once every card sits in a
 // hand the caller simply gets away with it, rather than the round freezing on an
 // error nobody can act on.
-func (r *Room) PenalizeFailedCatch(catcherIndex int) []Card {
+func (r *Room) PenalizeFailedCatch(catcherIndex int) ([]Card, bool) {
 	if r.Status != StatusPlaying || r.State == nil {
-		return nil
+		return nil, false
 	}
 	if catcherIndex < 0 || catcherIndex >= len(r.State.Hands) {
-		return nil
+		return nil, false
 	}
+	if r.State.CatchPenaltyEpoch[catcherIndex] == r.State.PlayEpoch {
+		return nil, false
+	}
+	r.State.CatchPenaltyEpoch[catcherIndex] = r.State.PlayEpoch
 	r.ensureDeck(failedCatchPenalty)
 	drawn := r.State.Deck.DrawUpTo(failedCatchPenalty)
 	if len(drawn) == 0 {
-		return nil
+		// Both piles dry: the call was charged — the epoch is spent either way —
+		// and the table simply had no card left to charge it with.
+		return nil, true
 	}
 	r.State.Hands[catcherIndex].Add(drawn...)
 	r.State.logEvent(EventCatchFailed, catcherIndex, nil, 0)
-	return drawn
+	return drawn, true
 }
 
 // InterruptPlay is the single-card form of InterruptPlayCards. A single card can
@@ -1328,6 +1557,9 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		if chosenPlayer < 0 || chosenPlayer >= n || chosenPlayer == playerIndex {
 			return fmt.Errorf("invalid chosen_player %d for swap", chosenPlayer)
 		}
+		if r.State.isRetired(chosenPlayer) {
+			return errors.New("that seat has left the match")
+		}
 	}
 
 	finishing := r.State.Hands[playerIndex].Size() == len(cards)
@@ -1342,7 +1574,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 			return err
 		}
 	}
-	r.State.Discard = append(r.State.Discard, cards...)
+	r.State.pushDiscard(cards...)
 
 	if finishing {
 		r.State.declareForFinish(playerIndex)
@@ -1366,9 +1598,12 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if first.Kind == GlobalSwitch {
 		newHands := make([]Hand, n)
+		// Through rotateSeats, not the modular step it looks like: a retired seat
+		// is not in the circle, and handing it a hand would take the next
+		// player's away into a seat nobody can play from.
+		src := r.State.rotateSeats(r.State.Direction)
 		for i := range newHands {
-			from := ((i-r.State.Direction)%n + n) % n
-			newHands[i] = r.State.Hands[from]
+			newHands[i] = r.State.Hands[src[i]]
 		}
 		r.State.Hands = newHands
 	}
@@ -1448,7 +1683,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 
 	chosenColor = resolveChosenColor(card, chosenColor)
 
-	r.State.Discard = append(r.State.Discard, card)
+	r.State.pushDiscard(card)
 	c := card
 	r.State.logEvent(EventCounterDraw, playerIndex, &c, chosenColor)
 

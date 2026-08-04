@@ -183,7 +183,7 @@ func (h *Hub) handleStartGame(t *table, c *Client, msg protocol.ClientMsg) {
 	if h.refuseWhileDraining(c) {
 		return
 	}
-	if refuseInMatchmade(c, t) {
+	if refuseWithoutHost(c, t) {
 		return
 	}
 	if c.playerID() != 0 {
@@ -213,8 +213,8 @@ func (h *Hub) startMatch(t *table) {
 func (h *Hub) dealMatch(t *table) {
 	room := t.room
 	h.metrics.matchesStarted.Add(1)
-	log.Printf("match started code=%s players=%d format=%s matchmade=%t",
-		t.code, len(room.Players), matchFormatString(room.Format), t.isMatchmade())
+	log.Printf("match started code=%s players=%d format=%s matchmade=%t solo=%t",
+		t.code, len(room.Players), matchFormatString(room.Format), t.isMatchmade(), t.solo)
 
 	// Send each player their personalized game state. Build the shared player
 	// list once and reuse it across all recipients.
@@ -239,7 +239,7 @@ func (h *Hub) dealMatch(t *table) {
 }
 
 func (h *Hub) handleSetMatchFormat(t *table, c *Client, msg protocol.ClientMsg) {
-	if refuseInMatchmade(c, t) {
+	if refuseWithoutHost(c, t) {
 		return
 	}
 	if c.playerID() != 0 {
@@ -259,7 +259,7 @@ func (h *Hub) handleSetMatchFormat(t *table, c *Client, msg protocol.ClientMsg) 
 }
 
 func (h *Hub) handleSetMaxPlayers(t *table, c *Client, msg protocol.ClientMsg) {
-	if refuseInMatchmade(c, t) {
+	if refuseWithoutHost(c, t) {
 		return
 	}
 	if c.playerID() != 0 {
@@ -304,7 +304,7 @@ func (h *Hub) broadcastLobbyConfig(t *table) {
 // will not ready up, one bot too many.
 func (h *Hub) handleKickPlayer(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
-	if refuseInMatchmade(c, t) {
+	if refuseWithoutHost(c, t) {
 		return
 	}
 	if c.playerID() != 0 {
@@ -361,7 +361,7 @@ func (h *Hub) handleKickPlayer(t *table, c *Client, msg protocol.ClientMsg) {
 // table away is the one who decided to.
 func (h *Hub) handleTransferHost(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
-	if refuseInMatchmade(c, t) {
+	if refuseWithoutHost(c, t) {
 		return
 	}
 	if c.playerID() != 0 {

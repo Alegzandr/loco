@@ -6,6 +6,8 @@ import {
   MatchFormat,
   ScoreboardEntryDTO,
   LatencyEntryDTO,
+  MatchRecordDTO,
+  Emote,
 } from '../../types/protocol'
 import type { PersistedSession, RestoreTarget } from '../sessionPersistence'
 
@@ -43,6 +45,16 @@ export interface SwapNotice {
   targetIndex: number  // -1 for global_switch
   direction: number    // game direction at the time of the play (for global_switch arrow)
   at: number           // Date.now() — the key that makes a second notice a second banner
+}
+
+/**
+ * A seat that left the match for good: walked out on purpose, or held until the
+ * reconnect window ran out. The two are the same news to everybody else — that
+ * chair is empty for the rest of the match — so they get the same line.
+ */
+export interface SeatDeparture {
+  nickname: string
+  at: number // Date.now() — the key that makes a second departure a second banner
 }
 
 /**
@@ -90,6 +102,23 @@ export interface InterruptFlash {
 export interface CatchFlash {
   /** The caught seat, i.e. the one taking the penalty. */
   seat: number
+  at: number
+}
+
+/**
+ * How long one of the three things stays on screen.
+ *
+ * Long enough to read at a glance, short enough that two people saying "gg" do
+ * not build a wall over the scoreboard somebody is reading. The server's own
+ * cooldown is two seconds, so a seat can never have more than two up at once.
+ */
+export const EMOTE_TTL_MS = 4000
+
+/** One seat saying one of the three things. Nothing about it is kept. */
+export interface EmoteFlash {
+  seat: number
+  emote: Emote
+  /** Arrival, and the deadline this is dropped at. Also the render key. */
   at: number
 }
 
@@ -182,6 +211,17 @@ export interface GameState {
   // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
   // like the catch it lost to. Cleared by the GameView after a short timeout.
   catchFailed: { seat: number; at: number } | null
+  // Whether we have already spent a Contre-LOCO! on the board as it stands. The
+  // server charges a fruitless call at most once per card played, and this is
+  // the client's half of that rule: a second *blind* press — one that names no
+  // seat, because none is on the hook — is not sent at all while this is true.
+  //
+  // It is not only about spam. Tapping twice on a catch that lands would send
+  // the second press with no target, and the server would read that as a fresh
+  // wager against a board where the window has just shut: a card, charged in the
+  // same breath as the catch we just won. Cleared by `applyCardPlayed`, which is
+  // exactly what moves the server's own epoch on.
+  catchSpent: boolean
   // The mirror: a Contre-LOCO! that landed, for its slam banner, its sting and
   // the penalty cards flying to the caught seat. Cleared by the banner.
   catchFlash: CatchFlash | null
@@ -198,12 +238,22 @@ export interface GameState {
   // a reconnecting player must see the same table as everyone else, and the
   // cumulative scoreboard cannot be split back into rounds locally.
   roundHistory: number[][]
+  // Every match this table has finished, oldest first, the one just ended
+  // included. The evening rather than the match: a rematch wipes the scoreboard,
+  // so this is the only thing that can say who won six matches on one code.
+  // Server-owned like roundHistory and for the same reason. Read by the
+  // game-over screen and nowhere else.
+  matchHistory: MatchRecordDTO[]
   showRoundSummary: boolean
   roundNumber_completed: number   // the round number that just finished (for display)
   roundScores: RoundScoreEntry[]  // per-player points earned this round
   pendingGameState: GameStateDTO | null // buffered next-round state (held while summary is visible)
   // buffered match-end payload (held while the final round summary is visible)
-  pendingMatchEnd: { matchWinner: string; scoreboard: ScoreboardEntryDTO[] } | null
+  pendingMatchEnd: {
+    matchWinner: string
+    scoreboard: ScoreboardEntryDTO[]
+    matchHistory: MatchRecordDTO[]
+  } | null
   // Seats that have asked for another match on the game-over screen. A rematch
   // is an agreement in every room, so every ask is public: the button has to be
   // able to say "they are waiting on you" as well as "you are waiting on them".
@@ -211,6 +261,10 @@ export interface GameState {
   // How many asks deal the next match: everybody still at the table. 0 until
   // the first one arrives, which is also when the count first means anything.
   rematchNeeded: number
+  // What the table is saying on the game-over screen, and the only thing in this
+  // store that is deliberately forgotten rather than replaced: an emote is shown
+  // for a few seconds and dropped. Nothing persists it, here or on the server.
+  emotes: EmoteFlash[]
 
   // --- 1v1 matchmaking ---
   // When this search began, so the searching screen can time its own wait. It
@@ -224,6 +278,11 @@ export interface GameState {
   // This match came out of the queue: no host controls, a short abandon window,
   // and a game-over screen that offers another opponent rather than a rematch.
   isMatchmade: boolean
+  // A 1v1 against the server: one human, one bot, dealt on the press. Set from
+  // the identity its `game_started` carries, which no other path sends. The
+  // game-over screen reads it to offer another press rather than a rematch
+  // nobody is there to agree to.
+  isSolo: boolean
   // The seat that abandoned, when the match ended because somebody stopped
   // being there. null = the match ended on the cards.
   forfeitBy: number | null
@@ -236,6 +295,13 @@ export interface GameState {
   // decides whether this player still has anybody to play against, and the
   // server answers the same question the same way (hub: table.abandonedBy).
   goneSeats: number[]
+  // The seat that just left, for the players who are still holding cards. A
+  // departure mid-match moves the turn, shrinks the table and puts a hand back
+  // into the deck, and until this notice the only sign of it was a bubble going
+  // quiet: the roster's `connected` flag reads the same for somebody who left
+  // for good and somebody whose wifi blinked. Cleared by the GameView after a
+  // short timeout, exactly like the swap notice.
+  departureNotice: SeatDeparture | null
 }
 
 /** Identity, screen and the two ways out of a table. */
@@ -261,7 +327,8 @@ export interface TableActions {
   applyCardDrawn: (cards: CardDTO[] | null, playerIndex: number, turn: number, hasDrawn?: boolean, drawnCount?: number, pendingDraw?: number) => void
   setPlayers: (players: PlayerDTO[]) => void
   applyHostChange: (myIndex: number, players: PlayerDTO[]) => void
-  noteSeatGone: (seat: number) => void
+  noteSeatGone: (seat: number, nickname?: string) => void
+  clearDepartureNotice: () => void
   setTurnDeadline: (ts: number | null) => void
   setSwapNotice: (notice: SwapNotice | null) => void
   applyInterrupt: (actorIndex: number, count: number) => void
@@ -280,6 +347,7 @@ export interface LocoActions {
   clearCatchFlash: () => void
   pruneCatchWindows: () => void
   noteCatchAttempt: (seat: number) => void
+  noteBlindCatchAttempt: () => void
   applyCatchFailed: (seat: number) => void
   clearCatchFailed: () => void
 }
@@ -288,10 +356,23 @@ export interface LocoActions {
 export interface MatchActions {
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[], roundHistory?: number[][]) => void
-  applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[], forfeitBy?: number) => void
+  applyMatchEnd: (
+    matchWinner: string,
+    scoreboard: ScoreboardEntryDTO[],
+    matchHistory: MatchRecordDTO[],
+    forfeitBy?: number,
+  ) => void
   setPendingGameState: (state: GameStateDTO) => void
-  setPendingMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
+  setPendingMatchEnd: (
+    matchWinner: string,
+    scoreboard: ScoreboardEntryDTO[],
+    matchHistory: MatchRecordDTO[],
+  ) => void
   dismissRoundSummary: () => void
+  /** One of the three things arrived. Appends, and drops anything expired. */
+  applyEmote: (seat: number, emote: Emote) => void
+  /** Drops what has been on screen long enough. Armed to an absolute deadline. */
+  pruneEmotes: () => void
   applyRematchOffers: (offers: number[], needed: number) => void
   clearRematchOffers: () => void
   applyRematch: (myIndex: number, players: PlayerDTO[], format: MatchFormat, maxPlayers: number) => void
@@ -310,6 +391,8 @@ export interface QueueActions {
     maxPlayers: number
     startsInMs: number
   }) => void
+  /** A solo game was dealt: the identity its `game_started` carried. */
+  applySoloStarted: (roomCode: string, mySeat: number, sessionToken: string) => void
   applyOpponentAway: (seat: number, deadline: number) => void
   clearOpponentAway: (seat: number) => void
 }

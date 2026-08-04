@@ -36,6 +36,7 @@ export const initialState: GameState = {
   unoTimerEnd: null,
   catchFailed: null,
   catchFlash: null,
+  catchSpent: false,
 
   matchFormat: 'BO1',
   maxPlayers: 10,
@@ -45,6 +46,7 @@ export const initialState: GameState = {
   matchWinner: '',
   matchOver: false,
   roundHistory: [],
+  matchHistory: [],
   showRoundSummary: false,
   roundNumber_completed: 0,
   roundScores: [],
@@ -52,11 +54,14 @@ export const initialState: GameState = {
   pendingMatchEnd: null,
   rematchOffers: [],
   rematchNeeded: 0,
+  emotes: [],
 
   searchStartedAt: null,
   matchFound: null,
   isMatchmade: false,
+  isSolo: false,
   forfeitBy: null,
   opponentAway: null,
   goneSeats: [],
+  departureNotice: null,
 }

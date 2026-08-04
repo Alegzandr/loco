@@ -7,6 +7,7 @@
 // table is the reference the modal has no room for.
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
+import { CONTRASTS } from './contrasts'
 import { DECK, DECK_SIZE } from './deck'
 import { ui } from './ui'
 import type { Lang } from '../seo/meta'
@@ -21,6 +22,23 @@ const t = lang === 'fr' ? fr : en
 
 <h1>{ui('rulesH1', lang)}</h1>
 <p class="lede">{ui('rulesLede', lang)}</p>
+
+{/*
+  Before the rules themselves, because it is the question the reader arrived
+  with. Somebody who has played a card game of colours and symbols is not looking
+  for a rulebook, they are looking for the delta — and it used to be spread over
+  ten sections of this page, which is a lot of reading to find out whether the
+  game is worth ten seconds.
+
+  Deliberately not in the in-game rules modal: that is a reference read standing
+  up in the middle of a round, and this is an argument read before the first one.
+*/}
+<section>
+  <h2>{ui('contrastH2', lang)}</h2>
+  <ul>
+    {CONTRASTS.map((line) => <li>{line[lang]}</li>)}
+  </ul>
+</section>
 
 {t.rules.map((section) => (
   <section>

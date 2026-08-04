@@ -424,7 +424,7 @@ describe('gameStore', () => {
     const sb: ScoreboardEntryDTO[] = [
       { player_index: 0, nickname: 'alice', score: 80, rounds_won: 2 },
     ]
-    gameStore.getState().applyMatchEnd('alice', sb)
+    gameStore.getState().applyMatchEnd('alice', sb, [])
     const s = gameStore.getState()
     expect(s.matchOver).toBe(true)
     expect(s.matchWinner).toBe('alice')
@@ -440,9 +440,9 @@ describe('gameStore', () => {
     const sb: ScoreboardEntryDTO[] = [
       { player_index: 0, nickname: 'alice', score: 120, rounds_won: 2 },
     ]
-    gameStore.getState().setPendingMatchEnd('alice', sb)
+    gameStore.getState().setPendingMatchEnd('alice', sb, [])
     const s = gameStore.getState()
-    expect(s.pendingMatchEnd).toEqual({ matchWinner: 'alice', scoreboard: sb })
+    expect(s.pendingMatchEnd).toEqual({ matchWinner: 'alice', scoreboard: sb, matchHistory: [] })
     // Screen must NOT have changed yet
     expect(s.screen).toBe('lobby')
     expect(s.matchOver).toBe(false)
@@ -454,7 +454,7 @@ describe('gameStore', () => {
     ]
     gameStore.setState({
       showRoundSummary: true,
-      pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb },
+      pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb, matchHistory: [] },
     })
     gameStore.getState().dismissRoundSummary()
     const s = gameStore.getState()
@@ -485,7 +485,7 @@ describe('gameStore', () => {
     }
     gameStore.setState({
       showRoundSummary: true,
-      pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb },
+      pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb, matchHistory: [] },
       pendingGameState: nextRound,
     })
     gameStore.getState().dismissRoundSummary()
@@ -498,7 +498,7 @@ describe('gameStore', () => {
 
   it('applyGameState clears pendingMatchEnd', () => {
     gameStore.setState({
-      pendingMatchEnd: { matchWinner: 'bob', scoreboard: [] },
+      pendingMatchEnd: { matchWinner: 'bob', scoreboard: [], matchHistory: [] },
     })
     const dto: GameStateDTO = {
       your_index: 0,

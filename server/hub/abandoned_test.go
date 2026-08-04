@@ -27,19 +27,23 @@ func roomGone(t *testing.T, srv *httptest.Server, code string) bool {
 	return msg.Error == "room not found"
 }
 
-// The refusal is still the refusal while the other seat can still come back.
-// Away is not gone, and the whole point of the hold is that the difference is
-// the server's to state.
-func TestLeaveMatch_StillRefusedWhileTheOtherSeatIsHeld(t *testing.T) {
+// A held seat is somebody who may still come back, so the match is theirs to
+// come back to: leaving in front of one is the ordinary 1v1 ending and not the
+// abandoned-table one, and the table is still there afterwards.
+func TestLeaveMatch_GoesToTheHeldSeatRatherThanClosingTheTable(t *testing.T) {
 	shortReconnectHold(t, 10*time.Second)
 	_, srv := newTestHub(t)
 
-	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+	conn1, conn2, code := setupTwoPlayerGame(t, srv)
 	conn2.Close()
 	readMsgOfType(t, conn1, protocol.SMsgPlayerDisconnected)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
-	expectError(t, conn1, "you cannot leave a match in progress")
+	readMsgOfType(t, conn1, protocol.SMsgLeftRoom)
+
+	if roomGone(t, srv, code) {
+		t.Error("the table closed under a seat that was still inside its hold")
+	}
 }
 
 // Once the hold has expired there is nobody to refuse on behalf of, and the

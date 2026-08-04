@@ -9,8 +9,9 @@
  * `src/test/seo.test.ts` all read. A page that exists in one of those and not
  * the others is the failure this shape is meant to make impossible.
  *
- * Mostly build-time, but importable from the browser on purpose: `RulesModal`
- * links to the rules page and must not hardcode its URL beside this registry.
+ * Mostly build-time, but importable from the browser on purpose: `tableInvite`
+ * lands an invitation on a home path and must not hardcode one beside this
+ * registry.
  * `ORIGIN` is therefore read defensively — see below — and everything that
  * depends on it (the absolute URLs, the JSON-LD) is only ever called from an
  * .astro file, where `process` exists.
@@ -161,14 +162,17 @@ export const CARDS: PageDef = {
 export const TABLES: PageDef = {
   id: 'tables',
   path: { en: '/tables/', fr: '/fr/tables/' },
-  navLabel: { en: 'Tables', fr: 'Tables' },
+  // The page is about the four places, not about the seats sharing a code, and
+  // the label is what tells a reader which of the two they are about to open.
+  // The path and the title keep "tables": they carry the search value.
+  navLabel: { en: 'Rooms', fr: 'Les décors' },
   title: {
     en: 'The four LOCO tables · Neon, Rune, Velvet, Orbit',
     fr: 'Les quatre tables de LOCO · Neon, Rune, Velvet, Orbit',
   },
   description: {
-    en: 'Every match is dealt in a room: a rooftop club, an arcane tavern, an art-deco lounge or a station in orbit. The four tables.',
-    fr: 'Chaque partie se joue dans une pièce : club sur les toits, taverne arcanique, salon art déco ou station en orbite. Les quatre tables.',
+    en: 'Every match is dealt in a room: a rooftop club, an arcane tavern, an art-deco lounge or a station in orbit. The four rooms.',
+    fr: 'Chaque partie se joue dans un décor : club sur les toits, taverne arcanique, fumoir art déco ou station en orbite. Les quatre décors.',
   },
 }
 

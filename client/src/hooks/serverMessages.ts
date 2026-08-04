@@ -114,7 +114,9 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // re-based, which is the mid-match expiry: the roster still shows it,
         // because a running match indexes hands by it, and `connected: false`
         // alone cannot say whether it is held or finished.
-        store.noteSeatGone(msg.player_index ?? -1)
+        // The nickname rides it so the table can be told who left rather than
+        // watching a bubble go quiet: held and gone both read `connected: false`.
+        store.noteSeatGone(msg.player_index ?? -1, msg.nickname)
         // The offers that survive a departure are the server's to say: it
         // retires the leaver's, re-bases the rest and republishes them in a
         // rematch_offered right behind this message. Clearing here is what
@@ -186,6 +188,20 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         break
 
       case 'game_started': {
+        // The solo mode has no message in front of this one — no room_created,
+        // no match_found — because it has no screen in front of the board
+        // either. So its game_started carries the identity the other two would
+        // have carried, and this is where the client picks it up. Absent on
+        // every other path, which is how the store tells the two apart.
+        if (msg.room_code && msg.session_token) {
+          const mySeat = msg.player_id ?? msg.state?.your_index ?? 0
+          store.applySoloStarted(msg.room_code, mySeat, msg.session_token)
+          // The roster is the authority on our own name, exactly as it is on
+          // every other seating path: the client sent what the player typed and
+          // the server canonicalised it, and the reclaim is keyed on the result.
+          const mine = msg.state?.players.find((p) => p.index === mySeat)?.nickname
+          if (mine) store.setMyNickname(mine)
+        }
         if (msg.state) {
           const s = gameStore.getState()
           if (s.showRoundSummary) {
@@ -318,16 +334,31 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // opponent has gone, and there is nothing left for the summary to be
         // a summary of.
         if (msg.forfeit) {
-          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [], msg.player_index ?? -1)
+          store.applyMatchEnd(
+            msg.match_winner ?? '',
+            msg.scoreboard ?? [],
+            msg.match_history ?? [],
+            msg.player_index ?? -1,
+          )
         } else if (s.showRoundSummary) {
           // Final round summary is still visible — buffer the match-end payload so
           // the player sees the full round breakdown before the game over screen.
-          store.setPendingMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+          store.setPendingMatchEnd(
+            msg.match_winner ?? '',
+            msg.scoreboard ?? [],
+            msg.match_history ?? [],
+          )
         } else {
-          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [], msg.match_history ?? [])
         }
         break
       }
+
+      // One of the three things somebody said. Nothing is kept: it is rendered
+      // for a few seconds and dropped, here as on the server.
+      case 'emote':
+        if (msg.emote) store.applyEmote(msg.player_index ?? -1, msg.emote)
+        break
 
       // A rematch is an agreement in every room: this carries every seat that
       // has asked and how many asks it takes. The next match is dealt only

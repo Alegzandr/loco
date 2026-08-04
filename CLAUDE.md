@@ -125,10 +125,10 @@ needs jsdom and the `browser` resolve condition.
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
-  RulesButton, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
+  RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
-  `swapNoticeText.ts`, `interruptHelpers.ts`, the two server mirrors `nicknameRules.ts` +
+  `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, the two server mirrors `nicknameRules.ts` +
   `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
   `OpponentAway.svelte`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
@@ -194,7 +194,9 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 **LOCO deviations from SOLO** (`docs/rules.md` §14):
 1. **GlobalSwitch is wild**: 4 copies, no colour, plays on anything, names the new active colour.
 2. **The starting card is always a Number**: `dealRound` skips action and wild cards.
-3. **Best-of-N match format** (BO1/3/5/7), not a 600-point threshold.
+3. **Best-of-N match format** (BO1/3/5/7), not a 600-point threshold, and **rounds won take the
+   match, not points**. It stops the moment the lead cannot be caught: one expression,
+   `Room.decisiveLeader`, covers the early stop and the end of the format alike.
 4. **Voluntary draw is allowed**, still one draw per turn.
 5. **A forced draw does not cost the turn.** The victim takes the stack and then plays or passes;
    `hub.handleDrawCard` re-arms the turn timer on every draw.
@@ -204,10 +206,15 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    catch risk, never the round. A batch that empties two or more never passed through one card, so
    no window ever opened on it: that message **carries** the call (`declare_loco`) and the table
    hears `uno_declared` before `card_played`.
-7. **A missed Contre-LOCO! costs the caller 1 card** (`failedCatchPenalty`,
-   `Room.PenalizeFailedCatch`) — **but only a call that lost a race**. A seat whose window never
-   opened, or shut more than `catchGrace` ago, answers `ErrNoCatchWindow`: refused to its sender,
-   charged nothing, broadcast to nobody.
+7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per card played**
+   (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, rationed by `GameState.PlayEpoch` +
+   `CatchPenaltyEpoch`). The button is live from three cards out, so the press is a **read of the
+   table** and not an answer to a cue: a call that lost a race and a call on a table where nobody
+   owed anything are the same misread and cost the same card. **The second press against a board
+   that has not moved costs nothing, changes nothing and is broadcast to nobody** — a per-press
+   price would tax the reflex the mechanic asks for. A catch that *lands* does not spend the epoch.
+   A seat number the table does not have is still refused rather than charged: that one is a forged
+   message, not a wager.
 
 - **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **Swap is coloured**
   and follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
@@ -233,7 +240,14 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   lead back. Effects stack. Removing those freedoms is what would make the mechanic turn-based: do
   not reinstate them.
 - **Scoring**: single-finisher round, `CardValue` per `docs/rules.md` §10, cumulative `Room.Scores`,
-  tiebreakers score then rounds won then lost-hand total then sudden death.
+  tiebreakers **rounds won then score** then lost-hand total then sudden death. **The score measures
+  the gap, it does not crown anybody** — and `biggestLoser` stays indexed on it on purpose, because
+  rounds won is too coarse to say who opens the next round.
+- **The table remembers its finished matches** (`table.matchHistory`, one record per match, indexed
+  by seat). It **survives `resetForNextMatch`**, moves with `dropSeat` and `swapSeats` like every
+  other seat-keyed structure, rides the drain snapshot and the personalised state, and is what the
+  game-over screen's evening recap is drawn from. A rematch nils the scoreboard; this is the only
+  thing that can say who won six matches on one code.
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md).
@@ -319,11 +333,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   - **A refusal does not clear the AFK counter.** `dispatchAtTable` resets it *after* the handler and
     only when `Client.refusals` did not move; `sendError` is the single funnel that moves it. Reset
     before the handler, one refused `declare_uno` a turn bought permanent immunity.
-  - **A refusal answers its sender and nobody else**, unless the rules say the table pays too — and
-    a Contre-LOCO! outside `catchGrace` is not one of those (see the domain rules above). Same rule
-    makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that drew
-    nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells its
-    caller and not the table — otherwise a call inside somebody's window was still a free broadcast.
+  - **A refusal answers its sender and nobody else**, unless the rules say the table pays too. Same
+    rule makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that
+    drew nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells
+    its caller and not the table — otherwise a call inside somebody's window was still a free
+    broadcast. **A Contre-LOCO! already charged for this board is the same case again**: `PlayEpoch`
+    makes the second press draw nothing, broadcast nothing and answer nobody, which is what keeps a
+    button that is live most of the endgame from being a table-wide send ten times a second.
   - **A correction is throttled** (`resyncPeriod`, 1s per socket): one snapshot settles the drift,
     and everything sent in the millisecond after it was composed against the old board.
 - **The gameplay gate also bounds the seat.** `dispatchAtTable` refuses a sender whose `playerID` is
@@ -338,9 +354,27 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   humans. Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
   `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
-  is an empty acknowledgement, the number lives only on `/metrics`. A matchmade room has no host:
-  `add_bot`, `start_game`, `set_match_format`, `set_max_players`, `kick_player` all hit
-  `refuseInMatchmade`. Nothing player-facing says "unranked".
+  is an empty acknowledgement, the number lives only on `/metrics`. Nothing player-facing says
+  "unranked".
+- **A table with no host is a shape, not a mode** (`table.hostless`, `refuseWithoutHost`). Two answer
+  to it — a matchmade pair and a solo game — and `add_bot`, `start_game`, `set_match_format`,
+  `set_max_players`, `kick_player` and `transfer_host` are refused at both.
+- **`play_bot` is a 1v1 against the server, and it is the queue's shape without the queue**
+  (`hub/solo.go`): a nickname, one press, a hand — no code, no waiting room, nothing to configure,
+  BO1. **It touches nothing the queue owns** (no `h.queue`, no `matchmaking_queue`), which is a
+  property the E2E suite depends on. Its `game_started` carries `room_code` / `player_id` /
+  `session_token`, because it is the only message the mode sends and a reload still has to reclaim
+  the seat. **`rematch` is the one room where it is refused** — there is nobody to ask; another press
+  is another `play_bot`. Reconnect, drain and the snapshot treat it as an ordinary table: the
+  matchmade timings exist because a stranger will not wait for you.
+- **Three fixed emotes, on the game-over screen, and no free text anywhere in this game**
+  (`hub/emotes.go`, `protocol.AllEmotes`). The set is **closed and server-side** — an identifier this
+  server does not know is refused and counted, never relayed. **Nothing is kept**: not in the event
+  log, not on the `Room`, not in the snapshot; the only state is `table.emoteAt`, which is *when* a
+  seat last spoke and never what it said, and it goes with the match. Refused anywhere but a finished
+  match, **never to or from a bot**, and capped at one per seat per `EmoteCooldown` — **both refusals
+  answer their sender and broadcast nothing.** Free text would be a moderation surface, and
+  collecting nothing is the compliance strategy.
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes
@@ -362,14 +396,26 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   already asked. In a matchmade room the client requeues the survivor instead.
 - **Nobody waits for somebody who is not there.** A matchmade room holds a dropped seat 15s and treats
   2 consecutive turn timeouts as away, and **both expiries forfeit the match**, as does `leave_room`.
-  **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, refuse `leave_room` mid-match, and
-  allow it in every waiting room behind one in-place confirmation, the only one in the game.
-- **Nobody is trapped either.** That refusal assumes there is somebody to walk out on, so it lifts
-  once there is not: `table.abandonedBy` is true when every other seat is a human with no socket and
-  **no hold left**, and then `leave_room` releases the seat and takes the table with it — no forfeit,
-  because the only seat to award it to is the empty one. **And a match nobody is at and nobody can
-  return to ends where that becomes true** (`closeAbandonedMatch`, off the last expiry), rather than
-  auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy open for five minutes.
+  **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, and every room allows `leave_room`
+  in its waiting room behind one in-place confirmation, the only one in the game.
+- **`leave_room` is refused nowhere, and the table decides what it does** (`leaveAtTable`, four
+  branches in this order): a matchmade match **forfeits**; a solo game **or** a table nobody can come
+  back to (`table.abandonedBy`: every other seat a human with no socket and **no hold left**) is
+  **closed**, seat swept, no forfeit, because the only seat to award it to is empty or a bot; above
+  the floor the round **carries on** without the seat; at or below it the match **ends and goes to
+  the seat that stayed**, announced as a forfeit with the scoreboard untouched. **And a match nobody
+  is at and nobody can return to ends where that becomes true** (`closeAbandonedMatch`, off the last
+  expiry), rather than auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy
+  open for five minutes.
+- **`WalkOutFloor` = 2 is what a match needs to keep being a match**, not a permission (`Hub.canWalkOut`,
+  `Room.RetireSeat`). A player who has to go has one other exit — the turn clock auto-passing for an
+  empty chair until the AFK threshold — so refusing only ever bought a closed tab. **Evaluated once,
+  at the ask.** Above it the seat is *retired*, not removed: **the hand goes back to the deck**, the
+  turn steps over it, its catch window shuts, it is dealt nothing thereafter — and **the scoreboard is
+  left exactly as it stood**, because leaving is a departure and not a forfeit. `nextTurn`,
+  `rotateSeats`, `biggestLoser` and the Swap target all know about it. **The control is a chip in the
+  board's chrome row, never on the action bar**, and **the seats that stay are told who left, by
+  name.**
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing that
   would start a new match is accepted, the queue is emptied with an explanation, **every table is
   told once — every table, not only the ones playing: a waiting room, a game-over and a versus reveal
@@ -472,14 +518,41 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   on attempts is a curtain that never comes down over a seat the server may still be holding.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
-- **The board carries no way out, except when there is no game left to leave.** A match refuses
-  `leave_room` on purpose, so the action bar has no quit control and must not grow one. The single
-  exception is a curtain: every other seat's hold has expired, nothing will move again, and the card
-  carries `leaveRoom`. It reads `goneSeats` — written only by the one `player_left` that names a seat
-  — because **held and gone are both `connected: false`** and only one of them comes back. It waits
-  behind the reconnect curtains: our own socket being down may be the whole reason the table looks
-  empty.
+- **The board's way out is a chip in the chrome row, at every table, and never on the action bar** —
+  that bar is a fixed three-column grid a reaction is aimed at and must not grow a fourth control.
+  It asks in place, and **the line under the question is the feature**: what the player cannot see
+  from their own screen is what leaving costs everybody else, so `leaveNote` picks one of four
+  strings (bot / matchmade opponent / a table that keeps playing / a table that stops), counted the
+  way `Hub.canWalkOut` counts. **Nothing here is greyed out**: the server refuses none of it, and a
+  disabled exit only ever produced a closed tab.
+- **A seat leaving is told to the table, by name** (`departureNotice`, riding `noteSeatGone` so it is
+  idempotent with the seat record). Held and gone are both `connected: false`, so a bubble going
+  quiet cannot explain a turn order that just changed shape.
+- **A board that has stopped still says so.** Every other seat's hold has expired, nothing will move
+  again, and the curtain carries `leaveRoom`. It reads `goneSeats` — written only by the one
+  `player_left` that names a seat — and waits behind the reconnect curtains: our own socket being
+  down may be the whole reason the table looks empty.
+- **There are no gameplay keyboard shortcuts and there must never be any.** No key plays, draws,
+  passes, calls LOCO! or throws a Contre-LOCO!. Aiming at a button that lights up for a few
+  seconds *is* the skill the game measures, and a shortcut deletes that gesture rather than
+  assisting it; this and the fixed three-column action bar are the same decision seen from two
+  sides — the controls hold their coordinates so they can be aimed at, and there is no way not to
+  aim at them. **Global and focused are not the same thing**: a `window`/`document` listener fires
+  on a press nobody aimed and is refused, while a focused control (a card and the draw pile on
+  Enter/Space, the language listbox on arrows and Home/End) demands that you got there first and
+  is the accessibility path — do not remove it in the name of this rule. Exactly three global key
+  listeners are allowed: `heldKey` (score table on TAB), `escapeKey.svelte.ts`, and the audio
+  unlock; everywhere else a global listener may read `Escape` and nothing else.
+  `noKeyboardShortcuts.test.ts` is the guard.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
+- **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
+  `CATCH_LIVE_MAX_HAND = 3`): any *other* seat holding 1–3 cards makes it live. A control that unlocks
+  on the server's cue can be answered but never anticipated, and the window it answers is five
+  seconds. The price is what keeps that honest — see the domain rule above. **`store.catchSpent` is
+  the client's copy of `PlayEpoch`**, set by every press and cleared by `applyCardPlayed`; it
+  suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
+  the second tap of a double tap on a catch that landed — the server's own guard does not cover it,
+  because a catch that lands spends no epoch.
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
   opener is the one exception. `escapeClose.test.ts`.
@@ -492,9 +565,23 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   and fails on any difference, so a hand edit is undone rather than merged. Details, and what the
   generator refuses to guess, in [`docs/notes/client.md`](docs/notes/client.md).
 - **The copy is the game talking, not a website.** Players open a **table**, share a table code, take
-  a seat: no "room", no "lobby", in any player-facing string. French is **tutoiement**. A button is
+  a seat: no "lobby", in any player-facing string. French is **tutoiement**. A button is
   the verb about to happen; a refusal says what to do next and never scolds; only the streamable
   moments shout. Full voice in the note; `docs/rules.md` stays the spec the modal must not contradict.
+- **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
+  seats a code is shared for, always. A **room** — *décor* in French — is one of the four places a
+  match is dealt in, always. `salle`, `salon` and `pièce` name neither and are banned outright:
+  `vocabulary.test.ts` fails on any of the three in player copy. The internal naming (`maps`,
+  `game/maps.go`, `mapPreload`, `cardTheme`) is untouched — this is a rule about copy. **The URLs
+  and the `<title>`s keep "tables"**: they carry the search value, and a path is not copy.
+- **The rules page opens on what is different, and the rules modal does not** (`content/contrasts.ts`,
+  eight lines, **numbers taken from the server, never typed**). A visitor arrives holding a model of a
+  card game of colours and symbols and is looking for the delta; the modal is a reference read
+  standing up mid-round and is not the place for an argument. `contentPages.test.ts` pins both halves.
+- **Under 46rem the burger is the only way to anything the footer row carried, prose included.**
+  `#navAbout` is the drawer's first line, ships `hidden`, is revealed by `homeSheet.ts` and opens the
+  same `<details>` sheet — same contract as `#navPrefs`. Without it a first visit on a phone was a
+  logo, a tagline, two buttons and a burger, and nothing at all about the game.
 - **The host's two controls over a row live behind one ⋯, never their own row, and both ask**
   (`WaitingRoom.svelte` + `RosterRowMenu.svelte`): hand the table over, remove from the table. A bot's
   row carries the second only — `is_bot` rides the roster because a nickname cannot say it. Right-click
@@ -509,6 +596,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`RulesButton`, `variant="text"` / `"icon"`): a glyph is faster mid-match, and a word is the only
   onboarding a first-time player gets on the screens where they are still deciding. The pill's
   visible label **is** its accessible name, so it carries no `aria-label`.
+- **What it opens has two halves, and the deck drawn is one of them** (`RulesModal`, tabs "Rules" and
+  "Cards", opening on the rules). A first-timer arrives holding a model of a card game of colours and
+  symbols, and the two cards this one adds — Swap and Global Switch — are exactly the two that model
+  has no slot for: a bullet naming one asks them to picture it, a face lets them recognise it in
+  their hand. `components/cardCatalogue.ts` is the faces (one kind, one suit each, `<Card />`
+  itself), `t.cardNames` the names and `t.cardBriefs` the one-liners; **nothing about a card is
+  spelled out twice**. It stays eight lines: the copies, the points and the long form are the
+  `/cards/` page, and **this modal still links nowhere** — a link mid-match is an invitation to leave
+  the table. `rulesModal.test.ts` pins both halves. **Switching between them changes the contents and
+  nothing else**: the card holds one height for both, the scroll reset is instant, and the arriving
+  panel fades in on opacity alone — a card sized to its own contents resized under the tab row on
+  every press, and took the control that had just been pressed with it.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's
@@ -533,6 +632,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
+- **The host is told what they are choosing, on the control that chooses it.** The estimated length
+  rides each format button and the seat-count advice sits under the field (`matchLengthModel.ts`,
+  pure and tested). **It is a range, never a figure**: a match stops the moment the lead cannot be
+  caught, so a BO7 is four rounds or seven, and the copy carries the `≈`.
+- **The code plate says it copies a link before it is pressed** (`TableCode.svelte`, `link` prop): a
+  **drawn** chain, never a font character, and **outside everything streamer mode blurs** — what has
+  to stay off a stream is the six characters, not the fact that the plate copies a link.
 - **Streamer mode blurs the table code, and `TableCode.svelte` is the only way a screen prints it.** CSS
   over the real text, so copy still copies. **The reveal is hover and keyboard focus, never a click
   or a tap** — that gesture is the copy button and it happens on camera: `:focus-visible` only, hover
@@ -546,6 +652,10 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `initMotion()` writes the attribute from the system setting *and* the player's answer, and it is
   now the whole mechanism: Svelte transitions and the two WAAPI shakes ask `prefersReducedMotion()`
   themselves. `reducedMotionCss.test.ts` owns the rules, `motionPref.test.ts` the wiring.
+- **The home menu is four buttons and they are all drawn alike** (`Lobby.svelte`): 1v1, the bot, new
+  table, join a table, in that order. **Hierarchy is a hue, never a smaller kind of control** — the
+  bot's is the one neutral fill, and it used to be a line of underlined text under the queue's
+  button, which between two ledged buttons reads as a footnote and gets pressed like one.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape rules only, word list
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and
@@ -747,8 +857,16 @@ stated at the top of `styles/tokens.css`:
   behind it transitions **colour only**, over the whole document, for exactly that long. The boot
   never arms it, the attribute must come back off, and reduced motion wins by specificity rather than
   by a branch in the script (`themeTransition.test.ts`).
-- **The action bar never reflows.** Fixed three-column grid, Catch mounted-but-disabled all match in
-  the centre column, enabled in place. A reaction game cannot move its buttons mid-match.
+- **The action bar never reflows.** Fixed three-column grid, **Catch mounted in the centre column all
+  match and nothing else ever in it**, enabled and armed in place. A reaction game cannot move its
+  buttons mid-match. Three states: dead, pressable from three cards out
+  (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
+  centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
+  dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
+  control found only in the two seconds it is worth pressing is a control nobody has ever aimed at.
+  **`BOTTOM_RESERVE` covers the chip's band as well as the bar**, so the hand is dealt clear of it
+  permanently and nothing shifts when it lights up. Drawn under 44px and quiet on purpose — forgetting
+  the call is a turn of the game — so its target comes from `.hit-target`, only while it is live.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).

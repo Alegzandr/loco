@@ -111,6 +111,17 @@
     handleSend({ type: 'find_match', nickname })
   }
 
+  // A 1v1 against the server. Nothing is entered optimistically here: there is
+  // no wait to fill, the deal comes back on the next frame, and a screen change
+  // ahead of it would only have to be undone if the name were refused. The
+  // nickname is recorded before the send for the reason findMatch records it —
+  // this mode has no message in front of game_started to carry it.
+  function playBot(nickname: string) {
+    lobbyEntry = 'home'
+    gameStore.getState().setMyNickname(nickname)
+    handleSend({ type: 'play_bot', nickname })
+  }
+
   function cancelSearch() {
     gameStore.getState().endSearch()
     handleSend({ type: 'cancel_matchmaking' })
@@ -186,6 +197,7 @@
       initialCode={inviteCode}
       onSend={handleSend}
       onFindMatch={findMatch}
+      onPlayBot={playBot}
       error={g.errorMsg}
       onClearError={() => gameStore.getState().clearError()}
     />
@@ -227,8 +239,13 @@
     winner={g.matchWinner}
     myNickname={myNickname}
     scoreboard={g.scoreboard}
+    players={g.players}
+    matchHistory={g.matchHistory}
     matchOver={g.matchOver}
     isMatchmade={g.isMatchmade}
+    isSolo={g.isSolo}
+    onPlayBot={() => playBot(myNickname)}
+    onEmote={(emote) => handleSend({ type: 'send_emote', emote })}
     forfeitBy={g.forfeitBy}
     mySeat={g.myIndex}
     rematchOffers={g.rematchOffers}

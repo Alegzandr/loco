@@ -107,6 +107,10 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
           ? false
           : s.myDeclared && updatedHand.length === 1,
         catchWindows,
+        // The board moved, so a Contre-LOCO! is a fresh read rather than the
+        // same one repeated. This is the client's copy of the server's PlayEpoch
+        // and it is cleared by the same event the server counts.
+        catchSpent: false,
         swapNotice,
         lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
       }
@@ -167,8 +171,20 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
   // cannot re-base the roster — the seat is the index of a hand in a running
   // match, so nothing moves — and idempotent, because the flag is about who is
   // never coming back rather than about how many messages said so.
-  noteSeatGone: (seat) =>
-    set((s) => (seat < 0 || s.goneSeats.includes(seat) ? s : { goneSeats: [...s.goneSeats, seat] })),
+  // The notice rides the same call and is idempotent with it: a repeat says
+  // nothing new, so it must not put the banner back up over a board the table
+  // has already moved on from.
+  noteSeatGone: (seat, nickname) =>
+    set((s) =>
+      seat < 0 || s.goneSeats.includes(seat)
+        ? s
+        : {
+            goneSeats: [...s.goneSeats, seat],
+            departureNotice: nickname ? { nickname, at: Date.now() } : s.departureNotice,
+          },
+    ),
+
+  clearDepartureNotice: () => set({ departureNotice: null }),
 
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 

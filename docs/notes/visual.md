@@ -108,7 +108,8 @@ scaling on width alone pushes the hand under the action bar.
 
 `boardSpace(pxW, pxH, s, insets)` — **not** plain `px / s` — converts pixels to the virtual space. The board is
 bracketed by two bands of **real chrome that do not scale with it**: `TOP_CHROME` (round badge,
-theme/audio/rules cluster) and `BOTTOM_RESERVE` (action bar). Both must stay constant in *pixels*.
+theme/audio/rules cluster) and `BOTTOM_RESERVE` (the action bar, **plus the LOCO! chip's band above
+it** — see "Action bar"). Both must stay constant in *pixels*.
 Scaling them along with the board shrinks them on a phone — seat pills slide under the top buttons,
 the hand under the action bar — and inflates them on a monitor into two bands nothing may use.
 `offsetY = safeTop + TOP_CHROME * (1 - s)` pins the top band, and the height is solved so the bottom
@@ -153,21 +154,44 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   every control sits on the same screen pixel all match long. LOCO is a reaction game — a player
   parks the cursor over the centre *before* the card that needs it lands, and a bar that reflows when
   the penalty draw appears moves the target out from under them.
-- **The centre column is Catch's home; LOCO only borrows it at `handSize === 1`.** Catch is the
+- **The other half of that decision is that there is no keyboard shortcut for any of it**, and there
+  never will be: the controls hold their coordinates so they can be aimed at, and aiming is the only
+  way in. The reasoning, and the global-versus-focused line that keeps the accessibility path intact,
+  is in [`client.md`](client.md) ("No gameplay keyboard shortcuts, ever").
+- **The centre column is Catch's, all match, and nothing else may ever be in it.** Catch is the
   hardest button in the game to hit — it opens on someone else's mistake and lives for seconds — so
-  it sits there *disabled but mounted* the whole match and is only ever **enabled in place**. It is
-  never mounted/unmounted by the window: a button that appears is a button you have to find first.
-  LOCO borrows the column on one card because declaring is ours to lose and outranks an opportunity.
-- **`.armed` is the same cue on both**, applied to Catch when `canCatch` and to LOCO whenever it is
-  shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo (`armGlow`, tinted per
-  button by `--arm-glow`). Deliberately identical — the two are the same wager seen from opposite
-  sides of the table, so the player about to be caught must not get a louder cue than the player who
-  could catch them. Under `prefers-reduced-motion` it degrades to a **static halo**, not to nothing:
-  "this just became clickable" is information.
-- **Catch is `position:absolute`, out of the grid** (`data-slot="float"`) for the rare overlap only —
-  we are on one card *and* somebody else is catchable: right of the bar on desktop, above its right
-  end on mobile, shifting nothing. `actionBar.test.ts` asserts the slot, the enabled state and the
-  arming of every button across states.
+  it sits there mounted the whole match and is only ever **enabled and armed in place**. It is never
+  mounted/unmounted: a button that appears is a button you have to find first.
+- **Three readable states, not two.** *Dead* while every other hand is above
+  `CATCH_LIVE_MAX_HAND` (3) — the opening of every round. *Awake and pressable* as soon as any other
+  seat is at three cards or fewer (`components/catchAvailability.ts`), which is most of the endgame
+  and is deliberately looser than any window the server knows about: a control that only unlocks on
+  the server's cue can be answered but never anticipated, and five seconds is not long enough to
+  find a button in. *Armed* for the seconds a seat actually owes the call. The middle state is what
+  the price in §14.6 is for, and `game-catch-live` is its scene.
+- **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
+  whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
+  (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same
+  wager seen from opposite sides of the table, so the player about to be caught must not get a
+  louder cue than the player who could catch them. Under `prefers-reduced-motion` it degrades to a
+  **static halo**, not to nothing: "this just became clickable" is information.
+- **LOCO! is a chip centred above the bar** (`.locoSlot`, `position:absolute`, `data-slot="loco"`),
+  out of the grid so it moves no column, **mounted the whole match** and enabled only while
+  `handSize === 1 && !hasDeclared`. It followed Catch here, and for Catch's reason: it was drawn only
+  in the seconds it was owed, which meant every player met it for the first time inside the window it
+  was for. It is dead the rest of the time and that is the whole state — nothing appears, nothing
+  leaves, nothing moves. `actionBar.test.ts` asserts the slot, the enabled state and the arming of
+  every button across states.
+- **It is drawn small, quiet and under 44px, and that is a product decision.** Forgetting the call is
+  one of this game's turns — the round where somebody notices too late is the round people talk
+  about — so the chip may not read as a fourth action competing with the centre column. 30px tall,
+  13px type, `opacity: 0.55` while dead, and its touch target comes from `.hit-target` **only while
+  it is live**: a dead control does not need a 44px catcher, and a live one must not steal a tap from
+  Catch, which is why the 10px gap above the bar is 3px more than the target overhangs.
+- **The band it sits in is part of `BOTTOM_RESERVE`** (140px: 82 for the bar, 58 for the chip), so
+  the hand is dealt above it permanently. A chip that fitted only when it lit up would appear inside
+  the fan, over the card the player is about to play. Raising or lowering the chip means changing
+  that constant in `cardTheme.ts` — never nudging the hand.
 - The penalty draw and the ordinary draw share the left slot; `--slot-w` (126px) is sized for the
   widest label either can hold ("Piocher +4").
 - **A declaration is a one-shot, and the button is spent with it.** `Room.DeclareLastCard` refuses a
@@ -175,8 +199,8 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   already uses), and the flag only clears when `openCatchWindow` opens a fresh obligation on that
   seat — i.e. a Swap or a GlobalSwitch handing it a card nobody has heard called. Client-side,
   `store.myDeclared` (set by `applyUnoDeclared` on the *server's* confirmation, never on the click)
-  disables the button in place: it stays in the centre column as a dead object rather than
-  disappearing, because nothing in this bar may move mid-match. Without either half, LOCO! could be
+  disables the button in place: it goes dead in its own slot rather than disappearing, because
+  nothing in this bar may move mid-match. Without either half, LOCO! could be
   spammed for as long as the card was held, replaying the banner and the sting each time.
   `hub.handleDeclareUno` deliberately does **not** `noteSuspect` that one rejection: a second call is
   a double tap or a message already in flight, not an attack.
@@ -253,6 +277,27 @@ component's `<style>` block, because nothing renders here — jsdom applies no s
 overlap only exists at a width and a content height a unit test does not have. A screen that grows
 past its viewport gets the same padding; one whose content is always centred does not need it, which
 is why the other five still carry a spacing step.
+
+### The host is told what they are choosing, where they choose it
+
+Two decisions were being made blind. How long a format takes and how many seats a table wants both
+had advice written down — in the FAQ and in the rules page, which is to say nowhere near either
+control — so a host who had never played a best-of-7 at six seats found out by playing one.
+
+- **The length rides the format button itself** (`matchLengthModel.ts`), a second line under the
+  label rather than a note beside the row: the whole promise is then the thing being pressed, the
+  same shape the 1v1 button's own hint has.
+- **It is a range and it carries an `≈`.** A match ends the moment the lead in rounds won cannot be
+  caught, so a best-of-7 finishes anywhere between four rounds and seven. A single figure would be
+  wrong at both ends, and wrong in the direction that costs the table: a host who reads "≈ 30 min"
+  and gets an hour stops offering long formats. The model is pure and unit-tested for that reason —
+  it is the part with arithmetic in it, and `fastestRounds` is the client's statement of the same
+  rule `Room.decisiveLeader` enforces.
+- **It reads the roster, not the seat cap.** The cap is what the table *could* hold; the question is
+  how long the evening will be with the people who are actually here, and it moves as they arrive.
+- **The seat advice is a hint under the field**, in `--color-muted` — quiet is a hue here as
+  everywhere, never an opacity on the ink. Both are host-only: a guest is not making either choice,
+  and advice about a control somebody cannot reach is noise.
 
 ## Active colour (four readings, `<DiscardPile />` + `GameBoard`)
 The colour in play is the single most-consulted piece of state on the board, and it was stated in

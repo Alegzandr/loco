@@ -12,7 +12,7 @@
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
   import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from './tableCodeRules'
 
-  type LobbyMode = 'home' | 'find' | 'create' | 'join'
+  type LobbyMode = 'home' | 'find' | 'bot' | 'create' | 'join'
 
   type Props = {
     onSend: (msg: ClientMsg) => void
@@ -21,6 +21,12 @@
      * entered optimistically, before the server has acknowledged anything.
      */
     onFindMatch: (nickname: string) => void
+    /**
+     * Deals a 1v1 against the server. Separate from onSend for the same reason
+     * onFindMatch is: the caller records the nickname before anything is sent,
+     * and this mode has no message in front of the deal to carry it.
+     */
+    onPlayBot: (nickname: string) => void
     error: string
     onClearError: () => void
     /**
@@ -45,6 +51,7 @@
   let {
     onSend,
     onFindMatch,
+    onPlayBot,
     error,
     onClearError,
     initialMode = 'home',
@@ -131,6 +138,15 @@
     onFindMatch(value)
   }
 
+  // The same form as the queue's, and deliberately the same shape of act: a
+  // name and one press. What it skips is the wait, not a step.
+  function handlePlayBot(e: SubmitEvent) {
+    e.preventDefault()
+    const value = acceptNickname()
+    if (!value) return
+    onPlayBot(value)
+  }
+
   function handleCreate(e: SubmitEvent) {
     e.preventDefault()
     const value = acceptNickname()
@@ -191,6 +207,13 @@
         {t.findMatch}
         <span class="btnHint">{t.findMatchHint}</span>
       </button>
+      <!-- An entry point like the other three, drawn like the other three. It
+           sits under the queue because it is the same offer with the wait taken
+           out — no code, no waiting room, nothing to set, a hand on the press —
+           and it is the quietest fill of the four so the human queue is still
+           the one being led with. Underlined text between two ledged buttons
+           read as a footnote nobody pressed. -->
+      <button class="btn btnBot" onclick={() => (mode = 'bot')}>{t.playBot}</button>
       <button class="btn btnAlt" onclick={() => (mode = 'create')}>{t.createRoom}</button>
       <button class="btn btnJoin" onclick={() => (mode = 'join')}>{t.joinRoom}</button>
     </div>
@@ -212,6 +235,23 @@
            forms: the button is off until the field holds a nickname the client
            can already see is usable. -->
       <button class="btn" type="submit" disabled={!nicknameOk}>{t.findMatchGo}</button>
+      <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
+    </form>
+  {/if}
+
+  {#if mode === 'bot'}
+    <form class="form" onsubmit={handlePlayBot}>
+      <!-- svelte-ignore a11y_autofocus -->
+      <input
+        class="input"
+        bind:this={nicknameField}
+        placeholder={t.yourNickname}
+        value={nickname}
+        oninput={(e) => editNickname(e.currentTarget.value)}
+        maxlength="20"
+        autofocus
+      />
+      <button class="btn" type="submit" disabled={!nicknameOk}>{t.playBotGo}</button>
       <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
     </form>
   {/if}
@@ -460,6 +500,17 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     opacity: 0.85;
+    text-shadow: none;
+  }
+
+  /* The bot button: the same object as the three above it — same height, same
+     outline, same ledge — with the only neutral fill on the screen. Hierarchy
+     is carried by the hue, so the mode nobody has to be organised for is still
+     the loudest and this one still stands down, without stopping being a
+     button. */
+  .btnBot {
+    background: var(--color-surface-card);
+    color: var(--color-ink);
     text-shadow: none;
   }
 

@@ -35,9 +35,12 @@ func TestPenalizeFailedCatch_DryPilesTellOnlyTheCaller(t *testing.T) {
 	// draw finds nothing either.
 	room.State.Deck.Cards = nil
 	room.State.Discard = room.State.Discard[len(room.State.Discard)-1:]
-	if drawn := len(room.PenalizeFailedCatch(0)); drawn != 0 {
-		t.Fatalf("fixture is wrong: the penalty still drew %d cards", drawn)
+	if drawn, _ := room.PenalizeFailedCatch(0); len(drawn) != 0 {
+		t.Fatalf("fixture is wrong: the penalty still drew %d cards", len(drawn))
 	}
+	// That probe spent seat 0's one charge for this board — a seat pays at most
+	// once per card played — so move the board on before the call under test.
+	room.State.PlayEpoch++
 
 	tbl := newTable("AAAAAA", room)
 	caller := &Client{send: make(chan []byte, 8)}

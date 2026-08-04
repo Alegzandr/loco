@@ -21,7 +21,11 @@ func CanPlay(card, topCard Card, activeColor Color) bool {
 // ApplyEffect applies the card's effect to state and returns the next player index.
 // The caller is responsible for advancing CurrentTurn to the returned value.
 func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
-	n := len(s.Hands)
+	// The seats still in the round, not the seats at the table. A retired seat
+	// (see Room.RetireSeat) is skipped by the turn order, so at three seats with
+	// one retired a Reverse has nobody to go around and behaves as a Skip —
+	// exactly as it does in a real duel.
+	n := s.activeSeats()
 
 	switch card.Kind {
 	case WildCard:
@@ -58,8 +62,71 @@ func (s *GameState) ApplyEffect(card Card, chosenColor Color) int {
 	}
 }
 
-// nextTurn calculates the next player index given direction.
+// nextTurn calculates the next player index given direction, stepping over any
+// seat that has left the match.
+//
+// A retired seat is not a player who is merely absent: it holds no cards and can
+// never act again, so a turn handed to it would be a turn the clock has to
+// auto-pass — which is the whole thing walking out is supposed to stop doing to
+// the table. The loop is bounded by the seat count and falls back to the caller,
+// because a state with no active seat at all has no next turn to name and a
+// spin here would be worse than the wrong answer.
 func (s *GameState) nextTurn(from int) int {
 	n := len(s.Hands)
-	return ((from+s.Direction)%n + n) % n
+	if n == 0 {
+		return from
+	}
+	next := from
+	for i := 0; i < n; i++ {
+		next = ((next+s.Direction)%n + n) % n
+		if !s.isRetired(next) {
+			return next
+		}
+	}
+	return from
+}
+
+// isRetired reports whether a seat has left the match. Bounds-checked because
+// the flags are sized per deal and a caller may hold an older index.
+func (s *GameState) isRetired(i int) bool {
+	return i >= 0 && i < len(s.Retired) && s.Retired[i]
+}
+
+// activeSeats counts the seats still in the round.
+func (s *GameState) activeSeats() int {
+	n := 0
+	for i := range s.Hands {
+		if !s.isRetired(i) {
+			n++
+		}
+	}
+	return n
+}
+
+// rotateSeats returns the seat each hand comes from when a GlobalSwitch turns
+// the table one place in that direction, skipping the seats that have left.
+//
+// Written out rather than left as the modular step it used to be, because that
+// step hands a retired seat a hand and takes the next player's away: the cards
+// go somewhere nobody can play them from, which is the round ending in a stall
+// rather than in a win.
+func (s *GameState) rotateSeats(direction int) []int {
+	active := make([]int, 0, len(s.Hands))
+	for i := range s.Hands {
+		if !s.isRetired(i) {
+			active = append(active, i)
+		}
+	}
+	from := make([]int, len(s.Hands))
+	for i := range from {
+		from[i] = i
+	}
+	if len(active) < 2 {
+		return from
+	}
+	for pos, seat := range active {
+		src := ((pos-direction)%len(active) + len(active)) % len(active)
+		from[seat] = active[src]
+	}
+	return from
 }

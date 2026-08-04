@@ -70,8 +70,11 @@
             {#each roundHistory as _, i (i)}
               <th class="thRound">{t.scoreTableRoundCol.replace('%n', String(i + 1))}</th>
             {/each}
-            <th class="thNum">{t.totalLabel}</th>
-            <th class="thNum colWins">{t.winsLabel}</th>
+            <!-- Rounds won before points: that is the order the match is
+                 decided in, and a table that led with points was telling the
+                 player the wrong seat was in front. -->
+            <th class="thNum">{t.winsLabel}</th>
+            <th class="thNum colTotal">{t.totalLabel}</th>
             <th class="thPing">{t.scoreTablePingCol}</th>
           </tr>
         </thead>
@@ -96,8 +99,8 @@
               {#each row.perRound as points, i (i)}
                 <td class="tdRound">{points > 0 ? `+${points}` : '·'}</td>
               {/each}
-              <td class="tdTotal">{row.total}</td>
-              <td class="tdNum colWins">{row.wins}</td>
+              <td class="tdWins">{row.wins}</td>
+              <td class="tdNum colTotal">{row.total}</td>
               <td class="tdPing">
                 <span class="ping" data-tier={pingTier(row.rtt)}>
                   {row.bot
@@ -353,9 +356,15 @@
     color: var(--color-body);
   }
 
-  .tdTotal {
+  /* The number the match is settled on, so it carries the weight the total used
+     to. The total is beside it as the gap, in the body colour. */
+  .tdWins {
     font-weight: 700;
     font-size: 16px;
+  }
+
+  .colTotal {
+    color: var(--color-body);
   }
 
   .ping {
@@ -427,11 +436,12 @@
       padding: 4px 6px;
       font-size: 11px;
     }
-    /* Rounds won is the one column that can go: it is derivable from the round
-       columns beside it, and it is shown in full on the round summary and the
-       final scoreboard. The ping is not derivable from anything, and pushing it
-       off the right edge of a phone would defeat the whole panel. */
-    .colWins {
+    /* The cumulative total is the one column that can go: it is the sum of the
+       round columns beside it, and it is shown in full on the round summary and
+       the final scoreboard. Rounds won stays, because that is what decides the
+       match. The ping is not derivable from anything, and pushing it off the
+       right edge of a phone would defeat the whole panel. */
+    .colTotal {
       display: none;
     }
   }

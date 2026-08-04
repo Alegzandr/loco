@@ -40,7 +40,7 @@ import (
 
 // SnapshotSchemaVersion is bumped by hand whenever the shape of what is written
 // below changes, game.Room included. A restore refuses anything else.
-const SnapshotSchemaVersion = 1
+const SnapshotSchemaVersion = 2
 
 // SnapshotMaxAge is how old a snapshot may be and still be worth restoring.
 //
@@ -68,7 +68,17 @@ type roomSnapshot struct {
 	SessionTokens map[int]string `json:"session_tokens,omitempty"`
 	BotSlots      []int          `json:"bot_slots,omitempty"`
 	Matchmade     bool           `json:"matchmade,omitempty"`
+	// Solo is a 1v1 against the server. It travels because the table is hostless
+	// on the far side of a restart too: without it a restored solo match would
+	// come back as an ordinary table with a bot in it, and offer the player host
+	// controls over a game that has none.
+	Solo          bool           `json:"solo,omitempty"`
 	AFKTimeouts   map[int]int    `json:"afk_timeouts,omitempty"`
+	// MatchHistory is the evening behind this match. A table on its fourth
+	// rematch has three finished matches nothing else on the server remembers,
+	// and losing them to a deploy would mean the recap silently restarting at
+	// "Match 1" for a group that has been playing for an hour.
+	MatchHistory []matchRecord `json:"match_history,omitempty"`
 }
 
 // snapshotReq is a save or load asking to be run on the event loop.
@@ -142,7 +152,9 @@ func (h *Hub) saveSnapshot(path string) error {
 			SessionTokens: t.tokens,
 			BotSlots:      sortedKeys(t.bots),
 			Matchmade:     t.isMatchmade(),
+			Solo:          t.solo,
 			AFKTimeouts:   t.afk,
+			MatchHistory:  t.matchHistory,
 		})
 	}
 	if len(snap.Rooms) == 0 {
@@ -261,6 +273,9 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	if len(rs.AFKTimeouts) > 0 {
 		t.afk = rs.AFKTimeouts
 	}
+	if len(rs.MatchHistory) > 0 {
+		t.matchHistory = rs.MatchHistory
+	}
 	for _, seat := range rs.BotSlots {
 		t.bots[seat] = struct{}{}
 	}
@@ -271,6 +286,7 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	if rs.Matchmade {
 		t.matchmadeAt = time.Now()
 	}
+	t.solo = rs.Solo
 
 	// Started here, and not one line earlier: everything above is this function
 	// filling the table in, and a goroutine reading fields still being written

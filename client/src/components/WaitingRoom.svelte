@@ -8,6 +8,7 @@
   import { tableInviteUrl } from '../hooks/tableInvite'
   import AudioSettings from './AudioSettings.svelte'
   import RosterRowMenu from './RosterRowMenu.svelte'
+  import { matchLengthLabel } from './matchLengthModel'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { seatColor, seatInitial } from './playerColors'
@@ -51,6 +52,14 @@
   }: Props = $props()
 
   const MATCH_FORMATS: MatchFormat[] = ['BO1', 'BO3', 'BO5', 'BO7']
+
+  // What each format costs, at this table as it currently stands. Read off the
+  // roster rather than off the seat cap: the cap is what the table *could* hold,
+  // and the question the host is asking is how long the evening is going to be
+  // with the people who are here.
+  const formatLength = $derived((f: MatchFormat) =>
+    matchLengthLabel(f, players.length, t.matchLengthUnit),
+  )
 
   // Mirrors the server's serverMinPlayers / serverMaxPlayers (game/room.go). A cap
   // of 1 is a room that can never start, so the field must not even offer it.
@@ -157,7 +166,7 @@
     aria-label="{t.roomCode} {roomCode}. {t.copyLink}"
   >
     <span class={copied ? 'copied' : undefined}>{copied ? t.copyCode : t.roomCode}</span>
-    <TableCode code={roomCode} class="codeVal" />
+    <TableCode code={roomCode} class="codeVal" link />
   </button>
   <p class="hint">{t.shareCode}</p>
 
@@ -251,7 +260,13 @@
               class:formatBtnActive={matchFormat === f}
               onclick={() => onSend({ type: 'set_match_format', match_format: f })}
             >
-              {FORMAT_LABEL[f]}
+              <span>{FORMAT_LABEL[f]}</span>
+              <!-- The estimate is inside the button, so the whole promise is the
+                   thing being pressed rather than a note beside it. It is a
+                   range because the match stops the moment the lead cannot be
+                   caught: a best of 7 is four rounds or seven, and a single
+                   figure would be wrong at both ends. -->
+              <span class="formatLen">{formatLength(f)}</span>
             </button>
           {/each}
         </div>
@@ -268,6 +283,10 @@
           onblur={handleMaxPlayersBlur}
           class="maxInput"
         />
+        <!-- The advice existed, in the FAQ and in the rules — which is to say
+             nowhere near the control it is about. Quiet is a hue here as
+             everywhere else, never an opacity on the ink. -->
+        <p class="configHint">{t.maxPlayersHint}</p>
       </div>
     </div>
   {:else}
@@ -758,7 +777,11 @@
   }
 
   .formatBtn {
-    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 8px 14px;
     border-radius: var(--radius-full);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-strong);
@@ -781,6 +804,26 @@
   .formatBtn:active {
     transform: translateY(2px);
     box-shadow: 0 1px 0 var(--color-stroke-soft);
+  }
+
+  /* The estimate under the label. Never the same weight as the format itself:
+     the format is the choice, the minutes are what it costs. */
+  .formatLen {
+    font: 700 10px/1.2 var(--font-display);
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+  }
+
+  .formatBtnActive .formatLen {
+    color: var(--color-on-dark);
+    opacity: 0.75;
+  }
+
+  /* A note under a control, not a label over one. */
+  .configHint {
+    margin: 0;
+    font: 600 12px/1.35 var(--font-body);
+    color: var(--color-muted);
   }
 
   .formatBtnActive {

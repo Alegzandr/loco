@@ -356,15 +356,21 @@ func (h *Hub) requeueSurvivor(t *table) {
 	})
 }
 
-// refuseInMatchmade answers a host-only lobby control sent in a matchmade room.
-// There is no host in one: the format is fixed, the size is two, the match
-// starts by itself and there are no bots to add. `rematch` is deliberately not
-// among them: see handleRematchOffer.
-func refuseInMatchmade(c *Client, t *table) bool {
-	if !t.isMatchmade() {
+// refuseWithoutHost answers a host-only lobby control sent at a table that has
+// no host. The format is fixed, the size is fixed, the match starts by itself
+// and there are no bots to add — and there is nobody with standing to remove the
+// other seat, which is the one that matters. Two shapes answer to it: a
+// matchmade pair, and a solo game against the server.
+//
+// `rematch` is deliberately not among them at a matchmade table, where it means
+// an agreement between the two strangers rather than a decision one of them
+// takes. At a solo table it *is* refused, and for the opposite reason: there is
+// nobody to agree with. See handleRematch.
+func refuseWithoutHost(c *Client, t *table) bool {
+	if !t.hostless() {
 		return false
 	}
-	c.sendError("not available in a matchmade game")
+	c.sendError("not available in this game")
 	return true
 }
 
@@ -462,13 +468,14 @@ func (h *Hub) releaseSeat(t *table, c *Client) {
 	log.Printf("player left room code=%s nickname=%s", code, nickname)
 }
 
-// handleLeaveRoom gives up a seat on purpose. In a matchmade match in progress
-// it is a forfeit, announced as one, so the other player is told the match
-// ended rather than left watching a board that stopped moving.
+// handleLeaveRoom gives up a seat on purpose, and there is no room and no
+// moment in which it is refused. What changes is what the table does with the
+// departure, never whether the player is allowed to go.
 //
-// In an ordinary room mid-match it is refused: those rooms are groups of people
-// who came in together, the 60s hold exists precisely so a drop is not the end,
-// and the board offers no way out to send it from.
+// In a matchmade match in progress it is a forfeit, announced as one, so the
+// other player is told the match ended rather than left watching a board that
+// stopped moving. In an ordinary match it is a walk-out where the table can
+// spare the seat and the end of the match where it cannot.
 //
 // Before the deal it is nobody's forfeit and every room allows it: the waiting
 // room's quit button lands here, and the seat is released on the spot instead of
@@ -503,24 +510,122 @@ func (h *Hub) leaveAtTable(t *table, c *Client) {
 		switch {
 		case t.isMatchmade():
 			h.forfeitMatch(t, c.playerID())
-		case t.abandonedBy(c.playerID()):
-			// Nobody left to walk out on, so there is nothing to refuse. No
-			// forfeit either: there is no one to award the match to, and
-			// remainingSeat would hand it to the player who is not there. The
-			// seat goes and the table goes with it.
-			log.Printf("leave allowed, match abandoned code=%s player=%d", t.code, c.playerID())
+		case t.solo || t.abandonedBy(c.playerID()):
+			// One case, not two: nothing at this table will act again once this
+			// socket goes. A solo game is a seat and a server, and a match every
+			// other seat has left is the same board. No forfeit either — there is
+			// nobody to award it to, and remainingSeat would hand it to a bot or
+			// to the player who is not there. The seat goes and the table with it.
+			log.Printf("leave allowed, nothing left to play code=%s player=%d solo=%t",
+				t.code, c.playerID(), t.solo)
 			t.sweep(c)
 			c.leaveSeat()
 			h.closeAbandonedMatch(t)
 			c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 			return
-		default:
-			c.sendError("you cannot leave a match in progress")
+		case h.canWalkOut(t):
+			h.retireSeat(t, c)
+			c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 			return
+		default:
+			// The match cannot go on without this seat, so it ends here rather
+			// than leaving whoever stayed in front of a board that will never
+			// move again. It is announced as a forfeit, which is what it is: the
+			// seat that stayed takes the match, and the scoreboard is untouched.
+			h.forfeitMatch(t, c.playerID())
 		}
 	}
 	h.releaseSeat(t, c)
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
+}
+
+// WalkOutFloor is how many seats a match needs to keep being a match.
+//
+// It is not a permission any more — leaving is always allowed — it is the line
+// between the two things a departure can do. Above it the round carries on
+// without the seat; at it or below there is no match left to carry on, so the
+// one that ends is announced rather than left standing on a board nothing will
+// move again. Two: this game is played by two people or more.
+const WalkOutFloor = 2
+
+// canWalkOut reports whether the match goes on without this seat.
+//
+// **Evaluated once, at the moment of the ask.** If a later disconnect takes the
+// table under the floor while the round is running, nothing is re-decided: what
+// happened was a departure, and reconsidering it afterwards would mean a player
+// who left is somehow still at the table.
+//
+// Never in a 1v1 of either kind, and both are answered before this is asked: a
+// matchmade one ends in a forfeit between two strangers, a solo one ends with
+// the table.
+func (h *Hub) canWalkOut(t *table) bool {
+	if t.isMatchmade() || t.solo {
+		return false
+	}
+	return t.playableSeats()-1 >= WalkOutFloor
+}
+
+// retireSeat takes a player out of a match in progress and leaves the table
+// playing.
+//
+// The domain half (the hand back to the deck, the turn stepping over the seat,
+// the catch window closed) is Room.RetireSeat. This is the hub's: the socket
+// gives the seat up, the seat is recorded as gone so the roster stops reporting
+// it as present, its token is spent so nothing can reclaim it, and the table is
+// told the way it is told about any other departure.
+func (h *Hub) retireSeat(t *table, c *Client) {
+	room, seat := t.room, c.playerID()
+	nickname := ""
+	if seat < len(room.Players) {
+		nickname = room.Players[seat].Nickname
+	}
+	turnBefore := room.State.CurrentTurn
+
+	if err := room.RetireSeat(seat); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+
+	t.sweep(c)
+	c.leaveSeat()
+	// The same record an expired reconnect window leaves. `connected` is derived
+	// from awayAt and this set, so without it the player_left below would
+	// announce a departure and carry a roster saying that seat is present.
+	t.gone[seat] = struct{}{}
+	delete(t.awayAt, seat)
+	delete(t.afk, seat)
+	// Spent, not kept: this seat is not coming back, and a token that still
+	// opened it would let the leaver walk into a hand that is now in the deck.
+	delete(t.tokens, seat)
+
+	log.Printf("player walked out mid-match code=%s player=%d nickname=%s left=%d",
+		t.code, seat, nickname, t.playableSeats())
+
+	// The seat rides this one, exactly as it does on an expiry: a running match
+	// indexes hands by seat, so nothing moved and the number still names the
+	// player it named.
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgPlayerLeft,
+		Nickname:    nickname,
+		PlayerIndex: intPtr(seat),
+		Players:     h.playerList(t),
+	})
+
+	// The hand went back to the deck and the turn may have moved, so every seat
+	// needs the board again. One personalised snapshot rather than a turn_changed
+	// plus a hand-size patch: the two would have to agree, and this is the one
+	// message that cannot disagree with itself.
+	h.broadcastPersonalizedGameState(t)
+
+	if room.State.CurrentTurn != turnBefore {
+		h.scheduleTurnTimer(t)
+		h.broadcastToRoomAll(t, protocol.ServerMsg{
+			Type:         protocol.SMsgTurnChanged,
+			Turn:         room.State.CurrentTurn,
+			TurnDeadline: turnDeadlineMs(t),
+		})
+	}
+	h.maybeScheduleBot(t)
 }
 
 // forfeitMatch ends a match because one seat stopped being there, and hands it
@@ -546,12 +651,18 @@ func (h *Hub) forfeitMatch(t *table, awaySeat int) {
 	h.metrics.matchesFinished.Add(1)
 	log.Printf("match forfeited code=%s away=%d winner=%s", code, awaySeat, room.MatchWinner)
 
+	// A walkover is a finished match like any other as far as the evening's
+	// recap is concerned: the scoreboard it ended on is exactly what happened,
+	// which is also why ForfeitTo leaves that scoreboard alone.
+	t.recordFinishedMatch()
+
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:        protocol.SMsgMatchEnd,
-		MatchWinner: room.MatchWinner,
-		Scoreboard:  h.buildScoreboard(room),
-		Forfeit:     true,
-		PlayerIndex: intPtr(awaySeat),
+		Type:         protocol.SMsgMatchEnd,
+		MatchWinner:  room.MatchWinner,
+		Scoreboard:   h.buildScoreboard(room),
+		MatchHistory: matchHistoryDTO(t),
+		Forfeit:      true,
+		PlayerIndex:  intPtr(awaySeat),
 	})
 }
 

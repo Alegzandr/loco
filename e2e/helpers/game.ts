@@ -22,11 +22,30 @@ export const T = {
   rulesBtn: 'Rules',
   rulesHowBtn: 'How to play',
   rulesTitle: 'How to play',
+  // Its two halves: the rulebook it opens on, and the deck drawn.
+  rulesTabRules: 'Rules',
+  rulesTabCards: 'Cards',
+  cardNameSwap: 'Swap',
   continueBtn: 'Next round',
   rematch: 'Rematch',
   rematchWaitingOpponent: 'Waiting on them…',
   leaveRoom: 'Leave the table',
   leaveConfirmYes: 'Yes, leave',
+  // Walking out of a match, which every table allows. Its own strings: the
+  // question is about the match, not about the table, and the note under it is
+  // what leaving costs the people still holding cards.
+  leaveMatchBtn: 'Leave the match',
+  leaveMatchAsk: 'Leave the match?',
+  leaveMatchYes: 'Yes, leave',
+  leaveMatchStay: 'Stay',
+  leaveMatchNoteTable: 'The match carries on without you and your seat is out for good. Tell the others before you go.',
+  leaveMatchNoteEnds: 'The match ends here for everyone, and goes to whoever stayed. Tell them before you go.',
+  // What the seats still holding cards are told, %player substituted.
+  departureNotice: '%player has left the match',
+  // The whole vocabulary the game has, on the game-over screen only.
+  emoteGG: 'GG',
+  emoteClose: 'That was close',
+  emoteNice: 'Nicely played',
   leaveConfirmStay: 'Stay',
   gameOver: 'That is the match',
   youWin: 'YOU WIN!',
@@ -38,12 +57,20 @@ export const T = {
   choosePlayer: 'Whose hand do you want?',
   findMatch: 'Play 1v1',
   findMatchGo: 'Find an opponent',
+  // The 1v1 against the server: the same offer with the wait taken out.
+  playBot: 'Play the bot',
+  playBotGo: 'Deal me in',
+  playBotAgain: 'Play the bot again',
   searchTitle: 'Looking for an opponent',
   searchCancel: 'Stop looking',
   matchFoundKicker: 'Opponent found',
   searchAgain: 'Search again',
   forfeitWon: 'They walked',
   rematchAccept: 'They want another. Go.',
+  // The evening's recap, drawn on the game-over card once the table has played
+  // more than one match.
+  recapTitle: 'Tonight',
+  recapWonCol: 'Won',
   nicknameRejected: 'Pick another nickname.',
   // The host's two controls over one roster row, behind one ⋯ per row. Both ask
   // before they act, and the verb the menu offered is the verb that confirms it

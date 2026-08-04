@@ -1,4 +1,4 @@
-﻿import type { CardKind } from '../types/protocol'
+﻿import type { CardKind, Emote } from '../types/protocol'
 
 export interface RulesSection {
   heading: string
@@ -75,7 +75,6 @@ export interface ErrorCopy {
   // Matchmaking refusals.
   alreadySearching: string
   matchmadeUnavailable: string
-  cannotLeaveMatch: string
   // A rematch asked for after the other side has already gone.
   opponentGone: string
   // Sent by the server the instant before it gives a match away, so it is read
@@ -153,6 +152,13 @@ export interface Translations {
   findMatch: string             // home screen: the headline entry point
   findMatchHint: string         // its second line, inside the button
   findMatchGo: string           // submit on the nickname form
+  // A 1v1 against the server, sitting under the queue's button because it is
+  // the same offer with the wait taken out: nothing to configure, a hand now.
+  // It never apologises for the opponent — a player who wants a human has the
+  // button above it, and one who presses this wants to play, not to be sorry.
+  playBot: string               // home screen: the fourth button of the menu
+  playBotGo: string             // submit on its nickname form
+  playBotAgain: string          // game over, where there is nobody to ask
   searchTitle: string
   // Three stages of the same wait, chosen from elapsed time alone. None of them
   // may imply the queue is empty: "nobody is searching" reads as "close the
@@ -271,6 +277,13 @@ export interface Translations {
   bestOf3: string
   bestOf5: string
   bestOf7: string
+  // The two things a host is deciding without being told anything, said where
+  // they are decided rather than in the FAQ. The length is an estimate about a
+  // game whose rounds end when somebody empties a hand, so the copy carries the
+  // "≈" and a range: a match stops the moment the lead cannot be caught, so a
+  // best of 7 finishes anywhere between four rounds and seven.
+  matchLengthUnit: string       // "min" — the unit inside "≈ 8-14 min"
+  maxPlayersHint: string        // under the seat count
 
   // ─── Game View ────────────────────────────────────────────────
   draw: string
@@ -367,8 +380,42 @@ export interface Translations {
   finalScores: string
   winsGame: string      // "{nickname} wins!"
   winsMatch: string     // "{nickname} wins the match!"
+  // Rounds won is what takes a match, so it is what the final standings lead
+  // with. The points follow as the gap it was taken by.
+  roundsWonCount: (n: number) => string
+  // The evening's recap: one column per finished match at this table. Only
+  // drawn once the table has rematched — a single column would be the standings
+  // immediately above it, said twice.
+  recapTitle: string
+  recapMatchCol: string   // per-match column header, %n = match number
+  recapWonCol: string     // matches taken, the total column
   rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
+  // Walking out of a match in progress, which every table allows. The chip is
+  // icon-only in the board's top-right cluster, so this is its accessible name
+  // and its tooltip; the question below takes the chip's place, exactly as the
+  // waiting room's does, and the safe answer comes first.
+  leaveMatchBtn: string
+  leaveMatchAsk: string
+  leaveMatchYes: string
+  leaveMatchStay: string
+  // One of these four sits under the question, and it is what the player cannot
+  // see from their own screen: what their leaving does to the others. The table
+  // it names is the one they are at — a bot, a stranger who is handed the match,
+  // a table that keeps playing, a table that stops.
+  leaveMatchNoteSolo: string
+  leaveMatchNoteRanked: string
+  leaveMatchNoteTable: string
+  leaveMatchNoteEnds: string
+  // A seat that is out for the rest of the match, told to everybody still
+  // holding cards: walked out, or held until the window closed. %player.
+  departureNotice: string
+  // The whole vocabulary the game has: three fixed things, on the game-over
+  // screen and nowhere else. Free text would be a moderation surface, and
+  // "we collect nothing" is the compliance strategy rather than an accident.
+  // The identifiers are the server's; these are the words they are drawn as.
+  emotesLabel: string
+  emotes: Record<Emote, string>
 
   // ─── Language ────────────────────────────────────────────────
   language: string
@@ -376,6 +423,16 @@ export interface Translations {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: string
   rulesClose: string
+  /**
+   * The modal's two halves. The rulebook is what a player comes back to
+   * mid-round; the deck drawn is what a first-timer needs, because two of these
+   * cards exist in no card game they have played before and a bullet naming one
+   * asks them to picture it.
+   */
+  rulesTabRules: string
+  rulesTabCards: string
+  /** One line above the drawn deck, and the only place the four suits are said. */
+  rulesCardsLede: string
   rules: readonly RulesSection[]
   /**
    * A readable name per card kind. `cardLabel()` only ever returns the glyph
@@ -383,6 +440,12 @@ export interface Translations {
    * sentences of `rules`, so nothing could name a card in a table or a heading.
    */
   cardNames: Record<CardKind, string>
+  /**
+   * One line per card kind, read next to that card's face. Shorter than the
+   * matching bullet of `rules` on purpose: the face carries the recognising,
+   * this only has to say what happens.
+   */
+  cardBriefs: Record<CardKind, string>
 
   // Privacy, terms and credits are not here: they are pages, and their copy
   // lives in `src/content/legal.ts`, which no bundle carries. See
@@ -453,6 +516,9 @@ export const en: Translations = {
   findMatch: 'Play 1v1',
   findMatchHint: 'We find you someone',
   findMatchGo: 'Find an opponent',
+  playBot: 'Play the bot',
+  playBotGo: 'Deal me in',
+  playBotAgain: 'Play the bot again',
   searchTitle: 'Looking for an opponent',
   searchFresh: 'Sit tight. This usually takes seconds.',
   searchPatient: 'Still looking. Nobody has sat down opposite you yet.',
@@ -531,6 +597,8 @@ export const en: Translations = {
   bestOf3: 'Best of 3',
   bestOf5: 'Best of 5',
   bestOf7: 'Best of 7',
+  matchLengthUnit: 'min',
+  maxPlayersHint: 'It breathes best between 2 and 6.',
 
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Draw',
@@ -635,8 +703,27 @@ export const en: Translations = {
   finalScores: 'Final standings',
   winsGame: 'wins!',
   winsMatch: 'takes the match!',
+  roundsWonCount: (n) => (n === 1 ? '1 round' : `${n} rounds`),
+  recapTitle: 'Tonight',
+  recapMatchCol: 'Match %n',
+  recapWonCol: 'Won',
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',
+  leaveMatchBtn: 'Leave the match',
+  leaveMatchAsk: 'Leave the match?',
+  leaveMatchYes: 'Yes, leave',
+  leaveMatchStay: 'Stay',
+  leaveMatchNoteSolo: 'Nobody is waiting on you. The bot will live.',
+  leaveMatchNoteRanked: 'Somebody across the table is really playing. They take the match.',
+  leaveMatchNoteTable: 'The match carries on without you and your seat is out for good. Tell the others before you go.',
+  leaveMatchNoteEnds: 'The match ends here for everyone, and goes to whoever stayed. Tell them before you go.',
+  departureNotice: '%player has left the match',
+  emotesLabel: 'Say something',
+  emotes: {
+    gg: 'GG',
+    close: 'That was close',
+    nice: 'Nicely played',
+  },
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Language',
@@ -644,6 +731,10 @@ export const en: Translations = {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: 'How to play',
   rulesClose: 'Close',
+  rulesTabRules: 'Rules',
+  rulesTabCards: 'Cards',
+  rulesCardsLede:
+    'Eight kinds of card. The colored ones come in red, yellow, green and blue; the last three ignore color and land on anything.',
 
   cardNames: {
     number: 'Number',
@@ -654,6 +745,18 @@ export const en: Translations = {
     wild_draw_four: '+4',
     swap: 'Swap',
     global_switch: 'Global Switch',
+  },
+
+  cardBriefs: {
+    number: 'Match the color or the number. Most of your hand is these.',
+    skip: 'The next player loses their turn. In a duel it comes straight back to you.',
+    reverse: 'Play turns around. In a duel, it simply skips.',
+    draw_two: 'The next player draws two, unless they answer with a +2 and pass the whole pile on.',
+    wild: 'Lands on anything. You call the color that follows.',
+    wild_draw_four: 'Lands on anything, you call the color, and the next player draws four.',
+    swap: 'A colored card, played on your turn. Pick anyone and take their whole hand. They get yours.',
+    global_switch:
+      'No color, so it plays on anything: call the color, then every hand at the table slides one seat along.',
   },
 
   rules: [
@@ -738,8 +841,9 @@ export const en: Translations = {
       heading: 'Taking the match',
       items: [
         'Match length is set before the deal: one round, or best of 3, 5 or 7.',
-        'Highest total once the last round lands takes the whole thing.',
-        'Level on points? Most rounds won, then the smallest pile of leftovers, then one sudden-death round.',
+        'Rounds won take the match. Best of 3 means first to two, and it means it.',
+        'It ends the second the lead cannot be caught: two nil in a best of 3, four one in a best of 7, over.',
+        'Points measure the gap, they do not crown anybody. Level on rounds? Most points, then the smallest pile of leftovers, then one sudden-death round.',
       ],
     },
   ],
@@ -791,7 +895,6 @@ export const en: Translations = {
     rematchTooEarly: 'The match is not over yet.',
     alreadySearching: 'You are already looking for a game.',
     matchmadeUnavailable: 'Not a thing in a 1v1.',
-    cannotLeaveMatch: 'Cards are out. Play it through.',
     opponentGone: 'They have left the table.',
     afkForfeit: 'You were away too long. The match went to your opponent.',
     afkKicked: 'You were away too long.',

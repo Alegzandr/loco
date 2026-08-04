@@ -80,14 +80,23 @@ interface LocoE2EState {
   roundWinner: string
   matchWinner: string
   matchOver: boolean
+  /**
+   * Every match this table has finished, oldest first. Kept across a rematch,
+   * which is the whole point of it: the scoreboard beside it restarts.
+   */
+  matchHistory: Array<{ rounds_won: number[]; scores: number[]; winner_index: number }>
   showRoundSummary: boolean
   // 1v1 matchmaking
   /** True for a match that came out of the queue: no host, no rematch. */
   isMatchmade: boolean
+  /** True for a 1v1 against the server: no host, and nobody to ask for another. */
+  isSolo: boolean
   /** Seat that abandoned, when the match ended that way; null otherwise. */
   forfeitBy: number | null
   /** An opponent who dropped, and when their match is given away. */
   opponentAway: { seat: number; deadline: number } | null
+  /** What the table is saying on the game-over screen. Dropped after a few seconds. */
+  emotes: Array<{ seat: number; emote: string; at: number }>
   /** Seats that have asked for another match, and how many asks deal it. */
   rematchOffers: number[]
   rematchNeeded: number

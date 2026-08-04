@@ -29,7 +29,7 @@ export const FAQ: readonly QA[] = [
         'Yes, completely. There is nothing to buy, nothing to unlock and no advantage anyone can pay for. Every table, every room and every card is there from the first game.',
       ],
       fr: [
-        'Oui, entièrement. Il n’y a rien à acheter, rien à débloquer et aucun avantage que quelqu’un puisse payer. Toutes les tables, toutes les salles et toutes les cartes sont là dès la première partie.',
+        'Oui, entièrement. Il n’y a rien à acheter, rien à débloquer et aucun avantage que quelqu’un puisse payer. Toutes les tables, tous les décors et toutes les cartes sont là dès la première partie.',
       ],
     },
   },

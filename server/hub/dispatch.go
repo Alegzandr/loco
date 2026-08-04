@@ -185,6 +185,8 @@ func (h *Hub) dispatchAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 		h.handleTransferHost(t, c, msg)
 	case protocol.CMsgRematch:
 		h.handleRematch(t, c, msg)
+	case protocol.CMsgSendEmote:
+		h.handleSendEmote(t, c, msg)
 	case protocol.CMsgPlayCard:
 		h.handlePlayCard(t, c, msg)
 	case protocol.CMsgDrawCard:
@@ -214,6 +216,8 @@ func (h *Hub) dispatchWithoutTable(c *Client, msg protocol.ClientMsg) {
 		h.handleJoinRoom(c, msg)
 	case protocol.CMsgFindMatch:
 		h.handleFindMatch(c, msg)
+	case protocol.CMsgPlayBot:
+		h.handlePlayBot(c, msg)
 	case protocol.CMsgCancelMatchmaking:
 		h.handleCancelMatchmaking(c)
 	case protocol.CMsgLeaveRoom:
@@ -227,8 +231,8 @@ func (h *Hub) dispatchWithoutTable(c *Client, msg protocol.ClientMsg) {
 // sitting at, and nothing else. Those are the ones the table resolves for.
 //
 // leave_room is deliberately not one of them: it empties the matchmaking queue
-// as well as a seat, and create_room / join_room / find_match are the messages
-// sent by somebody who has no table for this to find.
+// as well as a seat, and create_room / join_room / find_match / play_bot are the
+// messages sent by somebody who has no table for this to find.
 func tableScoped(t protocol.ClientMsgType) bool {
 	switch t {
 	case protocol.CMsgMapReady,
@@ -239,6 +243,7 @@ func tableScoped(t protocol.ClientMsgType) bool {
 		protocol.CMsgKickPlayer,
 		protocol.CMsgTransferHost,
 		protocol.CMsgRematch,
+		protocol.CMsgSendEmote,
 		protocol.CMsgDebugSetState:
 		return true
 	}

@@ -54,6 +54,24 @@ func (h *Hub) buildScoreboard(room *game.Room) []protocol.ScoreboardEntryDTO {
 // that have to rebuild a client from nothing (reconnect). For broadcast loops
 // over every member of a room, use playerGameStateUsing: it skips both the
 // per-recipient player list and the log (see exportEventLog).
+// matchHistoryDTO exports the table's finished matches. Nil when the table has
+// finished none, so the field stays off the wire for the first match of an
+// evening — which is every match at a table nobody has rematched at.
+func matchHistoryDTO(t *table) []protocol.MatchRecordDTO {
+	if len(t.matchHistory) == 0 {
+		return nil
+	}
+	out := make([]protocol.MatchRecordDTO, len(t.matchHistory))
+	for i, rec := range t.matchHistory {
+		out[i] = protocol.MatchRecordDTO{
+			RoundsWon:   append([]int(nil), rec.RoundsWon...),
+			Scores:      append([]int(nil), rec.Scores...),
+			WinnerIndex: rec.Winner,
+		}
+	}
+	return out
+}
+
 func (h *Hub) playerGameState(t *table, playerIdx int) *protocol.GameStateDTO {
 	dto := h.playerGameStateUsing(t, playerIdx, h.playerList(t))
 	dto.EventLog = exportEventLog(t.room.State)
@@ -152,6 +170,7 @@ func (h *Hub) playerGameStateUsing(t *table, playerIdx int, players []protocol.P
 		MapID:        string(room.MapID),
 		Scoreboard:   scoreboard,
 		RoundHistory: room.RoundHistory,
+		MatchHistory: matchHistoryDTO(t),
 		TurnDeadline: turnDeadlineMs(t),
 	}
 }

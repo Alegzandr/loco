@@ -40,6 +40,24 @@ export const matchFormatSchema = v.picklist([
   'BO7',
 ])
 
+// Emote is one of the three things a player can say at the end of a match, and
+// the whole vocabulary the game has.
+//
+// A closed set, decided here and travelling as an identifier, because the
+// alternative is free text — and free text is a moderation surface, which is a
+// promise this game cannot keep: "we collect nothing" is the compliance
+// strategy, not an accident. Three is enough to be gracious and too few to be
+// abusive, which is the only property that matters.
+//
+// The words themselves are the client's (`t.emotes`), in the player's own
+// language. Nothing here is stored, logged or snapshotted: an emote is
+// broadcast, shown for a few seconds, and forgotten.
+export const emoteSchema = v.picklist([
+  'gg',
+  'close',
+  'nice',
+])
+
 // ClientMsgType enumerates message types sent from client to server.
 export const clientMsgTypeSchema = v.picklist([
   'create_room',
@@ -51,8 +69,10 @@ export const clientMsgTypeSchema = v.picklist([
   'kick_player',
   'transfer_host',
   'rematch',
+  'send_emote',
   'find_match',
   'cancel_matchmaking',
+  'play_bot',
   'leave_room',
   'play_card',
   'draw_card',
@@ -95,6 +115,7 @@ export const serverMsgTypeSchema = v.picklist([
   'round_end',
   'match_end',
   'latency',
+  'emote',
   'rematch_offered',
   'rematch_started',
   'server_updating',
@@ -166,6 +187,9 @@ export const clientMsgSchema = v.object({
   match_format: v.optional(matchFormatSchema),
   // CMsgSetMaxPlayers
   max_players: v.optional(v.number()),
+  // CMsgSendEmote: which of the three. Validated against AllEmotes, so an
+  // identifier this server does not know is refused rather than relayed.
+  emote: v.optional(emoteSchema),
   // CMsgDebugSetState — dev/E2E only (guarded by LOCO_E2E=1 server env var).
   //
   // One pointer, not seven fields. This struct is every message a client can
@@ -192,6 +216,22 @@ export const scoreboardEntrySchema = v.object({
   nickname: v.string(),
   score: v.number(),
   rounds_won: v.number(),
+})
+
+// MatchRecordDTO is one finished match at this table, kept so a group playing
+// six in a row can see who actually won the evening.
+//
+// Both halves travel because both are read: RoundsWon is what decided that
+// match, Scores is the gap it was decided by. Indexed by seat, exactly like the
+// scoreboard, so a client renders one column per match against the roster it
+// already has.
+export const matchRecordSchema = v.object({
+  rounds_won: v.array(v.number()),
+  scores: v.array(v.number()),
+  // WinnerIndex is the seat that took the match, or -1 when the seat that took
+  // it has since left the table. No omitempty: seat 0 is a winner like any
+  // other, and dropping it would hand the match to nobody.
+  winner_index: v.number(),
 })
 
 // LatencyEntryDTO is one seat's measured round-trip time.
@@ -258,6 +298,10 @@ export const gameStateSchema = v.object({
   // RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
   // Included in every snapshot so a reconnecting player recovers the table.
   round_history: v.optional(v.array(v.array(v.number()))),
+  // MatchHistory is the table's finished matches (see ServerMsg). Carried here
+  // too so a player who reconnects mid-match still has the evening behind them
+  // when this match ends.
+  match_history: v.optional(v.array(matchRecordSchema)),
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline: v.optional(v.number()),
 })
@@ -381,6 +425,12 @@ export const serverMsgSchema = v.object({
   // round_end so the score table updates without waiting for the next
   // game_state (which the client buffers behind the round summary).
   round_history: v.optional(v.array(v.array(v.number()))),
+  // SMsgMatchEnd: every match this table has finished, oldest first, the one
+  // just ended included. A rematch wipes the scoreboard, so without this a
+  // group that plays six matches on one code ends the evening with nobody able
+  // to say who won it. Only the game-over screen reads it, so it rides the one
+  // message that opens that screen.
+  match_history: v.optional(v.array(matchRecordSchema)),
   // SMsgLatency
   latencies: v.optional(v.array(latencyEntrySchema)),
   // SMsgLobbyConfigChanged
@@ -407,6 +457,8 @@ export const serverMsgSchema = v.object({
   // RematchNeeded is how many of those asks deal the next match: every human
   // still at the table. Bots are not asked.
   rematch_needed: v.optional(v.number()),
+  // SMsgEmote: what was said, and PlayerIndex above says who said it.
+  emote: v.optional(emoteSchema),
   // SMsgError
   error: v.optional(v.string()),
 })

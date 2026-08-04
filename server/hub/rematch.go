@@ -33,6 +33,15 @@ func (h *Hub) handleRematch(t *table, c *Client, msg protocol.ClientMsg) {
 		c.sendError("rematch is only available once the match is over")
 		return
 	}
+	// The one table where the ask has no addressee. A solo game is one human and
+	// one bot: the quorum would be one, so the "agreement" would be a decision
+	// wearing an agreement's clothes, and the deal it triggered would drop the
+	// player into a lobby this mode has no host to start. Another one is another
+	// play_bot, which is what the game-over screen sends.
+	if t.solo {
+		c.sendError("not available in this game")
+		return
+	}
 	// A matchmade table is two strangers and nothing else. Once one of them has
 	// gone there is nobody to agree with, and the survivor's client requeues
 	// rather than waiting on an answer that cannot come. An ordinary table has

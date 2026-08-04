@@ -10,7 +10,7 @@ rules, `docs/notes/` the reasoning.
 - Join by link: the code in the waiting room is a button that copies `<origin>/i/?t=CODE`, with no language on it (the arriving player's browser decides that). Opening it fills the join form with the code and asks only for a name, or seats the player outright when the browser already remembers one. The code is removed from the address bar on arrival, so a reload reclaims the seat rather than re-joining and a copied URL never keeps naming a closed table. That URL is a page of its own, so a link pasted into a chat window unfurls as an invitation — its own title and its own art — rather than as the home page. The code is only read there: the same parameter on any other page means nothing.
 - Real-time lobby with live player list updates.
 - Host-only game start.
-- Leaving a table before the deal: host and guest alike get a quit button in the waiting room, behind an in-place confirmation (Stay / Yes, leave; Escape stays). Confirmed, the seat is released immediately (`leave_room`) and the rest of the table sees the roster update. Once the cards are out, an ordinary match has no way out — with one exception, and it is not a way out of a match: when every other seat is a player whose reconnect window has run out, nothing on the board will ever move again, so the table says so and offers to be left. The table then closes rather than dealing itself out to nobody for another five minutes.
+- Leaving a table before the deal: host and guest alike get a quit button in the waiting room, behind an in-place confirmation (Stay / Yes, leave; Escape stays). Confirmed, the seat is released immediately (`leave_room`) and the rest of the table sees the roster update. Once the cards are out there is still a way out, at every table: a chip in the board's chrome row (never on the action bar) behind the same in-place question, and under that question one line saying what leaving costs the others — the bot minds nothing, a 1v1 opponent takes the match, a table of four keeps playing, a table of two stops. Where two seats able to play are left after the departure, the round carries on: the seat is out for good — the hand goes back into the deck, the turn steps over it, it is dealt nothing after that — and the scoreboard is left exactly as it stood, because leaving is a departure and not a forfeit. Where they are not, the match ends there and goes to whoever stayed, announced as a forfeit, rather than leaving them in front of a board that will never move again. A solo game against the bot simply closes. Everybody still holding cards is told who left, by name, on the board. A table where every other seat is a player whose reconnect window has run out says so as well, and closes when it is left, rather than dealing itself out to nobody for another five minutes.
 - The host's controls over a roster row, before the deal: one ⋯ button on every row but their own — right-click on the row opens the same menu — offering *hand the table over* and *remove from the table*, each behind a question that takes the menu's place. Below 46rem the menu is a bottom sheet instead of a dropdown. Removing a seat (`kick_player`) includes bots, since nothing else takes a bot's seat back; the table sees an ordinary departure and the removed player is told why. It is not a ban — the code is still theirs and they may rejoin. Handing the table over (`transfer_host`) swaps the two seats, so the controls move with them in both directions and the new host can deal; a bot is never offered it, because a table it owns could never start. Both are refused once the cards are out, and in a matchmade room, which has no host.
 - Match format selection (BO1/BO3/BO5/BO7), broadcast live in lobby.
 - Max-players configuration (2–10), live in lobby; cannot drop below current count.
@@ -30,11 +30,46 @@ rules, `docs/notes/` the reasoning.
 - Batch identical-card play on your turn (effects compound).
 - Swap (colored, opponent hand swap) and Global Switch (wild: names a colour, then rotates all hands in current direction).
 - UNO declaration + 5 s server-enforced catch window. **A hand-emptying play is refused without the call**, so nobody forgets LOCO! and takes the round anyway; a batch that empties the hand in one go carries the call in the play itself, since it never passes through a single card.
+- **Contre-LOCO! is pressable from three cards out, not from the moment the server says so.** The button holds the centre of the action bar all match and goes live as soon as any opponent is down to 3 cards or fewer, so the call is a read of the table rather than an answer to a cue. A press that finds nobody on the hook costs 1 card — **once per card played**, however many times it is pressed, so a misread is a mistake and spamming it is not a second one. LOCO! is a small chip above the bar, on screen from the deal and lit only for the seconds you owe it.
 - Single-finisher round scoring (number = face; Reverse = 10; Skip = 20; +2 and Swap = 30; Wild and Global Switch = 40; +4 = 50).
-- Multi-round matches with persistent scoreboard.
-- Tiebreakers: highest score → rounds won → lowest lost-hand total → sudden-death extra round.
+- Multi-round matches with persistent scoreboard. **The match is taken by rounds won**, and it ends the moment the lead cannot be caught: 2–0 in a BO3, 3–1 in a BO5, 4–3 in a BO7. Points are still accumulated and shown, as the measure of the gap rather than the thing being raced to.
+- Tiebreakers: most rounds won → highest score → lowest lost-hand total → sudden-death extra round.
+- **Three fixed things to say, on the game-over screen, at every table**: GG, that was close, nicely
+  played. A closed set decided by the server and sent as an identifier, so no client can invent a
+  fourth, and **no free text anywhere in the game** — that would be a moderation surface, and
+  collecting nothing is the compliance strategy rather than an accident. Nothing said is stored,
+  logged or carried across a deploy: it is shown for a few seconds and forgotten. One per seat every
+  two seconds, refused to its sender alone, never to or from a bot.
+- **Evening recap on the game-over screen**: one column per match this table has finished, with each seat's rounds won and points, and its total of matches taken. A rematch wipes the scoreboard, so without it a group playing six matches on one code ends up with nobody able to say who won the night. Hidden until the table has rematched, since one column would be the standings above it said twice.
 - Win detection (empty hand) and deck replenishment from the discard pile.
+- **The rules page opens on what is different**: eight lines for a visitor who already knows a card
+  game of colours and symbols, above the rules themselves. The hand size, the deck size and the
+  number range in it are read from the server rather than written down. It is deliberately absent
+  from the in-game rules modal, which is a reference rather than an argument.
+- **The in-game "How to play" has a Cards half**: the rulebook on one tab, the deck drawn on the
+  other — every kind with its real face, its name and one line. A first-time player can read that a
+  Swap takes somebody's whole hand and still not recognise one in their hand a minute later, and
+  Swap and Global Switch are exactly the two cards a player arriving from an ordinary colours-and-
+  symbols card game has no picture of. Eight lines, not a catalogue: copies, points and the long form
+  stay on the cards page, and the modal still links nowhere.
 - Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
+
+- **The waiting room tells the host what they are picking**: an estimated length on every format
+  button (a *range*, because a match ends the moment the lead cannot be caught) and a line under the
+  seat count saying it breathes best between 2 and 6. Both used to exist only in the FAQ, which is to
+  say nowhere near the decision.
+- **The code plate carries a chain**, because pressing it copies a link rather than the six
+  characters, and the toast only said so after the press. It is drawn, and it is not blurred by
+  streamer mode: what has to stay off a stream is the code.
+- **Play the bot**: a 1v1 against the server from the home screen — a nickname, one press, a dealt
+  hand. No table code, no waiting room, no host controls, one round. It is the queue's offer with the
+  wait taken out, so it is the fourth button of the home menu, drawn like the other three and sitting
+  directly under the queue's — a line of underlined text between two ledged buttons read as a
+  footnote, and the mode that needs nobody else organised is not a footnote. The game-over screen offers
+  another press or the queue; there is no rematch to negotiate.
+- **The way out of the queue arrives inside twenty seconds**: the searching screen's three stages are
+  0-10 s, 10-20 s and 20 s+, and the last of them is where a private table is offered. At 45 s it was
+  a tab that had been closed at ten.
 
 ## UI / UX
 - Svelte 5 game view, animated by the browser rather than by a runtime. All card movement is expressed as GPU-composited `translate`/`rotate` transforms — never `left`/`top` — so multiple cards can fly at once without triggering layout.
@@ -42,7 +77,7 @@ rules, `docs/notes/` the reasoning.
 - `prefers-reduced-motion` is honoured throughout: transforms snap to their end state and CSS transitions are disabled, leaving the game fully playable without movement.
 - Round summary overlay with placements, points earned, cumulative scoreboard; auto-dismiss after 8 s or via Continue. Next-round state is buffered so the overlay never vanishes instantly.
 - Match-end screen with final scoreboard, winner highlight, the rematch ask every seat gets (see above — it is not the host's call), and Leave room.
-- Score table on held `TAB` (and on a **Scores** button, the only way in on a touch device): one row per seat with its identity colour, one column per finished round, cumulative total, rounds won, and a live ping. The ping is banded by colour (green under 60 ms, yellow under 120, orange under 220, red beyond) because an interrupt is decided by arrival order at the server. Bots are labelled rather than given a fake number, and a seat with no measurement yet says so.
+- Score table on held `TAB` (and on a **Scores** button, the only way in on a touch device): one row per seat with its identity colour, one column per finished round, rounds won (the column the match is settled on, and the one that survives on a phone), the cumulative total, and a live ping. The ping is banded by colour (green under 60 ms, yellow under 120, orange under 220, red beyond) because an interrupt is decided by arrival order at the server. Bots are labelled rather than given a fake number, and a seat with no measurement yet says so.
 - Play direction ring: chevrons around the felt, chasing the way play is moving and flipping over when a Reverse lands. The heading is carried by the chevrons themselves, so it still reads on a paused clip or with reduced motion, long after the REVERSE callout is gone.
 - UNO reaction timer: countdown bar visible whenever a player declares UNO.
 - Reconnect visual recovery: brief "Rebuilding table…" overlay, then staggered entrance of bubbles, hand cards, and discard pile.

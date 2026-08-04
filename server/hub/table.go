@@ -82,6 +82,23 @@ type table struct {
 	// whole set is broadcast rather than the increment; see rematch.go.
 	rematchOffers map[int]struct{}
 
+	// emoteAt[seat] is when that seat last said one of the three things. The only
+	// state an emote leaves anywhere, and it goes with the match: nothing about
+	// what was said is kept, only when. See emotes.go.
+	emoteAt map[int]time.Time
+
+	// matchHistory is every match this table has finished, oldest first.
+	//
+	// It is the one thing here that outlives a match on purpose: a rematch nils
+	// the room's scores, so six matches on one code used to leave nobody able to
+	// say who won the evening. It is cleared when the table stops existing and at
+	// no other moment, which is why it sits beside the seats rather than beside
+	// the per-match state resetForNextMatch wipes.
+	//
+	// Indexed by seat like everything else here, so it moves with dropSeat and
+	// swapSeats. A slice of records, deliberately not a twelfth map.
+	matchHistory []matchRecord
+
 	// turnStartedAt is what a turn timer re-checks itself against on the way in.
 	// Zero means no turn is being timed, which is also what a bot's turn looks
 	// like: they keep their own time and the client draws no bar for them.
@@ -92,12 +109,109 @@ type table struct {
 	emptyAt time.Time
 
 	// matchmadeAt is when the queue paired this table. Zero means a player
-	// opened it, which is what every host control is gated on.
+	// opened it.
 	matchmadeAt time.Time
+
+	// solo marks a 1v1 against the server: one human, one bot, dealt on the spot
+	// with no code and no waiting room. It is hostless for the same reason a
+	// matchmade table is — there is nothing to configure and nobody to configure
+	// it for — but it deliberately keeps the *ordinary* table's timing: the 15 s
+	// hold and the two-timeout AFK threshold exist because a stranger will not
+	// wait for you, and the seat opposite this player is not a stranger. See
+	// solo.go.
+	solo bool
 
 	// loading is the map-loading gate. Non-nil means the table is shut: no turn
 	// timer, no bots, no gameplay message accepted. See maploading.go.
 	loading *mapLoadState
+}
+
+// matchRecord is one finished match at this table: what each seat won it or lost
+// it by, and who took it.
+//
+// Both numbers are kept because both are read. RoundsWon is what decided the
+// match; Scores is the gap it was decided by, and a recap that showed only the
+// winner would be a scoreboard with the game taken out of it. The fields are
+// exported so the drain snapshot carries them.
+type matchRecord struct {
+	RoundsWon []int `json:"rounds_won"`
+	Scores    []int `json:"scores"`
+	// Winner is the seat that took the match, or -1 once that seat has left the
+	// table. A departure re-bases every seat above it, and a winner that quietly
+	// followed the shift would credit the match to whoever slid into the index.
+	Winner int `json:"winner"`
+}
+
+// recordFinishedMatch appends the match that has just ended. Called once per
+// match, from every path that can end one: the last round, and a forfeit.
+//
+// The room's own arrays are copied rather than referenced — ResetForRematch nils
+// them and Start reallocates them, so a record holding the live slice would be
+// the next match's scoreboard by the time anybody read it.
+func (t *table) recordFinishedMatch() {
+	room := t.room
+	n := len(room.Players)
+	rec := matchRecord{
+		RoundsWon: make([]int, n),
+		Scores:    make([]int, n),
+		Winner:    -1,
+	}
+	copy(rec.RoundsWon, room.RoundsWon)
+	copy(rec.Scores, room.Scores)
+	for i, p := range room.Players {
+		if p.Nickname == room.MatchWinner {
+			rec.Winner = i
+			break
+		}
+	}
+	t.matchHistory = append(t.matchHistory, rec)
+}
+
+// dropSeatFromHistory removes one seat from every recorded match, so a table
+// whose roster shrinks keeps a recap that still lines up with it.
+func dropSeatFromHistory(history []matchRecord, removed int) {
+	for i := range history {
+		history[i].RoundsWon = dropInt(history[i].RoundsWon, removed)
+		history[i].Scores = dropInt(history[i].Scores, removed)
+		switch {
+		case history[i].Winner == removed:
+			history[i].Winner = -1
+		case history[i].Winner > removed:
+			history[i].Winner--
+		}
+	}
+}
+
+// swapSeatsInHistory exchanges two seats in every recorded match, so a
+// transfer_host moves what a player won along with the player.
+func swapSeatsInHistory(history []matchRecord, a, b int) {
+	for i := range history {
+		swapInt(history[i].RoundsWon, a, b)
+		swapInt(history[i].Scores, a, b)
+		switch history[i].Winner {
+		case a:
+			history[i].Winner = b
+		case b:
+			history[i].Winner = a
+		}
+	}
+}
+
+// dropInt returns xs without the element at i. Out-of-range is a no-op: a record
+// written before a seat existed is shorter than the roster is now.
+func dropInt(xs []int, i int) []int {
+	if i < 0 || i >= len(xs) {
+		return xs
+	}
+	return append(xs[:i], xs[i+1:]...)
+}
+
+// swapInt exchanges two elements, ignoring indices the slice does not have.
+func swapInt(xs []int, a, b int) {
+	if a < 0 || b < 0 || a >= len(xs) || b >= len(xs) {
+		return
+	}
+	xs[a], xs[b] = xs[b], xs[a]
 }
 
 // newTable builds a table but does not start it. The caller finishes filling it
@@ -114,6 +228,7 @@ func newTable(code string, room *game.Room) *table {
 		bots:          make(map[int]struct{}),
 		afk:           make(map[int]int),
 		rematchOffers: make(map[int]struct{}),
+		emoteAt:       make(map[int]time.Time),
 		box:           make(chan tableJob, tableBoxDepth),
 		quit:          make(chan struct{}),
 		done:          make(chan struct{}),
@@ -152,6 +267,12 @@ func (t *table) isBot(seat int) bool {
 
 // isMatchmade reports whether this table came out of the 1v1 queue.
 func (t *table) isMatchmade() bool { return !t.matchmadeAt.IsZero() }
+
+// hostless reports whether this table has nobody with standing over it: the
+// format is fixed, the size is fixed, the match starts by itself and there is
+// nobody to remove. Two shapes answer yes — a matchmade pair and a solo game —
+// and every host control asks this question rather than either of them.
+func (t *table) hostless() bool { return t.isMatchmade() || t.solo }
 
 // isLoading reports whether the table is still shut behind the map gate.
 func (t *table) isLoading() bool { return t.loading != nil }
@@ -192,6 +313,32 @@ func (t *table) abandonedBy(seat int) bool {
 		}
 	}
 	return true
+}
+
+// playableSeats counts the seats that can still act in the match: a bot, or a
+// human who is either here or inside their reconnect window.
+//
+// It is what "is there still a game here" means, and it is the question
+// leave_room asks mid-match. A seat whose hold has expired is not one of them —
+// nothing at it will ever move again — and neither is one that has already
+// walked out.
+func (t *table) playableSeats() int {
+	n := 0
+	for seat := range t.room.Players {
+		switch {
+		case t.isBot(seat):
+			n++
+		case t.room.IsRetired(seat):
+			// Gone on purpose, and not coming back.
+		case t.client(seat) != nil:
+			n++
+		default:
+			if _, held := t.awayAt[seat]; held {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // connected counts the sockets still at the table.
@@ -273,6 +420,7 @@ func (t *table) dropSeat(id int) (hasHuman bool) {
 	t.bots = shiftIntKeySet(t.bots, id)
 	t.tokens = shiftIntKeyMap(t.tokens, id)
 	t.gone = shiftIntKeySet(t.gone, id)
+	dropSeatFromHistory(t.matchHistory, id)
 	return t.reseat()
 }
 
@@ -290,6 +438,7 @@ func (t *table) dropClient(c *Client, id int) (hasHuman bool) {
 	t.bots = shiftIntKeySet(t.bots, id)
 	t.tokens = shiftIntKeyMap(t.tokens, id)
 	t.gone = shiftIntKeySet(t.gone, id)
+	dropSeatFromHistory(t.matchHistory, id)
 	return t.reseat()
 }
 
@@ -319,6 +468,8 @@ func (t *table) swapSeats(a, b int) {
 	bTok, bHad := t.tokens[b]
 	setToken(t.tokens, a, bTok, bHad)
 	setToken(t.tokens, b, aTok, aHad)
+
+	swapSeatsInHistory(t.matchHistory, a, b)
 
 	t.reseat()
 }
@@ -350,9 +501,12 @@ func setToken(m map[int]string, key int, val string, present bool) {
 // fired and nothing is left to reopen it.
 //
 // The seats, the tokens and the bot set survive on purpose: those describe who
-// is at the table, not what they were playing.
+// is at the table, not what they were playing. So does matchHistory, which is
+// the one thing here that is *about* the matches before this one — see its
+// field.
 func (t *table) resetForNextMatch() {
 	t.rematchOffers = make(map[int]struct{})
+	t.emoteAt = make(map[int]time.Time)
 	t.afk = make(map[int]int)
 	t.awayAt = make(map[int]time.Time)
 	t.gone = make(map[int]struct{})

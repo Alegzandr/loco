@@ -10,14 +10,17 @@ hub's own machinery, see `server.md`.
 Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
 1. **GlobalSwitch (Change Cards All Round) is wild** — 4 copies, no color, plays on anything, and names the new active colour like the other two wilds. SOLO has it as colored 1-per-color. Implemented in `game/deck.go` (4 wild copies) and `game/card.go` `IsWild()`. Rationale: simpler, avoids dead cards.
 2. **Starting card is always a Number** — `dealRound` skips action/wild cards until a Number is found (`game/room.go`). SOLO applies the starting action's effect to the first player. Rationale: avoids first-turn ambiguity (Take 4 with no context, Swap with empty game state).
-3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`). Game ends when one player wins the majority of rounds. Rationale: predictable online game length.
+3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`), and **the match is taken by rounds won rather than by points**. See "Rounds won take the match" below for the whole rule and the bug it closed. Rationale: predictable online game length, and a format label that is true.
 4. **Voluntary draw is allowed** — current player may draw even with a playable card in hand (still 1 draw max per turn). `Room.DrawCard` only enforces `HasDrawn` to prevent a second draw. Rationale: strategic depth; matches UNO official rules.
 5. **A forced draw does not cost the turn** — the victim of a +2/+4 stack takes the whole accumulated amount and then plays normally (or passes). `Room.DrawCard` sets `HasDrawn` in both branches and never advances `CurrentTurn`; nothing but `PlayCard`/`PassTurn`/an effect moves the turn. **`hub.handleDrawCard` re-arms the turn timer on every draw** — the domain kept the turn but the clock was still the one armed when the +2 landed, so a victim who took a few seconds to decide against countering drew the stack and was auto-passed right after: the deviation held on paper and the seat still vanished. One draw per turn bounds the extension. Rationale: cards *and* turn for one played card is two punishments, and it reads as a bug — the hand jumps and the seat is gone before the player can act. Stacking (`CounterDraw`) is still how you avoid drawing at all.
-6. **A missed Contre-LOCO! costs the caller 1 card** — the call only lands inside the target's 5s
-   window and is refused *and* charged when the target's own LOCO! got there first, when its hand
-   grew, or when the window had already closed. SOLO ignores an unfounded call. `failedCatchPenalty`
-   + `Room.PenalizeFailedCatch`; see "LOCO! declaration & catch windows" and `docs/rules.md` §14.6.
-   Rationale: an unpriced button is free to mash, so the reaction stops being one.
+6. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per card played** — the
+   call only lands inside the target's 5s window, and every other press is charged: the target's own
+   LOCO! got there first, its hand grew, the window had already closed, or no seat owed the call at
+   all. SOLO ignores an unfounded call. `failedCatchPenalty` + `Room.PenalizeFailedCatch`, rationed
+   by `GameState.PlayEpoch`; see "LOCO! declaration & catch windows" and `docs/rules.md` §14.6.
+   Rationale: the button is live from three cards out, so pressing it is a read of the table rather
+   than an answer to a cue the server gave — an unpriced one is free to mash and the reaction stops
+   being one, and a per-press price would bill the same misread ten times over.
 
 ## Scoring & match system
 - `CardValue(c Card) int` (`game/card.go`): Number=face; Reverse=10; Skip=20; DrawTwo=30; Swap=30; GlobalSwitch=40; WildCard=40; WildDrawFour=50. Matches `docs/rules.md` §10.
@@ -26,8 +29,67 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
 - Scores accumulate in `Room.Scores []int`. `Room.MatchOver`/`MatchWinner` indicate completion (resolved in `endRound`).
 - Round starter: round 1 = random (`Room.rng`); subsequent = current biggest loser (lowest cumulative score; tie → lowest playerID via `Room.biggestLoser()`).
 - Formats: BO1/3/5/7 (`game.MatchFormat`).
-- Tiebreakers: highest score → most rounds won → lowest lost-hand total → sudden-death extra round.
-- `determineMatchWinner()` returning `""` triggers sudden-death.
+
+### Rounds won take the match; the score measures the gap
+
+**The bug it closed.** `determineMatchWinner` used to filter on `Scores` first, so a seat could take
+three rounds of a BO5 and lose the match to somebody who took one expensive one — a Take 4 and a
+Global Switch left in a full hand is 90 points off a single round. Nothing on screen could explain
+that result, because "best of 5" does not read as "most points after 5", and the format labels
+(`bestOf3`, "Meilleur des 3") were saying the opposite of what the server did.
+
+- **Tiebreakers, in order**: most rounds won → highest score → lowest lost-hand total →
+  sudden-death extra round. `determineMatchWinner()` returning `""` is what triggers the last one.
+- **The score survives, and it is not decoration.** It breaks the tie above, it picks the seat that
+  opens the next round, it is what the score table shows beside the rounds, and it is the number a
+  rating or a skill-based queue would be built on later. What it stopped being is the answer to
+  "who won".
+- **The match stops as soon as the lead cannot be caught** (`Room.decisiveLeader`). A seat is
+  decisive when `RoundsWon[i] > RoundsWon[j] + remaining` for every other `j`, with
+  `remaining = max(0, Format - RoundNumber)`. **One expression covers both endings**: `remaining` is
+  zero once the format is exhausted, so the same test that stops a BO7 at 4–0 is the one that says a
+  BO1 ended on its only round. `endRound` asks it, and falls through to the tiebreak chain when the
+  format has run out without it being satisfied.
+- **"Strictly ahead of everyone" rather than "reached the majority"**, because the majority is only
+  the right number at two seats. Six players sharing a BO7 never reach 4 and the match still has to
+  end.
+- **A decisive leader is by construction the unique maximum on rounds won**, so the first filter of
+  the chain resolves them: `endRound` can ask one question ("can this stop?") and then another
+  ("who took it?") without the two being able to disagree.
+  `TestRoom_MatchStopsOnceTheLeadIsUncatchable` and `TestDetermineMatchWinner_RoundsWonBeatsScore`
+  own the pair.
+- **`biggestLoser` deliberately stays on points.** Rounds won is exactly the wrong signal for "who
+  opens the next round": only one seat per round wins one, so past two players half the table sits
+  on zero and the opener would be whichever of them holds the lowest index, every round, all match.
+  The score being the fine-grained measure of how far behind somebody is — the whole reason it
+  survived the rule change — is what makes it the right one here.
+- **A forfeit is unaffected**: `ForfeitTo` awards the match without touching the scoreboard, which
+  was already the right semantics and still is.
+
+### The evening's recap (`table.matchHistory`)
+
+One record per **match** this table has finished — each seat's rounds won and points, plus the
+winning seat — kept on the hub's `table` rather than on the `Room`, because it has to outlive the
+room's reset.
+
+- `ResetForRematch` nils `Scores`/`RoundsWon`, so six matches on one code used to leave nobody able
+  to say who won the evening. `resetForNextMatch` clears everything belonging to the match that just
+  ended; this is the one field there that is *about* the matches before it, so it is not cleared.
+- `recordFinishedMatch()` is called once per match, from both endings: the last round
+  (`handleRoundOrMatchEnd`) and a forfeit (`forfeitMatch`). A walkover is a finished match as far as
+  the evening is concerned, and the scoreboard it ended on is exactly what happened.
+- It **copies** the room's arrays. Holding the live slices would make every record read as the next
+  match the moment `Start()` reallocated them.
+- It is indexed by seat, so it moves with the seats: `dropSeat` removes the column and re-bases the
+  winner (a departed winner becomes `-1`, never the player who slid into the index), `swapSeats`
+  exchanges both. No twelfth map — a slice of records on the struct.
+- It rides `match_end` (the one message that opens the screen reading it) and every personalised
+  `game_state` (so a reconnect mid-match still has the evening behind it), and it travels in the
+  drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2.
+- The client draws it only past one record: a single column is the standings immediately above it,
+  said twice (`hasEveningToShow`).
+
+### Round and match plumbing
 - Hub flow on round end: broadcast `round_end` (scoreboard, `RoundNumber`=just-completed) → `BeginNextRound` → `game_started` per player. On match end: `match_end` (scoreboard + match_winner).
 - `PlayerDTO`: `Index`, `Nickname`, `HandSize`, `Connected` only.
 
@@ -182,35 +244,54 @@ won, and a one-card hand had made them finishes by accident.
 - `CatchUndeclared` is per target and refuses self-catching. `GameState.CatchableTargets(now)`
   returns the open windows oldest-first; `hub.maybeScheduleBotCatch` schedules one attempt per
   target, and `handleBotCatch`'s stale check compares `LastCardAt[target]`.
-- Wire: `catch_uno` carries `target_index` (the catcher names the seat). Absent = the window closest
-  to expiring, which is the catch about to be lost.
+- Wire: `catch_uno` carries `target_index` (the catcher names the seat) **when the client has one to
+  name**. Absent means the press was made on a read rather than on a cue — the button is live from
+  three cards out — and the hub still falls back to the window closest to expiring, which is the
+  catch about to be lost and may be one the client had not been told about yet. No open window at
+  all: charged (below).
 - **A catch that lands is announced** (`applyUnoCaught` → `store.catchFlash` → `<CatchBanner />` +
   the penalty cards flying to the caught seat). See "Streamable moments" in `visual.md`: for a long time the *miss*
   had a notice and the *hit* had nothing at all, so the game's hardest reaction was also its most
   silent, and the only thing the table saw was two cards appearing in somebody's hand.
-- **A Contre-LOCO! that misses costs its caller 1 card** (`docs/rules.md` §14.6,
+- **A Contre-LOCO! that finds nobody costs its caller 1 card** (`docs/rules.md` §14.6,
   `failedCatchPenalty`). Without a price, mashing the button at every seat holding one card is free
   and therefore always correct, which turns the game's hardest reaction into a reflex nobody has to
-  aim. The three misses are all timing (`game.IsMissedCatch`): the target declared first
+  aim. Three of the misses are timing (`game.IsMissedCatch`): the target declared first
   (`ErrAlreadyDeclared`), its hand grew (`ErrTargetNotSingleCard`), the window closed
   (`ErrCatchWindowExpired`). Those are **sentinels, not new strings** — the wire text is unchanged;
-  what is new is that the hub can tell a lost race from an invalid target.
-  - **All three are timing, and the price is for losing a race** — so the seat has to have been in
-    one. `catchRaceRecent` gates them: the target's window must have opened inside
-    `catchWindow + catchGrace` (5s + 2s), and anything outside that is `ErrNoCatchWindow`, which is
-    **not** an `IsMissedCatch`. Without the gate a call on a seat holding eight cards fell straight
-    into `ErrTargetNotSingleCard` and was treated as a lost race the caller never ran: it charged a
-    card, and it put a `catch_failed` in front of the whole table, at whatever rate the token bucket
-    allows. Once every card sat in a hand the penalty draw came back empty and the price went to
-    zero, leaving a free broadcast anybody could aim at any table they were sitting at. The grace is
-    a network round trip plus the frame the button was drawn in, and nothing else: a client only ever
-    arms Contre-LOCO! on a seat the server named in `catch_seats`, so past it there is nothing the
-    call can be but a message no client of ours made. `server/game/catch_window_test.go` owns both
-    sides of the line.
+  what is new is that the hub can tell a lost race from an invalid target. The fourth is the press
+  made on a read of the table that was simply wrong (`ErrNoCatchWindow`, or no seat named at all),
+  and it is charged like the rest.
+  - **It used to be free, and it was free because the button used to be a cue.** While Contre-LOCO!
+    only lit up on the seats the server named in `catch_seats`, a call outside a window could only
+    be a message no client of ours composed, so it was refused, charged nothing and told nobody. The
+    button is now live from three cards out (`client/src/components/catchAvailability.ts`), because
+    a control that unlocks on the server's permission can only ever *answer* a five-second window
+    and never *anticipate* one. That makes the wrong press an ordinary part of playing, and the
+    thing that keeps it honest is the price.
+  - **The price is per card played, not per press** (`GameState.PlayEpoch`, `CatchPenaltyEpoch`).
+    `pushDiscard` is the only way a card reaches the pile and it moves the epoch on; a seat is
+    charged once per epoch, and `PenalizeFailedCatch` returns `charged=false` for every press after
+    that, which `hub.penalizeFailedCatch` answers with silence — no card, no broadcast, no notice.
+    Two reasons, and the second is the one that matters: a game that billed each press would be
+    taxing the reflex it spends the whole match asking for, and a table-wide `catch_failed` per
+    press is the amplification `catchGrace` was written to stop, back at ten messages a second.
+    A press that *lands* does not spend the epoch, so a Swap that puts two seats on one card can
+    still be answered twice.
+  - `catchRaceRecent` still separates the two kinds of failure, and it still matters even though
+    both now cost the same card: the target's window must have opened inside
+    `catchWindow + catchGrace` (5s + 2s) for the call to count as a lost race, and outside that it
+    is `ErrNoCatchWindow`. The grace is a network round trip plus the frame the button was drawn in.
+    `server/game/catch_window_test.go` owns both sides of the line.
+  - **A seat number the table does not have is still refused rather than charged**
+    (`handleCatchUno`), with a `noteRejection`: no client of ours composes it, so it is a forged
+    message and not a wager. A press naming *nobody* is the opposite — that is precisely what the
+    live button produces — and it is charged.
   - `Room.PenalizeFailedCatch(catcher)` draws the card and touches **nothing else** — not the turn,
     not `HasDrawn`, not the target. A failed call is a side bet on somebody else's obligation and its
     caller may not even be in turn. Like every draw it cannot fail: with every card in a hand the
-    caller simply gets away with it (see "A draw never fails").
+    caller simply gets away with it (see "A draw never fails") — and the epoch is spent all the
+    same, so a dry deck refunds nothing.
   - `hub.penalizeFailedCatch` broadcasts `catch_failed { player_index }` (the *caller's* seat) then
     `sendHandGrowth`. Both the human path (`handleCatchUno`) and the bot path (`handleBotCatch`) go
     through it — a bot that mistimes pays the same price, or the two are playing different games. A
@@ -222,11 +303,18 @@ won, and a one-card hand had made them finishes by accident.
     message that was free to send *and* free to fan out, at ten a second for the whole seven seconds
     a target's window is open. There is also nothing to announce: the table would be rendering a
     penalty nobody paid. The caller still gets the frame, because their button did do something.
-- **The client spends the catch button on press, not on the reply** (`noteCatchAttempt` sets
-  `CatchWindow.attempted`, which `deriveCatch` skips). The server answers a round trip later, and now
-  that a miss costs a card, a window left armed in the meantime lets one impatient double tap pay
-  twice for a single opinion. The 400ms `guardDoubleTap` is not that window. The window itself stays
-  open — it is still somebody else's obligation, and another player can still take it.
+- **The client spends the wager on press, not on the reply** (`noteCatchAttempt` sets
+  `CatchWindow.attempted`, which `deriveCatch` skips, **and** `store.catchSpent`). The server answers
+  a round trip later, and since a miss costs a card, a target left armed in the meantime lets one
+  impatient double tap pay twice for a single opinion. The 400ms `guardDoubleTap` is not that window.
+  The window itself stays open — it is still somebody else's obligation, and another player can still
+  take it — and **the button stays pressable**, because greying out under a thumb already on it is
+  the one thing the action bar exists not to do.
+- **`store.catchSpent` is the client's copy of `PlayEpoch`**, cleared by `applyCardPlayed`. It gates
+  the *blind* press only: with a target named, the press always goes. Without it, the second tap of a
+  double tap on a catch that landed would leave naming nobody, and the server would read it as a
+  fresh wager against a window that had just shut — a card, charged in the same breath as the win.
+  The server's guard would not have caught that one: a successful catch does not spend the epoch.
 - `store.catchFailed { seat, at }` (set by `applyCatchFailed`) drives a red pill in `<GameView />`,
   auto-cleared after `CATCH_FAIL_NOTICE_MS=2800`, plus the `penalty` sting in `soundsForTransition`.
   The penalty reads as an ordinary draw otherwise, which is exactly the wrong story: the card was a
@@ -291,6 +379,30 @@ won, and a one-card hand had made them finishes by accident.
   table would be a round stale for as long as the summary is up).
 - Server-owned on purpose: cumulative `Scores` cannot be split back into rounds once a player wins
   twice, and a client-side accumulator would differ per client after a reconnect.
+
+## A seat that walks out of a match
+
+`Room.RetireSeat`, and which of the two endings a departure gets is the hub’s (`notes/server.md`:
+two seats able to play have to be left, or the match ends and goes to whoever stayed). Leaving itself
+is never refused. This is what the domain does when the round carries on without the seat.
+
+- **The seat stays and stops playing.** Hands, scores, rounds won and the turn order are indexed by
+  it, so removing it mid-match would re-base every one of them under a running round. `Room.Retired`
+  is match-level and survives every deal; `GameState.Retired` is the copy each round is dealt with.
+- **The hand goes back into the deck, shuffled.** Those cards were hidden, so their new position
+  tells nobody anything; left in a hand nobody holds they would shrink the deck for everybody else
+  every time somebody left.
+- **Everything that walks the table skips it**: `nextTurn` (which is also why `ApplyEffect` counts
+  *active* seats, so a Reverse at three seats with one gone behaves as the Skip a duel makes it),
+  `rotateSeats` for a Global Switch (the modular step it replaced handed a hand to a seat nobody can
+  play from and the round stalled), `biggestLoser` for the next round’s opener, and the Swap target.
+- **A pending draw aimed at it is cleared**, not passed on: the next player never earned it.
+- **Its catch window is shut and its declaration marked spent**, so no client is left with
+  Contre-LOCO! armed on a seat that is not there.
+- **The scoreboard is untouched.** A departure is not a forfeit, and `ForfeitTo` is still the only
+  thing that ends a match early. A seat that had already banked the rounds can therefore still take
+  the match on the tiebreak chain: “neither wins nor loses by this act” is the rule, and excluding
+  them would be losing by it.
 
 ## Rematch (end of match)
 - **`rematch` is an ask every seat makes, not a host decision**, and the next match is dealt only

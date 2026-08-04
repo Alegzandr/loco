@@ -1,17 +1,27 @@
 <script lang="ts">
-  import type { ScoreboardEntryDTO } from '../types/protocol'
+  import type { Emote, MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import Confetti from './Confetti.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
+  import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
+  import { gameStore } from '../hooks/gameStore'
+  import { EMOTE_TTL_MS } from '../hooks/store/types'
+  import { EMOTE_ORDER } from './emotes'
 
   type Props = {
     winner: string
     myNickname: string
     scoreboard?: ScoreboardEntryDTO[]
+    /** The roster, for the evening's recap: it is indexed by seat, not by name. */
+    players?: PlayerDTO[]
+    /** Every match this table has finished, oldest first. */
+    matchHistory?: MatchRecordDTO[]
     matchOver?: boolean
     /** This match came out of the 1v1 queue: the next one is another pairing. */
     isMatchmade?: boolean
+    /** This match was against the server: there is nobody to ask for another. */
+    isSolo?: boolean
     /** The seat that abandoned, or null when the match ended on the cards. */
     forfeitBy?: number | null
     /** Our own seat, so we know which side of a forfeit we are on. */
@@ -26,6 +36,10 @@
     onRematch: () => void
     /** Back into the queue for another opponent (matchmade matches only). */
     onFindMatch: () => void
+    /** Deal another game against the server (solo matches only). */
+    onPlayBot?: () => void
+    /** Say one of the three things. The set is the server's; this only sends. */
+    onEmote?: (emote: Emote) => void
     /** Give the seat up and go back to the home screen. */
     onLeave: () => void
   }
@@ -34,8 +48,11 @@
     winner,
     myNickname,
     scoreboard,
+    players = [],
+    matchHistory = [],
     matchOver,
     isMatchmade,
+    isSolo,
     forfeitBy,
     mySeat,
     rematchOffers = [],
@@ -43,6 +60,8 @@
     hasTablemates = true,
     onRematch,
     onFindMatch,
+    onPlayBot,
+    onEmote,
     onLeave,
   }: Props = $props()
 
@@ -67,10 +86,38 @@
   const progress = $derived(
     isTable ? ` ${t.rematchProgress(rematchOffers.length, rematchNeeded)}` : '',
   )
-  const ranked = $derived((scoreboard ?? []).slice().sort((a, b) => b.score - a.score))
+  // Rounds won first, points second: the same order the server settles the match
+  // in, so the top row is always the name in the heading. Sorting on points here
+  // used to put a losing seat above the winner whenever one expensive round beat
+  // two cheap ones.
+  const ranked = $derived(
+    (scoreboard ?? []).slice().sort((a, b) => b.rounds_won - a.rounds_won || b.score - a.score),
+  )
+  const recap = $derived(buildMatchRecap(players, matchHistory))
+  const showRecap = $derived(hasEveningToShow(matchHistory))
   // Read through a $derived rather than out of the snapshot inside the markup:
   // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
+  const emotes = $derived(game.current.emotes)
+  const nameOf = $derived((s: number) => players.find((p) => p.index === s)?.nickname ?? '')
+
+  /*
+   * What is on screen comes off it on its own.
+   *
+   * The timer is armed to the **oldest bubble's absolute deadline**, never to
+   * "four seconds from whenever this last ran": a second emote arriving would
+   * otherwise re-arm the timer and hold the first one up for as long as the
+   * table kept talking. Same rule the drain bar and the deal animation follow.
+   */
+  $effect(() => {
+    if (emotes.length === 0) return
+    const oldest = Math.min(...emotes.map((e) => e.at))
+    const id = setTimeout(
+      () => gameStore.getState().pruneEmotes(),
+      Math.max(0, oldest + EMOTE_TTL_MS - Date.now()),
+    )
+    return () => clearTimeout(id)
+  })
 </script>
 
 <div class="container">
@@ -109,12 +156,57 @@
         {#each ranked as entry (entry.player_index)}
           <div class="scoreRow" class:scoreRowWinner={entry.nickname === winner}>
             <span class="scoreName">{entry.nickname}</span>
+            <!-- Rounds lead, points follow. The match was decided by the first
+                 and measured by the second, and a card that shouted the points
+                 was explaining the result with the wrong number. -->
             <span class="scoreDetails">
-              <span class="scoreVal">{entry.score} pts</span>
-              <span class="scoreWins">{entry.rounds_won}W</span>
+              <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
+              <span class="scoreGap">{entry.score} pts</span>
             </span>
           </div>
         {/each}
+      </div>
+    {/if}
+
+    <!-- The evening, match by match. Hidden until the table has rematched: one
+         column is the standings above, said twice. A cumulative total would hide
+         the thing worth seeing — a 3-0 sweep and three matches taken on the last
+         round are the same number and not the same evening. -->
+    {#if showRecap}
+      <div class="recap">
+        <h3 class="scoreboardTitle">{t.recapTitle}</h3>
+        <!-- Scrolls sideways past a few matches, so it takes a focus stop and a
+             ring: a box that scrolls has to be reachable from the keyboard.
+             Nothing inside it is focusable, which is exactly why the box itself
+             has to be — the same rule the content pages' .tableWrap follows. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div class="recapScroller" tabindex="0">
+          <table class="recapTable">
+            <thead>
+              <tr>
+                <th class="recapThName">{t.player}</th>
+                {#each matchHistory as _, i (i)}
+                  <th class="recapTh">{t.recapMatchCol.replace('%n', String(i + 1))}</th>
+                {/each}
+                <th class="recapTh recapThTotal">{t.recapWonCol}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each recap as row (row.index)}
+                <tr>
+                  <td class="recapName">{row.nickname}</td>
+                  {#each row.cells as cell, i (i)}
+                    <td class="recapCell" class:recapCellWon={cell.won}>
+                      <span class="recapRounds">{cell.roundsWon}</span>
+                      <span class="recapScore">{cell.score}</span>
+                    </td>
+                  {/each}
+                  <td class="recapCell recapTotal">{row.matchesWon}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </div>
     {/if}
 
@@ -126,6 +218,15 @@
       <ServerUpdating variant="card" />
     {/if}
 
+    <!-- A solo game has nobody to agree with, so it offers a press instead of an
+         ask: another hand against the server, or the queue, which is the other
+         half of the same offer the entry screen made. Nothing here is ever
+         rendered as a rematch — a button that said "waiting on them" over a seat
+         the server is playing would be a lie the screen tells itself. -->
+    {#if isSolo}
+      <button class="btn" onclick={() => onPlayBot?.()}>{t.playBotAgain}</button>
+      <button class="btn btnRematch" onclick={onFindMatch}>{t.findMatch}</button>
+    {:else}
     <!-- A rematch is an agreement, not a decision, and it reads the same at every
          table: ask, wait, accept. The middle state is the point of the whole
          thing, which is why the ask is public: knowing somebody is waiting on you
@@ -152,6 +253,32 @@
       {:else}
         <button class="btn" onclick={onFindMatch}>{t.searchAgain}</button>
       {/if}
+    {/if}
+    {/if}
+
+    <!-- Three fixed things, and the whole vocabulary the game has. After a close
+         1v1 against a stranger there was no way to say anything at all, and free
+         text would be a moderation surface this game promises not to have.
+         Nothing said here is stored, logged or carried anywhere: it is shown for
+         a few seconds and forgotten. -->
+    {#if onEmote}
+      <div class="emotes">
+        {#if emotes.length > 0}
+          <ul class="emoteFeed">
+            {#each emotes as e (e.at)}
+              <li class="emoteBubble" class:emoteMine={e.seat === mySeat}>
+                <span class="emoteWho">{nameOf(e.seat)}</span>
+                <span class="emoteWhat">{t.emotes[e.emote]}</span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="emoteRow" role="group" aria-label={t.emotesLabel}>
+          {#each EMOTE_ORDER as id (id)}
+            <button class="emoteBtn" onclick={() => onEmote?.(id)}>{t.emotes[id]}</button>
+          {/each}
+        </div>
+      </div>
     {/if}
 
     <!-- The way out, and the quietest thing on the card: leaving is what somebody
@@ -291,13 +418,99 @@
     font-weight: 700;
   }
 
-  .scoreWins {
+  /* The gap, not the result. Quiet is a hue here like everywhere else. */
+  .scoreGap {
     font: 700 11px/1.2 var(--font-display);
-    padding: 3px 8px;
-    border-radius: var(--radius-full);
-    background: var(--color-tertiary);
-    border: 1.5px solid var(--color-stroke);
-    color: var(--color-on-dark);
+    color: var(--color-muted);
+  }
+
+  .scoreRowWinner .scoreGap {
+    color: var(--color-on-secondary);
+  }
+
+  /* The evening's recap: a small dense grid under the standings, built like the
+     TAB table rather than like the trophy card above it — it is consulted, not
+     celebrated. */
+  .recap {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-md);
+    background: var(--color-surface-strong);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-md);
+  }
+
+  .recapScroller {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* The focus ring comes from tokens.css, which rings every [tabindex] on every
+     surface. A second declaration here would be a second definition of it. */
+
+  .recapTable {
+    width: 100%;
+    border-collapse: collapse;
+    font: 700 12px/1.2 var(--font-display);
+    color: var(--color-ink);
+  }
+
+  .recapTh,
+  .recapThName {
+    font: 700 10px/1.2 var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--color-muted);
+    padding: 0 6px 4px;
+    white-space: nowrap;
+  }
+
+  .recapThName {
+    text-align: left;
+  }
+
+  .recapThTotal {
+    color: var(--color-ink);
+  }
+
+  .recapName {
+    padding: 3px 6px;
+    max-width: 9ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recapCell {
+    padding: 3px 6px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* The seat that took that match. A hue plus a heavier weight, so the column
+     still reads at 720p once the card is re-encoded. */
+  .recapCellWon {
+    color: var(--color-primary);
+  }
+
+  .recapRounds {
+    font-size: 14px;
+  }
+
+  .recapScore {
+    margin-left: 4px;
+    font-size: 10px;
+    color: var(--color-muted);
+  }
+
+  .recapCellWon .recapScore {
+    color: var(--color-primary);
+  }
+
+  .recapTotal {
+    font-size: 15px;
   }
 
   .btn {
@@ -377,6 +590,105 @@
      nothing competing with the two offers above it. Quiet is a hue here as
      everywhere else (--color-muted, never ink at an opacity), and the row keeps
      its 44px of target even though nothing is drawn that tall. */
+  /* The three things, under the two offers and above the way out: it is the
+     smallest thing on the card that is not leaving. */
+  .emotes {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .emoteFeed {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding: 0;
+  }
+
+  .emoteBubble {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 5px 11px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--color-surface-strong);
+    font: 600 13px/1.3 var(--font-body);
+    color: var(--color-ink);
+    animation: emoteIn 0.22s var(--ease-bounce) both;
+  }
+
+  /* Our own, on the other side, so a table of six can tell who said what
+     without reading every name. */
+  .emoteMine {
+    align-self: flex-end;
+    background: var(--gradient-tertiary);
+    color: var(--color-on-dark);
+    border-color: var(--color-stroke);
+  }
+
+  .emoteWho {
+    font: 700 11px/1.3 var(--font-display);
+    color: var(--color-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 10ch;
+  }
+
+  .emoteMine .emoteWho {
+    color: var(--color-on-dark);
+    opacity: 0.75;
+  }
+
+  @keyframes emoteIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .emoteRow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .emoteBtn {
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    padding: 6px 10px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--color-surface-strong);
+    color: var(--color-body);
+    font: 700 13px/1.2 var(--font-display);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+      transform 0.12s var(--ease-bounce),
+      color 0.15s;
+  }
+
+  .emoteBtn:hover {
+    color: var(--color-ink);
+    transform: translateY(-2px);
+  }
+
+  .emoteBtn:active {
+    transform: translateY(1px);
+  }
+
   .btnQuit {
     width: 100%;
     min-height: 44px;
@@ -399,5 +711,16 @@
   :root[data-motion="reduce"] .card,
   :root[data-motion="reduce"] .emoji {
     animation: none;
+  }
+
+  /* Degrades to a readable static state, never to nothing: what somebody said is
+     information, and only the way it arrives was motion. */
+  :root[data-motion="reduce"] .emoteBubble {
+    animation: none;
+  }
+
+  :root[data-motion="reduce"] .emoteBtn:hover,
+  :root[data-motion="reduce"] .emoteBtn:active {
+    transform: none;
   }
 </style>

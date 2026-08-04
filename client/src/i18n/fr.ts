@@ -1,12 +1,14 @@
-﻿import type { Translations } from './en'
+import type { Translations } from './en'
 
 /**
  * French copy. Two conventions the whole file obeys:
  *
  * - **Tutoiement.** The game speaks to a player sitting at a table with their
  *   friends, not to a user of a service. `vous` put a counter between the two.
- * - **The table, not the room.** `salle` / `salon` are venue-booking words;
- *   everything a player joins, shares or leaves here is a *table*.
+ * - **The table, not the room.** `salle` / `salon` / `pièce` are venue-booking
+ *   words; everything a player joins, shares or leaves here is a *table*, and
+ *   one of the four places a match is dealt in is a *décor*. One word per thing:
+ *   `src/test/vocabulary.test.ts` fails if any of the three comes back.
  */
 export const fr: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
@@ -56,6 +58,9 @@ export const fr: Translations = {
   findMatch: 'Jouer en 1v1',
   findMatchHint: 'On te trouve quelqu’un',
   findMatchGo: 'Trouver un adversaire',
+  playBot: 'Jouer contre un bot',
+  playBotGo: 'Distribuer',
+  playBotAgain: 'Rejouer contre un bot',
   searchTitle: 'Recherche d’un adversaire',
   searchFresh: 'Reste là, ça prend souvent quelques secondes.',
   searchPatient: 'Toujours en recherche. Personne ne s’est encore assis en face.',
@@ -134,6 +139,8 @@ export const fr: Translations = {
   bestOf3: 'Meilleur des 3',
   bestOf5: 'Meilleur des 5',
   bestOf7: 'Meilleur des 7',
+  matchLengthUnit: 'min',
+  maxPlayersHint: 'C’est entre 2 et 6 que ça respire le mieux.',
 
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Piocher',
@@ -183,11 +190,11 @@ export const fr: Translations = {
     },
     rune: {
       name: 'Rune',
-      tagline: 'L’arrière-salle d’une taverne arcanique. Chêne sculpté, gemmes, chandelles.',
+      tagline: 'Le fond d’une taverne arcanique. Chêne sculpté, gemmes, chandelles.',
     },
     velvet: {
       name: 'Velvet',
-      tagline: 'Un salon art déco. Laiton, feutre bordeaux et lampes en veilleuse.',
+      tagline: 'Un fumoir art déco. Laiton, feutre bordeaux et lampes en veilleuse.',
     },
     orbit: {
       name: 'Orbit',
@@ -240,8 +247,29 @@ export const fr: Translations = {
   finalScores: 'Classement final',
   winsGame: 'l\'emporte\u00a0!',
   winsMatch: 'rafle le match\u00a0!',
+  roundsWonCount: (n) => (n === 1 ? '1 manche' : `${n} manches`),
+  recapTitle: 'La soirée',
+  recapMatchCol: 'Match %n',
+  recapWonCol: 'Gagnés',
   rematch: 'Revanche',
   leaveRoom: 'Quitter la table',
+  leaveMatchBtn: 'Quitter le match',
+  leaveMatchAsk: 'Tu quittes le match ?',
+  leaveMatchYes: 'Oui, je pars',
+  leaveMatchStay: 'Rester',
+  leaveMatchNoteSolo: 'Personne ne t\'attend. Le bot s\'en remettra.',
+  leaveMatchNoteRanked: 'En face, quelqu\'un joue pour de vrai. Le match est pour lui.',
+  leaveMatchNoteTable:
+    'La partie continue sans toi et ta place est perdue pour de bon. Préviens les autres avant de filer.',
+  leaveMatchNoteEnds:
+    'La partie s\'arrête là pour tout le monde, et revient à celui qui reste. Préviens-le avant de filer.',
+  departureNotice: '%player quitte la partie',
+  emotesLabel: 'Dis quelque chose',
+  emotes: {
+    gg: 'GG',
+    close: 'C’était serré',
+    nice: 'Bien joué',
+  },
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Langue',
@@ -260,8 +288,28 @@ export const fr: Translations = {
     global_switch: 'Rotation',
   },
 
+  // Une ligne par carte, lue à côté de son visuel. Plus courte que la puce
+  // correspondante de `rules` : le visuel fait reconnaître la carte, la phrase
+  // dit seulement ce qu'elle provoque.
+  cardBriefs: {
+    number: 'La couleur ou le chiffre. C\'est l\'essentiel de ta main.',
+    skip: 'Le joueur suivant saute son tour. En duel, la main te revient aussitôt.',
+    reverse: 'Le jeu repart dans l\'autre sens. En duel, ça revient à un Passe.',
+    draw_two: 'Le suivant pioche deux cartes, sauf s\'il répond par un +2 et fait suivre la pile.',
+    wild: 'Se pose sur n\'importe quoi. C\'est toi qui annonces la couleur.',
+    wild_draw_four:
+      'Se pose sur n\'importe quoi, tu annonces la couleur, et le suivant pioche quatre cartes.',
+    swap: 'Une carte colorée, jouée à ton tour. Tu désignes quelqu\'un et tu prends toute sa main. Il récupère la tienne.',
+    global_switch:
+      'Sans couleur, elle se pose sur tout : tu annonces la couleur, puis chaque main glisse d\'une place.',
+  },
+
   rulesTitle: 'Comment jouer',
   rulesClose: 'Fermer',
+  rulesTabRules: 'Règles',
+  rulesTabCards: 'Cartes',
+  rulesCardsLede:
+    'Huit familles de cartes. Les colorées existent en rouge, jaune, vert et bleu ; les trois dernières ignorent la couleur et se posent sur tout.',
 
   rules: [
     {
@@ -345,8 +393,9 @@ export const fr: Translations = {
       heading: 'Remporter le match',
       items: [
         'La longueur du match se choisit avant de distribuer\u00a0: manche unique, ou meilleur des 3, 5 ou 7.',
-        'Le plus gros total quand la dernière manche tombe rafle tout.',
-        'Égalité\u00a0? Le plus de manches gagnées, puis le plus petit total de cartes perdantes, puis une manche décisive.',
+        'Ce sont les manches gagnées qui emportent le match. Meilleur des 3, c\'est le premier à deux, pour de vrai.',
+        'Et ça s\'arrête dès que l\'avance est imprenable\u00a0: 2 à 0 en meilleur des 3, 4 à 1 en meilleur des 7, terminé.',
+        'Les points mesurent l\'écart, ils ne sacrent personne. À égalité de manches\u00a0? Le plus gros total, puis le plus petit total de cartes perdantes, puis une manche décisive.',
       ],
     },
   ] as const,
@@ -398,7 +447,6 @@ export const fr: Translations = {
     rematchTooEarly: 'Le match n\'est pas encore terminé.',
     alreadySearching: 'Tu cherches déjà une partie.',
     matchmadeUnavailable: 'Pas en 1v1.',
-    cannotLeaveMatch: 'Les cartes sont en jeu. Va au bout.',
     opponentGone: 'La place en face est vide.',
     afkForfeit: 'Trop longtemps sans jouer. Le match va à ton adversaire.',
     afkKicked: 'Trop longtemps sans jouer.',

@@ -120,6 +120,33 @@ test.describe('gameplay flow (single player vs bot)', () => {
   })
 
   /**
+   * The modal's second half. It opens on the rules; the Cards tab draws the deck
+   * with the game's own <Card />, which is the only thing that makes a Swap or a
+   * Global Switch recognisable to somebody who has never seen one.
+   */
+  test('rules modal draws the deck on its cards tab', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await page.getByRole('button', { name: T.rulesHowBtn }).click()
+
+    const modal = page.getByRole('dialog')
+    await expect(modal.getByRole('tab', { name: T.rulesTabRules })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await expect(modal.locator('.deck')).toHaveCount(0)
+
+    await modal.getByRole('tab', { name: T.rulesTabCards }).click()
+    // Real card faces, not a picture of one: `data-card-kind` is what <Card />
+    // stamps on the element it draws.
+    await expect(modal.locator('.deck [data-card-kind="swap"]')).toBeVisible()
+    await expect(modal.locator('.deck [data-card-kind="global_switch"]')).toBeVisible()
+    await expect(modal.getByRole('heading', { name: T.cardNameSwap })).toBeVisible()
+
+    await closeRulesModal(page)
+    await expect(rulesModalTitle(page)).not.toBeVisible()
+  })
+
+  /**
    * Adding a bot puts it in the player list; starting the game shows the canvas.
    */
   test('add bot and start game shows canvas and action bar', async ({ page }) => {
@@ -229,9 +256,12 @@ test.describe('gameplay flow (single player vs bot)', () => {
   })
 
   /**
-   * The action bar's centre slot belongs to Catch, and LOCO only borrows it at
-   * exactly one card. On a fresh deal (8 cards, nobody catchable) the centre
-   * therefore holds a disabled Catch and no LOCO button exists at all.
+   * The action bar's centre slot belongs to Catch and to nothing else, all
+   * match. On a fresh deal every hand is eight cards, so nobody is anywhere near
+   * owing a call: the centre holds a Catch that is present, in place, and dead,
+   * and the LOCO! chip above the bar is present, in place, and dead too. Both
+   * are on screen from the deal so that neither has to be found in the seconds
+   * it becomes worth pressing.
    */
   test('centre slot holds a disabled catch button on a fresh deal', async ({ page }) => {
     await createRoom(page, 'Alice')
@@ -241,7 +271,10 @@ test.describe('gameplay flow (single player vs bot)', () => {
     const catchBtn = page.getByRole('button', { name: T.catchBtn })
     await expect(catchBtn).toBeVisible({ timeout: 10_000 })
     await expect(catchBtn).toBeDisabled()
-    await expect(page.getByRole('button', { name: T.unoBtn })).toHaveCount(0)
+
+    const unoBtn = page.getByRole('button', { name: T.unoBtn })
+    await expect(unoBtn).toBeVisible()
+    await expect(unoBtn).toBeDisabled()
   })
 
   /**

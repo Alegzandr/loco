@@ -480,12 +480,19 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     (`PenalizeFailedCatch` returns nothing and the broadcast went out anyway). `catchGrace` (2s past
     `catchWindow`) is the line: inside it the window was live when the button was drawn and the
     message lost the trip, which is a wager; outside it no client was drawing that button at all, so
-    `ErrNoCatchWindow` is refused to its sender, charged nothing, told to nobody, and — being neither
-    a lost race nor a state mismatch — counted by `noteRejection` toward `suspected_cheats`.
-    The same reasoning covers a target index the table does not have: it used to answer the
-    missed-catch string and note nothing at all. And the free-once-the-piles-are-dry half survived
-    `catchGrace` on its own, *inside* a live window: `penalizeFailedCatch` now answers an empty draw
-    to its caller alone, so a penalty nobody paid is not a table-wide send either.
+    `ErrNoCatchWindow` was refused to its sender, charged nothing and told to nobody.
+    And the free-once-the-piles-are-dry half survived `catchGrace` on its own, *inside* a live
+    window: `penalizeFailedCatch` answers an empty draw to its caller alone, so a penalty nobody paid
+    is not a table-wide send either.
+  - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is now live
+    from three cards out, so "no client was drawing that button" is no longer true of a press with
+    no window behind it — that press is the mechanic, and `ErrNoCatchWindow` costs its caller a card
+    like every other miss (`docs/rules.md` §14.6). What replaces the free-refusal as the amplifica-
+    tion guard is `GameState.PlayEpoch`: **a seat is charged at most once per card played**, and
+    every press after that draws nothing, broadcasts nothing and answers nobody. Ten messages a
+    second still buy exactly one `catch_failed`. What stays refused-and-counted is a `target_index`
+    the table does not have: no client of ours composes it, so it is a forged message rather than a
+    wager, and `noteRejection` still counts it toward `suspected_cheats`.
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply
@@ -645,6 +652,99 @@ ordinary room's on purpose.
 - The queue is left on **disconnect** as well as on cancel (`handleDisconnect` calls `dequeue` before
   anything else): a socket that has gone away must not be paired with somebody who is still there.
 
+## The 1v1 against the server (`play_bot`)
+
+The queue's *experience* with the queue taken out: a nickname, one press, a hand. It exists because
+the searching screen's own copy admits, at twenty seconds, that the wait may not end — and the only
+thing it could offer next was "open a table", which is three screens and a code nobody is going to
+share. A first-time visitor spends about ten seconds before closing the tab, so the alternative had
+to be a press.
+
+- **It is not "open a table and add a bot".** That path exists and is unchanged; this one produces no
+  code, no waiting room, no host controls and no configuration, because every one of those is a
+  decision the mode’s whole promise is that you do not have to make.
+- **The table is hostless, like a matchmade one** (`table.solo` → `table.hostless` →
+  `refuseWithoutHost`). What it does **not** borrow is the matchmade *timing*: the 15 s reconnect
+  hold and the two-timeout AFK threshold exist because a stranger will not wait for you, and the seat
+  opposite this player is the server. Reconnect, drain and the snapshot treat it as any other table
+  in progress, and `solo` travels in `roomSnapshot` so a restored match does not come back offering
+  host controls over a game that has none.
+- **The deal carries the identity.** Every other way into a match announces the seat first
+  (`room_created`, `room_joined`, `match_found`); this one deliberately has no screen before the
+  board, so `game_started` carries `room_code`, `player_id` and `session_token`. Without them a
+  reload could not reclaim the seat, and with a separate message in front of it the client would
+  flash a screen it has no state for. The client tells the two paths apart by exactly that: a
+  `game_started` carrying a room code is a solo deal.
+- **`rematch` is refused here, and only here.** The ask has no addressee: the quorum would be one, so
+  the "agreement" would be a decision wearing an agreement’s clothes, and the deal it triggered would
+  drop the player into a lobby this mode has no host to start. Another game is another `play_bot`,
+  which is what the game-over screen sends — and which releases the finished seat first, exactly as
+  `find_match` does.
+- **It touches nothing the queue owns.** No `h.queue`, no `matchmaking_queue`, no
+  `matches_matchmade`. That is not tidiness: the queue is the one server-global the E2E suite has to
+  serialise around (`helpers/matchmakingQueue.ts`), and a second entry point quietly joining it would
+  make every parallel run flaky in a way nothing points at. `/metrics` gains `matches_solo` instead,
+  beside the queue’s own number, because the two answer one operator question together: whether an
+  empty-feeling queue is sending people to the bot or sending them away.
+
+## Leaving a match in progress
+
+`handleLeaveRoom` / `leaveAtTable`, `Hub.canWalkOut` + `Room.RetireSeat`. **There is no room and no
+moment in which leaving is refused.** What the table decides is what the departure *does*, never
+whether the player may go.
+
+**The problem it fixes is not the leaver’s.** Somebody who genuinely has to go used to have exactly
+one exit: stop pressing things and let the turn clock auto-draw and auto-pass for them until the AFK
+threshold. That is four timeouts, roughly two rounds, played out at thirty seconds a turn by
+everybody else, watching an empty chair take its turn. One player leaving is cheaper than that for
+the whole table — and at two or three seats, where the refusal used to stand hardest, it is cheaper
+still: the alternative there was not a spoiled round but a board nobody could get off.
+
+The four answers, in the order `leaveAtTable` asks them:
+
+- **A matchmade match forfeits.** The honest answer between two strangers, unchanged.
+- **A solo game and an abandoned match close the table.** One case in the code, because it is one
+  case in fact: nothing at that table will act again once this socket goes. No forfeit either —
+  `remainingSeat` would hand the match to a bot or to a player who is not there.
+- **Above the floor the round carries on** (`canWalkOut`, `retireSeat`). `playableSeats` counts what
+  can act: a bot, or a human who is here or inside their reconnect window. A seat whose hold has run
+  out is not one.
+- **At or below it the match ends and goes to the seat that stayed**, announced as a forfeit with the
+  scoreboard untouched. A table of two is a 1v1 whichever door it was opened through, and the
+  alternative is leaving the survivor in front of a board that will never move again — which is the
+  state `abandonedBy` exists to end, arrived at deliberately instead of by an expiry.
+
+- **`WalkOutFloor` is 2**: what a match needs to keep being a match, not a politeness threshold. It
+  was 3 when leaving was a privilege a big table could afford; it is now the line between the two
+  endings above.
+- **Evaluated once, at the moment of the ask.** If a later disconnect takes the table under the floor
+  while the round runs, nothing is re-decided: what happened was a departure, and reconsidering it
+  afterwards would mean a player who left is somehow still at the table.
+- **The seat is retired, not removed.** Hands, scores, rounds won and the turn order are all indexed
+  by it, and a running match cannot re-base any of them. So the seat stays, `table.gone` records the
+  absence exactly as an expiry does, and the domain takes it out of the *round*: the hand goes back
+  into the deck (shuffled — those cards were hidden, and leaving them in a hand nobody holds would
+  shrink the deck for everybody else every time somebody left), `nextTurn` steps over it,
+  `rotateSeats` leaves it out of a Global Switch, `biggestLoser` never picks it to open a round, a
+  Swap cannot name it, and it is dealt nothing from then on.
+- **A pending draw stack aimed at the leaver dies with the seat.** Passing it on would be a penalty
+  the next player never earned; holding it would be a debt nobody can pay.
+- **The scoreboard is left exactly as it stood.** This is a departure, not a forfeit: the rounds they
+  won stay won, the points stay where they are, and the act of leaving neither wins nor loses the
+  match. It follows that a seat that had already banked enough rounds can still take the match on
+  the tiebreak chain, which is the honest reading of “they neither win nor lose by this”.
+- **The token is spent and the seat cannot be reclaimed.** The hand is in the deck; there is nothing
+  to come back to.
+- **The control is a chip in the board’s top-right chrome row, and never on the action bar.** That
+  bar is a fixed three-column grid so a reaction can be aimed at it, and it must not grow a fourth
+  control (see `visual.md`). The question takes the chip’s place, out of the flow, so nothing on the
+  board moves for it — the safe answer first and coloured, Escape through the one hook, exactly as
+  the waiting room’s own confirmation works. It is drawn at every table now, and what changes with
+  the table is the line under the question: what leaving costs the people still holding cards.
+- **The seats that stay are told, by name.** `player_left` already carried the nickname and the seat;
+  the client turns it into a pill on the board. A departure moves the turn and shortens the order,
+  and the roster alone cannot explain that — held and gone are both `connected: false`.
+
 ## Freeing a seat somebody else is in
 `handleKickPlayer`. Every other host control describes the table (the format, the size, when to
 deal); this one acts on a person, so it is the strictest thing in the lobby.
@@ -705,6 +805,34 @@ after.
   can decline, and the press costs nothing that cannot be pressed back. The client asks first; that
   is a UI decision about a two-item menu, not a protocol one.
 
+## The three things a player can say
+
+`hub/emotes.go`, `protocol.AllEmotes`. After a close 1v1 against a stranger there was no way to say
+anything at all — not “good game”, not anything. Three fixed emotes is the smallest thing that fixes
+that, and the smallest is the point.
+
+- **No free text, ever.** Free text is a moderation surface, and this game has no way to keep the
+  promise that comes with one: “we collect nothing” is the compliance strategy rather than an
+  accident (`notes/legal.md`). Three is enough to be gracious and too few to be abusive, which is
+  the only property that matters here.
+- **The set is closed and it is the server’s.** An identifier travels, not a string, and one this
+  server does not know is refused and counted (`noteSuspect`) rather than relayed: a client cannot
+  invent a fourth. The words are the client’s (`t.emotes`), in the player’s own language.
+- **Nothing is kept.** Not in the event log, not on the `Room`, not in the drain snapshot. The only
+  state anywhere is `table.emoteAt`, which is *when* a seat last spoke and never what it said, and
+  it goes with the match (`resetForNextMatch`). The client drops a bubble after four seconds.
+- **The game-over screen and nowhere else.** Anywhere earlier it would be something to do *to*
+  somebody mid-round, which is what a reaction game least needs. Refused through the same door every
+  other out-of-context message uses.
+- **A refusal answers its sender and nobody else.** The per-socket token bucket already bounds the
+  traffic; `EmoteCooldown` (2 s per seat) bounds the *screen*, because ten a second inside the
+  bucket’s budget is a wall of pills over a scoreboard somebody is reading. Both refusals broadcast
+  nothing, or a refused emote would be cheaper to send than an accepted one — the rule every
+  rate-limited message in this server is written to.
+- **Never to or from a bot.** A seat the server plays has no opinion about the match and no socket to
+  receive one. The guard is written down even though it is unreachable: the rule is about the seat,
+  not about the transport.
+
 ## A rematch by agreement
 `handleRematch`. It was the host's decision and it is nobody's now. The host's standing is over the
 things that describe a table before it deals: the format, the size, when to start. Whether four
@@ -758,22 +886,21 @@ strangers will not, and the player who is still at the table did nothing wrong.
 - **The AFK path forfeits rather than kicks.** Closing the socket would only start a second wait (the
   reconnect hold) for somebody who has already proved they are not there, and the opponent would have
   sat through both. The away player is sent `afk_forfeit` first so their own screen can explain it.
-- `leave_room` is the deliberate version: immediate, no wait. It is **refused** in an ordinary match
-  in progress (`you cannot leave a match in progress`): that UI offers no way out once the cards are
-  dealt, and one arriving on the wire would hand a group's match away. Before the deal it is allowed
-  everywhere and is not a forfeit at all: the waiting room has a quit button for host and guest
-  alike, `releaseSeat` frees the seat on the spot and the rest of the table gets `player_left`. That
-  is the whole point of sending it rather than closing the tab, which would hold the slot instead.
-- **That refusal lifts once there is nobody to refuse on behalf of.** It protects a group's match from
-  one member walking out, and it assumed there was a match left to protect. There was a state where
-  there was not: the other seat's socket goes, its hold expires, and from then on nothing at that
-  seat will ever act again — the clock auto-draws and auto-passes for it every 30 s until the round
-  runs out, `leave_room` comes back refused, and the survivor's only way out of the *game* is closing
-  the browser. That was the one state in LOCO with no in-game action available. `table.abandonedBy`
-  is the question that ends it: every other seat a human, with no socket **and no hold left**. Away
-  is not gone — while the hold is running the refusal stands, which is the whole meaning of the hold.
-  No forfeit is issued, because `remainingSeat` would award the match to the seat that is not there;
-  the seat is swept and the table is closed.
+- `leave_room` is the deliberate version: immediate, no wait, and **refused nowhere**. In a match of
+  two it does exactly what the two expiries above do — the match ends and goes to the seat that
+  stayed — and at a bigger table the round carries on without the seat. The full set of answers is in
+  *Leaving a match in progress* above. Before the deal it is not a forfeit at all: the waiting room
+  has a quit button for host and guest alike, `releaseSeat` frees the seat on the spot and the rest
+  of the table gets `player_left`. That is the whole point of sending it rather than closing the tab,
+  which would hold the slot instead.
+- **A table nobody can come back to is closed rather than forfeited.** The other seat's socket goes,
+  its hold expires, and from then on nothing at that seat will ever act again — the clock auto-draws
+  and auto-passes for it every 30 s until the round runs out. `table.abandonedBy` is the question:
+  every other seat a human, with no socket **and no hold left**. Away is not gone — while the hold is
+  running the seat is somebody who may return, so leaving in front of it is the ordinary 1v1 ending
+  and the match is theirs to come back to. Once it is gone, no forfeit is issued at all, because
+  `remainingSeat` would award the match to the seat that is not there: the seat is swept and the
+  table is closed.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.

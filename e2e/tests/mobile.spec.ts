@@ -234,6 +234,28 @@ test.describe('mobile viewport', () => {
     expect((await links.first().boundingBox())!.height).toBeGreaterThanOrEqual(40)
     await expect(drawer.locator('a[href="/"]')).toHaveCount(0)
 
+    // The prose is one press away, which at this width it was not: the footer
+    // row is hidden here and the drawer carries no copy, so a first visit was a
+    // logo, a tagline, two buttons and a burger. The row shuts the drawer and
+    // opens the same sheet a wide screen opens from the footer.
+    const about = drawer.locator('#navAbout')
+    await expect(about).toBeVisible()
+    expect((await about.boundingBox())!.height).toBeGreaterThanOrEqual(40)
+    await about.click()
+    await expect(drawer).toBeHidden()
+    await expect(page.locator('.homeSheetCard')).toBeVisible()
+    // And the page still does not scroll, at the one width where the sheet has
+    // to fight the board for the screen.
+    expect(
+      await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight + 1),
+    ).toBe(false)
+    // Closed again by its own footer button, and the drawer comes back on the
+    // burger rather than being left half-open behind it.
+    await page.locator('.homeSheetBtn').click()
+    await expect(page.locator('.homeSheetCard')).toBeHidden()
+    await burger.click()
+    await expect(drawer).toBeVisible()
+
     // And no prose under them. The drawer used to end with the sheet's two
     // paragraphs, which made it a taller, wordier object than the one a content
     // page opens one tap later; the two are the same menu now, differing only in

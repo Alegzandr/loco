@@ -11,6 +11,7 @@
     turnCountdownSfx,
   } from '../hooks/viewEffects.svelte'
   import { cardPlay, boardShake, mapGate } from '../hooks/gamePlay.svelte'
+  import { escapeKey } from '../hooks/escapeKey.svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { resolveServerError } from '../i18n/serverErrors'
   import type { WsStatus } from '../hooks/webSocketPolicy'
@@ -32,6 +33,7 @@
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { resolveSwapNoticeText } from './swapNoticeText'
+  import { isCatchLive } from './catchAvailability'
   import { e2ePlayCard } from '../dev/e2eBridge.svelte'
 
   type Props = {
@@ -46,19 +48,39 @@
      */
     onRetryConnection?: () => void
     /**
-     * Give the seat up. Only ever reachable from the abandoned-table curtain
-     * below: an ordinary match refuses `leave_room` on purpose, because walking
-     * out is not a move, and the only case that refusal was never meant to cover
-     * is the one where there is nobody left to walk out on.
+     * Give the seat up. Two ways here, and they are not the same thing.
+     *
+     * The abandoned-table curtain below is the older one: nobody is left and
+     * nobody can come back, so there is nothing to walk out on.
+     *
+     * The other is the chip, drawn at every table: somebody who genuinely has
+     * to leave has no other exit but the turn clock, which auto-passes for an
+     * empty chair until the AFK threshold and spoils two rounds for everybody
+     * else rather than one. The server never refuses it; what the table decides
+     * is what the departure does, and the note under the question says so.
      */
     onLeave?: () => void
+    /**
+     * Showcase only: mounts straight into the walk-out question, which is
+     * otherwise component-local state no scene could reach. Same trick as
+     * `WaitingRoom`'s own `initialConfirmLeave`.
+     */
+    initialConfirmLeave?: boolean
   }
 
-  let { onSend, wsStatus, onRetryConnection, onLeave }: Props = $props()
+  let {
+    onSend,
+    wsStatus,
+    onRetryConnection,
+    onLeave,
+    initialConfirmLeave = false,
+  }: Props = $props()
 
   const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
   const SWAP_NOTICE_MS = 3500
   const CATCH_FAIL_NOTICE_MS = 2800
+  /** A seat leaving is the slowest of the three to read: it names somebody. */
+  const DEPARTURE_NOTICE_MS = 4000
   /** How long an in-game refusal stays on screen. */
   const ERROR_TOAST_MS = 2500
 
@@ -83,6 +105,45 @@
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const lastAction = new Map<string, number>()
   let showRules = $state(false)
+  // The walk-out question, held here and not in a modal: it takes the chip's
+  // place under the row it was pressed from, so the board does not move.
+  let confirmLeave = $state(initialConfirmLeave)
+
+  /**
+   * What leaving costs the people who are still holding cards.
+   *
+   * The way out itself is never conditional — a player who has to go has to go,
+   * and the only alternative exit is the turn clock auto-passing for an empty
+   * chair. What is conditional is the sentence under the question, because the
+   * four tables this game has are four different departures: the bot minds
+   * nothing, a stranger is handed the match, a table of four keeps playing, and
+   * a table of two ends where it stands.
+   *
+   * Counted the way the server counts it (`Hub.canWalkOut`, `WalkOutFloor`): a
+   * seat counts while it is a bot, or a human whose hold has not run out —
+   * `goneSeats` is written only by the `player_left` that names a seat, and held
+   * is not gone. If the two ever disagree the server still decides; what is at
+   * stake here is the wording, not the permission.
+   */
+  const playableSeats = $derived(
+    g.players.filter((p) => p.is_bot || !g.goneSeats.includes(p.index)).length,
+  )
+  const leaveNote = $derived(
+    g.isSolo
+      ? t.leaveMatchNoteSolo
+      : g.isMatchmade
+        ? t.leaveMatchNoteRanked
+        : playableSeats - 1 >= 2
+          ? t.leaveMatchNoteTable
+          : t.leaveMatchNoteEnds,
+  )
+
+  // Escape backs out of the question, through the one hook every dismissible
+  // thing in the game uses. Bound only while it is up.
+  escapeKey(
+    () => confirmLeave,
+    () => (confirmLeave = false),
+  )
   // Touch devices have no TAB key, so the same table is also pinned open by a
   // button in the top cluster. Held and pinned are separate states on purpose:
   // releasing TAB must never close a table the player deliberately pinned.
@@ -150,6 +211,9 @@
   // depends on the whole match and re-arms its timer on every card anybody
   // plays. A derivation is compared, so what changes here is the deadline.
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
+  // Whether the centre button is pressable at all — a looser question than
+  // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
+  const catchLive = $derived(isCatchLive(g.players, g.myIndex))
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
   drainBar(() => turnFill, () => turnDeadline, 'auto')
@@ -197,6 +261,7 @@
   // matching trail animation lives in <GameBoard /> (keyed by swapNotice.at), and
   // the refusal is deliberately the shortest of the three.
   autoClear(() => g.catchFailed?.at, CATCH_FAIL_NOTICE_MS, () => g.clearCatchFailed())
+  autoClear(() => g.departureNotice?.at, DEPARTURE_NOTICE_MS, () => g.clearDepartureNotice())
   autoClear(() => g.swapNotice?.at, SWAP_NOTICE_MS, () => g.setSwapNotice(null))
   autoClear(() => g.errorMsg, ERROR_TOAST_MS, () => g.clearError())
 
@@ -359,7 +424,8 @@
     handSize={g.myHand.length}
     hasDrawn={g.hasDrawn}
     hasPlayableCard={play.hasPlayableCard}
-    canCatch={g.catchTarget !== null}
+    catchArmed={g.catchTarget !== null}
+    catchLive={catchLive}
     hasDeclared={g.myDeclared}
     onDraw={handleDraw}
     onPass={() => guardDoubleTap('pass', () => onSend({ type: 'pass_turn' }))}
@@ -372,7 +438,20 @@
         // retires this window — so reading `g.catchTarget` a second time would
         // name the *next* seat on the hook and catch the wrong player.
         const target = g.catchTarget
-        if (target === null) return
+        // No target is a real message, not a dropped one: the button is live
+        // whenever somebody is close to finishing, so this is the player betting
+        // that a seat owes the call. The server charges the miss — once per card
+        // played, so leaning on the button costs one card, not one per press.
+        if (target === null) {
+          // …but only one per board. The server charges a fruitless call once
+          // per card played, so a second blind press cannot cost anything —
+          // and the press right after a catch that landed would otherwise be
+          // read as a fresh wager and charged in the same breath as the win.
+          if (g.catchSpent) return
+          g.noteBlindCatchAttempt()
+          onSend({ type: 'catch_uno' })
+          return
+        }
         // Spend the button before the round trip: a call that arrives after the
         // target's LOCO! costs a card, and a second tap while the first is in
         // flight would buy the same opinion twice.
@@ -404,7 +483,54 @@
     <Preferences />
     <AudioSettings />
     <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
+    <!-- The way out of a match that is still being played. It is drawn at every
+         table, because a player who has to leave is going either way and the
+         other exit is an empty chair the clock plays for. Deliberately *not* on
+         the action bar: that bar is a fixed three-column grid so a reaction can
+         be aimed at it, and it must never grow a fourth control. This is chrome
+         — the same row the gear, the speaker and the "?" sit on, which never
+         moves and which nobody is aiming at mid-window. -->
+    {#if onLeave}
+      <button
+        class="leaveBtn hit-target"
+        aria-label={t.leaveMatchBtn}
+        title={t.leaveMatchBtn}
+        onclick={() => (confirmLeave = true)}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 4H6a2 2 0 00-2 2v12a2 2 0 002 2h8" />
+            <path d="M17 8l4 4-4 4M21 12H10" />
+          </g>
+        </svg>
+      </button>
+    {/if}
   </div>
+
+  <!-- The question takes the chip's place, under the row it was pressed from
+       and out of the flow, so nothing on the board moves for it. The safe answer
+       comes first and is the coloured one, exactly as in the waiting room:
+       leaving is the only press on this screen a player cannot undo. -->
+  {#if confirmLeave && onLeave}
+    <div class="leaveAsk">
+      <p class="leaveAskText">{t.leaveMatchAsk}</p>
+      <!-- What it costs the others, which is the half of this decision the
+           player cannot see from their own screen. -->
+      <p class="leaveAskNote">{leaveNote}</p>
+      <div class="leaveAskRow">
+        <button class="leaveStay" onclick={() => (confirmLeave = false)}>{t.leaveMatchStay}</button>
+        <button
+          class="leaveGo"
+          onclick={() => {
+            confirmLeave = false
+            onLeave?.()
+          }}
+        >
+          {t.leaveMatchYes}
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Standings: held open with TAB, or pinned by the button above. -->
   {#if showScores}
@@ -487,6 +613,18 @@
   {#if g.swapNotice}
     {#key g.swapNotice.at}
       <div class="swapNotice">{resolveSwapNoticeText(g.swapNotice, g.myIndex, g.players, t)}</div>
+    {/key}
+  {/if}
+
+  <!-- A seat that is out for the rest of the match, walked out or held until the
+       window closed. The table needs telling: the turn skips that chair from now
+       on and its cards went back into the deck, and the roster alone cannot say
+       it — held and gone are both `connected: false`. -->
+  {#if g.departureNotice}
+    {#key g.departureNotice.at}
+      <div class="departureNotice">
+        {t.departureNotice.replace('%player', g.departureNotice.nickname)}
+      </div>
     {/key}
   {/if}
 
@@ -728,7 +866,37 @@
     animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
   }
 
+  /* A departure is table news, not an error and not a callout: the same pill in
+     the board's neutral ink, sitting above the other two so a seat leaving on
+     the same beat as a missed Contre-LOCO! does not cover it. */
+  .departureNotice {
+    position: absolute;
+    top: 13%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-surface-strong);
+    color: var(--color-ink);
+    font: 600 16px/1.25 var(--font-display);
+    padding: 10px 22px;
+    border-radius: var(--radius-full);
+    border: var(--stroke) solid var(--color-stroke);
+    box-shadow: var(--shadow-hard);
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 14;
+    animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
+  }
+
   @media (max-width: 480px) {
+    .departureNotice {
+      font-size: 13px;
+      padding: 8px 15px;
+      top: 10%;
+      max-width: 92%;
+      white-space: normal;
+      text-align: center;
+    }
+
     .catchFailNotice {
       font-size: 14px;
       padding: 9px 16px;
@@ -856,6 +1024,94 @@
     align-items: center;
     gap: 8px;
     z-index: 46;
+  }
+
+  /* The way out, in the chip row. Same body as the scores chip beside it: this
+     is chrome, and a control that looked different here would read as part of
+     the game. */
+  .leaveBtn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--color-surface-card);
+    color: var(--color-muted);
+    box-shadow: 0 3px 0 var(--color-stroke-soft);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: color 0.15s;
+  }
+
+  .leaveBtn:hover {
+    color: var(--color-ink);
+  }
+
+  /* Out of the flow, under the row it belongs to: the board is a fixed
+     coordinate space and nothing here may push it around. */
+  .leaveAsk {
+    position: absolute;
+    z-index: 46;
+    top: calc(var(--space-base) + var(--topbar-h) + var(--space-sm) + var(--safe-top));
+    right: calc(var(--space-base) + var(--safe-right));
+    width: min(280px, calc(100vw - 2 * var(--space-base)));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--color-surface-card);
+    border: var(--stroke) solid var(--color-stroke);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-pop);
+  }
+
+  .leaveAskText {
+    margin: 0;
+    font: 600 14px/1.4 var(--font-body);
+    color: var(--color-ink);
+  }
+
+  /* Quiet is a hue and never an opacity: this is the consequence, under the
+     question, and it must read at a glance without competing with it. */
+  .leaveAskNote {
+    margin: 0;
+    font: 500 13px/1.45 var(--font-body);
+    color: var(--color-muted);
+  }
+
+  .leaveAskRow {
+    display: flex;
+    gap: var(--space-sm);
+  }
+
+  /* The safe answer first and coloured, the way the waiting room's is. */
+  .leaveStay,
+  .leaveGo {
+    flex: 1;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    font: 700 14px/1.2 var(--font-display);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .leaveStay {
+    background: var(--gradient-tertiary);
+    color: var(--color-on-dark);
+  }
+
+  .leaveGo {
+    background: var(--color-surface-strong);
+    color: var(--color-muted);
+  }
+
+  .leaveGo:hover {
+    color: var(--color-ink);
   }
 
   /* The rules opener is <RulesButton />, which carries its own chip styling. */

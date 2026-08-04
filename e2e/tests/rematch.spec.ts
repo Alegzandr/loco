@@ -267,4 +267,32 @@ test.describe('rematch', () => {
 
     await guestCtx.close()
   })
+
+  // The evening, not the match. A rematch nils the scoreboard, so two matches on
+  // one code used to leave nothing able to say who won the night.
+  test('keeps a match-by-match recap across a rematch', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+    await winBO1(page)
+
+    // One match is one column, which is the standings above it said twice: the
+    // block has to stay off until there is an evening to show.
+    await expect(page.getByText(T.recapTitle)).toHaveCount(0)
+    expect((await getState(page))?.matchHistory ?? []).toHaveLength(1)
+
+    await clickRematch(page)
+    await startGame(page)
+    await winBO1(page)
+
+    const s = await getState(page)
+    expect(s?.matchHistory ?? []).toHaveLength(2)
+    // Both matches were taken by seat 0, and the scoreboard beside it restarted.
+    expect((s?.matchHistory ?? []).map((m) => m.winner_index)).toEqual([0, 0])
+
+    await expect(page.getByText(T.recapTitle)).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText('Match 1')).toBeVisible()
+    await expect(page.getByText('Match 2')).toBeVisible()
+    await expect(page.getByText(T.recapWonCol)).toBeVisible()
+  })
 })

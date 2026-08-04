@@ -29,6 +29,7 @@ type hubMetrics struct {
 	reconnectExpirations atomic.Int64 // reconnect windows that expired without the player coming back
 	matchmakingQueue     atomic.Int32 // players currently waiting for a 1v1 opponent (operator-only)
 	matchesMatchmade     atomic.Int32 // matches created by pairing two queued players
+	matchesSolo          atomic.Int32 // matches dealt against the server (play_bot)
 	matchesInFlight      atomic.Int32 // matches a shutdown would interrupt; only maintained while draining
 	handlerPanics        atomic.Int64 // handler panics the event loop recovered from; any value above 0 is a bug
 	connsRefused         atomic.Int64 // upgrades refused by the global or per-network connection ceiling
