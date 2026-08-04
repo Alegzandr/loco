@@ -616,6 +616,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   pressed**: switch rows 50px, segmented options 38px, the language control 42px, a 14px slider track
   under a 26px thumb. **A section in either is grouped by space and a micro-caps heading, never by a
   rule drawn across the card** — an ink line inside an ink outline cuts the panel in half.
+- **Anything that opens over a screen declares its own `text-align`** (`RulesModal`'s `.backdrop`,
+  both panels' `.panel`): the property inherits and `position: fixed` does not stop it, so an
+  overlay that sets nothing is set by whatever screen is underneath — the searching screen centres
+  its column, and the rulebook opened from there came out centred. Pinned by source scan in
+  `rulesModal.test.ts` and `preferences.test.ts`; jsdom applies no component styles.
 - **That dropdown is ours, and it has to be**: a `<select>` is the closed control plus a list the OS
   paints, and `appearance: none` only ever reached the first, so the panel dropped a white system
   menu with a blue system highlight over a dark board. A button plus a `role="listbox"`, arrows and

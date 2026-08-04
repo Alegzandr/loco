@@ -200,6 +200,20 @@ describe('RulesModal', () => {
     })
   })
 
+  it('reads the same from every screen it opens over', () => {
+    // `text-align` inherits straight through a fixed child, so the screen
+    // underneath decides how the rulebook is set unless the overlay says
+    // otherwise: the searching screen centres its column, and the modal opened
+    // from there arrived with every heading, every bullet and the lede centred.
+    // jsdom lays nothing out, so the declaration is read off the source.
+    const src = readFileSync(
+      path.resolve(__dirname, '..', 'components', 'RulesModal.svelte'),
+      'utf8',
+    )
+    const backdrop = /\.backdrop\s*\{[^}]*\}/.exec(src)?.[0] ?? ''
+    expect(backdrop, 'the overlay sets its own alignment').toMatch(/text-align:\s*left/)
+  })
+
   it('offers no link out of the game', () => {
     // This modal opens mid-match. Anything navigable here is an invitation to
     // leave the table, new tab or not; the one thing to press is Close.

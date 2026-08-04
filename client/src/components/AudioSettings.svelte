@@ -233,6 +233,9 @@
     box-shadow: var(--shadow-pop);
     z-index: 200;
     animation: panelIn 0.22s var(--ease-bounce) both;
+    /* Same reason as the preferences panel: `text-align` inherits from the
+       screen this opens over, and the searching screen centres its column. */
+    text-align: left;
   }
 
   @keyframes panelIn {

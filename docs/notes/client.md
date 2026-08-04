@@ -1106,6 +1106,18 @@ switches: streamer mode, colour shapes, reduced motion.
   whose job is to be quiet. It is gone. The gap above the block and the micro-caps `.sectionLabel`
   heading — the same treatment as the panel title — do the grouping, and the track still sits in its
   own recessed card. Anything new in either panel groups the same way.
+- **A panel that opens over a screen sets its own `text-align`, because that property inherits and
+  `position` does not stop it.** The searching screen centres its column — it is a radar, a heading
+  and two buttons stacked in the middle — and the rules modal opened from there arrived with every
+  heading, every bullet and the deck's copy centred, while the same modal opened from the table read
+  normally. Nothing was wrong with either component: the alignment simply belonged to whichever
+  screen happened to be underneath. `.backdrop` in `RulesModal` and `.panel` in `Preferences` and
+  `AudioSettings` all declare `text-align: left` for that reason. It is a one-line rule with no
+  visible symptom on most screens, so it is pinned in source scans (`rulesModal.test.ts`,
+  `preferences.test.ts`) rather than left to be noticed: jsdom applies no component styles, and a
+  rendering test here would pass over any rule at all. **Anything new that opens over a screen takes
+  the same line** — the alternative is an overlay that is a different panel depending on where it
+  was opened from.
 - **Below 46rem it is a sheet, not a dropdown, and on the lobby the gear stands down.** 292px of
   panel hanging off a 40px chip is a desktop object: four settings, two of them with a sentence
   under them, in a column narrower than the thumb that opened it. At that width it becomes what the

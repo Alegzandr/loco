@@ -169,6 +169,11 @@
   .backdrop {
     position: fixed;
     inset: 0;
+    /* This opens over whatever screen asked for it, and `text-align` inherits
+       straight through a fixed child: the searching screen centres its column,
+       so the whole rulebook arrived centred there and nowhere else. An overlay
+       reads the same from every screen or it is a different panel each time. */
+    text-align: left;
     background: var(--color-scrim);
     backdrop-filter: blur(5px);
     z-index: 1000;
