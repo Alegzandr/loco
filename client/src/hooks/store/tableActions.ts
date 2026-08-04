@@ -107,6 +107,10 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
           ? false
           : s.myDeclared && updatedHand.length === 1,
         catchWindows,
+        // The board moved, so a Contre-LOCO! is a fresh read rather than the
+        // same one repeated. This is the client's copy of the server's PlayEpoch
+        // and it is cleared by the same event the server counts.
+        catchSpent: false,
         swapNotice,
         lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
       }

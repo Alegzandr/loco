@@ -153,7 +153,17 @@ export const CARD_H = 108
 // render, and still far from the pill the old face used.
 export const CARD_RADIUS = 5
 // Reserved for the action bar so cards never overlap it.
-export const BOTTOM_RESERVE = 82
+//
+// The bar itself ends 82px up (14px clearance + 8px padding + a 44px button + 8px
+// + two 2px strokes). The remaining 58px is the LOCO! chip's band: 10px of gap,
+// a 30px chip, and 18px above it — of which 6 are eaten by the fan's own arc,
+// which drops the outermost cards below `baseY`.
+//
+// The chip is mounted above the bar, centred on the axis the hand is centred on,
+// and it is on screen for the whole match, so the hand has to clear it
+// permanently rather than at the moment it lights up. Sized down to what the
+// chip needs and no further: every pixel here comes off the felt.
+export const BOTTOM_RESERVE = 140
 
 // Opponent pill dimensions. Mirrored by <PlayerSlot />'s own styles and consumed
 // by the seat layout, so they live here rather than in either of those places.

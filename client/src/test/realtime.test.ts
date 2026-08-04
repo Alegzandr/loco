@@ -44,6 +44,9 @@ beforeEach(() => {
     lastPlay: null,
     showRoundSummary: false,
     catchWindows: [],
+    // Stated, not assumed: the wager is rationed per board, so a test that left
+    // it spent would silently be testing the guard instead of the press.
+    catchSpent: false,
   })
 })
 
@@ -102,9 +105,15 @@ describe('double-tap guard is per control', () => {
   })
 
   // A missed Contre-LOCO! costs a card, and the server answers a round trip
-  // later. The button is therefore spent on press, not on the reply — otherwise
-  // an impatient second tap pays twice for one opinion.
-  it('spends the catch button on the seat it was pressed for', () => {
+  // later. The press is therefore spent on the click, not on the reply.
+  //
+  // The button stays *pressable* — Bob is still on one card, so the table is
+  // still worth watching, and a control that greys out under the thumb is the
+  // thing this bar exists not to do. What is spent is the wager: the second tap
+  // sends nothing at all. Without that, it would go out naming no seat, and the
+  // server would read it as a fresh bet against a window that has just shut —
+  // a card, charged in the same breath as the catch that landed.
+  it('spends the catch wager on press, without disarming the button', () => {
     const now = Date.now()
     gameStore.setState({
       players: [seat(0, 'Alice', 3), seat(1, 'Bob', 1)],
@@ -115,11 +124,32 @@ describe('double-tap guard is per control', () => {
     const { onSend } = renderGame()
     const catchBtn = screen.getByRole('button', { name: 'Catch!' })
     fireEvent.click(catchBtn)
-    // Not the 400ms double-tap guard: the button itself is dead until the seat
-    // is settled, the same way our own LOCO! button is spent by a declaration.
-    expect(screen.getByRole('button', { name: 'Catch!' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Catch!' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Catch!' }))
     expect(onSend.mock.calls.filter((c) => c[0].type === 'catch_uno')).toHaveLength(1)
+  })
+
+  // The other half of the same rule. The button is live from three cards, so
+  // most presses are made on a read rather than on a window — and that read
+  // costs a card when it is wrong. Leaning on the button must cost one card,
+  // not one per press, which is what the server's "once per card played" says
+  // and what this stops us from testing the server's patience about.
+  it('sends one blind catch per board, and names no seat when doing it', () => {
+    gameStore.setState({
+      players: [seat(0, 'Alice', 5), seat(1, 'Bob', 3)],
+      catchWindows: [],
+    })
+    const { onSend } = renderGame()
+    const catchBtn = screen.getByRole('button', { name: 'Catch!' })
+    expect(catchBtn).toBeEnabled()
+
+    fireEvent.click(catchBtn)
+    fireEvent.click(catchBtn)
+    fireEvent.click(catchBtn)
+
+    const blind = onSend.mock.calls.filter((c) => c[0].type === 'catch_uno')
+    expect(blind).toHaveLength(1)
+    expect(blind[0][0].target_index).toBeUndefined()
   })
 })
 

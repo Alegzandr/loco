@@ -98,18 +98,22 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         chosen_color: 'red',
       })
 
-      // The catch button holds the centre slot at all times and is *enabled* by
-      // the window opening — it is never mounted or unmounted, so it cannot move
-      // out from under a cursor already parked on it.
+      // The catch button holds the centre slot at all times and is never mounted
+      // or unmounted, so it cannot move out from under a cursor already parked
+      // on it. It is pressable from the moment a seat is near the finish; what
+      // the window opening adds is the *armed* cue.
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })
-      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await expect(catchBtn).toHaveClass(/\barmed\b/, { timeout: 5_000 })
       const armed = await getState(alice)
       expect(armed?.catchTarget).toBe(bobIdx)
       expect(armed?.unoTimerEnd).not.toBeNull()
 
       // Declaring closes the window — you cannot catch someone who called it.
+      // The button stays pressable, because Bob is still one card from the end
+      // and pressing it is still a wager; it simply stops promising a target.
       await sendMsg(bob, { type: 'declare_uno' })
-      await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
+      await expect(catchBtn).not.toHaveClass(/\barmed\b/, { timeout: 5_000 })
+      await expect(catchBtn).toBeEnabled()
       expect((await getState(alice))?.catchTarget).toBeNull()
     } finally {
       await ctx1.close()
@@ -142,6 +146,8 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
     await expect(unoBtn).toBeEnabled({ timeout: 5_000 })
     await unoBtn.click()
 
+    // The chip stays where it is and goes dead. Nothing on the bar moves when a
+    // control is spent, here or anywhere else on it.
     await expect(unoBtn).toBeDisabled({ timeout: 5_000 })
     expect((await getState(page))?.myDeclared).toBe(true)
   })
@@ -151,11 +157,11 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
    * after the declaration costs its caller a card.
    *
    * The tap itself has to go down the socket rather than through the button:
-   * the client disables Catch the instant `uno_declared` arrives, so by
-   * construction a missed call is a message that left while the button was
-   * still armed. That is the race this rule exists for, and it is the one part
-   * of the flow the UI cannot stage. The button's own half — spent on press —
-   * is asserted from the click just below.
+   * the client disarms Catch the instant `uno_declared` arrives and spends the
+   * wager on the press, so by construction a missed call is a message that left
+   * while the window was still open. That is the race this rule exists for, and
+   * it is the one part of the flow the UI cannot stage. The button's own half —
+   * spent on press — is asserted from the click just below.
    */
   test('a Contre-LOCO! that loses its race costs the caller a card', async ({
     browser,
@@ -192,13 +198,13 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         card: { color: 'red', kind: 'number', value: 7 },
         chosen_color: 'red',
       })
-      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await expect(catchBtn).toHaveClass(/\barmed\b/, { timeout: 5_000 })
 
       const handBefore = (await getState(alice))?.myHand?.length ?? 0
 
       // Bob calls it; Alice's tap was already on its way.
       await sendMsg(bob, { type: 'declare_uno' })
-      await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
+      await expect(catchBtn).not.toHaveClass(/\barmed\b/, { timeout: 5_000 })
       await sendMsg(alice, { type: 'catch_uno', target_index: bobIdx })
 
       await alice.waitForFunction(
@@ -217,17 +223,71 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
   })
 
   /**
-   * §14.6's floor: the price is for losing a race, so a caller who was never in
-   * one pays nothing and the table hears nothing.
-   *
-   * This can only be sent down the socket, because no client of ours can
-   * produce it: the button is armed on the seats the server names in
-   * `catch_seats`, and Bob is holding a full hand. Which is exactly why it had
-   * to be priced — treated as a lost race it charged a card, put a catch_failed
-   * banner in front of every seat at whatever rate the limiter allows, and went
-   * free the moment the piles ran dry.
+   * The centre button wakes up on a read of the table, not on the server's
+   * permission: three cards in somebody else's hand is close enough to the
+   * finish to be worth watching, and two of them can leave in one interrupt.
+   * A control that only unlocked once a window was already open could only ever
+   * be answered, and the window it answers is five seconds long.
    */
-  test('a Contre-LOCO! on a seat that was never on the hook costs nothing', async ({
+  test('Catch! is pressable from three cards out, and dead above that', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', roomCode)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
+      await waitForTableOpen(alice)
+
+      const catchBtn = alice.getByRole('button', { name: T.catchBtn })
+      // Four cards is one too many: the button is present, in place, and dead.
+      await debugSetState(bob, {
+        hand: [
+          { color: 'red', kind: 'number', value: 1 },
+          { color: 'red', kind: 'number', value: 2 },
+          { color: 'red', kind: 'number', value: 3 },
+          { color: 'red', kind: 'number', value: 4 },
+        ],
+      })
+      await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
+
+      await debugSetState(bob, {
+        hand: [
+          { color: 'red', kind: 'number', value: 1 },
+          { color: 'red', kind: 'number', value: 2 },
+          { color: 'red', kind: 'number', value: 3 },
+        ],
+      })
+      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      // Pressable, but not promising anything: nobody owes the call yet.
+      await expect(catchBtn).not.toHaveClass(/\barmed\b/)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
+   * §14.6's price, and its ceiling. The button is live from the moment anybody
+   * is near the finish, so most presses are made on a read of the table rather
+   * than on a window the server has already named — and a read that is wrong
+   * costs a card, exactly like a race lost by a millisecond.
+   *
+   * What it does not cost is a card per press. The charge is rationed by the
+   * board: until somebody plays, the second, third and tenth press are the same
+   * misread, and a game that billed each of them would be taxing the reflex it
+   * spends the whole match asking for. Both halves are asserted here, because
+   * either one alone is a rule that reads fine and plays badly.
+   */
+  test('a Contre-LOCO! with nobody on the hook costs one card, however often it is pressed', async ({
     browser,
   }: {
     browser: Browser
@@ -244,20 +304,30 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
       await waitForTableOpen(bob)
 
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
       const bobIdx = (await getState(bob))?.myIndex ?? 1
-      const before = await getState(alice)
-      const handBefore = before?.myHand?.length ?? 0
+      const handBefore = (await getState(alice))?.myHand?.length ?? 0
 
+      // Nobody has played a card yet, so nobody owes the table anything.
       await sendMsg(alice, { type: 'catch_uno', target_index: bobIdx })
+      await alice.waitForFunction(
+        (n) => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) === n,
+        handBefore + 1,
+        { timeout: 5_000 },
+      )
+      expect((await getState(alice))?.catchFailed?.seat).toBe(aliceIdx)
 
-      // Nothing to wait for but the absence of it: give the round trip a
-      // generous margin, then assert the hand and the table are as they were.
+      // Four more presses against the same board. Generous margin, then the
+      // assertion is the absence: the hand has not moved again.
+      for (let i = 0; i < 4; i++) {
+        await sendMsg(alice, { type: 'catch_uno', target_index: bobIdx })
+      }
       await alice.waitForTimeout(1_000)
       const after = await getState(alice)
-      expect(after?.myHand?.length ?? 0).toBe(handBefore)
-      expect(after?.catchFailed).toBeFalsy()
-      // And the seat it was aimed at was told nothing at all.
-      expect((await getState(bob))?.catchFailed).toBeFalsy()
+      expect(after?.myHand?.length ?? 0).toBe(handBefore + 1)
+      // The seat it was aimed at keeps its hand throughout: a failed call is the
+      // caller's business and nobody else's obligation.
+      expect((after?.players ?? []).find((p) => p.index === bobIdx)?.hand_size).toBe(8)
     } finally {
       await ctx1.close()
       await ctx2.close()
@@ -265,11 +335,16 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
   })
 
   /**
-   * The other half of §14.6: the button is spent the moment it is pressed, not
-   * when the server answers. A call in flight already costs a card if it loses,
-   * so a second tap during that round trip would buy the same opinion twice.
+   * The other half of §14.6: the wager is spent the moment the button is
+   * pressed, not when the server answers. A call in flight already costs a card
+   * if it loses, so a second tap during that round trip would buy the same
+   * opinion twice.
+   *
+   * What is spent is the wager, not the control. The button stays pressable —
+   * greying it out under a thumb already on it is the one thing this bar exists
+   * not to do — and what goes is the target it was offering.
    */
-  test('the Catch! button is spent on press, before the server answers', async ({
+  test('the Catch! wager is spent on press, before the server answers', async ({
     browser,
   }: {
     browser: Browser
@@ -303,9 +378,14 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       })
 
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })
-      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await expect(catchBtn).toHaveClass(/\barmed\b/, { timeout: 5_000 })
       await catchBtn.click()
-      await expect(catchBtn).toBeDisabled()
+      await alice.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.catchTarget === null,
+        undefined,
+        { timeout: 5_000 },
+      )
+      await expect(catchBtn).toBeEnabled()
     } finally {
       await ctx1.close()
       await ctx2.close()
@@ -355,8 +435,11 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         chosen_color: 'red',
       })
 
+      // Armed, not merely enabled: the button is pressable from three cards out,
+      // so clicking on `toBeEnabled` would fire before the window opened and buy
+      // a penalty instead of the catch this test is about.
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })
-      await expect(catchBtn).toBeEnabled({ timeout: 5_000 })
+      await expect(catchBtn).toHaveClass(/\barmed\b/, { timeout: 5_000 })
       await catchBtn.click()
 
       // The stamp names the seat that owed the call, on the caller's screen and

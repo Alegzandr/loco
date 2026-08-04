@@ -480,12 +480,19 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     (`PenalizeFailedCatch` returns nothing and the broadcast went out anyway). `catchGrace` (2s past
     `catchWindow`) is the line: inside it the window was live when the button was drawn and the
     message lost the trip, which is a wager; outside it no client was drawing that button at all, so
-    `ErrNoCatchWindow` is refused to its sender, charged nothing, told to nobody, and — being neither
-    a lost race nor a state mismatch — counted by `noteRejection` toward `suspected_cheats`.
-    The same reasoning covers a target index the table does not have: it used to answer the
-    missed-catch string and note nothing at all. And the free-once-the-piles-are-dry half survived
-    `catchGrace` on its own, *inside* a live window: `penalizeFailedCatch` now answers an empty draw
-    to its caller alone, so a penalty nobody paid is not a table-wide send either.
+    `ErrNoCatchWindow` was refused to its sender, charged nothing and told to nobody.
+    And the free-once-the-piles-are-dry half survived `catchGrace` on its own, *inside* a live
+    window: `penalizeFailedCatch` answers an empty draw to its caller alone, so a penalty nobody paid
+    is not a table-wide send either.
+  - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is now live
+    from three cards out, so "no client was drawing that button" is no longer true of a press with
+    no window behind it — that press is the mechanic, and `ErrNoCatchWindow` costs its caller a card
+    like every other miss (`docs/rules.md` §14.6). What replaces the free-refusal as the amplifica-
+    tion guard is `GameState.PlayEpoch`: **a seat is charged at most once per card played**, and
+    every press after that draws nothing, broadcasts nothing and answers nobody. Ten messages a
+    second still buy exactly one `catch_failed`. What stays refused-and-counted is a `target_index`
+    the table does not have: no client of ours composes it, so it is a forged message rather than a
+    wager, and `noteRejection` still counts it toward `suspected_cheats`.
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply

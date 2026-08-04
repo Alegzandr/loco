@@ -68,7 +68,11 @@ Room create/join. Nickname entry **and its validation** — the shapes refused, 
 normalisation is supposed to see through, and the legitimate names that must keep playing, because a
 filter is only as good as its false-positive list. Game start, turn progression, legal and illegal
 moves, skip/reverse/draw/wild, draw penalties, win detection, last-card declaration, counter and
-catch windows, simultaneous resolution.
+catch windows, simultaneous resolution. **Contre-LOCO!'s three states and its price**: the threshold
+that makes the button pressable (`catchAvailability.test.ts`), the arming that is a separate thing
+from the pressing (`actionBar.test.ts`), the card a press that finds nobody costs, and — on both
+sides of the wire, because either half alone is a rule that reads fine and plays badly — that it
+costs exactly one per card played however often it is pressed.
 
 Reconnect (60s, nickname + room code) **and session restore across a page reload**. Rematch: the ask
 **everybody** at the table has to make, one ask dealing nothing, a departure retiring an ask and

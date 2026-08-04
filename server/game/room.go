@@ -123,6 +123,17 @@ type GameState struct {
 	LastCardDeclared []bool
 	LastCardAt       []time.Time // when this seat's catch window opened; zero = closed
 
+	// PlayEpoch counts the cards that have reached the discard this round. It is
+	// the unit a fruitless Contre-LOCO! is rationed by: the button is live from
+	// the moment any seat is within reach of finishing, so a player who presses
+	// it twice against a board that has not moved has made one misread, not two.
+	// It starts at 1 so the zero value of CatchPenaltyEpoch reads as "never".
+	PlayEpoch int
+	// CatchPenaltyEpoch[i] is the PlayEpoch at which seat i last paid for a
+	// Contre-LOCO! that found nothing. 0 = never. Indexed by player index like
+	// every other seat-keyed slice here, and sized in dealRound.
+	CatchPenaltyEpoch []int
+
 	// Retired marks the seats that have left the match for good, copied from
 	// Room.Retired at every deal. The seat stays in every index — hands, scores
 	// and turn order are keyed by it, and its score is kept exactly as it was —
@@ -143,6 +154,16 @@ type GameState struct {
 	// / CounterDraw resolves the chain, or after round end).
 	LastPlayBy int
 	LastPlayAt time.Time
+}
+
+// pushDiscard puts played cards on the pile and moves the play epoch on. The
+// two belong together and that is the whole reason this is a method: the epoch
+// means "has the board changed since", so a play site that appends without
+// bumping it hands its player a second free Contre-LOCO!. Replenish is not a
+// play and deliberately does not go through here.
+func (s *GameState) pushDiscard(cards ...Card) {
+	s.Discard = append(s.Discard, cards...)
+	s.PlayEpoch++
 }
 
 // topCard returns the current top of the discard pile. Callers must ensure
@@ -643,7 +664,12 @@ func (r *Room) dealRound(startingPlayer int) {
 		LastPlayBy:       -1,
 		LastCardDeclared: make([]bool, n),
 		LastCardAt:       make([]time.Time, n),
-		Retired:          retired,
+		// The opening discard is not a play, but the epoch still starts past the
+		// zero value: CatchPenaltyEpoch says "never paid" by holding 0, so epoch 0
+		// would make the round's first Contre-LOCO! free.
+		PlayEpoch:         1,
+		CatchPenaltyEpoch: make([]int, n),
+		Retired:           retired,
 	}
 
 	// The seat that opens the round has to be one that can play. biggestLoser
@@ -713,7 +739,7 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 
 	chosenColor = resolveChosenColor(card, chosenColor)
 
-	r.State.Discard = append(r.State.Discard, card)
+	r.State.pushDiscard(card)
 	c := card
 	r.State.logEvent(EventCardPlayed, playerIndex, &c, chosenColor)
 
@@ -807,7 +833,7 @@ func (r *Room) PlayCards(playerIndex int, cards []Card, chosenColor Color, chose
 		}
 	}
 	chosenColor = resolveChosenColor(first, chosenColor)
-	r.State.Discard = append(r.State.Discard, cards...)
+	r.State.pushDiscard(cards...)
 
 	// The call is recorded before the cards, so the log reads in the order the
 	// table hears it: LOCO!, then the cards, then the round.
@@ -1391,9 +1417,19 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	return nil
 }
 
-// PenalizeFailedCatch charges catcherIndex one card for a Contre-LOCO! that lost
-// its race (IsMissedCatch). It returns the cards actually drawn so the hub can
-// send them to their owner.
+// PenalizeFailedCatch charges catcherIndex one card for a Contre-LOCO! that
+// found nothing: a race lost to a faster LOCO! (IsMissedCatch), or a press made
+// against a table where no seat owed the call at all. Both are the same wager
+// misread, so both cost the same card. It returns the cards actually drawn so
+// the hub can send them to their owner, and whether the seat was charged at all.
+//
+// **It charges at most once per card played.** The button is live from the
+// moment any seat is close to finishing, which is most of a round, so a player
+// who presses it twice on a board that has not moved since is repeating one
+// misread rather than making a second one — and a game that answered the second
+// press with another card would be taxing the reflex it spends the whole match
+// asking for. `charged == false` means exactly that: the press cost nothing,
+// changed nothing, and is nobody else's business.
 //
 // It deliberately touches nothing else: not the turn, not HasDrawn, not the
 // target. A failed call is a side bet on somebody else's obligation, and the
@@ -1402,21 +1438,27 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 // Like every other draw in this game it cannot fail — once every card sits in a
 // hand the caller simply gets away with it, rather than the round freezing on an
 // error nobody can act on.
-func (r *Room) PenalizeFailedCatch(catcherIndex int) []Card {
+func (r *Room) PenalizeFailedCatch(catcherIndex int) ([]Card, bool) {
 	if r.Status != StatusPlaying || r.State == nil {
-		return nil
+		return nil, false
 	}
 	if catcherIndex < 0 || catcherIndex >= len(r.State.Hands) {
-		return nil
+		return nil, false
 	}
+	if r.State.CatchPenaltyEpoch[catcherIndex] == r.State.PlayEpoch {
+		return nil, false
+	}
+	r.State.CatchPenaltyEpoch[catcherIndex] = r.State.PlayEpoch
 	r.ensureDeck(failedCatchPenalty)
 	drawn := r.State.Deck.DrawUpTo(failedCatchPenalty)
 	if len(drawn) == 0 {
-		return nil
+		// Both piles dry: the call was charged — the epoch is spent either way —
+		// and the table simply had no card left to charge it with.
+		return nil, true
 	}
 	r.State.Hands[catcherIndex].Add(drawn...)
 	r.State.logEvent(EventCatchFailed, catcherIndex, nil, 0)
-	return drawn
+	return drawn, true
 }
 
 // InterruptPlay is the single-card form of InterruptPlayCards. A single card can
@@ -1532,7 +1574,7 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 			return err
 		}
 	}
-	r.State.Discard = append(r.State.Discard, cards...)
+	r.State.pushDiscard(cards...)
 
 	if finishing {
 		r.State.declareForFinish(playerIndex)
@@ -1641,7 +1683,7 @@ func (r *Room) CounterDraw(playerIndex int, card Card, chosenColor Color) error 
 
 	chosenColor = resolveChosenColor(card, chosenColor)
 
-	r.State.Discard = append(r.State.Discard, card)
+	r.State.pushDiscard(card)
 	c := card
 	r.State.logEvent(EventCounterDraw, playerIndex, &c, chosenColor)
 

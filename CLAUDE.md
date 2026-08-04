@@ -128,7 +128,7 @@ needs jsdom and the `browser` resolve condition.
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
-  `swapNoticeText.ts`, `interruptHelpers.ts`, the two server mirrors `nicknameRules.ts` +
+  `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, the two server mirrors `nicknameRules.ts` +
   `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
   `OpponentAway.svelte`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
@@ -206,10 +206,15 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    catch risk, never the round. A batch that empties two or more never passed through one card, so
    no window ever opened on it: that message **carries** the call (`declare_loco`) and the table
    hears `uno_declared` before `card_played`.
-7. **A missed Contre-LOCO! costs the caller 1 card** (`failedCatchPenalty`,
-   `Room.PenalizeFailedCatch`) — **but only a call that lost a race**. A seat whose window never
-   opened, or shut more than `catchGrace` ago, answers `ErrNoCatchWindow`: refused to its sender,
-   charged nothing, broadcast to nobody.
+7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per card played**
+   (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, rationed by `GameState.PlayEpoch` +
+   `CatchPenaltyEpoch`). The button is live from three cards out, so the press is a **read of the
+   table** and not an answer to a cue: a call that lost a race and a call on a table where nobody
+   owed anything are the same misread and cost the same card. **The second press against a board
+   that has not moved costs nothing, changes nothing and is broadcast to nobody** — a per-press
+   price would tax the reflex the mechanic asks for. A catch that *lands* does not spend the epoch.
+   A seat number the table does not have is still refused rather than charged: that one is a forged
+   message, not a wager.
 
 - **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **Swap is coloured**
   and follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
@@ -328,11 +333,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   - **A refusal does not clear the AFK counter.** `dispatchAtTable` resets it *after* the handler and
     only when `Client.refusals` did not move; `sendError` is the single funnel that moves it. Reset
     before the handler, one refused `declare_uno` a turn bought permanent immunity.
-  - **A refusal answers its sender and nobody else**, unless the rules say the table pays too — and
-    a Contre-LOCO! outside `catchGrace` is not one of those (see the domain rules above). Same rule
-    makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that drew
-    nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells its
-    caller and not the table — otherwise a call inside somebody's window was still a free broadcast.
+  - **A refusal answers its sender and nobody else**, unless the rules say the table pays too. Same
+    rule makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that
+    drew nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells
+    its caller and not the table — otherwise a call inside somebody's window was still a free
+    broadcast. **A Contre-LOCO! already charged for this board is the same case again**: `PlayEpoch`
+    makes the second press draw nothing, broadcast nothing and answer nobody, which is what keeps a
+    button that is live most of the endgame from being a table-wide send ten times a second.
   - **A correction is throttled** (`resyncPeriod`, 1s per socket): one snapshot settles the drift,
     and everything sent in the millisecond after it was composed against the old board.
 - **The gameplay gate also bounds the seat.** `dispatchAtTable` refuses a sender whose `playerID` is
@@ -538,6 +545,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   unlock; everywhere else a global listener may read `Escape` and nothing else.
   `noKeyboardShortcuts.test.ts` is the guard.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
+- **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
+  `CATCH_LIVE_MAX_HAND = 3`): any *other* seat holding 1–3 cards makes it live. A control that unlocks
+  on the server's cue can be answered but never anticipated, and the window it answers is five
+  seconds. The price is what keeps that honest — see the domain rule above. **`store.catchSpent` is
+  the client's copy of `PlayEpoch`**, set by every press and cleared by `applyCardPlayed`; it
+  suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
+  the second tap of a double tap on a catch that landed — the server's own guard does not cover it,
+  because a catch that lands spends no epoch.
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
   opener is the one exception. `escapeClose.test.ts`.
@@ -842,8 +857,16 @@ stated at the top of `styles/tokens.css`:
   behind it transitions **colour only**, over the whole document, for exactly that long. The boot
   never arms it, the attribute must come back off, and reduced motion wins by specificity rather than
   by a branch in the script (`themeTransition.test.ts`).
-- **The action bar never reflows.** Fixed three-column grid, Catch mounted-but-disabled all match in
-  the centre column, enabled in place. A reaction game cannot move its buttons mid-match.
+- **The action bar never reflows.** Fixed three-column grid, **Catch mounted in the centre column all
+  match and nothing else ever in it**, enabled and armed in place. A reaction game cannot move its
+  buttons mid-match. Three states: dead, pressable from three cards out
+  (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
+  centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
+  dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
+  control found only in the two seconds it is worth pressing is a control nobody has ever aimed at.
+  **`BOTTOM_RESERVE` covers the chip's band as well as the bar**, so the hand is dealt clear of it
+  permanently and nothing shifts when it lights up. Drawn under 44px and quiet on purpose — forgetting
+  the call is a turn of the game — so its target comes from `.hit-target`, only while it is live.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).

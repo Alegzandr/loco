@@ -149,10 +149,12 @@ One card, one call: the declaration covers the single card it was made on, so it
 cannot be repeated while that card is held. A rearranging play that hands you a
 *different* last card is a new obligation, and the call comes back.
 
-**Calling "Contre-LOCO!" is a wager** (§14.6). It only lands inside the 5 s
-window opened by the seat you are calling on; if that seat's own "LOCO!" got
-there first — or its hand grew, or the window had just closed — the call misses
-and *you* draw **1 card** for it.
+**Calling "Contre-LOCO!" is a wager** (§14.6). The button is live as soon as
+anybody else is down to 3 cards or fewer, so you press it on a read rather than
+on a cue. It only lands inside the 5 s window opened by the seat you are calling
+on; if nobody owed the call — or that seat's own "LOCO!" got there first, or its
+hand grew, or the window had just closed — the call misses and *you* draw **1
+card** for it. Once per card played, however many times you press.
 
 **You cannot forget the call and still take the round** (§14.7). The play that
 empties your hand is refused until the call has been made, whichever of the four
@@ -274,19 +276,25 @@ picked, and the client must prompt for it before the card leaves the hand.
 **SOLO rule**: calling out a player who forgot to announce their last card has no
 downside — an unfounded or late call is simply ignored.
 **LOCO rule**: a Contre-LOCO! that does not land costs the caller **1 card**. It
-lands only while the target's 5 s window is open and unanswered; the three ways
-it misses are the target's own call arriving first, the target's hand having
-grown, and the window having expired.
-The price is for **losing a race**, so it is only charged to a caller who was in
-one: a call on a seat whose window never opened, or closed more than a couple of
-seconds ago, is simply refused to whoever sent it. Nothing is drawn and the table
-is told nothing — there was no wager to settle.
+lands only while the target's 5 s window is open and unanswered; it misses when
+the target's own call arrives first, when the target's hand has grown, when the
+window has expired — and when no seat owed the table a call at all.
+The button does not wait for the server's permission: it is pressable as soon as
+**any other player is down to 3 cards or fewer**, which is well before anybody is
+catchable. Pressing it is therefore a read of the table, and a wrong read is paid
+for like a lost race.
+**One misread, one card.** The price is charged at most once per card played: the
+second, third and tenth press against a board that has not moved cost nothing,
+change nothing and are announced to nobody. Somebody plays, and the button is a
+fresh wager again.
 **Rationale**: without a price, mashing the button at every seat holding one card
 is free and therefore always correct, which turns a reaction into a reflex nobody
 has to aim. One card is small enough that a genuine race stays worth entering and
-large enough that a blind call is not. It is the same wager seen from both sides
-of the table: the player who forgot risks 2 cards, the player who calls too early
-risks 1. Bots pay it on the same terms as humans.
+large enough that a blind call is not. And a control that only unlocked once the
+server had named a target could only ever be answered, never anticipated — which
+is the opposite of a game decided on five-second windows. It is the same wager
+seen from both sides of the table: the player who forgot risks 2 cards, the player
+who calls too early risks 1. Bots pay it on the same terms as humans.
 
 ### 14.7 You Cannot Forget LOCO! and Win
 **SOLO rule**: the announcement is enforced only by the other players catching

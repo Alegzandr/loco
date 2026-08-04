@@ -256,9 +256,12 @@ test.describe('gameplay flow (single player vs bot)', () => {
   })
 
   /**
-   * The action bar's centre slot belongs to Catch, and LOCO only borrows it at
-   * exactly one card. On a fresh deal (8 cards, nobody catchable) the centre
-   * therefore holds a disabled Catch and no LOCO button exists at all.
+   * The action bar's centre slot belongs to Catch and to nothing else, all
+   * match. On a fresh deal every hand is eight cards, so nobody is anywhere near
+   * owing a call: the centre holds a Catch that is present, in place, and dead,
+   * and the LOCO! chip above the bar is present, in place, and dead too. Both
+   * are on screen from the deal so that neither has to be found in the seconds
+   * it becomes worth pressing.
    */
   test('centre slot holds a disabled catch button on a fresh deal', async ({ page }) => {
     await createRoom(page, 'Alice')
@@ -268,7 +271,10 @@ test.describe('gameplay flow (single player vs bot)', () => {
     const catchBtn = page.getByRole('button', { name: T.catchBtn })
     await expect(catchBtn).toBeVisible({ timeout: 10_000 })
     await expect(catchBtn).toBeDisabled()
-    await expect(page.getByRole('button', { name: T.unoBtn })).toHaveCount(0)
+
+    const unoBtn = page.getByRole('button', { name: T.unoBtn })
+    await expect(unoBtn).toBeVisible()
+    await expect(unoBtn).toBeDisabled()
   })
 
   /**

@@ -3,6 +3,7 @@
 package hub
 
 import (
+	"errors"
 	"log"
 	"time"
 
@@ -256,13 +257,20 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	} else if open := room.State.CatchableTargets(time.Now()); len(open) > 0 {
 		targetIdx = open[0]
 	}
-	// A seat number the table does not have is not a lost race, so it is refused
-	// rather than charged, and it is counted: the button is only ever drawn on a
-	// seat the server itself named in catch_seats, so nothing a correct client
-	// sends can arrive here. It used to answer the missed-catch string and note
-	// nothing at all, which made a forged target the one gameplay message that
-	// cost its sender nothing and told the operator nothing either.
-	if targetIdx < 0 || targetIdx >= len(room.State.Hands) {
+	// Nobody is on the hook and the client said so by naming no seat. That is not
+	// a bug: the button is live from the moment any seat is close to finishing,
+	// so pressing it into an empty window is the wager the mechanic is made of,
+	// and it costs the same card as losing the race. The domain refuses to charge
+	// it twice on a board that has not moved since.
+	if targetIdx < 0 {
+		h.penalizeFailedCatch(t, c.playerID())
+		return
+	}
+	// A seat number the table does not have is another matter: it is not a wager,
+	// it is a message no client of ours composes. Refused rather than charged,
+	// and counted — a forged target used to be the one gameplay message that cost
+	// its sender nothing and told the operator nothing either.
+	if targetIdx >= len(room.State.Hands) {
 		c.sendError(game.ErrNoCatchWindow.Error())
 		c.noteRejection(game.ErrNoCatchWindow)
 		return
@@ -274,7 +282,9 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 		// or the last millisecond of the window) simply reached the hub first.
 		// It costs the caller a card and nothing else — no error toast, no
 		// suspicion, since the client shows the penalty itself.
-		if game.IsMissedCatch(err) {
+		// ErrNoCatchWindow joins them: the seat exists but owed nothing, which is
+		// the same misread as pressing with no seat named at all.
+		if game.IsMissedCatch(err) || errors.Is(err, game.ErrNoCatchWindow) {
 			h.penalizeFailedCatch(t, c.playerID())
 			return
 		}
@@ -291,12 +301,19 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	h.sendHandGrowth(t, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
 }
 
-// penalizeFailedCatch charges one card for a Contre-LOCO! that lost its race and
+// penalizeFailedCatch charges one card for a Contre-LOCO! that found nothing and
 // tells the room whose call it was. Shared by the human and the bot path — a bot
 // that guesses wrong pays the same price, or the two are playing different games.
 func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int) {
 	room := t.room
-	drawn := room.PenalizeFailedCatch(catcherIdx)
+	drawn, charged := room.PenalizeFailedCatch(catcherIdx)
+	// The seat already paid for this board and the domain declined to charge it
+	// again. Nothing happened, so nothing is said: an answer here would be a
+	// second notice for one mistake, and a spammed button would still be a way to
+	// make the table talk.
+	if !charged {
+		return
+	}
 	msg := protocol.ServerMsg{
 		Type:        protocol.SMsgCatchFailed,
 		PlayerIndex: intPtr(catcherIdx),

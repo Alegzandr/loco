@@ -56,8 +56,14 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       const catchWindows = s.catchWindows.map((w) =>
         w.seat === seat ? { ...w, attempted: true } : w
       )
-      return { catchWindows }
+      return { catchWindows, catchSpent: true }
     }),
+
+  // A press that named nobody: the button is live whenever a seat is close to
+  // finishing, so this is the player betting there was a window and losing. One
+  // per board — see `catchSpent`, and the server's PlayEpoch, which is the same
+  // rule written on the side that enforces it.
+  noteBlindCatchAttempt: () => set({ catchSpent: true }),
 
   // Somebody's call arrived too late and they drew for it. The +1 card itself
   // comes through the ordinary card_drawn path; this is only the notice.

@@ -118,19 +118,49 @@ func TestCatch_ForgedTargetTellsNobody(t *testing.T) {
 	}
 }
 
-// Same rule one step in: a seat that exists, holds eight cards and has never
-// been catchable. Nothing is broadcast and nothing is charged.
-func TestCatch_SeatThatWasNeverOnTheHookIsNotCharged(t *testing.T) {
+// One step in from a forged seat, and the answer is the opposite: seat 1 exists
+// and holds eight cards, which is a wrong read of the table and not a message no
+// client composes. The button is live from three cards out, so this is the
+// ordinary wager and it costs the caller a card, in public.
+//
+// What it may not cost is a card per press. The charge is rationed by the board
+// (GameState.PlayEpoch), which is what stops one socket at the rate limit from
+// turning a live button into ten table-wide sends a second — the amplification
+// the old free-refusal used to prevent by refusing.
+func TestCatch_WithNobodyOnTheHookIsChargedOncePerBoard(t *testing.T) {
 	_, srv := newTestHub(t)
 	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
 
 	one := 1
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &one})
-	readMsgOfType(t, conn1, protocol.SMsgError)
+	if msg := readMsgOfType(t, conn2, protocol.SMsgCatchFailed); msg.Seat() != 0 {
+		t.Fatalf("catch_failed named seat %d, want the caller's seat 0", msg.Seat())
+	}
+	// The card that went with it, so the socket is quiet before the loop below
+	// asserts that it stays quiet.
+	readMsgOfType(t, conn2, protocol.SMsgCardDrawn)
 
+	for i := 0; i < 4; i++ {
+		sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &one})
+	}
+	// The negative read ends this test: a read that times out leaves the
+	// connection broken.
 	conn2.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 	if _, _, err := conn2.ReadMessage(); err == nil {
-		t.Error("catch_failed was broadcast for a window that never opened")
+		t.Error("a second Contre-LOCO! against an unchanged board reached the table")
+	}
+}
+
+// The shape the live button actually produces: no seat named at all, because
+// the client could not see one. It is the same wager and the same card — a
+// press that names nobody must not be the cheap way to press the button.
+func TestCatch_WithNoSeatNamedIsChargedLikeAnyOtherMiss(t *testing.T) {
+	_, srv := newTestHub(t)
+	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno})
+	if msg := readMsgOfType(t, conn2, protocol.SMsgCatchFailed); msg.Seat() != 0 {
+		t.Fatalf("catch_failed named seat %d, want the caller's seat 0", msg.Seat())
 	}
 }
 

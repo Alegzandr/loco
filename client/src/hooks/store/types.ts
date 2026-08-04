@@ -211,6 +211,17 @@ export interface GameState {
   // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
   // like the catch it lost to. Cleared by the GameView after a short timeout.
   catchFailed: { seat: number; at: number } | null
+  // Whether we have already spent a Contre-LOCO! on the board as it stands. The
+  // server charges a fruitless call at most once per card played, and this is
+  // the client's half of that rule: a second *blind* press — one that names no
+  // seat, because none is on the hook — is not sent at all while this is true.
+  //
+  // It is not only about spam. Tapping twice on a catch that lands would send
+  // the second press with no target, and the server would read that as a fresh
+  // wager against a board where the window has just shut: a card, charged in the
+  // same breath as the catch we just won. Cleared by `applyCardPlayed`, which is
+  // exactly what moves the server's own epoch on.
+  catchSpent: boolean
   // The mirror: a Contre-LOCO! that landed, for its slam banner, its sting and
   // the penalty cards flying to the caught seat. Cleared by the banner.
   catchFlash: CatchFlash | null
@@ -336,6 +347,7 @@ export interface LocoActions {
   clearCatchFlash: () => void
   pruneCatchWindows: () => void
   noteCatchAttempt: (seat: number) => void
+  noteBlindCatchAttempt: () => void
   applyCatchFailed: (seat: number) => void
   clearCatchFailed: () => void
 }

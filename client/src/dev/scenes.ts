@@ -525,9 +525,26 @@ export const SCENES: Scene[] = [
     deadlineIn: 14,
   },
   {
-    // The overlap: we are on one card AND Pixel is catchable. LOCO keeps the
-    // centre column (declaring is ours to lose) and Catch floats beside the bar
-    // — the only state where the floating slot is used at all.
+    // The in-between state, and the common one: Kiwi is on two cards, so the
+    // wager is on the table and the centre button is pressable — but nobody
+    // owes the call yet, so it is awake rather than armed. Three readable
+    // states, and this is the one that has to be legible at 720p without the
+    // halo doing the work.
+    id: 'game-catch-live',
+    title: 'Partie · attrapage armé sans cible',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchTarget: null,
+      players: [player(0, 'Nova', 5), player(1, 'Kiwi', 2), player(2, 'Bot1', 9), player(3, 'Pixel', 6)],
+    },
+    deadlineIn: 16,
+  },
+  {
+    // The overlap: we are on one card AND Pixel is catchable. Catch keeps the
+    // centre column, always, and the LOCO! chip above the bar — on screen and
+    // dead in every other scene — is the only thing that changes.
     id: 'game-catch-and-loco',
     title: 'Partie · attraper + LOCO',
     screen: 'game',

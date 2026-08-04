@@ -33,6 +33,7 @@
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { resolveSwapNoticeText } from './swapNoticeText'
+  import { isCatchLive } from './catchAvailability'
   import { e2ePlayCard } from '../dev/e2eBridge.svelte'
 
   type Props = {
@@ -210,6 +211,9 @@
   // depends on the whole match and re-arms its timer on every card anybody
   // plays. A derivation is compared, so what changes here is the deadline.
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
+  // Whether the centre button is pressable at all — a looser question than
+  // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
+  const catchLive = $derived(isCatchLive(g.players, g.myIndex))
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
   drainBar(() => turnFill, () => turnDeadline, 'auto')
@@ -420,7 +424,8 @@
     handSize={g.myHand.length}
     hasDrawn={g.hasDrawn}
     hasPlayableCard={play.hasPlayableCard}
-    canCatch={g.catchTarget !== null}
+    catchArmed={g.catchTarget !== null}
+    catchLive={catchLive}
     hasDeclared={g.myDeclared}
     onDraw={handleDraw}
     onPass={() => guardDoubleTap('pass', () => onSend({ type: 'pass_turn' }))}
@@ -433,7 +438,20 @@
         // retires this window — so reading `g.catchTarget` a second time would
         // name the *next* seat on the hook and catch the wrong player.
         const target = g.catchTarget
-        if (target === null) return
+        // No target is a real message, not a dropped one: the button is live
+        // whenever somebody is close to finishing, so this is the player betting
+        // that a seat owes the call. The server charges the miss — once per card
+        // played, so leaning on the button costs one card, not one per press.
+        if (target === null) {
+          // …but only one per board. The server charges a fruitless call once
+          // per card played, so a second blind press cannot cost anything —
+          // and the press right after a catch that landed would otherwise be
+          // read as a fresh wager and charged in the same breath as the win.
+          if (g.catchSpent) return
+          g.noteBlindCatchAttempt()
+          onSend({ type: 'catch_uno' })
+          return
+        }
         // Spend the button before the round trip: a call that arrives after the
         // target's LOCO! costs a card, and a second tap while the first is in
         // flight would buy the same opinion twice.
