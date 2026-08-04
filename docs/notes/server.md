@@ -818,18 +818,25 @@ that, and the smallest is the point.
 - **The set is closed and it is the server’s.** An identifier travels, not a string, and one this
   server does not know is refused and counted (`noteSuspect`) rather than relayed: a client cannot
   invent a fourth. The words are the client’s (`t.emotes`), in the player’s own language.
-- **Nothing is kept.** Not in the event log, not on the `Room`, not in the drain snapshot. The only
-  state anywhere is `table.emoteAt`, which is *when* a seat last spoke and never what it said, and
-  it goes with the match (`resetForNextMatch`). The client keeps one line per seat — the last thing
-  that seat said, replaced rather than stacked — and drops the lot with the match.
+- **Nothing is kept, anywhere.** Not in the event log, not on the `Room`, not in the drain snapshot,
+  and not on the `table` either: `hub/emotes.go` holds no state at all. The client keeps one line per
+  seat — the last thing that seat said, replaced rather than stacked — and drops the lot with the
+  match.
 - **The game-over screen and nowhere else.** Anywhere earlier it would be something to do *to*
   somebody mid-round, which is what a reaction game least needs. Refused through the same door every
   other out-of-context message uses.
-- **A refusal answers its sender and nobody else.** The per-socket token bucket already bounds the
-  traffic; `EmoteCooldown` (2 s per seat) bounds the *screen*, because ten a second inside the
-  bucket’s budget is a wall of pills over a scoreboard somebody is reading. Both refusals broadcast
-  nothing, or a refused emote would be cheaper to send than an accepted one — the rule every
-  rate-limited message in this server is written to.
+- **A seat changes its mind as often as it likes, and that is the whole point.** There was a 2 s
+  per-seat cooldown (`table.emoteAt` + `EmoteCooldown`), on the theory that ten a second would be a
+  wall of pills over a scoreboard somebody is reading. It would not have been: the client *replaces*
+  a seat’s line rather than stacking it, so three presses in a second are one pill changing its word,
+  and the card’s height is the table’s size no matter what anybody does. What the cap actually cost
+  was the gesture the feature exists for — press “gg”, think better of it, press “close one” — which
+  arrived as a refusal. The traffic is bounded where every other message on this socket is bounded,
+  by the per-client token bucket (10/s, burst 20); a second, narrower ceiling said nothing the first
+  one did not.
+- **The refusals that remain answer their sender and nobody else.** Wrong screen, unknown identifier:
+  both broadcast nothing, or a refused emote would be cheaper to send than an accepted one — the rule
+  every rate-limited message in this server is written to.
 - **Never to or from a bot.** A seat the server plays has no opinion about the match and no socket to
   receive one. The guard is written down even though it is unreachable: the rule is about the seat,
   not about the transport.

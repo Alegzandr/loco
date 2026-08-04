@@ -42,6 +42,36 @@ describe('the viewport lets a phone zoom', () => {
   })
 })
 
+describe('a seat costs the pinch, and nothing else does', () => {
+  // The zoom that is worth keeping is the one on the pages somebody reads. The
+  // zoom that is only ever an accident is the one on a board that is already
+  // scaled to the viewport, where a spread thumb mid-round leaves the player
+  // panning a magnified table with a five-second window open. `data-seated` is
+  // exactly the line between the two, so it is what the refusal hangs off —
+  // never the viewport tag, which is global and which the test above owns.
+  it('drops pinch-zoom under [data-seated] and leaves panning alone', () => {
+    const seated = base.match(/:root\[data-seated\]\s+body\s*\{([^}]*)\}/s)?.[1]
+    expect(seated, 'Base.astro must scope the refusal to a taken seat').toBeTruthy()
+    // `pan-x pan-y` is `manipulation` minus pinch-zoom. `none` would take the
+    // standings' and the recap's scrolling with it.
+    expect(seated).toMatch(/touch-action:\s*pan-x pan-y/)
+  })
+
+  it('answers WebKit, which never reads that declaration', () => {
+    // iOS keeps pinch-zoom as a browser gesture `touch-action` does not reach,
+    // and every iPhone browser is WebKit — so on most of the phones playing this
+    // game the CSS half alone does nothing at all.
+    const guard = read('pinchGuard.ts')
+    expect(guard).toMatch(/'gesturestart'/)
+    // A passive listener cannot preventDefault, which is the whole mechanism.
+    expect(guard).toMatch(/passive:\s*false/)
+    // Same gate as the CSS, read at event time: before a seat, and on every
+    // content page, the gesture is untouched.
+    expect(guard).toMatch(/hasAttribute\('data-seated'\)/)
+    expect(read('entry.ts'), 'the guard has to be installed at boot').toMatch(/initPinchGuard\(\)/)
+  })
+})
+
 describe('the wordmark is a logotype, not prose', () => {
   it('names itself once, as an image', () => {
     // WCAG exempts a logo from the contrast rules; a checker cannot tell a logo

@@ -21,9 +21,9 @@ func assertNoMessage(t *testing.T, conn *websocket.Conn) {
 
 // Three fixed things, on the game-over screen and nowhere else.
 //
-// Every test here is a refusal, which is most of what the feature is: a closed
-// set, one screen, one at a time, and a refusal that costs its sender a message
-// and everybody else nothing.
+// Most of what the feature is, is a refusal: a closed set, one screen, and a
+// refusal that costs its sender a message and everybody else nothing. What is
+// deliberately *not* refused is a seat changing its mind — as often as it likes.
 
 func TestEmote_ReachesTheWholeTableOnceTheMatchIsOver(t *testing.T) {
 	conn1, conn2, _ := winBO1(t)
@@ -66,24 +66,28 @@ func TestEmote_RefusedBeforeTheMatchIsOver(t *testing.T) {
 	assertNoMessage(t, conns[1])
 }
 
-// A refused emote must not be cheaper to send than an accepted one: the cap
-// answers its sender and broadcasts nothing.
-func TestEmote_ThrottledPerSeat(t *testing.T) {
+// A seat changes its mind as often as it likes, and the table sees every change.
+//
+// This used to be the cooldown test. The screen never needed one — a seat's pill
+// is replaced rather than added to, so three presses in a second are one pill
+// changing its word — and what the cap actually cost was the gesture the feature
+// exists for: press "gg", think better of it, press "close one". The traffic is
+// bounded by the per-client token bucket, like every other message on the socket.
+func TestEmote_ChangesAsOftenAsTheSeatLikes(t *testing.T) {
 	conn1, conn2, _ := winBO1(t)
 
-	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgSendEmote, Emote: protocol.EmoteGG})
-	readMsgOfType(t, conn1, protocol.SMsgEmote)
-	readMsgOfType(t, conn2, protocol.SMsgEmote)
-
-	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgSendEmote, Emote: protocol.EmoteNice})
-	if got := readMsgOfType(t, conn1, protocol.SMsgError); got.Error != "one at a time" {
-		t.Errorf("error = %q, want the cooldown refusal", got.Error)
+	for _, want := range []protocol.Emote{protocol.EmoteGG, protocol.EmoteNice, protocol.EmoteClose, protocol.EmoteGG} {
+		sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgSendEmote, Emote: want})
+		for i, conn := range []*websocket.Conn{conn1, conn2} {
+			got := readMsgOfType(t, conn, protocol.SMsgEmote)
+			if got.Seat() != 0 || got.Emote != want {
+				t.Errorf("client %d: emote = seat %d %q, want seat 0 %q", i, got.Seat(), got.Emote, want)
+			}
+		}
 	}
-	assertNoMessage(t, conn2)
 }
 
-// The other seat is not throttled by the first one's press: the cap is per seat,
-// not per table.
+// Two seats, back to back: neither is ever waiting on the other.
 func TestEmote_TheOtherSeatIsNotThrottledByIt(t *testing.T) {
 	conn1, conn2, _ := winBO1(t)
 

@@ -60,6 +60,42 @@ describe('ActionBar', () => {
     expect(slotOf(/^Catch!$/)).toBe('center')
   })
 
+  // Reserving the column was only half of it. A slot that empties on somebody
+  // else's turn leaves one lone pill in a wide trough, and the bar's outline
+  // pinches to a point at each end of it — little teeth that come and go with
+  // the turn, under a thumb that is supposed to be able to stop looking. Every
+  // column keeps its button all match and goes dead in place, exactly like
+  // Catch and LOCO!.
+  it('keeps a button in every column all match, dead rather than absent', () => {
+    const { unmount } = renderBar({ isMyTurn: false })
+    for (const name of [/^Draw$/, /^Catch!$/, /^Pass$/, /^LOCO!$/]) {
+      expect(btn(name), String(name)).toBeDisabled()
+    }
+    expect(slotOf(/^Draw$/)).toBe('left')
+    expect(slotOf(/^Pass$/)).toBe('right')
+    unmount()
+
+    // And the same three, in the same three columns, once the turn is ours.
+    renderBar({ isMyTurn: false, pendingDraw: 4 })
+    expect(slotOf(/^Draw$/)).toBe('left')
+    // Never the pulsing penalty variant on somebody else's turn: the stack is
+    // theirs to answer, and that button is the loudest object on the screen.
+    expect(screen.queryByRole('button', { name: /Draw \+4/ })).toBeNull()
+    expect(btn(/^Draw$/)).toBeDisabled()
+  })
+
+  it('lights the draw and the pass in turn, without either ever leaving', () => {
+    // Drawing is ours until it is spent; passing only becomes ours once it is.
+    const { unmount } = renderBar({ isMyTurn: true, hasDrawn: false })
+    expect(btn(/^Draw$/)).toBeEnabled()
+    expect(btn(/^Pass$/)).toBeDisabled()
+    unmount()
+
+    renderBar({ isMyTurn: true, hasDrawn: true })
+    expect(btn(/^Draw$/)).toBeDisabled()
+    expect(btn(/^Pass$/)).toBeEnabled()
+  })
+
   // The point of the whole arrangement: the press is available while it is still
   // a read. A button that only unlocks once the server has named a target can
   // only ever be answered, and the window it answers is seconds long.

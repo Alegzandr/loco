@@ -738,8 +738,22 @@ red on the two controls that are most obviously the brand.
 it took pinch-zoom with it — somebody's only way to read this game on a phone, and a failure on every
 page of the site. The tag now carries `width=device-width, initial-scale=1.0, viewport-fit=cover` and
 nothing else; `touch-action: manipulation` moved from the controls to `body`, which drops the
-double-tap and leaves the pinch alone. The trade is real and deliberate: a board can now be pinched
-during a match.
+double-tap and leaves the pinch alone.
+
+The trade that left — a board that could be pinched during a match — is answered where it belongs,
+which is the seat rather than the tag. Under `:root[data-seated]` (set from the waiting room onwards
+by `App.svelte`) the reset drops to `touch-action: pan-x pan-y`, i.e. `manipulation` minus
+pinch-zoom, so nothing that scrolls stops scrolling; and `client/src/pinchGuard.ts` refuses WebKit's
+`gesturestart` under the same attribute, read at event time. Two halves because they answer two
+engines: Chrome honours the declaration, and iOS keeps pinch-zoom as a browser gesture
+`touch-action` never reaches — which matters more than it sounds, since every iPhone browser is
+WebKit, Brave and Firefox included.
+
+The point is what stays zoomable: `/`, the prose behind its sheet, and every content page — the
+surfaces somebody reads rather than plays. The scope is the whole justification, and it is why
+reaching for the viewport tag again would be the wrong fix twice over: it is global, and Safari has
+ignored `user-scalable=no` since iOS 10, so it would cost the audit and change nothing on the device
+the complaint came from. `a11y.test.ts` pins the tag, the scoped declaration and the guard together.
 
 ### A box that scrolls needs a way in
 

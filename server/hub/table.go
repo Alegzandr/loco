@@ -82,10 +82,8 @@ type table struct {
 	// whole set is broadcast rather than the increment; see rematch.go.
 	rematchOffers map[int]struct{}
 
-	// emoteAt[seat] is when that seat last said one of the three things. The only
-	// state an emote leaves anywhere, and it goes with the match: nothing about
-	// what was said is kept, only when. See emotes.go.
-	emoteAt map[int]time.Time
+	// (An emote leaves no state here at all — not what was said and not when. It
+	// is relayed and forgotten; see emotes.go.)
 
 	// matchHistory is every match this table has finished, oldest first.
 	//
@@ -228,7 +226,6 @@ func newTable(code string, room *game.Room) *table {
 		bots:          make(map[int]struct{}),
 		afk:           make(map[int]int),
 		rematchOffers: make(map[int]struct{}),
-		emoteAt:       make(map[int]time.Time),
 		box:           make(chan tableJob, tableBoxDepth),
 		quit:          make(chan struct{}),
 		done:          make(chan struct{}),
@@ -506,7 +503,6 @@ func setToken(m map[int]string, key int, val string, present bool) {
 // field.
 func (t *table) resetForNextMatch() {
 	t.rematchOffers = make(map[int]struct{})
-	t.emoteAt = make(map[int]time.Time)
 	t.afk = make(map[int]int)
 	t.awayAt = make(map[int]time.Time)
 	t.gone = make(map[int]struct{})
