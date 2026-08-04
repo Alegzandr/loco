@@ -170,7 +170,7 @@ describe('matchmaking store transitions', () => {
   })
 
   it('records who abandoned when a match ends on a forfeit', () => {
-    gameStore.getState().applyMatchEnd('Alice', [], 1)
+    gameStore.getState().applyMatchEnd('Alice', [], [], 1)
     const s = gameStore.getState()
     expect(s.screen).toBe('gameover')
     expect(s.forfeitBy).toBe(1)
@@ -178,7 +178,7 @@ describe('matchmaking store transitions', () => {
   })
 
   it('leaves forfeitBy null for a match that ended on the cards', () => {
-    gameStore.getState().applyMatchEnd('Alice', [])
+    gameStore.getState().applyMatchEnd('Alice', [], [])
     expect(gameStore.getState().forfeitBy).toBeNull()
   })
 

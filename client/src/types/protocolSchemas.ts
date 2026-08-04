@@ -194,6 +194,22 @@ export const scoreboardEntrySchema = v.object({
   rounds_won: v.number(),
 })
 
+// MatchRecordDTO is one finished match at this table, kept so a group playing
+// six in a row can see who actually won the evening.
+//
+// Both halves travel because both are read: RoundsWon is what decided that
+// match, Scores is the gap it was decided by. Indexed by seat, exactly like the
+// scoreboard, so a client renders one column per match against the roster it
+// already has.
+export const matchRecordSchema = v.object({
+  rounds_won: v.array(v.number()),
+  scores: v.array(v.number()),
+  // WinnerIndex is the seat that took the match, or -1 when the seat that took
+  // it has since left the table. No omitempty: seat 0 is a winner like any
+  // other, and dropping it would hand the match to nobody.
+  winner_index: v.number(),
+})
+
 // LatencyEntryDTO is one seat's measured round-trip time.
 export const latencyEntrySchema = v.object({
   player_index: v.number(),
@@ -258,6 +274,10 @@ export const gameStateSchema = v.object({
   // RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
   // Included in every snapshot so a reconnecting player recovers the table.
   round_history: v.optional(v.array(v.array(v.number()))),
+  // MatchHistory is the table's finished matches (see ServerMsg). Carried here
+  // too so a player who reconnects mid-match still has the evening behind them
+  // when this match ends.
+  match_history: v.optional(v.array(matchRecordSchema)),
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline: v.optional(v.number()),
 })
@@ -381,6 +401,12 @@ export const serverMsgSchema = v.object({
   // round_end so the score table updates without waiting for the next
   // game_state (which the client buffers behind the round summary).
   round_history: v.optional(v.array(v.array(v.number()))),
+  // SMsgMatchEnd: every match this table has finished, oldest first, the one
+  // just ended included. A rematch wipes the scoreboard, so without this a
+  // group that plays six matches on one code ends the evening with nobody able
+  // to say who won it. Only the game-over screen reads it, so it rides the one
+  // message that opens that screen.
+  match_history: v.optional(v.array(matchRecordSchema)),
   // SMsgLatency
   latencies: v.optional(v.array(latencyEntrySchema)),
   // SMsgLobbyConfigChanged

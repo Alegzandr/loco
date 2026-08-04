@@ -227,6 +227,8 @@
     winner={g.matchWinner}
     myNickname={myNickname}
     scoreboard={g.scoreboard}
+    players={g.players}
+    matchHistory={g.matchHistory}
     matchOver={g.matchOver}
     isMatchmade={g.isMatchmade}
     forfeitBy={g.forfeitBy}

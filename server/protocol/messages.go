@@ -244,6 +244,22 @@ type ScoreboardEntryDTO struct {
 	RoundsWon   int    `json:"rounds_won"`
 }
 
+// MatchRecordDTO is one finished match at this table, kept so a group playing
+// six in a row can see who actually won the evening.
+//
+// Both halves travel because both are read: RoundsWon is what decided that
+// match, Scores is the gap it was decided by. Indexed by seat, exactly like the
+// scoreboard, so a client renders one column per match against the roster it
+// already has.
+type MatchRecordDTO struct {
+	RoundsWon []int `json:"rounds_won"`
+	Scores    []int `json:"scores"`
+	// WinnerIndex is the seat that took the match, or -1 when the seat that took
+	// it has since left the table. No omitempty: seat 0 is a winner like any
+	// other, and dropping it would hand the match to nobody.
+	WinnerIndex int `json:"winner_index"`
+}
+
 // LatencyEntryDTO is one seat's measured round-trip time.
 type LatencyEntryDTO struct {
 	PlayerIndex int `json:"player_index"`
@@ -389,6 +405,13 @@ type ServerMsg struct {
 	// game_state (which the client buffers behind the round summary).
 	RoundHistory [][]int `json:"round_history,omitempty"`
 
+	// SMsgMatchEnd: every match this table has finished, oldest first, the one
+	// just ended included. A rematch wipes the scoreboard, so without this a
+	// group that plays six matches on one code ends the evening with nobody able
+	// to say who won it. Only the game-over screen reads it, so it rides the one
+	// message that opens that screen.
+	MatchHistory []MatchRecordDTO `json:"match_history,omitempty"`
+
 	// SMsgLatency
 	Latencies []LatencyEntryDTO `json:"latencies,omitempty"`
 
@@ -504,6 +527,10 @@ type GameStateDTO struct {
 	// RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
 	// Included in every snapshot so a reconnecting player recovers the table.
 	RoundHistory [][]int `json:"round_history,omitempty"`
+	// MatchHistory is the table's finished matches (see ServerMsg). Carried here
+	// too so a player who reconnects mid-match still has the evening behind them
+	// when this match ends.
+	MatchHistory []MatchRecordDTO `json:"match_history,omitempty"`
 
 	// Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
 	TurnDeadline int64 `json:"turn_deadline,omitempty"`

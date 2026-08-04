@@ -49,9 +49,22 @@ describe('pingTier', () => {
 })
 
 describe('buildScoreRows', () => {
-  it('orders by score, then rounds won, then seat', () => {
+  // The match is settled on rounds won, so the standings are too. Alice and Bob
+  // are level on rounds here and Bob is ahead on points, so points break it —
+  // and the fixture below proves the first key is the rounds, not the points.
+  it('orders by rounds won, then score, then seat', () => {
     const rows = buildScoreRows(players, scoreboard, roundHistory, latencies)
     expect(rows.map((r) => r.nickname)).toEqual(['bob', 'alice', 'Bot1'])
+  })
+
+  it('puts the seat with more rounds above the seat with more points', () => {
+    const behindOnRounds: ScoreboardEntryDTO[] = [
+      { player_index: 0, nickname: 'alice', score: 20, rounds_won: 3 },
+      { player_index: 1, nickname: 'bob', score: 500, rounds_won: 1 },
+      { player_index: 2, nickname: 'Bot1', score: 0, rounds_won: 0 },
+    ]
+    const rows = buildScoreRows(players, behindOnRounds, roundHistory, latencies)
+    expect(rows.map((r) => r.nickname)).toEqual(['alice', 'bob', 'Bot1'])
   })
 
   it('carries each seat its own column of the history', () => {

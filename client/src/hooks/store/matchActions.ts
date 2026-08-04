@@ -37,11 +37,12 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       }
     }),
 
-  applyMatchEnd: (matchWinner, scoreboard, forfeitBy) =>
+  applyMatchEnd: (matchWinner, scoreboard, matchHistory, forfeitBy) =>
     set({
       matchWinner,
       matchOver: true,
       scoreboard,
+      matchHistory,
       screen: 'gameover',
       // A forfeit is the one match end that can land while a round summary is
       // still up: the opponent quits, and nothing is waiting on a dismissal any
@@ -56,8 +57,8 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
 
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),
 
-  setPendingMatchEnd: (matchWinner, scoreboard) =>
-    set({ pendingMatchEnd: { matchWinner, scoreboard } }),
+  setPendingMatchEnd: (matchWinner, scoreboard, matchHistory) =>
+    set({ pendingMatchEnd: { matchWinner, scoreboard, matchHistory } }),
 
   dismissRoundSummary: () => {
     const s = get()
@@ -67,6 +68,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         matchWinner: s.pendingMatchEnd.matchWinner,
         matchOver: true,
         scoreboard: s.pendingMatchEnd.scoreboard,
+        matchHistory: s.pendingMatchEnd.matchHistory,
         screen: 'gameover',
         showRoundSummary: false,
         pendingMatchEnd: null,
@@ -128,6 +130,10 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       mapLoading: null,
       scoreboard: [],
       roundHistory: [],
+      // matchHistory is deliberately NOT cleared: it belongs to the table, not
+      // to the match, and the whole point of it is that a rematch does not wipe
+      // the evening. The server re-sends it on the next game_state anyway, so
+      // clearing here would only produce a window where the table forgets.
       latencies: [],
       roundWinner: '',
       roundScores: [],

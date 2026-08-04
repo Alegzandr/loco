@@ -1,14 +1,19 @@
 <script lang="ts">
-  import type { ScoreboardEntryDTO } from '../types/protocol'
+  import type { MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import Confetti from './Confetti.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
+  import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
 
   type Props = {
     winner: string
     myNickname: string
     scoreboard?: ScoreboardEntryDTO[]
+    /** The roster, for the evening's recap: it is indexed by seat, not by name. */
+    players?: PlayerDTO[]
+    /** Every match this table has finished, oldest first. */
+    matchHistory?: MatchRecordDTO[]
     matchOver?: boolean
     /** This match came out of the 1v1 queue: the next one is another pairing. */
     isMatchmade?: boolean
@@ -34,6 +39,8 @@
     winner,
     myNickname,
     scoreboard,
+    players = [],
+    matchHistory = [],
     matchOver,
     isMatchmade,
     forfeitBy,
@@ -67,7 +74,15 @@
   const progress = $derived(
     isTable ? ` ${t.rematchProgress(rematchOffers.length, rematchNeeded)}` : '',
   )
-  const ranked = $derived((scoreboard ?? []).slice().sort((a, b) => b.score - a.score))
+  // Rounds won first, points second: the same order the server settles the match
+  // in, so the top row is always the name in the heading. Sorting on points here
+  // used to put a losing seat above the winner whenever one expensive round beat
+  // two cheap ones.
+  const ranked = $derived(
+    (scoreboard ?? []).slice().sort((a, b) => b.rounds_won - a.rounds_won || b.score - a.score),
+  )
+  const recap = $derived(buildMatchRecap(players, matchHistory))
+  const showRecap = $derived(hasEveningToShow(matchHistory))
   // Read through a $derived rather than out of the snapshot inside the markup:
   // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
@@ -109,12 +124,57 @@
         {#each ranked as entry (entry.player_index)}
           <div class="scoreRow" class:scoreRowWinner={entry.nickname === winner}>
             <span class="scoreName">{entry.nickname}</span>
+            <!-- Rounds lead, points follow. The match was decided by the first
+                 and measured by the second, and a card that shouted the points
+                 was explaining the result with the wrong number. -->
             <span class="scoreDetails">
-              <span class="scoreVal">{entry.score} pts</span>
-              <span class="scoreWins">{entry.rounds_won}W</span>
+              <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
+              <span class="scoreGap">{entry.score} pts</span>
             </span>
           </div>
         {/each}
+      </div>
+    {/if}
+
+    <!-- The evening, match by match. Hidden until the table has rematched: one
+         column is the standings above, said twice. A cumulative total would hide
+         the thing worth seeing — a 3-0 sweep and three matches taken on the last
+         round are the same number and not the same evening. -->
+    {#if showRecap}
+      <div class="recap">
+        <h3 class="scoreboardTitle">{t.recapTitle}</h3>
+        <!-- Scrolls sideways past a few matches, so it takes a focus stop and a
+             ring: a box that scrolls has to be reachable from the keyboard.
+             Nothing inside it is focusable, which is exactly why the box itself
+             has to be — the same rule the content pages' .tableWrap follows. -->
+        <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+        <div class="recapScroller" tabindex="0">
+          <table class="recapTable">
+            <thead>
+              <tr>
+                <th class="recapThName">{t.player}</th>
+                {#each matchHistory as _, i (i)}
+                  <th class="recapTh">{t.recapMatchCol.replace('%n', String(i + 1))}</th>
+                {/each}
+                <th class="recapTh recapThTotal">{t.recapWonCol}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each recap as row (row.index)}
+                <tr>
+                  <td class="recapName">{row.nickname}</td>
+                  {#each row.cells as cell, i (i)}
+                    <td class="recapCell" class:recapCellWon={cell.won}>
+                      <span class="recapRounds">{cell.roundsWon}</span>
+                      <span class="recapScore">{cell.score}</span>
+                    </td>
+                  {/each}
+                  <td class="recapCell recapTotal">{row.matchesWon}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       </div>
     {/if}
 
@@ -291,13 +351,99 @@
     font-weight: 700;
   }
 
-  .scoreWins {
+  /* The gap, not the result. Quiet is a hue here like everywhere else. */
+  .scoreGap {
     font: 700 11px/1.2 var(--font-display);
-    padding: 3px 8px;
-    border-radius: var(--radius-full);
-    background: var(--color-tertiary);
-    border: 1.5px solid var(--color-stroke);
-    color: var(--color-on-dark);
+    color: var(--color-muted);
+  }
+
+  .scoreRowWinner .scoreGap {
+    color: var(--color-on-secondary);
+  }
+
+  /* The evening's recap: a small dense grid under the standings, built like the
+     TAB table rather than like the trophy card above it — it is consulted, not
+     celebrated. */
+  .recap {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: var(--space-md);
+    background: var(--color-surface-strong);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-md);
+  }
+
+  .recapScroller {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* The focus ring comes from tokens.css, which rings every [tabindex] on every
+     surface. A second declaration here would be a second definition of it. */
+
+  .recapTable {
+    width: 100%;
+    border-collapse: collapse;
+    font: 700 12px/1.2 var(--font-display);
+    color: var(--color-ink);
+  }
+
+  .recapTh,
+  .recapThName {
+    font: 700 10px/1.2 var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--color-muted);
+    padding: 0 6px 4px;
+    white-space: nowrap;
+  }
+
+  .recapThName {
+    text-align: left;
+  }
+
+  .recapThTotal {
+    color: var(--color-ink);
+  }
+
+  .recapName {
+    padding: 3px 6px;
+    max-width: 9ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recapCell {
+    padding: 3px 6px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  /* The seat that took that match. A hue plus a heavier weight, so the column
+     still reads at 720p once the card is re-encoded. */
+  .recapCellWon {
+    color: var(--color-primary);
+  }
+
+  .recapRounds {
+    font-size: 14px;
+  }
+
+  .recapScore {
+    margin-left: 4px;
+    font-size: 10px;
+    color: var(--color-muted);
+  }
+
+  .recapCellWon .recapScore {
+    color: var(--color-primary);
+  }
+
+  .recapTotal {
+    font-size: 15px;
   }
 
   .btn {

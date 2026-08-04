@@ -827,9 +827,15 @@ func (r *Room) endRound(winnerIdx int) {
 	r.State.logEvent(EventRoundEnd, winnerIdx, nil, 0)
 	r.RoundEnded = true
 
-	// Match-over check: only after the configured number of rounds AND
-	// only if a clear winner exists; otherwise sudden-death continues.
-	if r.RoundNumber >= int(r.Format) {
+	// Match-over check. Two ways a match can stop, and only one of them is the
+	// format running out: a lead in rounds won that the rounds left cannot catch
+	// ends it on the spot, which is what "best of 3" has always meant everywhere
+	// else and what the format labels now say. See decisiveLeader.
+	//
+	// Sudden death is still the answer when the last round lands on a table
+	// nothing separates: determineMatchWinner returns "" and the room keeps
+	// dealing.
+	if r.decisiveLeader() >= 0 || r.RoundNumber >= int(r.Format) {
 		matchWinner := r.determineMatchWinner()
 		if matchWinner != "" {
 			r.MatchWinner = matchWinner
@@ -910,8 +916,53 @@ func (r *Room) ResetForRematch() error {
 	return nil
 }
 
-// biggestLoser returns the player index with the lowest cumulative score.
-// Ties are broken by lowest player index (deterministic).
+// decisiveLeader returns the seat whose lead in rounds won can no longer be
+// caught, or -1 when the match is still open.
+//
+// One expression covers both endings the match has. A seat is decisive when its
+// rounds won are strictly greater than every other seat's plus every round still
+// to be played, and `remaining` is zero once the format is exhausted — so the
+// same test that stops a best-of-7 at 4–0 is the one that says a best-of-1 ended
+// on its only round. What it deliberately does not answer is a table it cannot
+// separate: that is determineMatchWinner's chain, and past it, sudden death.
+//
+// Written as "strictly greater than everyone else" rather than "reached the
+// majority" because the majority is only the right number at two seats. Six
+// players sharing a best-of-7 never reach 4, and the match still has to end.
+func (r *Room) decisiveLeader() int {
+	remaining := int(r.Format) - r.RoundNumber
+	if remaining < 0 {
+		remaining = 0
+	}
+	for i := range r.RoundsWon {
+		decisive := true
+		for j := range r.RoundsWon {
+			if i == j {
+				continue
+			}
+			if r.RoundsWon[i] <= r.RoundsWon[j]+remaining {
+				decisive = false
+				break
+			}
+		}
+		if decisive {
+			return i
+		}
+	}
+	return -1
+}
+
+// biggestLoser returns the player index with the lowest cumulative score, i.e.
+// the seat that opens the next round. Ties are broken by lowest player index
+// (deterministic).
+//
+// **It stays indexed on points, and that is deliberate now that points no longer
+// decide the match.** Rounds won is exactly the wrong signal here: only one seat
+// per round wins one, so past two players half the table sits on zero and the
+// "biggest loser" would be whichever of them happens to hold the lowest index,
+// every round, all match. The score is the fine-grained measure of how far behind
+// somebody is — which is the whole reason it survived the rule change — and that
+// is what this question is asking for.
 func (r *Room) biggestLoser() int {
 	loser := 0
 	for i := 1; i < len(r.Scores); i++ {
@@ -923,8 +974,21 @@ func (r *Room) biggestLoser() int {
 }
 
 // determineMatchWinner finds the match winner using tiebreaker rules:
-// (1) highest total score, (2) most rounds won, (3) lowest lost-hand total,
+// (1) most rounds won, (2) highest total score, (3) lowest lost-hand total,
 // then sudden death (returns "").
+//
+// **Rounds won decides the match, and the score is what measures the gap.** It
+// used to be the other way round, which meant a player could take three rounds
+// of a best-of-5 and lose the match to somebody who took one expensive one — a
+// result nothing on screen explained, because "best of 5" does not read as "most
+// points after 5". The score is still computed, still kept and still shown: it
+// is the finer measure of how far apart two seats are, it is what breaks a tie
+// here, it is what picks the seat that opens the next round (see biggestLoser),
+// and it is what a rating would be built on.
+//
+// A decisive leader (see decisiveLeader) is by construction strictly ahead of
+// every other seat on rounds won, so the first filter below resolves them and
+// this can be asked at any point in a match, not only at the end of the format.
 func (r *Room) determineMatchWinner() string {
 	n := len(r.Players)
 	candidates := make([]int, n)
@@ -932,11 +996,11 @@ func (r *Room) determineMatchWinner() string {
 		candidates[i] = i
 	}
 
-	candidates = filterBest(candidates, func(i int) int { return r.Scores[i] })
+	candidates = filterBest(candidates, func(i int) int { return r.RoundsWon[i] })
 	if len(candidates) == 1 {
 		return r.Players[candidates[0]].Nickname
 	}
-	candidates = filterBest(candidates, func(i int) int { return r.RoundsWon[i] })
+	candidates = filterBest(candidates, func(i int) int { return r.Scores[i] })
 	if len(candidates) == 1 {
 		return r.Players[candidates[0]].Nickname
 	}

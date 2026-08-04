@@ -54,7 +54,12 @@
       .sort((a, b) => b.round_points - a.round_points || b.cumulative_score - a.cumulative_score),
   )
 
-  const ranked = $derived(scoreboard.slice().sort((a, b) => b.score - a.score))
+  // "Where the match stands" is a standings table, so it is ordered the way the
+  // match is settled: rounds won, then points. Ordering it on points alone put
+  // the seat that is actually behind at the top of it.
+  const ranked = $derived(
+    scoreboard.slice().sort((a, b) => b.rounds_won - a.rounds_won || b.score - a.score),
+  )
 </script>
 
 <div class="roundSummary">
@@ -73,8 +78,8 @@
         <span>{t.placementLabel}</span>
         <span>{t.player}</span>
         <span>{t.ptsLabel}</span>
-        <span>{t.totalLabel}</span>
         <span>{t.winsLabel}</span>
+        <span>{t.totalLabel}</span>
       </div>
       {#each sorted as entry, idx (entry.player_index)}
         <div class="roundScoreRow" class:roundScoreRowWinner={entry.nickname === roundWinner}>
@@ -83,8 +88,8 @@
           <span class="roundScoreDelta">
             {entry.round_points > 0 ? `+${entry.round_points}` : '—'}
           </span>
-          <span class="roundScoreTotal">{entry.cumulative_score}</span>
           <span class="roundScoreWins">{entry.rounds_won}</span>
+          <span class="roundScoreTotal">{entry.cumulative_score}</span>
         </div>
       {/each}
     </div>
@@ -98,7 +103,10 @@
           {#each ranked as entry (entry.player_index)}
             <div class="scoreRow">
               <span class="scoreName">{entry.nickname}</span>
-              <span class="scoreVal">{entry.score} pts · {entry.rounds_won}W</span>
+              <span class="scoreDetails">
+                <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
+                <span class="scoreGap">{entry.score} pts</span>
+              </span>
             </div>
           {/each}
         </div>
@@ -242,12 +250,14 @@
     color: #1f6b3c;
   }
 
-  .roundScoreTotal {
+  /* Rounds won carries the weight now: it is what the match is settled on. The
+     cumulative total sits beside it as the gap, in the quiet hue. */
+  .roundScoreWins {
     text-align: right;
     font-weight: 700;
   }
 
-  .roundScoreWins {
+  .roundScoreTotal {
     text-align: right;
     color: var(--color-muted);
   }
@@ -294,6 +304,20 @@
   .scoreVal {
     flex-shrink: 0;
     font-weight: 700;
+  }
+
+  .scoreDetails {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-xs);
+    flex-shrink: 0;
+  }
+
+  /* The gap, not the result. A hue rather than an opacity, like everywhere. */
+  .scoreGap {
+    flex-shrink: 0;
+    font: 700 11px/1.3 var(--font-display);
+    color: var(--color-muted);
   }
 
   .btnContinue {

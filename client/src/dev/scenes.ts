@@ -786,6 +786,28 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    // The evening's recap: only drawn once the table has rematched, so the
+    // scene is the one that has. Four seats and four matches is the widest the
+    // block gets before it starts scrolling sideways, which is the case worth
+    // looking at.
+    id: 'gameover-recap',
+    title: 'Fin de match · récap de soirée',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: PLAYERS_4,
+      myIndex: 0,
+      matchHistory: [
+        { rounds_won: [2, 1, 0, 0], scores: [90, 55, 20, 10], winner_index: 0 },
+        { rounds_won: [1, 0, 2, 0], scores: [40, 5, 85, 15], winner_index: 2 },
+        { rounds_won: [0, 2, 1, 0], scores: [12, 88, 44, 0], winner_index: 1 },
+        { rounds_won: [2, 0, 1, 0], scores: [95, 10, 35, 5], winner_index: 0 },
+      ],
+    },
+  },
+  {
     id: 'gameover-lose',
     title: 'Fin de match · défaite',
     screen: 'gameover',

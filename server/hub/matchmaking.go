@@ -546,12 +546,18 @@ func (h *Hub) forfeitMatch(t *table, awaySeat int) {
 	h.metrics.matchesFinished.Add(1)
 	log.Printf("match forfeited code=%s away=%d winner=%s", code, awaySeat, room.MatchWinner)
 
+	// A walkover is a finished match like any other as far as the evening's
+	// recap is concerned: the scoreboard it ended on is exactly what happened,
+	// which is also why ForfeitTo leaves that scoreboard alone.
+	t.recordFinishedMatch()
+
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:        protocol.SMsgMatchEnd,
-		MatchWinner: room.MatchWinner,
-		Scoreboard:  h.buildScoreboard(room),
-		Forfeit:     true,
-		PlayerIndex: intPtr(awaySeat),
+		Type:         protocol.SMsgMatchEnd,
+		MatchWinner:  room.MatchWinner,
+		Scoreboard:   h.buildScoreboard(room),
+		MatchHistory: matchHistoryDTO(t),
+		Forfeit:      true,
+		PlayerIndex:  intPtr(awaySeat),
 	})
 }
 

@@ -318,13 +318,22 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         // opponent has gone, and there is nothing left for the summary to be
         // a summary of.
         if (msg.forfeit) {
-          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [], msg.player_index ?? -1)
+          store.applyMatchEnd(
+            msg.match_winner ?? '',
+            msg.scoreboard ?? [],
+            msg.match_history ?? [],
+            msg.player_index ?? -1,
+          )
         } else if (s.showRoundSummary) {
           // Final round summary is still visible — buffer the match-end payload so
           // the player sees the full round breakdown before the game over screen.
-          store.setPendingMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+          store.setPendingMatchEnd(
+            msg.match_winner ?? '',
+            msg.scoreboard ?? [],
+            msg.match_history ?? [],
+          )
         } else {
-          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [])
+          store.applyMatchEnd(msg.match_winner ?? '', msg.scoreboard ?? [], msg.match_history ?? [])
         }
         break
       }

@@ -10,7 +10,7 @@ hub's own machinery, see `server.md`.
 Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
 1. **GlobalSwitch (Change Cards All Round) is wild** — 4 copies, no color, plays on anything, and names the new active colour like the other two wilds. SOLO has it as colored 1-per-color. Implemented in `game/deck.go` (4 wild copies) and `game/card.go` `IsWild()`. Rationale: simpler, avoids dead cards.
 2. **Starting card is always a Number** — `dealRound` skips action/wild cards until a Number is found (`game/room.go`). SOLO applies the starting action's effect to the first player. Rationale: avoids first-turn ambiguity (Take 4 with no context, Swap with empty game state).
-3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`). Game ends when one player wins the majority of rounds. Rationale: predictable online game length.
+3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`), and **the match is taken by rounds won rather than by points**. See "Rounds won take the match" below for the whole rule and the bug it closed. Rationale: predictable online game length, and a format label that is true.
 4. **Voluntary draw is allowed** — current player may draw even with a playable card in hand (still 1 draw max per turn). `Room.DrawCard` only enforces `HasDrawn` to prevent a second draw. Rationale: strategic depth; matches UNO official rules.
 5. **A forced draw does not cost the turn** — the victim of a +2/+4 stack takes the whole accumulated amount and then plays normally (or passes). `Room.DrawCard` sets `HasDrawn` in both branches and never advances `CurrentTurn`; nothing but `PlayCard`/`PassTurn`/an effect moves the turn. **`hub.handleDrawCard` re-arms the turn timer on every draw** — the domain kept the turn but the clock was still the one armed when the +2 landed, so a victim who took a few seconds to decide against countering drew the stack and was auto-passed right after: the deviation held on paper and the seat still vanished. One draw per turn bounds the extension. Rationale: cards *and* turn for one played card is two punishments, and it reads as a bug — the hand jumps and the seat is gone before the player can act. Stacking (`CounterDraw`) is still how you avoid drawing at all.
 6. **A missed Contre-LOCO! costs the caller 1 card** — the call only lands inside the target's 5s
@@ -26,8 +26,67 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
 - Scores accumulate in `Room.Scores []int`. `Room.MatchOver`/`MatchWinner` indicate completion (resolved in `endRound`).
 - Round starter: round 1 = random (`Room.rng`); subsequent = current biggest loser (lowest cumulative score; tie → lowest playerID via `Room.biggestLoser()`).
 - Formats: BO1/3/5/7 (`game.MatchFormat`).
-- Tiebreakers: highest score → most rounds won → lowest lost-hand total → sudden-death extra round.
-- `determineMatchWinner()` returning `""` triggers sudden-death.
+
+### Rounds won take the match; the score measures the gap
+
+**The bug it closed.** `determineMatchWinner` used to filter on `Scores` first, so a seat could take
+three rounds of a BO5 and lose the match to somebody who took one expensive one — a Take 4 and a
+Global Switch left in a full hand is 90 points off a single round. Nothing on screen could explain
+that result, because "best of 5" does not read as "most points after 5", and the format labels
+(`bestOf3`, "Meilleur des 3") were saying the opposite of what the server did.
+
+- **Tiebreakers, in order**: most rounds won → highest score → lowest lost-hand total →
+  sudden-death extra round. `determineMatchWinner()` returning `""` is what triggers the last one.
+- **The score survives, and it is not decoration.** It breaks the tie above, it picks the seat that
+  opens the next round, it is what the score table shows beside the rounds, and it is the number a
+  rating or a skill-based queue would be built on later. What it stopped being is the answer to
+  "who won".
+- **The match stops as soon as the lead cannot be caught** (`Room.decisiveLeader`). A seat is
+  decisive when `RoundsWon[i] > RoundsWon[j] + remaining` for every other `j`, with
+  `remaining = max(0, Format - RoundNumber)`. **One expression covers both endings**: `remaining` is
+  zero once the format is exhausted, so the same test that stops a BO7 at 4–0 is the one that says a
+  BO1 ended on its only round. `endRound` asks it, and falls through to the tiebreak chain when the
+  format has run out without it being satisfied.
+- **"Strictly ahead of everyone" rather than "reached the majority"**, because the majority is only
+  the right number at two seats. Six players sharing a BO7 never reach 4 and the match still has to
+  end.
+- **A decisive leader is by construction the unique maximum on rounds won**, so the first filter of
+  the chain resolves them: `endRound` can ask one question ("can this stop?") and then another
+  ("who took it?") without the two being able to disagree.
+  `TestRoom_MatchStopsOnceTheLeadIsUncatchable` and `TestDetermineMatchWinner_RoundsWonBeatsScore`
+  own the pair.
+- **`biggestLoser` deliberately stays on points.** Rounds won is exactly the wrong signal for "who
+  opens the next round": only one seat per round wins one, so past two players half the table sits
+  on zero and the opener would be whichever of them holds the lowest index, every round, all match.
+  The score being the fine-grained measure of how far behind somebody is — the whole reason it
+  survived the rule change — is what makes it the right one here.
+- **A forfeit is unaffected**: `ForfeitTo` awards the match without touching the scoreboard, which
+  was already the right semantics and still is.
+
+### The evening's recap (`table.matchHistory`)
+
+One record per **match** this table has finished — each seat's rounds won and points, plus the
+winning seat — kept on the hub's `table` rather than on the `Room`, because it has to outlive the
+room's reset.
+
+- `ResetForRematch` nils `Scores`/`RoundsWon`, so six matches on one code used to leave nobody able
+  to say who won the evening. `resetForNextMatch` clears everything belonging to the match that just
+  ended; this is the one field there that is *about* the matches before it, so it is not cleared.
+- `recordFinishedMatch()` is called once per match, from both endings: the last round
+  (`handleRoundOrMatchEnd`) and a forfeit (`forfeitMatch`). A walkover is a finished match as far as
+  the evening is concerned, and the scoreboard it ended on is exactly what happened.
+- It **copies** the room's arrays. Holding the live slices would make every record read as the next
+  match the moment `Start()` reallocated them.
+- It is indexed by seat, so it moves with the seats: `dropSeat` removes the column and re-bases the
+  winner (a departed winner becomes `-1`, never the player who slid into the index), `swapSeats`
+  exchanges both. No twelfth map — a slice of records on the struct.
+- It rides `match_end` (the one message that opens the screen reading it) and every personalised
+  `game_state` (so a reconnect mid-match still has the evening behind it), and it travels in the
+  drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2.
+- The client draws it only past one record: a single column is the standings immediately above it,
+  said twice (`hasEveningToShow`).
+
+### Round and match plumbing
 - Hub flow on round end: broadcast `round_end` (scoreboard, `RoundNumber`=just-completed) → `BeginNextRound` → `game_started` per player. On match end: `match_end` (scoreboard + match_winner).
 - `PlayerDTO`: `Index`, `Nickname`, `HandSize`, `Connected` only.
 

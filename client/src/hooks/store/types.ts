@@ -6,6 +6,7 @@ import {
   MatchFormat,
   ScoreboardEntryDTO,
   LatencyEntryDTO,
+  MatchRecordDTO,
 } from '../../types/protocol'
 import type { PersistedSession, RestoreTarget } from '../sessionPersistence'
 
@@ -198,12 +199,22 @@ export interface GameState {
   // a reconnecting player must see the same table as everyone else, and the
   // cumulative scoreboard cannot be split back into rounds locally.
   roundHistory: number[][]
+  // Every match this table has finished, oldest first, the one just ended
+  // included. The evening rather than the match: a rematch wipes the scoreboard,
+  // so this is the only thing that can say who won six matches on one code.
+  // Server-owned like roundHistory and for the same reason. Read by the
+  // game-over screen and nowhere else.
+  matchHistory: MatchRecordDTO[]
   showRoundSummary: boolean
   roundNumber_completed: number   // the round number that just finished (for display)
   roundScores: RoundScoreEntry[]  // per-player points earned this round
   pendingGameState: GameStateDTO | null // buffered next-round state (held while summary is visible)
   // buffered match-end payload (held while the final round summary is visible)
-  pendingMatchEnd: { matchWinner: string; scoreboard: ScoreboardEntryDTO[] } | null
+  pendingMatchEnd: {
+    matchWinner: string
+    scoreboard: ScoreboardEntryDTO[]
+    matchHistory: MatchRecordDTO[]
+  } | null
   // Seats that have asked for another match on the game-over screen. A rematch
   // is an agreement in every room, so every ask is public: the button has to be
   // able to say "they are waiting on you" as well as "you are waiting on them".
@@ -288,9 +299,18 @@ export interface LocoActions {
 export interface MatchActions {
   setLobbyConfig: (format: MatchFormat, maxPlayers: number) => void
   applyRoundEnd: (roundWinner: string, roundNumber: number, scoreboard: ScoreboardEntryDTO[], roundHistory?: number[][]) => void
-  applyMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[], forfeitBy?: number) => void
+  applyMatchEnd: (
+    matchWinner: string,
+    scoreboard: ScoreboardEntryDTO[],
+    matchHistory: MatchRecordDTO[],
+    forfeitBy?: number,
+  ) => void
   setPendingGameState: (state: GameStateDTO) => void
-  setPendingMatchEnd: (matchWinner: string, scoreboard: ScoreboardEntryDTO[]) => void
+  setPendingMatchEnd: (
+    matchWinner: string,
+    scoreboard: ScoreboardEntryDTO[],
+    matchHistory: MatchRecordDTO[],
+  ) => void
   dismissRoundSummary: () => void
   applyRematchOffers: (offers: number[], needed: number) => void
   clearRematchOffers: () => void

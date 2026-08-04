@@ -128,11 +128,16 @@ func (h *Hub) handleRoundOrMatchEnd(t *table) {
 
 	if room.MatchOver {
 		h.metrics.matchesFinished.Add(1)
-		log.Printf("match finished code=%s winner=%s", code, room.MatchWinner)
+		log.Printf("match finished code=%s winner=%s round=%d of=%s",
+			code, room.MatchWinner, room.RoundNumber, matchFormatString(room.Format))
+		// Recorded before it is announced: the message carries the recap, and the
+		// match that has just ended is the last column of it.
+		t.recordFinishedMatch()
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:        protocol.SMsgMatchEnd,
-			MatchWinner: room.MatchWinner,
-			Scoreboard:  scoreboard,
+			Type:         protocol.SMsgMatchEnd,
+			MatchWinner:  room.MatchWinner,
+			Scoreboard:   scoreboard,
+			MatchHistory: matchHistoryDTO(t),
 		})
 		return
 	}

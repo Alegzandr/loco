@@ -80,6 +80,11 @@ interface LocoE2EState {
   roundWinner: string
   matchWinner: string
   matchOver: boolean
+  /**
+   * Every match this table has finished, oldest first. Kept across a rematch,
+   * which is the whole point of it: the scoreboard beside it restarts.
+   */
+  matchHistory: Array<{ rounds_won: number[]; scores: number[]; winner_index: number }>
   showRoundSummary: boolean
   // 1v1 matchmaking
   /** True for a match that came out of the queue: no host, no rematch. */

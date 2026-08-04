@@ -69,7 +69,10 @@ export function buildScoreRows(
       bot: ping?.bot ?? false,
     }
   })
-  // Leader first, then most rounds won, then seat order, the same ordering the
+  // Most rounds won first, then points, then seat order — the same ordering the
   // match tiebreakers use, so the table never contradicts the final standings.
-  return rows.sort((a, b) => b.total - a.total || b.wins - a.wins || a.index - b.index)
+  // It used to lead on points, which is what the match used to be decided on;
+  // once rounds won took that over, a table sorted on points was telling the
+  // player the wrong seat was winning.
+  return rows.sort((a, b) => b.wins - a.wins || b.total - a.total || a.index - b.index)
 }

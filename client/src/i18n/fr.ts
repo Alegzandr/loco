@@ -240,6 +240,10 @@ export const fr: Translations = {
   finalScores: 'Classement final',
   winsGame: 'l\'emporte\u00a0!',
   winsMatch: 'rafle le match\u00a0!',
+  roundsWonCount: (n) => (n === 1 ? '1 manche' : `${n} manches`),
+  recapTitle: 'La soirée',
+  recapMatchCol: 'Match %n',
+  recapWonCol: 'Gagnés',
   rematch: 'Revanche',
   leaveRoom: 'Quitter la table',
 
@@ -345,8 +349,9 @@ export const fr: Translations = {
       heading: 'Remporter le match',
       items: [
         'La longueur du match se choisit avant de distribuer\u00a0: manche unique, ou meilleur des 3, 5 ou 7.',
-        'Le plus gros total quand la dernière manche tombe rafle tout.',
-        'Égalité\u00a0? Le plus de manches gagnées, puis le plus petit total de cartes perdantes, puis une manche décisive.',
+        'Ce sont les manches gagnées qui emportent le match. Meilleur des 3, c\'est le premier à deux, pour de vrai.',
+        'Et ça s\'arrête dès que l\'avance est imprenable\u00a0: 2 à 0 en meilleur des 3, 4 à 1 en meilleur des 7, terminé.',
+        'Les points mesurent l\'écart, ils ne sacrent personne. À égalité de manches\u00a0? Le plus gros total, puis le plus petit total de cartes perdantes, puis une manche décisive.',
       ],
     },
   ] as const,

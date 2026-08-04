@@ -44,6 +44,10 @@ export const T = {
   searchAgain: 'Search again',
   forfeitWon: 'They walked',
   rematchAccept: 'They want another. Go.',
+  // The evening's recap, drawn on the game-over card once the table has played
+  // more than one match.
+  recapTitle: 'Tonight',
+  recapWonCol: 'Won',
   nicknameRejected: 'Pick another nickname.',
   // The host's two controls over one roster row, behind one ⋯ per row. Both ask
   // before they act, and the verb the menu offered is the verb that confirms it

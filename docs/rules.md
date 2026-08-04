@@ -179,6 +179,8 @@ Remaining players sum the point values of cards still in hand:
 
 **Scoring mode** (configurable, default = English edition): round winner accumulates all losers' points. First to **600 points** wins the game. Alternative: penalty mode (losers accumulate; first past 300 or 500 triggers game end; fewest points wins).
 
+**LOCO does neither** (see §14.3): the match is taken by **rounds won**, and the score is the measure of the gap rather than the thing being raced to. It is still accumulated per round exactly as above, it is still what breaks a tie on rounds won, and it is still what picks the seat that opens the next round.
+
 ## 11. Edge Cases
 
 1. **Swap with 1 card in hand**: Legal. Everyone left holding exactly 1 card once
@@ -249,8 +251,14 @@ picked, and the client must prompt for it before the card leaves the hand.
 
 ### 14.3 Best-of-N Format Instead of Point Threshold
 **SOLO rule**: Points accumulate across rounds. The game ends when a player reaches 600 points (English edition). The player with the most points wins.
-**LOCO rule**: The game uses a Best-of-N format (BO1, BO3, BO5, or BO7). The first player to win the majority of rounds wins the game.
-**Rationale**: Better suited for online play — provides a predictable game length and clear progress toward the finish.
+**LOCO rule**: The game uses a Best-of-N format (BO1, BO3, BO5, or BO7), and **the match is taken by rounds won, not by points**.
+
+- **The match stops as soon as the lead cannot be caught.** A seat has taken it when its rounds won are strictly greater than every other seat's plus the rounds still to play (`remaining = max(0, Format - RoundNumber)`). So a BO3 ends at 2–0, a BO5 at 3–0 or 3–1, a BO7 at 4–0 through 4–3, and a BO1 always ends on its only round. Written as "strictly ahead of everyone" rather than "reached the majority" because the majority is only the right number at two seats: six players sharing a BO7 never reach 4, and the match still has to end.
+- **Points measure the gap, they do not crown anybody.** They are computed, kept, shown and used as the first tiebreaker, and they are what a rating or a skill-based queue would later be built on.
+- **Tiebreakers, in order**: most rounds won → highest total score → lowest lost-hand total → a sudden-death extra round.
+- **The seat that opens the next round is still the one with the fewest points.** Rounds won is too coarse a signal there: only one seat per round wins one, so past two players half the table sits on zero.
+
+**Rationale**: Better suited for online play — a predictable length and clear progress toward the finish. Deciding on points made "best of 5" a lie: a player could take three of the five rounds and lose the match to somebody who took one expensive one, with nothing on screen able to explain it.
 
 ### 14.4 Voluntary Draw is Allowed
 **SOLO rule**: A player may only draw from the draw pile if they have no playable card in hand.

@@ -31,8 +31,9 @@ rules, `docs/notes/` the reasoning.
 - Swap (colored, opponent hand swap) and Global Switch (wild: names a colour, then rotates all hands in current direction).
 - UNO declaration + 5 s server-enforced catch window. **A hand-emptying play is refused without the call**, so nobody forgets LOCO! and takes the round anyway; a batch that empties the hand in one go carries the call in the play itself, since it never passes through a single card.
 - Single-finisher round scoring (number = face; Reverse = 10; Skip = 20; +2 and Swap = 30; Wild and Global Switch = 40; +4 = 50).
-- Multi-round matches with persistent scoreboard.
-- Tiebreakers: highest score → rounds won → lowest lost-hand total → sudden-death extra round.
+- Multi-round matches with persistent scoreboard. **The match is taken by rounds won**, and it ends the moment the lead cannot be caught: 2–0 in a BO3, 3–1 in a BO5, 4–3 in a BO7. Points are still accumulated and shown, as the measure of the gap rather than the thing being raced to.
+- Tiebreakers: most rounds won → highest score → lowest lost-hand total → sudden-death extra round.
+- **Evening recap on the game-over screen**: one column per match this table has finished, with each seat's rounds won and points, and its total of matches taken. A rematch wipes the scoreboard, so without it a group playing six matches on one code ends up with nobody able to say who won the night. Hidden until the table has rematched, since one column would be the standings above it said twice.
 - Win detection (empty hand) and deck replenishment from the discard pile.
 - Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
 
@@ -42,7 +43,7 @@ rules, `docs/notes/` the reasoning.
 - `prefers-reduced-motion` is honoured throughout: transforms snap to their end state and CSS transitions are disabled, leaving the game fully playable without movement.
 - Round summary overlay with placements, points earned, cumulative scoreboard; auto-dismiss after 8 s or via Continue. Next-round state is buffered so the overlay never vanishes instantly.
 - Match-end screen with final scoreboard, winner highlight, the rematch ask every seat gets (see above — it is not the host's call), and Leave room.
-- Score table on held `TAB` (and on a **Scores** button, the only way in on a touch device): one row per seat with its identity colour, one column per finished round, cumulative total, rounds won, and a live ping. The ping is banded by colour (green under 60 ms, yellow under 120, orange under 220, red beyond) because an interrupt is decided by arrival order at the server. Bots are labelled rather than given a fake number, and a seat with no measurement yet says so.
+- Score table on held `TAB` (and on a **Scores** button, the only way in on a touch device): one row per seat with its identity colour, one column per finished round, rounds won (the column the match is settled on, and the one that survives on a phone), the cumulative total, and a live ping. The ping is banded by colour (green under 60 ms, yellow under 120, orange under 220, red beyond) because an interrupt is decided by arrival order at the server. Bots are labelled rather than given a fake number, and a seat with no measurement yet says so.
 - Play direction ring: chevrons around the felt, chasing the way play is moving and flipping over when a Reverse lands. The heading is carried by the chevrons themselves, so it still reads on a paused clip or with reduced motion, long after the REVERSE callout is gone.
 - UNO reaction timer: countdown bar visible whenever a player declares UNO.
 - Reconnect visual recovery: brief "Rebuilding table…" overlay, then staggered entrance of bubbles, hand cards, and discard pile.

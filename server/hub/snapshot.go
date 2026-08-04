@@ -40,7 +40,7 @@ import (
 
 // SnapshotSchemaVersion is bumped by hand whenever the shape of what is written
 // below changes, game.Room included. A restore refuses anything else.
-const SnapshotSchemaVersion = 1
+const SnapshotSchemaVersion = 2
 
 // SnapshotMaxAge is how old a snapshot may be and still be worth restoring.
 //
@@ -69,6 +69,11 @@ type roomSnapshot struct {
 	BotSlots      []int          `json:"bot_slots,omitempty"`
 	Matchmade     bool           `json:"matchmade,omitempty"`
 	AFKTimeouts   map[int]int    `json:"afk_timeouts,omitempty"`
+	// MatchHistory is the evening behind this match. A table on its fourth
+	// rematch has three finished matches nothing else on the server remembers,
+	// and losing them to a deploy would mean the recap silently restarting at
+	// "Match 1" for a group that has been playing for an hour.
+	MatchHistory []matchRecord `json:"match_history,omitempty"`
 }
 
 // snapshotReq is a save or load asking to be run on the event loop.
@@ -143,6 +148,7 @@ func (h *Hub) saveSnapshot(path string) error {
 			BotSlots:      sortedKeys(t.bots),
 			Matchmade:     t.isMatchmade(),
 			AFKTimeouts:   t.afk,
+			MatchHistory:  t.matchHistory,
 		})
 	}
 	if len(snap.Rooms) == 0 {
@@ -260,6 +266,9 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	}
 	if len(rs.AFKTimeouts) > 0 {
 		t.afk = rs.AFKTimeouts
+	}
+	if len(rs.MatchHistory) > 0 {
+		t.matchHistory = rs.MatchHistory
 	}
 	for _, seat := range rs.BotSlots {
 		t.bots[seat] = struct{}{}

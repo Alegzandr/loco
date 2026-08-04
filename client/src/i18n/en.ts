@@ -367,6 +367,15 @@ export interface Translations {
   finalScores: string
   winsGame: string      // "{nickname} wins!"
   winsMatch: string     // "{nickname} wins the match!"
+  // Rounds won is what takes a match, so it is what the final standings lead
+  // with. The points follow as the gap it was taken by.
+  roundsWonCount: (n: number) => string
+  // The evening's recap: one column per finished match at this table. Only
+  // drawn once the table has rematched — a single column would be the standings
+  // immediately above it, said twice.
+  recapTitle: string
+  recapMatchCol: string   // per-match column header, %n = match number
+  recapWonCol: string     // matches taken, the total column
   rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
 
@@ -635,6 +644,10 @@ export const en: Translations = {
   finalScores: 'Final standings',
   winsGame: 'wins!',
   winsMatch: 'takes the match!',
+  roundsWonCount: (n) => (n === 1 ? '1 round' : `${n} rounds`),
+  recapTitle: 'Tonight',
+  recapMatchCol: 'Match %n',
+  recapWonCol: 'Won',
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',
 
@@ -738,8 +751,9 @@ export const en: Translations = {
       heading: 'Taking the match',
       items: [
         'Match length is set before the deal: one round, or best of 3, 5 or 7.',
-        'Highest total once the last round lands takes the whole thing.',
-        'Level on points? Most rounds won, then the smallest pile of leftovers, then one sudden-death round.',
+        'Rounds won take the match. Best of 3 means first to two, and it means it.',
+        'It ends the second the lead cannot be caught: two nil in a best of 3, four one in a best of 7, over.',
+        'Points measure the gap, they do not crown anybody. Level on rounds? Most points, then the smallest pile of leftovers, then one sudden-death round.',
       ],
     },
   ],

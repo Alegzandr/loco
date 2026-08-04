@@ -194,7 +194,9 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 **LOCO deviations from SOLO** (`docs/rules.md` §14):
 1. **GlobalSwitch is wild**: 4 copies, no colour, plays on anything, names the new active colour.
 2. **The starting card is always a Number**: `dealRound` skips action and wild cards.
-3. **Best-of-N match format** (BO1/3/5/7), not a 600-point threshold.
+3. **Best-of-N match format** (BO1/3/5/7), not a 600-point threshold, and **rounds won take the
+   match, not points**. It stops the moment the lead cannot be caught: one expression,
+   `Room.decisiveLeader`, covers the early stop and the end of the format alike.
 4. **Voluntary draw is allowed**, still one draw per turn.
 5. **A forced draw does not cost the turn.** The victim takes the stack and then plays or passes;
    `hub.handleDrawCard` re-arms the turn timer on every draw.
@@ -233,7 +235,14 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   lead back. Effects stack. Removing those freedoms is what would make the mechanic turn-based: do
   not reinstate them.
 - **Scoring**: single-finisher round, `CardValue` per `docs/rules.md` §10, cumulative `Room.Scores`,
-  tiebreakers score then rounds won then lost-hand total then sudden death.
+  tiebreakers **rounds won then score** then lost-hand total then sudden death. **The score measures
+  the gap, it does not crown anybody** — and `biggestLoser` stays indexed on it on purpose, because
+  rounds won is too coarse to say who opens the next round.
+- **The table remembers its finished matches** (`table.matchHistory`, one record per match, indexed
+  by seat). It **survives `resetForNextMatch`**, moves with `dropSeat` and `swapSeats` like every
+  other seat-keyed structure, rides the drain snapshot and the personalised state, and is what the
+  game-over screen's evening recap is drawn from. A rematch nils the scoreboard; this is the only
+  thing that can say who won six matches on one code.
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md).

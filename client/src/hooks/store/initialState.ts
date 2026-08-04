@@ -45,6 +45,7 @@ export const initialState: GameState = {
   matchWinner: '',
   matchOver: false,
   roundHistory: [],
+  matchHistory: [],
   showRoundSummary: false,
   roundNumber_completed: 0,
   roundScores: [],

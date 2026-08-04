@@ -304,7 +304,7 @@ describe('what gets persisted', () => {
     })
     expect(readSession()).not.toBeNull()
 
-    act(() => { gameStore.getState().applyMatchEnd('Alice', []) })
+    act(() => { gameStore.getState().applyMatchEnd('Alice', [], []) })
     expect(readSession()).toBeNull()
   })
 
