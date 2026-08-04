@@ -127,21 +127,34 @@ preferences:
   Traefik, which is why `compose.yml` carries one `Host()` and not two. The apex is canonical
   everywhere — `VITE_PUBLIC_ORIGIN`, the sitemap, the `hreflang` sets — and a canonical naming a
   redirect is the failure nothing reports.
-- **The origin certificate is a Cloudflare Origin Certificate, and there is no ACME anywhere.** The
-  host's Traefik runs with no `certificatesResolvers` at all: certificates are files under
-  `/etc/traefik/certs`, declared as `tls.certificates` pairs in its file provider, which watches the
-  directory and reloads without a restart. `compose.yml` therefore asks for `tls=true` and names no
-  resolver — **adding a `certresolver` label would name something that does not exist.**
+- **The origin certificate is a Cloudflare Origin Certificate, posted as a file.** Certificates live
+  under `/etc/traefik/certs`, declared as `tls.certificates` pairs in Traefik's file provider, which
+  watches the directory and reloads without a restart. The site's router therefore asks for
+  `tls=true` and names no resolver: it is proxied, so the only party that has to trust this
+  certificate is Cloudflare.
 
-  The consequence is the one that took production down the day it moved: **a new domain needs a new
-  certificate posted by hand, and nothing in this repo can tell you it is missing.** Cloudflare in
-  `Full (strict)` answers an origin serving Traefik's self-signed default with **error 526**, which is
-  the symptom to recognise. One Origin Certificate per zone (`ohloco.com` + `*.ohloco.com`), an entry
-  appended to the existing `certificates:` list, and Traefik picks the right one by SNI.
+  The consequence is the one that took production down the day it moved: **a domain served this way
+  needs its certificate posted by hand, and nothing in this repo can tell you it is missing.**
+  Cloudflare in `Full (strict)` answers an origin serving Traefik's self-signed default with **error
+  526**, which is the symptom to recognise. An entry appended to the existing `certificates:` list is
+  the whole of the fix, and Traefik picks the right one by SNI.
 
   These certificates are trusted by Cloudflare and by nothing else, so **the orange cloud is not
   optional**: a record turned DNS-only serves a certificate every browser rejects. In exchange they
-  last 15 years and renew nothing.
+  last 15 years and renew nothing. **The socket's hostname is exactly that record**, which is why it
+  is the one thing here that does not use them — see below.
+
+- **There is an ACME resolver, and one router uses it.** The host's Traefik declares
+  `certificatesresolvers.letsencrypt.acme` with an HTTP-01 challenge on the `web` entrypoint, storing
+  to `/acme/acme.json`. Nothing on the site's own hostname touches it: the file certificates above
+  keep serving the apex. It exists for `ws.<host>` alone, and `deploy/compose.yml` names it through
+  `WS_CERT_RESOLVER` — **empty outside production, on the same `CI_COMMIT_TAG` condition that decides
+  whether the bundle dials that hostname at all.** A resolver named where no DNS record exists is a
+  validation that can only fail, on a loop, for a hostname nothing dials.
+
+  HTTP-01 rather than DNS-01 because it needs nothing: port 80 on the origin is reachable and answers
+  the challenge before it redirects. That is a dependency worth knowing about — **closing port 80
+  stops renewals**, ninety days before anybody finds out.
 
 ### The socket is not behind the edge, and here is what that needs
 
@@ -156,11 +169,11 @@ Three things it costs, and none of them is optional:
 
 - **A publicly trusted certificate, which the Origin Certificate above is not.** Grey cloud means the
   browser validates the certificate itself, and a Cloudflare Origin Certificate is trusted by
-  Cloudflare and by nothing else. This host's Traefik has no `certificatesResolvers`, so today that
-  means a certificate obtained elsewhere and dropped into `/etc/traefik/certs` with an entry appended
-  to the file provider's `certificates:` list — **and nothing in this repo can tell you it expired.**
-  Adding an ACME resolver is the change that removes that trap; until it exists, the expiry date is a
-  calendar entry.
+  Cloudflare and by nothing else — and an Origin Certificate issued without the wildcard does not even
+  name this hostname, so Traefik answers it with its self-signed default. Let's Encrypt through the
+  resolver above covers it, and renews it. **That label is the whole of the mechanism**: every deploy
+  copies `deploy/compose.yml` over the one on the server, so a resolver set by hand on the running
+  router survives exactly until the next tag, and its loss is silent.
 - **The origin's address becomes public.** It was hidden behind the proxy and now resolves in DNS.
   Whatever protects `:443` on that machine is now the whole of the protection.
 - **`LOCO_ALLOWED_ORIGINS`.** The page and the socket are on two hostnames, so the server's default
@@ -172,7 +185,18 @@ certificate, missing DNS, closed port — the client falls back to `wss://ohloco
 attempts and the game keeps working at the old latency. That is why the CSP still lists both origins
 and why `client/nginx.conf` still proxies `/ws` on the main host. **A fallback in effect is silent**:
 the symptom is the game feeling like it did before this change, so if it ever does, check the
-certificate first.
+certificate first —
+
+```
+echo | openssl s_client -connect ws.ohloco.com:443 -servername ws.ohloco.com -verify_return_error \
+  | openssl x509 -noout -issuer -dates -ext subjectAltName
+```
+
+— and expect a public CA and at least two certificates in the chain. **Posting only the leaf is the
+failure that looks fixed**: a desktop browser completes the chain from its cache or over AIA and
+several mobile stacks do not, so it works on the machine you tested from and on nothing in a pocket.
+The client's own `[ws] direct endpoint unreachable, falling back to …` warning ships in the
+production bundle, so the browser console says which of the two hostnames a given device settled on.
 
 To deploy it the first time: create the `A` record grey-clouded, install the certificate, then tag.
 The client bundle only dials the hostname when built on a `v*` tag, so the record and the certificate

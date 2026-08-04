@@ -989,6 +989,15 @@ every response.
 nginx with `ws-proxy.conf` and a 404 for everything else. Why, and what it costs operationally, is in
 [`docs/deployment.md`](docs/deployment.md).
 
+**It is the one hostname a browser validates itself, so it is the one router that asks for a
+certificate** — `tls.certresolver=${WS_CERT_RESOLVER}` in `deploy/compose.yml`, set to `letsencrypt`
+by `.gitlab-ci.yml` on a `v*` tag and left **empty everywhere else, on the same condition that
+decides whether the bundle dials that hostname at all**. Every deploy copies `deploy/compose.yml`
+over the server's, so **a resolver set by hand on the running router lives until the next tag** and
+takes the socket back to Traefik's self-signed default without failing anything: the client falls
+back to the proxied path and the game is merely slow again. The site's own hostname is proxied and
+keeps its posted Origin Certificate — do not point it at ACME.
+
 **Those four live in `client/security-headers.conf`, and every `location` block that declares an
 `add_header` of its own must `include` it** — in `nginx.conf` *and* in `client/ws-proxy.conf`, which
 `csp.test.ts` scans beside it. nginx inherits `add_header` only into a level that
