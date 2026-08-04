@@ -153,6 +153,10 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   every control sits on the same screen pixel all match long. LOCO is a reaction game — a player
   parks the cursor over the centre *before* the card that needs it lands, and a bar that reflows when
   the penalty draw appears moves the target out from under them.
+- **The other half of that decision is that there is no keyboard shortcut for any of it**, and there
+  never will be: the controls hold their coordinates so they can be aimed at, and aiming is the only
+  way in. The reasoning, and the global-versus-focused line that keeps the accessibility path intact,
+  is in [`client.md`](client.md) ("No gameplay keyboard shortcuts, ever").
 - **The centre column is Catch's home; LOCO only borrows it at `handSize === 1`.** Catch is the
   hardest button in the game to hit — it opens on someone else's mistake and lives for seconds — so
   it sits there *disabled but mounted* the whole match and is only ever **enabled in place**. It is

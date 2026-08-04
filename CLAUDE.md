@@ -488,6 +488,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   — because **held and gone are both `connected: false`** and only one of them comes back. It waits
   behind the reconnect curtains: our own socket being down may be the whole reason the table looks
   empty.
+- **There are no gameplay keyboard shortcuts and there must never be any.** No key plays, draws,
+  passes, calls LOCO! or throws a Contre-LOCO!. Aiming at a button that lights up for a few
+  seconds *is* the skill the game measures, and a shortcut deletes that gesture rather than
+  assisting it; this and the fixed three-column action bar are the same decision seen from two
+  sides — the controls hold their coordinates so they can be aimed at, and there is no way not to
+  aim at them. **Global and focused are not the same thing**: a `window`/`document` listener fires
+  on a press nobody aimed and is refused, while a focused control (a card and the draw pile on
+  Enter/Space, the language listbox on arrows and Home/End) demands that you got there first and
+  is the accessibility path — do not remove it in the name of this rule. Exactly three global key
+  listeners are allowed: `heldKey` (score table on TAB), `escapeKey.svelte.ts`, and the audio
+  unlock; everywhere else a global listener may read `Escape` and nothing else.
+  `noKeyboardShortcuts.test.ts` is the guard.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own

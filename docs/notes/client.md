@@ -1214,6 +1214,45 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
 
+## No gameplay keyboard shortcuts, ever
+
+There is no key that plays a card, draws, passes, calls LOCO! or throws a Contre-LOCO!, and
+there is not going to be one. It has been asked for by competitive players and it is refused.
+
+**Aiming a mouse at a button that lights up for a few seconds *is* the skill the game measures.**
+A reaction window is not a prompt to acknowledge; it is a target to find, under time pressure,
+while the rest of the board is moving. LOCO! and Contre-LOCO! on a key do not assist that
+gesture, they delete it — you stop aiming and start pressing, and the thing being timed stops
+being a reaction and becomes a reflex with nothing to point at. Drawing, passing and playing the
+n-th card go the same way for the same reason.
+
+**This and the fixed action bar are one decision seen from two sides.** The bar is a fixed
+three-column grid with Catch mounted-but-disabled in the centre all match (see `visual.md`,
+"Action bar") precisely so a player can park the cursor on the button before the card that needs
+it lands. That work only means something if aiming is the only way in. A shortcut would make the
+geometry pointless — the controls hold their coordinates so they can be aimed at, and there is
+no way not to aim at them.
+
+**The line is global versus focused, and it matters in both directions.**
+
+- A **global** handler (`window` / `document`) fires on a press nobody aimed. That is the thing
+  being refused.
+- A **focused** control demands that you got there first: a card and the draw pile carry their
+  own `onkeydown` and act on Enter/Space once tabbed to, and the language listbox answers arrows
+  and Home/End on its own button. That is not a shortcut, it is the accessibility path, and
+  `PRODUCT.md` commits to WCAG AA on every player-facing surface. **It must not be removed,
+  reduced or made conditional in the name of this rule** — reading the rule that way is reading
+  it backwards.
+
+Three global key listeners exist and no fourth may be added: `heldKey` in
+`hooks/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves
+nothing on the board), `hooks/escapeKey.svelte.ts` (the one Escape hook, below), and the audio
+unlock in `hooks/appEffects.svelte.ts`, which listens for a key press as evidence a human is
+there and reads no key at all. Anywhere else, a global key listener may read `Escape` and nothing
+else — the panels that own their own lifetime (the gear, the mixer, the leave confirmation, the
+home sheet) do exactly that. `src/test/noKeyboardShortcuts.test.ts` holds the whole rule,
+including the check that the allowlist has not gone stale, and it deliberately does not look at
+handlers bound to an element.
 ## Every panel closes twice
 
 Two ways out, on everything that opens over the board, and they are not interchangeable:
