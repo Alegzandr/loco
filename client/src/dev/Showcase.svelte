@@ -178,7 +178,12 @@
       initialMenuAsk={scene.rowMenuAsk ?? null}
     />
   {:else if scene.screen === 'game'}
-    <GameView onSend={noop} wsStatus={scene.wsStatus ?? 'open'} onLeave={noop} />
+    <GameView
+      onSend={noop}
+      wsStatus={scene.wsStatus ?? 'open'}
+      onLeave={noop}
+      initialConfirmLeave={scene.confirmLeave}
+    />
   {:else if scene.screen === 'gameover'}
     <GameOver
       winner={g.matchWinner}
@@ -201,6 +206,8 @@
        could reach from outside. -->
   {#if scene.overlay === 'rules'}
     <RulesModal onClose={noop} />
+  {:else if scene.overlay === 'rules-cards'}
+    <RulesModal onClose={noop} tab="cards" />
   {:else if scene.overlay === 'color-picker'}
     <ColorPicker label={t.chooseColor} cancelLabel={t.pickerCancel} onChoose={noop} onCancel={noop} />
   {:else if scene.overlay === 'player-picker'}

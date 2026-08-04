@@ -392,6 +392,14 @@ export interface Translations {
   recapWonCol: string     // matches taken, the total column
   rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
+  // Walking out of a match in progress, which a table of four or more can
+  // afford. The chip is icon-only in the board's top-right cluster, so this is
+  // its accessible name and its tooltip; the question below takes the chip's
+  // place, exactly as the waiting room's does, and the safe answer comes first.
+  leaveMatchBtn: string
+  leaveMatchAsk: string
+  leaveMatchYes: string
+  leaveMatchStay: string
 
   // ─── Language ────────────────────────────────────────────────
   language: string
@@ -399,6 +407,16 @@ export interface Translations {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: string
   rulesClose: string
+  /**
+   * The modal's two halves. The rulebook is what a player comes back to
+   * mid-round; the deck drawn is what a first-timer needs, because two of these
+   * cards exist in no card game they have played before and a bullet naming one
+   * asks them to picture it.
+   */
+  rulesTabRules: string
+  rulesTabCards: string
+  /** One line above the drawn deck, and the only place the four suits are said. */
+  rulesCardsLede: string
   rules: readonly RulesSection[]
   /**
    * A readable name per card kind. `cardLabel()` only ever returns the glyph
@@ -406,6 +424,12 @@ export interface Translations {
    * sentences of `rules`, so nothing could name a card in a table or a heading.
    */
   cardNames: Record<CardKind, string>
+  /**
+   * One line per card kind, read next to that card's face. Shorter than the
+   * matching bullet of `rules` on purpose: the face carries the recognising,
+   * this only has to say what happens.
+   */
+  cardBriefs: Record<CardKind, string>
 
   // Privacy, terms and credits are not here: they are pages, and their copy
   // lives in `src/content/legal.ts`, which no bundle carries. See
@@ -669,6 +693,10 @@ export const en: Translations = {
   recapWonCol: 'Won',
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',
+  leaveMatchBtn: 'Leave the match',
+  leaveMatchAsk: 'Leave the match? Your seat is out for good.',
+  leaveMatchYes: 'Yes, leave',
+  leaveMatchStay: 'Stay',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Language',
@@ -676,6 +704,10 @@ export const en: Translations = {
   // ─── Rules ───────────────────────────────────────────────────
   rulesTitle: 'How to play',
   rulesClose: 'Close',
+  rulesTabRules: 'Rules',
+  rulesTabCards: 'Cards',
+  rulesCardsLede:
+    'Eight kinds of card. The colored ones come in red, yellow, green and blue; the last three ignore color and land on anything.',
 
   cardNames: {
     number: 'Number',
@@ -686,6 +718,18 @@ export const en: Translations = {
     wild_draw_four: '+4',
     swap: 'Swap',
     global_switch: 'Global Switch',
+  },
+
+  cardBriefs: {
+    number: 'Match the color or the number. Most of your hand is these.',
+    skip: 'The next player loses their turn. In a duel it comes straight back to you.',
+    reverse: 'Play turns around. In a duel, it simply skips.',
+    draw_two: 'The next player draws two, unless they answer with a +2 and pass the whole pile on.',
+    wild: 'Lands on anything. You call the color that follows.',
+    wild_draw_four: 'Lands on anything, you call the color, and the next player draws four.',
+    swap: 'A colored card, played on your turn. Pick anyone and take their whole hand. They get yours.',
+    global_switch:
+      'No color, so it plays on anything: call the color, then every hand at the table slides one seat along.',
   },
 
   rules: [

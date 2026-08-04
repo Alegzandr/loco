@@ -520,6 +520,10 @@ func (h *Hub) leaveAtTable(t *table, c *Client) {
 			h.closeAbandonedMatch(t)
 			c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
 			return
+		case h.canWalkOut(t):
+			h.retireSeat(t, c)
+			c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
+			return
 		default:
 			c.sendError("you cannot leave a match in progress")
 			return
@@ -527,6 +531,97 @@ func (h *Hub) leaveAtTable(t *table, c *Client) {
 	}
 	h.releaseSeat(t, c)
 	c.Send(protocol.ServerMsg{Type: protocol.SMsgLeftRoom})
+}
+
+// WalkOutFloor is how many seats have to be left able to play for a player to
+// be allowed out of a match in progress.
+//
+// "The cards are out, go and finish the round" is the right answer at two or
+// three seats. At six it is not: the only exit somebody who genuinely has to
+// leave can reach is the turn clock, which auto-draws and auto-passes for them
+// until the AFK threshold — two rounds spoiled for five other people rather
+// than one player leaving. Three is the smallest table this game is any good
+// at, so it is the floor a departure may not take the table below.
+const WalkOutFloor = 3
+
+// canWalkOut reports whether this table can spare a seat.
+//
+// **Evaluated once, at the moment of the ask.** If a later disconnect takes the
+// table under the floor while the round is running, the permission does not
+// retract: what was allowed was the departure, and re-deciding it afterwards
+// would mean a player who left is somehow still at the table.
+//
+// Never in a 1v1. A matchmade one already has an answer for a player who wants
+// out — a forfeit, which is the honest one between two strangers — and a solo
+// game has one seat and a server.
+func (h *Hub) canWalkOut(t *table) bool {
+	if t.isMatchmade() || t.solo {
+		return false
+	}
+	return t.playableSeats()-1 >= WalkOutFloor
+}
+
+// retireSeat takes a player out of a match in progress and leaves the table
+// playing.
+//
+// The domain half (the hand back to the deck, the turn stepping over the seat,
+// the catch window closed) is Room.RetireSeat. This is the hub's: the socket
+// gives the seat up, the seat is recorded as gone so the roster stops reporting
+// it as present, its token is spent so nothing can reclaim it, and the table is
+// told the way it is told about any other departure.
+func (h *Hub) retireSeat(t *table, c *Client) {
+	room, seat := t.room, c.playerID()
+	nickname := ""
+	if seat < len(room.Players) {
+		nickname = room.Players[seat].Nickname
+	}
+	turnBefore := room.State.CurrentTurn
+
+	if err := room.RetireSeat(seat); err != nil {
+		c.sendError(err.Error())
+		return
+	}
+
+	t.sweep(c)
+	c.leaveSeat()
+	// The same record an expired reconnect window leaves. `connected` is derived
+	// from awayAt and this set, so without it the player_left below would
+	// announce a departure and carry a roster saying that seat is present.
+	t.gone[seat] = struct{}{}
+	delete(t.awayAt, seat)
+	delete(t.afk, seat)
+	// Spent, not kept: this seat is not coming back, and a token that still
+	// opened it would let the leaver walk into a hand that is now in the deck.
+	delete(t.tokens, seat)
+
+	log.Printf("player walked out mid-match code=%s player=%d nickname=%s left=%d",
+		t.code, seat, nickname, t.playableSeats())
+
+	// The seat rides this one, exactly as it does on an expiry: a running match
+	// indexes hands by seat, so nothing moved and the number still names the
+	// player it named.
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:        protocol.SMsgPlayerLeft,
+		Nickname:    nickname,
+		PlayerIndex: intPtr(seat),
+		Players:     h.playerList(t),
+	})
+
+	// The hand went back to the deck and the turn may have moved, so every seat
+	// needs the board again. One personalised snapshot rather than a turn_changed
+	// plus a hand-size patch: the two would have to agree, and this is the one
+	// message that cannot disagree with itself.
+	h.broadcastPersonalizedGameState(t)
+
+	if room.State.CurrentTurn != turnBefore {
+		h.scheduleTurnTimer(t)
+		h.broadcastToRoomAll(t, protocol.ServerMsg{
+			Type:         protocol.SMsgTurnChanged,
+			Turn:         room.State.CurrentTurn,
+			TurnDeadline: turnDeadlineMs(t),
+		})
+	}
+	h.maybeScheduleBot(t)
 }
 
 // forfeitMatch ends a match because one seat stopped being there, and hands it

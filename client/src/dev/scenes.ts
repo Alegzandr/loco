@@ -108,6 +108,9 @@ export type SceneOverlay =
   | 'color-picker'
   | 'player-picker'
   | 'rules'
+  // La même modale sur son autre onglet : le jeu dessiné, huit visuels et une
+  // grille qui passe en une colonne sous 480px.
+  | 'rules-cards'
   | 'scores'
   // Pinned by the touch button rather than held with TAB: the header swaps the
   // "Hold TAB" hint for a ✕, and that is the only way out a phone has.
@@ -337,6 +340,12 @@ export const SCENES: Scene[] = [
     title: 'Règles du jeu',
     screen: 'lobby',
     overlay: 'rules',
+  },
+  {
+    id: 'lobby-rules-cards',
+    title: 'Règles · les cartes',
+    screen: 'lobby',
+    overlay: 'rules-cards',
   },
   // Confidentialité, conditions et crédits ne sont plus une modale : ce sont des
   // pages Astro (/privacy/, /fr/confidentialite/), donc rien à photographier ici.
@@ -572,6 +581,20 @@ export const SCENES: Scene[] = [
       myHand: [num('red', 7)],
       players: [player(0, 'Nova', 1), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 3)],
     },
+    deadlineIn: 18,
+  },
+  {
+    // Walking out of a match a table of four can spare a seat from. The chip is
+    // in the chrome row, never on the action bar, and the question takes its
+    // place out of the flow so the board does not move for it.
+    id: 'game-leave-ask',
+    title: 'Partie · quitter le match',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+    },
+    confirmLeave: true,
     deadlineIn: 18,
   },
   {

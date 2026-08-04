@@ -351,6 +351,29 @@ won, and a one-card hand had made them finishes by accident.
 - Server-owned on purpose: cumulative `Scores` cannot be split back into rounds once a player wins
   twice, and a client-side accumulator would differ per client after a reconnect.
 
+## A seat that walks out of a match
+
+`Room.RetireSeat`, and the rule that lets it happen at all is the hub’s (`notes/server.md`: three
+seats able to play have to be left). This is what the domain does once the answer is yes.
+
+- **The seat stays and stops playing.** Hands, scores, rounds won and the turn order are indexed by
+  it, so removing it mid-match would re-base every one of them under a running round. `Room.Retired`
+  is match-level and survives every deal; `GameState.Retired` is the copy each round is dealt with.
+- **The hand goes back into the deck, shuffled.** Those cards were hidden, so their new position
+  tells nobody anything; left in a hand nobody holds they would shrink the deck for everybody else
+  every time somebody left.
+- **Everything that walks the table skips it**: `nextTurn` (which is also why `ApplyEffect` counts
+  *active* seats, so a Reverse at three seats with one gone behaves as the Skip a duel makes it),
+  `rotateSeats` for a Global Switch (the modular step it replaced handed a hand to a seat nobody can
+  play from and the round stalled), `biggestLoser` for the next round’s opener, and the Swap target.
+- **A pending draw aimed at it is cleared**, not passed on: the next player never earned it.
+- **Its catch window is shut and its declaration marked spent**, so no client is left with
+  Contre-LOCO! armed on a seat that is not there.
+- **The scoreboard is untouched.** A departure is not a forfeit, and `ForfeitTo` is still the only
+  thing that ends a match early. A seat that had already banked the rounds can therefore still take
+  the match on the tiebreak chain: “neither wins nor loses by this act” is the rule, and excluding
+  them would be losing by it.
+
 ## Rematch (end of match)
 - **`rematch` is an ask every seat makes, not a host decision**, and the next match is dealt only
   once every connected human has asked. The quorum, the broadcast (`rematch_offered`), what a

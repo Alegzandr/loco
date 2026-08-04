@@ -91,6 +91,9 @@ const (
 	EventGameFinished EventKind = "game_finished"
 	EventRoundEnd     EventKind = "round_end"
 	EventMatchEnd     EventKind = "match_end"
+	// EventSeatRetired is a seat that walked out of a match in progress. See
+	// Room.RetireSeat.
+	EventSeatRetired EventKind = "seat_retired"
 )
 
 // GameEvent records a single action taken during the game.
@@ -119,6 +122,13 @@ type GameState struct {
 	// table a declaration. Indexed by player index, sized in dealRound.
 	LastCardDeclared []bool
 	LastCardAt       []time.Time // when this seat's catch window opened; zero = closed
+
+	// Retired marks the seats that have left the match for good, copied from
+	// Room.Retired at every deal. The seat stays in every index — hands, scores
+	// and turn order are keyed by it, and its score is kept exactly as it was —
+	// but it holds no cards, takes no turns and is dealt none. See
+	// Room.RetireSeat.
+	Retired []bool
 
 	EventLog []GameEvent
 
@@ -377,6 +387,10 @@ type Room struct {
 	Scores        []int // cumulative match scores per playerID
 	RoundsWon     []int // rounds won per playerID
 	LostHandTotal []int // sum of remaining hand values for the round losers (tiebreaker)
+	// Retired marks the seats that walked out of this match. Match-level, not
+	// per round: leaving is for the rest of the match, so it survives every deal
+	// and is cleared only when a new match starts. See RetireSeat.
+	Retired []bool
 	// RoundHistory[k][playerID] = points scored by that player in round k+1.
 	// Cumulative Scores alone cannot be broken back down per round once a player
 	// wins twice, and the in-game score table shows every round played so far,
@@ -558,6 +572,7 @@ func (r *Room) Start() error {
 	r.Scores = make([]int, n)
 	r.RoundsWon = make([]int, n)
 	r.LostHandTotal = make([]int, n)
+	r.Retired = make([]bool, n)
 	r.RoundHistory = nil
 	r.RoundNumber = 1
 	r.ensureRNG()
@@ -584,8 +599,16 @@ func (r *Room) dealRound(startingPlayer int) {
 	deck := NewDeck()
 	deck.Shuffle(r.rng)
 
+	// A seat that walked out is dealt nothing. It keeps its index — the scores,
+	// the roster and the turn order are all keyed by it — and holds no cards, so
+	// it can neither be caught, be swapped with, nor score.
+	retired := make([]bool, n)
+	copy(retired, r.Retired)
 	hands := make([]Hand, n)
 	for i := range hands {
+		if retired[i] {
+			continue
+		}
 		cards, _ := deck.DrawN(initialHandSize)
 		hands[i].Add(cards...)
 	}
@@ -620,6 +643,14 @@ func (r *Room) dealRound(startingPlayer int) {
 		LastPlayBy:       -1,
 		LastCardDeclared: make([]bool, n),
 		LastCardAt:       make([]time.Time, n),
+		Retired:          retired,
+	}
+
+	// The seat that opens the round has to be one that can play. biggestLoser
+	// already skips the retired, and this is the belt: startingPlayer also
+	// arrives from the random draw of round 1 and from a caller.
+	if r.State.isRetired(r.State.CurrentTurn) {
+		r.State.CurrentTurn = r.State.nextTurn(r.State.CurrentTurn)
 	}
 
 	r.State.logEvent(EventGameStarted, -1, nil, 0)
@@ -664,6 +695,9 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		if chosenPlayer == playerIndex {
 			return errors.New("cannot swap with yourself")
 		}
+		if r.State.isRetired(chosenPlayer) {
+			return errors.New("that seat has left the match")
+		}
 	}
 
 	// Last in the validation block and last for a reason: an illegal card is
@@ -698,9 +732,12 @@ func (r *Room) PlayCard(playerIndex int, card Card, chosenColor Color, chosenPla
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if card.Kind == GlobalSwitch {
 		newHands := make([]Hand, n)
+		// Through rotateSeats, not the modular step it looks like: a retired seat
+		// is not in the circle, and handing it a hand would take the next
+		// player's away into a seat nobody can play from.
+		src := r.State.rotateSeats(r.State.Direction)
 		for i := range newHands {
-			from := ((i-r.State.Direction)%n + n) % n
-			newHands[i] = r.State.Hands[from]
+			newHands[i] = r.State.Hands[src[i]]
 		}
 		r.State.Hands = newHands
 	}
@@ -872,6 +909,83 @@ func (r *Room) ForfeitTo(winnerIdx int) error {
 	return nil
 }
 
+// IsRetired reports whether a seat has walked out of the match. Read off the
+// match-level flags rather than the round's, so it answers the same between two
+// deals; bounds-checked because seat numbers arrive from the wire.
+func (r *Room) IsRetired(playerIndex int) bool {
+	return playerIndex >= 0 && playerIndex < len(r.Retired) && r.Retired[playerIndex]
+}
+
+// ErrSeatAlreadyRetired is a second departure from the same seat: a duplicate
+// message, or one already in flight when the first landed.
+var ErrSeatAlreadyRetired = errors.New("that seat has already left the match")
+
+// RetireSeat takes a seat out of the match it is in the middle of, for good.
+//
+// "Go and finish the round" is the right answer at two or three seats and the
+// wrong one at six: the player who has to leave has no exit but the turn clock,
+// which auto-draws and auto-passes for them until the AFK threshold, and that is
+// two rounds spoiled for five other people rather than one player leaving.
+// Whether a table can afford it is the hub's question (three playable seats must
+// remain); this is what happens once it has answered yes.
+//
+//   - **The hand goes back to the deck**, shuffled in. Those cards were hidden,
+//     so nothing is learnt by their new position, and leaving them in a hand
+//     nobody holds would shrink the deck for everybody else every time somebody
+//     left.
+//   - **The seat stays.** Hands, scores, rounds won and the turn order are all
+//     indexed by it, and the scoreboard keeps the row exactly as it stood: this
+//     is a departure, not a forfeit, and the player neither wins nor loses the
+//     match by it.
+//   - **The turn moves on immediately** if it was theirs. Waiting for the clock
+//     to notice is the thing this exists to stop.
+//   - **It closes their catch window**, because a seat that cannot be caught and
+//     cannot declare must not be sitting on an obligation the table can press a
+//     button at.
+func (r *Room) RetireSeat(playerIndex int) error {
+	if r.Status != StatusPlaying || r.State == nil {
+		return errors.New("game not in progress")
+	}
+	if playerIndex < 0 || playerIndex >= len(r.State.Hands) {
+		return fmt.Errorf("invalid player index %d", playerIndex)
+	}
+	if r.State.isRetired(playerIndex) {
+		return ErrSeatAlreadyRetired
+	}
+
+	returned := r.State.Hands[playerIndex].Cards
+	r.State.Hands[playerIndex] = Hand{}
+	if len(returned) > 0 {
+		r.ensureRNG()
+		r.State.Deck.Cards = append(r.State.Deck.Cards, returned...)
+		r.State.Deck.Shuffle(r.rng)
+	}
+
+	if playerIndex < len(r.Retired) {
+		r.Retired[playerIndex] = true
+	}
+	r.State.Retired[playerIndex] = true
+
+	// No cards, so no obligation and no window. Set rather than left alone: the
+	// flag is what CatchableTargets reads, and a stale one would arm
+	// Contre-LOCO! on a seat that is not there.
+	r.State.LastCardDeclared[playerIndex] = true
+	r.State.LastCardAt[playerIndex] = time.Time{}
+
+	if r.State.CurrentTurn == playerIndex {
+		r.State.HasDrawn = false
+		// A pending stack dies with the seat it was aimed at: passing it on would
+		// be a penalty the next player never earned, and holding it would be a
+		// debt nobody can pay.
+		r.State.PendingDraw = 0
+		r.State.CurrentTurn = r.State.nextTurn(playerIndex)
+		r.State.closeInterruptWindow()
+	}
+
+	r.State.logEvent(EventSeatRetired, playerIndex, nil, 0)
+	return nil
+}
+
 // BeginNextRound advances the room to the next round (incrementing RoundNumber
 // and dealing fresh hands). The hub calls this between broadcasting round_end
 // and game_started. The starter for round N>1 is the current biggest loser
@@ -912,6 +1026,7 @@ func (r *Room) ResetForRematch() error {
 	r.Scores = nil
 	r.RoundsWon = nil
 	r.LostHandTotal = nil
+	r.Retired = nil
 	r.RoundHistory = nil
 	return nil
 }
@@ -964,11 +1079,20 @@ func (r *Room) decisiveLeader() int {
 // somebody is — which is the whole reason it survived the rule change — and that
 // is what this question is asking for.
 func (r *Room) biggestLoser() int {
-	loser := 0
-	for i := 1; i < len(r.Scores); i++ {
-		if r.Scores[i] < r.Scores[loser] {
+	loser := -1
+	for i := range r.Scores {
+		// A seat that walked out cannot open a round. It is skipped here rather
+		// than corrected afterwards so the answer is a seat that can actually
+		// play, whatever the caller does with it.
+		if i < len(r.Retired) && r.Retired[i] {
+			continue
+		}
+		if loser < 0 || r.Scores[i] < r.Scores[loser] {
 			loser = i
 		}
+	}
+	if loser < 0 {
+		return 0
 	}
 	return loser
 }
@@ -1392,6 +1516,9 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		if chosenPlayer < 0 || chosenPlayer >= n || chosenPlayer == playerIndex {
 			return fmt.Errorf("invalid chosen_player %d for swap", chosenPlayer)
 		}
+		if r.State.isRetired(chosenPlayer) {
+			return errors.New("that seat has left the match")
+		}
 	}
 
 	finishing := r.State.Hands[playerIndex].Size() == len(cards)
@@ -1430,9 +1557,12 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		r.State.Hands[playerIndex], r.State.Hands[chosenPlayer] = r.State.Hands[chosenPlayer], r.State.Hands[playerIndex]
 	} else if first.Kind == GlobalSwitch {
 		newHands := make([]Hand, n)
+		// Through rotateSeats, not the modular step it looks like: a retired seat
+		// is not in the circle, and handing it a hand would take the next
+		// player's away into a seat nobody can play from.
+		src := r.State.rotateSeats(r.State.Direction)
 		for i := range newHands {
-			from := ((i-r.State.Direction)%n + n) % n
-			newHands[i] = r.State.Hands[from]
+			newHands[i] = r.State.Hands[src[i]]
 		}
 		r.State.Hands = newHands
 	}

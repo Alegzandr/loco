@@ -120,6 +120,33 @@ test.describe('gameplay flow (single player vs bot)', () => {
   })
 
   /**
+   * The modal's second half. It opens on the rules; the Cards tab draws the deck
+   * with the game's own <Card />, which is the only thing that makes a Swap or a
+   * Global Switch recognisable to somebody who has never seen one.
+   */
+  test('rules modal draws the deck on its cards tab', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await page.getByRole('button', { name: T.rulesHowBtn }).click()
+
+    const modal = page.getByRole('dialog')
+    await expect(modal.getByRole('tab', { name: T.rulesTabRules })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await expect(modal.locator('.deck')).toHaveCount(0)
+
+    await modal.getByRole('tab', { name: T.rulesTabCards }).click()
+    // Real card faces, not a picture of one: `data-card-kind` is what <Card />
+    // stamps on the element it draws.
+    await expect(modal.locator('.deck [data-card-kind="swap"]')).toBeVisible()
+    await expect(modal.locator('.deck [data-card-kind="global_switch"]')).toBeVisible()
+    await expect(modal.getByRole('heading', { name: T.cardNameSwap })).toBeVisible()
+
+    await closeRulesModal(page)
+    await expect(rulesModalTitle(page)).not.toBeVisible()
+  })
+
+  /**
    * Adding a bot puts it in the player list; starting the game shows the canvas.
    */
   test('add bot and start game shows canvas and action bar', async ({ page }) => {

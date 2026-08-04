@@ -1336,6 +1336,47 @@ shuts it, and it is never behind a scrim.
 - `document.body.style.overflow='hidden'` while open; restored on unmount.
 - Content lives in translations; component is content-agnostic.
 
+### Two halves, and why the second one exists
+
+The modal answers two questions and only one of them is the rulebook. "What happens now" is read
+standing up in the middle of a round; "what is this card" is read before the first deal, and it was
+answered nowhere the player could reach in one press.
+
+The report was about the opener: a first-time player opens "How to play", reads that a Swap takes
+somebody's whole hand and a Global Switch slides every hand one seat along, and still cannot
+recognise either of them when one turns up in their hand thirty seconds later. That is not a wording
+problem. They arrive holding a model of a card game of colours and symbols, that model has a slot for
+Skip, Reverse and +2, and it has no slot at all for the two cards this game adds. A bullet naming a
+card asks somebody to picture it; the face is the thing that makes it recognisable.
+
+So the second tab draws the deck: `components/cardCatalogue.ts` is the faces — one kind per entry,
+`<Card />` itself rather than a picture of one, each coloured kind in a different suit so all four
+colours appear once — and the copy is `t.cardNames` plus `t.cardBriefs`, one line each. The lede is
+the only place the four suits are stated, because a catalogue that drew all four of every coloured
+kind is 16 faces of the same information.
+
+What it is deliberately not:
+
+- **Not the `/cards/` page.** That one is a catalogue for somebody who came looking for one card:
+  copies, points, the long form, every suit drawn. This is eight lines for somebody who wants to be
+  ready in the next thirty seconds. Same reason the two sets of prose are separate — `src/content/`
+  is build-time only and the app never imports it, so a brief here is not a copy of an effect there,
+  it is a shorter sentence with a different job.
+- **Not a link to it either.** The rule the footer comment carries is unchanged: this opens mid-match,
+  and anything navigable is an invitation to leave the table, new tab or not. The tab is how the
+  cards got here *instead of* a link. `rulesModal.test.ts` still asserts zero links.
+- **Not a third place the card numbers live.** No copies, no points. Those are checked against the Go
+  source on the page that prints them, and a number typed here would be right on the day it was
+  written.
+
+Mechanics worth knowing before touching it: the two panels share **one** scroller (a card is a fixed
+height and a second scrolling box inside it is a scrollbar over a scrollbar), so `select()` resets
+`scrollTop` — otherwise a player who read the rules to the bottom lands halfway down a grid they have
+never seen. The tab row is `role="tablist"` with arrows/Home/End **on the focused row**, which is the
+accessibility path the no-shortcuts rule keeps open, not a global listener. `Escape` still closes the
+modal: a tab is not a layer, and one press closes one thing. The `tab` prop only exists so the dev
+gallery can shoot the second half (`lobby-rules-cards`); it is read once, not tracked.
+
 ## Privacy and terms
 Not a modal any more. Privacy, terms and credits are one content page (`/privacy/`,
 `/fr/confidentialite/`), linked from both footers: at the right-hand end of the content pages' fixed

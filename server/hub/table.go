@@ -309,6 +309,32 @@ func (t *table) abandonedBy(seat int) bool {
 	return true
 }
 
+// playableSeats counts the seats that can still act in the match: a bot, or a
+// human who is either here or inside their reconnect window.
+//
+// It is what "is there still a game here" means, and it is the question
+// leave_room asks mid-match. A seat whose hold has expired is not one of them —
+// nothing at it will ever move again — and neither is one that has already
+// walked out.
+func (t *table) playableSeats() int {
+	n := 0
+	for seat := range t.room.Players {
+		switch {
+		case t.isBot(seat):
+			n++
+		case t.room.IsRetired(seat):
+			// Gone on purpose, and not coming back.
+		case t.client(seat) != nil:
+			n++
+		default:
+			if _, held := t.awayAt[seat]; held {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 // connected counts the sockets still at the table.
 func (t *table) connected() int {
 	n := 0

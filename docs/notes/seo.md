@@ -616,13 +616,18 @@ more lines rather than a second request and a second thing to remember when coun
 page loads. `content/navMenu.ts` is a module both that script and `homeSheet.ts` import; it is not a
 third request.
 
-### The link out of the modal
+### No link out of the modal
 
-`RulesModal` links to the page, `target="_blank"`, and the target is the whole point rather than a
-preference: the modal opens mid-match, and following the link in place would unload the document,
-drop the socket and cost the seat. The href comes from the page registry, which is why `meta.ts`
-reads `process.env` through a `typeof` guard — a bare access throws "process is not defined" in a
-browser, and hardcoding the URL beside the registry is exactly the drift the registry exists to stop.
+`RulesModal` links nowhere, and that is the rule rather than an omission: it opens mid-match, and
+following a link in place would unload the document, drop the socket and cost the seat — a new tab is
+no better, it is still an invitation to leave the table. `rulesModal.test.ts` asserts zero links.
+What the deck page would have been reached *for* is drawn in the modal's own Cards tab instead; see
+"Two halves" in [`client.md`](client.md).
+
+The registry is still imported from the browser, by `hooks/tableInvite.ts` (`HOME`, `DEFAULT_LANG`),
+which is why `meta.ts` reads `process.env` through a `typeof` guard: a bare access throws "process is
+not defined" in a browser, and hardcoding a path beside the registry is exactly the drift the
+registry exists to stop.
 
 ## Images and icons
 

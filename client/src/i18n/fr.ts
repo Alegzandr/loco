@@ -253,6 +253,10 @@ export const fr: Translations = {
   recapWonCol: 'Gagnés',
   rematch: 'Revanche',
   leaveRoom: 'Quitter la table',
+  leaveMatchBtn: 'Quitter le match',
+  leaveMatchAsk: 'Tu quittes le match ? Ta place est perdue pour de bon.',
+  leaveMatchYes: 'Oui, je pars',
+  leaveMatchStay: 'Rester',
 
   // ─── Language ────────────────────────────────────────────────
   language: 'Langue',
@@ -271,8 +275,28 @@ export const fr: Translations = {
     global_switch: 'Rotation',
   },
 
+  // Une ligne par carte, lue à côté de son visuel. Plus courte que la puce
+  // correspondante de `rules` : le visuel fait reconnaître la carte, la phrase
+  // dit seulement ce qu'elle provoque.
+  cardBriefs: {
+    number: 'La couleur ou le chiffre. C\'est l\'essentiel de ta main.',
+    skip: 'Le joueur suivant saute son tour. En duel, la main te revient aussitôt.',
+    reverse: 'Le jeu repart dans l\'autre sens. En duel, ça revient à un Passe.',
+    draw_two: 'Le suivant pioche deux cartes, sauf s\'il répond par un +2 et fait suivre la pile.',
+    wild: 'Se pose sur n\'importe quoi. C\'est toi qui annonces la couleur.',
+    wild_draw_four:
+      'Se pose sur n\'importe quoi, tu annonces la couleur, et le suivant pioche quatre cartes.',
+    swap: 'Une carte colorée, jouée à ton tour. Tu désignes quelqu\'un et tu prends toute sa main. Il récupère la tienne.',
+    global_switch:
+      'Sans couleur, elle se pose sur tout : tu annonces la couleur, puis chaque main glisse d\'une place.',
+  },
+
   rulesTitle: 'Comment jouer',
   rulesClose: 'Fermer',
+  rulesTabRules: 'Règles',
+  rulesTabCards: 'Cartes',
+  rulesCardsLede:
+    'Huit familles de cartes. Les colorées existent en rouge, jaune, vert et bleu ; les trois dernières ignorent la couleur et se posent sur tout.',
 
   rules: [
     {

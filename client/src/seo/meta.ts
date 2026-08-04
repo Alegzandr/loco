@@ -9,8 +9,9 @@
  * `src/test/seo.test.ts` all read. A page that exists in one of those and not
  * the others is the failure this shape is meant to make impossible.
  *
- * Mostly build-time, but importable from the browser on purpose: `RulesModal`
- * links to the rules page and must not hardcode its URL beside this registry.
+ * Mostly build-time, but importable from the browser on purpose: `tableInvite`
+ * lands an invitation on a home path and must not hardcode one beside this
+ * registry.
  * `ORIGIN` is therefore read defensively — see below — and everything that
  * depends on it (the absolute URLs, the JSON-LD) is only ever called from an
  * .astro file, where `process` exists.

@@ -22,11 +22,21 @@ export const T = {
   rulesBtn: 'Rules',
   rulesHowBtn: 'How to play',
   rulesTitle: 'How to play',
+  // Its two halves: the rulebook it opens on, and the deck drawn.
+  rulesTabRules: 'Rules',
+  rulesTabCards: 'Cards',
+  cardNameSwap: 'Swap',
   continueBtn: 'Next round',
   rematch: 'Rematch',
   rematchWaitingOpponent: 'Waiting on them…',
   leaveRoom: 'Leave the table',
   leaveConfirmYes: 'Yes, leave',
+  // Walking out of a match a table of four or more can spare a seat from. Its
+  // own strings: the question is about the match, not about the table.
+  leaveMatchBtn: 'Leave the match',
+  leaveMatchAsk: 'Leave the match? Your seat is out for good.',
+  leaveMatchYes: 'Yes, leave',
+  leaveMatchStay: 'Stay',
   leaveConfirmStay: 'Stay',
   gameOver: 'That is the match',
   youWin: 'YOU WIN!',

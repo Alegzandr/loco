@@ -11,6 +11,7 @@
     turnCountdownSfx,
   } from '../hooks/viewEffects.svelte'
   import { cardPlay, boardShake, mapGate } from '../hooks/gamePlay.svelte'
+  import { escapeKey } from '../hooks/escapeKey.svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { resolveServerError } from '../i18n/serverErrors'
   import type { WsStatus } from '../hooks/webSocketPolicy'
@@ -46,15 +47,34 @@
      */
     onRetryConnection?: () => void
     /**
-     * Give the seat up. Only ever reachable from the abandoned-table curtain
-     * below: an ordinary match refuses `leave_room` on purpose, because walking
-     * out is not a move, and the only case that refusal was never meant to cover
-     * is the one where there is nobody left to walk out on.
+     * Give the seat up. Two ways here, and they are not the same thing.
+     *
+     * The abandoned-table curtain below is the older one: nobody is left and
+     * nobody can come back, so there is nothing to walk out on.
+     *
+     * The other is a table that can spare the seat. "The cards are out, go and
+     * finish the round" is the right answer at three seats and the wrong one at
+     * six, where somebody who genuinely has to leave has no exit but the turn
+     * clock — which spoils two rounds for everybody else rather than one. The
+     * server decides (three playable seats have to remain); this only offers it
+     * where the roster says it will be allowed.
      */
     onLeave?: () => void
+    /**
+     * Showcase only: mounts straight into the walk-out question, which is
+     * otherwise component-local state no scene could reach. Same trick as
+     * `WaitingRoom`'s own `initialConfirmLeave`.
+     */
+    initialConfirmLeave?: boolean
   }
 
-  let { onSend, wsStatus, onRetryConnection, onLeave }: Props = $props()
+  let {
+    onSend,
+    wsStatus,
+    onRetryConnection,
+    onLeave,
+    initialConfirmLeave = false,
+  }: Props = $props()
 
   const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
   const SWAP_NOTICE_MS = 3500
@@ -83,6 +103,34 @@
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   const lastAction = new Map<string, number>()
   let showRules = $state(false)
+  // The walk-out question, held here and not in a modal: it takes the chip's
+  // place under the row it was pressed from, so the board does not move.
+  let confirmLeave = $state(initialConfirmLeave)
+
+  /**
+   * Whether this table can spare a seat, as the roster sees it.
+   *
+   * The server is the authority (`Hub.canWalkOut`, three playable seats have to
+   * be left) and it refuses in the ordinary voice if this is wrong. What is read
+   * here is the same question: a seat counts while it is a bot, or a human whose
+   * hold has not run out — `goneSeats` is written only by the `player_left` that
+   * names a seat, and held is not gone.
+   *
+   * Never offered in a 1v1 of either kind. A matchmade one already answers a
+   * player who wants out, with a forfeit; a solo one is a seat and a server.
+   */
+  const canWalkOut = $derived(
+    !g.isMatchmade &&
+      !g.isSolo &&
+      g.players.filter((p) => p.is_bot || !g.goneSeats.includes(p.index)).length - 1 >= 3,
+  )
+
+  // Escape backs out of the question, through the one hook every dismissible
+  // thing in the game uses. Bound only while it is up.
+  escapeKey(
+    () => confirmLeave,
+    () => (confirmLeave = false),
+  )
   // Touch devices have no TAB key, so the same table is also pinned open by a
   // button in the top cluster. Held and pinned are separate states on purpose:
   // releasing TAB must never close a table the player deliberately pinned.
@@ -404,7 +452,49 @@
     <Preferences />
     <AudioSettings />
     <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />
+    <!-- The one way out of a match that is still being played, and deliberately
+         *not* on the action bar: that bar is a fixed three-column grid so a
+         reaction can be aimed at it, and it must never grow a fourth control.
+         This is chrome — the same row the gear, the speaker and the "?" sit on,
+         which never moves and which nobody is aiming at mid-window. -->
+    {#if canWalkOut && onLeave}
+      <button
+        class="leaveBtn hit-target"
+        aria-label={t.leaveMatchBtn}
+        title={t.leaveMatchBtn}
+        onclick={() => (confirmLeave = true)}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+          <g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 4H6a2 2 0 00-2 2v12a2 2 0 002 2h8" />
+            <path d="M17 8l4 4-4 4M21 12H10" />
+          </g>
+        </svg>
+      </button>
+    {/if}
   </div>
+
+  <!-- The question takes the chip's place, under the row it was pressed from
+       and out of the flow, so nothing on the board moves for it. The safe answer
+       comes first and is the coloured one, exactly as in the waiting room:
+       leaving is the only press on this screen a player cannot undo. -->
+  {#if confirmLeave && onLeave}
+    <div class="leaveAsk">
+      <p class="leaveAskText">{t.leaveMatchAsk}</p>
+      <div class="leaveAskRow">
+        <button class="leaveStay" onclick={() => (confirmLeave = false)}>{t.leaveMatchStay}</button>
+        <button
+          class="leaveGo"
+          onclick={() => {
+            confirmLeave = false
+            onLeave?.()
+          }}
+        >
+          {t.leaveMatchYes}
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Standings: held open with TAB, or pinned by the button above. -->
   {#if showScores}
@@ -856,6 +946,86 @@
     align-items: center;
     gap: 8px;
     z-index: 46;
+  }
+
+  /* The way out, in the chip row. Same body as the scores chip beside it: this
+     is chrome, and a control that looked different here would read as part of
+     the game. */
+  .leaveBtn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--color-surface-card);
+    color: var(--color-muted);
+    box-shadow: 0 3px 0 var(--color-stroke-soft);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: color 0.15s;
+  }
+
+  .leaveBtn:hover {
+    color: var(--color-ink);
+  }
+
+  /* Out of the flow, under the row it belongs to: the board is a fixed
+     coordinate space and nothing here may push it around. */
+  .leaveAsk {
+    position: absolute;
+    z-index: 46;
+    top: calc(var(--space-base) + var(--topbar-h) + var(--space-sm) + var(--safe-top));
+    right: calc(var(--space-base) + var(--safe-right));
+    width: min(280px, calc(100vw - 2 * var(--space-base)));
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    background: var(--color-surface-card);
+    border: var(--stroke) solid var(--color-stroke);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-pop);
+  }
+
+  .leaveAskText {
+    margin: 0;
+    font: 600 14px/1.4 var(--font-body);
+    color: var(--color-ink);
+  }
+
+  .leaveAskRow {
+    display: flex;
+    gap: var(--space-sm);
+  }
+
+  /* The safe answer first and coloured, the way the waiting room's is. */
+  .leaveStay,
+  .leaveGo {
+    flex: 1;
+    min-height: 44px;
+    padding: 8px 12px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    font: 700 14px/1.2 var(--font-display);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .leaveStay {
+    background: var(--gradient-tertiary);
+    color: var(--color-on-dark);
+  }
+
+  .leaveGo {
+    background: var(--color-surface-strong);
+    color: var(--color-muted);
+  }
+
+  .leaveGo:hover {
+    color: var(--color-ink);
   }
 
   /* The rules opener is <RulesButton />, which carries its own chip styling. */

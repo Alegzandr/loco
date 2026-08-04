@@ -125,7 +125,7 @@ needs jsdom and the `browser` resolve condition.
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
-  RulesButton, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
+  RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, the two server mirrors `nicknameRules.ts` +
@@ -389,6 +389,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   because the only seat to award it to is the empty one. **And a match nobody is at and nobody can
   return to ends where that becomes true** (`closeAbandonedMatch`, off the last expiry), rather than
   auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy open for five minutes.
+- **A table of four or more can spare a seat, and says so** (`Hub.canWalkOut`, `WalkOutFloor` = 3,
+  `Room.RetireSeat`). "Go and finish the round" is right at three seats and wrong at six, where the
+  only exit is the turn clock — two rounds spoiled for five people rather than one player leaving.
+  **Evaluated once, at the ask**, and **never in a 1v1** of either kind. The seat is *retired*, not
+  removed: **the hand goes back to the deck**, the turn steps over it, its catch window shuts, it is
+  dealt nothing thereafter — and **the scoreboard is left exactly as it stood**, because leaving is a
+  departure and not a forfeit. `nextTurn`, `rotateSeats`, `biggestLoser` and the Swap target all
+  know about it. **The control is a chip in the board's chrome row, never on the action bar.**
 - **A deploy does not end the matches on the server.** `SIGTERM` drains (`hub/drain.go`): nothing that
   would start a new match is accepted, the queue is emptied with an explanation, **every table is
   told once — every table, not only the ones playing: a waiting room, a game-over and a versus reveal
@@ -554,6 +562,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`RulesButton`, `variant="text"` / `"icon"`): a glyph is faster mid-match, and a word is the only
   onboarding a first-time player gets on the screens where they are still deciding. The pill's
   visible label **is** its accessible name, so it carries no `aria-label`.
+- **What it opens has two halves, and the deck drawn is one of them** (`RulesModal`, tabs "Rules" and
+  "Cards", opening on the rules). A first-timer arrives holding a model of a card game of colours and
+  symbols, and the two cards this one adds — Swap and Global Switch — are exactly the two that model
+  has no slot for: a bullet naming one asks them to picture it, a face lets them recognise it in
+  their hand. `components/cardCatalogue.ts` is the faces (one kind, one suit each, `<Card />`
+  itself), `t.cardNames` the names and `t.cardBriefs` the one-liners; **nothing about a card is
+  spelled out twice**. It stays eight lines: the copies, the points and the long form are the
+  `/cards/` page, and **this modal still links nowhere** — a link mid-match is an invitation to leave
+  the table. `rulesModal.test.ts` pins both halves.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's

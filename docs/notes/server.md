@@ -680,6 +680,49 @@ to be a press.
   beside the queue’s own number, because the two answer one operator question together: whether an
   empty-feeling queue is sending people to the bot or sending them away.
 
+## Walking out of a match a table can spare the seat from
+
+`Hub.canWalkOut` + `Room.RetireSeat`. Leaving mid-match is still refused by default and the reason
+has not changed: walking out is not a move, and the 60 s hold exists precisely so a drop is not the
+end. What changed is that the refusal was answering a question it had never been asked at six seats.
+
+**The problem it fixes is not the leaver’s.** Somebody who genuinely has to go has exactly one exit
+today: stop pressing things and let the turn clock auto-draw and auto-pass for them until the AFK
+threshold. That is four timeouts, roughly two rounds, played out at thirty seconds a turn by five
+other people watching an empty chair take its turn. One player leaving is cheaper than that for
+everybody, including the ones who stayed.
+
+- **The floor is three seats that can still play** (`WalkOutFloor`). Three is the smallest table this
+  game is any good at, and `playableSeats` counts what can act: a bot, or a human who is here or
+  inside their reconnect window. A seat whose hold has run out is not one — nothing at it will ever
+  move again.
+- **Evaluated once, at the moment of the ask.** If a later disconnect takes the table under the floor
+  while the round runs, the permission does not retract: what was allowed was the departure, and
+  re-deciding it afterwards would mean a player who left is somehow still at the table.
+- **Never in a 1v1 of either kind.** A matchmade one already answers a player who wants out, with a
+  forfeit, which is the honest answer between two strangers; a solo game is one seat and a server.
+- **The seat is retired, not removed.** Hands, scores, rounds won and the turn order are all indexed
+  by it, and a running match cannot re-base any of them. So the seat stays, `table.gone` records the
+  absence exactly as an expiry does, and the domain takes it out of the *round*: the hand goes back
+  into the deck (shuffled — those cards were hidden, and leaving them in a hand nobody holds would
+  shrink the deck for everybody else every time somebody left), `nextTurn` steps over it,
+  `rotateSeats` leaves it out of a Global Switch, `biggestLoser` never picks it to open a round, a
+  Swap cannot name it, and it is dealt nothing from then on.
+- **A pending draw stack aimed at the leaver dies with the seat.** Passing it on would be a penalty
+  the next player never earned; holding it would be a debt nobody can pay.
+- **The scoreboard is left exactly as it stood.** This is a departure, not a forfeit: the rounds they
+  won stay won, the points stay where they are, and the act of leaving neither wins nor loses the
+  match. It follows that a seat that had already banked enough rounds can still take the match on
+  the tiebreak chain, which is the honest reading of “they neither win nor lose by this”.
+- **The token is spent and the seat cannot be reclaimed.** The hand is in the deck; there is nothing
+  to come back to.
+- **The control is a chip in the board’s top-right chrome row, and never on the action bar.** That
+  bar is a fixed three-column grid so a reaction can be aimed at it, and it must not grow a fourth
+  control (see `visual.md`). The question takes the chip’s place, out of the flow, so nothing on the
+  board moves for it — the safe answer first and coloured, Escape through the one hook, exactly as
+  the waiting room’s own confirmation works. It is the only confirmation the game gains, and the
+  client only draws it where the roster says the server will allow it.
+
 ## Freeing a seat somebody else is in
 `handleKickPlayer`. Every other host control describes the table (the format, the size, when to
 deal); this one acts on a person, so it is the strictest thing in the lobby.
