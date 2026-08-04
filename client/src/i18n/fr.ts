@@ -139,6 +139,8 @@ export const fr: Translations = {
   bestOf3: 'Meilleur des 3',
   bestOf5: 'Meilleur des 5',
   bestOf7: 'Meilleur des 7',
+  matchLengthUnit: 'min',
+  maxPlayersHint: 'C’est entre 2 et 6 que ça respire le mieux.',
 
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Piocher',

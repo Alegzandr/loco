@@ -41,6 +41,13 @@ rules, `docs/notes/` the reasoning.
   from the in-game rules modal, which is a reference rather than an argument.
 - Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
 
+- **The waiting room tells the host what they are picking**: an estimated length on every format
+  button (a *range*, because a match ends the moment the lead cannot be caught) and a line under the
+  seat count saying it breathes best between 2 and 6. Both used to exist only in the FAQ, which is to
+  say nowhere near the decision.
+- **The code plate carries a chain**, because pressing it copies a link rather than the six
+  characters, and the toast only said so after the press. It is drawn, and it is not blurred by
+  streamer mode: what has to stay off a stream is the code.
 - **Play the bot**: a 1v1 against the server from the home screen — a nickname, one press, a dealt
   hand. No table code, no waiting room, no host controls, one round. It is the queue's offer with the
   wait taken out, and it sits under the queue's button for that reason. The game-over screen offers

@@ -578,6 +578,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
+- **The host is told what they are choosing, on the control that chooses it.** The estimated length
+  rides each format button and the seat-count advice sits under the field (`matchLengthModel.ts`,
+  pure and tested). **It is a range, never a figure**: a match stops the moment the lead cannot be
+  caught, so a BO7 is four rounds or seven, and the copy carries the `≈`.
+- **The code plate says it copies a link before it is pressed** (`TableCode.svelte`, `link` prop): a
+  **drawn** chain, never a font character, and **outside everything streamer mode blurs** — what has
+  to stay off a stream is the six characters, not the fact that the plate copies a link.
 - **Streamer mode blurs the table code, and `TableCode.svelte` is the only way a screen prints it.** CSS
   over the real text, so copy still copies. **The reveal is hover and keyboard focus, never a click
   or a tap** — that gesture is the copy button and it happens on camera: `:focus-visible` only, hover

@@ -600,6 +600,15 @@ this section.
   and find the screen to type it into. A link costs one tap, and the seat is the only thing on the
   other side of it. The code stays on screen, unchanged: it is what a stream reads out loud and what
   somebody already sitting at the join form types.
+- **The plate says so before it is pressed.** `<TableCode link />` draws a chain beside the code, and
+  it exists because every tester was surprised once: they pressed a plate labelled "table code" and
+  got a URL. The toast said "Link copied!" — afterwards, which is the wrong side of the press. Two
+  details make it the right icon rather than any icon: it is **drawn**, like every other icon in the
+  game (a font glyph lands on the baseline where this has to sit on the code's middle, and it would
+  inherit the code's own 2px ink stroke), and it sits **outside everything streamer mode blurs**.
+  What has to stay off a stream is the six characters; that the plate copies a link is not a secret.
+  The prop is off by default, because `<Reconnecting />` prints the code as information with nothing
+  to press, and a chain there would promise a gesture that does not exist.
 - **It is `/i/?t=CODE`, and the page is the point.** It used to be `?t=CODE` on the home page, and
   the reason it moved is the one thing a link does that the game cannot: it gets pasted into a chat
   window, which unfurls it. An unfurler reads the *served* HTML and runs no script, so every

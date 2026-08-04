@@ -258,6 +258,27 @@ overlap only exists at a width and a content height a unit test does not have. A
 past its viewport gets the same padding; one whose content is always centred does not need it, which
 is why the other five still carry a spacing step.
 
+### The host is told what they are choosing, where they choose it
+
+Two decisions were being made blind. How long a format takes and how many seats a table wants both
+had advice written down — in the FAQ and in the rules page, which is to say nowhere near either
+control — so a host who had never played a best-of-7 at six seats found out by playing one.
+
+- **The length rides the format button itself** (`matchLengthModel.ts`), a second line under the
+  label rather than a note beside the row: the whole promise is then the thing being pressed, the
+  same shape the 1v1 button's own hint has.
+- **It is a range and it carries an `≈`.** A match ends the moment the lead in rounds won cannot be
+  caught, so a best-of-7 finishes anywhere between four rounds and seven. A single figure would be
+  wrong at both ends, and wrong in the direction that costs the table: a host who reads "≈ 30 min"
+  and gets an hour stops offering long formats. The model is pure and unit-tested for that reason —
+  it is the part with arithmetic in it, and `fastestRounds` is the client's statement of the same
+  rule `Room.decisiveLeader` enforces.
+- **It reads the roster, not the seat cap.** The cap is what the table *could* hold; the question is
+  how long the evening will be with the people who are actually here, and it moves as they arrive.
+- **The seat advice is a hint under the field**, in `--color-muted` — quiet is a hue here as
+  everywhere, never an opacity on the ink. Both are host-only: a guest is not making either choice,
+  and advice about a control somebody cannot reach is noise.
+
 ## Active colour (four readings, `<DiscardPile />` + `GameBoard`)
 The colour in play is the single most-consulted piece of state on the board, and it was stated in
 exactly one place — a ring around the discard. Players kept asking where it was. The ring is not

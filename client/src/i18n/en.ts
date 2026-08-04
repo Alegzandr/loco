@@ -278,6 +278,13 @@ export interface Translations {
   bestOf3: string
   bestOf5: string
   bestOf7: string
+  // The two things a host is deciding without being told anything, said where
+  // they are decided rather than in the FAQ. The length is an estimate about a
+  // game whose rounds end when somebody empties a hand, so the copy carries the
+  // "≈" and a range: a match stops the moment the lead cannot be caught, so a
+  // best of 7 finishes anywhere between four rounds and seven.
+  matchLengthUnit: string       // "min" — the unit inside "≈ 8-14 min"
+  maxPlayersHint: string        // under the seat count
 
   // ─── Game View ────────────────────────────────────────────────
   draw: string
@@ -550,6 +557,8 @@ export const en: Translations = {
   bestOf3: 'Best of 3',
   bestOf5: 'Best of 5',
   bestOf7: 'Best of 7',
+  matchLengthUnit: 'min',
+  maxPlayersHint: 'It breathes best between 2 and 6.',
 
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Draw',
