@@ -87,11 +87,10 @@
     setColorAssist(s.colorAssist ?? false)
     if (s.deadlineIn !== undefined) patch.turnDeadline = Date.now() + s.deadlineIn * 1000
     if (s.unoIn !== undefined) patch.unoTimerEnd = Date.now() + s.unoIn * 1000
-    // Same relative-to-now rule as the two above, and for the same reason: an
-    // emote carries the instant it arrived and is dropped a few seconds later,
-    // so a fixed timestamp in a scene is a bubble that has already expired by
-    // the time the shot is taken. The order in the scene is the order they were
-    // said in.
+    // Same relative-to-now rule as the two above: an emote carries the instant
+    // it arrived, which is the key its pop animation is armed on. Restated from
+    // now so the shot catches the bubbles settled rather than mid-flight. The
+    // order in the scene is the order they were said in.
     if (Array.isArray(patch.emotes)) {
       const said = patch.emotes as { seat: number; emote: string; at: number }[]
       patch.emotes = said.map((e, i) => ({ ...e, at: Date.now() - (said.length - 1 - i) * 300 }))

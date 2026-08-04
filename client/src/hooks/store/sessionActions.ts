@@ -85,7 +85,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       catchWindows: [],
       unoDeclared: false,
       unoDeclaredByIndex: -1,
-      myDeclared: false,
+      declaredSeats: [],
       catchFailed: null,
       catchFlash: null,
       swapNotice: null,

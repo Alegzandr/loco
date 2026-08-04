@@ -1,9 +1,10 @@
 /**
- * `catchTarget` and `unoTimerEnd` are derived from `catchWindows`, and they are
- * completed by the store itself rather than by each action (see
- * `store/deriveCatchMiddleware.ts`). These tests fail if that ever goes back to
- * being every action's job: the failure mode of stored derived state is an
- * action that forgets, and a forgotten derivation costs a reaction silently.
+ * `catchTarget` and `unoTimerEnd` are derived from `catchWindows`, `myDeclared`
+ * from `declaredSeats`, and all three are completed by the store itself rather
+ * than by each action (see `store/deriveCatchMiddleware.ts`). These tests fail
+ * if that ever goes back to being every action's job: the failure mode of
+ * stored derived state is an action that forgets, and a forgotten derivation
+ * costs a reaction silently.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { gameStore } from '../hooks/gameStore'
@@ -77,5 +78,27 @@ describe('the offered catch is completed by the store', () => {
     gameStore.setState({ errorMsg: 'nope' })
     expect(gameStore.getState().unoTimerEnd).toBe(before)
     expect(gameStore.getState().catchTarget).toBe(2)
+  })
+})
+
+describe('our own declaration is completed by the store', () => {
+  beforeEach(() => {
+    gameStore.setState({ myIndex: 0, declaredSeats: [], players: [] })
+  })
+
+  it('is derived from a bare write to declaredSeats', () => {
+    gameStore.setState({ declaredSeats: [2] })
+    expect(gameStore.getState().myDeclared).toBe(false)
+    gameStore.setState({ declaredSeats: [0, 2] })
+    expect(gameStore.getState().myDeclared).toBe(true)
+  })
+
+  // Same reason `catchTarget` follows it: a snapshot can re-seat us, and the
+  // call that spends our LOCO! button is the one made at the seat we hold now.
+  it('follows our seat moving under a snapshot that re-seats us', () => {
+    gameStore.setState({ declaredSeats: [1] })
+    expect(gameStore.getState().myDeclared).toBe(false)
+    gameStore.setState({ myIndex: 1 })
+    expect(gameStore.getState().myDeclared).toBe(true)
   })
 })

@@ -548,7 +548,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
   `CATCH_LIVE_MAX_HAND = 3`): any *other* seat holding 1–3 cards makes it live. A control that unlocks
   on the server's cue can be answered but never anticipated, and the window it answers is five
-  seconds. The price is what keeps that honest — see the domain rule above. **`store.catchSpent` is
+  seconds. The price is what keeps that honest — see the domain rule above. **A seat on one card the
+  table heard call it stops counting** (`store.declaredSeats`): it cannot be caught until its hand
+  changes, so the press is no longer a read that lost but a card paid for nothing — the one case the
+  button greys out for. At two or three cards a declaration voids nothing, because an interrupt puts
+  that seat on one before a thumb lands and it owes a fresh call when it gets there. **What the table
+  heard, never an absent catch window**: a reloaded tab is told no windows at all, and greying out on
+  that silence costs a reaction. `store.myDeclared` is the same record read at our own seat, derived
+  by `deriveCatchMiddleware` rather than written by an action. **`store.catchSpent` is
   the client's copy of `PlayEpoch`**, set by every press and cleared by `applyCardPlayed`; it
   suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
   the second tap of a double tap on a catch that landed — the server's own guard does not cover it,
@@ -702,6 +709,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   the search is one message**: `find_match` gives the seat up before it enqueues, so no `leave_room`
   goes ahead of it — its `left_room` would reset the store out from under the search screen. **The way
   out is the quietest control on the card**, under both offers, and it is an ordinary `leave_room`.
+- **The three things are one line per seat, and that card's height is the table's size**
+  (`GameOver.svelte`, `.emoteSlot`): a slot is drawn for every player whether or not that seat has
+  said anything, `applyEmote` **replaces** what a seat was saying instead of adding to it, and the
+  row marks the one that is ours. A feed that grew pushed the two offers and the way out down the
+  card once per thing anybody said, under the thumb already aiming for them.
+- **The evening's recap pins the two columns that answer it** (`GameOver.svelte`, `.recapName` and
+  `.recapTotal` sticky): who, and matches taken. The match columns scroll between them, so a long
+  evening never carries the conclusion off the right edge of a phone. Heads are `M%n`, the score
+  table's convention — a word set over a two-digit column sizes the grid on the label, and four
+  matches ran off a 360px screen that way. **The seat that took a match is a gold pill**, the colour
+  the scoreboard above it wins in: LOCO Red on that panel measures 2.9:1, and a recoloured digit is
+  not something a spectator picks out of a grid at 720p.
 - `initLangUrl()` first and on its own, then `initTheme()`, `initMotion()`, `initI18n()`,
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
   order**. Each of the six has a reason to be where it is, written next to it.
@@ -749,6 +768,12 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **A content page ships no JavaScript except `theme-boot.ts`.** No `client:` directive, so
   `<LocoLogo />` and every `<Card />` on `/cards/` are static markup. Anything interactive is a
   **native control**: the home sheet is `<details>`, the language chooser a `[popover]`.
+- **`content.css` is loaded by `GamePage.astro` too, so every selector in it is scoped to a class.**
+  A bare `table`/`th`/`td` rule there styles the score table and the evening recap alongside the
+  rules page, and `thead th`'s ink fill did exactly that: an ink band behind two sets of column
+  heads whose labels were coloured `--color-muted` on the assumption they sat on their own panel,
+  at 2.2:1 in both themes. Every table on a content page is inside `.tableWrap`, so the scope costs
+  the pages nothing; `contentPages.test.ts` fails on a bare element selector.
 - **One `--shell`, one bar, no backdrop.** Header, column and footer share one width. The navigation
   is a **fixed footer bar**, the same five links in the same order as the home page's row. `body.doc`
   is flat canvas, `background-attachment: fixed` is gone, and text selection is put back.
@@ -864,8 +889,8 @@ stated at the top of `styles/tokens.css`:
   by a branch in the script (`themeTransition.test.ts`).
 - **The action bar never reflows.** Fixed three-column grid, **Catch mounted in the centre column all
   match and nothing else ever in it**, enabled and armed in place. A reaction game cannot move its
-  buttons mid-match. Three states: dead, pressable from three cards out
-  (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
+  buttons mid-match. Three states: dead, pressable from three cards out and until every seat on one
+  card has called it (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
   centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
   dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
   control found only in the two seconds it is worth pressing is a control nobody has ever aimed at.

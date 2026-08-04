@@ -616,6 +616,26 @@ more lines rather than a second request and a second thing to remember when coun
 page loads. `content/navMenu.ts` is a module both that script and `homeSheet.ts` import; it is not a
 third request.
 
+### The stylesheet is loaded by the game, so nothing in it may be a bare element
+
+`content.css` is imported by `ContentPage.astro` **and by `GamePage.astro`**, which needs it for the
+footer row, the burger drawer and the home page's prose sheet. That is deliberate — the drawer is
+styled once and the two copies of it cannot drift — and it means every selector in the file has a
+reach nobody writing a rule for the deck table is thinking about.
+
+`table`, `th`, `td` and `thead th` were written bare, so the deck table's styling was also the score
+table's and the game-over screen's evening recap's. The visible cost was `thead th { background:
+var(--color-stroke) }`: an ink band behind both of those grids' column heads, whose labels are
+`--color-muted` because their authors correctly believed they were sitting on their own panel. Muted
+violet on ink is 2.2:1, in both themes, on two surfaces nobody had thought to check because the rule
+was written for a third. The 2px hairline under every cell and the `0.75rem 1rem` padding rode along
+with it, silently overridden in some places and not others.
+
+Every table on a content page is inside `.tableWrap`, so scoping the whole block to it changes
+nothing here and ends the class. `contentPages.test.ts` fails on any bare element selector in the
+file — the leak is invisible from the pages this stylesheet is named after, which is what made it
+survive.
+
 ### No link out of the modal
 
 `RulesModal` links nowhere, and that is the rule rather than an omission: it opens mid-match, and

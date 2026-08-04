@@ -100,6 +100,24 @@ describe('the content stylesheet', () => {
     expect(missing, 'custom properties used by content.css but defined nowhere').toEqual([])
   })
 
+  it('styles no bare table element, because the game loads this file too', () => {
+    // `GamePage.astro` imports this stylesheet for the footer row and the burger
+    // drawer, so a bare `table`/`th`/`td` rule here reaches every table the game
+    // draws. `thead th { background: var(--color-stroke) }` is what that cost:
+    // an ink band landed behind the score table's column heads and the evening
+    // recap's, both of which set `--color-muted` believing they sat on their own
+    // panel — 2.2:1, in both themes, on two surfaces nobody had thought to look
+    // at because the rule was written for a third.
+    //
+    // Every table on a content page is inside `.tableWrap`, so the scope costs
+    // nothing here and is the whole fix.
+    const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
+    const bare = [...css.matchAll(/^\s*((?:t(?:able|head|body|foot|[rdh])|caption)[\s,{][^{]*)\{/gm)]
+      .map((m) => m[1].trim())
+      .filter((sel) => !sel.includes('.'))
+    expect(bare, 'selectors in content.css must be scoped to a class').toEqual([])
+  })
+
   it('lines the header, the column and the bar up on one width', () => {
     // They were 62rem, 46rem and 62rem: the logo, the <h1> and the footer each
     // started at a different x, and the page read as three unrelated strips.

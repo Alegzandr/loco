@@ -106,19 +106,18 @@ export interface CatchFlash {
 }
 
 /**
- * How long one of the three things stays on screen.
+ * One seat saying one of the three things, and **at most one entry per seat**.
  *
- * Long enough to read at a glance, short enough that two people saying "gg" do
- * not build a wall over the scoreboard somebody is reading. The server's own
- * cooldown is two seconds, so a seat can never have more than two up at once.
+ * A seat speaking again replaces what it said rather than adding to it: the
+ * screen holds one line per player, so the card's height is decided by the
+ * table's size and never by how much it talks. A feed that grew pushed the
+ * scoreboard, the two offers and the way out down the card under everybody's
+ * thumb. Nothing about any of it is kept — it goes home with the match.
  */
-export const EMOTE_TTL_MS = 4000
-
-/** One seat saying one of the three things. Nothing about it is kept. */
 export interface EmoteFlash {
   seat: number
   emote: Emote
-  /** Arrival, and the deadline this is dropped at. Also the render key. */
+  /** Arrival. The render key the pop animation is re-armed on. */
   at: number
 }
 
@@ -193,11 +192,20 @@ export interface GameState {
   // --- Declarations and catches ---
   unoDeclared: boolean
   unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
-  // True once WE have called it on the card we currently hold. A declaration is
-  // spent: the server refuses a second one on the same single card, so the
-  // button has to stop offering it. Cleared whenever a fresh obligation opens on
-  // our seat (a Swap or a GlobalSwitch hands us a card nobody has heard called)
-  // or our hand stops being a single card.
+  // Every seat whose current single card has already been called, ours
+  // included. A declaration is spent: it covers the one card it was called on,
+  // so a seat leaves this list the moment its hand stops being that single card
+  // or a fresh obligation opens on it (a Swap or a GlobalSwitch hands it a card
+  // nobody has heard called).
+  //
+  // It is what the table *heard*, never an inference: a seat we have heard
+  // nothing about is absent, which is the reading that keeps Contre-LOCO!
+  // pressable rather than the one that greys it out.
+  declaredSeats: number[]
+  // True once WE have called it on the card we currently hold, so our own LOCO!
+  // button stops offering a call the server would refuse. **Derived** from
+  // `declaredSeats` and `myIndex` by the store itself
+  // (`store/deriveCatchMiddleware.ts`), never written by an action.
   myDeclared: boolean
   // Every seat that currently owes the table a declaration, with the end of its
   // 5 s window. A list rather than a single seat because a Swap or a
@@ -261,9 +269,9 @@ export interface GameState {
   // How many asks deal the next match: everybody still at the table. 0 until
   // the first one arrives, which is also when the count first means anything.
   rematchNeeded: number
-  // What the table is saying on the game-over screen, and the only thing in this
-  // store that is deliberately forgotten rather than replaced: an emote is shown
-  // for a few seconds and dropped. Nothing persists it, here or on the server.
+  // What the table is saying on the game-over screen: one entry per seat, the
+  // last thing that seat said. Nothing persists it, here or on the server, and
+  // it goes with the match.
   emotes: EmoteFlash[]
 
   // --- 1v1 matchmaking ---
@@ -369,10 +377,8 @@ export interface MatchActions {
     matchHistory: MatchRecordDTO[],
   ) => void
   dismissRoundSummary: () => void
-  /** One of the three things arrived. Appends, and drops anything expired. */
+  /** One of the three things arrived. Replaces what that seat was saying. */
   applyEmote: (seat: number, emote: Emote) => void
-  /** Drops what has been on screen long enough. Armed to an absolute deadline. */
-  pruneEmotes: () => void
   applyRematchOffers: (offers: number[], needed: number) => void
   clearRematchOffers: () => void
   applyRematch: (myIndex: number, players: PlayerDTO[], format: MatchFormat, maxPlayers: number) => void

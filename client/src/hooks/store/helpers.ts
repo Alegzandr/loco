@@ -15,6 +15,27 @@ export function deriveCatch(windows: CatchWindow[], myIndex: number) {
 }
 
 /**
+ * The declarations that survive a board that just moved.
+ *
+ * A LOCO! covers the single card it was called on and nothing else, so a seat
+ * keeps its declaration only while it still holds exactly one card and no fresh
+ * obligation has opened on it — a Swap or a GlobalSwitch hands a seat a card
+ * nobody has heard called, and the server says so by opening a new window on it.
+ *
+ * `handSize` answers for a seat the roster no longer mentions with `undefined`,
+ * which drops it: a seat that left is not sitting on a called card.
+ */
+export function keepDeclarations(
+  declaredSeats: number[],
+  handSize: (seat: number) => number | undefined,
+  voided: number[] = [],
+): number[] {
+  return declaredSeats.filter(
+    (seat) => handSize(seat) === 1 && !voided.includes(seat),
+  )
+}
+
+/**
  * Drop the copies of `card` the server just discarded from our hand.
  *
  * One `card_played` can stand for several discards: a batch play or a batch

@@ -906,8 +906,9 @@ export const SCENES: Scene[] = [
     },
   },
   {
-    // The three fixed things, and one already said. Nothing about it is kept:
-    // it is on screen for four seconds and gone.
+    // The three fixed things, and two of the four seats already talking: the
+    // feed is one line per seat, so the two that said nothing are the empty
+    // slots holding the card's height still. Nothing about any of it is kept.
     id: 'gameover-emotes',
     title: 'Fin de match · émotes',
     screen: 'gameover',

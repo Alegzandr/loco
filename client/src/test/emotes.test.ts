@@ -1,9 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import GameOver from '../components/GameOver.svelte'
 import { EMOTE_ORDER } from '../components/emotes'
 import { gameStore } from '../hooks/gameStore'
-import { EMOTE_TTL_MS } from '../hooks/store/types'
 import { en } from '../i18n/en'
 import type { PlayerDTO } from '../types/protocol'
 
@@ -67,46 +66,44 @@ describe('the three things', () => {
     expect(feed!.textContent).toContain(en.emotes.close)
     expect(feed!.textContent).toContain('Bob')
   })
+
+  // The row is three states, not three sends: pressing another one moves the
+  // mark rather than adding a second bubble.
+  it('marks the one we are saying, and only that one', () => {
+    render(GameOver, { ...base, onEmote: vi.fn() })
+    gameStore.getState().applyEmote(0, 'nice')
+    const pressed = [...document.querySelectorAll('.emoteRow button')]
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.textContent?.trim())
+    expect(pressed).toEqual([en.emotes.nice])
+  })
 })
 
-describe('nothing said is kept', () => {
+describe('one line per seat, and the card never grows', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
     gameStore.getState().resetToHome()
   })
-  afterEach(() => {
-    vi.useRealTimers()
-  })
 
-  it('drops a bubble once it has been up long enough', () => {
+  // The whole point of the shape: the feed is the roster, so what a table
+  // saying a lot changes is what a line reads, never how many lines there are.
+  it('draws a slot per player before anybody has said anything', () => {
+    render(GameOver, { ...base, onEmote: vi.fn() })
+    expect(document.querySelectorAll('.emoteSlot')).toHaveLength(players.length)
+
+    gameStore.getState().applyEmote(0, 'gg')
     gameStore.getState().applyEmote(1, 'gg')
-    expect(gameStore.getState().emotes).toHaveLength(1)
-    vi.advanceTimersByTime(EMOTE_TTL_MS + 1)
-    gameStore.getState().pruneEmotes()
-    expect(gameStore.getState().emotes).toHaveLength(0)
+    gameStore.getState().applyEmote(0, 'nice')
+    expect(document.querySelectorAll('.emoteSlot')).toHaveLength(players.length)
   })
 
-  // The second arrival must not hold the first one up: the timer works to an
-  // absolute deadline, and the write prunes what is already expired.
-  it('does not extend the first one when a second arrives', () => {
+  it('replaces what a seat was saying rather than adding to it', () => {
     gameStore.getState().applyEmote(0, 'gg')
-    vi.advanceTimersByTime(EMOTE_TTL_MS - 100)
-    gameStore.getState().applyEmote(1, 'nice')
-    expect(gameStore.getState().emotes).toHaveLength(2)
-    vi.advanceTimersByTime(200)
-    gameStore.getState().pruneEmotes()
-    const left = gameStore.getState().emotes
-    expect(left).toHaveLength(1)
-    expect(left[0].emote).toBe('nice')
-  })
-
-  it('publishes nothing when a timer fires with nothing to drop', () => {
-    gameStore.getState().applyEmote(0, 'gg')
-    const before = gameStore.getState().emotes
-    gameStore.getState().pruneEmotes()
-    // The same array, not a copy: a new one would wake every subscriber for
-    // nothing, and `game.current` is replaced whole on every publish.
-    expect(gameStore.getState().emotes).toBe(before)
+    gameStore.getState().applyEmote(1, 'close')
+    gameStore.getState().applyEmote(0, 'nice')
+    const said = gameStore.getState().emotes
+    expect(said).toHaveLength(2)
+    expect(said.find((e) => e.seat === 0)?.emote).toBe('nice')
+    expect(said.find((e) => e.seat === 1)?.emote).toBe('close')
   })
 
   it('is forgotten on the way home and on the way into the next match', () => {

@@ -344,6 +344,24 @@ won, and a one-card hand had made them finishes by accident.
 - **A hand that grows closes that seat's window** (`applyCardDrawn`). `CatchUndeclared` refuses any
   target that no longer holds exactly one card, so a window kept open past a draw is a Contre-LOCO!
   button armed on a tap that can only come back refused.
+- **The client also keeps what the table *heard*: `gameStore.declaredSeats`, every seat whose current
+  single card has been called.** A window is an obligation and it closes on its own; a declaration is
+  a fact about a hand, and it is what says a seat is out of reach rather than merely not on the hook
+  yet. Written by `applyUnoDeclared` from the server's confirmation, retired by `applyCardDrawn`
+  (the hand grew), by `applyCardPlayed` (the roster says that seat is no longer on one card, or the
+  server opened a fresh window on it) and by `applyGameState` (same question asked of a snapshot) —
+  the shared filter is `store/helpers.ts: keepDeclarations`. Two things read it:
+  - **`myDeclared`**, our own seat, which spends the LOCO! chip. It is **derived** by
+    `deriveCatchMiddleware` like `catchTarget`, for the same reason: an action that forgets to clear
+    it leaves a dead button over an obligation the player still owes, and nothing fails.
+  - **`isCatchLive`** (`components/catchAvailability.ts`), which drops a seat on **one** card that has
+    declared from the count. Nothing can catch that seat until its hand changes, so the press stops
+    being a read that lost and becomes a card paid for nothing — the only case the button greys out
+    for. A declaration by a seat on two or three cards is ignored: it will owe the table a fresh call
+    on the way down, which is exactly what the live button is anticipating.
+  - **Absence of a window is not a declaration**, and the distinction is why this list exists: catch
+    seats ride `card_played` only, so a reloaded tab holds none of them and would find the button grey
+    over a table it could still catch. Silence leaves it live.
 - **`applyGameState` filters catch windows, it does not wipe them.** Swap and GlobalSwitch are
   followed by a personalised `game_state`, so clearing there made the exact rule this exists for
   unreachable: the player handed their last card was catchable for a few milliseconds and then

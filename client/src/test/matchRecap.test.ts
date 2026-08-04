@@ -76,8 +76,11 @@ describe('<GameOver /> recap', () => {
   it('draws one column per match plus the total once there is an evening', () => {
     render(GameOver, { ...base, matchHistory: history })
     expect(screen.getByText(en.recapTitle)).toBeTruthy()
-    expect(screen.getByText('Match 1')).toBeTruthy()
-    expect(screen.getByText('Match 3')).toBeTruthy()
+    // Off the token, not off a copy of it: the head is a dense grid's column
+    // label and it went from "Match %n" to "M%n" to stop a word sizing the
+    // whole table. What is pinned here is that there is one per match.
+    expect(screen.getByText(en.recapMatchCol.replace('%n', '1'))).toBeTruthy()
+    expect(screen.getByText(en.recapMatchCol.replace('%n', '3'))).toBeTruthy()
     expect(screen.getByText(en.recapWonCol)).toBeTruthy()
   })
 

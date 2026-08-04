@@ -820,7 +820,8 @@ that, and the smallest is the point.
   invent a fourth. The words are the client’s (`t.emotes`), in the player’s own language.
 - **Nothing is kept.** Not in the event log, not on the `Room`, not in the drain snapshot. The only
   state anywhere is `table.emoteAt`, which is *when* a seat last spoke and never what it said, and
-  it goes with the match (`resetForNextMatch`). The client drops a bubble after four seconds.
+  it goes with the match (`resetForNextMatch`). The client keeps one line per seat — the last thing
+  that seat said, replaced rather than stacked — and drops the lot with the match.
 - **The game-over screen and nowhere else.** Anywhere earlier it would be something to do *to*
   somebody mid-round, which is what a reaction game least needs. Refused through the same door every
   other out-of-context message uses.

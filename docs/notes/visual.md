@@ -169,6 +169,14 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   the server's cue can be answered but never anticipated, and five seconds is not long enough to
   find a button in. *Armed* for the seconds a seat actually owes the call. The middle state is what
   the price in §14.6 is for, and `game-catch-live` is its scene.
+  - **It goes back to dead when every seat within reach has called it.** A seat on one card the whole
+    table heard declare is out of reach until its hand changes, so pressing against it is not a read
+    that lost — it is the price paid for nothing, and a wager the interface should not be offering.
+    The looseness is for uncertainty, and there is none left there. It is `store.declaredSeats`, i.e.
+    what the table *heard*: a seat with no open catch window is not the same statement, because a
+    reloaded tab is told about no windows at all and would find the button grey over a table it could
+    still catch. A declaration by a seat on two or three cards changes nothing — it will owe the
+    table a fresh call on the way down, which is the whole thing the middle state is watching for.
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same
@@ -198,8 +206,8 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   second call on the same single card (`player already declared`, the string `CatchUndeclared`
   already uses), and the flag only clears when `openCatchWindow` opens a fresh obligation on that
   seat — i.e. a Swap or a GlobalSwitch handing it a card nobody has heard called. Client-side,
-  `store.myDeclared` (set by `applyUnoDeclared` on the *server's* confirmation, never on the click)
-  disables the button in place: it goes dead in its own slot rather than disappearing, because
+  `store.myDeclared` — our own seat read off `store.declaredSeats`, which `applyUnoDeclared` writes
+  from the *server's* confirmation and never from the click — disables the button in place: it goes dead in its own slot rather than disappearing, because
   nothing in this bar may move mid-match. Without either half, LOCO! could be
   spammed for as long as the card was held, replaying the banner and the sting each time.
   `hub.handleDeclareUno` deliberately does **not** `noteSuspect` that one rejection: a second call is

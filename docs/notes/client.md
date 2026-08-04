@@ -964,6 +964,36 @@ to work out that the table is empty.
 - `tableAbandoned.test.ts` owns all four cases, including the one that matters most: nothing is
   offered while the other seat is merely disconnected.
 
+## The evening's recap, on a phone
+The server's half of `table.matchHistory` is in
+[`domain-rules.md`](domain-rules.md); this is the grid the game-over card draws it as, and every
+decision in it comes from the same measurement: the card is 380px wide, so on a 360px phone the
+scroller inside the recap panel is **244px**, and four matches × four seats has to live in it.
+
+**The two columns that answer the question are pinned** (`.recapName` and `.recapTotal`, `position:
+sticky` left and right). The block exists because a rematch nils the scoreboard and nobody could say
+who had won the evening; the column that says so is the last one, and the last one is precisely what
+a table wide enough to scroll carries off the right edge of a phone. Pinned, the matches scroll
+*between* who and how many, and the conclusion is on screen at every scroll position. The pinned
+edges are drawn as borders on the cells, and the table is `border-collapse: **separate**` for that
+reason alone: a collapsed border belongs to the pair of cells that share it, so the rule marking the
+pinned right-hand column stayed behind with the column it was collapsed against and never moved.
+
+**Three things were each sizing the grid on something other than its numbers, and all three cost
+about the same.** The head was `Match %n` — 55px of label over 34px of data, four times over. The
+rounds and the points sat side by side, 62px a column. And the head was set at 10px, under the 11px
+floor, which bought back nothing because the label was still the widest thing in the column. The
+head is `M%n` now, which is the score table's own convention for exactly this (`scoreTableRoundCol`
+is `R%n`/`M%n`); the points sit under the rounds rather than beside them, which also puts the two
+numbers in the order they are read — what was won, then what it was won by; and the head is 11px.
+The grid came from 335px to fitting a four-match evening whole.
+
+**The seat that took a match is a gold pill, not a red digit.** `--color-primary` on
+`--color-surface-strong` measures 2.9:1, so a 14px number in it failed AA outright — but the reason
+to change it is that the scoreboard directly above wins in gold, and a spectator does not pick a
+recoloured digit out of a grid at 720p. A filled body with an outline is the same information as a
+shape, which is also what colour assist asks of anything meaning something by hue.
+
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
 - `initI18n()` (`client/src/i18n/store.ts`) wraps app in `entry.ts`. `i18n` → `{ lang, t, setLang }`.

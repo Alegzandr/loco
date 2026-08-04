@@ -17,6 +17,7 @@ beforeEach(() => {
     pendingDraw: 0,
     errorMsg: '',
     unoDeclared: false,
+    declaredSeats: [],
     myDeclared: false,
     catchWindows: [],
     catchTarget: null,
@@ -588,7 +589,7 @@ describe('gameStore', () => {
   it('applyCardPlayed re-arms our declaration when the server reopens our window', () => {
     gameStore.setState({
       myIndex: 1,
-      myDeclared: true,
+      declaredSeats: [1],
       myHand: [{ color: 'red', kind: 'number', value: 5 }],
       players: [
         { index: 0, nickname: 'alice', hand_size: 3, connected: true },
@@ -608,7 +609,7 @@ describe('gameStore', () => {
   it('applyCardPlayed keeps our declaration through an unrelated play', () => {
     gameStore.setState({
       myIndex: 1,
-      myDeclared: true,
+      declaredSeats: [1],
       myHand: [{ color: 'red', kind: 'number', value: 5 }],
       players: [
         { index: 0, nickname: 'alice', hand_size: 3, connected: true },
@@ -618,6 +619,77 @@ describe('gameStore', () => {
     const card: CardDTO = { color: 'red', kind: 'number', value: 4 }
     gameStore.getState().applyCardPlayed(0, card, 1, 0, 'red')
     expect(gameStore.getState().myDeclared).toBe(true)
+  })
+
+  // The same record answers the other half of the question: an opponent sitting
+  // on one card everybody heard called cannot be caught until that hand changes,
+  // so Contre-LOCO! against them is a card paid for nothing and the centre
+  // button stops offering the wager (`components/catchAvailability.ts`).
+  it('applyUnoDeclared records the seat that called it, whoever it is', () => {
+    gameStore.setState({ myIndex: 0, declaredSeats: [] })
+    gameStore.getState().applyUnoDeclared(2)
+    expect(gameStore.getState().declaredSeats).toEqual([2])
+    // A second confirmation for the same seat is the same one call.
+    gameStore.getState().applyUnoDeclared(2)
+    expect(gameStore.getState().declaredSeats).toEqual([2])
+  })
+
+  // A declaration covers one card. A hand that grew is off it, and that seat
+  // owes the table a fresh call on the way back down — so the button has to
+  // come back live for it.
+  it('applyCardDrawn retires the drawing seat declaration', () => {
+    gameStore.setState({
+      myIndex: 0,
+      declaredSeats: [2],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 2, nickname: 'carol', hand_size: 1, connected: true },
+      ],
+    })
+    gameStore.getState().applyCardDrawn(null, 2, 0, false, 1, 0)
+    expect(gameStore.getState().declaredSeats).toEqual([])
+  })
+
+  // Playing the called card away ends the obligation with it: the seat is on
+  // zero cards (it won) or on a hand nobody has heard called.
+  it('applyCardPlayed retires a declaration whose seat is no longer on one card', () => {
+    gameStore.setState({
+      myIndex: 0,
+      declaredSeats: [2],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 2, nickname: 'carol', hand_size: 1, connected: true },
+      ],
+    })
+    const card: CardDTO = { color: 'red', kind: 'number', value: 4 }
+    gameStore.getState().applyCardPlayed(2, card, 0, 0, 'red', [
+      { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+      { index: 2, nickname: 'carol', hand_size: 0, connected: true },
+    ])
+    expect(gameStore.getState().declaredSeats).toEqual([])
+  })
+
+  // An authoritative snapshot settles it like everything else: a fresh deal, a
+  // penalty or a swapped hand owes nothing yet.
+  it('applyGameState keeps only the declarations its roster still stands behind', () => {
+    gameStore.setState({ myIndex: 0, declaredSeats: [1, 2] })
+    gameStore.getState().applyGameState({
+      your_index: 0,
+      hand: [{ color: 'red', kind: 'number', value: 5 }],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 1, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 1, connected: true },
+        { index: 2, nickname: 'carol', hand_size: 4, connected: true },
+      ],
+      discard: { color: 'red', kind: 'number', value: 4 },
+      active_color: 'red',
+      turn: 0,
+      direction: 1,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 10,
+    })
+    expect(gameStore.getState().declaredSeats).toEqual([1])
   })
 
   it('applyCardPlayed clears unoDeclared (UNO is consumed when card is played)', () => {

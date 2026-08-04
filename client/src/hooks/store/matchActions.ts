@@ -1,6 +1,6 @@
 import { StateCreator } from './createStore'
 import { gameStateSliceFromDTO } from './helpers'
-import { EMOTE_TTL_MS, GameStore, MatchActions, RoundScoreEntry } from './types'
+import { GameStore, MatchActions, RoundScoreEntry } from './types'
 
 export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
   setLobbyConfig: (matchFormat, maxPlayers) => set({ matchFormat, maxPlayers }),
@@ -30,7 +30,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         showRoundSummary: true,
         turnDeadline: null,
         unoDeclared: false,
-        myDeclared: false,
+        declaredSeats: [],
         catchWindows: [],
         catchFailed: null,
         catchFlash: null,
@@ -86,7 +86,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         pendingGameState: null,
         unoDeclared: false,
         unoDeclaredByIndex: -1,
-        myDeclared: false,
+        declaredSeats: [],
         catchWindows: [],
         catchFailed: null,
         catchFlash: null,
@@ -97,23 +97,13 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
     set({ showRoundSummary: false })
   },
 
-  // Appended, and the expired dropped in the same write: an emote that is old
-  // enough to go is old enough to go whether or not a timer has fired yet, and
-  // this is the write that already knows the time.
+  // One entry per seat: speaking again replaces what that seat was saying, it
+  // never adds a line. The screen draws one slot per player and its height is
+  // the table's size, so a table that keeps talking moves nothing.
   applyEmote: (seat, emote) =>
-    set((s) => {
-      const now = Date.now()
-      return { emotes: [...s.emotes.filter((e) => e.at + EMOTE_TTL_MS > now), { seat, emote, at: now }] }
-    }),
-
-  pruneEmotes: () =>
-    set((s) => {
-      const now = Date.now()
-      const kept = s.emotes.filter((e) => e.at + EMOTE_TTL_MS > now)
-      // Returned unchanged when nothing expired, so a timer that fired a
-      // fraction early does not publish a new array to every subscriber.
-      return kept.length === s.emotes.length ? s : { emotes: kept }
-    }),
+    set((s) => ({
+      emotes: [...s.emotes.filter((e) => e.seat !== seat), { seat, emote, at: Date.now() }],
+    })),
 
   // The server sends the whole offer state, not the increment, and this stores
   // it as sent. A seat leaving retires its ask and re-bases the ones above it,
@@ -176,7 +166,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       pendingMatchEnd: null,
       unoDeclared: false,
       unoDeclaredByIndex: -1,
-      myDeclared: false,
+      declaredSeats: [],
       catchWindows: [],
       catchFailed: null,
       catchFlash: null,

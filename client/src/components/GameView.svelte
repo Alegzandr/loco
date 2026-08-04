@@ -213,7 +213,7 @@
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
   // Whether the centre button is pressable at all — a looser question than
   // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
-  const catchLive = $derived(isCatchLive(g.players, g.myIndex))
+  const catchLive = $derived(isCatchLive(g.players, g.myIndex, g.declaredSeats))
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
   drainBar(() => turnFill, () => turnDeadline, 'auto')
