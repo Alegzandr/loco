@@ -30,6 +30,7 @@ export const initialState: GameState = {
 
   unoDeclared: false,
   unoDeclaredByIndex: -1,
+  declaredSeats: [],
   myDeclared: false,
   catchWindows: [],
   catchTarget: null,

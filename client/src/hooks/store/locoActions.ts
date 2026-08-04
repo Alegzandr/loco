@@ -5,16 +5,20 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
   setUnoDeclared: (unoDeclared) => set({ unoDeclared }),
   setUnoDeclaredByIndex: (unoDeclaredByIndex) => set({ unoDeclaredByIndex }),
 
-  // One seat called it. The banner is for the table; `myDeclared` is the part
-  // that spends our own button, and it is set from the server's confirmation
-  // rather than from the click, so a refused call leaves the button live.
+  // One seat called it. The banner is for the table; `declaredSeats` is the
+  // part that spends a button — our own LOCO!, and Contre-LOCO! against that
+  // seat, which from here on can only be a misread. It is recorded from the
+  // server's confirmation rather than from the click, so a refused call leaves
+  // both buttons live.
   applyUnoDeclared: (declarer) =>
     set((s) => {
       const catchWindows = s.catchWindows.filter((w) => w.seat !== declarer)
       return {
         unoDeclared: true,
         unoDeclaredByIndex: declarer,
-        myDeclared: declarer === s.myIndex ? true : s.myDeclared,
+        declaredSeats: s.declaredSeats.includes(declarer)
+          ? s.declaredSeats
+          : [...s.declaredSeats, declarer],
         catchWindows,
       }
     }),

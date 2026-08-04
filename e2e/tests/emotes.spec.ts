@@ -21,7 +21,7 @@ import {
 } from '../helpers/game'
 
 test.describe('the three things', () => {
-  test('one seat says it, the whole table sees it, and it goes on its own', async ({
+  test('one seat says it, the whole table sees it, and saying another replaces it', async ({
     browser,
   }) => {
     const hostCtx = await browser.newContext()
@@ -67,17 +67,27 @@ test.describe('the three things', () => {
     await expect(host.locator('.emoteFeed')).toContainText(T.emoteGG)
 
     // A second press inside the cooldown is refused to its sender and reaches
-    // nobody: the table's list does not grow.
+    // nobody: what the seat is saying does not change.
     await guest.getByRole('button', { name: T.emoteNice }).click()
     await host.waitForTimeout(600)
-    expect((await getState(host))?.emotes ?? []).toHaveLength(1)
+    const during = (await getState(host))?.emotes ?? []
+    expect(during).toHaveLength(1)
+    expect(during[0].emote).toBe('gg')
 
-    // And nothing said is kept: the bubble comes off on its own.
+    // Past the cooldown it is one line per seat, replaced: the second thing
+    // said takes the first one's place rather than adding a bubble under it.
+    await host.waitForTimeout(2000)
+    await guest.getByRole('button', { name: T.emoteNice }).click()
     await host.waitForFunction(
-      () => (window.__LOCO_E2E__?.getState?.()?.emotes ?? []).length === 0,
+      () => {
+        const said = window.__LOCO_E2E__?.getState?.()?.emotes ?? []
+        return said.length === 1 && said[0].seat === 1 && said[0].emote === 'nice'
+      },
       undefined,
       { timeout: 10_000 },
     )
+    await expect(host.locator('.emoteFeed')).toContainText(T.emoteNice)
+    await expect(host.locator('.emoteFeed')).not.toContainText(T.emoteGG)
 
     await hostCtx.close()
     await guestCtx.close()

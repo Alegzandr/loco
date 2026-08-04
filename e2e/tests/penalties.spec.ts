@@ -109,11 +109,13 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       expect(armed?.unoTimerEnd).not.toBeNull()
 
       // Declaring closes the window — you cannot catch someone who called it.
-      // The button stays pressable, because Bob is still one card from the end
-      // and pressing it is still a wager; it simply stops promising a target.
+      // And with Bob the only opponent, sitting on the single card the whole
+      // table just heard him call, there is nothing left to wager on: the
+      // button goes dead in place rather than staying a press that could only
+      // ever cost Alice a card.
       await sendMsg(bob, { type: 'declare_uno' })
       await expect(catchBtn).not.toHaveClass(/\barmed\b/, { timeout: 5_000 })
-      await expect(catchBtn).toBeEnabled()
+      await expect(catchBtn).toBeDisabled()
       expect((await getState(alice))?.catchTarget).toBeNull()
     } finally {
       await ctx1.close()

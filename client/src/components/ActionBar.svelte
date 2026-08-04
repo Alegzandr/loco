@@ -19,7 +19,9 @@
      * watching (`catchAvailability.ts`). This is what makes the button pressable,
      * and it is deliberately looser than `catchArmed`: a press that finds nobody
      * on the hook is a card, not a refusal, so the player can commit to the
-     * gesture before the server has named anybody.
+     * gesture before the server has named anybody. Looser, not blind — a seat
+     * sitting on one card the whole table heard called is out of reach until its
+     * hand changes, so it stops counting.
      */
     catchLive: boolean
     /**

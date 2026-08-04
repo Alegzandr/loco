@@ -249,7 +249,7 @@ export const fr: Translations = {
   winsMatch: 'rafle le match\u00a0!',
   roundsWonCount: (n) => (n === 1 ? '1 manche' : `${n} manches`),
   recapTitle: 'La soirée',
-  recapMatchCol: 'Match %n',
+  recapMatchCol: 'M%n',
   recapWonCol: 'Gagnés',
   rematch: 'Revanche',
   leaveRoom: 'Quitter la table',

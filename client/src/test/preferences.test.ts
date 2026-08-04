@@ -323,6 +323,20 @@ describe('Streamer mode', () => {
   })
 })
 
+describe('The panels behind the top-right row', () => {
+  // Both open over whichever screen is showing, and `text-align` inherits into
+  // an absolutely positioned child: the searching screen centres its column, so
+  // a panel that sets nothing is set differently there than everywhere else.
+  // Read off the source, because jsdom applies no component styles.
+  it.each([
+    ['Preferences', 'src/components/Preferences.svelte'],
+    ['AudioSettings', 'src/components/AudioSettings.svelte'],
+  ])('%s sets its own alignment', (_name, file) => {
+    const panel = /\.panel\s*\{[^}]*\}/.exec(readFileSync(file, 'utf8'))?.[0] ?? ''
+    expect(panel).toMatch(/text-align:\s*left/)
+  })
+})
+
 describe('Reduced motion', () => {
   it('follows the system until the player answers for themselves', () => {
     stubOsMotion(true)

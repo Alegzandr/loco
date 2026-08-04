@@ -1,6 +1,6 @@
 import { StateCreator } from './createStore'
 import { CardColor } from '../../types/protocol'
-import { gameStateSliceFromDTO, makeSwapNotice, removePlayedCards } from './helpers'
+import { gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
 
 export const createTableActions: StateCreator<GameStore, TableActions> = (set) => ({
@@ -30,7 +30,9 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         unoDeclaredByIndex: -1,
         // A declaration only covers the single card it was called on. Any other
         // hand — a fresh deal, a penalty, a card drawn — owes nothing yet.
-        myDeclared: s.myDeclared && state.hand.length === 1,
+        declaredSeats: keepDeclarations(s.declaredSeats, (seat) =>
+          state.players.find((p) => p.index === seat)?.hand_size,
+        ),
         catchWindows,
       }
     }),
@@ -101,11 +103,15 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         players: updatedPlayers,
         unoDeclared: voidsBanner ? false : s.unoDeclared,
         unoDeclaredByIndex: voidsBanner ? -1 : s.unoDeclaredByIndex,
-        // A window reopening on our own seat is a new obligation, exactly like
-        // the server's openCatchWindow: what we called earlier was another card.
-        myDeclared: opened.some((w) => w.seat === s.myIndex)
-          ? false
-          : s.myDeclared && updatedHand.length === 1,
+        // A window reopening on a seat is a new obligation, exactly like the
+        // server's openCatchWindow: what it called earlier was another card.
+        // Our own seat is in there like any other — the roster carries our
+        // hand size too, and the server is the authority on it.
+        declaredSeats: keepDeclarations(
+          s.declaredSeats,
+          (seat) => updatedPlayers.find((p) => p.index === seat)?.hand_size,
+          opened.map((w) => w.seat),
+        ),
         catchWindows,
         // The board moved, so a Contre-LOCO! is a fresh read rather than the
         // same one repeated. This is the client's copy of the server's PlayEpoch
@@ -134,6 +140,9 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         hasDrawn: hasDrawn ?? s.hasDrawn,
         pendingDraw: pendingDraw ?? s.pendingDraw,
         catchWindows,
+        // A hand that grew is off one card, so whatever that seat called is
+        // spent — it will owe the table a fresh call on the way back down.
+        declaredSeats: s.declaredSeats.filter((seat) => seat !== playerIndex),
       }
       if (cards && cards.length > 0) {
         return { ...turnState, myHand: [...s.myHand, ...cards] }

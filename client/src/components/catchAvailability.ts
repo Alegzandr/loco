@@ -18,14 +18,34 @@ export const CATCH_LIVE_MAX_HAND = 3
 
 /**
  * Whether Contre-LOCO! is pressable right now: some *other* seat is holding
- * between one and CATCH_LIVE_MAX_HAND cards.
+ * between one and CATCH_LIVE_MAX_HAND cards, and is not a seat we have heard
+ * call it on the single card it is holding.
  *
  * Our own seat never counts — there is nobody to catch there. Nor does an empty
  * hand: a seat on zero cards has either won the round or been retired out of it,
  * and neither owes the table a call.
+ *
+ * A seat on **one** card that has already declared is the one case where the
+ * wager stops being a read: it cannot be caught until its hand changes, and the
+ * whole table heard the call, so a press against it can only be a slip that
+ * costs a card. Two or three cards is a different question — an interrupt can
+ * put that seat on one card before a thumb lands, which is exactly the
+ * anticipation this button is live for, so a declaration there voids nothing.
+ *
+ * `declaredSeats` is what the table *heard*, never an inference from a missing
+ * catch window: a reloaded tab is told no windows at all, and greying the
+ * button out on that silence would cost a reaction the player was entitled to.
  */
-export function isCatchLive(players: PlayerDTO[], myIndex: number): boolean {
+export function isCatchLive(
+  players: PlayerDTO[],
+  myIndex: number,
+  declaredSeats: readonly number[],
+): boolean {
   return players.some(
-    (p) => p.index !== myIndex && p.hand_size >= 1 && p.hand_size <= CATCH_LIVE_MAX_HAND,
+    (p) =>
+      p.index !== myIndex &&
+      p.hand_size >= 1 &&
+      p.hand_size <= CATCH_LIVE_MAX_HAND &&
+      !(p.hand_size === 1 && declaredSeats.includes(p.index)),
   )
 }

@@ -705,7 +705,7 @@ export const en: Translations = {
   winsMatch: 'takes the match!',
   roundsWonCount: (n) => (n === 1 ? '1 round' : `${n} rounds`),
   recapTitle: 'Tonight',
-  recapMatchCol: 'Match %n',
+  recapMatchCol: 'M%n',
   recapWonCol: 'Won',
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',

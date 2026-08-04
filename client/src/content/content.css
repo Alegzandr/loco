@@ -403,7 +403,15 @@ html[data-scroll="smooth"]:has(body.doc) {
   background: var(--color-surface-card);
 }
 
-table {
+/* Every rule below is scoped to `.tableWrap`, and that scope is the whole point.
+   This stylesheet is loaded by `GamePage.astro` as well as by the content pages,
+   so a bare `table`/`th`/`td` rule here reaches every table the *game* draws.
+   `thead th`'s ink fill is what that cost: it landed behind the score table's
+   and the recap's column heads, both of which set `--color-muted` believing they
+   sat on their own panel, and muted violet on ink measures 2.2:1. The hairline
+   under every cell and the 0.75rem padding rode along with it. Every table on a
+   content page is inside `.tableWrap`, so nothing here loses anything. */
+.tableWrap table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.97rem;
@@ -414,8 +422,8 @@ table {
    `nowrap` columns hold their width, the last absorbs the whole squeeze, and
    every row grows to three or four lines. A reference table is read by running
    an eye down one column, which a row of uneven height defeats. */
-th,
-td {
+.tableWrap th,
+.tableWrap td {
   text-align: start;
   padding: 0.75rem 1rem;
   /* `--color-hairline`, not `--color-stroke-soft`: a divider drawn *on* a
@@ -425,23 +433,23 @@ td {
   white-space: nowrap;
 }
 
-thead th {
+.tableWrap thead th {
   font-family: var(--font-display);
   background: var(--color-stroke);
   color: var(--color-on-dark);
   border-bottom: none;
 }
 
-tbody th {
+.tableWrap tbody th {
   color: var(--color-ink);
 }
 
-tbody td {
+.tableWrap tbody td {
   color: var(--color-body);
 }
 
-tbody tr:last-child th,
-tbody tr:last-child td {
+.tableWrap tbody tr:last-child th,
+.tableWrap tbody tr:last-child td {
   border-bottom: none;
   font-family: var(--font-display);
 }

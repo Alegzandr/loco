@@ -5,8 +5,6 @@
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
-  import { gameStore } from '../hooks/gameStore'
-  import { EMOTE_TTL_MS } from '../hooks/store/types'
   import { EMOTE_ORDER } from './emotes'
 
   type Props = {
@@ -102,22 +100,19 @@
   const nameOf = $derived((s: number) => players.find((p) => p.index === s)?.nickname ?? '')
 
   /*
-   * What is on screen comes off it on its own.
+   * One slot per seat, in seat order, drawn whether or not that seat has said
+   * anything.
    *
-   * The timer is armed to the **oldest bubble's absolute deadline**, never to
-   * "four seconds from whenever this last ran": a second emote arriving would
-   * otherwise re-arm the timer and hold the first one up for as long as the
-   * table kept talking. Same rule the drain bar and the deal animation follow.
+   * The card's height is the table's size and nothing else: a slot that only
+   * existed once somebody spoke moved the two offers and the way out down the
+   * screen under the thumb aiming for them, and every arrival moved them again.
+   * An empty slot renders as height and nothing else.
    */
-  $effect(() => {
-    if (emotes.length === 0) return
-    const oldest = Math.min(...emotes.map((e) => e.at))
-    const id = setTimeout(
-      () => gameStore.getState().pruneEmotes(),
-      Math.max(0, oldest + EMOTE_TTL_MS - Date.now()),
-    )
-    return () => clearTimeout(id)
-  })
+  const emoteSlots = $derived(
+    players.map((p) => ({ seat: p.index, flash: emotes.find((e) => e.seat === p.index) ?? null })),
+  )
+  /** What we are saying, so the row can show which of the three is ours. */
+  const myEmote = $derived(emotes.find((e) => e.seat === mySeat)?.emote ?? null)
 </script>
 
 <div class="container">
@@ -263,19 +258,35 @@
          a few seconds and forgotten. -->
     {#if onEmote}
       <div class="emotes">
-        {#if emotes.length > 0}
-          <ul class="emoteFeed">
-            {#each emotes as e (e.at)}
-              <li class="emoteBubble" class:emoteMine={e.seat === mySeat}>
-                <span class="emoteWho">{nameOf(e.seat)}</span>
-                <span class="emoteWhat">{t.emotes[e.emote]}</span>
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <!-- One line per seat, always drawn: what changes when the table talks
+             is what a line says, never how many there are. `aria-live` is on
+             the list rather than on a bubble that comes and goes, so a screen
+             reader is told the new sentence and not a new region. -->
+        <ul class="emoteFeed" aria-live="polite">
+          {#each emoteSlots as slot (slot.seat)}
+            <li class="emoteSlot" class:emoteSlotMine={slot.seat === mySeat}>
+              {#if slot.flash}
+                <!-- Keyed on the arrival so saying the same thing twice pops
+                     again: the bubble is already there, and the only thing that
+                     can acknowledge the press is the animation. -->
+                {#key slot.flash.at}
+                  <span class="emoteBubble" class:emoteMine={slot.seat === mySeat}>
+                    <span class="emoteWho">{nameOf(slot.seat)}</span>
+                    <span class="emoteWhat">{t.emotes[slot.flash.emote]}</span>
+                  </span>
+                {/key}
+              {/if}
+            </li>
+          {/each}
+        </ul>
         <div class="emoteRow" role="group" aria-label={t.emotesLabel}>
           {#each EMOTE_ORDER as id (id)}
-            <button class="emoteBtn" onclick={() => onEmote?.(id)}>{t.emotes[id]}</button>
+            <button
+              class="emoteBtn"
+              class:emoteBtnOn={myEmote === id}
+              aria-pressed={myEmote === id}
+              onclick={() => onEmote?.(id)}>{t.emotes[id]}</button
+            >
           {/each}
         </div>
       </div>
@@ -357,9 +368,21 @@
   }
 
   .sub {
+    /* Pulled up against the heading it belongs to. The card is one gap all the
+       way down otherwise, and a stack spaced evenly from the trophy to the way
+       out reads as one long list rather than as a result, a scoreboard and two
+       offers. */
+    margin-top: calc(-1 * var(--space-sm));
     font: 600 16px/1.4 var(--font-body);
     color: var(--color-body);
     text-align: center;
+  }
+
+  /* The seam between the numbers and the first thing that can be pressed: the
+     one place on the card where a step of air is worth more than compactness. */
+  .scoreboard + .btn,
+  .recap + .btn {
+    margin-top: var(--space-xs);
   }
 
   .scoreboard {
@@ -450,20 +473,34 @@
   /* The focus ring comes from tokens.css, which rings every [tabindex] on every
      surface. A second declaration here would be a second definition of it. */
 
+  /* `separate`, not `collapse`. Two of these columns are pinned, and a collapsed
+     border belongs to the *pair* of cells that share it: the rule meant to mark
+     the pinned right-hand column stayed behind with the column it was collapsed
+     against and never moved with it. Zero spacing, so nothing else changes. */
   .recapTable {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
     font: 700 12px/1.2 var(--font-display);
     color: var(--color-ink);
   }
 
   .recapTh,
   .recapThName {
-    font: 700 10px/1.2 var(--font-display);
+    /* 11px, which is the floor — the Label step included. These name the columns
+       somebody reads the evening out of, and the score table's heads were pulled
+       back off 10px for exactly this reason. */
+    font: 700 11px/1.15 var(--font-display);
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.06em;
     color: var(--color-muted);
-    padding: 0 6px 4px;
+    padding: 0 5px 4px;
+    vertical-align: bottom;
+  }
+
+  .recapTh,
+  .recapThName,
+  .recapThTotal {
     white-space: nowrap;
   }
 
@@ -475,42 +512,96 @@
     color: var(--color-ink);
   }
 
+  /* Who, and how many taken: the question the block exists to answer. Both are
+     pinned, so a long evening scrolls the matches *between* them rather than
+     carrying the answer off the right edge. The hairline is what says the
+     column is pinned rather than merely first. */
+  .recapName,
+  .recapThName,
+  .recapTotal,
+  .recapThTotal {
+    position: sticky;
+    z-index: 1;
+    background: var(--color-surface-strong);
+  }
+
+  .recapName,
+  .recapThName {
+    left: 0;
+    border-right: 2px solid var(--color-border-strong);
+  }
+
+  .recapTotal,
+  .recapThTotal {
+    right: 0;
+    border-left: 2px solid var(--color-border-strong);
+  }
+
+  /* One line per seat, so a row can be followed across a grid that is scrolling
+     under two pinned columns. Drawn on the cells, never on the row: a `<tr>`
+     border is not painted at all when the borders are separate. */
+  .recapTable tbody tr:not(:last-child) td {
+    border-bottom: var(--stroke-thin) solid var(--color-hairline);
+  }
+
   .recapName {
-    padding: 3px 6px;
-    max-width: 9ch;
+    padding: 4px 8px 4px 0;
+    max-width: 11ch;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .recapCell {
-    padding: 3px 6px;
+    padding: 4px 5px;
     text-align: center;
     white-space: nowrap;
   }
 
-  /* The seat that took that match. A hue plus a heavier weight, so the column
-     still reads at 720p once the card is re-encoded. */
-  .recapCellWon {
-    color: var(--color-primary);
-  }
-
+  /* Rounds over points rather than beside them. Side by side, one match column
+     was 62px against a 244px scrollport, so an evening of three already ran off
+     the edge; stacked it is 38px and a four-match evening fits a phone whole. It
+     also puts the two numbers in the order they are read — what was won, then
+     what it was won by. The column head is `M%n` for the same reason and by the
+     same convention as the score table's: a word set over a two-digit column
+     sizes the whole grid on the label instead of on the numbers. */
   .recapRounds {
+    display: inline-block;
+    min-width: 15px;
     font-size: 14px;
   }
 
+  /* The seat that took that match, in the colour this game wins in — the gold of
+     the scoreboard row directly above, so the two blocks agree. It is a filled
+     body rather than a recoloured digit: LOCO Red on the panel measures 2.9:1,
+     and a hue on its own is not something a spectator picks out of a grid at
+     720p anyway. */
+  .recapCellWon .recapRounds {
+    padding: 1px 7px;
+    border-radius: var(--radius-full);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    background: var(--gradient-secondary);
+    color: var(--color-on-secondary);
+  }
+
   .recapScore {
-    margin-left: 4px;
-    font-size: 10px;
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
     color: var(--color-muted);
   }
 
-  .recapCellWon .recapScore {
-    color: var(--color-primary);
+  .recapTotal {
+    padding: 4px 0 4px 10px;
+    font-size: 15px;
   }
 
-  .recapTotal {
-    font-size: 15px;
+  .recapThName {
+    padding-left: 0;
+  }
+
+  .recapThTotal {
+    padding-right: 0;
   }
 
   .btn {
@@ -608,11 +699,24 @@
     padding: 0;
   }
 
-  .emoteBubble {
+  /* The reserved line. It holds its height with nothing in it, which is the
+     whole point: the card is the same card before and after anybody speaks. */
+  .emoteSlot {
     display: flex;
+    justify-content: flex-start;
+    min-height: 30px;
+  }
+
+  /* Ours on the other side, so a table of six can tell who said what without
+     reading every name. */
+  .emoteSlotMine {
+    justify-content: flex-end;
+  }
+
+  .emoteBubble {
+    display: inline-flex;
     align-items: baseline;
     gap: 6px;
-    align-self: flex-start;
     max-width: 100%;
     padding: 5px 11px;
     border-radius: var(--radius-full);
@@ -623,10 +727,7 @@
     animation: emoteIn 0.22s var(--ease-bounce) both;
   }
 
-  /* Our own, on the other side, so a table of six can tell who said what
-     without reading every name. */
   .emoteMine {
-    align-self: flex-end;
     background: var(--gradient-tertiary);
     color: var(--color-on-dark);
     border-color: var(--color-stroke);
@@ -660,14 +761,21 @@
   .emoteRow {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center;
     gap: 6px;
   }
 
   .emoteBtn {
-    flex: 1;
-    min-width: 0;
+    /* Sized to its own word, never stretched to a third of the row. Three equal
+       columns give the longest string the set has ("C'était serré") 77px to sit
+       in on a 360px phone, so one chip of the three broke onto a second line
+       while its neighbours stayed on one — the ragged row. Left to their labels
+       the three come to 249px of the 280 available and all read on one line, and
+       three chips of three widths is what a set of fixed things looks like
+       anyway. */
+    flex: 0 1 auto;
     min-height: 44px;
-    padding: 6px 10px;
+    padding: 6px 14px;
     border-radius: var(--radius-full);
     border: var(--stroke-thin) solid var(--color-stroke);
     background: var(--color-surface-strong);
@@ -683,6 +791,17 @@
   .emoteBtn:hover {
     color: var(--color-ink);
     transform: translateY(-2px);
+  }
+
+  /* Pressing another one moves this, it never adds a second line, so the row
+     has to say which of the three is ours. */
+  .emoteBtnOn {
+    background: var(--gradient-tertiary);
+    color: var(--color-on-dark);
+  }
+
+  .emoteBtnOn:hover {
+    color: var(--color-on-dark);
   }
 
   .emoteBtn:active {
