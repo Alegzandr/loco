@@ -277,6 +277,15 @@ e2e_test:
     - export IMAGE_TAG="${CI_COMMIT_TAG:-${CI_COMMIT_REF_SLUG}}"
     - export APP_HOST="${DEV_HOST}"
     - if [[ -n "${CI_COMMIT_TAG:-}" ]]; then APP_HOST="${PROD_HOST}"; fi
+    # The certificate for the direct socket hostname, and the same condition as
+    # the bundle's VITE_WS_ORIGIN in `build`: only production dials ws.<host>,
+    # so only production asks Traefik for a certificate for it. Naming a
+    # resolver where no DNS record exists is a validation that can only fail,
+    # retried forever, for a hostname nothing dials — and deploy/compose.yml
+    # reads an empty value as "TLS on, no ACME", which is what the router was
+    # before this existed.
+    - export WS_CERT_RESOLVER=""
+    - if [[ -n "${CI_COMMIT_TAG:-}" ]]; then WS_CERT_RESOLVER="letsencrypt"; fi
     - set -a
     - source deploy/paths.env
     - set +a
@@ -300,6 +309,7 @@ e2e_test:
           "IMAGE_TAG=${IMAGE_TAG}" \
           "CI_REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}" \
           "LOCO_ALLOWED_ORIGINS=https://${APP_HOST}" \
+          "WS_CERT_RESOLVER=${WS_CERT_RESOLVER}" \
           "LOCO_DRAIN_TIMEOUT=${LOCO_DRAIN_TIMEOUT}" \
           "STOP_GRACE_PERIOD=${STOP_GRACE_PERIOD}" \
           "LOCO_SNAPSHOT_PATH=${LOCO_SNAPSHOT_PATH}" \
