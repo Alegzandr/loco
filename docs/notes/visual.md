@@ -757,14 +757,18 @@ Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup dro
 - Captures run with `reducedMotion: 'reduce'` by default so they are deterministic; `--motion` is how
   you check confetti, springs and callouts.
 - **The harness asks for the home page of the language it is capturing** (`/fr/` by default, since
-  `--lang` defaults to `fr`), and that is load-bearing rather than tidy. It seeds `loco_lang` in
-  `localStorage`, and a document is never in two languages at once: ask for `/` with `fr` stored and
-  `initLangUrl()` `location.replace`s to `/fr/`, so every scene loads twice. One page walks all 62
-  scenes, and **Chromium stops honouring navigations on a long-lived page somewhere past a hundred
-  of them** — the run died on scene 52 with a bare `page.goto` timeout and no error on the page.
-  Reversing the scene list moved the failure to a different scene at the *same position*, which is
-  what identified it as a count rather than a scene. If the harness ever grows past ~100 scenes,
-  recycle the page rather than hunting the scene it stops on.
+  `--lang` defaults to `fr`). `/` and `/fr/` are two builds, and a French screenshot has to be of
+  the document a French player is served rather than of the English one translated into French.
+
+  It used to be load-bearing for a harder reason, kept here because the failure is expensive to
+  rediscover. While the language was answered by a *navigation*, seeding `loco_lang=fr` and asking
+  for `/` made every scene load twice — and one page walks all 62 scenes, so the count is what broke:
+  **Chromium stops honouring navigations on a long-lived page somewhere past a hundred of them.** The
+  run died on scene 52 with a bare `page.goto` timeout and no error on the page; reversing the scene
+  list moved the failure to a different scene at the *same position*, which is what identified it as
+  a count rather than a scene. `/` translates itself in place now and never navigates, so nothing
+  doubles whatever the harness asks for — but past ~100 scenes, recycle the page rather than hunting
+  the scene it stops on.
 
 ## Link preview (Discord / X)
 The game is shared as a link, so the OG card is a product surface. `make og` (`tools/og/shoot.mjs`)

@@ -20,8 +20,9 @@
 // seat, not sent five links and a page of prose.
 //
 // `langNeutral`: an invitation carries no language (`hooks/tableInvite.ts`), so
-// there is no `data-served-lang` for `initLangUrl` to act on and the reader's
-// own browser decides, exactly as it does at `/`.
+// there is no `data-served-lang` for `initLang` to act on and the reader's own
+// browser decides, exactly as it does at `/`. Nothing here is swapped either:
+// `chrome={false}` leaves this document with no served copy in it at all.
 import GamePage from '../../layouts/GamePage.astro'
 import { INVITE } from '../../seo/meta'
 ---

@@ -632,9 +632,10 @@ this section.
   link gets forwarded, and the person who copied it does not know who ends up pressing it, so
   shipping `/fr/` would decide the reader's language from the other side of the table. That choice
   belongs to whoever opens it and the i18n provider already makes it (a stored choice, then the
-  browser). It is also why `/i/` is served with **no `data-served-lang`**: `initLangUrl` treats a
-  missing attribute as "nothing to disagree with" and leaves the document where it is, so an
-  invitation never bounces through a redirect on its way to a table.
+  browser). It is also why `/i/` is served with **no `data-served-lang`**: `langUrl` treats a missing
+  attribute as "nothing to disagree with" and leaves the document where it is, so an invitation never
+  moves on its way to a table. Nothing is swapped there either — `chrome={false}` leaves that
+  document with no served copy in it at all.
 - **The parameter is only read on `/i/`.** It used to be read on every page, because `/?t=CODE` is
   what the button handed out before the invite page existed. One URL is an invitation now, and this
   runs on every page load: reading a `?t=` anywhere would let a query string somebody put on the
@@ -997,12 +998,13 @@ shape, which is also what colour assist asks of anything meaning something by hu
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.
 - `initI18n()` (`client/src/i18n/store.ts`) wraps app in `entry.ts`. `i18n` → `{ lang, t, setLang }`.
-- Detect order: `localStorage('loco_lang')` → `data-served-lang` on `<html>` → `navigator.language`
-  prefix (`fr` → French, else English).
+- Detect order (`chooseLang` in `src/lang.ts`, the one definition): `localStorage('loco_lang')` →
+  `navigator.language` **but only on a document served as the default language or as none at all** →
+  `data-served-lang` on `<html>`. `detectLang` in the store is that function read against the DOM.
 - `setLang` persists to localStorage + syncs `document.documentElement.lang`.
 - Add language: create `xx.ts` impl `Translations`, add to `translations` map in `store.ts`, add `{code, label}` to `LANGS` in `LanguageSwitcher.svelte` — **the label is the autonym, untranslated** — **and to `LANGS`/`HOME_PATH` in `src/lang.ts`**.
 - The chooser is no longer mounted bare: it renders inside the preferences panel (below), as a
-  dropdown plus an Apply button rather than a segmented pair.
+  dropdown rather than a segmented pair. The pick applies itself on every screen.
 - `rules`: `readonly RulesSection[]` rendered by `RulesModal`.
 - Storage key and home paths: `src/lang.ts`, not the provider — see below.
 
@@ -1015,26 +1017,57 @@ The bug that produced it. A stored choice outranks the URL in `detectLang`, and 
 Astro built per URL — the footer row, the drawer, the sheet of prose — which no in-app state rewrites.
 So `/` opened with French stored rendered the game in French under a footer reading "With friends",
 having rewritten `<html lang>` to `fr`: a document declaring itself French while half its text was
-English, which is a lie to a screen reader before it is anything else. The lobby's chooser had
-already answered this for the *change* — at the entry screen Apply is a real link, so following it
-serves the whole document in the other language — but nothing answered it for the *arrival*.
+English, which is a lie to a screen reader before it is anything else.
 
-`initLangUrl()` does, first thing in `entry.ts`. Three properties are what make it safe:
+The first answer was a navigation: `location.replace` to the other language's URL, before anything
+else booted. It worked, and it cost two things. A round trip on the page the game is played from, and
+a redirect on the site's canonical English URL — which is the pattern Google names when it asks sites
+not to redirect on a visitor's presumed language, and which is why the arrival could never be
+answered for a *browser* setting, only for a stored choice.
 
-- **It only ever acts on an explicit choice.** Landing on a French page from a search result is not a
-  choice and writes nothing to storage; only the two switches do. So this never fights the URL of a
-  reader who has never expressed a preference.
-- **It cannot loop.** The decision (`langRedirect`) is pure and is tested exhaustively over both
-  languages: every target it names is a URL served *as* the stored language, so the page it arrives
-  at has nothing left to disagree about. An unknown stored value and a missing `data-served-lang` are
-  both refused — with nothing to compare against, every load would redirect to where it already is.
-- **It runs before `initTableInvite()` and it carries the query string.** The invite is spent on
-  arrival, so redirecting after that call would drop a guest at a home page with no table in it. Done
-  in this order, nothing one-shot is spent on a document that is about to be thrown away.
-  `location.replace`, never `assign`: an extra history entry would leave Back pointing at a URL that
-  redirects straight back, and the way out of the game would be a trap. An invitation is never
-  redirected at all: `/i/` is served with no `data-served-lang`, which this function already reads as
-  nothing to disagree with, so the reader's own language is resolved in place.
+**The served half speaks both languages now.** Every string and every link `GamePage.astro` and
+`HomeProse.astro` render per language also carries its counterpart in `data-alt`, `data-alt-href` and
+`data-alt-aria`; `<html>` carries `data-alt-title`. `src/langSwap.ts` walks those attributes,
+exchanges them, and moves the address bar with `history.replaceState`. `initLang()` is the three
+lines that decide and apply it, first thing in `boot()`.
+
+Five properties are what make it safe:
+
+- **The copy lives in the markup, never in the bundle.** The obvious implementation imports
+  `content/ui.ts` and `seo/meta.ts` and rebuilds the footer from them: 240 lines of bilingual copy
+  for pages the player is not on, plus the registry of every page on the site, downloaded by everyone
+  to translate a footer most never open. `lang.ts` already refuses the second import for that reason.
+  Carrying the alternative in the HTML costs about a kilobyte on one page and the bundle nothing —
+  and it makes the swap total by construction, since there is no key list here to fall out of step
+  with the layout. `homeLangSwap.test.ts` fails when the layout renders more than it marks.
+- **The links are the half that matters.** A label left in English is a wart; a footer link left
+  pointing at `/rules/` sends a French visitor to a static page that mounts nothing and cannot
+  correct itself. There is no second chance on that one, which is why the test counts `href={` against
+  `data-alt-href={` rather than trusting a review.
+- **A detection is never persisted.** The browser's language is re-read on every boot and gives the
+  same answer, so storing it buys nothing — and it would cost the case it exists to protect: a stored
+  value is a *choice*, and a choice outranks the URL, so the next French link that player was sent
+  would open in English for good. `rememberLang` stays the two switches' to call.
+- **The browser only ever wins on the default URL.** `/` is where somebody lands without saying
+  anything; `/fr/` is somebody having asked. `chooseLang` is pure and is tested exhaustively over
+  both languages, every stored value and several browser settings: whatever it decides for a
+  document, it decides again for the document at the URL that answer names, so a reload never sits
+  between two languages.
+- **It runs before `initTableInvite()`, and it carries the query string and the fragment.** That one
+  spends the invitation out of the address bar and this one rewrites the address bar; in this order
+  neither loses anything to the other. `replaceState`, never `pushState`: Back must not point at a
+  URL that would send the player straight here again. An invitation is untouched either way — `/i/`
+  is served with no `data-served-lang`, which `langUrl` reads as nothing to disagree with, and
+  `chrome={false}` leaves that document with no served copy in it at all.
+
+What the swap deliberately does **not** touch is `data-served-lang`. It says what the page was
+*built* as, which stays true, and it is what a reload hands back — `detectLang` reads it, so a swap
+that rewrote it would make the app detect its own output.
+
+**The document at the new URL is real.** That is the property the whole arrangement rests on: `/fr/`
+is a page Astro built, so reloading serves it, sharing the link hands it over, and the swap is only
+ever a shortcut to a document that exists. A crawler asking for `/` still gets the English page, with
+its own canonical and its `hreflang` pair intact.
 
 The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
 makes an `hreflang` pair navigable and a crawler follows nothing else — and `theme-boot.ts` adds one
@@ -1048,25 +1081,22 @@ was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does
 the board. It holds the language chooser (`LanguageSwitcher`, a child), the theme, and three
 switches: streamer mode, colour shapes, reduced motion.
 
-- **The language is a dropdown, and the Apply button is there only where applying costs the page.**
-  The theme below it is a segmented pair applied on the press, which is right for a setting that
-  changes the screen in place — and that is exactly what the language is *once a seat is taken*, so
-  there it applies on the pick too and no button is rendered at all. A confirmation step that
-  confirms nothing is a step asked for nothing.
+- **The language is a dropdown, and the pick is the application — on every screen.** The theme below
+  it is a segmented pair applied on the press, which is right for a setting that changes the screen
+  in place, and the language is now exactly that setting: `setLang` swaps the game's strings and
+  records the choice, `swapServedLang` takes the half Astro served and the address bar with it.
 
-  At the entry screen it is not that setting. Applying there *leaves the page* (see below: half of
-  `/` is markup built per URL), and a control that reloads must not fire on the press that was
-  aiming for it — a thumb sliding across a segmented pair on a phone hit a language and lost the
-  page it was reading. So there the choice is made first and spent second: `choice` is local state,
-  Apply is a real `<a href>` that is off while it equals the language on screen, and
-  `t.prefsLanguageHint` says the page will reload. Both the button and that sentence are behind the
-  same `{#if !seated}`, and they have to stay behind it: rendering the button where nothing reloads
-  puts the step back, and rendering the sentence there promises a reload that never comes.
+  It used to be two steps at the entry screen, and the reason is worth keeping. Applying there *left
+  the page* — half of `/` is markup built per URL — and a control that reloads must not fire on the
+  press that was aiming for it: a thumb sliding across a segmented pair on a phone hit a language and
+  lost the page it was reading. So the choice was made first and spent second, on a real `<a href>`,
+  under a sentence promising the reload. Nothing reloads any more, so the button protected nothing
+  and the sentence had become false; both are gone, along with `prefsApply` and `prefsLanguageHint`.
+  **If a language ever costs the page again, the button comes back with it** — that is the rule, not
+  the button.
 
-  Apply wears the raised-chip surface, not LOCO Red — white on that red is 3.43:1 and needs 1.2rem
-  type, and a 19px Apply beside a 13px dropdown is a different control. The dropdown lists autonyms
-  (`English`, `Français`), never translated and never `EN`/`FR`: it is read by somebody who cannot
-  read the language currently on screen.
+  The dropdown lists autonyms (`English`, `Français`), never translated and never `EN`/`FR`: it is
+  read by somebody who cannot read the language currently on screen.
 - **The list is ours, and that is the point.** This was a `<select>`, which is two objects: the
   closed control, ours to draw, and the open list, painted by the platform. `appearance: none`
   reaches the first and nothing else, so a panel of ink outlines and hard shadows dropped a white
@@ -1173,10 +1203,9 @@ switches: streamer mode, colour shapes, reduced motion.
   the ✕ is the entire pressable way out. `escapeClose.test.ts` owns both halves.
 - **On a sheet the type is not the dropdown's.** 14px labels, 12px hints and a 26px switch are sized
   for a mouse on a 292px surface; at full-screen width they read as a dropdown that grew a scrim.
-  Labels step to 15px, hints to 13px, the switch row to 56px, the language control, its rows and
-  Apply to 46px,
-  the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem` block, in
-  each component, so the two shapes stay one decision.
+  Labels step to 15px, hints to 13px, the switch row to 56px, the language control and its rows to
+  46px, the slider track to 16px with a 30px thumb — all of it inside the same `max-width: 46rem`
+  block, in each component, so the two shapes stay one decision.
 - **The drawer opens it by event.** `#navPrefs` is markup Astro rendered, outside `#root`, so
   `homeSheet.ts` closes the popover and dispatches `loco:preferences`; the mounted `<Preferences />`
   answers. Only one screen is mounted at a time, so only one panel opens. It also remembers what had

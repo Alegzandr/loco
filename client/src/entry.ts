@@ -5,7 +5,7 @@ import { initTheme } from './theme'
 import { initMotion } from './hooks/motionPref'
 import { initSessionRestore } from './hooks/sessionRestore'
 import { initTableInvite } from './hooks/tableInvite'
-import { initLangUrl } from './lang'
+import { initLang } from './langSwap'
 import { initPinchGuard } from './pinchGuard'
 
 /**
@@ -73,6 +73,28 @@ function markBooted() {
 }
 
 function boot() {
+  // First, before anything reads the URL or renders a word: is this document
+  // even in the right language?
+  //
+  // Half of `/` is markup Astro built per URL, and a stored choice outranks the
+  // URL when the app picks its language — so `/` with French stored rendered the
+  // game in French under an English footer, on an `<html lang="fr">`. This
+  // translates the served markup in place and moves the address bar to `/fr/`,
+  // where a reload would find the real document. See `src/langSwap.ts` for why
+  // it is a swap rather than the navigation it used to be, and `src/lang.ts` for
+  // what is allowed to outrank what.
+  //
+  // It is also what makes `/` answer a browser set to French: that page is the
+  // root, where nobody has said anything yet, and translating it costs no round
+  // trip now. `/fr/` is somebody having asked, so nothing overrules it there.
+  //
+  // It runs ahead of `initTableInvite()` because that one spends the invitation
+  // in the address bar, and this rewrites the address bar. Neither loses
+  // anything to the other in that order: the swap carries the query string
+  // across, and the invite page is built as no language at all, so nothing here
+  // touches it.
+  initLang()
+
   // Write data-theme before the first paint: screens without a theme control
   // would otherwise render in the light palette regardless of the user's choice.
   initTheme()
@@ -118,22 +140,11 @@ function boot() {
 }
 
 /**
- * First, before anything reads the URL or writes to storage: is this document
- * even in the right language?
- *
- * Half of this page is markup Astro built per URL, and a stored choice outranks
- * the URL when the app picks its language — so `/` with French stored rendered the
- * game in French under an English footer, on an `<html lang="fr">`.
- * `initLangUrl()` sends the document to `/fr/` instead, where both halves agree.
- * See `src/lang.ts` for why this is a navigation rather than a translation.
- *
- * It also has to run before anything that can only be read once. `initTableInvite()`
- * is the example: it takes the code back out of the address bar, and spending the
- * invitation on a document that is about to be thrown away would land the guest at
- * a home page with no table in it.
- *
- * Nothing else boots when it returns true. The page holds at `opacity: 0` until
- * `data-booted` (see layouts/GamePage.astro), so a document on its way out shows
- * its own flat canvas rather than one frame of the wrong language.
+ * Nothing is conditional here any more. The language used to be answered with a
+ * navigation, so this line asked whether the document was about to be thrown
+ * away and booted nothing when it was; the page holding at `opacity: 0` until
+ * `data-booted` (see layouts/GamePage.astro) is what kept a document on its way
+ * out from showing one frame of the wrong language. It translates itself now, so
+ * there is one boot and the hold covers the swap for free.
  */
-if (!initLangUrl()) boot()
+boot()

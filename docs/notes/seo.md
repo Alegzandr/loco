@@ -84,14 +84,38 @@ reliably; the sitemap is what it discovers. `@astrojs/sitemap`'s `i18n` option e
 ## The language the page was served as
 
 A French URL that renders in English wastes the click it just earned, so `/fr/` has to open in
-French even for a browser set to English. The page declares itself with **`data-served-lang`**, and
-`detectLang()` reads it second, after a stored choice and before `navigator.language`.
+French even for a browser set to English. The page declares itself with **`data-served-lang`**, which
+`chooseLang()` (`src/lang.ts`) reads after a stored choice.
 
 It is deliberately *not* `<html lang>`. The i18n provider writes that attribute on every language
 change, so reading it back would make the app detect its own last output rather than the document it
 was served — circular, and in jsdom (where one document is reused across a file's tests) it leaks the
 previous test's language into the next one. `i18n.test.ts` pins all three cases: the URL wins over
 the browser, a stored choice wins over the URL, and `<html lang>` is never an input.
+
+### Except at `/`, where the browser decides — and what that costs here
+
+`/` is the site's root and its canonical English page at once. A visitor lands there without having
+said anything, so that is the one URL where `navigator.language` outranks the served language: a
+device set to French opens the French game, under a French footer, with `/fr/` in the address bar.
+Everywhere else the URL is the request and the browser does not get to argue with it — a French link
+opened by an English browser stays French.
+
+The mechanism is deliberately **not a redirect**, and this is the SEO decision worth recording.
+Google's multilingual guidance asks sites not to redirect on a visitor's presumed language, and
+`location.replace` on the canonical English URL is exactly that pattern: a rendering session that
+happened to run with a French locale would see the root canonicalising itself away. So the served
+markup carries both languages (`data-alt` and friends, see [`client.md`](client.md)) and
+`src/langSwap.ts` translates it in place, moving the address bar with `history.replaceState` — which
+is not a canonicalisation signal. A crawler asking for `/` is answered with the English page, keeps
+its self-referential canonical and its reciprocal `hreflang` pair, and nothing about the graph
+changes.
+
+What makes the shortcut honest is that the destination exists: `/fr/` is a page Astro built, so a
+reload fetches it, sharing the link hands it over, and the swap only ever anticipates a document
+somebody could have asked for directly. Nothing is written to storage on the way — a stored value is
+a *choice*, and a choice outranks the URL, so persisting a detection would make the next French link
+that player is sent open in English for good.
 
 ## The two hosts, and why production has its own domain
 

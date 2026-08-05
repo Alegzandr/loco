@@ -315,10 +315,14 @@ test.describe('mobile viewport', () => {
   /**
    * Half of `/` is markup Astro rendered per URL — the footer row, this drawer,
    * the sheet of prose — so switching language in the app alone left the game in
-   * French under a menu still reading "With friends". At the entry screen Apply
-   * is a real link, and following it is what makes the document agree. Picking in
-   * the dropdown is deliberately not enough: the press that reloads the page has
-   * to be its own.
+   * French under a menu still reading "With friends". That half carries both
+   * languages now (`src/langSwap.ts`), so the pick applies itself: the whole
+   * document changes, the address bar moves to the URL a reload would need, and
+   * there is no Apply button left because nothing costs the page any more.
+   *
+   * The links are the half worth asserting. A label left behind is a wart; a
+   * link left pointing at `/rules/` sends this player to a static English page
+   * that mounts nothing and cannot correct itself.
    */
   test('switching language at the entry screen takes the menu with it', async ({ page }) => {
     await page.goto('/')
@@ -330,12 +334,20 @@ test.describe('mobile viewport', () => {
     // OS, which is why this is a button and a `role="listbox"` now.
     await dialog.getByRole('combobox', { name: /language|langue/i }).click()
     await dialog.getByRole('option', { name: 'Français' }).click()
-    await dialog.getByRole('link', { name: /apply|appliquer/i }).click()
 
     await expect(page).toHaveURL(/\/fr\/$/)
+    await expect(dialog.getByRole('link', { name: /apply|appliquer/i })).toHaveCount(0)
+
+    await dialog.getByRole('button', { name: /close|fermer/i }).click()
     await page.locator('.homeBurger').click()
     await expect(page.locator('.navPopLinks')).toContainText('Règles')
     await expect(page.locator('#navPrefs')).toHaveText('Préférences')
+    await expect(page.locator('.navPopLinks a').first()).toHaveAttribute('href', '/fr/regles/')
+
+    // And the document it names is real: reloading lands on the French page
+    // Astro built, not on a translation of the English one.
+    await page.reload()
+    await expect(page.locator('html')).toHaveAttribute('data-served-lang', 'fr')
   })
 
   /**

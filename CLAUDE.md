@@ -119,8 +119,9 @@ needs jsdom and the `browser` resolve condition.
 - `src/App.svelte` the screen switch · `src/entry.ts` mounts it into `#root` via a bundled module
   script, never an island
 - `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
-  key, the two home paths, the boot redirect) — those two pull in no framework, so a content page can
-  use them · `src/pinchGuard.ts` the seated half of "no accidental zoom", installed by `entry.ts`
+  key, the two home paths, `chooseLang`) — those two pull in no framework, so a content page can
+  use them · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
+  app-only · `src/pinchGuard.ts` the seated half of "no accidental zoom", installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
@@ -636,13 +637,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   Enter and Home/End on the button, `aria-activedescendant` naming the row. **Escape there closes the
   list and nothing else** — the panel listens for the same key on `document`, and one press closes one
   thing.
-- **The language is a dropdown, and the Apply button exists only where applying reloads the page.**
-  At the entry screen that press is a **real `<a href>`** — off while the choice is the language
-  already showing — because a control that costs the page must not fire on the press aiming for it;
-  the sentence promising the reload renders there and only there. **Once seated the pick applies
-  itself**: `setLang` swaps the strings in place, nothing reloads, so no button and no confirmation
-  step. `setLang` still runs on the way out so the choice outlives the navigation.
-  `LanguageSwitcher.svelte` holds the only second copy of `/` and `/fr/`, pinned by `seo.test.ts`.
+- **The language is a dropdown and the pick applies itself, on every screen.** `setLang` swaps the
+  game's strings and records the choice, `swapServedLang` takes the half Astro served and the address
+  bar with it, and nothing reloads — so there is no Apply button and no sentence promising one.
+  It had both at the entry screen while applying *cost the page*, because a control that costs the
+  page must not fire on the press aiming for it: **that rule stands, so if a language ever reloads
+  again the button comes back with it.**
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
@@ -723,14 +723,24 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   matches ran off a 360px screen that way. **The seat that took a match is a gold pill**, the colour
   the scoreboard above it wins in: LOCO Red on that panel measures 2.9:1, and a recoloured digit is
   not something a spectator picks out of a grid at 720p.
-- `initLangUrl()` first and on its own, then `initTheme()`, `initMotion()`, `initI18n()`,
+- `initLang()` first, then `initTheme()`, `initMotion()`, `initI18n()`, `initPinchGuard()`,
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
-  order**. Each of the six has a reason to be where it is, written next to it.
-- **A document is never in two languages at once, and a language is changed by navigating.**
-  `initLangUrl()` redirects with `location.replace`, **carrying the query string and the fragment**
-  (a parameter belongs to whoever put it there), and acts **only on an explicit choice**. Both
-  switches record one. **An invitation is not a language**, so `/i/` is served with no
-  `data-served-lang` and is left where it is.
+  order**. Each has a reason to be where it is, written next to it.
+- **A document is never in two languages at once, and `/` translates itself rather than navigating.**
+  The served markup carries the other language in `data-alt` / `data-alt-href` / `data-alt-aria` and
+  `data-alt-title`; `langSwap.ts` exchanges them and moves the address bar with
+  `history.replaceState`, **carrying the query string and the fragment** (a parameter belongs to
+  whoever put it there). **The copy stays in the markup**: importing `content/ui.ts` or `seo/meta.ts`
+  to rebuild the footer would ship the whole site's copy to every player. **A link left behind is the
+  failure that matters** — a content page mounts nothing and cannot correct itself — so
+  `homeLangSwap.test.ts` counts `href={` against `data-alt-href={`. **`data-served-lang` is never
+  rewritten**: it says what the page was built as, and `detectLang` reads it.
+- **A stored choice wins everywhere; the browser's language wins only on `/`.** That URL is where
+  somebody lands without saying anything, and `/fr/` is somebody having asked — a French link opened
+  by an English browser stays French. **A detection is never persisted**: storing it would make it a
+  choice, and a choice outranks the URL for good. `chooseLang` in `lang.ts` is the one definition,
+  and `detectLang` reads it against the DOM. **An invitation is not a language**, so `/i/` is served
+  with no `data-served-lang`, is left where it is, and carries no served copy to swap.
 - i18n: `en.ts` is the source of truth and its `Translations` interface types `fr.ts`.
 - **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, no `react-dom`,
   no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`. `src/test/noReact.test.ts` is

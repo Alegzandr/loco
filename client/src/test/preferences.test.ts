@@ -70,64 +70,72 @@ describe('Preferences panel', () => {
   })
 
   /**
-   * At the entry screen applying a language is a real link to the game in the
-   * other language, because half of that page is markup Astro rendered per URL —
-   * the footer, the drawer, the sheet of prose — and `setLang` alone left the
-   * game in French under a menu still reading English. Following the link is what
-   * makes the whole document agree; `setLang` runs on the way out so the choice
-   * survives it. jsdom does not navigate, which is exactly what lets this assert
-   * the second half.
+   * The pick *is* the application, at the entry screen as at the table.
+   *
+   * It used to be two steps here, because half of `/` is markup Astro rendered
+   * per URL — the footer, the drawer, the sheet of prose — and `setLang` alone
+   * left the game in French under a menu still reading English. Applying was
+   * therefore a real link to the other language's page, and it needed a button
+   * because following it reloaded the document. The served markup carries both
+   * languages now (`langSwap.ts`), so nothing reloads and there is nothing left
+   * for a second press to protect.
    */
-  it('switches the language, and takes the page with it at the entry screen', () => {
+  it('switches the language on the pick, with nothing left to press', () => {
     render(Preferences, { defaultOpen: true })
     pickLang('Français')
 
-    const apply = screen.getByRole('link', { name: en.prefsApply })
-    expect(apply).toHaveAttribute('href', '/fr/')
-    expect(apply).toHaveAttribute('hreflang', 'fr')
-
-    fireEvent.click(apply)
     expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
-  /**
-   * The only reason the dropdown has a button at all: at the entry screen this
-   * control reloads the page, so picking must not be what fires it. Until a
-   * different language is chosen the button is off, and pressing it navigates
-   * nowhere.
-   */
-  it('does nothing until a different language is picked', () => {
-    render(Preferences, { defaultOpen: true })
-    const apply = screen.getByRole('link', { name: en.prefsApply })
-    expect(apply).toHaveAttribute('aria-disabled', 'true')
-
-    // The href still points at the language on screen, so even a press that
-    // slipped past the guard is a no-op rather than a wrong navigation.
-    expect(apply).toHaveAttribute('href', '/')
-    fireEvent.click(apply)
-    expect(screen.getByRole('dialog', { name: en.prefsTitle })).toBeInTheDocument()
-  })
-
-  /**
-   * Past a taken seat there is nothing to agree with — `data-seated` has taken
-   * the footer and the drawer off the page — and following a link would drop the
-   * match. `setLang` swaps the strings where they stand, so the pick *is* the
-   * application: no navigation, no button, and no sentence promising a reload
-   * that never comes. A step asked for nothing is the thing being removed here,
-   * so the assertion is that neither is rendered.
-   */
-  it('applies on the pick once a seat is taken, with nothing to press', () => {
+  /** Same control, same behaviour, once a seat is taken. */
+  it('applies on the pick once a seat is taken too', () => {
     document.documentElement.setAttribute('data-seated', '')
     try {
       render(Preferences, { defaultOpen: true })
-      expect(screen.queryByRole('link', { name: en.prefsApply })).not.toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: en.prefsApply })).not.toBeInTheDocument()
-      expect(screen.queryByText(en.prefsLanguageHint)).not.toBeInTheDocument()
-
       pickLang('Français')
       expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
     } finally {
       document.documentElement.removeAttribute('data-seated')
+    }
+  })
+
+  /**
+   * The half of the page the app does not own. A language picked at the entry
+   * screen has to reach the footer, the drawer and the prose Astro served, or
+   * the document goes back to being half English — and the address bar has to
+   * name the URL a reload would need.
+   */
+  it('takes the served markup and the address bar with it', () => {
+    document.documentElement.dataset.servedLang = 'en'
+    const footer = document.createElement('a')
+    footer.href = '/rules/'
+    footer.textContent = 'Rules'
+    footer.dataset.altHref = '/fr/regles/'
+    footer.dataset.alt = 'Règles'
+    document.body.appendChild(footer)
+
+    try {
+      render(Preferences, { defaultOpen: true })
+      pickLang('Français')
+
+      expect(footer.textContent).toBe('Règles')
+      expect(footer.getAttribute('href')).toBe('/fr/regles/')
+      expect(window.location.pathname).toBe('/fr/')
+
+      // And back. The document was *built* as English and is now showing
+      // French, so those two disagree: a URL computed against `data-served-lang`
+      // would decide there was nothing to do and leave the address bar at
+      // `/fr/` over an English page, which a shared link would then hand over
+      // as the French one.
+      pickLang('English')
+      expect(footer.textContent).toBe('Rules')
+      expect(footer.getAttribute('href')).toBe('/rules/')
+      expect(window.location.pathname).toBe('/')
+    } finally {
+      footer.remove()
+      delete document.documentElement.dataset.servedLang
+      history.replaceState(history.state, '', '/')
     }
   })
 
@@ -209,13 +217,12 @@ describe('The language list', () => {
     )
     expect(screen.getByRole('option', { name: 'English' })).toHaveAttribute('aria-selected', 'true')
 
-    // Enter is the pick. At the entry screen that is still only a choice — Apply
-    // is what spends it — so the proof is the control and the link, not the
-    // strings on screen.
+    // Enter is the pick, and the pick is the application: the list closes, the
+    // control names the language now showing, and the panel around it is in it.
     fireEvent.keyDown(button, { key: 'Enter' })
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
     expect(button).toHaveTextContent('Français')
-    expect(screen.getByRole('link', { name: en.prefsApply })).toHaveAttribute('href', '/fr/')
+    expect(screen.getByRole('dialog', { name: fr.prefsTitle })).toBeInTheDocument()
   })
 
   /**

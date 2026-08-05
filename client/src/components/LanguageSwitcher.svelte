@@ -1,10 +1,11 @@
 <script lang="ts">
   import { i18n } from '../i18n/i18n.svelte'
   import type { Lang } from '../lang'
-  // Where the game lives in each language, defined once in `src/lang.ts` — the
-  // content pages' globe and the boot-time redirect both need it, and neither can
-  // import a component. `seo.test.ts` pins it against `HOME.path`.
-  import { HOME_PATH } from '../lang'
+  import { langUrl } from '../lang'
+  // What makes this a pick rather than a navigation: the served markup carries
+  // both languages, so the footer, the drawer and the prose change with the game
+  // and the address bar follows. See `src/langSwap.ts`.
+  import { swapServedLang } from '../langSwap'
 
   // Autonyms, deliberately untranslated: a chooser is read by the person who
   // cannot read the language currently on screen, so "Français" is the only
@@ -27,18 +28,10 @@
   const t = $derived(i18n.t)
   const lang = $derived(i18n.lang)
 
-  // Read at setup, which is when the panel opens: a seat is taken by a whole
-  // screen change, never while this control is on screen. Same for the query
-  // string, which the invite link needs carried across the navigation.
-  const seated =
-    typeof document !== 'undefined' && document.documentElement.hasAttribute('data-seated')
-  const search = typeof location === 'undefined' ? '' : location.search
-
   // The panel is mounted with `{#if open}`, so this starts at the live language
   // every time it is opened. Nothing else in the game changes the language, so
   // there is nothing to sync back from.
   let choice = $state(i18n.lang)
-  const pending = $derived(choice !== lang)
 
   // One id per instance: the option the keyboard is on is named by
   // `aria-activedescendant`, which is a document-wide reference.
@@ -72,10 +65,33 @@
   function choose(code: Lang) {
     choice = code
     closeList()
-    // Past a taken seat the choice *is* the application: `setLang` swaps the
-    // strings where they stand, so there is no page to leave and nothing for a
-    // second press to protect. Only the entry screen gets a button.
-    if (seated) i18n.setLang(code)
+    if (code === lang) return
+    // The choice *is* the application, on every screen. `setLang` swaps the
+    // game's strings where they stand and writes the choice down; the call under
+    // it does the same for the half of `/` that Astro served, and moves the
+    // address bar to the URL a reload would need. Nothing is left disagreeing,
+    // so there is nothing for a second press to protect.
+    //
+    // `shown` is what the document is showing at this instant, and it is read
+    // *before* `setLang`: `lang` is a `$derived` of the language store, so a line
+    // later it is already the new one and the URL would be computed against the
+    // answer rather than against the question.
+    //
+    // It is also this, and never `data-served-lang`, that the URL is decided
+    // against — that attribute says what the page was *built* as, so on a
+    // document already swapped into French the two disagree, and asking the
+    // wrong one leaves the address bar at `/fr/` over an English page.
+    const shown = lang
+    i18n.setLang(code)
+    swapServedLang(
+      langUrl(
+        code,
+        document.documentElement.dataset.servedLang,
+        shown,
+        location.search,
+        location.hash,
+      ),
+    )
   }
 
   // The list is not a modal and it is anchored to the control that opened it, so
@@ -137,44 +153,30 @@
         break
     }
   }
-
-  function keepChoice(e: MouseEvent) {
-    // Pressing "Apply" on the language already showing would navigate to the
-    // page we are on: a reload that changes nothing, on a control that says it
-    // is off.
-    if (!pending) {
-      e.preventDefault()
-      return
-    }
-    i18n.setLang(choice)
-  }
 </script>
 
 <!--
   The language chooser, inside the preferences panel.
 
-  It has two shapes, because the page has two halves. Half of `/` is markup Astro
-  rendered — the footer row, the burger's drawer, the sheet of prose — and that
-  half is built per URL: `/` is English, `/fr/` is French, and no amount of in-app
-  state changes a word of it. A switch that only called `setLang` left the game in
-  French under a menu still reading "With friends", which is the bug this shape
-  exists to make impossible.
+  One shape, on every screen: the pick applies itself and there is no second
+  control to press.
 
-  So at the entry screen the dropdown chooses and an Apply button spends the
-  choice, as a real link to the same game in the other language. Following it is
-  what makes the whole document agree: the menu, the footer, the prose, the
-  <title> and the link-preview tags all come from the page that gets served.
-  `setLang` still runs on the way out so the choice survives the navigation and
-  is what a later visit to a language-less URL uses. **The button exists because
-  that press reloads the page**: a control that costs the page must not fire on
-  the press that was aiming for it, and a thumb sliding across a segmented pair
-  is exactly how it did.
+  It used to have two, because the page has two halves. Half of `/` is markup
+  Astro rendered — the footer row, the burger's drawer, the sheet of prose — and
+  that half is built per URL, so no amount of in-app state changed a word of it:
+  a switch that only called `setLang` left the game in French under a menu still
+  reading "With friends". The entry screen therefore spent the choice as a real
+  link to the same game in the other language, and it needed an Apply button
+  because **that press reloaded the page** — a control that costs the page must
+  not fire on the press that was aiming for it, and a thumb sliding across a
+  segmented pair is exactly how it did.
 
-  Past the entry screen there is nothing to agree with — `data-seated` has taken
-  the footer and the drawer off the page — and a navigation would drop the match.
-  `setLang` swaps the strings where they stand, the board never blinks, so there
-  is nothing left for a button to protect: the pick applies itself, and Apply is
-  not rendered at all. A button that costs nothing is a step asked for nothing.
+  The served half speaks both languages now (`src/langSwap.ts`, and the
+  `data-alt` attributes in `layouts/GamePage.astro`), so applying costs nothing
+  anywhere: the game, the footer, the drawer, the prose and the tab's own label
+  all change together, and the address bar moves to the URL a reload would need.
+  A button that protects nothing is a step asked for nothing, and the hint under
+  it promised a reload that no longer happens.
 
   **The list is ours, and it has to be.** This was a `<select>`, and a `<select>`
   is two objects: the closed control, which is ours to draw, and the open list,
@@ -187,8 +189,7 @@
   language as everything around it.
 -->
 <div class="lang">
-  <div class="row">
-    <div class="pick" bind:this={pick}>
+  <div class="pick" bind:this={pick}>
       <button
         type="button"
         class="select"
@@ -265,42 +266,11 @@
         </ul>
       {/if}
     </div>
-
-    {#if !seated}
-      <a
-        class="apply"
-        class:applyOff={!pending}
-        href={HOME_PATH[choice] + search}
-        hreflang={choice}
-        {...{ lang: choice }}
-        aria-disabled={pending ? undefined : 'true'}
-        onclick={keepChoice}
-      >
-        {t.prefsApply}
-      </a>
-    {/if}
-  </div>
-
-  <!-- Only where it is true. Past a taken seat applying a language changes the
-       strings in place, and promising a reload that never comes is worse than
-       saying nothing. -->
-  {#if !seated}
-    <p class="hint">{t.prefsLanguageHint}</p>
-  {/if}
 </div>
 
 <style>
   .lang {
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .row {
-    display: flex;
-    align-items: stretch;
-    gap: 8px;
     width: 100%;
   }
 
@@ -403,61 +373,6 @@
     color: var(--color-primary);
   }
 
-  .apply {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: none;
-    text-decoration: none;
-    padding: 8px 16px;
-    min-height: 42px;
-    border: var(--stroke) solid var(--color-stroke);
-    border-radius: var(--radius-md);
-    /* Not the brand red: white on LOCO Red is 3.43:1, which needs 1.2rem type,
-       and a 19px "Apply" next to a 14px dropdown is a different control
-       entirely. Same raised chip as the gear that opened the panel. */
-    background: var(--color-surface-card);
-    color: var(--color-ink);
-    font: 700 14px/1.2 var(--font-display);
-    cursor: pointer;
-    touch-action: manipulation;
-    box-shadow: 0 3px 0 var(--color-stroke-soft);
-    transition:
-      transform 0.12s var(--ease-bounce),
-      box-shadow 0.12s var(--ease-out);
-  }
-
-  .apply:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 0 var(--color-stroke-soft);
-  }
-
-  .apply:active {
-    transform: translateY(2px);
-    box-shadow: 0 1px 0 var(--color-stroke-soft);
-  }
-
-  /* Off means the language on screen is the one selected. A class rather than
-     `:disabled`, which cannot reach an <a>, and quiet is a hue, never an
-     opacity. */
-  .applyOff {
-    background: var(--color-surface-strong);
-    color: var(--color-muted);
-    cursor: default;
-  }
-
-  .applyOff:hover {
-    transform: none;
-    box-shadow: 0 3px 0 var(--color-stroke-soft);
-  }
-
-  .hint {
-    margin: 0;
-    font: 500 12px/1.45 var(--font-body);
-    color: var(--color-muted);
-  }
-
-  :root[data-motion="reduce"] .apply,
   :root[data-motion="reduce"] .chev {
     transition: none;
   }
@@ -469,32 +384,20 @@
   }
 
   /* The phone, where the panel around this is a full-screen sheet and not a
-     292px dropdown: a 42px control and a 14px "Apply" are sized for the pointer
-     that opened the dropdown, and this one is opened by a thumb. Same breakpoint
-     as `Preferences.svelte`, because it is the same surface changing shape. */
+     292px dropdown: a 42px control is sized for the pointer that opened the
+     dropdown, and this one is opened by a thumb. Same breakpoint as
+     `Preferences.svelte`, because it is the same surface changing shape. */
   @media (max-width: 46rem) {
-    .select,
-    .apply {
+    .select {
       min-height: 46px;
       font-size: 15px;
-    }
-
-    .select {
       padding: 8px 12px 8px 14px;
-    }
-
-    .apply {
-      padding: 8px 18px;
     }
 
     .opt {
       min-height: 46px;
       padding: 10px 12px;
       font-size: 15px;
-    }
-
-    .hint {
-      font: 500 13px/1.4 var(--font-body);
     }
   }
 </style>

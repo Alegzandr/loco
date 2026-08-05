@@ -19,7 +19,7 @@
  */
 import { en, Translations } from './en'
 import { fr } from './fr'
-import { isLang, readStoredLang, rememberLang, type Lang } from '../lang'
+import { chooseLang, readStoredLang, rememberLang, type Lang } from '../lang'
 
 const translations: Record<Lang, Translations> = { en, fr }
 
@@ -27,35 +27,24 @@ let current: Lang = 'en'
 const listeners = new Set<() => void>()
 
 /**
- * Which language to open in, most explicit signal first.
+ * Which language to open in. The rule itself lives in `lang.ts` — one
+ * definition, because the entry point asks the same question a beat earlier in
+ * order to decide whether the served markup needs translating, and two answers
+ * to it would be a game and a footer in different languages.
  *
- * 1. What the player chose. A stored choice outranks everything, including the
- *    URL: someone who switched to English and then followed a French link meant
- *    the switch, and `apply` below rewrites `<html lang>` to match so the
- *    document stops disagreeing with what is on screen.
- *
- *    Rewriting the attribute is all this can do about the disagreement, and on
- *    the game page it is not enough — the footer, the drawer and the sheet are
- *    markup built per URL. `initLangUrl()` in the entry point has already sent
- *    that document to the other language's URL before this runs, so by the time
- *    a stored choice wins here, it wins over a page that agrees with it.
- * 2. What the page was served as. `/fr/` carries `data-served-lang="fr"`, so a
- *    French URL opens in French even for a browser set to English. Without this
- *    the French page would rank, be clicked, and then render in English.
- *
- *    Deliberately not `<html lang>`: `apply` writes that attribute on every
- *    language change, so reading it back here would make the app detect its own
- *    last output instead of the document it was served.
- * 3. What the browser asks for.
+ * What this adds is where the three signals are read from. `data-served-lang`,
+ * deliberately, and never `<html lang>`: `apply` below writes that attribute on
+ * every language change, so reading it back here would make the app detect its
+ * own last output instead of the document it was served. The swap leaves it
+ * alone for the same reason — it says what the page was *built* as, which stays
+ * true, and it is what a reload would hand back.
  */
 export function detectLang(): Lang {
-  const stored = readStoredLang()
-  if (stored) return stored
-  const served = (document.documentElement.dataset.servedLang ?? '').slice(0, 2).toLowerCase()
-  if (isLang(served)) return served
-  const browser = navigator.language.slice(0, 2).toLowerCase()
-  if (browser === 'fr') return 'fr'
-  return 'en'
+  return chooseLang(
+    document.documentElement.dataset.servedLang,
+    readStoredLang(),
+    navigator.language,
+  )
 }
 
 function apply(lang: Lang): void {

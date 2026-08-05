@@ -84,18 +84,22 @@ const lang = String(args.lang ?? 'fr')
 /**
  * The home page **for this language**, and it has to be this rather than `/`.
  *
- * A document is never in two languages at once: `initLangUrl()` compares the
- * stored choice against the URL and `location.replace`s to the other one when
- * they disagree. Seeding `loco_lang=fr` below and then asking for `/` is exactly
- * that disagreement, so every scene used to load twice — and the count is what
- * broke it. Chromium stops honouring navigations on a long-lived page somewhere
- * past a hundred of them: the harness died on scene 52 of 62 with a bare
- * `page.goto` timeout, on whichever scene happened to be 52nd (reverse the list
- * and a different one fails, at the same position). Asking for the URL the
- * language already agrees with halves the count and removes the class.
+ * A French screenshot has to be taken of the document a French player is
+ * served, not of the English one translated into French: `/` and `/fr/` are two
+ * builds, and only one of them is the page being reviewed.
  *
- * It is also the more honest capture. A French screenshot should be taken of the
- * document a French player is served, not of the English one on its way there.
+ * It used to matter for a second, harder reason, and the failure is worth
+ * keeping written down. A document is never in two languages at once, and the
+ * answer then was a navigation — `initLangUrl()` compared the stored choice
+ * against the URL and `location.replace`d when they disagreed, so seeding
+ * `loco_lang=fr` and asking for `/` loaded every scene twice. Chromium stops
+ * honouring navigations on a long-lived page somewhere past a hundred of them:
+ * the harness died on scene 52 of 62 with a bare `page.goto` timeout, on
+ * whichever scene happened to be 52nd (reverse the list and a different one
+ * fails, at the same position). `/` translates itself in place now and never
+ * navigates, so the count is halved whatever this asks for — but if the harness
+ * ever grows past ~100 scenes, recycle the page rather than hunting the scene it
+ * stops on.
  */
 const HOME = lang === 'fr' ? '/fr/' : '/'
 

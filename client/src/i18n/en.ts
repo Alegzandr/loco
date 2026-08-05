@@ -127,13 +127,6 @@ export interface Translations {
   /** The ✕ on the phone's sheet, where the gear that opened it is not on screen. */
   prefsClose: string
   prefsLanguage: string
-  /**
-   * The button beside the language dropdown, at the entry screen only: there
-   * the choice reloads the page, so it is not applied on the pick. Once seated
-   * it is, and neither this nor the hint below is rendered.
-   */
-  prefsApply: string
-  prefsLanguageHint: string
   prefsTheme: string
   prefsThemeLight: string
   prefsThemeDark: string
@@ -491,10 +484,6 @@ export const en: Translations = {
   prefsTitle: 'Preferences',
   prefsClose: 'Close',
   prefsLanguage: 'Language',
-  // The verb about to happen. Picking in the dropdown changes nothing on its
-  // own, and at the entry screen this press leaves the page.
-  prefsApply: 'Apply',
-  prefsLanguageHint: 'The page reloads so every word changes with it.',
   prefsTheme: 'Theme',
   prefsThemeLight: 'Light',
   prefsThemeDark: 'Dark',
