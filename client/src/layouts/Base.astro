@@ -54,14 +54,35 @@ interface Props {
   /**
    * Drops `data-served-lang`, for the one page that was not built as a
    * language: the invite page has a single URL for both, so there is nothing
-   * for `initLangUrl` to disagree with and it must not redirect. That function
-   * already treats a missing attribute as "stay" (see src/lang.ts), so this is
-   * the whole mechanism — no branch anywhere reads the page id.
+   * for `initLang` to disagree with and it must not move the address bar.
+   * `langUrl` already treats a missing attribute as "stay" (see src/lang.ts),
+   * so this is the whole mechanism — no branch anywhere reads the page id. The
+   * app still opens in the reader's own language there; it is the *document*
+   * that is neither.
    */
   langNeutral?: boolean
+  /**
+   * This page's title in the other language, for the one page that can change
+   * language without being reloaded. It rides `<html>` because a `<title>`
+   * element has nowhere to put it, and it is read by `langSwap.ts` — which
+   * exchanges the two rather than overwriting, so the document is never left
+   * holding one language twice.
+   *
+   * Only the home page passes it. Everywhere else a language is changed by
+   * following a link, and the document that arrives carries its own title.
+   */
+  altTitle?: string
 }
 
-const { page, lang, jsonLd, noindex = false, bodyClass, langNeutral = false } = Astro.props
+const {
+  page,
+  lang,
+  jsonLd,
+  noindex = false,
+  bodyClass,
+  langNeutral = false,
+  altTitle,
+} = Astro.props
 const { title: ogTitle, description: ogDescription } = social(page, lang)
 const canonical = absolute(page.path[lang])
 // A page may carry its own art; everything else shares the site's.
@@ -78,7 +99,11 @@ const links = alternates(page)
   the app would be detecting its own last output rather than the document it was
   served. See src/i18n/index.tsx.
 */}
-<html lang={lang} data-served-lang={langNeutral ? undefined : lang}>
+<html
+  lang={lang}
+  data-served-lang={langNeutral ? undefined : lang}
+  data-alt-title={langNeutral ? undefined : altTitle}
+>
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

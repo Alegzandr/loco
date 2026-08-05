@@ -42,8 +42,8 @@ describe('the invite page', () => {
     // page out of the index (and out of the canonical graph with it), chrome
     // would put five links and a page of prose under a table somebody was
     // invited to, jsonLd={null} stops a second #webpage node describing the game
-    // at a second URL, and langNeutral is what keeps initLangUrl from
-    // redirecting away from an invitation it has no opinion about.
+    // at a second URL, and langNeutral is what keeps initLang from moving the
+    // address bar away from an invitation it has no opinion about.
     expect(pageSource).toMatch(/\bnoindex\b/)
     expect(pageSource).toMatch(/chrome=\{false\}/)
     expect(pageSource).toMatch(/jsonLd=\{null\}/)

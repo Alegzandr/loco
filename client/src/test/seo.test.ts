@@ -328,7 +328,10 @@ describe('the one heading a crawler can read', () => {
   const gamePage = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
 
   it('is served as markup on the home page, in text, off the screen', () => {
-    expect(gamePage).toMatch(/<h1 class="sr-only">\{ui\('homeH1', lang\)\}<\/h1>/)
+    // `[^>]*` rather than a literal tag: the heading also carries its own
+    // French counterpart, which is what lets `/` change language without being
+    // reloaded (see `src/langSwap.ts`).
+    expect(gamePage).toMatch(/<h1 class="sr-only"[^>]*>\{ui\('homeH1', lang\)\}<\/h1>/)
     for (const lang of LANGS) {
       // It has to say what the page is, which the wordmark cannot: a heading
       // reading "LOCO" is the logo again.

@@ -7,25 +7,38 @@
  * inside a provider. There is still exactly one definition of each — `i18n`,
  * `LanguageSwitcher` and `content/theme-boot.ts` all read them from here.
  *
- * ## Why a redirect rather than a translation
+ * ## Why the home page translates itself rather than navigating
  *
  * Half of `/` is markup Astro built per URL — the footer row, the drawer, the
  * prose in the sheet — and no in-app state changes a word of it. A stored choice
- * outranks the URL when the app picks its language (see `detectLang`), so a
+ * outranks the URL when the app picks its language (see `chooseLang`), so a
  * player who had chosen French and then opened `/` got the game in French under
  * a footer still reading "With friends", on a document whose `<html lang>` had
  * been rewritten to `fr` while half its text was English. That is a lie to a
  * screen reader as much as it is a mess to look at.
  *
- * The lobby's switcher already answers this by *navigating* rather than
- * toggling: following it serves the whole document in the other language. This
- * makes the same thing happen on arrival. The alternative — letting the URL win
- * outright — would mean a player who chose French and then pasted `/` gets an
- * English game, and the alternative to both would put the navigation's copy into
- * the bundle every player downloads.
+ * This used to be answered by `location.replace`, which fixed the disagreement
+ * by throwing the document away. It cost a round trip on the one page the game
+ * is played from, and it put a redirect on the site's canonical English URL —
+ * which is the pattern Google names when it asks sites not to redirect on a
+ * visitor's presumed language. `langSwap.ts` translates the served markup in
+ * place instead and moves the address bar with `history.replaceState`, which is
+ * not a canonicalisation signal. The document at the new URL is real: reloading
+ * `/fr/` serves the French page, and sharing the link hands over the French
+ * page, so the swap is only ever a shortcut to a document that exists.
  *
- * Only an explicit choice is stored, so this only ever acts on one. Landing on a
- * French page from a search result is not a choice and writes nothing.
+ * ## What outranks what
+ *
+ * A stored choice wins everywhere, in both directions. The browser's language
+ * only ever wins on the **default** URL: `/` is where a visitor lands without
+ * saying anything, and `/fr/` is somebody having asked. Letting the browser win
+ * there too would mean a French link, sent to a friend whose browser is in
+ * English, opening in English — the URL you were handed overruled by a setting
+ * you never touched.
+ *
+ * **Nothing here persists a detection.** The browser's language is re-read on
+ * every boot and gives the same answer, so storing it buys nothing and costs the
+ * case above forever: `rememberLang` stays the two switches' to call.
  */
 
 export type Lang = 'en' | 'fr'
@@ -33,6 +46,13 @@ export type Lang = 'en' | 'fr'
 export const LANGS: readonly Lang[] = ['en', 'fr']
 
 export const LANG_STORAGE_KEY = 'loco_lang'
+
+/**
+ * The language a URL is in when it does not say. `/` is the site's root and the
+ * canonical English page at once, which is what makes it the one place a
+ * browser setting is allowed to decide anything.
+ */
+export const DEFAULT_LANG: Lang = 'en'
 
 /**
  * Where the game lives in each language. Two constants rather than an import of
@@ -59,7 +79,7 @@ export function readStoredLang(): Lang | null {
 /**
  * Records a choice a player made. Called by the lobby's switcher and by the
  * globe on every content page — the two places a language is *chosen*, as
- * opposed to arrived in.
+ * opposed to arrived in or detected.
  */
 export function rememberLang(lang: Lang): void {
   try {
@@ -70,44 +90,55 @@ export function rememberLang(lang: Lang): void {
 }
 
 /**
- * The URL this document should be at, or null to stay.
+ * Which language this document should be in, most explicit signal first. Pure,
+ * so the whole decision is testable without a DOM, a store or a navigation.
  *
- * Pure, so the decision is testable without a navigation. Two guards keep it
- * from ever looping: an unrecognised stored value is not a choice, and a served
- * language that is missing or unknown is not something to disagree with — with
- * no `data-served-lang` to compare against, every load would redirect to the
- * same place it already is.
+ * 1. What the player chose, in both directions and at every URL.
+ * 2. What the browser asks for, but **only** on a document that was served as
+ *    the default language or as no language at all. On `/fr/` the URL is the
+ *    request and the browser does not get to argue with it; on `/i/`, which is
+ *    built as neither language, there is nothing to argue with in the first
+ *    place.
+ * 3. What the page was served as.
+ *
+ * The last two are what keeps this from ever disagreeing with itself: whatever
+ * it returns for a document, it returns again for the document at the URL that
+ * answer names.
  */
-export function langRedirect(
+export function chooseLang(
   served: string | undefined,
   stored: string | null,
-  search = '',
-  hash = '',
-): string | null {
-  if (!isLang(stored) || !isLang(served) || served === stored) return null
-  return HOME_PATH[stored] + search + hash
+  browser: string | undefined,
+): Lang {
+  if (isLang(stored)) return stored
+  const spoken = (browser ?? '').slice(0, 2).toLowerCase()
+  if ((!isLang(served) || served === DEFAULT_LANG) && isLang(spoken)) return spoken
+  return isLang(served) ? served : DEFAULT_LANG
 }
 
 /**
- * Applies that decision. Returns true when the document is leaving, so the
- * caller can stop booting.
+ * The URL this document should be at once `lang` is what it shows, or null to
+ * stay.
  *
- * The query string and the fragment travel. A parameter belongs to whoever put
- * it there — `?showcase=` is how the visual harness drives this page — and a
- * redirect that quietly dropped one would be this module editing a URL it was
- * not asked about.
+ * Only ever the home page's two paths: this decides a language, and every other
+ * page on the site is reached by following a link that already carries one.
+ *
+ * `served` and `shown` are two different questions and the swap is why. On
+ * arrival they are the same — the document shows what it was served. Afterwards
+ * they are not: a page served as English and swapped into French shows French at
+ * `/fr/` while `data-served-lang` still, correctly, says English. Asking only
+ * the first would leave the language switcher unable to move the address bar
+ * back, so the URL would say `/fr/` over an English document until a reload.
  */
-export function initLangUrl(): boolean {
-  const target = langRedirect(
-    document.documentElement.dataset.servedLang,
-    readStoredLang(),
-    window.location.search,
-    window.location.hash,
-  )
-  if (target === null) return false
-  // `replace`, never `assign`: an extra history entry would leave Back pointing
-  // at a URL that redirects straight back here, and the way out of the game
-  // would be a trap.
-  window.location.replace(target)
-  return true
+export function langUrl(
+  lang: Lang,
+  served: string | undefined,
+  shown: string | undefined,
+  search = '',
+  hash = '',
+): string | null {
+  // No `data-served-lang` is the invite page, which is one URL in both
+  // languages. There is no other address for it to be at.
+  if (!isLang(served) || lang === shown) return null
+  return HOME_PATH[lang] + search + hash
 }

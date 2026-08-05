@@ -33,10 +33,6 @@ export const fr: Translations = {
   prefsTitle: 'Préférences',
   prefsClose: 'Fermer',
   prefsLanguage: 'Langue',
-  // Le verbe qui va se produire. Choisir dans la liste ne change rien tout
-  // seul, et à l'écran d'entrée cette pression quitte la page.
-  prefsApply: 'Appliquer',
-  prefsLanguageHint: 'La page se recharge pour que tout change avec elle.',
   prefsTheme: 'Thème',
   prefsThemeLight: 'Clair',
   prefsThemeDark: 'Sombre',

@@ -359,7 +359,13 @@ describe('the mobile menu', () => {
     expect(content.match(/class="navPopCta/g), 'one CTA on a content page').toHaveLength(1)
     expect(game.match(/class="navPopCta/g), 'one CTA on the game page').toHaveLength(1)
     expect(content).toMatch(/class="navPopCta navPopPlay"/)
-    expect(game).toMatch(/id="navPrefs" class="navPopCta" hidden/)
+    // Read as one opening tag rather than as one line: the game's drawer also
+    // carries the alternative language of every label it renders, so its
+    // controls are written across several lines.
+    const navPrefs = /<button\b[^>]*id="navPrefs"[^>]*>/.exec(game)?.[0] ?? ''
+    expect(navPrefs, 'the game drawer has a Preferences row').not.toBe('')
+    expect(navPrefs).toMatch(/class="navPopCta"/)
+    expect(navPrefs).toMatch(/\bhidden\b/)
 
     // Its colour has to survive `.navPopLinks a`, which is a class *and* a type
     // and therefore wins on specificity however far down the file the CTA sits.
@@ -435,7 +441,7 @@ describe('the mobile menu', () => {
     // document the whole time; this is the row that reaches it.
     const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
     expect(game, 'the row is first in the drawer').toMatch(
-      /<nav class="navPopLinks"[^>]*>\s*<button type="button" id="navAbout"/,
+      /<nav class="navPopLinks"[^>]*>\s*<button\b[^>]*id="navAbout"/,
     )
     // Same contract as the Preferences row: hidden in the markup, revealed by
     // the script that can honour it.

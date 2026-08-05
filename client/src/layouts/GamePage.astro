@@ -42,6 +42,23 @@ interface Props {
 }
 
 const { lang, page = HOME, noindex = false, langNeutral = false, chrome = true } = Astro.props
+/**
+ * The other language, and the reason every string below is written twice.
+ *
+ * This page is the one document on the site that can change language without
+ * being reloaded: a visitor whose browser is in French lands on `/`, and
+ * `src/langSwap.ts` translates what Astro served here rather than fetching
+ * `/fr/`. It walks `data-alt`, `data-alt-href` and `data-alt-aria`, so anything
+ * rendered per language must carry its counterpart or it stays behind in
+ * English — and a **link** that stays behind sends that visitor to an English
+ * content page, which mounts nothing and cannot correct itself.
+ * `homeLangSwap.test.ts` fails on a `ui(` or a `path[lang]` in this file that
+ * has no alternative beside it.
+ *
+ * Two languages is an assumption the mechanism makes throughout, `HOME_PATH` in
+ * `src/lang.ts` included; a third would need more than a second value here.
+ */
+const alt: Lang = lang === 'en' ? 'fr' : 'en'
 // `undefined` is "not passed", `null` is "none": a default in the destructuring
 // could not tell the two apart.
 const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props.jsonLd
@@ -53,6 +70,7 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
   jsonLd={jsonLd ?? undefined}
   noindex={noindex}
   langNeutral={langNeutral}
+  altTitle={page.title[alt]}
 >
   {/*
     The document's one heading, in the markup Astro serves and off the screen.
@@ -69,7 +87,7 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
     (`Lobby`, `Searching`, `MapLoadingScreen`) so this stays the only <h1> in
     the document at every moment of a match, not only before the mount.
   */}
-  {chrome && <h1 class="sr-only">{ui('homeH1', lang)}</h1>}
+  {chrome && <h1 class="sr-only" data-alt={ui('homeH1', alt)}>{ui('homeH1', lang)}</h1>}
 
   {/*
     #root is the mount point: tokens.css styles `html, body, #root` as one
@@ -114,17 +132,18 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
       */}
       <details class="homeSheet">
         <summary class="homeSheetBtn">
-          <span class="homeSheetLabel">{ui('homeSheetBtn', lang)}</span>
-          <span class="homeSheetShut">{ui('homeSheetClose', lang)}</span>
+          <span class="homeSheetLabel" data-alt={ui('homeSheetBtn', alt)}>{ui('homeSheetBtn', lang)}</span>
+          <span class="homeSheetShut" data-alt={ui('homeSheetClose', alt)}>{ui('homeSheetClose', lang)}</span>
         </summary>
 
         <div class="homeSheetHead">
-          <h2 class="homeSheetTitle">{ui('homeSheetBtn', lang)}</h2>
+          <h2 class="homeSheetTitle" data-alt={ui('homeSheetBtn', alt)}>{ui('homeSheetBtn', lang)}</h2>
           <button
             type="button"
             class="homeSheetX"
             hidden
             aria-label={ui('homeSheetClose', lang)}
+            data-alt-aria={ui('homeSheetClose', alt)}
           >
             <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
               <path
@@ -159,12 +178,24 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
         carries it that way, so the two renderings of this navigation now match
         item for item.
       */}
-      <nav aria-label={ui('homeMoreH2', lang)}>
+      <nav aria-label={ui('homeMoreH2', lang)} data-alt-aria={ui('homeMoreH2', alt)}>
         <ul class="homeLinks">
           {NAV.map((p) => (
-            <li><a href={p.path[lang]}>{p.navLabel?.[lang] ?? p.title[lang]}</a></li>
+            <li>
+              <a
+                href={p.path[lang]}
+                data-alt-href={p.path[alt]}
+                data-alt={p.navLabel?.[alt] ?? p.title[alt]}
+              >{p.navLabel?.[lang] ?? p.title[lang]}</a>
+            </li>
           ))}
-          <li><a href={LEGAL.path[lang]}>{ui('legalNav', lang)}</a></li>
+          <li>
+            <a
+              href={LEGAL.path[lang]}
+              data-alt-href={LEGAL.path[alt]}
+              data-alt={ui('legalNav', alt)}
+            >{ui('legalNav', lang)}</a>
+          </li>
         </ul>
       </nav>
     </div>
@@ -184,6 +215,7 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
       class="menuBtn homeBurger"
       popovertarget="navPop"
       aria-label={ui('menuLabel', lang)}
+      data-alt-aria={ui('menuLabel', alt)}
     >
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
         <path
@@ -208,6 +240,7 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
           popovertarget="navPop"
           popovertargetaction="hide"
           aria-label={ui('menuClose', lang)}
+          data-alt-aria={ui('menuClose', alt)}
         >
           <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
             <path
@@ -242,14 +275,26 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
         as the Preferences row below and for the same reason: with no bundle it
         would be a control that does nothing.
       */}
-      <nav class="navPopLinks" aria-label={ui('navLabel', lang)}>
-        <button type="button" id="navAbout" class="navPopAbout" hidden>
-          {ui('homeSheetBtn', lang)}
-        </button>
+      <nav class="navPopLinks" aria-label={ui('navLabel', lang)} data-alt-aria={ui('navLabel', alt)}>
+        <button
+          type="button"
+          id="navAbout"
+          class="navPopAbout"
+          hidden
+          data-alt={ui('homeSheetBtn', alt)}
+        >{ui('homeSheetBtn', lang)}</button>
         {NAV.map((p) => (
-          <a href={p.path[lang]}>{p.navLabel?.[lang] ?? p.title[lang]}</a>
+          <a
+            href={p.path[lang]}
+            data-alt-href={p.path[alt]}
+            data-alt={p.navLabel?.[alt] ?? p.title[alt]}
+          >{p.navLabel?.[lang] ?? p.title[lang]}</a>
         ))}
-        <a href={LEGAL.path[lang]}>{ui('legalNav', lang)}</a>
+        <a
+          href={LEGAL.path[lang]}
+          data-alt-href={LEGAL.path[alt]}
+          data-alt={ui('legalNav', alt)}
+        >{ui('legalNav', lang)}</a>
       </nav>
 
       {/*
@@ -269,9 +314,13 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
         the top-right row is still the way in, at every width.
       */}
       <div class="navPopEnd">
-        <button type="button" id="navPrefs" class="navPopCta" hidden>
-          {ui('prefs', lang)}
-        </button>
+        <button
+          type="button"
+          id="navPrefs"
+          class="navPopCta"
+          hidden
+          data-alt={ui('prefs', alt)}
+        >{ui('prefs', lang)}</button>
       </div>
     </div>
   </footer>

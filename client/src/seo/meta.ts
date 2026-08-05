@@ -275,7 +275,7 @@ export const INVITE_OG: OgImage = {
  *  - **It has one path in both languages.** An invitation carries no language
  *    (see `hooks/tableInvite.ts`): the reader's browser decides, exactly as it
  *    does at `/`. So there is no French twin to point an `hreflang` at, and the
- *    page is served with no `data-served-lang` for `initLangUrl` to act on.
+ *    page is served with no `data-served-lang` for `initLang` to act on.
  *  - **The code is not in the built path.** `/i/` is one emitted page; the code
  *    rides behind it (`/i/ABC234`) and is resolved by a fallback scoped to this
  *    directory, in `client/nginx.conf` and in `astro.config.mjs` both. A static
