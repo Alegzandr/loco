@@ -149,6 +149,13 @@ const (
 	// back in the lobby. Sent per-recipient because pruning absent players can
 	// shift player indices.
 	SMsgRematchStarted ServerMsgType = "rematch_started"
+	// SMsgPlayersOnline is how many sockets this server is holding, sent to the
+	// ones that are not sitting at a table. It is a sign of life on the home
+	// screen and nothing else: it names nobody, it is not the matchmaking queue
+	// (whose size is never on the wire, see SMsgMatchmakingQueued), and no
+	// decision anywhere is taken on it. Sent on arrival and then only when the
+	// number moves.
+	SMsgPlayersOnline ServerMsgType = "players_online"
 	// SMsgServerUpdating tells a table in progress that this process is being
 	// replaced. It is information, not an instruction: the match plays out to
 	// its end, and nothing about it changes. Sent once, when the drain starts,
@@ -466,6 +473,16 @@ type ServerMsg struct {
 
 	// SMsgEmote: what was said, and PlayerIndex above says who said it.
 	Emote Emote `json:"emote,omitempty"`
+
+	// SMsgPlayersOnline: how many sockets this server is holding.
+	//
+	// A pointer, like PlayerIndex and for both of its reasons. The number that
+	// most has to reach the home screen is the one that has just dropped, and a
+	// plain int under `omitempty` drops a zero — the chip would stay on screen
+	// counting people who have gone. Spelling it without `omitempty` instead
+	// would put `players_online: 0` on every card_played this server sends, for
+	// a field one screen reads and no match ever does.
+	PlayersOnline *int `json:"players_online,omitempty"`
 
 	// SMsgError
 	Error string `json:"error,omitempty"`

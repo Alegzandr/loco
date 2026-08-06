@@ -26,6 +26,10 @@ export const T = {
   rulesTabRules: 'Rules',
   rulesTabCards: 'Cards',
   cardNameSwap: 'Swap',
+  // One tab at a time: what a second tab of the same browser says, and the one
+  // control it carries.
+  tabTakenTitle: 'LOCO is open in another tab',
+  tabTakenTake: 'Play here',
   continueBtn: 'Next round',
   rematch: 'Rematch',
   rematchWaitingOpponent: 'Waiting on them…',

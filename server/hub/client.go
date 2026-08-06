@@ -105,6 +105,12 @@ type Client struct {
 	// it, so reading the code and the index separately is safe there.
 	seat atomic.Pointer[seatRef]
 
+	// onlineSent is the players-online count this socket has already been told,
+	// so a tick that changes nothing sends nothing. Written and read only on the
+	// hub's event loop (registration, and the ticker), which is why it is a
+	// plain field where seat above had to be atomic. See online.go.
+	onlineSent int
+
 	closed  bool
 	limiter *rateLimiter
 	// connID is a short random tag included in every log line involving this

@@ -20,6 +20,7 @@
   import GameView from '../components/GameView.svelte'
   import GameOver from '../components/GameOver.svelte'
   import Reconnecting from '../components/Reconnecting.svelte'
+  import TabTaken from '../components/TabTaken.svelte'
   import RulesModal from '../components/RulesModal.svelte'
   import ColorPicker from '../components/ColorPicker.svelte'
   import PlayerPicker from '../components/PlayerPicker.svelte'
@@ -148,6 +149,7 @@
       onFindMatch={noop}
       onPlayBot={noop}
       error={g.errorMsg}
+      playersOnline={g.playersOnline}
       onClearError={noop}
       initialMode={scene.lobbyMode}
       initialCode={scene.lobbyCode}
@@ -172,6 +174,8 @@
     />
   {:else if scene.screen === 'restoring'}
     <Reconnecting roomCode={g.roomCode} target={g.restoreTarget ?? 'game'} onCancel={noop} />
+  {:else if scene.screen === 'tabtaken'}
+    <TabTaken seated={scene.otherTabSeated ?? false} onTake={noop} />
   {:else if scene.screen === 'waiting'}
     <WaitingRoom
       roomCode={g.roomCode}

@@ -1,6 +1,7 @@
 import { mount, type Component } from 'svelte'
-import App from './App.svelte'
+import Root from './Root.svelte'
 import { initI18n } from './i18n/store'
+import { initTabLock } from './hooks/tabLock'
 import { initTheme } from './theme'
 import { initMotion } from './hooks/motionPref'
 import { initSessionRestore } from './hooks/sessionRestore'
@@ -29,12 +30,16 @@ import { initPinchGuard } from './pinchGuard'
  * query-string contract rather than moving to a route is what leaves
  * tools/visual/shoot.mjs and tools/og/shoot.mjs untouched.
  */
+function isShowcase(): boolean {
+  return import.meta.env.DEV && new URLSearchParams(window.location.search).has('showcase')
+}
+
 async function resolveRoot(): Promise<Component<Record<string, never>>> {
-  if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('showcase')) {
+  if (isShowcase()) {
     const { default: Showcase } = await import('./dev/Showcase.svelte')
     return Showcase as Component<Record<string, never>>
   }
-  return App as Component<Record<string, never>>
+  return Root as Component<Record<string, never>>
 }
 
 /**
@@ -125,6 +130,22 @@ function boot() {
   // a fresh intent and outranks a stored record naming another table. It also
   // takes the code straight back out of the address bar — see hooks/tableInvite.ts.
   initTableInvite()
+
+  // Is this tab even the one holding the game? Ahead of the line below because a
+  // tab that is not must do none of what it sets up: no restoring screen, no
+  // `join_room` lined up for the first onopen, and above all no socket. The
+  // election is one synchronous read, so nothing here waits — see
+  // hooks/tabLock.ts for why it is storage rather than a race on a channel.
+  //
+  // After `initTableInvite()` on purpose: the invitation is spent out of the
+  // address bar either way, and a tab that takes the game over later still has it
+  // in memory to join with.
+  //
+  // The gallery sits this out. It mounts no app and opens no socket, so it has
+  // nothing to be elected for — and taking part would mean opening `?showcase`
+  // (or running `make visual`, which opens several at once) silently drew the
+  // curtain over the tab somebody was playing in next door.
+  if (!isShowcase()) initTabLock()
 
   // A reloaded tab has to know it is reclaiming a seat *before* the socket opens:
   // the rejoin is sent from the very first onopen, and the socket connects in an

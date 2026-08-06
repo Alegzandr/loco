@@ -11,6 +11,7 @@ export const initialState: GameState = {
   errorMsg: '',
   isReconnecting: false,
   serverUpdating: false,
+  playersOnline: 0,
 
   myHand: [],
   players: [],

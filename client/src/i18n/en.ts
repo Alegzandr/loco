@@ -109,6 +109,11 @@ export interface ErrorCopy {
 export interface Translations {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: string
+  // The home screen's sign of life. It counts people connected to this server,
+  // never the matchmaking queue, and it says so plainly: a player reading it as
+  // "how long until I am paired" would be reading a number that answers a
+  // different question. Only ever drawn from two up (components/playersOnline.ts).
+  playersOnline: (n: number) => string
   createRoom: string
   joinRoom: string
   createGame: string
@@ -316,6 +321,11 @@ export interface Translations {
   reconnectingHint: string          // in-match: the seat is held, and for how long
   reconnectingHintRoom: string      // pre-match: there is no clock on this one
   reconnectCancel: string           // give up and go back to the lobby
+  // One tab at a time: what the tabs that are not holding the game say.
+  tabTakenTitle: string             // where the game is
+  tabTakenHint: string              // the other tab is on the menu, so this costs nothing
+  tabTakenHintSeated: string        // the other tab is at a table, so this costs that match
+  tabTakenTake: string              // the one control: bring the game here
   wsLostConnection: string
   wsReconnecting: string
   wsRetryNow: string                // the one control on the curtain: try again now
@@ -463,6 +473,7 @@ export interface Translations {
 export const en: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: 'Cards at speed. Nobody waits their turn.',
+  playersOnline: (n) => `${n} players online`,
   createRoom: 'New table',
   joinRoom: 'Join a table',
   createGame: 'Open the table',
@@ -619,6 +630,11 @@ export const en: Translations = {
   reconnectingHint: 'Your hand and your score are held for a minute. Nothing is lost yet.',
   reconnectingHintRoom: 'No cards are out yet. Nothing to lose.',
   reconnectCancel: 'Back to the menu',
+  tabTakenTitle: 'LOCO is open in another tab',
+  tabTakenHint: 'One tab at a time. Nothing is going on over there, so bring the game here.',
+  tabTakenHintSeated:
+    'There is a match running in the other tab. Bringing the game here makes it leave that table.',
+  tabTakenTake: 'Play here',
   wsLostConnection: 'Connection lost',
   wsReconnecting: 'Reconnecting…',
   wsRetryNow: 'Try again now',

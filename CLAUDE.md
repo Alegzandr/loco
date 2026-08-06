@@ -116,8 +116,9 @@ toolbar (off) and the `VITE_` env prefix. **At the root: no `vite.config.ts` and
 Astro owns the pages; `vitest.config.ts` is the only Vite config, and it exists because the test run
 needs jsdom and the `browser` resolve condition.
 - `src/pages/` one `.astro` per URL · `src/layouts/` `Base.astro`, `GamePage.astro`, `ContentPage.astro`
-- `src/App.svelte` the screen switch · `src/entry.ts` mounts it into `#root` via a bundled module
-  script, never an island
+- `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
+  the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
+  bundled module script, never an island
 - `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
   key, the two home paths, `chooseLang`) — those two pull in no framework, so a content page can
   use them · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
@@ -127,7 +128,7 @@ needs jsdom and the `browser` resolve condition.
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
-  CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
+  CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, the two server mirrors `nicknameRules.ts` +
   `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
@@ -146,13 +147,13 @@ needs jsdom and the `browser` resolve condition.
   `gameStore` (the snapshot every component reads), `appEffects` (audio, session persistence, the
   restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
   `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
-  insets), `drainBar`, `escapeKey`, `tabAlert`, `prefs`, `uiPrefs`, and `live` (the one narrowing
+  insets), `drainBar`, `escapeKey`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one narrowing
   every effect above watches its own field through). **Everything else is
   framework-free on purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` +
   `store/`: `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`,
   `deriveCatchMiddleware.ts`, and one module per family — `sessionActions` `tableActions`
   `locoActions` `matchActions` `queueActions`), `serverMessages.ts`, `sessionPersistence.ts`,
-  `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `prefStore.ts`, and the preference
+  `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, and the preference
   and constant modules the reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`,
   `webSocketPolicy`, `mapPreload`, `safeAreaInsets`). **The `use` prefix went with React**: none of
   these is a hook, they are constants, pure functions and plain stores, and **nothing in a plain
@@ -357,6 +358,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
   is an empty acknowledgement, the number lives only on `/metrics`. Nothing player-facing says
   "unranked".
+- **`players_online` is the sockets, not the queue** (`hub/online.go`): every connection this process
+  holds, sent on registration and then **only when the count moves**, and **only to sockets that are
+  not at a table** — the home screen is the only place it is drawn, and this is the one message that
+  would otherwise reach every socket at once on a timer. **What each socket was last told is kept per
+  socket** (`Client.onlineSent`), because a hub-wide watermark skips the player who has just left a
+  table and waits for a number that, on a quiet server, never moves again. The floor under which it
+  is not shown is the **client's** (`components/playersOnline.ts`, two players): the number stays
+  true, the screen decides whether it is worth drawing.
 - **A table with no host is a shape, not a mode** (`table.hostless`, `refuseWithoutHost`). Two answer
   to it — a matchmade pair and a solo game — and `add_bot`, `start_game`, `set_match_format`,
   `set_max_players`, `kick_player` and `transfer_host` are refused at both.
@@ -521,6 +530,22 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   on attempts is a curtain that never comes down over a seat the server may still be holding.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
+- **One tab holds the game and the others open no socket** (`hooks/tabLock.ts`, `Root.svelte`,
+  `TabTaken.svelte`). A second tab used to be a second player: a second count in `players_online`,
+  and a second entry in a queue that deduplicates by socket pointer, so it could be **paired against
+  the first one**. The election is **one synchronous `localStorage` read before the first paint**,
+  never a race on `BroadcastChannel` — a boot that waits either flashes a curtain over the owner or
+  opens a socket "just in case", which is the thing being prevented. The record is a **heartbeat**
+  (`BEAT_MS` / `STALE_MS`), because a tab that crashes sends no release and a flag would lock the
+  game away for good. **In every doubt the tab owns the game**: no storage, no channel, storage that
+  throws, JSON that will not parse. **It is not mounted inside `App.svelte`** — `webSocket()` is
+  called at the top of that script, so not opening a socket means not mounting the app, which is the
+  only reason `Root.svelte` exists. **Taking the game inherits nothing** (the other tab's token is in
+  *its* `sessionStorage`), so the curtain says what the press costs *before* it is pressed, the way
+  `leaveNote` does. **That curtain does not close on `Escape`** and is the documented exception to
+  the rule below: it is the state of the tab, not a panel somebody opened, and there is nothing
+  behind it to go back to. And it is a client mechanism: **two browsers or a private window bypass
+  all of it**, the queue included.
 - **The board's way out is a chip in the chrome row, at every table, and never on the action bar** —
   that bar is a fixed three-column grid a reaction is aimed at and must not grow a fourth control.
   It asks in place, and **the line under the question is the feature**: what the player cannot see
@@ -670,6 +695,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   table, join a table, in that order. **Hierarchy is a hue, never a smaller kind of control** — the
   bot's is the one neutral fill, and it used to be a line of underlined text under the queue's
   button, which between two ledged buttons reads as a footnote and gets pressed like one.
+- **The count of connected players is drawn from two up and absent below it**
+  (`components/playersOnline.ts`, `Lobby.svelte`, opposite the chip row, `position: absolute` so it
+  reserves nothing, and **at the foot of the screen, centred, below 46rem**, where that row is full
+  and the footer is behind the burger). **Never rounded, never padded,
+  never reworded**: what is on screen is exactly the number the server sent, and the floor decides
+  only whether the plate is there at all — a count of one is the "close the tab" sentence the
+  searching screen is already forbidden from writing. It says *connected* / *online*, never
+  *searching*: it counts connections, it is not the queue. `setPlayersOnline` stays out of `resetToHome` — the count belongs to the socket, not to
+  the seat.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape rules only, word list
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and

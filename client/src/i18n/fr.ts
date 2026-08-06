@@ -13,6 +13,7 @@ import type { Translations } from './en'
 export const fr: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: 'Des cartes à toute vitesse. Personne n\'attend son tour.',
+  playersOnline: (n) => `${n} joueurs connectés`,
   createRoom: 'Nouvelle table',
   joinRoom: 'Rejoindre une table',
   createGame: 'Ouvrir la table',
@@ -168,6 +169,11 @@ export const fr: Translations = {
   reconnectingHint: 'Ta main et ton score sont gardés une minute. Rien n\'est perdu.',
   reconnectingHintRoom: 'Aucune carte n\'est encore sortie. Rien à perdre.',
   reconnectCancel: 'Retour au menu',
+  tabTakenTitle: 'LOCO est déjà ouvert dans un autre onglet',
+  tabTakenHint: 'Un seul onglet à la fois. Rien n\'y est en cours, ramène le jeu ici.',
+  tabTakenHintSeated:
+    'Une partie est en cours dans l\'autre onglet. Ramener le jeu ici lui fait quitter sa table.',
+  tabTakenTake: 'Jouer ici',
   wsLostConnection: 'Connexion perdue',
   wsReconnecting: 'Reconnexion…',
   wsRetryNow: 'Réessayer maintenant',

@@ -62,6 +62,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `kicked`              | — (the host freed this client's seat; sent to the removed client only)      |
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `latency`             | `latencies[]` (per-seat round trip; broadcast on a timer to playing rooms)   |
+| `players_online`      | `players_online` (sockets connected to this server; sent to seatless sockets only) |
 | `server_updating`     | — (this process is being replaced; the match is unaffected: see the notes)   |
 | `error`               | `error`                                                                     |
 
@@ -83,6 +84,15 @@ description of the wire that a program does not check: when it disagrees with th
 - **A refused reclaim is indistinguishable from a refused join.** Both answer `game already in progress`. They used to differ (`invalid session token for reconnect` came back only when the nickname matched a seat actually held at that table), which let anyone holding a table code test names against it. The client owns the failed-reclaim case through its own restore timeout, so nothing legitimate read the difference.
 - `rematch_started` is sent **per recipient**, not broadcast: the server first prunes seats with no connected client behind them (bots excepted), which can re-base every surviving `player_id`. Clients must adopt the `player_id` they receive.
 - `latency` is server-measured: the hub times its own WebSocket ping frames against the pongs the browser answers in the transport layer, smooths them (0.6 old + 0.4 new) and broadcasts every 3 s to rooms that are playing. Nothing is self-reported by the client, and a room where nothing has been measured yet is skipped rather than sent a table of `-1`.
+- **`players_online` is not the queue, and the two answer different questions.** It counts every
+  socket this process is holding, seated or not, and it is sent on registration and then only when
+  that number moves — to sockets that are not at a table, since the home screen is the only place it
+  is drawn. `players_online` is nullable on the wire for the same reason `player_index` is: a count
+  of zero is a real answer (every other tab gone), and `omitempty` would drop it, leaving a chip on
+  screen counting people who have left. The client draws it from **2 up** and nothing at all below
+  that (`components/playersOnline.ts`) — for the reason `matchmaking_queued` carries no number at
+  all, one floor above it. What is drawn is always exactly what was sent: the floor hides the plate,
+  it never rounds or rewords what is above it.
 - `round_history` is server-owned so a reconnecting player recovers the same table: cumulative scores cannot be split back into rounds client-side once a player has won twice.
 - **`matchmaking_queued` carries nothing, and that is the design.** No queue size, no position, no
   estimated wait, on any message. The number is available to an operator on `/metrics`

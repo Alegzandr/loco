@@ -373,6 +373,8 @@ func (h *Hub) Run() {
 	defer h.stopTables()
 	latencyTicker := time.NewTicker(LatencyBroadcastPeriod)
 	defer latencyTicker.Stop()
+	onlineTicker := time.NewTicker(PlayersOnlineBroadcastPeriod)
+	defer onlineTicker.Stop()
 	for {
 		select {
 		case <-h.quit:
@@ -380,6 +382,8 @@ func (h *Hub) Run() {
 
 		case <-latencyTicker.C:
 			h.broadcastLatencies()
+		case <-onlineTicker.C:
+			h.broadcastPlayersOnline()
 		case c := <-h.register:
 			h.clients[c] = struct{}{}
 			h.metrics.clients.Add(1)
@@ -390,6 +394,10 @@ func (h *Hub) Run() {
 			// Start pumps after registration so readPump's unregister call is
 			// never processed before the register, preventing zombie clients.
 			c.start()
+			// After start(), so the send has a write pump to reach: this is the
+			// first thing this server says to a socket, and the home screen has
+			// nothing else to draw the count from.
+			h.sendPlayersOnline(c)
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {

@@ -130,6 +130,7 @@ export interface Scene {
     | 'game'
     | 'gameover'
     | 'restoring'
+    | 'tabtaken'
     | 'cards'
     | 'og'
   /**
@@ -170,6 +171,9 @@ export interface Scene {
   ogVariant?: 'default' | 'invite'
   /** Colour assist: every suit also carries its silhouette. */
   colorAssist?: boolean
+  /** One tab at a time: whether the tab holding the game is at a table. It is
+   *  the difference between an offer and a warning, so both are worth a look. */
+  otherTabSeated?: boolean
 }
 
 const gameBase = {
@@ -227,6 +231,16 @@ export const SCENES: Scene[] = [
     title: 'Accueil',
     screen: 'lobby',
     lobbyMode: 'home',
+  },
+  {
+    // The count is drawn opposite the chip row, so this scene is worth both
+    // viewports: under 46rem the burger owns that corner and the plate has to
+    // clear it without wrapping the line.
+    id: 'lobby-online',
+    title: 'Accueil · joueurs connectés',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    state: { playersOnline: 128 },
   },
   {
     id: 'lobby-create',
@@ -305,6 +319,17 @@ export const SCENES: Scene[] = [
     title: 'Reconnexion · salon',
     screen: 'restoring',
     state: { roomCode: 'KX7QP2', restoreTarget: 'waiting' },
+  },
+  {
+    id: 'tab-taken',
+    title: 'Autre onglet · rien en cours',
+    screen: 'tabtaken',
+  },
+  {
+    id: 'tab-taken-seated',
+    title: 'Autre onglet · partie en cours',
+    screen: 'tabtaken',
+    otherTabSeated: true,
   },
   {
     id: 'lobby-prefs',

@@ -622,6 +622,22 @@ ordinary room's on purpose.
   window when the queue is trying to fill, and it reads as an instruction to leave. Every player who
   leaves on that sentence is the opponent the next one was about to get. The client times its own
   wait and stages its copy off elapsed seconds instead (`Searching.svelte`).
+- **`players_online` is the one number this server does publish, and it is a different number.**
+  `hub/online.go`: every socket the process is holding, seated or not, sent on registration and then
+  only when the count moves, and only to sockets that are not at a table. The two are not in tension
+  — one is "are the lights on", which is worth answering on a home screen, the other is "how long
+  until I am paired", which no honest number answers and which a queue size gets read as. The floor
+  that keeps the first from turning into the second is the client's (`components/playersOnline.ts`,
+  two players), because it is a rule about what a screen draws rather than about what is true.
+  - **The watermark is per socket, not per hub** (`Client.onlineSent`). A hub-wide "last sent" would
+    skip a player who has just left a table — they were seated while the count moved, so the number
+    they hold is stale and the next tick would find nothing to announce. On a quiet server, where the
+    count moves rarely, "the next time it moves" is never.
+  - **A tick that changes nothing sends nothing.** The alternative is one small message per seatless
+    socket every period, forever, on a server where nobody is doing anything; the field is written on
+    the event loop, which is also what makes reading `h.clients` from the ticker safe.
+  - It cost the test suite's `readMsg` a skip (`hub_test.go`): the message is the answer to nothing
+    and can land in front of any reply a test is waiting for. `online_test.go` reads it with `readRaw`.
 - **Nobody presses start.** `pairMatch` creates the room, seats both players, sends `match_found`
   with `starts_in_ms`, and arms `mmStart` for `MatchmakingRevealDelay` (2.5s). `handleMatchmakingStart`
   re-checks like every deferred callback (room still there, pair not superseded, still a lobby) and

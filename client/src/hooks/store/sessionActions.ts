@@ -47,6 +47,11 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
   clearError: () => set({ errorMsg: '' }),
   setIsReconnecting: (isReconnecting) => set({ isReconnecting }),
   setServerUpdating: (serverUpdating) => set({ serverUpdating }),
+  // Deliberately absent from resetToHome below: the count belongs to the
+  // socket, not to the seat, and the screen it is drawn on is the one that
+  // reset lands the player back on. Clearing it would blank the chip on every
+  // return from a table until the server next said the number moved.
+  setPlayersOnline: (playersOnline) => set({ playersOnline }),
 
   // Back to the front door with nothing carried over. The seat is gone
   // server-side by the time this runs, so the token and the room code are not

@@ -158,6 +158,11 @@ export interface GameState {
   // Cleared on reconnect, because the process that comes back may not be the
   // one that said it.
   serverUpdating: boolean
+  // How many sockets the server is holding, straight off `players_online`. A
+  // sign of life on the home screen and nothing else: it names nobody, it is
+  // not the matchmaking queue, and nothing here ever decides anything on it.
+  // 0 until the server has said, which is also the value that draws nothing.
+  playersOnline: number
 
   // --- The board ---
   myHand: CardDTO[]
@@ -325,6 +330,7 @@ export interface SessionActions {
   clearError: () => void
   setIsReconnecting: (val: boolean) => void
   setServerUpdating: (val: boolean) => void
+  setPlayersOnline: (count: number) => void
   resetToHome: () => void
 }
 
