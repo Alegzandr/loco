@@ -181,7 +181,7 @@ needs jsdom and the `browser` resolve condition.
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
 `playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`,
-`maps/prepare.mjs`, `audio/verify.mjs`, `csp/check.mjs`) · `docs/` spec + `docs/notes/` ·
+`maps/prepare.mjs`, `maps/scene-tester.html`, `audio/verify.mjs`, `csp/check.mjs`) · `docs/` spec + `docs/notes/` ·
 `LICENSE` (MIT) · `NOTICE.md` · `.gitlab-ci.yml` the only CI definition · root config / Docker / env.
 
 ---
@@ -986,6 +986,13 @@ stated at the top of `styles/tokens.css`:
   **`BOTTOM_RESERVE` covers the chip's band as well as the bar**, so the hand is dealt clear of it
   permanently and nothing shifts when it lights up. Drawn under 44px and quiet on purpose — forgetting
   the call is a turn of the game — so its target comes from `.hit-target`, only while it is live.
+- **A map's art is tried in the scene before it is submitted** (`tools/maps/scene-tester.html`): one
+  HTML file, opened off the disk, that rebuilds the board around a dropped room and table, measures
+  the `playfield`, and emits the `maps.ts` entry plus both `.webp` files at `prepare.mjs`'s own
+  qualities. **Its board maths is a transcription of `layout.ts` + `cardTheme.ts`, its paint one of
+  `GameBoard.svelte`, and its list of the four shipped maps a copy of `maps.ts`: all three move in
+  the same change set as their source**, or the tester approves a table the game draws elsewhere. It
+  ships nothing, nothing imports it, and it is the one place a webfont CDN is allowed.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).

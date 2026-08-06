@@ -388,15 +388,47 @@ rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcan
   lobby has no map, and a server shipping a new one before the client has its art must degrade to the
   built-in felt rather than to a blank table. Same reason `map_id` is a bare `z.string()` in
   `protocolSchemas.ts` and not an enum: an enum would drop the whole `game_state` in dev.
-- Art lives in `client/public/maps/<id>/{room,table}.webp` (~1.75 MB total). `make maps
+- Art lives in `client/public/maps/<id>/{room,table}.webp` (~1.6 MB total). `make maps
   ARGS="--src=<folder>"` (`tools/maps/prepare.mjs`) crops and re-encodes it. **Which source file is
   the table is read off the alpha channel, never the filename**, since the renders come out of the
   generator named after their timestamp, and an earlier pass that guessed by frame brightness got
   every map backwards. The table is cropped to its alpha bounding box, which is what makes the
-  `playfield` fractions honest.
+  `playfield` fractions honest. **The source folder holds one folder per map and nothing else**:
+  every directory under it is a map, so anything parked beside them aborts the run on "expected
+  exactly 2 images" — halfway through, having already written some of them. A replaced render is
+  not kept: the map that ships is the one on disk.
 - Scenes `game-map-neon` / `-rune` / `-velvet` / `-orbit` / `game-map-loading`. **The playfield
   numbers are measured by eye off the art, so a drifted table shows up in `make visual` and nowhere
   else**, so review any change to the art or to `tableImageRect()` there.
+- **A map is tried before it is submitted, not after** (`tools/maps/scene-tester.html`). Measuring a
+  `playfield` means seeing the felt land on the picture, and until this existed the loop was: guess
+  four numbers, add a scene, run `make maps`, run `make visual`, read a screenshot, guess again. A
+  build and two harnesses for a rectangle. The tester rebuilds the board around a dropped room and
+  table: the layout maths is a transcription of `layout.ts` and `cardTheme.ts`, the paint one of
+  `GameBoard.svelte`'s style block, and the alpha work (which picture is the table, its bounding
+  box, the WebP qualities) is `prepare.mjs`'s, so **what it previews is what `make maps` would
+  ship**, including the `.png` an image generator hands over, which it crops and re-encodes in the
+  page. It emits the `maps.ts` entry and both `.webp` files.
+  - **The fidelity is checked, not claimed.** Diffing the DOM against the running game at
+    1920×1080 on `neon`, every written value matches: the stage's transform and size, the table
+    image's box, the glow, the ring and its first chevron. That is why `px()` does not round. What
+    is *not* faithful is the furniture: cards carry the right box at the right place but not
+    `CardArt`, the seat pills carry `SEAT_DIMS` and a simplified drawing, and the action bar and
+    top row are ghosts marking the reserves they own. None of it decides where a table lands.
+  - **It is a transcription, which makes it a copy that can drift.** `layout.ts`, `cardTheme.ts`'s
+    constants, the board's style block and the four playfields of `maps.ts` move with it in the
+    same change set: a tester that lies approves a table the game then draws somewhere else, and
+    nothing downstream would catch it. Nothing imports it and no test covers it. Deliberately: it
+    ships nothing.
+  - **One file, opened off the disk, no `make` target**, because it is handed to whoever is making
+    the art. Two consequences, both deliberate: the two families come off a CDN, which
+    `client/` may never do and this may because it reaches no player; and a `file://` origin cannot
+    read pixels back out of a repository file, so the four reference maps load as pictures and skip
+    the alpha pass they no longer need. A dropped file is a data URL and measures normally.
+  - The accent it guesses is a starting point and says so. It ranks pixels by saturation times
+    brightness and averages the top tenth, because the light source is never the largest thing in
+    a frame these rooms keep mostly dark: the first pass took the dominant colour and returned the
+    backdrop, the one colour the glow must not be.
 
 ## Card face (`CardArt.svelte`, `cardArtSpace.ts`, `locoMark.ts`, `cardTheme.ts`)
 Reproduced from the brand's own card art. Review any change to it with
