@@ -18,6 +18,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `add_bot`           | — (host-only)                                            |
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
 | `set_max_players`   | `max_players` (2–10) (host-only)                         |
+| `set_streamer_mode` | `streamer_mode` (hide this table's code on every screen; host-only, any status, a state and not a toggle) |
 | `kick_player`       | `target_index` (seat to free; host-only, lobby-only, never seat 0) |
 | `transfer_host`     | `target_index` (seat to hand the table to; host-only, lobby-only, never seat 0, never a bot) |
 | `rematch`           | — (one seat's ask for another match; every room, every seat) |
@@ -37,8 +38,9 @@ description of the wire that a program does not check: when it disagrees with th
 | Type                  | Key Fields                                                                  |
 |-----------------------|-----------------------------------------------------------------------------|
 | `room_created`        | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players` |
-| `room_joined`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players` |
+| `room_joined`         | `room_code`, `player_id`, `session_token`, `players`, `match_format`, `max_players`, `streamer_mode` |
 | `lobby_config_changed`| `match_format`, `max_players`                                               |
+| `streamer_mode_changed`| `streamer_mode` (the host's answer for this table; broadcast to every seat, at any status) |
 | `player_joined`       | `nickname`, `players`                                                       |
 | `host_changed`        | `nickname` (the new host), `players`, `player_id` (the recipient's own seat) — sent per recipient, because the swap moves two seats |
 | `player_left`         | `nickname`, `players`                                                       |
@@ -70,7 +72,7 @@ description of the wire that a program does not check: when it disagrees with th
 
 - `PlayerDTO`: `index`, `nickname`, `hand_size`, `connected`.
 - `LatencyEntryDTO`: `player_index`, `rtt_ms` (-1 = nothing measured), `bot`.
-- `GameStateDTO`: includes `event_log` (capped to last 50 entries, **sent only on the reconnect snapshot**: it is the one unbounded field in a per-recipient payload and no client reads it during play), `round_number`, `match_format`, `max_players`, `scoreboard` (cumulative per-player scores), `round_history` (`round_history[k][player_index]` = points scored in round k+1), and the player's own hand.
+- `GameStateDTO`: includes `streamer_mode` (the table's answer, so a reload is blurred without waiting for the host to touch the switch), `event_log` (capped to last 50 entries, **sent only on the reconnect snapshot**: it is the one unbounded field in a per-recipient payload and no client reads it during play), `round_number`, `match_format`, `max_players`, `scoreboard` (cumulative per-player scores), `round_history` (`round_history[k][player_index]` = points scored in round k+1), and the player's own hand.
 
 ## Notes
 
@@ -104,7 +106,17 @@ description of the wire that a program does not check: when it disagrees with th
   "immediately": the countdown is presentation, and the authoritative start is the `game_started`
   that follows.
 - A **matchmade** room has no host. `add_bot`, `start_game`, `set_match_format`, `set_max_players`,
-  `kick_player` and `transfer_host` are all refused in one with `not available in a matchmade game`.
+  `set_streamer_mode`, `kick_player` and `transfer_host` are all refused in one with
+  `not available in a matchmade game`.
+- **`set_streamer_mode` is the only presentation preference on this protocol, and it is the table's,
+  not a seat's.** The table code is one string shared by everybody who can see it, so a host who is
+  streaming is exposed by the other players' screens too. Host only
+  (`only the host can change streamer mode`), refused at a hostless table, and accepted at **every**
+  status — a host streams the match, not the wait, which is why it is not part of
+  `lobby_config_changed`. It carries the state being asked for rather than a toggle, a repeat of the
+  state the table already holds is answered by nobody, and the answer rides `streamer_mode_changed`,
+  `room_joined` and every `GameStateDTO`. Clients OR it with their own local preference: neither
+  overwrites the other.
 - **`kick_player` is a departure to the table and a message to the player.** The room sees the
   ordinary `player_left` (roster re-based, seats above the freed one moved down); the removed client
   gets `kicked` on its own socket, because a table disappearing with no explanation reads as a bug.

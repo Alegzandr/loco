@@ -72,8 +72,12 @@ type roomSnapshot struct {
 	// on the far side of a restart too: without it a restored solo match would
 	// come back as an ordinary table with a bot in it, and offer the player host
 	// controls over a game that has none.
-	Solo          bool           `json:"solo,omitempty"`
-	AFKTimeouts   map[int]int    `json:"afk_timeouts,omitempty"`
+	Solo bool `json:"solo,omitempty"`
+	// StreamerMode travels because the stream does not stop for a deploy. A host
+	// who came back to a table whose code was readable again would find that out
+	// from their own capture.
+	StreamerMode bool        `json:"streamer_mode,omitempty"`
+	AFKTimeouts  map[int]int `json:"afk_timeouts,omitempty"`
 	// MatchHistory is the evening behind this match. A table on its fourth
 	// rematch has three finished matches nothing else on the server remembers,
 	// and losing them to a deploy would mean the recap silently restarting at
@@ -153,6 +157,7 @@ func (h *Hub) saveSnapshot(path string) error {
 			BotSlots:      sortedKeys(t.bots),
 			Matchmade:     t.isMatchmade(),
 			Solo:          t.solo,
+			StreamerMode:  t.streamerMode,
 			AFKTimeouts:   t.afk,
 			MatchHistory:  t.matchHistory,
 		})
@@ -287,6 +292,7 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 		t.matchmadeAt = time.Now()
 	}
 	t.solo = rs.Solo
+	t.streamerMode = rs.StreamerMode
 
 	// Started here, and not one line earlier: everything above is this function
 	// filling the table in, and a goroutine reading fields still being written

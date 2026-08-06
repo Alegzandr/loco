@@ -145,6 +145,7 @@ needs jsdom and the `browser` resolve condition.
   reactive state or an effect** — a rune is only compiled in a `.svelte` or `.svelte.ts` file, so the
   extension is the declaration: `webSocket`,
   `gameStore` (the snapshot every component reads), `appEffects` (audio, session persistence, the
+  host's streamer mode going out on the wire, the
   restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
   `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
   insets), `drainBar`, `escapeKey`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one narrowing
@@ -275,7 +276,19 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   reach `:8080` on the `internal` network) and **refuses a multi-value one** — Cloudflare *sets* the
   first and *appends* to `X-Forwarded-For`, so the latter's leftmost entry is the client's to invent.
   **That order is a security property**: a client can put its own `X-Real-IP` on a proxied request.
-  Anything unbelievable falls back to the peer. Truncated on the way in like every other address.
+  Anything unbelievable falls back to the peer, **an address no browser on the internet could have
+  included** (`isRoutableClient`: loopback, private, link-local, multicast, unspecified) — a forged
+  public one buys a bucket of its own, a forged private one is aimed at the bucket everybody else
+  falls back into. Truncated on the way in like every other address.
+- **Which of those headers a host may forward is the host's to declare, never the shared proxy
+  block's** (`client/nginx.conf` `set $loco_cf_ip` / `$loco_real_ip`, read by `ws-proxy.conf`). The
+  site's host vouches for `CF-Connecting-IP` because Cloudflare sets it there; **`ws.` is
+  grey-clouded, so nothing sets or strips that header on it** and a client writes its own — which
+  this server believes, because the peer is the same nginx either way. Forwarding both from both was
+  one forged header per socket buying one network key per socket, and with it a private copy of every
+  per-network ceiling. The other side is emptied, which makes nginx omit it. `csp.test.ts` pins it;
+  the residual — reaching Traefik directly and bypassing the CDN — is closed by an allowlist on the
+  host Traefik, not here.
 - **`LOCO_ALLOWED_ORIGINS` is mandatory in production now.** The page and the socket are deliberately
   on two hostnames, so `originAllowed`'s default (Origin's hostname == request's Host) refuses every
   upgrade. It names the **page's** origin, never the socket's.
@@ -387,6 +400,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   stacking it — so the screen never needed a cap, and the cap only ever refused somebody rewording.
   The per-client token bucket is the bound, as it is for every other message. Free text would be a
   moderation surface, and collecting nothing is the compliance strategy.
+- **`set_streamer_mode` is the one setting a client's *presentation* preference is allowed to reach
+  the server through** (`table.streamerMode`, `handleSetStreamerMode`). Host only, hostless never,
+  **every status** — the format and the seat count are lobby controls, this one is not, because the
+  thing being captured is the match. It carries a state and never a toggle, a repeat of the state the
+  table is already in is **answered by nobody**, and the answer travels on `streamer_mode_changed`,
+  on `room_joined` and in every `GameStateDTO`. It survives `resetForNextMatch` and rides the drain
+  snapshot: the stream does not stop because the match ended or the server was deployed. **Nothing
+  else about a player's presentation may follow it here.**
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes
@@ -625,8 +646,9 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
 - **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
   streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module
-  store (`localStorage`, presentation only, never on the wire). Those icons are **drawn SVG, never a
-  font character**.
+  store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
+  and only from the host's — see below; every other one is local and must stay that way. Those icons
+  are **drawn SVG, never a font character**.
 - **The rules opener is a "How to play" pill before the deal and the "?" chip at the table**
   (`RulesButton`, `variant="text"` / `"icon"`): a glyph is faster mid-match, and a word is the only
   onboarding a first-time player gets on the screens where they are still deciding. The pill's
@@ -679,10 +701,22 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   **drawn** chain, never a font character, and **outside everything streamer mode blurs** — what has
   to stay off a stream is the six characters, not the fact that the plate copies a link.
 - **Streamer mode blurs the table code, and `TableCode.svelte` is the only way a screen prints it.** CSS
-  over the real text, so copy still copies. **The reveal is hover and keyboard focus, never a click
-  or a tap** — that gesture is the copy button and it happens on camera: `:focus-visible` only, hover
-  behind `@media (hover: hover) and (pointer: fine)`, so on a phone the code copies without ever
-  uncovering.
+  over the real text, so copy still copies. **Nothing uncovers it — there is no reveal at all**: not
+  hover, not focus, not a click, not a tap. Every guard written for one input was answered by
+  another, and each put the six characters back on the capture; the way to share a table with the
+  mode on is the link the plate copies. `TableCode.svelte` holds no state selector and the blurred
+  span is out of the tab order (`preferences.test.ts`).
+- **The host's streamer mode is the table's, and it is the one preference that goes on the wire.** The
+  code is one string shared by everybody who can see it, so blurring only the host's copy protects
+  the one screen that was already being watched. `set_streamer_mode` is **host only, refused at a
+  hostless table**, accepted at every status (a host streams the match, not the wait), and answered
+  with `streamer_mode_changed` to the whole table; the answer also rides `room_joined` and every
+  state snapshot, so an arrival and a reload are blurred without waiting for the switch to move
+  again. The client ORs it with the local preference (`store.tableStreamer`, `TableCode.svelte`) and
+  **never overwrites one with the other**. `hostStreamerSync` sends on exactly two moments — the
+  preference moved, or we opened a table with it already on — and **a change of seat sends nothing**:
+  `transfer_host` would otherwise uncover the code for a host still sitting there streaming.
+  `tableStreamerMode.test.ts`, `hub/streamermode_test.go`.
 - **Colour assist gives each suit a silhouette** (`SUIT_SHAPE`, drawn by `SuitMark.svelte`): on the card,
   every picker swatch and the active-colour chip. **Never a letter.** A wild stays unmarked. Anything
   new that means something by hue alone needs the mark.
@@ -1025,18 +1059,21 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 - Run `make csp` after touching `nginx.conf` **or bumping a dependency**.
 
 ## Docker
-Production path: Traefik to nginx (:80) to Go (:8080, internal only); nginx proxies `/ws` and
-`/health`, serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` on
-every response.
+Production path: Traefik to nginx (:80) to Go (:8080, internal only); **nginx proxies `/ws` and
+nothing else** — `/health` and `/metrics` are operator surfaces and are deliberately unreachable from
+the internet — serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` /
+`Strict-Transport-Security` on every response. **HSTS carries neither `includeSubDomains` nor
+`preload`**: both are promises about names this repository does not serve and cannot withdraw once a
+browser has cached them.
 
 **The socket has a second hostname**, `ws.*`, DNS-only and outside the CDN, answered by the same
 nginx with `ws-proxy.conf` and a 404 for everything else. Why, and what it costs operationally, is in
 [`docs/deployment.md`](docs/deployment.md).
 
-**Those four live in `client/security-headers.conf`, and every `location` block that declares an
+**Those five live in `client/security-headers.conf`, and every `location` block that declares an
 `add_header` of its own must `include` it** — in `nginx.conf` *and* in `client/ws-proxy.conf`, which
 `csp.test.ts` scans beside it. nginx inherits `add_header` only into a level that
-declares none, so one `Cache-Control` in a block silently strips all four from everything that block
+declares none, so one `Cache-Control` in a block silently strips all five from everything that block
 serves — which is how the whole `/_astro/` bundle shipped bare while the document response, the only
 one `make csp` looked at, reported clean. `csp.test.ts` fails on a block that declares without
 including.

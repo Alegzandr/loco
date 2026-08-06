@@ -5,7 +5,12 @@
   import { webSocket } from './hooks/webSocket.svelte'
   import { e2eBridge } from './dev/e2eBridge.svelte'
   import { reconnectMessageFor } from './hooks/sessionPersistence'
-  import { gameAudio, sessionPersistence, restoreTimeout } from './hooks/appEffects.svelte'
+  import {
+    gameAudio,
+    sessionPersistence,
+    restoreTimeout,
+    hostStreamerSync,
+  } from './hooks/appEffects.svelte'
   import { tabAlert } from './hooks/tabAlert.svelte'
   import { setTabSeated } from './hooks/tabLock'
   import { peekTableInvite, takeTableInvite } from './hooks/tableInvite'
@@ -77,6 +82,11 @@
   // The handles Playwright drives the app through, dev builds only. See
   // dev/e2eBridge.svelte.ts: the second half of that surface is the game view's.
   e2eBridge(handleSend, () => socket.wsStatus, socket.forceClose)
+
+  // The host's streamer mode is the table's, so it goes out on the wire. Placed
+  // here rather than beside the other two effects because it is the only one
+  // that sends anything. See hooks/appEffects.svelte.ts.
+  hostStreamerSync(handleSend)
 
   // Which sub-screen the lobby opens on. Only ever moved off 'home' by the
   // long-wait escape hatch on the searching screen.

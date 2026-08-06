@@ -195,6 +195,10 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
 
   clearDepartureNotice: () => set({ departureNotice: null }),
 
+  // The host's answer for this table, straight off `streamer_mode_changed`. It
+  // is never derived from the local preference: this seat may not be the host's.
+  setTableStreamer: (tableStreamer) => set({ tableStreamer }),
+
   setTurnDeadline: (turnDeadline) => set({ turnDeadline }),
 
   setSwapNotice: (swapNotice) => set({ swapNotice }),

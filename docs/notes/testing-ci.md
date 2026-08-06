@@ -93,6 +93,13 @@ add a phantom path to that test's allowlist to make it pass: the allowlist is fo
 order to say they are absent, and widening it to cover a claim about the structure is how the guard
 stops guarding. The store completing its own derived state (`catchDerivation.test.ts`).
 
+Streamer mode on both sides of the wire: that nothing uncovers a blurred code (no `:hover`, no
+`:focus`, no state selector at all in `TableCode.svelte`, and the span out of the tab order), that the
+host's switch reaches every seat and rides `room_joined` and the state snapshot, that a guest's own
+preference is never overwritten by it, and the two asks the client must **not** send — a change of
+seat, and anything at a hostless table (`preferences.test.ts`, `tableStreamerMode.test.ts`,
+`hub/streamermode_test.go`, `e2e/tests/streamer-mode.spec.ts`).
+
 The table link: what the code's button copies, the code coming off the address bar, the arrival a
 remembered name seats and the one that is asked for a name first. Seat layout at every table size and
 viewport. State-to-sound mapping. The host freeing a seat: the refusals, the re-based roster, the
@@ -289,7 +296,7 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
 - **`parallel: 4` + `--shard=$CI_NODE_INDEX/$CI_NODE_TOTAL`.** The suite is stateful, so `workers`
   stays at 1 *within* a job and sharding is what parallelises it. `fullyParallel: true` is what makes
   the split even. Left false, Playwright shards whole **spec files**, and the suite's files are
-  wildly uneven — `rules-coverage.spec.ts` alone holds 23 of the 122 tests. Measured back at 87, that
+  wildly uneven — `rules-coverage.spec.ts` alone holds 23 of the 147 tests. Measured back at 87, that
   split came out 27/39/0/21: one job running empty while another carried 45% of the suite. This is the only change here with a prerequisite outside the
   repo: **it needs a runner that accepts concurrent jobs** (`concurrent > 1` in its `config.toml`).
   At `concurrent = 1` the shards queue and pay four setups for one suite, which is slower than not
@@ -336,7 +343,7 @@ for a configuration one. Not worth it; do not revisit without a new reason.
 in this repository. The helper container that performs the upload resolves the API host (GitLab's
 own external URL, `http://gitlab`) against the LAN's DNS, which does not know that name:
 `dial tcp: lookup gitlab on 192.168.1.254:53: no such host`, three retries, `FATAL`. An upload
-failure **fails the job**, so a single `artifacts:` block turns a suite where all 122 tests passed
+failure **fails the job**, so a single `artifacts:` block turns a suite where all 147 tests passed
 into a red pipeline. The fix is one line on the runner (`extra_hosts`, or joining GitLab's Docker
 network, or registering it against the FQDN), not a line of YAML.
 
@@ -373,9 +380,12 @@ Browser (HTTPS) → Traefik (:443 websecure)
 - All `docker compose` calls use `--env-file paths.env --env-file app.env`.
 - nginx `/ws`: `proxy_connect_timeout 10s`, `proxy_read_timeout 86400s`, `proxy_send_timeout 86400s`.
 - nginx serves `robots.txt` `Disallow: /` on `*-d.<domain>`; prod allows indexing.
-- nginx sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` on every response (`always`).
-  See "Anti-cheat" in `server.md` for what the CSP may and may not allow.
-- **The four headers live in `client/security-headers.conf`, and every `location` block that declares
+- nginx sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` /
+  `Strict-Transport-Security` on every response (`always`). See "Anti-cheat" in `server.md` for what
+  the CSP may and may not allow. HSTS carries **no `includeSubDomains` and no `preload`**: both are
+  promises about names this repository does not serve and cannot withdraw once a browser has cached
+  them, and `csp.test.ts` fails on either reappearing.
+- **The five headers live in `client/security-headers.conf`, and every `location` block that declares
   an `add_header` must `include` it.** This is the one nginx rule that fails silently in the
   direction that matters: `add_header` is inherited into an inner level *only while that level
   declares none of its own*, so it is not "these are added to what the server block set", it is
@@ -393,7 +403,7 @@ Browser (HTTPS) → Traefik (:443 websecure)
   that directory today, which is exactly the argument for closing it before something does.
   Both checks were fixed to see the shape rather than the values: `csp.test.ts` brace-matches every
   `location` block and fails on one that declares an `add_header` without the include, and
-  `tools/csp/check.mjs` now asserts the four headers on an actual `/_astro/` sub-resource response —
+  `tools/csp/check.mjs` now asserts the five headers on an actual `/_astro/` sub-resource response —
   and reports a problem if the page pulled in no asset to check, so it cannot pass by finding
   nothing.
 - **`connect-src` uses `$http_host`, never `$host`.** `$host` drops the port, and a CSP host source
@@ -417,7 +427,7 @@ Browser (HTTPS) → Traefik (:443 websecure)
   production-style stack up, loads the page in a real browser and creates a room, then tears the
   stack down. Console clean, fonts loaded and the waiting room reached is the whole verdict, because
   the waiting room only appears after a WebSocket round trip. It collects `securitypolicyviolation`
-  events, console errors and failed requests on the way, and checks all four headers are on the
+  events, console errors and failed requests on the way, and checks all five headers are on the
   response. Run it after touching `nginx.conf`. `--url=…` points it at a stack that is already up;
   `--keep` leaves the one it started running.
   - It waits on **the SPA answering, not on `docker compose up -d` returning**. The two are not the

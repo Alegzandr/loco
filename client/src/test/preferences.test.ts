@@ -302,7 +302,7 @@ describe('Streamer mode', () => {
    * any rule at all. The two ways a click uncovers the code are both a selector,
    * and a selector is exactly what a source scan can hold.
    */
-  describe('the reveal never answers a click', () => {
+  describe('nothing uncovers the code', () => {
     // Selectors only. The comments beside them name `:focus` and `:hover` in
     // order to say why neither is used, and a scan that reads those matches the
     // explanation instead of the rule.
@@ -311,21 +311,25 @@ describe('Streamer mode', () => {
       '',
     )
 
-    it('reveals on :focus-visible and not on :focus', () => {
-      expect(css).toContain(':focus-visible')
-      // `:focus` on its own matches the mouse click that copies the code and
-      // holds the reveal after the pointer has gone. The negative lookahead is
-      // what tells the two apart.
-      expect(css).not.toMatch(/:focus(?!-visible)/)
+    it('has no state selector that could clear the blur', () => {
+      // Every guard this rule ever had — `:focus`, then `:focus-visible`, then
+      // hover behind a pointer media query — was a narrower answer to the same
+      // question, and each one still put the six characters back on screen
+      // mid-capture. There is no reveal left to guard.
+      expect(css).not.toContain(':hover')
+      expect(css).not.toContain(':focus')
+      expect(css).not.toContain('filter: none')
     })
 
-    it('puts hover behind a real pointer', () => {
-      // A touch screen emulates hover on tap and leaves it stuck there, so an
-      // unguarded :hover uncovers the code on the copy gesture and keeps it
-      // uncovered.
-      expect(css).toMatch(/@media \(hover: hover\) and \(pointer: fine\)/)
-      const outsideQuery = css.slice(0, css.indexOf('@media (hover: hover)'))
-      expect(outsideQuery).not.toContain(':hover')
+    it('leaves the blurred code out of the tab order', () => {
+      // A stop that does nothing, next to the copy button that does everything.
+      // Read off the DOM, not the source: the comment above the element says the
+      // word too, and this is the half jsdom can actually answer.
+      localStorage.setItem('loco_streamer_mode', '1')
+      resetStreamerMode()
+
+      renderWaiting()
+      expect(codeEl('ABC123')).not.toHaveAttribute('tabindex')
     })
   })
 })

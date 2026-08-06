@@ -67,6 +67,9 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       discard: null,
       isMatchmade: false,
       isSolo: false,
+      // The table's setting leaves with the table. This player's own preference
+      // is in `localStorage` and untouched by any of this.
+      tableStreamer: false,
       matchFound: null,
       searchStartedAt: null,
       forfeitBy: null,

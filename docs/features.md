@@ -61,6 +61,13 @@ rules, `docs/notes/` the reasoning.
 - **The code plate carries a chain**, because pressing it copies a link rather than the six
   characters, and the toast only said so after the press. It is drawn, and it is not blurred by
   streamer mode: what has to stay off a stream is the code.
+- **Streamer mode hides the table code, and the host's hides it for the whole table.** The code is one
+  string shared by everybody who can see it, so a host with it on camera is exposed by their guests'
+  screens as much as by their own: the switch travels to the server and every seat blurs, including
+  people who join an hour later and tabs that reload mid-match. A player's own switch stays their
+  own — the two are ORed, so nobody's code is uncovered by somebody else's stream ending. Nothing
+  uncovers a blurred code, at all: not hover, not focus, not a tap. Sharing a table with it on is the
+  link the code plate copies, which travels through chat rather than through the capture.
 - **Play the bot**: a 1v1 against the server from the home screen — a nickname, one press, a dealt
   hand. No table code, no waiting room, no host controls, one round. It is the queue's offer with the
   wait taken out, so it is the fourth button of the home menu, drawn like the other three and sitting

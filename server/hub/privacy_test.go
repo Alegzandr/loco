@@ -156,6 +156,57 @@ func TestClientNetTruncatesTheForwardedAddress(t *testing.T) {
 	}
 }
 
+// A forwarded header that does not name an address a browser on the internet
+// could have is not read, whatever wrote it.
+//
+// It is the server-side half of the rule client/ws-proxy.conf enforces at the
+// proxy: each host forwards only the address its own path guarantees. The case
+// that makes it worth a check of its own is the private one — a forged public
+// address only buys its sender a bucket of their own, but a forged private one
+// can be aimed at the bucket everybody with no trustworthy header falls back
+// into, and filling that one refuses them all at the upgrade.
+func TestClientNetIgnoresAForwardedAddressNoBrowserCouldHave(t *testing.T) {
+	// One entry per shape isRoutableClient refuses. The peer is the same trusted
+	// proxy throughout, so the header is the only thing under test.
+	for _, forged := range []string{
+		"127.0.0.1",       // loopback
+		"::1",             // loopback, v6
+		"10.0.0.7",        // private
+		"172.18.0.4",      // private — the proxy's own network
+		"192.168.1.5",     // private
+		"169.254.10.1",    // link-local
+		"fe80::1",         // link-local, v6
+		"fd00::1",         // unique local
+		"0.0.0.0",         // unspecified
+		"224.0.0.1",       // multicast
+		"::ffff:10.0.0.7", // private, wearing a v6 mapping
+	} {
+		r := httptest.NewRequest("GET", "/ws", nil)
+		r.RemoteAddr = "172.18.0.4:41022"
+		r.Header.Set("CF-Connecting-IP", forged)
+
+		// The peer, which is what the fallback answers with — never a key derived
+		// from the header.
+		if got, want := clientNet(r), "172.18.0.0/24"; got != want {
+			t.Errorf("CF-Connecting-IP %q: clientNet() = %q, want %q (the peer)", forged, got, want)
+		}
+	}
+}
+
+// And the refusal falls through to the next header rather than to the peer: a
+// deployment reading two of them has one path per header, and an unusable value
+// on the first says nothing about the second.
+func TestClientNetFallsThroughToTheNextHeader(t *testing.T) {
+	r := httptest.NewRequest("GET", "/ws", nil)
+	r.RemoteAddr = "172.18.0.4:41022"
+	r.Header.Set("CF-Connecting-IP", "10.0.0.7") // unusable
+	r.Header.Set("X-Real-IP", "203.0.113.7")     // the real one
+
+	if got, want := clientNet(r), "203.0.113.0/24"; got != want {
+		t.Errorf("clientNet() = %q, want %q", got, want)
+	}
+}
+
 // LOCO_TRUSTED_PROXIES replaces the defaults rather than adding to them, so a
 // deployment that names its proxy stops believing everything else private.
 func TestClientNetHonoursAnExplicitProxyList(t *testing.T) {

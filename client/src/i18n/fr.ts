@@ -48,8 +48,9 @@ export const fr: Translations = {
   prefsMotionHint: 'Coupe les vols de cartes et les confettis. Suit ton système tant que tu n’y touches pas.',
   // On dit ce que ça fait au code, pas comment le mode s'appelle : un joueur
   // qui doit deviner l'effet laissera l'option éteinte.
-  prefsStreamerHint: 'Floute le code de la table à l’écran. Survole-le pour le lire toi-même.',
-  prefsCodeHidden: 'Masqué. Survole pour le lire.',
+  prefsStreamerHint:
+    'Floute le code de la table, et chez tout le monde si tu es l’hôte. Rien ne le dévoile : partage le lien.',
+  prefsCodeHidden: 'Masqué par le mode streamer.',
 
   // ─── Matchmaking 1v1 ──────────────────────────────────────────
   findMatch: 'Jouer en 1v1',

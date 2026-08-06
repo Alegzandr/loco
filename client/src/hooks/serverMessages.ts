@@ -44,6 +44,10 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         if (msg.match_format && msg.max_players) {
           store.setLobbyConfig(msg.match_format, msg.max_players)
         }
+        // The host may have been streaming for an hour before this player typed
+        // the code. Absent on room_created, where the table is one message old
+        // and this client is the host that owns the setting.
+        store.setTableStreamer(msg.streamer_mode ?? false)
         store.setScreen('waiting')
         break
       }
@@ -89,6 +93,13 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
       case 'kicked':
         store.resetToHome()
         store.setError('removed by the host')
+        break
+
+      // The host started or stopped streaming. Not a lobby config: it is
+      // accepted at every status, because a host streams the match and not the
+      // wait.
+      case 'streamer_mode_changed':
+        store.setTableStreamer(msg.streamer_mode ?? false)
         break
 
       case 'lobby_config_changed':

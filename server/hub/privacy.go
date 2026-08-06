@@ -136,11 +136,11 @@ func clientNet(r *http.Request) string {
 }
 
 // forwardedAddr reads ClientIPHeaders in order, if and only if the peer is a
-// trusted proxy and the value is exactly one address. Every other case falls
-// through to the next header and finally to the peer rather than guessing: a
-// header that is absent, empty, a list or unparseable is a topology this server
-// has not been told about, and inventing a network key from it is how one player
-// would get a budget of their own.
+// trusted proxy and the value is exactly one routable address. Every other case
+// falls through to the next header and finally to the peer rather than guessing:
+// a header that is absent, empty, a list or unparseable is a topology this
+// server has not been told about, and inventing a network key from it is how one
+// player would get a budget of their own.
 func forwardedAddr(r *http.Request) (string, bool) {
 	if !peerIsTrustedProxy(r.RemoteAddr) {
 		return "", false
@@ -150,12 +150,41 @@ func forwardedAddr(r *http.Request) (string, bool) {
 		if raw == "" || strings.Contains(raw, ",") {
 			continue
 		}
-		if _, err := netip.ParseAddr(raw); err != nil {
+		ip, err := netip.ParseAddr(raw)
+		if err != nil || !isRoutableClient(ip) {
 			continue
 		}
 		return raw, true
 	}
 	return "", false
+}
+
+// isRoutableClient reports whether an address in a forwarded header can be a
+// player's. A browser on the internet always is; a loopback, private, link-local
+// or multicast address never is on the path this runs on, so one arriving in a
+// header is either a topology nobody declared or a value somebody chose.
+//
+// It is the last line of the same rule the proxy config enforces — each host
+// forwards only the address its own path guarantees (client/ws-proxy.conf) — and
+// it exists because the two failure modes differ in kind. A forged public
+// address hands its sender a network key of their own, which is bounded by the
+// ceilings being per-network in the first place. A forged *private* one hands
+// them a key they can make collide with the proxy's own fallback bucket, so a
+// player who is spending nothing can push the bucket everybody else falls back
+// into over the ceiling and refuse them at the upgrade. Falling through to the
+// peer costs a shared bucket in a topology this server was never told about,
+// which is precisely what the fallback is for.
+func isRoutableClient(ip netip.Addr) bool {
+	if !ip.IsValid() {
+		return false
+	}
+	ip = ip.Unmap()
+	switch {
+	case ip.IsUnspecified(), ip.IsLoopback(), ip.IsPrivate(),
+		ip.IsMulticast(), ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast():
+		return false
+	}
+	return true
 }
 
 func peerIsTrustedProxy(addr string) bool {

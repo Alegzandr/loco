@@ -181,10 +181,25 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
       'X-Content-Type-Options',
       'Referrer-Policy',
       'Permissions-Policy',
+      'Strict-Transport-Security',
     ]) {
       expect(header(name).always, `${name} is not marked always`).toBe(true)
     }
     expect(header('X-Content-Type-Options').value).toBe('nosniff')
+  })
+
+  it('refuses a plaintext first navigation', () => {
+    // The response that carries the CSP is also the response that carries the
+    // bundle, so an http navigation nobody upgraded is one where both are the
+    // attacker's to write. Every entrypoint here is `websecure`, which is what
+    // makes this cheap rather than what makes it unnecessary.
+    const hsts = header('Strict-Transport-Security').value
+    const maxAge = /max-age=(\d+)/.exec(hsts)
+    expect(maxAge, 'Strict-Transport-Security carries no max-age').not.toBeNull()
+    expect(Number(maxAge![1])).toBeGreaterThanOrEqual(31536000)
+    // Both are promises about names this repository does not serve and cannot
+    // withdraw once a browser has cached them. See security-headers.conf.
+    expect(hsts).not.toMatch(/includeSubDomains|preload/i)
   })
 
   it('sends them on assets too, not only on the document', () => {
@@ -240,6 +255,91 @@ describe('Content-Security-Policy (client/nginx.conf)', () => {
           `Add \`${SNIPPET}\` to that block or its responses ship with no CSP and no nosniff.`,
       ).toBe(true)
     }
+  })
+})
+
+/**
+ * The player's address is what every per-network ceiling in the Go server is
+ * keyed on (hub/privacy.go: clientNet, admitConn, joinThrottled), and this proxy
+ * is the only thing that decides what the server gets to believe about it.
+ *
+ * The hole this pins shut: `ws.` is grey-clouded on purpose, so Cloudflare is
+ * not on that path and nothing there sets or strips CF-Connecting-IP. While the
+ * shared proxy block forwarded `$http_cf_connecting_ip` from both hosts, a
+ * client could write its own — and the Go server believed it, because the *peer*
+ * it checks against TrustedProxies is this container. One header per socket was
+ * one network key per socket: MaxConnsPerNet stops bounding anything, and so
+ * does the wrong-code budget that rations a sweep of the table-code space.
+ *
+ * Nothing else can see it. The header arrives, parses and looks exactly like the
+ * real thing at every layer; the only place the truth exists is which host the
+ * request came in on, which is this config and nowhere else.
+ */
+describe('the network key the server is keyed on (ws-proxy.conf)', () => {
+  const wsProxy = readFileSync(path.join(CLIENT, 'ws-proxy.conf'), 'utf8')
+
+  /** The `set $name value;` pairs declared directly by each `server { … }`. */
+  function serverBlocks(): { name: string; sets: Record<string, string> }[] {
+    const out: { name: string; sets: Record<string, string> }[] = []
+    const opener = /^server\s*\{/gm
+    for (let m = opener.exec(conf); m; m = opener.exec(conf)) {
+      let depth = 1
+      let i = m.index + m[0].length
+      for (; i < conf.length && depth > 0; i++) {
+        if (conf[i] === '{') depth++
+        else if (conf[i] === '}') depth--
+      }
+      const body = conf.slice(m.index + m[0].length, i - 1)
+      const sets: Record<string, string> = {}
+      const setRe = /^\s*set\s+\$(\w+)\s+(.+?);/gm
+      for (let s = setRe.exec(body); s; s = setRe.exec(body)) sets[s[1]] = s[2].trim()
+      const named = /server_name\s+([^;]+);/.exec(body)
+      out.push({ name: named ? named[1].trim() : 'default', sets })
+    }
+    return out
+  }
+
+  it('reads the address from a per-host variable, never from the request', () => {
+    // The whole fix is that the shared block cannot decide this: it is shared,
+    // and the two hosts guarantee different things. A `$http_…` reappearing on
+    // either of these lines is the hole reopening.
+    expect(wsProxy).toMatch(/proxy_set_header\s+CF-Connecting-IP\s+\$loco_cf_ip;/)
+    expect(wsProxy).toMatch(/proxy_set_header\s+X-Real-IP\s+\$loco_real_ip;/)
+    const forwarded = wsProxy.match(/^\s*proxy_set_header\s+(?:CF-Connecting-IP|X-Real-IP)\s+.*$/gm) ?? []
+    expect(forwarded).toHaveLength(2)
+    for (const line of forwarded) {
+      expect(line, `${line.trim()} reads the request directly`).not.toMatch(/\$http_/)
+    }
+  })
+
+  it('has every host declare both, so neither is inherited by accident', () => {
+    // An undefined variable is an nginx startup error rather than an empty
+    // string, so a missing `set` fails loudly — but only on the host that lacks
+    // it, and only once a request reaches it. Asserting both on every server
+    // block is what makes a new host state its own answer instead of copying a
+    // neighbour's.
+    const blocks = serverBlocks()
+    expect(blocks.length, 'no server block was parsed — this guard is asserting nothing').toBe(2)
+    for (const { name, sets } of blocks) {
+      expect(Object.keys(sets), `server ${name} does not set both address variables`)
+        .toEqual(expect.arrayContaining(['loco_cf_ip', 'loco_real_ip']))
+    }
+  })
+
+  it('trusts CF-Connecting-IP only on the host Cloudflare is actually in front of', () => {
+    // `ws.*` is the direct socket hostname, resolved outside the CDN — that is
+    // its entire reason to exist (docs/deployment.md). So CF-Connecting-IP is
+    // client-written there and must not travel; X-Real-IP is the one Traefik
+    // overwrites on that path. The site's host is the mirror image.
+    const direct = serverBlocks().find((b) => b.name.startsWith('ws.'))
+    expect(direct, 'no ws.* server block found').toBeDefined()
+    expect(direct!.sets.loco_cf_ip).toBe('""')
+    expect(direct!.sets.loco_real_ip).toBe('$http_x_real_ip')
+
+    const site = serverBlocks().find((b) => b.name === 'default')
+    expect(site, 'no default server block found').toBeDefined()
+    expect(site!.sets.loco_cf_ip).toBe('$http_cf_connecting_ip')
+    expect(site!.sets.loco_real_ip).toBe('""')
   })
 })
 

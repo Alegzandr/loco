@@ -21,7 +21,7 @@ Both are now what their names say, and the work sits beside the other work of it
 | `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
 | `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; preloading the room's art while the table is shut, then answering `map_ready` |
 | `hooks/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
-| `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands |
+| `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands; the host's streamer mode reaching the table |
 | `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
 | `components/swapNoticeText.ts` | the line a Swap or a GlobalSwitch puts on screen |
 
@@ -1236,20 +1236,43 @@ switches: streamer mode, colour shapes, reduced motion.
   waiting room — the one screen a streamer is guaranteed to sit on while friends join — prints them
   at display size. `streamerMode.ts` (`localStorage`, key `loco_streamer_mode`) is a module store,
   not store or context state: the flag is read by two screens with no common parent and written from
-  a third, and it must survive a reload with no round trip. Nothing about it reaches the wire.
+  a third, and it must survive a reload with no round trip.
+- **The host's copy of that flag is the table's, and it is the one preference in this client that
+  leaves it.** A table code is a single string shared by everybody who can see it: a host streaming
+  their own screen is exposed by the friend who joined and left the waiting room up on a second
+  monitor, and by the seat that reads the code out. Blurring only the host's copy protects the one
+  screen that was already being careful. So `hostStreamerSync` (`hooks/appEffects.svelte.ts`) sends
+  `set_streamer_mode`, the server keeps one answer per table and broadcasts it, and the client keeps
+  it in `store.tableStreamer`, **ORed** with the local preference and never merged into it — a guest
+  who wants the code hidden for their own stream must not be uncovered by the host stopping theirs.
+  - **Two moments send, and a change of seat is not one of them.** The preference moved at a table we
+    host, or we opened a table with it already on (the host who set it yesterday). `transfer_host`
+    hands seat 0 to somebody whose own switch is probably off, and treating that as an instruction
+    would uncover the code for a host still sitting there with it on camera. Their switch is theirs
+    to touch.
+  - **Nothing consults `store.tableStreamer` before sending.** It would swallow the ask that changes
+    nothing, and with it the retry after one that never landed; the server answers a repeat with
+    silence, which is the cheaper place to put that.
+  - **Hostless tables never send.** The server refuses the message there, and an error nobody asked
+    for would land on the board mid-match. `tableStreamerMode.test.ts` pins all of it.
 - **`TableCode.svelte` is the only way a screen prints the code.** The blur is a CSS filter over the
-  real text, so the copy button still copies the real code and hover or keyboard focus clears it for
-  the owner — reading the code out loud is a normal thing to want. A screen that renders `roomCode`
-  directly leaks it the moment the mode is on, and nothing will fail loudly: go through `TableCode`.
-- **A click and a tap are the one gesture that must not reveal it**, because that gesture is *copy*
-  and it happens on camera. Two rules kept undoing that. `:focus` matched the mouse click as well as
-  the keyboard, so pressing the copy button uncovered the code and left it uncovered until the next
-  click landed somewhere else — the reveal outlived the pointer, on the screen the whole mode exists
-  for. And a touch screen, which has no hover, emulates one on tap and leaves it stuck on the
-  element, so a tap to copy did exactly the same thing. So the reveal is `:focus-visible`, and the
-  hover half sits behind `@media (hover: hover) and (pointer: fine)`. The consequence is deliberate:
-  **on a phone the code never uncovers**. It still copies, and a player who wants to read it turns
-  the mode off — which is the cheaper mistake of the two.
+  real text, so the copy button still copies the real code and a screen reader still reads it out. A
+  screen that renders `roomCode` directly leaks it the moment the mode is on, and nothing will fail
+  loudly: go through `TableCode`.
+- **There is no reveal, and the history of this line is why.** It started as "one hover away, reading
+  the code out loud is a normal thing to want", and every version after that was a narrower guard on
+  the same idea. `:focus` matched the mouse click that copies, so pressing the button uncovered the
+  code and left it uncovered until the next click landed elsewhere. A touch screen, which has no
+  hover, emulates one on tap and leaves it stuck on the element, so a tap to copy did the same — that
+  was guarded with `@media (hover: hover) and (pointer: fine)`, which only narrowed it to a mouse.
+  And a mouse hover is the pointer resting on the plate, which on a waiting-room screen being
+  captured is exactly where it already is. `:focus-visible` survived one revision longer and went the
+  same way: the keyboard reach is deliberate, but the thing it uncovers is on camera either way.
+  **So the blur has no state selector at all** — `preferences.test.ts` fails on `:hover`, on `:focus`
+  and on a second `filter: none` — and the span is out of the tab order, since the only reason it was
+  reachable was the reveal. **Sharing the table with the mode on is the link**, which the plate
+  copies whole and which travels through chat rather than through the capture. A player who wants to
+  read the code out loud turns the mode off.
 - **The lobby's join field is deliberately not masked.** It holds what the player is typing, and a
   blurred input is a typo you cannot see. The leak there is the code the player already knows.
 - **Both dropdowns are 292px, and the sizes inside them are a thumb's, not a cursor's.** They were

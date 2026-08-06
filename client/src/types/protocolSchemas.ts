@@ -66,6 +66,7 @@ export const clientMsgTypeSchema = v.picklist([
   'add_bot',
   'set_match_format',
   'set_max_players',
+  'set_streamer_mode',
   'kick_player',
   'transfer_host',
   'rematch',
@@ -95,6 +96,7 @@ export const serverMsgTypeSchema = v.picklist([
   'player_disconnected',
   'player_reconnected',
   'lobby_config_changed',
+  'streamer_mode_changed',
   'game_started',
   'matchmaking_queued',
   'matchmaking_cancelled',
@@ -188,6 +190,15 @@ export const clientMsgSchema = v.object({
   match_format: v.optional(matchFormatSchema),
   // CMsgSetMaxPlayers
   max_players: v.optional(v.number()),
+  // CMsgSetStreamerMode: the state the host is asking for, not a toggle. A
+  // toggle would come back wrong from a client whose picture of the table is a
+  // message behind, and this one is switched from a panel that can be opened on
+  // any screen.
+  //
+  // `omitempty` costs nothing here because absent and false mean the same
+  // thing — off — on the one message type that reads it. That is not true of
+  // the seat and turn fields above, whose zero is a seat.
+  streamer_mode: v.optional(v.boolean()),
   // CMsgSendEmote: which of the three. Validated against AllEmotes, so an
   // identifier this server does not know is refused rather than relayed.
   emote: v.optional(emoteSchema),
@@ -305,6 +316,11 @@ export const gameStateSchema = v.object({
   match_history: v.optional(v.array(matchRecordSchema)),
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline: v.optional(v.number()),
+  // StreamerMode is the host's answer, carried in every snapshot for the same
+  // reason MapID is: a tab that reloads mid-match rebuilds the table from this
+  // and nothing else, and a table code that comes back readable on a stream is
+  // the one failure this setting exists to prevent. See ServerMsg.StreamerMode.
+  streamer_mode: v.optional(v.boolean()),
 })
 
 // ServerMsg is the envelope for all server-to-client messages.
@@ -437,6 +453,16 @@ export const serverMsgSchema = v.object({
   // SMsgLobbyConfigChanged
   match_format: v.optional(matchFormatSchema),
   max_players: v.optional(v.number()),
+  // SMsgStreamerModeChanged, and the table's current answer on SMsgRoomJoined so
+  // somebody arriving mid-stream blurs the code without waiting for the host to
+  // touch the switch again. (Not on SMsgRoomCreated: that table is one message
+  // old and the host is the client that owns the setting.)
+  //
+  // `omitempty` for the same reason as Forfeit: absent can only mean off. The
+  // field rides message types that always carry the whole state of the setting,
+  // never an increment, so there is no earlier value it could be leaving
+  // unchanged.
+  streamer_mode: v.optional(v.boolean()),
   // SMsgMatchLoading: the seats whose client has the map decoded.
   //
   // `omitempty` is safe here, unlike on PlayerIndex/PendingDraw: this field

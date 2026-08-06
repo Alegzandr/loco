@@ -7,6 +7,8 @@ import { clearSession, touchSession, writeSession } from './sessionPersistence'
 import type { RestoreTarget } from './sessionPersistence'
 import { RESTORE_TIMEOUT_MS } from './sessionRestore'
 import { live } from './live.svelte'
+import { isStreamerMode, streamerModePref } from './streamerMode'
+import type { ClientMsg } from '../types/protocol'
 
 /**
  * The three app-level effects, ported from their `use*` hooks. All three are
@@ -158,6 +160,72 @@ export function sessionPersistence(): void {
       unsubscribe()
       window.removeEventListener('pagehide', stamp)
       document.removeEventListener('visibilitychange', onVisibility)
+    }
+  })
+}
+
+/**
+ * Tells the table when the host starts or stops streaming.
+ *
+ * Streamer mode is presentation everywhere else in this client, and this is the
+ * one thing about it that cannot be: the table code is a single string shared by
+ * everybody who can see it, so a host with it on screen is exposed by their
+ * guests' screens as much as by their own. The server holds one answer per table
+ * and broadcasts it; this is the only place that answer is ever asked for.
+ *
+ * Two moments send, and no others:
+ *
+ *  - the preference moved, at a table we are the host of;
+ *  - we just opened a table with it already on, which is the host who set it
+ *    yesterday and creates a table today.
+ *
+ * A change of seat deliberately sends nothing. `transfer_host` hands the table
+ * to somebody whose own switch is probably off, and treating that as an
+ * instruction would uncover the code for a host who is still sitting there
+ * streaming. Their switch is theirs to touch when they want it.
+ *
+ * Hostless tables (matchmade, solo) never send: the server refuses the message
+ * there, and an error the player did not ask for would land on the board.
+ *
+ * Nothing here reads the table's current answer to decide whether to speak. It
+ * is tempting — it would swallow the ask that changes nothing — but it also
+ * swallows the retry after one that never landed, and the server already
+ * answers a repeat with silence.
+ */
+export function hostStreamerSync(send: (msg: ClientMsg) => void): void {
+  $effect(() => {
+    let lastPref = isStreamerMode()
+    let lastCode = ''
+
+    const sync = (s: ReturnType<typeof gameStore.getState>) => {
+      const on = isStreamerMode()
+      const prefMoved = on !== lastPref
+      lastPref = on
+
+      if (!s.roomCode || s.myIndex !== 0 || s.isMatchmade || s.isSolo) {
+        // Not a table we speak for. The code is cleared so coming back to one
+        // reads as new, which is what makes the second table of the evening
+        // carry the preference too.
+        lastCode = ''
+        return
+      }
+      const newTable = s.roomCode !== lastCode
+      lastCode = s.roomCode
+
+      // A new table is only ever told the "on" half. Its answer is already off,
+      // and sending the off half would make arriving at a table an instruction
+      // about it — which is exactly what the seat change above must not become.
+      if (prefMoved || (newTable && on)) {
+        send({ type: 'set_streamer_mode', streamer_mode: on })
+      }
+    }
+
+    sync(gameStore.getState())
+    const unsubStore = gameStore.subscribe(sync)
+    const unsubPref = streamerModePref.subscribe(() => sync(gameStore.getState()))
+    return () => {
+      unsubStore()
+      unsubPref()
     }
   })
 }

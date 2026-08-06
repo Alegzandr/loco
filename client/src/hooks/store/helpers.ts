@@ -121,5 +121,6 @@ export function gameStateSliceFromDTO(state: GameStateDTO) {
     roundHistory: state.round_history ?? [],
     matchHistory: state.match_history ?? [],
     turnDeadline: state.turn_deadline ?? null,
+    tableStreamer: state.streamer_mode ?? false,
   }
 }

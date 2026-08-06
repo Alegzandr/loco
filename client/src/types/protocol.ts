@@ -65,6 +65,11 @@ export type ClientMsgType =
   | 'add_bot'
   | 'set_match_format'
   | 'set_max_players'
+  // CMsgSetStreamerMode is the host saying the table code must not be readable
+  // on anybody's screen, because it is on theirs and theirs is being captured.
+  // The one preference in this game that is not purely local: see
+  // hub.handleSetStreamerMode.
+  | 'set_streamer_mode'
   // CMsgKickPlayer frees a seat at the host's table, named by TargetIndex. The
   // only lobby control that acts on somebody else, and the only way to take a
   // bot's seat back. Lobby only: once the cards are out a seat belongs to a
@@ -124,6 +129,11 @@ export type ServerMsgType =
   | 'player_disconnected'
   | 'player_reconnected'
   | 'lobby_config_changed'
+  // SMsgStreamerModeChanged says the host's streamer mode moved. It is not a
+  // lobby config: the host can be streaming a match that is already running, so
+  // it travels on its own message rather than beside the format and the seat
+  // count, which are refused once the table has dealt.
+  | 'streamer_mode_changed'
   // SMsgGameStarted hands every seat its dealt state. A solo table's copy also
   // carries RoomCode, PlayerID and SessionToken: that mode has no message
   // before this one — no room_created, no match_found — because it has no
@@ -252,6 +262,15 @@ export interface ClientMsg {
   match_format?: MatchFormat
   // CMsgSetMaxPlayers
   max_players?: number
+  // CMsgSetStreamerMode: the state the host is asking for, not a toggle. A
+  // toggle would come back wrong from a client whose picture of the table is a
+  // message behind, and this one is switched from a panel that can be opened on
+  // any screen.
+  //
+  // `omitempty` costs nothing here because absent and false mean the same
+  // thing — off — on the one message type that reads it. That is not true of
+  // the seat and turn fields above, whose zero is a seat.
+  streamer_mode?: boolean
   // CMsgSendEmote: which of the three. Validated against AllEmotes, so an
   // identifier this server does not know is refused rather than relayed.
   emote?: Emote
@@ -464,6 +483,16 @@ export interface ServerMsg {
   // SMsgLobbyConfigChanged
   match_format?: MatchFormat
   max_players?: number
+  // SMsgStreamerModeChanged, and the table's current answer on SMsgRoomJoined so
+  // somebody arriving mid-stream blurs the code without waiting for the host to
+  // touch the switch again. (Not on SMsgRoomCreated: that table is one message
+  // old and the host is the client that owns the setting.)
+  //
+  // `omitempty` for the same reason as Forfeit: absent can only mean off. The
+  // field rides message types that always carry the whole state of the setting,
+  // never an increment, so there is no earlier value it could be leaving
+  // unchanged.
+  streamer_mode?: boolean
   // SMsgMatchLoading: the seats whose client has the map decoded.
   //
   // `omitempty` is safe here, unlike on PlayerIndex/PendingDraw: this field
@@ -560,4 +589,9 @@ export interface GameStateDTO {
   match_history?: MatchRecordDTO[]
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline?: number
+  // StreamerMode is the host's answer, carried in every snapshot for the same
+  // reason MapID is: a tab that reloads mid-match rebuilds the table from this
+  // and nothing else, and a table code that comes back readable on a stream is
+  // the one failure this setting exists to prevent. See ServerMsg.StreamerMode.
+  streamer_mode?: boolean
 }
