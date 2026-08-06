@@ -400,6 +400,16 @@ rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcan
 - Scenes `game-map-neon` / `-rune` / `-velvet` / `-orbit` / `game-map-loading`. **The playfield
   numbers are measured by eye off the art, so a drifted table shows up in `make visual` and nowhere
   else**, so review any change to the art or to `tableImageRect()` there.
+- **The felt's shape at 1× is `tableRect()`'s, never the art's**, and the second number to watch is
+  the *scale*: the picture is drawn `1 / playfield.w` times the felt's width, so a table whose rim is
+  wide in its own file is a table that runs off a 16:9 screen and takes the room with it. Neon sits
+  at 1.17×, and past about 1.4× the board stops reading as a table in a room. **`rune` and `orbit`
+  buy that back**: their playfields are widened ~8% beyond the painted felt (1.53×/1.48× → 1.41×),
+  which is why the chevrons there sit on the inner lip rather than on the felt. Deliberate, and the
+  reason not to "correct" those two back onto the felt by eye. A table drawn nearly face-on cannot
+  do better: the ellipse is fixed, so the art is squashed to meet it (rune 0.89×, orbit 0.82×) and
+  no number here changes that — **new table art wants a felt at 78–85% of the file's width and
+  roughly 0.40 as tall as it is wide.**
 - **A map is tried before it is submitted, not after** (`tools/maps/scene-tester.html`). Measuring a
   `playfield` means seeing the felt land on the picture, and until this existed the loop was: guess
   four numbers, add a scene, run `make maps`, run `make visual`, read a screenshot, guess again. A

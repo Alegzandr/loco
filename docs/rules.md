@@ -1,4 +1,4 @@
-# LOCO Card Game — Rules Specification
+# LOCO! Card Game — Rules Specification
 
 > Complete, unambiguous spec for implementation and verification. Based on the SOLO card game by AMIGO Spiel + Freizeit GmbH.
 

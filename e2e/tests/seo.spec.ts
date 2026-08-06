@@ -172,6 +172,9 @@ test.describe('read without JavaScript', () => {
     await expect(h1).toHaveCount(1)
     const text = ((await h1.textContent()) ?? '').trim()
     expect(text.length, 'the heading has to say what the page is').toBeGreaterThan(20)
+    // Both spellings: the name grew a mark, and a heading that is only the name
+    // is the wordmark again either way.
+    expect(text, 'a heading reading "LOCO!" is the wordmark again').not.toBe('LOCO!')
     expect(text, 'a heading reading "LOCO" is the wordmark again').not.toBe('LOCO')
     // Off the screen, in the accessibility tree: clipped, never display:none.
     await expect(h1).toHaveClass(/sr-only/)

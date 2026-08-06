@@ -23,7 +23,7 @@ export interface QA {
 
 export const FAQ: readonly QA[] = [
   {
-    q: { en: 'Is LOCO free?', fr: 'Est-ce que LOCO est gratuit ?' },
+    q: { en: 'Is LOCO! free?', fr: 'Est-ce que LOCO! est gratuit ?' },
     a: {
       en: [
         'Yes, completely. There is nothing to buy, nothing to unlock and no advantage anyone can pay for. Every table, every room and every card is there from the first game.',

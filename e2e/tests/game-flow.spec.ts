@@ -37,7 +37,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
    */
   test('app loads and shows lobby', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'LOCO!' })).toBeVisible()
     await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
     await expect(page.getByRole('button', { name: T.joinRoom })).toBeVisible()
     await expect(page.getByRole('button', { name: T.rulesHowBtn })).toBeVisible()
@@ -324,7 +324,7 @@ test.describe('gameplay flow (single player vs bot)', () => {
     await page.getByRole('button', { name: T.leaveRoom }).click()
 
     // After reload, lobby is visible again
-    await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('heading', { name: 'LOCO!' })).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
   })
 })

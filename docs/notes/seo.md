@@ -171,7 +171,15 @@ tag.
 - `try_files $uri $uri/ =404` plus a real `404.html`. The old `try_files … /index.html` answered
   **200 with the game** for any URL: a soft 404, which Google reports as an error and which hides
   genuine broken links from everyone else. The 404 page is `noindex` and carries no canonical: a
-  404 naming a canonical is claiming to be a real page.
+  404 naming a canonical is claiming to be a real page. It is also the one page somebody reaches by
+  accident, so it is drawn like the game and not like an error console: the mark as a way home, a
+  hand of four `<CardBack />`s nobody was dealt, the code painted the way a card glyph is painted
+  (off-white over ink, theme-independent, carried by the outline on the pale canvas as well as the
+  dark one), and two ledged controls — a table, and the other language. Both components are
+  rendered without a `client:` directive, so the page still ships **no JavaScript at all**: no
+  `theme-boot.ts` either, which means the system's theme rather than a stored choice. That is on
+  purpose — this page is served when something is already broken, so it depends on nothing the
+  build might not have emitted.
 - `gzip` on text, JS, JSON, XML and SVG only. webp and woff2 are already compressed, so a second
   pass costs CPU per request and saves nothing.
 - `Cache-Control: immutable` for a year on `/_astro/`, whose names are content-hashed.
@@ -728,7 +736,7 @@ URL and by then the change that broke it is weeks old.
 
 ### The wordmark was failing as prose
 
-`color-contrast` failed on `<span class="word">LOCO</span>` at **1.07:1**, on every page, in dark.
+`color-contrast` failed on `<span class="word">LOCO!</span>` at **1.07:1**, on every page, in dark.
 The foreground it names is `#0b0618` — the ink outline, not the red. axe reads
 `-webkit-text-stroke` as the colour of the text (`getStrokeColor`, any non-zero width), and on the
 dark canvas that outline and the canvas are the same near-black.
@@ -736,9 +744,9 @@ dark canvas that outline and the canvas are the same near-black.
 WCAG 1.4.3 exempts a logotype by name, so this is a false positive against the standard and a real
 failure against the tool. Both are answered:
 
-- `<LocoLogo />` carries `role="img"` and `aria-label="LOCO"`, with the word `aria-hidden`. That is
+- `<LocoLogo />` carries `role="img"` and `aria-label="LOCO!"`, with the word `aria-hidden`. That is
   what it always was — a drawing, not a heading — and it also stops a screen reader announcing
-  "LOCO" twice, once for the mark and once for the word.
+  "LOCO!" twice, once for the mark and once for the word.
 - In **dark only**, the word carries no stroke and a `::before` paints the outline over it. The red
   alone is 5.4:1 against the dark canvas and passes; the outline is still drawn, so the logo is
   pixel-for-pixel what it was. In **light** the stroke stays on the word, where it is 14.7:1 and is

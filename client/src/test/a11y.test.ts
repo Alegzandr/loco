@@ -76,9 +76,13 @@ describe('the wordmark is a logotype, not prose', () => {
   it('names itself once, as an image', () => {
     // WCAG exempts a logo from the contrast rules; a checker cannot tell a logo
     // from a heading unless the markup says so. It also stops a screen reader
-    // reading "LOCO" twice — once for the mark, once for the word.
+    // reading "LOCO!" twice — once for the mark, once for the word.
+    //
+    // The exclamation is part of the name, not punctuation after it: the mark is
+    // "LOCO!" everywhere it is written, which is what tells it apart from the
+    // Spanish word and from every other game called Loco.
     expect(logo).toMatch(/role="img"/)
-    expect(logo).toMatch(/aria-label="LOCO"/)
+    expect(logo).toMatch(/aria-label="LOCO!"/)
     expect(logo).toMatch(/aria-hidden="true"/)
   })
 
@@ -103,7 +107,7 @@ describe('the wordmark is a logotype, not prose', () => {
       expect(block).toMatch(/-webkit-text-stroke:\s*0\.07em var\(--color-stroke\)/)
       // An empty alt: the logo is named by `role="img"`, and generated content
       // is announced by Chrome.
-      expect(block).toMatch(/content:\s*'LOCO'\s*\/\s*''/)
+      expect(block).toMatch(/content:\s*'LOCO!'\s*\/\s*''/)
     }
   })
 })

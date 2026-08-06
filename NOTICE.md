@@ -2,7 +2,7 @@
 
 ## Trademarks
 
-LOCO is an independent, non-commercial game. It is **not affiliated with,
+LOCO! is an independent, non-commercial game. It is **not affiliated with,
 endorsed by, sponsored by or connected to Mattel, Inc.** in any way.
 
 UNO is a registered trademark of Mattel, Inc. It appears in this repository's

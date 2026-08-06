@@ -28,7 +28,7 @@ export const T = {
   cardNameSwap: 'Swap',
   // One tab at a time: what a second tab of the same browser says, and the one
   // control it carries.
-  tabTakenTitle: 'LOCO is open in another tab',
+  tabTakenTitle: 'LOCO! is open in another tab',
   tabTakenTake: 'Play here',
   continueBtn: 'Next round',
   rematch: 'Rematch',
@@ -143,9 +143,9 @@ export async function createRoom(page: Page, nickname: string): Promise<string> 
   await page.waitForLoadState('domcontentloaded')
   await waitForSocket(page)
   // `.first()`: the home page's indexable footer names the game too ("More about
-  // LOCO", "What LOCO is"), so a bare getByText matches several nodes and fails
+  // LOCO!", "What LOCO! is"), so a bare getByText matches several nodes and fails
   // strict mode. All this line has to prove is that the page rendered.
-  await expect(page.getByText('LOCO').first()).toBeVisible()
+  await expect(page.getByText('LOCO!').first()).toBeVisible()
   await page.getByRole('button', { name: T.createRoom }).click()
   await page.getByPlaceholder(T.yourNickname).fill(nickname)
 

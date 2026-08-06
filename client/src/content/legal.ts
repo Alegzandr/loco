@@ -195,8 +195,8 @@ const EN: readonly LegalDoc[] = [
       {
         heading: 'This is not UNO',
         items: [
-          'LOCO is an independent game with no connection whatsoever to Mattel, Inc.',
-          'UNO is a registered trademark of Mattel, Inc. LOCO is not affiliated with, endorsed by or sponsored by them.',
+          'LOCO! is an independent game with no connection whatsoever to Mattel, Inc.',
+          'UNO is a registered trademark of Mattel, Inc. LOCO! is not affiliated with, endorsed by or sponsored by them.',
           'Every card face, name, sound and rule wording here was made for this game.',
         ],
       },
@@ -354,8 +354,8 @@ const FR: readonly LegalDoc[] = [
       {
         heading: 'Ceci n\'est pas UNO',
         items: [
-          'LOCO est un jeu indépendant, sans aucun lien avec Mattel, Inc.',
-          'UNO est une marque déposée de Mattel, Inc. LOCO n\'y est ni affilié, ni approuvé, ni sponsorisé par elle.',
+          'LOCO! est un jeu indépendant, sans aucun lien avec Mattel, Inc.',
+          'UNO est une marque déposée de Mattel, Inc. LOCO! n\'y est ni affilié, ni approuvé, ni sponsorisé par elle.',
           'Chaque face de carte, chaque nom, chaque son et chaque formulation de règle ont été faits pour ce jeu.',
         ],
       },

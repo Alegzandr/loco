@@ -42,7 +42,7 @@
   class:animated
   style={size ? `font-size: ${size}` : undefined}
   role="img"
-  aria-label="LOCO"
+  aria-label="LOCO!"
 >
   <svg class="mark" viewBox={LOCO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
     <defs>
@@ -77,7 +77,7 @@
     />
   </svg>
   <!-- The label above already says it; a second announcement would be the word twice. -->
-  <span class="word" aria-hidden="true">LOCO</span>
+  <span class="word" aria-hidden="true">LOCO!</span>
 </div>
 
 <style>
@@ -155,7 +155,7 @@
   :root[data-theme='dark'] .word::before {
     /* The empty alt keeps the word out of the accessibility tree: the logo names
        itself once, on the element that carries `role="img"`. */
-    content: 'LOCO' / '';
+    content: 'LOCO!' / '';
     position: absolute;
     inset: 0;
     color: inherit;
@@ -172,7 +172,7 @@
       -webkit-text-stroke: 0;
     }
     :root:not([data-theme='light']) .word::before {
-      content: 'LOCO' / '';
+      content: 'LOCO!' / '';
       position: absolute;
       inset: 0;
       color: inherit;

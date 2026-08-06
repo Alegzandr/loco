@@ -20,7 +20,7 @@ export const UI: Record<string, Copy> = {
     play: { en: "Play", fr: "Jouer" },
     /** Skip link, first thing a keyboard or screen reader meets. */
     skipToContent: { en: "Skip to content", fr: "Aller au contenu" },
-    homeLabel: { en: "LOCO, home", fr: "LOCO, accueil" },
+    homeLabel: { en: "LOCO!, home", fr: "LOCO!, accueil" },
     navLabel: { en: "Pages", fr: "Pages" },
     /**
      * The accessible name of the chip row a page ends on. The chips say where
@@ -51,7 +51,7 @@ export const UI: Record<string, Copy> = {
     toTop: { en: "Back to top", fr: "Revenir en haut" },
 
     // ── The rules page ──────────────────────────────────────────────────────
-    rulesH1: { en: "How to play LOCO", fr: "Comment jouer à LOCO" },
+    rulesH1: { en: "How to play LOCO!", fr: "Comment jouer à LOCO!" },
     rulesLede: {
         en: "Everything the game does, in the order you meet it. Written to be read once, standing up, in the middle of a round.",
         fr: "Tout ce que fait le jeu, dans l’ordre où tu le rencontres. Écrit pour être lu une fois, debout, au milieu d’une manche.",
@@ -197,10 +197,10 @@ export const UI: Record<string, Copy> = {
      * search for it rather than the way the logo says it.
      */
     homeH1: {
-        en: "LOCO, a fast multiplayer card game you play in your browser",
-        fr: "LOCO, le jeu de cartes multijoueur rapide dans le navigateur",
+        en: "LOCO!, a fast multiplayer card game you play in your browser",
+        fr: "LOCO!, le jeu de cartes multijoueur rapide dans le navigateur",
     },
-    homeAboutH2: { en: "What LOCO is", fr: "LOCO, en deux mots" },
+    homeAboutH2: { en: "What LOCO! is", fr: "LOCO!, en deux mots" },
     homeAbout: {
         en: "A fast card game for 2 to 10 players, in the browser, free and with no signup. You match a card by colour or by number, and the round ends the second somebody empties their hand.",
         fr: "Un jeu de cartes rapide pour 2 à 10 joueurs, dans le navigateur, gratuit et sans inscription. Tu poses une carte de la même couleur ou du même chiffre, et la manche s’arrête à la seconde où quelqu’un vide sa main.",
@@ -231,7 +231,7 @@ export const UI: Record<string, Copy> = {
      * scrolls, so this line is the whole invitation — it asks the question the
      * visitor already has rather than offering them a section.
      */
-    homeSheetBtn: { en: "What is LOCO?", fr: "C’est quoi LOCO ?" },
+    homeSheetBtn: { en: "What is LOCO!", fr: "C’est quoi LOCO!" },
     homeSheetClose: { en: "Close", fr: "Fermer" },
 };
 

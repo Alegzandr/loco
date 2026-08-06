@@ -631,7 +631,7 @@ export const en: Translations = {
   reconnectingHint: 'Your hand and your score are held for a minute. Nothing is lost yet.',
   reconnectingHintRoom: 'No cards are out yet. Nothing to lose.',
   reconnectCancel: 'Back to the menu',
-  tabTakenTitle: 'LOCO is open in another tab',
+  tabTakenTitle: 'LOCO! is open in another tab',
   tabTakenHint: 'One tab at a time. Nothing is going on over there, so bring the game here.',
   tabTakenHintSeated:
     'There is a match running in the other tab. Bringing the game here makes it leave that table.',
@@ -884,8 +884,8 @@ export const en: Translations = {
     batchNotAllowed: 'Swap and Global Switch go down one at a time.',
     batchMismatch: 'Cards played together must be identical.',
 
-    mustDeclareBeforeWinning: 'Call LOCO first, then take it.',
-    declareTooEarly: 'Call LOCO on your last card, not before.',
+    mustDeclareBeforeWinning: 'Call LOCO! first, then take it.',
+    declareTooEarly: 'Call LOCO! on your last card, not before.',
     alreadyDeclared: 'Already called.',
     catchExpired: 'The window has closed.',
     catchTargetSafe: 'Nothing to catch there.',

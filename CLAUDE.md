@@ -624,6 +624,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   a seat: no "lobby", in any player-facing string. French is **tutoiement**. A button is
   the verb about to happen; a refusal says what to do next and never scolds; only the streamable
   moments shout. Full voice in the note; `docs/rules.md` stays the spec the modal must not contradict.
+- **The name is `LOCO!`, the mark is part of it, and in French it stays glued.** Everywhere a player
+  reads it — the wordmark, every `<title>`, the manifest, the prose, and the call itself — never a
+  bare `LOCO` and never `LOCO !` with a space: the exclamation belongs to the name, not to the
+  sentence around it, the way nobody writes `Yahoo !`. Bare, the word is a Spanish adjective and the
+  name of a dozen other card games, which is what makes a category nobody can search for; whole, it
+  is the product. `vocabulary.test.ts` fails on either spelling in player copy, and pins the wordmark
+  in all three places it is written. The internal naming is untouched exactly as below —
+  `LOCO_MARK_PATH`, `LOCO_ALLOWED_ORIGINS`, `LOCO Red`, `locoMark.ts` — this is a rule about copy.
+  **A `<title>` is still capped at 60**, so the extra character is paid for in the copy.
 - **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
   seats a code is shared for, always. A **room** — *décor* in French — is one of the four places a
   match is dealt in, always. `salle`, `salon` and `pièce` name neither and are banned outright:
@@ -952,7 +961,7 @@ stated at the top of `styles/tokens.css`:
   radians, CSS `rotate()` is degrees (`radToDeg` at the render boundary, and nowhere else). Hand keys
   come from `handCardKeys(hand)`, never the index.
 - **The wordmark is a logotype, and the markup has to say so.** `<LocoLogo />` carries `role="img"`
-  and `aria-label="LOCO"` with the word `aria-hidden`. **In dark the word carries no stroke and a
+  and `aria-label="LOCO!"` with the word `aria-hidden`. **In dark the word carries no stroke and a
   `::before` paints the outline over it**, declared twice like the dark palette; in light the stroke
   stays where it is 14.7:1. `a11y.test.ts` fails on a stroke returning to the dark word.
 - **The card face does not follow the theme.** A card is a physical object. `LOCO_MARK_PATH` comes
