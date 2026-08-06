@@ -1,0 +1,1908 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Testeur de décor · LOCO</title>
+<!-- The client's two families, off a CDN.
+     **This is a licence the client does not have.** `client/` self-hosts both through
+     `@fontsource-variable` because its CSP is closed and there must never be a webfont CDN in the
+     product. This file is a developer tool, opened straight off the disk, shipping nothing and
+     reachable by no player, so it is allowed to fetch them and falls back to the system stack when
+     offline. Do not read this as the rule having moved.
+     A `<link>` rather than an `@import`: an `@import` is only honoured before every other rule in
+     its sheet, so it silently does nothing the moment a token block is written above it. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap"
+/>
+<!--
+  Map scene tester.
+
+  A map is two pictures and four numbers, and the four numbers are the only part
+  an artist cannot see: `playfield` names the sub-box of `table.webp` that the
+  board's felt ellipse is mapped onto (see client/src/components/cards/maps.ts).
+  Get it wrong and nothing crashes: the piles simply stop sitting on the table.
+
+  This file rebuilds the in-game scene around a dropped room and table so that
+  box can be measured against the real geometry before anything is submitted.
+  The layout maths is a transcription of `client/src/components/cards/layout.ts`
+  and the constants of `cardTheme.ts`; the board's paint is a transcription of
+  `GameBoard.svelte`'s style block. **When either moves, this file moves with
+  them**: a tester that lies is worse than no tester. Verified by diffing the
+  DOM geometry against the running game at 1920x1080 on `neon`, where every
+  written value matches.
+
+  The alpha work (which picture is the table, where its bounding box is, the
+  WebP re-encode) is the same as `tools/maps/prepare.mjs`, so what is previewed
+  here is what `make maps` would ship.
+
+  What is *not* faithful, deliberately: the furniture. Cards carry the right box
+  at the right place but not `CardArt`; the seat pills carry `SEAT_DIMS` but a
+  simplified drawing; the action bar and the top row are ghosts marking the
+  reserves they own. None of it decides where a table lands.
+
+  **One file, opened off the disk.** No build, no server, no `make` target: it
+  is meant to be handed to whoever is making the art. The only thing a `file://`
+  origin costs is reading *pixels* back out of a repository file, so the four
+  reference maps load as pictures and skip the alpha pass, which they no longer
+  need. A dropped file arrives as a data URL and measures normally, and that is
+  the whole job.
+-->
+<style>
+  /* ── Tokens, lifted from client/src/styles/tokens.css (dark room) ────────
+     The tool is not a player-facing surface, but it is looked at while judging
+     one, and a chrome in some other palette makes an accent look wrong that is
+     not. Same ink, same ledge, same two families. */
+  :root {
+    --primary: #ff3d68;
+    --primary-lift: #ff7a99;
+    --primary-deep: #de1f4a;
+    --secondary: #ffc93c;
+    --tertiary: #6c5cff;
+    --mint: #12c48f;
+    --error: #e5304b;
+
+    --canvas: #150c2e;
+    --surface: #271a4f;
+    --surface-strong: #33235f;
+    --hairline: #3d2b6e;
+    --ink: #f6f1ff;
+    --muted: #ab9dd2;
+    --stroke: #0b0618;
+    --on-primary: #ffffff;
+
+    --shadow-hard: 0 4px 0 rgba(6, 3, 16, 0.55);
+    --shadow-hard-sm: 0 3px 0 rgba(6, 3, 16, 0.55);
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    /* The board's own colours, which do not follow any theme. */
+    --room-void: #07060f;
+    --table-felt-1: #262b3a;
+    --table-felt-2: #12151f;
+    --table-rim: #06080e;
+    --table-rim-light: #5b6480;
+    --bg-gradient: linear-gradient(160deg, #241b3f 0%, #16112b 55%, #0d0a1c 100%);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 500 14px/1.5 Nunito, system-ui, sans-serif;
+    overflow: hidden;
+  }
+
+  .app {
+    display: grid;
+    grid-template-columns: 1fr 366px;
+    height: 100%;
+  }
+
+  /* ── Preview column ─────────────────────────────────────────────────── */
+
+  .previewCol {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .previewBar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 20px;
+    flex: none;
+    flex-wrap: wrap;
+  }
+
+  .previewArea {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    background: #0c0620;
+  }
+
+  .viewportHolder { transform-origin: center center; }
+
+  .viewport {
+    position: relative;
+    overflow: hidden;
+    border-radius: 4px;
+    box-shadow:
+      0 0 0 2px var(--stroke),
+      0 10px 0 rgba(6, 3, 16, 0.5),
+      0 28px 60px rgba(6, 3, 16, 0.7);
+  }
+
+  /* ── The board, transcribed from GameBoard.svelte ───────────────────── */
+
+  .board {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(22% 30% at 8% 22%, rgba(255, 201, 60, 0.18) 0%, rgba(255, 201, 60, 0) 70%),
+      radial-gradient(26% 34% at 93% 30%, rgba(108, 92, 255, 0.2) 0%, rgba(108, 92, 255, 0) 70%),
+      radial-gradient(30% 26% at 76% 88%, rgba(255, 61, 104, 0.14) 0%, rgba(255, 61, 104, 0) 70%),
+      var(--bg-gradient);
+    overflow: hidden;
+  }
+
+  .board[data-map]:not([data-map='']) {
+    background-color: var(--room-void);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    isolation: isolate;
+  }
+
+  .board[data-map]:not([data-map=''])::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image: inherit;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    filter: blur(0.55vmin);
+    transform: scale(1.06);
+    pointer-events: none;
+  }
+
+  .board::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(58% 42% at 50% 38%, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 70%),
+      radial-gradient(120% 100% at 50% 45%, rgba(0, 0, 0, 0) 42%, rgba(24, 10, 48, 0.28) 100%);
+    pointer-events: none;
+  }
+
+  .board[data-map]:not([data-map=''])::before {
+    background:
+      radial-gradient(62% 52% at 50% 44%, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 55%, rgba(3, 2, 10, 0.42) 100%),
+      linear-gradient(180deg, rgba(3, 2, 10, 0.34) 0%, rgba(3, 2, 10, 0) 24%, rgba(3, 2, 10, 0) 62%, rgba(3, 2, 10, 0.55) 100%);
+  }
+
+  .stage {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform-origin: 0 0;
+  }
+
+  .tableGlow {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in srgb, var(--map-accent, #ffffff) 42%, transparent) 0%,
+      color-mix(in srgb, var(--map-accent-deep, #000000) 26%, transparent) 58%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    transform: scale(1.55);
+    filter: blur(26px);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .tableImage {
+    position: absolute;
+    object-fit: fill;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.55));
+  }
+
+  .tableOval {
+    position: absolute;
+    border-radius: 50%;
+    background:
+      radial-gradient(58% 58% at 50% 34%, var(--table-rim-light) 0%, rgba(0, 0, 0, 0) 62%),
+      linear-gradient(170deg, var(--table-felt-1) 0%, var(--table-felt-2) 68%);
+    border: 11px solid var(--table-rim);
+    box-shadow:
+      inset 0 0 0 2px rgba(6, 3, 16, 0.35),
+      inset 0 8px 24px rgba(255, 255, 255, 0.1),
+      inset 0 -20px 36px rgba(0, 0, 0, 0.36),
+      0 0 0 2px rgba(6, 3, 16, 0.45),
+      0 13px 0 rgba(4, 5, 12, 0.6),
+      0 28px 52px rgba(12, 6, 30, 0.42);
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .ring { position: absolute; overflow: visible; pointer-events: none; }
+
+  .ring g {
+    fill: none;
+    stroke: color-mix(in srgb, #ffffff 85%, var(--map-accent, #e6f2fa));
+    stroke-width: 5.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0.36;
+    animation: dirChase 3.2s linear infinite;
+  }
+
+  .ring path { filter: drop-shadow(0 0 5px rgba(150, 210, 240, 0.45)); }
+
+  @keyframes dirChase {
+    0% { opacity: 0.3; }
+    12% { opacity: 0.72; }
+    38% { opacity: 0.3; }
+    100% { opacity: 0.3; }
+  }
+
+  /* Furniture. The box and its coordinates are the game's; the drawing is not. */
+  .card {
+    position: absolute;
+    border-radius: 5px;
+    border: 2px solid #120b24;
+    box-shadow: 0 5px 0 rgba(4, 5, 12, 0.55), 0 12px 22px rgba(0, 0, 0, 0.4);
+    display: grid;
+    place-items: center;
+    font-family: Fredoka, system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 30px;
+    color: #efefef;
+    text-shadow: 0 2px 0 #120b24, 0 0 3px #120b24;
+    pointer-events: none;
+  }
+
+  .card.back {
+    background: linear-gradient(35deg, #2a1c52 0%, #150e2c 100%);
+    color: rgba(246, 241, 255, 0.45);
+    font-size: 14px;
+    letter-spacing: 0.6px;
+  }
+
+  .activeRing {
+    position: absolute;
+    border-radius: 11px;
+    border: 4px solid var(--ring-color, #fff);
+    box-shadow: 0 0 14px var(--ring-color, #fff);
+    pointer-events: none;
+  }
+
+  .seat {
+    position: absolute;
+    border-radius: 9999px;
+    background: var(--surface);
+    border: 3px solid var(--stroke);
+    box-shadow: var(--shadow-hard);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--ink);
+    font-family: Fredoka, system-ui, sans-serif;
+    font-weight: 600;
+    pointer-events: none;
+  }
+
+  .seat.mini { border-width: 2px; }
+
+  .seatCount {
+    position: absolute;
+    top: -8px;
+    right: -6px;
+    min-width: 24px;
+    height: 24px;
+    padding: 0 5px;
+    border-radius: 9999px;
+    background: var(--tertiary);
+    border: 2px solid var(--stroke);
+    color: var(--on-primary);
+    font-size: 12px;
+    display: grid;
+    place-items: center;
+  }
+
+  /* Real chrome, drawn as a ghost: it does not scale with the board, and the
+     reserves it owns are what a table has to stay clear of. */
+  .chrome {
+    position: absolute;
+    border-radius: 9999px;
+    border: 2px dashed rgba(246, 241, 255, 0.3);
+    color: rgba(246, 241, 255, 0.6);
+    font-size: 12px;
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+
+  .ov { position: absolute; pointer-events: none; }
+  .ov.felt { border: 2px dashed var(--tertiary); border-radius: 50%; }
+  .ov.feltBox { border: 1px solid rgba(108, 92, 255, 0.4); }
+  .ov.imgBox { border: 1px dashed rgba(255, 201, 60, 0.7); }
+
+  .safeMask {
+    position: absolute;
+    pointer-events: none;
+    outline: 1px dashed rgba(255, 61, 104, 0.5);
+  }
+
+  /* ── Panel ──────────────────────────────────────────────────────────── */
+
+  .panel {
+    background: var(--canvas);
+    border-left: 1px solid var(--hairline);
+    overflow-y: auto;
+    padding: 20px 20px 56px;
+  }
+
+  h1 {
+    font-family: Fredoka, system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.2px;
+    margin: 0;
+  }
+
+  .lede {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 4px 0 30px;
+    max-width: 34ch;
+  }
+
+  section { margin-bottom: 30px; }
+
+  h2 {
+    font-family: Fredoka, system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+
+  .hint {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+    margin: 10px 0 0;
+    max-width: 40ch;
+  }
+
+  /* Drop zones. Pressable, so they are bodies: ink outline, ledge, travel. */
+  .drop {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    border-radius: 18px;
+    border: 2px dashed var(--hairline);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    cursor: pointer;
+    transition: transform 140ms var(--ease-bounce), border-color 140ms ease;
+  }
+
+  .drop:hover, .drop.over {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+  }
+
+  .drop:active { transform: translateY(1px); }
+  .drop.filled { border-style: solid; border-color: var(--stroke); box-shadow: var(--shadow-hard-sm); }
+
+  .thumb {
+    width: 42px;
+    height: 42px;
+    flex: none;
+    border-radius: 10px;
+    border: 2px solid var(--stroke);
+    background-color: #100a24;
+    background-size: cover;
+    background-position: center;
+  }
+
+  .drop b {
+    display: block;
+    font-family: Fredoka, system-ui, sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .drop span { color: var(--muted); font-size: 12px; }
+
+  .meta { color: var(--muted); font-size: 12px; margin: -2px 0 14px; }
+  .meta b { color: var(--ink); font-weight: 700; }
+  .meta.bad { color: #ff8fa3; }
+
+  .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .row label { flex: 1; font-size: 13px; color: var(--ink); }
+  .row .unit { color: var(--muted); font-size: 12px; width: 14px; }
+
+  input[type='number'], input[type='text'], select {
+    background: var(--surface);
+    border: 2px solid var(--stroke);
+    color: var(--ink);
+    border-radius: 12px;
+    padding: 6px 10px;
+    font: 600 13px/1 Nunito, system-ui, sans-serif;
+    height: 36px;
+    width: 96px;
+    box-shadow: inset 0 2px 0 rgba(6, 3, 16, 0.35);
+  }
+
+  input[type='text'] { width: 132px; }
+  select { width: 100%; max-width: 220px; padding-right: 6px; }
+
+  input[type='color'] {
+    width: 44px;
+    height: 32px;
+    padding: 0;
+    border: 2px solid var(--stroke);
+    border-radius: 10px;
+    background: none;
+    cursor: pointer;
+  }
+
+  input[type='color']::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type='color']::-webkit-color-swatch { border: none; border-radius: 6px; }
+
+  button {
+    background: linear-gradient(180deg, var(--surface-strong) 0%, var(--surface) 100%);
+    border: 2px solid var(--stroke);
+    color: var(--ink);
+    border-radius: 9999px;
+    padding: 0 16px;
+    height: 38px;
+    font: 600 13px/1 Fredoka, system-ui, sans-serif;
+    box-shadow: var(--shadow-hard-sm);
+    cursor: pointer;
+    transition: transform 120ms var(--ease-bounce), box-shadow 120ms var(--ease-bounce);
+  }
+
+  button:hover { transform: translateY(-2px); box-shadow: 0 5px 0 rgba(6, 3, 16, 0.55); }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(6, 3, 16, 0.55); }
+
+  button.primary {
+    background: linear-gradient(180deg, var(--primary-lift) 0%, var(--primary) 100%);
+    color: var(--on-primary);
+    text-shadow: 0 1px 0 var(--primary-deep);
+  }
+
+  button.chip { height: 32px; padding: 0 13px; font-size: 12px; }
+  button.chip[aria-pressed='true'] {
+    background: linear-gradient(180deg, #8d80ff 0%, var(--tertiary) 100%);
+    color: var(--on-primary);
+  }
+
+  :focus-visible { outline: 3px solid var(--tertiary); outline-offset: 2px; }
+
+  .btnRow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .check input { accent-color: var(--primary); width: 17px; height: 17px; cursor: pointer; }
+
+  /* Playfield editor: the table's own picture, with the box drawn on it. */
+  .pfEditor {
+    position: relative;
+    width: 100%;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 2px solid var(--stroke);
+    background:
+      repeating-conic-gradient(#241a44 0% 25%, #1b1336 0% 50%) 50% / 18px 18px;
+    outline: none;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .pfEditor img { display: block; width: 100%; }
+
+  .pfEmpty { padding: 30px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+
+  .pfBox {
+    position: absolute;
+    border: 2px solid var(--tertiary);
+    background: rgba(108, 92, 255, 0.12);
+    cursor: move;
+  }
+
+  .pfBox::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 2px dashed var(--tertiary);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .pfHandle {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    background: var(--tertiary);
+    border: 2px solid var(--stroke);
+    border-radius: 4px;
+  }
+
+  .pfHandle.nw { left: -8px; top: -8px; cursor: nwse-resize; }
+  .pfHandle.ne { right: -8px; top: -8px; cursor: nesw-resize; }
+  .pfHandle.sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
+  .pfHandle.se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+
+  textarea {
+    width: 100%;
+    height: 140px;
+    background: var(--surface);
+    border: 2px solid var(--stroke);
+    color: var(--ink);
+    border-radius: 14px;
+    padding: 12px;
+    font: 500 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+    resize: vertical;
+    box-shadow: inset 0 2px 0 rgba(6, 3, 16, 0.35);
+  }
+
+  .barLabel { color: var(--muted); font-size: 12px; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 26px;
+    transform: translateX(-50%) translateY(14px);
+    background: linear-gradient(180deg, var(--surface-strong) 0%, var(--surface) 100%);
+    border: 2px solid var(--stroke);
+    box-shadow: var(--shadow-hard);
+    border-radius: 9999px;
+    padding: 9px 20px;
+    font-size: 13px;
+    font-weight: 600;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 180ms ease, transform 240ms var(--ease-out);
+  }
+
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.bad { background: linear-gradient(180deg, #ff5f76 0%, var(--error) 100%); color: #fff; }
+
+  .veil {
+    position: fixed;
+    inset: 0;
+    background: rgba(21, 12, 46, 0.86);
+    display: none;
+    place-items: center;
+    font-family: Fredoka, system-ui, sans-serif;
+    font-size: 26px;
+    font-weight: 600;
+    z-index: 50;
+    pointer-events: none;
+  }
+
+  .veil.on { display: grid; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="previewCol">
+    <div class="previewBar">
+      <select id="preset" aria-label="Gabarit d’écran"></select>
+      <label class="check"><input type="checkbox" id="fit" checked /> Ajuster au cadre</label>
+      <span class="barLabel" id="zoomLabel"></span>
+      <span style="flex:1"></span>
+      <span class="barLabel" id="dims"></span>
+    </div>
+    <div class="previewArea" id="previewArea">
+      <div class="viewportHolder" id="holder">
+        <div class="viewport" id="viewport">
+          <div class="board" id="board">
+            <div class="stage" id="stage"></div>
+          </div>
+          <div id="chromeLayer"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <h1>Testeur de décor</h1>
+    <p class="lede">Le plateau est calculé avec le code du jeu. Ce qui tombe juste ici tombe juste
+      en partie.</p>
+
+    <section>
+      <h2>Images</h2>
+      <button class="drop" id="dropRoom" type="button">
+        <span class="thumb" id="thumbRoom"></span>
+        <span><b>Décor</b><span>opaque, 3:2</span></span>
+      </button>
+      <p class="meta" id="metaRoom">Rien de chargé.</p>
+      <button class="drop" id="dropTable" type="button">
+        <span class="thumb" id="thumbTable"></span>
+        <span><b>Table</b><span>détourée sur transparence</span></span>
+      </button>
+      <p class="meta" id="metaTable">Rien de chargé.</p>
+      <p class="hint">Dépose les deux fichiers ensemble n’importe où : celui qui a de la
+        transparence est la table, comme <code>prepare.mjs</code> en décide.</p>
+      <label class="check" style="margin-top:8px">
+        <input type="checkbox" id="autocrop" checked />
+        Rogner la table sur sa boîte alpha
+      </label>
+      <div class="btnRow">
+        <button id="clearAll" type="button">Vider</button>
+      </div>
+      <p class="hint" style="margin-top:16px">Comparer avec les décors du jeu :</p>
+      <div class="btnRow" id="shippedRow" style="margin-top:8px"></div>
+    </section>
+
+    <section>
+      <h2>Surface de jeu</h2>
+      <div class="pfEditor" id="pfEditor" tabindex="0">
+        <p class="pfEmpty">Dépose la table pour caler sa surface de jeu.</p>
+      </div>
+      <p class="hint">Le rectangle est la part du fichier que l’ellipse du feutre vient occuper.
+        Cale l’ellipse sur la surface où tombent les cartes. Flèches : 0,2 %. Maj : 1 %. Alt :
+        redimensionne.</p>
+      <div class="row" style="margin-top:12px"><label for="pfx">Bord gauche</label><span class="unit">x</span><input type="number" id="pfx" step="0.001" min="-1" max="2" /></div>
+      <div class="row"><label for="pfy">Bord haut</label><span class="unit">y</span><input type="number" id="pfy" step="0.001" min="-1" max="2" /></div>
+      <div class="row"><label for="pfw">Largeur</label><span class="unit">w</span><input type="number" id="pfw" step="0.001" min="0.01" max="3" /></div>
+      <div class="row"><label for="pfh">Hauteur</label><span class="unit">h</span><input type="number" id="pfh" step="0.001" min="0.01" max="3" /></div>
+    </section>
+
+    <section>
+      <h2>Lumière</h2>
+      <div class="row">
+        <label for="accent">accent</label>
+        <input type="color" id="accent" value="#c56bff" />
+        <input type="text" id="accentHex" value="#c56bff" />
+      </div>
+      <div class="row">
+        <label for="accentDeep">accentDeep</label>
+        <input type="color" id="accentDeep" value="#5a1e9c" />
+        <input type="text" id="accentDeepHex" value="#5a1e9c" />
+      </div>
+      <div class="btnRow">
+        <button id="pickAccent" type="button">Déduire du décor</button>
+      </div>
+      <p class="hint">C’est la lumière que le décor jette sur le plateau : la nappe sous la table,
+        les chevrons, le lavis d’ambiance. Elle ne touche ni les cartes ni la marque.</p>
+    </section>
+
+    <section>
+      <h2>Scène</h2>
+      <div class="row">
+        <label for="opponents">Adversaires</label>
+        <select id="opponents" style="width:96px">
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3" selected>3</option>
+          <option value="5">5</option>
+          <option value="7">7</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="hand">Cartes en main</label>
+        <input type="number" id="hand" value="8" min="0" max="20" />
+      </div>
+      <div class="row">
+        <label for="direction">Sens du jeu</label>
+        <select id="direction" style="width:132px">
+          <option value="1">horaire</option>
+          <option value="-1">antihoraire</option>
+        </select>
+      </div>
+      <label class="check"><input type="checkbox" id="showChrome" checked /> Chrome et réserves</label>
+      <label class="check"><input type="checkbox" id="showOverlays" /> Repères de mesure</label>
+      <label class="check"><input type="checkbox" id="showFelt" /> Feutre du jeu sous la table</label>
+      <label class="check"><input type="checkbox" id="showRing" checked /> Anneau de sens</label>
+      <label class="check"><input type="checkbox" id="showRoom" checked /> Décor</label>
+      <label class="check"><input type="checkbox" id="showTable" checked /> Table</label>
+    </section>
+
+    <section>
+      <h2>Export</h2>
+      <div class="row">
+        <label for="mapId">Identifiant</label>
+        <input type="text" id="mapId" value="ma-map" />
+      </div>
+      <textarea id="snippet" readonly spellcheck="false" aria-label="Entrée pour maps.ts"></textarea>
+      <div class="btnRow">
+        <button class="primary" id="copySnippet" type="button">Copier l’entrée</button>
+        <button id="dlRoom" type="button">room.webp</button>
+        <button id="dlTable" type="button">table.webp</button>
+      </div>
+      <p class="hint">Les deux fichiers sortent aux qualités de <code>prepare.mjs</code> : décor
+        0.86, table 0.93, rognée. C’est ce que <code>make maps</code> produirait.</p>
+    </section>
+  </aside>
+</div>
+
+<div class="veil" id="veil">Lâche tes deux images</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+'use strict'
+
+// ════════════════════════════════════════════════════════════════════════════
+// Board maths, transcribed from client/src/components/cards/layout.ts and the
+// constants of cardTheme.ts. Do not "improve" anything here: a divergence makes
+// this tool approve a map the game then draws differently.
+// ════════════════════════════════════════════════════════════════════════════
+
+const CARD_W = 72
+const CARD_H = 108
+const BOTTOM_RESERVE = 140
+const TOP_CHROME = 58
+
+const SEAT_DIMS = {
+  full: { w: 172, h: 66 },
+  compact: { w: 124, h: 56 },
+  mini: { w: 82, h: 46 },
+}
+
+const DESIGN_W = 1240
+const DESIGN_H = 790
+const PHONE_W = 405
+const PHONE_H = 830
+const PHONE_MAX_W = 560
+const MAX_BOARD_SCALE = 1.45
+const MIN_BOARD_SCALE = 0.78
+
+function boardScale(width, height) {
+  if (width <= 0 || height <= 0) return 1
+  if (width < PHONE_MAX_W) {
+    const fit = Math.min(width / PHONE_W, height / PHONE_H)
+    return Math.min(1, Math.max(MIN_BOARD_SCALE, fit))
+  }
+  const fit = Math.min(width / DESIGN_W, height / DESIGN_H)
+  return Math.min(MAX_BOARD_SCALE, Math.max(1, fit))
+}
+
+function boardSpace(pxWidth, pxHeight, scale, insets) {
+  const offsetY = insets.top + TOP_CHROME * (1 - scale)
+  return {
+    width: (pxWidth - insets.left - insets.right) / scale,
+    height: (pxHeight - insets.bottom - BOTTOM_RESERVE - offsetY) / scale + BOTTOM_RESERVE,
+    offsetX: insets.left,
+    offsetY,
+  }
+}
+
+const ROW_GAP = 6
+const SEAT_GAP = 10
+const SEAT_EDGE = 28
+
+function seatLayout(opponentCount, width, height) {
+  const order = ['full', 'compact', 'mini']
+  if (opponentCount <= 0) {
+    const d = SEAT_DIMS.full
+    return { positions: [], size: 'full', pillW: d.w, pillH: d.h, blockHeight: 0 }
+  }
+
+  const fits = (size) => {
+    const w = SEAT_DIMS[size].w
+    const edge = size === 'mini' ? SEAT_GAP : SEAT_EDGE
+    const available = Math.max(0, width - (w + 2 * edge))
+    return 1 + Math.floor(available / (w + SEAT_GAP))
+  }
+
+  let size = 'mini'
+  for (const candidate of order) {
+    if (candidate === 'full' && width < 720) continue
+    if (opponentCount <= fits(candidate)) { size = candidate; break }
+  }
+
+  const pillW = SEAT_DIMS[size].w
+  const pillH = SEAT_DIMS[size].h
+  const perRow = Math.max(1, Math.min(opponentCount, fits(size)))
+  const rows = Math.ceil(opponentCount / perRow)
+  const topOffset = TOP_CHROME + pillH / 2
+  const playableHeight = Math.max(140, height - BOTTOM_RESERVE)
+  const dip = rows > 1 ? 0 : Math.max(14, Math.min(34, playableHeight * 0.06))
+
+  const positions = []
+  for (let row = 0; row < rows; row++) {
+    const start = row * perRow
+    const count = Math.min(perRow, opponentCount - start)
+    const available = Math.max(0, width - (pillW + 2 * (size === 'mini' ? SEAT_GAP : SEAT_EDGE)))
+    const span = count > 1 ? Math.min(available, (count - 1) * (pillW + SEAT_GAP) * 1.16) : 0
+    const left = width / 2 - span / 2
+    const rowY = topOffset + row * (pillH + ROW_GAP)
+    for (let i = 0; i < count; i++) {
+      const t = count > 1 ? i / (count - 1) : 0.5
+      positions.push({
+        x: count > 1 ? left + t * span : width / 2,
+        y: rowY + (1 - Math.sin(Math.PI * t)) * dip,
+      })
+    }
+  }
+
+  return {
+    positions,
+    size,
+    pillW,
+    pillH,
+    blockHeight: topOffset + (rows - 1) * (pillH + ROW_GAP) + pillH / 2 + dip,
+  }
+}
+
+function calcHandSlots(n, width, height) {
+  if (n === 0) return []
+  const baseY = height - CARD_H - BOTTOM_RESERVE
+  const maxSpacing = CARD_W + 8
+  const minSpacing = 20
+  const availWidth = width - 56
+  const cardSpacing = Math.max(minSpacing, Math.min(maxSpacing, availWidth / n))
+  const totalWidth = (n - 1) * cardSpacing + CARD_W
+  const startX = width / 2 - totalWidth / 2
+  const maxRot = Math.min(0.12, 0.25 / Math.max(n, 1))
+  return Array.from({ length: n }, (_, i) => {
+    const t = n > 1 ? (i / (n - 1)) * 2 - 1 : 0
+    return { x: startX + i * cardSpacing, y: baseY + Math.abs(t) * 6, rotation: t * maxRot }
+  })
+}
+
+const PILE_GAP = 58
+
+function pileTop(width, height, topReserve) {
+  const t = tableRect(width, height, topReserve)
+  return t.top + t.height / 2 - CARD_H / 2
+}
+
+function discardPosition(width, height, topReserve) {
+  return { x: width / 2 + PILE_GAP / 2, y: pileTop(width, height, topReserve) }
+}
+
+function deckPosition(width, height, topReserve) {
+  return { x: width / 2 - PILE_GAP / 2 - CARD_W, y: pileTop(width, height, topReserve) }
+}
+
+function tableRect(width, height, topReserve) {
+  const playable = Math.max(200, height - BOTTOM_RESERVE)
+  const w = Math.min(Math.max(width * 0.7, 520), 960, width - 20)
+  const band = Math.max(160, playable - topReserve - 16)
+  const aspect = width < 560 ? 0.95 : 0.66
+  const h = Math.min(Math.max(band * 0.74, 200), 440, band, w * aspect)
+  return {
+    left: (width - w) / 2,
+    top: topReserve + 8 + (band - h) * 0.34,
+    width: w,
+    height: h,
+  }
+}
+
+function tableImageRect(felt, playfield) {
+  if (!(playfield.w > 0) || !(playfield.h > 0)) return Object.assign({}, felt)
+  const width = felt.width / playfield.w
+  const height = felt.height / playfield.h
+  return {
+    left: felt.left - playfield.x * width,
+    top: felt.top - playfield.y * height,
+    width,
+    height,
+  }
+}
+
+const DIRECTION_MARKER_COUNT = 10
+const DIRECTION_RING_INSET = 26
+const FELT_RIM = 11
+
+function arcLengthSampler(pointAt) {
+  const STEPS = 512
+  const cumulative = [0]
+  let prev = pointAt(0)
+  for (let i = 1; i <= STEPS; i++) {
+    const next = pointAt((i / STEPS) * Math.PI * 2)
+    cumulative.push(cumulative[i - 1] + Math.hypot(next.x - prev.x, next.y - prev.y))
+    prev = next
+  }
+  const total = cumulative[STEPS]
+  return (fraction) => {
+    const target = fraction * total
+    let lo = 0
+    let hi = STEPS
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (cumulative[mid] < target) lo = mid + 1
+      else hi = mid
+    }
+    if (lo === 0) return 0
+    const span = cumulative[lo] - cumulative[lo - 1]
+    const frac = span > 0 ? (target - cumulative[lo - 1]) / span : 0
+    return ((lo - 1 + frac) / STEPS) * Math.PI * 2
+  }
+}
+
+function directionMarkers(width, height, direction, count) {
+  count = count || DIRECTION_MARKER_COUNT
+  const a = Math.max(1, width / 2 - FELT_RIM)
+  const b = Math.max(1, height / 2 - FELT_RIM)
+  const flow = direction >= 0 ? 1 : -1
+  const inset = Math.min(DIRECTION_RING_INSET, Math.min(a, b) * 0.45)
+
+  const pointAt = (t) => {
+    const cos = Math.cos(t)
+    const sin = Math.sin(t)
+    const gx = cos / a
+    const gy = sin / b
+    const g = Math.hypot(gx, gy) || 1
+    return {
+      x: width / 2 + a * cos - (inset * gx) / g,
+      y: height / 2 + b * sin - (inset * gy) / g,
+    }
+  }
+  const angleAt = arcLengthSampler(pointAt)
+
+  return Array.from({ length: count }, (_, i) => {
+    const t = flow * angleAt(i / count)
+    const dx = flow * -a * Math.sin(t)
+    const dy = flow * b * Math.cos(t)
+    const p = pointAt(t)
+    return { x: p.x, y: p.y, angle: (Math.atan2(dy, dx) * 180) / Math.PI }
+  })
+}
+
+// Card faces, from cardTheme.ts: one gradient per suit, along the bottom-left to
+// top-right diagonal.
+const SUIT_PAINT = {
+  yellow: { from: '#ffbd00', to: '#ff4852' },
+  red: { from: '#ff002a', to: '#8f0098' },
+  green: { from: '#00ff6d', to: '#00668e' },
+  blue: { from: '#15d4ff', to: '#5918a7' },
+  wild: { from: '#1c1c1c', to: '#141414' },
+}
+
+const ACTIVE_RING = {
+  red: '#ff002a',
+  yellow: '#ffbd00',
+  green: '#00ff6d',
+  blue: '#15d4ff',
+  wild: '#9b7bff',
+}
+
+const SUIT_ANGLE_DEG = 35
+
+// A fixed sample hand: the fan has to be the same between two runs, or a map is
+// judged against a layout that moved for an unrelated reason.
+const SAMPLE_HAND = [
+  { color: 'red', label: '7' },
+  { color: 'blue', label: '+2' },
+  { color: 'green', label: '4' },
+  { color: 'yellow', label: '5' },
+  { color: 'wild', label: '+4' },
+  { color: 'blue', label: '9' },
+  { color: 'red', label: '3' },
+  { color: 'green', label: '1' },
+  { color: 'yellow', label: '8' },
+  { color: 'blue', label: '3' },
+  { color: 'wild', label: 'W' },
+  { color: 'red', label: '2' },
+  { color: 'green', label: '6' },
+  { color: 'yellow', label: '0' },
+  { color: 'blue', label: '6' },
+  { color: 'red', label: '0' },
+  { color: 'green', label: '+2' },
+  { color: 'yellow', label: '9' },
+  { color: 'wild', label: 'W' },
+  { color: 'blue', label: '1' },
+]
+
+// Cards each opponent holds, fixed for the same reason as the hand above.
+const SEAT_COUNTS = [3, 7, 1, 5, 9, 2, 6, 4, 8]
+
+// ════════════════════════════════════════════════════════════════════════════
+// Alpha work, same rules as tools/maps/prepare.mjs.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Alpha at or below this counts as "not part of the table" when cropping. */
+const CROP_ALPHA = 2
+const ROOM_QUALITY = 0.86
+const TABLE_QUALITY = 0.93
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('image illisible'))
+    img.src = url
+  })
+}
+
+/**
+ * Alpha coverage and opaque bounding box. Mirrors prepare.mjs's `measure`.
+ *
+ * Returns null when the pixels cannot be read. That happens for exactly one
+ * input: a shipped map loaded from the repository while this file is open off
+ * the disk, which taints the canvas. A dropped file arrives as a data URL and
+ * always measures, so the tool's own job is never the case that fails.
+ */
+function measure(img) {
+  const W = img.naturalWidth
+  const H = img.naturalHeight
+  const c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  ctx.drawImage(img, 0, 0)
+  let d
+  try {
+    d = ctx.getImageData(0, 0, W, H).data
+  } catch (e) {
+    return null
+  }
+  let transparent = 0
+  let partial = 0
+  let minX = W
+  let minY = H
+  let maxX = -1
+  let maxY = -1
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const a = d[(py * W + px) * 4 + 3]
+      if (a === 0) transparent++
+      else if (a < 255) partial++
+      if (a > CROP_ALPHA) {
+        if (px < minX) minX = px
+        if (py < minY) minY = py
+        if (px > maxX) maxX = px
+        if (py > maxY) maxY = py
+      }
+    }
+  }
+  if (maxX < 0) { minX = 0; minY = 0; maxX = W - 1; maxY = H - 1 }
+  return { width: W, height: H, transparent, partial, bbox: [minX, minY, maxX, maxY] }
+}
+
+/** Crops to `box` (omit for the whole image) and re-encodes. Same as prepare.mjs. */
+function encode(img, box, mime, quality) {
+  const b = box || [0, 0, img.naturalWidth, img.naturalHeight]
+  const c = document.createElement('canvas')
+  c.width = b[2]
+  c.height = b[3]
+  const ctx = c.getContext('2d')
+  // `copy` for the same reason prepare.mjs uses it: the default compositing
+  // blends onto transparent black and darkens the glow's soft fringe.
+  ctx.globalCompositeOperation = 'copy'
+  ctx.drawImage(img, b[0], b[1], b[2], b[3], 0, 0, b[2], b[3])
+  return { url: c.toDataURL(mime, quality), width: b[2], height: b[3] }
+}
+
+/**
+ * The room's *lit* hue, as a starting point for `accent`.
+ *
+ * The light source is what the accent answers to, and it is never the largest
+ * thing in the frame: these rooms are mostly dark. So this ranks pixels by
+ * saturation times brightness and averages the top tenth, rather than taking
+ * the dominant colour. A first pass that took the biggest bucket returned the
+ * backdrop every time, which is the one colour the glow must not be.
+ *
+ * A first guess to be nudged, never an answer. The accent is a design decision.
+ */
+function guessAccent(img) {
+  const S = 96
+  const c = document.createElement('canvas')
+  c.width = S
+  c.height = S
+  const ctx = c.getContext('2d', { willReadFrequently: true })
+  ctx.drawImage(img, 0, 0, S, S)
+  const d = ctx.getImageData(0, 0, S, S).data
+  const lit = []
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2]
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const sat = max === 0 ? 0 : (max - min) / max
+    if (max < 70 || sat < 0.2) continue
+    lit.push({ r, g, b, score: sat * (max / 255) })
+  }
+  if (lit.length < 12) return null
+  lit.sort((a, b2) => b2.score - a.score)
+  const take = Math.max(8, Math.round(lit.length * 0.1))
+  let r = 0, g = 0, b = 0
+  for (let i = 0; i < take; i++) { r += lit[i].r; g += lit[i].g; b += lit[i].b }
+  r = Math.round(r / take)
+  g = Math.round(g / take)
+  b = Math.round(b / take)
+  // Normalised to a fixed brightness and washed toward white: the glow is a
+  // light, and an averaged sample of a dark room is a paint.
+  return {
+    accent: normalise(r, g, b, 235, 0.22),
+    accentDeep: normalise(r, g, b, 108, 0),
+  }
+}
+
+/** Scales the hue to `peak` on its brightest channel, then mixes in `white`. */
+function normalise(r, g, b, peak, white) {
+  const max = Math.max(r, g, b) || 1
+  const k = peak / max
+  const mix = (v) => Math.max(0, Math.min(255, Math.round(v * k * (1 - white) + 255 * white)))
+  return '#' + [mix(r), mix(g), mix(b)].map((v) => v.toString(16).padStart(2, '0')).join('')
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════════════════════════════════════
+
+const VIEWPORTS = [
+  { id: 'design', label: 'Référence 1240 × 790', w: 1240, h: 790, insets: null },
+  { id: 'desktop', label: 'Bureau 1440 × 900', w: 1440, h: 900, insets: null },
+  { id: 'wide', label: 'Large 1920 × 1080', w: 1920, h: 1080, insets: null },
+  { id: 'laptop', label: 'Portable 1366 × 700', w: 1366, h: 700, insets: null },
+  { id: 'phone', label: 'Téléphone 405 × 830', w: 405, h: 830, insets: null },
+  { id: 'small', label: 'Petit téléphone 360 × 640', w: 360, h: 640, insets: null },
+  { id: 'notch', label: 'Encoche 390 × 844', w: 390, h: 844, insets: { top: 59, right: 0, bottom: 34, left: 0 } },
+  { id: 'landscape', label: 'Téléphone couché 844 × 390', w: 844, h: 390, insets: { top: 0, right: 44, bottom: 21, left: 44 } },
+]
+
+const NO_INSETS = { top: 0, right: 0, bottom: 0, left: 0 }
+
+// The four shipped maps, so a new table can be judged against the ones that
+// already work. The art is read from the repository at the relative path below,
+// which is why this file has to stay in `tools/maps/`.
+//
+// **A hand-kept copy of `client/src/components/cards/maps.ts`.** Nothing checks
+// that the two agree, so a playfield tuned in the client is tuned here too, in
+// the same change set. It cannot be read at runtime: a `fetch` off the disk is
+// refused, and parsing TypeScript in the page to avoid four literals would be a
+// worse trade.
+const SHIPPED = {
+  neon: { playfield: { x: 0.045, y: 0.252, w: 0.855, h: 0.442 }, accent: '#c56bff', accentDeep: '#5a1e9c' },
+  rune: { playfield: { x: 0.174, y: 0.166, w: 0.654, h: 0.561 }, accent: '#ffab52', accentDeep: '#6d3410' },
+  velvet: { playfield: { x: 0.085, y: 0.11, w: 0.83, h: 0.555 }, accent: '#f0c46a', accentDeep: '#5e3a12' },
+  orbit: { playfield: { x: 0.17, y: 0.115, w: 0.675, h: 0.585 }, accent: '#4fd6ff', accentDeep: '#123a63' },
+}
+
+const state = {
+  room: null,   // { name, url, img, stats, cropped? }
+  table: null,
+  playfield: { x: 0.1, y: 0.24, w: 0.8, h: 0.45 },
+  accent: '#c56bff',
+  accentDeep: '#5a1e9c',
+  accentTouched: false,
+  mapId: 'ma-map',
+  viewport: VIEWPORTS[0],
+  opponents: 3,
+  hand: 8,
+  direction: 1,
+  autocrop: true,
+  showChrome: true,
+  showOverlays: false,
+  showFelt: false,
+  showRing: true,
+  showRoom: true,
+  showTable: true,
+  fit: true,
+}
+
+const $ = (id) => document.getElementById(id)
+
+// ════════════════════════════════════════════════════════════════════════════
+// Rendering the scene
+// ════════════════════════════════════════════════════════════════════════════
+
+function el(tag, cls, style) {
+  const n = document.createElement(tag)
+  if (cls) n.className = cls
+  if (style) n.setAttribute('style', style)
+  return n
+}
+
+// Unrounded on purpose: the board writes its styles straight off the maths, and
+// a tester that rounds no longer matches the game when the two are diffed.
+function px(v) { return v + 'px' }
+
+/** The table picture actually used by the board: cropped, or the raw file. */
+function tableSource() {
+  if (!state.table) return null
+  return state.autocrop
+    ? state.table.cropped
+    : { url: state.table.url, width: state.table.stats.width, height: state.table.stats.height }
+}
+
+function render() {
+  const vp = state.viewport
+  const board = $('board')
+  const stage = $('stage')
+  const chromeLayer = $('chromeLayer')
+
+  $('viewport').style.width = vp.w + 'px'
+  $('viewport').style.height = vp.h + 'px'
+
+  const insets = vp.insets || NO_INSETS
+  const scale = boardScale(vp.w - insets.left - insets.right, vp.h - insets.top - insets.bottom)
+  const space = boardSpace(vp.w, vp.h, scale, insets)
+  const width = space.width
+  const height = space.height
+
+  const roomOn = state.room && state.showRoom
+  board.dataset.map = roomOn ? state.mapId || 'preview' : ''
+  board.style.backgroundImage = roomOn ? 'url(' + state.room.url + ')' : ''
+  board.style.setProperty('--map-accent', state.accent)
+  board.style.setProperty('--map-accent-deep', state.accentDeep)
+
+  const seats = seatLayout(state.opponents, width, height)
+  const topReserve = seats.blockHeight
+  const felt = tableRect(width, height, topReserve)
+  const src = tableSource()
+  const imgRect = src && state.showTable ? tableImageRect(felt, state.playfield) : null
+  // A map replaces the paint, never the geometry: the glow is only drawn when a
+  // map is up, exactly as GameBoard does it.
+  const mapUp = !!(state.room || src)
+
+  stage.style.width = px(width)
+  stage.style.height = px(height)
+  stage.style.transform =
+    'translate(' + px(space.offsetX) + ', ' + px(space.offsetY) + ') scale(' + scale + ')'
+  stage.textContent = ''
+
+  if (mapUp) {
+    stage.appendChild(el('div', 'tableGlow',
+      'left:' + px(felt.left) + ';top:' + px(felt.top) +
+      ';width:' + px(felt.width) + ';height:' + px(felt.height)))
+  }
+
+  if (state.showFelt || !imgRect) {
+    stage.appendChild(el('div', 'tableOval',
+      'left:' + px(felt.left) + ';top:' + px(felt.top) +
+      ';width:' + px(felt.width) + ';height:' + px(felt.height)))
+  }
+  if (imgRect) {
+    const img = el('img', 'tableImage',
+      'left:' + px(imgRect.left) + ';top:' + px(imgRect.top) +
+      ';width:' + px(imgRect.width) + ';height:' + px(imgRect.height))
+    img.src = src.url
+    img.alt = ''
+    img.draggable = false
+    stage.appendChild(img)
+  }
+
+  if (state.showRing) {
+    const NS = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('class', 'ring')
+    svg.setAttribute('viewBox', '0 0 ' + felt.width + ' ' + felt.height)
+    svg.setAttribute('style',
+      'left:' + px(felt.left) + ';top:' + px(felt.top) +
+      ';width:' + px(felt.width) + ';height:' + px(felt.height))
+    directionMarkers(felt.width, felt.height, state.direction).forEach((m, i) => {
+      const g = document.createElementNS(NS, 'g')
+      g.setAttribute('transform', 'translate(' + m.x + ' ' + m.y + ') rotate(' + m.angle + ')')
+      g.setAttribute('style', 'animation-delay:' + (i * 3200) / DIRECTION_MARKER_COUNT + 'ms')
+      const p = document.createElementNS(NS, 'path')
+      p.setAttribute('d', 'M -11 -13 L 4 0 L -11 13')
+      g.appendChild(p)
+      svg.appendChild(g)
+    })
+    stage.appendChild(svg)
+  }
+
+  // Deck: a stack, because the pile's own shadow is part of what the table has
+  // to stay readable under.
+  const deck = deckPosition(width, height, topReserve)
+  for (let i = 2; i >= 0; i--) {
+    const c = el('div', 'card back',
+      'left:' + px(deck.x - i * 1.5) + ';top:' + px(deck.y - i * 2) +
+      ';width:' + px(CARD_W) + ';height:' + px(CARD_H) +
+      (i > 0 ? ';box-shadow:none' : ''))
+    if (i === 0) c.textContent = 'LOCO'
+    stage.appendChild(c)
+  }
+
+  const disc = discardPosition(width, height, topReserve)
+  const top = SAMPLE_HAND[4]
+  stage.appendChild(el('div', 'activeRing',
+    'left:' + px(disc.x - 6) + ';top:' + px(disc.y - 6) +
+    ';width:' + px(CARD_W + 12) + ';height:' + px(CARD_H + 12) +
+    ';--ring-color:' + ACTIVE_RING.green))
+  const face = el('div', 'card',
+    'left:' + px(disc.x) + ';top:' + px(disc.y) +
+    ';width:' + px(CARD_W) + ';height:' + px(CARD_H) +
+    ';background:linear-gradient(' + SUIT_ANGLE_DEG + 'deg,' +
+    SUIT_PAINT[top.color].from + ',' + SUIT_PAINT[top.color].to + ')')
+  face.textContent = top.label
+  stage.appendChild(face)
+
+  seats.positions.forEach((p, i) => {
+    const s = el('div', 'seat' + (seats.size === 'mini' ? ' mini' : ''),
+      'left:' + px(p.x - seats.pillW / 2) + ';top:' + px(p.y - seats.pillH / 2) +
+      ';width:' + px(seats.pillW) + ';height:' + px(seats.pillH) +
+      ';font-size:' + (seats.size === 'mini' ? 12 : seats.size === 'compact' ? 14 : 16) + 'px')
+    s.textContent = 'Player ' + (i + 1)
+    const count = SEAT_COUNTS[i % SEAT_COUNTS.length]
+    const badge = el('span', 'seatCount', count === 1 ? 'background:#ff3d68' : '')
+    badge.textContent = String(count)
+    s.appendChild(badge)
+    stage.appendChild(s)
+  })
+
+  calcHandSlots(state.hand, width, height).forEach((slot, i) => {
+    const c = SAMPLE_HAND[i % SAMPLE_HAND.length]
+    const n = el('div', 'card',
+      'left:' + px(slot.x) + ';top:' + px(slot.y) +
+      ';width:' + px(CARD_W) + ';height:' + px(CARD_H) +
+      ';transform:rotate(' + (slot.rotation * 180) / Math.PI + 'deg)' +
+      ';background:linear-gradient(' + SUIT_ANGLE_DEG + 'deg,' +
+      SUIT_PAINT[c.color].from + ',' + SUIT_PAINT[c.color].to + ')')
+    n.textContent = c.label
+    stage.appendChild(n)
+  })
+
+  if (state.showOverlays) {
+    stage.appendChild(el('div', 'ov felt',
+      'left:' + px(felt.left) + ';top:' + px(felt.top) +
+      ';width:' + px(felt.width) + ';height:' + px(felt.height)))
+    stage.appendChild(el('div', 'ov feltBox',
+      'left:' + px(felt.left) + ';top:' + px(felt.top) +
+      ';width:' + px(felt.width) + ';height:' + px(felt.height)))
+    if (imgRect) {
+      stage.appendChild(el('div', 'ov imgBox',
+        'left:' + px(imgRect.left) + ';top:' + px(imgRect.top) +
+        ';width:' + px(imgRect.width) + ';height:' + px(imgRect.height)))
+    }
+  }
+
+  chromeLayer.textContent = ''
+  if (state.showChrome) {
+    const badge = el('div', 'chrome',
+      'left:' + px(insets.left + 14) + ';top:' + px(insets.top + 12) +
+      ';width:150px;height:34px')
+    badge.textContent = 'bandeau 58 px'
+    chromeLayer.appendChild(badge)
+
+    const barH = 60
+    const bar = el('div', 'chrome',
+      'left:' + px(insets.left + 14) + ';right:' + px(insets.right + 14) +
+      ';bottom:' + px(insets.bottom + 14) + ';height:' + px(barH))
+    bar.textContent = 'barre d’action, réserve de 140 px'
+    chromeLayer.appendChild(bar)
+
+    const chip = el('div', 'chrome',
+      'left:50%;transform:translateX(-50%);bottom:' + px(insets.bottom + 14 + barH + 10) +
+      ';width:100px;height:30px')
+    chip.textContent = 'LOCO !'
+    chromeLayer.appendChild(chip)
+  }
+  if (vp.insets) {
+    chromeLayer.appendChild(el('div', 'safeMask',
+      'left:' + px(insets.left) + ';top:' + px(insets.top) +
+      ';right:' + px(insets.right) + ';bottom:' + px(insets.bottom)))
+  }
+
+  $('dims').textContent =
+    vp.w + ' × ' + vp.h + ', échelle ' + scale.toFixed(3) +
+    ', espace ' + Math.round(width) + ' × ' + Math.round(height)
+
+  fitViewport()
+  updateSnippet()
+}
+
+/** Zoom to fit for the simulated device inside the preview area. */
+function fitViewport() {
+  const area = $('previewArea')
+  const holder = $('holder')
+  const vp = state.viewport
+  if (!state.fit) {
+    holder.style.transform = 'scale(1)'
+    $('zoomLabel').textContent = '100 %'
+    return
+  }
+  const pad = 40
+  const z = Math.min(1, (area.clientWidth - pad) / vp.w, (area.clientHeight - pad) / vp.h)
+  holder.style.transform = 'scale(' + z + ')'
+  $('zoomLabel').textContent = Math.round(z * 100) + ' %'
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Playfield editor
+// ════════════════════════════════════════════════════════════════════════════
+
+function renderEditor() {
+  const wrap = $('pfEditor')
+  const src = tableSource()
+  wrap.textContent = ''
+  if (!src) {
+    const e = el('p', 'pfEmpty')
+    e.textContent = 'Dépose la table pour caler sa surface de jeu.'
+    wrap.appendChild(e)
+    return
+  }
+  const img = new Image()
+  img.src = src.url
+  img.alt = ''
+  img.draggable = false
+  wrap.appendChild(img)
+
+  const pf = state.playfield
+  const box = el('div', 'pfBox',
+    'left:' + pf.x * 100 + '%;top:' + pf.y * 100 + '%;' +
+    'width:' + pf.w * 100 + '%;height:' + pf.h * 100 + '%')
+  for (const corner of ['nw', 'ne', 'sw', 'se']) {
+    const h = el('div', 'pfHandle ' + corner)
+    h.dataset.corner = corner
+    box.appendChild(h)
+  }
+  wrap.appendChild(box)
+}
+
+function moveEditorBox() {
+  const box = document.querySelector('.pfBox')
+  if (!box) return
+  const pf = state.playfield
+  box.style.left = pf.x * 100 + '%'
+  box.style.top = pf.y * 100 + '%'
+  box.style.width = pf.w * 100 + '%'
+  box.style.height = pf.h * 100 + '%'
+}
+
+function initEditorDrag() {
+  const wrap = $('pfEditor')
+  let mode = null
+  let startPF = null
+  let startPt = null
+
+  wrap.addEventListener('pointerdown', (ev) => {
+    if (!ev.target.closest('.pfBox')) return
+    mode = ev.target.classList.contains('pfHandle') ? ev.target.dataset.corner : 'move'
+    startPF = Object.assign({}, state.playfield)
+    const r = wrap.getBoundingClientRect()
+    startPt = { x: ev.clientX, y: ev.clientY, w: r.width, h: r.height }
+    wrap.setPointerCapture(ev.pointerId)
+    ev.preventDefault()
+  })
+
+  wrap.addEventListener('pointermove', (ev) => {
+    if (!mode) return
+    const dx = (ev.clientX - startPt.x) / startPt.w
+    const dy = (ev.clientY - startPt.y) / startPt.h
+    const pf = Object.assign({}, startPF)
+    if (mode === 'move') {
+      pf.x = startPF.x + dx
+      pf.y = startPF.y + dy
+    } else {
+      if (mode.includes('w')) { pf.x = startPF.x + dx; pf.w = startPF.w - dx }
+      if (mode.includes('e')) { pf.w = startPF.w + dx }
+      if (mode.includes('n')) { pf.y = startPF.y + dy; pf.h = startPF.h - dy }
+      if (mode.includes('s')) { pf.h = startPF.h + dy }
+    }
+    setPlayfield(pf)
+  })
+
+  const end = (ev) => {
+    if (!mode) return
+    mode = null
+    try { wrap.releasePointerCapture(ev.pointerId) } catch (e) { /* already released */ }
+  }
+  wrap.addEventListener('pointerup', end)
+  wrap.addEventListener('pointercancel', end)
+
+  // Fine tuning: the last few thousandths are the difference between cards on
+  // the felt and cards on the rim, and they are past what a drag can resolve.
+  wrap.addEventListener('keydown', (ev) => {
+    const step = ev.shiftKey ? 0.01 : 0.002
+    const pf = Object.assign({}, state.playfield)
+    const resize = ev.altKey
+    switch (ev.key) {
+      case 'ArrowLeft': resize ? (pf.w -= step) : (pf.x -= step); break
+      case 'ArrowRight': resize ? (pf.w += step) : (pf.x += step); break
+      case 'ArrowUp': resize ? (pf.h -= step) : (pf.y -= step); break
+      case 'ArrowDown': resize ? (pf.h += step) : (pf.y += step); break
+      default: return
+    }
+    ev.preventDefault()
+    setPlayfield(pf)
+  })
+}
+
+function round3(v) { return Math.round(v * 1000) / 1000 }
+
+function setPlayfield(pf, fromInput) {
+  state.playfield = {
+    x: round3(pf.x),
+    y: round3(pf.y),
+    w: round3(Math.max(0.02, pf.w)),
+    h: round3(Math.max(0.02, pf.h)),
+  }
+  if (!fromInput) {
+    $('pfx').value = state.playfield.x
+    $('pfy').value = state.playfield.y
+    $('pfw').value = state.playfield.w
+    $('pfh').value = state.playfield.h
+  }
+  moveEditorBox()
+  render()
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Loading images
+// ════════════════════════════════════════════════════════════════════════════
+
+function readFile(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(fr.result)
+    fr.onerror = () => reject(new Error('lecture impossible'))
+    fr.readAsDataURL(file)
+  })
+}
+
+async function adopt(url, name, slot) {
+  const img = await loadImage(url)
+  const stats = measure(img)
+  const asset = { name, url, img, stats, width: img.naturalWidth, height: img.naturalHeight }
+  // Which file is which is read off the alpha channel, never off the filename,
+  // same rule as prepare.mjs and for the same reason: the renders come out of
+  // the generator named after their timestamp. Unmeasurable pixels always come
+  // with a slot named by the caller, so nothing here has to guess blind.
+  const target = slot || (stats && stats.transparent > 0 ? 'table' : 'room')
+  if (target === 'table') {
+    if (stats) {
+      const b = stats.bbox
+      asset.cropped = encode(img, [b[0], b[1], b[2] - b[0] + 1, b[3] - b[1] + 1], 'image/webp', TABLE_QUALITY)
+      if (stats.transparent === 0) asset.warning = 'aucun pixel transparent, la table doit être détourée'
+    } else {
+      // Already cropped, since it is a shipped file: `make maps` did that.
+      asset.cropped = { url, width: asset.width, height: asset.height }
+    }
+    state.table = asset
+  } else {
+    if (stats && stats.transparent > 0) asset.warning = 'transparente, prepare.mjs la prendrait pour la table'
+    state.room = asset
+    if (stats && !state.accentTouched) {
+      const g = guessAccent(img)
+      if (g) setAccent(g.accent, g.accentDeep)
+    }
+  }
+  updateMeta()
+  renderEditor()
+  render()
+}
+
+function fmtPct(n, total) { return ((100 * n) / total).toFixed(1) + ' %' }
+
+function updateMeta() {
+  const r = state.room
+  const mr = $('metaRoom')
+  $('dropRoom').classList.toggle('filled', !!r)
+  $('thumbRoom').style.backgroundImage = r ? 'url(' + r.url + ')' : ''
+  if (!r) {
+    mr.textContent = 'Rien de chargé.'
+    mr.className = 'meta'
+  } else {
+    mr.innerHTML = '<b>' + r.width + ' × ' + r.height + '</b>, ratio ' +
+      (r.width / r.height).toFixed(2) +
+      (r.stats ? '' : '. Ouvert depuis le disque, mesure alpha sautée.') +
+      (r.warning ? '. ' + r.warning : '')
+    mr.className = 'meta' + (r.warning ? ' bad' : '')
+  }
+
+  const t = state.table
+  const mt = $('metaTable')
+  $('dropTable').classList.toggle('filled', !!t)
+  $('thumbTable').style.backgroundImage = t ? 'url(' + (t.cropped || t).url + ')' : ''
+  if (!t) {
+    mt.textContent = 'Rien de chargé.'
+    mt.className = 'meta'
+  } else if (!t.stats) {
+    mt.innerHTML = '<b>' + t.width + ' × ' + t.height + '</b>. Ouvert depuis le disque, rognage sauté : ' +
+      'un fichier livré l’est déjà.'
+    mt.className = 'meta'
+  } else {
+    const total = t.stats.width * t.stats.height
+    mt.innerHTML = '<b>' + t.stats.width + ' × ' + t.stats.height + '</b>, rognée à ' +
+      t.cropped.width + ' × ' + t.cropped.height + '. ' +
+      fmtPct(t.stats.transparent, total) + ' de vide, ' +
+      fmtPct(t.stats.partial, total) + ' d’alpha douce' + (t.warning ? '. ' + t.warning : '')
+    mt.className = 'meta' + (t.warning ? ' bad' : '')
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Export
+// ════════════════════════════════════════════════════════════════════════════
+
+function updateSnippet() {
+  const pf = state.playfield
+  const id = state.mapId || 'ma-map'
+  $('snippet').value =
+    '  ' + id + ': {\n' +
+    "    id: '" + id + "',\n" +
+    "    room: '/maps/" + id + "/room.webp',\n" +
+    "    table: '/maps/" + id + "/table.webp',\n" +
+    '    playfield: { x: ' + pf.x + ', y: ' + pf.y + ', w: ' + pf.w + ', h: ' + pf.h + ' },\n' +
+    "    accent: '" + state.accent + "',\n" +
+    "    accentDeep: '" + state.accentDeep + "',\n" +
+    '  },'
+}
+
+function download(dataUrl, filename) {
+  const a = document.createElement('a')
+  a.href = dataUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
+function toast(msg, bad) {
+  const t = $('toast')
+  t.textContent = msg
+  t.classList.toggle('bad', !!bad)
+  t.classList.add('show')
+  clearTimeout(toast._t)
+  toast._t = setTimeout(() => t.classList.remove('show'), 2400)
+}
+
+function setAccent(accent, deep) {
+  state.accent = accent
+  state.accentDeep = deep
+  $('accent').value = accent
+  $('accentHex').value = accent
+  $('accentDeep').value = deep
+  $('accentDeepHex').value = deep
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Wiring
+// ════════════════════════════════════════════════════════════════════════════
+
+function initPresets() {
+  const sel = $('preset')
+  for (const v of VIEWPORTS) {
+    const o = document.createElement('option')
+    o.value = v.id
+    o.textContent = v.label
+    sel.appendChild(o)
+  }
+  sel.value = state.viewport.id
+  sel.addEventListener('change', () => {
+    state.viewport = VIEWPORTS.find((v) => v.id === sel.value)
+    render()
+  })
+}
+
+function initDrops() {
+  const wire = (dropId, slot) => {
+    const node = $(dropId)
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/png,image/webp,image/jpeg'
+    input.style.display = 'none'
+    document.body.appendChild(input)
+    node.addEventListener('click', () => input.click())
+    input.addEventListener('change', async () => {
+      const f = input.files[0]
+      if (!f) return
+      await adopt(await readFile(f), f.name, slot)
+      input.value = ''
+    })
+    node.addEventListener('dragover', (e) => { e.preventDefault(); node.classList.add('over') })
+    node.addEventListener('dragleave', () => node.classList.remove('over'))
+    node.addEventListener('drop', async (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      node.classList.remove('over')
+      const f = e.dataTransfer.files[0]
+      if (f) await adopt(await readFile(f), f.name, slot)
+    })
+  }
+  wire('dropRoom', 'room')
+  wire('dropTable', 'table')
+
+  // Whole-window drop: the two files are told apart by alpha, so neither has to
+  // be aimed at the right box.
+  let depth = 0
+  window.addEventListener('dragover', (e) => e.preventDefault())
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault()
+    depth++
+    $('veil').classList.add('on')
+  })
+  window.addEventListener('dragleave', () => {
+    depth = Math.max(0, depth - 1)
+    if (depth === 0) $('veil').classList.remove('on')
+  })
+  window.addEventListener('drop', async (e) => {
+    e.preventDefault()
+    depth = 0
+    $('veil').classList.remove('on')
+    const files = Array.from(e.dataTransfer.files).filter((f) => /^image\//.test(f.type))
+    for (const f of files) await adopt(await readFile(f), f.name, null)
+  })
+}
+
+function initShipped() {
+  const row = $('shippedRow')
+  for (const id of Object.keys(SHIPPED)) {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'chip'
+    b.textContent = id
+    b.setAttribute('aria-pressed', 'false')
+    b.addEventListener('click', async () => {
+      const base = '../../client/public/maps/' + id + '/'
+      try {
+        await adopt(base + 'room.webp', id + '/room.webp', 'room')
+        await adopt(base + 'table.webp', id + '/table.webp', 'table')
+      } catch (e) {
+        toast('Décor introuvable. Ce fichier doit rester dans tools/maps/.', true)
+        return
+      }
+      const known = SHIPPED[id]
+      setPlayfield(known.playfield)
+      setAccent(known.accent, known.accentDeep)
+      state.accentTouched = true
+      state.mapId = id
+      $('mapId').value = id
+      for (const other of row.children) other.setAttribute('aria-pressed', String(other === b))
+      render()
+    })
+    row.appendChild(b)
+  }
+}
+
+function initControls() {
+  const bindNum = (id, key) => {
+    $(id).addEventListener('input', () => {
+      const v = parseFloat($(id).value)
+      if (!isFinite(v)) return
+      const pf = Object.assign({}, state.playfield)
+      pf[key] = v
+      setPlayfield(pf, true)
+    })
+  }
+  bindNum('pfx', 'x'); bindNum('pfy', 'y'); bindNum('pfw', 'w'); bindNum('pfh', 'h')
+
+  const bindCheck = (id, key, onChange) => {
+    $(id).checked = state[key]
+    $(id).addEventListener('change', () => {
+      state[key] = $(id).checked
+      if (onChange) onChange()
+      render()
+    })
+  }
+  bindCheck('autocrop', 'autocrop', renderEditor)
+  bindCheck('showChrome', 'showChrome')
+  bindCheck('showOverlays', 'showOverlays')
+  bindCheck('showFelt', 'showFelt')
+  bindCheck('showRing', 'showRing')
+  bindCheck('showRoom', 'showRoom')
+  bindCheck('showTable', 'showTable')
+  bindCheck('fit', 'fit')
+
+  $('opponents').addEventListener('change', () => {
+    state.opponents = parseInt($('opponents').value, 10)
+    render()
+  })
+  $('hand').addEventListener('input', () => {
+    state.hand = Math.max(0, Math.min(20, parseInt($('hand').value, 10) || 0))
+    render()
+  })
+  $('direction').addEventListener('change', () => {
+    state.direction = parseInt($('direction').value, 10)
+    render()
+  })
+  $('mapId').addEventListener('input', () => {
+    state.mapId = $('mapId').value.trim()
+    render()
+  })
+
+  const bindColor = (colorId, hexId, key) => {
+    const apply = (v) => {
+      if (!/^#[0-9a-f]{6}$/i.test(v)) return
+      state[key] = v.toLowerCase()
+      state.accentTouched = true
+      $(colorId).value = state[key]
+      $(hexId).value = state[key]
+      render()
+    }
+    $(colorId).addEventListener('input', () => apply($(colorId).value))
+    $(hexId).addEventListener('change', () => apply($(hexId).value.trim()))
+  }
+  bindColor('accent', 'accentHex', 'accent')
+  bindColor('accentDeep', 'accentDeepHex', 'accentDeep')
+
+  $('pickAccent').addEventListener('click', () => {
+    if (!state.room) return toast('Charge un décor d’abord.', true)
+    const g = guessAccent(state.room.img)
+    if (!g) return toast('Rien d’assez lumineux dans ce décor.', true)
+    setAccent(g.accent, g.accentDeep)
+    state.accentTouched = true
+    render()
+    toast('Point de départ posé. À ajuster.')
+  })
+
+  $('copySnippet').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('snippet').value)
+      toast('Copié. Colle-le dans maps.ts.')
+    } catch (e) {
+      $('snippet').select()
+      toast('Sélectionné. Ctrl + C.')
+    }
+  })
+
+  $('dlRoom').addEventListener('click', () => {
+    if (!state.room) return toast('Aucun décor chargé.', true)
+    if (!state.room.stats) return toast('Ce décor vient du dépôt, il est déjà encodé.', true)
+    download(encode(state.room.img, null, 'image/webp', ROOM_QUALITY).url, 'room.webp')
+  })
+
+  $('dlTable').addEventListener('click', () => {
+    if (!state.table) return toast('Aucune table chargée.', true)
+    if (!state.table.stats) return toast('Cette table vient du dépôt, elle est déjà encodée.', true)
+    download(state.table.cropped.url, 'table.webp')
+  })
+
+  $('clearAll').addEventListener('click', () => {
+    state.room = null
+    state.table = null
+    state.accentTouched = false
+    for (const c of $('shippedRow').children) c.setAttribute('aria-pressed', 'false')
+    updateMeta()
+    renderEditor()
+    render()
+  })
+}
+
+function init() {
+  initPresets()
+  initDrops()
+  initShipped()
+  initControls()
+  initEditorDrag()
+  setPlayfield(state.playfield)
+  updateMeta()
+  renderEditor()
+  render()
+  window.addEventListener('resize', fitViewport)
+}
+
+init()
+</script>
+</body>
+</html>
