@@ -229,6 +229,16 @@ export const SCENES: Scene[] = [
     lobbyMode: 'home',
   },
   {
+    // The count is drawn opposite the chip row, so this scene is worth both
+    // viewports: under 46rem the burger owns that corner and the plate has to
+    // clear it without wrapping the line.
+    id: 'lobby-online',
+    title: 'Accueil · joueurs connectés',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    state: { playersOnline: 128 },
+  },
+  {
     id: 'lobby-create',
     title: 'Accueil · créer une partie',
     screen: 'lobby',

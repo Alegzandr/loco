@@ -67,6 +67,13 @@ rules, `docs/notes/` the reasoning.
   directly under the queue's — a line of underlined text between two ledged buttons read as a
   footnote, and the mode that needs nobody else organised is not a footnote. The game-over screen offers
   another press or the queue; there is no rematch to negotiate.
+- **A sign of life on the home screen**: a small plate opposite the chip row saying how many players
+  are connected to this server, sent by the server on arrival and then only when the number moves.
+  It is not the queue and does not say it is — the queue's size is still nowhere on the wire — and it
+  is drawn from two players up and simply absent below that, never rounded, padded or reworded. A
+  count of one is the number that closes the tab, and the plate that would carry it is the one that
+  should not be there. It is drawn on the home screen only: a table in progress is neither sent it
+  nor has any use for it.
 - **The way out of the queue arrives inside twenty seconds**: the searching screen's three stages are
   0-10 s, 10-20 s and 20 s+, and the last of them is where a private table is offered. At 45 s it was
   a tab that had been closed at ten.

@@ -109,6 +109,11 @@ export interface ErrorCopy {
 export interface Translations {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: string
+  // The home screen's sign of life. It counts people connected to this server,
+  // never the matchmaking queue, and it says so plainly: a player reading it as
+  // "how long until I am paired" would be reading a number that answers a
+  // different question. Only ever drawn from two up (components/playersOnline.ts).
+  playersOnline: (n: number) => string
   createRoom: string
   joinRoom: string
   createGame: string
@@ -463,6 +468,7 @@ export interface Translations {
 export const en: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: 'Cards at speed. Nobody waits their turn.',
+  playersOnline: (n) => `${n} players online`,
   createRoom: 'New table',
   joinRoom: 'Join a table',
   createGame: 'Open the table',

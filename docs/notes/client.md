@@ -789,6 +789,41 @@ is: there is no board to draw behind either of them.
   simply held and a countdown to losing would be a worse table. Its bar is a `drainBar` animation:
   a board frozen on somebody else's connection is exactly when the main thread must stay free.
 
+## The count on the home screen
+A small plate opposite the chip row, saying how many players are connected. `players_online` off the
+wire, `store.playersOnline`, `components/playersOnline.ts` for the one rule about drawing it, and a
+`role="status"` line in `Lobby.svelte` — nothing here is pressable and nothing here decides anything.
+
+- **The floor is the whole design, and it is two.** One is "you are alone", and a plate saying it is
+  the same sentence the searching screen is forbidden from writing, printed on the screen a visitor
+  arrives on. So below two the plate is **absent**, not zeroed, not softened into "a few players":
+  what is on screen is always exactly the number the server sent, and the floor decides whether the
+  screen speaks at all. That is also why the threshold is the client's and not a server-side refusal
+  to send — the number stays true, the screen decides what is worth drawing.
+- **It is not the queue and must never be read as one.** The queue's size is nowhere on the wire and
+  stays that way; this counts sockets, which answers "are the lights on" rather than "how long until
+  I am paired". The copy says *connected* / *online*, never *searching* or *waiting*, for that
+  reason: it names the state of a connection, which is what the number actually measures.
+- **It is the home screen's and nowhere else's.** The server does not send it to a seated socket, so
+  a match never pays for it, and the board has no room for a number nobody is playing against.
+  `setPlayersOnline` is deliberately **not** in `resetToHome`'s reset: the count belongs to the
+  socket rather than to the seat, and the screen a reset lands on is the one that draws it — clearing
+  it would blank the plate on every return from a table until the server next had something to say,
+  which on a quiet server is a while.
+- **It reserves no layout.** `position: absolute`, like the chip row it faces: `/` is one viewport
+  that never scrolls, and a status line taking a row would shift the wordmark lockup the moment the
+  count crossed its floor. Under 46rem it moves to the **foot** of the screen, centred: that top line
+  is spoken for at this width — the burger owns the left corner (`GamePage.astro` fixes it at these
+  very offsets), the speaker and "How to play" own the right, and the plate landed straight across
+  both — while a second row of chrome stacked under it would sit above the wordmark, which is the
+  first thing on this screen anybody should read. The bottom is free there: the footer row is behind
+  the burger at that width. It stays absolute, so it still reserves nothing and `/` still never
+  scrolls. **Centred, it has to be sized with `width: max-content`**: an absolutely positioned box
+  anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped onto a
+  second row inside its own plate.
+- The dot beside it is decoration: the words already say what it means, so no shape is owed to colour
+  assist. `playersOnline.test.ts` pins the floor, the unrounded number and the survival across a reset.
+
 ## Protocol validation (client)
 
 **Both type files are generated. Neither is edited.** `client/src/types/protocol.ts` and

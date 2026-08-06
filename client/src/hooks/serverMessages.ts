@@ -328,6 +328,14 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         store.applyLatencies(msg.latencies ?? [])
         break
 
+      // How many of us are here, for the home screen's chip. Sent on arrival
+      // and then only when the number moves, and only to a socket that is not
+      // sitting at a table. `?? 0` is the honest fallback: a message carrying
+      // no count says nothing, and nothing is what the chip draws.
+      case 'players_online':
+        store.setPlayersOnline(msg.players_online ?? 0)
+        break
+
       case 'match_end': {
         const s = gameStore.getState()
         // A forfeit is not a round result and does not queue behind one: the

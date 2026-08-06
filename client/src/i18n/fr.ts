@@ -13,6 +13,7 @@ import type { Translations } from './en'
 export const fr: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: 'Des cartes à toute vitesse. Personne n\'attend son tour.',
+  playersOnline: (n) => `${n} joueurs connectés`,
   createRoom: 'Nouvelle table',
   joinRoom: 'Rejoindre une table',
   createGame: 'Ouvrir la table',

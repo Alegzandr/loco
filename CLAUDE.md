@@ -357,6 +357,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
   is an empty acknowledgement, the number lives only on `/metrics`. Nothing player-facing says
   "unranked".
+- **`players_online` is the sockets, not the queue** (`hub/online.go`): every connection this process
+  holds, sent on registration and then **only when the count moves**, and **only to sockets that are
+  not at a table** — the home screen is the only place it is drawn, and this is the one message that
+  would otherwise reach every socket at once on a timer. **What each socket was last told is kept per
+  socket** (`Client.onlineSent`), because a hub-wide watermark skips the player who has just left a
+  table and waits for a number that, on a quiet server, never moves again. The floor under which it
+  is not shown is the **client's** (`components/playersOnline.ts`, two players): the number stays
+  true, the screen decides whether it is worth drawing.
 - **A table with no host is a shape, not a mode** (`table.hostless`, `refuseWithoutHost`). Two answer
   to it — a matchmade pair and a solo game — and `add_bot`, `start_game`, `set_match_format`,
   `set_max_players`, `kick_player` and `transfer_host` are refused at both.
@@ -670,6 +678,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   table, join a table, in that order. **Hierarchy is a hue, never a smaller kind of control** — the
   bot's is the one neutral fill, and it used to be a line of underlined text under the queue's
   button, which between two ledged buttons reads as a footnote and gets pressed like one.
+- **The count of connected players is drawn from two up and absent below it**
+  (`components/playersOnline.ts`, `Lobby.svelte`, opposite the chip row, `position: absolute` so it
+  reserves nothing, and **at the foot of the screen, centred, below 46rem**, where that row is full
+  and the footer is behind the burger). **Never rounded, never padded,
+  never reworded**: what is on screen is exactly the number the server sent, and the floor decides
+  only whether the plate is there at all — a count of one is the "close the tab" sentence the
+  searching screen is already forbidden from writing. It says *connected* / *online*, never
+  *searching*: it counts connections, it is not the queue. `setPlayersOnline` stays out of `resetToHome` — the count belongs to the socket, not to
+  the seat.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape rules only, word list
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and

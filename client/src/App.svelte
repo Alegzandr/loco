@@ -199,6 +199,7 @@
       onFindMatch={findMatch}
       onPlayBot={playBot}
       error={g.errorMsg}
+      playersOnline={g.playersOnline}
       onClearError={() => gameStore.getState().clearError()}
     />
   {/key}

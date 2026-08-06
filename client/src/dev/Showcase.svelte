@@ -148,6 +148,7 @@
       onFindMatch={noop}
       onPlayBot={noop}
       error={g.errorMsg}
+      playersOnline={g.playersOnline}
       onClearError={noop}
       initialMode={scene.lobbyMode}
       initialCode={scene.lobbyCode}

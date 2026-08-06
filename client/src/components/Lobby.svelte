@@ -10,6 +10,7 @@
   import { playSfx } from '../audio/sfx'
   import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
+  import { showPlayersOnline } from './playersOnline'
   import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from './tableCodeRules'
 
   type LobbyMode = 'home' | 'find' | 'bot' | 'create' | 'join'
@@ -28,6 +29,12 @@
      */
     onPlayBot: (nickname: string) => void
     error: string
+    /**
+     * How many people are connected to this server, as the server last said it.
+     * Presentation only, and drawn only from `PLAYERS_ONLINE_MIN` up — see
+     * `playersOnline.ts` for why the floor exists.
+     */
+    playersOnline?: number
     onClearError: () => void
     /**
      * Starting sub-screen. Set by the visual showcase, and by a table link, which
@@ -53,6 +60,7 @@
     onFindMatch,
     onPlayBot,
     error,
+    playersOnline = 0,
     onClearError,
     initialMode = 'home',
     initialCode = '',
@@ -163,6 +171,17 @@
 </script>
 
 <div class="container">
+  <!-- The sign of life, opposite the chip row and on the same line. Drawn from
+       two up and absent below it, never zeroed or reworded: playersOnline.ts. A
+       status line rather than a control — nothing here is pressable, so it is a
+       <p> and it announces its own changes politely rather than interrupting. -->
+  {#if showPlayersOnline(playersOnline)}
+    <p class="online" role="status">
+      <span class="onlineDot" aria-hidden="true"></span>
+      {t.playersOnline(playersOnline)}
+    </p>
+  {/if}
+
   <div class="topBar">
     <!-- The one screen where the gear stands down on a phone: this is the only
          screen the home page's burger is on, and its drawer carries a Preferences
@@ -357,6 +376,67 @@
     display: flex;
     align-items: center;
     gap: var(--space-sm);
+  }
+
+  /* Absolute, on the line the chip row sits on and at the other end of it. Like
+     that row it reserves nothing: the entry screen is one viewport that never
+     scrolls, and a status line that took a row of layout would push the lockup
+     off centre the moment the count crossed its floor. */
+  .online {
+    position: absolute;
+    top: calc(var(--space-base) + var(--safe-top));
+    left: calc(var(--space-base) + var(--safe-left));
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    padding: 6px 13px;
+    color: var(--color-muted);
+    font: 700 12px/1 var(--font-display);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--color-surface-card);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-full);
+    box-shadow: 0 3px 0 var(--color-stroke-soft);
+    /* It is a statement, not a control: nothing here is pressable, and a plate
+       that answers a tap by selecting its own text is a plate somebody tried to
+       press. */
+    user-select: none;
+  }
+
+  /* Decoration, and only ever that: the words beside it already say what it
+     means, so the hue carries nothing on its own and needs no shape the way a
+     suit does. */
+  .onlineDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-mint);
+    flex: none;
+  }
+
+  /* Under 46rem it moves to the foot of the screen, centred under the menu.
+     That top line is full at this width — the burger owns the left corner
+     (`GamePage.astro` fixes it at these very offsets), the speaker and "How to
+     play" own the right — and a plate squeezed onto it landed straight across
+     both, while stacking it underneath put a second row of chrome above a
+     wordmark that is the first thing anybody should read. The bottom is empty
+     here: the footer row is behind the burger at this width. Absolute either
+     way, so it still reserves nothing and the screen still never scrolls. */
+  @media (max-width: 46rem) {
+    .online {
+      top: auto;
+      bottom: calc(var(--space-lg) + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      /* Anchored at the middle, an absolute box is offered the half of the
+         line it starts at, and the count wrapped onto a second row inside its
+         own plate. It is sized to its contents instead, and the ceiling keeps
+         a four-digit evening off the edges. */
+      width: max-content;
+      max-width: calc(100% - 2 * var(--space-base));
+    }
   }
 
   /* The rules opener is <RulesButton />, which carries its own styling: the

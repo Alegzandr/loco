@@ -118,6 +118,7 @@ export const serverMsgTypeSchema = v.picklist([
   'emote',
   'rematch_offered',
   'rematch_started',
+  'players_online',
   'server_updating',
   'error',
 ])
@@ -459,6 +460,15 @@ export const serverMsgSchema = v.object({
   rematch_needed: v.optional(v.number()),
   // SMsgEmote: what was said, and PlayerIndex above says who said it.
   emote: v.optional(emoteSchema),
+  // SMsgPlayersOnline: how many sockets this server is holding.
+  //
+  // A pointer, like PlayerIndex and for both of its reasons. The number that
+  // most has to reach the home screen is the one that has just dropped, and a
+  // plain int under `omitempty` drops a zero — the chip would stay on screen
+  // counting people who have gone. Spelling it without `omitempty` instead
+  // would put `players_online: 0` on every card_played this server sends, for
+  // a field one screen reads and no match ever does.
+  players_online: v.optional(v.number()),
   // SMsgError
   error: v.optional(v.string()),
 })

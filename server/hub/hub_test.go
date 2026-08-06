@@ -35,8 +35,27 @@ func sendMsg(t *testing.T, conn *websocket.Conn, msg protocol.ClientMsg) {
 	}
 }
 
-// readMsg reads and unmarshals the next ServerMsg with a timeout.
+// readMsg reads and unmarshals the next ServerMsg with a timeout, skipping
+// players_online.
+//
+// That one is the answer to nothing: the server sends it the instant a socket
+// registers and again whenever the count moves, so it can land in front of any
+// reply a test is waiting for. Skipping it here rather than in each caller is
+// the same treatment every unsolicited message would get; online_test.go reads
+// it with readRaw, which is what a test about it needs.
 func readMsg(t *testing.T, conn *websocket.Conn) protocol.ServerMsg {
+	t.Helper()
+	for i := 0; i < 10; i++ {
+		if msg := readRaw(t, conn); msg.Type != protocol.SMsgPlayersOnline {
+			return msg
+		}
+	}
+	t.Fatalf("nothing but players_online in 10 messages")
+	return protocol.ServerMsg{}
+}
+
+// readRaw reads the next ServerMsg, whatever it is.
+func readRaw(t *testing.T, conn *websocket.Conn) protocol.ServerMsg {
 	t.Helper()
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	_, data, err := conn.ReadMessage()
