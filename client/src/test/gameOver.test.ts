@@ -9,6 +9,15 @@ const scoreboard = [
   { player_index: 1, nickname: 'Bob', score: 0, rounds_won: 0 },
 ]
 
+// A roster past two seats: the count on the button is drawn from this, because
+// the quorum stops at two whatever size the table is.
+const tableOfFour = ['Alice', 'Bob', 'Carol', 'Dave'].map((nickname, index) => ({
+  index,
+  nickname,
+  hand_size: 0,
+  connected: true,
+}))
+
 type Overrides = Partial<ComponentProps<typeof GameOver>>
 
 function renderGameOver(opts: Overrides = {}) {
@@ -36,16 +45,21 @@ describe('GameOver rematch', () => {
   })
 
   // Past two seats "waiting on them" names nobody, and how far off the next
-  // match is only exists as a count.
+  // match is only exists as a count. The count is against the quorum, which is
+  // two at any size: four players, two asks, and the room reopens.
   it('counts the asks at a table bigger than a 1v1', () => {
-    renderGameOver({ rematchOffers: [0], rematchNeeded: 4 })
+    renderGameOver({ players: tableOfFour, rematchOffers: [0], rematchNeeded: 2 })
     expect(
-      screen.getByRole('button', { name: `${en.rematchAccept} 1/4` })
+      screen.getByRole('button', { name: `${en.rematchAccept} 1/2` })
     ).toBeInTheDocument()
+  })
 
-    renderGameOver({ rematchOffers: [0, 1], rematchNeeded: 4 })
+  // The wait is on the table rather than on one named opponent, and it says so
+  // even though the quorum itself no longer says how many seats there are.
+  it('reads the table size off the roster, not off the quorum', () => {
+    renderGameOver({ players: tableOfFour, rematchOffers: [1], mySeat: 1, rematchNeeded: 2 })
     expect(
-      screen.getByRole('button', { name: `${en.rematchWaitingTable} 2/4` })
+      screen.getByRole('button', { name: `${en.rematchWaitingTable} 1/2` })
     ).toBeInTheDocument()
     expect(screen.queryByText(en.rematchWaitingOpponent)).not.toBeInTheDocument()
   })

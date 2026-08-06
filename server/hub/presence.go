@@ -133,6 +133,8 @@ func (h *Hub) disconnectAtTable(t *table, c *Client) {
 		Type:     protocol.SMsgPlayerLeft,
 		Nickname: nickname,
 		Players:  h.playerList(t),
+		// Re-based with the roster, for the same reason releaseSeat sends it.
+		MatchHistory: matchHistoryDTO(t),
 	})
 	if finished {
 		// Whoever is left may have been waiting on exactly this player.
@@ -231,6 +233,11 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 	}
 	if !removed {
 		left.PlayerIndex = intPtr(em.playerID)
+	} else {
+		// The seat went for real, so everything keyed on it moved down a column,
+		// the recap included. Only sent on the branch that re-bases: the other one
+		// leaves every index exactly where the game-over screen found it.
+		left.MatchHistory = matchHistoryDTO(t)
 	}
 	h.broadcastToRoomAll(t, left)
 

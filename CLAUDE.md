@@ -61,7 +61,7 @@ client and E2E targets do need Node.
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make maps ARGS="--src=<folder>"`, `make bench-server` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make maps ARGS="--src=<folder>"`, `make bench-server` |
 
 ## Done means
 Code + tests + passing + docs + Docker still works + behavior matches docs. **Update `README.md` when
@@ -181,7 +181,10 @@ needs jsdom and the `browser` resolve condition.
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
 `playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`,
-`maps/prepare.mjs`, `maps/scene-tester.html`, `audio/verify.mjs`, `csp/check.mjs`) · `docs/` spec + `docs/notes/` ·
+`cover/shoot.mjs`, `maps/prepare.mjs`, `maps/scene-tester.html`, `audio/verify.mjs`, `csp/check.mjs`) ·
+**`brand/`** the 600×800 game covers, uploaded to IGDB and drawn by Twitch as the category's box art —
+**committed and deliberately not under `client/public/`**: they are an upload, and serving them would
+add a megabyte to the site for nobody · `docs/` spec + `docs/notes/` ·
 `LICENSE` (MIT) · `NOTICE.md` · `.gitlab-ci.yml` the only CI definition · root config / Docker / env.
 
 ---
@@ -250,7 +253,10 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   by seat). It **survives `resetForNextMatch`**, moves with `dropSeat` and `swapSeats` like every
   other seat-keyed structure, rides the drain snapshot and the personalised state, and is what the
   game-over screen's evening recap is drawn from. A rematch nils the scoreboard; this is the only
-  thing that can say who won six matches on one code.
+  thing that can say who won six matches on one code. **It also rides every `player_left` that
+  re-bases the roster**, because the screen reading it is already open: a seat going shifts every
+  row's columns, and the client cannot re-base them itself — the column that went belongs to a seat
+  in neither roster.
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md).
@@ -423,8 +429,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   arrival's.
 - **`rematch` is an ask, not a decision, in every room** (deliberately *not* behind
   `refuseInMatchmade`). Every seat gets the same button, every ask is broadcast (`rematch_offered`,
-  carrying the **whole** offer state and the quorum, never the increment), and the deal happens only
-  once every connected human has asked (`rematchQuorum`; bots are not asked). **A departure retires
+  carrying the **whole** offer state and the quorum, never the increment), and **two asks deal the
+  next match at any size** — one offering, one accepting (`RematchQuorum`; below two connected it is
+  whoever is there, and bots are not asked). **Nobody is dropped by that**: the room reopens with
+  everybody still at the table, so a seat that had not answered lands in the waiting room and not out
+  of the game. **And the reopened table is hosted by somebody who asked for it**
+  (`promoteRematchHost`: the earliest-seated asker, moved with `SwapLobbyPlayers` + `swapSeats` like
+  `transfer_host`, then `keepHostHuman`) — seat 0 owns the press that starts the match, so leaving it
+  with a host who said nothing or who left is the wait this quorum exists to end. **A departure retires
   that seat's ask and re-bases the rest**, completing the agreement on the spot when what is left has
   already asked. In a matchmade room the client requeues the survivor instead.
 - **Nobody waits for somebody who is not there.** A matchmade room holds a dropped seat 15s and treats
@@ -788,6 +800,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   the search is one message**: `find_match` gives the seat up before it enqueues, so no `leave_room`
   goes ahead of it — its `left_room` would reset the store out from under the search screen. **The way
   out is the quietest control on the card**, under both offers, and it is an ordinary `leave_room`.
+- **A seat is an index, and an index is only true for as long as the roster it indexes.** A forfeit
+  is the one match end that moves the seats it just named — the leaver leaves the roster, everybody
+  above re-bases, `setPlayers` re-resolves `myIndex` — so a table of two whose host walks out gives
+  seat 0, the seat `forfeitBy` names, to the player who stayed, and the screen told the winner they
+  had quit. Which side of a forfeit we are on is answered **once, when `match_end` lands**
+  (`store.forfeitedByMe`), never re-derived on the screen; the recap is **re-sent by the server** on
+  the message that moved the seats, never re-based here. Anything else that outlives a roster change
+  takes the same treatment.
 - **The three things are one line per seat, and that card's height is the table's size**
   (`GameOver.svelte`, `.emoteSlot`): a slot is drawn for every player whether or not that seat has
   said anything, `applyEmote` **replaces** what a seat was saying instead of adding to it, and the
@@ -800,6 +820,16 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   matches ran off a 360px screen that way. **The seat that took a match is a gold pill**, the colour
   the scoreboard above it wins in: LOCO Red on that panel measures 2.9:1, and a recoloured digit is
   not something a spectator picks out of a grid at 720p.
+- **The round past the format has a name, not a number** (`t.decisiveRound`, `GameView`'s chip and
+  `RoundSummary`'s title, both off `formatRounds` in `matchLengthModel.ts`): the server deals one more
+  round when its tiebreak chain separates nobody, and `Round 4 · BO3` / `Round 4 of 3` read as a
+  counter that has come loose at the tensest point of the evening. The chip goes **gold**, the hue the
+  scoreboard wins in — LOCO Red under white is 3.43:1 and the chip is 13px. The card announces the
+  *next* one on `roundNumber >= matchRoundsNeeded && !matchOverPending` (`pendingMatchEnd`), never on
+  the format alone: a settled last round and a tied one are the same number. **That band's fade-in
+  delay is a mechanism, not polish** — `round_ended` and `match_end` are two messages, so without it
+  an ordinary final round is labelled decisive for a frame; it survives reduced motion. And it never
+  says who the extra round crowns: past two seats the winner of it may leave the tie standing.
 - `initLang()` first, then `initTheme()`, `initMotion()`, `initI18n()`, `initPinchGuard()`,
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
   order**. Each has a reason to be where it is, written next to it.
@@ -1002,6 +1032,13 @@ stated at the top of `styles/tokens.css`:
   `GameBoard.svelte`, and its list of the four shipped maps a copy of `maps.ts`: all three move in
   the same change set as their source**, or the tester approves a table the game draws elsewhere. It
   ships nothing, nothing imports it, and it is the one place a webfont CDN is allowed.
+- **The game cover carries the wordmark and no other text** (`src/dev/CoverCard.svelte`, three cuts,
+  `make cover` → `brand/`). IGDB wants the title to be the largest text on it, and the way this art
+  answers that is by being the only text; it also refuses platform logos, age ratings and watermarks.
+  **It is judged at 40px**, the width a Twitch category is picked out of a sidebar at, not at the
+  600×800 it is drawn at. Built from the real `<LocoLogo />` and the real `<Card />` for the reason
+  the link preview is: the art leaves this repository, and nothing here can watch it go stale.
+  `coverCard.test.ts` pins the ratio, the floor and the no-other-text rule.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).

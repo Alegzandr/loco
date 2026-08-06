@@ -816,11 +816,25 @@ is: there is no board to draw behind either of them.
   rematch button stays where it is and goes grey rather than disappearing: a reaction game does not
   reflow its buttons, and the state being shown is "there is nobody to agree with", which is a state
   and not an absence.
+- **Which side of it we are on is answered once, when `match_end` lands** (`store.forfeitedByMe`,
+  read by `<GameOver />` instead of `forfeitBy === mySeat`). A forfeit is the one match end that
+  moves the seats it has just named: the leaver is taken out of the roster and everybody above them
+  re-bases, `setPlayers` re-resolves `myIndex` from our own nickname, and a table of two whose *host*
+  walks out therefore hands seat 0 — the seat `forfeitBy` names — to the player who stayed. The
+  screen then told the winner they had walked out, with the leaver's column under their name in the
+  recap. Both halves of the fix are the same rule: **a seat is an index, and an index is only true
+  for as long as the roster it indexes.** So the boolean is taken while the message is the newest
+  thing on the wire, and the recap is re-sent by the server on the `player_left` that moved it
+  (`setMatchHistory`) rather than re-derived here.
 - **The rematch button has three states, and the middle one is the point.** Ask, wait, accept, at
   every table and for every seat: `rematchOffers` and `rematchNeeded` come straight off
   `rematch_offered`, and the button reads "they want another, go" once somebody else has asked first,
   because an ask nobody can see is an ask nobody answers. Past two seats the wait is on the table
-  rather than on one named opponent, and the button carries `x/y`; at two the count is noise.
+  rather than on one named opponent, and the button carries `x/y`; at two the count is noise. **How
+  big the table is comes off the roster, never off `rematchNeeded`**: two asks deal the next match at
+  any size (server `RematchQuorum`), so the quorum stopped being able to say how many seats there
+  are the moment it stopped counting them — a four-player game over read as a 1v1 for exactly as long
+  as that line kept asking the quorum.
   `player_left` clears the pair, and the server republishes right behind it in every room that still
   has an agreement to publish.
 - **The asks are per match, so the deal spends them** (`applyRematch`, beside `applyMatchFound`,
@@ -1094,6 +1108,45 @@ The grid came from 335px to fitting a four-match evening whole.
 to change it is that the scoreboard directly above wins in gold, and a spectator does not pick a
 recoloured digit out of a grid at 720p. A filled body with an outline is the same information as a
 shape, which is also what colour assist asks of anything meaning something by hue.
+
+## The round the format did not plan for
+The server's half is in [`domain-rules.md`](domain-rules.md): a match is settled on rounds won, then
+points, then the smallest lost-hand total, and when that chain separates nobody `determineMatchWinner`
+returns `""`, the match keeps running and one more round is dealt. This is what that reaches the
+player as.
+
+**It cost nothing to get wrong and it was wrong at the worst moment of the evening.** A BO3 that goes
+to a fourth round drew `Round 4 · BO3` on the board and `Round 4 of 3 down` on the summary card — a
+counter that has come loose, at the one point in a match where the player most needs to be told why
+the game-over screen did not come. Nothing anywhere said the round they were about to play was for
+the match.
+
+**So the round beyond the format has no number, it has a name.** `decisiveRound` replaces the whole
+chip (`roundNumber > formatRounds(matchFormat)`, `matchLengthModel.ts` — the third copy of that
+switch is gone with it) and replaces the summary card's title the same way. The chip goes gold, the
+hue the scoreboard and the recap already win in: `--color-primary` is 3.43:1 under white and the chip
+is 13px, so the accent could not be the red, and a spectator has to be able to tell this round from
+an ordinary one at 720p without reading it.
+
+**The card announces the *next* round, and the condition for that is not "the format ran out".** It
+is the format having run out with the match still running — `roundNumber >= matchRoundsNeeded &&
+!matchOverPending`, where `matchOverPending` is `pendingMatchEnd !== null`, the match-end payload the
+store buffers behind the summary so the player sees the round breakdown before the game-over screen.
+The last round of a settled BO3 and the last round of a tied one are the same number and the opposite
+answer.
+
+**That band fades in on a 0.35s delay, and the delay is the mechanism rather than the polish.**
+`round_ended` and `match_end` are two messages: the card is composed and can be painted before the
+second one lands, so without the delay an ordinary final round announces a decisive round for a frame
+and then takes it back. The delay survives reduced motion for the same reason (the duration goes, the
+delay does not) — it is not decoration, it is what stops the false announcement. `decisiveRound.test.ts`
+owns both halves, and the case that fails without any of this is the fourth: a finished decisive round
+titled `Round 4 of 3`.
+
+**What the band must not say is who the extra round crowns.** The winner of a decisive round is not
+automatically the match winner: past two seats a third player taking it can leave the two who were
+level still level on rounds, and the chain reruns. So the copy says what is true — nothing separates
+the table, one more round — and lets the scoreboard answer the rest.
 
 ## i18n
 - `client/src/i18n/en.ts` (source of truth) + `fr.ts`. `Translations` interface in `en.ts` reused as type — missing keys = TS error.

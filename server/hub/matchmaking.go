@@ -457,6 +457,10 @@ func (h *Hub) releaseSeat(t *table, c *Client) {
 			Type:     protocol.SMsgPlayerLeft,
 			Nickname: nickname,
 			Players:  h.playerList(t),
+			// The re-based recap rides the message that re-based the roster. See
+			// matchHistoryDTO: the seats that stay are looking at a game-over
+			// screen built from the columns this departure has just shifted.
+			MatchHistory: matchHistoryDTO(t),
 		})
 	} else {
 		h.scheduleRoomCleanup(t)

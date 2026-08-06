@@ -28,6 +28,7 @@
   import { i18n } from '../i18n/i18n.svelte'
   import CardSheet from './CardSheet.svelte'
   import OgCard from './OgCard.svelte'
+  import CoverCard from './CoverCard.svelte'
   import { SCENES, type Scene } from './scenes'
 
   const noop = () => {}
@@ -73,6 +74,7 @@
       matchOver: false,
       isMatchmade: false,
       forfeitBy: null,
+      forfeitedByMe: false,
       opponentAway: null,
       rematchOffers: [],
       rematchNeeded: 0,
@@ -143,6 +145,8 @@
     <CardSheet />
   {:else if scene.screen === 'og'}
     <OgCard variant={scene.ogVariant ?? 'default'} />
+  {:else if scene.screen === 'cover'}
+    <CoverCard variant={scene.coverVariant ?? 'duck'} />
   {:else if scene.screen === 'lobby'}
     <Lobby
       onSend={noop}
@@ -207,6 +211,7 @@
       isMatchmade={g.isMatchmade}
       isSolo={g.isSolo}
       forfeitBy={g.forfeitBy}
+      forfeitedByMe={g.forfeitedByMe}
       mySeat={g.myIndex}
       rematchOffers={g.rematchOffers}
       rematchNeeded={g.rematchNeeded}

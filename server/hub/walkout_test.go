@@ -123,6 +123,39 @@ func TestWalkOut_ATableOfTwoEndsTheMatch(t *testing.T) {
 	}
 }
 
+// The host leaving is the same match end, and it is the one that moves the seat
+// underneath the screen it just opened: the player who stayed is re-based from 1
+// onto 0, which is the seat match_end named as the one that walked out. The
+// recap rides the departure so the game-over screen is rebuilt on the seats it
+// is now being read with, rather than reading the leaver's column under the name
+// of the player who stayed.
+func TestWalkOut_TheHostLeavingRebasesTheRecapForTheSeatThatStayed(t *testing.T) {
+	conns, _ := openTable(t, "Alice", "Bob")
+	sendMsg(t, conns[0], protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
+	readMsgOfType(t, conns[0], protocol.SMsgLeftRoom)
+
+	end := readMsgOfType(t, conns[1], protocol.SMsgMatchEnd)
+	if !end.Forfeit || end.MatchWinner != "Bob" {
+		t.Fatalf("match_end: forfeit=%t winner=%q, want true and Bob", end.Forfeit, end.MatchWinner)
+	}
+	if len(end.MatchHistory) != 1 || len(end.MatchHistory[0].RoundsWon) != 2 {
+		t.Fatalf("match_end recap = %+v, want one row over two seats", end.MatchHistory)
+	}
+
+	left := readMsgOfType(t, conns[1], protocol.SMsgPlayerLeft)
+	if len(left.Players) != 1 || left.Players[0].Index != 0 {
+		t.Fatalf("player_left roster = %+v, want Bob alone at seat 0", left.Players)
+	}
+	if len(left.MatchHistory) != 1 {
+		t.Fatalf("player_left carried %d recap rows, want 1", len(left.MatchHistory))
+	}
+	row := left.MatchHistory[0]
+	if len(row.RoundsWon) != 1 || len(row.Scores) != 1 {
+		t.Errorf("recap row has %d/%d seats, want 1: the roster re-based and the recap did not",
+			len(row.RoundsWon), len(row.Scores))
+	}
+}
+
 // The floor counts seats that can play, and a bot can play.
 func TestWalkOut_CountsBotsAsSeatsThatCanPlay(t *testing.T) {
 	_, srv := newTestHub(t)

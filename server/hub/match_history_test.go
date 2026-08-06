@@ -105,6 +105,33 @@ func TestMatchHistory_FollowsASeatLeaving(t *testing.T) {
 	}
 }
 
+// The recap is indexed by seat, and a departure re-bases the seats under it. The
+// seats that stay are holding the version from before, so the message that
+// re-bases the roster carries the re-based recap with it — otherwise every row
+// on the game-over screen slides one column and each player reads somebody
+// else's evening.
+func TestMatchHistory_RidesThePlayerLeftThatRebasesTheRoster(t *testing.T) {
+	conn1, conn2, conn3 := winBO1WithThree(t)
+
+	sendMsg(t, conn2, protocol.ClientMsg{Type: protocol.CMsgLeaveRoom})
+	readMsgOfType(t, conn2, protocol.SMsgLeftRoom)
+
+	for i, c := range []*websocket.Conn{conn1, conn3} {
+		left := readMsgOfType(t, c, protocol.SMsgPlayerLeft)
+		if len(left.MatchHistory) != 1 {
+			t.Fatalf("client %d: player_left carried %d recap rows, want 1", i, len(left.MatchHistory))
+		}
+		row := left.MatchHistory[0]
+		if len(row.RoundsWon) != 2 || len(row.Scores) != 2 {
+			t.Errorf("client %d: recap row has %d/%d seats, want 2 — the departed column is still in it",
+				i, len(row.RoundsWon), len(row.Scores))
+		}
+		if row.WinnerIndex != 0 {
+			t.Errorf("client %d: winner_index = %d, want 0", i, row.WinnerIndex)
+		}
+	}
+}
+
 // --- helpers -------------------------------------------------------------
 
 // openBO1Table opens a two-seat table and deals it, stopping short of the win so

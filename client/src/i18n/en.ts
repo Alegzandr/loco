@@ -343,6 +343,15 @@ export interface Translations {
   of: string
   complete: string
   winsRound: string
+  /**
+   * The round the format did not plan for. Nothing separates the table on
+   * rounds won, points and lost-hand total alike, so the server deals one more
+   * (`Room.determineMatchWinner` returns nothing and the match keeps running).
+   * It replaces the round counter rather than extending it: "round 4 of 3"
+   * reads as a broken counter at the tensest moment of the match.
+   */
+  decisiveRound: string
+  decisiveRoundWhy: string
   player: string
   placementLabel: string
   ptsLabel: string
@@ -667,6 +676,8 @@ export const en: Translations = {
   of: 'of',
   complete: 'down',
   winsRound: 'takes the round!',
+  decisiveRound: 'Decisive round',
+  decisiveRoundWhy: 'Nothing separates the table. One more round.',
   player: 'Player',
   // The rank column is 40px wide and its cells already read "1st", "2nd": any
   // word here spills into the player column, in every language. A leaderboard

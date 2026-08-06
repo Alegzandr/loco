@@ -73,6 +73,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       matchFound: null,
       searchStartedAt: null,
       forfeitBy: null,
+      forfeitedByMe: false,
       opponentAway: null,
       goneSeats: [],
       rematchOffers: [],

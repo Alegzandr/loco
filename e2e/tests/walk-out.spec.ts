@@ -129,4 +129,39 @@ test.describe('walking out of a match', () => {
     await hostCtx.close()
     await guestCtx.close()
   })
+
+  // The same match end, from the other side. It is the host who goes, so the
+  // player who stays is re-based from seat 1 onto seat 0 — the seat the forfeit
+  // named — and the screen used to read that as "you left" and hand them a recap
+  // of the leaver's evening. The seat moved; who walked did not.
+  test('the host leaving does not read as the survivor walking out', async ({ browser }) => {
+    const hostCtx = await browser.newContext()
+    const guestCtx = await browser.newContext()
+    const host = await hostCtx.newPage()
+    const guest = await guestCtx.newPage()
+
+    const code = await createRoom(host, 'Alice')
+    await joinRoom(guest, 'Bob', code)
+    await startGame(host)
+    await waitForTableOpen(host)
+    await waitForTableOpen(guest)
+
+    const leave = host.getByRole('button', { name: T.leaveMatchBtn })
+    await expect(leave).toBeVisible({ timeout: 10_000 })
+    await leave.click()
+    await host.getByRole('button', { name: T.leaveMatchYes }).click()
+
+    await guest.waitForFunction(
+      () => window.__LOCO_E2E__?.getState?.()?.screen === 'gameover',
+      undefined,
+      { timeout: 10_000 },
+    )
+    const s = await getState(guest)
+    expect(s?.matchWinner).toBe('Bob')
+    // The seat did re-base onto the one match_end named, which is exactly why
+    // the answer cannot be re-derived from it afterwards.
+    expect(s?.myIndex).toBe(0)
+    expect(s?.forfeitBy).toBe(0)
+    await expect(guest.getByText(T.forfeitWon)).toBeVisible()
+  })
 })

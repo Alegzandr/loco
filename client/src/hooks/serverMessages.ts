@@ -121,6 +121,10 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
 
       case 'player_left':
         store.setPlayers(msg.players ?? [])
+        // The recap is indexed by seat, and this is the message that re-bases
+        // them. It is carried only by the departures that shrink the roster, so
+        // an absent field means nothing moved — never an empty evening.
+        if (msg.match_history) store.setMatchHistory(msg.match_history)
         // A seat is named here only when it is gone for good and nothing
         // re-based, which is the mid-match expiry: the roster still shows it,
         // because a running match indexes hands by it, and `connected: false`

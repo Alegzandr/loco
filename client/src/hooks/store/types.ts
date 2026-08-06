@@ -305,6 +305,14 @@ export interface GameState {
   // The seat that abandoned, when the match ended because somebody stopped
   // being there. null = the match ended on the cards.
   forfeitBy: number | null
+  // Whether that seat was ours, answered once, when the message arrived. A
+  // forfeit is the one match end that moves the seats it just named: the player
+  // who left is removed from the roster and everybody above them re-bases, so
+  // `forfeitBy` starts naming the player who *stayed* a few milliseconds after
+  // the screen opens — and the game-over screen told them they had walked out of
+  // a match they had just won. Seats are indices, and an index is only true for
+  // as long as the roster it indexes.
+  forfeitedByMe: boolean
   // An opponent who dropped and the instant their match is given away, so the
   // board can say how long this lasts instead of freezing with no explanation.
   opponentAway: { seat: number; deadline: number } | null
@@ -383,6 +391,14 @@ export interface MatchActions {
     matchHistory: MatchRecordDTO[],
     forfeitBy?: number,
   ) => void
+  /**
+   * The evening, re-based. Every row is indexed by seat, so a departure that
+   * shrinks the roster shifts all of them: the server re-bases its copy and
+   * sends it back on the message that moved the seats, and this is where that
+   * copy lands. Never derived here — the seat that went is not in either roster
+   * any more, so the client cannot say which column it was.
+   */
+  setMatchHistory: (matchHistory: MatchRecordDTO[]) => void
   setPendingGameState: (state: GameStateDTO) => void
   setPendingMatchEnd: (
     matchWinner: string,

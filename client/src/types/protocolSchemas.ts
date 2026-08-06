@@ -447,6 +447,10 @@ export const serverMsgSchema = v.object({
   // group that plays six matches on one code ends the evening with nobody able
   // to say who won it. Only the game-over screen reads it, so it rides the one
   // message that opens that screen.
+  //
+  // SMsgPlayerLeft carries it too, and only on the departures that re-base the
+  // roster: every row is indexed by seat, so a screen that is already up is
+  // reading the wrong column the moment a seat below it goes.
   match_history: v.optional(v.array(matchRecordSchema)),
   // SMsgLatency
   latencies: v.optional(v.array(latencyEntrySchema)),
@@ -481,8 +485,9 @@ export const serverMsgSchema = v.object({
   // "no offers" and which the client could not tell from "unchanged".
   // Read it with Offers().
   rematch_offers: v.optional(v.array(v.number())),
-  // RematchNeeded is how many of those asks deal the next match: every human
-  // still at the table. Bots are not asked.
+  // RematchNeeded is how many of those asks deal the next match: two, one
+  // offering and one accepting, or the whole table when it is smaller than
+  // that. Bots are not asked. See hub.RematchQuorum.
   rematch_needed: v.optional(v.number()),
   // SMsgEmote: what was said, and PlayerIndex above says who said it.
   emote: v.optional(emoteSchema),

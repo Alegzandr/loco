@@ -6,7 +6,8 @@
  * back in the waiting room with scores cleared.
  *
  * A rematch is an agreement rather than the host's decision, so what is under
- * test is the agreement: one ask deals nothing, everybody's asks deal, and a
+ * test is the agreement: one ask deals nothing, two asks deal whatever the size
+ * of the table, the reopened room is hosted by somebody who asked for it, and a
  * player leaving retires their ask instead of stranding the rest.
  */
 import { test, expect } from '@playwright/test'
@@ -129,6 +130,59 @@ test.describe('rematch', () => {
 
     await hostCtx.close()
     await guestCtx.close()
+  })
+
+  // Two asks are a game, whatever the table's size. The seat that said nothing
+  // is carried into the reopened lobby rather than dropped, and the table goes
+  // to somebody who did ask — the host said nothing here, so the badge moves.
+  test('two asks at a table of three reopen the room and hand it to an asker', async ({ browser }) => {
+    const ctxs = await Promise.all([
+      browser.newContext(),
+      browser.newContext(),
+      browser.newContext(),
+    ])
+    const [host, bob, carol] = await Promise.all(ctxs.map((c) => c.newPage()))
+
+    const code = await createRoom(host, 'Alice')
+    await joinRoom(bob, 'Bob', code)
+    await joinRoom(carol, 'Carol', code)
+    await startGame(host)
+    await winBO1(host)
+    for (const page of [bob, carol]) {
+      await page.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'gameover',
+        undefined,
+        { timeout: 30_000 },
+      )
+    }
+
+    // Carol asks first, Bob answers, and the host never touches the button.
+    await askRematch(carol)
+    await bob.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.rematchOffers ?? []).includes(2),
+      undefined,
+      { timeout: 10_000 },
+    )
+    await bob.getByRole('button', { name: T.rematchAccept, exact: false }).click()
+
+    for (const page of [host, bob, carol]) {
+      await page.waitForFunction(
+        () => window.__LOCO_E2E__?.getState?.()?.screen === 'waiting',
+        undefined,
+        { timeout: 10_000 },
+      )
+    }
+
+    // Everybody is still at the table, the silent host included, and the seat
+    // that hosts it is Bob's: the earliest arrival among the two who asked.
+    const hostState = await getState(host)
+    expect(hostState?.roomCode).toBe(code)
+    expect(hostState?.players).toHaveLength(3)
+    expect(hostState?.myIndex).toBe(1)
+    expect((await getState(bob))?.myIndex).toBe(0)
+    expect((await getState(carol))?.myIndex).toBe(2)
+
+    await Promise.all(ctxs.map((c) => c.close()))
   })
 
   // A dropped socket on the game-over screen used to cost the seat outright, so

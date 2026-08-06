@@ -66,7 +66,87 @@ func winMatchFromHostTurn(t *testing.T, host *websocket.Conn, others ...*websock
 	}
 }
 
-func TestRematch_ReopensRoomOnceEverybodyHasAsked(t *testing.T) {
+// winBO1AtThree is winBO1 with Carol at the table: Alice hosts at seat 0, Bob
+// sits at 1 and Carol at 2, and the host wins the match.
+func winBO1AtThree(t *testing.T) []*websocket.Conn {
+	t.Helper()
+	_, srv := newTestHub(t)
+
+	conn1 := dialWS(t, srv)
+	t.Cleanup(func() { conn1.Close() })
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCreateRoom, Nickname: "Alice"})
+	code := readMsgOfType(t, conn1, protocol.SMsgRoomCreated).RoomCode
+
+	conns := []*websocket.Conn{conn1}
+	for _, name := range []string{"Bob", "Carol"} {
+		c := dialWS(t, srv)
+		t.Cleanup(func() { c.Close() })
+		sendMsg(t, c, protocol.ClientMsg{Type: protocol.CMsgJoinRoom, Nickname: name, RoomCode: code})
+		readMsgOfType(t, c, protocol.SMsgRoomJoined)
+		conns = append(conns, c)
+	}
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	for _, c := range conns {
+		readMsgOfType(t, c, protocol.SMsgGameStarted)
+	}
+	completeMapLoad(t, conns...)
+	winMatchFromHostTurn(t, conn1, conns[1], conns[2])
+	return conns
+}
+
+// Two asks are a game. The seat that said nothing is not left behind by it: the
+// room reopens as a lobby with the whole table still in it, which is the reason
+// the quorum can stop at two without anybody losing their seat.
+func TestRematch_TwoAsksDealItPastTwoSeats(t *testing.T) {
+	conns := winBO1AtThree(t)
+
+	sendMsg(t, conns[1], protocol.ClientMsg{Type: protocol.CMsgRematch})
+	for _, c := range conns {
+		if msg := readMsgOfType(t, c, protocol.SMsgRematchOffered); msg.RematchNeeded != 2 {
+			t.Errorf("rematch_needed = %d, want 2", msg.RematchNeeded)
+		}
+	}
+	sendMsg(t, conns[2], protocol.ClientMsg{Type: protocol.CMsgRematch})
+
+	for i, c := range conns {
+		msg := readMsgOfType(t, c, protocol.SMsgRematchStarted)
+		if len(msg.Players) != 3 {
+			t.Errorf("client %d: players in the reopened room = %d, want 3", i, len(msg.Players))
+		}
+	}
+}
+
+// The table goes to somebody who asked for it. Alice hosted and said nothing,
+// so the badge lands on the earliest-seated asker — Bob at seat 1, even though
+// Carol pressed first — and the press that starts the match is his.
+func TestRematch_HostWhoNeverAskedHandsTheTableOver(t *testing.T) {
+	conns := winBO1AtThree(t)
+
+	sendMsg(t, conns[2], protocol.ClientMsg{Type: protocol.CMsgRematch})
+	for _, c := range conns {
+		readMsgOfType(t, c, protocol.SMsgRematchOffered)
+	}
+	sendMsg(t, conns[1], protocol.ClientMsg{Type: protocol.CMsgRematch})
+
+	wantSeats := []int{1, 0, 2} // Alice and Bob traded places; Carol stayed put.
+	for i, c := range conns {
+		msg := readMsgOfType(t, c, protocol.SMsgRematchStarted)
+		if msg.OwnSeat() != wantSeats[i] {
+			t.Errorf("client %d: player_id = %d, want %d", i, msg.OwnSeat(), wantSeats[i])
+		}
+		if len(msg.Players) == 0 || msg.Players[0].Nickname != "Bob" {
+			t.Errorf("client %d: host of the reopened room = %+v, want Bob", i, msg.Players)
+		}
+	}
+
+	// The badge is the real thing and not a label: the new host starts the match.
+	sendMsg(t, conns[1], protocol.ClientMsg{Type: protocol.CMsgStartGame})
+	for _, c := range conns {
+		readMsgOfType(t, c, protocol.SMsgGameStarted)
+	}
+}
+
+func TestRematch_ReopensRoomOnceTwoHaveAsked(t *testing.T) {
 	conn1, conn2, code := winBO1(t)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgRematch})
@@ -188,8 +268,8 @@ func TestRematch_ReindexesOffersWhenASeatLeaves(t *testing.T) {
 	winMatchFromHostTurn(t, conn1, conns[1], conns[2])
 
 	sendMsg(t, conns[1], protocol.ClientMsg{Type: protocol.CMsgRematch})
-	if msg := readMsgOfType(t, conns[2], protocol.SMsgRematchOffered); msg.RematchNeeded != 3 {
-		t.Errorf("rematch_needed = %d, want 3", msg.RematchNeeded)
+	if msg := readMsgOfType(t, conns[2], protocol.SMsgRematchOffered); msg.RematchNeeded != 2 {
+		t.Errorf("rematch_needed = %d, want 2", msg.RematchNeeded)
 	}
 
 	conn1.Close()

@@ -52,7 +52,7 @@ rules, `docs/notes/` the reasoning.
   Swap and Global Switch are exactly the two cards a player arriving from an ordinary colours-and-
   symbols card game has no picture of. Eight lines, not a catalogue: copies, points and the long form
   stay on the cards page, and the modal still links nowhere.
-- Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes an ask from every player still there, not the host's word: each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first.
+- Rematch: once a match is over, the table reopens the same room (same code, same roster, cleared scores) instead of everyone rebuilding a room from scratch. It takes two asks, not the host's word: one player offers, another accepts, and the room reopens for the whole table — the players who had not answered land in the waiting room with everybody else rather than out of the game. Each ask is public so nobody presses into silence, a player leaving stops being waited on, and bots are not asked. Seats with nobody behind them are pruned first, and the reopened table is hosted by somebody who asked for it: a host who said nothing, or who left, hands the badge to the longest-standing player who did.
 
 - **The waiting room tells the host what they are picking**: an estimated length on every format
   button (a *range*, because a match ends the moment the lead cannot be caught) and a line under the

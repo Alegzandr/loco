@@ -38,7 +38,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
     }),
 
   applyMatchEnd: (matchWinner, scoreboard, matchHistory, forfeitBy) =>
-    set({
+    set((s) => ({
       matchWinner,
       matchOver: true,
       scoreboard,
@@ -49,13 +49,19 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       // more. The ordinary path never gets here with a summary showing.
       showRoundSummary: false,
       forfeitBy: typeof forfeitBy === 'number' ? forfeitBy : null,
+      // Answered here, against the roster this message was composed for. The
+      // player_left right behind it re-bases the seats, and by then no index can
+      // say which of the two this was. See forfeitedByMe.
+      forfeitedByMe: typeof forfeitBy === 'number' && forfeitBy === s.myIndex,
       // A fresh screen says nothing yet.
       emotes: [],
       // The countdown is over one way or the other: either they came back or
       // the match was given away, and both end the notice.
       opponentAway: null,
       goneSeats: [],
-    }),
+    })),
+
+  setMatchHistory: (matchHistory) => set({ matchHistory }),
 
   setPendingGameState: (pendingGameState) => set({ pendingGameState }),
 
