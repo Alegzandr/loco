@@ -1,4 +1,4 @@
-# Loco – Real-time Multiplayer Card Game
+# LOCO! – Real-time Multiplayer Card Game
 
 A premium-quality real-time browser-based card game inspired by UNO. Play with friends in seconds
 using only a nickname — no accounts required.

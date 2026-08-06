@@ -3,7 +3,7 @@
      mark means editing both. Stroked to LOCO_MARK_ICON_STROKE — the bare bars
      fill in at 16px. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <title>LOCO</title>
+  <title>LOCO!</title>
   <defs>
     <linearGradient id="suits" gradientUnits="objectBoundingBox" x1="0" y1="1" x2="1" y2="0">
       <stop offset="0" stop-color="#00ff6d"/>

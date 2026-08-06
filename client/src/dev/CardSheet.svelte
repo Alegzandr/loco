@@ -28,7 +28,7 @@
 </script>
 
 <div class="sheet">
-  <h1>LOCO · le jeu complet</h1>
+  <h1>LOCO! · le jeu complet</h1>
 
   <div class="row">
     <Card card={card('yellow', 'number', 1)} shadow style={BIG} />

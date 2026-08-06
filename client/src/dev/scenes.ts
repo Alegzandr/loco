@@ -543,7 +543,7 @@ export const SCENES: Scene[] = [
   },
   {
     id: 'game-uno',
-    title: 'Partie · LOCO annoncé',
+    title: 'Partie · LOCO! annoncé',
     screen: 'game',
     state: {
       ...gameBase,
@@ -590,7 +590,7 @@ export const SCENES: Scene[] = [
     // centre column, always, and the LOCO! chip above the bar — on screen and
     // dead in every other scene — is the only thing that changes.
     id: 'game-catch-and-loco',
-    title: 'Partie · attraper + LOCO',
+    title: 'Partie · attraper + LOCO!',
     screen: 'game',
     state: {
       ...gameBase,
@@ -607,7 +607,7 @@ export const SCENES: Scene[] = [
     // us a card for it. The notice is red and sits below the swap pill so the
     // two can share the screen; both are table news, not errors.
     id: 'game-catch-failed',
-    title: 'Partie · Contre-LOCO raté',
+    title: 'Partie · Contre-LOCO! raté',
     screen: 'game',
     state: {
       ...gameBase,
@@ -623,7 +623,7 @@ export const SCENES: Scene[] = [
     // Deliberately red and vertical where the interception slam is actor-tinted
     // and horizontal: review the two side by side in the contact sheet.
     id: 'game-catch-caught',
-    title: 'Partie · Contre-LOCO réussi',
+    title: 'Partie · Contre-LOCO! réussi',
     screen: 'game',
     state: {
       ...gameBase,

@@ -1379,6 +1379,30 @@ that says "Waiting Room", "Create Room" and "Game Rules" is a website with cards
 screen saying "The table", "New table" and "How to play" is a game. Every string is written as
 something a person at the table would say, and rewriting one means keeping it inside these rules.
 
+- **The name is `LOCO!`, and the exclamation is a letter of it.** Not `LOCO`, and not `LOCO !` with
+  a space in French — `Yahoo!` is the precedent, and nobody has ever written `Yahoo !`. The rule
+  covers the wordmark, every `<title>`, the manifest, the favicon's `<title>`, the shipped licence
+  file, the prose on the content pages and the call on the action bar alike.
+
+  It was a discoverability decision before it was a typographic one. Bare, `loco` is a Spanish
+  adjective and the name of a dozen other card games, so a search for it returns everything except
+  this one and a streaming category named that way is a category nobody can find — which is exactly
+  the question that came up when the game was submitted to IGDB for a Twitch category. Whole, the
+  word is unambiguous.
+
+  Two things it costs, both of them worth knowing before rewording anything. **A `<title>` is capped
+  at 60 characters** and `seo.test.ts` holds that line, so the extra character comes out of the copy
+  and not out of the ceiling — the French home title sits at 59 and has no room left. And **the name
+  no longer composes with terminal punctuation**: `What is LOCO!?` reads as a typo before it reads as
+  a question, so `homeSheetBtn` drops its question mark in both languages rather than stacking two
+  marks. A comma behind it (`LOCO!,`) is fine and appears in `PAGES`; a second terminal mark is not.
+
+  `src/test/vocabulary.test.ts` fails on a bare `LOCO` **or** a spaced `LOCO !` in `en.ts`, `fr.ts`,
+  `UI`, `PAGES` and anywhere under `src/content/`, and pins the wordmark in all three places it is
+  spelled — the `aria-label`, the `<span>`, and the two dark-theme `::before` blocks, because a
+  rename that reaches only the markup leaves the dark repaint spelling the old name over the new one.
+  Internal naming is untouched, exactly as for the rule below: `LOCO_MARK_PATH`,
+  `LOCO_ALLOWED_ORIGINS`, `LOCO Red`, `locoMark.ts`.
 - **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
   seats a code is shared for — a player opens one, shares its code, takes a seat, leaves it. A
   **room** (French: *décor*) is one of the four places a match is dealt in, and nothing else.

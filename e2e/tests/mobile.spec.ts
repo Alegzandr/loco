@@ -20,7 +20,7 @@ test.describe('mobile viewport', () => {
    */
   test('lobby loads correctly on mobile', async ({ page }) => {
     await page.goto('/')
-    await expect(page.getByRole('heading', { name: 'LOCO' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'LOCO!' })).toBeVisible()
     await expect(page.getByRole('button', { name: T.createRoom })).toBeVisible()
     await expect(page.getByRole('button', { name: T.joinRoom })).toBeVisible()
 

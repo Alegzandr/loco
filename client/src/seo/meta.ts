@@ -53,9 +53,9 @@ export const ORIGIN = (
  * for days, so this is the only way to make them re-fetch after the art
  * changes: bump it whenever `make og` regenerates the PNGs.
  */
-export const OG_VERSION = 2
+export const OG_VERSION = 3
 
-export const SITE_NAME = 'LOCO'
+export const SITE_NAME = 'LOCO!'
 
 /** Absolute URL for a site-relative path, which is what every crawler needs. */
 export function absolute(path: string): string {
@@ -105,8 +105,8 @@ export const OG_IMAGE = {
   width: 1200,
   height: 630,
   alt: {
-    en: 'The LOCO duck beside a fan of five cards: green 4, blue skip, wild +4, yellow +2, red 7.',
-    fr: 'Le canard LOCO à côté d’un éventail de cinq cartes : 4 vert, passe bleu, +4 joker, +2 jaune, 7 rouge.',
+    en: 'The LOCO! duck beside a fan of five cards: green 4, blue skip, wild +4, yellow +2, red 7.',
+    fr: 'Le canard LOCO! à côté d’un éventail de cinq cartes : 4 vert, passe bleu, +4 joker, +2 jaune, 7 rouge.',
   } as Record<Lang, string>,
 } as const
 
@@ -114,16 +114,16 @@ export const HOME: PageDef = {
   id: 'home',
   path: { en: '/', fr: '/fr/' },
   title: {
-    en: 'LOCO · Fast multiplayer card game, free, no signup',
-    fr: 'LOCO · Jeu de cartes multijoueur gratuit, sans inscription',
+    en: 'LOCO! · Fast multiplayer card game, free, no signup',
+    fr: 'LOCO! · Jeu de cartes multijoueur gratuit, sans inscription',
   },
   description: {
     en: 'Free online card game for 2 to 10 players, no signup. Pick a name, share a code, sit down: nobody waits their turn.',
     fr: 'Jeu de cartes en ligne gratuit, de 2 à 10 joueurs, sans inscription. Un pseudo, un code, une place : personne n’attend son tour.',
   },
   ogTitle: {
-    en: 'LOCO · The card game where nobody waits their turn',
-    fr: 'LOCO · Le jeu de cartes où personne n’attend son tour',
+    en: 'LOCO! · The card game where nobody waits their turn',
+    fr: 'LOCO! · Le jeu de cartes où personne n’attend son tour',
   },
   ogDescription: {
     en: 'Free, no signup, 2 to 10 players. Pick a name, share a code, sit down.',
@@ -136,12 +136,12 @@ export const RULES: PageDef = {
   path: { en: '/rules/', fr: '/fr/regles/' },
   navLabel: { en: 'Rules', fr: 'Règles' },
   title: {
-    en: 'LOCO rules · How to play, card by card',
-    fr: 'Règles de LOCO · Comment jouer, carte par carte',
+    en: 'LOCO! rules · How to play, card by card',
+    fr: 'Règles de LOCO! · Comment jouer, carte par carte',
   },
   description: {
-    en: 'The full rules: the 112-card deck, what every card does, cutting in out of turn, calling LOCO, and how a round is scored.',
-    fr: 'Les règles complètes : les 112 cartes, l’effet de chacune, l’interception hors de son tour, l’annonce LOCO et le décompte des points.',
+    en: 'The full rules: the 112-card deck, what every card does, cutting in out of turn, calling LOCO!, and how a round is scored.',
+    fr: 'Les règles complètes : les 112 cartes, l’effet de chacune, l’interception hors de son tour, l’annonce LOCO! et le décompte des points.',
   },
 }
 
@@ -150,8 +150,8 @@ export const CARDS: PageDef = {
   path: { en: '/cards/', fr: '/fr/cartes/' },
   navLabel: { en: 'Cards', fr: 'Cartes' },
   title: {
-    en: 'Every LOCO card · What each one does and what it is worth',
-    fr: 'Toutes les cartes de LOCO · Effet et valeur de chacune',
+    en: 'Every LOCO! card · What each one does and what it is worth',
+    fr: 'Toutes les cartes de LOCO! · Effet et valeur de chacune',
   },
   description: {
     en: 'The whole deck, drawn: 72 numbers, Skip, Reverse, +2, Swap, Global Switch, Wild and +4. What each card does and what it is worth.',
@@ -167,8 +167,8 @@ export const TABLES: PageDef = {
   // The path and the title keep "tables": they carry the search value.
   navLabel: { en: 'Rooms', fr: 'Les décors' },
   title: {
-    en: 'The four LOCO tables · Neon, Rune, Velvet, Orbit',
-    fr: 'Les quatre tables de LOCO · Neon, Rune, Velvet, Orbit',
+    en: 'The four LOCO! tables · Neon, Rune, Velvet, Orbit',
+    fr: 'Les quatre tables de LOCO! · Neon, Rune, Velvet, Orbit',
   },
   description: {
     en: 'Every match is dealt in a room: a rooftop club, an arcane tavern, an art-deco lounge or a station in orbit. The four rooms.',
@@ -195,8 +195,8 @@ export const FAQ_PAGE: PageDef = {
   path: { en: '/faq/', fr: '/fr/faq/' },
   navLabel: { en: 'FAQ', fr: 'FAQ' },
   title: {
-    en: 'LOCO FAQ · Free, no account, 2 to 10 players',
-    fr: 'FAQ LOCO · Gratuit, sans compte, de 2 à 10 joueurs',
+    en: 'LOCO! FAQ · Free, no account, 2 to 10 players',
+    fr: 'FAQ LOCO! · Gratuit, sans compte, de 2 à 10 joueurs',
   },
   description: {
     en: 'Is it free, does it need an account, how many can play, does it work on a phone, and what happens to your seat if you drop.',
@@ -219,7 +219,7 @@ export const LEGAL: PageDef = {
   path: { en: '/privacy/', fr: '/fr/confidentialite/' },
   navLabel: { en: 'Privacy & terms', fr: 'Confidentialité et conditions' },
   title: {
-    en: 'LOCO privacy & terms · No account, no cookie, no tracker',
+    en: 'LOCO! privacy & terms · No account, no cookie, no tracker',
     fr: 'Confidentialité et conditions · Sans compte ni cookie',
   },
   description: {
@@ -249,8 +249,8 @@ export const INVITE_OG: OgImage = {
   width: 1200,
   height: 630,
   alt: {
-    en: 'The LOCO duck beside a fan of cards, over the words: a seat is being held for you.',
-    fr: 'Le canard LOCO à côté d’un éventail de cartes, sur les mots : on t’a gardé une place.',
+    en: 'The LOCO! duck beside a fan of cards, over the words: a seat is being held for you.',
+    fr: 'Le canard LOCO! à côté d’un éventail de cartes, sur les mots : on t’a gardé une place.',
   },
 }
 
@@ -259,7 +259,7 @@ export const INVITE_OG: OgImage = {
  * site.
  *
  * It exists for a single reason: a link dropped in a chat window unfurls into
- * whatever the *served* HTML says, and `/` says "LOCO, a card game". An
+ * whatever the *served* HTML says, and `/` says "LOCO!, a card game". An
  * invitation deserves to say that a seat is waiting, and the only way to say it
  * differently is to be a different document. Everything else about it is the
  * home page: the same mount, the same bundle, the same game.
@@ -285,20 +285,20 @@ export const INVITE: PageDef = {
   id: 'invite',
   path: { en: '/i/', fr: '/i/' },
   title: {
-    en: 'A seat is being held for you · LOCO',
-    fr: 'On t’a gardé une place · LOCO',
+    en: 'A seat is being held for you · LOCO!',
+    fr: 'On t’a gardé une place · LOCO!',
   },
   description: {
-    en: 'A LOCO table is waiting for you. Pick a nickname, take your place, and play: no account, nothing to install, nobody waits their turn.',
-    fr: 'Une table LOCO t’attend. Choisis un pseudo, prends ta place et joue : aucun compte, rien à installer, personne n’attend son tour.',
+    en: 'A LOCO! table is waiting for you. Pick a nickname, take your place, and play: no account, nothing to install, nobody waits their turn.',
+    fr: 'Une table LOCO! t’attend. Choisis un pseudo, prends ta place et joue : aucun compte, rien à installer, personne n’attend son tour.',
   },
   ogTitle: {
     en: 'A seat is being held for you',
     fr: 'On t’a gardé une place',
   },
   ogDescription: {
-    en: 'A LOCO table is waiting. Pick a nickname, take your place: no account, nothing to install, nobody waits their turn.',
-    fr: 'Une table LOCO t’attend. Choisis un pseudo, prends ta place : aucun compte, rien à installer, personne n’attend son tour.',
+    en: 'A LOCO! table is waiting. Pick a nickname, take your place: no account, nothing to install, nobody waits their turn.',
+    fr: 'Une table LOCO! t’attend. Choisis un pseudo, prends ta place : aucun compte, rien à installer, personne n’attend son tour.',
   },
   ogImage: INVITE_OG,
 }
@@ -340,7 +340,7 @@ export function alternates(page: PageDef): Alternate[] {
 }
 
 /**
- * The trail under the title in a result: `LOCO › Rules` instead of a raw URL.
+ * The trail under the title in a result: `LOCO! › Rules` instead of a raw URL.
  *
  * Shared, because it is the one rich result these pages actually earn and every
  * page owes Google the same two rungs. The FAQ builds its own graph and reads

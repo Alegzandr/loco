@@ -125,7 +125,7 @@
 {#if !scene}
   <!-- Gallery index — deliberately plain: it is a tool, not a screen. -->
   <div class="index">
-    <h1>LOCO · galerie visuelle</h1>
+    <h1>LOCO! · galerie visuelle</h1>
     <p>{SCENES.length} scènes. Chaque lien rend un écran isolé, sans serveur.</p>
     <ul class="list">
       {#each SCENES as s (s.id)}

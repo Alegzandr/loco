@@ -185,7 +185,7 @@
     gap: var(--space-sm);
     align-items: center;
     /* Sized for the widest label each column can hold IN ANY LANGUAGE: "Piocher
-       +4" on the outside, "Contre-LOCO !" in the middle (English's "Catch!" is
+       +4" on the outside, "Contre-LOCO!" in the middle (English's "Catch!" is
        far shorter, but the column must not resize when the player switches
        language mid-match). Different widths, both constant — what must never
        change is a column's width *during* a match. */

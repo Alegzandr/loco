@@ -1,5 +1,5 @@
 ---
-name: LOCO
+name: LOCO!
 description: A streamable real-time multiplayer card game dressed as a physical toy — chunky ink-outlined objects on a candy sky, dealt onto a near-black table where the cards are the only bright things in the room.
 colors:
   loco-red: "#ff3d68"

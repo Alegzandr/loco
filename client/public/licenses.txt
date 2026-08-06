@@ -1,4 +1,4 @@
-LOCO ships two typefaces inside its build. The SIL Open Font License requires
+LOCO! ships two typefaces inside its build. The SIL Open Font License requires
 its notice to travel with them, so it is served here rather than shown in the
 game. Nothing else in this file affects a player.
 

@@ -64,6 +64,6 @@ export const CONTRASTS: readonly Contrast[] = [
   },
   {
     en: 'A Catch! that misses costs the caller a card. It is a bet, not a free shot.',
-    fr: 'Un Contre-LOCO raté coûte une carte à celui qui le crie. C’est un pari, pas un coup gratuit.',
+    fr: 'Un Contre-LOCO! raté coûte une carte à celui qui le crie. C’est un pari, pas un coup gratuit.',
   },
 ]

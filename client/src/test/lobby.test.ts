@@ -21,7 +21,7 @@ describe('Lobby', () => {
 
   it('renders title and action buttons', () => {
     renderLobby()
-    expect(screen.getByText('LOCO')).toBeInTheDocument()
+    expect(screen.getByText('LOCO!')).toBeInTheDocument()
     expect(screen.getByText(en.createRoom)).toBeInTheDocument()
     expect(screen.getByText(en.joinRoom)).toBeInTheDocument()
   })
