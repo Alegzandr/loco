@@ -82,7 +82,7 @@ export const MAPS: Record<MapId, MapDef> = {
     id: 'velvet',
     room: '/maps/velvet/room.webp',
     table: '/maps/velvet/table.webp',
-    playfield: { x: 0.105, y: 0.325, w: 0.79, h: 0.31 },
+    playfield: { x: 0.08, y: 0.121, w: 0.84, h: 0.571 },
     accent: '#f0c46a',
     accentDeep: '#5e3a12',
   },

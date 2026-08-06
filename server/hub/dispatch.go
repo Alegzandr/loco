@@ -179,6 +179,8 @@ func (h *Hub) dispatchAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 		h.handleSetMatchFormat(t, c, msg)
 	case protocol.CMsgSetMaxPlayers:
 		h.handleSetMaxPlayers(t, c, msg)
+	case protocol.CMsgSetStreamerMode:
+		h.handleSetStreamerMode(t, c, msg)
 	case protocol.CMsgKickPlayer:
 		h.handleKickPlayer(t, c, msg)
 	case protocol.CMsgTransferHost:
@@ -240,6 +242,7 @@ func tableScoped(t protocol.ClientMsgType) bool {
 		protocol.CMsgAddBot,
 		protocol.CMsgSetMatchFormat,
 		protocol.CMsgSetMaxPlayers,
+		protocol.CMsgSetStreamerMode,
 		protocol.CMsgKickPlayer,
 		protocol.CMsgTransferHost,
 		protocol.CMsgRematch,

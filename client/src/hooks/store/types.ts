@@ -296,6 +296,12 @@ export interface GameState {
   // game-over screen reads it to offer another press rather than a rematch
   // nobody is there to agree to.
   isSolo: boolean
+  // The host said this table's code must not be readable on anybody's screen,
+  // because it is on theirs and theirs is being captured. The one preference in
+  // this game that arrives over the wire, and it is a property of the table
+  // rather than of this client: the local `streamerModePref` is ORed with it, so
+  // turning the panel switch off never uncovers a code the host is hiding.
+  tableStreamer: boolean
   // The seat that abandoned, when the match ended because somebody stopped
   // being there. null = the match ended on the cards.
   forfeitBy: number | null
@@ -343,6 +349,7 @@ export interface TableActions {
   applyHostChange: (myIndex: number, players: PlayerDTO[]) => void
   noteSeatGone: (seat: number, nickname?: string) => void
   clearDepartureNotice: () => void
+  setTableStreamer: (on: boolean) => void
   setTurnDeadline: (ts: number | null) => void
   setSwapNotice: (notice: SwapNotice | null) => void
   applyInterrupt: (actorIndex: number, count: number) => void

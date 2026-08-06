@@ -316,22 +316,58 @@ preference**: on the proxied path a client can put an `X-Real-IP` of its own inv
 and the CDN forwards it, so the header the CDN itself controls has to be read first.
 `TestClientNetPrefersTheHeaderTheProxySets` is that assertion.
 
-Three things it refuses to believe, each of which would hand somebody a private budget:
+Four things it refuses to believe, each of which would hand somebody a private budget:
 
 - **A header from an untrusted peer.** It is a claim about a network, not a report of one.
 - **A multi-value header.** This is why the default is `CF-Connecting-IP` and not `X-Forwarded-For`:
   Cloudflare *sets* the former and *appends* to the latter, so the leftmost `X-Forwarded-For` entry is
   whatever the client invented. Anything with a comma in it falls back to the peer.
 - **An unparseable or empty one.** A topology nobody described, so the peer stands.
+- **An address no browser on the internet could have** (`isRoutableClient`): loopback, private,
+  link-local, multicast, unspecified, in either family and through a v6 mapping. See below — this one
+  was added with the proxy fix and answers the sharper half of it.
 
 The forwarded address is truncated on the way in like every other, so the fallback is exactly the
 behaviour that came before and no full address ever reaches a counter, a map key or a log line.
 
-`client/nginx.conf` restates the header on `/ws` with `proxy_set_header`. That is a no-op — nginx
-forwards it untouched already — and it is there so the dependency is visible in the block that
-carries it rather than inferred from its absence. An IPv6 player arrives as an IPv6 address and is
-truncated to the routed `/48`, which is why nothing in this stack needs Cloudflare's Pseudo IPv4: it
-exists for origins that cannot parse one.
+### The header a host may forward is decided by the host, not by the proxy block
+
+`client/ws-proxy.conf` is `include`d by **both** server blocks, and it used to forward
+`$http_cf_connecting_ip` and `$http_x_real_ip` from both. That was a hole, and it is the sharpest one
+this file has had.
+
+`ws.` is grey-clouded **by design** — bypassing the CDN is the entire reason it exists — so Cloudflare
+is not on that path and nothing there sets or strips `CF-Connecting-IP`. A client wrote its own, nginx
+forwarded it, and this server believed it, because the peer it checks against `TrustedProxies` is the
+nginx container either way. One forged header per socket was one network key per socket, which is
+every per-network ceiling in the server at once: `MaxConnsPerNet` stops bounding anything, and so does
+the wrong-code budget that is the only thing rationing a sweep of the table-code space.
+
+Nothing above the proxy could have caught it. The header arrives, parses, and looks exactly like the
+real thing at every layer; the only place the truth exists is which host the request came in on.
+
+So each server block now `set`s `$loco_cf_ip` / `$loco_real_ip` to the one header its own path
+guarantees and to `""` for the other, and the shared block forwards the variables. An empty value
+makes nginx omit the header, which lands on the fallback above. The site's host vouches for
+`CF-Connecting-IP` (Cloudflare sets it there); `ws.` vouches for `X-Real-IP` (Traefik overwrites it
+there). `client/src/test/csp.test.ts` pins all three parts — the variables, both `set` pairs, and the
+absence of any `$http_` on those two lines.
+
+`isRoutableClient` is the server-side half, and it is not redundant with the proxy fix: the two
+forgeries differ in kind. A forged **public** address buys its sender a bucket of their own, which is
+bounded by the ceilings being per-network in the first place. A forged **private** one can be aimed at
+the bucket every socket with no trustworthy header falls back into — the proxy's own — so filling it
+refuses everybody else at the upgrade. `TestClientNetIgnoresAForwardedAddressNoBrowserCouldHave`.
+
+**What is left, and it is not this repository's to close**: Traefik is public, so anyone who finds the
+origin address can reach the site's vhost directly, bypassing Cloudflare, and write a
+`CF-Connecting-IP` that this host does legitimately vouch for. The fix is an allowlist of Cloudflare's
+published ranges on the host Traefik's `websecure` entrypoint, next to the certificate configuration
+that also lives there. Until then the residual exposure is one forged network key per attacker who
+knows the origin IP.
+
+An IPv6 player arrives as an IPv6 address and is truncated to the routed `/48`, which is why nothing
+in this stack needs Cloudflare's Pseudo IPv4: it exists for origins that cannot parse one.
 
 `conns_refused` on `/metrics` is a load signal, not an incident, until it climbs.
 
@@ -760,6 +796,39 @@ The four answers, in the order `leaveAtTable` asks them:
 - **The seats that stay are told, by name.** `player_left` already carried the nickname and the seat;
   the client turns it into a pill on the board. A departure moves the turn and shortens the order,
   and the roster alone cannot explain that — held and gone are both `connected: false`.
+
+## The host's stream is the table's business
+`handleSetStreamerMode`, answering `set_streamer_mode`, and the one place a *presentation*
+preference is allowed through this protocol. Everything else a player picks — the theme, the colour
+shapes, reduced motion, the language — is decided and kept on their own machine, and the reason this
+one cannot be is arithmetic: a table code is a single string shared by everybody who can see it. A
+host with it on screen while capturing is exposed by the friend who joined and left the waiting room
+up on a second monitor, and by the seat that reads the code out loud. Blurring only the host's copy
+protects the one screen that was already being careful.
+
+- **Host only, hostless never.** It is a table setting, and a table's settings are seat 0's, like the
+  format and the seat count (`only the host can change streamer mode`). A matchmade or solo table has
+  no host *and* no code on screen, so it is refused there by `refuseWithoutHost` rather than special
+  cased.
+- **Every status, deliberately.** The format and the seat count are lobby controls because they
+  change what is being dealt. This one changes nothing about the match, and the thing being captured
+  *is* the match — refusing it after the deal would mean a host who starts streaming mid-evening
+  cannot cover the code until the table is over. That is also why it does not ride
+  `lobby_config_changed`.
+- **A state, not a toggle.** The switch it comes from can be flipped on any screen, and a toggle sent
+  from a client whose picture of the table is one message behind arrives meaning the opposite of what
+  was pressed.
+- **A repeat is answered by nobody.** Not an error — a client that sent it is correct — but the
+  switch sits under a thumb in a panel, and a broadcast that changes nothing is a send to every seat
+  for free. Same rule as `rematch` being idempotent.
+- **It lives on the table and it outlives the match** (`table.streamerMode`, untouched by
+  `resetForNextMatch`). The stream does not end because a match did. It rides the drain snapshot for
+  the same reason: a host who came back from a deploy to a table whose code had gone readable again
+  would find that out from their own capture.
+- **Three places carry the answer**: `streamer_mode_changed` to the whole table, `room_joined` for
+  somebody who types the code an hour into a stream, and every `GameStateDTO` for a tab that reloads
+  mid-match. A client that learns it from only the first is a client that is blurred only if it
+  happened to be watching. `hub/streamermode_test.go` pins each one.
 
 ## Freeing a seat somebody else is in
 `handleKickPlayer`. Every other host control describes the table (the format, the size, when to

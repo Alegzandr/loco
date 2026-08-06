@@ -167,6 +167,8 @@ func (h *Hub) joinAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 		SessionToken: tok,
 		MatchFormat:  matchFormatString(room.Format),
 		MaxPlayers:   room.MaxPlayers,
+		// The host may have set it long before this player typed the code.
+		StreamerMode: t.streamerMode,
 	})
 
 	// Notify others
@@ -271,6 +273,47 @@ func (h *Hub) handleSetMaxPlayers(t *table, c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastLobbyConfig(t)
+}
+
+// handleSetStreamerMode is the host saying the table code must not be readable
+// on anybody's screen.
+//
+// Every other preference in this game is presentation and stays on the client
+// that set it. This one cannot: the code is one string shared by everybody who
+// can see it, so a host who is streaming with it on screen is exposed by the
+// *other* players' screens too — the friend who joins and leaves their waiting
+// room up on a second monitor, the seat that reads it out. Blurring only the
+// host's copy protects the one screen that was already going to be careful.
+//
+// The host and nobody else. It is a table setting, and a table's settings are
+// seat 0's, exactly like the format and the seat count — and a table with no
+// host (matchmade, solo) has no code on screen at all, which is why they are
+// refused here rather than special-cased.
+//
+// Deliberately not a lobby control: a host streams the match, not the wait. It
+// is accepted at every status, which is also why it does not ride
+// lobby_config_changed.
+//
+// A repeat of the state the table is already in is answered by nobody. It is
+// not an error — a client whose switch was flipped twice is correct — but a
+// broadcast that changes nothing is a send to every seat for free, and this
+// switch sits under a thumb in a panel.
+func (h *Hub) handleSetStreamerMode(t *table, c *Client, msg protocol.ClientMsg) {
+	if refuseWithoutHost(c, t) {
+		return
+	}
+	if c.playerID() != 0 {
+		c.sendError("only the host can change streamer mode")
+		return
+	}
+	if t.streamerMode == msg.StreamerMode {
+		return
+	}
+	t.streamerMode = msg.StreamerMode
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:         protocol.SMsgStreamerModeChanged,
+		StreamerMode: t.streamerMode,
+	})
 }
 
 // broadcastLobbyConfig publishes the two things the host owns about a table

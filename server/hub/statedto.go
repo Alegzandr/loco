@@ -137,10 +137,11 @@ func (h *Hub) playerGameStateUsing(t *table, playerIdx int, players []protocol.P
 			YourIndex:   playerIdx,
 			Hand:        []protocol.CardDTO{},
 			Players:     players,
-			MatchFormat: matchFormatString(room.Format),
-			MaxPlayers:  room.MaxPlayers,
-			RoundNumber: room.RoundNumber,
-			MapID:       string(room.MapID),
+			MatchFormat:  matchFormatString(room.Format),
+			MaxPlayers:   room.MaxPlayers,
+			RoundNumber:  room.RoundNumber,
+			MapID:        string(room.MapID),
+			StreamerMode: t.streamerMode,
 		}
 	}
 	hand := make([]protocol.CardDTO, len(state.Hands[playerIdx].Cards))
@@ -172,5 +173,6 @@ func (h *Hub) playerGameStateUsing(t *table, playerIdx int, players []protocol.P
 		RoundHistory: room.RoundHistory,
 		MatchHistory: matchHistoryDTO(t),
 		TurnDeadline: turnDeadlineMs(t),
+		StreamerMode: t.streamerMode,
 	}
 }

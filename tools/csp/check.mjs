@@ -113,6 +113,10 @@ async function check(url) {
     'x-content-type-options',
     'referrer-policy',
     'permissions-policy',
+    // The one that is about the request *before* this one: an http navigation
+    // nobody upgraded carries the attacker's bundle and the attacker's CSP in
+    // the same response, so the policy above is only worth what this is.
+    'strict-transport-security',
   ]
 
   // Every response the page pulled in, kept by URL, so the headers on a
@@ -122,7 +126,7 @@ async function check(url) {
   // `add_header` into a location block only while that block declares none of
   // its own, so a single `add_header Cache-Control` under /_astro/ silently
   // strips the security headers from the entire bundle — while the document
-  // response, which is all this script used to look at, still carries all four
+  // response, which is all this script used to look at, still carries all five
   // and reports clean. Checking the document alone cannot see it.
   const responses = []
   page.on('response', r => responses.push(r))

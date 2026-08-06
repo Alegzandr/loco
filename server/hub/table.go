@@ -119,6 +119,16 @@ type table struct {
 	// solo.go.
 	solo bool
 
+	// streamerMode is the host saying nobody's screen may show this table's code.
+	//
+	// It is the one preference in this game that is not purely local, and it is a
+	// property of the table rather than of a seat: the code is one string, shared
+	// by everyone who can see it, so a host who is streaming is exposing it no
+	// matter which client draws it. Set by seat 0 and by nobody else, and it
+	// survives resetForNextMatch like the seats do — the stream does not end
+	// because the match did.
+	streamerMode bool
+
 	// loading is the map-loading gate. Non-nil means the table is shut: no turn
 	// timer, no bots, no gameplay message accepted. See maploading.go.
 	loading *mapLoadState

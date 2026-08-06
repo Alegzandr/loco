@@ -62,6 +62,7 @@ export const initialState: GameState = {
   matchFound: null,
   isMatchmade: false,
   isSolo: false,
+  tableStreamer: false,
   forfeitBy: null,
   opponentAway: null,
   goneSeats: [],

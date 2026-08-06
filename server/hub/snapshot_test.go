@@ -117,6 +117,43 @@ func TestSnapshot_MatchSurvivesARestart(t *testing.T) {
 	assertSameState(t, "Bob", state2, after2.State)
 }
 
+// The stream does not stop because the server was deployed. A host who came
+// back to a table whose code had gone readable again would find that out from
+// their own capture, which is late.
+func TestSnapshot_StreamerModeSurvivesARestart(t *testing.T) {
+	path := snapshotPath(t)
+
+	h1, srv1, stop1 := newHubOn(t)
+	conn1, conn2, code, tokens, _, _ := setupGameKeepingState(t, srv1)
+
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgSetStreamerMode, StreamerMode: true})
+	readMsgOfType(t, conn1, protocol.SMsgStreamerModeChanged)
+	readMsgOfType(t, conn2, protocol.SMsgStreamerModeChanged)
+
+	if err := h1.SaveSnapshot(path); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	conn1.Close()
+	conn2.Close()
+	stop1()
+
+	h2, srv2, stop2 := newHubOn(t)
+	defer stop2()
+	if err := h2.LoadSnapshot(path); err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+
+	back := reconnectAs(t, srv2, code, "Bob", tokens[1])
+	defer back.Close()
+	after := readMsgOfType(t, back, protocol.SMsgPlayerReconnected)
+	if after.State == nil {
+		t.Fatal("no state after reconnecting into the restarted server")
+	}
+	if !after.State.StreamerMode {
+		t.Error("the restored table forgot the host was streaming")
+	}
+}
+
 func TestSnapshot_RestoredSeatKeepsPlaying(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	path := snapshotPath(t)

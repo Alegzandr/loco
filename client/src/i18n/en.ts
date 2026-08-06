@@ -509,8 +509,9 @@ export const en: Translations = {
   prefsMotionHint: 'Stops card flights and confetti. Follows your system until you set it here.',
   // Says what it does to the code, not what the mode is called: a player who
   // has to guess the effect will leave it off.
-  prefsStreamerHint: 'Blurs the table code on screen. Hover it to read it yourself.',
-  prefsCodeHidden: 'Hidden. Hover to read it.',
+  prefsStreamerHint:
+    'Blurs the table code, on everyone’s screen if you host. Nothing uncovers it: share the link.',
+  prefsCodeHidden: 'Hidden by streamer mode.',
 
   // ─── 1v1 matchmaking ──────────────────────────────────────────
   findMatch: 'Play 1v1',
