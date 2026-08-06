@@ -509,6 +509,71 @@ That is the disconnect people actually have, and it was the one that could not b
   derive it from and the rejoin is keyed on the nickname. `<Reconnecting />` names the room so the
   player recognises it and offers the way out; scenes `reconnecting-game` / `reconnecting-room`.
 
+## One tab at a time
+`hooks/tabLock.ts` elects one tab to hold the game; `Root.svelte` mounts the app in that one and
+`<TabTaken />` in the others. Scenes `tab-taken` / `tab-taken-seated`.
+
+**What was wrong.** Every tab was a session of its own, and that half is deliberate — the section
+above is the reason `loco_session` is in `sessionStorage`. What nothing owned was the other half. A
+second tab looked like a fresh game, so it counted a second time in `players_online` (which counts
+sockets on purpose, and correctly), and it entered the 1v1 queue as a second player: `queueIndex`
+deduplicates by `*Client` pointer, `tryPair` takes the first two entries, and with a quiet queue the
+two of them are a player paired against their own reflection. `uniqueNickname` renames the duplicate
+and nothing else notices. That is the game lying to somebody, which is worse than any of the
+resource questions around it.
+
+**Why the election is a synchronous `localStorage` read.** The obvious version asks the other tabs
+over `BroadcastChannel` and waits for a reply. That wait is the bug: for as long as it lasts the tab
+either shows a curtain it may have to take back down (a flash over the tab that turns out to be the
+owner) or opens a socket "just in case" — and the socket is the entire thing being prevented. One
+read of one key decides it before the first paint, and the channel is demoted to what it is good at,
+making a handover instant instead of `STALE_MS` late.
+
+**Why the record is a heartbeat.** A flag would be correct exactly until a tab crashed, was killed
+by the OS, or lost its `pagehide` to a force-quit — after which the game is unplayable in every
+future tab of that browser, forever, and the only fix is clearing site data. `at` is rewritten every
+`BEAT_MS` (2s) and anything older than `STALE_MS` (5s) belongs to nobody. Two and a half beats:
+enough that one throttled timer in a background tab does not hand the game away, short enough that
+nobody sits looking at a curtain over a tab that no longer exists. **A timestamp in the future counts
+as stale too** — a clock that moved backwards would otherwise leave a record that is younger than
+`STALE_MS` for as long as it takes the clock to catch up, which is the same permanent lockout by
+another road.
+
+**Why every failure ends with this tab owning the game.** No `localStorage`, storage that throws on
+write (Safari's private mode has done exactly that while still exposing the object, which is why the
+probe writes rather than checks for presence), no `BroadcastChannel`, a record that will not parse.
+All of them fall through to "you are the owner", which is the behaviour that shipped before this file
+existed. A player wrongly shut out of the game has no argument available to them; two tabs is a
+lesser failure than that, every time.
+
+**Why it is `Root.svelte` and not a branch inside `App.svelte`.** `webSocket()` is called at the top
+of `App.svelte`'s script, so there is no way to mount the app and not open a socket. Not mounting is
+also what makes yielding correct in the other direction: the app unmounts, the socket closes, and the
+server holds the seat exactly as it does for any other dropped connection. It is the one place a
+`{#if}` may rebuild the app — see `appSubscription.test.ts` for the guarantee it is an exception to.
+
+**Why the curtain says what the button costs.** Taking the game inherits nothing. The other tab's
+seat record is in *its* `sessionStorage` and cannot be read from here, so the tab that takes over
+starts at the menu and the tab that yields loses its seat. That is fine when the other tab is sitting
+on the menu and expensive when it is mid-match, so the record carries `seated` and the copy turns on
+it — the same rule as the board's `leaveNote`: what the player cannot see from this screen is what
+the press costs somewhere else. **The curtain does not close on `Escape`**, which is the one
+documented exception to *Every panel closes twice* below: that rule is about panels somebody chose to
+open, and this is the state of the tab, with nothing behind it to go back to.
+
+**The first `storage` listener in this client**, and it should stay the only one. Everything else in
+`localStorage` here — the nickname, the preferences, the language, the theme — is read at boot and
+deliberately does not follow another tab: changing somebody's language mid-match because they picked
+one next door is not a courtesy. The lock is different because it is the one key whose whole meaning
+is cross-tab.
+
+**What it does not cover, and what nothing on the client can.** The storage is per origin *and* per
+profile, so a second browser, a private window or another machine bypasses all of it — including the
+self-pairing in the queue. The server-side fix is not free: refusing to pair two sockets on one
+`netKey` refuses two friends on one wifi, and behind a proxy whose forwarded header is not trusted
+(see `server.md`, where that trap is already written up) it refuses everybody. It is left open
+knowingly.
+
 ## Remembering the nickname
 A returning player should not retype their name on every visit, so `hooks/nicknameMemory.ts` keeps the
 last one entered (`loco_nickname`) and `<Lobby />` seeds its field from it at mount.
@@ -1459,6 +1524,11 @@ Two ways out, on everything that opens over the board, and they are not intercha
 legal, preferences and waiting-room panels are pinned in their own test files. A dropdown anchored
 to its own opener (the gear, the mixer) needs no ✕ — the button that opened it is the button that
 shuts it, and it is never behind a scrim.
+
+The rule is about panels somebody chose to open. A screen a tab boots onto instead of the game is
+not one: `<Reconnecting />` and `<TabTaken />` both answer nothing on the keyboard, because there is
+no game underneath to reveal by dismissing them. Both carry the one control worth carrying instead —
+give up and go to the menu, bring the game here.
 
 ## Rules modal
 - `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").

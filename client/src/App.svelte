@@ -7,6 +7,7 @@
   import { reconnectMessageFor } from './hooks/sessionPersistence'
   import { gameAudio, sessionPersistence, restoreTimeout } from './hooks/appEffects.svelte'
   import { tabAlert } from './hooks/tabAlert.svelte'
+  import { setTabSeated } from './hooks/tabLock'
   import { peekTableInvite, takeTableInvite } from './hooks/tableInvite'
   import { readNickname } from './hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './components/nicknameRules'
@@ -173,11 +174,20 @@
   // being there once a seat has been taken, and it is not the app's to remove: it
   // is markup Astro rendered, so the document is told instead and CSS hides it.
   // Purely presentational, and absent from every other page.
+  // Same question, asked by something outside this document: a tab that is not
+  // holding the game draws a curtain, and the curtain's copy turns on whether
+  // taking the game costs a match or costs nothing. Mirrored here rather than
+  // watched from `tabLock.ts` because this is the one place that already knows.
   $effect(() => {
     const root = document.documentElement
-    if (screen === 'lobby') root.removeAttribute('data-seated')
-    else root.setAttribute('data-seated', '1')
-    return () => root.removeAttribute('data-seated')
+    const atTable = screen !== 'lobby'
+    if (atTable) root.setAttribute('data-seated', '1')
+    else root.removeAttribute('data-seated')
+    setTabSeated(atTable)
+    return () => {
+      root.removeAttribute('data-seated')
+      setTabSeated(false)
+    }
   })
 </script>
 

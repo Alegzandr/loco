@@ -116,8 +116,9 @@ toolbar (off) and the `VITE_` env prefix. **At the root: no `vite.config.ts` and
 Astro owns the pages; `vitest.config.ts` is the only Vite config, and it exists because the test run
 needs jsdom and the `browser` resolve condition.
 - `src/pages/` one `.astro` per URL · `src/layouts/` `Base.astro`, `GamePage.astro`, `ContentPage.astro`
-- `src/App.svelte` the screen switch · `src/entry.ts` mounts it into `#root` via a bundled module
-  script, never an island
+- `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
+  the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
+  bundled module script, never an island
 - `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
   key, the two home paths, `chooseLang`) — those two pull in no framework, so a content page can
   use them · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
@@ -127,7 +128,7 @@ needs jsdom and the `browser` resolve condition.
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
-  CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, ServerUpdating,
+  CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, the two server mirrors `nicknameRules.ts` +
   `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
@@ -146,13 +147,13 @@ needs jsdom and the `browser` resolve condition.
   `gameStore` (the snapshot every component reads), `appEffects` (audio, session persistence, the
   restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
   `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
-  insets), `drainBar`, `escapeKey`, `tabAlert`, `prefs`, `uiPrefs`, and `live` (the one narrowing
+  insets), `drainBar`, `escapeKey`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one narrowing
   every effect above watches its own field through). **Everything else is
   framework-free on purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` +
   `store/`: `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`,
   `deriveCatchMiddleware.ts`, and one module per family — `sessionActions` `tableActions`
   `locoActions` `matchActions` `queueActions`), `serverMessages.ts`, `sessionPersistence.ts`,
-  `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `prefStore.ts`, and the preference
+  `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, and the preference
   and constant modules the reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`,
   `webSocketPolicy`, `mapPreload`, `safeAreaInsets`). **The `use` prefix went with React**: none of
   these is a hook, they are constants, pure functions and plain stores, and **nothing in a plain
@@ -529,6 +530,22 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   on attempts is a curtain that never comes down over a seat the server may still be holding.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
+- **One tab holds the game and the others open no socket** (`hooks/tabLock.ts`, `Root.svelte`,
+  `TabTaken.svelte`). A second tab used to be a second player: a second count in `players_online`,
+  and a second entry in a queue that deduplicates by socket pointer, so it could be **paired against
+  the first one**. The election is **one synchronous `localStorage` read before the first paint**,
+  never a race on `BroadcastChannel` — a boot that waits either flashes a curtain over the owner or
+  opens a socket "just in case", which is the thing being prevented. The record is a **heartbeat**
+  (`BEAT_MS` / `STALE_MS`), because a tab that crashes sends no release and a flag would lock the
+  game away for good. **In every doubt the tab owns the game**: no storage, no channel, storage that
+  throws, JSON that will not parse. **It is not mounted inside `App.svelte`** — `webSocket()` is
+  called at the top of that script, so not opening a socket means not mounting the app, which is the
+  only reason `Root.svelte` exists. **Taking the game inherits nothing** (the other tab's token is in
+  *its* `sessionStorage`), so the curtain says what the press costs *before* it is pressed, the way
+  `leaveNote` does. **That curtain does not close on `Escape`** and is the documented exception to
+  the rule below: it is the state of the tab, not a panel somebody opened, and there is nothing
+  behind it to go back to. And it is a client mechanism: **two browsers or a private window bypass
+  all of it**, the queue included.
 - **The board's way out is a chip in the chrome row, at every table, and never on the action bar** —
   that bar is a fixed three-column grid a reaction is aimed at and must not grow a fourth control.
   It asks in place, and **the line under the question is the feature**: what the player cannot see
