@@ -113,7 +113,12 @@ func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
 	if state == nil || playerIdx < 0 || playerIdx >= len(state.Hands) {
 		return nil
 	}
-	// Closed window: nothing to jump into.
+	// Nothing to jump into: no card has been *played* onto this pile. That is
+	// LastPlayBy and deliberately not InterruptOpen, which is also true of the
+	// opening discard — the window on the dealt card belongs to the humans at
+	// the table. A bot slamming the card the round opens on would take the first
+	// turn of the round off the seat the deal gave it, before that player has
+	// touched anything.
 	if state.LastPlayBy < 0 || len(state.Discard) == 0 {
 		return nil
 	}

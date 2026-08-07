@@ -87,7 +87,8 @@ room's reset.
   exchanges both. No twelfth map — a slice of records on the struct.
 - It rides `match_end` (the one message that opens the screen reading it) and every personalised
   `game_state` (so a reconnect mid-match still has the evening behind it), and it travels in the
-  drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2.
+  drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2 (it is at 3
+  now: `GameState.InterruptOpen` changed the shape of `game.Room` in turn).
 - **And it rides the `player_left` that re-bases the roster**, on all three paths that shrink it
   (`releaseSeat`, `handlePlayerDisconnect`, and the expiry branch that removes the seat for real).
   The screen reading it is already open by then: a seat going takes a column out of every row, and a
@@ -181,7 +182,9 @@ a string it is free to reword.
 - **Every kind can interrupt, wilds included**: Wild on Wild, WildDrawFour extends a +4 chain, GlobalSwitch rotates hands from the interjecter's seat. Wilds share `Color: Wild`, so plain equality still keeps a Wild off a WildDrawFour. **Every** wild interject must name a real colour (`chosenColor != Wild`), GlobalSwitch included.
 - **Batch interrupt**: send N copies via `play_cards: [...]`. Effects stack (N DrawTwo = `2*N` pending; N Skips skip N players; N Reverses parity-flip). Swap and GlobalSwitch can't batch (which target? how many rotations?).
 - During a draw chain (`PendingDraw > 0`) only DrawTwo/WildDrawFour may interject — implied by identical-to-top in a consistent state, kept explicit as a guard.
-- Window state on `GameState`: `LastPlayBy` (-1=closed), `LastPlayAt` (informational). Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`/`CounterDraw`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end. Opening discard does NOT arm.
+- Window state on `GameState`: `InterruptOpen` (the window), `LastPlayBy` (-1 = nobody played the card on top), `LastPlayAt` (informational). Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`/`CounterDraw`, and by `dealRound`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end.
+- **The opening discard is interceptable, and that is why the window and its author are two fields.** They used to be one, and a dealt card has no author: a seat holding the twin of the card the round opened on was answered `interrupt window closed`, which the client renders as *"somebody was faster"* — on a table where nobody had played anything yet. `dealRound` now sets `InterruptOpen: true` with `LastPlayBy` still -1: the window is open and belongs to no seat, so every rule below (no deadline, nobody excluded, the current player included) applies to it unchanged. `TestRoom_InterruptPlay_OpeningDiscardIsInterceptable` reads it off a real deal rather than a fixture, because the bug was in what `dealRound` left behind.
+- **Bots are the one exception, and it costs nothing to state twice**: `game.BotInterrupt` and `hub.maybeScheduleBotInterrupt` both gate on `LastPlayBy >= 0`, not on `InterruptOpen`, so they answer plays and not deals. A bot slamming the opening discard would take the round's first turn off the seat the deal handed it, before that player had touched anything — an interject is a reaction, and there is nothing there to react to. The hub half is belt and braces: it only schedules off a human's move anyway.
 - Resolution: fastest-server-received wins (single-goroutine event loop serializes).
 - Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards?, declare_loco? }` — `play_cards` non-empty takes precedence, and `declare_loco` is only read when the batch empties the hand (see the gate above). Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
 - **Batch play** (`Room.PlayCards`): current player plays N identical via `play_cards` (precedence over `card`). Effects stack (DrawTwo `2*N`, WildDrawFour `4*N`, Skips skip N, Reverses parity). Swap/GlobalSwitch excluded.
@@ -378,18 +381,23 @@ won, and a one-card hand had made them finishes by accident.
   yet. Written by `applyUnoDeclared` from the server's confirmation, retired by `applyCardDrawn`
   (the hand grew), by `applyCardPlayed` (the roster says that seat is no longer on one card, or the
   server opened a fresh window on it) and by `applyGameState` (same question asked of a snapshot) —
-  the shared filter is `store/helpers.ts: keepDeclarations`. Two things read it:
+  the shared filter is `store/helpers.ts: keepDeclarations`. **One** thing reads it:
   - **`myDeclared`**, our own seat, which spends the LOCO! chip. It is **derived** by
     `deriveCatchMiddleware` like `catchTarget`, for the same reason: an action that forgets to clear
     it leaves a dead button over an obligation the player still owes, and nothing fails.
-  - **`isCatchLive`** (`components/catchAvailability.ts`), which drops a seat on **one** card that has
-    declared from the count. Nothing can catch that seat until its hand changes, so the press stops
-    being a read that lost and becomes a card paid for nothing — the only case the button greys out
-    for. A declaration by a seat on two cards is ignored: its next play puts it on one and it will
-    owe the table a fresh call there, which is exactly what the live button is anticipating.
-  - **Absence of a window is not a declaration**, and the distinction is why this list exists: catch
-    seats ride `card_played` only, so a reloaded tab holds none of them and would find the button grey
-    over a table it could still catch. Silence leaves it live.
+  - **`isCatchLive` deliberately does not.** It reads hand sizes and our own seat, and a declaration
+    the table has heard is not allowed to reach it. The button answers "is a seat near the finish",
+    never "is somebody catchable", and the gap between the two questions is where the mechanic
+    lives: a control that went dead the moment the last opponent called it would **report that call**
+    to a player who was not listening for it, which is the listening the game is asking them to do,
+    and it would refuse the press §14.6 exists to charge for — the thumb already on its way down when
+    the seat shouted. That press is the spasm the wager is made of. Guaranteeing it can never be
+    further than one ordinary play from paying off is `CATCH_LIVE_MAX_HAND`'s job and the whole of
+    it; whether it pays *this* time is the player's read, and the interface must not answer it.
+    (`catchAvailability.test.ts` pins the seat on a declared single card as **live**.)
+  - **Absence of a window is not a declaration either**, and it must reach the button even less: catch
+    seats ride `card_played` only, so a reloaded tab holds none of them and would find a button that
+    read them grey over a table it could still catch.
 - **`applyGameState` filters catch windows, it does not wipe them.** Swap and GlobalSwitch are
   followed by a personalised `game_state`, so clearing there made the exact rule this exists for
   unreachable: the player handed their last card was catchable for a few milliseconds and then

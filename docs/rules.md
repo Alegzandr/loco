@@ -63,8 +63,12 @@ This is a **core mechanic** of LOCO.
 ### 6.1 Conditions
 
 1. The card is **exactly identical** to the top of the discard pile (see 6.2).
-2. The interject window is open — it opens on every play and closes on a draw,
-   a pass, or the end of the round. **There is no time limit.**
+2. The interject window is open — it opens on the deal and on every play, and
+   closes on a draw, a pass, or the end of the round. **There is no time limit.**
+
+The **card the round opens on counts**: a player dealt its twin may interject
+before the first turn is taken. It is a card on the pile like any other, and the
+window is about what is on top, not about whose hand it came from.
 
 Anyone may interject, with **any** card kind: the player who just played (with a
 second identical copy), the player whose turn it currently is, and every other

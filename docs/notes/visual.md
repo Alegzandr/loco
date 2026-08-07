@@ -190,15 +190,13 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
     the anticipation; a wider one buys a stretch of round where the press can only miss, and a miss
     a player can plan is a card drawn on purpose — see `domain-rules.md`, "The threshold is what
     keeps the price from being buyable".
-  - **It goes back to dead when every seat within reach has called it.** A seat on one card the whole
-    table heard declare is out of reach until its hand changes, so pressing against it is not a read
-    that lost — it is the price paid for nothing, and a wager the interface should not be offering.
-    The looseness is for uncertainty, and there is none left there. It is `store.declaredSeats`, i.e.
-    what the table *heard*: a seat with no open catch window is not the same statement, because a
-    reloaded tab is told about no windows at all and would find the button grey over a table it could
-    still catch. A declaration by a seat on two cards changes nothing — its next play puts it on one
-    and it will owe the table a fresh call there, which is the whole thing the middle state is
-    watching for.
+  - **A declaration the table has heard takes nothing away from it, and that is a rule.** Hand sizes
+    decide the middle state; nothing else may. A seat on one card that just called it cannot be
+    caught, so the press will miss and cost a card — and the button keeps offering it, because going
+    dead there would **say the call happened** to a player who was not listening for it, and because
+    that press is precisely the one §14.6 charges for: the thumb already committed when the seat
+    shouted. Three states, and only the third one is a promise. What the declaration closes is the
+    *armed* cue, which rides `catchTarget`.
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same
@@ -742,6 +740,38 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 - **Per-seat identity colours** (`components/playerColors.ts`): a player keeps one colour across
   lobby avatar, banner and scoreboard so a viewer can follow "the orange player" all match.
 - Opponent pills show the **exact** card count (the fan only conveys few-vs-many, and caps out).
+
+## Table news (the three notice pills)
+Three things happen *around* the match rather than in it, and all three are told by one pill in
+`<GameView />`: a Swap or a Global Switch (`swapNotice`), a Contre-LOCO! that arrived too late
+(`catchFailed`), a seat gone for the rest of the match (`departureNotice`). They are the counterpart
+of the streamable moments above — news, not moments — and the distinction is the whole design:
+the LOCO! banner, the interception slam and the catch stamp are the three things allowed to shout,
+so anything else wearing a saturated fill of its own competes with them for the same glance.
+
+- **One class, three accents** (`.notice` + `.noticeSwap` / `.noticePenalty` / `.noticeDeparture`).
+  The plate is the board's own chrome — `--color-surface-strong`, ink type, ink outline,
+  `--shadow-hard` — and the only thing that changes between the three is a 13px dot fed by
+  `--notice-accent` (indigo / error red / muted) and the `--notice-top` each one sits at. A spectator
+  tells them apart before reading the line; a reader gets the same type on all three.
+  - They were three pills written one at a time before that: two saturated gradients and one plate,
+    16px against 17px, a soft glow on two of the three, and white type over the top stop of
+    `--gradient-error`, which measures **2.4:1**. Grammar first, then the accent.
+  - The three heights (13% / 20% / 29%, tightened on a phone) are what lets a seat leaving on the
+    same beat as a missed call read as two pieces of news instead of one covering the other.
+- **Centred with `inset-inline: 0` + `margin-inline: auto`, never `left: 50%`.** An absolutely
+  positioned box anchored at the midpoint is shrink-to-fit against **the half of the screen to its
+  right**, so the longest line in the set wrapped at 180px on a 360px phone and came out four lines
+  tall over the seats, whatever `max-width` said. Anything else centred this way inherits the bug.
+- **`text-wrap: balance`** keeps the two-line pills from ending on an orphan. It is safe here only
+  because the width is now decided before the wrapping is.
+- **No arrow glyph in any of them.** The Global Switch line named its heading with `→` / `←`, which
+  says "that way" about a board every seat looks at from a different chair, and the two directions
+  differ by one character in a pill that is up for a couple of seconds. It names the heading in the
+  words the direction ring already uses (`clockwise` / `counter-clockwise`, `horaire` /
+  `antihoraire`), so the board and the notice say the same thing the same way.
+- Scenes `game-swap-notice`, `game-global-switch-notice` (the longest line in the set, and the one
+  that says whether the wrapping still holds), `game-catch-failed`, `game-departure-notice`.
 
 ## Score table (hold TAB)
 `<ScoreTable />` is the in-match standings panel: seat colour + nickname, one column per finished

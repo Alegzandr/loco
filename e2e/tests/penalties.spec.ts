@@ -109,13 +109,15 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       expect(armed?.unoTimerEnd).not.toBeNull()
 
       // Declaring closes the window — you cannot catch someone who called it.
-      // And with Bob the only opponent, sitting on the single card the whole
-      // table just heard him call, there is nothing left to wager on: the
-      // button goes dead in place rather than staying a press that could only
-      // ever cost Alice a card.
+      // What closes with it is the *armed* cue and the target, never the
+      // control: Bob is still the seat near the finish, so the button stays
+      // pressable and a press now costs Alice a card. That press is the one the
+      // price exists to charge for — the thumb already on its way down when Bob
+      // shouted — and a button that went dead here would both refuse it and
+      // report the declaration to a player who was not listening for it.
       await sendMsg(bob, { type: 'declare_uno' })
       await expect(catchBtn).not.toHaveClass(/\barmed\b/, { timeout: 5_000 })
-      await expect(catchBtn).toBeDisabled()
+      await expect(catchBtn).toBeEnabled()
       expect((await getState(alice))?.catchTarget).toBeNull()
     } finally {
       await ctx1.close()
@@ -441,7 +443,7 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         chosen_color: 'red',
       })
 
-      // Armed, not merely enabled: the button is pressable from three cards out,
+      // Armed, not merely enabled: the button is pressable from two cards out,
       // so clicking on `toBeEnabled` would fire before the window opened and buy
       // a penalty instead of the catch this test is about.
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })

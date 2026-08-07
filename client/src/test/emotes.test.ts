@@ -116,3 +116,48 @@ describe('one line per seat, and the card never grows', () => {
     expect(gameStore.getState().emotes).toEqual([])
   })
 })
+
+/**
+ * Nothing is kept, and "nothing" has to hold at every door onto this screen —
+ * not only the one the forfeit comes through. What was said belongs to the
+ * match it was said about: read over the next one's scoreboard it is somebody
+ * congratulating a result that has not happened yet.
+ */
+describe('a fresh screen says nothing yet, whichever way it opens', () => {
+  beforeEach(() => {
+    gameStore.getState().resetToHome()
+  })
+
+  // The ordinary end of a match: `round_end` puts the summary up and `match_end`
+  // waits behind it, so this dismissal — not applyMatchEnd — is what opens the
+  // game-over screen almost every time. It was the one door with no reset on it.
+  it('forgets it when the buffered match end opens the screen', () => {
+    gameStore.getState().applyEmote(0, 'gg')
+    gameStore.getState().setPendingMatchEnd('Alice', [], [])
+    gameStore.getState().dismissRoundSummary()
+    expect(gameStore.getState().screen).toBe('gameover')
+    expect(gameStore.getState().emotes).toEqual([])
+  })
+
+  // A matchmade rematch is dealt as another pairing (server startRematchedMatch),
+  // so this is the ordinary table's `applyRematch` seen from the queue's side.
+  it('forgets it when a matchmade rematch deals the next pairing', () => {
+    gameStore.getState().applyEmote(0, 'gg')
+    gameStore.getState().applyMatchFound({
+      roomCode: 'ABC123',
+      mySeat: 0,
+      sessionToken: 'tok',
+      players,
+      matchFormat: 'BO1',
+      maxPlayers: 2,
+      startsInMs: 3000,
+    })
+    expect(gameStore.getState().emotes).toEqual([])
+  })
+
+  it('forgets it when another hand is dealt against the server', () => {
+    gameStore.getState().applyEmote(0, 'gg')
+    gameStore.getState().applySoloStarted('ABC123', 0, 'tok')
+    expect(gameStore.getState().emotes).toEqual([])
+  })
+})

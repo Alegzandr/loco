@@ -40,7 +40,7 @@ import (
 
 // SnapshotSchemaVersion is bumped by hand whenever the shape of what is written
 // below changes, game.Room included. A restore refuses anything else.
-const SnapshotSchemaVersion = 2
+const SnapshotSchemaVersion = 3
 
 // SnapshotMaxAge is how old a snapshot may be and still be worth restoring.
 //

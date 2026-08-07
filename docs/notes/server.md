@@ -643,7 +643,10 @@ client. Every gameplay handler goes through it (`handlePlayCard`, `handleDrawCar
 - **A lost race is deliberately not one of them.** There the client's board was right and it was
   simply beaten, so a snapshot would put the most expensive message this server sends on the wire at
   the busiest moment of the busiest table. `resync_test.go` pins both halves: an illegal play is
-  followed by a `game_state`, a closed interrupt window by nothing at all.
+  followed by a `game_state`, an interject whose card is no longer the top one by nothing at all.
+  That second case used to be written as a closed window, which stopped being reachable from a
+  fixture the day the deal started opening one — the mismatch is the better example anyway, since
+  it is what losing an interrupt race actually looks like.
 - Logged as `state resync conn=… code=… player=… reason=…`. Sustained growth on one connection is a
   client bug worth reading; the metric for a tampered one stays `suspected_cheats`.
 
@@ -906,7 +909,12 @@ that, and the smallest is the point.
 - **Nothing is kept, anywhere.** Not in the event log, not on the `Room`, not in the drain snapshot,
   and not on the `table` either: `hub/emotes.go` holds no state at all. The client keeps one line per
   seat — the last thing that seat said, replaced rather than stacked — and drops the lot with the
-  match.
+  match. **“With the match” means every door onto that screen and every door out of it**, which is
+  four in the store: `applyMatchEnd` (a forfeit), `dismissRoundSummary`’s buffered end (the ordinary
+  one, and the one this went missing on), `applyRematch` and `applyMatchFound` /
+  `applySoloStarted` for the next match. Miss one and the words survive the thing they were about:
+  a table that said “good game” at the end of the first match read it again over the second one’s
+  scoreboard, congratulating a result nobody had seen yet.
 - **The game-over screen and nowhere else.** Anywhere earlier it would be something to do *to*
   somebody mid-round, which is what a reaction game least needs. Refused through the same door every
   other out-of-context message uses.

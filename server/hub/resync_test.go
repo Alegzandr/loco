@@ -135,11 +135,14 @@ func TestInterrupt_LostRaceDoesNotResync(t *testing.T) {
 	})
 	readMsgOfType(t, conn, protocol.SMsgGameState)
 
-	// debug_set_state never arms the interrupt window, so this is the refusal a
-	// player gets for pressing a beat after somebody drew or passed.
+	// The red 5 is not the red 3 on the pile: this is what losing an interrupt
+	// race *is* — the card matched the top the player could see and a faster one
+	// landed on it first. The window itself is open, as it is from the deal
+	// onwards; debug_set_state does not touch it either way.
+	const wantErr = "interrupt card must exactly match the top discard card"
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgInterruptPlay, Card: &red5})
-	if got := readMsgOfType(t, conn, protocol.SMsgError); got.Error != "interrupt window closed" {
-		t.Fatalf("error = %q, want %q", got.Error, "interrupt window closed")
+	if got := readMsgOfType(t, conn, protocol.SMsgError); got.Error != wantErr {
+		t.Fatalf("error = %q, want %q", got.Error, wantErr)
 	}
 
 	// Nothing else may follow. Read until the socket goes quiet.

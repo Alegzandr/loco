@@ -98,6 +98,12 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         screen: 'gameover',
         showRoundSummary: false,
         pendingMatchEnd: null,
+        // A fresh screen says nothing yet, and this is the door it almost always
+        // opens through: `round_end` puts the summary up, `match_end` waits
+        // behind it, and only a forfeit reaches `applyMatchEnd` directly. Left
+        // out here, what a table said about the first match was still on the
+        // card at the end of the second.
+        emotes: [],
       })
       return
     }

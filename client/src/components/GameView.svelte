@@ -214,7 +214,9 @@
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
   // Whether the centre button is pressable at all — a looser question than
   // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
-  const catchLive = $derived(isCatchLive(g.players, g.myIndex, g.declaredSeats))
+  // Hand sizes and our own seat, and nothing else: a declaration the table has
+  // heard must not reach this, or the bar would be reporting it.
+  const catchLive = $derived(isCatchLive(g.players, g.myIndex))
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
   drainBar(() => turnFill, () => turnDeadline, 'auto')
@@ -619,9 +621,13 @@
     />
   {/if}
 
+  <!-- Table news: one pill, three accents. See the `.notice` block below for why
+       all three wear the board's own chrome instead of a fill of their own. -->
   {#if g.swapNotice}
     {#key g.swapNotice.at}
-      <div class="swapNotice">{resolveSwapNoticeText(g.swapNotice, g.myIndex, g.players, t)}</div>
+      <div class="notice noticeSwap">
+        <span>{resolveSwapNoticeText(g.swapNotice, g.myIndex, g.players, t)}</span>
+      </div>
     {/key}
   {/if}
 
@@ -631,8 +637,8 @@
        it — held and gone are both `connected: false`. -->
   {#if g.departureNotice}
     {#key g.departureNotice.at}
-      <div class="departureNotice">
-        {t.departureNotice.replace('%player', g.departureNotice.nickname)}
+      <div class="notice noticeDeparture">
+        <span>{t.departureNotice.replace('%player', g.departureNotice.nickname)}</span>
       </div>
     {/key}
   {/if}
@@ -642,14 +648,16 @@
        no reason anybody at the table can see. -->
   {#if g.catchFailed}
     {#key g.catchFailed.at}
-      <div class="catchFailNotice">
-        {g.catchFailed.seat === g.myIndex
-          ? t.catchFailedYou
-          : t.catchFailedOther.replace(
-              '%player',
-              g.players.find((pl) => pl.index === g.catchFailed!.seat)?.nickname ??
-                `P${g.catchFailed.seat}`,
-            )}
+      <div class="notice noticePenalty">
+        <span>
+          {g.catchFailed.seat === g.myIndex
+            ? t.catchFailedYou
+            : t.catchFailedOther.replace(
+                '%player',
+                g.players.find((pl) => pl.index === g.catchFailed!.seat)?.nickname ??
+                  `P${g.catchFailed.seat}`,
+              )}
+        </span>
       </div>
     {/key}
   {/if}
@@ -833,97 +841,103 @@
     }
   }
 
-  /* Swap / GlobalSwitch notice */
-  .swapNotice {
-    position: absolute;
-    top: 20%;
-    left: 50%;
-    background: var(--gradient-tertiary);
-    color: var(--color-on-dark);
-    font: 600 17px/1.25 var(--font-display);
-    text-shadow: 0 1px 0 rgba(30, 10, 90, 0.45);
-    padding: 11px 24px;
-    border-radius: var(--radius-full);
-    border: var(--stroke) solid var(--color-stroke);
-    box-shadow:
-      var(--shadow-hard),
-      0 0 28px rgba(108, 92, 255, 0.55);
-    pointer-events: none;
-    white-space: nowrap;
-    z-index: 14;
-    animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
-  }
+  /* ── Table news ──────────────────────────────────────────────────────────
+     Three pills say what just happened around the table: a Swap or a Global
+     Switch, a Contre-LOCO! that arrived too late, a seat that is gone for the
+     rest of the match. They are news, not moments — the LOCO! banner, the
+     interception slam and the catch stamp are the three allowed to shout — so
+     all of them wear the chrome every other surface in this UI wears (plate,
+     ink outline, hard shadow, display type) and say what kind of news they
+     carry with one coloured dot. One grammar, three accents, three heights, so
+     a seat leaving on the same beat as a missed call still reads as two things.
 
-  /* A missed Contre-LOCO!. Same pill as the swap notice so it reads as table news
-     rather than as an error, but in the penalty's own red and sitting lower, so
-     the two can be on screen at once without covering each other. */
-  .catchFailNotice {
+     They were three pills written one at a time before that: two saturated
+     fills and one plate, 16px against 17px, a soft glow on two of the three,
+     and white type over the top stop of `--gradient-error`, which is 2.4:1.
+     A fill of its own is what a *moment* gets; news gets the board's chrome. */
+  /* Centred by `inset-inline: 0` + `margin: auto`, never by `left: 50%` — a pill
+     anchored at the midpoint is shrink-to-fit against the half of the screen to
+     its right, so a line long enough to wrap wrapped at 180px on a 360px phone
+     and came out four lines tall over the seats, whatever `max-width` said. */
+  .notice {
     position: absolute;
-    top: 29%;
-    left: 50%;
-    background: var(--gradient-error);
-    color: var(--color-on-dark);
-    font: 600 17px/1.25 var(--font-display);
-    text-shadow: 0 1px 0 rgba(90, 10, 10, 0.45);
-    padding: 11px 24px;
-    border-radius: var(--radius-full);
-    border: var(--stroke) solid var(--color-stroke);
-    box-shadow:
-      var(--shadow-hard),
-      0 0 28px rgba(229, 72, 77, 0.5);
-    pointer-events: none;
-    white-space: nowrap;
-    z-index: 14;
-    animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
-  }
-
-  /* A departure is table news, not an error and not a callout: the same pill in
-     the board's neutral ink, sitting above the other two so a seat leaving on
-     the same beat as a missed Contre-LOCO! does not cover it. */
-  .departureNotice {
-    position: absolute;
-    top: 13%;
-    left: 50%;
-    transform: translateX(-50%);
+    top: var(--notice-top);
+    inset-inline: 0;
+    margin-inline: auto;
+    width: fit-content;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    max-width: min(88%, 30rem);
+    padding: 10px 20px;
     background: var(--color-surface-strong);
     color: var(--color-ink);
-    font: 600 16px/1.25 var(--font-display);
-    padding: 10px 22px;
-    border-radius: var(--radius-full);
+    font: 600 17px/1.3 var(--font-display);
+    text-align: center;
+    text-wrap: balance;
     border: var(--stroke) solid var(--color-stroke);
+    border-radius: var(--radius-full);
     box-shadow: var(--shadow-hard);
     pointer-events: none;
-    white-space: nowrap;
     z-index: 14;
-    animation: swapNoticeIn 0.32s var(--ease-bounce) forwards;
+    animation: noticeIn 0.32s var(--ease-bounce) both;
+  }
+
+  /* The dot carries the kind. It is the one thing that differs between the
+     three, which is what lets a spectator tell them apart at 720p before the
+     line is read — and it is a mark rather than a glyph, so it needs no font
+     and means the same thing in both languages. */
+  .notice::before {
+    content: '';
+    flex: none;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--notice-accent);
+    border: var(--stroke-thin) solid var(--color-stroke);
+  }
+
+  /* Highest of the three: a departure outlives the other two, and covering it
+     with a pill that clears itself in a couple of seconds loses the one thing
+     the roster cannot say — held and gone are both `connected: false`. */
+  .noticeDeparture {
+    --notice-top: 13%;
+    --notice-accent: var(--color-muted);
+  }
+
+  .noticeSwap {
+    --notice-top: 20%;
+    --notice-accent: var(--color-tertiary);
+  }
+
+  .noticePenalty {
+    --notice-top: 29%;
+    --notice-accent: var(--color-error);
   }
 
   @media (max-width: 480px) {
-    .departureNotice {
-      font-size: 13px;
+    .notice {
+      font-size: 13.5px;
       padding: 8px 15px;
-      top: 10%;
+      gap: 7px;
       max-width: 92%;
-      white-space: normal;
-      text-align: center;
     }
 
-    .catchFailNotice {
-      font-size: 14px;
-      padding: 9px 16px;
-      top: 26%;
-      max-width: 92%;
-      white-space: normal;
-      text-align: center;
+    .notice::before {
+      width: 11px;
+      height: 11px;
     }
 
-    .swapNotice {
-      font-size: 14px;
-      padding: 9px 16px;
-      top: 17%;
-      max-width: 92%;
-      white-space: normal;
-      text-align: center;
+    .noticeDeparture {
+      --notice-top: 10%;
+    }
+
+    .noticeSwap {
+      --notice-top: 17%;
+    }
+
+    .noticePenalty {
+      --notice-top: 26%;
     }
 
     /* A crowded phone table wraps its seats onto extra rows, so the toast starts
@@ -933,14 +947,14 @@
     }
   }
 
-  @keyframes swapNoticeIn {
+  @keyframes noticeIn {
     from {
       opacity: 0;
-      transform: translateX(-50%) translateY(-10px) scale(0.85);
+      transform: translateY(-10px) scale(0.85);
     }
     to {
       opacity: 1;
-      transform: translateX(-50%) translateY(0) scale(1);
+      transform: translateY(0) scale(1);
     }
   }
 

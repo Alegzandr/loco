@@ -732,6 +732,23 @@ export const SCENES: Scene[] = [
     deadlineIn: 20,
   },
   {
+    // The longest line any of the three pills carries, and the one that names a
+    // direction in words rather than drawing an arrow: this is the scene that
+    // says whether it still wraps to two readable lines on a phone.
+    id: 'game-global-switch-notice',
+    title: 'Partie · notice Rotation',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 1,
+      discard: card('wild', 'global_switch'),
+      activeColor: 'blue',
+      direction: -1,
+      swapNotice: { kind: 'global_switch', actorIndex: 1, targetIndex: -1, direction: -1, at: 1 },
+    },
+    deadlineIn: 20,
+  },
+  {
     id: 'game-interrupt',
     title: 'Partie · interception',
     screen: 'game',

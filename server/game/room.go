@@ -144,16 +144,26 @@ type GameState struct {
 	EventLog []GameEvent
 
 	// Interrupt window: explicit state for the realtime "lead taking" / jump-in
-	// mechanic. After every successful play the window is opened: ANY player who
-	// holds a card identical (color+kind+value) to the top discard may take the
-	// lead by sending an interrupt_play — including the player who just played
-	// and the player whose turn it currently is. There is deliberately no
-	// deadline: the window stays open for as long as that card is on top, so the
-	// race is decided by who reacts first, not by an arbitrary timer.
-	// LastPlayBy < 0 means the window is closed (e.g. after DrawCard / PassTurn
-	// / CounterDraw resolves the chain, or after round end).
-	LastPlayBy int
-	LastPlayAt time.Time
+	// mechanic. While it is open, ANY player who holds a card identical
+	// (color+kind+value) to the top discard may take the lead by sending an
+	// interrupt_play — including the player who just played and the player whose
+	// turn it currently is. There is deliberately no deadline: the window stays
+	// open for as long as that card is on top, so the race is decided by who
+	// reacts first, not by an arbitrary timer.
+	//
+	// InterruptOpen is the window; LastPlayBy is who put the card there. They are
+	// two facts and used to be one field, which is what kept the opening discard
+	// out of the mechanic: a dealt card has no author, so "closed" was the only
+	// thing a seat index could say about it, and a player holding its twin was
+	// answered with "somebody was faster" before anybody had played at all. The
+	// deal now opens the window with LastPlayBy still -1 — nobody owns that card,
+	// and every seat may slam it.
+	//
+	// Closed (InterruptOpen false) after DrawCard / PassTurn / CounterDraw
+	// resolving the chain, and at round end.
+	InterruptOpen bool
+	LastPlayBy    int
+	LastPlayAt    time.Time
 }
 
 // pushDiscard puts played cards on the pile and moves the play epoch on. The
@@ -196,12 +206,14 @@ func (s *GameState) setActiveColor(c Color) {
 // armInterruptWindow opens / refreshes the interrupt window for the most recent play.
 // Called by PlayCard, PlayCards, InterruptPlay(Cards), and CounterDraw.
 func (s *GameState) armInterruptWindow(actor int) {
+	s.InterruptOpen = true
 	s.LastPlayBy = actor
 	s.LastPlayAt = time.Now()
 }
 
 // closeInterruptWindow closes the window explicitly (DrawCard / PassTurn / round end).
 func (s *GameState) closeInterruptWindow() {
+	s.InterruptOpen = false
 	s.LastPlayBy = -1
 }
 
@@ -655,12 +667,19 @@ func (r *Room) dealRound(startingPlayer int) {
 	}
 
 	r.State = &GameState{
-		Hands:            hands,
-		Deck:             deck,
-		Discard:          []Card{firstCard},
-		CurrentTurn:      startingPlayer,
-		Direction:        1,
-		ActiveColor:      firstCard.Color,
+		Hands:       hands,
+		Deck:        deck,
+		Discard:     []Card{firstCard},
+		CurrentTurn: startingPlayer,
+		Direction:   1,
+		ActiveColor: firstCard.Color,
+		// The opening discard is live like any other top card: a seat holding its
+		// twin may slam it before the round's first turn is taken. Nobody played
+		// it, so LastPlayBy stays -1 and LastPlayAt stays zero — the window is
+		// open and belongs to no seat. That pair is also what keeps the bots out
+		// of this one window: they read LastPlayBy, and the hub only ever
+		// schedules them off a human's move.
+		InterruptOpen:    true,
 		LastPlayBy:       -1,
 		LastCardDeclared: make([]bool, n),
 		LastCardAt:       make([]time.Time, n),
@@ -1474,9 +1493,14 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chos
 // who just played may take the lead back, and so may the player whose turn it
 // currently is. Whoever's message reaches the hub first wins.
 //
+// The opening discard counts as a card on the pile, so the window is open from
+// the deal: a seat dealt the twin of the card the round opens on may slam it
+// before anybody has taken a turn. Refusing that read as "somebody was faster"
+// on a table where nothing had happened yet.
+//
 // Server-authoritative checks (in order):
 //   - game in progress
-//   - interrupt window still open (LastPlayBy >= 0 — closed by draw / pass / round end)
+//   - interrupt window still open (InterruptOpen — closed by draw / pass / round end)
 //   - cards are non-empty and all identical
 //   - caller has at least len(cards) copies
 //   - first card matches top exactly (color+kind+value)
@@ -1515,10 +1539,11 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 			return errors.New("batch cards must be identical")
 		}
 	}
-	// The window is open from the moment a card is played until a draw / pass /
-	// round end resolves it. No deadline, no exclusion of the last actor or of
-	// the current player: any identical card may be slammed at any moment.
-	if r.State.LastPlayBy < 0 {
+	// The window is open from the moment a card lands on the pile — the opening
+	// discard included — until a draw / pass / round end resolves it. No
+	// deadline, no exclusion of the last actor or of the current player: any
+	// identical card may be slammed at any moment.
+	if !r.State.InterruptOpen {
 		return ErrInterruptWindowClosed
 	}
 	// Rule: during an active draw chain, only an identical draw card may be

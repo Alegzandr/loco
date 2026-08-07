@@ -184,7 +184,7 @@ test.describe('batch play', () => {
         direction: 1,
       })
 
-      // A real play is the only thing that arms the interrupt window.
+      // Alice's play is what puts the red 5 on top for Bob to slam.
       await sendMsg(alice, { type: 'play_card', card: red5 })
       await bob.waitForFunction(
         () => window.__LOCO_E2E__?.getState?.()?.discard?.value === 5,
@@ -247,7 +247,7 @@ test.describe('batch play', () => {
         direction: 1,
       })
 
-      // Only a real play arms the interrupt window.
+      // Alice's play is what puts the red 5 on top for Bob to slam.
       await sendMsg(alice, { type: 'play_card', card: red5 })
       await bob.waitForFunction(
         () => window.__LOCO_E2E__?.getState?.()?.discard?.value === 5,

@@ -1040,6 +1040,8 @@ test.describe('rules coverage — Interjecting (§6)', () => {
         () => (window.__LOCO_E2E__?.getState?.()?.errorMsg ?? '') === '',
         undefined, { timeout: 5_000 }).catch(() => undefined)
 
+      // The window is open — it has been since the deal — so what is under test
+      // here really is the identity check and not a closed window.
       await sendMsg(bob, {
         type: 'interrupt_play',
         card: { color: 'blue', kind: 'number', value: 5 },
