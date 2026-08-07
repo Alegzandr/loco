@@ -522,6 +522,16 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   lose the page are in the note, and `contentPages.test.ts` pins each.
 - **Derived state in the store is completed by the store, never by the actions**
   (`store/deriveCatchMiddleware.ts`, `catchDerivation.test.ts`).
+- **A snapshot is authoritative when it arrives and never afterwards, so nothing that carries a
+  board may be held and replayed.** The round summary is an overlay: the next round's `game_started`
+  is applied under it, `applyGameState` does not touch `showRoundSummary` or `roundWinner`, and
+  `dismissRoundSummary` takes the card down and puts no board back. Buffering that deal and
+  replaying it on dismissal rolled the table back eight seconds — discard, hand sizes and
+  `currentTurn` — for whoever read the scores, and **a rolled-back turn that lands on the reader's
+  own seat cannot heal**: they are shown somebody else's turn so they do not play, nobody else can,
+  and the table sits there until the server's turn clock expires. `pendingMatchEnd` is the one thing
+  still buffered, because nothing follows a match end. Same reason the `yourTurn` cue waits for the
+  card to come down (`audio/gameSounds.ts`).
 - **An effect that watches one field of the store reads it through `live()`** (`hooks/live.svelte.ts`),
   or through a `$derived` when it is written in a component. `game.current` is **one** `$state.raw`
   replaced whole on every message, so a `$effect` reading `g.x` depends on the entire match and

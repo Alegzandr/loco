@@ -779,9 +779,35 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 ## Round summary
 - `round_end` → `applyRoundEnd(roundWinner, roundNumber, newScoreboard, roundHistory?)`.
 - Computes per-player `round_points` as `newScore - prevScore` from pre-round scoreboard, stores `roundScores: RoundScoreEntry[]`, sets `showRoundSummary:true`.
-- If `game_started` arrives while showing → buffer in `pendingGameState`.
-- `GameView` shows: round n/total, winner, per-player breakdown sorted by placement, points (delta), cumulative score, wins, full match scoreboard (BO3+).
-- "Continue (Ns)" → `dismissRoundSummary()` (applies buffered state, clears summary). Auto-dismiss at 8s.
+- `GameView` shows: round n/total, winner, per-player breakdown sorted by placement, points (delta), cumulative score, wins, full match scoreboard (BO3+). The round it names is `roundNumber_completed`, a field of its own, because `roundNumber` is already the round being dealt behind it.
+- "Continue (Ns)" → `dismissRoundSummary()`, which takes the card down and puts no board back. Auto-dismiss at 8s.
+
+### The card is an overlay, and the board behind it is live
+
+The `game_started` that deals the next round arrives while the card is up, and is applied there. It
+used to be buffered in `pendingGameState` and replayed on dismissal, so that the summary would not
+vanish the instant the server dealt — and that was the bug:
+
+- the server deals the moment it announces the round that ended, and **arms the turn clock with the
+  deal**, so the table is already playing while the card is up;
+- every `card_played` of the new round was applied to the store all along — nothing about the board
+  was ever actually held back — so the buffer was a snapshot of the deal replayed over a board that
+  had moved on for up to the full eight seconds;
+- whoever read the scores had their table rolled back: the discard, the hand sizes, and
+  `currentTurn`. **If the rolled-back turn was their own, nothing could heal it**: they were shown
+  somebody else's turn, so they did not play; nobody else could play; and the table sat there until
+  the server's turn timer expired and the `turn_changed` corrected them. A reload fixed it, which is
+  how it reads as a server bug when it is not one.
+
+So `applyGameState` settles the board and **does not touch the card** — neither `showRoundSummary`
+nor `roundWinner` — and `dismissRoundSummary` only hides it. A snapshot is authoritative when it
+arrives and never afterwards; anything held and replayed is a snapshot applied twice, the second
+time against a table that has moved. The **match end** is still buffered (`pendingMatchEnd`), and
+that one is safe for the reason this one was not: nothing follows a match end.
+
+One consequence is deliberate: the `yourTurn` cue is held while the card is up and played when it
+comes down on a turn that is already ours (`audio/gameSounds.ts`), because eight seconds of scores
+is a board the player cannot act on.
 
 ## Visual showcase & screenshot harness
 `client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,

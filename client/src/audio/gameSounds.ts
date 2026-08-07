@@ -116,7 +116,18 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
 
   if (next.errorMsg && next.errorMsg !== prev.errorMsg) out.push('error')
 
-  if (next.currentTurn !== prev.currentTurn && next.currentTurn === next.myIndex && next.screen === 'game') {
+  // The cue has to reach a player who can act on it, and the round summary is
+  // eight seconds of a board they cannot see. The next round is dealt behind
+  // that card and the clock starts with it, so the turn can become ours while
+  // the scores are still up: hold the cue, and play it when the card comes
+  // down on a turn that is already ours.
+  const summaryLifted = prev.showRoundSummary && !next.showRoundSummary
+  const turnBecameMine = next.currentTurn !== prev.currentTurn && next.currentTurn === next.myIndex
+  if (
+    next.screen === 'game' &&
+    !next.showRoundSummary &&
+    (turnBecameMine || (summaryLifted && next.currentTurn === next.myIndex))
+  ) {
     out.push('yourTurn')
   }
 

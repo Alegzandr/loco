@@ -260,8 +260,10 @@ export interface GameState {
   showRoundSummary: boolean
   roundNumber_completed: number   // the round number that just finished (for display)
   roundScores: RoundScoreEntry[]  // per-player points earned this round
-  pendingGameState: GameStateDTO | null // buffered next-round state (held while summary is visible)
-  // buffered match-end payload (held while the final round summary is visible)
+  // buffered match-end payload (held while the final round summary is visible).
+  // The only thing behind that card that is buffered: nothing follows a match
+  // end, so nothing can move past it. The next round's board is deliberately
+  // NOT — see dismissRoundSummary.
   pendingMatchEnd: {
     matchWinner: string
     scoreboard: ScoreboardEntryDTO[]
@@ -399,7 +401,6 @@ export interface MatchActions {
    * any more, so the client cannot say which column it was.
    */
   setMatchHistory: (matchHistory: MatchRecordDTO[]) => void
-  setPendingGameState: (state: GameStateDTO) => void
   setPendingMatchEnd: (
     matchWinner: string,
     scoreboard: ScoreboardEntryDTO[],

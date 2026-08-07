@@ -86,7 +86,6 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       roundScores: [],
       latencies: [],
       showRoundSummary: false,
-      pendingGameState: null,
       pendingMatchEnd: null,
       mapId: '',
       mapLoading: null,

@@ -400,8 +400,8 @@ won, and a one-card hand had made them finishes by accident.
   finisher scores, so exactly one column per row is non-zero.
 - Nil'd by `Start()` and `ResetForRematch()`.
 - Exported in `GameStateDTO.round_history` (every snapshot, so a reconnect rebuilds the table) and
-  in `round_end` (the next `game_state` is buffered behind the round summary, so without it the
-  table would be a round stale for as long as the summary is up).
+  in `round_end`, which is the message the round summary is drawn from and the only one that names
+  the round that just finished.
 - Server-owned on purpose: cumulative `Scores` cannot be split back into rounds once a player wins
   twice, and a client-side accumulator would differ per client after a reconnect.
 

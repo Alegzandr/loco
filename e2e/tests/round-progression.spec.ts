@@ -5,24 +5,28 @@
  *   - BO3 round 2 starts after dismissing the first round summary
  *   - BO3 match reaches game-over after all rounds complete
  *   - Round summary auto-dismisses after the countdown timer expires
+ *   - Reading the scores does not roll the board back to the deal
  *   - Spectating banner is shown when the local player finishes before the round ends
  *
  * These complement the single-round BO1 test in game-flow.spec.ts and the
  * two-client sync test in multi-client.spec.ts.
  */
-import { test, expect } from '@playwright/test'
+import { test, expect, Browser } from '@playwright/test'
 import {
   T,
   createRoom,
+  joinRoom,
   addBot,
   setMatchFormat,
   startGame,
   getState,
   sendMsg,
+  drawAndPass,
   waitForMyTurn,
   waitForRoundSummary,
   waitForGameOver,
   waitForRoundNumber,
+  waitForTableOpen,
   clickContinue,
   debugSetState,
   winWith,
@@ -70,11 +74,79 @@ test.describe('round summary and match progression', () => {
   })
 
   /**
+   * Reading the scores must not roll the table back to the deal.
+   *
+   * The server deals the next round in the same breath as it announces the last
+   * one and starts the turn clock with it, so the table is already moving while
+   * the summary card is up. The client used to buffer that deal and replay it on
+   * dismissal, which put the board back as it stood eight seconds earlier — and
+   * `currentTurn` with it. When the rolled-back turn was the reader's own, the
+   * desync could not heal: nobody else could play, the reader was shown somebody
+   * else's turn, and the table sat there until the server's turn timer expired.
+   */
+  test('a player still reading the scores is not rolled back to the deal', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await setMatchFormat(alice, 'BO3')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await waitForTableOpen(alice)
+      await waitForTableOpen(bob)
+
+      await forceRoundEndAsLocalWinner(alice)
+      await waitForRoundSummary(alice, 20_000)
+      await waitForRoundSummary(bob, 20_000)
+
+      // Round 2 is dealt behind the card, on both screens: the board is
+      // authoritative the moment it lands, never on dismissal.
+      await waitForRoundNumber(alice, 2, 20_000)
+      await waitForRoundNumber(bob, 2, 20_000)
+
+      // Whoever holds the first turn plays it without dismissing anything; the
+      // other one is still reading, which is the window the bug lived in.
+      const aliceState = await getState(alice)
+      const actor = aliceState?.currentTurn === aliceState?.myIndex ? alice : bob
+      const reader = actor === alice ? bob : alice
+      await drawAndPass(actor)
+
+      // The turn has moved on the reader's board too, under the card.
+      await reader.waitForFunction(
+        (seat: number) => window.__LOCO_E2E__?.getState?.()?.currentTurn !== seat,
+        (await getState(actor))?.myIndex ?? 0,
+        { timeout: 10_000 },
+      )
+      expect((await getState(reader))?.showRoundSummary).toBe(true)
+
+      await clickContinue(reader)
+
+      // Taking the card down settles nothing about the board: both seats agree.
+      const truth = await getState(actor)
+      const seen = await getState(reader)
+      expect(seen?.currentTurn).toBe(truth?.currentTurn)
+      expect(seen?.discard).toEqual(truth?.discard)
+      expect(seen?.roundNumber).toBe(truth?.roundNumber)
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
    * BO3 — round 2 starts after the player clicks Continue from round 1 summary.
    *
    * Verifies that:
-   *   1. The server sends game_started for round 2 while summary is visible (buffered).
-   *   2. Clicking Continue applies the buffered state and roundNumber advances.
+   *   1. The server deals round 2 while the summary is visible, and the client
+   *      applies it there rather than buffering it.
+   *   2. Dismissing the summary leaves that board exactly as it stands.
    *   3. The BO3 round indicator is visible on screen.
    */
   test('BO3: round 2 starts after clicking Continue from round 1 summary', async ({ page }) => {
@@ -90,7 +162,7 @@ test.describe('round summary and match progression', () => {
     const summaryState = await getState(page)
     expect(summaryState?.roundNumber_completed).toBe(1)
 
-    // Dismiss the summary manually — this applies the buffered game_started state.
+    // Dismiss the summary manually. The board behind it is already round 2's.
     await clickContinue(page)
 
     // Round 2 must now be active.

@@ -99,6 +99,29 @@ describe('soundsForTransition', () => {
     expect(soundsForTransition(state({ currentTurn: 0 }), state({ currentTurn: 1 }))).not.toContain('yourTurn')
   })
 
+  // The next round is dealt behind the summary card and the turn clock starts
+  // with it, so the turn can become ours over a board nobody can see. The cue
+  // waits for the card to come down, or it fires into eight seconds of scores.
+  it('holds the turn chime behind the round summary and plays it on dismissal', () => {
+    const held = soundsForTransition(
+      state({ showRoundSummary: true, currentTurn: 1 }),
+      state({ showRoundSummary: true, currentTurn: 0 }),
+    )
+    expect(held).not.toContain('yourTurn')
+
+    const lifted = soundsForTransition(
+      state({ showRoundSummary: true, currentTurn: 0 }),
+      state({ showRoundSummary: false, currentTurn: 0 }),
+    )
+    expect(lifted).toContain('yourTurn')
+
+    const notOurs = soundsForTransition(
+      state({ showRoundSummary: true, currentTurn: 1 }),
+      state({ showRoundSummary: false, currentTurn: 1 }),
+    )
+    expect(notOurs).not.toContain('yourTurn')
+  })
+
   it('distinguishes winning a round from losing one', () => {
     const prev = state()
     const win = state({ showRoundSummary: true, roundWinner: 'Nova' })
