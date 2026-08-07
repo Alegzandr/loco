@@ -221,7 +221,7 @@
      a chip the size of Catch, sat over the fan all match, would read as a fourth
      action and pull the eye away from the centre column every round. The 10px gap
      is what keeps its 44px hit target (`.hit-target`) clear of the bar's top
-     edge — the target is 7px taller than the paint on each side, and the button
+     edge — the target is 5px taller than the paint on each side, and the button
      it must not steal a tap from is Catch. */
   .locoSlot {
     position: absolute;
@@ -232,9 +232,9 @@
 
   .locoSlot .btn {
     width: auto;
-    min-height: 30px;
-    padding: 5px 18px;
-    font-size: 13px;
+    min-height: 34px;
+    padding: 6px 22px;
+    font-size: 14px;
     letter-spacing: 0.4px;
   }
 
