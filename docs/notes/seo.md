@@ -540,6 +540,50 @@ stacks them, and the room's own `accent` is the frame's inner outline, so the bo
 picture rather than to the page. All but the first pair are `loading="lazy"`: the page is eight large
 photographs and one of them is on screen when it opens.
 
+**Stacked is not placed, and this page has to do both.** `table.webp` is a cut-out whose bounding box
+is the rim, the base and the cast shadow, so it is neither centred in its own file nor the file's
+shape — the four ship at aspects from 1.28 to 2.44. Laid over the room edge to edge, each one lands
+somewhere the board never draws it, and at a different wrong place each: that is what shipped, a
+full-width table anchored to the top of the frame, `.roomArt img` outweighing `.roomTable`'s
+`object-fit: contain` by one class. So the page asks `tableImageRect()` the same question the board
+asks, against a felt stated in fractions of the frame instead of in board pixels. The box comes out
+inline, per room, and **nothing in `content.css` may state a width, a height or an `object-fit` for
+it**.
+
+**That felt was measured, not chosen**, and the first attempt at choosing it is why: `tableRect()`'s
+proportions read off the source put the table at two thirds of the width, floating above the spot the
+art paints for it — every room is composed around a table that fills it, and the felt's own numbers
+are board pixels under a stage transform, not fractions of a room. So the four scenes were read back
+at 1920×1080 and each drawn box mapped through the room's `background-size: cover` crop (a 3:2 room
+over a 16:9 board is scaled to the width and loses 100px top and bottom) into the room's own frame.
+All four solve to one rectangle — `left 0.1582, top 0.2887, w 0.6836, h 0.4182` — which is the check
+that it is the board's geometry and not an eyeballed one. Re-measure it if `tableRect()` moves.
+
+**The placement is the board's; the size is this page's.** The board is a table somebody is sitting
+at, framed as such, and a page whose subject is the room has to step back far enough for the room to
+be in the picture — the club's floor, the taverne's shelves, the fumoir's lamps are what these four
+paragraphs are actually about. `ROOM_STEP_BACK` (0.72) shrinks the felt around its own centre, so
+every table is pulled back by the same amount and nothing else in the composition moves. It is the
+one number here to reach for when every table looks wrong in the column; the rectangle above is not.
+
+What the step back then exposes is where the four stop being interchangeable, and `NUDGE` is the two
+axes of that. On `y`, each room puts its horizon somewhere else: `rune` is shot with a deep
+foreground — the cloth, the candles, the cauldron — so a table centred on the felt's own centre
+stands *above* its floor rather than on it, and it comes down 7% of the frame. On `x`, the felt is
+centred but the *picture* is not: `neon`'s playfield sits off-centre in its own file (4.5% of margin
+on the left against 10% on the right), which hangs that much more table to one side of a room whose
+floor is painted symmetrically, so its felt goes 2% left. Nudge the felt, never the picture — moving
+the picture takes the playing surface off the mark the whole solve exists to hit.
+
+Both live on this page and not in `MAPS` for the same reason as everything else here: the board
+frames the table so closely that neither band is on screen, so these are consequences of the step
+back, not corrections to the geometry.
+
+Two things follow. The picture keeps the distortion `object-fit: fill` gives it on the board — velvet
+drawn 1.67× taller than it was rendered, orbit undistorted — because preserving each file's aspect
+here would show four tables the game does not have. And each table is asked for at a fraction of the
+column's widths rather than the whole of it, since it is now drawn at 68–87% of the frame.
+
 The pictures themselves do **not** come off `MAPS`, and that is the one place this page departs from
 the registry. `MAPS` gives a URL under `/maps/`, which is what the board needs — it is handed a room
 at runtime and can know nothing about it at build time. This page knows all four up front, so
