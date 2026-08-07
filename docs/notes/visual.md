@@ -180,20 +180,25 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   it sits there mounted the whole match and is only ever **enabled and armed in place**. It is never
   mounted/unmounted: a button that appears is a button you have to find first.
 - **Three readable states, not two.** *Dead* while every other hand is above
-  `CATCH_LIVE_MAX_HAND` (3) — the opening of every round. *Awake and pressable* as soon as any other
-  seat is at three cards or fewer (`components/catchAvailability.ts`), which is most of the endgame
-  and is deliberately looser than any window the server knows about: a control that only unlocks on
-  the server's cue can be answered but never anticipated, and five seconds is not long enough to
-  find a button in. *Armed* for the seconds a seat actually owes the call. The middle state is what
-  the price in §14.6 is for, and `game-catch-live` is its scene.
+  `CATCH_LIVE_MAX_HAND` (2) — the opening of every round and most of its middle. *Awake and
+  pressable* as soon as any other seat is at two cards or fewer
+  (`components/catchAvailability.ts`), i.e. one ordinary play before the server can name anybody:
+  a control that only unlocks on the server's cue can be answered but never anticipated, and five
+  seconds is not long enough to find a button in. *Armed* for the seconds a seat actually owes the
+  call. The middle state is what the price in §14.6 is for, and `game-catch-live` is its scene.
+  - **It is looser than the server's window by exactly one play, and no more.** The looseness buys
+    the anticipation; a wider one buys a stretch of round where the press can only miss, and a miss
+    a player can plan is a card drawn on purpose — see `domain-rules.md`, "The threshold is what
+    keeps the price from being buyable".
   - **It goes back to dead when every seat within reach has called it.** A seat on one card the whole
     table heard declare is out of reach until its hand changes, so pressing against it is not a read
     that lost — it is the price paid for nothing, and a wager the interface should not be offering.
     The looseness is for uncertainty, and there is none left there. It is `store.declaredSeats`, i.e.
     what the table *heard*: a seat with no open catch window is not the same statement, because a
     reloaded tab is told about no windows at all and would find the button grey over a table it could
-    still catch. A declaration by a seat on two or three cards changes nothing — it will owe the
-    table a fresh call on the way down, which is the whole thing the middle state is watching for.
+    still catch. A declaration by a seat on two cards changes nothing — its next play puts it on one
+    and it will owe the table a fresh call there, which is the whole thing the middle state is
+    watching for.
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same

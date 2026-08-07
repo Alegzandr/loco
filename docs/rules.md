@@ -150,7 +150,7 @@ cannot be repeated while that card is held. A rearranging play that hands you a
 *different* last card is a new obligation, and the call comes back.
 
 **Calling "Contre-LOCO!" is a wager** (§14.6). The button is live as soon as
-anybody else is down to 3 cards or fewer, so you press it on a read rather than
+anybody else is down to 2 cards or fewer, so you press it on a read rather than
 on a cue. It only lands inside the 5 s window opened by the seat you are calling
 on; if nobody owed the call — or that seat's own "LOCO!" got there first, or its
 hand grew, or the window had just closed — the call misses and *you* draw **1
@@ -280,9 +280,16 @@ lands only while the target's 5 s window is open and unanswered; it misses when
 the target's own call arrives first, when the target's hand has grown, when the
 window has expired — and when no seat owed the table a call at all.
 The button does not wait for the server's permission: it is pressable as soon as
-**any other player is down to 3 cards or fewer**, which is well before anybody is
-catchable. Pressing it is therefore a read of the table, and a wrong read is paid
-for like a lost race.
+**any other player is down to 2 cards or fewer**, i.e. one ordinary play before
+anybody is catchable. Pressing it is therefore a read of the table, and a wrong
+read is paid for like a lost race.
+**It stops one card short of that on purpose.** From three cards out only an
+interject of two identical cards reaches the window, so arming the button there
+would leave it live through a long stretch of the round where pressing it can
+only miss — and a miss a player can schedule is a card drawn deliberately, which
+a Swap or a Global Switch turns from a penalty into a hand handed to somebody
+else. Missing a Contre-LOCO! is meant to be the thumb that had already committed
+when the target drew instead of playing, not a move.
 **One misread, one card.** The price is charged at most once per card played: the
 second, third and tenth press against a board that has not moved cost nothing,
 change nothing and are announced to nobody. Somebody plays, and the button is a

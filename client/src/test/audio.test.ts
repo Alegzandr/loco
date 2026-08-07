@@ -1,7 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent } from './render'
 import { gameStore } from '../hooks/gameStore'
 import { soundsForTransition } from '../audio/gameSounds'
 import { audio, DEFAULT_SETTINGS } from '../audio/engine'
+import { playVolumeAudition } from '../audio/sfx'
+import AudioSettings from '../components/AudioSettings.svelte'
+import { en } from '../i18n/en'
+
+vi.mock('../audio/sfx', () => ({ playSfx: vi.fn(), playVolumeAudition: vi.fn() }))
 
 type State = ReturnType<typeof gameStore.getState>
 
@@ -190,5 +196,48 @@ describe('audio settings', () => {
 
   it('defaults music below effects so the bed never covers the game', () => {
     expect(DEFAULT_SETTINGS.music).toBeLessThan(DEFAULT_SETTINGS.sfx)
+  })
+})
+
+/**
+ * Moving a volume slider auditions the bus, and a drag is not one gesture as
+ * far as the DOM is concerned: `input` fires on every step crossed. Played one
+ * per event, a 100ms sample overlaps itself several deep and the panel answers
+ * with a shrill continuous buzz — the engine's voice budget lets six through a
+ * frame, which is well over what it takes to build one.
+ *
+ * The floor between samples is only bearable because each one carries the level
+ * it was taken at, so the drag still reads as a run. Both halves are pinned
+ * here; the sound those levels turn into is `make audio-verify`'s.
+ */
+describe('Auditioning a volume', () => {
+  const audition = vi.mocked(playVolumeAudition)
+
+  function slider(label: string) {
+    render(AudioSettings)
+    fireEvent.click(screen.getByRole('button', { name: en.audioTitle }))
+    audition.mockClear()
+    return screen.getByRole('slider', { name: label })
+  }
+
+  beforeEach(() => {
+    audition.mockClear()
+  })
+
+  it('plays one sample for a whole drag, not one per step', () => {
+    const el = slider(en.audioSfx)
+    for (let v = 40; v < 70; v++) fireEvent.input(el, { target: { value: String(v) } })
+    // Thirty steps inside the throttle window: the drag is heard, once.
+    expect(audition).toHaveBeenCalledTimes(1)
+  })
+
+  it('carries the level, so a drag is heard going somewhere', () => {
+    fireEvent.input(slider(en.audioMaster), { target: { value: '30' } })
+    expect(audition).toHaveBeenCalledWith(0.3)
+  })
+
+  it('says nothing on the music bus, which is already audible', () => {
+    fireEvent.input(slider(en.audioMusic), { target: { value: '30' } })
+    expect(audition).not.toHaveBeenCalled()
   })
 })

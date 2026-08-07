@@ -1578,7 +1578,7 @@ n-th card go the same way for the same reason.
 **This and the fixed action bar are one decision seen from two sides.** The bar is a fixed
 three-column grid with Catch mounted in the centre all match and nothing else ever in it (see
 `visual.md`, "Action bar") precisely so a player can park the cursor on the button before the card
-that needs it lands — and it goes live from three cards out, so the cursor can be there *and*
+that needs it lands — and it goes live from two cards out, so the cursor can be there *and*
 committed before the server has named anybody. That work only means something if aiming is the only way in. A shortcut would make the
 geometry pointless — the controls hold their coordinates so they can be aimed at, and there is
 no way not to aim at them.

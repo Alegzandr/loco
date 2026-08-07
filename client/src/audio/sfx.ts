@@ -295,6 +295,50 @@ export function playSfx(name: SfxName): void {
   VOICES[name]()
 }
 
+/**
+ * One step of a volume slider being auditioned.
+ *
+ * Deliberately not a `SfxName`: the sound is a function of the level, which is
+ * what makes a drag legible. A slider is heard a dozen times down one gesture,
+ * and a row of identical blips says nothing about which way it went — on the
+ * master bus especially, where the audition is the only feedback there is. So
+ * the pitch climbs the travel on a major pentatonic and moving up sounds like
+ * moving up: a run, not a tick repeated. Steps rather than a continuous glide,
+ * because a run lands and a siren does not.
+ *
+ * Two things it is careful about, both learned from the version this replaced:
+ * the blip is an octave under `uiTap` and low-passed under the 2-5kHz band the
+ * ear is sharpest in — bright heard once is shrill heard thirty times — and the
+ * top of the travel is the brightest, never the loudest. **Level never scales
+ * the gain**: the bus being moved already applies it, so scaling here too makes
+ * the bottom of the travel silent, which is the one part of it a player is
+ * listening for.
+ */
+const AUDITION_SCALE = [0, 2, 4, 7, 9]
+const AUDITION_ROOT = 57
+const AUDITION_STEPS = 11
+
+export function playVolumeAudition(level: number): void {
+  if (!audio.isReady()) return
+  if (audio.getSettings().muted) return
+  if (!audio.budgetVoice()) return
+  const at = Math.min(1, Math.max(0, Number.isFinite(level) ? level : 0))
+  const step = Math.round(at * (AUDITION_STEPS - 1))
+  const midi =
+    AUDITION_ROOT + 12 * Math.floor(step / AUDITION_SCALE.length) + AUDITION_SCALE[step % AUDITION_SCALE.length]
+  tone({
+    freq: mtof(midi),
+    type: 'triangle',
+    dur: 0.1,
+    gain: 0.16,
+    attack: 0.012,
+    // Opens with the travel, so the top is brighter as well as higher. The
+    // ceiling keeps the second harmonic of the highest note out of the band a
+    // repeated blip turns shrill in.
+    filter: 1600 + at * 1200,
+  })
+}
+
 /** Staggered deal — one tick per card, capped so a big hand stays a flourish. */
 export function playDeal(cardCount: number): void {
   if (!audio.isReady() || audio.getSettings().muted) return

@@ -1,20 +1,28 @@
 import type { PlayerDTO } from '../types/protocol'
 
 /**
- * The biggest hand that still makes the centre button worth pressing.
+ * The biggest hand that still makes the centre button worth pressing: one card
+ * away from owing the call.
  *
- * A seat on three cards can be on one by the time your thumb lands: two of them
- * can leave in a single interrupt, and the window that follows is five seconds
- * of somebody else's attention. So the button goes live here rather than at the
- * moment the server names a target — the player who was already aiming is the
- * one the mechanic is for, and a control that only lights up once the window is
- * open is a control you can only ever answer, never anticipate.
+ * The button goes live before the server names anybody, because a control that
+ * only lights up once the window is open is one you can answer and never
+ * anticipate, and five seconds is not long enough to find a button in. But the
+ * anticipation has to be aimed at something that can actually happen on the
+ * next card. A seat on two is one ordinary play from a window; a seat on three
+ * needs an interrupt of two identical cards, which is rare enough that the
+ * button would be live through a long stretch of the round where pressing it
+ * can only miss.
  *
- * What buys that is the risk: a press that finds nobody on the hook costs a
- * card. The server charges it at most once per card played, so reading the
- * table wrong is a mistake and spamming the button is not a second one.
+ * That stretch is what the threshold is really about, because the miss costs a
+ * card and a card is not always a punishment: a player holding a Swap or a
+ * Global Switch is about to hand their hand to somebody else, so a penalty they
+ * chose to take is ammunition. A missed Contre-LOCO! has to stay something that
+ * happens *to* a player — the thumb already committed, the seat drawing instead
+ * of playing, the window that never opened — rather than something worth
+ * deciding to do. Offering the wager only while it is one card from paying off
+ * is what keeps it a spasm and not a plan.
  */
-export const CATCH_LIVE_MAX_HAND = 3
+export const CATCH_LIVE_MAX_HAND = 2
 
 /**
  * Whether Contre-LOCO! is pressable right now: some *other* seat is holding
@@ -28,9 +36,10 @@ export const CATCH_LIVE_MAX_HAND = 3
  * A seat on **one** card that has already declared is the one case where the
  * wager stops being a read: it cannot be caught until its hand changes, and the
  * whole table heard the call, so a press against it can only be a slip that
- * costs a card. Two or three cards is a different question — an interrupt can
- * put that seat on one card before a thumb lands, which is exactly the
- * anticipation this button is live for, so a declaration there voids nothing.
+ * costs a card. A seat on two is a different question — its next play puts it
+ * on one card and it will owe the table a fresh call when it gets there, which
+ * is exactly the anticipation this button is live for, so a declaration there
+ * voids nothing.
  *
  * `declaredSeats` is what the table *heard*, never an inference from a missing
  * catch window: a reloaded tab is told no windows at all, and greying the

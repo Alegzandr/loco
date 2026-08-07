@@ -84,6 +84,45 @@ try {
       peaks[name] = await measure(audio.sfxDestination(), 420, () => sfx.playSfx(name))
     }
     peaks['<deal x8>'] = await measure(audio.sfxDestination(), 700, () => sfx.playDeal(8))
+    // Not a SfxName, so the loop above cannot reach it. Both ends of the travel,
+    // because the level is an argument and a broken one is silence at one end.
+    peaks['<audition 0>'] = await measure(audio.sfxDestination(), 420, () => sfx.playVolumeAudition(0))
+    peaks['<audition 1>'] = await measure(audio.sfxDestination(), 420, () => sfx.playVolumeAudition(1))
+
+    /**
+     * Loudest frequency on `bus` over `ms`, in Hz.
+     *
+     * The volume audition claims its pitch climbs the travel, which is what
+     * makes a drag legible as a run rather than as one note repeated. A unit
+     * test can only see the number the slider handed over; this is the only
+     * thing in the repo that hears the note that came out.
+     */
+    const pitch = async (bus, ms, trigger) => {
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 8192
+      bus.connect(analyser)
+      const buf = new Float32Array(analyser.frequencyBinCount)
+      // Bins are dB and start at -Infinity, so the running best has to as well.
+      let best = -Infinity
+      let bestBin = 0
+      trigger()
+      const until = performance.now() + ms
+      while (performance.now() < until) {
+        await new Promise((r) => requestAnimationFrame(() => r(null)))
+        analyser.getFloatFrequencyData(buf)
+        for (let i = 1; i < buf.length; i++) {
+          if (buf[i] > best) {
+            best = buf[i]
+            bestBin = i
+          }
+        }
+      }
+      bus.disconnect(analyser)
+      return (bestBin * ctx.sampleRate) / analyser.fftSize
+    }
+
+    const auditionLowHz = await pitch(audio.sfxDestination(), 320, () => sfx.playVolumeAudition(0))
+    const auditionHighHz = await pitch(audio.sfxDestination(), 320, () => sfx.playVolumeAudition(1))
 
     /** Mean square energy on `bus` over `ms`. Density, not just "is it audible". */
     const rms = async (bus, ms) => {
@@ -251,7 +290,7 @@ try {
     return {
       peaks, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity,
       calmSection, tenseSection, beforeDuck, duckedRms, dropFrames, idleFrames,
-      trackPeaks, formParts, skipped, autoPlayed,
+      trackPeaks, formParts, skipped, autoPlayed, auditionLowHz, auditionHighHz,
     }
   })
 
@@ -265,6 +304,20 @@ try {
       if (!ok) failures++
       console.log(`${ok ? '✓' : '✗'} ${name.padEnd(12)} peak=${peak.toFixed(4)}`)
     }
+    // The slider has to sound like it is going somewhere. A fifth between the
+    // ends is a loose floor under a designed span of two octaves — it is here to
+    // catch the pitch coming loose from the level, not to police a note. The
+    // ceiling is the other half: the top of the travel is heard on every drag,
+    // and above ~1.2kHz a blip repeated down a gesture is the shrillness this
+    // whole audition exists to have fixed.
+    const climbOk =
+      results.auditionHighHz > results.auditionLowHz * 1.5 && results.auditionHighHz < 1200
+    if (!climbOk) failures++
+    console.log(
+      `${climbOk ? '✓' : '✗'} ${'audition'.padEnd(12)} low=${results.auditionLowHz.toFixed(0)}Hz ` +
+        `high=${results.auditionHighHz.toFixed(0)}Hz (climbs, stays under 1.2kHz)`,
+    )
+
     const musicOk = results.musicPeak > THRESHOLD
     if (!musicOk) failures++
     console.log(`${musicOk ? '✓' : '✗'} ${'music bed'.padEnd(12)} peak=${results.musicPeak.toFixed(4)}`)

@@ -214,9 +214,12 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    hears `uno_declared` before `card_played`.
 7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per card played**
    (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, rationed by `GameState.PlayEpoch` +
-   `CatchPenaltyEpoch`). The button is live from three cards out, so the press is a **read of the
+   `CatchPenaltyEpoch`). The button is live from **two** cards out, so the press is a **read of the
    table** and not an answer to a cue: a call that lost a race and a call on a table where nobody
-   owed anything are the same misread and cost the same card. **The second press against a board
+   owed anything are the same misread and cost the same card. **Two, not three, and the missing card
+   is the calibration**: a card is only a punishment while it stays in the hand that drew it, so a
+   window a player can miss *on purpose* is a Swap away from being ammunition — the wager is offered
+   one ordinary play before it can pay off and no earlier. **The second press against a board
    that has not moved costs nothing, changes nothing and is broadcast to nobody** — a per-press
    price would tax the reflex the mechanic asks for. A catch that *lands* does not spend the epoch.
    A seat number the table does not have is still refused rather than charged: that one is a forged
@@ -617,13 +620,17 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `noKeyboardShortcuts.test.ts` is the guard.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
-  `CATCH_LIVE_MAX_HAND = 3`): any *other* seat holding 1–3 cards makes it live. A control that unlocks
+  `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding 1–2 cards makes it live. A control that unlocks
   on the server's cue can be answered but never anticipated, and the window it answers is five
-  seconds. The price is what keeps that honest — see the domain rule above. **A seat on one card the
-  table heard call it stops counting** (`store.declaredSeats`): it cannot be caught until its hand
-  changes, so the press is no longer a read that lost but a card paid for nothing — the one case the
-  button greys out for. At two or three cards a declaration voids nothing, because an interrupt puts
-  that seat on one before a thumb lands and it owes a fresh call when it gets there. **What the table
+  seconds. The price is what keeps that honest — see the domain rule above — and **the threshold is
+  what keeps the price from being buyable**: from two cards out the window is one ordinary play
+  away, so a miss is the thumb that had committed when the seat drew instead; from three it needs an
+  interject of two identical cards, which is a long stretch of round where the press can only lose,
+  and a loss a player can schedule is a card drawn on purpose for a Swap to hand on. **A seat on one
+  card the table heard call it stops counting** (`store.declaredSeats`): it cannot be caught until its
+  hand changes, so the press is no longer a read that lost but a card paid for nothing — the one case
+  the button greys out for. At two cards a declaration voids nothing, because that seat's next play
+  puts it on one and it owes a fresh call when it gets there. **What the table
   heard, never an absent catch window**: a reloaded tab is told no windows at all, and greying out on
   that silence costs a reaction. `store.myDeclared` is the same record read at our own seat, derived
   by `deriveCatchMiddleware` rather than written by an action. **`store.catchSpent` is
@@ -1027,7 +1034,7 @@ stated at the top of `styles/tokens.css`:
   match and go dead rather than away**: draw and pass used to be rendered only on our turn, which
   left one lone pill in a wide trough and pinched the bar's outline to a point at each end of it —
   little teeth that came and went with the turn. The penalty draw is the one recolour left, and it is
-  ours only. Three states: dead, pressable from three cards out and until every seat on one
+  ours only. Three states: dead, pressable from two cards out and until every seat on one
   card has called it (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
   centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
   dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
@@ -1061,6 +1068,14 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
   `audio/gameSounds.ts` — pure, snapshot-diffing and unit-tested. A component calling `playSfx`
   directly is only ever a UI tap (`uiTap`, `uiBack`), never a game event.
+- **A control that makes a sound on every step of a drag throttles it, and the sample says where the
+  control now is.** `<AudioSettings />`'s sliders fire `input` dozens of times a second; one 100ms
+  sample per event overlaps itself several deep and what a player hears is not a level but a shrill
+  continuous buzz — the engine's per-frame voice budget is a clipping guard and does not see this.
+  `AUDITION_MS` spaces them; `playVolumeAudition(level)` climbs the travel on a pentatonic, so the
+  spacing costs nothing and the drag reads as a run. **Level moves the pitch, never the gain** — the
+  bus being moved already applies it. It takes an argument, so it is not a `SfxName` and
+  `make audio-verify` measures it by hand, both ends and the climb between them.
 - **Mobile Safari loses the context three ways and all three fail as silence, not as an error**:
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at

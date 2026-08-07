@@ -226,12 +226,18 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
 
   /**
    * The centre button wakes up on a read of the table, not on the server's
-   * permission: three cards in somebody else's hand is close enough to the
-   * finish to be worth watching, and two of them can leave in one interrupt.
-   * A control that only unlocked once a window was already open could only ever
+   * permission: two cards in somebody else's hand is one ordinary play from the
+   * window, so the thumb can be there before the server has named anybody. A
+   * control that only unlocked once a window was already open could only ever
    * be answered, and the window it answers is five seconds long.
+   *
+   * It stops one card short of that, and the stop is the calibration: from three
+   * cards out only an interrupt of two identical cards reaches the window, so
+   * the button would be live through a long stretch where pressing can only
+   * miss — and a miss the player can schedule is a card drawn on purpose, which
+   * a Swap turns into a hand handed to somebody else.
    */
-  test('Catch! is pressable from three cards out, and dead above that', async ({
+  test('Catch! is pressable from two cards out, and dead above that', async ({
     browser,
   }: {
     browser: Browser
@@ -250,13 +256,12 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       await waitForTableOpen(alice)
 
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })
-      // Four cards is one too many: the button is present, in place, and dead.
+      // Three cards is one too many: the button is present, in place, and dead.
       await debugSetState(bob, {
         hand: [
           { color: 'red', kind: 'number', value: 1 },
           { color: 'red', kind: 'number', value: 2 },
           { color: 'red', kind: 'number', value: 3 },
-          { color: 'red', kind: 'number', value: 4 },
         ],
       })
       await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
@@ -265,7 +270,6 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         hand: [
           { color: 'red', kind: 'number', value: 1 },
           { color: 'red', kind: 'number', value: 2 },
-          { color: 'red', kind: 'number', value: 3 },
         ],
       })
       await expect(catchBtn).toBeEnabled({ timeout: 5_000 })

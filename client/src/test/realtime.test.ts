@@ -129,14 +129,14 @@ describe('double-tap guard is per control', () => {
     expect(onSend.mock.calls.filter((c) => c[0].type === 'catch_uno')).toHaveLength(1)
   })
 
-  // The other half of the same rule. The button is live from three cards, so
-  // most presses are made on a read rather than on a window — and that read
+  // The other half of the same rule. The button is live from two cards, so a
+  // press can still be made on a read rather than on a window — and that read
   // costs a card when it is wrong. Leaning on the button must cost one card,
   // not one per press, which is what the server's "once per card played" says
   // and what this stops us from testing the server's patience about.
   it('sends one blind catch per board, and names no seat when doing it', () => {
     gameStore.setState({
-      players: [seat(0, 'Alice', 5), seat(1, 'Bob', 3)],
+      players: [seat(0, 'Alice', 5), seat(1, 'Bob', 2)],
       catchWindows: [],
     })
     const { onSend } = renderGame()
