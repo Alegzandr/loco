@@ -192,16 +192,25 @@
   }
 
   /* The sweep: a conic wedge turning behind the avatar. Slower than the pulse so
-     the two never sync up into a single beat. */
+     the two never sync up into a single beat.
+
+     The wedge turns clockwise, so its leading edge is the *last* degree of the
+     gradient and the trail has to occupy the degrees behind it: the beam is at
+     360deg and fades backwards to 290deg. Written the other way round — dense at
+     0deg, gone by 70deg — the fade led the beam, which reads as a wedge being
+     pushed rather than a sweep leaving light behind it. The trail also loses most
+     of its density in its first third, the way a radar's does; a linear ramp over
+     70deg is a wedge with a soft edge, not a trail. */
   .sweep {
     position: absolute;
     inset: 8px;
     border-radius: var(--radius-full);
     background: conic-gradient(
       from 0deg,
-      rgba(108, 92, 255, 0.38) 0deg,
-      rgba(108, 92, 255, 0) 70deg,
-      rgba(108, 92, 255, 0) 360deg
+      rgba(108, 92, 255, 0) 0deg,
+      rgba(108, 92, 255, 0) 290deg,
+      rgba(108, 92, 255, 0.1) 335deg,
+      rgba(108, 92, 255, 0.38) 360deg
     );
     animation: sweep 3.2s linear infinite;
   }
