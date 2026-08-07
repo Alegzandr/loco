@@ -6,6 +6,7 @@
 // describes a room a second time.
 import { Image } from 'astro:assets'
 import { MAPS, MAP_IDS } from '../components/cards/maps'
+import { tableImageRect } from '../components/cards/layout'
 import { ui } from './ui'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
@@ -46,6 +47,73 @@ const art = (set: Record<string, { default: ImageMetadata }>, id: string, file: 
 const COLUMN = 752
 const WIDTHS = [400, COLUMN, COLUMN * 1.5].map(Math.round)
 const SIZES = `(min-width: 50rem) ${COLUMN}px, calc(100vw - 3rem)`
+
+/*
+ * Where the felt sits inside the frame, as fractions of it.
+ *
+ * A table is not centred in its own file and does not have the file's shape:
+ * `table.webp` is a cut-out whose bounding box is the rim, the base and the cast
+ * shadow, so laying it over the room edge to edge puts every one of the four
+ * somewhere the board never draws it — and at a different wrong place each,
+ * since the four files have four aspects (1.28 to 2.44). The board answers this
+ * with `tableImageRect()`: the felt is the fixed thing, and the picture is
+ * scaled and offset around it so its `playfield` lands on the felt. This page
+ * asks the same function the same question, against a felt stated here in
+ * fractions instead of in board pixels.
+ *
+ * The numbers are **measured off the running board**, not chosen here: the four
+ * scenes at 1920×1080, each table's drawn box read back and mapped through the
+ * room's `background-size: cover` crop (a 3:2 room over a 16:9 board is scaled
+ * to the width and loses 100px top and bottom) into the room's own frame. All
+ * four solve to this one rectangle, which is the check that it is the board's
+ * geometry and not an eyeballed one. Guessed proportions put the table at two
+ * thirds of the width floating above the spot the art paints for it — every
+ * room here is composed around a table that fills it.
+ *
+ * So the *placement* is the board's, and the overhang each table keeps outside
+ * the felt is the same overhang the board draws.
+ *
+ * The *size* is not, and that is the one thing this page takes for itself. The
+ * board is a table somebody is sitting at, the picture cropped to it: a page
+ * whose subject is the room has to step back far enough for the room to be in
+ * it — the club's floor, the taverne's shelves, the fumoir's lamps are what each
+ * of these four paragraphs is about. `ROOM_STEP_BACK` is that step, taken around
+ * the felt's own centre so nothing else about the composition moves.
+ */
+const MEASURED_FELT = { left: 0.1582, top: 0.2887, width: 0.6836, height: 0.4182 }
+const ROOM_STEP_BACK = 0.72
+const FELT = {
+  left: 0.5 - (MEASURED_FELT.width * ROOM_STEP_BACK) / 2,
+  top:
+    MEASURED_FELT.top +
+    (MEASURED_FELT.height * (1 - ROOM_STEP_BACK)) / 2,
+  width: MEASURED_FELT.width * ROOM_STEP_BACK,
+  height: MEASURED_FELT.height * ROOM_STEP_BACK,
+}
+/*
+ * Per room, where that one table has to go from there, in fractions of the
+ * frame. Both of these are consequences of the step back rather than
+ * corrections to the geometry, which is why they live on this page and not in
+ * `MAPS`: the board frames the table so closely that neither is visible on it.
+ *
+ * `y`: stepping back exposes each room's floor, and the four do not put their
+ * horizon in the same place. `rune` is shot with a deep foreground — the cloth,
+ * the candles, the cauldron — so a table centred on the felt's own centre stands
+ * above its floor rather than on it.
+ *
+ * `x`: the felt is centred, the *picture* is not. A playfield sitting off-centre
+ * in its own file (`neon`: 4.5% of margin on the left against 10% on the right)
+ * hangs that much more table to one side, and against a room whose floor is
+ * painted symmetrically the table reads as pushed over. Nudging the felt is the
+ * right end to fix it from — moving the picture instead would take the playing
+ * surface off the mark the whole solve exists to hit.
+ */
+const NUDGE: Partial<Record<string, { x?: number; y?: number }>> = {
+  neon: { x: -0.02 },
+  rune: { y: 0.07 },
+}
+
+const pct = (n: number) => `${(n * 100).toFixed(3)}%`
 ---
 
 <h1>{ui('tablesH1', lang)}</h1>
@@ -62,6 +130,20 @@ const SIZES = `(min-width: 50rem) ${COLUMN}px, calc(100vw - 3rem)`
     which is what keeps this page from being 1.4 MB before a word is read.
   */
   const first = id === MAP_IDS[0]
+  /* The same solve the board runs, in fractions of the frame rather than in
+     board pixels. Routinely wider and taller than the felt: that is the rim. */
+  const nudge = NUDGE[id] ?? {}
+  const img = tableImageRect(
+    { ...FELT, left: FELT.left + (nudge.x ?? 0), top: FELT.top + (nudge.y ?? 0) },
+    map.playfield,
+  )
+  /* The table is drawn at a fraction of the column, so it is asked for at a
+     fraction of the column's widths — a full-width srcset here would hand a
+     phone pixels it downscales away. */
+  const tableWidths = WIDTHS.map((w) => Math.round(w * img.width))
+  const tableSizes =
+    `(min-width: 50rem) ${Math.round(COLUMN * img.width)}px, ` +
+    `calc((100vw - 3rem) * ${img.width.toFixed(3)})`
   return (
     <article class="room">
       <h2>{copy.name}</h2>
@@ -81,14 +163,23 @@ const SIZES = `(min-width: 50rem) ${COLUMN}px, calc(100vw - 3rem)`
           fetchpriority={first ? 'high' : 'auto'}
           decoding="async"
         />
+        {/*
+          Placed rather than fitted, and the box is written inline because it is
+          this room's and no other's. `object-fit` is deliberately absent: the
+          board draws the picture filled into that box, distortion included —
+          velvet reads as deep and orbit as flat because of it — so a page that
+          preserved the file's aspect would show four tables the game does not
+          have.
+        */}
         <Image
           class="roomTable"
           src={art(tables, id, 'table')}
           alt=""
-          widths={WIDTHS}
-          sizes={SIZES}
+          widths={tableWidths}
+          sizes={tableSizes}
           loading={first ? 'eager' : 'lazy'}
           decoding="async"
+          style={`left: ${pct(img.left)}; top: ${pct(img.top)}; width: ${pct(img.width)}; height: ${pct(img.height)}`}
         />
       </div>
       <p>{copy.tagline}</p>

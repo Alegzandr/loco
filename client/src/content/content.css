@@ -597,11 +597,16 @@ html[data-scroll="smooth"]:has(body.doc) {
   height: auto;
 }
 
-/* The table sits on the room, exactly as the board stacks them. */
+/*
+ * The table sits on the room, exactly as the board stacks them — and, like the
+ * board, at a box solved from its `playfield` rather than fitted to the frame.
+ * That box is written inline per room, so nothing here may state a width, a
+ * height or an `object-fit`: `.roomArt img` above is one selector heavier than
+ * this one, which is how a full-width, top-anchored table used to be drawn over
+ * every room whatever this block said.
+ */
 .roomTable {
   position: absolute;
-  inset: 0;
-  object-fit: contain;
 }
 
 /* ── The footer bar ────────────────────────────────────────────────────── */
