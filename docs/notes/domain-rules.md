@@ -18,9 +18,11 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
    LOCO! got there first, its hand grew, the window had already closed, or no seat owed the call at
    all. SOLO ignores an unfounded call. `failedCatchPenalty` + `Room.PenalizeFailedCatch`, rationed
    by `GameState.PlayEpoch`; see "LOCO! declaration & catch windows" and `docs/rules.md` §14.6.
-   Rationale: the button is live from three cards out, so pressing it is a read of the table rather
+   Rationale: the button is live from two cards out, so pressing it is a read of the table rather
    than an answer to a cue the server gave — an unpriced one is free to mash and the reaction stops
-   being one, and a per-press price would bill the same misread ten times over.
+   being one, and a per-press price would bill the same misread ten times over. Two rather than
+   three because the price is only a price while the card stays where it landed: see "The threshold
+   is what keeps the price from being buyable" below.
 
 ## Scoring & match system
 - `CardValue(c Card) int` (`game/card.go`): Number=face; Reverse=10; Skip=20; DrawTwo=30; Swap=30; GlobalSwitch=40; WildCard=40; WildDrawFour=50. Matches `docs/rules.md` §10.
@@ -253,7 +255,7 @@ won, and a one-card hand had made them finishes by accident.
   target, and `handleBotCatch`'s stale check compares `LastCardAt[target]`.
 - Wire: `catch_uno` carries `target_index` (the catcher names the seat) **when the client has one to
   name**. Absent means the press was made on a read rather than on a cue — the button is live from
-  three cards out — and the hub still falls back to the window closest to expiring, which is the
+  two cards out — and the hub still falls back to the window closest to expiring, which is the
   catch about to be lost and may be one the client had not been told about yet. No open window at
   all: charged (below).
 - **A catch that lands is announced** (`applyUnoCaught` → `store.catchFlash` → `<CatchBanner />` +
@@ -272,10 +274,29 @@ won, and a one-card hand had made them finishes by accident.
   - **It used to be free, and it was free because the button used to be a cue.** While Contre-LOCO!
     only lit up on the seats the server named in `catch_seats`, a call outside a window could only
     be a message no client of ours composed, so it was refused, charged nothing and told nobody. The
-    button is now live from three cards out (`client/src/components/catchAvailability.ts`), because
+    button is now live from two cards out (`client/src/components/catchAvailability.ts`), because
     a control that unlocks on the server's permission can only ever *answer* a five-second window
     and never *anticipate* one. That makes the wrong press an ordinary part of playing, and the
     thing that keeps it honest is the price.
+  - **The threshold is what keeps the price from being buyable, and that is why it is two and not
+    three.** A card is a punishment only while it stays in the hand that drew it: a player holding a
+    Swap or a Global Switch is about to hand their whole hand to somebody else, so a penalty they
+    *chose* to take is ammunition, and the round's scoring pays them for it twice — the big hand
+    leaves, and it lands on the seat that was about to win. The rationing by `PlayEpoch` bounds the
+    *rate* of that (one card per card played) but not its *direction*, and the rate is worse the
+    bigger the table: a full turn at four seats is three or four epochs, i.e. three or four cards, a
+    good deal faster than the voluntary draw (deviation 4) which is the legitimate way to fatten a
+    hand at one card per turn of your own. Worse, the cards it hands over are what make the Swap
+    likelier to be there in the first place, so the penalty finances its own profitability.
+    - The fix is at the offer, not at the price. From **two** cards the window is one ordinary play
+      away, so the miss is the thumb that had already committed when the seat drew instead of
+      playing — a spasm, which is what a missed reaction is supposed to be. From **three** it needs
+      an interject of two identical cards, which is rare, so the button would be live through a long
+      stretch of round where pressing it can only ever miss. A long stretch of guaranteed misses is
+      what turns the penalty into a menu item.
+    - The criterion, if this is ever re-tuned: **a failed Contre-LOCO! must never be a faster source
+      of cards than the voluntary draw**, and the wager must never be offered for longer than it can
+      plausibly pay off.
   - **The price is per card played, not per press** (`GameState.PlayEpoch`, `CatchPenaltyEpoch`).
     `pushDiscard` is the only way a card reaches the pile and it moves the epoch on; a seat is
     charged once per epoch, and `PenalizeFailedCatch` returns `charged=false` for every press after
@@ -364,8 +385,8 @@ won, and a one-card hand had made them finishes by accident.
   - **`isCatchLive`** (`components/catchAvailability.ts`), which drops a seat on **one** card that has
     declared from the count. Nothing can catch that seat until its hand changes, so the press stops
     being a read that lost and becomes a card paid for nothing — the only case the button greys out
-    for. A declaration by a seat on two or three cards is ignored: it will owe the table a fresh call
-    on the way down, which is exactly what the live button is anticipating.
+    for. A declaration by a seat on two cards is ignored: its next play puts it on one and it will
+    owe the table a fresh call there, which is exactly what the live button is anticipating.
   - **Absence of a window is not a declaration**, and the distinction is why this list exists: catch
     seats ride `card_played` only, so a reloaded tab holds none of them and would find the button grey
     over a table it could still catch. Silence leaves it live.
@@ -400,8 +421,8 @@ won, and a one-card hand had made them finishes by accident.
   finisher scores, so exactly one column per row is non-zero.
 - Nil'd by `Start()` and `ResetForRematch()`.
 - Exported in `GameStateDTO.round_history` (every snapshot, so a reconnect rebuilds the table) and
-  in `round_end` (the next `game_state` is buffered behind the round summary, so without it the
-  table would be a round stale for as long as the summary is up).
+  in `round_end`, which is the message the round summary is drawn from and the only one that names
+  the round that just finished.
 - Server-owned on purpose: cumulative `Scores` cannot be split back into rounds once a player wins
   twice, and a client-side accumulator would differ per client after a reconnect.
 

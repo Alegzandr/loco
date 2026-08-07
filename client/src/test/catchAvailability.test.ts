@@ -19,8 +19,19 @@ describe('isCatchLive', () => {
     expect(isCatchLive([seat(0, 8), seat(1, CATCH_LIVE_MAX_HAND + 1)], 0, [])).toBe(false)
   })
 
+  // And the threshold itself, in figures rather than through the constant: the
+  // wager is offered exactly one ordinary play from the window it is aiming at.
+  // A seat on three needs an interrupt of two identical cards to get there, so
+  // arming the button that early opens a long stretch of round where pressing
+  // can only ever miss — and a miss that a player can schedule is a card they
+  // chose to draw, which is a Swap away from being a reward.
+  it('is one card from the window, never two', () => {
+    expect(isCatchLive([seat(0, 8), seat(1, 2)], 0, [])).toBe(true)
+    expect(isCatchLive([seat(0, 8), seat(1, 3)], 0, [])).toBe(false)
+  })
+
   // There is nobody to catch at our own seat, so our own hand may never arm the
-  // button — otherwise every player would find it live for the last three cards
+  // button — otherwise every player would find it live for the last two cards
   // of every round they were winning.
   it('never counts our own hand', () => {
     expect(isCatchLive([seat(0, 1), seat(1, 8)], 0, [])).toBe(false)
@@ -52,9 +63,9 @@ describe('isCatchLive', () => {
     expect(isCatchLive([seat(0, 8), seat(1, 1), seat(2, 1)], 0, [1])).toBe(true)
   })
 
-  // Two or three cards is still a read: an interrupt puts that seat on one card
-  // before a thumb can land, and it will owe the table a fresh call when it
-  // gets there. Whatever it declared on an earlier card voids nothing here.
+  // Two cards is still a read: the next play puts that seat on one card, and it
+  // will owe the table a fresh call when it gets there. Whatever it declared on
+  // an earlier card voids nothing here.
   it('ignores a declaration by a seat that is not on one card', () => {
     expect(isCatchLive([seat(0, 8), seat(1, 2)], 0, [1])).toBe(true)
   })

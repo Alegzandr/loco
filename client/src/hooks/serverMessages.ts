@@ -217,16 +217,17 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
           const mine = msg.state?.players.find((p) => p.index === mySeat)?.nickname
           if (mine) store.setMyNickname(mine)
         }
+        // Applied the moment it lands, round summary or not. The server deals
+        // the next round in the same breath as it announces the last one and
+        // starts the turn clock with the deal, so the table is already moving
+        // while the card is up: buffering this and replaying it on dismissal
+        // rolled the board back to the deal. See `dismissRoundSummary`, which
+        // no longer puts a board back, and `applyGameState`, which no longer
+        // takes the card down.
         if (msg.state) {
-          const s = gameStore.getState()
-          if (s.showRoundSummary) {
-            // Round summary is visible — buffer the new state; apply when player dismisses
-            store.setPendingGameState(msg.state)
-          } else {
-            unoTimer.clear()
-            store.applyGameState(msg.state)
-            store.setScreen('game')
-          }
+          unoTimer.clear()
+          store.applyGameState(msg.state)
+          store.setScreen('game')
         }
         break
       }

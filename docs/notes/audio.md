@@ -143,6 +143,31 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   to `loco_audio` on **every** handover, which is also what re-renders the now-playing line when a
   track ends by itself; `engine.ts` stores it as a **bare string** and never imports the registry,
   because the registry depends on the engine.
+  - **Moving a slider auditions the bus, and that is not the same event as a press.** A range input
+    fires `input` on every step it crosses, so a drag is dozens of them a second, and the sample
+    lasts 100ms: played one per event they overlap four and five deep and the panel answers a volume
+    change with a shrill continuous buzz rather than a level. **The engine's voice budget does not
+    cover this** — six voices a frame is a clipping guard, and far more than it takes to build the
+    buzz. Two things fix it and neither works alone.
+    - `AUDITION_MS` (130) is a floor between samples, in the component, because throttling a
+      continuous control is a decision about that control. It is also what keeps the fix testable:
+      the sfx module is mocked in component tests, so a floor hidden inside it could not be seen.
+    - `playVolumeAudition(level)` is the sample, and **it is a function of the level**. Spacing them
+      out alone cost the gesture its shape — a row of identical blips says nothing about which way
+      the slider went, and on the master bus the audition is the only feedback there is. The pitch
+      climbs the travel over two octaves on a major pentatonic (A3 to A5, 11 steps), so moving up
+      sounds like moving up: stepped rather than glided, because a run lands and a siren does not.
+      **Level moves the pitch and the filter, never the gain** — the bus being moved already applies
+      the gain, and scaling twice silences the bottom of the travel, which is the part a player is
+      listening for. It stays an octave under `uiTap` and low-passed below 2.8kHz for the original
+      reason: a blip that is bright heard once is shrill heard thirty times, and 2-5kHz is the band
+      the ear is sharpest in.
+    - Because it takes an argument it is **not a `SfxName`**, so the `SFX_NAMES` loop in
+      `verify.mjs` cannot reach it and it is measured by hand there — both ends of the travel, plus
+      an FFT on each proving the pitch really climbs and that the top stays under 1.2kHz. That last
+      one is the only check in the repo that hears a note rather than counting a call.
+    - `src/test/audio.test.ts` owns the rate and the level handed over. Anything else that makes a
+      sound per step of a continuous control takes the same treatment.
 - `make audio-verify` (`tools/audio/verify.mjs`) is the only thing that can catch a broken envelope
   or a mis-wired node: those produce **silence**, not an error, so no unit test would ever go red.
   It plays every voice through a real AudioContext and measures peak amplitude on the bus. **Every

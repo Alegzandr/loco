@@ -1,5 +1,4 @@
 import { StateCreator } from './createStore'
-import { gameStateSliceFromDTO } from './helpers'
 import { GameStore, MatchActions, RoundScoreEntry } from './types'
 
 export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
@@ -22,9 +21,10 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         roundWinner,
         roundNumber_completed: roundNumber,
         scoreboard: newScoreboard,
-        // The next game_state (which also carries the history) is buffered
-        // behind the round summary, so take it here or the score table would
-        // be one round stale for as long as the summary is up.
+        // Taken from this message rather than waited for: `round_end` is the
+        // one that names the round that just finished, and the summary is
+        // drawn from it. The next `game_state` carries the same history a
+        // moment later.
         roundHistory: roundHistory ?? s.roundHistory,
         roundScores,
         showRoundSummary: true,
@@ -63,14 +63,32 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
 
   setMatchHistory: (matchHistory) => set({ matchHistory }),
 
-  setPendingGameState: (pendingGameState) => set({ pendingGameState }),
-
   setPendingMatchEnd: (matchWinner, scoreboard, matchHistory) =>
     set({ pendingMatchEnd: { matchWinner, scoreboard, matchHistory } }),
 
+  /**
+   * Takes the card down. It does not put a board back.
+   *
+   * The next round's `game_started` used to be buffered here and applied on
+   * dismissal, so that the summary would not vanish the instant the server
+   * dealt. But the server deals immediately, the turn clock starts with the
+   * deal, and every `card_played` of the new round is applied to the store
+   * while the card is still up — so the buffer was a snapshot of the deal
+   * replayed over a board that had moved on for up to the full eight seconds.
+   * Whoever read the scores had their table rolled back: the discard, the hand
+   * sizes and, worst of all, `currentTurn`. If the rolled-back turn happened to
+   * be theirs, the desync healed nothing on its own — nobody else could play,
+   * they were shown somebody else's turn, and the table sat there until the
+   * server's own turn timer expired.
+   *
+   * A snapshot is authoritative when it arrives and never afterwards. The
+   * board is applied on arrival now (`applyGameState`), and the summary is what
+   * it looks like: an overlay with its own dismissal.
+   *
+   * The match end is still buffered, and that one is safe: nothing follows it.
+   */
   dismissRoundSummary: () => {
     const s = get()
-    // Priority 1: final round — transition to game over screen.
     if (s.pendingMatchEnd) {
       set({
         matchWinner: s.pendingMatchEnd.matchWinner,
@@ -83,24 +101,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       })
       return
     }
-    // Priority 2: mid-match — apply the buffered next-round state.
-    if (s.pendingGameState) {
-      set({
-        ...gameStateSliceFromDTO(s.pendingGameState),
-        roundWinner: '',
-        showRoundSummary: false,
-        pendingGameState: null,
-        unoDeclared: false,
-        unoDeclaredByIndex: -1,
-        declaredSeats: [],
-        catchWindows: [],
-        catchFailed: null,
-        catchFlash: null,
-      })
-      return
-    }
-    // Default: just hide the summary (e.g. BO1 game-over path).
-    set({ showRoundSummary: false })
+    set({ showRoundSummary: false, roundWinner: '' })
   },
 
   // One entry per seat: speaking again replaces what that seat was saying, it
@@ -168,7 +169,6 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       rematchNeeded: 0,
       emotes: [],
       showRoundSummary: false,
-      pendingGameState: null,
       pendingMatchEnd: null,
       unoDeclared: false,
       unoDeclaredByIndex: -1,

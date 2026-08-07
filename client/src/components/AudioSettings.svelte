@@ -2,7 +2,7 @@
   import { createSubscriber } from 'svelte/reactivity'
   import { audio } from '../audio/engine'
   import { getTrack, music } from '../audio/music'
-  import { playSfx } from '../audio/sfx'
+  import { playSfx, playVolumeAudition } from '../audio/sfx'
   import { i18n } from '../i18n/i18n.svelte'
 
   // Live view of the engine's settings, without duplicating them into component
@@ -57,11 +57,32 @@
     }
   })
 
+  /**
+   * Floor between two auditions, in ms.
+   *
+   * A range input fires `input` on every step it crosses — dozens a second down
+   * one drag — and the sample it plays lasts 100ms. One per event, they overlap
+   * four and five deep and the panel answers a volume change with a continuous
+   * shrill buzz instead of a sample of the bus; the engine's per-frame voice
+   * budget is a clipping guard and never saw this, because six voices a frame
+   * is far more than enough to build the buzz. Spaced out, the drag reads as a
+   * run up or down the travel — which is `playVolumeAudition`'s half of this:
+   * a floor between samples is only bearable because each one says where the
+   * slider now is, instead of repeating one note until it stops.
+   */
+  const AUDITION_MS = 130
+  let lastAudition = 0
+
   function setBus(key: 'master' | 'sfx' | 'music', raw: string) {
-    audio.setSettings({ [key]: Number(raw) / 100 })
+    const level = Number(raw) / 100
+    audio.setSettings({ [key]: level })
     // Audition the change on the bus being moved; the music bed is already
     // audible, so only the effects bus needs a sample.
-    if (key !== 'music') playSfx('uiTap')
+    if (key === 'music') return
+    const now = performance.now()
+    if (now - lastAudition < AUDITION_MS) return
+    lastAudition = now
+    playVolumeAudition(level)
   }
 </script>
 

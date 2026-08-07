@@ -52,7 +52,6 @@ export const initialState: GameState = {
   showRoundSummary: false,
   roundNumber_completed: 0,
   roundScores: [],
-  pendingGameState: null,
   pendingMatchEnd: null,
   rematchOffers: [],
   rematchNeeded: 0,

@@ -521,7 +521,7 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     window: `penalizeFailedCatch` answers an empty draw to its caller alone, so a penalty nobody paid
     is not a table-wide send either.
   - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is now live
-    from three cards out, so "no client was drawing that button" is no longer true of a press with
+    from two cards out, so "no client was drawing that button" is no longer true of a press with
     no window behind it — that press is the mechanic, and `ErrNoCatchWindow` costs its caller a card
     like every other miss (`docs/rules.md` §14.6). What replaces the free-refusal as the amplifica-
     tion guard is `GameState.PlayEpoch`: **a seat is charged at most once per card played**, and

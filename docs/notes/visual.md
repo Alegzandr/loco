@@ -180,20 +180,25 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   it sits there mounted the whole match and is only ever **enabled and armed in place**. It is never
   mounted/unmounted: a button that appears is a button you have to find first.
 - **Three readable states, not two.** *Dead* while every other hand is above
-  `CATCH_LIVE_MAX_HAND` (3) — the opening of every round. *Awake and pressable* as soon as any other
-  seat is at three cards or fewer (`components/catchAvailability.ts`), which is most of the endgame
-  and is deliberately looser than any window the server knows about: a control that only unlocks on
-  the server's cue can be answered but never anticipated, and five seconds is not long enough to
-  find a button in. *Armed* for the seconds a seat actually owes the call. The middle state is what
-  the price in §14.6 is for, and `game-catch-live` is its scene.
+  `CATCH_LIVE_MAX_HAND` (2) — the opening of every round and most of its middle. *Awake and
+  pressable* as soon as any other seat is at two cards or fewer
+  (`components/catchAvailability.ts`), i.e. one ordinary play before the server can name anybody:
+  a control that only unlocks on the server's cue can be answered but never anticipated, and five
+  seconds is not long enough to find a button in. *Armed* for the seconds a seat actually owes the
+  call. The middle state is what the price in §14.6 is for, and `game-catch-live` is its scene.
+  - **It is looser than the server's window by exactly one play, and no more.** The looseness buys
+    the anticipation; a wider one buys a stretch of round where the press can only miss, and a miss
+    a player can plan is a card drawn on purpose — see `domain-rules.md`, "The threshold is what
+    keeps the price from being buyable".
   - **It goes back to dead when every seat within reach has called it.** A seat on one card the whole
     table heard declare is out of reach until its hand changes, so pressing against it is not a read
     that lost — it is the price paid for nothing, and a wager the interface should not be offering.
     The looseness is for uncertainty, and there is none left there. It is `store.declaredSeats`, i.e.
     what the table *heard*: a seat with no open catch window is not the same statement, because a
     reloaded tab is told about no windows at all and would find the button grey over a table it could
-    still catch. A declaration by a seat on two or three cards changes nothing — it will owe the
-    table a fresh call on the way down, which is the whole thing the middle state is watching for.
+    still catch. A declaration by a seat on two cards changes nothing — its next play puts it on one
+    and it will owe the table a fresh call there, which is the whole thing the middle state is
+    watching for.
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same
@@ -779,9 +784,35 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 ## Round summary
 - `round_end` → `applyRoundEnd(roundWinner, roundNumber, newScoreboard, roundHistory?)`.
 - Computes per-player `round_points` as `newScore - prevScore` from pre-round scoreboard, stores `roundScores: RoundScoreEntry[]`, sets `showRoundSummary:true`.
-- If `game_started` arrives while showing → buffer in `pendingGameState`.
-- `GameView` shows: round n/total, winner, per-player breakdown sorted by placement, points (delta), cumulative score, wins, full match scoreboard (BO3+).
-- "Continue (Ns)" → `dismissRoundSummary()` (applies buffered state, clears summary). Auto-dismiss at 8s.
+- `GameView` shows: round n/total, winner, per-player breakdown sorted by placement, points (delta), cumulative score, wins, full match scoreboard (BO3+). The round it names is `roundNumber_completed`, a field of its own, because `roundNumber` is already the round being dealt behind it.
+- "Continue (Ns)" → `dismissRoundSummary()`, which takes the card down and puts no board back. Auto-dismiss at 8s.
+
+### The card is an overlay, and the board behind it is live
+
+The `game_started` that deals the next round arrives while the card is up, and is applied there. It
+used to be buffered in `pendingGameState` and replayed on dismissal, so that the summary would not
+vanish the instant the server dealt — and that was the bug:
+
+- the server deals the moment it announces the round that ended, and **arms the turn clock with the
+  deal**, so the table is already playing while the card is up;
+- every `card_played` of the new round was applied to the store all along — nothing about the board
+  was ever actually held back — so the buffer was a snapshot of the deal replayed over a board that
+  had moved on for up to the full eight seconds;
+- whoever read the scores had their table rolled back: the discard, the hand sizes, and
+  `currentTurn`. **If the rolled-back turn was their own, nothing could heal it**: they were shown
+  somebody else's turn, so they did not play; nobody else could play; and the table sat there until
+  the server's turn timer expired and the `turn_changed` corrected them. A reload fixed it, which is
+  how it reads as a server bug when it is not one.
+
+So `applyGameState` settles the board and **does not touch the card** — neither `showRoundSummary`
+nor `roundWinner` — and `dismissRoundSummary` only hides it. A snapshot is authoritative when it
+arrives and never afterwards; anything held and replayed is a snapshot applied twice, the second
+time against a table that has moved. The **match end** is still buffered (`pendingMatchEnd`), and
+that one is safe for the reason this one was not: nothing follows a match end.
+
+One consequence is deliberate: the `yourTurn` cue is held while the card is up and played when it
+comes down on a turn that is already ours (`audio/gameSounds.ts`), because eight seconds of scores
+is a board the player cannot act on.
 
 ## Visual showcase & screenshot harness
 `client/src/dev/scenes.ts` registers every screen/state as pure data; `?showcase` renders the index,

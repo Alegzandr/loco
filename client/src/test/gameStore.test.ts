@@ -29,7 +29,6 @@ beforeEach(() => {
     matchWinner: '',
     matchOver: false,
     showRoundSummary: false,
-    pendingGameState: null,
     pendingMatchEnd: null,
     isReconnecting: false,
   })
@@ -72,7 +71,6 @@ describe('gameStore', () => {
     expect(s.activeColor).toBe('red')
     expect(s.currentTurn).toBe(0)
     expect(s.showRoundSummary).toBe(false)
-    expect(s.pendingGameState).toBeNull()
   })
 
   it('applyCardPlayed advances turn and updates discard', () => {
@@ -249,28 +247,7 @@ describe('gameStore', () => {
     expect(bobEntry?.round_points).toBe(0)
   })
 
-  it('setPendingGameState stores state without applying it', () => {
-    const dto: GameStateDTO = {
-      your_index: 0,
-      hand: [{ color: 'red', kind: 'number', value: 1 }],
-      players: [{ index: 0, nickname: 'alice', hand_size: 1, connected: true }],
-      discard: { color: 'red', kind: 'number', value: 1 },
-      active_color: 'red',
-      turn: 0,
-      direction: 1,
-      round_number: 2,
-      match_format: 'BO3',
-      max_players: 4,
-    }
-    gameStore.getState().setPendingGameState(dto)
-
-    const s = gameStore.getState()
-    expect(s.pendingGameState).toEqual(dto)
-    // Should not have been applied yet
-    expect(s.myHand).toHaveLength(0)
-  })
-
-  it('dismissRoundSummary applies pending state and clears summary', () => {
+  it('applyGameState leaves the round summary standing', () => {
     const dto: GameStateDTO = {
       your_index: 0,
       hand: [{ color: 'blue', kind: 'number', value: 3 }],
@@ -283,20 +260,69 @@ describe('gameStore', () => {
       match_format: 'BO3',
       max_players: 4,
     }
-    gameStore.setState({ showRoundSummary: true, pendingGameState: dto })
+    gameStore.setState({ showRoundSummary: true, roundWinner: 'alice' })
+    gameStore.getState().applyGameState(dto)
+
+    const s = gameStore.getState()
+    // The board is settled the moment it arrives...
+    expect(s.myHand).toHaveLength(1)
+    expect(s.roundNumber).toBe(2)
+    // ...and the card the player is reading is not the board's to take down.
+    expect(s.showRoundSummary).toBe(true)
+    expect(s.roundWinner).toBe('alice')
+  })
+
+  it('dismissRoundSummary never puts a stale board back', () => {
+    // The deal, applied on arrival the way the server sends it.
+    const deal: GameStateDTO = {
+      your_index: 0,
+      hand: [{ color: 'blue', kind: 'number', value: 3 }],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 8, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 8, connected: true },
+      ],
+      discard: { color: 'blue', kind: 'number', value: 3 },
+      active_color: 'blue',
+      turn: 1,
+      direction: 1,
+      round_number: 2,
+      match_format: 'BO3',
+      max_players: 4,
+    }
+    gameStore.setState({ showRoundSummary: true, roundWinner: 'alice' })
+    gameStore.getState().applyGameState(deal)
+
+    // bob plays while the card is still up, and the turn comes round to us.
+    gameStore.getState().applyCardPlayed(
+      1,
+      { color: 'blue', kind: 'number', value: 7 },
+      0,
+      0,
+      'blue',
+      [
+        { index: 0, nickname: 'alice', hand_size: 8, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 7, connected: true },
+      ],
+    )
+    expect(gameStore.getState().currentTurn).toBe(0)
+
     gameStore.getState().dismissRoundSummary()
 
     const s = gameStore.getState()
     expect(s.showRoundSummary).toBe(false)
-    expect(s.pendingGameState).toBeNull()
-    expect(s.myHand).toHaveLength(1)
-    expect(s.roundNumber).toBe(2)
+    // The whole point: reading the scores must not roll the table back to the
+    // deal. It used to, and a turn rolled back onto somebody else deadlocked
+    // the table until the server's turn timer expired.
+    expect(s.currentTurn).toBe(0)
+    expect(s.discard).toEqual({ color: 'blue', kind: 'number', value: 7 })
+    expect(s.players.find((p) => p.index === 1)?.hand_size).toBe(7)
   })
 
-  it('dismissRoundSummary without pending state just clears summary', () => {
-    gameStore.setState({ showRoundSummary: true, pendingGameState: null })
+  it('dismissRoundSummary with nothing pending just clears the card', () => {
+    gameStore.setState({ showRoundSummary: true, roundWinner: 'alice' })
     gameStore.getState().dismissRoundSummary()
     expect(gameStore.getState().showRoundSummary).toBe(false)
+    expect(gameStore.getState().roundWinner).toBe('')
   })
 
   it('setLobbyConfig updates matchFormat and maxPlayers', () => {
@@ -332,8 +358,7 @@ describe('gameStore', () => {
     expect(s.unoTimerEnd).toBeNull()
   })
 
-  it('applyGameState resets showRoundSummary and pendingGameState', () => {
-    gameStore.setState({ showRoundSummary: true, pendingGameState: { your_index: 0, hand: [], players: [], discard: { color: 'red', kind: 'number', value: 1 }, active_color: 'red', turn: 0, direction: 1, round_number: 1, match_format: 'BO1', max_players: 10 } })
+  it('applyGameState settles the seat it is built for', () => {
     const dto: GameStateDTO = {
       your_index: 1,
       hand: [],
@@ -348,8 +373,6 @@ describe('gameStore', () => {
     }
     gameStore.getState().applyGameState(dto)
     const s = gameStore.getState()
-    expect(s.showRoundSummary).toBe(false)
-    expect(s.pendingGameState).toBeNull()
     expect(s.myIndex).toBe(1)
   })
 
@@ -467,33 +490,20 @@ describe('gameStore', () => {
     expect(s.screen).toBe('gameover')
   })
 
-  it('dismissRoundSummary prefers pendingMatchEnd over pendingGameState', () => {
-    // Both pending — match end wins (the match is over)
+  it('dismissRoundSummary takes the match end over the board it is standing on', () => {
     const sb: ScoreboardEntryDTO[] = [
       { player_index: 0, nickname: 'alice', score: 50, rounds_won: 1 },
     ]
-    const nextRound: GameStateDTO = {
-      your_index: 0,
-      hand: [{ color: 'red', kind: 'number', value: 1 }],
-      players: [{ index: 0, nickname: 'alice', hand_size: 1, connected: true }],
-      discard: { color: 'red', kind: 'number', value: 1 },
-      active_color: 'red',
-      turn: 0,
-      direction: 1,
-      round_number: 3,
-      match_format: 'BO3',
-      max_players: 4,
-    }
     gameStore.setState({
       showRoundSummary: true,
+      screen: 'game',
+      currentTurn: 1,
       pendingMatchEnd: { matchWinner: 'alice', scoreboard: sb, matchHistory: [] },
-      pendingGameState: nextRound,
     })
     gameStore.getState().dismissRoundSummary()
     const s = gameStore.getState()
     expect(s.screen).toBe('gameover')
     expect(s.matchOver).toBe(true)
-    // pendingGameState should still be cleared via the gameover transition
     expect(s.pendingMatchEnd).toBeNull()
   })
 

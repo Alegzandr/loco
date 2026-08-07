@@ -8,7 +8,7 @@ import { SUIT_SHAPE } from '../components/cards/cardTheme'
 import { isColorAssist, resetColorAssist, setColorAssist } from '../hooks/colorAssist'
 import type { CardDTO } from '../types/protocol'
 
-vi.mock('../audio/sfx', () => ({ playSfx: vi.fn() }))
+vi.mock('../audio/sfx', () => ({ playSfx: vi.fn(), playVolumeAudition: vi.fn() }))
 
 const red7: CardDTO = { color: 'red', kind: 'number', value: 7 }
 const wild: CardDTO = { color: 'wild', kind: 'wild' }

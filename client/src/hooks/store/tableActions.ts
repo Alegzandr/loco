@@ -20,9 +20,20 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       )
       return {
         ...gameStateSliceFromDTO(state),
-        roundWinner: '',
-        showRoundSummary: false,
-        pendingGameState: null,
+        // The round summary is deliberately NOT touched here. It is an overlay
+        // over the board, not a state of it: the server deals the next round in
+        // the same breath as it announces the last one, so this snapshot arrives
+        // while the card is still up on every screen. Taking the card down here
+        // would make the summary last exactly as long as the network, and
+        // *buffering the snapshot instead* — which is what this used to do — was
+        // worse: the buffer was applied on dismissal, over a board that had
+        // moved on for up to eight seconds, so the whole table's plays were
+        // rolled back to the deal on the screen of whoever read the scores.
+        // See dismissRoundSummary.
+        //
+        // A buffered *match end* is another matter and is dropped: a board that
+        // is still being dealt says the match is not over, so the payload behind
+        // the card is one the server has contradicted.
         pendingMatchEnd: null,
         // The banner is cosmetic and announces the previous one-card moment; a
         // fresh authoritative snapshot must not leave it hanging.
