@@ -238,10 +238,13 @@ deliberately not covered here" below.
   3-player Skip then lands on `myIdx-2` instead of `myIdx+2`, and the run reads as a rules bug.
   This is what `debug.direction` exists for — the CI failure it fixes reproduced roughly one run in
   ten and pointed at the Skip rule, which was correct all along.
-- The **interrupt window is only armed by a real play** — `debug_set_state` leaves it closed, so a
-  successful-interrupt test must have somebody actually play first. Who interrupts no longer matters
-  (self-interrupt and current-player interrupt are both legal), but keep bots out of the scenario:
-  a bot's 800ms timer plays a card and re-arms the window under the interrupt in flight.
+- **The interrupt window is open from the deal and `debug_set_state` never touches it either way**,
+  so a test asserting a *refusal* has to close it with a real draw or pass — a fixture cannot leave
+  it closed any more, and the test that assumed it did went on expecting an error the server had
+  stopped sending. Who interrupts does not matter (self-interrupt and current-player interrupt are
+  both legal), but keep bots out of the scenario: a bot's 800ms timer plays a card and re-arms the
+  window under the interrupt in flight — and on the *opening* discard a bot cannot answer at all,
+  which is what makes that window a two-human scenario.
 - Entrance animations race clicks: `clickContinue` waits for the round-summary card's animations to
   report `finished` before clicking, because `waitForRoundSummary` resolves on the store flag, which
   flips ~420ms before the card stops moving. Two details that made this flaky in CI, both worth not

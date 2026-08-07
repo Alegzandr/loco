@@ -26,35 +26,28 @@ export const CATCH_LIVE_MAX_HAND = 2
 
 /**
  * Whether Contre-LOCO! is pressable right now: some *other* seat is holding
- * between one and CATCH_LIVE_MAX_HAND cards, and is not a seat we have heard
- * call it on the single card it is holding.
+ * between one and CATCH_LIVE_MAX_HAND cards.
  *
  * Our own seat never counts — there is nobody to catch there. Nor does an empty
  * hand: a seat on zero cards has either won the round or been retired out of it,
  * and neither owes the table a call.
  *
- * A seat on **one** card that has already declared is the one case where the
- * wager stops being a read: it cannot be caught until its hand changes, and the
- * whole table heard the call, so a press against it can only be a slip that
- * costs a card. A seat on two is a different question — its next play puts it
- * on one card and it will owe the table a fresh call when it gets there, which
- * is exactly the anticipation this button is live for, so a declaration there
- * voids nothing.
+ * Nothing else narrows it, and **a declaration the table has heard narrows it
+ * least of all**. What this button says is that a seat is near the finish, never
+ * that somebody is catchable — and the difference is the whole mechanic. A
+ * control that went dead the moment the last opponent called LOCO! would be
+ * announcing that call to a player who was not listening for it, which is the
+ * one thing they were supposed to have to do; and it would refuse the press this
+ * price exists to charge for, the thumb already on its way down when the seat
+ * shouted. That miss is the spasm the wager is made of. Take away the ability to
+ * make it and the wager stops being one.
  *
- * `declaredSeats` is what the table *heard*, never an inference from a missing
- * catch window: a reloaded tab is told no windows at all, and greying the
- * button out on that silence would cost a reaction the player was entitled to.
+ * So the button owes the player exactly one guarantee, and it is the threshold
+ * above: the wager is never offered further than one ordinary play from paying
+ * off. Whether it pays *this* time is theirs to read.
  */
-export function isCatchLive(
-  players: PlayerDTO[],
-  myIndex: number,
-  declaredSeats: readonly number[],
-): boolean {
+export function isCatchLive(players: PlayerDTO[], myIndex: number): boolean {
   return players.some(
-    (p) =>
-      p.index !== myIndex &&
-      p.hand_size >= 1 &&
-      p.hand_size <= CATCH_LIVE_MAX_HAND &&
-      !(p.hand_size === 1 && declaredSeats.includes(p.index)),
+    (p) => p.index !== myIndex && p.hand_size >= 1 && p.hand_size <= CATCH_LIVE_MAX_HAND,
   )
 }

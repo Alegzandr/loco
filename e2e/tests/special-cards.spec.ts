@@ -13,6 +13,7 @@
  *   - GlobalSwitch card → plays without picker, discard updates, hand rotates
  *   - counter_draw → stacks penalty, turn advances to next player
  *   - interrupt_play → out-of-turn play with exact match advances turn to us
+ *   - interrupt_play on the opening discard, before anybody has played
  *   - Non-counter card during active +2/+4 penalty returns error
  *   - Two-player real-time sync: card play reflected on both clients
  *
@@ -409,20 +410,23 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
   })
 
   /**
-   * The interrupt window is armed by a real play and closed by a draw / pass /
-   * round end — there is no time limit. A client that sends an interrupt out of
-   * the blue (nothing was played) must still be refused.
+   * The window is open from the deal — the opening discard is interceptable —
+   * and closed by a draw / pass / round end. There is no time limit, so the
+   * only way to reach a closed window is to resolve the card on top: here Alice
+   * draws, which closes it and leaves her the turn.
    *
-   * This replaces an earlier test that set the board with debug_set_state, sent
-   * an interrupt, and then asserted the discard and turn it had itself just
-   * configured — it passed whether or not the interrupt was accepted, and in
-   * fact the server was rejecting it the whole time. The success path is covered
-   * by the three-client test below, which arms the window properly.
+   * The draw has to be a real one. An earlier version of this test relied on
+   * debug_set_state leaving the window closed after the deal, which stopped
+   * being true the day the opening discard became interceptable — it would have
+   * gone on asserting a refusal the server no longer had a reason to send.
+   * `currentTurn` is Alice's so the bot's think timer never fires and re-arms
+   * the window under the interrupt in flight.
    */
   test('interrupt outside an armed window is rejected', async ({ page }) => {
     await createRoom(page, 'Alice')
     await addBot(page)
     await startGame(page)
+    await waitForTableOpen(page)
     const s = await getState(page)
     const myIdx = s?.myIndex ?? 0
     const otherIdx = (s?.players ?? []).find((p) => p.index !== myIdx)?.index ?? 1
@@ -434,9 +438,18 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
       ],
       hands: [{ playerIndex: otherIdx, hand: [{ color: 'blue', kind: 'number', value: 2 }] }],
       discard: { color: 'red', kind: 'number', value: 5 },
-      currentTurn: otherIdx,
+      activeColor: 'red',
+      currentTurn: myIdx,
       pendingDraw: 0,
     })
+
+    // A voluntary draw closes the window and does not cost the turn.
+    await sendMsg(page, { type: 'draw_card' })
+    await page.waitForFunction(
+      () => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) === 3,
+      undefined,
+      { timeout: 5_000 },
+    )
 
     await sendMsg(page, {
       type: 'interrupt_play',
@@ -451,17 +464,78 @@ test.describe('special card mechanics (deterministic via debug_set_state)', () =
     const after = await getState(page)
     expect(after?.errorMsg).toMatch(/interrupt window/i)
     // The card stays in hand: a refused interrupt must not cost anything.
-    expect(after?.myHand?.length).toBe(2)
+    expect(after?.myHand?.length).toBe(3)
+  })
+
+  /**
+   * A seat dealt the twin of the card the round opens on may slam it before
+   * anybody has taken a turn. The window used to be armed by a real play only,
+   * so this was refused as "somebody was faster" on a table where nothing had
+   * happened yet.
+   *
+   * Two humans, no bot: bots deliberately stay out of this one window, and a
+   * bot's think timer would play a card and re-arm it under the interrupt in
+   * flight. The board is set with the pile untouched — debug_set_state changes
+   * no window state, so what is under test is the state the deal left.
+   */
+  test('the opening discard can be intercepted before anybody has played', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctxs = await Promise.all([browser.newContext(), browser.newContext()])
+    const [alice, bob] = await Promise.all(ctxs.map((c) => c.newPage()))
+    try {
+      const code = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', code)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(alice)
+      await waitForTableOpen(bob)
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+      const red5 = { color: 'red', kind: 'number', value: 5 } as const
+
+      // The pile keeps the card the deal put there; only the hands and the turn
+      // are pinned. Bob holds its twin and it is Alice's turn, so his only way
+      // onto the pile is the interject.
+      await debugSetState(alice, {
+        hand: [
+          { color: 'blue', kind: 'number', value: 9 },
+          { color: 'green', kind: 'number', value: 4 },
+        ],
+        hands: [{ playerIndex: bobIdx, hand: [red5, { color: 'blue', kind: 'number', value: 2 }] }],
+        discard: red5,
+        activeColor: 'red',
+        currentTurn: aliceIdx,
+        pendingDraw: 0,
+      })
+
+      await sendMsg(bob, { type: 'interrupt_play_card', card: red5 })
+
+      // Bob took the lead: the slam is announced on both screens and the turn
+      // has left Alice.
+      await expect(bob.getByText(T.interruptTitle)).toBeVisible({ timeout: 5_000 })
+      await expect(alice.getByText(T.interruptTitle)).toBeVisible({ timeout: 5_000 })
+      await bob.waitForFunction(
+        () => (window.__LOCO_E2E__?.getState?.()?.myHand?.length ?? 0) === 1,
+        undefined,
+        { timeout: 5_000 },
+      )
+      const after = await getState(bob)
+      expect(after?.errorMsg ?? '').toBe('')
+    } finally {
+      await Promise.all(ctxs.map((c) => c.close()))
+    }
   })
 
   /**
    * The interception slam is the game's signature moment, driven by the
    * `interrupt_success` message the client used to ignore.
    *
-   * The interrupt window is only armed by a real play (debug_set_state leaves it
-   * closed), so somebody other than the interrupter has to play first. Carol is
-   * a third human rather than a bot so no 800ms bot timer plays a card and
-   * re-arms the window under the interrupt in flight.
+   * Carol is a third human rather than a bot so no 800ms bot timer plays a card
+   * and re-arms the window under the interrupt in flight.
    */
   test('successful interrupt shows the interception banner on both clients', async ({
     browser,

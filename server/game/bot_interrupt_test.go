@@ -6,11 +6,12 @@ import "testing"
 // discard, so each case states only what it is about.
 func interruptState(top Card, active Color, botHand []Card) *GameState {
 	return &GameState{
-		Hands:       []Hand{{Cards: []Card{top}}, {Cards: botHand}},
-		Discard:     []Card{top},
-		ActiveColor: active,
-		LastPlayBy:  0,
-		CurrentTurn: 1,
+		Hands:         []Hand{{Cards: []Card{top}}, {Cards: botHand}},
+		Discard:       []Card{top},
+		ActiveColor:   active,
+		InterruptOpen: true,
+		LastPlayBy:    0,
+		CurrentTurn:   1,
 	}
 }
 
@@ -52,10 +53,27 @@ func TestBotInterrupt_NothingWithoutAnExactMatch(t *testing.T) {
 func TestBotInterrupt_ClosedWindow(t *testing.T) {
 	top := Card{Color: Red, Kind: Number, Value: 5}
 	s := interruptState(top, Red, []Card{top})
-	s.LastPlayBy = -1
+	s.closeInterruptWindow()
 
 	if got := BotInterrupt(s, 1); got != nil {
 		t.Errorf("BotInterrupt into a closed window = %v, want nil", got)
+	}
+}
+
+// The opening discard is the one live window bots stay out of: it is open to
+// every human at the table, but a bot slamming it would take the round's first
+// turn off the seat the deal handed it, before that player touched anything.
+func TestBotInterrupt_LeavesTheOpeningDiscardAlone(t *testing.T) {
+	top := Card{Color: Red, Kind: Number, Value: 5}
+	s := interruptState(top, Red, []Card{top})
+	// What dealRound produces: window open, nobody played the card on the pile.
+	s.LastPlayBy = -1
+
+	if !s.InterruptOpen {
+		t.Fatal("fixture is wrong: the opening window must be open")
+	}
+	if got := BotInterrupt(s, 1); got != nil {
+		t.Errorf("BotInterrupt on the opening discard = %v, want nil", got)
 	}
 }
 

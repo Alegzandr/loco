@@ -1,6 +1,7 @@
 package game
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -2159,8 +2160,11 @@ func TestRoom_InterruptPlay_IdenticalDrawTwoExtendsChain(t *testing.T) {
 
 // armInterrupt sets the explicit interrupt-window fields so the test simulates
 // a "card was just played by playerIndex" state without going through PlayCard.
+// It goes through armInterruptWindow rather than writing a field: the window and
+// its author are two facts now, and a test that set only one of them would be
+// arming a board the game cannot produce.
 func armInterrupt(r *Room, playerIndex int) {
-	r.State.LastPlayBy = playerIndex
+	r.State.armInterruptWindow(playerIndex)
 }
 
 func TestRoom_InterruptPlay_ClosedWindowRejected(t *testing.T) {
@@ -2177,6 +2181,57 @@ func TestRoom_InterruptPlay_ClosedWindowRejected(t *testing.T) {
 
 	if err := r.InterruptPlay(2, carolCard, carolCard.Color, -1); err == nil {
 		t.Error("interrupt on a closed window must be rejected")
+	}
+}
+
+// The opening discard is a card on the pile like any other, so the seat dealt
+// its twin may slam it before the round's first turn is taken. This used to be
+// refused with ErrInterruptWindowClosed — which the client renders as "somebody
+// was faster" — on a table where nobody had played at all. Nothing is armed by
+// hand here: the point is the state dealRound leaves behind.
+func TestRoom_InterruptPlay_OpeningDiscardIsInterceptable(t *testing.T) {
+	r := setupThreePlayerGame(t)
+
+	if !r.State.InterruptOpen {
+		t.Fatal("the deal must leave the interrupt window open on the opening discard")
+	}
+	if r.State.LastPlayBy != -1 {
+		t.Errorf("LastPlayBy = %d after the deal, want -1: nobody played that card", r.State.LastPlayBy)
+	}
+
+	top := r.State.topCard()
+	if top.Kind != Number {
+		t.Fatalf("opening discard = %v, want a Number", top)
+	}
+	// Carol is neither the current player nor the one who put the card there.
+	r.State.Hands[2].Cards = append([]Card{top}, r.State.Hands[2].Cards...)
+	before := len(r.State.Hands[2].Cards)
+
+	if err := r.InterruptPlay(2, top, top.Color, -1); err != nil {
+		t.Fatalf("interrupt on the opening discard must be accepted, got %v", err)
+	}
+	if r.State.LastPlayBy != 2 {
+		t.Errorf("LastPlayBy = %d, want 2 (carol took the lead)", r.State.LastPlayBy)
+	}
+	if got := len(r.State.Hands[2].Cards); got != before-1 {
+		t.Errorf("carol holds %d cards, want %d: the slammed copy left her hand", got, before-1)
+	}
+}
+
+// The window the deal opens closes the same way every other one does.
+func TestRoom_InterruptPlay_OpeningWindowClosesOnADraw(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	top := r.State.topCard()
+	r.State.Hands[2].Cards = append([]Card{top}, r.State.Hands[2].Cards...)
+
+	if err := r.DrawCard(r.State.CurrentTurn); err != nil {
+		t.Fatalf("voluntary draw: %v", err)
+	}
+	if r.State.InterruptOpen {
+		t.Error("a draw must close the window the deal opened")
+	}
+	if err := r.InterruptPlay(2, top, top.Color, -1); !errors.Is(err, ErrInterruptWindowClosed) {
+		t.Errorf("interrupt after the draw = %v, want ErrInterruptWindowClosed", err)
 	}
 }
 

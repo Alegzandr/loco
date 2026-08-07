@@ -248,6 +248,12 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   top discard, wilds included; the player who just played and the current player may both take the
   lead back. Effects stack. Removing those freedoms is what would make the mechanic turn-based: do
   not reinstate them.
+- **The window is open from the deal, and the opening discard is a card like any other**
+  (`GameState.InterruptOpen`, set by `dealRound`, distinct from `LastPlayBy` which says *who* played).
+  A seat dealt the twin of the card the round opens on may slam it before the first turn is taken;
+  refusing it answered "somebody was faster" on a table where nobody had played. **Bots stay out of
+  that one window** — they read `LastPlayBy`, which the deal leaves at -1 — because taking the
+  round's first turn off the seat the deal gave it is not a reaction to anything a player did.
 - **Scoring**: single-finisher round, `CardValue` per `docs/rules.md` §10, cumulative `Room.Scores`,
   tiebreakers **rounds won then score** then lost-hand total then sudden death. **The score measures
   the gap, it does not crown anybody** — and `biggestLoser` stays indexed on it on purpose, because
@@ -626,13 +632,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   what keeps the price from being buyable**: from two cards out the window is one ordinary play
   away, so a miss is the thumb that had committed when the seat drew instead; from three it needs an
   interject of two identical cards, which is a long stretch of round where the press can only lose,
-  and a loss a player can schedule is a card drawn on purpose for a Swap to hand on. **A seat on one
-  card the table heard call it stops counting** (`store.declaredSeats`): it cannot be caught until its
-  hand changes, so the press is no longer a read that lost but a card paid for nothing — the one case
-  the button greys out for. At two cards a declaration voids nothing, because that seat's next play
-  puts it on one and it owes a fresh call when it gets there. **What the table
-  heard, never an absent catch window**: a reloaded tab is told no windows at all, and greying out on
-  that silence costs a reaction. `store.myDeclared` is the same record read at our own seat, derived
+  and a loss a player can schedule is a card drawn on purpose for a Swap to hand on. **Hand sizes and
+  our own seat decide it, and nothing else may** — a declaration the table has heard least of all
+  (`isCatchLive` does not take `declaredSeats`). The button says a seat is near the finish, never that
+  somebody is catchable: going dead when the last opponent calls it would **report that call** to a
+  player who was not listening for it, and would refuse the press the price exists to charge for — the
+  thumb already coming down when the seat shouted, which is the spasm the whole wager is made of. **A
+  seat with no open catch window is the same case and worse**: a reloaded tab is told no windows at
+  all. Only the *armed* cue is a promise, and it rides `catchTarget`. `store.declaredSeats` survives
+  for `store.myDeclared`, our own seat's LOCO! chip, derived
   by `deriveCatchMiddleware` rather than written by an action. **`store.catchSpent` is
   the client's copy of `PlayEpoch`**, set by every press and cleared by `applyCardPlayed`; it
   suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
@@ -829,7 +837,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`GameOver.svelte`, `.emoteSlot`): a slot is drawn for every player whether or not that seat has
   said anything, `applyEmote` **replaces** what a seat was saying instead of adding to it, and the
   row marks the one that is ours. A feed that grew pushed the two offers and the way out down the
-  card once per thing anybody said, under the thumb already aiming for them.
+  card once per thing anybody said, under the thumb already aiming for them. **And the screen opens
+  quiet every time**: what was said belongs to the match it was said about, so all four doors clear
+  it — `applyMatchEnd`, `dismissRoundSummary`'s buffered end, `applyRematch`, and
+  `applyMatchFound` / `applySoloStarted`. The buffered end is the ordinary one and it is the one
+  that was missing, so the second match opened on the first one's congratulations.
 - **The evening's recap pins the two columns that answer it** (`GameOver.svelte`, `.recapName` and
   `.recapTotal` sticky): who, and matches taken. The match columns scroll between them, so a long
   evening never carries the conclusion off the right edge of a phone. Heads are `M%n`, the score
@@ -1023,6 +1035,16 @@ stated at the top of `styles/tokens.css`:
   padding, and 32px put the waiting room's heading under the gear.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
+- **Table news is one pill with three accents, and no arrow in any of them** (`GameView`'s `.notice`,
+  `.noticeSwap` / `.noticePenalty` / `.noticeDeparture`): a Swap or a Global Switch, a Contre-LOCO!
+  that came too late, a seat that is gone. All three wear the board's own chrome — plate, ink
+  outline, hard shadow, one type size — and differ by a coloured dot and the height they sit at. **A
+  saturated fill of its own belongs to the three moments allowed to shout** (LOCO!, the interception
+  slam, the catch stamp); anything quieter wearing one competes with them for the same glance.
+  **Centred with `inset-inline: 0` + `margin-inline: auto`, never `left: 50%`** — an absolute box
+  anchored at the midpoint is shrink-to-fit against the half of the screen to its right, and wraps
+  there whatever `max-width` says. **A direction is named in the ring's own words, never drawn as
+  `→`**: one glyph cannot mean the same thing to every chair around the table.
 - **The theme crosses, it does not cut, and one mechanism does it for the game and the pages alike**:
   `setTheme` arms `data-theme-anim` on `<html>` for `THEME_FADE_MS` / `--theme-fade`, and the rule
   behind it transitions **colour only**, over the whole document, for exactly that long. The boot
@@ -1034,8 +1056,8 @@ stated at the top of `styles/tokens.css`:
   match and go dead rather than away**: draw and pass used to be rendered only on our turn, which
   left one lone pill in a wide trough and pinched the bar's outline to a point at each end of it —
   little teeth that came and went with the turn. The penalty draw is the one recolour left, and it is
-  ours only. Three states: dead, pressable from two cards out and until every seat on one
-  card has called it (`components/catchAvailability.ts`), armed while a seat owes the call. **LOCO! is a small chip
+  ours only. Three states: dead, pressable from two cards out — on hand sizes alone, a declaration the
+  table heard included (`components/catchAvailability.ts`) — armed while a seat owes the call. **LOCO! is a small chip
   centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
   dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
   control found only in the two seconds it is worth pressing is a control nobody has ever aimed at.
@@ -1123,8 +1145,8 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
   A lock on a shared resource, not shared state. **Anything else added to that queue takes it too.**
 - **A fixture must state everything the assertion rests on.** `debug_set_state` sets only what it is
   given: pin `direction`, `pendingDraw: 0`, `currentTurn`, and the *colour* of a coloured card.
-- The **interrupt window is only armed by a real play**, so a successful-interrupt test must have
-  somebody actually play first; keep bots out of that scenario.
+- The **interrupt window is open from the deal and no fixture closes it**, so a test asserting a
+  refusal has to close it with a real draw or pass; keep bots out of any interrupt scenario.
 - Prefer `waitForFunction` on store state over DOM polling. Use `startTurnRecorder()` whenever a bot
   seat is involved. `waitForTableOpen` on every secondary page in a multi-client test.
 - **Update E2E in the same commit as gameplay/UI/protocol changes.**

@@ -374,7 +374,11 @@ func (h *Hub) maybeScheduleBotInterrupt(t *table) {
 		return
 	}
 	if room.State.LastPlayBy < 0 {
-		return // window already closed (round-winning play, draw, pass)
+		// No card was played onto this pile: either the window is closed
+		// (round-winning play, draw, pass) or the top card is the opening
+		// discard, which humans may slam and bots may not. game.BotInterrupt
+		// reads the same field for the same reason.
+		return
 	}
 	if len(t.bots) == 0 {
 		return

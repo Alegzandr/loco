@@ -38,6 +38,11 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       goneSeats: [],
       rematchOffers: [],
       rematchNeeded: 0,
+      // Said about the match that has just ended, and this message is how a
+      // matchmade rematch is dealt (server `startRematchedMatch`) — so without
+      // this the next game-over screen opened on the previous one's lines. The
+      // ordinary table's half of the same reset is in `applyRematch`.
+      emotes: [],
       errorMsg: '',
       matchFound: {
         opponentNickname: found.players.find((p) => p.index !== found.mySeat)?.nickname ?? '',
@@ -65,6 +70,9 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       goneSeats: [],
       rematchOffers: [],
       rematchNeeded: 0,
+      // Another hand against the server is another match: it starts as quiet as
+      // the queue's does.
+      emotes: [],
       errorMsg: '',
     }),
 
