@@ -936,10 +936,27 @@ remaining privilege on this screen is not having one.
 - Any seat sends `rematch`, every ask is broadcast as `rematch_offered`, and the next match is dealt
   only once `rematchQuorum` asks are in. **Every ask is public on purpose**: an ask nobody can see is
   an ask nobody answers, and the screen has to be able to say "they are waiting on you".
-- **The quorum is the connected humans** (`connectedMembers`). Bots are not asked, which is what
-  makes a solo-plus-bots table reopen on one press, and a seat inside its reconnect window is not
-  waited for either: it left a room that is already over, and holding everybody else there until a
-  timer expires is the one thing this screen must never do.
+- **The quorum is two** (`RematchQuorum`): one seat offers, another accepts, and that is two people
+  who want to keep playing. It used to be every connected human, which handed a table of five to
+  whoever was slowest to look at their screen — four ready, one silent, and the button read "waiting
+  on the table" until they answered or their socket dropped. Two is what a match needs in order to be
+  a match (`WalkOutFloor` says the same thing about one already running), so two is what it takes to
+  deal one. Below two connected the quorum is whoever is there, which is what makes a solo-plus-bots
+  table reopen on one press; bots are not asked, and a seat inside its reconnect window is not waited
+  for either — it left a room that is already over.
+- **Nobody is dropped by that.** `openRematchedLobby` reopens the room with everyone still sitting at
+  it, so a player who had not answered lands in the waiting room rather than out of the game, and the
+  deal is still the host's press. The quorum decides when the room reopens, never who is in it.
+- **The reopened table is hosted by somebody who asked for it** (`promoteRematchHost`, off
+  `rematchAskers` read *before* the prune and the reset re-base the seats). Two asks can easily reopen
+  a lobby seat 0 never asked for: the host said nothing, or they left mid-match and the prune took
+  their seat, or a bot slid into 0 behind them. Seat 0 owns the format, the size and the press that
+  starts the match, so leaving it there would be a room full of players who agreed to play again
+  waiting on the one who did not — the exact wait the quorum exists to end. The new host is the
+  **earliest-seated asker** (the earliest arrival, not whoever pressed first), moved with
+  `SwapLobbyPlayers` + `table.swapSeats` so the tokens travel with the players, exactly as
+  `transfer_host` does. `keepHostHuman` follows it, for the table where nobody who asked is still
+  there. Nothing moves in the ordinary case, where the host asked.
 - **`rematch_offered` carries the whole state, not the increment** (`broadcastRematchOffers`):
   `rematch_offers` plus `rematch_needed`. A departure re-bases seats, so an increment would leave
   every client holding a stale seat number and a count that never completes. The list is nullable on
@@ -952,7 +969,8 @@ remaining privilege on this screen is not having one.
   path, not the lobby one: another `match_found`, another reveal, and every screen, timer and gate
   downstream is the one both clients already went through. A matchmade rematch is a new match between
   the same two, not a room returning to a lobby this mode does not have. `openRematchedLobby` is the
-  ordinary table: prune the absent, `ResetForRematch`, `rematch_started` per recipient. Both do the
+  ordinary table: prune the absent, `ResetForRematch`, promote a host who asked, `rematch_started`
+  per recipient — which is per recipient partly for that promotion, since it moves two seats. Both do the
   same per-match cleanup, or the finished match's loading gate would keep the next one shut forever.
 - Refused in a **matchmade** room once the seat opposite is gone (`your opponent has left the
   table`): there is no lobby to wait in and nobody who can arrive. The client requeues that player

@@ -86,6 +86,13 @@ room's reset.
 - It rides `match_end` (the one message that opens the screen reading it) and every personalised
   `game_state` (so a reconnect mid-match still has the evening behind it), and it travels in the
   drain snapshot. Adding it to `roomSnapshot` is what bumped `SnapshotSchemaVersion` to 2.
+- **And it rides the `player_left` that re-bases the roster**, on all three paths that shrink it
+  (`releaseSeat`, `handlePlayerDisconnect`, and the expiry branch that removes the seat for real).
+  The screen reading it is already open by then: a seat going takes a column out of every row, and a
+  client that keeps the version from before draws each player the *next* player's evening. The
+  client cannot re-base it on its own — the column that went belongs to a seat that is in neither
+  roster — so the message that moved the seats carries the moved recap. The other `player_left`, the
+  mid-match expiry that names a seat, re-bases nothing and carries nothing.
 - The client draws it only past one record: a single column is the standings immediately above it,
   said twice (`hasEveningToShow`).
 
@@ -423,20 +430,22 @@ is never refused. This is what the domain does when the round carries on without
   them would be losing by it.
 
 ## Rematch (end of match)
-- **`rematch` is an ask every seat makes, not a host decision**, and the next match is dealt only
-  once every connected human has asked. The quorum, the broadcast (`rematch_offered`), what a
+- **`rematch` is an ask every seat makes, not a host decision**, and the next match is dealt as soon
+  as two asks are in — one offering, one accepting. The quorum, the broadcast (`rematch_offered`), what a
   departure does to a pending agreement and the two shapes the deal can take all live in
   `notes/server.md` ("A rematch by agreement"); what follows is the domain half alone.
 - Reopening a finished room as a lobby replies **per recipient** with
   `rematch_started { room_code, player_id, players, match_format, max_players }`.
 - `Room.ResetForRematch()` (`game/room.go`): requires `StatusFinished`. Clears `State`, `Winner`, `RoundEnded`, `MatchOver`, `MatchWinner`, `RoundNumber`, and nils `Scores`/`RoundsWon`/`LostHandTotal` (so `Start()` reallocates them sized to the roster present at that moment). Keeps `Players`, `Format`, `MaxPlayers`.
-- `hub.handleRematch` first calls `pruneAbsentPlayers` — drops every seat with no socket behind it that is not a bot (i.e. humans who never came back), high→low, through `table.dropSeat`, which re-bases the members, the surviving `Client.playerID`, the bot set and the session tokens together. **This is why `rematch_started` is per-recipient: playerIDs can shift.** Then `table.resetForNextMatch()` clears everything the finished match left, the map gate included.
+- `hub.handleRematch` first calls `pruneAbsentPlayers` — drops every seat with no socket behind it that is not a bot (i.e. humans who never came back), high→low, through `table.dropSeat`, which re-bases the members, the surviving `Client.playerID`, the bot set and the session tokens together. **This is why `rematch_started` is per-recipient: playerIDs can shift.** `promoteRematchHost` shifts two more when seat 0 is not one of the players who asked, and then `table.resetForNextMatch()` clears everything the finished match left, the map gate included.
 - **A finished room's roster is mutable, exactly like a lobby.** `RemoveLobbyPlayer` accepts `StatusFinished`, and `handleDisconnect` routes the finished-room case through `reindexLobbyDisconnect` (+ `player_left` broadcast). Without this a phantom player would be dealt a hand in the rematch.
 - Client: `applyRematch(myIndex, players, format, maxPlayers)` wipes all match state → `screen:'waiting'`, **the rematch asks included** (see `notes/client.md`: kept, they disable the button at the next game over). **Keeps `sessionToken`** (same room, still valid for reconnect during the next match). `App` adopts the server's `player_id`.
 - `store.setPlayers` re-resolves `myIndex` by matching our own nickname in the incoming roster. Server-side re-indexing (lobby or finished-room disconnect) otherwise leaves a stale index, so a promoted player would never get host controls — e.g. the host leaves the game-over screen and nobody can rematch. Nicknames are unique per room, so the match is unambiguous.
 - `GameOver` gives **every** seat the same button, in three states (ask / waiting / they asked
   first), driven by `rematchOffers` + `rematchNeeded` off `rematch_offered`. Past two seats it
-  carries the count (`rematchWaitingTable`); at two it does not (`rematchWaitingOpponent`). See
+  carries the count (`rematchWaitingTable`); at two it does not (`rematchWaitingOpponent`). **The
+  size of the table is read off the roster, not off the quorum**, which stops at two whatever the
+  size. See
   "The 1v1 queue on screen" in `notes/client.md`.
 - Bots survive a rematch. `nextBotName` scans for the lowest free `BotN` rather than counting seats, so the first bot is `Bot1` and a surviving bot can't cause a duplicate-nickname `Join` failure.
 

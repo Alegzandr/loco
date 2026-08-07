@@ -58,6 +58,9 @@ og: ## Regenerate the link preview (client/public/og.png, 1200x630) — commit t
 icons: ## Rasterise favicon.svg into the manifest icons + favicon.ico — commit the result
 	node tools/icons/shoot.mjs $(ARGS)
 
+cover: ## Regenerate the 600x800 game covers into brand/ (IGDB / Twitch box art) — commit the result
+	node tools/cover/shoot.mjs $(ARGS)
+
 maps: ## Re-encode map art into client/public/maps/ (needs ARGS="--src=<folder>")
 	node tools/maps/prepare.mjs $(ARGS)
 

@@ -404,12 +404,23 @@ rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcan
   the *scale*: the picture is drawn `1 / playfield.w` times the felt's width, so a table whose rim is
   wide in its own file is a table that runs off a 16:9 screen and takes the room with it. Neon sits
   at 1.17×, and past about 1.4× the board stops reading as a table in a room. **`rune` and `orbit`
-  buy that back**: their playfields are widened ~8% beyond the painted felt (1.53×/1.48× → 1.41×),
-  which is why the chevrons there sit on the inner lip rather than on the felt. Deliberate, and the
-  reason not to "correct" those two back onto the felt by eye. A table drawn nearly face-on cannot
-  do better: the ellipse is fixed, so the art is squashed to meet it (rune 0.89×, orbit 0.82×) and
-  no number here changes that — **new table art wants a felt at 78–85% of the file's width and
-  roughly 0.40 as tall as it is wide.**
+  buy that back**: their playfields are widened beyond the painted felt (~8% and ~20%, 1.53×/1.48× →
+  1.41×/1.27×), which is why the chevrons there sit on the inner lip rather than on the felt.
+  Deliberate, and the reason not to "correct" those two back onto the felt by eye.
+- **The third number decides whether a table is an object at all, and it is the box's own aspect.**
+  The image is drawn with `object-fit: fill`, so a playfield whose aspect is not the felt's — 2.18:1
+  on a desktop — stretches the whole table by exactly the difference, and the *sign* of it is what
+  matters. Drawn taller than it was rendered, a table gains apparent height and reads as something
+  standing in the room: velvet is drawn 1.67× taller and is the deepest of the four, neon 1.14×.
+  Drawn flatter, it loses the one cue saying it is not painted on the floor — which is what `orbit`
+  did at 0.82×, its platform being the only one shot from high above (1.78 against velvet's 3.64).
+  **So `orbit`'s box is the 2.18 rectangle inscribed in that platform, not the platform's outline**:
+  1.00×, undistorted, and 1.27× rather than 1.41× into the bargain. The felt no longer reaches the
+  painted surface top and bottom, which costs nothing — the piles sit at the centre and the chevrons
+  are inset anyway. Rune's 0.89× is the floor and stays there, its carved frame being thick enough
+  to carry the depth its surface loses; `maps.test.ts` reads the shipped `.webp` headers and fails
+  under it. **New table art wants a felt at 78–85% of the file's width and roughly 0.40 as tall as
+  it is wide** — art drawn to that needs none of this.
 - **A map is tried before it is submitted, not after** (`tools/maps/scene-tester.html`). Measuring a
   `playfield` means seeing the felt land on the picture, and until this existed the loop was: guess
   four numbers, add a scene, run `make maps`, run `make visual`, read a screenshot, guess again. A

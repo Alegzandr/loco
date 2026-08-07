@@ -268,6 +268,7 @@
     onPlayBot={() => playBot(myNickname)}
     onEmote={(emote) => handleSend({ type: 'send_emote', emote })}
     forfeitBy={g.forfeitBy}
+    forfeitedByMe={g.forfeitedByMe}
     mySeat={g.myIndex}
     rematchOffers={g.rematchOffers}
     rematchNeeded={g.rematchNeeded}

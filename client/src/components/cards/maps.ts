@@ -27,6 +27,15 @@ export type MapId = 'neon' | 'rune' | 'velvet' | 'orbit'
  *
  * Get these wrong and nothing crashes: the cards simply stop sitting on the
  * table, and the direction chevrons drift off the felt onto the rim.
+ *
+ * The box is *not* always the painted surface's outline. `tableRect()` is a
+ * fixed 2.18:1 ellipse on a desktop and the image is drawn with `object-fit:
+ * fill`, so a box whose own aspect is not 2.18 distorts the whole table — and a
+ * disc photographed from above, squashed to a wide ellipse, stops reading as an
+ * object and reads as a decal on the floor. So the rectangle is chosen at that
+ * aspect where the art asks for it (`orbit`), which trades a felt that hugs the
+ * painted surface for a table drawn in the proportions it was rendered in. See
+ * `docs/notes/visual.md`.
  */
 export interface Playfield {
   /** Left edge of the playing surface, 0–1 of the image width. */
@@ -90,7 +99,7 @@ export const MAPS: Record<MapId, MapDef> = {
     id: 'orbit',
     room: '/maps/orbit/room.webp',
     table: '/maps/orbit/table.webp',
-    playfield: { x: 0.152, y: 0.1, w: 0.711, h: 0.615 },
+    playfield: { x: 0.114, y: 0.129, w: 0.787, h: 0.557 },
     accent: '#4fd6ff',
     accentDeep: '#123a63',
   },

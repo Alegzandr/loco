@@ -190,6 +190,38 @@ describe('matchmaking store transitions', () => {
   it('leaves forfeitBy null for a match that ended on the cards', () => {
     gameStore.getState().applyMatchEnd('Alice', [], [])
     expect(gameStore.getState().forfeitBy).toBeNull()
+    expect(gameStore.getState().forfeitedByMe).toBe(false)
+  })
+
+  // The seat that stayed is re-based onto the seat that left the moment the
+  // roster shrinks, so an index is only an answer while the message that carried
+  // it is the newest thing on the wire. Answer it there, and the screen survives
+  // the departure that opened it.
+  it('answers whose forfeit it was before the roster can re-base', () => {
+    const players = [
+      { index: 0, nickname: 'Alice', hand_size: 3, connected: true },
+      { index: 1, nickname: 'Bob', hand_size: 5, connected: true },
+    ]
+    gameStore.setState({ myIndex: 1, players })
+    gameStore.getState().applyMatchEnd('Bob', [], [], 0)
+    expect(gameStore.getState().forfeitedByMe).toBe(false)
+
+    // Alice is gone: Bob is seat 0 now, which is the seat the forfeit named.
+    gameStore.getState().setPlayers([{ index: 0, nickname: 'Bob', hand_size: 5, connected: true }])
+    const s = gameStore.getState()
+    expect(s.myIndex).toBe(0)
+    expect(s.forfeitBy).toBe(0)
+    expect(s.forfeitedByMe).toBe(false)
+  })
+
+  // The recap is indexed by seat too, and the client cannot re-base it on its
+  // own: the column that went belonged to a player who is in neither roster.
+  it('takes the re-based recap from the message that re-based the roster', () => {
+    gameStore.getState().applyMatchEnd('Bob', [], [{ rounds_won: [0, 1], scores: [12, 40], winner_index: 1 }], 0)
+    gameStore.getState().setMatchHistory([{ rounds_won: [1], scores: [40], winner_index: 0 }])
+    expect(gameStore.getState().matchHistory).toEqual([
+      { rounds_won: [1], scores: [40], winner_index: 0 },
+    ])
   })
 
   // Only a deadline makes the banner worth showing: an ordinary room sends none
@@ -223,7 +255,7 @@ describe('matchmaking store transitions', () => {
 describe('GameOver after a forfeit', () => {
   it('tells the survivor the opponent left instead of celebrating a win', () => {
     render(
-      GameOver, { winner: "Alice", myNickname: "Alice", scoreboard: [], matchOver: true, isMatchmade: true, forfeitBy: 1, mySeat: 0, onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() },
+      GameOver, { winner: "Alice", myNickname: "Alice", scoreboard: [], matchOver: true, isMatchmade: true, forfeitBy: 1, forfeitedByMe: false, mySeat: 0, onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() },
     )
     expect(screen.getByText(en.forfeitWon)).toBeInTheDocument()
     expect(screen.getByText(en.forfeitWonSub)).toBeInTheDocument()
@@ -232,9 +264,21 @@ describe('GameOver after a forfeit', () => {
 
   it('tells the player who walked that they walked', () => {
     render(
-      GameOver, { winner: "Bob", myNickname: "Alice", scoreboard: [], matchOver: true, isMatchmade: true, forfeitBy: 0, mySeat: 0, onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() },
+      GameOver, { winner: "Bob", myNickname: "Alice", scoreboard: [], matchOver: true, isMatchmade: true, forfeitBy: 0, forfeitedByMe: true, mySeat: 0, onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() },
     )
     expect(screen.getByText(en.forfeitYouLeft)).toBeInTheDocument()
+  })
+
+  // The bug this pins: a two-seat table whose host walks out re-bases the player
+  // who stayed onto seat 0 — the very seat the forfeit named — and the screen
+  // congratulated them by telling them they had left. The seat is not the
+  // answer; the answer was taken when the message arrived.
+  it('does not read the survivor as the leaver once the seats have re-based', () => {
+    render(
+      GameOver, { winner: "Bob", myNickname: "Bob", scoreboard: [], matchOver: true, forfeitBy: 0, forfeitedByMe: false, mySeat: 0, onRematch: vi.fn(), onFindMatch: vi.fn(), onLeave: vi.fn() },
+    )
+    expect(screen.getByText(en.forfeitWon)).toBeInTheDocument()
+    expect(screen.queryByText(en.forfeitYouLeft)).not.toBeInTheDocument()
   })
 
   // A matchmade rematch is an agreement, so the screen offers both: ask this

@@ -34,6 +34,7 @@
   import ServerUpdating from './ServerUpdating.svelte'
   import { resolveSwapNoticeText } from './swapNoticeText'
   import { isCatchLive } from './catchAvailability'
+  import { formatRounds } from './matchLengthModel'
   import { e2ePlayCard } from '../dev/e2eBridge.svelte'
 
   type Props = {
@@ -292,6 +293,13 @@
   // Preload the room's art while the table is shut, and tell the server the
   // moment we are in. See hooks/gamePlay.svelte.ts.
   const preload = mapGate(() => map, () => gateOpen, onSend)
+
+  // Past the format: the server's tiebreak chain separated nobody, so it dealt
+  // one more round. The chip says which round it is, and there is no honest
+  // number for this one — "round 4 · BO3" reads as a counter that has come
+  // loose, at the point of the match where the player most needs to know why
+  // they are still playing.
+  const decisiveRound = $derived(g.roundNumber > formatRounds(g.matchFormat))
 
   const fxTexts = $derived({ skip: t.fxSkip, reverse: t.fxReverse, colors: t.fxColors })
   const turnTexts = $derived({
@@ -605,6 +613,7 @@
       scoreboard={g.scoreboard}
       matchFormat={g.matchFormat}
       summaryCountdown={summary.current}
+      matchOverPending={g.pendingMatchEnd !== null}
       onDismiss={() => g.dismissRoundSummary()}
       {t}
     />
@@ -672,8 +681,10 @@
     </div>
   {/if}
 
-  {#if g.matchFormat !== 'BO1'}
-    <div class="roundIndicator">{t.round} {g.roundNumber} · {g.matchFormat}</div>
+  {#if g.matchFormat !== 'BO1' || decisiveRound}
+    <div class="roundIndicator" class:roundIndicatorDecisive={decisiveRound}>
+      {#if decisiveRound}{t.decisiveRound}{:else}{t.round} {g.roundNumber} · {g.matchFormat}{/if}
+    </div>
   {/if}
 
   {#if showRules}
@@ -1184,6 +1195,15 @@
     text-transform: uppercase;
     pointer-events: none;
     z-index: 15;
+  }
+
+  /* Gold, the hue the scoreboard already wins in, and dark ink on it: white on
+     LOCO Red is 3.43:1 and this chip is 13px, so the accent cannot be the red.
+     A spectator has to be able to tell a decisive round from an ordinary one
+     at 720p without reading the chip. */
+  .roundIndicatorDecisive {
+    background: var(--gradient-secondary);
+    color: var(--color-on-secondary);
   }
 
   @keyframes fadeIn {

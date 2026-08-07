@@ -64,6 +64,7 @@ export const initialState: GameState = {
   isSolo: false,
   tableStreamer: false,
   forfeitBy: null,
+  forfeitedByMe: false,
   opponentAway: null,
   goneSeats: [],
   departureNotice: null,

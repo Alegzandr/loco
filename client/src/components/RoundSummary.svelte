@@ -2,19 +2,7 @@
   import type { RoundScoreEntry } from '../hooks/gameStore'
   import type { ScoreboardEntryDTO, MatchFormat } from '../types/protocol'
   import type { Translations } from '../i18n/en'
-
-  function matchFormatRounds(fmt: string): number {
-    switch (fmt) {
-      case 'BO3':
-        return 3
-      case 'BO5':
-        return 5
-      case 'BO7':
-        return 7
-      default:
-        return 1
-    }
-  }
+  import { formatRounds } from './matchLengthModel'
 
   function placementSuffix(rank: number, tr: Translations): string {
     if (rank === 1) return tr.ord1
@@ -30,6 +18,13 @@
     scoreboard: ScoreboardEntryDTO[]
     matchFormat: MatchFormat
     summaryCountdown: number
+    /**
+     * The match is over and its payload is buffered behind this summary. It is
+     * how the card tells "the format ran out and somebody won" from "the format
+     * ran out and nothing separates the table", which is the whole difference
+     * between the last round and a decisive one.
+     */
+    matchOverPending: boolean
     onDismiss: () => void
     t: Translations
   }
@@ -41,11 +36,21 @@
     scoreboard,
     matchFormat,
     summaryCountdown,
+    matchOverPending,
     onDismiss,
     t,
   }: Props = $props()
 
-  const matchRoundsNeeded = $derived(matchFormatRounds(matchFormat))
+  const matchRoundsNeeded = $derived(formatRounds(matchFormat))
+
+  // The round that just ended was itself a decisive one: past the format, so it
+  // has no number the format can name. "Round 4 of 3" is a broken counter.
+  const wasDecisive = $derived(roundNumber > matchRoundsNeeded)
+
+  // And the next one is decisive whenever the format has run out with the match
+  // still running: the server only deals past the format when its whole
+  // tiebreak chain — rounds won, points, lost-hand total — separated nobody.
+  const nextIsDecisive = $derived(roundNumber >= matchRoundsNeeded && !matchOverPending)
 
   // Sort by round_points descending to show placements; ties broken by cumulative score
   const sorted = $derived(
@@ -65,9 +70,14 @@
 <div class="roundSummary">
   <div class="roundSummaryCard">
     <div class="roundSummaryTitle">
-      {t.round}
-      {roundNumber}{matchRoundsNeeded > 1 ? ` ${t.of} ${matchRoundsNeeded}` : ''}
-      {t.complete}
+      {#if wasDecisive}
+        {t.decisiveRound}
+        {t.complete}
+      {:else}
+        {t.round}
+        {roundNumber}{matchRoundsNeeded > 1 ? ` ${t.of} ${matchRoundsNeeded}` : ''}
+        {t.complete}
+      {/if}
     </div>
     <div class="roundSummaryWinner">
       🏆 {roundWinner} {t.winsRound}
@@ -110,6 +120,13 @@
             </div>
           {/each}
         </div>
+      </div>
+    {/if}
+
+    {#if nextIsDecisive}
+      <div class="decisiveNext">
+        <span class="decisiveLabel">{t.decisiveRound}</span>
+        <span class="decisiveWhy">{t.decisiveRoundWhy}</span>
       </div>
     {/if}
 
@@ -320,6 +337,52 @@
     color: var(--color-muted);
   }
 
+  /* The format ran out and the match is still running. It is announced next to
+     the button that goes there, not up in the title: the title says what just
+     happened, this says what happens now.
+
+     **It fades in on a delay, and the delay is the point.** `round_ended` and
+     `match_end` are two messages, so the card is composed and can be painted
+     before the second one lands: without the delay an ordinary final round
+     shows "decisive round" for a frame before the match-end payload arrives and
+     takes it away. A third of a second costs a real decisive round nothing and
+     is longer than any gap between two messages off the same socket read. */
+  .decisiveNext {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-surface-strong);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-md);
+    text-align: center;
+    animation: decisiveIn 0.3s var(--ease-out) 0.35s both;
+  }
+
+  @keyframes decisiveIn {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .decisiveLabel {
+    font: 700 15px/1.2 var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-primary);
+  }
+
+  .decisiveWhy {
+    font: 600 13px/1.35 var(--font-body);
+    color: var(--color-body);
+  }
+
   .btnContinue {
     width: 100%;
     padding: 13px 24px;
@@ -360,5 +423,13 @@
   :root[data-motion="reduce"] .roundSummary,
   :root[data-motion="reduce"] .roundSummaryCard {
     animation: none;
+  }
+
+  /* The band keeps its delay under reduced motion: it is not decoration, it is
+     what stops a final round from being labelled decisive for a frame. Only the
+     movement goes. */
+  :root[data-motion="reduce"] .decisiveNext {
+    animation: decisiveIn 0.01s linear 0.35s both;
+    transform: none;
   }
 </style>

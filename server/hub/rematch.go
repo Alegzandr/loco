@@ -1,5 +1,5 @@
-// Rematch is an ask, not a decision: every seat gets the same button and the
-// next match is dealt only once every connected human has asked.
+// Rematch is an ask, not a decision: every seat gets the same button, and two
+// asks — one player offering, another accepting — deal the next match.
 package hub
 
 import (
@@ -10,8 +10,8 @@ import (
 	"loco/server/protocol"
 )
 
-// handleRematch records this seat's ask for another match, and deals one once
-// everybody still at the table has asked.
+// handleRematch records this seat's ask for another match, and deals one as
+// soon as RematchQuorum asks are in.
 //
 // It used to be the host's decision, and it is an agreement in every room now,
 // for the reason it already was one between two strangers: nobody at a table
@@ -66,15 +66,34 @@ func (h *Hub) handleRematch(t *table, c *Client, msg protocol.ClientMsg) {
 	h.dealAgreedRematch(t)
 }
 
-// rematchQuorum is how many asks it takes: every human still connected to the
-// table. Bots are not asked, and a seat inside its reconnect window is not
-// waited for — it left a room that is over, and holding the others there until
-// a timer expires would be the one thing this screen must never do.
+// RematchQuorum is how many asks deal the next match: one offers, another
+// accepts, and that is two people who want to keep playing.
+//
+// It used to be every human still connected, which at a table of five handed
+// the evening to whoever was slowest to look at their screen: four players
+// ready, one silent, and the button read "waiting on the table" until they
+// answered or their socket dropped. Two is what a match needs in order to be a
+// match — WalkOutFloor says the same thing about one already running — so two
+// is what it takes to deal one. **Nobody is left out by it**: an ordinary table
+// reopens as its lobby with everybody still sitting at it, so the players who
+// had not answered are in the waiting room rather than out of the game, and the
+// deal is still the host's press.
+const RematchQuorum = 2
+
+// rematchQuorum is how many asks it takes at this table: two, or everybody
+// there is when the table is smaller than that. Bots are not asked, and a seat
+// inside its reconnect window is not waited for — it left a room that is over,
+// and holding the others there until a timer expires would be the one thing
+// this screen must never do.
 func (t *table) rematchQuorum() int {
-	if n := t.connected(); n > 0 {
+	n := t.connected()
+	if n < 1 {
+		return 1
+	}
+	if n < RematchQuorum {
 		return n
 	}
-	return 1
+	return RematchQuorum
 }
 
 // broadcastRematchOffers publishes the whole offer state. The list travels
@@ -114,12 +133,20 @@ func (h *Hub) dealAgreedRematch(t *table) {
 // match is dealt only to people who are actually present.
 func (h *Hub) openRematchedLobby(t *table) {
 	code, room := t.code, t.room
+	// Read before the prune and before the reset, both of which re-base the
+	// seats these asks are keyed by: what the promotion below needs is the
+	// people who asked, not the seat numbers they had when they pressed.
+	askers := t.rematchAskers()
 	h.pruneAbsentPlayers(t)
 
 	if err := room.ResetForRematch(); err != nil {
 		log.Printf("WARN rematch reset failed code=%s err=%v", code, err)
 		return
 	}
+	h.promoteRematchHost(t, askers)
+	// The prune can slide a bot into seat 0 on its own when nobody who asked is
+	// still here, and the host must be somebody who can press start.
+	h.keepHostHuman(t)
 	t.resetForNextMatch()
 
 	log.Printf("rematch opened code=%s players=%d format=%s",
@@ -139,6 +166,66 @@ func (h *Hub) openRematchedLobby(t *table) {
 			MatchFormat: matchFormatString(room.Format),
 			MaxPlayers:  room.MaxPlayers,
 		})
+	}
+}
+
+// rematchAskers is the sockets behind the current asks, in seat order — which
+// at a table is the order they arrived in. Seats with nobody behind them are
+// left out: an ask whose socket has gone cannot host anything.
+func (t *table) rematchAskers() []*Client {
+	seats := make([]int, 0, len(t.rematchOffers))
+	for id := range t.rematchOffers {
+		seats = append(seats, id)
+	}
+	sort.Ints(seats)
+	askers := make([]*Client, 0, len(seats))
+	for _, id := range seats {
+		if c := t.client(id); c != nil {
+			askers = append(askers, c)
+		}
+	}
+	return askers
+}
+
+// promoteRematchHost hands the reopened table to somebody who asked for it.
+//
+// Two asks deal a match now, so the lobby that reopens is easily one seat 0
+// never asked for: the host said nothing, or they left mid-match and the prune
+// took their seat, or what slid into 0 behind them is a bot. Seat 0 owns the
+// format, the size and the press that starts the match, so leaving it there is
+// a room full of players who agreed to play again waiting on the one person who
+// did not — the exact wait this quorum exists to end.
+//
+// The new host is the earliest-seated asker, so the badge lands on whoever has
+// been at this table longest rather than on whoever happened to press first.
+// Nothing moves when the host asked, which is the ordinary case.
+func (h *Hub) promoteRematchHost(t *table, askers []*Client) {
+	room := t.room
+	if len(room.Players) == 0 {
+		return
+	}
+	if host := t.client(0); host != nil && !t.isBot(0) {
+		for _, c := range askers {
+			if c == host {
+				return
+			}
+		}
+	}
+	for _, c := range askers {
+		seat := c.playerID()
+		if seat <= 0 || seat >= len(room.Players) || t.isBot(seat) {
+			continue
+		}
+		nickname := room.Players[seat].Nickname
+		if err := room.SwapLobbyPlayers(0, seat); err != nil {
+			log.Printf("WARN rematch host promotion failed code=%s seat=%d err=%v", t.code, seat, err)
+			return
+		}
+		// The seat-keyed halves move together, tokens included, exactly as they
+		// do for transfer_host: the players are swapped, not renamed.
+		t.swapSeats(0, seat)
+		log.Printf("rematch host promoted code=%s seat=%d nickname=%s", t.code, seat, nickname)
+		return
 	}
 }
 

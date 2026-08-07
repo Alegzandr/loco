@@ -3,6 +3,27 @@ import { MAPS, MAP_IDS, resolveMap, mapAssets, MapId } from '../components/cards
 import { tableImageRect, tableRect } from '../components/cards/layout'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+/**
+ * Canvas size of a shipped `.webp`, read off its VP8X chunk.
+ *
+ * The distortion a playfield costs is a ratio of *pixels*, so the numbers in
+ * `maps.ts` mean nothing without the file they were measured against. Reading
+ * the real asset is what makes the assertion below a check rather than a second
+ * copy of the same four fractions: replace the art with a differently-shaped
+ * render and it fails, which is the case that would otherwise ship unnoticed.
+ *
+ * `make maps` writes an extended-format file for every table (it carries an
+ * alpha channel), so VP8X is the only header shape here.
+ */
+function webpSize(publicPath: string): { width: number; height: number } {
+  const buf = readFileSync(resolve(__dirname, '../../public', publicPath.replace(/^\//, '')))
+  const at = buf.indexOf('VP8X')
+  if (at < 0) throw new Error(`${publicPath}: not an extended WebP`)
+  return { width: buf.readUIntLE(at + 12, 3) + 1, height: buf.readUIntLE(at + 15, 3) + 1 }
+}
 
 describe('map registry', () => {
   it('ships art paths for every registered map', () => {
@@ -36,6 +57,42 @@ describe('map registry', () => {
       const { w, h } = MAPS[id].playfield
       expect(w).toBeGreaterThan(h)
     }
+  })
+
+  // The picture is drawn with `object-fit: fill` into the box `tableImageRect()`
+  // solves for, so a playfield whose own aspect differs from the felt's stretches
+  // the whole table by exactly that difference — and the sign of it decides
+  // whether the table is an object. Drawn taller than it was rendered, a table
+  // gains apparent height and reads as something standing in the room (velvet
+  // 1.67×, neon 1.14×). Drawn flatter, it loses the one thing telling the eye it
+  // is not painted on the floor, which is exactly what `orbit` did at 0.82×.
+  // See docs/notes/visual.md.
+  // Rune sits on this floor, and it is the loosest a table has read as one: its
+  // carved frame is thick enough to carry the depth its surface loses. Nothing
+  // new goes under it, and a new map has no business near it at all.
+  const MIN_SQUASH = 0.88
+  it('never draws a table flatter than it was rendered', () => {
+    const felt = tableRect(1920, 1080)
+    for (const id of MAP_IDS) {
+      const { width: fileW, height: fileH } = webpSize(MAPS[id].table)
+      const { w, h } = MAPS[id].playfield
+      // How much taller the art is drawn than it was rendered: 1 = untouched.
+      const squash = (felt.height / (h * fileH)) / (felt.width / (w * fileW))
+      expect(squash, `${id} squash ${squash.toFixed(3)}`).toBeGreaterThanOrEqual(MIN_SQUASH)
+    }
+  })
+
+  // The floor above is rune's own value, so it alone would let orbit drift back
+  // to the platform's outline — the measurement that made it flat — without
+  // failing. Its box is the felt-shaped rectangle inscribed in that platform,
+  // and that is the whole point of it.
+  it('keeps orbit undistorted', () => {
+    const felt = tableRect(1920, 1080)
+    const { width: fileW, height: fileH } = webpSize(MAPS.orbit.table)
+    const { w, h } = MAPS.orbit.playfield
+    const squash = (felt.height / (h * fileH)) / (felt.width / (w * fileW))
+    expect(squash).toBeGreaterThan(0.98)
+    expect(squash).toBeLessThan(1.02)
   })
 
   it('resolves known ids and falls back to null for everything else', () => {

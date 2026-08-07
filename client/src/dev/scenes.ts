@@ -133,6 +133,7 @@ export interface Scene {
     | 'tabtaken'
     | 'cards'
     | 'og'
+    | 'cover'
   /**
    * Store patch applied before mounting. `deadlineIn`/`unoIn` are relative so
    * captures stay stable regardless of when they run.
@@ -169,6 +170,8 @@ export interface Scene {
   audioOpen?: boolean
   /** Which link preview to draw: the site's, or a table invitation's. */
   ogVariant?: 'default' | 'invite'
+  /** Which cut of the 600×800 game cover to draw. */
+  coverVariant?: 'duck' | 'fan' | 'mark'
   /** Colour assist: every suit also carries its silhouette. */
   colorAssist?: boolean
   /** One tab at a time: whether the tab holding the game is at a table. It is
@@ -225,6 +228,33 @@ export const SCENES: Scene[] = [
     title: 'Aperçu de lien — invitation',
     screen: 'og',
     ogVariant: 'invite',
+  },
+  {
+    // The 600×800 game cover, uploaded to IGDB and drawn by Twitch as the
+    // category's box art. Captured by `tools/cover/shoot.mjs` into `brand/`.
+    //
+    // Three cuts rather than one because the pick is a judgement made by
+    // looking, and because the size that decides it is not the size it is
+    // reviewed at: a category is picked out of a sidebar at about 40px wide.
+    // They live in the registry so a change to the mark or to a card face is
+    // seen here too — this art is uploaded to a third party, where nothing in
+    // this repository can watch it go stale.
+    id: 'cover-duck',
+    title: 'Cover · marque + main',
+    screen: 'cover',
+    coverVariant: 'duck',
+  },
+  {
+    id: 'cover-fan',
+    title: 'Cover · main large',
+    screen: 'cover',
+    coverVariant: 'fan',
+  },
+  {
+    id: 'cover-mark',
+    title: 'Cover · marque seule',
+    screen: 'cover',
+    coverVariant: 'mark',
   },
   {
     id: 'lobby-home',
@@ -895,6 +925,24 @@ export const SCENES: Scene[] = [
     },
   },
   {
+    // The format ran out and nothing separated the table, so the server dealt
+    // one more. Two things to look at: the card announces the extra round next
+    // to the button that goes there, and the chip top-left says "decisive
+    // round" instead of counting past the format.
+    id: 'round-summary-decisive',
+    title: 'Fin de manche · décisive',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      matchFormat: 'BO3' as const,
+      roundNumber: 3,
+      showRoundSummary: true,
+      roundWinner: 'Nova',
+      roundNumber_completed: 3,
+      roundScores: ROUND_SCORES,
+    },
+  },
+  {
     id: 'gameover-win',
     title: 'Fin de match · victoire',
     screen: 'gameover',
@@ -1010,6 +1058,7 @@ export const SCENES: Scene[] = [
       matchOver: true,
       isMatchmade: true,
       forfeitBy: 1,
+      forfeitedByMe: false,
       scoreboard: SCOREBOARD.slice(0, 2),
       players: PLAYERS_4.slice(0, 2),
       myIndex: 0,
@@ -1024,6 +1073,7 @@ export const SCENES: Scene[] = [
       matchOver: true,
       isMatchmade: true,
       forfeitBy: 0,
+      forfeitedByMe: true,
       scoreboard: SCOREBOARD.slice(0, 2),
       players: PLAYERS_4.slice(0, 2),
       myIndex: 0,

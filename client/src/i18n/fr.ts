@@ -208,6 +208,8 @@ export const fr: Translations = {
   of: 'sur',
   complete: 'pliée',
   winsRound: 'rafle la manche\u00a0!',
+  decisiveRound: 'Manche décisive',
+  decisiveRoundWhy: 'Rien ne sépare la table. On remet une manche.',
   player: 'Joueur',
   // Colonnes de 40px dans RoundSummary : « Position » et « Victoires »
   // débordaient sur leurs voisines dès 320px de large. Le rang se lit déjà dans

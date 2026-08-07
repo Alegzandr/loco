@@ -22,11 +22,18 @@
     isSolo?: boolean
     /** The seat that abandoned, or null when the match ended on the cards. */
     forfeitBy?: number | null
-    /** Our own seat, so we know which side of a forfeit we are on. */
+    /**
+     * Which side of that forfeit we are on. A boolean rather than
+     * `forfeitBy === mySeat`, because the departure re-bases the seats a beat
+     * after this screen opens: the store answers it while the two indices still
+     * name the players the message was written about. See store `forfeitedByMe`.
+     */
+    forfeitedByMe?: boolean
+    /** Our own seat, for the emote row and our own rematch ask. */
     mySeat?: number
     /** Seats that have asked for another match. */
     rematchOffers?: number[]
-    /** How many asks deal it: everybody still at the table. 0 before the first. */
+    /** How many asks deal it: two, or the whole table below that. 0 before the first. */
     rematchNeeded?: number
     /** True while somebody else is still at the table to agree with. */
     hasTablemates?: boolean
@@ -52,6 +59,7 @@
     isMatchmade,
     isSolo,
     forfeitBy,
+    forfeitedByMe,
     mySeat,
     rematchOffers = [],
     rematchNeeded = 0,
@@ -70,7 +78,7 @@
   // player who left is told plainly that they left, which is the honest reading
   // of a match they ended themselves.
   const isForfeit = $derived(typeof forfeitBy === 'number' && forfeitBy >= 0)
-  const iForfeited = $derived(isForfeit && forfeitBy === mySeat)
+  const iForfeited = $derived(isForfeit && forfeitedByMe === true)
   const iOffered = $derived(typeof mySeat === 'number' && rematchOffers.includes(mySeat))
   const theyOffered = $derived(rematchOffers.some((seat) => seat !== mySeat))
   // Nobody is asked to agree with an empty table. A matchmade one requeues
@@ -80,7 +88,11 @@
   const canRematch = $derived(!isForfeit && hasTablemates)
   // Past two seats "waiting on them" names nobody, and the count is the only
   // thing that says how far off the next match is. At two it would be noise.
-  const isTable = $derived(rematchNeeded > 2)
+  //
+  // Read off the roster rather than off `rematchNeeded`: two asks deal the next
+  // match at any size (server `RematchQuorum`), so the quorum stopped being able
+  // to say how big the table is the moment it stopped counting the table.
+  const isTable = $derived(players.length > 2)
   const progress = $derived(
     isTable ? ` ${t.rematchProgress(rematchOffers.length, rematchNeeded)}` : '',
   )
