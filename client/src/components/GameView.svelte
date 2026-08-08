@@ -33,7 +33,6 @@
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { resolveSwapNoticeText } from './swapNoticeText'
-  import { isCatchLive } from './catchAvailability'
   import { formatRounds } from './matchLengthModel'
   import { e2ePlayCard } from '../dev/e2eBridge.svelte'
 
@@ -214,9 +213,10 @@
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
   // Whether the centre button is pressable at all — a looser question than
   // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
-  // Hand sizes and our own seat, and nothing else: a declaration the table has
-  // heard must not reach this, or the bar would be reporting it.
-  const catchLive = $derived(isCatchLive(g.players, g.myIndex))
+  // The store owns it, latch and all, so no screen may narrow it on the way to
+  // the bar: a declaration the table has heard and a seat that drew out of reach
+  // are both things the bar would be reporting if it answered them.
+  const catchLive = $derived(g.catchLive)
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
   drainBar(() => turnFill, () => turnDeadline, 'auto')

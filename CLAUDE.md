@@ -633,13 +633,24 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   away, so a miss is the thumb that had committed when the seat drew instead; from three it needs an
   interject of two identical cards, which is a long stretch of round where the press can only lose,
   and a loss a player can schedule is a card drawn on purpose for a Swap to hand on. **Hand sizes and
-  our own seat decide it, and nothing else may** — a declaration the table has heard least of all
-  (`isCatchLive` does not take `declaredSeats`). The button says a seat is near the finish, never that
-  somebody is catchable: going dead when the last opponent calls it would **report that call** to a
-  player who was not listening for it, and would refuse the press the price exists to charge for — the
-  thumb already coming down when the seat shouted, which is the spasm the whole wager is made of. **A
-  seat with no open catch window is the same case and worse**: a reloaded tab is told no windows at
-  all. Only the *armed* cue is a promise, and it rides `catchTarget`. `store.declaredSeats` survives
+  our own seat decide when it wakes up, and nothing else may** — a declaration the table has heard
+  least of all (`isCatchLive` does not take `declaredSeats`). The button says a seat is near the
+  finish, never that somebody is catchable: going dead when the last opponent calls it would **report
+  that call** to a player who was not listening for it, and would refuse the press the price exists to
+  charge for — the thumb already coming down when the seat shouted, which is the spasm the whole wager
+  is made of. **A seat with no open catch window is the same case and worse**: a reloaded tab is told
+  no windows at all. Only the *armed* cue is a promise, and it rides `catchTarget`.
+- **And once awake it does not go dead until a card is played** (`nextCatchLive`, `store.catchLive`,
+  latched by `deriveCatchMiddleware`). A seat leaves the button's reach in four ways and **not one of
+  them is a card**: it calls LOCO!, it draws, it swallows a stack of four, or a Contre-LOCO! lands on
+  it and its hand grows by two. Each is the exact instant somebody betting on that seat has already
+  committed, so a control that retracted there would be **making the read for them**, and making it
+  in their favour — the interface deciding a wager is the same failure as the interface announcing a
+  call. **The bound is the next card played**: it puts the latch down and the roster is read again
+  from scratch, so the offer belongs to one board and is never carried to the next — which is what
+  stops it being held open and farmed a card at a time for a Swap to hand on. Only two things lower
+  it, `applyCardPlayed` and `applyGameState`, and a snapshot is authoritative when it arrives like
+  every other snapshot here. `store.declaredSeats` survives
   for `store.myDeclared`, our own seat's LOCO! chip, derived
   by `deriveCatchMiddleware` rather than written by an action. **`store.catchSpent` is
   the client's copy of `PlayEpoch`**, set by every press and cleared by `applyCardPlayed`; it
@@ -1060,7 +1071,8 @@ stated at the top of `styles/tokens.css`:
   left one lone pill in a wide trough and pinched the bar's outline to a point at each end of it —
   little teeth that came and went with the turn. The penalty draw is the one recolour left, and it is
   ours only. Three states: dead, pressable from two cards out — on hand sizes alone, a declaration the
-  table heard included (`components/catchAvailability.ts`) — armed while a seat owes the call. **LOCO! is a small chip
+  table heard included, and **then held pressable until a card is played, whatever the seat does to
+  escape** (`components/catchAvailability.ts`) — armed while a seat owes the call. **LOCO! is a small chip
   centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
   dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
   control found only in the two seconds it is worth pressing is a control nobody has ever aimed at.

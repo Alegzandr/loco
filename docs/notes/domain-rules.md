@@ -398,6 +398,24 @@ won, and a one-card hand had made them finishes by accident.
   - **Absence of a window is not a declaration either**, and it must reach the button even less: catch
     seats ride `card_played` only, so a reloaded tab holds none of them and would find a button that
     read them grey over a table it could still catch.
+- **And the button is latched, because the same argument outlives the roster** (`nextCatchLive`,
+  `store.catchLive`). Keeping the declaration out of `isCatchLive` closed one way the interface could
+  retract the offer under a committed thumb; a hand size closes the rest of them. A seat leaves the
+  band without anybody playing a card in four ways — it calls it, it draws, it swallows a stack of
+  four, or a Contre-LOCO! lands on it and its hand grows by two — and each is precisely the moment
+  the bet is already made. Read as a photograph of the roster the button dies in that instant, which
+  is the interface making the read on the player's behalf and, worse, making it in their favour: the
+  spasm §14.6 charges for would be silently refunded, and "he drew instead" would stop being
+  something that can happen to you.
+  - So liveness **rises** on the roster and is **put back down by the board moving on**, by nothing
+    else. Two writes lower it, `applyCardPlayed` and `applyGameState`, and the store's middleware
+    raises it wherever `players` or `myIndex` move, so no action can forget either half.
+  - **The latch is what makes the bound possible, and the bound is the point.** An offer that never
+    expired could be held open and farmed a card at a time by a player stocking a hand up for a Swap
+    to hand off — the original abuse, arriving by another door. The card that lands ends the hold and
+    the roster is read again from nothing, so the wager is made on one board and never carried to the
+    next. `catchDerivation.test.ts` owns both halves; `penalties.spec.ts` plays the whole shape out
+    against a real server, catch included.
 - **`applyGameState` filters catch windows, it does not wipe them.** Swap and GlobalSwitch are
   followed by a personalised `game_state`, so clearing there made the exact rule this exists for
   unreachable: the player handed their last card was catchable for a few milliseconds and then

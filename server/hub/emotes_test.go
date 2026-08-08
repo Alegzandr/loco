@@ -76,7 +76,7 @@ func TestEmote_RefusedBeforeTheMatchIsOver(t *testing.T) {
 func TestEmote_ChangesAsOftenAsTheSeatLikes(t *testing.T) {
 	conn1, conn2, _ := winBO1(t)
 
-	for _, want := range []protocol.Emote{protocol.EmoteGG, protocol.EmoteNice, protocol.EmoteClose, protocol.EmoteGG} {
+	for _, want := range []protocol.Emote{protocol.EmoteGG, protocol.EmoteLucky, protocol.EmoteClose, protocol.EmoteGG} {
 		sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgSendEmote, Emote: want})
 		for i, conn := range []*websocket.Conn{conn1, conn2} {
 			got := readMsgOfType(t, conn, protocol.SMsgEmote)

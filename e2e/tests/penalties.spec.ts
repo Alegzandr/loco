@@ -284,6 +284,95 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
   })
 
   /**
+   * The latch, and its bound. A seat can leave the button's reach without
+   * anybody playing anything — it calls LOCO!, it draws, it swallows a stack of
+   * four, or a Contre-LOCO! lands on it and its hand grows by two. Every one of
+   * those is the exact moment a player betting on that seat has already
+   * committed their thumb, so a button that went dead there would be making the
+   * read on their behalf and sparing them the price the wager is made of.
+   *
+   * The bound is the next card played: it ends the hold and the roster is read
+   * again from scratch. That is what stops the offer being kept alive and farmed
+   * a card at a time by somebody stocking a hand up for a Swap.
+   */
+  test('Catch! holds through a seat leaving its reach, and goes dead on the next card', async ({
+    browser,
+  }: {
+    browser: Browser
+  }) => {
+    const ctx1 = await browser.newContext()
+    const ctx2 = await browser.newContext()
+    const alice = await ctx1.newPage()
+    const bob = await ctx2.newPage()
+
+    try {
+      const roomCode = await createRoom(alice, 'Alice')
+      await joinRoom(bob, 'Bob', roomCode)
+      await startGame(alice)
+      await expect(gameBoard(bob)).toBeVisible({ timeout: 10_000 })
+      await waitForTableOpen(bob)
+      await waitForTableOpen(alice)
+
+      const aliceIdx = (await getState(alice))?.myIndex ?? 0
+      const bobIdx = (await getState(bob))?.myIndex ?? 1
+
+      // Both hands in one fixture: Alice must not be handed a snapshot later on,
+      // because an authoritative snapshot is the other thing that puts the latch
+      // down and it would answer the question this test is asking.
+      await debugSetState(alice, {
+        hands: [
+          { playerIndex: aliceIdx, hand: [
+            { color: 'red', kind: 'number', value: 1 },
+            { color: 'red', kind: 'number', value: 2 },
+          ] },
+          { playerIndex: bobIdx, hand: [
+            { color: 'red', kind: 'number', value: 7 },
+            { color: 'blue', kind: 'number', value: 3 },
+          ] },
+        ],
+        discard: { color: 'red', kind: 'number', value: 5 },
+        activeColor: 'red',
+        pendingDraw: 0,
+        direction: 1,
+        currentTurn: bobIdx,
+      })
+
+      // Bob plays down to one card and says nothing.
+      await sendMsg(bob, {
+        type: 'play_card',
+        card: { color: 'red', kind: 'number', value: 7 },
+        chosen_color: 'red',
+      })
+
+      const catchBtn = alice.getByRole('button', { name: T.catchBtn })
+      await expect(catchBtn).toHaveClass(/\barmed\b/, { timeout: 5_000 })
+      await catchBtn.click()
+
+      // The catch lands and Bob's hand grows by two, which puts him three cards
+      // from the finish — out of the armed cue and out of the roster's reach.
+      await alice.waitForFunction(
+        (seat) =>
+          (window.__LOCO_E2E__?.getState?.()?.players ?? []).find((p) => p.index === seat)
+            ?.hand_size === 3,
+        bobIdx,
+        { timeout: 10_000 },
+      )
+      await expect(catchBtn).not.toHaveClass(/\barmed\b/)
+      expect((await getState(alice))?.catchTarget).toBeNull()
+      // And still pressable: nothing was played, so nothing re-read the table.
+      await expect(catchBtn).toBeEnabled()
+
+      // The bound. Alice plays — the board has moved, the hold is over, and the
+      // only seat left is three cards out.
+      await playCard(alice, { color: 'red', kind: 'number', value: 1 })
+      await expect(catchBtn).toBeDisabled({ timeout: 5_000 })
+    } finally {
+      await ctx1.close()
+      await ctx2.close()
+    }
+  })
+
+  /**
    * §14.6's price, and its ceiling. The button is live from the moment anybody
    * is near the finish, so most presses are made on a read of the table rather
    * than on a window the server has already named — and a read that is wrong

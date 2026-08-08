@@ -12,4 +12,4 @@
  */
 import type { Emote } from '../types/protocol'
 
-export const EMOTE_ORDER: readonly Emote[] = ['gg', 'close', 'nice']
+export const EMOTE_ORDER: readonly Emote[] = ['gg', 'close', 'lucky']

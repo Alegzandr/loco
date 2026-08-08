@@ -70,16 +70,16 @@ test.describe('the three things', () => {
     // thing said takes the first one's place rather than adding a bubble under
     // it, which is why the card's height is the table's size and nothing under
     // the thumb moves.
-    await guest.getByRole('button', { name: T.emoteNice }).click()
+    await guest.getByRole('button', { name: T.emoteLucky }).click()
     await host.waitForFunction(
       () => {
         const said = window.__LOCO_E2E__?.getState?.()?.emotes ?? []
-        return said.length === 1 && said[0].seat === 1 && said[0].emote === 'nice'
+        return said.length === 1 && said[0].seat === 1 && said[0].emote === 'lucky'
       },
       undefined,
       { timeout: 10_000 },
     )
-    await expect(host.locator('.emoteFeed')).toContainText(T.emoteNice)
+    await expect(host.locator('.emoteFeed')).toContainText(T.emoteLucky)
     await expect(host.locator('.emoteFeed')).not.toContainText(T.emoteGG)
 
     await hostCtx.close()

@@ -901,8 +901,9 @@ that, and the smallest is the point.
 
 - **No free text, ever.** Free text is a moderation surface, and this game has no way to keep the
   promise that comes with one: “we collect nothing” is the compliance strategy rather than an
-  accident (`notes/legal.md`). Three is enough to be gracious and too few to be abusive, which is
-  the only property that matters here.
+  accident (`notes/legal.md`). Three is enough to react to a match — one gracious, one about the
+  match itself, one needling — and too few to be abusive, which is the only property that matters
+  here.
 - **The set is closed and it is the server’s.** An identifier travels, not a string, and one this
   server does not know is refused and counted (`noteSuspect`) rather than relayed: a client cannot
   invent a fourth. The words are the client’s (`t.emotes`), in the player’s own language.

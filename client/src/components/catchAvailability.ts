@@ -45,9 +45,43 @@ export const CATCH_LIVE_MAX_HAND = 2
  * So the button owes the player exactly one guarantee, and it is the threshold
  * above: the wager is never offered further than one ordinary play from paying
  * off. Whether it pays *this* time is theirs to read.
+ *
+ * This is the raw read of the roster and it is never what the bar shows on its
+ * own — `nextCatchLive` below is, and it is the one the store keeps.
  */
 export function isCatchLive(players: PlayerDTO[], myIndex: number): boolean {
   return players.some(
     (p) => p.index !== myIndex && p.hand_size >= 1 && p.hand_size <= CATCH_LIVE_MAX_HAND,
   )
+}
+
+/**
+ * The value the button's liveness takes after a write: once live, it stays live
+ * until the board moves.
+ *
+ * `isCatchLive` alone is a photograph of the roster, and a roster can slip out
+ * of reach without anybody playing anything. A seat on its last card eats a
+ * stack of four and is suddenly holding five; a Contre-LOCO! lands on it and it
+ * is holding three. Read as a photograph, the button goes dead in that instant —
+ * under a thumb that was already on its way down, and that thumb is the whole
+ * mechanic. **A control that retracts itself is a control that decides the
+ * wager for the player**, and it decides it in their favour, which is the same
+ * bait as announcing a call: whoever was about to commit is quietly saved, and
+ * the one thing this game asks them to do is read the table themselves.
+ *
+ * So liveness never falls between two cards. It rises on the roster and it is
+ * put back down by the board moving on, and by nothing else.
+ *
+ * That is also the bound, and it is the reason this is a latch rather than a
+ * permanent unlock: the next card played re-reads the roster from scratch. The
+ * offer is never carried further than the board it was made on, so it cannot be
+ * held open and farmed a card at a time by a player collecting penalties for a
+ * Swap to hand off. One board, one read, one wager.
+ */
+export function nextCatchLive(
+  wasLive: boolean,
+  players: PlayerDTO[],
+  myIndex: number,
+): boolean {
+  return wasLive || isCatchLive(players, myIndex)
 }

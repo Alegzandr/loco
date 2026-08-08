@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isCatchLive, CATCH_LIVE_MAX_HAND } from '../components/catchAvailability'
+import { isCatchLive, nextCatchLive, CATCH_LIVE_MAX_HAND } from '../components/catchAvailability'
 import type { PlayerDTO } from '../types/protocol'
 
 const seat = (index: number, hand_size: number): PlayerDTO => ({
@@ -61,5 +61,35 @@ describe('isCatchLive', () => {
   // the *armed* cue, which rides `catchTarget` and not this function.
   it('stays live against a seat the table heard call it', () => {
     expect(isCatchLive([seat(0, 8), seat(1, 1)], 0)).toBe(true)
+  })
+})
+
+// The latch. `isCatchLive` above is a photograph of the roster, and a roster
+// slips out of reach without anybody playing anything: a seat on its last card
+// swallows a stack of four and is holding five. Read as a photograph the button
+// dies in that instant, under a thumb already on its way down — which is the
+// interface making the wager for the player, and making it in their favour.
+describe('nextCatchLive', () => {
+  it('rises with the roster', () => {
+    expect(nextCatchLive(false, [seat(0, 8), seat(1, 8)], 0)).toBe(false)
+    expect(nextCatchLive(false, [seat(0, 8), seat(1, 2)], 0)).toBe(true)
+  })
+
+  // The bait this exists for, in the two shapes it comes in.
+  it('holds through a seat drawing itself out of reach', () => {
+    expect(nextCatchLive(true, [seat(0, 8), seat(1, 5)], 0)).toBe(true)
+  })
+
+  it('holds through the last seat in reach finishing the round', () => {
+    expect(nextCatchLive(true, [seat(0, 8), seat(1, 0)], 0)).toBe(true)
+  })
+
+  // And the bound, which is the whole reason it is a latch and not an unlock:
+  // the offer belongs to one board. The store puts it down on the card played
+  // and on the authoritative snapshot, and what this function does with a false
+  // it is handed is read the roster again — nothing carries over.
+  it('is a fresh read once it has been put back down', () => {
+    expect(nextCatchLive(false, [seat(0, 8), seat(1, 5)], 0)).toBe(false)
+    expect(nextCatchLive(false, [seat(0, 8), seat(1, 1)], 0)).toBe(true)
   })
 })
