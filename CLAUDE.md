@@ -1035,16 +1035,19 @@ stated at the top of `styles/tokens.css`:
   padding, and 32px put the waiting room's heading under the gear.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
-- **Table news is one pill with three accents, and no arrow in any of them** (`GameView`'s `.notice`,
-  `.noticeSwap` / `.noticePenalty` / `.noticeDeparture`): a Swap or a Global Switch, a Contre-LOCO!
-  that came too late, a seat that is gone. All three wear the board's own chrome — plate, ink
-  outline, hard shadow, one type size — and differ by a coloured dot and the height they sit at. **A
-  saturated fill of its own belongs to the three moments allowed to shout** (LOCO!, the interception
-  slam, the catch stamp); anything quieter wearing one competes with them for the same glance.
-  **Centred with `inset-inline: 0` + `margin-inline: auto`, never `left: 50%`** — an absolute box
-  anchored at the midpoint is shrink-to-fit against the half of the screen to its right, and wraps
-  there whatever `max-width` says. **A direction is named in the ring's own words, never drawn as
-  `→`**: one glyph cannot mean the same thing to every chair around the table.
+- **Table news is one pill, and no arrow in any of them** (`GameView`'s `.notice`, `.noticeSwap` /
+  `.noticePenalty` / `.noticeDeparture`): a Swap or a Global Switch, a Contre-LOCO! that came too
+  late, a seat that is gone. All three wear the board's own chrome — plate, ink outline, hard
+  shadow, one type size — and differ **only by the height they sit at**. **A saturated fill of its
+  own belongs to the three moments allowed to shout** (LOCO!, the interception slam, the catch
+  stamp); anything quieter wearing one competes with them for the same glance. **Centred with
+  `inset-inline: 0` + `margin-inline: auto`, never `left: 50%`** — an absolute box anchored at the
+  midpoint is shrink-to-fit against the half of the screen to its right, and wraps there whatever
+  `max-width` says. **Each pill leaves with its own timer**: the component's constant rides in as
+  `--notice-life` and the exit is delayed off it, because the three durations differ and a fixed
+  delay animates the shortest one over an empty slot. **A direction is named in the ring's own
+  words, never drawn as `→`**: one glyph cannot mean the same thing to every chair around the
+  table, and a line a player reads in passing stops at the event and the heading.
 - **The theme crosses, it does not cut, and one mechanism does it for the game and the pages alike**:
   `setTheme` arms `data-theme-anim` on `<html>` for `THEME_FADE_MS` / `--theme-fade`, and the rule
   behind it transitions **colour only**, over the whole document, for exactly that long. The boot
