@@ -749,16 +749,24 @@ of the streamable moments above — news, not moments — and the distinction is
 the LOCO! banner, the interception slam and the catch stamp are the three things allowed to shout,
 so anything else wearing a saturated fill of its own competes with them for the same glance.
 
-- **One class, three accents** (`.notice` + `.noticeSwap` / `.noticePenalty` / `.noticeDeparture`).
+- **One class, three heights** (`.notice` + `.noticeSwap` / `.noticePenalty` / `.noticeDeparture`).
   The plate is the board's own chrome — `--color-surface-strong`, ink type, ink outline,
-  `--shadow-hard` — and the only thing that changes between the three is a 13px dot fed by
-  `--notice-accent` (indigo / error red / muted) and the `--notice-top` each one sits at. A spectator
-  tells them apart before reading the line; a reader gets the same type on all three.
+  `--shadow-hard` — and the only thing that changes between the three is the `--notice-top` each one
+  sits at (13% / 20% / 29%, tightened on a phone), which is what lets a seat leaving on the same beat
+  as a missed call read as two pieces of news instead of one covering the other.
   - They were three pills written one at a time before that: two saturated gradients and one plate,
     16px against 17px, a soft glow on two of the three, and white type over the top stop of
-    `--gradient-error`, which measures **2.4:1**. Grammar first, then the accent.
-  - The three heights (13% / 20% / 29%, tightened on a phone) are what lets a seat leaving on the
-    same beat as a missed call read as two pieces of news instead of one covering the other.
+    `--gradient-error`, which measures **2.4:1**.
+  - Nothing carries a colour of its own, not even a dot: what kind of news it is, is what the line
+    says. A mark beside the text is one more object on a board that already has the discard, the
+    seats, the ring and the action bar competing for the same two seconds.
+- **In on a bounce, out on the beat the store drops it.** `noticeIn` (0.32s, `--ease-bounce`) then
+  `noticeOut` (0.24s) delayed by `calc(var(--notice-life) - 240ms)`, where `--notice-life` is the
+  component's own `SWAP_NOTICE_MS` / `CATCH_FAIL_NOTICE_MS` / `DEPARTURE_NOTICE_MS` passed inline —
+  the three durations differ, so a delay written in the stylesheet would animate the shortest pill
+  out over a slot `autoClear` had already emptied. The exit is `forwards`, **never `both`**: `both`
+  back-fills its opening frame from time zero and swallows the entrance underneath it. Under
+  `data-motion="reduce"` the pill simply is there for its whole life — the news is the line.
 - **Centred with `inset-inline: 0` + `margin-inline: auto`, never `left: 50%`.** An absolutely
   positioned box anchored at the midpoint is shrink-to-fit against **the half of the screen to its
   right**, so the longest line in the set wrapped at 180px on a 360px phone and came out four lines
@@ -770,6 +778,11 @@ so anything else wearing a saturated fill of its own competes with them for the 
   differ by one character in a pill that is up for a couple of seconds. It names the heading in the
   words the direction ring already uses (`clockwise` / `counter-clockwise`, `horaire` /
   `antihoraire`), so the board and the notice say the same thing the same way.
+- **A line is read in passing or it is not read.** Every one of these fits on a single line at
+  desktop width and wraps to two at 360px, and the Global Switch line — the only one that ever grew
+  past that — names the event and the heading and stops: *"%actor lance la Rotation, sens horaire"*.
+  Spelling out that the hands slide one seat put four lines over the seats on a phone to explain
+  something the sliding hands and the card's own face are already showing.
 - Scenes `game-swap-notice`, `game-global-switch-notice` (the longest line in the set, and the one
   that says whether the wrapping still holds), `game-catch-failed`, `game-departure-notice`.
 

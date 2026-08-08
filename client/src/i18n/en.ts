@@ -631,13 +631,14 @@ export const en: Translations = {
   swapNotice: '%actor took %target’s hand',
   swapNoticeYouTarget: '%actor took your hand',
   swapNoticeYouActor: 'You took %target’s hand',
-  // The direction is named, never drawn: an arrow glyph on a pill that rotates
-  // with nothing else on screen says "that way" about a board a player is
-  // looking at from their own seat, and every seat reads the same arrow. These
-  // two words are the ones the direction ring already carries (`directionCw`),
-  // so the notice and the board name the same thing the same way.
-  globalSwitchNoticeCw: '%actor called Global Switch. Hands slide one seat, clockwise',
-  globalSwitchNoticeCcw: '%actor called Global Switch. Hands slide one seat, counter-clockwise',
+  // The direction is named, never drawn: an arrow glyph on a pill says "that
+  // way" about a board every seat looks at from its own chair. These two words
+  // are the ones the direction ring already carries (`directionCw`), so the
+  // notice and the board name the same thing the same way. What the card does
+  // is left to the card and to the hands sliding on screen — a pill that is up
+  // for three seconds names the event and the heading, and stops there.
+  globalSwitchNoticeCw: '%actor called Global Switch, clockwise',
+  globalSwitchNoticeCcw: '%actor called Global Switch, counter-clockwise',
   reconnected: 'Back in',
   rebuildingTable: 'Setting the table back up…',
   reconnectingGame: 'Getting your seat back…',

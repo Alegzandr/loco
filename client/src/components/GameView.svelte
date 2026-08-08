@@ -621,12 +621,14 @@
     />
   {/if}
 
-  <!-- Table news: one pill, three accents. See the `.notice` block below for why
-       all three wear the board's own chrome instead of a fill of their own. -->
+  <!-- Table news: one pill, three heights. See the `.notice` block below for why
+       all three wear the board's own chrome instead of a fill of their own.
+       `--notice-life` is what times the pill off the screen, so the constant
+       above is the only place any of these durations is written down. -->
   {#if g.swapNotice}
     {#key g.swapNotice.at}
-      <div class="notice noticeSwap">
-        <span>{resolveSwapNoticeText(g.swapNotice, g.myIndex, g.players, t)}</span>
+      <div class="notice noticeSwap" style="--notice-life: {SWAP_NOTICE_MS}ms">
+        {resolveSwapNoticeText(g.swapNotice, g.myIndex, g.players, t)}
       </div>
     {/key}
   {/if}
@@ -637,8 +639,8 @@
        it — held and gone are both `connected: false`. -->
   {#if g.departureNotice}
     {#key g.departureNotice.at}
-      <div class="notice noticeDeparture">
-        <span>{t.departureNotice.replace('%player', g.departureNotice.nickname)}</span>
+      <div class="notice noticeDeparture" style="--notice-life: {DEPARTURE_NOTICE_MS}ms">
+        {t.departureNotice.replace('%player', g.departureNotice.nickname)}
       </div>
     {/key}
   {/if}
@@ -648,16 +650,14 @@
        no reason anybody at the table can see. -->
   {#if g.catchFailed}
     {#key g.catchFailed.at}
-      <div class="notice noticePenalty">
-        <span>
-          {g.catchFailed.seat === g.myIndex
-            ? t.catchFailedYou
-            : t.catchFailedOther.replace(
-                '%player',
-                g.players.find((pl) => pl.index === g.catchFailed!.seat)?.nickname ??
-                  `P${g.catchFailed.seat}`,
-              )}
-        </span>
+      <div class="notice noticePenalty" style="--notice-life: {CATCH_FAIL_NOTICE_MS}ms">
+        {g.catchFailed.seat === g.myIndex
+          ? t.catchFailedYou
+          : t.catchFailedOther.replace(
+              '%player',
+              g.players.find((pl) => pl.index === g.catchFailed!.seat)?.nickname ??
+                `P${g.catchFailed.seat}`,
+            )}
       </div>
     {/key}
   {/if}
@@ -846,16 +846,16 @@
      Switch, a Contre-LOCO! that arrived too late, a seat that is gone for the
      rest of the match. They are news, not moments — the LOCO! banner, the
      interception slam and the catch stamp are the three allowed to shout — so
-     all of them wear the chrome every other surface in this UI wears (plate,
-     ink outline, hard shadow, display type) and say what kind of news they
-     carry with one coloured dot. One grammar, three accents, three heights, so
-     a seat leaving on the same beat as a missed call still reads as two things.
+     all of them wear the chrome every other surface in this UI wears: plate,
+     ink outline, hard shadow, one type size. One grammar, three heights, so a
+     seat leaving on the same beat as a missed call still reads as two things.
 
      They were three pills written one at a time before that: two saturated
      fills and one plate, 16px against 17px, a soft glow on two of the three,
      and white type over the top stop of `--gradient-error`, which is 2.4:1.
-     A fill of its own is what a *moment* gets; news gets the board's chrome. */
-  /* Centred by `inset-inline: 0` + `margin: auto`, never by `left: 50%` — a pill
+     A fill of its own is what a *moment* gets; news gets the board's chrome.
+
+     Centred by `inset-inline: 0` + `margin: auto`, never by `left: 50%` — a pill
      anchored at the midpoint is shrink-to-fit against the half of the screen to
      its right, so a line long enough to wrap wrapped at 180px on a 360px phone
      and came out four lines tall over the seats, whatever `max-width` said. */
@@ -865,9 +865,6 @@
     inset-inline: 0;
     margin-inline: auto;
     width: fit-content;
-    display: flex;
-    align-items: center;
-    gap: 9px;
     max-width: min(88%, 30rem);
     padding: 10px 20px;
     background: var(--color-surface-strong);
@@ -880,21 +877,15 @@
     box-shadow: var(--shadow-hard);
     pointer-events: none;
     z-index: 14;
-    animation: noticeIn 0.32s var(--ease-bounce) both;
-  }
-
-  /* The dot carries the kind. It is the one thing that differs between the
-     three, which is what lets a spectator tell them apart at 720p before the
-     line is read — and it is a mark rather than a glyph, so it needs no font
-     and means the same thing in both languages. */
-  .notice::before {
-    content: '';
-    flex: none;
-    width: 13px;
-    height: 13px;
-    border-radius: 50%;
-    background: var(--notice-accent);
-    border: var(--stroke-thin) solid var(--color-stroke);
+    /* In on a bounce, out on the beat the store drops it. `--notice-life` comes
+       from the component's own constant, so the pill leaves *with* its timer
+       rather than being cut off it: the three durations differ, and a fixed
+       delay here would leave the shortest one animating over an empty slot.
+       The exit is `forwards`, never `both` — `both` would apply its opening
+       frame from time zero and swallow the entrance underneath it. */
+    animation:
+      noticeIn 0.32s var(--ease-bounce) both,
+      noticeOut 0.24s ease-in calc(var(--notice-life, 3000ms) - 240ms) forwards;
   }
 
   /* Highest of the three: a departure outlives the other two, and covering it
@@ -902,30 +893,21 @@
      the roster cannot say — held and gone are both `connected: false`. */
   .noticeDeparture {
     --notice-top: 13%;
-    --notice-accent: var(--color-muted);
   }
 
   .noticeSwap {
     --notice-top: 20%;
-    --notice-accent: var(--color-tertiary);
   }
 
   .noticePenalty {
     --notice-top: 29%;
-    --notice-accent: var(--color-error);
   }
 
   @media (max-width: 480px) {
     .notice {
       font-size: 13.5px;
       padding: 8px 15px;
-      gap: 7px;
       max-width: 92%;
-    }
-
-    .notice::before {
-      width: 11px;
-      height: 11px;
     }
 
     .noticeDeparture {
@@ -956,6 +938,22 @@
       opacity: 1;
       transform: translateY(0) scale(1);
     }
+  }
+
+  /* Up and out, the way it came in. A pill that vanishes on a frame reads as a
+     glitch on a board where everything else is a physical object. */
+  @keyframes noticeOut {
+    to {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.94);
+    }
+  }
+
+  /* Degrades to the pill simply being there for its whole life: the news is the
+     line, and a player who asked for less motion still gets every millisecond
+     of it. */
+  :root[data-motion="reduce"] .notice {
+    animation: none;
   }
 
   /* Per-turn countdown bar */
