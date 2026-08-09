@@ -36,6 +36,7 @@ export const initialState: GameState = {
   catchWindows: [],
   catchTarget: null,
   unoTimerEnd: null,
+  catchLive: false,
   catchFailed: null,
   catchFlash: null,
   catchSpent: false,

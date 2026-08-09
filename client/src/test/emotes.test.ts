@@ -71,11 +71,11 @@ describe('the three things', () => {
   // mark rather than adding a second bubble.
   it('marks the one we are saying, and only that one', () => {
     render(GameOver, { ...base, onEmote: vi.fn() })
-    gameStore.getState().applyEmote(0, 'nice')
+    gameStore.getState().applyEmote(0, 'lucky')
     const pressed = [...document.querySelectorAll('.emoteRow button')]
       .filter((b) => b.getAttribute('aria-pressed') === 'true')
       .map((b) => b.textContent?.trim())
-    expect(pressed).toEqual([en.emotes.nice])
+    expect(pressed).toEqual([en.emotes.lucky])
   })
 })
 
@@ -92,17 +92,17 @@ describe('one line per seat, and the card never grows', () => {
 
     gameStore.getState().applyEmote(0, 'gg')
     gameStore.getState().applyEmote(1, 'gg')
-    gameStore.getState().applyEmote(0, 'nice')
+    gameStore.getState().applyEmote(0, 'lucky')
     expect(document.querySelectorAll('.emoteSlot')).toHaveLength(players.length)
   })
 
   it('replaces what a seat was saying rather than adding to it', () => {
     gameStore.getState().applyEmote(0, 'gg')
     gameStore.getState().applyEmote(1, 'close')
-    gameStore.getState().applyEmote(0, 'nice')
+    gameStore.getState().applyEmote(0, 'lucky')
     const said = gameStore.getState().emotes
     expect(said).toHaveLength(2)
-    expect(said.find((e) => e.seat === 0)?.emote).toBe('nice')
+    expect(said.find((e) => e.seat === 0)?.emote).toBe('lucky')
     expect(said.find((e) => e.seat === 1)?.emote).toBe('close')
   })
 

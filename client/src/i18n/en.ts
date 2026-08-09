@@ -745,7 +745,7 @@ export const en: Translations = {
   emotes: {
     gg: 'GG',
     close: 'That was close',
-    nice: 'Nicely played',
+    lucky: 'You got lucky',
   },
 
   // ─── Language ────────────────────────────────────────────────

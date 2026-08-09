@@ -41,8 +41,8 @@ export type MatchFormat =
 // A closed set, decided here and travelling as an identifier, because the
 // alternative is free text — and free text is a moderation surface, which is a
 // promise this game cannot keep: "we collect nothing" is the compliance
-// strategy, not an accident. Three is enough to be gracious and too few to be
-// abusive, which is the only property that matters.
+// strategy, not an accident. Three is enough to react to a match and too few to
+// be abusive, which is the only property that matters.
 //
 // The words themselves are the client's (`t.emotes`), in the player's own
 // language. Nothing here is stored, logged or snapshotted: an emote is
@@ -53,8 +53,10 @@ export type Emote =
   | 'gg'
   // EmoteClose — that was close.
   | 'close'
-  // EmoteNice — nicely played, addressed to the table rather than to a seat.
-  | 'nice'
+  // EmoteLucky — you got lucky, addressed to the table rather than to a seat:
+  // the needling one, and a closed set is what keeps it needling rather than
+  // abusive.
+  | 'lucky'
 
 // ClientMsgType enumerates message types sent from client to server.
 export type ClientMsgType =

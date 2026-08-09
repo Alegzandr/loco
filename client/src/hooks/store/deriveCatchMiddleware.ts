@@ -1,13 +1,15 @@
+import { nextCatchLive } from '../../components/catchAvailability'
 import { StateCreator } from './createStore'
 import { deriveCatch } from './helpers'
 import { GameStore } from './types'
 
 /**
- * `catchTarget`, `unoTimerEnd` and `myDeclared` are not state. They are the
- * answers to "which open window is the button offering" and "have we already
- * called it", read off `catchWindows`, `declaredSeats` and our own seat, and
- * they are stored only because every screen reads them and a recomputation per
- * render would be noise.
+ * `catchTarget`, `unoTimerEnd`, `myDeclared` and `catchLive` are not state. They
+ * are the answers to "which open window is the button offering", "have we
+ * already called it" and "is the button pressable at all", read off
+ * `catchWindows`, `declaredSeats`, `players` and our own seat, and they are
+ * stored only because every screen reads them and a recomputation per render
+ * would be noise.
  *
  * Stored derived state has one failure mode and this store had eight chances to
  * hit it: an action that changes `catchWindows` and forgets to spread
@@ -15,10 +17,16 @@ import { GameStore } from './types'
  * pointed at nothing while a seat is catchable. Nothing fails, nothing logs,
  * and the loss is a reaction the player was entitled to.
  *
- * So no action derives them any more. Any write that touches `catchWindows` or
- * `myIndex` is completed here, which is the only way to make forgetting
- * impossible rather than merely unlikely. `src/test/catchDerivation.test.ts`
- * owns the rule.
+ * So no action derives them any more. Any write that touches `catchWindows`,
+ * `players` or `myIndex` is completed here, which is the only way to make
+ * forgetting impossible rather than merely unlikely.
+ * `src/test/catchDerivation.test.ts` owns the rule.
+ *
+ * `catchLive` is the one with a memory: `nextCatchLive` only ever raises it, so
+ * an action that wants it back down has to say so, and exactly two do —
+ * `applyCardPlayed` and `applyGameState`, the two moments the board becomes a
+ * fresh read. Every other write leaves a live button live, which is the point
+ * (`components/catchAvailability.ts`).
  */
 type Creator = StateCreator<GameStore>
 
@@ -37,7 +45,9 @@ export const deriveCatchState =
         if (
           !('catchWindows' in patch) &&
           !('myIndex' in patch) &&
-          !('declaredSeats' in patch)
+          !('declaredSeats' in patch) &&
+          !('players' in patch) &&
+          !('catchLive' in patch)
         ) {
           return patch
         }
@@ -46,6 +56,7 @@ export const deriveCatchState =
           ...patch,
           ...deriveCatch(merged.catchWindows, merged.myIndex),
           myDeclared: merged.declaredSeats.includes(merged.myIndex),
+          catchLive: nextCatchLive(merged.catchLive, merged.players, merged.myIndex),
         }
       })
     }) as typeof set

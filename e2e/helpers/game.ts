@@ -49,7 +49,7 @@ export const T = {
   // The whole vocabulary the game has, on the game-over screen only.
   emoteGG: 'GG',
   emoteClose: 'That was close',
-  emoteNice: 'Nicely played',
+  emoteLucky: 'You got lucky',
   leaveConfirmStay: 'Stay',
   gameOver: 'That is the match',
   youWin: 'YOU WIN!',

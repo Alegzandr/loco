@@ -221,6 +221,17 @@ export interface GameState {
   // (never ourselves) and the end of that window. null = nobody to catch.
   catchTarget: number | null
   unoTimerEnd: number | null   // end of the 5s catch window (null = closed)
+  // Whether the centre button is pressable at all — a much looser question than
+  // `catchTarget`, which is the promise that somebody is actually on the hook.
+  // **Derived and latched** by the store itself (`store/deriveCatchMiddleware.ts`
+  // through `components/catchAvailability.ts`), never written by an action
+  // except to put it back down: it rises the moment any other seat comes within
+  // reach of the finish, and only a card played or a fresh authoritative
+  // snapshot lowers it again. A seat escaping — declaring, drawing, taking a
+  // stack of four — leaves it exactly where it is, because a button that
+  // retracts under the thumb aiming at it is the interface reading the table on
+  // the player's behalf.
+  catchLive: boolean
   // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
   // like the catch it lost to. Cleared by the GameView after a short timeout.
   catchFailed: { seat: number; at: number } | null

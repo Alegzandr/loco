@@ -45,6 +45,12 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
           state.players.find((p) => p.index === seat)?.hand_size,
         ),
         catchWindows,
+        // A snapshot is authoritative when it arrives, and that includes the
+        // centre button: whatever the roster said a moment ago, this is the
+        // roster. Put down here and raised again by the store if the board
+        // still warrants it — without which a fresh deal opens with the
+        // button live, carrying the last round's endgame into eight-card hands.
+        catchLive: false,
       }
     }),
 
@@ -128,6 +134,12 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         // same one repeated. This is the client's copy of the server's PlayEpoch
         // and it is cleared by the same event the server counts.
         catchSpent: false,
+        // And the offer itself is re-read on the same event. Between two cards
+        // the button never goes dead under a thumb — a seat that declares, draws
+        // or swallows a stack of four does not take it away — but the card that
+        // lands ends that hold and the store answers on the new roster alone.
+        // The wager belongs to one board; it is not carried to the next.
+        catchLive: false,
         swapNotice,
         lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
       }

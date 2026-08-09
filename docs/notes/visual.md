@@ -197,6 +197,14 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
     that press is precisely the one §14.6 charges for: the thumb already committed when the seat
     shouted. Three states, and only the third one is a promise. What the declaration closes is the
     *armed* cue, which rides `catchTarget`.
+  - **And once awake it stays awake until a card is played** (`nextCatchLive`, `store.catchLive`).
+    The declaration is only the first of four ways a seat leaves the band with nothing played: it can
+    also draw, swallow a stack of four, or take two penalty cards from a Contre-LOCO! that landed on
+    it. All four are the instant a bet on that seat has already been made, so **the middle state
+    never falls under a thumb**. What ends it is the next card reaching the discard: the hold drops
+    and the roster is read again, which is what keeps the offer attached to one board instead of
+    standing open to be farmed. Two writes lower it, `applyCardPlayed` and `applyGameState`; nothing
+    on screen may lower it on its own.
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same
