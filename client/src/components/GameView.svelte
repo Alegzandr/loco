@@ -1034,11 +1034,14 @@
   }
 
   /* Top-right cluster: scores, preferences, audio, rules.
-     Sits above the score table (z-index 45) rather than under it: the button that
-     pins the table open is the same button that closes it, and a panel that
-     swallows its own toggle is a trap on a touch device, where there is no TAB key
-     to fall back on. Dialogs that own the screen (pickers 100, rules 1000) still
-     cover the cluster. */
+     46 keeps it over the board's own cues — the banners at 45, the notices, the
+     toast — so the row a player reaches for is never fragments of chip between a
+     banner's edges. It sits *under* the score table (48), which is the one panel
+     opened in order to be read: see `ScoreTable.svelte`, where the whole layer
+     ordering is written down. The panel answers for its own dismissal (a ✕ in the
+     header, a press anywhere on the scrim), so covering the button that pinned it
+     costs nothing. Dialogs that own the screen (pickers 100, rules 1000) cover the
+     cluster as they always did. */
   .topRight {
     position: absolute;
     top: calc(12px + var(--safe-top));

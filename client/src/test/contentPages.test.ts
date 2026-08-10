@@ -434,6 +434,57 @@ describe('the mobile menu', () => {
     expect(script, 'the script reveals it and wires it').toMatch(/homeSheetX/)
   })
 
+  /**
+   * And on a phone it is the same sheet, not a desktop card on a small screen.
+   *
+   * Below 46rem the rules modal, the preferences panel and the mixer all become
+   * one object: up from the bottom edge, full width, the top two corners
+   * rounded, a 20px title over a 40px ✕, and the footer clear of the home
+   * indicator. This sheet was the one that stayed centred with a margin down
+   * both sides — so the two surfaces carrying the same kind of prose about the
+   * same game were two different panels on the one screen where the difference
+   * is a whole viewport wide.
+   */
+  it('becomes the rulebook\'s own sheet on a phone', () => {
+    const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
+    const modal = readFileSync(path.join(CLIENT, 'src', 'components', 'RulesModal.svelte'), 'utf8')
+    const phone = (src: string) => src.slice(src.indexOf('@media (max-width: 46rem)'))
+    const rule = (src: string, selector: string) =>
+      new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`).exec(
+        src,
+      )?.[0] ?? ''
+
+    // The same breakpoint as everything else that changes shape for a thumb.
+    expect(game).toMatch(/@media \(max-width: 46rem\)/)
+    expect(modal, 'read off the rulebook, not invented here').toMatch(
+      /@media \(max-width: 46rem\)/,
+    )
+
+    const card = rule(phone(game), '.homeSheet[open]')
+    expect(card, 'the sheet must be re-anchored at this width').toBeTruthy()
+    expect(card, 'up from the bottom edge').toMatch(/inset:\s*auto 0 0 0/)
+    expect(card).toMatch(/width:\s*100%/)
+    const radius = /border-radius:\s*([^;]+);/
+    expect(radius.exec(card)?.[1]).toBe(
+      radius.exec(rule(phone(modal), '.modal'))?.[1],
+    )
+
+    // The title, the ✕ and the footer, at the modal's numbers.
+    expect(rule(phone(game), '.homeSheetTitle')).toMatch(/font-size:\s*20px/)
+    expect(rule(phone(game), '.homeSheetX')).toMatch(/width:\s*40px/)
+    expect(
+      rule(phone(game), '.homeSheet[open] .homeSheetBtn'),
+      'the footer clears the home indicator',
+    ).toMatch(/--safe-bottom/)
+    expect(rule(phone(modal), '.footer')).toMatch(/--safe-bottom/)
+
+    // The burger opened this and opens nothing while it is up. At the same layer
+    // as the card and later in the document, it was painted over its corner.
+    expect(phone(game)).toMatch(
+      /\.homeIntro:has\(\.homeSheet\[open\]\)\s+\.homeBurger\s*\{[^}]*display:\s*none/,
+    )
+  })
+
   it('gives the phone a way to the prose at all', () => {
     // Under 46rem the footer row is display:none and the drawer deliberately
     // carries no prose, so a first-time visitor met a logo, a tagline, two

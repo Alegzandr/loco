@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { render, screen, within } from './render'
 import ScoreTable from '../components/ScoreTable.svelte'
@@ -120,4 +122,86 @@ describe('<ScoreTable />', () => {
     expect(screen.getByText(en.scoreTableEmptyRounds)).toBeTruthy()
     expect(screen.queryByText('R1')).toBeNull()
   })
+})
+
+/**
+ * The panel is opened in order to be read, which is a claim about layers before
+ * it is a claim about anything else.
+ *
+ * It sat at 45 — the interrupt banner's layer and the catch banner's, both
+ * rendered after it and so painted over it — under the catch capsule at 47 and
+ * under the top-right chip row at 46. Every one of those is a cue about the
+ * board, and the board is precisely what somebody holding TAB has stopped
+ * looking at. So the rule is a floor rather than a number: nothing the board
+ * puts on top of itself may cross this panel, whatever gets added next.
+ *
+ * jsdom applies no component styles and lays nothing out, so the layers are read
+ * off the sources. Anything that outranks a read is named here and nowhere else.
+ */
+describe('nothing the board draws crosses the standings', () => {
+  const read = (file: string) =>
+    readFileSync(path.resolve(__dirname, '..', 'components', file), 'utf8')
+
+  /**
+   * Every `selector { … z-index: n … }` in a component's style block.
+   *
+   * Comments go first: they carry no braces, so a rule preceded by one reads as
+   * a selector with a paragraph of prose in front of it — which matches nothing
+   * by name and leaves the lookup below returning `undefined` rather than
+   * failing.
+   */
+  function layers(file: string): [string, number][] {
+    const src = read(file)
+    // The style block alone: the markup above it holds no braces either, so a
+    // rule at the top of it reads as a selector with the whole template in
+    // front of it.
+    const tag = src.slice(src.indexOf('<style'))
+    const style = tag.slice(tag.indexOf('>') + 1).replace(/\/\*[\s\S]*?\*\//g, ' ')
+    const out: [string, number][] = []
+    const re = /([^{}]+)\{([^{}]*)\}/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(style))) {
+      const z = /(?:^|[\s;])z-index:\s*(-?\d+)/.exec(m[2])
+      if (z) out.push([m[1].trim().replace(/\s+/g, ' '), Number(z[1])])
+    }
+    return out
+  }
+
+  const panel = layers('ScoreTable.svelte').find(([sel]) => sel === '.overlay')?.[1]
+
+  it('is a layer of its own, above the board and below the screen', () => {
+    expect(panel, 'the overlay must declare its layer').toBeTypeOf('number')
+    // Under the reconnect curtain, which says the table is not there at all,
+    // and under the two pickers, which are a decision the player owes the table.
+    expect(panel!).toBeLessThan(50)
+  })
+
+  /**
+   * Read from the sources rather than listed by hand: a fifth banner added at
+   * 46 fails here without anybody remembering this rule exists.
+   *
+   * `.reconnectOverlay` is GameView's one exception and is excluded by name.
+   */
+  const board: [string, string[]][] = [
+    ['GameView.svelte', ['.reconnectOverlay']],
+    ['CatchBanner.svelte', []],
+    ['InterruptBanner.svelte', []],
+    ['UnoTimer.svelte', []],
+    ['RoundSummary.svelte', []],
+    ['OpponentAway.svelte', []],
+    ['ActionBar.svelte', []],
+  ]
+
+  for (const [file, exempt] of board) {
+    it(`draws ${file} under it`, () => {
+      const found = layers(file).filter(([sel]) => !exempt.includes(sel))
+      // A file that stopped declaring any layer at all would pass an assertion
+      // over an empty list forever.
+      expect(found.length, `${file} declares no layer — is this reading the right file?`)
+        .toBeGreaterThan(0)
+      for (const [sel, z] of found) {
+        expect(z, `${file} ${sel} is drawn over the standings`).toBeLessThan(panel!)
+      }
+    })
+  }
 })

@@ -220,4 +220,98 @@ describe('RulesModal', () => {
     renderModal()
     expect(screen.queryAllByRole('link')).toHaveLength(0)
   })
+
+  /**
+   * One sheet, four surfaces.
+   *
+   * Below 46rem `Preferences.svelte` and `AudioSettings.svelte` stop being
+   * dropdowns and become a sheet up from the bottom edge; the home page's prose
+   * sheet is the same object again. This modal was the odd one: it flipped at
+   * 480px instead, so between 480px and 46rem it arrived as a centred desktop
+   * card over a screen whose navigation had already gone to a burger — and once
+   * it did flip, it wore an 18px title over a 32px ✕ where the panel it shares a
+   * chip row with wears 20 over 40.
+   *
+   * Read off the sources, because jsdom applies no component styles and a media
+   * query has no layout to fail in. `Preferences.svelte` is the reference: the
+   * numbers are asserted equal to it rather than typed here, so a sheet
+   * re-measured once moves all of them or fails.
+   */
+  describe('below 46rem it is the game\'s sheet, not this modal\'s own', () => {
+    const read = (file: string) =>
+      readFileSync(path.resolve(__dirname, '..', 'components', file), 'utf8')
+    const modal = read('RulesModal.svelte')
+    const prefs = read('Preferences.svelte')
+    /** Every block a selector opens — a sheet declares the same one twice. */
+    const rules = (src: string, selector: string) => [
+      ...src.matchAll(
+        new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{[^}]*\\}`, 'g'),
+      ),
+    ].map((m) => m[0])
+    /** The one of those blocks that turns the panel into a sheet. */
+    const sheet = (src: string, selector: string) =>
+      rules(src, selector).find((r) => /border-radius:[^;]*0 0/.test(r)) ?? ''
+
+    it('flips at the width the rest of the game flips at', () => {
+      expect(modal, 'the sheet breakpoint is the drawer\'s').toMatch(/@media \(max-width: 46rem\)/)
+      expect(prefs).toMatch(/@media \(max-width: 46rem\)/)
+      // 480px is the breakpoint for a table that has to lose a column, not for a
+      // panel that has to change shape.
+      expect(modal, 'no second sheet breakpoint').not.toMatch(/@media \(max-width: 480px\)/)
+    })
+
+    it('is the same card: bottom sheet, four-pixel outline, top corners only', () => {
+      const here = sheet(modal, '.modal')
+      const there = sheet(prefs, '.panel')
+      expect(here, 'the modal must become a sheet').toBeTruthy()
+      expect(there, 'read off the reference, not invented here').toBeTruthy()
+      const radius = /border-radius:\s*([^;]+);/
+      expect(radius.exec(here)?.[1]).toBe(radius.exec(there)?.[1])
+      expect(here).toMatch(/height:\s*92vh/)
+      expect(there).toMatch(/max-height:\s*92vh/)
+      expect(modal).toMatch(/border:\s*4px solid var\(--color-stroke\)/)
+      expect(there).toMatch(/border:\s*4px solid var\(--color-stroke\)/)
+    })
+
+    it('arrives from the edge it is anchored to, on the same curve', () => {
+      // A dropdown punches in from a scale because it hangs off the control that
+      // opened it. A sheet has an edge to come from, and scaling one is a card
+      // that grows out of the bottom of the screen.
+      const frames = (src: string, name: string) =>
+        new RegExp(`@keyframes ${name}\\s*\\{[\\s\\S]*?\\n {4}\\}`).exec(src)?.[0] ?? ''
+      expect(sheet(modal, '.modal')).toMatch(/animation:\s*rulesSheetIn 0\.26s var\(--ease-bounce\)/)
+      expect(sheet(prefs, '.panel')).toMatch(/animation:\s*prefsSheetIn 0\.26s var\(--ease-bounce\)/)
+      expect(frames(modal, 'rulesSheetIn')).toMatch(/translateY\(24px\)/)
+      expect(frames(modal, 'rulesSheetIn'), 'nothing scales').not.toMatch(/scale\(/)
+    })
+
+    it('sizes the title and the ✕ for a thumb, at the reference\'s numbers', () => {
+      const mobile = modal.slice(modal.indexOf('@media (max-width: 46rem)'))
+      const ref = prefs.slice(prefs.indexOf('@media (max-width: 46rem)'))
+      expect(/\.title\s*\{[^}]*font-size:\s*20px/.test(mobile)).toBe(true)
+      expect(/\.title\s*\{[^}]*font:\s*700 20px/.test(ref)).toBe(true)
+      expect(/\.closeBtn\s*\{[^}]*width:\s*40px/.test(mobile)).toBe(true)
+      expect(/\.close\s*\{[^}]*width:\s*40px/.test(ref)).toBe(true)
+      expect(/\.closeBtn svg\s*\{[^}]*width:\s*20px/.test(mobile)).toBe(true)
+    })
+
+    it('keeps its last control clear of the home indicator', () => {
+      // A sheet anchored to the bottom edge is the one surface in the game whose
+      // footer sits in that band: the modal's is a button, the settings sheets'
+      // is the foot of their scroller, and both reserve the inset.
+      const mobile = modal.slice(modal.indexOf('@media (max-width: 46rem)'))
+      expect(/\.footer\s*\{[^}]*--safe-bottom/.test(mobile)).toBe(true)
+      const ref = prefs.slice(prefs.indexOf('@media (max-width: 46rem)'))
+      expect(/\.body\s*\{[^}]*--safe-bottom/.test(ref)).toBe(true)
+    })
+
+    it('draws its ✕ rather than typing one', () => {
+      // Same rule as every other icon in this UI: a font character is a drawing
+      // the font fallback chain gets to choose. The three panels that open over a
+      // screen carry the same path.
+      expect(modal).toMatch(/M6 6l12 12M18 6L6 18/)
+      expect(prefs).toMatch(/M6 6l12 12M18 6L6 18/)
+    })
+  })
+
 })
