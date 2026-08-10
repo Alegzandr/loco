@@ -76,7 +76,21 @@
   <div class="modal" onclick={(e) => e.stopPropagation()}>
     <div class="header">
       <h2 class="title">{t.rulesTitle}</h2>
-      <button class="closeBtn" onclick={onClose} aria-label={t.rulesClose}>✕</button>
+      <!-- Drawn, never a font character, and the same path the preferences
+           sheet and the home page's sheet carry: the ✕ is one object across the
+           game, so the three surfaces that open over a screen close with the
+           same control rather than with three drawings of it. -->
+      <button class="closeBtn hit-target" onclick={onClose} aria-label={t.rulesClose}>
+        <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+          <path
+            d="M6 6l12 12M18 6L6 18"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
     </div>
 
     <!--
@@ -230,20 +244,26 @@
   }
 
   .closeBtn {
+    /* `.hit-target` centres its 44px pseudo-element on the nearest positioned
+       ancestor. Without this that ancestor is the backdrop, so the ✕'s touch
+       area lands in the middle of the screen and swallows every press aimed at
+       the rules underneath — the failure `Preferences.svelte` documents. */
+    position: relative;
     background: transparent;
     border: none;
     color: var(--color-ink);
-    font-size: 20px;
     cursor: pointer;
-    padding: var(--space-sm);
+    padding: 0;
     border-radius: var(--radius-full);
     transition: background 0.15s;
     line-height: 1;
+    flex: none;
     width: 32px;
     height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
+    touch-action: manipulation;
   }
 
   .closeBtn:hover {
@@ -439,7 +459,19 @@
     box-shadow: 0 1px 0 var(--color-stroke-soft);
   }
 
-  @media (max-width: 480px) {
+  /*
+   * The phone, and it is the game's one sheet rather than this modal's idea of
+   * one. `Preferences.svelte` and `AudioSettings.svelte` already become a sheet
+   * up from the bottom edge at this width — same breakpoint, same 4px card with
+   * the top two corners rounded, same 20px title over a 40px ✕, same entry — so
+   * a player who opens the gear and then the rulebook in one session meets one
+   * object twice and not two panels that resemble each other. The breakpoint was
+   * 480px here, which is the other half of the same drift: below 46rem the home
+   * page's burger has already taken over the navigation and both panels beside
+   * this one have already become sheets, so between 480px and 46rem the rules
+   * arrived as a centred desktop card over a screen that had gone to phone.
+   */
+  @media (max-width: 46rem) {
     .backdrop {
       padding: 0;
       align-items: flex-end;
@@ -448,14 +480,43 @@
     .modal {
       height: 92vh;
       border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      /* The sheet's entry, not the dropdown's: it arrives from the edge it is
+         anchored to, so there is no scale to punch in from. */
+      animation: rulesSheetIn 0.26s var(--ease-bounce) both;
+    }
+
+    @keyframes rulesSheetIn {
+      from {
+        opacity: 0;
+        transform: translateY(24px);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
     }
 
     .header {
       padding: var(--space-base) var(--space-lg);
     }
 
+    /* The sheet's title, which is the panel's own heading rather than a
+       shrunken version of the desktop one: this is a full-screen surface driven
+       by a thumb, and 18px on it read as a dropdown that grew a scrim. */
     .title {
-      font-size: 18px;
+      font-size: 20px;
+    }
+
+    /* A 32px ✕ is a pointer's target. Same 40px button, same 20px drawing, as
+       the two panels this sheet shares a row with. */
+    .closeBtn {
+      width: 40px;
+      height: 40px;
+    }
+
+    .closeBtn svg {
+      width: 20px;
+      height: 20px;
     }
 
     .tabs {
@@ -472,8 +533,11 @@
       grid-template-columns: 1fr;
     }
 
+    /* The home indicator is under this button, not beside it: a sheet anchored
+       to the bottom edge is the one surface in the game whose last control sits
+       in that band. Same reserve the two settings sheets give their scrollers. */
     .footer {
-      padding: var(--space-md) var(--space-lg);
+      padding: var(--space-md) var(--space-lg) calc(var(--space-md) + var(--safe-bottom));
     }
 
     .footerClose {

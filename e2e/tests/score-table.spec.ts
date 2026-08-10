@@ -97,7 +97,18 @@ test.describe('in-game score table', () => {
     await page.keyboard.up('Tab')
     await expect(scoreTable(page)).toBeVisible()
 
-    await btn.click()
+    // The panel is what a player opened in order to read, so nothing the board
+    // draws crosses it — the chip row that pinned it included. The way out is
+    // therefore on the panel: the ✕ in its header, which exists only while it is
+    // pinned, or a press anywhere on the scrim.
+    const covered = await btn.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return !!top?.closest('[data-testid="score-table"]')
+    })
+    expect(covered, 'the standings cover the chip row that pinned them').toBe(true)
+
+    await scoreTable(page).getByRole('button', { name: 'Close' }).click()
     await expect(scoreTable(page)).toBeHidden()
   })
 

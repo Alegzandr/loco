@@ -46,8 +46,8 @@
            underneath the scrim. Held with TAB there is nothing to close, and a ✕
            that appears for a fifth of a second is noise. -->
       {#if onDismiss}
-        <button class="closeBtn" onclick={onDismiss} aria-label={t.scoreTableClose}>
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+        <button class="closeBtn hit-target" onclick={onDismiss} aria-label={t.scoreTableClose}>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
             <path
               d="M6 6l12 12M18 6L6 18"
               fill="none"
@@ -131,6 +131,32 @@
      a full-screen takeover: the discard and the active seat must remain readable
      at the edges while a player checks who is about to win. */
 
+  /* Above everything the board puts on top of itself, and that is the whole
+     point of the number.
+
+     This panel used to sit at 45, which is the layer the interrupt banner and
+     the catch banner are on — both rendered after it, so both painted over it —
+     under the catch capsule at 47 and under the top-right chip row at 46. So the
+     one surface in the game somebody opens *in order to read it* was the one
+     surface anything could cross: a table of six seats, five columns and a ping,
+     with a banner across the middle of it, a countdown capsule over its title and
+     four chips on its top corner. Every one of those is a cue about the board
+     underneath, and the board underneath is exactly what the player has stopped
+     looking at.
+
+     48 is therefore above the whole transient band (notices 14, toast 30, both
+     banners 45, the chrome row and the leave question 46, the catch capsule 47)
+     and below the three things that outrank a read: the reconnect curtain (50),
+     which says the table is not there at all; the two pickers (100), which are a
+     decision the player owes the table; and the rules modal (1000) and the map
+     gate (900), which own the screen outright.
+
+     The chip row going under it is the deliberate half. It carries the button
+     that pinned the panel, and that button used to be kept clickable at 46 for
+     it — but a pinned table has had its own ✕ in the header since, and its scrim
+     dismisses on a press anywhere outside the card, so the way out is on the
+     panel rather than behind it. Held with TAB there was never anything to
+     press. */
   .overlay {
     position: absolute;
     inset: 0;
@@ -141,7 +167,7 @@
       calc(var(--space-base) + var(--safe-bottom)) calc(var(--space-base) + var(--safe-left));
     background: var(--color-scrim);
     backdrop-filter: blur(5px);
-    z-index: 45;
+    z-index: 48;
     animation: scoreFade 0.14s var(--ease-out) both;
   }
 
@@ -205,15 +231,21 @@
   }
 
   /* The way out while the panel is pinned. Same shape as the rules modal's, so
-     the ✕ is one object across the game rather than one per panel. */
+     the ✕ is one object across the game rather than one per panel — and now the
+     panel covers the chip row that pinned it, it is also the only control on
+     screen answering for it, which is why it carries the 44px catcher and the
+     40px drawing the sheets' ✕ carries. `.hit-target` centres that catcher on
+     the nearest positioned ancestor, so the button has to be one. */
   .closeBtn {
+    position: relative;
     align-self: center;
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
+    touch-action: manipulation;
     padding: 0;
     border: none;
     border-radius: var(--radius-full);

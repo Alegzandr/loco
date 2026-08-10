@@ -1633,9 +1633,40 @@ give up and go to the menu, bring the game here.
 ## Rules modal
 - `RulesModal` accessible from Lobby + WaitingRoom (top-right) and GameView (action bar "Rules").
 - Close: ✕, footer Close, backdrop click, `Escape`.
-- Mobile (`max-width:480px`): bottom sheet (bottom border-radius 0, height 92vh).
+- Mobile (`max-width:46rem`): the game's sheet — see below.
 - `document.body.style.overflow='hidden'` while open; restored on unmount.
 - Content lives in translations; component is content-agnostic.
+
+### One sheet, four surfaces
+
+Below **46rem** four panels stop being what a pointer opens and become the same thing a thumb does:
+this modal, `<Preferences />`, `<AudioSettings />` and the home page's prose sheet. Up from the
+bottom edge, full width, `border-radius: var(--radius-xl) var(--radius-xl) 0 0` over a 4px stroke,
+92vh, a 20px title beside a 40px ✕ carrying a 20px drawing, the body scrolling between a pinned
+header and a pinned foot, and the last control clear of `--safe-bottom`. The entry is
+`translateY(24px)` at `0.26s var(--ease-bounce)` — from the edge it is anchored to, never a scale: a
+dropdown punches in from the control it hangs off, and a sheet scaling up is a card growing out of
+the bottom of the screen.
+
+Two of them were already that. The modal was the drift, in both directions at once:
+
+- **It flipped at 480px**, which is a table's breakpoint (a column has to go) and not a panel's. The
+  drawer, the two settings panels and every other shape-change on this site happen at 46rem, so
+  between 480px and 46rem the rulebook arrived as a centred desktop card over a screen whose
+  navigation had already become a burger.
+- **And once it flipped it wore its own numbers**: an 18px title over a 32px ✕ — a pointer's target —
+  where the panel it shares a chip row with wears 20 over 40, and a footer button sitting in the
+  home indicator's band.
+
+The home sheet is the fourth and had never been a sheet at all on a phone; `seo.md` has it, because
+what is fixed there is also a `<details>`. The ✕ is now one drawing in all four
+(`M6 6l12 12M18 6L6 18`), never a font character — the fallback chain does not get to choose what a
+close button looks like.
+
+`rulesModal.test.ts` asserts the modal's half **against `Preferences.svelte`** rather than against
+numbers typed into the test: a sheet re-measured once moves all of them or fails. jsdom applies no
+component styles and a media query has no layout to be wrong in, so it is a source scan, like every
+other rule of this kind here.
 
 ### Two halves, and why the second one exists
 
