@@ -726,6 +726,17 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's
   type**: labels 15px, hints 13px, switch rows 56px, slider thumbs 30px.
+- **Below 46rem there is one sheet and four surfaces wear it**: `Preferences`, `AudioSettings`,
+  `RulesModal` and the home page's `<details>` of prose. Up from the bottom edge, full width, top two
+  corners at `--radius-xl` over the 4px stroke, 92vh, a **20px title beside a 40px ✕** carrying a 20px
+  drawing, the body scrolling between a pinned header and a pinned foot, the last control clear of
+  `--safe-bottom`, and an entry of `translateY(24px)` at `0.26s var(--ease-bounce)` — **from the edge
+  it is anchored to, never a scale**: a dropdown punches in from the control it hangs off, a sheet
+  scaling up is a card growing out of the bottom of the screen. **46rem is the width, everywhere**: a
+  panel that changed shape at 480px arrived as a desktop card over a screen whose navigation had
+  already become a burger. The ✕ is one drawn path in all four, never a font character.
+  `rulesModal.test.ts` asserts the modal's half **against `Preferences.svelte`** rather than against
+  numbers typed into it, `contentPages.test.ts` the home sheet's against `RulesModal.svelte`.
 - **Both panels are one 292px dropdown above that width, and everything in them is sized to be
   pressed**: switch rows 50px, segmented options 38px, the language control 42px, a 14px slider track
   under a 26px thumb. **A section in either is grouped by space and a micro-caps heading, never by a
@@ -1044,6 +1055,14 @@ stated at the top of `styles/tokens.css`:
   clears it with `--space-base + --topbar-h + --space-sm + --safe-top` of top padding, never a
   spacing step that merely looks generous. `safe center` parks overflowing content against that
   padding, and 32px put the waiting room's heading under the gear.
+- **The standings are opened in order to be read, so nothing the board draws crosses them**
+  (`ScoreTable`'s `.overlay`, **z-index 48**): above the whole transient band — notices 14, the toast
+  30, both banners 45, the chip row and the leave question 46, the catch capsule 47 — and below the
+  reconnect curtain (50), the two pickers (100), the map gate (900) and the rules modal (1000), which
+  are the only things that outrank a read. **The chip row going under it is deliberate**: the panel
+  answers for its own dismissal with a 40px ✕ and a scrim, so covering the button that pinned it costs
+  nothing. `scoreTable.test.ts` asserts the floor **per file**, so a fifth banner at 46 fails on its
+  own.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
 - **Table news is one pill, and no arrow in any of them** (`GameView`'s `.notice`, `.noticeSwap` /

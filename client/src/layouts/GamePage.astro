@@ -752,5 +752,79 @@ const jsonLd = Astro.props.jsonLd === undefined ? homeJsonLd(lang) : Astro.props
       top: calc(var(--space-base) + var(--safe-top));
       left: calc(var(--space-base) + var(--safe-left));
     }
+
+    /* The burger is what opened this, and it opens nothing while it is up: at
+       the same z-index as the card and later in the document it was painted
+       *over* the card's own top-left corner, a floating control on a panel that
+       already carries its ✕. It comes back with the sheet. */
+    .homeIntro:has(.homeSheet[open]) .homeBurger {
+      display: none;
+    }
+
+    /* Open, the sheet is the rules modal — which below this width is the game's
+       one sheet: up from the bottom edge, the top two corners rounded, the title
+       and the ✕ pinned over prose that scrolls, and the footer button across the
+       full width above the home indicator. `RulesModal.svelte`,
+       `Preferences.svelte` and `AudioSettings.svelte` all become that at this
+       breakpoint, and this is the fourth. It was the only one of the four that
+       stayed a centred desktop card on a phone, so the two surfaces that carry
+       the same kind of prose about the same game — this and the rulebook — were
+       two different panels on the one screen where the difference is a whole
+       viewport wide. */
+    .homeSheet[open] {
+      inset: auto 0 0 0;
+      margin: 0;
+      width: 100%;
+      max-height: 92vh;
+      border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+      /* Arriving from the edge it is anchored to, so no scale to punch in
+         from: the same entry the other three sheets carry. */
+      animation: homeSheetUp 0.26s var(--ease-bounce) both;
+    }
+
+    @keyframes homeSheetUp {
+      from {
+        opacity: 0;
+        transform: translateY(24px);
+      }
+      to {
+        opacity: 1;
+        transform: none;
+      }
+    }
+
+    .homeSheetHead {
+      padding: var(--space-base) var(--space-lg);
+    }
+
+    /* The sheet's own heading, not a shrunken desktop one, and a ✕ a thumb can
+       land on: 32px is a pointer's target. */
+    .homeSheetTitle {
+      font-size: 20px;
+    }
+
+    .homeSheetX {
+      width: 40px;
+      height: 40px;
+    }
+
+    .homeSheetX svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .homeSheetCard {
+      padding: var(--space-base) var(--space-lg);
+      gap: 1.2rem;
+    }
+
+    /* The home indicator is under this button, not beside it. */
+    .homeSheet[open] .homeSheetBtn {
+      padding: var(--space-md) var(--space-lg) calc(var(--space-md) + var(--safe-bottom));
+    }
+
+    .homeSheet[open] .homeSheetShut {
+      width: 100%;
+    }
   }
 </style>

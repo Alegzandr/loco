@@ -658,6 +658,22 @@ Three details make that shape work on a native disclosure, and each of them fail
   display: none }` is load-bearing — the `display: flex` that draws it beats the attribute otherwise,
   and the control appears with nothing behind it.
 
+**And under 46rem it is the rules modal there too, which is to say it is the game's sheet.** Below
+that width `RulesModal`, `Preferences` and `AudioSettings` all stop being centred cards and anchored
+dropdowns and become one object: up from the bottom edge, full width, the top two corners rounded, a
+20px title over a 40px ✕, the body scrolling between them, the footer button across the full width
+and clear of the home indicator. This sheet was the one that did not — it stayed a centred 680px card
+with a margin down each side, entered on a scale rather than from the edge, and kept a 24px title
+over a 32px ✕ — so on a phone the two surfaces carrying the same kind of prose about the same game
+were two visibly different panels. On the one screen where the difference is a whole viewport wide.
+`contentPages.test.ts` reads the phone half off `RulesModal.svelte` the way it already reads the
+desktop half.
+
+The burger goes with it. It sits at the sheet's own layer and later in the document, so it was
+painted over the card's top-left corner: a floating control on a panel that already carries its ✕,
+and the one it had just been pressed on. `.homeIntro:has(.homeSheet[open]) .homeBurger` takes it off
+screen for as long as the sheet is up.
+
 `HomeProse.astro`'s sections head at `<h3>`, under the sheet's own `<h2>` title, which keeps the
 document's heading order the served `<h1>` establishes.
 

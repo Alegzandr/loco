@@ -262,7 +262,10 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   mid-match, and that took pinch-zoom with it on every page of the site. The double-tap is answered
   by `touch-action: manipulation` on `body`, which leaves the pinch alone; a board can now be
   pinched during a match, deliberately. `a11y.test.ts` fails on either attribute returning.
-- CSS `@media (max-width:480px)` for small screens.
+- CSS `@media (max-width:480px)` for small screens — a **layout** breakpoint: a bar that has to run
+  edge to edge, a table that has to drop a column. **A panel that changes shape does it at 46rem**,
+  which is where the navigation becomes a burger and where all four sheets flip together; see
+  "One sheet, four surfaces" in [`client.md`](client.md).
 
 ### Safe areas (the notch and the home indicator)
 The page owns the whole screen and keeps the game off its edges. Both halves are needed: without
@@ -819,9 +822,27 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 - `heldKey` resets on `blur`. Alt-tabbing away swallows the keyup, and the overlay would stay
   stuck over the board with no way out. It `preventDefault`s TAB, so `enabled` is false while the
   rules modal, a picker or the round summary owns the screen: inside a dialog TAB is the dialog's.
-- `.topRight` sits at **z-index 46, above the panel's 45**. The button that pins the table open is
-  the button that closes it; a panel that swallows its own toggle is a trap on touch. Pickers (100)
-  and the rules modal (1000) still cover the cluster.
+- **Nothing the board draws crosses it, and that is the point of the number.** The panel sits at
+  **z-index 48**, above the whole transient band — notices 14, the error toast 30, the interrupt and
+  catch banners 45, `.topRight` and the leave question 46, the catch capsule 47 — and below the three
+  things that outrank a read: the reconnect curtain (50), which says the table is not there at all,
+  the two pickers (100), which are a decision the player owes the table, and the rules modal (1000)
+  and map gate (900), which own the screen outright.
+  - It was at 45, which is the banners' own layer, and both banners are rendered *after* it. So the
+    one surface in this game somebody opens **in order to read it** was the one surface anything could
+    cross: six seats, five columns and a ping, with an interception banner across the middle, a
+    five-second countdown capsule over its title and four chips on its corner. Every one of those is a
+    cue about the board, and the board is exactly what the player has stopped looking at.
+  - **The chip row going under it is the deliberate half.** It carried the button that pinned the
+    panel and was kept at 46 for it — but a pinned table has had a ✕ in its own header since, and its
+    scrim dismisses on a press anywhere outside the card, so the way out is *on* the panel rather than
+    behind it. Held with TAB there was never anything to press. That ✕ is therefore the only control
+    answering for the panel on a phone, which is why it is 40px with `.hit-target` rather than the
+    32px it shared with the modal's.
+  - `scoreTable.test.ts` reads the layers off the sources and asserts the floor per file rather than
+    per selector, so a fifth banner added at 46 fails without anybody remembering this rule exists.
+    `score-table.spec.ts` asserts the cover from the other end, with `elementFromPoint` over the chip
+    the panel is drawn on top of.
 - **Ping bands** (`pingTier`): <60 good, <120 ok, <220 poor, beyond that bad. Tighter than a
   turn-based game would need, because an interrupt is decided by arrival order at the server.
   `rtt_ms < 0` renders as "not measured", never as a flattering 0 ms; bots are labelled `BOT`.
