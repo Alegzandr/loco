@@ -74,7 +74,7 @@ rounded:
   md: "18px"
   lg: "26px"
   xl: "36px"
-  full: "9999px"
+  full: "999px"
 spacing:
   xxs: "2px"
   xs: "4px"
@@ -316,7 +316,8 @@ one place — the scrim behind a modal — and never as the material of a panel.
 ## 5. Components
 
 ### Buttons
-- **Shape:** Fully pill (`9999px`). There is no square button anywhere in this product.
+- **Shape:** Fully pill (`999px`, never `50%`, which would make an ellipse of anything that is
+  not square). There is no square button anywhere in this product.
 - **Primary:** Vertical gradient from a lighter tint down into LOCO Red, white label with a
   dark red text-shadow to keep it off the light stop, 3px ink outline, 5px ledge,
   `14px 24px` padding, 54px tall.

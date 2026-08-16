@@ -45,9 +45,14 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   and this plays any of them (scheduling, synthesis, the arrangement ladder, the song form).
 - `audio/tracks/` — the music. `types.ts` documents the schema; `index.ts` is the registry (add a
   track by writing a `TrackDef` and listing it — engine, picker, tests and harness all read that
-  list). Three ship: **Neon Horizon** (uplifting trance 138, transcribed from the user's own Strudel
-  sketch `F:/dev/strudel-test/neon-horizon.strudel`), **Pixel Rush** (electro house 128, plucks and
-  offbeat stabs), **Voltage** (dark electro 145, wobbled bass, modulates to B major in the bridge).
+  list). Three ship: **Ressac** (uplifting trance 138, transcribed from the user's own Strudel
+  sketch `F:/dev/strudel-test/neon-horizon.strudel`), **Ricochet** (electro house 128, plucks and
+  offbeat stabs), **Rififi** (dark electro 145, wobbled bass, modulates to B major in the bridge).
+  The titles are the writing, never the genre: "Neon Horizon", "Pixel Rush" and "Voltage" were three
+  names off the same sample-pack shelf and said nothing about these three pieces that they would not
+  have said about any other. Ressac is the vi-IV-I-V going out and coming back; Ricochet is a track
+  on which nothing lands where it is expected; Rififi is the one that plays once the table has
+  stopped being polite.
   - **A track has parts and a form, and that is the whole point.** The first design was one four-bar
     loop whose only variation was layer count; the verdict was "it's just a chorus on repeat", and it
     was right — four bars at 138 BPM is 7 seconds. A track is now parts (`intro` / `verse` / `chorus`
@@ -80,15 +85,15 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
     The sketch uses `sawtooth` + `lpq(8)` + `shape(.3)` at `gain(.85)`: right for three minutes,
     exhausting across a twenty-minute match (resonant peak where the ear is most sensitive, waveshaper
     filling every gap the arp left). `bassNote` is always a sine sub for weight plus a filtered body,
-    never a waveshaper; Neon Horizon keeps the sketch's rhythm exactly (`struct("[~ x x x]*4")`, which
+    never a waveshaper; Ressac keeps the sketch's rhythm exactly (`struct("[~ x x x]*4")`, which
     also keeps it off the kick).
-  - Neon Horizon's `chorus` lead is the sketch's, **note for note**, pinned by a test so nobody
+  - Ressac's `chorus` lead is the sketch's, **note for note**, pinned by a test so nobody
     "improves" it by accident. Its bars 3–4 keep **F natural over the C and G chords** — an 11th and a
     dominant colour, his sound, not a transcription slip. What was added around it is what the sketch
     lacked for a long match: a verse, a counter-melody, a Dm→E bridge (the first major V in the
     track) and a break.
   - Arp figures are built from **their own bar's chord** and play in their **written register**. Both
-    are tested: a D natural over Voltage's B major was caught this way, and transposing figures `+12`
+    are tested: a D natural over Rififi's B major was caught this way, and transposing figures `+12`
     once put them above the lead — a busy way to bury the one line the player should follow.
   - `synth()` divides level by unison count, so widening a voice never also makes it louder, and
     implements a real ADSR (attack → decay to sustain → release after the hold) because a

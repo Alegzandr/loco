@@ -1,5 +1,10 @@
 /**
- * VOLTAGE — dark electro, 145 BPM, E minor.
+ * RIFIFI - dark electro, 145 BPM, E minor.
+ *
+ * French slang for a brawl, by way of the 1955 heist film, and the only one of
+ * the three named for the table rather than for the music: this is the one that
+ * plays once nobody is being polite any more. "Voltage" was a word from the
+ * same bag as every other synth-preset title.
  *
  * The fast one, for a table that has stopped being polite. Sixteenth-note bass
  * with a slow wobble on the cutoff so it talks rather than pulses, a syncopated
@@ -120,9 +125,9 @@ const parts: PartDef[] = [
   },
 ]
 
-export const voltage: TrackDef = {
-  id: 'voltage',
-  title: 'Voltage',
+export const rififi: TrackDef = {
+  id: 'rififi',
+  title: 'Rififi',
   blurb: {
     en: 'Dark electro · 145 BPM',
     fr: 'Électro sombre · 145 BPM',

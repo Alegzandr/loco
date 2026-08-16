@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Emote, MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
-  import Confetti from './Confetti.svelte'
+  import CardFall from './CardFall.svelte'
+  import OutcomeMark, { type Outcome } from './OutcomeMark.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
@@ -73,12 +74,22 @@
 
   const t = $derived(i18n.t)
   const isWinner = $derived(winner === myNickname)
-  // A forfeit is not a victory and this screen must not pretend otherwise: no
-  // confetti, no trophy, and a heading that says what actually happened. The
+  // A forfeit is not a victory and this screen must not pretend otherwise: the
+  // deck does not fall, the mark is the face-down card rather than the gold one,
+  // and the heading says what actually happened. The
   // player who left is told plainly that they left, which is the honest reading
   // of a match they ended themselves.
   const isForfeit = $derived(typeof forfeitBy === 'number' && forfeitBy >= 0)
   const iForfeited = $derived(isForfeit && forfeitedByMe === true)
+  /**
+   * Which of the four drawings heads the card. Resolved here rather than in the
+   * markup because it is the same question the heading below answers in words,
+   * and the two have to be reading one condition: a nested ternary in the markup
+   * is how the picture and the sentence drift apart.
+   */
+  const outcome = $derived<Outcome>(
+    isForfeit ? (iForfeited ? 'forfeitLeft' : 'forfeitWon') : isWinner ? 'win' : 'loss',
+  )
   const iOffered = $derived(typeof mySeat === 'number' && rematchOffers.includes(mySeat))
   const theyOffered = $derived(rematchOffers.some((seat) => seat !== mySeat))
   // Nobody is asked to agree with an empty table. A matchmade one requeues
@@ -128,16 +139,14 @@
 </script>
 
 <div class="container">
-  <!-- Only the winner gets confetti — a losing screen that celebrates is a worse
-       experience than a quiet one, and a walkover is not something to throw paper
-       over either. -->
+  <!-- Only the winner gets the fall. A losing screen that celebrates is a worse
+       experience than a quiet one, and a walkover is not something to empty the
+       deck over either. -->
   {#if isWinner && !isForfeit}
-    <Confetti />
+    <CardFall />
   {/if}
   <div class="card">
-    <div class="emoji">
-      {isForfeit ? (iForfeited ? '🚪' : '🏳️') : isWinner ? '🏆' : '😔'}
-    </div>
+    <OutcomeMark outcome={outcome} />
     <h2 class="heading">
       {isForfeit
         ? iForfeited
@@ -354,22 +363,9 @@
     }
   }
 
-  .emoji {
-    font-size: 72px;
-    line-height: 1;
-    filter: drop-shadow(0 6px 0 var(--color-stroke-soft));
-    animation: trophyBob 2.4s ease-in-out infinite;
-  }
-
-  @keyframes trophyBob {
-    0%,
-    100% {
-      transform: translateY(0) rotate(-4deg);
-    }
-    50% {
-      transform: translateY(-8px) rotate(4deg);
-    }
-  }
+  /* The outcome drawing brings its own size, ink shadow, bob and reduced-motion
+     rule: it is one object across the card and the round summary, so the screen
+     it sits on does not get a second opinion about how it looks. */
 
   .heading {
     font: 700 clamp(28px, 6vw, 38px) / 1.1 var(--font-display);
@@ -839,8 +835,7 @@
     color: var(--color-ink);
   }
 
-  :root[data-motion="reduce"] .card,
-  :root[data-motion="reduce"] .emoji {
+  :root[data-motion="reduce"] .card {
     animation: none;
   }
 

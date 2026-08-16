@@ -11,7 +11,7 @@ import {
   type Section,
 } from '../audio/music'
 import { TRACKS } from '../audio/tracks'
-import { neonHorizon } from '../audio/tracks/neonHorizon'
+import { ressac } from '../audio/tracks/ressac'
 import type { PartDef, TrackDef } from '../audio/tracks/types'
 
 const SECTIONS: Section[] = ['breakdown', 'buildup', 'groove', 'drop']
@@ -127,12 +127,12 @@ describe('tracks — structural integrity', () => {
   }
 })
 
-describe('neon-horizon — the hook is the user\'s own', () => {
+describe('ressac: the hook is the user\'s own', () => {
   it('keeps the sketch lead note for note', () => {
     // Transcribed from `F:\dev\strudel-test\neon-horizon.strudel`:
     //   [e5 ~ c5 e5 ~ a4 ~ c5] [~ e5 ~ a5 g5 ~ e5 ~]
     //   [f5 ~ c5 f5 ~ a4 ~ c5] [~ f5 ~ a5 g5 ~ e5 ~]
-    const chorus = partById(neonHorizon, 'chorus') as PartDef
+    const chorus = partById(ressac, 'chorus') as PartDef
     expect(chorus.lead).toEqual([
       [76, 0, 72, 76, 0, 69, 0, 72],
       [0, 76, 0, 81, 79, 0, 76, 0],
@@ -142,8 +142,8 @@ describe('neon-horizon — the hook is the user\'s own', () => {
   })
 
   it('keeps the sketch tempo, arp figures and voicings', () => {
-    expect(neonHorizon.bpm).toBe(138) // setcpm(138/4)
-    const verse = partById(neonHorizon, 'verse') as PartDef
+    expect(ressac.bpm).toBe(138) // setcpm(138/4)
+    const verse = partById(ressac, 'verse') as PartDef
     expect(verse.bars.map((b) => b.arp)).toEqual([
       [57, 60, 64, 69, 72, 69, 64, 60], // a3 c4 e4 a4 c5 a4 e4 c4
       [53, 57, 60, 65, 69, 65, 60, 57],
@@ -160,7 +160,7 @@ describe('neon-horizon — the hook is the user\'s own', () => {
 
   it('keeps the bass off the downbeat, as the sketch does', () => {
     // `struct("[~ x x x]*4")` — which is also why it never collides with a kick.
-    const chorus = partById(neonHorizon, 'chorus') as PartDef
+    const chorus = partById(ressac, 'chorus') as PartDef
     for (const beat of [0, 4, 8, 12]) expect(chorus.bass[beat]).toBeNull()
   })
 })

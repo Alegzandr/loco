@@ -298,11 +298,30 @@ try {
     console.error(`✗ ${results.error}`)
     failures++
   } else {
-    const THRESHOLD = 0.001
+    // A floor and a ceiling, and the ceiling was missing.
+    //
+    // This file was written to catch a voice that had gone *silent*, because
+    // that is the failure Web Audio produces without an error. It never looked
+    // at the other end, so a cue could be handed in at 1.07, clipping on every
+    // device, distorting the one frame of the game most likely to be clipped for
+    // a stream, and this run would print a tick beside it. That happened, to
+    // `matchWin`, the day the celebration cues were rewritten as struck chords:
+    // a stab of detuned saws sums far more coherently on its attack than the
+    // single triangle whose level it inherited.
+    //
+    // 0.8 is not a mixing opinion, it is the headroom below hard clip: two cues
+    // can overlap here (a round ends while a card is still landing) and the bus
+    // has no limiter on it. Anything that wants to be louder than the set is
+    // arguing with `interrupt` and `unoDeclare`, which live at ~0.45.
+    const FLOOR = 0.001
+    const CEILING = 0.8
     for (const [name, peak] of Object.entries(results.peaks)) {
-      const ok = peak > THRESHOLD
+      const silent = peak <= FLOOR
+      const hot = peak > CEILING
+      const ok = !silent && !hot
       if (!ok) failures++
-      console.log(`${ok ? '✓' : '✗'} ${name.padEnd(12)} peak=${peak.toFixed(4)}`)
+      const why = silent ? ' (silent)' : hot ? ` (hot, over ${CEILING})` : ''
+      console.log(`${ok ? '✓' : '✗'} ${name.padEnd(12)} peak=${peak.toFixed(4)}${why}`)
     }
     // The slider has to sound like it is going somewhere. A fifth between the
     // ends is a loose floor under a designed span of two octaves — it is here to
@@ -318,12 +337,12 @@ try {
         `high=${results.auditionHighHz.toFixed(0)}Hz (climbs, stays under 1.2kHz)`,
     )
 
-    const musicOk = results.musicPeak > THRESHOLD
+    const musicOk = results.musicPeak > FLOOR
     if (!musicOk) failures++
     console.log(`${musicOk ? '✓' : '✗'} ${'music bed'.padEnd(12)} peak=${results.musicPeak.toFixed(4)}`)
 
     for (const [title, peak] of Object.entries(results.trackPeaks)) {
-      const ok = peak > THRESHOLD
+      const ok = peak > FLOOR
       if (!ok) failures++
       console.log(`${ok ? '✓' : '✗'} ${`♪ ${title}`.padEnd(12)} peak=${peak.toFixed(4)}`)
     }
@@ -398,7 +417,7 @@ try {
     )
 
     // playSfx() early-returns while muted, so the effects bus stays silent.
-    const muteOk = results.mutedPeak <= THRESHOLD
+    const muteOk = results.mutedPeak <= FLOOR
     if (!muteOk) failures++
     console.log(`${muteOk ? '✓' : '✗'} ${'mute'.padEnd(12)} peak=${results.mutedPeak.toFixed(4)} (want ~0)`)
   }

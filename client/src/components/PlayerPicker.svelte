@@ -38,7 +38,18 @@
         </button>
       {/each}
     </div>
-    <button class="cancelBtn" onclick={onCancel} aria-label={cancelLabel}>✕</button>
+    <!-- Drawn, and the same path as everywhere else; see ColorPicker.svelte. -->
+    <button class="cancelBtn" onclick={onCancel} aria-label={cancelLabel}>
+      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+        <path
+          d="M6 6l12 12M18 6L6 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
   </div>
 </div>
 

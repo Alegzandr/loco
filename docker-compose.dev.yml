@@ -48,7 +48,17 @@ services:
             - VITE_HMR_CLIENT_PORT=5173
         ports:
             - "5173:3000"
-        command: sh -c "npm ci && npm run dev"
+        # `.astro/dev.json` is Astro 7's dev-server lock, and it lives on the bind
+        # mount, so it outlives the container that wrote it. Astro clears a stale
+        # lock by asking whether its PID is still alive — a test that is meaningless
+        # across a container restart, where PIDs begin again at 1 and the pid the
+        # dead server recorded (43: npm's own child) is alive again on every boot.
+        # The lock therefore never reads as stale, `astro dev` refuses to start,
+        # `restart: unless-stopped` tries again, and the stack loops forever on a
+        # server that has not existed since the last Ctrl+C. Dropping the lock here
+        # is safe because this container is the only thing that can hold it.
+        # `--force` is not: it would SIGKILL whatever now answers to that pid.
+        command: sh -c "rm -f .astro/dev.json && npm ci && npm run dev"
         depends_on:
             server:
                 condition: service_healthy

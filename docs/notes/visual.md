@@ -532,6 +532,29 @@ shows.
   three wilds one card at a glance.
 - **Rule glyphs are drawn, not typed.** ⊘ ⇄ ⇋ ↻ are the obvious characters and the wrong tool:
   Fredoka carries none of them, so the font fallback chain would decide what a rule card looks like.
+  **That argument does not stop at the card.** It was written here, tested on the card by
+  `card.test.ts`, and then the rules copy went and named the same two cards `Échange (⇋)` and
+  `Rotation (↻)` — the exact characters this line rejects, four bullets below five siblings that
+  name their card in words alone. The parentheses are gone: Swap and Global Switch are the two cards
+  a first-timer has no slot for, and the answer to that is the "Cards" tab beside the bullet, where
+  the face is drawn. The rule is enforced across every surface now, by `drawnGlyphs.test.ts`.
+- **The four ways a match ends are drawn too** (`components/OutcomeMark.svelte`, one component at two
+  sizes). It was 🏆 / 😔 / 🏳️ / 🚪 in a nested ternary at the head of the game-over card, which is
+  the one frame in this game most likely to be clipped for a stream and was the only part of it
+  nobody here had drawn. An emoji is rendered by the reader's OS — `🏳️` carries a variation selector
+  that Windows, Android and iOS resolve differently — so it arrives at a weight and a hue nothing
+  chose and takes neither the ink outline nor the hard bottom shadow.
+
+  The replacements are in the game's vocabulary, not a picture library's, and each one is the thing
+  it is about rather than a symbol for it: **winning is the mark itself** in `--color-secondary`, the
+  gold the scoreboard and the evening recap already win in; **losing is the cards still in your
+  hand**, drawn at the trim as a held fan, which is literally what lost the round; **a forfeit is one
+  card face-down**, filled rather than outlined because it is the one object on that screen
+  deliberately opaque, with an arrow when the seat that walked is ours. No trophy, and **no face**: a
+  sad face tells the player how to feel about a hand of cards, and it is the one drawing here that
+  could not survive being read by somebody who just lost. `size="sm"` puts the same win drawing on
+  the round summary's winner line — one event at two scales — and it holds still there, because a
+  glyph that bobs inside a line of type takes the sentence with it.
   `hasGlyph` (in `cardTheme.ts`, so `CardArt.svelte` exports components only) lists the kinds that get
   one. Swap and GlobalSwitch deliberately do not share a silhouette.
 - **GlobalSwitch is three cards in a ring, each moving to the next seat** (`rotatingHands`), not the
@@ -747,7 +770,36 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   - Drawn as a sibling of `.tableOval`, not a child: the felt clips its overflow and the chevrons'
     glow extends past the ellipse.
   - Scenes `game-my-turn` (cw) and `game-reversed` (ccw) cover both headings in the showcase.
-- **Confetti** on the victory screen only. Losing screens do not celebrate.
+- **The deck falls** on the victory screen only, and once (`CardFall.svelte`). Losing screens do not
+  celebrate, and a walkover is not a victory. **What falls is the real components**, fourteen
+  `<Card />` faces at 44-64px each backed by a real `<CardBack />`, both hiding their own backface
+  inside a `preserve-3d` parent, so a card that turns over in the fall shows the deck's back the way
+  a card does. It was confetti first and coloured 2:3 rectangles second, and the second is why the
+  rule is stated this way: at 30px, with no value, no mark and no back, the only thing saying "card"
+  was the aspect ratio, and nobody reads an aspect ratio.
+  - **The fade and the turn are on two different elements, and that split is load-bearing.** A 3D
+    context is flattened by anything that makes the browser composite the subtree as a group, and an
+    animated `opacity` is one of those, `will-change: opacity` alone being enough. With both on one
+    element `preserve-3d` was silently downgraded to `flat`: the back was never drawn and every
+    half-turn showed the *front* in mirror image, which looks like a card turning until you read the
+    number on it. So `.fall` owns the drift and the fade, `.tumble` owns the rotation and the depth,
+    and neither may take the other's property. The perspective sits **per card** rather than on the
+    layer, or the cards at the edges of a wide screen turn over more violently than the ones in the
+    middle and the whole thing reads as a lens.
+  - **The fall accelerates and the turn does not**, which is the pair of curves a tumbling object
+    actually has. Linear on both reads as confetti descending at a set speed; a card that gains on
+    itself and leaves the frame faster than it entered is the same animation with weight under it.
+    The curve is not a pure ease-in either, which starts from a dead stop: these come off a throw, so
+    it keeps a little speed at 0. **The fade-out moves with the curve** — at 90% of an accelerating
+    fall the card is still a third of a screen from the bottom, so a figure written for a linear drop
+    dissolves it in full view.
+  - **Half-turns are weighted** (two fifths of the cards none, two fifths one, the rest two): a card
+    turning at a constant rate spends as long edge-on as face-on, and edge-on it is a hairline.
+    Enough never turn at all that the screen stays mostly colour, and the rest land on their back to
+    say these are objects with two sides rather than printed shapes.
+  - **One roll decides how near a card is** and size and speed both read off it, because a large card
+    drifting down slowly behind a small one is the frame where the depth goes. Reduced motion drops
+    the layer entirely.
 - **Per-seat identity colours** (`components/playerColors.ts`): a player keeps one colour across
   lobby avatar, banner and scoreboard so a viewer can follow "the orange player" all match.
 - Opponent pills show the **exact** card count (the fan only conveys few-vs-many, and caps out).
@@ -911,7 +963,7 @@ Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup dro
 - Viewport size goes under `viewport: {...}` in the Playwright context options — width/height at the
   top level are silently ignored and you get the 1280×720 default.
 - Captures run with `reducedMotion: 'reduce'` by default so they are deterministic; `--motion` is how
-  you check confetti, springs and callouts.
+  you check the fall, springs and callouts.
 - **The harness asks for the home page of the language it is capturing** (`/fr/` by default, since
   `--lang` defaults to `fr`). `/` and `/fr/` are two builds, and a French screenshot has to be of
   the document a French player is served rather than of the English one translated into French.

@@ -1,7 +1,12 @@
 /**
- * PIXEL RUSH — electro house, 128 BPM, C major.
+ * RICOCHET - electro house, 128 BPM, C major.
  *
- * The bright one. Where Neon Horizon is a wash of supersaws, this is *plucks*:
+ * One word in both languages, and it is what the part writing is: nothing here
+ * lands where you expect it to. The bass plays offbeats only, the chord stabs
+ * sit between the kicks, the open hat is on the "and", and the chorus hook is
+ * on a sixteenth grid so its long note falls between beats 2 and 3.
+ *
+ * The bright one. Where Ressac is a wash of supersaws, this is *plucks*:
  * short square-ish notes with a lot of air between them, offbeat chord stabs, an
  * open hat on the "and", and a bass that only ever plays offbeats. It is the
  * Newgrounds-electro end of the Geometry Dash catalogue — major key, obvious
@@ -131,9 +136,9 @@ const parts: PartDef[] = [
   },
 ]
 
-export const pixelRush: TrackDef = {
-  id: 'pixel-rush',
-  title: 'Pixel Rush',
+export const ricochet: TrackDef = {
+  id: 'ricochet',
+  title: 'Ricochet',
   blurb: {
     en: 'Electro house · 128 BPM',
     fr: 'Électro house · 128 BPM',

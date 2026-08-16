@@ -412,11 +412,15 @@
 
   /* Colour AND position carry the meaning here: the tiers are ordered, so a
      colourblind viewer still reads the number next to them. */
+  /* The first two are the palette's own and were written out by hand here, which
+     is a copy of a token that nothing keeps in step with it. The last two are
+     this scale's alone: four tiers need a step between "ok" and "bad" that the
+     brand does not carry. */
   .ping[data-tier='good'] {
-    background: #12c48f;
+    background: var(--color-mint);
   }
   .ping[data-tier='ok'] {
-    background: #ffc93c;
+    background: var(--color-secondary);
   }
   .ping[data-tier='poor'] {
     background: #ff9f1a;
