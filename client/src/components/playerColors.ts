@@ -11,6 +11,8 @@ const SEAT_COLORS = [
   '#2b7fff', // blue
   '#17b877', // green
   '#ffa41f', // orange
+  // Kept in step with `--color-tertiary`, or a seat and the interface disagree
+  // about what that colour is.
   '#6c5cff', // indigo
   '#ff5cc8', // pink
   '#14b8c4', // teal

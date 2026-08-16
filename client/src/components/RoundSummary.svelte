@@ -3,6 +3,7 @@
   import type { ScoreboardEntryDTO, MatchFormat } from '../types/protocol'
   import type { Translations } from '../i18n/en'
   import { formatRounds } from './matchLengthModel'
+  import OutcomeMark from './OutcomeMark.svelte'
 
   function placementSuffix(rank: number, tr: Translations): string {
     if (rank === 1) return tr.ord1
@@ -79,8 +80,13 @@
         {t.complete}
       {/if}
     </div>
+    <!-- The same drawing that heads the game-over card, at line size: a round
+         won and a match won are the same event at two scales, and the trophy
+         emoji that used to sit here belonged to neither. -->
     <div class="roundSummaryWinner">
-      🏆 {roundWinner} {t.winsRound}
+      <OutcomeMark outcome="win" size="sm" />
+      {roundWinner}
+      {t.winsRound}
     </div>
 
     <div class="roundScoreTable">

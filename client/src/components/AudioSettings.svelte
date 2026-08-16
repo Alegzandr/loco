@@ -103,7 +103,26 @@
     aria-label={t.audioTitle}
     aria-expanded={open}
   >
-    {settings.muted ? '🔇' : '🔊'}
+    <!--
+      Drawn, like the gear this chip sits beside and the ✕ in the panel below it.
+      `🔇`/`🔊` rendered at whatever weight and hue the reader's OS ships, which
+      on a 40px chip with a 3px ink outline is the one object in the row that
+      does not match the row, and on Windows the muted one arrives in full
+      colour. One cone, and the state is the two waves being there or a cross
+      taking their place, so the difference is legible at a glance rather than by
+      comparing two pictures.
+    -->
+    <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+      <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path stroke-width="2.2" d="M4 9.2h3.4L12 5.2v13.6l-4.6-4H4z" />
+        {#if settings.muted}
+          <path stroke-width="2.2" d="M16.2 9.8l4.4 4.4M20.6 9.8l-4.4 4.4" />
+        {:else}
+          <path stroke-width="2.2" d="M16 9.6a3.6 3.6 0 010 4.8" />
+          <path stroke-width="2.2" d="M18.8 7.2a7.2 7.2 0 010 9.6" />
+        {/if}
+      </g>
+    </svg>
   </button>
 
   <!--

@@ -45,7 +45,7 @@ export const fr: Translations = {
   prefsMotion: 'Animations réduites',
   // On nomme ce qui disparaît, pour que l'interrupteur ne soit pas un pari.
   // Suit le réglage système tant qu'on n'y touche pas.
-  prefsMotionHint: 'Coupe les vols de cartes et les confettis. Suit ton système tant que tu n’y touches pas.',
+  prefsMotionHint: 'Coupe les vols de cartes et la pluie de la fin. Suit ton système tant que tu n’y touches pas.',
   // On dit ce que ça fait au code, pas comment le mode s'appelle : un joueur
   // qui doit deviner l'effet laissera l'option éteinte.
   prefsStreamerHint:
@@ -349,8 +349,10 @@ export const fr: Translations = {
         '+2\u00a0: le suivant pioche deux cartes, sauf s\'il répond par un +2. Piocher ne lui coûte pas son tour\u00a0: il pioche, puis joue ou passe.',
         'Changement de couleur\u00a0: se pose sur n\'importe quoi. C\'est toi qui annonces la nouvelle couleur.',
         '+4\u00a0: celle qui mord. Tu annonces la couleur, et le suivant pioche quatre cartes s\'il ne cumule pas.',
-        'Échange (⇋)\u00a0: carte colorée, jouée à ton tour. Tu désignes quelqu\'un et tu prends toute sa main. Oui, toute.',
-        'Rotation (↻)\u00a0: tu annonces la couleur, puis chaque main glisse d\'une place dans le sens du jeu. Personne ne garde rien.',
+        // Pas de caractère entre parenthèses : voir `en.ts`. Fredoka ne porte
+        // ni `⇋` ni `↻`, et l'onglet « Cartes » à côté dessine les deux faces.
+        'Échange\u00a0: carte colorée, jouée à ton tour. Tu désignes quelqu\'un et tu prends toute sa main. Oui, toute.',
+        'Rotation\u00a0: tu annonces la couleur, puis chaque main glisse d\'une place dans le sens du jeu. Personne ne garde rien.',
       ],
     },
     {

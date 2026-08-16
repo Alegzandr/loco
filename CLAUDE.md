@@ -128,7 +128,7 @@ needs jsdom and the `browser` resolve condition.
   `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
-  CatchBanner, RoundSummary, UnoTimer, Confetti, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
+  CatchBanner, RoundSummary, UnoTimer, CardFall, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, the two server mirrors `nicknameRules.ts` +
   `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
@@ -706,6 +706,21 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
   and only from the host's — see below; every other one is local and must stay that way. Those icons
   are **drawn SVG, never a font character**.
+- **Every glyph a player sees is one we drew, and that includes the ones that shout**
+  (`drawnGlyphs.test.ts`, which scans every `.svelte` and `.astro` plus both copy files). The rule
+  was written for the gear and the ✕ and broken everywhere else: the game-over card headed itself
+  with a nested ternary of 🏆 / 😔 / 🏳️ / 🚪, the round summary carried a second trophy, the audio
+  chip sat beside a drawn gear as 🔇/🔊, a held seat appended `✗` to its own nickname, and the rules
+  copy named Swap and Global Switch with `⇋` and `↻` — the two characters `visual.md` already
+  singles out as the wrong tool, because Fredoka carries neither. An emoji is drawn by the reader's
+  OS: it arrives at a weight and a hue nothing here chose, in colour on one platform and flat on the
+  next, and it cannot take the ink outline and hard bottom shadow every other raised object wears.
+  **The four ways a match ends are `OutcomeMark.svelte`**, in the game's own vocabulary rather than a
+  picture library's: the mark in the scoreboard's gold for a win, the cards still in your hand for a
+  loss, a card face-down for a forfeit. **No trophy and no face** — a losing screen that draws a sad
+  face is telling the player how to feel about a card game, and the quiet drawing reads better at
+  720p. Same component, `size="sm"`, on the round summary: a round won and a match won are one event
+  at two scales.
 - **The rules opener is a "How to play" pill before the deal and the "?" chip at the table**
   (`RulesButton`, `variant="text"` / `"icon"`): a glyph is faster mid-match, and a word is the only
   onboarding a first-time player gets on the screens where they are still deciding. The pill's
@@ -1032,6 +1047,19 @@ stated at the top of `styles/tokens.css`:
 2. Nothing is pure white on pure white. The board always sits on colour.
 3. Type is display-weight and large: a spectator reads it at 720p.
 
+- **The palette is four families and each one means one thing**: LOCO Red acts, sunny yellow marks a
+  win, electric indigo orients, signal mint confirms. That separation is the whole of it, and it is
+  worth more than any individual hex: the two secondaries were once moved to orchid and teal on the
+  grounds that they sat near a CSS framework's defaults, which was true, thin, and cost the palette
+  its logic. **Judge a proposed colour on what it does to the other three, not on its provenance**,
+  and if it has to move, move it inside its own family. Two things constrain `--color-tertiary` and
+  both are measured, not eyeballed: the focus ring wears it and has to clear **3:1 on the dark card**
+  (WCAG 1.4.11, where it currently sits at 3.42), and `--color-link` is the same hue pushed until it
+  clears AA on each canvas separately. **A colour written out by hand at a call site is the bug**
+  (`ScoreTable`'s ping tiers held the mint as a literal, a copy nothing keeps in step), and
+  `playerColors.ts` moves with the token or a seat and the interface disagree about one colour.
+  `--radius-full` is `999px` and **never `50%`**: half of every pill in this product is wider than it
+  is tall, and a percentage radius would make each of them an ellipse.
 - **`tableRect()` is the single authority on board geometry**, and `seatLayout()` on seating. Maps
   change how the felt is *painted*, never where anything is. Three callers must agree exactly.
 - **The board is a fixed coordinate space scaled by `<div .stage>`.** Fix scale problems in
@@ -1136,8 +1164,25 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at
   creation.
+- **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()` in `sfx.ts`).
+  Every celebration used to be `arp()`, and five of them ran the same major triad upward: `wild` and
+  `roundWin` were note for note identical, so playing a Global Switch sounded exactly like taking the
+  round, and both losing cues were that figure inverted. Major-going-up for good and minor-coming-down
+  for bad is the reflex, and it gave twenty-three voices one sentence at four speeds. The bed is 138
+  BPM trance and does not talk that way: a chord under a filter that opens on the transient and shuts
+  as it falls says its whole piece in one hit, which is also what keeps the cue shorter than the gap
+  before the next card. `arp()` is gone; do not bring it back. **A tail is a send, never an insert**
+  (`audio.sfxReverbSend()`): the card handling is paper and stays dry at zero.
+- **`make audio-verify` has a floor and a ceiling, and the ceiling is the newer half.** It was written
+  to catch a voice gone silent, so a cue handed in at 1.07 clipped on every device and still printed a
+  tick. Anything above 0.8 fails now. That is headroom below hard clip rather than a mixing opinion:
+  two cues overlap here and the bus carries no limiter.
 - A track is **parts plus a form** (`audio/tracks/`), not a loop with layers. Add one by writing a
-  `TrackDef` and listing it in the registry. The bass stays soft.
+  `TrackDef` and listing it in the registry. The bass stays soft. **A title names the writing, never
+  the genre**: `Ressac` is the vi-IV-I-V going out and coming back, `Ricochet` is the track on which
+  nothing lands where it is expected, `Rififi` is the one for a table that has stopped being polite.
+  They were `Neon Horizon`, `Pixel Rush` and `Voltage`, which is three names off one sample-pack shelf
+  and true of any other track as much as of these.
 - Playback is a **shuffled playlist**, not a selection: no picker, one "next" button.
 - `make audio-verify` is the only thing that catches a broken envelope or a mis-wired node, because
   those produce silence rather than an error. Run it after touching `sfx.ts`, `music.ts` or

@@ -515,7 +515,8 @@ export const en: Translations = {
   prefsMotion: 'Reduced motion',
   // Names the two things a player would miss, so the switch is not a leap of
   // faith. Follows the system setting until it is touched.
-  prefsMotionHint: 'Stops card flights and confetti. Follows your system until you set it here.',
+  prefsMotionHint:
+    'Stops card flights and the fall at the end. Follows your system until you set it here.',
   // Says what it does to the code, not what the mode is called: a player who
   // has to guess the effect will leave it off.
   prefsStreamerHint:
@@ -815,8 +816,14 @@ export const en: Translations = {
         '+2: the next player draws two, unless they answer with a +2 of their own. Taking the cards does not cost them the turn: they draw, then play or pass.',
         'Wild: lands on anything. You call the color.',
         '+4: the wild that bites. Call the color, and the next player draws four unless they stack.',
-        'Swap (⇋): a colored card, played on your turn. Pick anyone and take their whole hand. Yes, all of it.',
-        'Global Switch (↻): call the color, then every hand at the table slides one seat along. Nobody keeps anything.',
+        // No character in the parentheses, for the reason the cards themselves
+        // carry none: `⇋` and `↻` are not in Fredoka, so the fallback chain
+        // decides what they look like, and what it picks is not the glyph this
+        // game draws. These are the two cards a first-timer has no slot for, and
+        // the answer to that is the "Cards" tab beside this one, where the face
+        // is drawn. A bullet naming a card asks them to picture it.
+        'Swap: a colored card, played on your turn. Pick anyone and take their whole hand. Yes, all of it.',
+        'Global Switch: call the color, then every hand at the table slides one seat along. Nobody keeps anything.',
       ],
     },
     {

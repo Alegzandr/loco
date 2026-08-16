@@ -811,7 +811,7 @@ is: there is no board to draw behind either of them.
 - **The reveal counts down but decides nothing.** `starts_in_ms` sizes the counter; the match starts
   when `game_started` lands. A counter that reaches zero first holds on "dealing", which is the right
   behaviour for a screen whose server is the one deciding.
-- **A forfeit never renders as a victory.** `<GameOver />` with `forfeitBy` set drops the confetti and
+- **A forfeit never renders as a victory.** `<GameOver />` with `forfeitBy` set drops the fall and
   the trophy and says what happened, on both sides: the player who left is told they left. The
   rematch button stays where it is and goes grey rather than disappearing: a reaction game does not
   reflow its buttons, and the state being shown is "there is nobody to agree with", which is a state

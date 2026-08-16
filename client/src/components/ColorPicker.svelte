@@ -60,7 +60,19 @@
         </button>
       {/each}
     </div>
-    <button class="cancelBtn" onclick={onCancel} aria-label={cancelLabel}>✕</button>
+    <!-- The same path the three sheets carry, for the reason stated there: the ✕
+         is one object across the game, not one drawing per panel. -->
+    <button class="cancelBtn" onclick={onCancel} aria-label={cancelLabel}>
+      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+        <path
+          d="M6 6l12 12M18 6L6 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.4"
+          stroke-linecap="round"
+        />
+      </svg>
+    </button>
   </div>
 </div>
 

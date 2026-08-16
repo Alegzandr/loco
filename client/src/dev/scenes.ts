@@ -1066,7 +1066,7 @@ export const SCENES: Scene[] = [
   },
   {
     // The screen a walkover produces. It must not look like the victory above:
-    // no confetti, no trophy, and copy that names what happened.
+    // nothing falls, the mark is the face-down card, and the copy names what happened.
     id: 'gameover-forfeit-won',
     title: 'Fin de match · adversaire parti',
     screen: 'gameover',

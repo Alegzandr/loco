@@ -1,5 +1,12 @@
 /**
- * NEON HORIZON — uplifting trance, 138 BPM, A minor.
+ * RESSAC (undertow) - uplifting trance, 138 BPM, A minor.
+ *
+ * Named for what the writing does rather than for the genre it belongs to: the
+ * whole track is vi-IV-I-V going out and coming back, four bars at a time, and
+ * the bridge is the one wave that reaches further (Dm to E, the only G-sharp in
+ * the piece) so that the return to A minor lands as a return. "Neon Horizon"
+ * described a stock-loop cover, and there is nothing in the music it could not
+ * have been said about.
  *
  * Transcribed from the user's own Strudel sketch,
  * `F:\dev\strudel-test\neon-horizon.strudel`: same tempo, same vi–IV–I–V, same
@@ -128,9 +135,9 @@ const parts: PartDef[] = [
   },
 ]
 
-export const neonHorizon: TrackDef = {
-  id: 'neon-horizon',
-  title: 'Neon Horizon',
+export const ressac: TrackDef = {
+  id: 'ressac',
+  title: 'Ressac',
   blurb: {
     en: 'Uplifting trance · 138 BPM',
     fr: 'Trance uplifting · 138 BPM',

@@ -125,10 +125,99 @@ function mtof(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12)
 }
 
-function arp(midis: number[], step = 0.075, gain = 0.2, type: OscillatorType = 'triangle'): void {
-  midis.forEach((m, i) => {
-    tone({ freq: mtof(m), type, dur: step * 2.4, gain, delay: i * step, attack: 0.006 })
-  })
+// `arp()` lived here and is gone with the last of its callers. It was the whole
+// vocabulary of the celebration cues (eight of them, five on the same chord),
+// and leaving the helper behind is how that vocabulary comes back.
+
+/** Taps the short room on the effects bus, when there is one to tap. */
+function sendReverb(from: AudioNode, amount: number): void {
+  const ctx = audio.context()
+  const room = audio.sfxReverbSend()
+  if (!ctx || !room || amount <= 0) return
+  const send = ctx.createGain()
+  send.gain.value = amount
+  from.connect(send)
+  send.connect(room)
+}
+
+interface StabOpts {
+  /** The chord, as MIDI notes, all struck at once. */
+  notes: number[]
+  dur?: number
+  gain?: number
+  delay?: number
+  attack?: number
+  type?: OscillatorType
+  /** Detuned copies per note. 1 is a plain oscillator. */
+  unison?: number
+  /** Cents across the unison spread. */
+  detune?: number
+  /** Where the lowpass sits at the strike, and where it falls to. */
+  openTo?: number
+  closeTo?: number
+  /** Send level into the short room. */
+  reverb?: number
+}
+
+/**
+ * A chord, struck. The thing this file had no way of making.
+ *
+ * Every celebration in this game used to be `arp()`, and five of them were the
+ * same arpeggio: `wild`, `unoDeclare`, `roundWin` and `matchWin` all ran up
+ * 0-4-7-12, and `roundWin` was *note for note* `wild`, so playing a Global
+ * Switch sounded exactly like taking the round. The two losing cues were the
+ * same figure inverted. That is the reflex the whole set had: major going up is
+ * good, minor coming down is bad, and every moment in the game gets the same
+ * sentence at a different speed.
+ *
+ * The bed is 138 BPM trance and it does not talk like that. A struck chord under
+ * a filter that opens on the transient and shuts as it falls is what the music
+ * beside it is made of, and it says its whole piece in one hit rather than
+ * spelling a scale, which also means the cue is over before the next card is
+ * played, and a card game plays faster than its sounds decay.
+ *
+ * The gain is divided by the root of the voice count. Summing eight detuned saws
+ * into one envelope at the level a single triangle wanted is how a cue clips on
+ * a phone speaker while measuring fine on the bus.
+ */
+function stab(o: StabOpts): void {
+  const ctx = audio.context()
+  const dest = audio.sfxDestination()
+  if (!ctx || !dest) return
+
+  const dur = o.dur ?? 0.7
+  const unison = o.unison ?? 3
+  const detune = o.detune ?? 16
+  const t0 = ctx.currentTime + (o.delay ?? 0)
+  const count = Math.max(1, o.notes.length * unison)
+  const peak = (o.gain ?? 0.2) / Math.sqrt(count)
+
+  const lp = ctx.createBiquadFilter()
+  lp.type = 'lowpass'
+  lp.Q.value = 0.9
+  lp.frequency.setValueAtTime(o.openTo ?? 4600, t0)
+  lp.frequency.exponentialRampToValueAtTime(Math.max(80, o.closeTo ?? 800), t0 + dur)
+
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(peak, t0 + (o.attack ?? 0.006))
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
+
+  lp.connect(g)
+  g.connect(dest)
+  sendReverb(g, o.reverb ?? 0)
+
+  for (const midi of o.notes) {
+    for (let u = 0; u < unison; u++) {
+      const osc = ctx.createOscillator()
+      osc.type = o.type ?? 'sawtooth'
+      osc.frequency.setValueAtTime(mtof(midi), t0)
+      osc.detune.setValueAtTime(unison === 1 ? 0 : -detune / 2 + (detune * u) / (unison - 1), t0)
+      osc.connect(lp)
+      osc.start(t0)
+      osc.stop(t0 + dur + 0.04)
+    }
+  }
 }
 
 // ─── Voices ─────────────────────────────────────────────────────────────────
@@ -201,9 +290,12 @@ const VOICES: Record<SfxName, () => void> = {
     tone({ freq: mtof(50), toFreq: mtof(38), type: 'sawtooth', dur: 0.34, gain: 0.22, filter: 900 })
     noise({ dur: 0.2, freq: 1800, toFreq: 300, q: 0.7, gain: 0.2 })
   },
-  // Wild: colour change. Bright shimmering fourth stack.
+  // Wild: the colour changes, and nothing is settled by it. A suspended fourth,
+  // struck. The one chord that states a key without saying whether it is major
+  // or minor, which is the sound of a pivot rather than of a result. It used to
+  // be 0-4-7-12, note for note the same figure `roundWin` played.
   wild: () => {
-    arp([72, 76, 79, 84], 0.055, 0.14, 'triangle')
+    stab({ notes: [72, 77, 79], dur: 0.42, gain: 0.13, openTo: 5200, closeTo: 1400, reverb: 0.18 })
   },
   // Swap / global switch: two voices crossing.
   swap: () => {
@@ -211,9 +303,25 @@ const VOICES: Record<SfxName, () => void> = {
     tone({ freq: mtof(84), toFreq: mtof(72), type: 'sine', dur: 0.3, gain: 0.14 })
   },
 
-  // The signature shout. Bright major arpeggio, loud enough to cut a stream.
+  // The signature shout, and it has to land in one instant: this is a call, not
+  // an announcement, and a five-note run meant the table heard the *end* of it
+  // a third of a second after the player pressed. Root, fifth, octave, with no
+  // third, so that it carries without being cheerful. Struck hard, detuned wide
+  // enough to sound like more than one voice, over a short sub that gives the
+  // press a body. Loud enough to cut a stream, over before the next card.
   unoDeclare: () => {
-    arp([72, 76, 79, 84, 88], 0.06, 0.24, 'square')
+    stab({
+      notes: [76, 83, 88],
+      dur: 0.5,
+      gain: 0.22,
+      unison: 4,
+      detune: 26,
+      attack: 0.003,
+      openTo: 7000,
+      closeTo: 1500,
+      reverb: 0.3,
+    })
+    tone({ freq: mtof(40), toFreq: mtof(35), type: 'sine', dur: 0.34, gain: 0.15 })
   },
   // Caught undeclared: the sound of being wrong. Descending, sour.
   unoCaught: () => {
@@ -241,36 +349,108 @@ const VOICES: Record<SfxName, () => void> = {
     tone({ freq: mtof(88), type: 'triangle', dur: 0.08, gain: 0.13 })
   },
 
+  // Somebody sat down. Two notes and a soft filter: an arrival is the quietest
+  // positive thing that happens here, and it happens repeatedly while a table
+  // fills, and a cue that celebrates it is one somebody turns the sound off over.
   playerJoin: () => {
-    arp([67, 72, 76], 0.06, 0.14, 'triangle')
+    stab({
+      notes: [67, 74],
+      dur: 0.3,
+      gain: 0.1,
+      unison: 2,
+      type: 'triangle',
+      openTo: 2600,
+      closeTo: 900,
+      reverb: 0.12,
+    })
   },
 
-  // The queue found somebody. Stacked fifths rather than the thirds every other
-  // cue is built on, so it reads as a call across a room instead of as a result:
-  // nothing has been won here, somebody has arrived. Short, because the reveal
-  // that follows it has its own countdown to fill.
+  // The queue found somebody. Stacked fifths rather than the thirds the rest of
+  // the set is built on, so it reads as a call across a room instead of as a
+  // result: nothing has been won here, somebody has arrived. Short, because the
+  // reveal that follows it has its own countdown to fill.
   matchFound: () => {
-    arp([64, 71, 76, 83], 0.075, 0.2, 'triangle')
+    stab({
+      notes: [64, 71, 78],
+      dur: 0.55,
+      gain: 0.17,
+      detune: 20,
+      openTo: 5200,
+      closeTo: 1100,
+      reverb: 0.34,
+    })
     tone({ freq: mtof(40), type: 'sine', dur: 0.5, gain: 0.15, delay: 0.02 })
   },
 
+  // A round, taken. Major with the ninth on top: warm, open, and deliberately
+  // *unfinished*: a round is not the match, and the cue that says so is the one
+  // that does not resolve. Nothing here may sound like `matchWin`.
   roundWin: () => {
-    arp([72, 76, 79, 84], 0.085, 0.22, 'triangle')
-    tone({ freq: mtof(48), type: 'sine', dur: 0.6, gain: 0.16, delay: 0.02 })
+    stab({
+      notes: [69, 73, 76, 83],
+      dur: 0.72,
+      gain: 0.17,
+      openTo: 4800,
+      closeTo: 900,
+      reverb: 0.4,
+    })
+    tone({ freq: mtof(45), type: 'sine', dur: 0.6, gain: 0.16, delay: 0.02 })
   },
+  // A round, lost. Not the winning cue upside down. That inversion is the tell,
+  // and it also flatters the loss by giving it the same shape. A minor chord
+  // under a shut filter, short, no tail: it does not fall, it simply goes out.
   roundLose: () => {
-    arp([69, 65, 62], 0.11, 0.16, 'triangle')
+    stab({
+      notes: [69, 72, 76],
+      dur: 0.4,
+      gain: 0.145,
+      unison: 2,
+      openTo: 1500,
+      closeTo: 420,
+    })
   },
-  // Match won: a full cadence with a bass root. This is the clip people keep.
+  // The match. This is the clip people keep, so it is the one cue allowed two
+  // chords: the fourth struck wide, then the tonic under it a beat later, which
+  // is the cadence the bed resolves on all evening. Sub on the root, and the
+  // longest tail on the bus, because this is the only moment in the game with nothing
+  // to play after it.
   matchWin: () => {
-    arp([72, 76, 79, 84, 88, 91], 0.085, 0.24, 'triangle')
-    arp([84, 88, 91, 96], 0.085, 0.13, 'square')
-    tone({ freq: mtof(36), type: 'sine', dur: 1.1, gain: 0.2, delay: 0.02 })
-    tone({ freq: mtof(48), type: 'sine', dur: 1.0, gain: 0.14, delay: 0.02 })
+    stab({
+      notes: [65, 69, 72, 76, 79],
+      dur: 0.6,
+      gain: 0.17,
+      detune: 20,
+      openTo: 5600,
+      closeTo: 1200,
+      reverb: 0.45,
+    })
+    stab({
+      notes: [60, 67, 72, 76, 79],
+      dur: 1.5,
+      gain: 0.19,
+      detune: 22,
+      delay: 0.26,
+      openTo: 6400,
+      closeTo: 900,
+      reverb: 0.6,
+    })
+    tone({ freq: mtof(36), type: 'sine', dur: 1.5, gain: 0.16, delay: 0.26 })
   },
+  // The match, lost. A minor seventh that opens and then closes over a long sub:
+  // disappointment, which is a different thing from punishment. `penalty` and
+  // `unoCaught` are what punishment sounds like here, and neither of them is
+  // this. It takes its time because nothing follows it either.
   matchLose: () => {
-    arp([69, 66, 62, 57], 0.14, 0.18, 'triangle')
-    tone({ freq: mtof(33), type: 'sine', dur: 0.9, gain: 0.14, delay: 0.05 })
+    stab({
+      notes: [57, 60, 64, 67],
+      dur: 1.3,
+      gain: 0.15,
+      unison: 2,
+      openTo: 1900,
+      closeTo: 320,
+      reverb: 0.3,
+    })
+    tone({ freq: mtof(33), type: 'sine', dur: 1.1, gain: 0.14, delay: 0.05 })
   },
 }
 

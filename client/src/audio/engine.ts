@@ -35,7 +35,7 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   // Deliberately a bare string rather than an import from `audio/tracks`: the
   // engine is the bottom of the audio stack and must not depend on the track
   // registry, which depends on it. `getTrack` falls back on an unknown id.
-  track: 'neon-horizon',
+  track: 'ressac',
 }
 
 function clamp01(n: number): number {
@@ -67,6 +67,7 @@ export class AudioEngine {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
   private sfxBus: GainNode | null = null
+  private sfxVerbIn: GainNode | null = null
   private musicBus: GainNode | null = null
   private settings: AudioSettings = readSettings()
   private listeners = new Set<Listener>()
@@ -115,6 +116,7 @@ export class AudioEngine {
       this.sfxBus.connect(this.master)
       this.musicBus.connect(this.master)
       this.master.connect(this.ctx.destination)
+      this.buildSfxReverb(this.ctx)
       this.applyGains(0)
     }
     // Anything that is not running, not just `suspended`. WebKit parks the
@@ -129,6 +131,52 @@ export class AudioEngine {
       await this.ctx.resume()
     } catch {
       // A resume outside a gesture may simply be refused; the next tap retries.
+    }
+  }
+
+  /**
+   * A short room on a send, for the sounds that are allowed to be an event.
+   *
+   * The music bed has had reverb since it was written; the effects bus was dry,
+   * and a dry bus is why every celebration in this game had to be a *melody* to
+   * feel like anything. Something with a tail can be one chord. It is a send and
+   * not an insert, so the card handling, which is paper and must stay in the
+   * room the player is in, reaches it at zero and is unchanged.
+   *
+   * The impulse is synthesised for the same reason every other sound here is:
+   * shipping an IR would be the first audio file in the client. Noise under an
+   * exponential decay, darkening as it falls, which is what a small room does to
+   * the top end. Short on purpose: 0.9s. This game plays faster than its sounds
+   * decay if you let it.
+   */
+  private buildSfxReverb(ctx: AudioContext): void {
+    if (!this.sfxBus) return
+    try {
+      const seconds = 0.9
+      const len = Math.floor(ctx.sampleRate * seconds)
+      const ir = ctx.createBuffer(2, len, ctx.sampleRate)
+      for (let channel = 0; channel < 2; channel++) {
+        const data = ir.getChannelData(channel)
+        let dark = 0
+        for (let i = 0; i < len; i++) {
+          const decay = Math.pow(1 - i / len, 2.6)
+          // A one-pole lowpass over the noise: the tail loses its top as it
+          // goes, instead of hissing all the way down at constant brightness.
+          dark += ((Math.random() * 2 - 1) - dark) * 0.34
+          data[i] = dark * decay
+        }
+      }
+      const convolver = ctx.createConvolver()
+      convolver.buffer = ir
+      const send = ctx.createGain()
+      send.gain.value = 1
+      send.connect(convolver)
+      convolver.connect(this.sfxBus)
+      this.sfxVerbIn = send
+    } catch {
+      // A refused ConvolverNode costs the tail and nothing else: every voice
+      // still reaches the bus dry, so the game keeps its sound.
+      this.sfxVerbIn = null
     }
   }
 
@@ -165,6 +213,15 @@ export class AudioEngine {
 
   sfxDestination(): GainNode | null {
     return this.sfxBus
+  }
+
+  /**
+   * Where a voice sends itself to be given a tail. Null before the first unlock
+   * and on any browser that refused the convolver, so callers connect to it only
+   * when it is there. The sound is the dry path, never this.
+   */
+  sfxReverbSend(): GainNode | null {
+    return this.sfxVerbIn
   }
 
   musicDestination(): GainNode | null {

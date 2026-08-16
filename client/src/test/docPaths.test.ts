@@ -68,6 +68,10 @@ const OUTSIDE_THE_REPO = new Set([
   'vite.config.ts',
   'main.tsx',
   '.visual', // where `make visual` writes its contact sheets
+  // Astro's dev lock, inside a directory `SKIP` walks past. It exists only while
+  // a dev server does, and the note that names it names it in order to say the
+  // client command deletes it on every boot.
+  '.astro/dev.json',
   'xx.ts', // the placeholder in "add a language: create xx.ts"
 ])
 

@@ -462,8 +462,8 @@ future reader mistake the exclusions for neglect.
 - **`eslint-plugin-svelte`'s recommended set is kept whole**, and that is a deliberate change of
   posture from what stood here before. The React config it replaced had four rules switched off,
   because the React Compiler's static analysis flagged 27 sites that were this game's timing model —
-  every hook publishing an external clock, the `Date.now()` a countdown is measured from, Confetti's
-  per-particle `Math.random()`. None of that is a conflict any more: a Svelte effect reading a clock
+  every hook publishing an external clock, the `Date.now()` a countdown is measured from, CardFall's
+  per-card `Math.random()`. None of that is a conflict any more: a Svelte effect reading a clock
   and writing a `$state` is the ordinary way to write one. So nothing is disabled at the config
   level, and the two rules the game does argue with are argued with **in place, one line at a time,
   with the reason written next to them**:
@@ -515,6 +515,18 @@ future reader mistake the exclusions for neglect.
   `VITE_HMR_CLIENT_PORT` so HMR dials the published 5173 rather than the container's 3000.
 - Volumes: `go-mod-cache`, `client-node-modules` (named, persistent).
 - Start: `docker compose -f docker-compose.dev.yml up --build`.
+- **The client command drops `.astro/dev.json` before it starts, and it has to.** Astro 7's dev
+  server is a singleton holding that lock file, which lives on the bind mount and so outlives the
+  container that wrote it. A stale lock is supposed to clear itself: `checkExistingServer` asks
+  whether the recorded pid is alive. Across a container restart that question has no meaning — pids
+  begin again at 1, and the pid the dead server recorded (43, npm's own child) is alive again on
+  every boot, so the lock reads as held by a server that has not existed since the last Ctrl+C.
+  `astro dev` refuses, `restart: unless-stopped` tries again, and the stack loops on that refusal
+  forever. `--force` is the documented escape and is the wrong one here: it SIGKILLs that pid, which
+  now belongs to something else in the new container. The lock is only ever this container's, so
+  removing it is safe. **The capture harnesses answer the same singleton differently**
+  (`tools/lib/devserver.mjs`, `--ignore-lock`): they run on the host, where a lock may genuinely
+  belong to a dev server somebody is using.
 
 ### An ad-hoc `docker run` from Git Bash on Windows corrupts its own paths
 Git Bash (MSYS) rewrites any argument that looks like a POSIX path list: the `:` separator becomes a

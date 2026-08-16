@@ -33,7 +33,6 @@
   const startX = $derived(-totalW / 2)
   const maxRot = $derived(((n > 4 ? 14 : n > 1 ? 8 : 0) * Math.PI) / 180)
 
-  const label = $derived(isDisconnected ? `${nickname} ✗` : nickname)
 
   const backs = $derived(
     !fan
@@ -71,7 +70,24 @@
   style="transform: translate({x - dims.w / 2}px, {y - dims.h / 2}px)"
 >
   {#if isActiveTurn}<div class="dot"></div>{/if}
-  <div class="label">{label}</div>
+  <!-- The name shortens, the mark never does: a seat whose nickname fills the
+       pill is exactly the seat whose "gone" was being ellipsed away when the two
+       shared one string. Drawn rather than `✗`, which at 11px on a mini seat is
+       whatever glyph the fallback font had. -->
+  <div class="label">
+    <span class="labelName">{nickname}</span>
+    {#if isDisconnected}
+      <svg class="goneMark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path
+          d="M6 6l12 12M18 6L6 18"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          stroke-linecap="round"
+        />
+      </svg>
+    {/if}
+  </div>
   <!-- Explicit card count. The mini-fan conveys "few vs many" at a glance, but a
        spectator tracking who is about to win needs the exact number — and on mini
        seats it is the only card information there is. -->
@@ -204,10 +220,27 @@
   .label {
     font: 600 14px/1.2 var(--font-display);
     color: var(--color-ink);
+    max-width: 132px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* The ellipsis belongs to the name alone. `min-width: 0` is what lets a flex
+     item shrink below its content. Without it the name pushes the mark out of
+     the pill instead of truncating. */
+  .labelName {
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 132px;
+  }
+
+  /* Sized in `em` so it follows the three seat sizes without three rules. */
+  .goneMark {
+    flex-shrink: 0;
+    width: 0.85em;
+    height: 0.85em;
   }
 
   .slot.active .label {
