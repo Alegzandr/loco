@@ -383,6 +383,15 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **Bots**: `game/bot.go` decides, `hub` schedules, through the same domain calls and broadcasts as
   humans. Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
   `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
+- **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, so the
+  seat that owes the call always has the first half of it; never scheduled past the deadline, because
+  a late call costs a card. **One attempt per window and one press, however many bots are at the
+  table**: `botCatchAttempt` derives the verdict, the delay and the instant from the window itself
+  (seat + `LastCardAt`), so the re-arming every action inside those five seconds performs changes
+  nothing — rolled per arming, the delay is the minimum of N draws and a table of bots sits at the
+  fast end of the range. Armed with the bots' own LOCO! by one `maybeScheduleBotReactions`, after
+  **every** action, human or bot: armed after human actions alone, a bot's Swap handed a human their
+  last card and nobody ever answered it.
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
   is an empty acknowledgement, the number lives only on `/metrics`. Nothing player-facing says
   "unranked".

@@ -3,6 +3,7 @@
 package hub
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	mrand "math/rand"
@@ -93,20 +94,31 @@ var BotUnoDelay = 1600 * time.Millisecond
 // Exported so tests can set it to 0.
 var BotUnoJitterMax = 1200 * time.Millisecond
 
-// BotCatchDelay is the base delay before a bot attempts to catch an undeclared UNO.
-// Must be well under catchWindow (5s). 2s base gives bots time to "notice" without
-// being instant. Exported so tests can set it to 0.
-var BotCatchDelay = 2000 * time.Millisecond
+// BotCatchDelay and BotCatchJitterMax bound how long the bots take to answer a
+// seat that owes the table a LOCO!. Late in the 5s window on purpose (3.2–4.4s),
+// and the lateness is the whole design: the seat that forgot is looking at an
+// armed, pulsing chip for the entire window, so a bot that presses at two
+// seconds catches the player who was already reaching for it and turns the one
+// control this game asks a newcomer to learn into a control they never get to
+// use. Answered late, a catch only ever lands on somebody who was not looking —
+// and it lands with the capsule nearly drained, which is the "I nearly had it"
+// this is tuned for rather than a punishment for being slower than a machine.
+//
+// The ceiling carries as much as the floor: the window shuts at 5s and a call
+// that arrives after it costs its caller a card, so a bot must never be
+// scheduled past it. botcatch_internal_test.go pins both ends against the
+// domain's own window rather than against numbers typed twice.
+// Exported so tests can set them to 0.
+var (
+	BotCatchDelay     = 3200 * time.Millisecond
+	BotCatchJitterMax = 1200 * time.Millisecond
+)
 
-// BotCatchJitterMax is the max random jitter added to BotCatchDelay, giving a
-// total reaction window of BotCatchDelay to BotCatchDelay+BotCatchJitterMax (2–3.5s).
-// Exported so tests can set it to 0.
-var BotCatchJitterMax = 1500 * time.Millisecond
-
-// BotCatchProb is the probability (0–1) that an eligible bot will catch an undeclared UNO.
-// 0.65 means bots catch ~65% of the time, making them fallible like human opponents.
+// BotCatchProb is the probability that the table's bots go for a catch window at
+// all. They are not the opponent who never misses: about one forgotten call in
+// five walks, whatever the seat count.
 // Exported so tests can set it to a deterministic value.
-var BotCatchProb float32 = 0.65
+var BotCatchProb float32 = 0.8
 
 // BotInterruptDelay and BotInterruptJitterMax bound how long a bot takes to
 // slam an identical card into an open window (0.7–1.5s).
@@ -319,51 +331,102 @@ func (h *Hub) botDeclareBeforeFinish(t *table, playerIndex int) {
 	})
 }
 
-// maybeScheduleBotCatch checks whether the most recent card play left anybody at
-// 1 card without declaring UNO, and if so, schedules a bot catch attempt per
-// catchable seat, because a Swap or a GlobalSwitch puts several of them on the
-// hook at once and a bot that only ever saw the first would let the rest walk.
-// Must be called immediately after broadcastCardPlayed while room state is fresh.
-func (h *Hub) maybeScheduleBotCatch(t *table) {
-	code, room := t.code, t.room
-	if room.Status != game.StatusPlaying {
-		return
-	}
-	bots := t.bots
-	if len(bots) == 0 {
-		return
-	}
-	state := room.State
-	for _, target := range state.CatchableTargets(time.Now()) {
-		// Check at least one eligible bot exists (not the target).
-		anyEligible := false
-		for botID := range bots {
-			if botID != target {
-				anyEligible = true
-				break
-			}
-		}
-		if !anyEligible {
-			continue
-		}
+// botCatchAttempt decides, for one catch window, whether the bots answer it and
+// how long they take. Both answers come out of the window itself — the seat and
+// the instant it opened — instead of being rolled where the window is armed,
+// because a window is armed once per action taken inside it: a human plays down
+// to one card, a bot takes its turn two seconds later, another seat interjects,
+// and the same five seconds have been armed three times. Rolled per arming, the
+// delay is the *minimum* of N draws and the probability is 1-(1-p)^N, so the
+// busier the board around a forgotten call the faster and the surer the catch —
+// a table of four bots would sit at the fast end of the range every time, which
+// is the one place the mechanic has to stay winnable. Same window, same answer,
+// so every arming after the first resolves to the same instant and the same
+// verdict.
+//
+// A hash rather than a draw, for that reason: it has to answer twice the same,
+// and it must not consume a shared source in an order that depends on how many
+// times it was asked.
+func botCatchAttempt(seat int, windowAt time.Time) (delay time.Duration, attempt bool) {
+	var buf [16]byte
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(windowAt.UnixNano()))
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(seat))
+	sum := fnv1a64(buf[:])
 
-		var jitter time.Duration
-		if jm := int(BotCatchJitterMax.Milliseconds()); jm > 0 {
-			jitter = time.Duration(mrand.Intn(jm)) * time.Millisecond
-		}
-		cm := botCatchMsg{roomCode: code, targetPlayer: target, lastCardTime: state.LastCardAt[target]}
-		// Non-critical if the box is full: the catch window just closes.
-		time.AfterFunc(BotCatchDelay+jitter, func() {
-			t.postFromTimer("bot_catch", func() { h.handleBotCatch(t, cm) })
-		})
+	delay = BotCatchDelay
+	if jm := BotCatchJitterMax.Milliseconds(); jm > 0 {
+		delay += time.Duration(int64(sum>>32)%(jm+1)) * time.Millisecond
 	}
+	// Compared as integers, and the ends are the reason: every test in this
+	// package that needs a deterministic bot pins BotCatchProb to 0 or 1, and a
+	// float32 ratio of two 32-bit numbers rounds to exactly 1 near the top of the
+	// range — so "always" would skip a window now and then, and only sometimes.
+	threshold := uint64(float64(BotCatchProb) * (1 << 32))
+	return delay, uint64(uint32(sum)) < threshold
+}
+
+// fnv1a64 is the standard FNV-1a, written out because this needs a number and
+// not a hash.Hash: no allocation, no interface, on a path a card play crosses.
+func fnv1a64(b []byte) uint64 {
+	const offset, prime = uint64(14695981039346656037), uint64(1099511628211)
+	sum := offset
+	for _, c := range b {
+		sum ^= uint64(c)
+		sum *= prime
+	}
+	return sum
+}
+
+// scheduleBotCatch arms the table's answer to one seat's catch window.
+//
+// One timer per window and never one per bot: which bot presses is picked when
+// it fires (handleBotCatch), so four bots do not get four rolls and four jitters
+// on one forgotten call. See botCatchAttempt for the half of that property the
+// re-arming needs.
+func (h *Hub) scheduleBotCatch(t *table, target int) {
+	state := t.room.State
+	// Nobody to press it: in a solo game the only bot is the seat on the hook.
+	eligible := false
+	for botID := range t.bots {
+		if botID != target {
+			eligible = true
+			break
+		}
+	}
+	if !eligible {
+		return
+	}
+	windowAt := state.LastCardAt[target]
+	delay, attempt := botCatchAttempt(target, windowAt)
+	if !attempt {
+		return
+	}
+	// Absolute, measured from the window rather than from now: a second arming
+	// inside the same five seconds resolves to the instant the first one is
+	// already holding, instead of adding a second, later attempt at the end of
+	// the window where it would cost the bot a card.
+	fireAt := windowAt.Add(delay)
+	if !fireAt.Before(state.CatchWindowEnd(target)) {
+		return // scheduled past the deadline: a call nobody could win
+	}
+	wait := time.Until(fireAt)
+	if wait < 0 {
+		wait = 0
+	}
+	cm := botCatchMsg{roomCode: t.code, targetPlayer: target, lastCardTime: windowAt}
+	// Non-critical if the box is full: the catch window just closes.
+	time.AfterFunc(wait, func() {
+		t.postFromTimer("bot_catch", func() { h.handleBotCatch(t, cm) })
+	})
 }
 
 // maybeScheduleBotInterrupt arms one interject attempt against the card that
-// was just played. Called at the same points as maybeScheduleBotCatch, i.e.
-// after a *human* action: bots deliberately do not answer each other, which is
-// the existing rule for catches and also what keeps an all-bot table from
-// slamming cards back and forth with nobody watching.
+// was just played. Called after a *human* action and nowhere else: bots
+// deliberately do not answer each other here, which is what keeps a table of
+// bots from slamming cards back and forth with nobody watching. It is the one
+// bot reaction armed that narrowly — maybeScheduleBotReactions is armed
+// everywhere, because a call somebody owes the table is owed whoever put them
+// on one card.
 //
 // One message per play, not one per bot: the handler picks among whoever can
 // actually answer, so a table with four bots does not get four rolls of the die
@@ -462,12 +525,15 @@ func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 		return
 	}
 	h.broadcastInterrupt(t, botID, action.Cards, action.ChosenPlayer)
-	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotReactions(t)
 	h.handleRoundOrMatchEnd(t)
 }
 
-// handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates game state,
-// rolls the probability die, selects a random eligible bot, and issues the catch.
+// handleBotCatch fires when a bot's catch-UNO timer expires. It re-validates the
+// board, then picks the bot that presses. Whether the table answers this window
+// at all was decided when it was armed (botCatchAttempt), not here: deciding it
+// on the way out would put the die back on the timer, and a window can carry
+// several of those.
 func (h *Hub) handleBotCatch(t *table, cm botCatchMsg) {
 	room := t.room
 	if room.Status != game.StatusPlaying {
@@ -487,8 +553,10 @@ func (h *Hub) handleBotCatch(t *table, cm botCatchMsg) {
 	if state.Hands[cm.targetPlayer].Size() != 1 {
 		return // target no longer at 1 card (e.g. drew penalty cards)
 	}
-	// Probabilistic: bots don't always notice.
-	if mrand.Float32() >= BotCatchProb {
+	// A window that shut while this job sat in the table's box is one the bot
+	// simply does not press: a human pays a card for a late call because they
+	// chose the moment, and nothing here chose anything.
+	if !time.Now().Before(state.CatchWindowEnd(cm.targetPlayer)) {
 		return
 	}
 	// Pick a random eligible bot.
@@ -571,7 +639,7 @@ func (h *Hub) botPlay(t *table, playerID int, action game.BotAction) {
 	if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
 		h.broadcastPersonalizedGameState(t)
 	}
-	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotReactions(t)
 	h.handleRoundOrMatchEnd(t)
 }
 
@@ -584,7 +652,7 @@ func (h *Hub) botCounter(t *table, playerID int, action game.BotAction) {
 		return
 	}
 	h.broadcastCardPlayed(t, playerID, -1)
-	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotReactions(t)
 	h.handleRoundOrMatchEnd(t)
 }
 
@@ -627,22 +695,28 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	return false
 }
 
-// maybeScheduleBotDeclarations arms a deferred LOCO! for every bot seat that
-// currently owes one, not only for the seat that happened to act.
+// maybeScheduleBotReactions arms everything the bots owe the single-card seats
+// the board now has: their own LOCO! for the ones that are bots, and the table's
+// one Contre-LOCO! attempt against every seat that has not called it.
 //
 // Playing down to one card is not the only way to owe a declaration: a Swap or
 // a GlobalSwitch hands one over, and receiving your last card is exactly as
-// declarable as playing to it (rules.md §8). Keyed on the acting seat, a human
-// who swapped a bot down to one card left it silently catchable for the whole
-// 5 s window: a free +2 that no human ever offers, since bots do catch humans.
-// A bot's own Swap had the same hole against a *second* bot.
+// declarable as playing to it (rules.md §8). So neither half may be keyed on the
+// seat that acted — keyed on the actor, a human who swapped a bot down to one
+// card left it silently catchable for the whole 5 s window.
 //
-// CatchableTargets is the same set maybeScheduleBotCatch reads: seats on one
-// card, undeclared, window still open. Filtering it to bots is the entire rule.
-// Nothing is declared here: see scheduleBotUnoAnnounce. Scheduling twice for
-// one moment is harmless: the second announce finds the seat settled and
-// returns.
-func (h *Hub) maybeScheduleBotDeclarations(t *table) {
+// And the two are armed together, from every point a board can change, because
+// they were not: the catch used to be armed after a *human* action only, so a
+// bot's own Swap could hand a human their last card and no bot would ever answer
+// it — a free pass on the one seat at the table that is meant to be watched.
+// They read the same list (CatchableTargets: on one card, undeclared, window
+// still open), so a seat cannot be on the hook for one and not the other.
+//
+// Nothing is declared or caught here: see scheduleBotUnoAnnounce and
+// scheduleBotCatch. Arming twice for one window is harmless by construction —
+// the second announce finds the seat settled and returns, and the second catch
+// resolves to the instant the first one already holds.
+func (h *Hub) maybeScheduleBotReactions(t *table) {
 	room := t.room
 	if room.Status != game.StatusPlaying || room.RoundEnded || room.State == nil {
 		return
@@ -651,10 +725,11 @@ func (h *Hub) maybeScheduleBotDeclarations(t *table) {
 		return
 	}
 	for _, seat := range room.State.CatchableTargets(time.Now()) {
-		if !t.isBot(seat) {
-			continue // a human's own call is theirs to make or lose
+		if t.isBot(seat) {
+			h.scheduleBotUnoAnnounce(t, seat, room.State.LastCardAt[seat])
 		}
-		h.scheduleBotUnoAnnounce(t, seat, room.State.LastCardAt[seat])
+		// A human's own call is theirs to make or lose; the catch on it is not.
+		h.scheduleBotCatch(t, seat)
 	}
 }
 
