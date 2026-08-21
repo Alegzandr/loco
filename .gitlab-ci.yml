@@ -341,6 +341,13 @@ e2e_test:
           twitch_game="${LOCO_TWITCH_GAME_ID:-}"
           twitch_cdn="${LOCO_TWITCH_CDN_SLUG:-}"
         fi
+        # What GitLab actually handed this job, in lengths and never in values.
+        # A protected variable out of scope arrives empty and in silence, and
+        # the feature an empty key switches off is off in silence too — so the
+        # two are indistinguishable from anywhere except the host's own
+        # container environment. This line is the difference, and it prints no
+        # secret: the key is one and stays one.
+        echo "write_app_env: env=${DEPLOY_ENV} janus_url=${#janus_url} janus_app=${#janus_app} janus_key=${#janus_key} twitch_game=${#twitch_game} twitch_cdn=${#twitch_cdn}"
         printf '%s\n' \
           "PORT=${PORT}" \
           "DEPLOY_ENV=${DEPLOY_ENV}" \
