@@ -333,8 +333,8 @@ export const PAGES: readonly PageDef[] = [HOME, RULES, CARDS, TABLES, FRIENDS, L
 /**
  * The pages the site navigation offers, in order. The home page is not one of
  * them: it is the game, and it is reached by the logo and the play button.
- * Neither is `LEGAL`, which sits on its own at the right-hand end of the bar:
- * it is not something to read, it is something to be able to find.
+ * Neither is `LEGAL`, which closes the row rather than joining this list: it
+ * is not something to read, it is something to be able to find.
  */
 export const NAV: readonly PageDef[] = [RULES, CARDS, TABLES, FRIENDS, LIVE, FAQ_PAGE]
 

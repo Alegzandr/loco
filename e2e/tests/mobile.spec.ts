@@ -190,7 +190,8 @@ test.describe('mobile viewport', () => {
     await expect(drawer).toBeVisible()
 
     // Everything the bar carried, at a size worth pressing.
-    for (const href of ['/', '/rules/', '/cards/', '/tables/', '/play-with-friends/', '/faq/', '/privacy/']) {
+    const bar = ['/', '/rules/', '/cards/', '/tables/', '/play-with-friends/', '/live/', '/faq/', '/privacy/']
+    for (const href of bar) {
       const link = drawer.locator(`a[href="${href}"]`)
       await expect(link).toBeVisible()
       expect((await link.boundingBox())!.height, href).toBeGreaterThanOrEqual(40)
@@ -227,10 +228,18 @@ test.describe('mobile viewport', () => {
     const drawer = page.locator('.navPop')
     await expect(drawer).toBeVisible()
 
-    // The five pages and the legal one, at a size worth pressing, and nothing
-    // offering to take a player to the page they are already on.
+    // Exactly what the footer row carries, in the same order, at a size worth
+    // pressing, and nothing offering to take a player to the page they are
+    // already on. The row is the definition rather than a number typed here: a
+    // page joining `NAV` lands in both, and a count would only ever have said
+    // that six had become seven without naming which link it was.
+    const hrefs = (sel: string) =>
+      page.locator(sel).evaluateAll((els) => els.map((el) => el.getAttribute('href')))
+    const rowHrefs = await hrefs('.homeLinks a')
+    // Both empty would agree with each other for ever.
+    expect(rowHrefs.length).toBeGreaterThan(4)
+    expect(await hrefs('.navPopLinks a')).toEqual(rowHrefs)
     const links = drawer.locator('.navPopLinks a')
-    expect(await links.count()).toBe(6)
     expect((await links.first().boundingBox())!.height).toBeGreaterThanOrEqual(40)
     await expect(drawer.locator('a[href="/"]')).toHaveCount(0)
 

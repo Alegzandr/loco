@@ -279,7 +279,7 @@ scrolled against it anyway). `contentPages.test.ts` fails if either comes back.
 
 **Navigation in the header.** The home page puts its links in a footer row, and a player arriving
 from `/` met a completely different arrangement one click later. The pages now live in a **fixed
-footer bar** on every content page: the same five links, in the same order, at the same quiet weight,
+footer bar** on every content page: the same links, in the same order, at the same quiet weight,
 with `Play` standing exactly where the home page's sheet button stands. It is `position: fixed`
 because on `/` that row is always in sight — that page is exactly one viewport — and a page that
 scrolls only keeps the promise by staying put. The bar is opaque rather than frosted, and the column
@@ -355,11 +355,11 @@ somewhere else.
 So under 46rem the bar goes entirely and everything it held moves into a **drawer behind one burger,
 top left**. The same control, in the same corner, on the content pages and on `/`:
 
-- **Content pages**: the burger sits in the header, the drawer carries `Play`, the five pages,
-  privacy, the theme switch and the globe — the whole bar, in order, as rows of 2.75rem.
+- **Content pages**: the burger sits in the header, the drawer carries `Play`, every page in the
+  bar, privacy, the theme switch and the globe — the whole bar, in order, as rows of 2.75rem.
 - **The game page**: the burger is fixed over the board at the offsets `Lobby.svelte`'s `<style>`
   gives `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
-  carries the five pages and privacy. **No `Play`** — this is where playing happens — and no theme or
+  carries the same pages and privacy. **No `Play`** — this is where playing happens — and no theme or
   language, which are behind the lobby's own gear. The footer row costs the board no height at all at
   that width.
 

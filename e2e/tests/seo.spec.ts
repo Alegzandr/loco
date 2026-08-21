@@ -206,6 +206,7 @@ test.describe('read without JavaScript', () => {
       '/cards/',
       '/tables/',
       '/play-with-friends/',
+      '/live/',
       '/faq/',
       '/privacy/',
     ]) {

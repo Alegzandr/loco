@@ -40,7 +40,7 @@ describe('the invite page', () => {
   it('is noindex, and carries no chrome and no structured data', () => {
     // Each of the four is load-bearing: noindex keeps a duplicate of the home
     // page out of the index (and out of the canonical graph with it), chrome
-    // would put five links and a page of prose under a table somebody was
+    // would put a row of links and a page of prose under a table somebody was
     // invited to, jsonLd={null} stops a second #webpage node describing the game
     // at a second URL, and langNeutral is what keeps initLang from moving the
     // address bar away from an invitation it has no opinion about.

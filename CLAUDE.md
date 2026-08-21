@@ -1028,7 +1028,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   at 2.2:1 in both themes. Every table on a content page is inside `.tableWrap`, so the scope costs
   the pages nothing; `contentPages.test.ts` fails on a bare element selector.
 - **One `--shell`, one bar, no backdrop.** Header, column and footer share one width. The navigation
-  is a **fixed footer bar**, the same five links in the same order as the home page's row. `body.doc`
+  is a **fixed footer bar**, the same links in the same order as the home page's row. `body.doc`
   is flat canvas, `background-attachment: fixed` is gone, and text selection is put back.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
 - **Every in-page jump glides**, anchors and "back to top" alike: `scroll-behavior: smooth` behind
