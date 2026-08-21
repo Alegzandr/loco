@@ -102,6 +102,20 @@ export default defineConfig({
       // polling a port nothing is listening on until their timeout expires, and
       // report "did not start" for a server that is up.
       strictPort: process.env.LOCO_STRICT_PORT === '1',
+      // The two live-streams paths, which nginx proxies in production. Dev has
+      // no nginx, so without this the page's fetch would ask Vite for a file
+      // that does not exist and the list would be silently empty — which is
+      // also what it looks like when nobody is streaming, so the bug would be
+      // invisible. The socket is not proxied here: the client dials the Go
+      // server directly (see webSocketPolicy.ts).
+      // LOCO_SERVER_ORIGIN because `make dev` runs Vite and the Go server in
+      // two containers: localhost inside this one is this one. The compose
+      // file sets it to the service name; a bare `npm run dev` on a host with
+      // the server beside it needs nothing.
+      proxy: {
+        '/live.json': process.env.LOCO_SERVER_ORIGIN ?? 'http://localhost:8080',
+        '/live-thumb': process.env.LOCO_SERVER_ORIGIN ?? 'http://localhost:8080',
+      },
     },
   },
 })

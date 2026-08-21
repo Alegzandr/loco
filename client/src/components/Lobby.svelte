@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ClientMsg } from '../types/protocol'
+  import type { ClientMsg, LiveStreamDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import { resolveServerError } from '../i18n/serverErrors'
   import RulesButton from './RulesButton.svelte'
@@ -11,6 +11,7 @@
   import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
   import { showPlayersOnline } from './playersOnline'
+  import LiveStrip from './LiveStrip.svelte'
   import { TABLE_CODE_LENGTH, isTableCodeValid, sanitizeTableCode } from './tableCodeRules'
 
   type LobbyMode = 'home' | 'find' | 'bot' | 'create' | 'join'
@@ -35,6 +36,12 @@
      * `playersOnline.ts` for why the floor exists.
      */
     playersOnline?: number
+    /**
+     * The channels streaming the game right now, as the server last said. Drawn
+     * along the foot of this screen, and drawn empty too — see `LiveStrip`.
+     * Always a list: a server with no gateway key simply never fills it.
+     */
+    liveStreams?: LiveStreamDTO[]
     onClearError: () => void
     /**
      * Starting sub-screen. Set by the visual showcase, and by a table link, which
@@ -61,6 +68,7 @@
     onPlayBot,
     error,
     playersOnline = 0,
+    liveStreams = [],
     onClearError,
     initialMode = 'home',
     initialCode = '',
@@ -215,7 +223,13 @@
     </p>
   {/if}
 
+  <!-- The foot of the entry screen, and only this screen: the three forms own
+       it once they are up, and a link out of the game beside the nickname field
+       is an exit offered on the way in. Absolute like the rest of the chrome
+       here, so it reserves nothing and the screen still never scrolls. -->
   {#if mode === 'home'}
+    <LiveStrip streams={liveStreams} />
+
     <div class="buttonGroup">
       <!-- One player, one button, one opponent. It leads because it is the only
            entry point that needs nobody else to be organised, and it carries the

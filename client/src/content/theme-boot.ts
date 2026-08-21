@@ -22,10 +22,19 @@
 import { applyTheme, getTheme, setTheme, type Theme } from '../theme'
 import { isLang, rememberLang } from '../lang'
 import { closeMenuWhenWidened } from './navMenu'
+import { fillLiveList } from './liveList'
 
 // The mobile drawer, shut the moment the window is wide enough for the bar to be
 // the navigation again. Everything else about it is native.
 closeMenuWhenWidened()
+
+// The live-channels list on `/live/`, and nothing at all on every other page —
+// it returns immediately when there is no list to fill. Here rather than in a
+// script of its own for the reason stated above the theme switch: there is only
+// ever one script on these pages, so a second behaviour is a few more lines
+// rather than a second request. The fetch it makes is same-origin, which is
+// what leaves `connect-src` alone. See content/liveList.ts.
+fillLiveList()
 
 // ── Language ───────────────────────────────────────────────────────────────
 //

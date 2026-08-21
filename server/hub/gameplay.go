@@ -76,8 +76,7 @@ func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 	if len(cards) == 1 && (cards[0].Kind == game.Swap || cards[0].Kind == game.GlobalSwitch) {
 		h.broadcastPersonalizedGameState(t)
 	}
-	h.maybeScheduleBotCatch(t)
-	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotReactions(t)
 	h.maybeScheduleBotInterrupt(t)
 	h.handleRoundOrMatchEnd(t)
 }
@@ -353,8 +352,7 @@ func (h *Hub) handleCounterDraw(t *table, c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	h.broadcastCardPlayed(t, c.playerID(), -1)
-	h.maybeScheduleBotCatch(t)
-	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotReactions(t)
 	h.maybeScheduleBotInterrupt(t)
 	h.handleRoundOrMatchEnd(t)
 }
@@ -377,8 +375,7 @@ func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
 
 	h.announceFinishingLoco(t, c.playerID(), cards)
 	h.broadcastInterrupt(t, c.playerID(), cards, chosenPlayer)
-	h.maybeScheduleBotCatch(t)
-	h.maybeScheduleBotDeclarations(t)
+	h.maybeScheduleBotReactions(t)
 	h.maybeScheduleBotInterrupt(t)
 	h.handleRoundOrMatchEnd(t)
 }

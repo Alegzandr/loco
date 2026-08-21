@@ -1104,10 +1104,11 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   - `BotInterrupt` mirrors `InterruptPlayCards`' own rules rather than trusting the caller (window
     open, exact card equality, draw-chain restriction, no batching a Swap or a GlobalSwitch, every
     wild names a real colour). An interject the domain will refuse is worse than none.
-  - Armed **only after a human action**, at the same three points as `maybeScheduleBotCatch`
-    (`handlePlayCard`, `handleCounterDraw`, `handleInterruptPlay`). Bots deliberately do not answer
-    each other — the existing rule for catches, and what keeps an all-bot table from trading cards
-    with nobody watching.
+  - Armed **only after a human action** (`handlePlayCard`, `handleCounterDraw`,
+    `handleInterruptPlay`). Bots deliberately do not answer each other here, which is what keeps a
+    table of bots from trading cards with nobody watching. It is the one bot reaction armed that
+    narrowly: `maybeScheduleBotReactions` is armed everywhere, because a call somebody owes the table
+    is owed whoever put them on one card.
   - One message per play, not one per bot: the handler picks among the bots that can actually
     answer, so four bots do not get four rolls of the die on the same card.
   - The seat that just played is excluded (taking the lead back from itself). **The seat holding the
@@ -1123,7 +1124,7 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   - `broadcastInterrupt` is shared with the human path, so a bot taking the lead produces the exact
     same sequence on the wire (`interrupt_success` then `card_played`).
 - Auto-declare UNO: **deferred, and the declaration itself is what waits**.
-  `maybeScheduleBotDeclarations` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the
+  `maybeScheduleBotReactions` only schedules; `handleUnoAnnounce` calls `DeclareLastCard` when the
   timer fires and broadcasts only if it succeeded. Declaring on the spot and deferring the *broadcast*
   alone settled the seat server-side while every client was still showing the 5s catch window it had
   just opened on the same `card_played`: a bot's LOCO! was uncatchable by construction and every
@@ -1140,9 +1141,44 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
     receiving your last card exactly as declarable as playing to it. Keyed on the actor, a *human's*
     Swap scheduled nothing at all for the bot it put on one card, so that bot stayed undeclared and
     catchable for the full window: a free +2 no human ever offers, since bots do catch humans. A
-    bot's own Swap had the same hole against a second bot. Called at the same three human entry
-    points as `maybeScheduleBotCatch` **and** after every bot action; scheduling twice for one moment
-    is harmless (the second announce finds the seat settled and returns).
+    bot's own Swap had the same hole against a second bot. Armed after every action, human or bot;
+    arming twice for one moment is harmless (the second announce finds the seat settled and returns).
+- **Bots throw a Contre-LOCO!, late on purpose** (`hub.scheduleBotCatch` arms it,
+  `handleBotCatch` presses it, `botCatchAttempt` decides it). It existed before and was invisible in
+  play, for three separate reasons, and the third is the one that made it a hole rather than a
+  setting.
+  - **`BotCatchDelay`+`BotCatchJitterMax` = 3.2–4.4s of the 5s window** (was 2–3.5s), and the
+    lateness *is* the design. The seat that forgot the call is looking at an armed, pulsing chip for
+    the whole window — the LOCO! chip is on screen all match and lights up the moment it is owed — so
+    a bot pressing at two seconds mostly catches the player who was already reaching for it, and the
+    one control this game asks a newcomer to learn becomes a control they never get to use. Answered
+    late, a catch only ever lands on somebody who was not looking, and it lands with the capsule
+    nearly drained: the reading is *I nearly had it*, not *the machine is faster than me*.
+  - **The ceiling is a correctness bound, not a taste one.** The window shuts at 5s and a late call
+    costs its caller a card (`IsMissedCatch` → `penalizeFailedCatch`), so a bot must never be
+    scheduled past it — a bot drawing a penalty for a race nothing chose to enter is noise on the
+    table and a card off its hand. `botcatch_internal_test.go` pins both ends against
+    `State.CatchWindowEnd` rather than against a 5 that would then be written down twice, and
+    `handleBotCatch` re-checks the deadline on the way out for the job that waited in a full box.
+  - **`BotCatchProb` = 0.8** (was 0.65). The bots are not the opponent who never misses; roughly one
+    forgotten call in five walks. The gentleness is bought by the delay, not by the die — a die low
+    enough to feel fair is a mechanic that never demonstrates itself, which is how a player learns
+    the rule exists by reading the rulebook instead of by paying two cards for it once.
+  - **One attempt per window, decided by the window** (`botCatchAttempt`, an FNV hash of the seat and
+    `LastCardAt`, not a draw). A window is armed once per action taken inside it — a play down to one
+    card, a bot's turn two seconds later, an interject — so rolling at the arming makes the delay the
+    *minimum* of N draws and the probability 1-(1-p)^N: the busier the board around a forgotten call,
+    the faster and the surer the catch, and a table of four bots would sit at the fast end of the
+    range every single time. Same window, same verdict, same instant; every arming after the first is
+    a no-op. **Which** bot presses is still picked at random when it fires, among the eligible ones —
+    one press, never one per bot.
+  - **Armed after every action, human or bot** (`maybeScheduleBotReactions`), which is the hole. The
+    catch used to be armed after a *human* action only, so a bot's own Swap could hand a human their
+    last card and no bot would ever answer it. The declaration and the catch read the same list and
+    are now armed together from every point a board can change: a seat cannot be on the hook for one
+    and not the other, and a new call site cannot arm half of it.
+  - `RoundEnded` is a guard on both halves now (it was on the declaration only): a round-winning play
+    arms no reaction on the seat it just left at one card.
 - **A bot's turn broadcasts no deadline.** `scheduleTurnTimer` arms no timeout for a bot and now also
   zeroes `table.turnStartedAt` on its way out, because `turnDeadlineMs` reads it with no
   notion of whose turn it is. Leaving the previous human's entry behind put a half-spent deadline on
@@ -1410,7 +1446,9 @@ scanning every room after every event for a number nobody is looking at.
 
 ## Metrics
 **`/metrics` *and* `/health` are operator surfaces, and no compose file publishes the Go server any
-more.** nginx proxies `/ws` and nothing else: `/health` used to be proxied too, and it answers with
+more.** nginx proxies `/ws`, `/live.json` and `/live-thumb/`, and nothing else — the last two are the
+live-streams strip, and `csp.test.ts` pins that list so a fourth is a deliberate decision
+([`live.md`](live.md)). `/health` used to be proxied too, and it answers with
 the live room count, the connected-player count, the uptime and `draining`. None of that is anybody's
 business from the internet. The counts size the server for whoever is thinking about loading it, and
 `draining` announces the window in which new tables are refused. Nothing legitimate needed it there
@@ -1422,6 +1460,18 @@ reaches the server through nginx there like everywhere else. Read it from inside
 `docker compose exec server wget -qO- http://localhost:8080/metrics`. `docker-compose.dev.yml` is
 the one exception and must stay published: the Vite client connects straight to `ws://<host>:8080/ws`
 with no nginx in front of it.
+
+The counters under `live` come from a poller this package does not own: `hub.SetLiveStatsFunc` is
+installed by `main`, so the hub reports the numbers an operator reads without knowing what a gateway
+or a Twitch is. Zeroes on any server with no gateway key, which is every environment but production.
+
+## The one outbound call
+This server talks to exactly one thing outside itself, and it is not Twitch: it is the Janus gateway,
+which holds Twitch's secret and does the OAuth2 for us. The poller runs on its own goroutine, never
+on the event loop, and comes back in through `PublishLive` → `postToRouter` alone. Everything about
+why — the freshness rules, the preview cache, screening a name this game did not write, and why a
+`game_id` that will not resolve switches the whole thing off rather than widening the query — is in
+[`live.md`](live.md).
 
 `GET /metrics` returns JSON:
 - Gameplay: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`.

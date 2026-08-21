@@ -220,6 +220,7 @@
       onPlayBot={playBot}
       error={g.errorMsg}
       playersOnline={g.playersOnline}
+      liveStreams={g.liveStreams}
       onClearError={() => gameStore.getState().clearError()}
     />
   {/key}

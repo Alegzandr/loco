@@ -47,8 +47,8 @@ export interface LegalDoc {
  * ignore it.
  */
 export const LEGAL_UPDATED: Record<Lang, string> = {
-  en: 'Last updated 1 August 2026',
-  fr: 'Dernière mise à jour : 1er août 2026',
+  en: 'Last updated 21 August 2026',
+  fr: 'Dernière mise à jour : 21 août 2026',
 }
 
 const EN: readonly LegalDoc[] = [
@@ -103,8 +103,15 @@ const EN: readonly LegalDoc[] = [
         heading: 'Things that never happen here',
         items: [
           'No advertising, no analytics, no fingerprinting, no profiling, no automated decision about you.',
-          'No fonts, scripts or images loaded from anyone else’s server. Everything the page needs, it serves itself.',
+          'No fonts, scripts or images loaded from anyone else’s server. Everything the page needs, it serves itself — the stream previews included: the game fetches those and hands them on, so your browser never asks Twitch for anything and Twitch is never told you were here.',
           'No data sold, rented or transferred outside the European Union.',
+        ],
+      },
+      {
+        heading: 'The channels streaming the game',
+        items: [
+          'The home page and the live page show who is streaming LOCO! on Twitch. Our server asks Twitch for that list about once a minute and keeps the answer in memory; your browser only ever talks to us.',
+          'That request carries nothing about you: not your address, not a name, not the fact that anybody opened the page. It would be made in exactly the same way if nobody was reading it.',
         ],
       },
       {
@@ -262,8 +269,15 @@ const FR: readonly LegalDoc[] = [
         heading: 'Ce qui n\'arrive jamais ici',
         items: [
           'Aucune publicité, aucune mesure d\'audience, aucune empreinte de navigateur, aucun profilage, aucune décision automatisée à ton sujet.',
-          'Aucune police, aucun script et aucune image chargés depuis le serveur de quelqu\'un d\'autre. Tout ce dont la page a besoin, elle le sert elle-même.',
+          'Aucune police, aucun script et aucune image chargés depuis le serveur de quelqu\'un d\'autre. Tout ce dont la page a besoin, elle le sert elle-même, les aperçus de streams compris : le jeu va les chercher et te les passe, donc ton navigateur ne demande jamais rien à Twitch, qui n\'apprend jamais que tu es passé par là.',
           'Aucune donnée vendue, louée ou transférée hors de l\'Union européenne.',
+        ],
+      },
+      {
+        heading: 'Les chaînes qui streament le jeu',
+        items: [
+          'La page d\'accueil et la page En direct montrent qui streame LOCO! sur Twitch. Notre serveur demande cette liste à Twitch environ une fois par minute et garde la réponse en mémoire ; ton navigateur, lui, ne parle qu\'à nous.',
+          'Cette requête ne porte rien sur toi : ni ton adresse, ni un pseudo, ni le fait que quelqu\'un ait ouvert la page. Elle partirait exactement pareil si personne ne lisait.',
         ],
       },
       {

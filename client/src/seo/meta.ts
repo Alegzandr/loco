@@ -205,6 +205,30 @@ export const FAQ_PAGE: PageDef = {
 }
 
 /**
+ * Who is streaming the game, and how to be one of them.
+ *
+ * The page is prose first and a list second, and that order is the whole
+ * design. A list of live channels is wrong tomorrow, so it carries no search
+ * value and is not what a crawler is offered: what is indexable here is what
+ * the game gives a stream and what it takes to appear in the category, both of
+ * which are properties of the product rather than of this afternoon. The list
+ * is filled in the browser, from this origin, over what the prose already says.
+ */
+export const LIVE: PageDef = {
+  id: 'live',
+  path: { en: '/live/', fr: '/fr/en-direct/' },
+  navLabel: { en: 'Live', fr: 'En direct' },
+  title: {
+    en: 'LOCO! live on Twitch · Who is streaming now',
+    fr: 'LOCO! en direct sur Twitch · Qui streame maintenant',
+  },
+  description: {
+    en: 'Every channel streaming LOCO! right now, biggest first, and what it takes to get your own stream listed here: a category and one setting.',
+    fr: 'Toutes les chaînes qui streament LOCO! en ce moment, les plus grosses d’abord, et ce qu’il faut pour que ton live apparaisse ici : une catégorie.',
+  },
+}
+
+/**
  * Privacy, terms and credits, on one page rather than behind a modal.
  *
  * A policy has to be linkable: somebody who wants to read what the game keeps
@@ -304,7 +328,7 @@ export const INVITE: PageDef = {
 }
 
 /** Every indexable page. The sitemap, the hreflang pairs and the tests read this. */
-export const PAGES: readonly PageDef[] = [HOME, RULES, CARDS, TABLES, FRIENDS, FAQ_PAGE, LEGAL]
+export const PAGES: readonly PageDef[] = [HOME, RULES, CARDS, TABLES, FRIENDS, LIVE, FAQ_PAGE, LEGAL]
 
 /**
  * The pages the site navigation offers, in order. The home page is not one of
@@ -312,7 +336,7 @@ export const PAGES: readonly PageDef[] = [HOME, RULES, CARDS, TABLES, FRIENDS, F
  * Neither is `LEGAL`, which sits on its own at the right-hand end of the bar:
  * it is not something to read, it is something to be able to find.
  */
-export const NAV: readonly PageDef[] = [RULES, CARDS, TABLES, FRIENDS, FAQ_PAGE]
+export const NAV: readonly PageDef[] = [RULES, CARDS, TABLES, FRIENDS, LIVE, FAQ_PAGE]
 
 /** Resolved social title/description, falling back to the page's own. */
 export function social(page: PageDef, lang: Lang): { title: string; description: string } {

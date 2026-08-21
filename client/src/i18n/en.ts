@@ -114,6 +114,21 @@ export interface Translations {
   // "how long until I am paired" would be reading a number that answers a
   // different question. Only ever drawn from two up (components/playersOnline.ts).
   playersOnline: (n: number) => string
+  // The live strip, along the foot of the home screen. It says Twitch by name
+  // because that is where the link goes and because no logo of theirs is drawn
+  // anywhere: every glyph a player sees here is one we drew.
+  liveHead: string
+  // What the strip is, for a screen reader meeting it as a landmark.
+  liveAria: string
+  // A viewer count, already shortened by components/liveStreams.ts. The word
+  // is here rather than in the strip because the figure alone is what fits.
+  liveViewers: (n: string) => string
+  // The channels the strip did not have room for.
+  liveMore: (n: number) => string
+  // Where the strip leads: the page, not Twitch.
+  liveAll: string
+  // Appended out of sight to a link that opens a tab of its own.
+  liveOpensTab: string
   createRoom: string
   joinRoom: string
   createGame: string
@@ -483,6 +498,12 @@ export const en: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: 'Cards at speed. Nobody waits their turn.',
   playersOnline: (n) => `${n} players online`,
+  liveHead: 'Live on Twitch',
+  liveAria: 'Channels streaming LOCO! right now',
+  liveViewers: (n) => `${n} watching`,
+  liveMore: (n) => `+${n} more live`,
+  liveAll: 'All channels',
+  liveOpensTab: 'opens on Twitch',
   createRoom: 'New table',
   joinRoom: 'Join a table',
   createGame: 'Open the table',

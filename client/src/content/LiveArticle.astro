@@ -1,0 +1,72 @@
+---
+// Who is streaming the game, and how to be one of them.
+//
+// Prose first, list second, and that order is the design rather than a layout
+// choice: a list of channels live this afternoon is wrong tomorrow and carries
+// no search value at all, while what the game gives a stream and what it takes
+// to appear in the category are properties of the product. So the indexable
+// half is served in the markup here, and the list is filled over it by
+// `content/liveList.ts` — from this origin, never from Twitch.
+import { ui } from './ui'
+import { EXTERNAL_REL, twitchCategory } from '../components/twitchLinks'
+import { FAQ_PAGE, RULES, type Lang } from '../seo/meta'
+
+interface Props {
+  lang: Lang
+}
+
+const { lang } = Astro.props
+---
+
+<h1>{ui('liveH1', lang)}</h1>
+<p class="lede">{ui('liveLede', lang)}</p>
+
+{/* The list, and the paragraph that stands in for it. That paragraph is served
+    rather than written by the script, because it is the answer to two readers
+    at once: the one arriving on a quiet evening and the one whose browser runs
+    no scripts. Neither is ever shown the word "loading". */}
+<section id="liveNow">
+  <h2>{ui('liveNowH2', lang)}</h2>
+  <p class="liveNote">{ui('liveNowNote', lang)}</p>
+  <ul class="liveList" data-watching={ui('liveViewersLabel', lang)} hidden></ul>
+  <p>
+    <a href={twitchCategory()} target="_blank" rel={EXTERNAL_REL}>{ui('liveCategoryLink', lang)}</a>
+  </p>
+</section>
+
+<section>
+  <h2>{ui('liveWhyH2', lang)}</h2>
+  <p>{ui('liveWhy1', lang)}</p>
+  <p>{ui('liveWhy2', lang)}</p>
+  <p>{ui('liveWhy3', lang)}</p>
+</section>
+
+<section>
+  <h2>{ui('liveHowH2', lang)}</h2>
+  <ol class="steps">
+    <li>
+      <h3>{ui('liveHowStep1', lang)}</h3>
+      <p>{ui('liveHowStep1Body', lang)}</p>
+    </li>
+    <li>
+      <h3>{ui('liveHowStep2', lang)}</h3>
+      <p>{ui('liveHowStep2Body', lang)}</p>
+    </li>
+    <li>
+      <h3>{ui('liveHowStep3', lang)}</h3>
+      <p>{ui('liveHowStep3Body', lang)}</p>
+    </li>
+  </ol>
+</section>
+
+<section>
+  <h2>{ui('liveListedH2', lang)}</h2>
+  <p>{ui('liveListedBody', lang)}</p>
+</section>
+
+{/* Chips, not a line of underlined words: the pages a reader leaves for are
+    objects to press, the same ones every other article here ends on. */}
+<nav class="chipRow endLinks" aria-label={ui('readNext', lang)}>
+  <a href={RULES.path[lang]}>{RULES.navLabel?.[lang]}</a>
+  <a href={FAQ_PAGE.path[lang]}>{FAQ_PAGE.navLabel?.[lang]}</a>
+</nav>

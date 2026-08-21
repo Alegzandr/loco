@@ -65,6 +65,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `game_over`           | `winner` (BO1 / legacy path)                                                |
 | `latency`             | `latencies[]` (per-seat round trip; broadcast on a timer to playing rooms)   |
 | `players_online`      | `players_online` (sockets connected to this server; sent to seatless sockets only) |
+| `live_streams`        | `live_streams[]` (who is streaming this game; sent to seatless sockets only) |
 | `server_updating`     | — (this process is being replaced; the match is unaffected: see the notes)   |
 | `error`               | `error`                                                                     |
 
@@ -72,6 +73,7 @@ description of the wire that a program does not check: when it disagrees with th
 
 - `PlayerDTO`: `index`, `nickname`, `hand_size`, `connected`.
 - `LatencyEntryDTO`: `player_index`, `rtt_ms` (-1 = nothing measured), `bot`.
+- `LiveStreamDTO`: `login`, `name`, `lang`, `viewers`, `thumb`. `thumb` is a path on **this** origin (`/live-thumb/<key>`) and never a Twitch URL; it is empty when the picture could not be fetched, and the row is drawn without one. There is deliberately no title field — see [`notes/live.md`](notes/live.md).
 - `GameStateDTO`: includes `streamer_mode` (the table's answer, so a reload is blurred without waiting for the host to touch the switch), `event_log` (capped to last 50 entries, **sent only on the reconnect snapshot**: it is the one unbounded field in a per-recipient payload and no client reads it during play), `round_number`, `match_format`, `max_players`, `scoreboard` (cumulative per-player scores), `round_history` (`round_history[k][player_index]` = points scored in round k+1), and the player's own hand.
 
 ## Notes
@@ -162,3 +164,14 @@ description of the wire that a program does not check: when it disagrees with th
   real, and answering `room not found` there blames them for a deploy. See `docs/deployment.md`.
 - `play_cards` (turn-time) and `interrupt_play_card` with `play_cards` (out-of-turn) require N identical cards; effects stack: N×+2 = `2N` pending draw, N skips skip N players, N reverses flip parity. Swap and Global Switch cannot batch.
 - `declare_loco` is the LOCO! call carried by a batch that **empties the hand** — the one finish that never passes through a single card, so no catch window ever opens on it and no earlier declaration was possible (`docs/rules.md` §14.7). Without it the server refuses the batch (`must call LOCO! before playing your last card`); with it the table gets `uno_declared` immediately before `card_played`. It is ignored on every other play: a finish from a hand already down to one card is gated on a declaration that already happened, so setting the flag there buys nothing.
+
+- **`live_streams` is pushed and never asked for**, which is why this feature adds no client message
+  at all. Like `players_online` it goes to seatless sockets only, is sent on registration, and is
+  then sent only when the answer changes — a per-socket watermark, not a hub-wide one, so a player
+  coming back from a table picks the list up instead of waiting for somebody to go live. Six rows at
+  most on the wire; the content page reads a longer list over HTTP from `/live.json`, which is not a
+  message and not part of this protocol. The field is nullable for the reason `rematch_offers` is:
+  an empty list is a real answer ("nobody any more") and `omitempty` would drop it. **It is absent
+  end to end on any server with no gateway key**, which is local dev, the E2E suite and every
+  environment but production. Everything else about it, including why no stream title is ever
+  relayed, is in [`notes/live.md`](notes/live.md).

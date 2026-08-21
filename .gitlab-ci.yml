@@ -309,6 +309,24 @@ e2e_test:
         if [ "${DEPLOY_ENV}" = "prod" ]; then
           ws_cert_label="traefik.http.routers.${APP_SUBDOMAIN}-${DEPLOY_ENV}-ws.tls.certresolver=letsencrypt"
         fi
+        # The gateway credentials, and only production gets them.
+        #
+        # Two stacks on one key is two sets of requests against one quota, for a
+        # list of live channels nobody reads on the dev host. An empty key
+        # switches the whole feature off server-side — no goroutine, no request,
+        # no message, not even a log line — which is exactly the contract an
+        # empty LOCO_SNAPSHOT_PATH has. See docs/notes/live.md.
+        #
+        # `${VAR:-}` throughout: this script runs under `set -u`, and a variable
+        # that is simply not defined on a dev pipeline must not abort the deploy.
+        local janus_url="" janus_app="" janus_key="" twitch_game="" twitch_cdn=""
+        if [ "${DEPLOY_ENV}" = "prod" ]; then
+          janus_url="${JANUS_URL:-}"
+          janus_app="${JANUS_APPLICATION_ID:-}"
+          janus_key="${JANUS_API_KEY:-}"
+          twitch_game="${LOCO_TWITCH_GAME_ID:-}"
+          twitch_cdn="${LOCO_TWITCH_CDN_SLUG:-}"
+        fi
         printf '%s\n' \
           "PORT=${PORT}" \
           "DEPLOY_ENV=${DEPLOY_ENV}" \
@@ -320,7 +338,16 @@ e2e_test:
           "STOP_GRACE_PERIOD=${STOP_GRACE_PERIOD}" \
           "LOCO_SNAPSHOT_PATH=${LOCO_SNAPSHOT_PATH}" \
           "WS_CERT_LABEL=${ws_cert_label}" \
+          "JANUS_URL=${janus_url}" \
+          "JANUS_APPLICATION_ID=${janus_app}" \
+          "JANUS_API_KEY=${janus_key}" \
+          "LOCO_TWITCH_GAME_ID=${twitch_game}" \
+          "LOCO_TWITCH_CDN_SLUG=${twitch_cdn}" \
           > "${target}"
+        # This file now carries a real secret. It did not before, which is
+        # why nothing here had ever tightened it — unlike ${DATA_DIR}/snapshots,
+        # which has been 0700 since it started holding session tokens.
+        chmod 600 "${target}"
       }
       # How long a deploy waits for the matches already running is one policy
       # for every environment now, and it lives in deploy/app.env (90s drain,

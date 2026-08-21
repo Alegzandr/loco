@@ -33,6 +33,7 @@ type hubMetrics struct {
 	matchesInFlight      atomic.Int32 // matches a shutdown would interrupt; only maintained while draining
 	handlerPanics        atomic.Int64 // handler panics the event loop recovered from; any value above 0 is a bug
 	connsRefused         atomic.Int64 // upgrades refused by the global or per-network connection ceiling
+	liveStreams          atomic.Int64 // channels in the last live-streams publication; the rest of that feature's counters come from the poller
 	joinsThrottled       atomic.Int64 // join_room refused for burning through a network's wrong-code budget
 
 	// Saturation. A table owns its own goroutine now (actor.go), so these

@@ -12,6 +12,7 @@ export const initialState: GameState = {
   isReconnecting: false,
   serverUpdating: false,
   playersOnline: 0,
+  liveStreams: [],
 
   myHand: [],
   players: [],

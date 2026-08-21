@@ -52,6 +52,10 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
   // reset lands the player back on. Clearing it would blank the chip on every
   // return from a table until the server next said the number moved.
   setPlayersOnline: (playersOnline) => set({ playersOnline }),
+  // Out of resetToHome for the same reason, and it matters more here: the
+  // strip is on the screen a player lands back on, so blanking it would make
+  // leaving a table look like everybody stopped streaming.
+  setLiveStreams: (liveStreams) => set({ liveStreams }),
 
   // Back to the front door with nothing carried over. The seat is gone
   // server-side by the time this runs, so the token and the room code are not

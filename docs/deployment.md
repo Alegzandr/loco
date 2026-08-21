@@ -214,16 +214,30 @@ belongs in the hub, not in nginx — nginx is not the thing timing out.
 Browser (HTTPS, ohloco.com)     → Cloudflare → Traefik (:443, entrypoint websecure)
 Browser (WSS, ws.ohloco.com)    →   DNS-only → Traefik (:443, entrypoint websecure)
   → client nginx (:80, networks: traefik + internal)
-    → /ws     → Go server (:8080, network: internal only)   [WebSocket, both hostnames]
-    → /       → nginx serves static SPA files directly      [site hostname only;
+    → /ws          → Go server (:8080, internal only)       [WebSocket, both hostnames]
+    → /live.json   → Go server                              [the live-streams list]
+    → /live-thumb/ → Go server                              [previews, from its memory]
+    → /            → nginx serves static SPA files directly [site hostname only;
                                                              ws.* answers 404]
 
 Go server (:8080, internal only)
   → /health, /metrics                                        [operator only, never proxied]
 ```
 
-- **nginx proxies `/ws` and nothing else.** `/health` used to be proxied and answers with the live
-  room count, the connected-player count and `draining`: the counts size the server for anyone
+- **nginx proxies `/ws`, `/live.json` and `/live-thumb/`, and nothing else**, and `csp.test.ts` pins
+  that list so a fourth path is a decision somebody takes deliberately. The two live-streams paths
+  answer from the Go server's memory: it asks Twitch, through the Janus gateway, roughly once a
+  minute and fetches the previews itself, so a player's browser never makes a request to Twitch. That
+  is what leaves the CSP untouched and the privacy page's promise true — see
+  [`notes/live.md`](notes/live.md). Neither block declares an `add_header`, so both inherit the five
+  security headers rather than needing the include repeated.
+- **The gateway credentials reach production only.** `write_app_env` passes `JANUS_URL`,
+  `JANUS_APPLICATION_ID`, `JANUS_API_KEY`, `LOCO_TWITCH_GAME_ID` and `LOCO_TWITCH_CDN_SLUG` on the
+  prod branch and empty strings everywhere else: two stacks on one key is two sets of requests
+  against one quota, for a list nobody reads on the dev host. An empty key switches the feature off
+  entirely, server-side. That file now carries a real secret, so the pipeline `chmod 600`s it.
+- **`/health` and `/metrics` are not on that list, and that is the point.** `/health` used to be
+  proxied and answers with the live room count, the connected-player count and `draining`: the counts size the server for anyone
   thinking of loading it, and `draining` announces the window in which new tables are refused.
   Nothing legitimate needed it published, because the container's own healthcheck runs inside it
   against `localhost:8080`, which is also how an operator reads either endpoint:

@@ -166,6 +166,16 @@ const (
 	// decision anywhere is taken on it. Sent on arrival and then only when the
 	// number moves.
 	SMsgPlayersOnline ServerMsgType = "players_online"
+	// SMsgLiveStreams names the channels streaming this game right now, the
+	// biggest first, and is sent only to the sockets that are not sitting at a
+	// table — the same rule as SMsgPlayersOnline and for the same reason: it is
+	// drawn on the home screen and nowhere else, and a match in progress has no
+	// use for it.
+	//
+	// Pushed and never asked for, so this whole feature adds no client message
+	// and nothing new can cost the dispatcher anything. Absent end to end when
+	// the server has no gateway key, which is every environment but production.
+	SMsgLiveStreams ServerMsgType = "live_streams"
 	// SMsgServerUpdating tells a table in progress that this process is being
 	// replaced. It is information, not an instruction: the match plays out to
 	// its end, and nothing about it changes. Sent once, when the drain starts,
@@ -520,6 +530,14 @@ type ServerMsg struct {
 	// a field one screen reads and no match ever does.
 	PlayersOnline *int `json:"players_online,omitempty"`
 
+	// SMsgLiveStreams: who is streaming this game, biggest first.
+	//
+	// A pointer for the reason RematchOffers is one: this list has to be able
+	// to say "nobody is live any more", and an empty slice under `omitempty`
+	// marshals to nothing at all — which every other message would then carry
+	// as "nobody" too, indistinguishable from "unchanged". Read it with Live().
+	LiveStreams *[]LiveStreamDTO `json:"live_streams,omitempty"`
+
 	// SMsgError
 	Error string `json:"error,omitempty"`
 }
@@ -540,6 +558,16 @@ func (m ServerMsg) Offers() []int {
 		return nil
 	}
 	return *m.RematchOffers
+}
+
+// Live returns the channels streaming this game. An empty list is a real
+// answer here ("nobody any more"), so an absent field reads the same way: no
+// message other than live_streams ever sets it.
+func (m ServerMsg) Live() []LiveStreamDTO {
+	if m.LiveStreams == nil {
+		return nil
+	}
+	return *m.LiveStreams
 }
 
 // OwnSeat returns the recipient's own seat, or -1 when the message assigns none.
@@ -618,4 +646,39 @@ type GameStateDTO struct {
 	// and nothing else, and a table code that comes back readable on a stream is
 	// the one failure this setting exists to prevent. See ServerMsg.StreamerMode.
 	StreamerMode bool `json:"streamer_mode,omitempty"`
+}
+
+// LiveStreamDTO is one channel streaming this game, as this server saw it at
+// the last poll.
+//
+// Nothing in it is ours: the channel name is written by a stranger and shown to
+// players. Every row is screened server-side before it gets here (twitch.screen)
+// and a name that does not survive is dropped whole rather than masked — the
+// name is the link, so there would be nothing left to show.
+//
+// There is deliberately no title field. A stream title is the largest piece of
+// unmoderated text this feature could put on the home screen, and a name, a
+// viewer count and a picture are enough to decide whether to click.
+type LiveStreamDTO struct {
+	// Login is the channel's URL segment, and the only thing a client builds
+	// the outgoing link from. Guaranteed to match ^[A-Za-z0-9_]{1,25}$ by the
+	// screen: a row whose login falls outside that alphabet is dropped whole,
+	// which is what makes the link safe to assemble without escaping.
+	Login string `json:"login"`
+	// Name is the display name. It differs from Login by case, and entirely for
+	// a channel that is not written in Latin script.
+	Name string `json:"name"`
+	// Lang is the BCP-47 tag Twitch announces ("en", "fr"). Presentation only:
+	// the list is never filtered on the reader's language, because an English
+	// stream is a stream.
+	Lang string `json:"lang,omitempty"`
+	// Viewers is what makes this list a ranking. No omitempty: zero viewers is
+	// a channel that is live, and a dropped zero would read as "unknown". Same
+	// rule as Turn and DrawnCount.
+	Viewers int `json:"viewers"`
+	// Thumb is a path on THIS origin (/live-thumb/<key>), never a Twitch URL:
+	// img-src is 'self', and a player's browser must not tell Twitch that
+	// somebody opened this page. Empty when the picture could not be fetched —
+	// the row stays, without one.
+	Thumb string `json:"thumb,omitempty"`
 }

@@ -62,6 +62,13 @@ export const DEFAULT_LANG: Lang = 'en'
  */
 export const HOME_PATH: Record<Lang, string> = { en: '/', fr: '/fr/' }
 
+/**
+ * Where the live-streams page lives, for the one link the game itself makes
+ * into the site. Same two-constants-rather-than-an-import reasoning as above,
+ * and pinned against `LIVE.path` by `seo.test.ts` for the same reason.
+ */
+export const LIVE_PATH: Record<Lang, string> = { en: '/live/', fr: '/fr/en-direct/' }
+
 export function isLang(value: unknown): value is Lang {
   return typeof value === 'string' && (LANGS as readonly string[]).includes(value)
 }

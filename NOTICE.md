@@ -26,6 +26,17 @@ they are deliberately **not** offered under the MIT licence, because an image
 produced from a prompt very likely carries no copyright to licence in the first
 place. See [`docs/notes/legal.md`](docs/notes/legal.md).
 
+## Third-party services
+
+LOCO! reads the Twitch Helix API to show which channels are streaming the game. It does so through a
+gateway that holds the credential (`JANUS.md`), and **a player's browser never contacts Twitch**: the
+server fetches the list and the preview images and re-serves them from this origin.
+
+Twitch is a trademark of Twitch Interactive, Inc. LOCO! is neither affiliated with nor endorsed by
+Twitch, and **none of their marks are reproduced anywhere in this project** — the interface writes
+the word in text, drawn in the same typeface as everything else around it. Nothing of theirs is
+redistributed here, so there is no entry for them in the table below.
+
 ## Third-party components
 
 Shipped inside the built client:

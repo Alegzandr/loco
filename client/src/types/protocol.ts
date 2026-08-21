@@ -216,6 +216,16 @@ export type ServerMsgType =
   // decision anywhere is taken on it. Sent on arrival and then only when the
   // number moves.
   | 'players_online'
+  // SMsgLiveStreams names the channels streaming this game right now, the
+  // biggest first, and is sent only to the sockets that are not sitting at a
+  // table — the same rule as SMsgPlayersOnline and for the same reason: it is
+  // drawn on the home screen and nowhere else, and a match in progress has no
+  // use for it.
+  //
+  // Pushed and never asked for, so this whole feature adds no client message
+  // and nothing new can cost the dispatcher anything. Absent end to end when
+  // the server has no gateway key, which is every environment but production.
+  | 'live_streams'
   // SMsgServerUpdating tells a table in progress that this process is being
   // replaced. It is information, not an instruction: the match plays out to
   // its end, and nothing about it changes. Sent once, when the drain starts,
@@ -532,6 +542,13 @@ export interface ServerMsg {
   // would put `players_online: 0` on every card_played this server sends, for
   // a field one screen reads and no match ever does.
   players_online?: number
+  // SMsgLiveStreams: who is streaming this game, biggest first.
+  //
+  // A pointer for the reason RematchOffers is one: this list has to be able
+  // to say "nobody is live any more", and an empty slice under `omitempty`
+  // marshals to nothing at all — which every other message would then carry
+  // as "nobody" too, indistinguishable from "unchanged". Read it with Live().
+  live_streams?: LiveStreamDTO[]
   // SMsgError
   error?: string
 }
@@ -601,4 +618,39 @@ export interface GameStateDTO {
   // and nothing else, and a table code that comes back readable on a stream is
   // the one failure this setting exists to prevent. See ServerMsg.StreamerMode.
   streamer_mode?: boolean
+}
+
+// LiveStreamDTO is one channel streaming this game, as this server saw it at
+// the last poll.
+//
+// Nothing in it is ours: the channel name is written by a stranger and shown to
+// players. Every row is screened server-side before it gets here (twitch.screen)
+// and a name that does not survive is dropped whole rather than masked — the
+// name is the link, so there would be nothing left to show.
+//
+// There is deliberately no title field. A stream title is the largest piece of
+// unmoderated text this feature could put on the home screen, and a name, a
+// viewer count and a picture are enough to decide whether to click.
+export interface LiveStreamDTO {
+  // Login is the channel's URL segment, and the only thing a client builds
+  // the outgoing link from. Guaranteed to match ^[A-Za-z0-9_]{1,25}$ by the
+  // screen: a row whose login falls outside that alphabet is dropped whole,
+  // which is what makes the link safe to assemble without escaping.
+  login: string
+  // Name is the display name. It differs from Login by case, and entirely for
+  // a channel that is not written in Latin script.
+  name: string
+  // Lang is the BCP-47 tag Twitch announces ("en", "fr"). Presentation only:
+  // the list is never filtered on the reader's language, because an English
+  // stream is a stream.
+  lang?: string
+  // Viewers is what makes this list a ranking. No omitempty: zero viewers is
+  // a channel that is live, and a dropped zero would read as "unknown". Same
+  // rule as Turn and DrawnCount.
+  viewers: number
+  // Thumb is a path on THIS origin (/live-thumb/<key>), never a Twitch URL:
+  // img-src is 'self', and a player's browser must not tell Twitch that
+  // somebody opened this page. Empty when the picture could not be fetched —
+  // the row stays, without one.
+  thumb?: string
 }
