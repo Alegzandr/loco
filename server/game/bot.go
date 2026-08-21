@@ -145,6 +145,14 @@ func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
 	if top.Kind == Swap || top.Kind == GlobalSwitch {
 		action.Cards = copies[:1]
 	}
+	// A batch buys something only for the kinds stackBatchEffects has a case
+	// for: +2 and +4 raise the stack, Skip steps another seat, Reverse flips the
+	// ring again. A plain Wild is on none of them — N of them name one colour —
+	// so every copy past the first is the game's most flexible card thrown away
+	// for nothing. The one batch worth it is the one that empties the hand.
+	if top.Kind == WildCard && len(copies) < state.Hands[playerIdx].Size() {
+		action.Cards = copies[:1]
+	}
 	// Every wild names a colour, GlobalSwitch included.
 	if top.IsWild() {
 		action.ChosenColor = botPreferredColor(state.Hands[playerIdx])

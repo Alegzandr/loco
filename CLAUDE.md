@@ -606,6 +606,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   zero updates. Svelte builds the board once and keeps it, which is a guarantee only until somebody
   puts a `{#key}` around it or keys a block on something that moves with the state
   (`appSubscription.test.ts` counts instantiations for exactly that reason).
+- **A slam batches by itself, so it may only batch what a copy buys** (`batchForSlam`): a +2, a +4,
+  a Skip, a Reverse and a Number each gain something from the second copy; **a plain wild gains
+  nothing** — N of them name one colour — so it goes out alone unless the batch empties the hand and
+  takes the round. Nobody is asked how many copies to send, because an interject is a reaction; that
+  is why the tap must never spend more than the reaction was worth. `game.BotInterrupt` mirrors it.
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.

@@ -153,3 +153,47 @@ func TestBotInterrupt_OutOfRangeSeat(t *testing.T) {
 		t.Errorf("BotInterrupt(nil state) = %v, want nil", got)
 	}
 }
+
+// A batch is worth its copies only for the kinds stackBatchEffects has a case
+// for. A plain Wild is on none of them — N of them name one colour — so every
+// copy past the first leaves the hand for nothing.
+func TestBotInterrupt_PlainWildSpendsOneCopy(t *testing.T) {
+	top := Card{Color: Wild, Kind: WildCard}
+	hand := []Card{top, top, {Color: Green, Kind: Number, Value: 2}}
+
+	action := BotInterrupt(interruptState(top, Red, hand), 1)
+	if action == nil {
+		t.Fatal("BotInterrupt = nil, want one copy")
+	}
+	if len(action.Cards) != 1 {
+		t.Errorf("slammed %d wilds, want 1 — a second one names the same colour", len(action.Cards))
+	}
+}
+
+// ...and the one batch it is worth: the copies are the whole hand, so the slam
+// takes the round.
+func TestBotInterrupt_PlainWildBatchesToWin(t *testing.T) {
+	top := Card{Color: Wild, Kind: WildCard}
+
+	action := BotInterrupt(interruptState(top, Red, []Card{top, top}), 1)
+	if action == nil {
+		t.Fatal("BotInterrupt = nil, want the whole hand")
+	}
+	if len(action.Cards) != 2 {
+		t.Errorf("slammed %d wilds, want 2 — that batch ends the round", len(action.Cards))
+	}
+}
+
+// A +4 is on the list: each copy raises the stack by four.
+func TestBotInterrupt_PlusFourStillBatches(t *testing.T) {
+	top := Card{Color: Wild, Kind: WildDrawFour}
+	hand := []Card{top, top, {Color: Green, Kind: Number, Value: 2}}
+
+	action := BotInterrupt(interruptState(top, Red, hand), 1)
+	if action == nil {
+		t.Fatal("BotInterrupt = nil, want both copies")
+	}
+	if len(action.Cards) != 2 {
+		t.Errorf("slammed %d +4s, want 2 — each copy raises the stack", len(action.Cards))
+	}
+}

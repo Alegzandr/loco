@@ -33,6 +33,30 @@ function finishesTheHand(batch: CardDTO[] | undefined, hand: CardDTO[]): boolean
   return batch !== undefined && batch.length >= hand.length
 }
 
+/**
+ * Which copies a tap actually slams.
+ *
+ * The batch is automatic because an interject is a reaction and a second press
+ * is a second reaction: nobody gets asked how many copies to send. That is only
+ * fair while every extra copy *buys* something — a +2 or a +4 raises the stack,
+ * a Skip steps another seat, a Reverse flips the ring again — which is exactly
+ * the list `stackBatchEffects` has a case for on the server.
+ *
+ * A plain wild is not on that list. Two of them name one colour, so the second
+ * copy does nothing at all beyond leaving the hand, and the hand it leaves is
+ * the most flexible card in the game: a player who slammed one wild to take the
+ * lead back found all three of theirs gone. So a wild batches for one reason
+ * only — when the batch empties the hand and takes the round, which is worth
+ * every wild it costs. Swap and GlobalSwitch the server refuses in batch
+ * outright, so they never get here with more than one copy to send.
+ */
+function batchForSlam(card: CardDTO, copies: CardDTO[], hand: CardDTO[]): CardDTO[] | undefined {
+  if (copies.length < 2) return undefined
+  if (card.kind === 'swap' || card.kind === 'global_switch') return undefined
+  if (card.kind === 'wild' && !finishesTheHand(copies, hand)) return undefined
+  return copies
+}
+
 /** A Swap waiting on a target. */
 export interface PlayerPick {
   card: CardDTO
@@ -85,17 +109,16 @@ export function cardPlay(params: PlayParams) {
       const copies = myHand.filter(
         (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
       )
-      const batch = copies.length > 1 ? copies : undefined
+      const batch = batchForSlam(card, copies, myHand)
       // Wilds can take the lead too, and they still need their colour named —
       // global_switch included: it rotates the hands *and* sets the colour.
       if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
-        const copiesForPrompt = card.kind === 'global_switch' ? undefined : batch
         colorPicker = {
           card,
           idx: cardIdx,
           interrupt: true,
-          copies: copiesForPrompt,
-          declareLoco: finishesTheHand(copiesForPrompt, myHand),
+          copies: batch,
+          declareLoco: finishesTheHand(batch, myHand),
         }
         return false
       }
