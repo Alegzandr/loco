@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,7 +23,28 @@ type fakeGateway struct {
 	thumb    []byte // body for any CDN path
 	status   int    // upstream status for /streams, 0 = 200
 	retryAft string
-	calls    map[string]int
+
+	// calls is written by the handler's goroutine and read by the test's, so
+	// it is the one field here that needs the mutex: TestRunResolves... reads
+	// it while a poll cancelled with the context is still unwinding upstream.
+	// Everything above is set before the first request and only read after.
+	mu    sync.Mutex
+	calls map[string]int
+}
+
+// count and eachCall are the only ways the counter is read.
+func (g *fakeGateway) count(path string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls[path]
+}
+
+func (g *fakeGateway) eachCall(fn func(path string, n int)) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for path, n := range g.calls {
+		fn(path, n)
+	}
 }
 
 func newGateway(t *testing.T) *fakeGateway {
@@ -30,7 +52,9 @@ func newGateway(t *testing.T) *fakeGateway {
 	g := &fakeGateway{calls: map[string]int{}}
 	g.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
+		g.mu.Lock()
 		g.calls[p]++
+		g.mu.Unlock()
 		switch {
 		case strings.HasSuffix(p, "/games"):
 			w.Header().Set("Content-Type", "application/json")
@@ -161,7 +185,7 @@ func TestNoGameIDSwitchesItOffRatherThanWideningTheQuery(t *testing.T) {
 	if _, _, err := p.fetchStreams(context.Background(), ""); err == nil {
 		t.Fatal("polled with no game id")
 	}
-	if n := g.calls["/gateway/twitch-helix/streams"]; n != 0 {
+	if n := g.count("/gateway/twitch-helix/streams"); n != 0 {
 		t.Fatalf("the streams endpoint was called %d times with no game id", n)
 	}
 }
@@ -297,9 +321,9 @@ func TestA429PausesTheNextTicksInstead(t *testing.T) {
 	p := newTestPoller(t, g, nil)
 
 	p.tick(context.Background(), func([]protocol.LiveStreamDTO) {})
-	before := g.calls["/gateway/twitch-helix/streams"]
+	before := g.count("/gateway/twitch-helix/streams")
 	p.tick(context.Background(), func([]protocol.LiveStreamDTO) {})
-	if after := g.calls["/gateway/twitch-helix/streams"]; after != before {
+	if after := g.count("/gateway/twitch-helix/streams"); after != before {
 		t.Fatalf("the tick after a 429 called anyway (%d then %d)", before, after)
 	}
 }
@@ -324,8 +348,8 @@ func TestRunResolvesOnceThenStopsWithTheContext(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return when its context was cancelled")
 	}
-	if g.calls["/gateway/twitch-helix/games"] != 1 {
-		t.Fatalf("the game id was resolved %d times, want once", g.calls["/gateway/twitch-helix/games"])
+	if n := g.count("/gateway/twitch-helix/games"); n != 1 {
+		t.Fatalf("the game id was resolved %d times, want once", n)
 	}
 }
 
@@ -438,11 +462,11 @@ func TestNoCDNSlugMeansRowsWithoutPictures(t *testing.T) {
 	if len(rows) != 1 || rows[0].Thumb != "" {
 		t.Fatalf("row = %+v", rows)
 	}
-	for path, n := range g.calls {
+	g.eachCall(func(path string, n int) {
 		if strings.Contains(path, "previews") && n > 0 {
 			t.Errorf("fetched a preview with no CDN slug configured: %s", path)
 		}
-	}
+	})
 }
 
 // ── the page's surface ──────────────────────────────────────────────────────
