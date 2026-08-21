@@ -236,6 +236,11 @@ Go server (:8080, internal only)
   prod branch and empty strings everywhere else: two stacks on one key is two sets of requests
   against one quota, for a list nobody reads on the dev host. An empty key switches the feature off
   entirely, server-side. That file now carries a real secret, so the pipeline `chmod 600`s it.
+  **And `deploy/app.env` must never declare any of those five keys**, which is checked before the
+  deploy sources it: the job reads that file under `set -a`, so a committed empty value is exported
+  over the masked GitLab variable of the same name and `write_app_env` then writes the empty one.
+  The five shipped declared and empty, and the live strip was off in production for as long as they
+  were there — silently, because an empty key means exactly that.
 - **`/health` and `/metrics` are not on that list, and that is the point.** `/health` used to be
   proxied and answers with the live room count, the connected-player count and `draining`: the counts size the server for anyone
   thinking of loading it, and `draining` announces the window in which new tables are refused.

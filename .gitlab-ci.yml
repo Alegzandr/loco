@@ -397,6 +397,16 @@ e2e_test:
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait server
         docker compose -p "${APP_SUBDOMAIN}-${DEPLOY_ENV}" --env-file paths.env --env-file app.env -f compose.yml up -d --wait client
       }
+    # deploy/app.env is sourced under `set -a`, so every key it declares is
+    # exported over the job's own environment — and a committed empty value
+    # beats a masked GitLab variable of the same name, in silence. The gateway
+    # credentials belong to write_app_env alone, so a file that would shadow
+    # them fails the deploy instead of switching the live strip off for a month.
+    - |
+      if grep -Eq '^[[:space:]]*(JANUS_URL|JANUS_APPLICATION_ID|JANUS_API_KEY|LOCO_TWITCH_[A-Z_]+)=' deploy/app.env; then
+        echo "deploy/app.env must not declare gateway or Twitch keys: sourced under set -a, they shadow the GitLab variables of the same name." >&2
+        exit 1
+      fi
     - set -a
     - source deploy/app.env
     - set +a
