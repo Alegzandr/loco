@@ -326,6 +326,16 @@ time, never coverage.** No test is skipped, no gate is loosened, and no reaction
   `frontend_test`, so naming it just parked the pipeline's longest job behind the second-longest.
   The `build` job still `needs` every test job, so nothing red can ship — that gate is what makes
   this reordering free.
+- **`JANUS_API_KEY=` on the `e2e_test` server launch line is load-bearing.** The gateway credentials
+  are protected CI/CD variables, so protecting the `v*` tags — which is what makes `deploy_prod` see
+  them at all — also injected them into every other job of a tag pipeline. The server binary inherits
+  the job's environment, the live poller switched itself on, and `/live.json` (proxied to `:8080` by
+  Vite, `astro.config.mjs`) started answering with whoever was streaming the game; `live.spec.ts`
+  asserts the served paragraph stays put when nobody is, and it went red on a real channel being on
+  air. **The fix belongs in the job, never in the spec**: a suite whose result depends on a stranger's
+  stream is not a suite, and CI has no business calling a third party once a minute. Emptying the key
+  is the documented off switch everywhere but production (`live.md`). Anything else this pipeline
+  starts that reads a protected variable takes the same treatment.
 - **`LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS`** cut bot think time from 1.2–2.2 s to 0.25–0.45 s
   in CI (`hub.ApplyBotTimingEnv`). See "Bots" in `server.md`: the think delay is the only bot timing nothing races.
 - **The E2E helpers wait on state, not on the clock.** `createRoom`/`joinRoom` wait for the socket to

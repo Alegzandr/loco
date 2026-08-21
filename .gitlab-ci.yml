@@ -221,7 +221,21 @@ e2e_test:
         (cd server && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 /usr/local/go/bin/go build -o ../server-bin .)
       fi
     - chmod +x server-bin
-    - PORT=8080 LOCO_E2E=1 LOCO_BOT_THINK_MS=250 LOCO_BOT_JITTER_MS=200 ./server-bin &
+    #
+    # JANUS_API_KEY is emptied on the launch line, and it is not belt and
+    # braces: the gateway credentials are protected CI/CD variables, so the
+    # day the `v*` tags became protected refs they started being injected
+    # into every job of a tag pipeline, this one included. The server binary
+    # inherits the job's environment, so the live poller switched itself on
+    # and `/live.json` — which Vite proxies to :8080 — began answering with
+    # whoever happened to be streaming the game. `live.spec.ts` asserts the
+    # served paragraph stays in place when nobody is live, and it failed on a
+    # real channel being on air. Two reasons this is emptied here rather than
+    # fixed in the spec: a suite whose result depends on a stranger's stream
+    # is not a suite, and CI has no business calling a third party once a
+    # minute. Off without the key is the documented behaviour everywhere but
+    # production (CLAUDE.md, docs/notes/live.md).
+    - PORT=8080 LOCO_E2E=1 JANUS_API_KEY= LOCO_BOT_THINK_MS=250 LOCO_BOT_JITTER_MS=200 ./server-bin &
     - timeout 30 sh -c 'until wget -qO- http://localhost:8080/health; do sleep 1; done'
     # Client deps: Playwright's `webServer` starts Vite from client/ on :4173.
     - cd client && npm ci $NPM_FLAGS && cd ..
