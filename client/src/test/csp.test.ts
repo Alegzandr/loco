@@ -406,4 +406,64 @@ describe('the app stays inside the policy', () => {
     // written here.
     expect(/(?:src|href)="https?:\/\//.test(markup)).toBe(false)
   })
+
+  // The narrower rule the one above only catches in profile.
+  //
+  // What the policy protects is that the browser *fetches* nothing off another
+  // origin. An <a href> is not a fetch — it is a navigation a person decided to
+  // make — and the game now has outgoing links, to the channels streaming it.
+  // So the rule is not "no external hosts anywhere": it is that one module names
+  // one, every link is built there, and nothing it produces is ever used as a
+  // sub-resource. Stated here rather than left to the shape of a regular
+  // expression, because the next person to add a link will read this.
+  it('names an external host in one module, and never for a sub-resource', () => {
+    const LINKS = path.join(CLIENT, 'src/components/twitchLinks.ts')
+    const host = /twitch\.tv/
+
+    const namers = sources.filter(f => host.test(readFileSync(f, 'utf8')))
+    expect(namers).toEqual([LINKS])
+
+    // And that module is links only: nothing in it is assigned to a src, and
+    // the previews the strip draws come from this origin.
+    const links = readFileSync(LINKS, 'utf8')
+    expect(/\bsrc\b\s*[:=]/.test(links)).toBe(false)
+
+    // Every src in a component or a page is relative or bound. An absolute one
+    // is the shape the CSP refuses, whichever host it names.
+    const withSrc = [...sources, ...astroFiles].filter(f => /\.(svelte|astro)$/.test(f))
+    const absolute: string[] = []
+    for (const file of withSrc) {
+      if (/src=["']https?:\/\//.test(readFileSync(file, 'utf8'))) absolute.push(path.relative(CLIENT, file))
+    }
+    expect(absolute).toEqual([])
+  })
+})
+
+// nginx proxies the socket and, since the live strip, two paths that answer
+// from the Go server's memory. It proxies nothing else, and that is a security
+// property rather than a configuration detail: /health and /metrics are
+// operator surfaces and must stay unreachable from the internet.
+describe('what nginx forwards to the server', () => {
+  it('proxies the socket and the two live-streams paths, and nothing else', () => {
+    const passes = [...conf.matchAll(/proxy_pass\s+([^;]+);/g)].map(m => m[1].trim())
+    // ws-proxy.conf carries the socket's own proxy_pass; this file carries the
+    // other two.
+    expect(passes.every(p => p.startsWith('http://server:8080'))).toBe(true)
+
+    const blocks = [...conf.matchAll(/location\s+(=\s*)?([^\s{]+)\s*\{([^}]*)\}/g)]
+    const proxied = blocks.filter(b => b[3].includes('proxy_pass')).map(b => b[2])
+    expect(proxied.sort()).toEqual(['/live-thumb/', '/live.json'])
+
+    // Neither declares an add_header, so both inherit the five security headers
+    // the server block sets. Declaring one would require the include, and an
+    // include that can be forgotten is the hazard security-headers.conf exists
+    // to describe.
+    for (const b of blocks.filter(b => b[3].includes('proxy_pass'))) {
+      expect(b[3].includes('add_header')).toBe(false)
+    }
+
+    // The operator surfaces stay off the internet.
+    expect(conf).not.toMatch(/location[^{]*\/health/)
+    expect(conf).not.toMatch(/location[^{]*\/metrics/)
+  })
 })

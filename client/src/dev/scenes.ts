@@ -273,6 +273,27 @@ export const SCENES: Scene[] = [
     state: { playersOnline: 128 },
   },
   {
+    // The live strip, and it is worth all three viewports: above 46rem it is a
+    // row of previews along the foot of the board and must clear the row of
+    // links the page serves under it, under 46rem it collapses to one line
+    // stacked above the connected-player plate, and on a notch the whole thing
+    // has to stay inside the safe area. Nobody live draws nothing at all, which
+    // is what `lobby-home` above already shows.
+    id: 'lobby-live',
+    title: 'Accueil · en direct',
+    screen: 'lobby',
+    lobbyMode: 'home',
+    state: {
+      playersOnline: 128,
+      liveStreams: [
+        { login: 'kisukesaama', name: 'KisukeSaama', viewers: 1240, thumb: '', lang: 'fr' },
+        { login: 'someone_else', name: 'SomeoneElse', viewers: 312, thumb: '', lang: 'en' },
+        { login: 'a_third_one', name: 'AThirdOne', viewers: 47, thumb: '', lang: 'fr' },
+        { login: 'a_fourth', name: 'AFourth', viewers: 8, thumb: '', lang: 'en' },
+      ],
+    },
+  },
+  {
     id: 'lobby-create',
     title: 'Accueil · créer une partie',
     screen: 'lobby',

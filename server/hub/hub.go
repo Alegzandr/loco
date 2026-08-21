@@ -186,6 +186,18 @@ type Hub struct {
 	// and holds it only so /metrics can report what it has dropped. Atomic
 	// because it is set from main and read from the HTTP goroutines.
 	logSink atomic.Pointer[AsyncLog]
+
+	// The live-streams strip: the message as it goes on the wire, and the
+	// version each socket is checked against. Both are event-loop state, like
+	// tables and clients, and nothing outside the loop may read them —
+	// PublishLive is the door. See live.go.
+	liveBytes   []byte
+	liveVersion uint64
+
+	// liveStatsFn is how /metrics reads the poller's counters without this
+	// package knowing what a poller is. Installed by main, read from the HTTP
+	// goroutines, hence the atomic.
+	liveStatsFn atomic.Pointer[func() LiveStats]
 }
 
 // SetLogSink tells the hub which asynchronous log writer to report drops from.
@@ -270,6 +282,9 @@ type MetricsStats struct {
 	// operator is reading has holes in it, which is worth knowing before
 	// concluding anything from what is missing. See logsink.go.
 	LogLinesDropped int64 `json:"log_lines_dropped"`
+	// The live-streams poller, or zeroes when it was never switched on. See
+	// live.go and docs/notes/live.md.
+	Live LiveStats `json:"live"`
 }
 
 // New creates and returns a Hub.
@@ -343,6 +358,7 @@ func (h *Hub) GetMetrics() MetricsStats {
 		LoopSlowestUs:        h.metrics.loopSlowestUs.Load(),
 		LoopEvents:           h.metrics.loopEventCount.Load(),
 		LogLinesDropped:      h.logLinesDropped(),
+		Live:                 h.liveStats(),
 	}
 }
 
@@ -398,6 +414,10 @@ func (h *Hub) Run() {
 			// first thing this server says to a socket, and the home screen has
 			// nothing else to draw the count from.
 			h.sendPlayersOnline(c)
+			// Same moment, same reason: the home screen draws the strip from
+			// this and has nothing else to draw it from. Sends nothing when
+			// the feature is off, which is every environment but production.
+			h.sendLiveStreams(c)
 
 		case c := <-h.unregister:
 			if _, ok := h.clients[c]; ok {

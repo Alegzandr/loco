@@ -12,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"loco/server/game"
 	"loco/server/hub"
+	"loco/server/twitch"
 )
 
 // defaultDrainTimeout is how long a shutdown waits for the matches in flight to
@@ -62,6 +64,39 @@ func main() {
 		log.Printf("WARN snapshot restore failed, starting empty err=%v", err)
 	}
 
+	// The one thing in this process that talks to anybody outside it, and it
+	// never touches the event loop: what it produces reaches the hub through
+	// PublishLive, which posts to the router like every other job crossing
+	// that boundary. Off, silently, wherever no gateway key is set — which is
+	// local dev and the E2E suite. See docs/notes/live.md and JANUS.md.
+	liveCtx, stopLive := context.WithCancel(context.Background())
+	defer stopLive()
+	// Nil unless the feature is on, and every method it is asked for below is
+	// safe on a nil receiver: /live.json answers an empty list either way, so
+	// the nginx block, the dev proxy and what an operator curls are the same in
+	// every environment.
+	var poller *twitch.Poller
+	if p, on := twitch.NewPoller(os.Getenv, game.ContainsBlockedTerm); on {
+		poller = p
+		h.SetLiveStatsFunc(func() hub.LiveStats {
+			s := p.Stats()
+			return hub.LiveStats{
+				Polls:        s.Polls,
+				Errors:       s.Errors,
+				RowsScreened: s.RowsScreened,
+				ThumbErrors:  s.ThumbErrors,
+				StreamsLive:  s.StreamsLive,
+			}
+		})
+		// Previews only exist when there is a poller behind them, so this one is
+		// registered here. It answers from the snapshot on an ordinary net/http
+		// goroutine, exactly like /health and /metrics: the event loop is never
+		// touched and no page load ever waits on the gateway.
+		http.HandleFunc(twitch.ThumbPrefix, p.ServeThumb)
+		go p.Run(liveCtx, h.PublishLive)
+	}
+	http.HandleFunc("/live.json", poller.ServeJSON)
+
 	http.HandleFunc("/ws", h.ServeWS)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		stats := h.GetStats()
@@ -110,6 +145,10 @@ func main() {
 		// process the old way, which is the escape hatch an operator needs if a
 		// drain is taking longer than they are willing to give it.
 		stop()
+		// Before the drain: a request to the gateway still in flight while the
+		// tables are being let finish has no reason to exist, and the poller
+		// has nothing to hand over.
+		stopLive()
 		shutdown(srv, h, snapshotPath)
 	}()
 

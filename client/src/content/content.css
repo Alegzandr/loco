@@ -277,6 +277,63 @@ html[data-scroll="smooth"]:has(body.doc) {
   margin-top: 1.6rem;
 }
 
+/* ── The live channels on /live/ ──────────────────────────────────────────
+   Filled by content/liveList.ts, and served hidden: what stands in for it in
+   the markup is a paragraph that answers both an empty category and a browser
+   with no scripts. Every selector here is scoped to a class like everything
+   else in this file, because GamePage.astro loads it too. */
+.liveList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.2rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.liveCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.5rem 0.7rem;
+  background: var(--color-surface-card);
+  border: var(--stroke-thin) solid var(--color-stroke);
+  border-radius: var(--radius-md);
+  box-shadow: 0 3px 0 var(--color-stroke-soft);
+  color: var(--color-ink);
+  text-decoration: none;
+}
+
+.liveCard:hover,
+.liveCard:focus-visible {
+  color: var(--color-ink);
+}
+
+/* The dimensions are on the element too. A preview that arrives late must not
+   reflow a list somebody is already reading. */
+.liveThumb {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-stroke-soft);
+  display: block;
+}
+
+.liveName {
+  font-family: var(--font-display);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.liveCount {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
 /* A jump lands the heading a little below the top edge rather than flush
    against it, where it reads as a page that was cut off. */
 .content section[id] {

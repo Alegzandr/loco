@@ -702,11 +702,22 @@ which was split out of the game's theme hook precisely so this does not drag a f
 that mounts nothing. The hook is gone and that module is now the single definition of what the theme
 is, for the app and for a content page alike.
 
-That file also wires the back-to-top button and calls `closeMenuWhenWidened()`, and it is the same
-file on purpose: there is only ever **one** script on these pages, so a second behaviour is a few
-more lines rather than a second request and a second thing to remember when counting what a content
-page loads. `content/navMenu.ts` is a module both that script and `homeSheet.ts` import; it is not a
-third request.
+That file also wires the back-to-top button, calls `closeMenuWhenWidened()` and fills the live list
+on `/live/`, and it is the same file on purpose: there is only ever **one** script on these pages, so
+a second behaviour is a few more lines rather than a second request and a second thing to remember
+when counting what a content page loads. `content/navMenu.ts` and `content/liveList.ts` are modules
+that script imports; neither is a second request.
+
+The live list is the one thing on these pages that is fetched rather than served, and three things
+keep it inside every rule above. The fetch is **same-origin** — `/live.json` is answered by our own
+server, which asked the gateway and re-serves the previews from this origin — so `connect-src 'self'`
+and `img-src 'self'` are untouched and Twitch is never told the page was opened. Nothing is built
+with `innerHTML`: every string in that payload was written by a stranger. And what it draws is
+**deliberately not indexable** — a list of who is streaming this afternoon is wrong tomorrow, so the
+page is prose first and a list second, and the section is served with a sentence explaining an empty
+list rather than with a spinner. That sentence is also what a reader with scripts off is left with,
+which is the only reason it can be written once and mean two things. Full reasoning:
+[`live.md`](live.md).
 
 ### The stylesheet is loaded by the game, so nothing in it may be a bare element
 

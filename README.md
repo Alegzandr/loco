@@ -160,6 +160,13 @@ the shutdown snapshot on its `/data` mount.
 | `LOCO_BOT_JITTER_MS` | `1000`             | Random jitter added to `LOCO_BOT_THINK_MS`. Same gate and same validation. Bot *reaction* windows (catch, LOCO! declaration, interrupt) are deliberately not tunable. |
 | `LOCO_DRAIN_TIMEOUT` | `90s`              | On `SIGTERM`, how long the server waits for the matches already running to finish before it snapshots them and exits. A Go duration (`90s`, `15m`) or bare seconds. Malformed values fall back to the default with a `WARN`, never to zero. Deliberately short and the same in both deployed environments (grace `150s`); local compose `5s`. |
 | `LOCO_SNAPSHOT_PATH` | *(unset)*          | Where matches in flight are parked across a restart, so the players reconnect into them instead of losing the match. Unset disables the mechanism entirely, which is what local dev and the E2E suite run with. Production: `/data/snapshot.json`, bind-mounted from `${DATA_DIR}/snapshots`. |
+| `JANUS_URL` | *(unset)* | The gateway every third-party call leaves through (`JANUS.md`). Together with the two below it switches the live-streams strip on; **unset means the feature does not exist** — no goroutine, no outbound request, no `live_streams` on the wire and no log line — which is what local dev and the E2E suite run with. |
+| `JANUS_APPLICATION_ID` | *(unset)* | This service's id at the gateway. Not a secret. |
+| `JANUS_API_KEY` | *(unset)* | The gateway key. **A secret**, held only in masked CI variables. There is no Twitch credential anywhere in this repository: the gateway holds it. A key set with no URL or no application id is a typo, and the server says so with a `WARN` rather than trying. |
+| `LOCO_TWITCH_GAME_ID` | *(unset)* | The Twitch category id, pinned rather than looked up. Production spends no call resolving it and cannot resolve it *wrongly*: a `/streams` query with no game id would ask Helix about every live channel on Twitch, so an unresolvable category switches the poller off instead. |
+| `LOCO_TWITCH_CDN_SLUG` | *(unset)* | The gateway slug the preview CDN is registered under. Unset is not an error: channels are listed without their pictures. |
+| `LOCO_TWITCH_BLOCKLIST` | *(unset)* | Comma-separated channel logins never to list. The operational escape hatch, needed because nothing screens the *contents* of a preview image. |
+| `LOCO_TWITCH_POLL` | `60s` | How often the list is refreshed. A Go duration, minimum `1s`; malformed values fall back to the default with a `WARN`. |
 
 ---
 

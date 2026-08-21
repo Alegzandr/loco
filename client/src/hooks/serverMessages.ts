@@ -352,6 +352,15 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         store.setPlayersOnline(msg.players_online ?? 0)
         break
 
+      // Who is streaming the game, for the home screen's strip. Pushed on
+      // arrival and then only when the answer changes, and only to a socket
+      // with no seat. `?? []` is the honest fallback and it is also a real
+      // answer: an empty list means nobody is live, which is what a server
+      // with no gateway key says every time.
+      case 'live_streams':
+        store.setLiveStreams(msg.live_streams ?? [])
+        break
+
       case 'match_end': {
         const s = gameStore.getState()
         // A forfeit is not a round result and does not queue behind one: the

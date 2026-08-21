@@ -33,6 +33,7 @@ shaped the way it is and what breaks if you reshape it. Update both in the same 
 | [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md) | required coverage, Playwright, GitLab pipeline, linting, Docker stacks |
 | [`docs/notes/seo.md`](docs/notes/seo.md) | indexable pages, the page registry, hreflang, robots/sitemap/404, build-time origin |
 | [`docs/notes/legal.md`](docs/notes/legal.md) | what is processed and why, the no-banner position, address truncation, the trademark line |
+| [`docs/notes/live.md`](docs/notes/live.md) | the live-streams strip: the Janus poller, the preview cache, screening a stranger's name, the strip and `/live/` |
 
 Also: `docs/rules.md` is the authoritative game spec, `DESIGN.md` the written design system,
 `PRODUCT.md` its audiences and anti-references, `docs/protocol.md`, `docs/features.md`,
@@ -125,12 +126,14 @@ needs jsdom and the `browser` resolve condition.
   app-only · `src/pinchGuard.ts` the seated half of "no accidental zoom", installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `CardsArticle.astro`, `navMenu.ts`, `theme-boot.ts`. **Never imported by the app**
+  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `liveList.ts`, `navMenu.ts`,
+  `theme-boot.ts`. **Never imported by the app**
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, CardFall, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
-  `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, the two server mirrors `nicknameRules.ts` +
+  `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, LiveStrip + `liveStreams.ts` +
+  `twitchLinks.ts`, the two server mirrors `nicknameRules.ts` +
   `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
   `OpponentAway.svelte`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
@@ -167,13 +170,19 @@ needs jsdom and the `browser` resolve condition.
 
 **`server/`** authoritative game server.
 - `game/` pure domain: room, deck, hand, rules, bot, maps, event log, `nickname.go` + `wordlists/`
+  + `screen.go` (the nickname matcher, exported for the one name this game did not write)
 - `hub/` **one file per thing a message leads to**: `table.go` (**the** table, and the seat
   bookkeeping nothing else may do), `actor.go` (the table's goroutine, and the two ways work crosses
   between it and the hub), `hub.go` (the Hub, its tunables and ceilings, the loop),
   `serve.go`, `tokens.go`, `dispatch.go`, `rooms.go`, `rematch.go`, `gameplay.go`, `presence.go`,
   `bots.go`, `turntimer.go`, `broadcast.go`, `statedto.go`, `converter.go`, `metrics.go`, `debug.go`,
   `client.go`, `maploading.go`, `matchmaking.go`, `drain.go` + `snapshot.go`, `privacy.go`,
-  `logsink.go` (the asynchronous log writer `main` installs)
+  `logsink.go` (the asynchronous log writer `main` installs), `live.go` (the live-streams strip's
+  one crossing into the loop)
+- `janus/` the gateway every third-party call leaves through, and **nothing the gateway already
+  does**: no cache, no retry, no token store (`JANUS.md`)
+- `twitch/` who is streaming the game: `config.go`, `helix.go`, `thumbs.go`, `poller.go`. Imports
+  `janus` and `protocol`, **never `hub`**
 - `protocol/` wire types, and **the single source the client's are generated from**: `messages.go`
   (the envelopes and DTOs) and `enums.go` (the wire enums, pinned to the domain by `enums_test.go`)
 - `cmd/protocolgen/` the generator: reads `protocol/`, writes the client's two type files, and
@@ -505,8 +514,32 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   anywhere) beside `messages_dropped_busy`. Every counter lives on one `hubMetrics` struct
   (`hub/metrics.go`), and the high-water marks are raised by CAS, not load-then-store. **Argue about
   scaling with those numbers or not at all** — the note has the table and what it rules out.
+- **Every third-party call leaves through Janus, and nothing the gateway already does is written
+  again here** (`JANUS.md`, `server/janus/`): no cache, no retry, no backoff, no circuit breaker, no
+  token store, and **no Twitch credential in this repository at all**. A 429's `Retry-After` is
+  honoured by skipping ticks, and that is the only pacing this side does. `application/problem+json`
+  means the gateway refused; any other media type means the API answered, and confusing the two is
+  how a missing registration reads as an empty catalogue.
+- **The live-streams poller is the one thing in this process that talks to anybody outside it, and it
+  never touches the event loop** (`server/twitch/`, `hub/live.go`). Its own goroutine, 60s, and it
+  comes back in through `PublishLive` → `postToRouter` alone. **Off, silently, without
+  `JANUS_API_KEY`** — no goroutine, no request, no message, no log line — which is dev, E2E and every
+  environment but production. **A `game_id` that will not resolve switches it off rather than
+  widening the query**: `GET /streams` without one returns every live channel on Twitch. A non-2xx is
+  an error and never an empty list, and a list older than `LiveMaxAge` is published **empty** rather
+  than kept.
+- **A preview from Twitch is re-served from this origin, out of memory, under a key we mint**
+  (`sha256` of the upstream URL). The allowlist is the last poll's answers rather than a pattern, so
+  nothing a visitor sends chooses a URL; bounds and magic bytes are checked, **our** `Content-Type`
+  is written, and the row keeps its place without a picture when any of that fails. It is what keeps
+  `img-src 'self'` untouched and Twitch unaware that anybody opened the page.
+- **A name this game did not write is screened before it is shown, and a catch drops the row rather
+  than masking it** (`game.ContainsBlockedTerm`, the nickname matcher exported — never
+  `ValidateNickname`, whose charset is a seat label's). **No stream title is ever relayed**, and the
+  DTO has no field for one.
 - `/metrics` **and `/health`** are operator surfaces: only `docker-compose.dev.yml` publishes the Go
-  server, and **nginx proxies `/ws` and nothing else**. `debug_mode_active` must be `false` in prod.
+  server, and **nginx proxies `/ws`, `/live.json` and `/live-thumb/`, and nothing else**.
+  `debug_mode_active` must be `false` in prod.
 - **The server container has no privilege to lose**: uid 10001, `no-new-privileges`, `cap_drop: ALL`,
   read-only rootfs, tmpfs `/tmp`. `${DATA_DIR}/snapshots` is chowned 10001 and chmodded 0700 by
   `.gitlab-ci.yml`. **Treat that directory as a secret**: every session token and every hand of every
@@ -830,6 +863,23 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   searching screen is already forbidden from writing. It says *connected* / *online*, never
   *searching*: it counts connections, it is not the queue. `setPlayersOnline` stays out of `resetToHome` — the count belongs to the socket, not to
   the seat.
+- **Who is streaming the game is a strip along the foot of the entry screen, and nobody live is
+  nothing at all** (`components/LiveStrip.svelte` + `liveStreams.ts`, fed by `live_streams` exactly
+  as the count is by `players_online`). No plate, no invitation, no line saying the category is
+  empty: a plate reporting that nobody is playing is a plate saying the game is dead. **Absolute like
+  the rest of the chrome here**, so it reserves nothing and `/` still never scrolls; **entry screen
+  only** — a form owns the screen once it is up, and a link out of the game beside the nickname field
+  is an exit offered on the way in — and **never at a table**, for the reason the rules modal links
+  nowhere. **The order is the server's, which is Twitch's**: `topLiveStreams` cuts and never sorts.
+  Under 46rem it becomes one line above the connected-player plate, which keeps its place: the count
+  decides whether to start a game, the strip invites you elsewhere. Every `<img>` carries `width` and
+  `height`, and **no Twitch logo is drawn anywhere** — their guidelines forbid redrawing their marks
+  and every glyph a player sees is one we drew, so the strip writes the word.
+- **An external address is named in one module and assembled there** (`components/twitchLinks.ts`),
+  and **nothing it produces is ever a `src`**: previews come from our own origin. The rule is
+  narrower than "no literal URLs" — what `csp.test.ts` protects is that the browser *fetches* nothing
+  off-origin, and an `<a href>` is a navigation somebody chose. Every outgoing link carries
+  `noopener noreferrer external`.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape rules only, word list
   stays server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`,
   which drops everything outside the alphabet as it is typed or pasted). Both decide nothing, and
@@ -961,7 +1011,16 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   `server/game/deck.go` and `server/game/card.go` by `contentPages.test.ts`.
 - **A content page ships no JavaScript except `theme-boot.ts`.** No `client:` directive, so
   `<LocoLogo />` and every `<Card />` on `/cards/` are static markup. Anything interactive is a
-  **native control**: the home sheet is `<details>`, the language chooser a `[popover]`.
+  **native control**: the home sheet is `<details>`, the language chooser a `[popover]`. That one
+  script now also fills the live list on `/live/` (`content/liveList.ts`, a same-origin `fetch`, so
+  `connect-src` is untouched) — **still one script, still no island, still nothing third-party**, and
+  a second behaviour belongs in it rather than in a second request.
+- **`/live/` is prose first and a list second** ([`docs/notes/live.md`](docs/notes/live.md)). What is
+  indexable is what the game gives a stream and how to appear in the category, both true next month;
+  the list of who is live right now is filled in the browser and is `WebPage`, never `Article`. The
+  section is served with **a sentence rather than a spinner**, because it answers a quiet evening and
+  a browser with no scripts at once, and everything is built with `textContent` — every string in it
+  was written by a stranger.
 - **`content.css` is loaded by `GamePage.astro` too, so every selector in it is scoped to a class.**
   A bare `table`/`th`/`td` rule there styles the score table and the evening recap alongside the
   rules page, and `thead th`'s ink fill did exactly that: an ink band behind two sets of column
@@ -1201,9 +1260,14 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 Detail: [`docs/notes/legal.md`](docs/notes/legal.md).
 
 - **Collecting nothing is the compliance strategy.** No account, no cookie, no analytics, no tracker,
-  no third-party request, nothing persisted but a match in flight across a deploy. **Anything that
-  would break that is a legal change, not a technical one**: the first measurement cookie makes a
-  consent banner mandatory and rewrites the policy.
+  **no third-party request from the player's browser**, nothing persisted but a match in flight
+  across a deploy. **Anything that would break that is a legal change, not a technical one**: the
+  first measurement cookie makes a consent banner mandatory and rewrites the policy.
+- **The one third party is on the server's side of the line, and that is what keeps the sentence
+  above true.** The live-streams poller asks Twitch, through Janus, on a timer, carrying nothing
+  about anybody; the previews are re-served from this origin. A thumbnail loaded from Twitch would be
+  a request from the reader's browser carrying their address — the tripwire, exactly. The policy
+  copy says which of the two makes the request, and `legal.test.ts` pins that sentence.
 - **No address is ever written in full.** `hub.truncateAddr` / `Client.netPrefix` and the `anonymised`
   `log_format` in `client/nginx.conf` cut every address to `/24` or `/48` **at the point of writing**.
   Log lines are correlated by `conn=`. **Never log `RemoteAddr()` directly**; `legal.test.ts` fails
@@ -1247,9 +1311,10 @@ Detail: [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md).
 - Run `make csp` after touching `nginx.conf` **or bumping a dependency**.
 
 ## Docker
-Production path: Traefik to nginx (:80) to Go (:8080, internal only); **nginx proxies `/ws` and
-nothing else** — `/health` and `/metrics` are operator surfaces and are deliberately unreachable from
-the internet — serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` /
+Production path: Traefik to nginx (:80) to Go (:8080, internal only); **nginx proxies `/ws`,
+`/live.json` and `/live-thumb/`, and nothing else** — `/health` and `/metrics` are operator surfaces
+and are deliberately unreachable from the internet, and `csp.test.ts` pins that list so a fourth path
+is a decision somebody takes on purpose — serves the SPA, and sends CSP / `nosniff` / `Referrer-Policy` / `Permissions-Policy` /
 `Strict-Transport-Security` on every response. **HSTS carries neither `includeSubDomains` nor
 `preload`**: both are promises about names this repository does not serve and cannot withdraw once a
 browser has cached them.

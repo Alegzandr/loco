@@ -55,6 +55,26 @@ for measurement, advertising or recognition. Add one thing that is, and this
 paragraph stops being true and a banner becomes mandatory. That is the tripwire
 worth remembering.
 
+## The one third party, and which side of the line it is on
+
+The home screen and `/live/` show who is streaming the game on Twitch. That is a
+third party, and the tripwire above is exactly what it could have tripped: a
+preview image loaded from Twitch is a request from the reader's browser carrying
+their address, their user agent and a referer, to a company outside the EU.
+
+It does not, because **the browser never makes that request**. Our server asks —
+through the Janus gateway, on a timer, carrying nothing about anybody — keeps the
+answer in memory, and serves the pictures from this origin. The table above gains
+no row, and that is the whole point of writing this section: nothing new about a
+player is processed, because the request would be made in exactly the same way if
+nobody were reading the page.
+
+Two sentences in the copy carry this and are pinned by `legal.test.ts`: the
+promise that nothing is loaded from anyone else's server, which now says *the
+stream previews included*, and a new section saying which of the two makes the
+request. Reword them; do not delete the substance. The reasoning, and what it
+costs the server, is in [`live.md`](live.md).
+
 ## Addresses are truncated at the point of writing
 
 `hub/privacy.go` (`truncateAddr`, `Client.netPrefix`) and the `anonymised`

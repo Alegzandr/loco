@@ -1,0 +1,9 @@
+---
+import ContentPage from '../../layouts/ContentPage.astro'
+import LiveArticle from '../../content/LiveArticle.astro'
+import { LIVE, pageJsonLd } from '../../seo/meta'
+---
+
+<ContentPage page={LIVE} lang="fr" jsonLd={pageJsonLd(LIVE, 'fr')}>
+  <LiveArticle lang="fr" />
+</ContentPage>

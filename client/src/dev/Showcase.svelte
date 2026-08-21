@@ -159,6 +159,7 @@
       onPlayBot={noop}
       error={g.errorMsg}
       playersOnline={g.playersOnline}
+      liveStreams={g.liveStreams}
       onClearError={noop}
       initialMode={scene.lobbyMode}
       initialCode={scene.lobbyCode}

@@ -1446,7 +1446,9 @@ scanning every room after every event for a number nobody is looking at.
 
 ## Metrics
 **`/metrics` *and* `/health` are operator surfaces, and no compose file publishes the Go server any
-more.** nginx proxies `/ws` and nothing else: `/health` used to be proxied too, and it answers with
+more.** nginx proxies `/ws`, `/live.json` and `/live-thumb/`, and nothing else — the last two are the
+live-streams strip, and `csp.test.ts` pins that list so a fourth is a deliberate decision
+([`live.md`](live.md)). `/health` used to be proxied too, and it answers with
 the live room count, the connected-player count, the uptime and `draining`. None of that is anybody's
 business from the internet. The counts size the server for whoever is thinking about loading it, and
 `draining` announces the window in which new tables are refused. Nothing legitimate needed it there
@@ -1458,6 +1460,18 @@ reaches the server through nginx there like everywhere else. Read it from inside
 `docker compose exec server wget -qO- http://localhost:8080/metrics`. `docker-compose.dev.yml` is
 the one exception and must stay published: the Vite client connects straight to `ws://<host>:8080/ws`
 with no nginx in front of it.
+
+The counters under `live` come from a poller this package does not own: `hub.SetLiveStatsFunc` is
+installed by `main`, so the hub reports the numbers an operator reads without knowing what a gateway
+or a Twitch is. Zeroes on any server with no gateway key, which is every environment but production.
+
+## The one outbound call
+This server talks to exactly one thing outside itself, and it is not Twitch: it is the Janus gateway,
+which holds Twitch's secret and does the OAuth2 for us. The poller runs on its own goroutine, never
+on the event loop, and comes back in through `PublishLive` → `postToRouter` alone. Everything about
+why — the freshness rules, the preview cache, screening a name this game did not write, and why a
+`game_id` that will not resolve switches the whole thing off rather than widening the query — is in
+[`live.md`](live.md).
 
 `GET /metrics` returns JSON:
 - Gameplay: `rooms_active`, `players_connected`, `matches_started`, `matches_finished`, `bots_active`.

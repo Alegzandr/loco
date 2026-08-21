@@ -111,6 +111,12 @@ type Client struct {
 	// plain field where seat above had to be atomic. See online.go.
 	onlineSent int
 
+	// liveSent is the live-streams version this socket has already been told,
+	// so a publication that changes nothing sends nothing. Same rule as
+	// onlineSent above, same reason it is a plain field: written and read only
+	// on the hub's event loop. See live.go.
+	liveSent uint64
+
 	closed  bool
 	limiter *rateLimiter
 	// connID is a short random tag included in every log line involving this

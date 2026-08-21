@@ -46,6 +46,10 @@ services:
             # Without this, Vite injects HMR code pointing at container port 3000
             # (not exposed), causing spurious WS errors that obscure app WS failures.
             - VITE_HMR_CLIENT_PORT=5173
+            # Where Vite forwards /live.json and /live-thumb/, which nginx
+            # proxies in production. Inside this container localhost is this
+            # container, so the service name is what reaches the Go server.
+            - LOCO_SERVER_ORIGIN=http://server:8080
         ports:
             - "5173:3000"
         # `.astro/dev.json` is Astro 7's dev-server lock, and it lives on the bind

@@ -69,6 +69,13 @@ describe('required disclosures', () => {
     { what: 'discloses browser storage', en: /browser storage/i, fr: /stockage de ton propre navigateur/i },
     { what: 'explains why there is no cookie banner', en: /no cookie banner/i, fr: /pas de bandeau cookies/i },
     { what: 'disclaims any Mattel connection', en: /Mattel/, fr: /Mattel/ },
+    // Added with the live-streams strip, and load-bearing from that moment on:
+    // the page has always said that nothing is fetched from anyone else's
+    // server, and now there is a third party in the picture. What keeps that
+    // sentence true is that the *server* asks and the browser never does, so
+    // the copy has to say which of the two makes the request. Reword it freely;
+    // deleting the substance means the promise above it is no longer checkable.
+    { what: 'says the browser itself talks to nobody else', en: /never asks Twitch/i, fr: /ne demande jamais rien à Twitch/i },
     { what: 'names the governing law', en: /French law/i, fr: /droit français/i },
   ]
 

@@ -6,6 +6,7 @@ import {
   MatchFormat,
   ScoreboardEntryDTO,
   LatencyEntryDTO,
+  LiveStreamDTO,
   MatchRecordDTO,
   Emote,
 } from '../../types/protocol'
@@ -163,6 +164,12 @@ export interface GameState {
   // not the matchmaking queue, and nothing here ever decides anything on it.
   // 0 until the server has said, which is also the value that draws nothing.
   playersOnline: number
+  // The channels streaming this game right now, biggest first, straight off
+  // `live_streams`. Drawn on the home screen and nowhere else, exactly like the
+  // count above: it decides nothing, and the order is the server's — which is
+  // Twitch's — so nothing here ever re-sorts it. Empty until the server says,
+  // which is also what a server with no gateway key always says.
+  liveStreams: LiveStreamDTO[]
 
   // --- The board ---
   myHand: CardDTO[]
@@ -358,6 +365,7 @@ export interface SessionActions {
   setIsReconnecting: (val: boolean) => void
   setServerUpdating: (val: boolean) => void
   setPlayersOnline: (count: number) => void
+  setLiveStreams: (streams: LiveStreamDTO[]) => void
   resetToHome: () => void
 }
 

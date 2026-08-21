@@ -233,6 +233,70 @@ export const UI: Record<string, Copy> = {
      */
     homeSheetBtn: { en: "What is LOCO!", fr: "C’est quoi LOCO!" },
     homeSheetClose: { en: "Close", fr: "Fermer" },
+
+    // ─── Live on Twitch ────────────────────────────────────────────────
+    //
+    // The page is prose first and a list second. What is written here is what
+    // the game *is* on a stream and what it takes to appear in the category —
+    // both true next month — while the list of who is live right now is filled
+    // in the browser and indexed by nobody.
+    liveH1: {
+        en: "LOCO! live on Twitch",
+        fr: "LOCO! en direct sur Twitch",
+    },
+    liveLede: {
+        en: "The game has its own category on Twitch. Here is who is playing it in front of an audience right now, and what it takes to be one of them.",
+        fr: "Le jeu a sa propre catégorie sur Twitch. Voici qui y joue devant un public en ce moment, et ce qu’il faut pour en faire partie.",
+    },
+
+    liveNowH2: { en: "Live right now", fr: "En direct maintenant" },
+    /**
+     * Served in the markup, and it is the empty state as much as the loading
+     * one: a reader with scripts off and a reader arriving on a quiet evening
+     * both stop here, so it has to answer both without ever saying "loading".
+     */
+    liveNowNote: {
+        en: "The channels below are fetched when the page opens. If none appear, either nobody is streaming LOCO! at the moment, or your browser is not running scripts. The category itself is always one link away.",
+        fr: "Les chaînes ci-dessous sont récupérées à l’ouverture de la page. Si aucune n’apparaît, c’est que personne ne streame LOCO! en ce moment, ou que ton navigateur n’exécute pas de scripts. La catégorie, elle, est toujours à un lien d’ici.",
+    },
+    liveCategoryLink: { en: "The LOCO! category on Twitch", fr: "La catégorie LOCO! sur Twitch" },
+    liveViewersLabel: { en: "watching", fr: "spectateurs" },
+
+    liveWhyH2: { en: "What it gives a stream", fr: "Ce que ça donne en stream" },
+    liveWhy1: {
+        en: "Everything happens in front of the audience. A card is played and anybody holding its twin can slam it down on top, so a chat that spots it first is watching a real race rather than a turn order.",
+        fr: "Tout se passe devant le public. Une carte tombe, et n’importe qui tenant sa jumelle peut la claquer par-dessus : un chat qui la repère avant toi regarde une vraie course, pas un tour de rôle.",
+    },
+    liveWhy2: {
+        en: "The five seconds after somebody is down to one card are the loudest of the evening. They have to call LOCO!, and anybody who catches them silent takes two cards off them. A missed call is a clip on its own.",
+        fr: "Les cinq secondes qui suivent la descente à une carte sont les plus bruyantes de la soirée. Il faut crier LOCO!, et qui prend l’autre en silence lui colle deux cartes. Un appel oublié, c’est un clip à lui tout seul.",
+    },
+    liveWhy3: {
+        en: "It is drawn to be read at 720p by somebody who is not playing: big type, a board that never scrolls, and the three moments that matter shouting in colour while everything else stays quiet.",
+        fr: "C’est dessiné pour être lu en 720p par quelqu’un qui ne joue pas : grosse typo, un plateau qui ne défile jamais, et les trois moments qui comptent qui crient en couleur pendant que tout le reste reste calme.",
+    },
+
+    liveHowH2: { en: "Getting your stream on this page", fr: "Faire apparaître ton live ici" },
+    liveHowStep1: { en: "Pick the category", fr: "Choisis la catégorie" },
+    liveHowStep1Body: {
+        en: "Set your stream's category to LOCO! before you go live. That is the whole of it: this page reads the category, so a stream filed under anything else is invisible here however many people are watching it.",
+        fr: "Mets LOCO! en catégorie avant de lancer ton live. C’est tout : cette page lit la catégorie, donc un stream rangé ailleurs reste invisible ici, quel que soit le nombre de personnes qui te regardent.",
+    },
+    liveHowStep2: { en: "Turn on streamer mode", fr: "Active le mode streamer" },
+    liveHowStep2Body: {
+        en: "Behind the gear, on any screen. It blurs the table code for everybody who can see it, so nobody reads six characters off your capture and takes a seat you were keeping for somebody. Share the table with the link the code plate copies instead.",
+        fr: "Derrière l’engrenage, sur n’importe quel écran. Il floute le code de table pour tout le monde, donc personne ne lit six caractères sur ta capture pour prendre une place que tu gardais. Partage la table avec le lien que la plaque du code copie.",
+    },
+    liveHowStep3: { en: "Play with your chat", fr: "Joue avec ton chat" },
+    liveHowStep3Body: {
+        en: "A table takes up to ten, needs no account and nothing installed: a name and the link is the whole of it. So the fastest way to fill one is to drop the link in chat and start dealing.",
+        fr: "Une table accueille jusqu’à dix personnes, sans compte et sans rien à installer : un pseudo et le lien, c’est tout. Le plus rapide pour la remplir, c’est de coller le lien dans le chat et de distribuer.",
+    },
+    liveListedH2: { en: "How this list works", fr: "Comment cette liste marche" },
+    liveListedBody: {
+        en: "The channels are read from Twitch by our own server, about once a minute, and the previews are served from here. Your browser makes no request to Twitch and is never told about by it: nothing on this page reports that you read it.",
+        fr: "Les chaînes sont lues chez Twitch par notre serveur, environ une fois par minute, et les aperçus sont servis depuis ici. Ton navigateur ne fait aucune requête vers Twitch, qui n’apprend donc jamais que tu es passé par cette page.",
+    },
 };
 
 /** `UI.play.en` and friends, read once per page. */

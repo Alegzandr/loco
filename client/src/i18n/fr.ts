@@ -14,6 +14,12 @@ export const fr: Translations = {
   // ─── Lobby ───────────────────────────────────────────────────
   tagline: 'Des cartes à toute vitesse. Personne n\'attend son tour.',
   playersOnline: (n) => `${n} joueurs connectés`,
+  liveHead: 'En direct sur Twitch',
+  liveAria: 'Les chaînes qui streament LOCO! en ce moment',
+  liveViewers: (n) => `${n} spectateurs`,
+  liveMore: (n) => (n > 1 ? `+${n} autres en direct` : '+1 autre en direct'),
+  liveAll: 'Toutes les chaînes',
+  liveOpensTab: 'ouvre sur Twitch',
   createRoom: 'Nouvelle table',
   joinRoom: 'Rejoindre une table',
   createGame: 'Ouvrir la table',
