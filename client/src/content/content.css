@@ -123,7 +123,7 @@ html[data-scroll="smooth"]:has(body.doc) {
 }
 
 /* Brand and one button. The pages are in the footer bar, where the home page
-   put them, so a header that repeated them would be the same five links twice
+   put them, so a header that repeated them would be the same links twice
    on a screen that has room for one set. */
 .siteHeader {
   display: flex;
