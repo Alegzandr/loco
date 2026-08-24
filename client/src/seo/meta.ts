@@ -300,10 +300,12 @@ export const INVITE_OG: OgImage = {
  *    (see `hooks/tableInvite.ts`): the reader's browser decides, exactly as it
  *    does at `/`. So there is no French twin to point an `hreflang` at, and the
  *    page is served with no `data-served-lang` for `initLang` to act on.
- *  - **The code is not in the built path.** `/i/` is one emitted page; the code
- *    rides behind it (`/i/ABC234`) and is resolved by a fallback scoped to this
- *    directory, in `client/nginx.conf` and in `astro.config.mjs` both. A static
- *    build cannot emit a page per table, and this is what that costs.
+ *  - **The code is not in the built path.** `/i/` is one emitted page and the
+ *    code rides in the query string (`/i/?t=ABC234`), because a static build
+ *    cannot emit a page per table. `/i/ABC234` would need a fallback in
+ *    whoever serves the request; nginx can do that, `astro dev` cannot, so the
+ *    path form would 404 under `make dev` and take the whole Playwright suite
+ *    with it. `invitePage.test.ts` asserts the fallback stays absent.
  */
 export const INVITE: PageDef = {
   id: 'invite',

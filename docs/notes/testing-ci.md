@@ -436,6 +436,15 @@ Browser (HTTPS) → Traefik (:443 websecure)
   script fails here instead of in front of players. What it cannot do is answer "does the built app
   actually run behind this policy", so the manual check below is still owed after any change to
   `nginx.conf`.
+- **The redirect chain is the other untested-by-construction half of that file, and it is modelled
+  rather than asserted.** `client/src/test/redirects.test.ts` reads the emitted page tree, then
+  replays every public URL — both spellings of every path in `PAGES`, plus the invitation — through
+  a model of nginx's own rules and of an edge that upgrades plaintext, failing if a chain revisits a
+  URL, leaves https, or ends anywhere but a page that exists. A line-level assertion would have been
+  half the file and none of the value: what shipped was a config with no `return` and no `rewrite`
+  in it at all, whose one implicit redirect answered an https visitor with an `http://` URL. Only
+  following the chain sees that. The cause, the measurements and the two alternatives rejected are
+  in [`seo.md`](seo.md).
 - **`make csp` is that check** (`tools/csp/check.mjs`, deliberately outside CI): it brings the
   production-style stack up, loads the page in a real browser and creates a room, then tears the
   stack down. Console clean, fonts loaded and the waiting room reached is the whole verdict, because

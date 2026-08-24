@@ -187,6 +187,66 @@ tag.
 `seo.test.ts` asserts each of these against `nginx.conf`, because nothing else in the loop meets that
 file: unit tests read sources and the E2E suite runs against a dev server that sends none of it.
 
+### The redirect chain, and the scheme nginx cannot see
+
+`nginx.conf` declares no redirect, and the comment in it explains why adding one on the 404 branch
+would loop. nginx redirects anyway, and that one was the bug: `try_files $uri $uri/` resolving `/fr`
+to a directory makes the static module answer `301` to `/fr/`, and by default (`absolute_redirect
+on`) it writes that `Location` as `$scheme://$host/fr/`. **`$scheme` is `http` for every request
+this container will ever see.** TLS is terminated twice upstream — at Cloudflare, then at Traefik's
+`websecure` entrypoint — and the hop from Traefik to this nginx is plain HTTP on the internal
+network. So a visitor who asked for `https://ohloco.com/fr` was answered `http://ohloco.com/fr/`:
+sent out of https by the origin, and brought back only by whatever the edge does with plaintext.
+
+Measured 2026-08-24, against the origin with the CDN excluded
+(`curl -skI --resolve ohloco.com:443:<origin> https://ohloco.com/fr`) and against the image itself
+(nginx plus a built client, in a container, `Host: ohloco.com`):
+
+| URL | before | after |
+| --- | --- | --- |
+| `/fr` | `301 → http://ohloco.com/fr/` | `301 → /fr/` |
+| `/privacy` | `301 → http://ohloco.com/privacy/` | `301 → /privacy/` |
+| `/fr/confidentialite` | `301 → http://ohloco.com/fr/confidentialite/` | `301 → /fr/confidentialite/` |
+| `/fr/`, `/privacy/`, `/fr/confidentialite/`, `/` | `200` | `200` |
+
+Followed end to end through the CDN the chain still terminated — `https://…/fr` → `http://…/fr/` →
+(Cloudflare "Always Use HTTPS") → `https://…/fr/` → `200`, three hops where one was needed — because
+the path changes at the same hop as the scheme. That is the part worth being clear about: it
+terminated **by luck of the path**, and how many hops a visitor got, or whether they got a finite
+number at all, was a dashboard toggle rather than a property of this repository. A downgrade to
+plaintext answered by an upgrade back is the exact shape of every ERR_TOO_MANY_REDIRECTS a static
+site produces; here it was one edge setting away from being one, and every unslashed URL was
+travelling through plaintext in the meantime.
+
+`absolute_redirect off;` settles it: nginx answers with a path, the client keeps the scheme and the
+host it already had, and the chain is one hop from anywhere.
+
+Three alternatives were rejected:
+
+- **An explicit `rewrite ^(.*[^/])$ $1/ permanent;`** — the trap `nginx.conf` already documents.
+  `/nope` has no directory either, so a rewrite on the miss sends `/nope` to `/nope/` to `/nope//`
+  forever, which is a real loop where this was a latent one.
+- **Rebuilding the scheme from `X-Forwarded-Proto`** (`map` it into a variable and keep an absolute
+  `Location`). It makes the correctness of every redirect depend on a header a client writes for
+  itself the moment it reaches Traefik without going through the CDN, which is the same class of
+  trust problem `hub.clientNet` exists to keep out of the address handling. A relative `Location`
+  needs to know nothing, which is why it is the right answer rather than merely the shorter one.
+- **Turning the edge setting into the fix** ("Always Use HTTPS" is on, leave it). It is not in this
+  repository, nothing here tests it, and depending on it is precisely what produced a redirect chain
+  nobody could reason about from the source.
+
+`client/src/test/redirects.test.ts` is the regression: it reads the emitted page tree, replays every
+public URL — both spellings, from `PAGES` plus the invitation — through a model of nginx's own rules
+and of an edge that upgrades plaintext, and fails if a chain revisits a URL, leaves https, or ends
+anywhere but a page that exists. On the configuration this section describes it fails 17 of them.
+
+One thing measured the same day is **not** in this repository and is left as it is: `www.ohloco.com`
+does not resolve at all. The rule above and `seo.test.ts` both say the apex is canonical and `www.`
+only 301s to it at the edge; today the `www.` half of that sentence is a DNS record nobody created.
+Nothing here points at it — no canonical, no `hreflang`, no sitemap entry, which is what the rule is
+for — so it costs a typed hostname rather than a page, and it is a record to add at the edge, not a
+change to make here.
+
 ## Titles and descriptions have a length, and it is not a suggestion
 
 A `<title>` past ~60 characters and a `<meta name="description">` past ~155 are cut mid-word in the
