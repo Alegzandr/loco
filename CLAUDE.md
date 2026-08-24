@@ -31,7 +31,7 @@ shaped the way it is and what breaks if you reshape it. Update both in the same 
 | [`docs/notes/visual.md`](docs/notes/visual.md) | art direction, board geometry, seats, maps, card face, motion, streamable moments |
 | [`docs/notes/audio.md`](docs/notes/audio.md) | synthesis engine, track format, arrangement ladder |
 | [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md) | required coverage, Playwright, GitLab pipeline, linting, Docker stacks |
-| [`docs/notes/seo.md`](docs/notes/seo.md) | indexable pages, the page registry, hreflang, robots/sitemap/404, build-time origin |
+| [`docs/notes/seo.md`](docs/notes/seo.md) | indexable pages, the page registry, hreflang, robots/sitemap/404, the redirect chain, build-time origin |
 | [`docs/notes/legal.md`](docs/notes/legal.md) | what is processed and why, the no-banner position, address truncation, the trademark line |
 | [`docs/notes/live.md`](docs/notes/live.md) | the live-streams strip: the Janus poller, the preview cache, screening a stranger's name, the strip and `/live/` |
 
@@ -1092,6 +1092,14 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   as invalid by Google and looks fine to every human, because both URLs load.
 - **nginx answers a missing page with a real 404**, never with the game. `robots.txt` advertises the
   sitemap on production hosts and nothing at all on `-d.`.
+- **Every redirect this stack emits names a path, never an origin** (`absolute_redirect off;`).
+  nginx declares no redirect and emits one anyway — `try_files $uri/` resolving a directory 301s
+  `/fr` to `/fr/` — and by default it builds that `Location` out of `$scheme`, which behind
+  Cloudflare and Traefik is always `http`: every unslashed URL sent an https visitor into plaintext
+  and left it to an edge setting to bring them back. A relative `Location` knows nothing about the
+  scheme, so it cannot disagree with the request that produced it. `redirects.test.ts` replays every
+  public URL, both spellings, and fails on a chain that loops, leaves https, or ends anywhere but a
+  200.
 - `make og` and `make icons` **commit their output**: CI has no browser.
 - **The viewport may never forbid zooming** (no `user-scalable=no`, no `maximum-scale`; the
   double-tap is answered by `touch-action: manipulation` on `body`). **The seat is what costs the
