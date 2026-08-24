@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 import type { ComponentProps } from 'svelte'
 import { render, screen, fireEvent } from './render'
 import GameOver from '../components/GameOver.svelte'
@@ -101,5 +102,35 @@ describe('GameOver rematch', () => {
     renderGameOver()
     expect(screen.getByText(en.finalScores)).toBeInTheDocument()
     expect(screen.getByText('42 pts')).toBeInTheDocument()
+  })
+})
+
+/*
+ * `safe center` is the whole reason a screen taller than the phone it is on can
+ * still be read to the end, and it only ever governs the main axis. GameOver's
+ * container had no `flex-direction`, so the safe centring went to the horizontal
+ * axis and the vertical one was left to a bare `align-items: center`: the card
+ * overflowed equally out of both ends, and everything above the scroll origin —
+ * the outcome mark, the heading — was unreachable. jsdom applies no component
+ * styles, so this is a source scan like the rest of the layout pins here.
+ */
+describe('full-screen containers scroll rather than clip', () => {
+  const screens = [
+    'GameOver',
+    'Lobby',
+    'MatchFound',
+    'Reconnecting',
+    'Searching',
+    'TabTaken',
+    'WaitingRoom',
+  ]
+
+  it.each(screens)('%s centres on the axis it can overflow on', (name) => {
+    const source = readFileSync(`src/components/${name}.svelte`, 'utf8')
+    const container = /\.container\s*\{([^}]*)\}/.exec(source)?.[1] ?? ''
+
+    expect(container).toMatch(/justify-content:\s*safe center/)
+    expect(container).toMatch(/flex-direction:\s*column/)
+    expect(container).toMatch(/overflow-y:\s*auto/)
   })
 })

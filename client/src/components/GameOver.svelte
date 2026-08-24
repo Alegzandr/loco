@@ -325,6 +325,15 @@
 
   .container {
     display: flex;
+    /* Column, like every other full-screen container here, and the direction is
+       the whole of the rule rather than a tidying: `safe center` only ever
+       applies to the main axis, so in a row it was parking the card
+       horizontally while `align-items: center` centred it vertically with no
+       `safe` at all. A flex line centred on an axis that overflows spills
+       equally out of both ends, and the half above the scroll origin cannot be
+       reached — the trophy was cut off at the top, the way out at the bottom,
+       and the screen would not scroll to either. */
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     justify-content: safe center;
