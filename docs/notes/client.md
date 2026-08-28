@@ -1603,6 +1603,32 @@ else — the panels that own their own lifetime (the gear, the mixer, the leave 
 home sheet) do exactly that. `src/test/noKeyboardShortcuts.test.ts` holds the whole rule,
 including the check that the allowlist has not gone stale, and it deliberately does not look at
 handlers bound to an element.
+
+### The mouse has one refusal, and it is the same gate as the pinch
+
+`src/contextGuard.ts` refuses `contextmenu` while `data-seated` is on the document, which is the
+waiting room, the queue, the table and the game-over screen — and nothing before a seat is taken.
+
+The board is not a document. A right-click on it opens a menu about one: copy image address, save
+image as, search the web for this image, reload. None of those is a thing this screen means, and
+all of them land over a hand of cards during a five-second window somebody is about to aim at.
+`WaitingRoom.svelte` had already worked that out row by row — its right-click opens the host's ⋯
+menu and calls `preventDefault` for exactly this reason — so the refusal is the document's now
+rather than one screen's, and a long-press on a card face costs nothing either.
+
+The landings keep the menu, and that is the whole point of gating it rather than declaring it:
+`/` before a seat, the prose sheet behind its `<details>`, and every content page are surfaces
+somebody **reads**. Copying a link, opening a rule in a new tab, translating the page — that is
+the ordinary use of a landing, and taking it away buys nothing. Same argument, same attribute and
+the same event-time read as `pinchGuard.ts`: leaving the table gives the menu back on the frame
+the attribute comes off.
+
+Two things it is not. It is **not a protection** — the card art is in the bundle, the DOM is one
+keystroke away in devtools, and anything sold as "you cannot save this" would be a lie the first
+time somebody opened the network tab. And it is **not a capture phase listener**: it bubbles, so a
+screen that means something by the right-click has already opened its own thing by the time the
+browser's is refused. `src/test/contextGuard.test.ts` dispatches a real event on both sides of the
+attribute.
 ## Every panel closes twice
 
 Two ways out, on everything that opens over the board, and they are not interchangeable:
