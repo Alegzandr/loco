@@ -123,7 +123,8 @@ needs jsdom and the `browser` resolve condition.
 - `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
   key, the two home paths, `chooseLang`) — those two pull in no framework, so a content page can
   use them · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
-  app-only · `src/pinchGuard.ts` the seated half of "no accidental zoom", installed by `entry.ts`
+  app-only · `src/pinchGuard.ts` the seated half of "no accidental zoom" and `src/contextGuard.ts`
+  the same gate over the browser's own menu, both installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
   `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `liveList.ts`, `navMenu.ts`,
@@ -672,6 +673,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   unlock; everywhere else a global listener may read `Escape` and nothing else.
   `noKeyboardShortcuts.test.ts` is the guard.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
+- **The browser's own menu stops at the seat** (`contextGuard.ts`, gated on `data-seated` like the
+  pinch, read at event time). A right-click over a table offers "copy image address", "save image
+  as" and a reload — four entries about a document, over cards, seats and a five-second window, and
+  `WaitingRoom.svelte` already refused it row by row for exactly that reason. **The landings keep
+  it**: `/` before a seat is taken, its prose sheet and every content page, where copying a link or
+  opening a rule in a new tab is the ordinary way to read a page. It hides nothing and protects
+  nothing — the art is in the bundle either way — and it listens on the bubble phase, so the roster
+  row's own right-click menu opens first. `contextGuard.test.ts`.
 - **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
   `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding 1–2 cards makes it live. A control that unlocks
   on the server's cue can be answered but never anticipated, and the window it answers is five

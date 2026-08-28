@@ -8,6 +8,7 @@ import { initSessionRestore } from './hooks/sessionRestore'
 import { initTableInvite } from './hooks/tableInvite'
 import { initLang } from './langSwap'
 import { initPinchGuard } from './pinchGuard'
+import { initContextGuard } from './contextGuard'
 
 /**
  * The game, mounted into #root by a module script.
@@ -124,6 +125,11 @@ function boot() {
   // component because a table can be left and taken again, and the guard is the
   // document's for the life of the tab either way. See pinchGuard.ts.
   initPinchGuard()
+
+  // Same shape, same gate, same reason it is here and not in a component: the
+  // browser's own menu is refused from the waiting room onwards and given back
+  // the moment the seat is. See contextGuard.ts.
+  initContextGuard()
 
   // A table link carries its code in the URL, and it has to be read before the
   // line below decides whether this tab is reclaiming a seat: following a link is
