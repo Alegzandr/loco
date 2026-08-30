@@ -868,10 +868,11 @@ is: there is no board to draw behind either of them.
   simply held and a countdown to losing would be a worse table. Its bar is a `drainBar` animation:
   a board frozen on somebody else's connection is exactly when the main thread must stay free.
 
-## The count on the home screen
+## The count of connected players
 A small plate opposite the chip row, saying how many players are connected. `players_online` off the
 wire, `store.playersOnline`, `components/playersOnline.ts` for the one rule about drawing it, and a
-`role="status"` line in `Lobby.svelte` — nothing here is pressable and nothing here decides anything.
+`role="status"` line in `Lobby.svelte` and `Searching.svelte` — nothing here is pressable and
+nothing here decides anything.
 
 - **The floor is the whole design, and it is two.** One is "you are alone", and a plate saying it is
   the same sentence the searching screen is forbidden from writing, printed on the screen a visitor
@@ -883,7 +884,17 @@ wire, `store.playersOnline`, `components/playersOnline.ts` for the one rule abou
   stays that way; this counts sockets, which answers "are the lights on" rather than "how long until
   I am paired". The copy says *connected* / *online*, never *searching* or *waiting*, for that
   reason: it names the state of a connection, which is what the number actually measures.
-- **It is the home screen's and nowhere else's.** The server does not send it to a seated socket, so
+- **It belongs to the screens before a seat, and the wait is one of them.** The entry screen draws
+  it because it is a sign of life on the screen a visitor arrives at; the searching screen draws it
+  because that is where the question it answers is actually being asked, by somebody who has just
+  been told nothing at all about how long they will wait. Withholding it there was a smaller screen
+  than the one before it: the plate exists to say the lights are on, and the wait is the only place
+  anybody doubts it. What must not follow it there is a **second wording** — the copy stays
+  `t.playersOnline`, floor and all, because a number reworded for that screen would be read as the
+  queue, and the queue's size is kept off the wire on purpose. On `Searching.svelte` it keeps the
+  top-left corner at every width: the burger and the footer row that push it to the foot of `/`
+  under 46rem are both gone by then, and the bottom of that screen is the two ways out.
+- **The board still has no use for it.** The server does not send it to a seated socket, so
   a match never pays for it, and the board has no room for a number nobody is playing against.
   `setPlayersOnline` is deliberately **not** in `resetToHome`'s reset: the count belongs to the
   socket rather than to the seat, and the screen a reset lands on is the one that draws it — clearing
@@ -901,7 +912,9 @@ wire, `store.playersOnline`, `components/playersOnline.ts` for the one rule abou
   anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped onto a
   second row inside its own plate.
 - The dot beside it is decoration: the words already say what it means, so no shape is owed to colour
-  assist. `playersOnline.test.ts` pins the floor, the unrounded number and the survival across a reset.
+  assist. `playersOnline.test.ts` pins the floor, the unrounded number, the survival across a reset,
+  and both screens — the searching half against `en.searchCancel`, so a query finding nothing over
+  markup that rendered nothing cannot pass.
 
 ## Protocol validation (client)
 

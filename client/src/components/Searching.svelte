@@ -8,6 +8,7 @@
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
   import { searchStage, formatElapsed } from './searchStages'
+  import { showPlayersOnline } from './playersOnline'
 
   type Props = {
     /** Date.now() when the search began. */
@@ -16,9 +17,23 @@
     onCancel: () => void
     /** Offered once the wait is long: a table needs one friend, not one stranger. */
     onCreateTable: () => void
+    /**
+     * Sockets this server is holding, straight off the store. The queue is the
+     * one screen where that number answers the question actually being asked,
+     * so it is drawn on exactly the terms the entry screen draws it on: the
+     * count the server sent, never rounded, never reworded, absent below its
+     * floor. See `playersOnline.ts`.
+     */
+    playersOnline?: number
   }
 
-  let { startedAt, nickname, onCancel, onCreateTable }: Props = $props()
+  let {
+    startedAt,
+    nickname,
+    onCancel,
+    onCreateTable,
+    playersOnline = 0,
+  }: Props = $props()
 
   const t = $derived(i18n.t)
   let elapsed = $state(Date.now() - startedAt)
@@ -47,6 +62,19 @@
   something, the empty chair opposite, and the two ways out.
 -->
 <div class="container">
+  <!-- The sign of life, opposite the chip row, and the reason it is here as well
+       as on the entry screen: this is the screen where somebody is wondering
+       whether there is anybody to be matched with, and the honest answer is the
+       one the server already sends. It is not the queue and must never be read
+       as one — it counts connections — so the copy is the entry screen's, floor
+       and all. Never a search status dressed up as a number. -->
+  {#if showPlayersOnline(playersOnline)}
+    <p class="online" role="status">
+      <span class="onlineDot" aria-hidden="true"></span>
+      {t.playersOnline(playersOnline)}
+    </p>
+  {/if}
+
   <!-- The wait is the longest a player ever spends on one screen, so the row
        every other screen carries stays reachable here too: turning the music down
        or reading the rules is exactly what one does while queueing. -->
@@ -152,6 +180,46 @@
     align-items: center;
     gap: var(--space-sm);
     z-index: 5;
+  }
+
+  /* The entry screen's plate, at the same offsets and on the same line as the
+     chip row, and it keeps that corner at every width here: the burger and the
+     footer row that push it to the foot of the screen on `/` are both gone once
+     a seat is being looked for, so the top-left is free and the bottom belongs
+     to the two ways out. Absolute like the row opposite it, so it reserves
+     nothing and the radar stays optically centred whether or not the count
+     clears its floor. Above the rings, which reach the corners at full scale. */
+  .online {
+    position: absolute;
+    top: calc(var(--space-base) + var(--safe-top));
+    left: calc(var(--space-base) + var(--safe-left));
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    padding: 6px 13px;
+    color: var(--color-muted);
+    font: 700 12px/1 var(--font-display);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--color-surface-card);
+    border: var(--stroke-thin) solid var(--color-stroke);
+    border-radius: var(--radius-full);
+    box-shadow: 0 3px 0 var(--color-stroke-soft);
+    /* A statement, not a control: a plate that answers a tap by selecting its
+       own text is a plate somebody tried to press. */
+    user-select: none;
+  }
+
+  /* Decoration and only ever that: the words beside it carry the meaning, so
+     the hue says nothing on its own and needs no shape the way a suit does. */
+  .onlineDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-mint);
+    flex: none;
   }
 
   /* The player and the chair opposite, on one line: this is a 1v1 and the layout

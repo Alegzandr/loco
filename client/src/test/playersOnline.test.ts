@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from './render'
 import Lobby from '../components/Lobby.svelte'
+import Searching from '../components/Searching.svelte'
 import { en } from '../i18n/en'
 import { gameStore } from '../hooks/gameStore'
 import { createServerMessageHandler } from '../hooks/serverMessages'
@@ -14,6 +15,16 @@ function renderLobby(playersOnline: number) {
     onPlayBot: vi.fn(),
     error: '',
     onClearError: vi.fn(),
+    playersOnline,
+  })
+}
+
+function renderSearching(playersOnline: number) {
+  return render(Searching, {
+    startedAt: Date.now(),
+    nickname: 'Nova',
+    onCancel: vi.fn(),
+    onCreateTable: vi.fn(),
     playersOnline,
   })
 }
@@ -54,6 +65,22 @@ describe('players online', () => {
     renderLobby(0)
     expect(screen.getByText(en.createRoom)).toBeInTheDocument()
     expect(screen.queryByText(en.playersOnline(0))).not.toBeInTheDocument()
+  })
+
+  // The wait is where the question the count answers is actually being asked,
+  // so the plate is drawn there on the same terms and with the same floor. It
+  // still counts connections and never the queue: no copy of its own.
+  it('draws the same plate while the queue is being waited on', () => {
+    renderSearching(37)
+    expect(screen.getByText(en.playersOnline(37))).toBeInTheDocument()
+  })
+
+  it('draws nothing below the floor on the searching screen either', () => {
+    renderSearching(1)
+    // The cancel control is what says the screen is really there: a query that
+    // finds nothing over markup that rendered nothing passes forever.
+    expect(screen.getByText(en.searchCancel)).toBeInTheDocument()
+    expect(screen.queryByText(en.playersOnline(1))).not.toBeInTheDocument()
   })
 
   it('takes the count off the wire', () => {

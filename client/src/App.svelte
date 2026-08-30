@@ -230,6 +230,7 @@
     nickname={myNickname}
     onCancel={cancelSearch}
     onCreateTable={createTableInstead}
+    playersOnline={g.playersOnline}
   />
 {:else if g.screen === 'matchfound' && g.matchFound}
   <MatchFound
