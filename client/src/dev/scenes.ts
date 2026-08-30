@@ -340,6 +340,16 @@ export const SCENES: Scene[] = [
     searchingFor: 14,
   },
   {
+    // The count, on the screen that asks for it. Worth both viewports: it keeps
+    // the top-left corner at every width here, unlike on the entry screen, and
+    // it must clear the notch and stay off the radar's rings.
+    id: 'matchmaking-searching-online',
+    title: '1v1 · recherche avec joueurs connectés',
+    screen: 'searching',
+    searchingFor: 14,
+    state: { playersOnline: 128 },
+  },
+  {
     // The stage that matters most: the queue is empty and the screen has to say
     // so without ever saying so.
     id: 'matchmaking-searching-long',

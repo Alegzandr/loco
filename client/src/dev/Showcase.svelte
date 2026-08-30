@@ -173,6 +173,7 @@
       nickname="Nova"
       onCancel={noop}
       onCreateTable={noop}
+      playersOnline={g.playersOnline}
     />
   {:else if scene.screen === 'matchfound'}
     <MatchFound
