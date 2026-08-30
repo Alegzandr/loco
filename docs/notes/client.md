@@ -891,9 +891,7 @@ nothing here decides anything.
   than the one before it: the plate exists to say the lights are on, and the wait is the only place
   anybody doubts it. What must not follow it there is a **second wording** — the copy stays
   `t.playersOnline`, floor and all, because a number reworded for that screen would be read as the
-  queue, and the queue's size is kept off the wire on purpose. On `Searching.svelte` it keeps the
-  top-left corner at every width: the burger and the footer row that push it to the foot of `/`
-  under 46rem are both gone by then, and the bottom of that screen is the two ways out.
+  queue, and the queue's size is kept off the wire on purpose.
 - **The board still has no use for it.** The server does not send it to a seated socket, so
   a match never pays for it, and the board has no room for a number nobody is playing against.
   `setPlayersOnline` is deliberately **not** in `resetToHome`'s reset: the count belongs to the
@@ -902,15 +900,28 @@ nothing here decides anything.
   which on a quiet server is a while.
 - **It reserves no layout.** `position: absolute`, like the chip row it faces: `/` is one viewport
   that never scrolls, and a status line taking a row would shift the wordmark lockup the moment the
-  count crossed its floor. Under 46rem it moves to the **foot** of the screen, centred: that top line
-  is spoken for at this width — the burger owns the left corner (`GamePage.astro` fixes it at these
-  very offsets), the speaker and "How to play" own the right, and the plate landed straight across
-  both — while a second row of chrome stacked under it would sit above the wordmark, which is the
-  first thing on this screen anybody should read. The bottom is free there: the footer row is behind
-  the burger at that width. It stays absolute, so it still reserves nothing and `/` still never
-  scrolls. **Centred, it has to be sized with `width: max-content`**: an absolutely positioned box
-  anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped onto a
-  second row inside its own plate.
+  count crossed its floor. Under 46rem it moves to the **foot** of the screen, centred, **on both
+  screens that draw it**: that top line is spoken for at this width on either of them, and a second
+  row of chrome stacked under the first would sit above the wordmark, which is the first thing on
+  either screen anybody should read. It stays absolute, so it still reserves nothing and `/` still
+  never scrolls. **Centred, it has to be sized with `width: max-content`**: an absolutely positioned
+  box anchored at `left: 50%` is offered the half of the line it starts at, and the count wrapped
+  onto a second row inside its own plate.
+- **The wait needed that move as much as the entry screen did, and for a different reason.** On `/`
+  the burger owns the left corner (`GamePage.astro` fixes it at these very offsets) and the plate
+  landed straight across it. On `Searching.svelte` there is no burger — that corner is free — and the
+  plate was left in it at every width on exactly that reasoning. What the reasoning missed is the row
+  opposite: three controls, and the middle one of them is a **word**, because "How to play" is a pill
+  before the deal and only becomes a chip at the table. Gear + speaker + pill is around 250px of a
+  390px line, `2 JOUEURS CONNECTÉS` is around 200px of it, and the two are absolute, so nothing
+  wrapped and nothing pushed — the plate simply ran underneath the gear and the speaker with half the
+  count covered, on the one screen a player sits and stares at. Neither half could give way: the
+  copy is never reworded or truncated (above), and the pill is the only onboarding a first-time
+  player gets on the screens where they are still deciding. So the plate takes the bottom, where the
+  two ways out are centred in the column and it sits clear below them. The whole failure is a
+  collision between two absolutely positioned boxes, which is invisible to every test in this
+  repository: it was found in a photograph of a phone, and it is `matchmaking-searching-online` —
+  drawn at the long stage, the tallest this screen ever gets — that is the scene to look at.
 - The dot beside it is decoration: the words already say what it means, so no shape is owed to colour
   assist. `playersOnline.test.ts` pins the floor, the unrounded number, the survival across a reset,
   and both screens — the searching half against `en.searchCancel`, so a query finding nothing over

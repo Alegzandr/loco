@@ -183,12 +183,9 @@
   }
 
   /* The entry screen's plate, at the same offsets and on the same line as the
-     chip row, and it keeps that corner at every width here: the burger and the
-     footer row that push it to the foot of the screen on `/` are both gone once
-     a seat is being looked for, so the top-left is free and the bottom belongs
-     to the two ways out. Absolute like the row opposite it, so it reserves
-     nothing and the radar stays optically centred whether or not the count
-     clears its floor. Above the rings, which reach the corners at full scale. */
+     chip row. Absolute like the row opposite it, so it reserves nothing and the
+     radar stays optically centred whether or not the count clears its floor.
+     Above the rings, which reach the corners at full scale. */
   .online {
     position: absolute;
     top: calc(var(--space-base) + var(--safe-top));
@@ -210,6 +207,30 @@
     /* A statement, not a control: a plate that answers a tap by selecting its
        own text is a plate somebody tried to press. */
     user-select: none;
+  }
+
+  /* Under 46rem it goes to the foot of the screen, centred, exactly as it does
+     on the entry screen — one placement for that width, on both screens that
+     draw the plate. The top line is spoken for here too: no burger, but the row
+     opposite is three controls wide ("How to play" is a word, not a chip, before
+     the deal), and at phone widths the plate ran straight under the gear and the
+     speaker with the count half-covered. Stacking it on a second row under them
+     would put a row of chrome above the wordmark, which is the first thing on
+     this screen anybody reads, so it takes the bottom instead: the two ways out
+     are centred in the column and the plate sits clear below them, quiet and
+     absolute, still reserving nothing. Sized with `width: max-content` for the
+     reason the entry screen's is — anchored at the middle, an absolute box is
+     offered the half of the line it starts at, and the count wrapped onto a
+     second row inside its own plate. */
+  @media (max-width: 46rem) {
+    .online {
+      top: auto;
+      bottom: calc(var(--space-lg) + var(--safe-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      width: max-content;
+      max-width: calc(100% - 2 * var(--space-base));
+    }
   }
 
   /* Decoration and only ever that: the words beside it carry the meaning, so
