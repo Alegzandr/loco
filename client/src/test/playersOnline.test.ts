@@ -8,6 +8,19 @@ import { createServerMessageHandler } from '../hooks/serverMessages'
 import { PLAYERS_ONLINE_MIN, showPlayersOnline } from '../components/playersOnline'
 import type { ServerMsg } from '../types/protocol'
 
+// App is mounted whole below, and these are the two things it reaches for on
+// the way up that a jsdom page cannot give it. Same seams, same reasons, as
+// appSubscription.test.ts.
+vi.mock('../hooks/webSocket.svelte', () => ({
+  webSocket: () => ({ send: () => {}, wsStatus: 'open', forceClose: () => {} }),
+}))
+vi.mock('../hooks/appEffects.svelte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../hooks/appEffects.svelte')>()),
+  gameAudio: () => {},
+}))
+
+const { default: App } = await import('../App.svelte')
+
 function renderLobby(playersOnline: number) {
   return render(Lobby, {
     onSend: vi.fn(),
@@ -103,5 +116,30 @@ describe('players online', () => {
     handle({ type: 'players_online', players_online: 9 } as ServerMsg)
     gameStore.getState().resetToHome()
     expect(gameStore.getState().playersOnline).toBe(9)
+  })
+})
+
+// The two cases above mount the screens with the prop already in hand, which
+// says the components draw it and nothing about who hands it to them. App is
+// the only thing that does, the two mounts are twenty lines apart, and a prop
+// missing from one of them is not a failure Svelte reports: an unknown prop is
+// ignored, a prop nobody passes takes its default, and the screen renders
+// perfectly with no count on it. So this half goes through the whole app.
+describe('the count reaches both screens through App', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('on the entry screen', () => {
+    gameStore.setState({ screen: 'lobby', playersOnline: 7 })
+    render(App)
+    expect(screen.getByText(en.playersOnline(7))).toBeInTheDocument()
+  })
+
+  it('on the wait for an opponent', () => {
+    gameStore.setState({ screen: 'searching', searchStartedAt: Date.now(), playersOnline: 7 })
+    render(App)
+    expect(screen.getByText(en.searchCancel)).toBeInTheDocument()
+    expect(screen.getByText(en.playersOnline(7))).toBeInTheDocument()
   })
 })
