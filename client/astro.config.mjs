@@ -97,6 +97,20 @@ export default defineConfig({
     server: {
       // `server.ws.*` since Vite 8; `server.hmr.*` is deprecated and warns.
       ws: { clientPort: parseInt(process.env.VITE_HMR_CLIENT_PORT ?? '5173') },
+      // Polling, and only inside the dev container (docker-compose.dev.yml sets
+      // the variable; a dev server run natively never sees it).
+      //
+      // The source reaches that container through a bind mount, and a bind mount
+      // from a Windows or macOS host does not deliver the filesystem events
+      // chokidar subscribes to. Nothing fails: the server starts, the page
+      // loads, and every edit made from then on is simply never noticed — the
+      // module graph keeps serving the transform it cached at boot, so the
+      // browser shows code from before the change and no amount of reloading
+      // moves it. That is a silent failure aimed squarely at the person who
+      // just wrote the fix they are looking for, which is what makes the poll
+      // worth its wakeups. Vite excludes node_modules from the watch, so what
+      // is being walked is `src/`.
+      watch: process.env.LOCO_WATCH_POLL === '1' ? { usePolling: true, interval: 400 } : undefined,
       // The capture harnesses (tools/lib/devserver.mjs) pick a dedicated port and
       // then poll it. A silent fallback to the next free port would leave them
       // polling a port nothing is listening on until their timeout expires, and

@@ -50,6 +50,12 @@ services:
             # proxies in production. Inside this container localhost is this
             # container, so the service name is what reaches the Go server.
             - LOCO_SERVER_ORIGIN=http://server:8080
+            # Watch by polling: /app is a bind mount, and a bind mount from a
+            # Windows or macOS host delivers no inotify events, so hot reload
+            # goes quiet without saying so and the browser keeps showing the
+            # code that was on disk when the container booted. See the `watch`
+            # option in client/astro.config.mjs.
+            - LOCO_WATCH_POLL=1
         ports:
             - "5173:3000"
         # `.astro/dev.json` is Astro 7's dev-server lock, and it lives on the bind
