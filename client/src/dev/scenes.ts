@@ -340,13 +340,16 @@ export const SCENES: Scene[] = [
     searchingFor: 14,
   },
   {
-    // The count, on the screen that asks for it. Worth both viewports: it keeps
-    // the top-left corner at every width here, unlike on the entry screen, and
-    // it must clear the notch and stay off the radar's rings.
+    // The count, on the screen that asks for it. Worth both viewports: above
+    // 46rem it holds the top-left corner opposite the chip row, under it it
+    // moves to the foot of the screen as it does on the entry screen, and on a
+    // notch it has to clear the home indicator. Drawn at the long stage on
+    // purpose — that is the tallest this screen ever gets, two ways out instead
+    // of one, and the placement under 46rem is the one the plate has to clear.
     id: 'matchmaking-searching-online',
     title: '1v1 · recherche avec joueurs connectés',
     screen: 'searching',
-    searchingFor: 14,
+    searchingFor: 70,
     state: { playersOnline: 128 },
   },
   {

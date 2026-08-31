@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from './render'
 import Lobby from '../components/Lobby.svelte'
@@ -116,6 +118,57 @@ describe('players online', () => {
     handle({ type: 'players_online', players_online: 9 } as ServerMsg)
     gameStore.getState().resetToHome()
     expect(gameStore.getState().playersOnline).toBe(9)
+  })
+})
+
+/**
+ * One placement under 46rem, written into two files.
+ *
+ * The plate and the row it faces are both absolutely positioned, so at phone
+ * widths they do not wrap, do not push and do not overflow: they simply overlap,
+ * and the count is read half-covered by the gear and the speaker. That is what
+ * the searching screen shipped, because the plate was left in the top-left
+ * corner "at every width" on the grounds that this screen has no burger — true,
+ * and beside the point, since the row opposite is three controls wide and one of
+ * them is the "How to play" pill.
+ *
+ * jsdom lays nothing out and applies no component styles, so the collision is
+ * invisible to a rendering test; the review is `make visual`. What can be pinned
+ * is that both screens still make the same move at the same width, which is the
+ * half that would be quietly dropped by an edit to one file.
+ */
+describe('the plate moves to the foot under 46rem', () => {
+  const source = (file: string) =>
+    readFileSync(path.resolve(__dirname, '..', 'components', file), 'utf8')
+
+  /** The `.online` rule inside the 46rem media block, comments and gaps out. */
+  function narrowPlacement(file: string): string {
+    const block = /@media \(max-width: 46rem\)\s*\{\s*\.online\s*\{([^}]*)\}/.exec(
+      source(file),
+    )?.[1]
+    expect(block, `${file} must move .online under 46rem`).toBeDefined()
+    return (block ?? '')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split(';')
+      .map((d) => d.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .sort()
+      .join(';')
+  }
+
+  it('the entry screen and the wait agree, declaration for declaration', () => {
+    expect(narrowPlacement('Searching.svelte')).toBe(narrowPlacement('Lobby.svelte'))
+  })
+
+  it('and what they agree on is the foot of the screen, centred', () => {
+    const placement = narrowPlacement('Lobby.svelte')
+    expect(placement, 'off the top line').toMatch(/top: auto/)
+    expect(placement, 'against the bottom edge, clear of the home indicator').toMatch(
+      /bottom: calc\(var\(--space-lg\) \+ var\(--safe-bottom\)\)/,
+    )
+    // Anchored at the middle, an absolute box is offered the half of the line it
+    // starts at: without this the count wraps inside its own plate.
+    expect(placement, 'sized to its contents').toMatch(/width: max-content/)
   })
 })
 

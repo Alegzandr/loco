@@ -870,20 +870,20 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   button, which between two ledged buttons reads as a footnote and gets pressed like one.
 - **The count of connected players is drawn from two up and absent below it**
   (`components/playersOnline.ts`, `Lobby.svelte` and `Searching.svelte`, opposite the chip row,
-  `position: absolute` so it reserves nothing, and on the entry screen **at the foot of the screen,
-  centred, below 46rem**, where that row is full and the footer is behind the burger). **Never
-  rounded, never padded,
+  `position: absolute` so it reserves nothing, and **below 46rem at the foot of the screen, centred,
+  on both screens that draw it** — one placement for that width, because the top line is full at it
+  either way: on `/` the burger owns the left corner, on the wait the row opposite is three controls
+  wide, and the plate ran straight under the gear and the speaker with the count half-covered.
+  **Never rounded, never padded,
   never reworded**: what is on screen is exactly the number the server sent, and the floor decides
   only whether the plate is there at all — a count of one is the "close the tab" sentence the
   searching screen is already forbidden from writing. It says *connected* / *online*, never
   *searching*: it counts connections, it is not the queue. **The wait draws the same plate, in the
-  same words, at the top-left at every width** — that is the screen where somebody is wondering
-  whether there is anybody to be paired with, and the honest answer is the one the server already
-  sends; the burger and the footer row that push it to the foot of `/` are both gone once a seat is
-  being looked for, and the bottom there belongs to the two ways out. **A second, queue-flavoured
-  wording of it there would be the queue size in disguise**, which is off the wire on purpose.
-  `setPlayersOnline` stays out of `resetToHome` — the count belongs to the socket, not to
-  the seat.
+  same words** — that is the screen where somebody is wondering whether there is anybody to be
+  paired with, and the honest answer is the one the server already sends. **A second,
+  queue-flavoured wording of it there would be the queue size in disguise**, which is off the wire
+  on purpose. `setPlayersOnline` stays out of `resetToHome` — the count belongs to the socket, not
+  to the seat.
 - **Who is streaming the game is a strip along the foot of the entry screen, and nobody live is
   nothing at all** (`components/LiveStrip.svelte` + `liveStreams.ts`, fed by `live_streams` exactly
   as the count is by `players_online`). No plate, no invitation, no line saying the category is
