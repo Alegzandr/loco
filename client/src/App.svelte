@@ -74,9 +74,13 @@
   // depending on how the connection was lost. See sessionPersistence.ts.
   const socket = webSocket(handleMessage, () => reconnectMessageFor(gameStore.getState()))
 
+  // The packet goes out before anything else moves. Clearing the toast is a
+  // store write, and a store write notifies every subscriber — the sounds, the
+  // session record, every derived value the board reads — so cleared first it
+  // put all of that between the tap and the wire.
   function handleSend(msg: ClientMsg) {
-    gameStore.getState().clearError()
     socket.send(msg)
+    gameStore.getState().clearError()
   }
 
   // The handles Playwright drives the app through, dev builds only. See
@@ -156,8 +160,9 @@
   // out is cancelling the search rather than pressing anything here. Ordinary
   // tables are left alone: there is a room, a code and a lobby to reopen, and
   // nobody there queued for a stranger in the first place.
+  const isMatchmade = $derived(g.isMatchmade)
   $effect(() => {
-    if (screen !== 'gameover' || !g.isMatchmade || hasTablemates) return
+    if (screen !== 'gameover' || !isMatchmade || hasTablemates) return
     findMatch(myNickname)
   })
 

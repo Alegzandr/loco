@@ -66,7 +66,8 @@
         <div class="ring"></div>
         <div class="stamp" style="--caught-color: {seatColor(flash.seat)}">
           <span class="title">{t.catchBannerTitle}</span>
-          <span class="subtitle">{subtitle}</span>
+          <!-- The seat's colour is the dot, never the name: see `.subtitle`. -->
+          <span class="subtitle"><span class="seatDot" aria-hidden="true"></span>{subtitle}</span>
           <!-- What it cost. The whole point of the banner: a hand that grew is
                only news once the table knows it was a price. -->
           <span class="penalty">
@@ -179,14 +180,31 @@
     white-space: nowrap;
   }
 
-  /* The caught seat's own colour, so a viewer following one player still finds
-     them inside a banner whose fill belongs to the penalty rather than to a seat. */
+  /* The name in the stamp's own white, outlined in ink like the title; the
+     caught seat's colour is a swatch beside it. It used to *be* the name's
+     colour, so that a viewer following "the orange player" would find them —
+     and on the red stamp the ten seat colours measured between 1.05:1 and
+     2.3:1, with the rose seat invisible outright. The dot keeps the seat
+     findable, with its own ink outline; the name stays legible whichever seat
+     it names. */
   .subtitle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     font: 600 clamp(13px, 2.2vw, 18px) / 1.2 var(--font-display);
-    color: var(--caught-color, #fff);
-    -webkit-text-stroke: 3px rgba(60, 12, 12, 0.75);
+    color: var(--color-on-dark);
+    -webkit-text-stroke: 3px var(--color-stroke);
     paint-order: stroke fill;
     white-space: nowrap;
+  }
+
+  .seatDot {
+    flex: none;
+    width: 0.8em;
+    height: 0.8em;
+    border-radius: var(--radius-full);
+    background: var(--caught-color, var(--color-on-dark));
+    border: var(--stroke-thin) solid var(--color-stroke);
   }
 
   /* The price. Same corner chip as the interception's ×N multiplier, so the two

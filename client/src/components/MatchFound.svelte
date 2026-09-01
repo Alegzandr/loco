@@ -156,6 +156,12 @@
     box-shadow: var(--shadow-hard-lg);
     color: var(--color-on-dark);
     font: 700 clamp(26px, 5vw, 36px) / 1 var(--font-display);
+    /* Ink outline, like the interception banner's title and every glyph on a
+       card: white alone fails 3:1 on six of the ten seat colours (the yellow
+       and the mint worst), and the fill is the seat's and may not be darkened.
+       Outlined, the letter is ~14:1 against its own ink whatever the seat. */
+    -webkit-text-stroke: 3px var(--color-stroke);
+    paint-order: stroke fill;
     text-shadow: 0 2px 0 rgba(36, 21, 70, 0.35);
   }
 

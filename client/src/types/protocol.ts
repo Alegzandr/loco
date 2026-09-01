@@ -613,6 +613,15 @@ export interface GameStateDTO {
   match_history?: MatchRecordDTO[]
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline?: number
+  // CatchSeats is who owes the table a declaration right now, exactly as
+  // card_played carries it. A tab that reloads two seconds into a five-second
+  // window used to rebuild a board on which nobody was catchable, and lose the
+  // three seconds it could still have won.
+  catch_seats?: CatchSeatDTO[]
+  // DeclaredSeats is every seat whose single card has already been called.
+  // Without it a reload put the LOCO! button back in front of a player whose
+  // call was already spent, and the press came back "player already declared".
+  declared_seats?: number[]
   // StreamerMode is the host's answer, carried in every snapshot for the same
   // reason MapID is: a tab that reloads mid-match rebuilds the table from this
   // and nothing else, and a table code that comes back readable on a stream is

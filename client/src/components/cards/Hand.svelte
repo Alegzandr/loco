@@ -136,12 +136,15 @@
 
   /* The lift lives on the inner card so the slot's transform stays exclusively the
      fan's — two nested transforms, no conflict. Global because <Card /> renders
-     the element that wears it. */
+     the element that wears it.
+
+     Transform alone. It also transitioned `box-shadow`, and nothing the hover
+     does moves the shadow: the one shadow change a card in hand ever sees is
+     the playable glow, which flips for the whole fan at once on a turn change
+     and was being tweened on every card of it. */
   .slot :global(.card) {
     transform-origin: 50% 50%;
-    transition:
-      transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
-      box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .slot.hovered :global(.card) {

@@ -502,10 +502,14 @@
     transition: box-shadow 0.15s ease;
   }
 
+  /* The solid token ring, not the indigo at 0.35: the field sets `outline: none`
+     and this shadow is the whole focus indicator, and a translucent one measured
+     1.5:1 on the card — a keyboard player could not see which field they were
+     in. Same colour and width as the `:focus-visible` rule in tokens.css. */
   .input:focus {
     box-shadow:
       inset 0 3px 0 rgba(36, 21, 70, 0.08),
-      0 0 0 4px rgba(108, 92, 255, 0.35);
+      0 0 0 3px var(--color-tertiary);
   }
 
   /* The placeholder is the only instruction this field ever gives, so it is held

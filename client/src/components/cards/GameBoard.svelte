@@ -270,6 +270,7 @@
     const flight = flightFor(card)
     if (flight.impact <= 0) return
     const timer = window.setTimeout(() => {
+      landTimers = landTimers.filter((id) => id !== timer)
       addImpacts(
         {
           id: newId(),
@@ -332,9 +333,20 @@
   // ─── Animation effect: discard top changed (any source) ─────────────────
   let lastDiscardKey = ''
   $effect(() => {
-    const key = discardKey(p.discard)
+    // Keyed on the face *and* the play that put it there. An interject is by
+    // definition the same face as the card under it, so keyed on the face alone
+    // an intercepted +4 drew no +N, no SKIP, no impact — nothing at all on the
+    // loudest moment in the game — and the flag below was left set, swallowing
+    // the next genuine change. A Swap's snapshot carries no play and keys on
+    // the face, as before.
+    const face = discardKey(p.discard)
+    const key = face === '' ? '' : `${face}|${p.lastPlay?.at ?? 0}`
     const pending = p.pendingDraw
     const texts = p.fxTexts
+    // Read and cleared first, before any early return: the flag describes this
+    // update and nothing after it.
+    const covered = suppressNextDiscardFx
+    suppressNextDiscardFx = false
     if (!ready) return
     if (key === '' || key === lastDiscardKey) return
     const isFirstRender = lastDiscardKey === ''
@@ -343,8 +355,6 @@
     // A hand→discard or seat→discard flight already showed the card travelling;
     // only the generic pile flier is redundant. The effect callout still fires —
     // playing your own Skip must announce itself just like an opponent's.
-    const covered = suppressNextDiscardFx
-    suppressNextDiscardFx = false
     const card = p.discard!
     if (!covered) {
       const target = discardPosition(width, height, topReserve)
@@ -665,6 +675,7 @@
           />
           <DiscardPile
             card={p.discard}
+            playStamp={p.lastPlay?.at ?? 0}
             activeColor={p.activeColor}
             pendingDraw={p.pendingDraw}
             {width}

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import { gameStore } from '../hooks/gameStore'
-import { soundsForTransition } from '../audio/gameSounds'
+import { dealFor, soundsForTransition } from '../audio/gameSounds'
 import { audio, DEFAULT_SETTINGS } from '../audio/engine'
 import { playVolumeAudition } from '../audio/sfx'
 import AudioSettings from '../components/AudioSettings.svelte'
@@ -144,6 +144,43 @@ describe('soundsForTransition', () => {
     expect(soundsForTransition(prev, lose)).toContain('matchLose')
   })
 
+  // `unoDeclared` is a latch that stays up under the banner, so a second seat
+  // calling it — routine after a Global Switch — moved nothing the old cue
+  // watched. The stamp is what changes.
+  it('sounds every declaration, not only the first under a banner', () => {
+    const first = state({ unoDeclared: true, unoDeclaredByIndex: 1, unoDeclaredAt: 10 })
+    const second = state({ unoDeclared: true, unoDeclaredByIndex: 2, unoDeclaredAt: 11 })
+    expect(soundsForTransition(state(), first)).toContain('unoDeclare')
+    expect(soundsForTransition(first, second)).toContain('unoDeclare')
+    expect(soundsForTransition(second, second)).not.toContain('unoDeclare')
+  })
+
+  // The deal puts the turn on a seat while the room is still loading, and the
+  // number never moves when the table opens: the seat that opens the match
+  // still has to hear it.
+  it('chimes for the seat that opens the match when the table opens', () => {
+    const loading = state({ mapLoading: { ready: [0] }, currentTurn: 0 })
+    const open = state({ mapLoading: null, currentTurn: 0 })
+    expect(soundsForTransition(loading, open)).toContain('yourTurn')
+    expect(soundsForTransition(loading, state({ mapLoading: null, currentTurn: 1 }))).not.toContain('yourTurn')
+  })
+
+  it('marks an opponent going quiet, and their return', () => {
+    const away = state({ opponentAway: { seat: 1, deadline: 99 } })
+    expect(soundsForTransition(state(), away)).toContain('playerAway')
+    expect(soundsForTransition(away, away)).not.toContain('playerAway')
+    expect(soundsForTransition(away, state({ opponentAway: null }))).toContain('playerJoin')
+    const gone = state({ departureNotice: { nickname: 'Kiwi', at: 5 } })
+    expect(soundsForTransition(state(), gone)).toContain('playerAway')
+  })
+
+  it('never lists the same cue twice in one transition', () => {
+    const prev = state({ pendingDraw: 4 })
+    const next = state({ pendingDraw: 0, catchFailed: { seat: 0, at: 3 } })
+    const out = soundsForTransition(prev, next)
+    expect(out.filter((n) => n === 'penalty')).toHaveLength(1)
+  })
+
   it('greets a player joining the lobby', () => {
     const prev = state({ screen: 'waiting', players: [PLAYERS[0]] })
     const next = state({ screen: 'waiting', players: PLAYERS })
@@ -151,7 +188,16 @@ describe('soundsForTransition', () => {
   })
 
   it('buzzes on a rejected move', () => {
-    expect(soundsForTransition(state(), state({ errorMsg: 'not your turn' }))).toContain('error')
+    expect(soundsForTransition(state(), state({ errorMsg: 'not your turn', errorAt: 1 }))).toContain('error')
+  })
+
+  // The toast is already up, so the buzz is the only feedback a second identical
+  // refusal gets. Keyed on the stamp, never on the string.
+  it('buzzes again on the same refusal repeated', () => {
+    const first = state({ errorMsg: 'not your turn', errorAt: 1 })
+    const again = state({ errorMsg: 'not your turn', errorAt: 2 })
+    expect(soundsForTransition(first, again)).toContain('error')
+    expect(soundsForTransition(first, state({ errorMsg: 'not your turn', errorAt: 1 }))).toEqual([])
   })
 
   // The end of the one wait in the game somebody spends minutes on, and it used
@@ -163,6 +209,30 @@ describe('soundsForTransition', () => {
     // And exactly once: the reveal counts down for several seconds, and every
     // store tick through it is another transition into the same screen.
     expect(soundsForTransition(next, next)).not.toContain('matchFound')
+  })
+})
+
+describe('dealFor', () => {
+  const hand = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ color: 'red', kind: 'number', value: i }) as const)
+
+  it('counts the first hand of the match', () => {
+    expect(dealFor(state({ screen: 'waiting', myHand: [] }), state({ myHand: hand(8) }))).toBe(8)
+  })
+
+  // The next round's deal lands under the round summary as a new round number
+  // and a hand grown from the one card the last round ended on.
+  it('counts every later round too, and drops the draw swish for it', () => {
+    const prev = state({ roundNumber: 1, myHand: hand(1) })
+    const next = state({ roundNumber: 2, myHand: hand(8) })
+    expect(dealFor(prev, next)).toBe(8)
+    expect(soundsForTransition(prev, next)).not.toContain('cardDraw')
+  })
+
+  it('is not a draw', () => {
+    const prev = state({ roundNumber: 1, myHand: hand(3) })
+    const next = state({ roundNumber: 1, myHand: hand(4) })
+    expect(dealFor(prev, next)).toBe(0)
   })
 })
 
@@ -180,10 +250,33 @@ describe('audio settings', () => {
 
   it('persists across engine reads', () => {
     audio.setSettings({ music: 0.5, muted: true })
+    audio.persistNow()
     expect(JSON.parse(window.localStorage.getItem('loco_audio')!)).toMatchObject({
       music: 0.5,
       muted: true,
     })
+  })
+
+  // A slider fires `input` dozens of times a second and `setItem` is
+  // synchronous: the write waits for the drag to settle, and the last value is
+  // the one that lands. `pagehide` flushes whatever is still pending.
+  it('debounces the write to storage and flushes it on pagehide', () => {
+    vi.useFakeTimers()
+    try {
+      audio.persistNow()
+      audio.setSettings({ music: 0.1 })
+      audio.setSettings({ music: 0.2 })
+      audio.setSettings({ music: 0.3 })
+      expect(JSON.parse(window.localStorage.getItem('loco_audio')!).music).not.toBe(0.3)
+      vi.advanceTimersByTime(300)
+      expect(JSON.parse(window.localStorage.getItem('loco_audio')!).music).toBe(0.3)
+
+      audio.setSettings({ music: 0.4 })
+      window.dispatchEvent(new Event('pagehide'))
+      expect(JSON.parse(window.localStorage.getItem('loco_audio')!).music).toBe(0.4)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('toggles mute both ways', () => {

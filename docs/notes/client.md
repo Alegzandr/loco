@@ -27,6 +27,13 @@ Both are now what their names say, and the work sits beside the other work of it
 
 ### One snapshot, and what that costs an effect
 
+Two more places this was lost and found again: the catch-window prune effect in `GameView` read
+`g.pruneCatchWindows` and so re-armed its timer on every message (the action is read off
+`gameStore.getState()` now, which is stable), and `deriveCatchMiddleware` turned an action's "hand the
+state back unchanged" into a fresh object, so every no-op — a prune with nothing expired, a
+`player_left` naming no seat, a `clearOpponentAway` for a seat that was not away — became a full-app
+invalidation. `patch === state` is returned as `state`; `storeNoOp.test.ts` counts the notifications.
+
 `hooks/gameStore.svelte.ts` holds the whole store in a single `$state.raw` and replaces it on every
 write. That is the right shape for reading — the board is props off one object, and a deep proxy
 would clone its identity on every read for nothing — and it is a trap for *watching*. Svelte tracks
@@ -326,6 +333,39 @@ polish.
   setting `lastPlay`, so the prompt stayed up over a table that had gone and the choice went out
   against a state the server had already replaced. Being asked for a swap target and *then* refused
   is the one rejection in this game that reads as a broken promise rather than as an illegal card.
+- **Every board control acts on the press, not on the release** (`components/press.ts`,
+  `use:pressToAct` on `Card`, `Deck` and the four buttons of the action bar). `click` is dispatched
+  when the pointer comes back up — 80–150 ms after the finger landed on a touch screen, a good part
+  of that on a mouse — and it was the longest hop on the realtime path nothing measured: an
+  interject or a Contre-LOCO! lost to a player whose press had landed *later*, because their finger
+  left the glass sooner. The handler runs on `pointerdown` for the primary button and the `click`
+  the same press produces is swallowed; a click no press preceded (Enter or Space on a real button,
+  a synthetic one) still runs it, so nothing reachable stops being reachable; a disabled control
+  fires on neither path, because Chromium dispatches pointer events on disabled form controls and
+  the attribute is the answer. What is given up is cancelling a press by sliding off the control,
+  which on a board built around five-second windows was never a gesture anybody made on purpose.
+  `press.test.ts` and `card.test.ts` pin it; Playwright's `click()` is a press followed by a
+  release, so the E2E suite exercises the real path.
+- **The packet goes out before anything else moves** (`App.handleSend`): clearing the refusal toast
+  is a store write, and a store write notifies every subscriber — the sounds, the session record,
+  every derived value the board reads — so cleared *before* the send it put all of that between the
+  tap and the wire. Send, then clear.
+- **A queued gameplay intent ages out** (`webSocketPolicy.keepPendingIntent`,
+  `PENDING_INTENT_MAX_AGE_MS`). A message sent while the socket is down is queued and flushed when it
+  comes back, so a draw-then-play tapped across a quarter-second blip loses nothing; but the backoff
+  never gives up, so "when it comes back" can be a minute later against a board that has moved on
+  by several turns, and a card the player chose then is not a card they choose now. Plays, draws,
+  passes, calls, catches and emotes carry their age and are dropped past the bound; a table to join
+  or a search to enter is a decision that ages fine. `pendingIntents.test.ts`.
+- **A stamp is an identity** (`store/helpers.ts` `stamp()`): every flash, banner and sound is guarded
+  on `next.at !== prev.at`, and `Date.now()` answered two events in one millisecond — routine against
+  a bot or on a LAN — with one number, so the second play's flight, its sound and its banner were
+  all skipped. `stamp()` is strictly increasing.
+- **The discard effects key on the play, not the face** (`GameBoard`'s discard effect, `DiscardPile`'s
+  `playStamp`). An interject is by definition the same face as the card under it, so keyed on the
+  face alone an intercepted +4 drew no `+N`, no impact and no settle — nothing at all on the loudest
+  moment in the game — and the "already covered by a flight" flag was left set to swallow the next
+  genuine change. The flag is now read and cleared before any early return.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ## Client transport
@@ -1586,6 +1626,28 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
   owns how a refusal is phrased, the same way it owns all other copy.
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
+
+## A press and a hold are two gestures (`heldKey`)
+
+The score table opens on a held TAB, and the hook used to own the key from the first keydown:
+`preventDefault` on every press, which is the browser's focus moving. From the moment the board
+mounted, TAB and Shift+TAB went nowhere, so a keyboard or switch user could not reach a card, the draw
+pile or the bar — the "focused control is the accessibility path" contract below was unreachable in
+practice. The first keydown is now the browser's; the hold arms on a timer (`HELD_KEY_AFTER_MS`,
+under every OS's own repeat delay) or on the first repeat, and from then on the repeats are swallowed
+so the focus stops cycling under an open table. A press released before that shows nothing and
+prevents nothing. A TAB pressed with *nothing* focused is steered onto the first control rather
+than left to the browser: Chrome resumes sequential focus from wherever the last focused node was,
+and after a dismissed round summary that is its Continue button, at the end of the document, so the
+press walked straight out of the page into the browser's own chrome — a `blur`, which is the
+alt-tab reset, and a hold that never engaged. `heldKey.test.ts` runs both gestures and the steering
+on fake timers; the E2E `holdScores` helper holds the key and waits, which is the same thing.
+
+The two decision panels — a wild's colour, a Swap's target — are dialogs now (`role="dialog"`,
+`aria-modal`, the label as the name) and `components/dialogFocus.ts` moves the focus in, cycles TAB
+inside, and hands it back on close. They were the only overlays here without any of that, and the
+two that stop the whole table on a choice. What a card is called aloud is `t.colorNames` plus
+`t.cardNames`, in the player's language — it used to be the wire identifiers, "wild wild_draw_four".
 
 ## No gameplay keyboard shortcuts, ever
 

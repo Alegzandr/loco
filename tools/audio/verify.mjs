@@ -37,6 +37,10 @@ try {
     // Chromium needs an explicit opt-out of the gesture requirement here: the
     // page is driven by script, not by a person clicking.
     args: ['--autoplay-policy=no-user-gesture-required'],
+    // A machine with a browser already on it but not the one this Playwright
+    // pins (a CI image, a sandbox) can point the harness at it instead of
+    // downloading another copy. Unset, Playwright uses its own.
+    executablePath: process.env.LOCO_CHROMIUM || undefined,
   })
   const page = await browser.newPage()
   await page.goto(`http://localhost:${PORT}/?showcase=lobby-home`, { waitUntil: 'domcontentloaded' })

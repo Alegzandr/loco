@@ -87,14 +87,14 @@ describe('GameView — GlobalSwitch colour choice', () => {
   // must prompt exactly like the other two wilds instead of flying out silently.
   it('opens the colour picker instead of playing straight away', () => {
     const onSend = renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild global_switch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'global switch' }))
     expect(screen.getByRole('button', { name: 'green' })).toBeInTheDocument()
     expect(onSend).not.toHaveBeenCalled()
   })
 
   it('sends the chosen colour with the play', () => {
     const onSend = renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild global_switch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'global switch' }))
     fireEvent.click(screen.getByRole('button', { name: 'green' }))
     expect(onSend).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'play_card', card: gs, chosen_color: 'green' }),
@@ -107,7 +107,7 @@ describe('GameView — GlobalSwitch colour choice', () => {
   // server is going to refuse.
   it('closes the picker when another card lands', () => {
     renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild global_switch' }))
+    fireEvent.click(screen.getByRole('button', { name: 'global switch' }))
     expect(screen.getByRole('button', { name: 'green' })).toBeInTheDocument()
 
     act(() => {

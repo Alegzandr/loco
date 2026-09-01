@@ -1,4 +1,5 @@
 import { StateCreator } from './createStore'
+import { stamp } from './helpers'
 import { GameStore, MatchActions, RoundScoreEntry } from './types'
 
 export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
@@ -32,6 +33,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         unoDeclared: false,
         declaredSeats: [],
         catchWindows: [],
+        catchLive: false,
         catchFailed: null,
         catchFlash: null,
       }
@@ -115,7 +117,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
   // the table's size, so a table that keeps talking moves nothing.
   applyEmote: (seat, emote) =>
     set((s) => ({
-      emotes: [...s.emotes.filter((e) => e.seat !== seat), { seat, emote, at: Date.now() }],
+      emotes: [...s.emotes.filter((e) => e.seat !== seat), { seat, emote, at: stamp() }],
     })),
 
   // The server sends the whole offer state, not the increment, and this stores
@@ -180,6 +182,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       unoDeclaredByIndex: -1,
       declaredSeats: [],
       catchWindows: [],
+      catchLive: false,
       catchFailed: null,
       catchFlash: null,
       turnDeadline: null,

@@ -244,6 +244,7 @@ export type SfxName =
   | 'matchWin'
   | 'matchLose'
   | 'playerJoin'
+  | 'playerAway'
   | 'matchFound'
   | 'countdown'
 
@@ -361,6 +362,22 @@ const VOICES: Record<SfxName, () => void> = {
       type: 'triangle',
       openTo: 2600,
       closeTo: 900,
+      reverb: 0.12,
+    })
+  },
+
+  // Somebody's seat went quiet: the arrival's two notes, the other way down,
+  // and softer still. A departure is news and not a verdict, so it is the
+  // quietest cue on the board — under the music bed, over nothing.
+  playerAway: () => {
+    stab({
+      notes: [74, 67],
+      dur: 0.34,
+      gain: 0.09,
+      unison: 2,
+      type: 'triangle',
+      openTo: 2200,
+      closeTo: 700,
       reverb: 0.12,
     })
   },

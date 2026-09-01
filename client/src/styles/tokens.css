@@ -120,10 +120,38 @@
   --color-on-dark: #ffffff;
   --color-on-secondary: #4a2c00;
   --color-on-mint: #05301f;
+  /* The yellow's two quieter voices. A winner's row on the round summary is
+     `--gradient-secondary`, and it carried a placement in `#7a4a00` and a delta
+     in `#1f6b3c` typed at the call site — a brown and a green nothing kept in
+     step with the brown above. Theme-independent like the fill they sit on:
+     the yellow does not follow the theme, so neither do these. The green is
+     pushed one step past the old literal, which measured 4.25:1 on the flat
+     yellow; this one clears 4.5:1 on both stops. */
+  --color-on-secondary-muted: #7a4a00;
+  --color-on-secondary-mint: #175c33;
+  /* Mint as *text on a panel*, the way `--color-link` is the indigo as text in
+     a paragraph. `--color-mint` is a fill: on `--color-surface-strong` in light
+     it measures 1.81:1, which is how the round summary's "+30" was invisible
+     to exactly the reader it was written for. Same hue, pushed until it clears
+     AA on each canvas — dark keeps the brand mint, which is 6:1 there. */
+  --color-mint-text: #0d6b4a;
 
   /* ── Semantic ──────────────────────────────────────────────────────────── */
   --color-error: #e5304b;
+  /* The step between the yellow and the red. The ping scale is four ordered
+     tiers and the brand carries three hues for them, so this one is the
+     scale's own; it was written into `ScoreTable` as a literal beside a copy
+     of `--color-error`, which is what a token exists to prevent. */
+  --color-amber: #ff9f1a;
   --color-scrim: rgba(28, 14, 56, 0.55);
+  /* The scrim for a panel that stays up while the board underneath keeps
+     playing — the round summary, the standings, the reconnect curtain. The
+     light one relied on a `backdrop-filter: blur()` for its weight, and a blur
+     held over a live board is re-rasterised on every frame anything behind it
+     moves: for the whole of the next round's deal, under the summary. Denser
+     instead, so the card behind it is still legible as a card without the
+     filter. */
+  --color-scrim-heavy: rgba(28, 14, 56, 0.74);
 
   /* ── Card back ─────────────────────────────────────────────────────────── */
   /* Same near-black as a wild card face: the deck and the wilds are one family,
@@ -213,8 +241,10 @@
   --color-muted-soft: #8577ad;
   --color-on-dark: #ffffff;
   --color-link: #b3a6ff;
+  --color-mint-text: #12c48f;
 
   --color-scrim: rgba(8, 4, 20, 0.68);
+  --color-scrim-heavy: rgba(8, 4, 20, 0.84);
 
   --card-back-bg: #0e0e0e;
   --card-back-bg-top: #191919;
@@ -267,8 +297,10 @@
     --color-muted-soft: #8577ad;
     --color-on-dark: #ffffff;
     --color-link: #b3a6ff;
+    --color-mint-text: #12c48f;
 
     --color-scrim: rgba(8, 4, 20, 0.68);
+    --color-scrim-heavy: rgba(8, 4, 20, 0.84);
 
     --card-back-bg: #0e0e0e;
     --card-back-bg-top: #191919;

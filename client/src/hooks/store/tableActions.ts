@@ -1,6 +1,6 @@
 import { StateCreator } from './createStore'
 import { CardColor } from '../../types/protocol'
-import { gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
+import { stamp, gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
 
 export const createTableActions: StateCreator<GameStore, TableActions> = (set) => ({
@@ -13,11 +13,21 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       // while it is unexpired and its seat still holds exactly one card, so a
       // fresh deal (nobody on one card) still clears everything.
       const now = Date.now()
-      const catchWindows = s.catchWindows.filter(
-        (w) =>
-          w.endsAt > now &&
-          state.players.find((p) => p.index === w.seat)?.hand_size === 1,
-      )
+      // The server says who is on the hook (`catch_seats`), exactly as it does
+      // on card_played, so a reload two seconds into a window lands on a board
+      // where that window is still open. What survives from before is only
+      // whether we already spent a call on the same window.
+      const catchWindows: CatchWindow[] = state.catch_seats
+        ? state.catch_seats.map((c) => {
+            const prev = s.catchWindows.find((w) => w.seat === c.player_index)
+            const same = prev !== undefined && prev.endsAt === c.ends_at
+            return { seat: c.player_index, endsAt: c.ends_at, attempted: same ? prev.attempted : undefined }
+          })
+        : s.catchWindows.filter(
+            (w) =>
+              w.endsAt > now &&
+              state.players.find((p) => p.index === w.seat)?.hand_size === 1,
+          )
       return {
         ...gameStateSliceFromDTO(state),
         // The round summary is deliberately NOT touched here. It is an overlay
@@ -40,10 +50,15 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         unoDeclared: false,
         unoDeclaredByIndex: -1,
         // A declaration only covers the single card it was called on. Any other
-        // hand — a fresh deal, a penalty, a card drawn — owes nothing yet.
-        declaredSeats: keepDeclarations(s.declaredSeats, (seat) =>
-          state.players.find((p) => p.index === seat)?.hand_size,
-        ),
+        // hand — a fresh deal, a penalty, a card drawn — owes nothing yet. The
+        // server's own list wins when it sends one: a reloaded tab has nothing
+        // to keep, and its LOCO! button used to come back live over a call
+        // already spent.
+        declaredSeats:
+          state.declared_seats ??
+          keepDeclarations(s.declaredSeats, (seat) =>
+            state.players.find((p) => p.index === seat)?.hand_size,
+          ),
         catchWindows,
         // A snapshot is authoritative when it arrives, and that includes the
         // centre button: whatever the roster said a moment ago, this is the
@@ -141,7 +156,7 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         // The wager belongs to one board; it is not carried to the next.
         catchLive: false,
         swapNotice,
-        lastPlay: { actorIndex: playerIndex, card, at: Date.now() },
+        lastPlay: { actorIndex: playerIndex, card, at: stamp() },
       }
     }),
 
@@ -168,7 +183,14 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         declaredSeats: s.declaredSeats.filter((seat) => seat !== playerIndex),
       }
       if (cards && cards.length > 0) {
-        return { ...turnState, myHand: [...s.myHand, ...cards] }
+        // The roster's count of our own hand moves with the hand: the fallback
+        // paths below index on it, and a stale-low count there removed two
+        // copies of a card for one play.
+        const myHand = [...s.myHand, ...cards]
+        const players = s.players.map((p) =>
+          p.index === playerIndex ? { ...p, hand_size: myHand.length } : p,
+        )
+        return { ...turnState, myHand, players }
       }
       // Observer: update hand size by the count the server sent. Absent means
       // nothing, never "probably one": a draw against exhausted piles hands over
@@ -212,7 +234,7 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         ? s
         : {
             goneSeats: [...s.goneSeats, seat],
-            departureNotice: nickname ? { nickname, at: Date.now() } : s.departureNotice,
+            departureNotice: nickname ? { nickname, at: stamp() } : s.departureNotice,
           },
     ),
 
@@ -227,7 +249,7 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
   setSwapNotice: (swapNotice) => set({ swapNotice }),
 
   applyInterrupt: (actorIndex, count) =>
-    set({ interruptFlash: { actorIndex, count, at: Date.now() } }),
+    set({ interruptFlash: { actorIndex, count, at: stamp() } }),
 
   clearInterrupt: () => set({ interruptFlash: null }),
 

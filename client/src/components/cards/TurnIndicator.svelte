@@ -51,9 +51,20 @@
 
   const isPenalty = $derived(isMyTurn && pendingDraw > 0)
 
-  // Sits clear above the hand: the fan's playable cards lift by 9px and the pill
-  // is ~38px tall, so anything tighter than this overlaps the cards.
-  const top = $derived(height - CARD_H - BOTTOM_RESERVE - 58)
+  // Sits clear above the hand — clear of a *hovered* card, not only a resting
+  // one. The reserve used to be 58px, which covered the pill (~38px) plus the
+  // 9px a playable card lifts at rest and nothing else; the hover in
+  // `Hand.svelte` is `scale(1.08) translateY(-14px)` about the card's centre,
+  // which carries the top edge a further 14 × 1.08 + 0.04 × CARD_H ≈ 19.4px
+  // up, so a card under the pointer put its top ~20px into the pill. The
+  // numbers below are that transform written out, so the reserve moves with it.
+  const PILL_H = 38
+  const REST_LIFT = 9
+  const HOVER_LIFT = 14 * 1.08 + 0.04 * CARD_H
+  const CLEARANCE = 8
+  const top = $derived(
+    height - CARD_H - BOTTOM_RESERVE - Math.ceil(PILL_H + REST_LIFT + HOVER_LIFT + CLEARANCE),
+  )
 
   // Framer Motion took the preference through <MotionConfig>; a Svelte transition
   // is given it here. The label still swaps — only the movement goes, which is the
@@ -91,6 +102,7 @@
   }
 
   .indicator {
+    position: relative;
     font-family: var(--font-display);
     font-weight: 700;
     white-space: nowrap;
@@ -117,20 +129,40 @@
     text-shadow: 0 2px 0 rgba(120, 10, 40, 0.45);
   }
 
-  /* Your turn *and* a stack is pending — the decision is now a dilemma. */
+  /* Your turn *and* a stack is pending — the decision is now a dilemma.
+
+     The throb is a white wash on a pseudo-element, animated on opacity, and not
+     a `filter: brightness()` keyframe on the pill: a filter is re-rasterised on
+     every frame it changes, and this one ran for as long as the stack stood,
+     over a board that was already flying the penalty cards. `isolation` makes
+     the pill a stacking context so the wash can sit at `z-index: -1` — above
+     the pill's own fill, under its text — and the pill's transform (the fly
+     transition) stays the only transform on it. */
   .penalty {
     background: linear-gradient(180deg, #ffb648 0%, #f2760c 100%);
     text-shadow: 0 2px 0 rgba(120, 55, 0, 0.45);
+    isolation: isolate;
+  }
+
+  .penalty::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: var(--color-on-dark);
+    opacity: 0;
+    pointer-events: none;
     animation: penaltyThrob 0.9s var(--ease-bounce) infinite;
   }
 
   @keyframes penaltyThrob {
     0%,
     100% {
-      filter: brightness(1);
+      opacity: 0;
     }
     50% {
-      filter: brightness(1.18);
+      opacity: 0.18;
     }
   }
 
@@ -142,7 +174,7 @@
     background: var(--color-surface-card);
   }
 
-  :root[data-motion="reduce"] .penalty {
+  :root[data-motion="reduce"] .penalty::after {
     animation: none;
   }
 </style>

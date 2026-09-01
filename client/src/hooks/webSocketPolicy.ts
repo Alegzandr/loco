@@ -1,5 +1,34 @@
 export type WsStatus = 'connecting' | 'open' | 'closed'
 
+// --- What survives a reconnect ---
+//
+// A message sent while the socket is down is queued and flushed when it comes
+// back, so a draw-then-play tapped across a quarter-second blip loses nothing.
+// The schedule below never gives up, though, so "when it comes back" can be a
+// minute later, against a board that has moved on by several turns: a card the
+// player chose then is not a card they choose now. Gameplay intents therefore
+// carry their age and are dropped past this bound; everything else (a table to
+// join, a search to enter, a name to take) is a decision that ages fine.
+export const PENDING_INTENT_MAX_AGE_MS = 1500
+
+const GAMEPLAY_INTENTS: ReadonlySet<string> = new Set([
+  'play_card',
+  'interrupt_play_card',
+  'interrupt_play',
+  'counter_draw',
+  'draw_card',
+  'pass_turn',
+  'declare_uno',
+  'catch_uno',
+  'send_emote',
+])
+
+/** Whether a queued message of `type`, queued at `at`, is still worth sending at `now`. */
+export function keepPendingIntent(type: string, at: number, now: number): boolean {
+  if (!GAMEPLAY_INTENTS.has(type)) return true
+  return now - at <= PENDING_INTENT_MAX_AGE_MS
+}
+
 // Backoff schedule, in milliseconds, indexed by attempt. The first retry is
 // deliberately almost immediate: most drops in practice are a single lost
 // connection (a wifi hiccup, a proxy recycling), and they come back at once.

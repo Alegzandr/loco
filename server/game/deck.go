@@ -115,7 +115,10 @@ func (d *Deck) DrawUpTo(n int) []Card {
 // can predict its order knows the rest of the round outright. A shuffle nobody
 // may predict has no business being convenient.
 func (d *Deck) Replenish(discard []Card, rng *rand.Rand) {
-	d.Cards = make([]Card, len(discard))
-	copy(d.Cards, discard)
+	// Appended to what is left, never in place of it. The pile is reshuffled
+	// in whenever the deck is *short*, which is precisely when it is not empty:
+	// replacing it threw the unseen cards away, so a +6 against a two-card deck
+	// cost the round two cards for good and the table no longer summed to 112.
+	d.Cards = append(d.Cards, discard...)
 	d.Shuffle(rng)
 }

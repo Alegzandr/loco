@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Translations } from '../i18n/en'
+  import { pressToAct } from './press'
 
   type Props = {
     isMyTurn: boolean
@@ -101,14 +102,14 @@
          only — on somebody else's turn the stack is theirs to answer, so the
          column stays the ordinary draw, dead. -->
     {#if isMyTurn && pendingDraw > 0}
-      <button class="btn btnPenalty" onclick={onDraw}>{t.draw} +{pendingDraw}</button>
+      <button class="btn btnPenalty" use:pressToAct={onDraw}>{t.draw} +{pendingDraw}</button>
     {:else}
       <button
         class="btn"
         class:btnDisabled={!canDraw}
         class:btnDrawSecondary={!canDraw || hasPlayableCard}
         class:btnDraw={canDraw && !hasPlayableCard}
-        onclick={onDraw}
+        use:pressToAct={onDraw}
         disabled={!canDraw}
       >
         {t.draw}
@@ -124,7 +125,7 @@
     <button
       class="btn btnCatch"
       class:armed={catchArmed}
-      onclick={onCatch}
+      use:pressToAct={onCatch}
       disabled={!catchLive}
     >
       {t.catchBtn}
@@ -132,7 +133,7 @@
   </div>
 
   <div class="slot" data-slot="right">
-    <button class="btn btnPass" class:btnDisabled={!canPass} onclick={onPass} disabled={!canPass}>
+    <button class="btn btnPass" class:btnDisabled={!canPass} use:pressToAct={onPass} disabled={!canPass}>
       {t.pass}
     </button>
   </div>
@@ -146,7 +147,7 @@
       class="btn btnUno"
       class:armed={locoOwed}
       class:hit-target={locoOwed}
-      onclick={onUno}
+      use:pressToAct={onUno}
       disabled={!locoOwed}
     >
       {t.unoBtn}
@@ -256,10 +257,12 @@
     transition:
       transform 0.12s var(--ease-bounce),
       box-shadow 0.12s var(--ease-out),
-      filter 0.12s ease,
-      opacity 0.15s ease;
+      filter 0.12s ease;
     position: relative;
-    overflow: hidden;
+    /* No `overflow: hidden`. It clipped everything a button hangs outside its
+       own box: the 44px `.hit-target::after` on the LOCO! chip — drawn 34px,
+       and the catcher it was promised was being cut back to the paint — and
+       the halo pseudo-elements below. Nothing inside a pill overflows it. */
   }
 
   .btn:not(:disabled):hover {
@@ -273,17 +276,23 @@
     box-shadow: 0 1px 0 var(--color-stroke-soft);
   }
 
-  /* Disabled state.
-     Deliberately *not* the fill swap the rest of the game uses (surface-strong +
-     muted label): on this bar `.btnPass` already wears surface-strong while it is
-     enabled, so a fill swap would draw a disabled button and a live Pass as the
-     same object. The ledge is what carries the meaning instead — a disabled
-     object is flat and has stopped being a body. Held at 0.55 rather than 0.42
-     because Catch sits here disabled through the opening of every round, and a
-     spectator still has to be able to read what the centre column is for. */
-  .btnDisabled,
+  /* Disabled state — dead, and still readable.
+     It was `opacity: 0.55`, held there rather than lower "so a spectator can
+     still read what the centre column is for", and at 0.55 the disabled Catch
+     label measured ~2:1 and a dead Draw or Pass ~3.4:1: Catch sits here disabled
+     through the opening of every round, so that was the state a viewer saw most.
+     Quiet is a hue. The fill swap the rest of the game uses — the panel's inset
+     fill, a soft outline in place of the ink, the muted label, which clears
+     4.5:1 on it in both themes — and no ledge, because a disabled object is flat
+     and has stopped being a body. The ledge is also what still tells a dead Pass
+     from a live one, which wears the same fill: the live one is raised and inked,
+     the dead one is printed on the bar. */
+  .btn.btnDisabled,
   .btn:disabled {
-    opacity: 0.55;
+    background: var(--color-surface-strong);
+    border-color: var(--color-border-strong);
+    color: var(--color-muted);
+    text-shadow: none;
     cursor: not-allowed;
     pointer-events: none;
     box-shadow: none;
@@ -297,9 +306,11 @@
   }
 
   /* Draw — secondary (the player already has a legal card, so drawing is a choice
-     rather than the expected move). */
+     rather than the expected move). Surface-strong like Pass, never surface-card:
+     the bar itself is surface-card, so that was a white pill on a white bar in
+     light, held apart by nothing but its outline. */
   .btnDrawSecondary {
-    background: var(--color-surface-card);
+    background: var(--color-surface-strong);
     color: var(--color-ink);
   }
 
@@ -316,7 +327,6 @@
     font-weight: 700;
     letter-spacing: 0.3px;
     --arm-glow: rgba(255, 196, 46, 0.6);
-    --arm-glow-0: rgba(255, 196, 46, 0);
   }
 
   /* The moment a race becomes winnable. Both the catch window and our own LOCO
@@ -327,10 +337,41 @@
      an opacity going from 0.42 to 1 is one nobody notices in peripheral vision
      while they are reading their hand. */
   .armed {
-    animation:
-      armPop 0.42s var(--ease-bounce),
-      armGlow 0.85s ease-in-out 0.42s infinite alternate;
+    animation: armPop 0.42s var(--ease-bounce);
     z-index: 1; /* the pop overshoots its slot; it must ride over its neighbours */
+  }
+
+  /* The pulsing halo, as a pseudo-element with a *static* shadow, breathed on
+     opacity and scale. It was `armGlow`, a `box-shadow` keyframe on the button
+     itself, infinite alternate — and a shadow that changes is repainted on every
+     frame, for the whole of every catch window, on the one control this game
+     asks to be answered fastest. Opacity and transform composite; the shadow is
+     rasterised once. `::before` because `::after` is the 44px hit target on the
+     LOCO! chip, and the two are armed together. `z-index: -1` inside the
+     button's own stacking context (`.armed` sets one) puts the glow under the
+     label and over the fill. */
+  .armed::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    z-index: -1;
+    border-radius: inherit;
+    box-shadow:
+      0 0 0 4px var(--arm-glow),
+      0 0 22px 6px var(--arm-glow);
+    pointer-events: none;
+    animation: armHalo 0.85s ease-in-out 0.42s infinite alternate;
+  }
+
+  @keyframes armHalo {
+    from {
+      opacity: 0.5;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1.05);
+    }
   }
 
   @keyframes armPop {
@@ -348,26 +389,27 @@
     }
   }
 
-  @keyframes armGlow {
-    from {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 0 var(--arm-glow),
-        0 0 14px 2px var(--arm-glow);
-    }
-    to {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 16px var(--arm-glow-0),
-        0 0 22px 4px var(--arm-glow);
-    }
-  }
-
-  /* Penalty draw — urgent. */
+  /* Penalty draw — urgent. The pulse is the same device as the armed halo: a
+     ring on a pseudo-element, scaled out and faded, where it used to be a
+     `box-shadow` spread keyframe repainting the button every frame for as long
+     as the stack stood. `isolation` gives the button a stacking context of its
+     own so the ring can sit under the label at `z-index: -1` (without it, -1
+     would drop the ring behind the whole bar). */
   .btnPenalty {
     background: linear-gradient(180deg, #ff8a5c 0%, #ef3d2a 100%);
     color: var(--color-on-primary);
     text-shadow: 0 1px 0 rgba(120, 20, 0, 0.45);
+    isolation: isolate;
+  }
+
+  .btnPenalty::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    border-radius: inherit;
+    border: 4px solid rgba(239, 61, 42, 0.55);
+    pointer-events: none;
     animation: penaltyPulse 0.9s ease-in-out infinite alternate;
   }
 
@@ -380,19 +422,16 @@
     color: var(--color-on-dark);
     text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
     --arm-glow: rgba(155, 139, 255, 0.62);
-    --arm-glow-0: rgba(155, 139, 255, 0);
   }
 
   @keyframes penaltyPulse {
     from {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 0 rgba(239, 61, 42, 0.55);
+      opacity: 0.85;
+      transform: scale(1);
     }
     to {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 12px rgba(239, 61, 42, 0);
+      opacity: 0;
+      transform: scale(1.2);
     }
   }
 
@@ -425,16 +464,20 @@
        a second full-height button sat directly over the centre column. */
   }
 
-  :root[data-motion="reduce"] .btnPenalty {
-    animation: none;
+  :root[data-motion="reduce"] .btnPenalty::before {
+    display: none;
   }
 
   /* Degrades to a static halo rather than to nothing: "this button just became
-     clickable" is information, not decoration. */
+     clickable" is information, not decoration. The halo's shadow is static
+     already; only its breathing stops. */
   :root[data-motion="reduce"] .armed {
     animation: none;
-    box-shadow:
-      0 3px 0 var(--color-stroke-soft),
-      0 0 0 5px var(--arm-glow);
+  }
+
+  :root[data-motion="reduce"] .armed::before {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 </style>

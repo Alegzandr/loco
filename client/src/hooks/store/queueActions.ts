@@ -30,6 +30,11 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       sessionToken: found.sessionToken,
       players: found.players,
       myNickname: found.players.find((p) => p.index === found.mySeat)?.nickname ?? '',
+      // A fresh table owes nobody a call and offers no wager yet: the latch
+      // belongs to one board, and this is a new one.
+      catchWindows: [],
+      declaredSeats: [],
+      catchLive: false,
       matchFormat: found.matchFormat,
       maxPlayers: found.maxPlayers,
       forfeitBy: null,
@@ -70,6 +75,9 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       goneSeats: [],
       rematchOffers: [],
       rematchNeeded: 0,
+      catchWindows: [],
+      declaredSeats: [],
+      catchLive: false,
       // Another hand against the server is another match: it starts as quiet as
       // the queue's does.
       emotes: [],

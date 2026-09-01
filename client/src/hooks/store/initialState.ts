@@ -9,6 +9,7 @@ export const initialState: GameState = {
   myNickname: '',
   restoreTarget: null,
   errorMsg: '',
+  errorAt: 0,
   isReconnecting: false,
   serverUpdating: false,
   playersOnline: 0,
@@ -32,6 +33,7 @@ export const initialState: GameState = {
 
   unoDeclared: false,
   unoDeclaredByIndex: -1,
+  unoDeclaredAt: 0,
   declaredSeats: [],
   myDeclared: false,
   catchWindows: [],

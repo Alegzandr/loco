@@ -58,6 +58,19 @@ describe('<Card />', () => {
     expect(onclick).toHaveBeenCalledTimes(3)
   })
 
+  // The play goes out on the press: a click is the release, 80-150 ms later on
+  // a touch screen, and an interject is decided by arrival order.
+  it('acts on pointerdown and not again on the click that follows', () => {
+    const onclick = vi.fn()
+    const { container } = render(Card, { card: card(), onclick })
+    const el = container.querySelector('.card') as HTMLElement
+    el.dispatchEvent(new PointerEvent('pointerdown', { button: 0, bubbles: true }))
+    expect(onclick).toHaveBeenCalledTimes(1)
+    el.dispatchEvent(new PointerEvent('pointerup', { button: 0, bubbles: true }))
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(onclick).toHaveBeenCalledTimes(1)
+  })
+
   it('keyboard handler is inert without onclick', () => {
     const { container } = render(Card, { card: card() })
     const el = container.firstElementChild as HTMLElement

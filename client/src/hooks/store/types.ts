@@ -151,6 +151,10 @@ export interface GameState {
   // Null at every other time.
   restoreTarget: RestoreTarget | null
   errorMsg: string
+  // When `errorMsg` was last set, and the identity the error cue keys on: the
+  // same refusal twice in a row is two refusals, and comparing the strings
+  // heard only the first.
+  errorAt: number
   // Reconnect animation state
   isReconnecting: boolean
   // The server told this table it is being replaced (`server_updating`). The
@@ -204,6 +208,10 @@ export interface GameState {
   // --- Declarations and catches ---
   unoDeclared: boolean
   unoDeclaredByIndex: number   // playerIndex who declared UNO; -1 = unknown
+  // Stamp of the last declaration the table heard. `unoDeclared` is a latch
+  // that stays up while the banner does, so a second seat calling it under the
+  // first one's banner moved nothing else — and made no sound.
+  unoDeclaredAt: number
   // Every seat whose current single card has already been called, ours
   // included. A declaration is spent: it covers the one card it was called on,
   // so a seat leaves this list the moment its hand stops being that single card

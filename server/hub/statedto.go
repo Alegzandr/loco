@@ -63,9 +63,12 @@ func matchHistoryDTO(t *table) []protocol.MatchRecordDTO {
 	}
 	out := make([]protocol.MatchRecordDTO, len(t.matchHistory))
 	for i, rec := range t.matchHistory {
+		// Copied into slices that are never nil: a record every seat has been
+		// dropped from is an empty column set, and `null` where the schema says
+		// array is a snapshot the client refuses whole.
 		out[i] = protocol.MatchRecordDTO{
-			RoundsWon:   append([]int(nil), rec.RoundsWon...),
-			Scores:      append([]int(nil), rec.Scores...),
+			RoundsWon:   append(make([]int, 0, len(rec.RoundsWon)), rec.RoundsWon...),
+			Scores:      append(make([]int, 0, len(rec.Scores)), rec.Scores...),
 			WinnerIndex: rec.Winner,
 		}
 	}
@@ -121,6 +124,39 @@ func exportEventLog(state *game.GameState) []protocol.GameEventDTO {
 // per broadcast (each rebuild iterates Players × State.Placements × Finished ×
 // the held seats, and allocates a placement map and player slice).
 func (h *Hub) playerGameStateUsing(t *table, playerIdx int, players []protocol.PlayerDTO) *protocol.GameStateDTO {
+	return h.playerGameStateWith(t, playerIdx, players, h.sharedGameState(t))
+}
+
+// sharedGameState is the part of a snapshot that is the same for every
+// recipient: the scoreboard, the recap and the catch state. Built once per
+// broadcast and handed to playerGameStateWith for each seat, for the reason
+// playerList is: a GlobalSwitch at a ten-seat table on its sixth match was ten
+// scoreboard builds and a hundred slice copies on the hot path.
+type sharedGameState struct {
+	scoreboard   []protocol.ScoreboardEntryDTO
+	matchHistory []protocol.MatchRecordDTO
+	catchSeats   []protocol.CatchSeatDTO
+	declared     []int
+}
+
+func (h *Hub) sharedGameState(t *table) sharedGameState {
+	room := t.room
+	shared := sharedGameState{matchHistory: matchHistoryDTO(t)}
+	if len(room.Scores) > 0 {
+		shared.scoreboard = h.buildScoreboard(room)
+	}
+	if state := room.State; state != nil && room.Status == game.StatusPlaying {
+		shared.catchSeats = catchSeats(state)
+		for i, declared := range state.LastCardDeclared {
+			if declared && state.Hands[i].Size() == 1 {
+				shared.declared = append(shared.declared, i)
+			}
+		}
+	}
+	return shared
+}
+
+func (h *Hub) playerGameStateWith(t *table, playerIdx int, players []protocol.PlayerDTO, shared sharedGameState) *protocol.GameStateDTO {
 	room := t.room
 	state := room.State
 	// Defensive bounds. A panic here would kill the hub goroutine and take down
@@ -134,9 +170,9 @@ func (h *Hub) playerGameStateUsing(t *table, playerIdx int, players []protocol.P
 		log.Printf("WARN playerGameState invalid args code=%s playerIdx=%d state_nil=%t hands=%d discard=%d",
 			room.Code, playerIdx, state == nil, hands, discard)
 		return &protocol.GameStateDTO{
-			YourIndex:   playerIdx,
-			Hand:        []protocol.CardDTO{},
-			Players:     players,
+			YourIndex:    playerIdx,
+			Hand:         []protocol.CardDTO{},
+			Players:      players,
 			MatchFormat:  matchFormatString(room.Format),
 			MaxPlayers:   room.MaxPlayers,
 			RoundNumber:  room.RoundNumber,
@@ -150,29 +186,26 @@ func (h *Hub) playerGameStateUsing(t *table, playerIdx int, players []protocol.P
 	}
 	top := state.Discard[len(state.Discard)-1]
 
-	var scoreboard []protocol.ScoreboardEntryDTO
-	if len(room.Scores) > 0 {
-		scoreboard = h.buildScoreboard(room)
-	}
-
 	return &protocol.GameStateDTO{
-		YourIndex:    playerIdx,
-		Hand:         hand,
-		Players:      players,
-		Discard:      *cardToDTO(top),
-		ActiveColor:  colorName(state.ActiveColor),
-		Turn:         state.CurrentTurn,
-		Direction:    state.Direction,
-		PendingDraw:  state.PendingDraw,
-		HasDrawn:     state.HasDrawn,
-		RoundNumber:  room.RoundNumber,
-		MatchFormat:  matchFormatString(room.Format),
-		MaxPlayers:   room.MaxPlayers,
-		MapID:        string(room.MapID),
-		Scoreboard:   scoreboard,
-		RoundHistory: room.RoundHistory,
-		MatchHistory: matchHistoryDTO(t),
-		TurnDeadline: turnDeadlineMs(t),
-		StreamerMode: t.streamerMode,
+		YourIndex:     playerIdx,
+		Hand:          hand,
+		Players:       players,
+		Discard:       *cardToDTO(top),
+		ActiveColor:   colorName(state.ActiveColor),
+		Turn:          state.CurrentTurn,
+		Direction:     state.Direction,
+		PendingDraw:   state.PendingDraw,
+		HasDrawn:      state.HasDrawn,
+		RoundNumber:   room.RoundNumber,
+		MatchFormat:   matchFormatString(room.Format),
+		MaxPlayers:    room.MaxPlayers,
+		MapID:         string(room.MapID),
+		Scoreboard:    shared.scoreboard,
+		RoundHistory:  room.RoundHistory,
+		MatchHistory:  shared.matchHistory,
+		TurnDeadline:  turnDeadlineMs(t),
+		CatchSeats:    shared.catchSeats,
+		DeclaredSeats: shared.declared,
+		StreamerMode:  t.streamerMode,
 	}
 }

@@ -615,6 +615,14 @@ real element.
   - **Hand grew by 1**: deck→last-slot card-back flier (draws).
   - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.
 - Hover lift: CSS-only (`Hand.svelte`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
+  **The turn pill's reserve is that transform written out** (`TurnIndicator.svelte`: `PILL_H +
+  REST_LIFT + HOVER_LIFT + CLEARANCE`, where `HOVER_LIFT = 14 × 1.08 + 0.04 × CARD_H`). It was a
+  flat 58px, which cleared the 9px rest lift and nothing else, so a card under the pointer put its
+  top ~20px into the pill. Change the hover and the reserve follows; change the reserve by hand and
+  it stops being true.
+- **The card's transition is `transform` alone.** It also tweened `box-shadow`, and nothing the
+  hover does moves the shadow — the one shadow change a card in hand ever sees is the playable
+  glow, which flips for the whole fan at once on a turn change and was being tweened on every card.
 
 ### Motion conventions (non-negotiable)
 - **Animate transforms, never `left`/`top`.** Every moving node (`.flier`, `Hand .slot`, `PlayerSlot .slot`) is pinned at `left:0;top:0` in CSS and positioned by a `translate()`. Animating `left`/`top` runs layout every frame and visibly stutters once several cards move at once.
@@ -625,6 +633,44 @@ real element.
 - `Hand` staggers cards in only when the hand grows **from empty** (a deal). Any other growth is a draw, which already has its own deck→hand flier.
 - `DiscardPile`: 2 static neutral under-layers for pile thickness (deliberately untinted — the active-colour ring owns the colour there) + top card keyed on `cardKey(card)` so each new top card remounts and replays a spring settle at a deterministic `hashTilt`.
 - `store.lastPlay { actorIndex, card, at }` is set by `applyCardPlayed` and exists **only** for animation. Never read it for rules decisions.
+
+### Cues stay on the compositor
+A cue that runs for as long as a state lasts — a catch window, a pending stack, the whole match —
+may animate **opacity and transform only**, on a pseudo-element if the thing it decorates has to
+keep its own paint. Anything else is a repaint per frame for the life of the state, and the audit
+of 2026-09 found five of them, every one on the surfaces a reaction is aimed at:
+
+- **The armed halo and the penalty pulse** (`ActionBar.svelte`) were `box-shadow` keyframes on the
+  button, infinite — a shadow repainted every frame of every catch window, on the one control the
+  game asks to be answered fastest. Each is a `::before` now with a *static* shadow or border,
+  breathed on opacity and scale. `::before`, because `::after` is the 44px `.hit-target` on the LOCO!
+  chip and the two are armed together; `z-index: -1` inside the button's own stacking context
+  (`.armed` sets one, `.btnPenalty` takes `isolation: isolate`) puts the glow under the label and
+  over the fill. **`.btn` no longer clips its overflow** — that `overflow: hidden` was cutting the
+  LOCO! chip's 44px catcher back to its 34px paint, and it would have clipped the halos too.
+- **The penalty throb** (`TurnIndicator.svelte`) was `filter: brightness()` keyframed on the pill.
+  It is a white wash on `::after` at 0 → 0.18 opacity, same look, and the pill's transform stays the
+  fly transition's alone.
+- **The deck's glow** (`Deck.svelte`) was a transitioned `filter: drop-shadow()` on the pile, which
+  re-rasterises four card backs per frame of the fade, twice a turn. A `::after` box shadow under the
+  pile (`isolation: isolate` on the deck, `z-index: -1` on the glow), faded on opacity. **Hover is
+  behind `@media (hover: hover)`**: a touch screen synthesises `:hover` on the tap and keeps it, so
+  the pile stayed lifted and lit after the draw, a deck that looked pressable on a turn that was over.
+- **The direction ring** (`DirectionRing.svelte`) carried a `filter: drop-shadow()` on each of ten
+  chevrons under an infinite opacity chase — ten blurs a frame for the match. Each chevron is drawn
+  twice, a wider translucent `.halo` stroke first, exactly the card glyphs' ink pass; the chase
+  animates the group's opacity and nothing else.
+- **`will-change: transform` is kept where something moves every play and nowhere else.** The
+  hand's slots keep it (they reflow on every card). `PlayerSlot` and `DiscardPile .top` lost it: a
+  seat glides a handful of times a match and the top card settles once, and the browser promotes an
+  animating element for its duration on its own — a permanent hint was a layer per pill and per
+  pile held in memory for a movement that was not happening.
+- **A scrim held over a live board is a colour, never a blur.** `RoundSummary`, `ScoreTable`'s
+  `.overlay` and `GameView`'s `.reconnectOverlay` all ran `backdrop-filter: blur(5px)` over a table
+  that keeps animating underneath — the summary for up to eight seconds *while the next round is
+  dealt under it*. A backdrop filter re-rasterises the viewport on every frame anything behind it
+  moves. They wear `--color-scrim-heavy` now, dense enough to own the screen without the filter.
+  The pickers and the rules modal keep their blur: up for a decision, not held open over a read.
 
 ### Card rarity & the throw (`cardTheme.ts`)
 Presentation-only tiering, invented here and never consulted by `game/`. `cardRarity(card)` follows
@@ -673,6 +719,13 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   more: the attribute drives the stylesheet, and the two WAAPI shakes and the transitions ask
   `prefersReducedMotion()` themselves. Full reasoning in `docs/notes/client.md`.
 - When adding motion, verify it degrades to a readable static state rather than disappearing.
+- **A callout collapsing to zero is a callout that never paints.** `AnimationLayer`'s `play()`
+  answers reduced motion with a zero-length animation, which is right for a flight (the card is
+  simply already there) and was wrong for SKIP / REVERSE / +N and the colour a wild named: they
+  finished in the frame they started, invisible to exactly the player who had asked for a board they
+  could read. A spec may carry a `still` — the frame to hold and for how long (`EFFECT_STILL_MS`,
+  900) — played at the spec's own **delay**, so the colour callout still lands
+  `COLOR_CALLOUT_DELAY_MS` after the card's under reduced motion too.
 
 ## Player bubble (`<PlayerSlot />`)
 - Chunky sticker pill positioned by `seatLayout(...)` (see "Seat layout"), clockwise from the local
@@ -680,7 +733,10 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 - Active turn: gold gradient fill + glow ring + bobbing arrow above the pill, dark label. It is the
   brightest object on screen on purpose — a viewer must never hunt for whose turn it is.
 - Card-count badge on the pill's right edge; it turns red and pulses at exactly 1 card.
-- Disconnected: muted fill, faded, `"nickname ✗"`.
+- Disconnected: muted fill and a softened outline, the drawn ✗ beside the name — and **the ink is
+  not faded**. It was `opacity: 0.72` on the pill *and* `--color-muted-soft` on the label, which
+  multiplied out to 2.31:1 on the seat whose absence is the news; the label is `--color-muted` now,
+  4.5:1 on the dimmed fill in both themes. Quiet is a hue.
 - Mini card-back fan inside `full`/`compact` pills (rotation ±14°/±8°/0° depending on count, "+N"
   overflow label). `mini` drops the fan — at that size it would be unreadable mush.
 
@@ -749,6 +805,25 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     from the server. Scene `game-catch-caught`; `src/test/catchBanner.test.ts`.
 - **UNO banner**: tilted sticker, punch-in, positioned *above* the pile so the play that triggered
   it stays visible.
+  - **Centred with `inset-inline: 0` + `margin-inline: auto` and `width: fit-content`, never
+    `left: 50%`** — the notice pills' rule, and the same bug one size up: anchored at the midpoint
+    the sticker was shrink-to-fit against the right half of the screen, and with `nowrap` on top of
+    that a 20-character nickname ran it off both edges of a 360px phone. It wraps inside
+    `calc(100% - 2 × --space-base)` now, `overflow-wrap: anywhere` for a nickname that is one word,
+    the clamp's floor at 26px, and the punch keyframes carry `translateY(-50%)` only.
+  - **z-index 45, with the other two shouts.** It sat at 10 — under the notice pills at 14 — so on a
+    phone a Swap landing on the same beat printed its line across the shout. The three moments
+    allowed to shout share one layer; see the score table's ledger below.
+- **Contre-LOCO! verdict, the name line**: the caught seat's colour is a **swatch beside the name**
+  (`.seatDot`, ink-outlined), and the name itself is the stamp's white with the title's ink stroke.
+  It used to *be* the name's colour, so a viewer following "the orange player" would find them — and
+  on the red stamp the ten seat colours measured between 1.05:1 and 2.3:1, the rose seat invisible
+  outright. The dot keeps the seat findable; the name stays legible whichever seat it names. Same
+  device as the versus reveal's avatar initial (`MatchFound.svelte`), where white on six of the ten
+  seat fills failed 3:1 and the letter now carries the ink outline every card glyph carries.
+- **The interception banner takes the catch stamp's 480px block**: smaller padding, the ×N chip
+  pulled in, and `.subtitle` allowed to wrap. It had no small-screen rule at all, and a subtitle that
+  may not wrap took a 20-character nickname off both edges of a phone.
 - **Effect callouts** (`AnimationLayer`): SKIP / REVERSE / +N, outlined rather than shadowed so they
   survive landing on felt, on a card, or on the background. Text is localised (`fxSkip`,
   `fxReverse`); `<GameBoard />` takes them as a memoised `fxTexts` prop — a fresh object literal
@@ -875,11 +950,19 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
   stuck over the board with no way out. It `preventDefault`s TAB, so `enabled` is false while the
   rules modal, a picker or the round summary owns the screen: inside a dialog TAB is the dialog's.
 - **Nothing the board draws crosses it, and that is the point of the number.** The panel sits at
-  **z-index 48**, above the whole transient band — notices 14, the error toast 30, the interrupt and
-  catch banners 45, `.topRight` and the leave question 46, the catch capsule 47 — and below the three
-  things that outrank a read: the reconnect curtain (50), which says the table is not there at all,
-  the two pickers (100), which are a decision the player owes the table, and the rules modal (1000)
-  and map gate (900), which own the screen outright.
+  **z-index 48**, above the whole transient band — notices 14, the error toast 30, the three shouts
+  (interception slam, catch stamp, LOCO! banner) 45, `.topRight` and the leave question 46, the catch
+  capsule and the round summary 47 — and below the three things that outrank a read: the reconnect
+  curtain (50), which says the table is not there at all, the two pickers (100), which are a
+  decision the player owes the table, and the rules modal (1000) and map gate (900), which own the
+  screen outright.
+  - **The capsule and the round summary share 47 because they are never up together.**
+    `applyRoundEnd` empties every catch window, so the capsule is unmounted by the message that
+    raises the summary, and nobody is on one card in the eight seconds after a deal. The summary
+    sat at 40, under the banners, the chip row and the capsule, so an interception slam or a
+    five-second countdown could be drawn across the scores. It cannot go higher without crossing
+    this panel, and the capsule cannot go lower: the chip row is rendered *after* it in `GameView`,
+    so at 46 the row would cover it again — the exact bug the capsule's own comment records.
   - It was at 45, which is the banners' own layer, and both banners are rendered *after* it. So the
     one surface in this game somebody opens **in order to read it** was the one surface anything could
     cross: six seats, five columns and a ping, with an interception banner across the middle, a
@@ -903,6 +986,52 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 - Under 480px the **rounds-won column is dropped** and under 400px the "you" badge goes too. The
   ping must not be the thing pushed off the right edge of a phone: it is the one column that cannot
   be derived from anything else on screen (the gold row already says which seat is yours).
+- **An offline row is quiet by hue** (`.rowOffline`): its fill drops back to the panel's own, its
+  outline softens to `--color-border-strong`, and every cell reads `--color-muted`. It was
+  `opacity: 0.55` on the cells, which put the nickname under 3:1 on the seat a spectator is most
+  likely to be asking about. The ping tiers are tokens now too — the amber is `--color-amber`, the
+  one step the scale needs that the brand did not carry, and "bad" turned out to be `--color-error`
+  retyped.
+
+## The round chip under 480px
+
+The chrome row on the right is five chips wide on a phone (scores, gear, speaker, rules, leave):
+5 × 40px plus the gaps and the margin is about 245px of a 360px screen, and "Round 2 · BO3" at 13px
+uppercase needs 150. The chip ran under the scores button. Under 480px the chip switches to its short
+spelling, `M2 · BO3` (`t.roundShort`, the score table's own `M%n` column head, so a name the player
+has already read) and the decisive round keeps one word (`t.decisiveRoundShort`). Two spans, one
+hidden per width, so the accessible name stays the long form. Not a scene: `game-uno` at `small`
+is where it shows.
+
+## Quiet states, measured
+The rule at the top of this note — quiet is a hue, never an opacity — was written for one label and
+broken on most of the screens a spectator reads. Each of these was measured, and each is now a
+token:
+- **Disabled action-bar buttons** were `opacity: 0.55`, held there "so a spectator can still read
+  what the centre column is for", and at 0.55 the dead Catch label measured ~2:1 and a dead Draw or
+  Pass ~3.4:1 — Catch is disabled through the opening of every round, so that was the state a
+  viewer saw most. They wear the fill swap now: `--color-surface-strong`, `--color-border-strong` in
+  place of the ink, `--color-muted` for the label (4.5:1 in both themes), and no ledge. The ledge is
+  also what still tells a dead Pass from a live one, which wears the same fill: the live one is
+  raised and inked, the dead one is printed on the bar. **`.btnDrawSecondary` is surface-strong
+  too**: it was `--color-surface-card` on a bar of `--color-surface-card`, a white pill on a white
+  bar in light.
+- **The round summary's delta** was `--color-mint` on `--color-surface-strong`, 1.81:1 in light —
+  the one number the card is opened for. `--color-mint-text` is the mint as *text on a panel*, the
+  same hue pushed until it clears AA on each canvas, the way `--color-link` is the indigo as text;
+  dark keeps the brand mint, which is 6:1 there. The winner row's two literals (`#7a4a00`,
+  `#1f6b3c`) are `--color-on-secondary-muted` and `--color-on-secondary-mint`, theme-independent
+  like the yellow they sit on; the green moved one step past the literal, which was 4.25:1 on the
+  flat yellow.
+- **The two text-field focus rings** (`Lobby` `.input`, `WaitingRoom` `.maxInput`) were the indigo at
+  0.35 alpha, 1.5:1 on the card — and with `outline: none` on the field that shadow was the whole
+  indicator. Both are the solid `--color-tertiary` at 3px, the ring `tokens.css` gives every
+  `:focus-visible`.
+- **The map-loading roster** set a name still loading at 50% white over a photograph, with no shadow.
+  0.72 and the same shadow `.status` carries.
+- **`.formatLen`** was 10px with `opacity: 0.75` on the active pill; **the round summary's heads,
+  progress title and gap, the game-over gap and the recap heads** were 11px. **12px is the floor**
+  for anything on a screen a spectator reads, and the opacity is gone.
 - Scenes `game-scores` and `game-scores-round-one` cover both states in the showcase.
 
 ## Round summary

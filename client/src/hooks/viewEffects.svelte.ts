@@ -53,6 +53,12 @@ export function countdown(
 }
 
 /**
+ * How long a key has to stay down before it counts as held rather than pressed.
+ * Under every OS's own repeat delay, so the hold is on before the first repeat.
+ */
+export const HELD_KEY_AFTER_MS = 180
+
+/**
  * True while `key` is physically held down.
  *
  * Two things this has to get right, both learned from how a held-key overlay
@@ -66,7 +72,11 @@ export function countdown(
  *   `enabled: false` while a modal or picker is open: inside a dialog, Tab
  *   belongs to the dialog.
  */
-export function heldKey(key: string, enabled: Live<boolean> = true): { readonly current: boolean } {
+export function heldKey(
+  key: string,
+  enabled: Live<boolean> = true,
+  holdMs = HELD_KEY_AFTER_MS,
+): { readonly current: boolean } {
   let held = $state(false)
   const isEnabled = live(enabled)
 
@@ -75,22 +85,64 @@ export function heldKey(key: string, enabled: Live<boolean> = true): { readonly 
       held = false
       return
     }
+    // A press and a hold are two gestures. The first keydown is left to the
+    // browser — on TAB that is the focus moving, which is the only way a
+    // keyboard reaches a card, the draw pile or the bar: owning the key from
+    // the first press made every game control unreachable for as long as the
+    // board was up. The hold starts a beat later, on a timer, and from then on
+    // the key's own repeats are swallowed so the focus stops cycling under an
+    // open table.
+    let arm: ReturnType<typeof setTimeout> | null = null
+    const disarm = () => {
+      if (arm !== null) clearTimeout(arm)
+      arm = null
+    }
     const down = (e: KeyboardEvent) => {
       if (e.key !== key) return
-      e.preventDefault()
-      held = true
+      if (e.repeat || held) {
+        e.preventDefault()
+        disarm()
+        held = true
+        return
+      }
+      // A TAB pressed with nothing focused is steered to the first control
+      // rather than left to the browser. Chrome resumes sequential focus from
+      // wherever the last focused node *was* — the round summary's Continue,
+      // just removed, at the end of the document — and walks straight out of
+      // the page into its own chrome: a `blur`, which is the alt-tab reset
+      // below, and a hold that never engages. Focus stays in the document, and
+      // a keyboard user still lands on the first thing they can press.
+      if (key === 'Tab' && !e.shiftKey && (!document.activeElement || document.activeElement === document.body)) {
+        const first = document.querySelector<HTMLElement>(
+          'button:not([disabled]), [tabindex="0"], a[href], input, select, textarea',
+        )
+        if (first) {
+          e.preventDefault()
+          first.focus()
+        }
+      }
+      if (arm === null) {
+        arm = setTimeout(() => {
+          arm = null
+          held = true
+        }, holdMs)
+      }
     }
     const up = (e: KeyboardEvent) => {
       if (e.key !== key) return
-      e.preventDefault()
+      disarm()
       held = false
     }
-    const release = () => (held = false)
+    const release = () => {
+      disarm()
+      held = false
+    }
 
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     window.addEventListener('blur', release)
     return () => {
+      disarm()
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', release)
@@ -189,16 +241,20 @@ export function turnCountdownSfx(
   const deadlineAt = live(turnDeadline)
   const mine = live(isMyTurn)
 
+  // One timeout per tick, each aimed at its own second, rather than a 200 ms
+  // poll for the whole turn: a thirty-second turn is five ticks, not a hundred
+  // and fifty wake-ups to find them. Absolute deadlines, like `drainBar`, so a
+  // re-run of the effect lands the same ticks on the same instants.
   $effect(() => {
     const deadline = deadlineAt()
     if (deadline === null || !mine()) return
-    let lastTick = -1
-    const id = setInterval(() => {
-      const left = Math.ceil((deadline - Date.now()) / 1000)
-      if (left <= 0 || left > TURN_COUNTDOWN_FROM || left === lastTick) return
-      lastTick = left
-      playSfx('countdown')
-    }, 200)
-    return () => clearInterval(id)
+    const now = Date.now()
+    const ids: number[] = []
+    for (let left = TURN_COUNTDOWN_FROM; left >= 1; left--) {
+      const at = deadline - left * 1000
+      if (at < now) continue
+      ids.push(window.setTimeout(() => playSfx('countdown'), at - now))
+    }
+    return () => ids.forEach(clearTimeout)
   })
 }

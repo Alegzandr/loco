@@ -568,7 +568,28 @@ func (r *Room) RemoveLobbyPlayer(playerIdx int) (wasHost bool, err error) {
 		newPlayers = append(newPlayers, p)
 	}
 	r.Players = newPlayers
+	// Everything the scoreboard is drawn from is indexed by seat, and a
+	// finished room keeps its scores for the game-over screen: re-basing the
+	// roster without them showed the leaver's column under the seat above it.
+	r.Scores = dropSeat(r.Scores, playerIdx)
+	r.RoundsWon = dropSeat(r.RoundsWon, playerIdx)
+	r.LostHandTotal = dropSeat(r.LostHandTotal, playerIdx)
+	r.Retired = dropSeat(r.Retired, playerIdx)
+	for k := range r.RoundHistory {
+		r.RoundHistory[k] = dropSeat(r.RoundHistory[k], playerIdx)
+	}
 	return wasHost, nil
+}
+
+// dropSeat is `s` without index `i`, re-based; a slice too short to hold the
+// seat is returned as it was.
+func dropSeat[T any](s []T, i int) []T {
+	if i < 0 || i >= len(s) {
+		return s
+	}
+	out := make([]T, 0, len(s)-1)
+	out = append(out, s[:i]...)
+	return append(out, s[i+1:]...)
 }
 
 // Join adds a player to the lobby.
@@ -1601,7 +1622,11 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	}
 	r.State.pushDiscard(cards...)
 
-	if finishing {
+	// A single card off a single-card hand was declared before this message —
+	// requireLocoToFinish just said so — and logging the call again here put
+	// the same LOCO! in the event log twice for a reconnecting client to
+	// replay. Only the batch finish carries its call.
+	if finishing && len(cards) > 1 {
 		r.State.declareForFinish(playerIndex)
 	}
 

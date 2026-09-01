@@ -235,7 +235,9 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    A seat number the table does not have is still refused rather than charged: that one is a forged
    message, not a wager.
 
-- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **Swap is coloured**
+- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **`Deck.Replenish`
+  appends the pile to what is left of the deck, never in place of it**: it runs when the deck is
+  short, which is exactly when it is not empty. **Swap is coloured**
   and follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
 - **Every wild must name a real colour**, GlobalSwitch included, and every entry point rejects a
   colourless one. `Wild` must never reach `State.ActiveColor`.
@@ -350,8 +352,12 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   match cannot remove from being broadcast as connected. **A finished ordinary table holds its seats
   too** — the match is over, the rematch is not — so `join_room` reclaims a held seat at any table
   that is not a lobby, the reclaim carries **no `state`** when there is none, and the expiry there
-  removes the seat for real. Matchmade tables are excluded on purpose.
+  removes the seat for real. A finished matchmade table is excluded on purpose; **a matchmade table
+  in its versus reveal holds its seats too** and reclaims them the same way, because a reload there
+  keeps its seat client-side and a lobby departure took the recap's columns with it.
 - **Personalised sends index by slot, never by `member.playerID`.**
+- **Removing a seat re-bases everything the scoreboard is drawn from** (`RemoveLobbyPlayer`), and the
+  `player_left` that shrinks the roster carries the re-based `scoreboard` and `round_history`.
 - **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback.
   `game.newRNG` seeds the source that picks the map, the starting seat and the shuffle: **the deal is
   hidden state, so a clock seed hands every hand to anyone who timed `create_room`**.
@@ -391,7 +397,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `pending_draw`, `has_drawn`, `player_index` and `player_id` are pointers. Read seats with
   `ServerMsg.Seat()` / `ServerMsg.OwnSeat()` (-1 = no seat named).
 - **Bots**: `game/bot.go` decides, `hub` schedules, through the same domain calls and broadcasts as
-  humans. Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
+  humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**; a bot batches
+  its identical copies on its turn exactly as a human's tap does; **a refused bot move gives the turn
+  up, never the table** (`botRecover`), and `botCanPlayDrawn` asks `BotThink`, not `CanPlay`.
+- **An AFK kick answers the socket, never the turn**: the clock draws and passes for the kicked seat
+  like any empty chair, a reclaim clears the counter, and the auto-draw re-arms before it broadcasts.
+- **Every snapshot carries `catch_seats` and `declared_seats`**, and what is the same for every
+  recipient is built once per broadcast (`sharedGameState`). Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
   `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
 - **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, so the
   seat that owes the call always has the first half of it; never scheduled past the deadline, because
@@ -612,6 +624,9 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   nothing** — N of them name one colour — so it goes out alone unless the batch empties the hand and
   takes the round. Nobody is asked how many copies to send, because an interject is a reaction; that
   is why the tap must never spend more than the reaction was worth. `game.BotInterrupt` mirrors it.
+- **Every board control acts on the press, never on the release** (`components/press.ts`,
+  `use:pressToAct`): `click` waits for the pointer to come back up, and an interject is decided by
+  arrival order. Keyboard clicks still act; a disabled control fires on neither path.
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.
@@ -1182,7 +1197,8 @@ stated at the top of `styles/tokens.css`:
   padding, and 32px put the waiting room's heading under the gear.
 - **The standings are opened in order to be read, so nothing the board draws crosses them**
   (`ScoreTable`'s `.overlay`, **z-index 48**): above the whole transient band — notices 14, the toast
-  30, both banners 45, the chip row and the leave question 46, the catch capsule 47 — and below the
+  30, the three shouts (both banners and the LOCO! line) 45, the chip row and the leave question 46,
+  the catch capsule and the round summary 47 — and below the
   reconnect curtain (50), the two pickers (100), the map gate (900) and the rules modal (1000), which
   are the only things that outrank a read. **The chip row going under it is deliberate**: the panel
   answers for its own dismissal with a 40px ✕ and a scrim, so covering the button that pinned it costs

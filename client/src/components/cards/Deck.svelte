@@ -1,5 +1,6 @@
 <script lang="ts">
   import CardBack from './CardBack.svelte'
+  import { pressToAct } from '../press'
   import { deckPosition } from './layout'
   import { CARD_W, CARD_H } from './cardTheme'
 
@@ -49,7 +50,7 @@
   class:interactive
   style="left: {pos.x}px; top: {pos.y}px; width: {CARD_W +
     LAYERS.length * LAYER_OFFSET}px; height: {CARD_H + LAYERS.length * LAYER_OFFSET}px"
-  onclick={interactive ? onDraw : undefined}
+  use:pressToAct={interactive ? onDraw : undefined}
   onkeydown={onKey}
   role={interactive ? 'button' : undefined}
   tabindex={interactive ? 0 : undefined}
@@ -67,9 +68,26 @@
   .deck {
     position: absolute;
     pointer-events: none;
-    transition:
-      transform 0.15s var(--ease-bounce),
-      filter 0.15s ease;
+    transition: transform 0.15s var(--ease-bounce);
+    /* A stacking context of its own, so the glow below can sit at `z-index: -1`
+       behind the four layers of the pile and still be inside the deck. */
+    isolation: isolate;
+  }
+
+  /* The glow, as a pseudo-element under the pile animated on opacity. It was a
+     `filter: drop-shadow()` transitioned on the deck itself, and a transitioned
+     filter re-rasterises the whole pile — four card backs — on every frame of
+     the fade, twice per turn. A box shadow on a rounded box the pile's size is
+     the same halo, painted once and faded on the compositor. */
+  .deck::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 14px;
+    box-shadow: 0 0 14px 4px color-mix(in srgb, var(--color-secondary) 55%, transparent);
+    opacity: 0;
+    transition: opacity 0.15s ease;
   }
 
   /* Drawing is legal: the pile lifts, glows and accepts a click. */
@@ -78,12 +96,23 @@
     cursor: pointer;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
-    filter: drop-shadow(0 0 12px rgba(255, 201, 60, 0.55));
   }
 
-  .interactive:hover {
-    transform: translateY(-5px) scale(1.03);
-    filter: drop-shadow(0 0 20px rgba(255, 201, 60, 0.8));
+  .interactive::after {
+    opacity: 1;
+  }
+
+  /* Hover on a device that has one. A touch screen synthesises `:hover` on
+     the tap and keeps it there, so the pile stayed lifted and lit after the
+     draw — a deck that looked pressable on a turn that was over. */
+  @media (hover: hover) {
+    .interactive:hover {
+      transform: translateY(-5px) scale(1.03);
+    }
+
+    .interactive:hover::after {
+      box-shadow: 0 0 22px 6px color-mix(in srgb, var(--color-secondary) 80%, transparent);
+    }
   }
 
   .interactive:active {

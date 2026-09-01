@@ -136,7 +136,11 @@
     box-shadow: var(--shadow-hard);
     pointer-events: none;
     font-family: var(--font-display);
-    will-change: transform;
+    /* No `will-change` here. A seat moves when the arc is recomputed — a join, a
+       leave, a resize — which is a handful of times a match; a permanent
+       compositor layer per pill costs memory on every frame for a glide that
+       happens on none of them. The hand's slots keep theirs (they reflow on
+       every play). */
     /* Turn / connection state changes fade rather than snap, and the seat glides
        to a recomputed arc instead of jumping. */
     transition:
@@ -156,9 +160,13 @@
       0 0 26px 6px rgba(255, 201, 60, 0.45);
   }
 
+  /* A seat that is gone is quiet, and quiet is a hue. The pill used to drop to
+     0.72 opacity *and* set its label in `--color-muted-soft`, which multiplied
+     out to 2.31:1 — a nickname a spectator could not read on the seat whose
+     absence is the news. The fill and the outline dim; the ink does not. */
   .slot.disconnected {
     background: var(--color-surface-strong);
-    opacity: 0.72;
+    border-color: var(--color-border-strong);
   }
 
   /* Crowded phone table: name and count only. Dimensions mirror SEAT_DIMS.mini. */
@@ -248,8 +256,9 @@
     font-weight: 700;
   }
 
+  /* `--color-muted`, never `-soft`: 4.5:1 on the dimmed fill in both themes. */
   .slot.disconnected .label {
-    color: var(--color-muted-soft);
+    color: var(--color-muted);
   }
 
   /* Card count — sits on the pill's right edge, straddling the outline. */

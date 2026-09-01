@@ -458,9 +458,10 @@
     font-weight: 700;
   }
 
-  /* The gap, not the result. Quiet is a hue here like everywhere else. */
+  /* The gap, not the result. Quiet is a hue here like everywhere else. 12px is
+     the floor for anything on a screen a spectator reads; this was 11. */
   .scoreGap {
-    font: 700 11px/1.2 var(--font-display);
+    font: 700 12px/1.2 var(--font-display);
     color: var(--color-muted);
   }
 
@@ -504,10 +505,10 @@
 
   .recapTh,
   .recapThName {
-    /* 11px, which is the floor — the Label step included. These name the columns
-       somebody reads the evening out of, and the score table's heads were pulled
-       back off 10px for exactly this reason. */
-    font: 700 11px/1.15 var(--font-display);
+    /* 12px, which is the floor for a spectator's screen — they were 11, and the
+       score table's heads were pulled back off 10px before that for the same
+       reason. These name the columns somebody reads the evening out of. */
+    font: 700 12px/1.15 var(--font-display);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--color-muted);

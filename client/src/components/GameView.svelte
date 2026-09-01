@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { CardColor, ClientMsg } from '../types/protocol'
-  import { UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
+  import { gameStore, UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
   import { game } from '../hooks/gameStore.svelte'
   import { drainBar, URGENT_AT } from '../hooks/drainBar.svelte'
   import {
@@ -252,11 +252,15 @@
     const end = catchWindowEnd
     if (end === null) return
     const remaining = end - Date.now()
+    // The action is read off the store, never off `g`: the snapshot is replaced
+    // on every message, and reading it here re-armed this timer several times a
+    // second for a deadline that had not moved.
+    const prune = gameStore.getState().pruneCatchWindows
     if (remaining <= 0) {
-      g.pruneCatchWindows()
+      prune()
       return
     }
-    const id = setTimeout(g.pruneCatchWindows, remaining)
+    const id = setTimeout(prune, remaining)
     return () => clearTimeout(id)
   })
 
@@ -691,7 +695,16 @@
 
   {#if g.matchFormat !== 'BO1' || decisiveRound}
     <div class="roundIndicator" class:roundIndicatorDecisive={decisiveRound}>
-      {#if decisiveRound}{t.decisiveRound}{:else}{t.round} {g.roundNumber} · {g.matchFormat}{/if}
+      <!-- Two spellings of one chip. Under 480px the chrome row on the right is
+           five chips wide and leaves the left corner about 110px: "Round 2 · BO3"
+           ran under the scores chip. The short form is the score table's own
+           `M%n` convention, so it is a name the player has already read. -->
+      <span class="roundFull">
+        {#if decisiveRound}{t.decisiveRound}{:else}{t.round} {g.roundNumber} · {g.matchFormat}{/if}
+      </span>
+      <span class="roundShort" aria-hidden="true">
+        {#if decisiveRound}{t.decisiveRoundShort}{:else}{t.roundShort.replace('%n', String(g.roundNumber))} · {g.matchFormat}{/if}
+      </span>
     </div>
   {/if}
 
@@ -725,12 +738,14 @@
     color: var(--color-ink);
   }
 
-  /* Reconnect / transport-down overlay */
+  /* Reconnect / transport-down overlay. The heavy scrim and no blur: a
+     `backdrop-filter` held over a board is re-rasterised on every frame anything
+     under it moves, and this curtain stays up for as long as the socket is down
+     over a table that keeps animating — the seats, the ring, the turn clock. */
   .reconnectOverlay {
     position: absolute;
     inset: 0;
-    background: var(--color-scrim);
-    backdrop-filter: blur(5px);
+    background: var(--color-scrim-heavy);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -808,8 +823,22 @@
     /* Sits above the pile rather than over it — the play that triggered the shout
        must stay visible while the banner is up. */
     top: 24%;
-    left: 50%;
-    font: 700 clamp(30px, 5.6vw, 56px) / 1 var(--font-display);
+    /* Centred by `inset-inline: 0` + `margin-inline: auto`, never `left: 50%` —
+       the rule the notice pills below carry, and the same bug: anchored at the
+       midpoint the box is shrink-to-fit against the right half of the screen,
+       and with `nowrap` on top of that a 20-character nickname ran the sticker
+       off both edges of a 360px phone. `fit-content` inside a max-width keeps
+       it a sticker at desktop width and lets it wrap on a phone; `anywhere`
+       is for the nickname, which may be one 20-character word. */
+    inset-inline: 0;
+    margin-inline: auto;
+    width: fit-content;
+    max-width: calc(100% - 2 * var(--space-base));
+    box-sizing: border-box;
+    text-align: center;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+    font: 700 clamp(26px, 5.6vw, 56px) / 1.05 var(--font-display);
     letter-spacing: -1px;
     color: var(--color-on-dark);
     background: var(--gradient-primary);
@@ -820,24 +849,34 @@
       0 8px 0 var(--color-stroke-soft),
       0 0 60px rgba(255, 61, 104, 0.6);
     text-shadow: 0 4px 0 rgba(120, 10, 40, 0.5);
-    white-space: nowrap;
     pointer-events: none;
     animation: unoPunch 0.45s var(--ease-bounce) forwards;
-    z-index: 10;
+    /* 45: the third of the three moments allowed to shout, on the layer the
+       interception slam and the catch stamp already hold. At 10 it sat under
+       the notice pills (14), and on a phone a Swap landing on the same beat
+       printed its line across the shout. The whole ledger is in
+       `ScoreTable.svelte`. */
+    z-index: 45;
   }
 
   @keyframes unoPunch {
     0% {
       opacity: 0;
-      transform: translate(-50%, -50%) scale(0.3) rotate(-14deg);
+      transform: translateY(-50%) scale(0.3) rotate(-14deg);
     }
     55% {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1.12) rotate(-3deg);
+      transform: translateY(-50%) scale(1.12) rotate(-3deg);
     }
     100% {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1) rotate(-4deg);
+      transform: translateY(-50%) scale(1) rotate(-4deg);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .unoBanner {
+      padding: 10px 22px;
     }
   }
 
@@ -1210,6 +1249,19 @@
     text-transform: uppercase;
     pointer-events: none;
     z-index: 15;
+  }
+
+  .roundShort {
+    display: none;
+  }
+
+  @media (max-width: 480px) {
+    .roundFull {
+      display: none;
+    }
+    .roundShort {
+      display: inline;
+    }
   }
 
   /* Gold, the hue the scoreboard already wins in, and dark ink on it: white on

@@ -121,6 +121,7 @@ export const fr: Translations = {
   fxSkip: 'PASSE\u00a0!',
   fxReverse: 'DEMI-TOUR\u00a0!',
   fxColors: { red: 'ROUGE\u00a0!', yellow: 'JAUNE\u00a0!', green: 'VERT\u00a0!', blue: 'BLEU\u00a0!' },
+  colorNames: { red: 'rouge', yellow: 'jaune', green: 'vert', blue: 'bleu', wild: 'joker' },
   directionCw: 'Sens du jeu\u00a0: horaire',
   directionCcw: 'Sens du jeu\u00a0: antihoraire',
   drawPile: 'Pioche',
@@ -215,6 +216,8 @@ export const fr: Translations = {
   complete: 'pliée',
   winsRound: 'rafle la manche\u00a0!',
   decisiveRound: 'Manche décisive',
+  roundShort: 'M%n',
+  decisiveRoundShort: 'Décisive',
   decisiveRoundWhy: 'Rien ne sépare la table. On remet une manche.',
   player: 'Joueur',
   // Colonnes de 40px dans RoundSummary : « Position » et « Victoires »
