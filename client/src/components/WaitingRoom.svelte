@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
-  import Backdrop from './Backdrop.svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
@@ -155,8 +154,6 @@
 </script>
 
 <div class="container">
-  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
-  <Backdrop />
   <div class="topBar">
     <Preferences />
     <AudioSettings />
@@ -356,9 +353,6 @@
      people say it out loud on stream — so it gets plaque treatment. */
 
   .container {
-    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
-       above the canvas and below everything this screen draws. */
-    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;

@@ -7,7 +7,6 @@
   import Preferences from './Preferences.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import LocoLogo from './LocoLogo.svelte'
-  import Backdrop from './Backdrop.svelte'
   import { playSfx } from '../audio/sfx'
   import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
@@ -145,6 +144,11 @@
   // the screen change is already obvious.
   function goHome() {
     playSfx('uiBack')
+    // A refusal belongs to the form it answered: "the cards are already out at
+    // this table" has nothing to say on the home screen the player just went
+    // back to, and it used to stay there over the four buttons.
+    onClearError()
+    nicknameRefused = false
     mode = 'home'
   }
 
@@ -180,8 +184,6 @@
 </script>
 
 <div class="container">
-  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
-  <Backdrop />
   <!-- The sign of life, opposite the chip row and on the same line. Drawn from
        two up and absent below it, never zeroed or reworded: playersOnline.ts. A
        status line rather than a control — nothing here is pressable, so it is a
@@ -368,9 +370,6 @@
      with depth and the two CTAs are unmistakably pressable. */
 
   .container {
-    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
-       above the canvas and below everything this screen draws. */
-    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;

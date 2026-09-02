@@ -1145,13 +1145,12 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 The brief this pass answered was "everything that feels soulless". Four things, each small, each in
 the same voice as the rest of the board.
 
-- **The entry screens sit in a room** (`components/Backdrop.svelte`, mounted first in `Lobby`,
-  `Searching`, `MatchFound` and `WaitingRoom`): four very soft lights in the suit hues drifting over
-  the ground, and seven cards lying in it face down, turning at the pace of weather. The canvas
-  behind a card game was one flat colour, which is a form under a form. Compositor only — each light
-  is a radial gradient on a layer rasterised once and moved by transform, the cards are ink at a
-  whisper — and a still composition under reduced motion. It is `position: fixed` and
-  `pointer-events: none`, so `/` still never scrolls and nothing can be pressed through it.
+- **No painted ambience.** A first pass put drifting colour lights and floating card silhouettes
+  behind the entry screens, and it was taken out the same day: soft glowing blobs on a dark ground
+  are the texture every generated interface wears now, and people read it as the absence of a
+  decision. The canvas stays the designed gradient and the objects on it carry the life —
+  entrances, presses, a hand dealt, numbers counted. If ambience ever comes back it is drawn from
+  the game's own vocabulary (a real card, an ink outline, a hard shadow), never from a glow.
 - **The home screen arrives in order** (`Lobby`'s `riseIn`): the mark, the line under it, then the
   four buttons one after another, 60 ms apart, once, under the boot fade. A screen that appears in
   one frame is a page loading.

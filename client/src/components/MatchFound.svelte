@@ -3,7 +3,6 @@
   import { i18n } from '../i18n/i18n.svelte'
   import { seatColor, seatInitial } from './playerColors'
   import LocoLogo from './LocoLogo.svelte'
-  import Backdrop from './Backdrop.svelte'
 
   type Props = {
     myNickname: string
@@ -51,8 +50,6 @@
   do while the server is the one deciding.
 -->
 <div class="container">
-  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
-  <Backdrop />
   <LocoLogo size="clamp(34px, 6vw, 56px)" />
   <p class="kicker">{t.matchFoundKicker}</p>
 
@@ -90,9 +87,6 @@
      the countdown is the only thing that moves afterwards. */
 
   .container {
-    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
-       above the canvas and below everything this screen draws. */
-    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;

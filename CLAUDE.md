@@ -1254,8 +1254,8 @@ stated at the top of `styles/tokens.css`:
   600×800 it is drawn at. Built from the real `<LocoLogo />` and the real `<Card />` for the reason
   the link preview is: the art leaves this repository, and nothing here can watch it go stale.
   `coverCard.test.ts` pins the ratio, the floor and the no-other-text rule.
-- **The entry screens sit in a room** (`Backdrop.svelte`: drifting suit-hued lights and face-down
-  cards, compositor only, still under reduced motion), **a hand is dealt off the deck card by card**
+- **No painted ambience behind a screen: no glowing blobs, no floating silhouettes.** The canvas is
+  the designed gradient and the objects on it carry the life. **A hand is dealt off the deck card by card**
   (`GameBoard`'s deal effect, `DEAL_FLIGHT_MS`, keyed on `roundNumber`), **numbers are counted**
   (`countUp.ts`) and **every screen arrives** (`hooks/screenIn.ts`, in only, never out). The
   reasoning and the constraints are under "Ambience and celebration" in the note.

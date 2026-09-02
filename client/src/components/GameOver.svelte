@@ -2,7 +2,6 @@
   import type { Emote, MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import CardFall from './CardFall.svelte'
-  import Backdrop from './Backdrop.svelte'
   import OutcomeMark, { type Outcome } from './OutcomeMark.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
@@ -141,8 +140,6 @@
 </script>
 
 <div class="container">
-  <!-- The same room the evening started in. -->
-  <Backdrop />
   <!-- Only the winner gets the fall. A losing screen that celebrates is a worse
        experience than a quiet one, and a walkover is not something to empty the
        deck over either. -->
@@ -334,7 +331,6 @@
      trophy card: heavy panel, oversized emoji, ranked scoreboard. */
 
   .container {
-    isolation: isolate;
     display: flex;
     /* Column, like every other full-screen container here, and the direction is
        the whole of the rule rather than a tidying: `safe center` only ever
