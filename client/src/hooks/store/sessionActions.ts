@@ -1,4 +1,5 @@
 ﻿import { StateCreator } from './createStore'
+import { stamp } from './helpers'
 import { clearSession } from '../sessionPersistence'
 import { AppScreen, GameStore, SessionActions } from './types'
 
@@ -40,10 +41,11 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
         sessionToken: '',
         myIndex: -1,
         errorMsg: reason,
+        errorAt: stamp(),
       }
     }),
 
-  setError: (errorMsg) => set({ errorMsg }),
+  setError: (errorMsg) => set({ errorMsg, errorAt: stamp() }),
   clearError: () => set({ errorMsg: '' }),
   setIsReconnecting: (isReconnecting) => set({ isReconnecting }),
   setServerUpdating: (serverUpdating) => set({ serverUpdating }),
@@ -95,6 +97,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       mapLoading: null,
       turnDeadline: null,
       catchWindows: [],
+      catchLive: false,
       unoDeclared: false,
       unoDeclaredByIndex: -1,
       declaredSeats: [],

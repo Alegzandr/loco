@@ -3,6 +3,7 @@ import type { ClientMsg, ServerMsg } from '../types/protocol'
 import { serverMsgSchema } from '../types/protocolSchemas'
 import {
   DIRECT_FAILURES_BEFORE_FALLBACK,
+  keepPendingIntent,
   reconnectDelay,
   wsEndpoints,
   wsUrl,
@@ -28,7 +29,7 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
   // Holds messages queued while the socket was not OPEN; flushed in FIFO order on
   // the next successful onopen so a user can rapidly tap multiple actions (draw +
   // play) during a brief reconnect without losing any of them.
-  let pending: string[] = []
+  let pending: { data: string; type: string; at: number }[] = []
   let attempts = 0
   let unmounted = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -72,8 +73,13 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
       if (reconnectMsg) socket.send(JSON.stringify(reconnectMsg))
       // Flush every queued message in order. Without this, a rapid double-tap
       // during a reconnect window would lose all but the last action.
+      // …unless it is a gameplay intent that has aged past the point where
+      // the board it was aimed at still exists. See webSocketPolicy.ts.
       if (pending.length > 0) {
-        for (const data of pending) socket.send(data)
+        const now = Date.now()
+        for (const entry of pending) {
+          if (keepPendingIntent(entry.type, entry.at, now)) socket.send(entry.data)
+        }
         pending = []
       }
     }
@@ -184,7 +190,7 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
       const data = JSON.stringify(msg)
       if (ws?.readyState === WebSocket.OPEN) ws.send(data)
       // Buffer in order; flushed on the next successful onopen.
-      else pending.push(data)
+      else pending.push({ data, type: msg.type, at: Date.now() })
     },
     get wsStatus() {
       return status

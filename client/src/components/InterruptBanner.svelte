@@ -202,6 +202,23 @@
     }
   }
 
+  /* Same treatment the catch stamp has at this width: a nickname is up to 20
+     characters, and a subtitle that may not wrap took one off both edges of a
+     360px screen. */
+  @media (max-width: 480px) {
+    .banner {
+      padding: 13px 24px;
+    }
+    .combo {
+      right: -10px;
+      font-size: 17px;
+    }
+    .subtitle {
+      white-space: normal;
+      text-align: center;
+    }
+  }
+
   :root[data-motion="reduce"] .slash {
     display: none;
   }

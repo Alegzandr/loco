@@ -104,13 +104,14 @@ func (h *Hub) refuseAction(c *Client, t *table, err error) {
 // send below.
 func (h *Hub) broadcastPersonalizedGameState(t *table) {
 	pl := h.playerList(t)
+	shared := h.sharedGameState(t)
 	for seat, member := range t.members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameState,
-			State: h.playerGameStateUsing(t, seat, pl),
+			State: h.playerGameStateWith(t, seat, pl, shared),
 		})
 	}
 }

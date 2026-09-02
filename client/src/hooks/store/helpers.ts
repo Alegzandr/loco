@@ -1,6 +1,24 @@
 import { CardDTO, GameStateDTO } from '../../types/protocol'
 import { CatchWindow, SwapNotice } from './types'
 
+let lastStamp = 0
+
+/**
+ * A timestamp that is also an identity.
+ *
+ * Every flash, banner and sound in this store is guarded on `next.at !==
+ * prev.at`, and `Date.now()` alone answers two events in the same millisecond
+ * with the same number — routine against a bot or on a LAN, where the server
+ * writes several messages from one read. The second play's flight, its sound
+ * and its banner were all silently skipped. Strictly increasing, so two stamps
+ * are never equal, and still wall-clock enough for the deadlines read off it.
+ */
+export function stamp(): number {
+  const now = Date.now()
+  lastStamp = now > lastStamp ? now : lastStamp + 1
+  return lastStamp
+}
+
 // deriveCatch picks the catch the UI offers: the window closest to expiring
 // among the opponents'. Ours never counts: you cannot catch yourself, and at
 // one card the action bar is showing us the LOCO! button instead. A window we
@@ -86,7 +104,7 @@ export function makeSwapNotice(
       actorIndex,
       targetIndex: typeof chosenPlayer === 'number' ? chosenPlayer : -1,
       direction,
-      at: Date.now(),
+      at: stamp(),
     }
   }
   if (card.kind === 'global_switch') {
@@ -95,7 +113,7 @@ export function makeSwapNotice(
       actorIndex,
       targetIndex: -1,
       direction,
-      at: Date.now(),
+      at: stamp(),
     }
   }
   return null

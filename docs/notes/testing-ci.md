@@ -25,6 +25,11 @@ Keep tests fast, targeted, non-brittle, and cover game rules over UI details. Re
 and motion changes with `make visual` instead: reading four contact sheets catches what no assertion
 was going to describe. Assertions own behaviour, screenshots own appearance.
 
+Both browser harnesses (`make visual`, `make audio-verify`) launch the Chromium their `playwright`
+package downloaded; on a machine that has a browser but not that one, `LOCO_CHROMIUM=/path/to/chrome`
+points them at it instead of fetching another copy. The Playwright suite itself is pinned to its
+image (`PLAYWRIGHT_VERSION`) and takes no such override.
+
 ### The three seams a component test goes through
 
 None of these is optional plumbing. Each one exists because a whole class of test lied without it.

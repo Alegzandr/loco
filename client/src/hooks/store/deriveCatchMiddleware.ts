@@ -39,6 +39,11 @@ export const deriveCatchState =
           typeof partial === 'function'
             ? (partial as (s: GameStore) => Partial<GameStore>)(state)
             : (partial as Partial<GameStore>)
+        // An action that hands the state back unchanged is the store's own
+        // "nothing to do", and it has to stay one: spreading it into a fresh
+        // object here turned every no-op (a prune with nothing expired, a
+        // player_left naming no seat) into a full-app invalidation.
+        if (patch === state) return state
         // A write that names none of them cannot have changed the answers.
         // `myIndex` counts: an authoritative snapshot can re-seat us, and our
         // own window is never the one the button offers.

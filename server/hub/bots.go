@@ -631,10 +631,20 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 func (h *Hub) botPlay(t *table, playerID int, action game.BotAction) {
 	room := t.room
 	h.botDeclareBeforeFinish(t, playerID)
-	if err := room.PlayCard(playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
+	var err error
+	if len(action.Cards) > 1 {
+		err = room.PlayCards(playerID, action.Cards, action.ChosenColor, -1, action.DeclareLoco)
+	} else {
+		err = room.PlayCard(playerID, action.Card, action.ChosenColor, action.ChosenPlayer)
+	}
+	if err != nil {
 		log.Printf("bot play error: %v", err)
+		h.botRecover(t, playerID)
 		return
 	}
+	// A finishing batch carries its call, and the table hears it before the
+	// cards, exactly as it does for a human's (announceFinishingLoco).
+	h.announceFinishingLoco(t, playerID, action.Cards)
 	h.broadcastCardPlayed(t, playerID, action.ChosenPlayer)
 	if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
 		h.broadcastPersonalizedGameState(t)
@@ -649,6 +659,7 @@ func (h *Hub) botCounter(t *table, playerID int, action game.BotAction) {
 	h.botDeclareBeforeFinish(t, playerID)
 	if err := room.CounterDraw(playerID, action.Card, action.ChosenColor); err != nil {
 		log.Printf("bot counter error: %v", err)
+		h.botRecover(t, playerID)
 		return
 	}
 	h.broadcastCardPlayed(t, playerID, -1)
@@ -733,14 +744,47 @@ func (h *Hub) maybeScheduleBotReactions(t *table) {
 	}
 }
 
-// botCanPlayDrawn reports whether the bot can play any card in its hand against
-// the current top discard / active color.
+// botCanPlayDrawn reports whether the bot *will* play something now that it has
+// drawn. It asks BotThink rather than CanPlay, because the two can disagree: a
+// legal Swap the bot declines (`botSwapPays`) is playable and will not be
+// played, and answering "yes" here scheduled a move that asked to draw again,
+// was refused, fell through to the scheduler, and came back every two seconds
+// for the rest of the match with the turn never leaving the bot's seat.
 func botCanPlayDrawn(state *game.GameState, playerID int) bool {
-	topCard := state.Discard[len(state.Discard)-1]
-	for _, c := range state.Hands[playerID].Cards {
-		if game.CanPlay(c, topCard, state.ActiveColor) {
-			return true
+	return game.BotThink(state, playerID).Kind != game.BotDraw
+}
+
+// botRecover is what a bot does when the domain refused the move it chose: it
+// gives the turn up rather than the table. Bots are exempt from the turn clock,
+// so a refused play with no fallback was not a lost turn but a dead table —
+// nothing armed to move the turn, nobody able to take it. It draws if it has
+// not (a draw never fails, and the drawn card may be the answer), and passes
+// otherwise; the pass is the floor, because a second refusal after the draw is
+// the same refusal and must not loop.
+func (h *Hub) botRecover(t *table, playerID int) {
+	room := t.room
+	if room.Status != game.StatusPlaying || room.State == nil || room.State.CurrentTurn != playerID {
+		return
+	}
+	if !room.State.HasDrawn {
+		if h.botDraw(t, playerID) {
+			return
+		}
+		// botDraw either passed for us or failed to draw: only the latter
+		// leaves the turn here.
+		if room.State.CurrentTurn != playerID {
+			return
 		}
 	}
-	return false
+	if err := room.PassTurn(playerID); err != nil {
+		log.Printf("bot recover pass error code=%s player=%d err=%v", t.code, playerID, err)
+		return
+	}
+	h.scheduleTurnTimer(t)
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:         protocol.SMsgTurnChanged,
+		Turn:         room.State.CurrentTurn,
+		TurnDeadline: turnDeadlineMs(t),
+	})
+	h.maybeScheduleBot(t)
 }

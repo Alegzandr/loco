@@ -27,6 +27,13 @@ Both are now what their names say, and the work sits beside the other work of it
 
 ### One snapshot, and what that costs an effect
 
+Two more places this was lost and found again: the catch-window prune effect in `GameView` read
+`g.pruneCatchWindows` and so re-armed its timer on every message (the action is read off
+`gameStore.getState()` now, which is stable), and `deriveCatchMiddleware` turned an action's "hand the
+state back unchanged" into a fresh object, so every no-op — a prune with nothing expired, a
+`player_left` naming no seat, a `clearOpponentAway` for a seat that was not away — became a full-app
+invalidation. `patch === state` is returned as `state`; `storeNoOp.test.ts` counts the notifications.
+
 `hooks/gameStore.svelte.ts` holds the whole store in a single `$state.raw` and replaces it on every
 write. That is the right shape for reading — the board is props off one object, and a deep proxy
 would clone its identity on every read for nothing — and it is a trap for *watching*. Svelte tracks
@@ -326,6 +333,42 @@ polish.
   setting `lastPlay`, so the prompt stayed up over a table that had gone and the choice went out
   against a state the server had already replaced. Being asked for a swap target and *then* refused
   is the one rejection in this game that reads as a broken promise rather than as an illegal card.
+- **The handling has a hand in it**: `sfx.ts` detunes and softens the card sounds a little per hit
+  (`humanVariation`), and `hooks/haptics.ts` answers the same cue list with one vibration pattern per
+  moment. Both live beside the sounds so the three can never disagree about what happened.
+- **Every board control acts on the press, not on the release** (`components/press.ts`,
+  `use:pressToAct` on `Card`, `Deck` and the four buttons of the action bar). `click` is dispatched
+  when the pointer comes back up — 80–150 ms after the finger landed on a touch screen, a good part
+  of that on a mouse — and it was the longest hop on the realtime path nothing measured: an
+  interject or a Contre-LOCO! lost to a player whose press had landed *later*, because their finger
+  left the glass sooner. The handler runs on `pointerdown` for the primary button and the `click`
+  the same press produces is swallowed; a click no press preceded (Enter or Space on a real button,
+  a synthetic one) still runs it, so nothing reachable stops being reachable; a disabled control
+  fires on neither path, because Chromium dispatches pointer events on disabled form controls and
+  the attribute is the answer. What is given up is cancelling a press by sliding off the control,
+  which on a board built around five-second windows was never a gesture anybody made on purpose.
+  `press.test.ts` and `card.test.ts` pin it; Playwright's `click()` is a press followed by a
+  release, so the E2E suite exercises the real path.
+- **The packet goes out before anything else moves** (`App.handleSend`): clearing the refusal toast
+  is a store write, and a store write notifies every subscriber — the sounds, the session record,
+  every derived value the board reads — so cleared *before* the send it put all of that between the
+  tap and the wire. Send, then clear.
+- **A queued gameplay intent ages out** (`webSocketPolicy.keepPendingIntent`,
+  `PENDING_INTENT_MAX_AGE_MS`). A message sent while the socket is down is queued and flushed when it
+  comes back, so a draw-then-play tapped across a quarter-second blip loses nothing; but the backoff
+  never gives up, so "when it comes back" can be a minute later against a board that has moved on
+  by several turns, and a card the player chose then is not a card they choose now. Plays, draws,
+  passes, calls, catches and emotes carry their age and are dropped past the bound; a table to join
+  or a search to enter is a decision that ages fine. `pendingIntents.test.ts`.
+- **A stamp is an identity** (`store/helpers.ts` `stamp()`): every flash, banner and sound is guarded
+  on `next.at !== prev.at`, and `Date.now()` answered two events in one millisecond — routine against
+  a bot or on a LAN — with one number, so the second play's flight, its sound and its banner were
+  all skipped. `stamp()` is strictly increasing.
+- **The discard effects key on the play, not the face** (`GameBoard`'s discard effect, `DiscardPile`'s
+  `playStamp`). An interject is by definition the same face as the card under it, so keyed on the
+  face alone an intercepted +4 drew no `+N`, no impact and no settle — nothing at all on the loudest
+  moment in the game — and the "already covered by a flight" flag was left set to swallow the next
+  genuine change. The flag is now read and cleared before any early return.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ## Client transport
@@ -1587,6 +1630,47 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
 
+## TAB is the scoreboard key (`heldKey`)
+
+Hold TAB, the standings are there; let go, they are gone. It is the one keyboard gesture a player
+arrives already knowing, and it only reads that way if **the press itself is the gesture**.
+
+The hook has been through both ends of that. It first owned the key from the first keydown with no
+way back, so from the moment the board mounted TAB and Shift+TAB went nowhere and a keyboard or
+switch user could not reach a card, the draw pile or the bar: the "focused control is the
+accessibility path" contract below was unreachable in practice. The fix at the time was to hand the
+first press back to the browser and arm the hold on a timer, and that traded one failure for a
+different one — the panel arrived a beat after the press, and the beat it arrived after was the
+browser moving the focus ring somewhere on the board on the way in. A scoreboard key that navigates
+first and reports second is not the gesture anybody meant.
+
+What is there now:
+
+- **The key is ours from the press.** `preventDefault` on the keydown, `held` true in the same
+  event, false again on the keyup. No timer, nothing to discover, and the focus never moves.
+- **Shift+TAB is never taken, and it is the keyboard's whole way around the board.** Every control
+  is reachable in reverse order, so owning the plain key is not a keyboard trap — WCAG 2.1.2 asks
+  for a documented way out and this is it. Ctrl/Alt/Meta go the same way: those combinations belong
+  to the browser and the window manager.
+- **A modifier pressed mid-hold changes nothing.** Once the key is down every repeat is swallowed
+  whatever the modifiers now say, or a Shift held during an open panel would walk the focus
+  backwards underneath it.
+- **`blur` releases it.** Alt-tabbing away swallows the keyup, and the panel would stay pinned over
+  the board with no way to dismiss it.
+- **`enabled: false` hands the key back whole.** Inside the rules modal, a picker or the round
+  summary, TAB is the dialog's, and the summary already shows the same numbers.
+
+`heldKey.test.ts` runs the press, the release, the swallowed repeats, every modifier and the blur;
+`score-table.spec.ts` asserts end to end that a held TAB moves no focus and that Shift+TAB still
+walks the board without opening anything. The E2E `holdScores` helper holds the key and waits, which
+is the same gesture a player makes.
+
+The two decision panels — a wild's colour, a Swap's target — are dialogs (`role="dialog"`,
+`aria-modal`, the label as the name) and `components/dialogFocus.ts` moves the focus in, cycles TAB
+inside, and hands it back on close. They were the only overlays here without any of that, and the
+two that stop the whole table on a choice. What a card is called aloud is `t.colorNames` plus
+`t.cardNames`, in the player's language — it used to be the wire identifiers, "wild wild_draw_four".
+
 ## No gameplay keyboard shortcuts, ever
 
 There is no key that plays a card, draws, passes, calls LOCO! or throws a Contre-LOCO!, and
@@ -1612,11 +1696,13 @@ no way not to aim at them.
 - A **global** handler (`window` / `document`) fires on a press nobody aimed. That is the thing
   being refused.
 - A **focused** control demands that you got there first: a card and the draw pile carry their
-  own `onkeydown` and act on Enter/Space once tabbed to, and the language listbox answers arrows
+  own `onkeydown` and act on Enter/Space once focused, and the language listbox answers arrows
   and Home/End on its own button. That is not a shortcut, it is the accessibility path, and
   `PRODUCT.md` commits to WCAG AA on every player-facing surface. **It must not be removed,
   reduced or made conditional in the name of this rule** — reading the rule that way is reading
-  it backwards.
+  it backwards. **At the table the way in is Shift+TAB**, because the plain key is the scoreboard
+  (above): the sequence is the same one in reverse, every control is on it, and nothing else about
+  those handlers changes.
 
 Three global key listeners exist and no fourth may be added: `heldKey` in
 `hooks/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves

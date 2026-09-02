@@ -235,7 +235,12 @@
     border: 2px solid rgba(255, 255, 255, 0.14);
     background: rgba(10, 8, 22, 0.55);
     font: 600 14px/1 var(--font-display);
-    color: rgba(255, 255, 255, 0.5);
+    /* 0.72, not 0.5: the plate is translucent over a photograph, and at half
+       white a name still loading sat under 3:1 on any bright patch of the room.
+       Same shadow as `.status` for the same reason — nothing on this screen may
+       rely on the picture staying dark behind it. */
+    color: rgba(255, 255, 255, 0.72);
+    text-shadow: 0 2px 10px rgba(4, 3, 12, 0.95);
     transition:
       color 0.3s ease,
       border-color 0.3s ease,

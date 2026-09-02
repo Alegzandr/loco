@@ -38,9 +38,47 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
     what this is (a game with its own soundtrack) and is the category that ignores the switch; it
     also stops whatever the player had going in another app, which is the deliberate trade. Use
     `'ambient'` instead to respect the switch and mix with other audio.
-- `audio/sfx.ts` — one-shots. Card handling is **noise** (paper has no pitch; a pitched click per
-  card becomes a melody nobody wrote); rule outcomes are **pitched and interval-based** so the table
-  learns them by ear.
+  - **The bed stops while the tab is hidden and comes back with it** (`music.setHidden`, driven
+    from `gameAudio()`'s `visibilitychange`). A page that plays audio is exempt from timer
+    throttling, so a backgrounded table went on building a bar of synthesis every 40 ms and
+    playing it out loud from behind another window. Only the bed: the effects are left alone,
+    because the turn cue reaching a player who looked away is the point of it, and `tabAlert`
+    expects exactly that.
+  - **Muted opens nothing.** `gameAudio()`'s gesture unlock and `AudioSettings`' mute button both
+    refuse to create a context while `muted` is set, so a player who muted before the first tap
+    never gets a context, a `playback` audio session (which on iOS stops whatever they had going
+    in another app) or a scheduler in service of silence. Unmuting is itself a gesture: the button
+    unlocks and starts the bed on the spot rather than leaving it to the next store change.
+  - **Settings are applied now and written later** (`PERSIST_DEBOUNCE_MS`, flushed on `pagehide`
+    and by `persistNow()`). A slider fires `input` dozens of times a second and `setItem` is
+    synchronous, so one write per step was sixty blocking writes a second on the main thread over
+    a live board, recording values the next step replaced.
+- `audio/sfx.ts` — one-shots, and a sound set with an identity rather than a drawer of oscillator
+  presets. The first set was sines, squares and swept noise — the sounds every prototype makes,
+  which is why it read as "heard a thousand times" — and it was replaced whole. Four materials, each
+  a primitive in the file, each voice built from them and nothing else:
+  - **Card stock on felt** (`cardHit`: a flick of combed noise, a resonant `snap`, a `thud` of the
+    table underneath; `cardDraw` slides fibrous noise through a comb; the deal is a `snap` riffle
+    climbing and panning across the pile). Nothing that handles a card is a pitched tone. Every hit
+    lands a shade to one side (`HUMAN_PAN`) and never twice the same (`humanVariation`).
+  - **Wood** (`mallet`: a fundamental and a fourth partial that dies faster, under a tick of attack
+    noise — marimba low, kalimba high). Every interface sound is one: the tap, the back, the turn
+    coming round, somebody sitting down or leaving, the two knocks of a refusal, the woodblock of
+    the countdown. The game is a table and its controls are things on it, not a phone's beeps.
+  - **Brass and bell** (`stab` for the chords, `bell` for a two-operator FM strike whose index
+    falls with the note): the call, the verdict, the match. The chords are the ones already
+    reasoned below; what changed is the body — a bell partial on top, a sub `thud` under the root,
+    and for the catch a gong at ratio 1.41, metal that does not agree with itself, because being
+    caught is not a tune.
+  - **Air** (`whoosh`: noise swelling into a sweep, panned across the room when it crosses one):
+    the breath before the LOCO! and the slam, the two hands of a swap passing each other, the
+    rush in front of a match found. It says "something moved fast" without playing a note.
+  - Two cues are envelopes nobody else has, on purpose: `reverse` is a note played backwards (it
+    swells in and stops dead, then the mallet lands on the far side) and `skip` is a zip past the
+    seat into a dead note. The ear knows what the ring did before the eye does.
+  - `make audio-verify` prints each cue's audible length beside its peak (`len=`, the last frame
+    above a fortieth of the loudest): a card game plays faster than its sounds decay, and that is
+    the column to read after touching a voice.
 - `audio/music.ts` — the bed **engine**. It contains no music: tracks are data in `audio/tracks/`,
   and this plays any of them (scheduling, synthesis, the arrangement ladder, the song form).
 - `audio/tracks/` — the music. `types.ts` documents the schema; `index.ts` is the registry (add a
@@ -57,6 +95,20 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
     loop whose only variation was layer count; the verdict was "it's just a chorus on repeat", and it
     was right — four bars at 138 BPM is 7 seconds. A track is now parts (`intro` / `verse` / `chorus`
     / `bridge` / `break`) plus a `form` ordering them, ~40 bars before anything returns.
+  - **A step whose time has passed is skipped, never played late** (`schedule`). The resync only
+    fired past a second of lag; anything shorter — a long frame, a throttled tick — walked the
+    loop through every missed sixteenth with a start time already in the past, and the browser
+    starts those *now*: kick, bass, arp, lead and hats as one stacked hit. The form still
+    advances through the skipped steps, so the bar resumes where it should be, not where it stopped.
+  - **The bass envelope's hold never sits inside its own decay.** Two of the three tracks write
+    bass notes under 120 ms, and a `setValueAtTime` at the note's end truncated the decay ramp with
+    a step in the gain — a click, four times a bar. The decay now lands at `min(0.12, dur)`.
+  - **A track change under a fanfare keeps the duck** (`dipThrough` reads `duckUntil`): the dip's
+    `cancelScheduledValues` used to take the duck's return with it and ramp the bed back to full
+    0.28 s later, under the one sound people clip.
+  - **The bag never reopens on the track that just stopped**, and a ⏭ pressed while the bed is
+    off is honoured by the next `start()` (`chosen`) instead of being overwritten by a fresh pick:
+    the label changed and the deal played something else.
   - **Two independent axes.** The form advances on its own (`nextFormIndex`); the game's intensity
     picks the *stack* (`sectionFor` → `LAYERS`) **and** biases which part comes next by role. Both are
     pure and unit-tested — "does the music go somewhere" is a claim about behaviour, not about taste.
@@ -193,6 +245,33 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
     confidently reported ×1.05 for a bed that does change.
   - Deliberately outside CI: audio devices in CI containers are unreliable and a flaky sound
     assertion trains people to ignore red. Run it after touching `sfx.ts`, `music.ts` or `engine.ts`.
+- **What `gameSounds.ts` keys a cue on is a stamp, never a flag or a string.** `unoDeclared` is a
+  latch that stays up under the banner, so a second seat calling it (routine after a Global
+  Switch) made no sound; `errorMsg` compared as a string heard one of two identical refusals. Both
+  carry a stamp now (`unoDeclaredAt`, `errorAt`), minted by `store/helpers.ts`'s `stamp()`, which
+  is strictly increasing so two events in one millisecond are two events. The seat that opens the
+  match gets its `yourTurn` on the table opening (`mapLoading` going null) rather than on a turn
+  number that never moved; every round's deal gets the flourish (`dealFor`), not only the first;
+  an opponent going quiet has a voice (`playerAway`) and their return is the arrival cue; and the
+  list is de-duplicated, because two copies of one cue on the same sample is one cue at twice the
+  level on a bus with no limiter. The countdown ticks are five timeouts aimed at their seconds,
+  not a 200 ms poll for the whole turn.
+- **`make audio-verify` can borrow a browser** (`LOCO_CHROMIUM=/path/to/chrome`): the harness
+  launches whatever Chromium the `playwright` package it resolves has downloaded, and a machine
+  that already has one — a sandbox, a CI image with browsers baked in — need not fetch another
+  copy to run it. Unset, Playwright uses its own, as before.
+- **The handling is never played twice the same way** (`humanVariation` in `sfx.ts`, applied by
+  `playSfx` to `cardPlay`, `cardDraw`, `cardDeal`, `uiTap`, `uiBack`, `skip`, `reverse`, and by
+  `playDeal` to each card of the flourish): ±45 cents of detune and a gain between 0.86 and 1 per hit
+  — under the threshold of "a different sound", over the threshold of "the same sound again". Fifty
+  copies of one sample a round is the sound of a machine. The cues that *mean* something (a call, a
+  catch, a fanfare) stay exact: those are the vocabulary, and a word is not pronounced differently
+  each time. `haptics.test.ts` pins the range.
+- **The phone answers the same list** (`hooks/haptics.ts`): `hapticsFor` reads the cues
+  `soundsForTransition` produced and picks one pattern per moment, the strongest cue's, never a
+  chain; `gameAudio()` plays it right after the sounds. Presentation only, off by one switch in the
+  preferences (stored inverted, `loco_haptics_off`, so a fresh install buzzes), and a no-op — with
+  no switch offered — wherever `navigator.vibrate` is absent.
 - **Strudel was evaluated and rejected**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and
   bundling them into a network-served client triggers §13 for the whole app. Revisit only if LOCO
   itself becomes AGPL.

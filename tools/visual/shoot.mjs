@@ -126,7 +126,9 @@ async function capture() {
   await fs.rm(OUT_DIR, { recursive: true, force: true })
   await fs.mkdir(OUT_DIR, { recursive: true })
 
-  const browser = await chromium.launch()
+  // A machine with a browser already on it but not the one this Playwright
+  // pins can point the harness at it (see tools/audio/verify.mjs).
+  const browser = await chromium.launch({ executablePath: process.env.LOCO_CHROMIUM || undefined })
   const shots = []
 
   for (const vpName of viewports) {

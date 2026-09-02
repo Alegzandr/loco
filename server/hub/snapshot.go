@@ -294,30 +294,42 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	t.solo = rs.Solo
 	t.streamerMode = rs.StreamerMode
 
+	// Every seat is away until somebody reclaims it. Written here, before the
+	// table runs: these are the table's fields, and the goroutine about to own
+	// them must never find the hub still writing.
+	now := time.Now()
+	for seat := range room.Players {
+		if !t.isBot(seat) {
+			t.awayAt[seat] = now
+		}
+	}
+
 	// Started here, and not one line earlier: everything above is this function
 	// filling the table in, and a goroutine reading fields still being written
 	// is the race table.start exists to avoid. Everything below arms a timer,
 	// which the table must be running to receive.
 	t.start(h)
 
-	now := time.Now()
 	for seat := range room.Players {
-		if t.isBot(seat) {
-			continue
+		if !t.isBot(seat) {
+			h.scheduleReconnectExpiry(t, seat, now)
 		}
-		t.awayAt[seat] = now
-		h.scheduleReconnectExpiry(t, seat, now)
 	}
 
+	// The three arms below write the table's own stamps (`turnStartedAt`,
+	// `emptyAt`), so they run on the table's goroutine, as its first job.
+	//
 	// The turn clock restarts whole. The fraction of it that elapsed before the
 	// restart is not recoverable from a wall-clock stamp anyway (the process was
 	// down for part of it), and the error is in the player's favour.
-	h.scheduleTurnTimer(t)
-	h.maybeScheduleBot(t)
-
-	// Nobody is at this table yet. If nobody arrives, this is what ends it
-	// rather than leaving a room on the server for the rest of its life.
-	h.scheduleRoomCleanup(t)
+	//
+	// Nobody is at this table yet. If nobody arrives, the cleanup is what ends
+	// it rather than leaving a room on the server for the rest of its life.
+	h.postCritical(t, "restore_arm", time.Second, func() {
+		h.scheduleTurnTimer(t)
+		h.maybeScheduleBot(t)
+		h.scheduleRoomCleanup(t)
+	})
 
 	log.Printf("room restored code=%s players=%d round=%d bots=%d matchmade=%t",
 		code, len(room.Players), room.RoundNumber, len(bots), rs.Matchmade)

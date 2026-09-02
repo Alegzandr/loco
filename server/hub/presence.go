@@ -114,6 +114,33 @@ func (h *Hub) disconnectAtTable(t *table, c *Client) {
 		return
 	}
 
+	// The versus reveal. A matchmade table is a lobby for the two and a half
+	// seconds between the pairing and the deal, and the client keeps its seat
+	// across a reload there (`matchfound` persists as a game, and the rejoin
+	// reclaims with the token). Treated as a lobby departure, the reload took
+	// the seat out of the roster and every column it had in the recap, and the
+	// reclaim came back as a fresh Join under a fresh seat — a rematch's recap
+	// then had no columns at all. Held instead, exactly like a match seat: the
+	// reveal deals with a held seat counted present (handleMatchmakingStart),
+	// and the same 15 s clock a matchmade match runs on decides whether the
+	// pairing survives. Nothing here is a departure until that clock says so.
+	if room.Status == game.StatusLobby && t.isMatchmade() {
+		disconnectTime := time.Now()
+		t.hold(c.playerID(), disconnectTime)
+		h.broadcastToRoomAll(t, protocol.ServerMsg{
+			Type:            protocol.SMsgPlayerDisconnected,
+			PlayerIndex:     intPtr(c.playerID()),
+			Nickname:        nickname,
+			Players:         h.playerList(t),
+			ForfeitDeadline: forfeitDeadlineMs(t, disconnectTime),
+		})
+		h.scheduleReconnectExpiry(t, c.playerID(), disconnectTime)
+		if t.allSeatsEmpty() {
+			h.scheduleRoomCleanup(t)
+		}
+		return
+	}
+
 	// Lobby, or a matchmade table that is over: treat it exactly like a lobby.
 	// The room can be reopened by a rematch, so the roster and every
 	// playerID-keyed structure must stay consistent — leaving a phantom player
@@ -236,8 +263,15 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 	} else {
 		// The seat went for real, so everything keyed on it moved down a column,
 		// the recap included. Only sent on the branch that re-bases: the other one
-		// leaves every index exactly where the game-over screen found it.
+		// leaves every index exactly where the game-over screen found it. The
+		// scoreboard and the round history travel for the same reason — a
+		// finished table's standings are still on screen, and the client cannot
+		// re-base them itself.
 		left.MatchHistory = matchHistoryDTO(t)
+		if len(room.Scores) > 0 {
+			left.Scoreboard = h.buildScoreboard(room)
+			left.RoundHistory = room.RoundHistory
+		}
 	}
 	h.broadcastToRoomAll(t, left)
 
@@ -245,6 +279,15 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 	// player. Their asks have just been re-based with the seat.
 	if removed && room.Status == game.StatusFinished {
 		h.releaseRematchOffer(t, em.playerID)
+	}
+
+	// A seat held through the reveal and never reclaimed: the pairing fell
+	// apart before it dealt, and whoever is left goes back to searching rather
+	// than sitting in a two-seat room that can never start. Reachable only if
+	// the deal itself was refused, since the hold outlasts the reveal.
+	if removed && room.Status == game.StatusLobby && t.isMatchmade() {
+		h.requeueSurvivor(t)
+		return
 	}
 
 	// In a matchmade room the hold is the whole wait: nobody here agreed to sit
@@ -280,6 +323,10 @@ func (h *Hub) handleReconnect(c *Client, t *table, playerID int, nickname string
 	code := t.code
 	h.seatClient(t, c, playerID)
 	delete(t.awayAt, playerID)
+	// The counter measured a connection that died. A reclaim is somebody
+	// there, and the timeouts that stacked up while they were not must not
+	// leave them one clock from a forfeit on their first turn back.
+	delete(t.afk, playerID)
 
 	log.Printf("player reconnected code=%s nickname=%s playerID=%d", code, nickname, playerID)
 

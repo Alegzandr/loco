@@ -6,6 +6,8 @@
   import SuitMark from './SuitMark.svelte'
   import { colorAssistPref } from '../../hooks/colorAssist'
   import { watchPref } from '../../hooks/prefs.svelte'
+  import { i18n } from '../../i18n/i18n.svelte'
+  import { pressToAct } from '../press'
 
   type Props = {
     card: CardDTO
@@ -29,6 +31,19 @@
   }: Props = $props()
 
   const label = $derived(cardLabel(card))
+  const t = $derived(i18n.t)
+  // What is read aloud: the suit as a word, the kind by its name, the value
+  // when there is one. A wild carries no suit, so it is named by its kind
+  // alone rather than "wild wild".
+  const spoken = $derived(
+    [
+      card.color === 'wild' ? '' : t.colorNames[card.color],
+      t.cardNames[card.kind].toLowerCase(),
+      card.value !== undefined ? String(card.value) : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  )
   // Subscribes every card on screen, which costs one update on the rare frame the
   // preference is flipped and nothing at all otherwise.
   const assist = watchPref(colorAssistPref)
@@ -86,11 +101,11 @@
   class:playable
   class:interactive={!!onclick}
   {style}
-  onclick={onclick}
+  use:pressToAct={onclick}
   onkeydown={handleKey}
   role={onclick ? 'button' : undefined}
   tabindex={onclick ? 0 : undefined}
-  aria-label="{card.color} {card.kind}{card.value !== undefined ? ` ${card.value}` : ''}"
+  aria-label={spoken}
   data-card-color={card.color}
   data-card-kind={card.kind}
   data-card-value={card.value ?? ''}

@@ -2,12 +2,13 @@ import { gameStore } from './gameStore'
 import { audio } from '../audio/engine'
 import { music } from '../audio/music'
 import { playSfx, playDeal } from '../audio/sfx'
-import { FANFARES, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
+import { FANFARES, dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
 import { clearSession, touchSession, writeSession } from './sessionPersistence'
 import type { RestoreTarget } from './sessionPersistence'
 import { RESTORE_TIMEOUT_MS } from './sessionRestore'
 import { live } from './live.svelte'
 import { isStreamerMode, streamerModePref } from './streamerMode'
+import { hapticsFor, vibrate } from './haptics'
 import type { ClientMsg } from '../types/protocol'
 
 /**
@@ -26,6 +27,11 @@ export function gameAudio(): void {
     // starting on the next line finds the context still not running and does
     // nothing at all, which on iOS costs the player a whole extra tap.
     const unlock = () => {
+      // Muted is muted: no context, no playback session, no scheduler. On iOS
+      // a context declared as `playback` stops whatever the player had going in
+      // another app, which is the one thing somebody who muted the game asked
+      // not to happen. Unmuting is itself a gesture and unlocks on the spot.
+      if (audio.getSettings().muted) return
       void audio.unlock().then(() => {
         const s = gameStore.getState()
         const scene = sceneFor(s)
@@ -42,6 +48,12 @@ export function gameAudio(): void {
     // its sticky activation, so in practice this is what turns the sound back on.
     // `focus` covers desktop tab switches, where `visibilitychange` does not fire.
     const wake = () => {
+      // The bed stops while the tab is hidden and comes back with it: a page
+      // that plays audio is exempt from timer throttling, so a backgrounded
+      // table went on building a bar of synthesis every 40 ms and playing it
+      // out loud from behind another window. The effects are left alone —
+      // the turn cue reaching a player who looked away is the point of it.
+      music.setHidden(document.visibilityState === 'hidden')
       if (document.visibilityState === 'hidden') return
       unlock()
     }
@@ -66,16 +78,19 @@ export function gameAudio(): void {
 
       const sounds = soundsForTransition(before, next)
       for (const name of sounds) playSfx(name)
+      // The phone answers the same list: one pulse per moment, the strongest
+      // cue's pattern. See hooks/haptics.ts.
+      vibrate(hapticsFor(sounds))
 
       // Pull the bed down under the long fanfares. Two pieces of music competing
       // for the same moment makes both of them mush, and the fanfare is the one
       // people clip.
       if (sounds.some((n) => FANFARES.has(n))) music.duck(2400)
 
-      // A fresh hand is a flourish of its own rather than one draw sound.
-      if (next.screen === 'game' && before.screen !== 'game' && next.myHand.length > 0) {
-        playDeal(next.myHand.length)
-      }
+      // A fresh hand is a flourish of its own rather than one draw sound, on
+      // the first round and on every round after it.
+      const dealt = dealFor(before, next)
+      if (dealt > 0) playDeal(dealt)
 
       music.setIntensity(intensityOf(next))
       const scene = sceneFor(next)

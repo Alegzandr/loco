@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PlayerDTO } from '../types/protocol'
   import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { dialogFocus } from './dialogFocus'
 
   type Props = {
     label: string
@@ -26,9 +27,15 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="overlay" onclick={onCancel}>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="picker" onclick={(e) => e.stopPropagation()}>
+  <!-- A dialog with a click handler needs no ignore: the role is the answer. -->
+  <div
+    class="picker"
+    role="dialog"
+    aria-modal="true"
+    aria-label={label}
+    use:dialogFocus
+    onclick={(e) => e.stopPropagation()}
+  >
     <p>{label}</p>
     <div class="playerList">
       {#each players as p (p.index)}

@@ -37,6 +37,10 @@ try {
     // Chromium needs an explicit opt-out of the gesture requirement here: the
     // page is driven by script, not by a person clicking.
     args: ['--autoplay-policy=no-user-gesture-required'],
+    // A machine with a browser already on it but not the one this Playwright
+    // pins (a CI image, a sandbox) can point the harness at it instead of
+    // downloading another copy. Unset, Playwright uses its own.
+    executablePath: process.env.LOCO_CHROMIUM || undefined,
   })
   const page = await browser.newPage()
   await page.goto(`http://localhost:${PORT}/?showcase=lobby-home`, { waitUntil: 'domcontentloaded' })
@@ -54,24 +58,41 @@ try {
     await ctx.resume()
     if (ctx.state !== 'running') return { error: `context state = ${ctx.state}` }
 
-    /** Peak absolute sample seen on `bus` over `ms`, sampled once per animation frame. */
-    const measure = async (bus, ms, trigger) => {
+    /**
+     * Peak absolute sample seen on `bus` over `ms`, sampled once per animation
+     * frame — and how long the cue stayed audible: the last frame whose own
+     * peak was above a fortieth of the loudest, in ms from the trigger. A card
+     * game plays faster than its sounds decay if you let it, and the length is
+     * the number that says whether a cue is over before the next card.
+     */
+    const lengths = {}
+    const measure = async (bus, ms, trigger, name) => {
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 2048
       bus.connect(analyser)
       const buf = new Float32Array(analyser.fftSize)
       let peak = 0
+      const frames = []
+      const start = performance.now()
       trigger()
-      const until = performance.now() + ms
+      const until = start + ms
       while (performance.now() < until) {
         await new Promise((r) => requestAnimationFrame(() => r(null)))
         analyser.getFloatTimeDomainData(buf)
+        let framePeak = 0
         for (let i = 0; i < buf.length; i++) {
           const v = Math.abs(buf[i])
-          if (v > peak) peak = v
+          if (v > framePeak) framePeak = v
         }
+        frames.push([performance.now() - start, framePeak])
+        if (framePeak > peak) peak = framePeak
       }
       bus.disconnect(analyser)
+      if (name) {
+        let last = 0
+        for (const [at, p] of frames) if (p > peak / 40) last = at
+        lengths[name] = Math.round(last)
+      }
       return peak
     }
 
@@ -81,7 +102,7 @@ try {
 
     const peaks = {}
     for (const name of names) {
-      peaks[name] = await measure(audio.sfxDestination(), 420, () => sfx.playSfx(name))
+      peaks[name] = await measure(audio.sfxDestination(), 1400, () => sfx.playSfx(name), name)
     }
     peaks['<deal x8>'] = await measure(audio.sfxDestination(), 700, () => sfx.playDeal(8))
     // Not a SfxName, so the loop above cannot reach it. Both ends of the travel,
@@ -288,7 +309,8 @@ try {
     audio.setSettings({ muted: false })
 
     return {
-      peaks, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity,
+      peaks,
+      lengths, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity,
       calmSection, tenseSection, beforeDuck, duckedRms, dropFrames, idleFrames,
       trackPeaks, formParts, skipped, autoPlayed, auditionLowHz, auditionHighHz,
     }
@@ -321,7 +343,9 @@ try {
       const ok = !silent && !hot
       if (!ok) failures++
       const why = silent ? ' (silent)' : hot ? ` (hot, over ${CEILING})` : ''
-      console.log(`${ok ? '✓' : '✗'} ${name.padEnd(12)} peak=${peak.toFixed(4)}${why}`)
+      const len = results.lengths?.[name]
+      const lenCol = len === undefined ? '' : ` len=${String(len).padStart(4)}ms`
+      console.log(`${ok ? '✓' : '✗'} ${name.padEnd(12)} peak=${peak.toFixed(4)}${lenCol}${why}`)
     }
     // The slider has to sound like it is going somewhere. A fifth between the
     // ends is a loose floor under a designed span of two octaves — it is here to

@@ -17,6 +17,13 @@ type BotAction struct {
 	Card         Card
 	ChosenColor  Color // for wild cards
 	ChosenPlayer int   // for Swap cards (-1 = no target)
+	// Cards is the batch when the bot plays more than one copy of Card at
+	// once, nil for a single card. Same rule as a human's slam (batchForSlam
+	// on the client, BotInterrupt here): every copy has to buy something.
+	Cards []Card
+	// DeclareLoco is the call a hand-emptying batch carries: no window ever
+	// opened on it, so the message is the only place the call can be made.
+	DeclareLoco bool
 }
 
 // BotThink decides the best action for a bot player.
@@ -74,6 +81,27 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 		candidates = preferred
 	}
 
+	// A Swap is only an action card while it pays. It exchanges the whole hand,
+	// so a seat that plays it into a fuller hand than its own has drawn every
+	// one of those cards in one go; a bot that did that on a 3:1 was the seat
+	// everybody wanted at their table. It is played when it buys something and
+	// held otherwise, exactly the way a person holds it.
+	swapTarget := -1
+	if botSwapPays(state, playerIdx) {
+		swapTarget = botSwapTarget(state, playerIdx)
+	}
+	if swapTarget < 0 {
+		candidates = withoutKind(candidates, Swap)
+		if len(candidates) == 0 {
+			candidates = withoutKind(legal, Swap)
+		}
+		if len(candidates) == 0 {
+			// Nothing but a Swap that hurts: a card off the deck is the cheaper
+			// of the two.
+			return BotAction{Kind: BotDraw, ChosenPlayer: -1}
+		}
+	}
+
 	pick := candidates[rand.Intn(len(candidates))]
 	chosen := activeColor
 	chosenPlayer := -1
@@ -81,13 +109,55 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 		chosen = botPreferredColor(hand)
 	}
 	if pick.Kind == Swap {
-		chosenPlayer = botSwapTarget(state, playerIdx)
-		if chosenPlayer < 0 {
-			// No valid target — skip this card and draw instead
-			return BotAction{Kind: BotDraw, ChosenPlayer: -1}
+		chosenPlayer = swapTarget
+	}
+	// The copies go together when a copy buys something — a stack raised, a
+	// second seat skipped, the ring flipped twice, a shorter hand — which is
+	// what a human's tap does without asking. A bot that stacked +2 where a
+	// person stacks +4, and that could not take the round on its last two
+	// identical cards, played a visibly weaker game than the one it was in.
+	batch := botBatchFor(pick, hand)
+	return BotAction{
+		Kind:         BotPlay,
+		Card:         pick,
+		ChosenColor:  chosen,
+		ChosenPlayer: chosenPlayer,
+		Cards:        batch,
+		DeclareLoco:  batch != nil && len(batch) == hand.Size(),
+	}
+}
+
+// botBatchFor is every copy of `card` the bot holds when playing them together
+// is worth it, nil otherwise. Mirrors the client's batchForSlam: Swap and
+// GlobalSwitch never batch, a plain Wild only when the batch empties the hand.
+func botBatchFor(card Card, hand Hand) []Card {
+	if card.Kind == Swap || card.Kind == GlobalSwitch {
+		return nil
+	}
+	var copies []Card
+	for _, c := range hand.Cards {
+		if c == card {
+			copies = append(copies, c)
 		}
 	}
-	return BotAction{Kind: BotPlay, Card: pick, ChosenColor: chosen, ChosenPlayer: chosenPlayer}
+	if len(copies) < 2 {
+		return nil
+	}
+	if card.Kind == WildCard && len(copies) < hand.Size() {
+		return nil
+	}
+	return copies
+}
+
+// withoutKind is cards with every card of the given kind removed.
+func withoutKind(cards []Card, kind Kind) []Card {
+	var out []Card
+	for _, c := range cards {
+		if c.Kind != kind {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // BotInterruptAction is an interject a bot could make into an open window:
@@ -158,6 +228,11 @@ func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
 		action.ChosenColor = botPreferredColor(state.Hands[playerIdx])
 	}
 	if top.Kind == Swap {
+		// Same rule as the turn: a Swap that hands the bot a fuller hand is
+		// not an interject worth making, however fast it could be made.
+		if !botSwapPays(state, playerIdx) {
+			return nil
+		}
 		action.ChosenPlayer = botSwapTarget(state, playerIdx)
 		if action.ChosenPlayer < 0 {
 			return nil
@@ -166,20 +241,40 @@ func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
 	return action
 }
 
-// botSwapTarget picks the opponent holding the most cards, or -1 if there is
-// nobody to swap with.
+// botSwapTarget picks the opponent holding the fewest cards, or -1 if there is
+// nobody to swap with. A Swap exchanges the whole hand, so the fullest hand at
+// the table is the one to stay away from, and a retired seat is excluded: its
+// hand went back to the deck, so it is the smallest of all and the domain
+// refuses it as a target.
 func botSwapTarget(state *GameState, playerIdx int) int {
 	bestIdx, bestSize := -1, -1
 	for i := range state.Hands {
-		if i == playerIdx {
+		if i == playerIdx || state.isRetired(i) {
 			continue
 		}
-		if state.Hands[i].Size() > bestSize {
-			bestSize = state.Hands[i].Size()
+		size := state.Hands[i].Size()
+		if bestIdx < 0 || size < bestSize {
+			bestSize = size
 			bestIdx = i
 		}
 	}
 	return bestIdx
+}
+
+// botSwapPays says whether playing a Swap now leaves the bot with fewer cards
+// than holding it would. The card leaves the hand first, so the comparison is
+// against the hand minus one; a Swap that empties the hand takes the round and
+// never exchanges anything, so it always pays.
+func botSwapPays(state *GameState, playerIdx int) bool {
+	own := state.Hands[playerIdx].Size() - 1
+	if own <= 0 {
+		return true
+	}
+	target := botSwapTarget(state, playerIdx)
+	if target < 0 {
+		return false
+	}
+	return state.Hands[target].Size() < own
 }
 
 // botPreferredColor returns the color most frequent in the bot's hand, or Red if tie.
