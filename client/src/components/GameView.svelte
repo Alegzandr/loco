@@ -315,9 +315,12 @@
     playerTurnSuffix: t.playerTurnSuffix,
   })
 
-  // Hold TAB for the standings. Disabled while a dialog owns the screen: inside
-  // the rules modal or a picker, TAB still belongs to the dialog's own focus
-  // order, and the summary already shows the same numbers.
+  // Hold TAB for the standings, the way every other game's scoreboard works:
+  // the key is ours from the press, it moves no focus, and letting go puts the
+  // panel away. Disabled while a dialog owns the screen — inside the rules
+  // modal or a picker TAB belongs to the dialog's own focus order, and the
+  // summary already shows the same numbers. Shift+TAB is never taken, at the
+  // table or anywhere else: that is the keyboard's way around the board.
   const scoresHeld = heldKey(
     'Tab',
     () => !showRules && !play.colorPicker && !play.playerPicker && !g.showRoundSummary,

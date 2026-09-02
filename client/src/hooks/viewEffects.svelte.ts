@@ -53,29 +53,33 @@ export function countdown(
 }
 
 /**
- * How long a key has to stay down before it counts as held rather than pressed.
- * Under every OS's own repeat delay, so the hold is on before the first repeat.
- */
-export const HELD_KEY_AFTER_MS = 180
-
-/**
- * True while `key` is physically held down.
+ * True while `key` is physically held down, and the key is ours from the first
+ * press: no delay, no focus moving underneath, nothing to discover.
  *
- * Two things this has to get right, both learned from how a held-key overlay
- * fails in practice:
+ * This is the scoreboard key every competitive game already taught the player —
+ * hold it, the standings are there; let go, they are gone — and it only reads
+ * that way if the press itself is the gesture. Arming it on a timer meant the
+ * first beat of every press was the browser's, so the panel arrived late and the
+ * focus ring had already jumped somewhere on the board on the way in.
  *
- * - The keyup never arrives if the window loses focus mid-hold (alt-tab, a
+ * Three things it has to get right:
+ *
+ * - **The key is swallowed** (`preventDefault`), so TAB stops being navigation
+ *   for as long as the board owns it. Callers pass `enabled: false` while a
+ *   modal or a picker is up: inside a dialog TAB belongs to the dialog, and
+ *   `components/dialogFocus.ts` is what cycles it there.
+ * - **A modifier hands the key back.** Shift+TAB is left to the browser
+ *   untouched, and it is deliberately the whole keyboard path through the
+ *   board: every control is still reachable, in reverse order, and there is no
+ *   keyboard trap. Ctrl/Alt/Meta go the same way — those combinations belong to
+ *   the browser and the OS, never to us.
+ * - **The keyup never arrives if the window loses focus mid-hold** (alt-tab, a
  *   notification stealing focus), so `blur` resets the state. Without it the
- *   overlay stays stuck over the board with no way to dismiss it.
- * - Taking a key that the browser already uses (Tab moves focus) means owning its
- *   default too, hence preventDefault. That is also why callers pass
- *   `enabled: false` while a modal or picker is open: inside a dialog, Tab
- *   belongs to the dialog.
+ *   panel stays stuck over the board with no way to dismiss it.
  */
 export function heldKey(
   key: string,
   enabled: Live<boolean> = true,
-  holdMs = HELD_KEY_AFTER_MS,
 ): { readonly current: boolean } {
   let held = $state(false)
   const isEnabled = live(enabled)
@@ -85,56 +89,24 @@ export function heldKey(
       held = false
       return
     }
-    // A press and a hold are two gestures. The first keydown is left to the
-    // browser — on TAB that is the focus moving, which is the only way a
-    // keyboard reaches a card, the draw pile or the bar: owning the key from
-    // the first press made every game control unreachable for as long as the
-    // board was up. The hold starts a beat later, on a timer, and from then on
-    // the key's own repeats are swallowed so the focus stops cycling under an
-    // open table.
-    let arm: ReturnType<typeof setTimeout> | null = null
-    const disarm = () => {
-      if (arm !== null) clearTimeout(arm)
-      arm = null
-    }
     const down = (e: KeyboardEvent) => {
       if (e.key !== key) return
-      if (e.repeat || held) {
+      // Already down: swallow every repeat, whatever the modifiers now say. A
+      // Shift pressed *during* a hold must not hand the key back and walk the
+      // focus backwards under an open panel.
+      if (held) {
         e.preventDefault()
-        disarm()
-        held = true
         return
       }
-      // A TAB pressed with nothing focused is steered to the first control
-      // rather than left to the browser. Chrome resumes sequential focus from
-      // wherever the last focused node *was* — the round summary's Continue,
-      // just removed, at the end of the document — and walks straight out of
-      // the page into its own chrome: a `blur`, which is the alt-tab reset
-      // below, and a hold that never engages. Focus stays in the document, and
-      // a keyboard user still lands on the first thing they can press.
-      if (key === 'Tab' && !e.shiftKey && (!document.activeElement || document.activeElement === document.body)) {
-        const first = document.querySelector<HTMLElement>(
-          'button:not([disabled]), [tabindex="0"], a[href], input, select, textarea',
-        )
-        if (first) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-      if (arm === null) {
-        arm = setTimeout(() => {
-          arm = null
-          held = true
-        }, holdMs)
-      }
+      if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return
+      e.preventDefault()
+      held = true
     }
     const up = (e: KeyboardEvent) => {
       if (e.key !== key) return
-      disarm()
       held = false
     }
     const release = () => {
-      disarm()
       held = false
     }
 
@@ -142,7 +114,6 @@ export function heldKey(
     window.addEventListener('keyup', up)
     window.addEventListener('blur', release)
     return () => {
-      disarm()
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', release)

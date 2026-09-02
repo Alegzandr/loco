@@ -276,26 +276,36 @@
     box-shadow: 0 1px 0 var(--color-stroke-soft);
   }
 
-  /* Disabled state — dead, and still readable.
-     It was `opacity: 0.55`, held there rather than lower "so a spectator can
-     still read what the centre column is for", and at 0.55 the disabled Catch
-     label measured ~2:1 and a dead Draw or Pass ~3.4:1: Catch sits here disabled
-     through the opening of every round, so that was the state a viewer saw most.
-     Quiet is a hue. The fill swap the rest of the game uses — the panel's inset
-     fill, a soft outline in place of the ink, the muted label, which clears
-     4.5:1 on it in both themes — and no ledge, because a disabled object is flat
-     and has stopped being a body. The ledge is also what still tells a dead Pass
-     from a live one, which wears the same fill: the live one is raised and inked,
-     the dead one is printed on the bar. */
+  /* Disabled state — a slot cut into the bar, not a button waiting to be pressed.
+     Quiet is a hue, so the state was already a fill swap rather than an opacity
+     (0.55 put the dead Catch label at ~2:1, and Catch is disabled through the
+     opening of every round). But the fill it swapped to was
+     `--color-surface-strong`, which is exactly what a *live* Pass wears: the two
+     differed by a label colour and a missing ledge, so half the bar read as
+     pressable at a glance for the whole of somebody else's turn.
+
+     Three things say it now, and they are the inverse of the three that make
+     every raised object in this game:
+       - the fill is BELOW the bar rather than on it (`--color-surface-sunken`,
+         desaturated as well as darker — the live Pass keeps the lilac),
+       - the hard ledge underneath is replaced by a hard shadow INSIDE the top
+         edge, which is the same 0-blur vocabulary read as a hollow,
+       - the outline drops to the hairline. Not the ink, and not the panel
+         border either: at `--color-border-strong` on a sunken fill the dead
+         buttons came out as ringed ghost pills, which is a pressable shape in
+         every other interface a player has used.
+     The label is `--color-disabled-ink`, 5.1:1 in light and 6.1:1 in dark,
+     because a spectator at 720p still has to be able to read what the centre
+     column is for. */
   .btn.btnDisabled,
   .btn:disabled {
-    background: var(--color-surface-strong);
-    border-color: var(--color-border-strong);
-    color: var(--color-muted);
+    background: var(--color-surface-sunken);
+    border-color: var(--color-hairline);
+    color: var(--color-disabled-ink);
     text-shadow: none;
     cursor: not-allowed;
     pointer-events: none;
-    box-shadow: none;
+    box-shadow: inset 0 2px 0 var(--color-stroke-soft);
   }
 
   /* Draw button — primary */

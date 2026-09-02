@@ -687,6 +687,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   listeners are allowed: `heldKey` (score table on TAB), `escapeKey.svelte.ts`, and the audio
   unlock; everywhere else a global listener may read `Escape` and nothing else.
   `noKeyboardShortcuts.test.ts` is the guard.
+- **TAB at the table is the scoreboard and nothing else, from the press, and it moves no focus**
+  (`heldKey`): hold it and the standings are there, let go and they are gone, which is the one
+  keyboard gesture every player already arrives knowing. It is not a shortcut — the panel is
+  read-only and moves nothing on the board — and it is not a gesture to discover either, so it
+  carries no arming delay. **Shift+TAB is never taken, and it is the keyboard's whole way around
+  the board**: every control is still reachable in reverse order, so owning the plain key is not a
+  keyboard trap. Ctrl/Alt/Meta go back to the browser and the OS for the same reason. Inside a
+  dialog TAB belongs to the dialog (`enabled: false`, `components/dialogFocus.ts`).
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **The browser's own menu stops at the seat** (`contextGuard.ts`, gated on `data-seated` like the
   pinch, read at event time). A right-click over a table offers "copy image address", "save image
@@ -1240,6 +1248,16 @@ stated at the top of `styles/tokens.css`:
   **`BOTTOM_RESERVE` covers the chip's band as well as the bar**, so the hand is dealt clear of it
   permanently and nothing shifts when it lights up. Drawn under 44px and quiet on purpose — forgetting
   the call is a turn of the game — so its target comes from `.hit-target`, only while it is live.
+- **A dead button on that bar is a slot cut into it, never a quieter object** (`--color-surface-sunken`,
+  `--color-disabled-ink`): the fill sits *below* the bar rather than on it, the hard ledge is replaced
+  by a hard shadow inside the top edge, and the outline drops to `--color-hairline` — never the ink a
+  live object is drawn with, and not the panel border either, which came out as a ringed ghost pill.
+  It wore
+  `--color-surface-strong` — which is exactly what a **live** Pass wears — so half the bar read as
+  pressable for the whole of somebody else's turn, told apart only by a label colour and a missing
+  ledge. Still no opacity anywhere: the label clears 4.5:1 on the sunken fill in both themes, because
+  Catch sits dead through the opening of every round and a spectator reads it at 720p.
+  `actionBar.test.ts` measures both.
 - **A map's art is tried in the scene before it is submitted** (`tools/maps/scene-tester.html`): one
   HTML file, opened off the disk, that rebuilds the board around a dropped room and table, measures
   the `playfield`, and emits the `maps.ts` entry plus both `.webp` files at `prepare.mjs`'s own

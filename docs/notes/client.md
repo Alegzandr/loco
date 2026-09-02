@@ -1630,23 +1630,42 @@ wrong card was refused in English by a UI that is otherwise entirely in their la
 - `src/test/serverErrors.test.ts` asserts every player-reachable server string resolves to something
   other than itself, in both languages. **Add the string there when you add a server error.**
 
-## A press and a hold are two gestures (`heldKey`)
+## TAB is the scoreboard key (`heldKey`)
 
-The score table opens on a held TAB, and the hook used to own the key from the first keydown:
-`preventDefault` on every press, which is the browser's focus moving. From the moment the board
-mounted, TAB and Shift+TAB went nowhere, so a keyboard or switch user could not reach a card, the draw
-pile or the bar — the "focused control is the accessibility path" contract below was unreachable in
-practice. The first keydown is now the browser's; the hold arms on a timer (`HELD_KEY_AFTER_MS`,
-under every OS's own repeat delay) or on the first repeat, and from then on the repeats are swallowed
-so the focus stops cycling under an open table. A press released before that shows nothing and
-prevents nothing. A TAB pressed with *nothing* focused is steered onto the first control rather
-than left to the browser: Chrome resumes sequential focus from wherever the last focused node was,
-and after a dismissed round summary that is its Continue button, at the end of the document, so the
-press walked straight out of the page into the browser's own chrome — a `blur`, which is the
-alt-tab reset, and a hold that never engaged. `heldKey.test.ts` runs both gestures and the steering
-on fake timers; the E2E `holdScores` helper holds the key and waits, which is the same thing.
+Hold TAB, the standings are there; let go, they are gone. It is the one keyboard gesture a player
+arrives already knowing, and it only reads that way if **the press itself is the gesture**.
 
-The two decision panels — a wild's colour, a Swap's target — are dialogs now (`role="dialog"`,
+The hook has been through both ends of that. It first owned the key from the first keydown with no
+way back, so from the moment the board mounted TAB and Shift+TAB went nowhere and a keyboard or
+switch user could not reach a card, the draw pile or the bar: the "focused control is the
+accessibility path" contract below was unreachable in practice. The fix at the time was to hand the
+first press back to the browser and arm the hold on a timer, and that traded one failure for a
+different one — the panel arrived a beat after the press, and the beat it arrived after was the
+browser moving the focus ring somewhere on the board on the way in. A scoreboard key that navigates
+first and reports second is not the gesture anybody meant.
+
+What is there now:
+
+- **The key is ours from the press.** `preventDefault` on the keydown, `held` true in the same
+  event, false again on the keyup. No timer, nothing to discover, and the focus never moves.
+- **Shift+TAB is never taken, and it is the keyboard's whole way around the board.** Every control
+  is reachable in reverse order, so owning the plain key is not a keyboard trap — WCAG 2.1.2 asks
+  for a documented way out and this is it. Ctrl/Alt/Meta go the same way: those combinations belong
+  to the browser and the window manager.
+- **A modifier pressed mid-hold changes nothing.** Once the key is down every repeat is swallowed
+  whatever the modifiers now say, or a Shift held during an open panel would walk the focus
+  backwards underneath it.
+- **`blur` releases it.** Alt-tabbing away swallows the keyup, and the panel would stay pinned over
+  the board with no way to dismiss it.
+- **`enabled: false` hands the key back whole.** Inside the rules modal, a picker or the round
+  summary, TAB is the dialog's, and the summary already shows the same numbers.
+
+`heldKey.test.ts` runs the press, the release, the swallowed repeats, every modifier and the blur;
+`score-table.spec.ts` asserts end to end that a held TAB moves no focus and that Shift+TAB still
+walks the board without opening anything. The E2E `holdScores` helper holds the key and waits, which
+is the same gesture a player makes.
+
+The two decision panels — a wild's colour, a Swap's target — are dialogs (`role="dialog"`,
 `aria-modal`, the label as the name) and `components/dialogFocus.ts` moves the focus in, cycles TAB
 inside, and hands it back on close. They were the only overlays here without any of that, and the
 two that stop the whole table on a choice. What a card is called aloud is `t.colorNames` plus
@@ -1677,11 +1696,13 @@ no way not to aim at them.
 - A **global** handler (`window` / `document`) fires on a press nobody aimed. That is the thing
   being refused.
 - A **focused** control demands that you got there first: a card and the draw pile carry their
-  own `onkeydown` and act on Enter/Space once tabbed to, and the language listbox answers arrows
+  own `onkeydown` and act on Enter/Space once focused, and the language listbox answers arrows
   and Home/End on its own button. That is not a shortcut, it is the accessibility path, and
   `PRODUCT.md` commits to WCAG AA on every player-facing surface. **It must not be removed,
   reduced or made conditional in the name of this rule** — reading the rule that way is reading
-  it backwards.
+  it backwards. **At the table the way in is Shift+TAB**, because the plain key is the scoreboard
+  (above): the sequence is the same one in reverse, every control is on it, and nothing else about
+  those handlers changes.
 
 Three global key listeners exist and no fourth may be added: `heldKey` in
 `hooks/viewEffects.svelte.ts` (the score table, held on TAB — a read-only panel that moves

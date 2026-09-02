@@ -931,7 +931,9 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
 
 - **Opened by holding TAB** (`heldKey('Tab', enabled)`) **or pinned by the scores button** in the
   top-right cluster. Held and pinned are separate states: releasing TAB must not close a table
-  somebody deliberately pinned, and a phone has no TAB key at all.
+  somebody deliberately pinned, and a phone has no TAB key at all. The panel is up on the **press**,
+  not after an arming delay, and the key moves no focus while it is down — the scoreboard key of
+  every other game, and `client.md` has why it is not a keyboard trap.
 - **That button exists on touch layouts only** — `.scoresBtn` is `display:none` until
   `(max-width: 480px), (pointer: coarse)`. It is the fallback for the missing key, so on a machine
   that has the key it is a permanent control for something already one keypress away, spending room
@@ -948,7 +950,9 @@ round, cumulative total, rounds won, ping. Pure merge/sort and the ping banding 
   before the resize.
 - `heldKey` resets on `blur`. Alt-tabbing away swallows the keyup, and the overlay would stay
   stuck over the board with no way out. It `preventDefault`s TAB, so `enabled` is false while the
-  rules modal, a picker or the round summary owns the screen: inside a dialog TAB is the dialog's.
+  rules modal, a picker or the round summary owns the screen: inside a dialog TAB is the dialog's,
+  and `dialogFocus.ts` cycles it there. **Shift+TAB is never taken anywhere**, which is what keeps
+  every board control reachable from the keyboard.
 - **Nothing the board draws crosses it, and that is the point of the number.** The panel sits at
   **z-index 48**, above the whole transient band — notices 14, the error toast 30, the three shouts
   (interception slam, catch stamp, LOCO! banner) 45, `.topRight` and the leave question 46, the catch
@@ -1010,12 +1014,21 @@ token:
 - **Disabled action-bar buttons** were `opacity: 0.55`, held there "so a spectator can still read
   what the centre column is for", and at 0.55 the dead Catch label measured ~2:1 and a dead Draw or
   Pass ~3.4:1 — Catch is disabled through the opening of every round, so that was the state a
-  viewer saw most. They wear the fill swap now: `--color-surface-strong`, `--color-border-strong` in
-  place of the ink, `--color-muted` for the label (4.5:1 in both themes), and no ledge. The ledge is
-  also what still tells a dead Pass from a live one, which wears the same fill: the live one is
-  raised and inked, the dead one is printed on the bar. **`.btnDrawSecondary` is surface-strong
-  too**: it was `--color-surface-card` on a bar of `--color-surface-card`, a white pill on a white
-  bar in light.
+  viewer saw most. The fill swap that replaced it fixed the contrast and left the state itself
+  ambiguous: the dead fill was `--color-surface-strong`, which is what a **live** Pass wears, so the
+  two were told apart by a label colour and a missing ledge and half the bar read as pressable for
+  the whole of somebody else's turn. A dead button is the **inverse of a raised object**, not a
+  quieter one, so all three of the things that raise one are inverted:
+  `--color-surface-sunken` (a fill below the bar rather than on it, desaturated as well as darker —
+  the live Pass keeps the lilac), the hard ledge replaced by a **hard shadow inside the top edge**
+  (`inset 0 2px 0`, the same zero-blur vocabulary read as a hollow), and the outline dropped to
+  `--color-hairline`. Not the ink, and not `--color-border-strong` either: on a sunken fill that
+  border drew a ringed ghost pill, which is a pressable shape everywhere else a player has been.
+  The label is `--color-disabled-ink` — 5.1:1 in light, 6.1:1 in dark, both measured in
+  `actionBar.test.ts` off `tokens.css`, because Catch sits
+  dead through the opening of every round and a spectator reads it at 720p. Still no opacity
+  anywhere. **`.btnDrawSecondary` is surface-strong too**: it was `--color-surface-card` on a bar of
+  `--color-surface-card`, a white pill on a white bar in light.
 - **The round summary's delta** was `--color-mint` on `--color-surface-strong`, 1.81:1 in light —
   the one number the card is opened for. `--color-mint-text` is the mint as *text on a panel*, the
   same hue pushed until it clears AA on each canvas, the way `--color-link` is the indigo as text;

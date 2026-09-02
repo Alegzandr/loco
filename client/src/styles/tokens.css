@@ -83,6 +83,14 @@
   --color-surface-soft: #faf6ff;
   --color-surface-card: #ffffff;
   --color-surface-strong: #ece2ff;
+  /* The one surface that is *below* the card rather than on it: the slot a dead
+     control is printed into. Every live object in this UI is raised — ink
+     outline, hard ledge, a fill that carries more colour than the panel under
+     it — so a disabled button has to be the opposite of all three, and the fill
+     is the half that reads at a glance. Deliberately desaturated as well as
+     darker: the lilac at `--color-surface-strong` is a live Pass, and the two
+     sat on the same fill with only the ledge between them. */
+  --color-surface-sunken: #dad3e5;
   /* Page backdrop: candy sky. Decorative blobs are layered on top in app.css. */
   --bg-gradient:
     radial-gradient(120% 90% at 12% 0%, #ffe6f1 0%, rgba(255, 230, 241, 0) 55%),
@@ -111,6 +119,11 @@
   --color-body: #4a3a75;
   --color-muted: #6f5f95;
   --color-muted-soft: #9587b6;
+  /* The label of a control that has gone dead, on `--color-surface-sunken`:
+     5.1:1 in light and 6.1:1 in dark. Quiet is a hue here as everywhere else —
+     the state is said by the sunken fill and the missing ledge, not by fading
+     a label a spectator still has to read at 720p. */
+  --color-disabled-ink: #5c4d80;
   --color-on-primary: #ffffff;
   /* White is only ever legible on the saturated fills, never on the yellow: at
      this saturation `#fff` on `--color-secondary` measures ~1.7:1, which is why
@@ -215,6 +228,7 @@
   --color-surface-soft: #1e1440;
   --color-surface-card: #271a4f;
   --color-surface-strong: #33235f;
+  --color-surface-sunken: #1a1134;
 
   --bg-gradient:
     radial-gradient(120% 90% at 12% 0%, #3a1f6b 0%, rgba(58, 31, 107, 0) 55%),
@@ -239,6 +253,7 @@
   --color-body: #ded4f5;
   --color-muted: #ab9dd2;
   --color-muted-soft: #8577ad;
+  --color-disabled-ink: #9d8fc6;
   --color-on-dark: #ffffff;
   --color-link: #b3a6ff;
   --color-mint-text: #12c48f;
@@ -271,6 +286,7 @@
     --color-surface-soft: #1e1440;
     --color-surface-card: #271a4f;
     --color-surface-strong: #33235f;
+    --color-surface-sunken: #1a1134;
 
     --bg-gradient:
       radial-gradient(120% 90% at 12% 0%, #3a1f6b 0%, rgba(58, 31, 107, 0) 55%),
@@ -295,6 +311,7 @@
     --color-body: #ded4f5;
     --color-muted: #ab9dd2;
     --color-muted-soft: #8577ad;
+    --color-disabled-ink: #9d8fc6;
     --color-on-dark: #ffffff;
     --color-link: #b3a6ff;
     --color-mint-text: #12c48f;
