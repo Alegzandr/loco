@@ -79,6 +79,17 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   - `make audio-verify` prints each cue's audible length beside its peak (`len=`, the last frame
     above a fortieth of the loudest): a card game plays faster than its sounds decay, and that is
     the column to read after touching a voice.
+  - **How often a cue plays is part of its level.** `yourTurn` fires once a turn for the whole
+    match, so it is mixed *under* the cues that report an event rather than beside them: at the
+    card handling's peak it stopped being a nudge and became an alarm somewhere around the tenth
+    turn, which is the one complaint a cue this frequent can earn. It sits at ~0.14 against
+    `cardPlay`'s ~0.14 over less than half the length, and it is the only voice whose level is
+    argued from repetition instead of from what it means.
+  - **And the ceiling is the other half of that.** `matchWin` stacks a chord, two bells and a sub on
+    the same instant at 0.5s; those four summing put it at 0.82, over `audio-verify`'s 0.8, on the
+    moment of the evening most likely to be clipped for a stream. It is trimmed **as a group** — the
+    balance between the four is the one that was written, and lowering the loudest alone would
+    rewrite the cue rather than the level.
 - `audio/music.ts` — the bed **engine**. It contains no music: tracks are data in `audio/tracks/`,
   and this plays any of them (scheduling, synthesis, the arrangement ladder, the song form).
 - `audio/tracks/` — the music. `types.ts` documents the schema; `index.ts` is the registry (add a

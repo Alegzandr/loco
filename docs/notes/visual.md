@@ -1184,3 +1184,10 @@ the same voice as the rest of the board.
   (`Hand`'s `:active` squash), the turn pill lands with a ring (`TurnIndicator`'s `turnBurst`, a
   pseudo-element so the pill's own transform stays the fly's), and the reveal's VS lands with one
   too (`MatchFound`'s `vsRing`).
+  - **That last ring grows wider than the gap it sits in, so it passes behind the two cards**
+    (`.side` carries `position: relative` and `z-index: 1`; `z-index: -1` on the pseudo-element only
+    puts it behind `.vs`'s own text, and `.vs` is the positioned sibling, so it painted over both
+    cards). Drawn on top, the stroke crossed an avatar and two nicknames at the exact second the
+    screen exists to say who they are — a burst read as a stray line laid across the reveal. Behind
+    them it is a burst again, and the two cards never overlap the badge itself, so nothing else in
+    the collision changes.
