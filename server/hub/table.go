@@ -244,6 +244,16 @@ func newTable(code string, room *game.Room) *table {
 
 // client returns the socket at a seat, or nil for a seat that is empty, held or
 // out of range. Bounds-checked because seat numbers arrive from the wire.
+// handSize is how many cards `seat` holds, or 0 when there is no board or no
+// such seat. A bounds answer rather than a panic: it is read before a message
+// has been validated, which is exactly when the seat may be nonsense.
+func (t *table) handSize(seat int) int {
+	if t.room == nil || t.room.State == nil || seat < 0 || seat >= len(t.room.State.Hands) {
+		return 0
+	}
+	return t.room.State.Hands[seat].Size()
+}
+
 func (t *table) client(seat int) *Client {
 	if seat < 0 || seat >= len(t.members) {
 		return nil

@@ -235,7 +235,9 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    A seat number the table does not have is still refused rather than charged: that one is a forged
    message, not a wager.
 
-- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **Swap is coloured**
+- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **`Deck.Replenish`
+  appends the pile to what is left of the deck, never in place of it**: it runs when the deck is
+  short, which is exactly when it is not empty. **Swap is coloured**
   and follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
 - **Every wild must name a real colour**, GlobalSwitch included, and every entry point rejects a
   colourless one. `Wild` must never reach `State.ActiveColor`.
@@ -350,8 +352,12 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   match cannot remove from being broadcast as connected. **A finished ordinary table holds its seats
   too** — the match is over, the rematch is not — so `join_room` reclaims a held seat at any table
   that is not a lobby, the reclaim carries **no `state`** when there is none, and the expiry there
-  removes the seat for real. Matchmade tables are excluded on purpose.
+  removes the seat for real. A finished matchmade table is excluded on purpose; **a matchmade table
+  in its versus reveal holds its seats too** and reclaims them the same way, because a reload there
+  keeps its seat client-side and a lobby departure took the recap's columns with it.
 - **Personalised sends index by slot, never by `member.playerID`.**
+- **Removing a seat re-bases everything the scoreboard is drawn from** (`RemoveLobbyPlayer`), and the
+  `player_left` that shrinks the roster carries the re-based `scoreboard` and `round_history`.
 - **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback.
   `game.newRNG` seeds the source that picks the map, the starting seat and the shuffle: **the deal is
   hidden state, so a clock seed hands every hand to anyone who timed `create_room`**.
@@ -391,7 +397,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `pending_draw`, `has_drawn`, `player_index` and `player_id` are pointers. Read seats with
   `ServerMsg.Seat()` / `ServerMsg.OwnSeat()` (-1 = no seat named).
 - **Bots**: `game/bot.go` decides, `hub` schedules, through the same domain calls and broadcasts as
-  humans. Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
+  humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**; a bot batches
+  its identical copies on its turn exactly as a human's tap does; **a refused bot move gives the turn
+  up, never the table** (`botRecover`), and `botCanPlayDrawn` asks `BotThink`, not `CanPlay`.
+- **An AFK kick answers the socket, never the turn**: the clock draws and passes for the kicked seat
+  like any empty chair, a reclaim clears the counter, and the auto-draw re-arms before it broadcasts.
+- **Every snapshot carries `catch_seats` and `declared_seats`**, and what is the same for every
+  recipient is built once per broadcast (`sharedGameState`). Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
   `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
 - **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, so the
   seat that owes the call always has the first half of it; never scheduled past the deadline, because
@@ -612,6 +624,9 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   nothing** — N of them name one colour — so it goes out alone unless the batch empties the hand and
   takes the round. Nobody is asked how many copies to send, because an interject is a reaction; that
   is why the tap must never spend more than the reaction was worth. `game.BotInterrupt` mirrors it.
+- **Every board control acts on the press, never on the release** (`components/press.ts`,
+  `use:pressToAct`): `click` waits for the pointer to come back up, and an interject is decided by
+  arrival order. Keyboard clicks still act; a disabled control fires on neither path.
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.
@@ -672,6 +687,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   listeners are allowed: `heldKey` (score table on TAB), `escapeKey.svelte.ts`, and the audio
   unlock; everywhere else a global listener may read `Escape` and nothing else.
   `noKeyboardShortcuts.test.ts` is the guard.
+- **TAB at the table is the scoreboard and nothing else, from the press, and it moves no focus**
+  (`heldKey`): hold it and the standings are there, let go and they are gone, which is the one
+  keyboard gesture every player already arrives knowing. It is not a shortcut — the panel is
+  read-only and moves nothing on the board — and it is not a gesture to discover either, so it
+  carries no arming delay. **Shift+TAB is never taken, and it is the keyboard's whole way around
+  the board**: every control is still reachable in reverse order, so owning the plain key is not a
+  keyboard trap. Ctrl/Alt/Meta go back to the browser and the OS for the same reason. Inside a
+  dialog TAB belongs to the dialog (`enabled: false`, `components/dialogFocus.ts`).
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **The browser's own menu stops at the seat** (`contextGuard.ts`, gated on `data-seated` like the
   pinch, read at event time). A right-click over a table offers "copy image address", "save image
@@ -758,7 +781,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   backs out one step at a time, and **below 46rem the dropdown is a bottom sheet with a scrim**. The
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
 - **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
-  streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module
+  streamer mode, colour shapes, reduced motion, and vibrations where the device has a motor
+  (`hooks/haptics.ts`: patterns decided beside the sounds, one per moment, never a chain). Each on/off preference is a `createBooleanPref` module
   store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
   and only from the host's — see below; every other one is local and must stay that way. Those icons
   are **drawn SVG, never a font character**.
@@ -1182,7 +1206,8 @@ stated at the top of `styles/tokens.css`:
   padding, and 32px put the waiting room's heading under the gear.
 - **The standings are opened in order to be read, so nothing the board draws crosses them**
   (`ScoreTable`'s `.overlay`, **z-index 48**): above the whole transient band — notices 14, the toast
-  30, both banners 45, the chip row and the leave question 46, the catch capsule 47 — and below the
+  30, the three shouts (both banners and the LOCO! line) 45, the chip row and the leave question 46,
+  the catch capsule and the round summary 47 — and below the
   reconnect curtain (50), the two pickers (100), the map gate (900) and the rules modal (1000), which
   are the only things that outrank a read. **The chip row going under it is deliberate**: the panel
   answers for its own dismissal with a 40px ✕ and a scrim, so covering the button that pinned it costs
@@ -1223,6 +1248,16 @@ stated at the top of `styles/tokens.css`:
   **`BOTTOM_RESERVE` covers the chip's band as well as the bar**, so the hand is dealt clear of it
   permanently and nothing shifts when it lights up. Drawn under 44px and quiet on purpose — forgetting
   the call is a turn of the game — so its target comes from `.hit-target`, only while it is live.
+- **A dead button on that bar is a slot cut into it, never a quieter object** (`--color-surface-sunken`,
+  `--color-disabled-ink`): the fill sits *below* the bar rather than on it, the hard ledge is replaced
+  by a hard shadow inside the top edge, and the outline drops to `--color-hairline` — never the ink a
+  live object is drawn with, and not the panel border either, which came out as a ringed ghost pill.
+  It wore
+  `--color-surface-strong` — which is exactly what a **live** Pass wears — so half the bar read as
+  pressable for the whole of somebody else's turn, told apart only by a label colour and a missing
+  ledge. Still no opacity anywhere: the label clears 4.5:1 on the sunken fill in both themes, because
+  Catch sits dead through the opening of every round and a spectator reads it at 720p.
+  `actionBar.test.ts` measures both.
 - **A map's art is tried in the scene before it is submitted** (`tools/maps/scene-tester.html`): one
   HTML file, opened off the disk, that rebuilds the board around a dropped room and table, measures
   the `playfield`, and emits the `maps.ts` entry plus both `.webp` files at `prepare.mjs`'s own
@@ -1237,6 +1272,11 @@ stated at the top of `styles/tokens.css`:
   600×800 it is drawn at. Built from the real `<LocoLogo />` and the real `<Card />` for the reason
   the link preview is: the art leaves this repository, and nothing here can watch it go stale.
   `coverCard.test.ts` pins the ratio, the floor and the no-other-text rule.
+- **No painted ambience behind a screen: no glowing blobs, no floating silhouettes.** The canvas is
+  the designed gradient and the objects on it carry the life. **A hand is dealt off the deck card by card**
+  (`GameBoard`'s deal effect, `DEAL_FLIGHT_MS`, keyed on `roundNumber`), **numbers are counted**
+  (`countUp.ts`) and **every screen arrives** (`hooks/screenIn.ts`, in only, never out). The
+  reasoning and the constraints are under "Ambience and celebration" in the note.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).
@@ -1261,6 +1301,10 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at
   creation.
+- **Every sound is made of one of four materials, and none is a bare oscillator**: card stock on
+  felt (`cardHit`, `snap`, `thud`, combed `noise`), wood (`mallet`, every interface sound), brass and
+  bell (`stab`, `bell`), air (`whoosh`). A sine or a square under an envelope is the sound every
+  prototype makes; the note says what replaced it and why.
 - **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()` in `sfx.ts`).
   Every celebration used to be `arp()`, and five of them ran the same major triad upward: `wild` and
   `roundWin` were note for note identical, so playing a Global Switch sounded exactly like taking the

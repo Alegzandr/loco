@@ -144,6 +144,11 @@
   // the screen change is already obvious.
   function goHome() {
     playSfx('uiBack')
+    // A refusal belongs to the form it answered: "the cards are already out at
+    // this table" has nothing to say on the home screen the player just went
+    // back to, and it used to stay there over the four buttons.
+    onClearError()
+    nicknameRefused = false
     mode = 'home'
   }
 
@@ -502,10 +507,14 @@
     transition: box-shadow 0.15s ease;
   }
 
+  /* The solid token ring, not the indigo at 0.35: the field sets `outline: none`
+     and this shadow is the whole focus indicator, and a translucent one measured
+     1.5:1 on the card — a keyboard player could not see which field they were
+     in. Same colour and width as the `:focus-visible` rule in tokens.css. */
   .input:focus {
     box-shadow:
       inset 0 3px 0 rgba(36, 21, 70, 0.08),
-      0 0 0 4px rgba(108, 92, 255, 0.35);
+      0 0 0 3px var(--color-tertiary);
   }
 
   /* The placeholder is the only instruction this field ever gives, so it is held
@@ -700,6 +709,48 @@
   }
 
   :root[data-motion="reduce"] .error {
+    animation: none;
+  }
+
+  /* The screen arrives in order — the mark, the line under it, then the four
+     buttons one after another — rather than as one frame: an entry screen that
+     appears all at once is a page loading, and one that arrives is a game
+     opening. Opacity and transform only, once, under the boot fade. */
+  .title,
+  .tagline,
+  .buttonGroup > :global(*) {
+    animation: riseIn 0.5s var(--ease-out) both;
+  }
+  .tagline {
+    animation-delay: 0.08s;
+  }
+  .buttonGroup > :global(:nth-child(1)) {
+    animation-delay: 0.16s;
+  }
+  .buttonGroup > :global(:nth-child(2)) {
+    animation-delay: 0.22s;
+  }
+  .buttonGroup > :global(:nth-child(3)) {
+    animation-delay: 0.28s;
+  }
+  .buttonGroup > :global(:nth-child(4)) {
+    animation-delay: 0.34s;
+  }
+
+  @keyframes riseIn {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  :root[data-motion='reduce'] .title,
+  :root[data-motion='reduce'] .tagline,
+  :root[data-motion='reduce'] .buttonGroup > :global(*) {
     animation: none;
   }
 </style>

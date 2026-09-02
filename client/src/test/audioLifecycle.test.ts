@@ -127,6 +127,7 @@ describe('AudioEngine.unlock', () => {
 vi.mock('../audio/music', () => ({
   music: {
     setIntensity: vi.fn(),
+    setHidden: vi.fn(),
     isPlaying: vi.fn(() => true),
     start: vi.fn(),
     stop: vi.fn(),

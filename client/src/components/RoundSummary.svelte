@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { RoundScoreEntry } from '../hooks/gameStore'
+  import { countUp } from './countUp'
   import type { ScoreboardEntryDTO, MatchFormat } from '../types/protocol'
   import type { Translations } from '../i18n/en'
   import { formatRounds } from './matchLengthModel'
@@ -98,14 +99,25 @@
         <span>{t.totalLabel}</span>
       </div>
       {#each sorted as entry, idx (entry.player_index)}
-        <div class="roundScoreRow" class:roundScoreRowWinner={entry.nickname === roundWinner}>
+        <div
+          class="roundScoreRow"
+          class:roundScoreRowWinner={entry.nickname === roundWinner}
+          style="--row-i: {idx}"
+        >
           <span class="roundScorePlacement">{placementSuffix(idx + 1, t)}</span>
           <span class="roundScoreName">{entry.nickname}</span>
-          <span class="roundScoreDelta">
-            {entry.round_points > 0 ? `+${entry.round_points}` : '—'}
-          </span>
+          <!-- The points climb to their value: a figure that pops into place is
+               a spreadsheet cell, one that is counted is a score. -->
+          {#if entry.round_points > 0}
+            <span
+              class="roundScoreDelta"
+              use:countUp={{ value: entry.round_points, format: (n) => `+${n}` }}
+            ></span>
+          {:else}
+            <span class="roundScoreDelta">—</span>
+          {/if}
           <span class="roundScoreWins">{entry.rounds_won}</span>
-          <span class="roundScoreTotal">{entry.cumulative_score}</span>
+          <span class="roundScoreTotal" use:countUp={{ value: entry.cumulative_score }}></span>
         </div>
       {/each}
     </div>
@@ -121,7 +133,7 @@
               <span class="scoreName">{entry.nickname}</span>
               <span class="scoreDetails">
                 <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
-                <span class="scoreGap">{entry.score} pts</span>
+                <span class="scoreGap" use:countUp={{ value: entry.score, format: (n) => `${n} pts` }}></span>
               </span>
             </div>
           {/each}
@@ -146,6 +158,17 @@
   /* Between-rounds scoreboard. Overlays the live board, so it needs enough weight
      to own the screen for its eight seconds without hiding the table entirely. */
 
+  /* The heavy scrim, and no blur. The next round is dealt *under* this card
+     (see docs/notes/visual.md, "The card is an overlay"), so for up to eight
+     seconds a `backdrop-filter` was re-rasterising the whole viewport on every
+     frame of the deal behind it — the most expensive thing the client did all
+     round, for a card whose only job is to be read.
+
+     47: above the three shouts (45), the chrome row and the leave question
+     (46) and level with the catch capsule, under the standings (48). It sat at
+     40, so an interception slam, the chip row and a catch window's countdown
+     could all be drawn across the scores. The whole ledger, and why the
+     capsule and this card can share a number, is in `ScoreTable.svelte`. */
   .roundSummary {
     position: absolute;
     inset: 0;
@@ -153,9 +176,8 @@
     align-items: center;
     justify-content: center;
     padding: var(--space-base);
-    background: var(--color-scrim);
-    backdrop-filter: blur(5px);
-    z-index: 40;
+    background: var(--color-scrim-heavy);
+    z-index: 47;
     animation: summaryFade 0.25s ease-out both;
   }
 
@@ -225,8 +247,10 @@
     gap: var(--space-xs);
   }
 
+  /* 12px is the floor for anything on a screen a spectator reads; the heads,
+     the progress title and the gap below were 11. */
   .roundScoreHeader {
-    font: 700 11px/1.2 var(--font-display);
+    font: 700 12px/1.2 var(--font-display);
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: var(--color-muted);
@@ -254,7 +278,7 @@
   }
 
   .roundScoreRowWinner .roundScorePlacement {
-    color: #7a4a00;
+    color: var(--color-on-secondary-muted);
   }
 
   .roundScoreName {
@@ -263,14 +287,18 @@
     white-space: nowrap;
   }
 
+  /* The mint as text, never the mint as a fill: `--color-mint` on the row's
+     surface-strong measured 1.81:1 in light, so the one number this card is
+     opened for was the one nobody could read. The token is the same hue pushed
+     until it clears AA on each canvas (tokens.css). */
   .roundScoreDelta {
     font-weight: 700;
-    color: var(--color-mint);
+    color: var(--color-mint-text);
     text-align: right;
   }
 
   .roundScoreRowWinner .roundScoreDelta {
-    color: #1f6b3c;
+    color: var(--color-on-secondary-mint);
   }
 
   /* Rounds won carries the weight now: it is what the match is settled on. The
@@ -296,7 +324,7 @@
   }
 
   .matchProgressTitle {
-    font: 700 11px/1.2 var(--font-display);
+    font: 700 12px/1.2 var(--font-display);
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--color-muted);
@@ -339,7 +367,7 @@
   /* The gap, not the result. A hue rather than an opacity, like everywhere. */
   .scoreGap {
     flex-shrink: 0;
-    font: 700 11px/1.3 var(--font-display);
+    font: 700 12px/1.3 var(--font-display);
     color: var(--color-muted);
   }
 
@@ -437,5 +465,52 @@
   :root[data-motion="reduce"] .decisiveNext {
     animation: decisiveIn 0.01s linear 0.35s both;
     transform: none;
+  }
+
+  /* Rows arrive one after another, top place first: the card is read from the
+     top, and a list that lands all at once is read nowhere. */
+  .roundScoreRow {
+    animation: rowIn 0.34s var(--ease-out) both;
+    animation-delay: calc(0.12s + var(--row-i, 0) * 0.06s);
+  }
+
+  @keyframes rowIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* The winner's row catches the light once, after it has landed: a sweep on
+     a pseudo-element, transform only, over a gradient that never repaints. */
+  .roundScoreRowWinner {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .roundScoreRowWinner::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 40%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+    animation: rowShine 0.9s ease-in-out 0.7s 1 both;
+  }
+
+  @keyframes rowShine {
+    to {
+      transform: translateX(340%) skewX(-18deg);
+    }
+  }
+
+  :root[data-motion='reduce'] .roundScoreRow,
+  :root[data-motion='reduce'] .roundScoreRowWinner::after {
+    animation: none;
   }
 </style>

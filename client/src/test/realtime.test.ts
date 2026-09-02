@@ -168,7 +168,7 @@ describe('the board animates only a committed play', () => {
   // hand, and a cancelled prompt must leave the fan exactly as it was.
   it('does not fly a wild until its colour is named', () => {
     const { container } = renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild wild' }))
+    fireEvent.click(screen.getByRole('button', { name: 'wild' }))
     expect(container.querySelector('[data-flier-face="face"]')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'green' }))
@@ -241,7 +241,7 @@ describe('the board animates only a committed play', () => {
   // retires it is losing the turn rather than the colour in play changing.
   it('closes the colour prompt when the turn moves under it', () => {
     renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild wild' }))
+    fireEvent.click(screen.getByRole('button', { name: 'wild' }))
     expect(screen.getByRole('button', { name: 'green' })).toBeInTheDocument()
 
     act(() => gameStore.setState({ currentTurn: 1 }))
@@ -258,7 +258,8 @@ describe('the board animates only a committed play', () => {
       act(() =>
         gameStore.setState({ myHand: [blueSwap], discard: blue7, activeColor: 'blue' }),
       )
-      fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+      // The card's accessible name is in the player's language too.
+      fireEvent.click(screen.getByRole('button', { name: 'bleu échange' }))
       expect(screen.getByRole('button', { name: /Bob/ })).toHaveTextContent('3 cartes')
     } finally {
       localStorage.removeItem('loco_lang')

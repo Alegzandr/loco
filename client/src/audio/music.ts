@@ -240,6 +240,19 @@ function mtof(midi: number): number {
 class MusicBed {
   private timer: ReturnType<typeof setInterval> | null = null
   private out: GainNode | null = null
+  /**
+   * The tab is hidden. The scheduler is stopped for as long as it is, and the
+   * scene it was playing is kept so the bed comes back with the tab.
+   */
+  private hidden = false
+  /**
+   * A track chosen while the bed was stopped (⏭ on a screen with no music),
+   * honoured by the next `start()` instead of the bag's own pick.
+   */
+  private chosen: string | null = null
+  /** When the current duck ends (context seconds), or 0. See duck/dipThrough. */
+  private duckUntil = 0
+  private duckAmount = 1
   /** Pad-only bus carrying the stepped pump. */
   private padBus: GainNode | null = null
   private reverbIn: GainNode | null = null
@@ -335,6 +348,9 @@ class MusicBed {
     const next = getTrack(id)
     audio.setSettings({ track: next.id })
     if (!this.isPlaying() || next.id === this.track.id) {
+      // Stopped, the choice used to be overwritten by `start()`'s own pick from
+      // a fresh bag: the label changed and the deal played something else.
+      if (!this.isPlaying()) this.chosen = next.id
       this.track = next
       this.pendingTrack = null
       this.beginTrack()
@@ -403,6 +419,16 @@ class MusicBed {
     out.gain.cancelScheduledValues(from)
     out.gain.setValueAtTime(out.gain.value, from)
     out.gain.linearRampToValueAtTime(0.06, at)
+    // Back to where the bed belongs, which under a fanfare is the ducked level
+    // and not full: the cancel above took the duck's own return with it, so it
+    // is scheduled again here rather than letting a track change slam the bed
+    // back up under the one sound people clip.
+    if (at + 0.28 < this.duckUntil) {
+      out.gain.linearRampToValueAtTime(this.duckAmount, at + 0.28)
+      out.gain.setValueAtTime(this.duckAmount, this.duckUntil)
+      out.gain.linearRampToValueAtTime(1, this.duckUntil + 0.5)
+      return
+    }
     out.gain.linearRampToValueAtTime(1, at + 0.28)
   }
 
@@ -558,11 +584,34 @@ class MusicBed {
     const out = this.output()
     if (!ctx || !out) return
     const t = ctx.currentTime
+    this.duckUntil = t + ms / 1000
+    this.duckAmount = amount
     out.gain.cancelScheduledValues(t)
     out.gain.setValueAtTime(out.gain.value, t)
     out.gain.linearRampToValueAtTime(amount, t + 0.12)
     out.gain.setValueAtTime(amount, t + ms / 1000)
     out.gain.linearRampToValueAtTime(1, t + ms / 1000 + 0.5)
+  }
+
+  /**
+   * Tells the bed whether the tab is hidden. Hidden stops the scheduler and
+   * keeps the scene; visible again starts it back up where the scene says.
+   */
+  setHidden(hidden: boolean): void {
+    if (this.hidden === hidden) return
+    this.hidden = hidden
+    if (hidden) {
+      this.clearTimer()
+      return
+    }
+    if (this.scene !== 'off') this.start(this.scene)
+  }
+
+  private clearTimer(): void {
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
   }
 
   start(scene: MusicScene): void {
@@ -571,13 +620,18 @@ class MusicBed {
       this.stop()
       return
     }
-    if (!audio.isReady() || this.timer) return
+    if (!audio.isReady() || this.timer || this.hidden) return
     // Seed the shuffle from the clock, once. The generator is otherwise
     // deterministic — fine for debugging a rhythm, useless for "play them in a
     // random order", which would hand every session the same order forever.
     this.seed = (Date.now() & 0x7fffffff) | 1
-    this.queue = shuffledOrder(TRACKS.map((t) => t.id), null, () => this.rand())
-    this.track = getTrack(this.takeFromQueue())
+    // The bag avoids the track that was playing when the bed last stopped: a
+    // search that ended in a deal restarted the same track one time in three,
+    // which people hear as broken rather than as random. A track chosen with
+    // ⏭ while the bed was off is what plays, and it is then spent.
+    this.queue = shuffledOrder(TRACKS.map((t) => t.id), this.track.id, () => this.rand())
+    this.track = getTrack(this.chosen ?? this.takeFromQueue())
+    this.chosen = null
     audio.setSettings({ track: this.track.id })
     this.beginTrack()
     this.barCount = 0
@@ -587,10 +641,7 @@ class MusicBed {
   }
 
   stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer)
-      this.timer = null
-    }
+    this.clearTimer()
     this.scene = 'off'
   }
 
@@ -610,7 +661,12 @@ class MusicBed {
 
     let guard = 0
     while (this.nextStepTime < horizon && guard++ < 64) {
-      this.emitStep(this.nextStepTime, ctx, dest)
+      // A step whose time has passed is skipped, not played late: a stall
+      // shorter than the resync above (a long frame, a throttled tick) used to
+      // start every missed sixteenth at once — kick, bass, arp, lead and hats
+      // as one stacked hit. The form still advances through them, so the bar
+      // picks up where it should rather than where it stopped.
+      if (this.nextStepTime >= ctx.currentTime) this.emitStep(this.nextStepTime, ctx, dest)
       this.nextStepTime += this.stepDur()
       this.advance()
     }
@@ -943,9 +999,14 @@ class MusicBed {
     const freq = mtof(midi)
     const env = (param: AudioParam, peak: number) => {
       const sus = Math.max(0.0002, peak * 0.25)
+      // The decay lands at the note's end when the note is shorter than the
+      // decay: two of the three tracks write bass notes under 120 ms, and a
+      // hold set inside the ramp truncated it with a step in the gain on every
+      // note — a click four times a bar.
+      const decayEnd = when + Math.min(0.12, dur)
       param.setValueAtTime(0.0001, when)
       param.exponentialRampToValueAtTime(peak, when + 0.002)
-      param.exponentialRampToValueAtTime(sus, when + 0.12)
+      param.exponentialRampToValueAtTime(sus, decayEnd)
       param.setValueAtTime(sus, when + dur)
       param.exponentialRampToValueAtTime(0.0001, when + dur + 0.05)
     }

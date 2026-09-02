@@ -118,7 +118,9 @@ func TestBotInterrupt_WildsNameAColour(t *testing.T) {
 // rotations? The domain refuses it, so the bot must not offer it.
 func TestBotInterrupt_RearrangingCardsStaySingle(t *testing.T) {
 	for _, top := range []Card{{Color: Red, Kind: Swap}, {Color: Wild, Kind: GlobalSwitch}} {
-		action := BotInterrupt(interruptState(top, Red, []Card{top, top}), 1)
+		// A third card so the Swap pays (seat 0 holds one): what is under
+		// test is the batch size, not whether the exchange is worth it.
+		action := BotInterrupt(interruptState(top, Red, []Card{top, top, {Color: Blue, Kind: Number, Value: 1}}), 1)
 		if action == nil {
 			t.Fatalf("%v: BotInterrupt = nil", top.Kind)
 		}
@@ -130,16 +132,31 @@ func TestBotInterrupt_RearrangingCardsStaySingle(t *testing.T) {
 
 func TestBotInterrupt_SwapPicksARealTarget(t *testing.T) {
 	top := Card{Color: Red, Kind: Swap}
-	s := interruptState(top, Red, []Card{top})
-	// Give seat 0 the bigger hand so the choice is unambiguous.
-	s.Hands[0] = Hand{Cards: []Card{top, {Color: Blue, Kind: Number, Value: 1}, {Color: Blue, Kind: Number, Value: 2}}}
+	blue := func(v int) Card { return Card{Color: Blue, Kind: Number, Value: v} }
+	// The bot holds four, seat 0 holds one: the exchange pays, and seat 0 is
+	// the only target there is.
+	s := interruptState(top, Red, []Card{top, blue(1), blue(2), blue(3)})
+	s.Hands[0] = Hand{Cards: []Card{blue(4)}}
 
 	action := BotInterrupt(s, 1)
 	if action == nil {
 		t.Fatal("BotInterrupt = nil")
 	}
 	if action.ChosenPlayer != 0 {
-		t.Errorf("ChosenPlayer = %d, want 0 (the fullest hand)", action.ChosenPlayer)
+		t.Errorf("ChosenPlayer = %d, want 0", action.ChosenPlayer)
+	}
+}
+
+// A Swap exchanges the whole hand, so slamming one into a fuller hand is a
+// forced draw the bot inflicted on itself. The interject is not made.
+func TestBotInterrupt_SwapThatHurtsIsNotMade(t *testing.T) {
+	top := Card{Color: Red, Kind: Swap}
+	blue := func(v int) Card { return Card{Color: Blue, Kind: Number, Value: v} }
+	s := interruptState(top, Red, []Card{top, blue(1)})
+	s.Hands[0] = Hand{Cards: []Card{blue(2), blue(3), blue(4), blue(5)}}
+
+	if got := BotInterrupt(s, 1); got != nil {
+		t.Errorf("BotInterrupt = %v, want nil: the exchange costs three cards", got)
 	}
 }
 

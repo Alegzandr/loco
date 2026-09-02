@@ -7,6 +7,7 @@
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
   import { EMOTE_ORDER } from './emotes'
+  import { countUp } from './countUp'
 
   type Props = {
     winner: string
@@ -169,15 +170,21 @@
     {#if scoreboard && scoreboard.length > 0}
       <div class="scoreboard">
         <h3 class="scoreboardTitle">{t.finalScores}</h3>
-        {#each ranked as entry (entry.player_index)}
-          <div class="scoreRow" class:scoreRowWinner={entry.nickname === winner}>
+        {#each ranked as entry, idx (entry.player_index)}
+          <div
+            class="scoreRow"
+            class:scoreRowWinner={entry.nickname === winner}
+            style="--row-i: {idx}"
+          >
             <span class="scoreName">{entry.nickname}</span>
             <!-- Rounds lead, points follow. The match was decided by the first
                  and measured by the second, and a card that shouted the points
-                 was explaining the result with the wrong number. -->
+                 was explaining the result with the wrong number. The points are
+                 counted up rather than printed: this is the number the evening
+                 ends on. -->
             <span class="scoreDetails">
               <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
-              <span class="scoreGap">{entry.score} pts</span>
+              <span class="scoreGap" use:countUp={{ value: entry.score, format: (n) => `${n} pts` }}></span>
             </span>
           </div>
         {/each}
@@ -458,9 +465,10 @@
     font-weight: 700;
   }
 
-  /* The gap, not the result. Quiet is a hue here like everywhere else. */
+  /* The gap, not the result. Quiet is a hue here like everywhere else. 12px is
+     the floor for anything on a screen a spectator reads; this was 11. */
   .scoreGap {
-    font: 700 11px/1.2 var(--font-display);
+    font: 700 12px/1.2 var(--font-display);
     color: var(--color-muted);
   }
 
@@ -504,10 +512,10 @@
 
   .recapTh,
   .recapThName {
-    /* 11px, which is the floor — the Label step included. These name the columns
-       somebody reads the evening out of, and the score table's heads were pulled
-       back off 10px for exactly this reason. */
-    font: 700 11px/1.15 var(--font-display);
+    /* 12px, which is the floor for a spectator's screen — they were 11, and the
+       score table's heads were pulled back off 10px before that for the same
+       reason. These name the columns somebody reads the evening out of. */
+    font: 700 12px/1.15 var(--font-display);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--color-muted);
@@ -857,5 +865,55 @@
   :root[data-motion="reduce"] .emoteBtn:hover,
   :root[data-motion="reduce"] .emoteBtn:active {
     transform: none;
+  }
+
+  /* The heading wraps as a phrase, never as a word left alone on its own line. */
+  .heading {
+    text-wrap: balance;
+  }
+
+  /* Standings arrive top place first, and the winner's row catches the light
+     once — the same two touches the round summary has, at the same pace. */
+  .scoreRow {
+    animation: rowIn 0.34s var(--ease-out) both;
+    animation-delay: calc(0.25s + var(--row-i, 0) * 0.06s);
+  }
+
+  @keyframes rowIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .scoreRowWinner {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scoreRowWinner::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 40%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+    animation: rowShine 0.9s ease-in-out 0.9s 1 both;
+  }
+
+  @keyframes rowShine {
+    to {
+      transform: translateX(340%) skewX(-18deg);
+    }
+  }
+
+  :root[data-motion='reduce'] .scoreRow,
+  :root[data-motion='reduce'] .scoreRowWinner::after {
+    animation: none;
   }
 </style>

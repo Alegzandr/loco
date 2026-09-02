@@ -129,6 +129,23 @@ room's reset.
   discard, then `Deck.DrawUpTo` hands over whatever is left — possibly nothing, once every card sits
   in a hand. `DrawCard` validates first, then draws, and only *then* clears `PendingDraw` and sets
   `HasDrawn`: nothing above that line touches the state and nothing below it can fail.
+  - **`Deck.Replenish` appends the pile to what is left of the deck, it never replaces it.** The
+    replenish runs when the deck is *short*, which is exactly when it is not empty: it used to
+    `make` a fresh slice from the pile, so the unseen cards still in the deck were thrown away — a
+    +6 against a two-card deck cost the round two cards for good, and hands + deck + pile no longer
+    summed to 112. `TestEnsureDeck_KeepsTheCardsStillInTheDeck` counts them.
+  - **A batch is never longer than the hand it comes from**, and `hub.parseCardsFromMsg` refuses one
+    that is before it decodes a single card of it: a 4 KB message carries a hundred DTOs, and the
+    domain would otherwise walk every one of them, at the rate limit, to reach the refusal it was
+    always going to give.
+- **Removing a seat re-bases everything the scoreboard is drawn from** (`RemoveLobbyPlayer`:
+  `Scores`, `RoundsWon`, `LostHandTotal`, `Retired`, every row of `RoundHistory`), because a finished
+  room keeps its scores for the game-over screen and re-basing the roster alone showed the leaver's
+  column under the seat above it. The `player_left` that shrinks the roster carries the re-based
+  `scoreboard` and `round_history` for the same reason it carries `match_history`.
+- **A one-card interject off a one-card hand logs one declaration.** `requireLocoToFinish` has
+  already established the seat called it before the message; `declareForFinish` runs for the batch
+  finish alone, so the event log a reconnecting client replays no longer announces the call twice.
   - It used to clear `PendingDraw` and set `HasDrawn` **before** calling the all-or-nothing `DrawN`,
     and return `"deck exhausted"` on an already-mutated state. A 16-card stack against 10 remaining
     cards evaporated with nobody drawing anything, and since the handler returns before any
@@ -235,6 +252,27 @@ which leaves a window where a bot holds one undeclared card and its turn has alr
 single-card interject; a bot's finishing batch passes `declareLoco: true`. Without it the domain
 refuses, `botPlay` logs and returns **without rescheduling**, and the seat stops playing for the rest
 of the round — a bot that goes quiet does not fail, it just stops.
+
+**A bot plays its identical copies together when a copy buys something** (`BotAction.Cards`,
+`botBatchFor`), the way a human's tap does (`batchForSlam`) and the way it already did on an
+interject: two +2s are a +4, two Skips step two seats, and a bot's last two identical cards take the
+round with the call on the message (`DeclareLoco`, announced ahead of the cards by
+`announceFinishingLoco` exactly as a human's is). Swap and GlobalSwitch never batch and a plain Wild
+only when the batch empties the hand, for the reasons given under interrupts. Before this a bot
+stacked +2 where a person stacks +4 and handed the table a catch window on a hand it could have
+emptied, which is a visibly weaker game than the one it was sitting in.
+
+**A bot's Swap goes to the smallest hand, and only when it pays** (`botSwapTarget`, `botSwapPays`).
+A Swap exchanges the whole hand, so `BotThink` used to hand the bot the *fullest* hand at the table
+on purpose — "put pressure on opponents" read the card as a penalty it deals rather than the trade it
+is — and a bot on three cards swapping into nine was the seat everybody wanted at their table. It
+now targets the fewest cards, skipping a retired seat (its hand went back to the deck, so it is the
+smallest of all and the one target the domain refuses), and holds the card when no opponent is below
+the hand it would keep: another legal card if it has one, one card off the deck if it does not, since
+a draw costs one card and the exchange would have cost several. A Swap that empties the hand is the
+exception and is always played — the round ends before any exchange (§13). `game.BotInterrupt`
+applies the same test before slamming one, so the interject is not a faster way to make a bad trade.
+`bot_test.go` and `bot_interrupt_test.go` pin all four cases.
 
 **Fixtures.** Any test that drives a round to its end now makes the call: `declareLast` in the
 domain suite, `declareBeforeWinning` over the wire in the hub suite. Three hub fixtures went the

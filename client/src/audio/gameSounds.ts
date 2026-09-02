@@ -91,12 +91,22 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
     if (sting) out.push(sting)
   }
 
-  // Any hand growing means cards were drawn — by us or by an opponent.
-  if (next.screen === 'game' && totalHandSizes(next) > totalHandSizes(prev)) {
+  // Any hand growing means cards were drawn — by us or by an opponent. A deal
+  // is the exception: `dealFor` plays those cards one by one.
+  if (
+    next.screen === 'game' &&
+    totalHandSizes(next) > totalHandSizes(prev) &&
+    dealFor(prev, next) === 0
+  ) {
     out.push('cardDraw')
   }
 
-  if (next.unoDeclared && !prev.unoDeclared) out.push('unoDeclare')
+  // Keyed on the stamp, not the latch: `unoDeclared` stays up for as long as
+  // the banner does, so a second seat calling it under the first one's banner
+  // — routine after a Global Switch — used to make no sound at all.
+  if (next.unoDeclaredAt !== prev.unoDeclaredAt && next.unoDeclaredByIndex >= 0) {
+    out.push('unoDeclare')
+  }
 
   // A Contre-LOCO! that landed. The `unoCaught` voice has existed in sfx.ts
   // since the start and nothing ever played it: the game's hardest reaction was
@@ -114,7 +124,9 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
   if (next.pendingDraw > prev.pendingDraw && !out.includes('drawStack')) out.push('drawStack')
   if (prev.pendingDraw > 0 && next.pendingDraw === 0 && next.screen === 'game') out.push('penalty')
 
-  if (next.errorMsg && next.errorMsg !== prev.errorMsg) out.push('error')
+  // The same refusal twice is two refusals: the toast is already up, so the
+  // buzz is the only feedback the second tap gets.
+  if (next.errorMsg && next.errorAt !== prev.errorAt) out.push('error')
 
   // The cue has to reach a player who can act on it, and the round summary is
   // eight seconds of a board they cannot see. The next round is dealt behind
@@ -123,10 +135,15 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
   // down on a turn that is already ours.
   const summaryLifted = prev.showRoundSummary && !next.showRoundSummary
   const turnBecameMine = next.currentTurn !== prev.currentTurn && next.currentTurn === next.myIndex
+  // The table opening is the one turn change that changes no number: the deal
+  // put `currentTurn` on our seat while the room was still loading, and the
+  // clock only starts at `match_ready`. Without this the seat that opens the
+  // match — every solo game, one table in n otherwise — heard nothing.
+  const tableOpened = prev.mapLoading !== null && next.mapLoading === null
   if (
     next.screen === 'game' &&
     !next.showRoundSummary &&
-    (turnBecameMine || (summaryLifted && next.currentTurn === next.myIndex))
+    (turnBecameMine || ((summaryLifted || tableOpened) && next.currentTurn === next.myIndex))
   ) {
     out.push('yourTurn')
   }
@@ -145,11 +162,46 @@ export function soundsForTransition(prev: State, next: State): SfxName[] {
     out.push('playerJoin')
   }
 
+  // An opponent's seat went quiet mid-match: the forfeit clock started on
+  // them, or a seat is gone for good. Both draw a line on the board, and both
+  // used to draw it silently — the one moment a player who looked away most
+  // needs to look back. Their return is the arrival sound: somebody sat down.
+  if (next.screen === 'game') {
+    const awayStarted =
+      next.opponentAway !== null && next.opponentAway.deadline !== prev.opponentAway?.deadline
+    const seatGone = next.departureNotice !== null && next.departureNotice.at !== prev.departureNotice?.at
+    if (awayStarted || seatGone) out.push('playerAway')
+    if (prev.opponentAway !== null && next.opponentAway === null && prev.screen === 'game') {
+      out.push('playerJoin')
+    }
+  }
+
   // The queue paid off. This is the one moment in the game the player is most
   // likely to be missing — a search runs for minutes and people go and do
   // something else — so it is also the one that most needs a sound.
   if (next.screen === 'matchfound' && prev.screen !== 'matchfound') out.push('matchFound')
 
-  return out
+  // One voice per name per transition. Two branches above can both owe the
+  // penalty (a missed Contre-LOCO! in the same message as a stack being eaten),
+  // and two copies of one cue started on the same sample are one cue at twice
+  // the level, on a bus with no limiter.
+  return out.filter((name, i) => out.indexOf(name) === i)
+}
+
+/**
+ * How many cards a fresh hand should be dealt in with the flourish, or 0 when
+ * this transition is not a deal.
+ *
+ * A deal is a hand appearing from nothing: the first round, and every round
+ * after it — the next round's `game_started` lands under the round summary and
+ * used to arrive as a single opponent's draw, because only the screen change
+ * was counted. Decided here, beside the sounds, so the draw swish the same
+ * transition would otherwise owe is dropped: the cards are the flourish.
+ */
+export function dealFor(prev: State, next: State): number {
+  if (next.screen !== 'game' || next.myHand.length === 0) return 0
+  const enteredGame = prev.screen !== 'game'
+  const newRound = next.roundNumber !== prev.roundNumber && prev.myHand.length <= 1
+  return enteredGame || newRound ? next.myHand.length : 0
 }
 

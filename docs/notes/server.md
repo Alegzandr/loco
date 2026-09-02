@@ -693,6 +693,20 @@ ordinary room's on purpose.
   second `AfterFunc` at the same handler. It is safe for the same reason every deferred callback here
   re-checks: the second run finds a room that is no longer a lobby and returns. It costs one timer per
   pairing, and `matchmaking_test.go` pins the property it rests on — two attempts, one deal.
+- **A seat is held through the versus reveal, and reclaimed the same way as a match seat.** A
+  matchmade table is a lobby for the two and a half seconds between the pairing and the deal, and
+  the client keeps its seat across a reload there (`matchfound` persists as `game`, and the rejoin
+  reclaims with the token). `disconnectAtTable` used to take the lobby branch: the seat left the
+  roster with every column it had in the recap, and the reclaim came back as a fresh `Join` under a
+  fresh seat — after a rematch the recap had no columns at all, which serialised as `null` and was
+  refused by the client's schema. Held now, like a match seat: `handleJoinRoom` reclaims at a
+  matchmade lobby (a matchmade table is never joinable by code, so it takes the reclaim branch at
+  every status), `handleMatchmakingStart` deals with a held seat counted present and the seat's own
+  15 s clock, armed when it dropped, forfeits the match if nobody reclaims it; nobody connected at
+  all is a pairing with nobody to deal to and is torn down as before. A seat held through the
+  reveal and never reclaimed requeues the survivor from the expiry, which is reachable only if the
+  deal itself was refused. `matchHistoryDTO` never serialises a column set as `null` either way.
+  `TestMatchmaking_ReloadDuringTheRevealKeepsTheSeat` and `…RematchRevealKeepsTheRecap` pin it.
 - **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
   `handleSetMaxPlayers`, `handleKickPlayer` and `handleTransferHost` all begin with
   `refuseInMatchmade`. The format is fixed
@@ -1061,9 +1075,32 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   "A refused message must never be cheaper than an accepted one" above, which is the whole reason
   the reset moved from before the handler to after it.
 - Kick: send `{type:"error", error:"afk_kicked"}`, close. Standard reconnect window applies.
+- **A kick answers the socket, never the turn.** `kickIfAFK` returns true only for the matchmade
+  forfeit, which ends the match and with it the turn; an ordinary kick closes the socket and returns
+  false, and `handleTurnTimeout` goes on to draw and pass for the seat exactly as it does for any
+  empty chair. It used to return early, and nothing re-armed anything: `CurrentTurn` stayed on the
+  kicked player, `turnStartedAt` still named the timer that had just fired, and a table of three
+  humans was refused `not your turn` for the rest of the match with no way out but the tab.
+  `TestAFK_KickStillMovesTheTurn` watches the turn move from a second seat.
+- **A reclaim clears the counter** (`handleReconnect`): the timeouts that stacked up belonged to a
+  connection that died, and a player back at the table was one clock from a forfeit on their first
+  turn back.
+- **The auto-draw re-arms before it broadcasts** (`autoDrawOnTimeout`): `sendHandGrowth` reads the
+  deadline off the table, and the one on it was the clock that had just run out, so every client
+  drained its bar to nothing for the frames before `turn_changed`.
 - Tests override threshold (e.g. `1<<30`).
 
 ## Bots
+
+- **A refused bot move gives the turn up, never the table** (`botRecover`). Bots are exempt from the
+  turn clock, so a `PlayCard` or `CounterDraw` the domain refused used to log, return and arm
+  nothing: not a lost turn but a dead table, with the turn on a seat nothing could move. It now
+  draws if it has not (a draw never fails, and the card may be the answer) and passes otherwise; the
+  pass is the floor, so a second refusal after the draw cannot loop.
+- **`botCanPlayDrawn` asks `BotThink`, not `CanPlay`.** The two disagree on a legal Swap the bot
+  declines (`botSwapPays`), and "yes, playable" there scheduled a move that asked to draw again, was
+  refused (`ErrAlreadyDrawn`), fell through to the scheduler and came back every two seconds for the
+  rest of the match.
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
 - **A bot never sits in seat 0** (`Hub.keepHostHuman`). The host is seat 0 and nothing else: five
   controls are gated on `c.playerID() != 0`, the roster badge is `p.index === 0`, and a kick is
@@ -1189,6 +1226,28 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   `pending_draw`). `TestTurnDeadline_AbsentDuringBotTurn` plays a Skip first so a live deadline is
   proven recorded before the second play asserts it gone.
 - Tracked in `table.bots`, a set of seat numbers.
+
+## What a snapshot carries, and what is built once
+
+- **`GameStateDTO` carries `catch_seats` and `declared_seats`.** A tab that reloaded two seconds
+  into a five-second catch window rebuilt a board on which nobody was catchable and lost the three
+  seconds it could still have won; a seat whose call was spent got its LOCO! button back and was
+  refused `player already declared` on the tap. Both lists are the same answers `card_played` and
+  the domain give (`CatchableTargets`, `LastCardDeclared`), sent with every snapshot.
+  `TestReconnect_SnapshotCarriesCatchState` reloads inside a window, and after a call.
+- **What is the same for every recipient is built once per broadcast** (`sharedGameState`, handed
+  to `playerGameStateWith`): the scoreboard, the recap and the catch lists. `playerGameStateUsing`
+  already hoisted the roster; the scoreboard and `matchHistoryDTO` were still rebuilt per seat, so a
+  GlobalSwitch at a ten-seat table on its sixth match was ten scoreboard builds and a hundred slice
+  copies on the hot path.
+- **`restoreRoom` fills the table in before it runs and arms through its box.** `awayAt` is written
+  before `t.start`; the turn clock, the bot and the cleanup — all of which write the table's own
+  stamps — are posted as the table's first job rather than run from the hub after the goroutine is
+  up. Nothing could post before the listener was up, which is why it never failed; it is now not a
+  race by construction rather than by luck.
+- **A named seat below zero on `catch_uno` is refused and counted**, like a seat past the end: it is
+  the same forged message with the sign flipped, and charging it as a wager was the one place a
+  forged target cost its sender a card instead of telling the operator anything.
 
 ## Session tokens
 - 32 hex chars (128-bit `crypto/rand`).

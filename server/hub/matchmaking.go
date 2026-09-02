@@ -311,7 +311,11 @@ func (h *Hub) handleMatchmakingStart(t *table, sm mmStartMsg) {
 	if t.room.Status != game.StatusLobby {
 		return
 	}
-	if t.connected() < 2 {
+	// A seat held through the reveal — a tab reloading, a socket that blipped —
+	// counts as present: the deal goes ahead and the seat's own 15 s clock,
+	// armed when it dropped, forfeits the match if nobody reclaims it. Nobody
+	// connected at all is a pairing with nobody to deal to.
+	if t.connected() == 0 || t.connected()+len(t.awayAt) < 2 {
 		h.requeueSurvivor(t)
 		return
 	}

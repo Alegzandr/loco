@@ -4,6 +4,7 @@ package hub
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -15,8 +16,18 @@ import (
 // ClientMsg. The batch field (PlayCards) takes precedence over the singular
 // Card. Returns (cards, chosenColor, ok); ok=false means an error has already
 // been sent to the client and the caller should return.
-func (h *Hub) parseCardsFromMsg(c *Client, msg protocol.ClientMsg) ([]game.Card, game.Color, bool) {
+func (h *Hub) parseCardsFromMsg(c *Client, t *table, msg protocol.ClientMsg) ([]game.Card, game.Color, bool) {
 	if len(msg.PlayCards) > 0 {
+		// A batch longer than the hand cannot be legal and is refused before a
+		// single card of it is decoded: a 4 KB message carries a hundred DTOs,
+		// and the domain would otherwise walk every one of them, at the rate
+		// limit, to reach the refusal it was always going to give.
+		if hand := t.handSize(c.playerID()); len(msg.PlayCards) > hand {
+			err := fmt.Errorf("batch of %d cards exceeds the hand", len(msg.PlayCards))
+			c.sendError(err.Error())
+			c.noteRejection(err)
+			return nil, 0, false
+		}
 		cards := make([]game.Card, len(msg.PlayCards))
 		var chosenColor game.Color
 		for i, dto := range msg.PlayCards {
@@ -48,7 +59,7 @@ func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, t, msg)
 	if !ok {
 		return
 	}
@@ -152,13 +163,14 @@ func (h *Hub) handleRoundOrMatchEnd(t *table) {
 	// personalized state. Build the player list once and share across recipients.
 	h.scheduleTurnTimer(t)
 	pl := h.playerList(t)
+	shared := h.sharedGameState(t)
 	for seat, member := range t.members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameStateUsing(t, seat, pl),
+			State: h.playerGameStateWith(t, seat, pl, shared),
 		})
 	}
 	h.maybeScheduleBot(t)
@@ -253,6 +265,14 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	targetIdx := -1
 	if msg.TargetIndex != nil {
 		targetIdx = *msg.TargetIndex
+		// A named seat below zero is the out-of-range case with the sign
+		// flipped, not "nobody": refused and counted like the one below, rather
+		// than charged as a wager no client of ours composes.
+		if targetIdx < 0 {
+			c.sendError(game.ErrNoCatchWindow.Error())
+			c.noteRejection(game.ErrNoCatchWindow)
+			return
+		}
 	} else if open := room.State.CatchableTargets(time.Now()); len(open) > 0 {
 		targetIdx = open[0]
 	}
@@ -363,7 +383,7 @@ func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, t, msg)
 	if !ok {
 		return
 	}

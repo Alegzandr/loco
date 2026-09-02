@@ -1264,3 +1264,81 @@ describe('gameStore', () => {
     ])
   })
 })
+
+// The roster's count of our own hand moves with the hand: the fallback paths
+// in applyCardPlayed index on it, and a stale-low count removed two copies of
+// a card for one play.
+describe('applyCardDrawn keeps our own roster count honest', () => {
+  it('raises hand_size for our seat when the cards arrive', () => {
+    gameStore.setState({
+      myIndex: 0,
+      myHand: [{ color: 'red', kind: 'number', value: 1 }],
+      players: [
+        { index: 0, nickname: 'Nova', hand_size: 1, connected: true },
+        { index: 1, nickname: 'Kiwi', hand_size: 7, connected: true },
+      ],
+    })
+    gameStore.getState().applyCardDrawn(
+      [
+        { color: 'blue', kind: 'number', value: 2 },
+        { color: 'blue', kind: 'number', value: 3 },
+      ],
+      0,
+      0,
+      true,
+      undefined,
+      0,
+    )
+    const s = gameStore.getState()
+    expect(s.myHand).toHaveLength(3)
+    expect(s.players.find((p) => p.index === 0)?.hand_size).toBe(3)
+  })
+})
+
+// A snapshot says who is on the hook and who has called, so a reload two
+// seconds into a window lands on a board where that window is still open and
+// a spent LOCO! button stays spent.
+describe('applyGameState takes the catch state off the snapshot', () => {
+  const base = {
+    your_index: 0,
+    hand: [{ color: 'red', kind: 'number', value: 1 }] as const,
+    players: [
+      { index: 0, nickname: 'Nova', hand_size: 1, connected: true },
+      { index: 1, nickname: 'Kiwi', hand_size: 1, connected: true },
+    ],
+    discard: { color: 'red', kind: 'number', value: 5 } as const,
+    active_color: 'red' as const,
+    turn: 0,
+    direction: 1,
+    round_number: 1,
+    match_format: 'BO1' as const,
+    max_players: 2,
+  }
+
+  it('opens the windows the server names', () => {
+    const endsAt = Date.now() + 3000
+    gameStore.setState({ myIndex: 0, catchWindows: [], declaredSeats: [] })
+    gameStore.getState().applyGameState({
+      ...base,
+      hand: [...base.hand],
+      catch_seats: [{ player_index: 1, ends_at: endsAt }],
+      declared_seats: [0],
+    })
+    const s = gameStore.getState()
+    expect(s.catchWindows).toEqual([{ seat: 1, endsAt, attempted: undefined }])
+    expect(s.catchTarget).toBe(1)
+    expect(s.declaredSeats).toEqual([0])
+    expect(s.myDeclared).toBe(true)
+  })
+
+  it('keeps a call already spent on the same window', () => {
+    const endsAt = Date.now() + 3000
+    gameStore.setState({ myIndex: 0, catchWindows: [{ seat: 1, endsAt, attempted: true }] })
+    gameStore.getState().applyGameState({
+      ...base,
+      hand: [...base.hand],
+      catch_seats: [{ player_index: 1, ends_at: endsAt }],
+    })
+    expect(gameStore.getState().catchWindows[0]?.attempted).toBe(true)
+  })
+})

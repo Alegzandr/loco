@@ -232,7 +232,9 @@ written out by hand at 21 call sites across 13 files, so "the colour of a primar
 nowhere to be changed. It is `--gradient-primary` / `-secondary` / `-tertiary` / `-error` now, over
 `--color-*-lift` for the top stop. The text on those fills is the same three answers every time:
 `--color-on-primary` and `--color-on-dark` for white, `--color-on-secondary` (a dark brown) for the
-yellow, `--color-on-mint` for the mint. **White never goes on the yellow**: it measures ~1.7:1, and
+yellow, `--color-on-mint` for the mint. **White never goes on the yellow**: it measures ~1.7:1, and The quiet variants (`--color-on-secondary-muted`, `--color-on-secondary-mint`)
+and `--color-mint-text` (mint dark enough to read as text on a light surface) complete the set: a
+fill that needs another one needs a token, never a literal at the call site.
 the interception banner's ×N chip shipped that way while its twin on the catch banner read the ink.
 
 **The Outline Rule.** Contrast is bought with ink, never by darkening a colour. Off-white on

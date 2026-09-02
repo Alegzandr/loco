@@ -77,6 +77,57 @@ test.describe('in-game score table', () => {
     await expect(scoreTable(page)).toBeHidden()
   })
 
+  // TAB is the scoreboard key and nothing else at the table: it opens the panel
+  // on the press itself, and it moves no focus while it is down. Shift+TAB is
+  // never taken — it is the whole keyboard path around the board, so a keyboard
+  // user is not trapped by a panel they cannot leave.
+  test('TAB moves no focus, and Shift+TAB still walks the board without opening it', async ({
+    page,
+  }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    // The focus is parked on a real control first, and marked, because the two
+    // keys are indistinguishable from a cold start: Chrome resumes its
+    // sequential order outside the document, so with nothing focused Shift+TAB
+    // walks into the browser's own chrome and `activeElement` stays on <body>
+    // whether or not the page swallowed the key. The board's chips are icon
+    // buttons, so the mark is what tells them apart, not their text.
+    const anchored = await page.evaluate(() => {
+      // Visible ones only: the scores button is `display: none` on a desktop
+      // layout, and focusing a hidden element does nothing at all.
+      const live = [...document.querySelectorAll<HTMLElement>('button:not([disabled])')].filter(
+        (el) => el.offsetParent !== null,
+      )
+      const el = live[live.length - 1]
+      if (!el) return false
+      el.dataset.e2eAnchor = '1'
+      el.focus()
+      return document.activeElement === el
+    })
+    expect(anchored, 'nothing on the board took the focus').toBe(true)
+
+    const onAnchor = () =>
+      page.evaluate(
+        () =>
+          document.activeElement instanceof HTMLElement &&
+          document.activeElement.dataset.e2eAnchor === '1',
+      )
+
+    await page.keyboard.down('Tab')
+    await expect(scoreTable(page)).toBeVisible()
+    expect(await onAnchor(), 'TAB moved the focus under the open panel').toBe(true)
+    await page.keyboard.up('Tab')
+    await expect(scoreTable(page)).toBeHidden()
+
+    // The modified key belongs to the browser: it navigates, and it opens
+    // nothing.
+    await page.keyboard.press('Shift+Tab')
+    await expect(scoreTable(page)).toBeHidden()
+    expect(await onAnchor(), 'Shift+TAB was swallowed too').toBe(false)
+  })
+
   test('the button is a touch affordance: absent on desktop, pins the table on a phone', async ({
     page,
   }) => {

@@ -1,4 +1,5 @@
 import { StateCreator } from './createStore'
+import { stamp } from './helpers'
 import { GameStore, LocoActions } from './types'
 
 export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => ({
@@ -16,6 +17,7 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       return {
         unoDeclared: true,
         unoDeclaredByIndex: declarer,
+        unoDeclaredAt: stamp(),
         declaredSeats: s.declaredSeats.includes(declarer)
           ? s.declaredSeats
           : [...s.declaredSeats, declarer],
@@ -36,7 +38,7 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       const catchWindows = s.catchWindows.filter((w) => w.seat !== seat)
       return {
         catchWindows,
-        catchFlash: { seat, at: Date.now() },
+        catchFlash: { seat, at: stamp() },
       }
     }),
 
@@ -71,7 +73,7 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
 
   // Somebody's call arrived too late and they drew for it. The +1 card itself
   // comes through the ordinary card_drawn path; this is only the notice.
-  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: Date.now() } }),
+  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: stamp() } }),
 
   clearCatchFailed: () => set({ catchFailed: null }),
 })

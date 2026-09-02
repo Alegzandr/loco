@@ -37,7 +37,7 @@
     boardSpace,
   } from './layout'
   import type { MapDef } from './maps'
-  import { ACTIVE_RING, CARD_W, CARD_H, flightFor } from './cardTheme'
+  import { ACTIVE_RING, CARD_W, CARD_H, DEAL_FLIGHT_MS, DEAL_STAGGER_MS, flightFor } from './cardTheme'
   import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
   import type { SwapNotice, LastPlay, CatchFlash } from '../../hooks/gameStore'
   import { CATCH_PENALTY_CARDS } from '../../hooks/gameStore'
@@ -46,6 +46,12 @@
 
   type Props = {
     myHand: CardDTO[]
+    /**
+     * Which round this hand was dealt for. A hand that appears with a new round
+     * number is a deal, and a deal is flown from the deck card by card; a hand
+     * that merely grew is a draw, which has its own flier below.
+     */
+    roundNumber?: number
     discard: CardDTO | null
     activeColor: CardColor
     players: PlayerDTO[]
@@ -270,6 +276,7 @@
     const flight = flightFor(card)
     if (flight.impact <= 0) return
     const timer = window.setTimeout(() => {
+      landTimers = landTimers.filter((id) => id !== timer)
       addImpacts(
         {
           id: newId(),
@@ -332,9 +339,20 @@
   // ─── Animation effect: discard top changed (any source) ─────────────────
   let lastDiscardKey = ''
   $effect(() => {
-    const key = discardKey(p.discard)
+    // Keyed on the face *and* the play that put it there. An interject is by
+    // definition the same face as the card under it, so keyed on the face alone
+    // an intercepted +4 drew no +N, no SKIP, no impact — nothing at all on the
+    // loudest moment in the game — and the flag below was left set, swallowing
+    // the next genuine change. A Swap's snapshot carries no play and keys on
+    // the face, as before.
+    const face = discardKey(p.discard)
+    const key = face === '' ? '' : `${face}|${p.lastPlay?.at ?? 0}`
     const pending = p.pendingDraw
     const texts = p.fxTexts
+    // Read and cleared first, before any early return: the flag describes this
+    // update and nothing after it.
+    const covered = suppressNextDiscardFx
+    suppressNextDiscardFx = false
     if (!ready) return
     if (key === '' || key === lastDiscardKey) return
     const isFirstRender = lastDiscardKey === ''
@@ -343,8 +361,6 @@
     // A hand→discard or seat→discard flight already showed the card travelling;
     // only the generic pile flier is redundant. The effect callout still fires —
     // playing your own Skip must announce itself just like an opponent's.
-    const covered = suppressNextDiscardFx
-    suppressNextDiscardFx = false
     const card = p.discard!
     if (!covered) {
       const target = discardPosition(width, height, topReserve)
@@ -403,6 +419,40 @@
         y: discardPosition(width, height, topReserve).y - 10,
         delayMs: (disc ? flightFor(disc).duration : 0) + COLOR_CALLOUT_DELAY_MS,
       },
+    )
+  })
+
+  // ─── Animation effect: the deal ─────────────────────────────────────────
+  // Eight cards fading into a fan is a screen being drawn; eight cards flying
+  // off the deck one after another, each landing where the fan will hold it,
+  // is a hand being dealt. Keyed on the round so a reload mid-round rebuilds
+  // the fan quietly (the Hand's own stagger) and only a fresh deal flies.
+  let dealtFor = p.roundNumber ?? -1
+  let dealtOnce = p.myHand.length > 0
+  $effect(() => {
+    const n = p.myHand.length
+    const round = p.roundNumber ?? -1
+    if (!ready) return
+    const fresh = !dealtOnce && n >= 2
+    const newRound = round !== dealtFor && n >= 2
+    if (!fresh && !newRound) return
+    dealtFor = round
+    dealtOnce = true
+    if (prefersReducedMotion()) return
+    const slots = calcHandSlots(n, width, height)
+    const start = deckPosition(width, height, topReserve)
+    addFliers(
+      ...slots.map((slot, i) => ({
+        id: newId(),
+        kind: 'back' as const,
+        from: { x: start.x, y: start.y, rotation: 0 },
+        to: { x: slot.x, y: slot.y, rotation: slot.rotation },
+        startAlpha: 0.85,
+        startScale: 0.92,
+        duration: DEAL_FLIGHT_MS,
+        delayMs: i * DEAL_STAGGER_MS,
+        arcHeight: 14,
+      })),
     )
   })
 
@@ -665,6 +715,7 @@
           />
           <DiscardPile
             card={p.discard}
+            playStamp={p.lastPlay?.at ?? 0}
             activeColor={p.activeColor}
             pendingDraw={p.pendingDraw}
             {width}
@@ -693,6 +744,7 @@
           {/each}
           <Hand
             hand={p.myHand}
+            roundNumber={p.roundNumber}
             {width}
             {height}
             isPlayable={p.isPlayable}

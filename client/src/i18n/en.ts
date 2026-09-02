@@ -256,6 +256,13 @@ export interface Translations {
   fxReverse: string
   /** Colour names, announced over the pile when a wild names a new colour. */
   fxColors: Record<'red' | 'yellow' | 'green' | 'blue', string>
+  /**
+   * The suit names as words, for what is read aloud: a card's accessible name
+   * and the colour picker's swatches. Lower case, because they are spoken in
+   * the middle of a sentence, and never the wire identifiers — "wild
+   * wild_draw_four" was what a screen reader got for a +4.
+   */
+  colorNames: Record<'red' | 'yellow' | 'green' | 'blue' | 'wild', string>
   directionCw: string
   directionCcw: string
   drawPile: string
@@ -367,6 +374,16 @@ export interface Translations {
    */
   decisiveRound: string
   decisiveRoundWhy: string
+  /**
+   * The chip's spellings under 480px, where the chrome row leaves the corner
+   * ~110px: `M%n` is the score table's own column head, so it is a name the
+   * player has already read, and the decisive round keeps one word.
+   */
+  roundShort: string
+  decisiveRoundShort: string
+  /** The vibration switch, shown only on a device with a motor. */
+  prefsHaptics: string
+  prefsHapticsHint: string
   player: string
   placementLabel: string
   ptsLabel: string
@@ -607,6 +624,7 @@ export const en: Translations = {
   fxSkip: 'SKIP!',
   fxReverse: 'REVERSE!',
   fxColors: { red: 'RED!', yellow: 'YELLOW!', green: 'GREEN!', blue: 'BLUE!' },
+  colorNames: { red: 'red', yellow: 'yellow', green: 'green', blue: 'blue', wild: 'wild' },
   directionCw: 'Play order: clockwise',
   directionCcw: 'Play order: counter-clockwise',
   drawPile: 'Draw pile',
@@ -706,6 +724,10 @@ export const en: Translations = {
   winsRound: 'takes the round!',
   decisiveRound: 'Decisive round',
   decisiveRoundWhy: 'Nothing separates the table. One more round.',
+  roundShort: 'M%n',
+  decisiveRoundShort: 'Decisive',
+  prefsHaptics: 'Vibrations',
+  prefsHapticsHint: 'A pulse under your thumb on every card, call and catch.',
   player: 'Player',
   // The rank column is 40px wide and its cells already read "1st", "2nd": any
   // word here spills into the player column, in every language. A leaderboard

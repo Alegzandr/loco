@@ -8,8 +8,14 @@ import (
 	"loco/server/protocol"
 )
 
-// A bot's own Swap hands a human their last card, and §8 makes receiving it
-// exactly as declarable as playing down to it. Nobody answered that.
+// A bot's own Global Switch hands a human their last card, and §8 makes
+// receiving it exactly as declarable as playing down to it. Nobody answered
+// that.
+//
+// A Global Switch rather than a Swap because a Swap only ever leaves the table
+// when it pays the bot (`botSwapPays`), and an exchange that leaves the other
+// seat on one card never does: the rotation is the rearranging card a bot
+// still plays into a hand smaller than its own.
 //
 // Regression: the catch was armed after a *human* action only — the three
 // gameplay handlers — while the bots' own declarations were armed everywhere. So
@@ -17,7 +23,7 @@ import (
 // single card because somebody else played a card, was also the one nobody at
 // the table would ever punish. Both halves are armed together now
 // (`maybeScheduleBotReactions`), from every point a board can change.
-func TestBotCatchesAfterItsOwnSwapLeavesAHumanOnOneCard(t *testing.T) {
+func TestBotCatchesAfterItsOwnRotationLeavesAHumanOnOneCard(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 
 	origThink := hub.BotThinkDelay
@@ -26,7 +32,7 @@ func TestBotCatchesAfterItsOwnSwapLeavesAHumanOnOneCard(t *testing.T) {
 	origCatchJitter := hub.BotCatchJitterMax
 	origCatchProb := hub.BotCatchProb
 	origInterruptProb := hub.BotInterruptProb
-	// The bot has to take its turn here — the Swap is the whole fixture — so the
+	// The bot has to take its turn here — the rotation is the whole fixture — so the
 	// think delay is short rather than absent. Everything else is pinned.
 	hub.BotThinkDelay = 20 * time.Millisecond
 	hub.BotJitterMax = 0
@@ -61,7 +67,7 @@ func TestBotCatchesAfterItsOwnSwapLeavesAHumanOnOneCard(t *testing.T) {
 	bot := 1 - me
 
 	// Three cards, so the card played below leaves two: the window this asserts
-	// must be opened by the bot's Swap and by nothing we did.
+	// must be opened by the bot's Global Switch and by nothing we did.
 	zero := 0
 	dir := 1
 	sendMsg(t, conn, protocol.ClientMsg{
@@ -72,13 +78,13 @@ func TestBotCatchesAfterItsOwnSwapLeavesAHumanOnOneCard(t *testing.T) {
 				{Color: "red", Kind: "number", Value: 6},
 				{Color: "red", Kind: "number", Value: 7},
 			},
-			// One playable card and it is the Swap, so what the bot does with its
-			// turn is not a coin toss. It keeps a second card, which is what stops
-			// the swap from being a finish and keeps the bot out of the catch it is
-			// about to make.
+			// One playable card and it is the Global Switch, so what the bot does
+			// with its turn is not a coin toss. It keeps a second card, which is
+			// what stops the rotation from being a finish and keeps the bot out of
+			// the catch it is about to make.
 			Hands: []protocol.DebugHandOverrideDTO{
 				{PlayerIndex: bot, Hand: []protocol.CardDTO{
-					{Color: "red", Kind: "swap"},
+					{Color: "wild", Kind: "global_switch"},
 					{Color: "blue", Kind: "number", Value: 3},
 				}},
 			},
@@ -97,8 +103,8 @@ func TestBotCatchesAfterItsOwnSwapLeavesAHumanOnOneCard(t *testing.T) {
 	})
 	readMsgOfType(t, conn, protocol.SMsgCardPlayed)
 
-	// The bot swaps its one remaining card onto us and then answers the window it
-	// just opened.
+	// The bot rotates its one remaining card onto us and then answers the window
+	// it just opened.
 	caught := readMsgOfType(t, conn, protocol.SMsgUnoCaught)
 	if caught.Seat() != me {
 		t.Errorf("uno_caught named seat %d, want ours at %d", caught.Seat(), me)

@@ -108,11 +108,16 @@
   //
   // Clipboard is unavailable on insecure origins and in some embedded views;
   // failing silently is correct here — the code stays visible either way.
+  let copiedTimer: ReturnType<typeof setTimeout> | null = null
+  $effect(() => () => {
+    if (copiedTimer !== null) clearTimeout(copiedTimer)
+  })
   function copyCode() {
     navigator.clipboard?.writeText(tableInviteUrl(roomCode)).then(
       () => {
         copied = true
-        setTimeout(() => (copied = false), 1600)
+        if (copiedTimer !== null) clearTimeout(copiedTimer)
+        copiedTimer = setTimeout(() => (copied = false), 1600)
       },
       () => {},
     )
@@ -305,7 +310,7 @@
       >
         {t.addBot}
       </button>
-      <button class="btn" disabled={!canStart} onclick={() => onSend({ type: 'start_game' })}>
+      <button class="btn" class:btnArmed={canStart} disabled={!canStart} onclick={() => onSend({ type: 'start_game' })}>
         {canStart ? t.startGame : t.waitingForPlayers}
       </button>
     </div>
@@ -809,14 +814,17 @@
   /* The estimate under the label. Never the same weight as the format itself:
      the format is the choice, the minutes are what it costs. */
   .formatLen {
-    font: 700 10px/1.2 var(--font-display);
+    /* 12px is the floor for anything a spectator has to read, and this was 10.
+       The weight already separates it from the format above it. */
+    font: 700 12px/1.2 var(--font-display);
     letter-spacing: 0.04em;
     color: var(--color-muted);
   }
 
+  /* Quiet is a hue, never an opacity: the active pill's minutes wore its white
+     at 0.75, which on the indigo is a third of the way back to invisible. */
   .formatBtnActive .formatLen {
     color: var(--color-on-dark);
-    opacity: 0.75;
   }
 
   /* A note under a control, not a label over one. */
@@ -844,11 +852,14 @@
     box-shadow: inset 0 3px 0 rgba(36, 21, 70, 0.08);
   }
 
+  /* The solid token ring — the same one `Lobby.svelte`'s field wears and the
+     reason is written there: with `outline: none` this shadow is the whole
+     focus indicator, and the indigo at 0.35 measured 1.5:1. */
   .maxInput:focus {
     outline: none;
     box-shadow:
       inset 0 3px 0 rgba(36, 21, 70, 0.08),
-      0 0 0 4px rgba(108, 92, 255, 0.35);
+      0 0 0 3px var(--color-tertiary);
   }
 
   .configDisplay {
@@ -883,6 +894,32 @@
   }
 
   :root[data-motion="reduce"] .player {
+    animation: none;
+  }
+
+  /* The moment the table can start, the button says so once: a sweep of light
+     across it, transform only, and then it waits like any other button. A host
+     who looked away from the roster is told by the control they will press. */
+  .btnArmed {
+    position: relative;
+    overflow: hidden;
+  }
+  .btnArmed::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 36%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%);
+    transform: translateX(-180%) skewX(-18deg);
+    pointer-events: none;
+    animation: startShine 1.1s ease-in-out 0.2s 2 both;
+  }
+  @keyframes startShine {
+    to {
+      transform: translateX(380%) skewX(-18deg);
+    }
+  }
+  :root[data-motion='reduce'] .btnArmed::after {
     animation: none;
   }
 </style>
