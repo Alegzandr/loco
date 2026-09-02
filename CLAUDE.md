@@ -1283,6 +1283,10 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at
   creation.
+- **Every sound is made of one of four materials, and none is a bare oscillator**: card stock on
+  felt (`cardHit`, `snap`, `thud`, combed `noise`), wood (`mallet`, every interface sound), brass and
+  bell (`stab`, `bell`), air (`whoosh`). A sine or a square under an envelope is the sound every
+  prototype makes; the note says what replaced it and why.
 - **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()` in `sfx.ts`).
   Every celebration used to be `arp()`, and five of them ran the same major triad upward: `wild` and
   `roundWin` were note for note identical, so playing a Global Switch sounded exactly like taking the

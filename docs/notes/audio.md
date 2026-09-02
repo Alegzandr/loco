@@ -53,9 +53,32 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
     and by `persistNow()`). A slider fires `input` dozens of times a second and `setItem` is
     synchronous, so one write per step was sixty blocking writes a second on the main thread over
     a live board, recording values the next step replaced.
-- `audio/sfx.ts` — one-shots. Card handling is **noise** (paper has no pitch; a pitched click per
-  card becomes a melody nobody wrote); rule outcomes are **pitched and interval-based** so the table
-  learns them by ear.
+- `audio/sfx.ts` — one-shots, and a sound set with an identity rather than a drawer of oscillator
+  presets. The first set was sines, squares and swept noise — the sounds every prototype makes,
+  which is why it read as "heard a thousand times" — and it was replaced whole. Four materials, each
+  a primitive in the file, each voice built from them and nothing else:
+  - **Card stock on felt** (`cardHit`: a flick of combed noise, a resonant `snap`, a `thud` of the
+    table underneath; `cardDraw` slides fibrous noise through a comb; the deal is a `snap` riffle
+    climbing and panning across the pile). Nothing that handles a card is a pitched tone. Every hit
+    lands a shade to one side (`HUMAN_PAN`) and never twice the same (`humanVariation`).
+  - **Wood** (`mallet`: a fundamental and a fourth partial that dies faster, under a tick of attack
+    noise — marimba low, kalimba high). Every interface sound is one: the tap, the back, the turn
+    coming round, somebody sitting down or leaving, the two knocks of a refusal, the woodblock of
+    the countdown. The game is a table and its controls are things on it, not a phone's beeps.
+  - **Brass and bell** (`stab` for the chords, `bell` for a two-operator FM strike whose index
+    falls with the note): the call, the verdict, the match. The chords are the ones already
+    reasoned below; what changed is the body — a bell partial on top, a sub `thud` under the root,
+    and for the catch a gong at ratio 1.41, metal that does not agree with itself, because being
+    caught is not a tune.
+  - **Air** (`whoosh`: noise swelling into a sweep, panned across the room when it crosses one):
+    the breath before the LOCO! and the slam, the two hands of a swap passing each other, the
+    rush in front of a match found. It says "something moved fast" without playing a note.
+  - Two cues are envelopes nobody else has, on purpose: `reverse` is a note played backwards (it
+    swells in and stops dead, then the mallet lands on the far side) and `skip` is a zip past the
+    seat into a dead note. The ear knows what the ring did before the eye does.
+  - `make audio-verify` prints each cue's audible length beside its peak (`len=`, the last frame
+    above a fortieth of the loudest): a card game plays faster than its sounds decay, and that is
+    the column to read after touching a voice.
 - `audio/music.ts` — the bed **engine**. It contains no music: tracks are data in `audio/tracks/`,
   and this plays any of them (scheduling, synthesis, the arrangement ladder, the song form).
 - `audio/tracks/` — the music. `types.ts` documents the schema; `index.ts` is the registry (add a
