@@ -2,11 +2,13 @@
   import type { Emote, MatchRecordDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import CardFall from './CardFall.svelte'
+  import Backdrop from './Backdrop.svelte'
   import OutcomeMark, { type Outcome } from './OutcomeMark.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
   import { EMOTE_ORDER } from './emotes'
+  import { countUp } from './countUp'
 
   type Props = {
     winner: string
@@ -139,6 +141,8 @@
 </script>
 
 <div class="container">
+  <!-- The same room the evening started in. -->
+  <Backdrop />
   <!-- Only the winner gets the fall. A losing screen that celebrates is a worse
        experience than a quiet one, and a walkover is not something to empty the
        deck over either. -->
@@ -169,15 +173,21 @@
     {#if scoreboard && scoreboard.length > 0}
       <div class="scoreboard">
         <h3 class="scoreboardTitle">{t.finalScores}</h3>
-        {#each ranked as entry (entry.player_index)}
-          <div class="scoreRow" class:scoreRowWinner={entry.nickname === winner}>
+        {#each ranked as entry, idx (entry.player_index)}
+          <div
+            class="scoreRow"
+            class:scoreRowWinner={entry.nickname === winner}
+            style="--row-i: {idx}"
+          >
             <span class="scoreName">{entry.nickname}</span>
             <!-- Rounds lead, points follow. The match was decided by the first
                  and measured by the second, and a card that shouted the points
-                 was explaining the result with the wrong number. -->
+                 was explaining the result with the wrong number. The points are
+                 counted up rather than printed: this is the number the evening
+                 ends on. -->
             <span class="scoreDetails">
               <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
-              <span class="scoreGap">{entry.score} pts</span>
+              <span class="scoreGap" use:countUp={{ value: entry.score, format: (n) => `${n} pts` }}></span>
             </span>
           </div>
         {/each}
@@ -324,6 +334,7 @@
      trophy card: heavy panel, oversized emoji, ranked scoreboard. */
 
   .container {
+    isolation: isolate;
     display: flex;
     /* Column, like every other full-screen container here, and the direction is
        the whole of the rule rather than a tidying: `safe center` only ever
@@ -858,5 +869,55 @@
   :root[data-motion="reduce"] .emoteBtn:hover,
   :root[data-motion="reduce"] .emoteBtn:active {
     transform: none;
+  }
+
+  /* The heading wraps as a phrase, never as a word left alone on its own line. */
+  .heading {
+    text-wrap: balance;
+  }
+
+  /* Standings arrive top place first, and the winner's row catches the light
+     once — the same two touches the round summary has, at the same pace. */
+  .scoreRow {
+    animation: rowIn 0.34s var(--ease-out) both;
+    animation-delay: calc(0.25s + var(--row-i, 0) * 0.06s);
+  }
+
+  @keyframes rowIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .scoreRowWinner {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scoreRowWinner::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 40%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+    animation: rowShine 0.9s ease-in-out 0.9s 1 both;
+  }
+
+  @keyframes rowShine {
+    to {
+      transform: translateX(340%) skewX(-18deg);
+    }
+  }
+
+  :root[data-motion='reduce'] .scoreRow,
+  :root[data-motion='reduce'] .scoreRowWinner::after {
+    animation: none;
   }
 </style>

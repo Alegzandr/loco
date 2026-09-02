@@ -92,7 +92,7 @@ describe('<GameOver /> recap', () => {
 
   // The final standings lead with the rounds, because that is what took the
   // match. The points are beside them as the gap.
-  it('states the winner in rounds and the score as the gap', () => {
+  it('states the winner in rounds and the score as the gap', async () => {
     render(GameOver, {
       ...base,
       scoreboard: [
@@ -101,7 +101,8 @@ describe('<GameOver /> recap', () => {
       ],
     })
     expect(screen.getByText(en.roundsWonCount(2))).toBeTruthy()
-    expect(screen.getByText('500 pts')).toBeTruthy()
+    // The points are counted up, so the final figure is a frame or two away.
+    expect(await screen.findByText('500 pts')).toBeTruthy()
     // Alice took the match on rounds despite being far behind on points, so her
     // row is the one at the top.
     const rows = document.querySelectorAll('.scoreRow')

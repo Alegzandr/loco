@@ -381,6 +381,9 @@ export interface Translations {
    */
   roundShort: string
   decisiveRoundShort: string
+  /** The vibration switch, shown only on a device with a motor. */
+  prefsHaptics: string
+  prefsHapticsHint: string
   player: string
   placementLabel: string
   ptsLabel: string
@@ -723,6 +726,8 @@ export const en: Translations = {
   decisiveRoundWhy: 'Nothing separates the table. One more round.',
   roundShort: 'M%n',
   decisiveRoundShort: 'Decisive',
+  prefsHaptics: 'Vibrations',
+  prefsHapticsHint: 'A pulse under your thumb on every card, call and catch.',
   player: 'Player',
   // The rank column is 40px wide and its cells already read "1st", "2nd": any
   // word here spills into the player column, in every language. A leaderboard

@@ -3,6 +3,7 @@
   import { i18n } from '../i18n/i18n.svelte'
   import { seatColor, seatInitial } from './playerColors'
   import LocoLogo from './LocoLogo.svelte'
+  import Backdrop from './Backdrop.svelte'
 
   type Props = {
     myNickname: string
@@ -50,6 +51,8 @@
   do while the server is the one deciding.
 -->
 <div class="container">
+  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
+  <Backdrop />
   <LocoLogo size="clamp(34px, 6vw, 56px)" />
   <p class="kicker">{t.matchFoundKicker}</p>
 
@@ -87,6 +90,9 @@
      the countdown is the only thing that moves afterwards. */
 
   .container {
+    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
+       above the canvas and below everything this screen draws. */
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -282,6 +288,37 @@
   :root[data-motion="reduce"] .right,
   :root[data-motion="reduce"] .vs,
   :root[data-motion="reduce"] .kicker {
+    animation: none;
+  }
+
+  /* The VS lands with a ring: one burst on a pseudo-element, transform and
+     opacity, timed to the punch. The collision is the moment of this screen. */
+  .vs {
+    position: relative;
+    isolation: isolate;
+  }
+  .vs::before {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    z-index: -1;
+    border-radius: var(--radius-full);
+    border: 3px solid var(--color-secondary);
+    opacity: 0;
+    pointer-events: none;
+    animation: vsRing 0.7s ease-out 0.55s 1 both;
+  }
+  @keyframes vsRing {
+    from {
+      opacity: 0.95;
+      transform: scale(0.7);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+  }
+  :root[data-motion='reduce'] .vs::before {
     animation: none;
   }
 </style>

@@ -25,6 +25,7 @@
   import GameOver from './components/GameOver.svelte'
   import Reconnecting from './components/Reconnecting.svelte'
   import type { ClientMsg } from './types/protocol'
+  import { screenIn } from './hooks/screenIn'
 
   const t = $derived(i18n.t)
   const g = $derived(game.current)
@@ -207,12 +208,15 @@
 </script>
 
 {#if g.screen === 'restoring'}
+  <div class="screen" in:screenIn>
   <Reconnecting
     roomCode={g.roomCode}
     target={g.restoreTarget ?? 'game'}
     onCancel={() => gameStore.getState().abortRestore('reconnect cancelled')}
   />
+  </div>
 {:else if g.screen === 'lobby'}
+  <div class="screen" in:screenIn>
   <!-- Keyed on the entry point alone. The invite must not be part of it: spending
        it would change the key, remount the lobby and take the prefilled code back
        out from under the player. -->
@@ -229,7 +233,9 @@
       onClearError={() => gameStore.getState().clearError()}
     />
   {/key}
+  </div>
 {:else if g.screen === 'searching'}
+  <div class="screen" in:screenIn>
   <Searching
     startedAt={g.searchStartedAt ?? Date.now()}
     nickname={myNickname}
@@ -237,7 +243,9 @@
     onCreateTable={createTableInstead}
     playersOnline={g.playersOnline}
   />
+  </div>
 {:else if g.screen === 'matchfound' && g.matchFound}
+  <div class="screen" in:screenIn>
   <MatchFound
     myNickname={myNickname}
     opponentNickname={g.matchFound.opponentNickname}
@@ -245,7 +253,9 @@
     startsAt={g.matchFound.startsAt}
     format={g.matchFormat}
   />
+  </div>
 {:else if g.screen === 'waiting'}
+  <div class="screen" in:screenIn>
   <WaitingRoom
     roomCode={g.roomCode}
     players={g.players}
@@ -255,14 +265,18 @@
     onSend={handleSend}
     onLeave={leaveRoom}
   />
+  </div>
 {:else if g.screen === 'game'}
+  <div class="screen" in:screenIn>
   <GameView
     onSend={handleSend}
     wsStatus={socket.wsStatus}
     onRetryConnection={socket.reconnectNow}
     onLeave={leaveRoom}
   />
+  </div>
 {:else if g.screen === 'gameover'}
+  <div class="screen" in:screenIn>
   <GameOver
     winner={g.matchWinner}
     myNickname={myNickname}
@@ -284,4 +298,13 @@
     onFindMatch={() => findMatch(myNickname)}
     onLeave={leaveRoom}
   />
+  </div>
 {/if}
+
+<style>
+  /* Every screen sizes itself to this box exactly as it sized itself to #root:
+     the wrapper exists for the arrival transition and owns nothing else. */
+  .screen {
+    height: 100%;
+  }
+</style>

@@ -3,6 +3,7 @@
   import { playSfx } from '../audio/sfx'
   import { seatColor, seatInitial } from './playerColors'
   import LocoLogo from './LocoLogo.svelte'
+  import Backdrop from './Backdrop.svelte'
   import Preferences from './Preferences.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import RulesButton from './RulesButton.svelte'
@@ -62,6 +63,8 @@
   something, the empty chair opposite, and the two ways out.
 -->
 <div class="container">
+  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
+  <Backdrop />
   <!-- The sign of life, opposite the chip row, and the reason it is here as well
        as on the entry screen: this is the screen where somebody is wondering
        whether there is anybody to be matched with, and the honest answer is the
@@ -154,6 +157,9 @@
      degrades to a readable static state under reduced motion, never to nothing. */
 
   .container {
+    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
+       above the canvas and below everything this screen draws. */
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;

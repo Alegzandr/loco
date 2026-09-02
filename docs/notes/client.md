@@ -333,6 +333,9 @@ polish.
   setting `lastPlay`, so the prompt stayed up over a table that had gone and the choice went out
   against a state the server had already replaced. Being asked for a swap target and *then* refused
   is the one rejection in this game that reads as a broken promise rather than as an illegal card.
+- **The handling has a hand in it**: `sfx.ts` detunes and softens the card sounds a little per hit
+  (`humanVariation`), and `hooks/haptics.ts` answers the same cue list with one vibration pattern per
+  moment. Both live beside the sounds so the three can never disagree about what happened.
 - **Every board control acts on the press, not on the release** (`components/press.ts`,
   `use:pressToAct` on `Card`, `Deck` and the four buttons of the action bar). `click` is dispatched
   when the pointer comes back up — 80–150 ms after the finger landed on a touch screen, a good part

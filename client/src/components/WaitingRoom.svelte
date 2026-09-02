@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
+  import Backdrop from './Backdrop.svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
@@ -154,6 +155,8 @@
 </script>
 
 <div class="container">
+  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
+  <Backdrop />
   <div class="topBar">
     <Preferences />
     <AudioSettings />
@@ -310,7 +313,7 @@
       >
         {t.addBot}
       </button>
-      <button class="btn" disabled={!canStart} onclick={() => onSend({ type: 'start_game' })}>
+      <button class="btn" class:btnArmed={canStart} disabled={!canStart} onclick={() => onSend({ type: 'start_game' })}>
         {canStart ? t.startGame : t.waitingForPlayers}
       </button>
     </div>
@@ -353,6 +356,9 @@
      people say it out loud on stream — so it gets plaque treatment. */
 
   .container {
+    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
+       above the canvas and below everything this screen draws. */
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -894,6 +900,32 @@
   }
 
   :root[data-motion="reduce"] .player {
+    animation: none;
+  }
+
+  /* The moment the table can start, the button says so once: a sweep of light
+     across it, transform only, and then it waits like any other button. A host
+     who looked away from the roster is told by the control they will press. */
+  .btnArmed {
+    position: relative;
+    overflow: hidden;
+  }
+  .btnArmed::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 36%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%);
+    transform: translateX(-180%) skewX(-18deg);
+    pointer-events: none;
+    animation: startShine 1.1s ease-in-out 0.2s 2 both;
+  }
+  @keyframes startShine {
+    to {
+      transform: translateX(380%) skewX(-18deg);
+    }
+  }
+  :root[data-motion='reduce'] .btnArmed::after {
     animation: none;
   }
 </style>

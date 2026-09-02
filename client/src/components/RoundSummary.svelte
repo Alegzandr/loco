@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { RoundScoreEntry } from '../hooks/gameStore'
+  import { countUp } from './countUp'
   import type { ScoreboardEntryDTO, MatchFormat } from '../types/protocol'
   import type { Translations } from '../i18n/en'
   import { formatRounds } from './matchLengthModel'
@@ -98,14 +99,25 @@
         <span>{t.totalLabel}</span>
       </div>
       {#each sorted as entry, idx (entry.player_index)}
-        <div class="roundScoreRow" class:roundScoreRowWinner={entry.nickname === roundWinner}>
+        <div
+          class="roundScoreRow"
+          class:roundScoreRowWinner={entry.nickname === roundWinner}
+          style="--row-i: {idx}"
+        >
           <span class="roundScorePlacement">{placementSuffix(idx + 1, t)}</span>
           <span class="roundScoreName">{entry.nickname}</span>
-          <span class="roundScoreDelta">
-            {entry.round_points > 0 ? `+${entry.round_points}` : '—'}
-          </span>
+          <!-- The points climb to their value: a figure that pops into place is
+               a spreadsheet cell, one that is counted is a score. -->
+          {#if entry.round_points > 0}
+            <span
+              class="roundScoreDelta"
+              use:countUp={{ value: entry.round_points, format: (n) => `+${n}` }}
+            ></span>
+          {:else}
+            <span class="roundScoreDelta">—</span>
+          {/if}
           <span class="roundScoreWins">{entry.rounds_won}</span>
-          <span class="roundScoreTotal">{entry.cumulative_score}</span>
+          <span class="roundScoreTotal" use:countUp={{ value: entry.cumulative_score }}></span>
         </div>
       {/each}
     </div>
@@ -121,7 +133,7 @@
               <span class="scoreName">{entry.nickname}</span>
               <span class="scoreDetails">
                 <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
-                <span class="scoreGap">{entry.score} pts</span>
+                <span class="scoreGap" use:countUp={{ value: entry.score, format: (n) => `${n} pts` }}></span>
               </span>
             </div>
           {/each}
@@ -453,5 +465,52 @@
   :root[data-motion="reduce"] .decisiveNext {
     animation: decisiveIn 0.01s linear 0.35s both;
     transform: none;
+  }
+
+  /* Rows arrive one after another, top place first: the card is read from the
+     top, and a list that lands all at once is read nowhere. */
+  .roundScoreRow {
+    animation: rowIn 0.34s var(--ease-out) both;
+    animation-delay: calc(0.12s + var(--row-i, 0) * 0.06s);
+  }
+
+  @keyframes rowIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* The winner's row catches the light once, after it has landed: a sweep on
+     a pseudo-element, transform only, over a gradient that never repaints. */
+  .roundScoreRowWinner {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .roundScoreRowWinner::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 40%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+    animation: rowShine 0.9s ease-in-out 0.7s 1 both;
+  }
+
+  @keyframes rowShine {
+    to {
+      transform: translateX(340%) skewX(-18deg);
+    }
+  }
+
+  :root[data-motion='reduce'] .roundScoreRow,
+  :root[data-motion='reduce'] .roundScoreRowWinner::after {
+    animation: none;
   }
 </style>

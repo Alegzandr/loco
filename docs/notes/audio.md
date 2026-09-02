@@ -237,6 +237,18 @@ download, nothing to licence, no cache-miss silence on a sound's first play.
   launches whatever Chromium the `playwright` package it resolves has downloaded, and a machine
   that already has one — a sandbox, a CI image with browsers baked in — need not fetch another
   copy to run it. Unset, Playwright uses its own, as before.
+- **The handling is never played twice the same way** (`humanVariation` in `sfx.ts`, applied by
+  `playSfx` to `cardPlay`, `cardDraw`, `cardDeal`, `uiTap`, `uiBack`, `skip`, `reverse`, and by
+  `playDeal` to each card of the flourish): ±45 cents of detune and a gain between 0.86 and 1 per hit
+  — under the threshold of "a different sound", over the threshold of "the same sound again". Fifty
+  copies of one sample a round is the sound of a machine. The cues that *mean* something (a call, a
+  catch, a fanfare) stay exact: those are the vocabulary, and a word is not pronounced differently
+  each time. `haptics.test.ts` pins the range.
+- **The phone answers the same list** (`hooks/haptics.ts`): `hapticsFor` reads the cues
+  `soundsForTransition` produced and picks one pattern per moment, the strongest cue's, never a
+  chain; `gameAudio()` plays it right after the sounds. Presentation only, off by one switch in the
+  preferences (stored inverted, `loco_haptics_off`, so a fresh install buzzes), and a no-op — with
+  no switch offered — wherever `navigator.vibrate` is absent.
 - **Strudel was evaluated and rejected**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and
   bundling them into a network-served client triggers §13 for the whole app. Revisit only if LOCO
   itself becomes AGPL.

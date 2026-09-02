@@ -39,6 +39,42 @@ interface ToneOpts {
   filter?: number
 }
 
+/**
+ * How much the next voice is allowed to differ from the last one.
+ *
+ * A card is played fifty times a round, and fifty copies of one sample is the
+ * sound of a machine: real cards never land twice the same way. The handling
+ * and the taps are pitched a few cents off and a shade softer or louder per
+ * hit — under the threshold of "a different sound", over the threshold of
+ * "the same sound again". The cues that *mean* something (a call, a catch, a
+ * fanfare) are left exact: those are the game's vocabulary, and a word is not
+ * pronounced differently each time. `humanVariation` is the pure half so the
+ * range is testable; `variation` is what the helpers below read.
+ */
+export interface Variation {
+  /** Frequency multiplier. */
+  pitch: number
+  /** Gain multiplier. */
+  gain: number
+}
+
+const NEUTRAL: Variation = { pitch: 1, gain: 1 }
+let variation: Variation = NEUTRAL
+
+/** ±cents of detune and the gain floor a humanised voice may reach. */
+export const HUMAN_CENTS = 45
+export const HUMAN_GAIN_FLOOR = 0.86
+
+export function humanVariation(rand: () => number = Math.random): Variation {
+  const cents = (rand() * 2 - 1) * HUMAN_CENTS
+  return {
+    pitch: Math.pow(2, cents / 1200),
+    gain: HUMAN_GAIN_FLOOR + (1 - HUMAN_GAIN_FLOOR) * rand(),
+  }
+}
+
+const HUMANISED: ReadonlySet<string> = new Set(['cardPlay', 'cardDraw', 'cardDeal', 'uiTap', 'uiBack', 'skip', 'reverse'])
+
 function tone(o: ToneOpts): void {
   const ctx = audio.context()
   const dest = audio.sfxDestination()
@@ -46,14 +82,14 @@ function tone(o: ToneOpts): void {
 
   const dur = o.dur ?? 0.18
   const attack = o.attack ?? 0.004
-  const peak = o.gain ?? 0.25
+  const peak = (o.gain ?? 0.25) * variation.gain
   const t0 = ctx.currentTime + (o.delay ?? 0)
 
   const osc = ctx.createOscillator()
   osc.type = o.type ?? 'sine'
-  osc.frequency.setValueAtTime(o.freq, t0)
+  osc.frequency.setValueAtTime(o.freq * variation.pitch, t0)
   if (o.toFreq !== undefined) {
-    osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.toFreq), t0 + dur)
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.toFreq * variation.pitch), t0 + dur)
   }
 
   const g = ctx.createGain()
@@ -102,15 +138,15 @@ function noise(o: NoiseOpts = {}): void {
 
   const bp = ctx.createBiquadFilter()
   bp.type = o.type ?? 'bandpass'
-  bp.frequency.setValueAtTime(o.freq ?? 2400, t0)
+  bp.frequency.setValueAtTime((o.freq ?? 2400) * variation.pitch, t0)
   if (o.toFreq !== undefined) {
-    bp.frequency.exponentialRampToValueAtTime(Math.max(20, o.toFreq), t0 + dur)
+    bp.frequency.exponentialRampToValueAtTime(Math.max(20, o.toFreq * variation.pitch), t0 + dur)
   }
   bp.Q.value = o.q ?? 1.1
 
   const g = ctx.createGain()
   g.gain.setValueAtTime(0.0001, t0)
-  g.gain.exponentialRampToValueAtTime(o.gain ?? 0.2, t0 + 0.006)
+  g.gain.exponentialRampToValueAtTime((o.gain ?? 0.2) * variation.gain, t0 + 0.006)
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur)
 
   src.connect(bp)
@@ -489,7 +525,12 @@ export function playSfx(name: SfxName): void {
   if (!audio.isReady()) return
   if (audio.getSettings().muted) return
   if (!audio.budgetVoice()) return
-  VOICES[name]()
+  variation = HUMANISED.has(name) ? humanVariation() : NEUTRAL
+  try {
+    VOICES[name]()
+  } finally {
+    variation = NEUTRAL
+  }
 }
 
 /**
@@ -543,7 +584,13 @@ export function playDeal(cardCount: number): void {
   const dest = audio.sfxDestination()
   if (!ctx || !dest) return
   const n = Math.min(cardCount, 10)
+  // Each card of the deal lands its own way, like each card of the hand.
   for (let i = 0; i < n; i++) {
-    noise({ dur: 0.06, freq: 2600 + i * 90, toFreq: 1200, q: 1.4, gain: 0.12, delay: i * 0.055 })
+    variation = humanVariation()
+    noise({ dur: 0.06, freq: 2600 + i * 90, toFreq: 1200, q: 1.4, gain: 0.12, delay: i * DEAL_TICK_S })
   }
+  variation = NEUTRAL
 }
+
+/** Seconds between two cards of the deal flourish: DEAL_STAGGER_MS, in seconds. */
+const DEAL_TICK_S = 0.055

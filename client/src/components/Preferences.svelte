@@ -3,6 +3,7 @@
   import { playSfx } from '../audio/sfx'
   import { streamerModePref, setStreamerMode } from '../hooks/streamerMode'
   import { colorAssistPref, setColorAssist } from '../hooks/colorAssist'
+  import { hapticsOffPref, hapticsSupported, setHaptics } from '../hooks/haptics'
   import { setMotionPref } from '../hooks/motionPref'
   import { watchPref } from '../hooks/prefs.svelte'
   import { themePref, reducedMotion } from '../hooks/uiPrefs.svelte'
@@ -38,6 +39,10 @@
   const t = $derived(i18n.t)
   const streamer = watchPref(streamerModePref)
   const colorAssist = watchPref(colorAssistPref)
+  const hapticsOff = watchPref(hapticsOffPref)
+  // Offered only where it can do anything: a switch for a motor the device
+  // does not have is a promise the panel cannot keep.
+  const canBuzz = hapticsSupported()
 
   let open = $state(defaultOpen)
   let wrap = $state<HTMLDivElement | null>(null)
@@ -223,6 +228,23 @@
             </button>
             <p class="hint">{t.prefsColorAssistHint}</p>
           </div>
+
+          {#if canBuzz}
+            <div class="group">
+              <button
+                class="switchRow"
+                onclick={() => toggle(hapticsOff.current, setHaptics)}
+                role="switch"
+                aria-checked={!hapticsOff.current}
+              >
+                <span class="label">{t.prefsHaptics}</span>
+                <span class="track" class:trackOn={!hapticsOff.current} aria-hidden="true">
+                  <span class="knob"></span>
+                </span>
+              </button>
+              <p class="hint">{t.prefsHapticsHint}</p>
+            </div>
+          {/if}
 
           <!-- Reachable in-game on purpose: the players who need this are not
                always the ones who thought to look for it before the deal. -->

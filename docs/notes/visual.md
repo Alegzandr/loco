@@ -1138,3 +1138,37 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
   those tags or that image, so a deleted PNG or a drifted dimension would fail silently in
   production.
 
+
+
+## Ambience and celebration
+
+The brief this pass answered was "everything that feels soulless". Four things, each small, each in
+the same voice as the rest of the board.
+
+- **The entry screens sit in a room** (`components/Backdrop.svelte`, mounted first in `Lobby`,
+  `Searching`, `MatchFound` and `WaitingRoom`): four very soft lights in the suit hues drifting over
+  the ground, and seven cards lying in it face down, turning at the pace of weather. The canvas
+  behind a card game was one flat colour, which is a form under a form. Compositor only — each light
+  is a radial gradient on a layer rasterised once and moved by transform, the cards are ink at a
+  whisper — and a still composition under reduced motion. It is `position: fixed` and
+  `pointer-events: none`, so `/` still never scrolls and nothing can be pressed through it.
+- **The home screen arrives in order** (`Lobby`'s `riseIn`): the mark, the line under it, then the
+  four buttons one after another, 60 ms apart, once, under the boot fade. A screen that appears in
+  one frame is a page loading.
+- **A hand is dealt, not drawn** (`GameBoard`'s deal effect, `DEAL_FLIGHT_MS`): eight card backs fly
+  off the deck one after another and each lands where the fan will hold it; the fan's own fade-in
+  (`Hand`'s `handCardIn`) now waits for its card's flier, so a card never appears before it has
+  arrived. Keyed on `roundNumber`, so every round's deal flies and a reload mid-round rebuilds the
+  fan quietly. The deal sound already staggered at the same pace, which is why it reads as one thing.
+- **Numbers are counted, not printed** (`components/countUp.ts`, on the round summary's points and
+  totals and the game-over standings): a figure that pops into place is a spreadsheet cell. Rows on
+  both cards arrive top place first and the winner's row catches the light once; the game-over
+  heading wraps as a phrase (`text-wrap: balance`) rather than leaving `TOI !` alone on a line.
+- **Every screen arrives** (`hooks/screenIn.ts`, on the wrapper `App.svelte` puts round each
+  screen): a 240 ms rise and fade in, no departure — nothing pressable is ever behind a screen on
+  its way out. `.screen` is `height: 100%` and owns nothing else, so every screen sizes itself to
+  it exactly as it sized itself to `#root`.
+- **Three small answers to a press**: a card gives under the thumb for the frame before it flies
+  (`Hand`'s `:active` squash), the turn pill lands with a ring (`TurnIndicator`'s `turnBurst`, a
+  pseudo-element so the pill's own transform stays the fly's), and the reveal's VS lands with one
+  too (`MatchFound`'s `vsRing`).

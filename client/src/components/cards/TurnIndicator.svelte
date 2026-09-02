@@ -121,12 +121,43 @@
     display: grid;
   }
 
-  /* Your turn: the loudest label on the board. */
+  /* Your turn: the loudest label on the board. It arrives with a burst — a
+     ring on a pseudo-element, scaled and faded once, the pill's own transform
+     untouched — because the moment the table hands you the turn is the one
+     moment a spectator should be able to see from across the room. */
   .mine {
     font-size: 20px;
     color: var(--color-on-dark);
     background: var(--gradient-primary);
     text-shadow: 0 2px 0 rgba(120, 10, 40, 0.45);
+    isolation: isolate;
+  }
+
+  .mine::before {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    z-index: -1;
+    border-radius: inherit;
+    border: 3px solid var(--color-on-dark);
+    opacity: 0;
+    pointer-events: none;
+    animation: turnBurst 0.6s ease-out 1;
+  }
+
+  @keyframes turnBurst {
+    from {
+      opacity: 0.9;
+      transform: scale(0.85);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.45);
+    }
+  }
+
+  :root[data-motion='reduce'] .mine::before {
+    animation: none;
   }
 
   /* Your turn *and* a stack is pending — the decision is now a dilemma.

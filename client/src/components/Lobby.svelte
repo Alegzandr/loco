@@ -7,6 +7,7 @@
   import Preferences from './Preferences.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import LocoLogo from './LocoLogo.svelte'
+  import Backdrop from './Backdrop.svelte'
   import { playSfx } from '../audio/sfx'
   import { readNickname, rememberNickname } from '../hooks/nicknameMemory'
   import { canonicalNickname, isNicknameShapeValid } from './nicknameRules'
@@ -179,6 +180,8 @@
 </script>
 
 <div class="container">
+  <!-- The room the screen sits in; behind everything, pressable nowhere. -->
+  <Backdrop />
   <!-- The sign of life, opposite the chip row and on the same line. Drawn from
        two up and absent below it, never zeroed or reworded: playersOnline.ts. A
        status line rather than a control — nothing here is pressable, so it is a
@@ -365,6 +368,9 @@
      with depth and the two CTAs are unmistakably pressable. */
 
   .container {
+    /* A stacking context, so the room behind (Backdrop, z-index -1) paints
+       above the canvas and below everything this screen draws. */
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -704,6 +710,48 @@
   }
 
   :root[data-motion="reduce"] .error {
+    animation: none;
+  }
+
+  /* The screen arrives in order — the mark, the line under it, then the four
+     buttons one after another — rather than as one frame: an entry screen that
+     appears all at once is a page loading, and one that arrives is a game
+     opening. Opacity and transform only, once, under the boot fade. */
+  .title,
+  .tagline,
+  .buttonGroup > :global(*) {
+    animation: riseIn 0.5s var(--ease-out) both;
+  }
+  .tagline {
+    animation-delay: 0.08s;
+  }
+  .buttonGroup > :global(:nth-child(1)) {
+    animation-delay: 0.16s;
+  }
+  .buttonGroup > :global(:nth-child(2)) {
+    animation-delay: 0.22s;
+  }
+  .buttonGroup > :global(:nth-child(3)) {
+    animation-delay: 0.28s;
+  }
+  .buttonGroup > :global(:nth-child(4)) {
+    animation-delay: 0.34s;
+  }
+
+  @keyframes riseIn {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  :root[data-motion='reduce'] .title,
+  :root[data-motion='reduce'] .tagline,
+  :root[data-motion='reduce'] .buttonGroup > :global(*) {
     animation: none;
   }
 </style>

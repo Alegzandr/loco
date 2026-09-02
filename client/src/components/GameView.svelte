@@ -333,6 +333,7 @@
        that addresses controls by name. -->
   <GameBoard
     myHand={g.myHand}
+    roundNumber={g.roundNumber}
     discard={g.discard}
     activeColor={g.activeColor}
     players={g.players}

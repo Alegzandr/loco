@@ -773,7 +773,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   backs out one step at a time, and **below 46rem the dropdown is a bottom sheet with a scrim**. The
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
 - **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
-  streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module
+  streamer mode, colour shapes, reduced motion, and vibrations where the device has a motor
+  (`hooks/haptics.ts`: patterns decided beside the sounds, one per moment, never a chain). Each on/off preference is a `createBooleanPref` module
   store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
   and only from the host's — see below; every other one is local and must stay that way. Those icons
   are **drawn SVG, never a font character**.
@@ -1253,6 +1254,11 @@ stated at the top of `styles/tokens.css`:
   600×800 it is drawn at. Built from the real `<LocoLogo />` and the real `<Card />` for the reason
   the link preview is: the art leaves this repository, and nothing here can watch it go stale.
   `coverCard.test.ts` pins the ratio, the floor and the no-other-text rule.
+- **The entry screens sit in a room** (`Backdrop.svelte`: drifting suit-hued lights and face-down
+  cards, compositor only, still under reduced motion), **a hand is dealt off the deck card by card**
+  (`GameBoard`'s deal effect, `DEAL_FLIGHT_MS`, keyed on `roundNumber`), **numbers are counted**
+  (`countUp.ts`) and **every screen arrives** (`hooks/screenIn.ts`, in only, never out). The
+  reasoning and the constraints are under "Ambience and celebration" in the note.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).

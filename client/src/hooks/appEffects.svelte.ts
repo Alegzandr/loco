@@ -8,6 +8,7 @@ import type { RestoreTarget } from './sessionPersistence'
 import { RESTORE_TIMEOUT_MS } from './sessionRestore'
 import { live } from './live.svelte'
 import { isStreamerMode, streamerModePref } from './streamerMode'
+import { hapticsFor, vibrate } from './haptics'
 import type { ClientMsg } from '../types/protocol'
 
 /**
@@ -77,6 +78,9 @@ export function gameAudio(): void {
 
       const sounds = soundsForTransition(before, next)
       for (const name of sounds) playSfx(name)
+      // The phone answers the same list: one pulse per moment, the strongest
+      // cue's pattern. See hooks/haptics.ts.
+      vibrate(hapticsFor(sounds))
 
       // Pull the bed down under the long fanfares. Two pieces of music competing
       // for the same moment makes both of them mush, and the fanfare is the one

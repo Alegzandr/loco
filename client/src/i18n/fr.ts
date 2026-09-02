@@ -218,6 +218,8 @@ export const fr: Translations = {
   decisiveRound: 'Manche décisive',
   roundShort: 'M%n',
   decisiveRoundShort: 'Décisive',
+  prefsHaptics: 'Vibrations',
+  prefsHapticsHint: 'Une impulsion sous le pouce à chaque carte, appel et contre.',
   decisiveRoundWhy: 'Rien ne sépare la table. On remet une manche.',
   player: 'Joueur',
   // Colonnes de 40px dans RoundSummary : « Position » et « Victoires »
