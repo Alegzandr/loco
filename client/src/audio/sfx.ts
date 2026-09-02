@@ -566,10 +566,15 @@ const VOICES: Record<SfxName, () => void> = {
 
   // "It's on you": two marimba notes, a fifth apart, the second with a touch
   // of glass on it. Warm and quiet enough to hear every turn.
+  //
+  // It is the most repeated cue in the game — once a turn, every turn, for the
+  // whole match — so it is mixed under the ones that mean something happened.
+  // At the card handling's level it was answering `cardPlay` rather than
+  // sitting beneath it, which turns a nudge into an alarm by the tenth turn.
   yourTurn: () => {
-    mallet({ midi: 76, dur: 0.26, gain: 0.15, bright: 0.18, tick: 0.3, reverb: 0.1 })
-    mallet({ midi: 83, dur: 0.34, gain: 0.14, bright: 0.24, tick: 0.3, delay: 0.11, reverb: 0.14 })
-    bell({ midi: 95, ratio: 2, index: 1.2, dur: 0.3, gain: 0.05, delay: 0.11, reverb: 0.2 })
+    mallet({ midi: 76, dur: 0.26, gain: 0.1, bright: 0.18, tick: 0.3, reverb: 0.1 })
+    mallet({ midi: 83, dur: 0.34, gain: 0.092, bright: 0.24, tick: 0.3, delay: 0.11, reverb: 0.14 })
+    bell({ midi: 95, ratio: 2, index: 1.2, dur: 0.3, gain: 0.034, delay: 0.11, reverb: 0.2 })
   },
 
   // Skip: a zip past the seat and a blunt stop. Air falling, a low knock, and
@@ -739,10 +744,15 @@ const VOICES: Record<SfxName, () => void> = {
     whoosh({ from: 300, to: 5000, dur: 0.2, gain: 0.12, reverb: 0.3 })
     stab({ notes: [65, 69, 72, 77], dur: 0.55, gain: 0.18, unison: 4, detune: 22, openTo: 6000, closeTo: 1200, reverb: 0.45, delay: 0.16 })
     bell({ midi: 89, ratio: 2, index: 1.8, dur: 0.5, gain: 0.07, delay: 0.16, reverb: 0.45 })
-    stab({ notes: [60, 64, 67, 72, 76], dur: 1.2, gain: 0.2, unison: 4, detune: 22, openTo: 5200, closeTo: 700, reverb: 0.5, delay: 0.5 })
-    bell({ midi: 96, ratio: 2, index: 2, dur: 0.9, gain: 0.08, delay: 0.5, reverb: 0.5 })
-    bell({ midi: 100, ratio: 3, index: 1.2, dur: 0.8, gain: 0.04, delay: 0.56, reverb: 0.5 })
-    thud({ freq: 48, drop: 0.9, dur: 1.0, gain: 0.2, delay: 0.5 })
+    // The second chord, its two bells and the sub all land on the same
+    // instant, and four voices summing there is what put this cue at 0.82 —
+    // over the ceiling `make audio-verify` measures, on the one moment of the
+    // evening most likely to be clipped for a stream. Trimmed as a group, so
+    // the balance between them is the one that was written.
+    stab({ notes: [60, 64, 67, 72, 76], dur: 1.2, gain: 0.17, unison: 4, detune: 22, openTo: 5200, closeTo: 700, reverb: 0.5, delay: 0.5 })
+    bell({ midi: 96, ratio: 2, index: 2, dur: 0.9, gain: 0.068, delay: 0.5, reverb: 0.5 })
+    bell({ midi: 100, ratio: 3, index: 1.2, dur: 0.8, gain: 0.034, delay: 0.56, reverb: 0.5 })
+    thud({ freq: 48, drop: 0.9, dur: 1.0, gain: 0.17, delay: 0.5 })
   },
   // The match, lost. A minor chord that closes rather than falls, and one low
   // knock: the table has stopped, not sunk.

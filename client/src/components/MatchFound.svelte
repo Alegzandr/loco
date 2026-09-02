@@ -132,6 +132,11 @@
     gap: var(--space-sm);
     flex: 1 1 0;
     min-width: 0;
+    /* The two cards paint above the VS, so the ring below passes behind them
+       instead of across their faces. They never overlap the badge itself, so
+       this costs the collision nothing. */
+    position: relative;
+    z-index: 1;
     padding: var(--space-base) var(--space-md);
     border-radius: var(--radius-lg);
     border: var(--stroke) solid var(--color-stroke);
@@ -286,7 +291,12 @@
   }
 
   /* The VS lands with a ring: one burst on a pseudo-element, transform and
-     opacity, timed to the punch. The collision is the moment of this screen. */
+     opacity, timed to the punch. The collision is the moment of this screen.
+
+     It grows past the gap between the two cards, and what it does there is the
+     whole difference between a burst and a stray line: drawn over them, a
+     stroke crosses two nicknames and an avatar at the exact instant the screen
+     is asking who they are. `.side` carries the z-index that puts it behind. */
   .vs {
     position: relative;
     isolation: isolate;
