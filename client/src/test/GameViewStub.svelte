@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { ClientMsg } from '../types/protocol'
   import type { WsStatus } from '../hooks/webSocket.svelte'
   import { gameViewStub } from './gameViewStub'
@@ -18,7 +19,7 @@
 
   // The script body: once per instantiation, which is the whole point.
   gameViewStub.instances++
-  gameViewStub.onSend = onSend
+  gameViewStub.onSend = untrack(() => onSend)
 </script>
 
 <div data-testid="game"></div>

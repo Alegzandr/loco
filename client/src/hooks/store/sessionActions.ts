@@ -94,6 +94,8 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       showRoundSummary: false,
       pendingMatchEnd: null,
       mapId: '',
+      mapTime: '',
+      mapWeather: '',
       mapLoading: null,
       turnDeadline: null,
       catchWindows: [],

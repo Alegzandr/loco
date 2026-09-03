@@ -341,38 +341,46 @@ export function tableRect(
   }
 }
 
-// ─── Map table placement ────────────────────────────────────────────────────
+// ─── The felt, in viewport pixels ───────────────────────────────────────────
+
+export interface FeltAnchor {
+  /** Centre of the felt's ellipse, in CSS pixels of the viewport. */
+  cx: number
+  cy: number
+  /** Its semi-axes. */
+  rx: number
+  ry: number
+}
 
 /**
- * Where to draw a map's `table.webp` so that its playing surface lands exactly
- * on `tableRect()`.
+ * Where the felt lands on the screen, for a viewport of `pxWidth × pxHeight`
+ * with `opponentCount` seats above the table.
  *
- * `tableRect()` stays the single authority on the board's geometry: the piles
- * sit at its centre, the direction ring is inset from its rim, the seats are
- * placed above it. A map does not move any of that; it only replaces how the
- * felt is *painted*. So the picture is scaled and offset around the ellipse
- * rather than the other way round: the image's playfield sub-box (see
- * `maps.ts`) is mapped onto the felt, and the rest of the table (rim, base,
- * cast shadow, glow) falls where it falls, outside the box.
- *
- * That is why the result is routinely larger than the felt and starts above and
- * to the left of it. Cropping it to the felt would cut off the rim, which is
- * most of what makes each table look like a different object.
+ * The same four functions the board runs, in the same order, so the answer is
+ * the board's to the pixel: the scene engine draws the podium the table stands
+ * on under exactly this ellipse (`scene/maps/common.ts: podium`), and the
+ * loading gate renders the room before the board has measured anything, from
+ * the viewport and the roster alone. A podium a few pixels off is a table
+ * floating beside its base, which is the one thing the podium exists to stop.
  */
-export function tableImageRect(
-  felt: { left: number; top: number; width: number; height: number },
-  playfield: { x: number; y: number; w: number; h: number },
-): { left: number; top: number; width: number; height: number } {
-  // A degenerate playfield would divide by zero and take the whole board with
-  // it; fall back to painting the picture across the felt itself.
-  if (!(playfield.w > 0) || !(playfield.h > 0)) return { ...felt }
-  const width = felt.width / playfield.w
-  const height = felt.height / playfield.h
+export function feltInViewport(
+  pxWidth: number,
+  pxHeight: number,
+  opponentCount: number,
+  insets: SafeAreaInsets = NO_INSETS,
+): FeltAnchor {
+  const scale = boardScale(
+    pxWidth - insets.left - insets.right,
+    pxHeight - insets.top - insets.bottom,
+  )
+  const space = boardSpace(pxWidth, pxHeight, scale, insets)
+  const seats = seatLayout(opponentCount, space.width, space.height)
+  const felt = tableRect(space.width, space.height, seats.blockHeight)
   return {
-    left: felt.left - playfield.x * width,
-    top: felt.top - playfield.y * height,
-    width,
-    height,
+    cx: space.offsetX + (felt.left + felt.width / 2) * scale,
+    cy: space.offsetY + (felt.top + felt.height / 2) * scale,
+    rx: (felt.width / 2) * scale,
+    ry: (felt.height / 2) * scale,
   }
 }
 

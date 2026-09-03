@@ -4,14 +4,15 @@
  *
  * Boots the client's dev server, walks the showcase scene registry
  * (client/src/dev/scenes.ts) and screenshots every scene at every requested
- * viewport/theme into `.visual/`. Also renders a single contact sheet so the
- * whole UI can be reviewed in one image.
+ * viewport into `.visual/`. Also renders a single contact sheet so the whole
+ * UI can be reviewed in one image.
  *
  * Usage (from repo root):
  *   node tools/visual/shoot.mjs
  *   node tools/visual/shoot.mjs --scenes=game-my-turn,lobby-home
- *   node tools/visual/shoot.mjs --themes=dark --viewports=mobile
+ *   node tools/visual/shoot.mjs --viewports=mobile
  *   node tools/visual/shoot.mjs --motion        # keep animations running
+ *   node tools/visual/shoot.mjs --gfx=force     # the full render tier on this software GPU
  *   node tools/visual/shoot.mjs --port=5199
  *
  * Playwright is resolved from e2e/node_modules (already installed for the E2E
@@ -39,6 +40,12 @@ const args = Object.fromEntries(
 const PORT = Number(args.port ?? 5199)
 const KEEP_MOTION = Boolean(args.motion)
 const BASE = `http://localhost:${PORT}`
+// The graphics tier a room is rendered at: `--gfx=high|medium|light`, or
+// `--gfx=force` for the full tier on this headless GPU, which is a CPU and is
+// otherwise handed the plain frame. Off by default, so a capture is what a
+// player on the same software GPU would see; `force` is how the finishing
+// passes are reviewed.
+const GFX = args.gfx ? `&gfx=${encodeURIComponent(String(args.gfx))}` : ''
 
 // Playwright takes the size under `viewport`; width/height at the top level of
 // the context options are silently ignored and you get the 1280×720 default.
@@ -77,7 +84,6 @@ const VIEWPORTS = {
   },
 }
 
-const themes = String(args.themes ?? 'light,dark').split(',').filter(Boolean)
 const viewports = String(args.viewports ?? 'desktop,mobile').split(',').filter(Boolean)
 const lang = String(args.lang ?? 'fr')
 
@@ -134,50 +140,56 @@ async function capture() {
   for (const vpName of viewports) {
     const viewport = VIEWPORTS[vpName]
     if (!viewport) throw new Error(`unknown viewport: ${vpName}`)
-    for (const theme of themes) {
-      const { insets, ...contextOptions } = viewport
-      const ctx = await browser.newContext({
-        ...contextOptions,
-        reducedMotion: KEEP_MOTION ? 'no-preference' : 'reduce',
-        colorScheme: theme === 'dark' ? 'dark' : 'light',
-        locale: lang === 'fr' ? 'fr-FR' : 'en-US',
-      })
-      await ctx.addInitScript(
-        ([t, l, i]) => {
-          localStorage.setItem('loco_theme', t)
-          localStorage.setItem('loco_lang', l)
-          if (!i) return
-          const style = document.createElement('style')
-          style.textContent =
-            `:root{--safe-top:${i.top}px!important;--safe-right:${i.right}px!important;` +
-            `--safe-bottom:${i.bottom}px!important;--safe-left:${i.left}px!important}`
-          document.addEventListener('DOMContentLoaded', () =>
-            document.head.appendChild(style),
-          )
-        },
-        [theme, lang, insets ?? null],
-      )
-      const page = await ctx.newPage()
-      const errors = []
-      page.on('pageerror', (e) => errors.push(String(e)))
+    const { insets, ...contextOptions } = viewport
+    const ctx = await browser.newContext({
+      ...contextOptions,
+      reducedMotion: KEEP_MOTION ? 'no-preference' : 'reduce',
+      colorScheme: 'dark',
+      locale: lang === 'fr' ? 'fr-FR' : 'en-US',
+    })
+    await ctx.addInitScript(
+      ([l, i]) => {
+        localStorage.setItem('loco_lang', l)
+        if (!i) return
+        const style = document.createElement('style')
+        style.textContent =
+          `:root{--safe-top:${i.top}px!important;--safe-right:${i.right}px!important;` +
+          `--safe-bottom:${i.bottom}px!important;--safe-left:${i.left}px!important}`
+        document.addEventListener('DOMContentLoaded', () =>
+          document.head.appendChild(style),
+        )
+      },
+      [lang, insets ?? null],
+    )
+    const page = await ctx.newPage()
+    const errors = []
+    page.on('pageerror', (e) => errors.push(String(e)))
 
-      for (const scene of list) {
-        const file = `${scene.id}__${vpName}__${theme}.png`
-        await page.goto(`${BASE}${HOME}?showcase=${scene.id}`, { waitUntil: 'domcontentloaded' })
-        await page.waitForSelector('html[data-showcase-ready]', { timeout: 15_000 })
-        await page.evaluate(() => document.fonts?.ready)
-        // One extra frame so late layout (ResizeObserver-driven board) settles.
-        await page.waitForTimeout(KEEP_MOTION ? 900 : 250)
-        await page.screenshot({ path: path.join(OUT_DIR, file) })
-        shots.push({ ...scene, file, viewport: vpName, theme })
+    for (const scene of list) {
+      const file = `${scene.id}__${vpName}.png`
+      await page.goto(`${BASE}${HOME}?showcase=${scene.id}${GFX}`, { waitUntil: 'domcontentloaded' })
+      await page.waitForSelector('html[data-showcase-ready]', { timeout: 15_000 })
+      // A scene with a rendered room is not ready until the room is: the
+      // frame is built on the main thread after the screen mounts, and on
+      // this headless GPU that is seconds. Captured before it lands, the
+      // room is the sky gradient with the frame mid-fade over it, which
+      // reads as a blue veil over the whole city and is nothing but timing.
+      if (await page.locator('.scene').count()) {
+        await page.waitForSelector('.scene:not(.bare)', { timeout: 60_000 }).catch(() => {})
+        await page.waitForTimeout(400)
       }
-
-      if (errors.length) {
-        console.warn(`\n⚠ page errors (${vpName}/${theme}):`)
-        for (const e of [...new Set(errors)]) console.warn(`   ${e.split('\n')[0]}`)
-      }
-      await ctx.close()
+      await page.evaluate(() => document.fonts?.ready)
+      // One extra frame so late layout (ResizeObserver-driven board) settles.
+      await page.waitForTimeout(KEEP_MOTION ? 900 : 250)
+      await page.screenshot({ path: path.join(OUT_DIR, file) })
+      shots.push({ ...scene, file, viewport: vpName })
     }
+
+    if (errors.length) {
+      console.warn(`\n⚠ page errors (${vpName}):`)
+      for (const e of [...new Set(errors)]) console.warn(`   ${e.split('\n')[0]}`)
+    }
+    await ctx.close()
   }
 
   await buildContactSheets(browser, shots)
@@ -185,18 +197,17 @@ async function capture() {
   return shots
 }
 
-/** One tall image per viewport/theme combo: every scene, labelled, in a grid. */
+/** One tall image per viewport: every scene, labelled, in a grid. */
 async function buildContactSheets(browser, shots) {
   const groups = new Map()
   for (const s of shots) {
-    const key = `${s.viewport}__${s.theme}`
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key).push(s)
+    if (!groups.has(s.viewport)) groups.set(s.viewport, [])
+    groups.get(s.viewport).push(s)
   }
 
   for (const [key, items] of groups) {
-    const cols = items[0].viewport === 'mobile' ? 6 : 3
-    const cellW = items[0].viewport === 'mobile' ? 200 : 460
+    const cols = key === 'mobile' ? 6 : 3
+    const cellW = key === 'mobile' ? 200 : 460
     const html = `<!doctype html><meta charset="utf-8">
 <style>
   body { margin:0; background:#111318; font:13px/1.3 system-ui,sans-serif; color:#e8e8ee; padding:16px; }
@@ -207,7 +218,7 @@ async function buildContactSheets(browser, shots) {
   figcaption { padding-top:5px; font-size:12px; color:#a9a9b4; }
   b { color:#fff; font-weight:600; }
 </style>
-<h1>LOCO — ${key.replace('__', ' · ')} — ${items.length} scènes</h1>
+<h1>LOCO — ${key} — ${items.length} scènes</h1>
 <div class="grid">
 ${items
   .map(
@@ -236,7 +247,7 @@ const dev = await startDevServer(PORT)
 try {
   const shots = await capture()
   console.log(`\n✓ ${shots.length} captures → .visual/`)
-  for (const [k] of new Set(shots.map((s) => `${s.viewport}__${s.theme}`)).entries()) {
+  for (const k of new Set(shots.map((s) => s.viewport))) {
     console.log(`  planche : .visual/_sheet-${k}.png`)
   }
 } finally {

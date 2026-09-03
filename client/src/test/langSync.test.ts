@@ -194,7 +194,7 @@ describe('both halves of the site write the choice down', () => {
     // French, read the rules and pressed "Jouer" reached `/fr/` with English
     // stored — and a stored choice outranks the URL, so the game opened in
     // English at a French address.
-    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
+    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'page-boot.ts'), 'utf8')
     expect(boot).toMatch(/rememberLang\(/)
     expect(boot, 'delegated, because two globes open one panel').toMatch(/#langPop a\[lang\]/)
 

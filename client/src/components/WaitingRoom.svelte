@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { PlayerDTO, ClientMsg, MatchFormat } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import RulesButton from './RulesButton.svelte'
@@ -73,17 +74,19 @@
   // Which row's menu is open, by seat. One at a time and held here rather than
   // in the row, because opening a second has to shut the first — two panels
   // over one roster is two answers to a question that has one.
-  let openMenu = $state<number | null>(initialMenuSeat)
+  let openMenu = $state<number | null>(untrack(() => initialMenuSeat))
 
   // A seat the server plays. It rides the roster because the nickname cannot
   // say it: "Bot1" is a name a player is allowed to take, and the menu offers a
   // control the server refuses on a bot.
   const isBotSeat = (p: PlayerDTO) => p.is_bot === true
 
-  let maxInput = $state(String(maxPlayers))
+  // Seeded once: from here the field is the host's, and a broadcast echoing
+  // the value back must not retype it under them.
+  let maxInput = $state(untrack(() => String(maxPlayers)))
   let showRules = $state(false)
   let copied = $state(false)
-  let confirmLeave = $state(initialConfirmLeave)
+  let confirmLeave = $state(untrack(() => initialConfirmLeave))
 
   // Escape backs out of the question, like every other dismissible thing here.
   // Bound while the question is up and only then: a listener that outlives it

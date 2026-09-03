@@ -10,7 +10,7 @@ const read = (p: string) => readFileSync(path.join(CLIENT, p), 'utf8')
 
 const article = read('src/content/LiveArticle.astro')
 const list = read('src/content/liveList.ts')
-const boot = read('src/content/theme-boot.ts')
+const boot = read('src/content/page-boot.ts')
 
 /**
  * The file with its comments taken out.
@@ -78,7 +78,7 @@ describe('the live page', () => {
   })
 
   // One script on these pages, still. The list is a few more lines in it rather
-  // than a second request, which is the rule theme-boot.ts states about itself.
+  // than a second request, which is the rule page-boot.ts states about itself.
   it('is wired from the one script a content page loads', () => {
     expect(boot).toContain('fillLiveList')
     // And it is a no-op everywhere else: the guard is in the module, so every

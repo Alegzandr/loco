@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { drainBar } from '../hooks/drainBar.svelte'
 
   type Props = { deadline: number | null; total?: number | 'auto' }
@@ -10,7 +11,7 @@
   drainBar(
     () => fill,
     () => deadline,
-    total,
+    untrack(() => total),
     () => track,
     'urgent',
   )

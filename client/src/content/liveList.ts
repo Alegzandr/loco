@@ -1,7 +1,7 @@
 /**
  * The live channels on `/live/`, filled in the browser.
  *
- * Wired from `theme-boot.ts` rather than shipped as a script of its own, for
+ * Wired from `page-boot.ts` rather than shipped as a script of its own, for
  * the reason that file states about every other behaviour it has grown: there
  * is only ever one script on these pages, so a second one is a second request
  * and a second thing to remember when counting what a content page loads. This

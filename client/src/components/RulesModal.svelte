@@ -64,10 +64,13 @@
 <!-- The keyboard way out is the Escape above; the pressable ones are the ✕ and
      the footer button. Tapping the backdrop is the third, mouse-only route. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- `tabindex="-1"` for the reason ColorPicker carries it: a dialog is a focus
+     container, and -1 keeps it out of the tab order. -->
 <div
   class="backdrop"
   onclick={onClose}
   role="dialog"
+  tabindex="-1"
   aria-modal="true"
   aria-label={t.rulesTitle}
 >

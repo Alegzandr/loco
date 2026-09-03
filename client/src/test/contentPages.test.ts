@@ -166,7 +166,7 @@ describe('the content stylesheet', () => {
     // focus whatever the gesture was. So the focus move is fenced behind a
     // keyboard activation, `detail === 0`.
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
-    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
+    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'page-boot.ts'), 'utf8')
     expect(boot, 'back-to-top is what moves focus there').toMatch(
       /\.skip'\)\?\.focus\(\{ preventScroll: true \}\)/,
     )
@@ -185,7 +185,7 @@ describe('the content stylesheet', () => {
     // in two files, and either alone is silent: the stylesheet with no attribute
     // never glides, the attribute with no rule does nothing.
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
-    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'theme-boot.ts'), 'utf8')
+    const boot = readFileSync(path.join(CLIENT, 'src', 'content', 'page-boot.ts'), 'utf8')
 
     expect(css, 'the smooth rule must hang off the attribute').toMatch(
       /html\[data-scroll="smooth"\][^{]*\{[^}]*scroll-behavior:\s*smooth/,
@@ -214,6 +214,18 @@ describe('the content stylesheet', () => {
     ]) {
       expect(readFileSync(file, 'utf8'), file).not.toMatch(/background-attachment:\s*fixed/)
     }
+  })
+
+  it('keeps the landings flat: no gradient and no colour orb behind the prose', () => {
+    // The den's gradient and its three colour orbs were tried twice on these
+    // pages and refused both times: a landing is a page to read, and a glow
+    // behind prose is ambience competing with it. `/` and the 404 are flat for
+    // the same reason, so `body.doc` paints the canvas colour and nothing else.
+    const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
+    const doc = css.match(/body\.doc\s*\{[^}]*\}/)?.[0]
+    expect(doc, 'body.doc declares the page').toBeTruthy()
+    expect(doc).toMatch(/background:\s*var\(--color-canvas\);/)
+    expect(doc).not.toMatch(/radial-gradient|linear-gradient|--bg-gradient/)
   })
 
   it('leaves no fallback to hide a missing one behind', () => {
@@ -300,7 +312,7 @@ describe('the mobile menu', () => {
     // One menu across the site, not two that happen to look alike: the game
     // page renders the same `#navPop` and is styled by the same rules in
     // content.css. What differs is what is in it — no "Play" on the page you
-    // play on, and no theme or language, which are behind the lobby's gear.
+    // play on, and no language, which are behind the lobby's gear.
     const home = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
     expect(home).toMatch(/id="navPop"[^>]*popover="auto"[^>]*class="navPop"/)
     expect(home).toMatch(/class="navPopLinks"/)
@@ -313,7 +325,7 @@ describe('the mobile menu', () => {
     expect(drawer, 'the game page must not offer to take a player to the game').not.toMatch(
       /HOME\.path\[lang\]/,
     )
-    expect(drawer, 'theme and language belong to the lobby gear here').not.toMatch(/themeBtn/)
+    expect(drawer, 'the language belongs to the lobby gear here').not.toMatch(/langBtn/)
 
     // And nothing but the list. The drawer used to end with `<HomeProse />`,
     // which made the menu on `/` a taller, wordier object than the one a
@@ -515,7 +527,7 @@ describe('the mobile menu', () => {
   it('never ships the drawer a button that opens nothing', () => {
     // The Preferences row opens a React panel, so with no script it would be a
     // control that does nothing — worse than one that is not there. Same
-    // contract as the content pages' theme switch: `hidden` in the markup, and
+    // contract as the content pages' back-to-top: `hidden` in the markup, and
     // the script that can honour it is the script that reveals it.
     const game = readFileSync(path.join(CLIENT, 'src', 'layouts', 'GamePage.astro'), 'utf8')
     expect(game).toMatch(/id="navPrefs"[^>]*hidden/)
@@ -598,7 +610,7 @@ describe('the mobile menu', () => {
     // it on a phone is the whole reason the drawer exists. Anything below
     // 2.75rem here means the drawer has drifted back towards being a list of
     // words.
-    for (const selector of ['.navPopLinks a', '.navPopEnd .themeBtn']) {
+    for (const selector of ['.navPopLinks a', '.navPopEnd .langBtn']) {
       const rule = new RegExp(`\\${selector.replace(/ /g, '\\s+')}[^{]*\\{[^}]*\\}`).exec(css)?.[0]
       expect(rule, `${selector} must be sized as a row`).toMatch(/min-height:\s*2\.75rem/)
     }

@@ -235,10 +235,10 @@ readers at once: somebody arriving on a quiet evening and somebody whose browser
 Neither is ever shown the word "loading". `e2e/tests/live.spec.ts` reads the page with JavaScript
 disabled, which is the only place that can be proved.
 
-**The fill is wired into `theme-boot.ts`** rather than shipped as a second script. That file already
+**The fill is wired into `page-boot.ts`** rather than shipped as a second script. That file already
 documents the rule in its own header: there is only ever one script on these pages, so a second
 behaviour is a few more lines rather than a second request. The rule in `CLAUDE.md` and
-[`seo.md`](seo.md) — a content page ships no JavaScript except `theme-boot.ts` — therefore stays true
+[`seo.md`](seo.md) — a content page ships no JavaScript except `page-boot.ts` — therefore stays true
 to the letter; what changed is what that script does. Everything is built with `createElement` and
 `textContent`; `livePage.test.ts` fails on an `innerHTML` in that module, because every string it
 handles was written by a stranger.

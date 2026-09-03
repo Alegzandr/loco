@@ -25,6 +25,8 @@ export const initialState: GameState = {
   hasDrawn: false,
   turnDeadline: null,
   mapId: '',
+  mapTime: '',
+  mapWeather: '',
   mapLoading: null,
   swapNotice: null,
   lastPlay: null,

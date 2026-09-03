@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { escapeKey } from '../hooks/escapeKey.svelte'
 
@@ -27,7 +28,7 @@
    * another person, neither is undone by pressing again, and on a phone the
    * menu opens under a thumb that was aiming at the row.
    */
-  let asking = $state<'host' | 'kick' | null>(initialAsking)
+  let asking = $state<'host' | 'kick' | null>(untrack(() => initialAsking))
 
   let panel = $state<HTMLElement | null>(null)
 

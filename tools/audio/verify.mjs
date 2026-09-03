@@ -49,7 +49,7 @@ try {
   const results = await page.evaluate(async () => {
     const { audio } = await import('/src/audio/engine.ts')
     const sfx = await import('/src/audio/sfx.ts')
-    const { music, TRACKS } = await import('/src/audio/music.ts')
+    const { music, LOOPS, SECTION_AT } = await import('/src/audio/music.ts')
 
     audio.unlock()
     audio.setSettings({ muted: false, master: 1, sfx: 1, music: 1 })
@@ -168,16 +168,21 @@ try {
 
     const settle = (ms) => new Promise((r) => setTimeout(r, ms))
 
-    // Every registered track must actually make sound. A track is pure data, so
-    // a typo in it produces silence rather than an error, and no unit test can
-    // see that.
-    const trackPeaks = {}
-    for (const track of TRACKS) {
+    // Every registered loop must actually make sound. A missing file fetches a
+    // 404 and the bed keeps whatever was already sounding, so the failure is
+    // silence rather than an error and no unit test can see it.
+    //
+    // The intensity is set just inside a section the loop carries, because the
+    // bed picks for the section it is in and would otherwise refuse the choice
+    // and play something else — which is correct behaviour and would make this
+    // measure the same loop six times.
+    const loopPeaks = {}
+    for (const loop of LOOPS) {
       music.stop()
-      music.setTrack(track.id)
-      music.setIntensity(0.9)
-      trackPeaks[track.title] = await measure(
-        audio.musicDestination(), 2200, () => music.start('game'),
+      music.setIntensity(SECTION_AT[loop.sections[0]] + 0.02)
+      music.setLoop(loop.id)
+      loopPeaks[loop.title] = await measure(
+        audio.musicDestination(), 2600, () => music.start('game'),
       )
     }
 
@@ -189,53 +194,67 @@ try {
      * never repeats back to back, and the bag really does cover the catalogue.
      */
     music.stop()
+    music.setIntensity(0.4)
     music.start('game')
-    music.setIntensity(0.5)
-    await settle(1200)
-    const skipped = [music.getTrackId()]
-    for (let n = 0; n < 5; n++) {
+    await settle(1600)
+    // Press it once per loop the section carries, so the bag is dealt right
+    // through. A fixed five presses was fine when a section had three loops and
+    // silently untestable the moment the groove grew to seven.
+    // One press per loop plus one. The bag carried over from the opening
+    // section is partial, so a full deal of this section needs one more press
+    // than it has loops; at exactly `grooveLoops` the coverage check failed on a
+    // bed that was dealing perfectly.
+    // Inside the family the bed opened on: a match is played in one palette,
+    // and the bag is dealt through that palette's groove, never the registry's.
+    const family = music.getFamily()
+    const grooveLoops = LOOPS.filter((l) => l.sections.includes('groove') && l.family === family).length
+    const skipped = [music.getLoopId()]
+    for (let n = 0; n <= grooveLoops; n++) {
       music.nextTrack()
-      await settle(2600)
-      skipped.push(music.getTrackId())
+      await settle(2800)
+      skipped.push(music.getLoopId())
     }
 
     /**
-     * A finished track has to hand over on its own, with nobody pressing
-     * anything. Real tracks run ~2 minutes, so the bed is told to treat three
-     * parts as a whole track for the duration of this check.
+     * A loop that has come round enough times has to hand over on its own, with
+     * nobody pressing anything and the table doing nothing.
+     *
+     * This is the check for the complaint that produced the whole adaptive
+     * design — "it's just a chorus on repeat". A bed that only ever changes when
+     * the game changes is a loop with extra steps. Real loops run 44 to 102
+     * seconds and hand over after three of them, so the lap is shortened for the
+     * duration of this check; the loop points are untouched.
      */
     music.stop()
-    music.setPartsPerTrack(3)
+    music.setLapSeconds(4)
+    music.setIntensity(0.4)
     music.start('game')
-    music.setIntensity(0.5)
     const autoSeen = new Set()
     const autoUntil = performance.now() + 30_000
     while (performance.now() < autoUntil) {
       await new Promise((r) => setTimeout(r, 150))
-      autoSeen.add(music.getTrackId())
+      autoSeen.add(music.getLoopId())
     }
-    music.setPartsPerTrack(null)
+    music.setLapSeconds(null)
     const autoPlayed = [...autoSeen]
 
     /**
-     * The form has to move on its own.
+     * The ladder has to reach the music.
      *
-     * This is the check for the complaint that produced the whole part/form
-     * design — "it's just a chorus on repeat". Holding the intensity perfectly
-     * still, the bed must still walk through several distinct parts; a bed that
-     * only changes when the game changes is a loop with extra steps.
+     * `sectionFor` is unit-tested, but nothing pure can say that a section the
+     * bed *derived* actually became a different piece of music coming out of the
+     * bus. Walking the four thresholds and collecting what plays is the only
+     * check that crosses that gap.
      */
     music.stop()
-    music.setTrack(TRACKS[0].id)
-    music.setIntensity(0.5)
+    music.setIntensity(0.05)
     music.start('game')
-    const partsSeen = new Set()
-    const formUntil = performance.now() + 26_000
-    while (performance.now() < formUntil) {
-      await new Promise((r) => setTimeout(r, 120))
-      partsSeen.add(music.getPartId())
+    const ladder = []
+    for (const target of [0.05, 0.25, 0.4, 0.95]) {
+      music.setIntensity(target)
+      await settle(5200)
+      ladder.push(`${music.getSection()}:${music.getLoopId()}`)
     }
-    const formParts = [...partsSeen]
 
     // Music bed: give the lookahead scheduler a beat or two to emit something.
     music.setIntensity(0.9)
@@ -312,7 +331,7 @@ try {
       peaks,
       lengths, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity,
       calmSection, tenseSection, beforeDuck, duckedRms, dropFrames, idleFrames,
-      trackPeaks, formParts, skipped, autoPlayed, auditionLowHz, auditionHighHz,
+      loopPeaks, ladder, skipped, autoPlayed, grooveLoops, auditionLowHz, auditionHighHz,
     }
   })
 
@@ -365,15 +384,17 @@ try {
     if (!musicOk) failures++
     console.log(`${musicOk ? '✓' : '✗'} ${'music bed'.padEnd(12)} peak=${results.musicPeak.toFixed(4)}`)
 
-    for (const [title, peak] of Object.entries(results.trackPeaks)) {
+    for (const [title, peak] of Object.entries(results.loopPeaks)) {
       const ok = peak > FLOOR
       if (!ok) failures++
       console.log(`${ok ? '✓' : '✗'} ${`♪ ${title}`.padEnd(12)} peak=${peak.toFixed(4)}`)
     }
 
-    // The next button, and the shuffle bag behind it.
+    // The next button, and the shuffle bag behind it. ⏭ stays inside the section
+    // the table is in, so the bag it has to cover is that section's loops and
+    // not the whole registry.
     const noRepeat = results.skipped.every((id, i) => i === 0 || id !== results.skipped[i - 1])
-    const covered = new Set(results.skipped).size >= Object.keys(results.trackPeaks).length
+    const covered = new Set(results.skipped).size >= results.grooveLoops
     const skipOk = noRepeat && covered
     if (!skipOk) failures++
     console.log(
@@ -381,34 +402,52 @@ try {
         `${noRepeat ? '' : ' [REPEATED]'}${covered ? '' : ' [INCOMPLETE BAG]'}`,
     )
 
-    // Handover with nobody touching anything.
+    // Handover with nobody touching anything, and the table holding still.
     const autoOk = results.autoPlayed.length >= 2
     if (!autoOk) failures++
     console.log(
       `${autoOk ? '✓' : '✗'} ${'auto next'.padEnd(12)} ${results.autoPlayed.join(' → ')} (unattended)`,
     )
 
-    // At a fixed intensity the form must still travel. Three distinct parts in
-    // ~26s is a loose floor that a four-bar loop cannot clear.
-    const formOk = results.formParts.length >= 3
-    if (!formOk) failures++
+    // Walking the ladder must reach the music: at least three distinct sections,
+    // each with a loop that carries it.
+    const sections = new Set(results.ladder.map((r) => r.split(':')[0]))
+    const ladderOk = sections.size >= 3
+    if (!ladderOk) failures++
     console.log(
-      `${formOk ? '✓' : '✗'} ${'form moves'.padEnd(12)} ${results.formParts.length} parts in 26s: ` +
-        results.formParts.join(' → '),
+      `${ladderOk ? '✓' : '✗'} ${'ladder'.padEnd(12)} ${results.ladder.join(' → ')}`,
     )
 
-    // The bed's whole premise is that tension is audible. A 30% energy rise is a
-    // deliberately loose floor — it only has to prove the layers really engage.
-    const adaptiveOk = results.tenseRms > results.calmRms * 1.3
-    if (!adaptiveOk) failures++
+    // This measured a 30% energy rise between calm and tense while the bed was
+    // synthesised, because the ladder was a layer count and more layers is more
+    // signal. It is now the wrong question, and left as it was it would fail for
+    // the reason the bed is correct: every loop is normalised to −18 LUFS
+    // precisely so a shuffled playlist does not jump in level at the handover.
+    //
+    // So the measurement is kept and the assertion inverted. Tension is carried
+    // by *which* loop plays (the `ladder` check above proves calm and tense are
+    // different pieces of music), and what this now guards is that they arrive
+    // at the same level — a loop added later without normalising would show up
+    // here and nowhere else, as a bed that lurches every time the table does.
+    //
+    // The window is wide on purpose. This is unweighted RMS over one window and
+    // the mastering target is gated, K-weighted LUFS: two loops at exactly
+    // −18 LUFS still read differently here if their crest factors differ, which
+    // for a sparse piece against a dense funk one they do. What it has to catch
+    // is a file that was never normalised at all, and the raw archive spanned
+    // ten units — about ×3 — so anything inside this window is material and
+    // anything outside it is a missing encode step.
+    const ratio = results.tenseRms / (results.calmRms || 1e-9)
+    const levelOk = ratio > 0.55 && ratio < 1.8
+    if (!levelOk) failures++
     console.log(
-      `${adaptiveOk ? '✓' : '✗'} ${'adaptivity'.padEnd(12)} calm=${results.calmRms.toFixed(4)} ` +
-        `tense=${results.tenseRms.toFixed(4)} (×${(results.tenseRms / (results.calmRms || 1e-9)).toFixed(2)})`,
+      `${levelOk ? '✓' : '✗'} ${'levelling'.padEnd(12)} calm=${results.calmRms.toFixed(4)} ` +
+        `tense=${results.tenseRms.toFixed(4)} (×${ratio.toFixed(2)}, want 0.55-1.80)`,
     )
 
-    // The arrangement is the adaptivity, so check the section actually moved and
-    // not just the level: a bed that got louder without reaching the drop would
-    // pass the RMS check while never bringing in the drums.
+    // The loop choice is the adaptivity, so check the section actually moved.
+    // With the level check inverted above, this and `ladder` are the only two
+    // things left that can say the bed answers the game at all.
     const sectionOk = results.calmSection === 'breakdown' && results.tenseSection === 'drop'
     if (!sectionOk) failures++
     console.log(

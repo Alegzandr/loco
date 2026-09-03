@@ -19,7 +19,7 @@ Both are now what their names say, and the work sits beside the other work of it
 | `hooks/live.svelte.ts` | the narrowing every effect below watches one field through. Three lines, and the reason they exist is the section under this table |
 | `hooks/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
 | `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
-| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; preloading the room's art while the table is shut, then answering `map_ready` |
+| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; rendering the room while the table is shut, then answering `map_ready` |
 | `hooks/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
 | `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands; the host's streamer mode reaching the table |
 | `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
@@ -91,18 +91,18 @@ same one `reconnectAnimation` was bitten by: the cleanup runs whether or not the
 through.
 
 **The fifth one did not look like a motion bug at all, and it cost twenty seconds a match.**
-`mapPreload` starts the room's downloads once per map id and answers the loading gate when they
-settle; `GameView` asked whether the gate was open by reading `g.mapLoading !== null` *inside* the
+`mapPreload` starts the room's render once per scene key and answers the loading gate when it
+settles; `GameView` asked whether the gate was open by reading `g.mapLoading !== null` *inside* the
 effect, and `mapLoading` gets a new identity every time another seat reports in. So the effect re-ran
-on each arrival, its cleanup cancelled the download in flight, and the once-per-id guard then refused
+on each arrival, its cleanup cancelled the render in flight, and the once-per-key guard then refused
 to start it again: `done` never came, `map_ready` never went out, and the table opened on the
 server's 20s `MapLoadTimeout` with the player still watching a progress bar. **A table with a bot
 never showed it** — nobody else was there to re-broadcast anything — so the whole E2E suite and every
 solo run were clean while every real two-human table paid the full backstop. The fix is both halves:
 the question is narrowed to a `$derived` boolean before the effect sees it, and **abandoning a
-download is keyed on the map id like starting one is, instead of riding the effect's cleanup**. A
+render is keyed on the scene key like starting one is, instead of riding the effect's cleanup**. A
 cancellation that is not keyed on the same thing as the guard is the general shape of this bug.
-`mapLoading.test.ts` moves a seat in mid-download and asserts the answer still goes out.
+`mapLoading.test.ts` moves a seat in mid-render and asserts the answer still goes out.
 
 **A test that hands a hook a constant cannot see any of this**, which is why every per-hook test
 passed while the game misbehaved: the snapshot never moved underneath them. `src/test/liveDeps.test.ts`
@@ -225,7 +225,7 @@ extension under `src/`.
 What the crossing left behind is worth keeping, because it is what made it survivable:
 
 - **The state that two frameworks had to share is still framework-free.** The language
-  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`), the theme (`src/theme.ts`) and
+  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`) and
   every on/off preference (`hooks/prefStore.ts`) are plain modules with a subscription, read through
   `createSubscriber` (`i18n/i18n.svelte.ts`, `hooks/prefs.svelte.ts`). They left React first
   *because* a Svelte component could not read a React context, and they stay where they are for a
@@ -455,9 +455,31 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   could expire before the server had even started counting the 60 s it holds the seat for, which is
   the case where giving up cost a seat that was still there.
 - **The recovery path is not the schedule.** `reconnectNow()` retries from the top and is wired to
-  three things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
-  `visibilitychange`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
+  four things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
+  `visibilitychange`), the page being restored from the back/forward cache (`pageshow` with
+  `persisted`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
   refuses a socket that is already CONNECTING or OPEN, so every entry point is safe to fire twice.
+- **A frozen page is not a player, and the socket has to be given up for it.** Navigating from `/`
+  to a content page does not unload the document, it freezes it into the back/forward cache — and
+  the browser keeps the open WebSocket with it. Nothing on the server distinguishes that socket from
+  somebody sitting at the home screen, so `players_online` went on counting a visitor who was
+  reading the rules, and clicking *Play* back to `/` built a second document with a second socket
+  beside the first. What a player saw was the count going up by one on their own, for as long as the
+  browser kept the cached copy, which is exactly the shape of a bug that reads as the game inventing
+  people. `pagehide` drops the socket and `pageshow` asks for it again when `persisted` says the
+  page was restored; on a real unload the drop costs nothing, because the socket was going anyway.
+  A restore lands on the ordinary reconnect path, seat reclaim included, so a player who wandered
+  off mid-match and came back with the Back button is covered by the machinery that was already
+  there.
+
+  Two things about finding it, both worth keeping in mind for the next one of these. **The end-to-end
+  suite is blind to it**: Playwright launches Chromium with `--disable-back-forward-cache`, so every
+  navigation in the suite really does unload the page and the socket really does close. It reproduces
+  in a browser the way a player has one — measured in Brave with the cache back on, three connected
+  sockets for one person. And **the count itself was never lying**: `players_online` is
+  `len(h.clients)` and it reported exactly what the server was holding, which is why the first place
+  to look, the broadcast in `hub/online.go`, had nothing wrong with it. The 5s tick only decides how
+  long the wrong number stays on screen after the truth changes.
 - `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
   sends.
 - **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.
@@ -1230,8 +1252,8 @@ the table, one more round — and lets the scoreboard answer the rest.
 
 ### One document, one language
 
-The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework, for the
-reason `theme.ts` exists: the content pages take part in this decision and mount nothing at all.
+The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework, because
+the content pages take part in this decision and mount nothing at all.
 
 The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
 Astro built per URL — the footer row, the drawer, the sheet of prose — which no in-app state rewrites.
@@ -1290,19 +1312,25 @@ ever a shortcut to a document that exists. A crawler asking for `/` still gets t
 its own canonical and its `hreflang` pair intact.
 
 The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
-makes an `hreflang` pair navigable and a crawler follows nothing else — and `theme-boot.ts` adds one
+makes an `hreflang` pair navigable and a crawler follows nothing else — and `page-boot.ts` adds one
 delegated listener that records the choice on the way out. Without it the choice reached the pages
 and never the game: a reader who switched to French, read the rules and pressed "Jouer" arrived at
-`/fr/` with English still stored, and the stored choice won. The theme has worked this way since it
-was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does too.
+`/fr/` with English still stored, and the stored choice won. One key, written by both halves.
 
 ## Preferences
 `Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
-the board. It holds the language chooser (`LanguageSwitcher`, a child), the theme, and three
+the board. It holds the language chooser (`LanguageSwitcher`, a child), the graphics tier, and three
 switches: streamer mode, colour shapes, reduced motion.
 
-- **The language is a dropdown, and the pick is the application — on every screen.** The theme below
-  it is a segmented pair applied on the press, which is right for a setting that changes the screen
+- **The graphics tier is the one preference that decides how much a render may cost**
+  (`hooks/graphicsPref.ts`, `components/scene/quality.ts`, `sceneQuality.test.ts`): `auto` / high /
+  medium / light, a segmented row of four with the hint naming what `auto` resolved to on this
+  device. Framework-free like the other preference modules, read by the renderer through
+  `resolveGraphics()` and by Svelte through `uiPrefs.svelte.ts`; part of the scene cache's key, so
+  moving it mid-match renders the room again. What each tier buys is in `visual.md`.
+
+- **The language is a dropdown, and the pick is the application — on every screen.** The graphics tier below
+  it is a segmented row applied on the press, which is right for a setting that changes the screen
   in place, and the language is now exactly that setting: `setLang` swaps the game's strings and
   records the choice, `swapServedLang` takes the half Astro served and the address bar with it.
 
@@ -1342,7 +1370,7 @@ switches: streamer mode, colour shapes, reduced motion.
   Scene `lobby-prefs-lang` exists because this state had no screenshot before: the open list was
   drawn by the OS, so `make visual` could not have caught it going wrong. Worth the `small` viewport
   too — there the rows are 46px in a sheet, not 40px in a 292px dropdown.
-- **Why a panel.** Language and theme sat bare in the top bar, which is right for one or two
+- **Why a panel.** Language and the theme (since dropped, see `visual.md`) sat bare in the top bar, which is right for one or two
   preferences. The row also carries sound and rules; one more bare control makes it a settings strip,
   and the one after that makes it unreadable on a phone. The gear replaced the theme chip rather than
   being added beside it, so the cluster is the same size it was.

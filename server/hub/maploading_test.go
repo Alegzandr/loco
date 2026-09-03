@@ -7,6 +7,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
+	"loco/server/game"
 	"loco/server/hub"
 	"loco/server/protocol"
 )
@@ -55,6 +56,15 @@ func TestMapID_RidesTheGameState(t *testing.T) {
 	if started.State.MapID == "" {
 		t.Fatal("game_started carries no map_id")
 	}
+	// The hour and the sky travel with it: the client renders the scene from
+	// the three ids, and a snapshot carrying one without the other two is a room
+	// drawn at a default hour for whoever reloaded.
+	if !game.TimeOfDay(started.State.TimeOfDay).Valid() {
+		t.Errorf("game_started carries time_of_day=%q, want a valid hour", started.State.TimeOfDay)
+	}
+	if !game.Weather(started.State.Weather).Valid() {
+		t.Errorf("game_started carries weather=%q, want a valid sky", started.State.Weather)
+	}
 	completeMapLoad(t, conn)
 }
 
@@ -79,6 +89,10 @@ func TestMapID_IsTheSameForEverySeat(t *testing.T) {
 	gs2 := readMsgOfType(t, conn2, protocol.SMsgGameStarted)
 	if gs1.State == nil || gs2.State == nil {
 		t.Fatal("game_started missing state")
+	}
+	if gs1.State.TimeOfDay != gs2.State.TimeOfDay || gs1.State.Weather != gs2.State.Weather {
+		t.Errorf("two seats dealt under two skies: %q/%q vs %q/%q",
+			gs1.State.TimeOfDay, gs1.State.Weather, gs2.State.TimeOfDay, gs2.State.Weather)
 	}
 	if gs1.State.MapID != gs2.State.MapID {
 		t.Errorf("map_id = %q for Alice and %q for Bob; every seat plays in one room",
