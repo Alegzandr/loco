@@ -113,3 +113,149 @@ func TestPickMap_ReachesEveryMap(t *testing.T) {
 		t.Errorf("pickMap returned %d distinct maps, want %d", len(seen), len(MapIDs))
 	}
 }
+
+// The hour and the sky are drawn with the map, and a match dealt without either
+// is a scene the client cannot render the same way for every seat.
+func TestStart_DrawsAnHourAndASky(t *testing.T) {
+	r := startedRoom(t, "Alice", "Bob")
+	if !r.MapTime.Valid() {
+		t.Errorf("MapTime = %q, want one of %v", r.MapTime, TimesOfDay)
+	}
+	if !r.MapWeather.Valid() {
+		t.Errorf("MapWeather = %q, want one of %v", r.MapWeather, Weathers)
+	}
+}
+
+// A lobby has no hour and no sky, for the reason it has no map.
+func TestNewRoom_HasNoSceneUntilStarted(t *testing.T) {
+	r := NewRoom("MAPTST")
+	if r.MapTime != "" || r.MapWeather != "" {
+		t.Errorf("fresh lobby carries time=%q weather=%q, want both empty", r.MapTime, r.MapWeather)
+	}
+}
+
+// Rain does not stop between two rounds of the same match, and the sun does not
+// set: the scene is the match's, exactly as the map is.
+func TestBeginNextRound_KeepsTheHourAndTheSky(t *testing.T) {
+	r := NewRoom("MAPTST")
+	for _, name := range []string{"Alice", "Bob"} {
+		if err := r.Join(name); err != nil {
+			t.Fatalf("Join(%q): %v", name, err)
+		}
+	}
+	if err := r.SetFormat(BO3); err != nil {
+		t.Fatalf("SetFormat: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	firstTime, firstWeather := r.MapTime, r.MapWeather
+	r.endRound(0)
+	if err := r.BeginNextRound(); err != nil {
+		t.Fatalf("BeginNextRound: %v", err)
+	}
+	if r.MapTime != firstTime || r.MapWeather != firstWeather {
+		t.Errorf("round 2 dealt at %q/%q, want the match's %q/%q", r.MapTime, r.MapWeather, firstTime, firstWeather)
+	}
+}
+
+// A rematch clears the whole scene: a new match at the same hour under the same
+// sky in the same room would read as nothing having happened.
+func TestResetForRematch_ClearsTheHourAndTheSky(t *testing.T) {
+	r := startedRoom(t, "Alice", "Bob")
+	r.Status = StatusFinished
+	if err := r.ResetForRematch(); err != nil {
+		t.Fatalf("ResetForRematch: %v", err)
+	}
+	if r.MapTime != "" || r.MapWeather != "" {
+		t.Errorf("after reset time=%q weather=%q, want both empty", r.MapTime, r.MapWeather)
+	}
+}
+
+// Every room lists what its sky can do, every list is dealt clear at least, and
+// nothing a list names is a weather the server does not have. The client's
+// registry mirrors these lists and `maps.test.ts` pins it to this file, so a
+// weather a map lists here is a weather the client can draw for it.
+func TestMapWeathers_CoverEveryMap(t *testing.T) {
+	for _, id := range MapIDs {
+		list := id.Weathers()
+		if len(list) == 0 {
+			t.Errorf("%q lists no weather", id)
+			continue
+		}
+		clear := false
+		for _, w := range list {
+			if !w.Valid() {
+				t.Errorf("%q lists %q, which is not a weather", id, w)
+			}
+			if w == WeatherClear {
+				clear = true
+			}
+		}
+		if !clear {
+			t.Errorf("%q cannot be dealt clear", id)
+		}
+	}
+	for id := range MapWeathers {
+		if !id.Valid() {
+			t.Errorf("MapWeathers names %q, which is not a map", id)
+		}
+	}
+	if MapID("atlantis").Weathers() != nil {
+		t.Error("an unknown map should list no weather")
+	}
+}
+
+// The sky a match is dealt under has to be one the room allows: it does not
+// snow on the moon.
+func TestPickWeather_StaysInsideTheMapsList(t *testing.T) {
+	r := NewRoom("MAPTST")
+	for _, id := range MapIDs {
+		allowed := make(map[Weather]bool)
+		for _, w := range id.Weathers() {
+			allowed[w] = true
+		}
+		seen := make(map[Weather]bool)
+		for i := 0; i < 300; i++ {
+			w := r.pickWeather(id)
+			if !allowed[w] {
+				t.Fatalf("%q dealt %q, which it does not list", id, w)
+			}
+			seen[w] = true
+		}
+		for w := range allowed {
+			if !seen[w] {
+				t.Errorf("%q never dealt %q in 300 draws", id, w)
+			}
+		}
+	}
+	if got := r.pickWeather(MapID("atlantis")); got != WeatherClear {
+		t.Errorf("an unknown map dealt %q, want clear", got)
+	}
+}
+
+// Same discipline as the map: an hour listed but never drawn is a sky nobody
+// ever plays under.
+func TestPickTime_ReachesEveryHour(t *testing.T) {
+	seen := make(map[TimeOfDay]bool)
+	r := NewRoom("MAPTST")
+	for i := 0; i < 300; i++ {
+		seen[r.pickTime()] = true
+	}
+	for _, h := range TimesOfDay {
+		if !seen[h] {
+			t.Errorf("pickTime never returned %q in 300 draws", h)
+		}
+	}
+}
+
+func TestTimeAndWeather_Valid(t *testing.T) {
+	for _, bad := range []string{"", "noon", "Day", "day "} {
+		if TimeOfDay(bad).Valid() {
+			t.Errorf("time %q reports valid", bad)
+		}
+		if Weather(bad).Valid() {
+			t.Errorf("weather %q reports valid", bad)
+		}
+	}
+}

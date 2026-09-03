@@ -212,6 +212,10 @@ reserved exclusively for the cards.
 - **Table Felt** (`#262b3a` → `#12151f`) with a **Table Rim** (`#0a0c14`): identical in both
   themes. The rim must stay several steps darker than the felt or it stops reading as an
   object edge and becomes a shade.
+- **A room hands the same object its own materials** (`MapDef.table` in `maps.ts`: felt, rim, the
+  sheen the rim catches, the plinth, and one inlay line in the room's accent). The hour it is dealt
+  at tints the sheen and dims the whole; it never repaints the materials. Without a room the tokens
+  above are what the table falls back to.
 
 ### Card Suits
 Four two-stop gradients, measured off the reference art and never eyeballed: red

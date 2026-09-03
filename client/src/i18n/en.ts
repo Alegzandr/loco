@@ -1,4 +1,5 @@
-﻿import type { CardKind, Emote } from '../types/protocol'
+﻿import type { MapId, TimeOfDay, Weather } from '../components/cards/maps'
+import type { CardKind, Emote } from '../types/protocol'
 
 export interface RulesSection {
   heading: string
@@ -360,7 +361,11 @@ export interface Translations {
   mapLoadingReady: string           // status once we are in and only others remain
   mapLoadingCount: string           // contains %ready and %total
   /** One entry per map id in components/cards/maps.ts: display name + one line. */
-  maps: Record<'neon' | 'rune' | 'velvet' | 'orbit', { name: string; tagline: string }>
+  maps: Record<MapId, { name: string; tagline: string }>
+  /** The hour a match is dealt at, as the loading screen names it. */
+  mapTimes: Record<TimeOfDay, string>
+  /** The sky it is dealt under, same place. Read beside the hour: "Night · Rain". */
+  mapWeathers: Record<Weather, string>
   round: string
   of: string
   complete: string
@@ -703,21 +708,31 @@ export const en: Translations = {
   maps: {
     neon: {
       name: 'Neon',
-      tagline: 'A rooftop club above the skyline. Black marble, and a ring of light.',
+      tagline: 'A rooftop terrace above a city of neon. Black glass, a tube of light around the rim.',
     },
     rune: {
       name: 'Rune',
-      tagline: 'The back room of an arcane tavern. Carved oak, gemstones, candlelight.',
+      tagline: 'The square of a village with a wizard in it. Carved oak, and four stones that glow.',
     },
     velvet: {
       name: 'Velvet',
-      tagline: 'An art-deco lounge. Brass, burgundy baize, and lamps turned low.',
+      tagline: 'The square in front of a grand art-deco hotel. Brass, burgundy baize, a marquee.',
     },
     orbit: {
       name: 'Orbit',
-      tagline: 'A starship hangar in high orbit. Brushed alloy over a holo table.',
+      tagline: 'A base on an airless moon. Brushed alloy over a holo surface, cyan landing lights.',
+    },
+    sakura: {
+      name: 'Sakura',
+      tagline: 'A hot-spring village under cherry trees. Red lacquer, moss-green felt, paper lanterns.',
+    },
+    marina: {
+      name: 'Marina',
+      tagline: 'A harbour front at the water\u2019s edge. Weathered teak, navy felt, a lighthouse.',
     },
   },
+  mapTimes: { dawn: 'Dawn', day: 'Midday', dusk: 'Dusk', night: 'Night' },
+  mapWeathers: { clear: 'Clear', cloudy: 'Overcast', rain: 'Rain', storm: 'Storm', snow: 'Snow', fog: 'Fog' },
   round: 'Round',
   of: 'of',
   complete: 'down',

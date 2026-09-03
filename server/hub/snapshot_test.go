@@ -365,6 +365,9 @@ func assertSameState(t *testing.T, who string, want, got *protocol.GameStateDTO)
 	if got.MapID != want.MapID {
 		t.Errorf("%s: map_id = %q, want %q", who, got.MapID, want.MapID)
 	}
+	if got.TimeOfDay != want.TimeOfDay || got.Weather != want.Weather {
+		t.Errorf("%s: scene = %q/%q, want %q/%q", who, got.TimeOfDay, got.Weather, want.TimeOfDay, want.Weather)
+	}
 	if got.MatchFormat != want.MatchFormat {
 		t.Errorf("%s: match_format = %q, want %q", who, got.MatchFormat, want.MatchFormat)
 	}

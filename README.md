@@ -46,7 +46,7 @@ loco/
 ├── server/                # Go game server: game/ (domain), hub/ (sockets, tables), protocol/ (wire)
 ├── client/                # Astro site + Svelte/TypeScript game
 ├── e2e/                   # Playwright suite (separate package.json)
-├── tools/                 # visual/ og/ icons/ maps/ audio/ csp/ — one harness per make target
+├── tools/                 # visual/ og/ icons/ cover/ audio/ csp/ — one harness per make target
 ├── docs/                  # Rules spec, protocol, deployment + notes/ (the reasoning)
 ├── deploy/                # Production compose + traefik config
 ├── docker-compose.yml     # Production-style full-stack compose
@@ -113,7 +113,7 @@ client and E2E targets do need Node (22.12+ — Astro 7 declares it in `engines`
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`) |
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/` |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make maps`, `make bench-server` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make bench-server` |
 
 Without Docker: `cd server && go run .` (listens on :8080) and `cd client && npm install && npm run
 dev`. Test-by-test invocations, what each harness catches that no assertion would, and why four of
@@ -174,7 +174,7 @@ the shutdown snapshot on its `/data` mount.
 
 Full grouped list: [`docs/features.md`](docs/features.md) — the lobby and the 1v1 queue, the whole
 112-card deck and every rule on it, the interrupt and catch windows, bots that play the entire game,
-the four maps and the synchronised load into them, three adaptive soundtracks synthesised at runtime,
+the six rooms rendered in the browser at a random hour under a random sky and the synchronised load into them, three adaptive soundtracks synthesised at runtime,
 and the server surfaces underneath all of it.
 
 ### Known Limitations
@@ -193,7 +193,7 @@ and the server surfaces underneath all of it.
   carrier-grade NAT that groups unrelated players, so the limit is deliberately high rather than tight.
   The network comes from `LOCO_CLIENT_IP_HEADER` when the peer is a trusted proxy and from the peer
   otherwise: behind a reverse proxy that forwards nothing, every player counts as one network
-- Maps are drawn at random and cannot be chosen; the four that ship are cosmetic only
+- The room, the hour and the weather are drawn at random and cannot be chosen; the six rooms are cosmetic only
 - Wild Draw Four legality (should only be legal when no matching colour) not yet enforced
 - Only English and French are translated; adding a language is a new file in `client/src/i18n/` and an
   entry in the `translations` map
@@ -225,8 +225,8 @@ almost nothing.
   in this repository's documentation descriptively and in the disclaimer that names it in order to
   disclaim it, and nowhere else. See [`NOTICE.md`](NOTICE.md).
 
-Code is MIT ([`LICENSE`](LICENSE)); the map art is AI-generated and deliberately outside it. The
-reasoning and the data inventory: [`docs/notes/legal.md`](docs/notes/legal.md).
+Code is MIT ([`LICENSE`](LICENSE)), and since the rooms are code too, so are they. The reasoning
+and the data inventory: [`docs/notes/legal.md`](docs/notes/legal.md).
 
 ---
 

@@ -341,41 +341,6 @@ export function tableRect(
   }
 }
 
-// ─── Map table placement ────────────────────────────────────────────────────
-
-/**
- * Where to draw a map's `table.webp` so that its playing surface lands exactly
- * on `tableRect()`.
- *
- * `tableRect()` stays the single authority on the board's geometry: the piles
- * sit at its centre, the direction ring is inset from its rim, the seats are
- * placed above it. A map does not move any of that; it only replaces how the
- * felt is *painted*. So the picture is scaled and offset around the ellipse
- * rather than the other way round: the image's playfield sub-box (see
- * `maps.ts`) is mapped onto the felt, and the rest of the table (rim, base,
- * cast shadow, glow) falls where it falls, outside the box.
- *
- * That is why the result is routinely larger than the felt and starts above and
- * to the left of it. Cropping it to the felt would cut off the rim, which is
- * most of what makes each table look like a different object.
- */
-export function tableImageRect(
-  felt: { left: number; top: number; width: number; height: number },
-  playfield: { x: number; y: number; w: number; h: number },
-): { left: number; top: number; width: number; height: number } {
-  // A degenerate playfield would divide by zero and take the whole board with
-  // it; fall back to painting the picture across the felt itself.
-  if (!(playfield.w > 0) || !(playfield.h > 0)) return { ...felt }
-  const width = felt.width / playfield.w
-  const height = felt.height / playfield.h
-  return {
-    left: felt.left - playfield.x * width,
-    top: felt.top - playfield.y * height,
-    width,
-    height,
-  }
-}
-
 // ─── Play direction ─────────────────────────────────────────────────────────
 
 export interface DirectionMarker {

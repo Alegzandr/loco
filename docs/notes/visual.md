@@ -288,7 +288,7 @@ swipe bar and the round badge under the status bar.
   reads back as the unresolved token in several engines, so the resolved computed padding is the
   only reliable source. Reading the *tokens* rather than `env()` directly is also the seam the
   capture harness overrides.
-- **A match in a map pins `<html>` to `--room-void`** (`<GameBoard />` sets `data-room` on the root).
+- **A match in a map pins `<html>` to `--room-void`** (`<GameBoard />` sets `data-room` on the root and writes the scene's horizon into the variable).
   The browser paints anything the page does not own with the root's colour, so this is the only
   thing that can reach a band left over by a floating browser bar. A violet strip across a dark room
   reads as a broken layout; the same strip in the room's shadow reads as the room.
@@ -365,105 +365,151 @@ Scene `game-wild-active-color`; `src/test/discardPile.test.ts` covers the chip a
 branches.
 
 ## Maps (the room a match is played in)
-A map is **three things and nothing else**: a backdrop, a table, and an accent colour. It changes no
-rule, no card and no timing. Four ship: **Neon** (rooftop club), **Rune** (arcane tavern), **Velvet**
-(art-deco lounge), **Orbit** (starship hangar).
+A map is **a scene, a table and an accent colour**. It changes no rule, no card and no timing. Six
+ship: **Neon** (a rooftop terrace above a neon city), **Rune** (a village square with a wizard's
+tower), **Velvet** (the square in front of an art-deco hotel), **Orbit** (a base on an airless moon),
+**Sakura** (a hot-spring village under cherry trees) and **Marina** (a harbour front). Each is dealt
+at one of **four hours** (dawn, day, dusk, night) under one of **six skies** (clear, cloudy, rain,
+storm, snow, fog), and the room says which skies it allows: it does not snow on the moon.
 
-- **The draw is server-side and per match.** `game/maps.go` (`MapID`, `MapIDs`, `Room.pickMap`);
-  `Room.Start()` writes `Room.MapID`, `BeginNextRound` keeps it, `ResetForRematch` clears it so the
-  next match gets a new room. Exported as `GameStateDTO.map_id` on **every** snapshot, not just
-  `game_started`, so a reconnecting player rebuilds the same table as everybody else.
+**Nothing about a map is a picture any more.** The first four were photographs — a generated room
+and a generated table, cropped, placed by a rectangle measured off the art — and a photograph is one
+hour under one sky forever. What replaced them is a place that is *built*: the scene is a diorama of
+a few thousand coloured blocks rendered in the browser by an isometric engine
+(`components/scene/`, three.js), and the table is CSS drawn from the room's own materials. A match at
+midnight in the rain and one at noon in the same room are now two rooms, which is what "the maps
+dictate the mood" asks for.
+
+- **The draw is server-side and per match, and it is three ids.** `game/maps.go` (`MapID`,
+  `TimeOfDay`, `Weather`, `MapWeathers`; `Room.pickMap` / `pickTime` / `pickWeather`); `Room.Start()`
+  writes `MapID`, `MapTime` and `MapWeather`, `BeginNextRound` keeps all three (rain does not stop
+  between two rounds), `ResetForRematch` clears them so the next match gets a new room. Exported as
+  `GameStateDTO.map_id` / `time_of_day` / `weather` on **every** snapshot, not just `game_started`,
+  so a reconnecting player rebuilds the same room as everybody else. All three are bare strings on
+  the wire, for the reason `map_id` always was: a value this client does not know degrades to a
+  default (`resolveScene`: an unknown hour is dealt in daylight, an unknown or unlisted sky is dealt
+  clear) and never drops the whole `game_state`.
   - It has to be the server's even though the consequence is purely visual: two players in one room
     describing two different tables to a viewer is a table that does not exist, and a clip cut
     between two seats would jump between two rooms. Hashing the room code client-side would agree
     just as well but would freeze a room's map forever, and a rematch is meant to feel new.
-- **`tableRect()` remains the single authority on the board's geometry.** A map replaces how the felt
-  is *painted*, never where anything is: piles, seats, direction ring and every animation coordinate
-  are identical with or without one. `maps.ts` names each table's `playfield`, the sub-box of
-  `table.webp` holding the playing surface, four numbers measured off the art, and
-  `layout.ts: tableImageRect()` solves for where to draw the picture so that box lands on the felt.
-  The result deliberately overhangs the felt on every side: rim, base and cast shadow are most of
-  what makes each table a different object, and cropping to the felt would cut them off.
-- **The backdrop is blurred, the table is not.** `.board[data-map]::after` paints a second copy of
-  `room.webp` (`background-image: inherit`, so one place still names the file) at `blur(0.55vmin)`
-  behind everything, which is depth of field: the room is behind the table, and a photograph in
-  focus competes with a card edge, the one contest a card must always win at 720p. The radius is in
-  `vmin` because the board scales with the viewport, so a fixed one is a haze on a phone and a smudge
-  on a 1440p monitor. Slight on purpose, and `<MapLoadingScreen />` keeps its backdrop **sharp**:
-  that screen exists to show the room, this one to play on the table. The layer needs
-  `isolation: isolate` on `.board`, since a negative z-index otherwise escapes to the nearest
-  stacking context and lands behind the element's own background.
-- **The accent is light, not chrome.** It tints the glow pooled under the table, the ambient wash,
-  and the direction ring's chevrons (as an 85% white *wash*, never the raw accent). It deliberately
-  does **not** reach `--color-primary`, the active seat's gold, or any card face: those are what a
-  viewer reads game state off, and a state cue that changes colour with the scenery is a cue that has
-  to be re-learned four times.
-- `resolveMap()` returns **null** for an unknown or empty id, and null is a first-class answer: a
-  lobby has no map, and a server shipping a new one before the client has its art must degrade to the
-  built-in felt rather than to a blank table. Same reason `map_id` is a bare `z.string()` in
-  `protocolSchemas.ts` and not an enum: an enum would drop the whole `game_state` in dev.
-- Art lives in `client/public/maps/<id>/{room,table}.webp` (~1.6 MB total). `make maps
-  ARGS="--src=<folder>"` (`tools/maps/prepare.mjs`) crops and re-encodes it. **Which source file is
-  the table is read off the alpha channel, never the filename**, since the renders come out of the
-  generator named after their timestamp, and an earlier pass that guessed by frame brightness got
-  every map backwards. The table is cropped to its alpha bounding box, which is what makes the
-  `playfield` fractions honest. **The source folder holds one folder per map and nothing else**:
-  every directory under it is a map, so anything parked beside them aborts the run on "expected
-  exactly 2 images" — halfway through, having already written some of them. A replaced render is
-  not kept: the map that ships is the one on disk.
-- Scenes `game-map-neon` / `-rune` / `-velvet` / `-orbit` / `game-map-loading`. **The playfield
-  numbers are measured by eye off the art, so a drifted table shows up in `make visual` and nowhere
-  else**, so review any change to the art or to `tableImageRect()` there.
-- **The felt's shape at 1× is `tableRect()`'s, never the art's**, and the second number to watch is
-  the *scale*: the picture is drawn `1 / playfield.w` times the felt's width, so a table whose rim is
-  wide in its own file is a table that runs off a 16:9 screen and takes the room with it. Neon sits
-  at 1.17×, and past about 1.4× the board stops reading as a table in a room. **`rune` and `orbit`
-  buy that back**: their playfields are widened beyond the painted felt (~8% and ~20%, 1.53×/1.48× →
-  1.41×/1.27×), which is why the chevrons there sit on the inner lip rather than on the felt.
-  Deliberate, and the reason not to "correct" those two back onto the felt by eye.
-- **The third number decides whether a table is an object at all, and it is the box's own aspect.**
-  The image is drawn with `object-fit: fill`, so a playfield whose aspect is not the felt's — 2.18:1
-  on a desktop — stretches the whole table by exactly the difference, and the *sign* of it is what
-  matters. Drawn taller than it was rendered, a table gains apparent height and reads as something
-  standing in the room: velvet is drawn 1.67× taller and is the deepest of the four, neon 1.14×.
-  Drawn flatter, it loses the one cue saying it is not painted on the floor — which is what `orbit`
-  did at 0.82×, its platform being the only one shot from high above (1.78 against velvet's 3.64).
-  **So `orbit`'s box is the 2.18 rectangle inscribed in that platform, not the platform's outline**:
-  1.00×, undistorted, and 1.27× rather than 1.41× into the bargain. The felt no longer reaches the
-  painted surface top and bottom, which costs nothing — the piles sit at the centre and the chevrons
-  are inset anyway. Rune's 0.89× is the floor and stays there, its carved frame being thick enough
-  to carry the depth its surface loses; `maps.test.ts` reads the shipped `.webp` headers and fails
-  under it. **New table art wants a felt at 78–85% of the file's width and roughly 0.40 as tall as
-  it is wide** — art drawn to that needs none of this.
-- **A map is tried before it is submitted, not after** (`tools/maps/scene-tester.html`). Measuring a
-  `playfield` means seeing the felt land on the picture, and until this existed the loop was: guess
-  four numbers, add a scene, run `make maps`, run `make visual`, read a screenshot, guess again. A
-  build and two harnesses for a rectangle. The tester rebuilds the board around a dropped room and
-  table: the layout maths is a transcription of `layout.ts` and `cardTheme.ts`, the paint one of
-  `GameBoard.svelte`'s style block, and the alpha work (which picture is the table, its bounding
-  box, the WebP qualities) is `prepare.mjs`'s, so **what it previews is what `make maps` would
-  ship**, including the `.png` an image generator hands over, which it crops and re-encodes in the
-  page. It emits the `maps.ts` entry and both `.webp` files.
-  - **The fidelity is checked, not claimed.** Diffing the DOM against the running game at
-    1920×1080 on `neon`, every written value matches: the stage's transform and size, the table
-    image's box, the glow, the ring and its first chevron. That is why `px()` does not round. What
-    is *not* faithful is the furniture: cards carry the right box at the right place but not
-    `CardArt`, the seat pills carry `SEAT_DIMS` and a simplified drawing, and the action bar and
-    top row are ghosts marking the reserves they own. None of it decides where a table lands.
-  - **It is a transcription, which makes it a copy that can drift.** `layout.ts`, `cardTheme.ts`'s
-    constants, the board's style block and the four playfields of `maps.ts` move with it in the
-    same change set: a tester that lies approves a table the game then draws somewhere else, and
-    nothing downstream would catch it. Nothing imports it and no test covers it. Deliberately: it
-    ships nothing.
-  - **One file, opened off the disk, no `make` target**, because it is handed to whoever is making
-    the art. Two consequences, both deliberate: the two families come off a CDN, which
-    `client/` may never do and this may because it reaches no player; and a `file://` origin cannot
-    read pixels back out of a repository file, so the four reference maps load as pictures and skip
-    the alpha pass they no longer need. A dropped file is a data URL and measures normally.
-  - The accent it guesses is a starting point and says so. It ranks pixels by saturation times
-    brightness and averages the top tenth, because the light source is never the largest thing in
-    a frame these rooms keep mostly dark: the first pass took the dominant colour and returned the
-    backdrop, the one colour the glow must not be.
+  - **`maps.test.ts` pins the client's three lists and every per-map weather list to the Go source**,
+    in order. A map, an hour or a sky on one side and not the other is a match dealt into a room this
+    client cannot draw, and it fails as a plain felt, silently.
+- **`tableRect()` remains the single authority on the board's geometry.** A scene replaces how the
+  felt is *painted*, never where anything is: piles, seats, direction ring and every animation
+  coordinate are identical with or without one. There is no `playfield` and no `tableImageRect()`
+  any more: the felt *is* the rectangle, and the CSS table is drawn on it directly.
+
+### The light rig (`scene/sky.ts`)
+The hour and the sky, as numbers, with no framework and no three.js in the file, so a content page
+can read it and a test can assert it. `lightRig(time, weather)` returns the sky gradient, the sun
+(colour, intensity, elevation, azimuth, shadow strength), the hemisphere fill, distance fog or null,
+and five things the kit and the board build from: `lampsOn`, `windowsLit` (a share), `snow`, `wet`
+and `dark` (0 at noon, 1 on a stormy night). The weather is applied *over* the hour — a storm at
+noon is still lit from above — and the overcast grey is the hour's own horizon mixed down, which is
+what keeps twenty-four combinations from being six: a grey dusk is warm and a grey dawn is pink.
+`rigCssVars` is the same rig as four custom properties (`--sky-top`, `--sky-horizon`,
+`--scene-tint`, `--scene-dark`) for the board, the overlay and the rooms page.
+
+### The kit and the builders (`scene/kit.ts`, `scene/maps/*.ts`)
+A builder never touches three.js. It calls `box`, `cyl`, `sphere`, `cone`, `prism`, `disc`, `halo`
+and the props composed from them (`tower` with its window grid, `lamp`, `tree` in four kinds,
+`person`, `car`, `stall`, `bench`, `fence`, `road`, `lantern`, `flag`…), and `build()` merges every
+block into four meshes — lit, glow, ink, halo — so a whole city is a handful of draw calls. Three
+decisions make it look like the rest of the UI rather than a tech demo, and each is the kit's, not a
+builder's:
+- **Every block carries an ink outline**, the same rule every raised object in `tokens.css` obeys. An
+  inverted hull per block, drawn back-face only, sized from the render's pixel density so the line is
+  ~2 CSS px on a phone and on a monitor alike. Per block rather than by pushing vertices along
+  normals, because a box's faces do not share vertices and a per-vertex push leaves the corners open.
+- **Colour is a vertex attribute and the shading is toon** (`MeshToonMaterial`, a four-step ramp), so
+  the light bands rather than blends: a gradient across a wall is a render, three flat tones are a
+  drawing. One directional sun with a hard PCF shadow, one hemisphere fill, from the rig.
+- **The weather is answered in the kit, once**: `snow` caps every flat top and whitens the ground and
+  the foliage, `wet` darkens the ground the builder asks for and lays puddles catching the sky,
+  `lampsOn` decides whether a lamp's head, a window, a neon tube or a lantern goes into the unlit
+  `glow` bucket (with a halo) or the lit one. A builder says "this is a lamp"; the kit says what a
+  lamp looks like tonight. Which is why one builder per room is enough for twenty-four moods.
+- **Every decision is seeded** (`scene/rng.ts`, mulberry32 on the scene's key): which windows are
+  lit, where a crate stands, how tall the third tower is. A place that rearranges itself on refresh
+  is not a place, and every seat at the table has to see the same one.
+- **The plaza is kept clear** (`maps/common.ts`, `PLAZA_R` = 10 tiles): the CSS table covers roughly
+  16 × 8 tiles around the origin on a monitor, so nothing taller than a bench stands there and the
+  floor under it carries a pattern that survives being mostly covered. A builder that puts a
+  building at the centre puts it under the felt.
+
+### The render (`scene/render.ts`, `scene/sceneCache.ts`)
+- **One frame, then the context is released.** A match is a hand of cards animating over the scene
+  for twenty minutes, and the board's compositing budget belongs to the cards (`cardArtSpace` was
+  bought at 3 → 10 fps on a full hand; a live viewport under it would spend that again). So the
+  diorama is rendered **once**, the pixels are copied into a 2D canvas, the geometries and the
+  WebGL context are disposed, and what the board draws from then on is a static bitmap, exactly as
+  cheap as the photograph it replaced. Everything that moves — rain, snow, the fog's drift, the
+  storm's flash, the cloud shadow — is a CSS transform animation on a tiled gradient
+  (`WeatherLayer.svelte`), one compositor layer each, and holds its first frame under reduced motion
+  (the flash is the one thing that goes away entirely: a full-frame flicker is what the preference
+  exists to refuse). A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a
+  drift of dust, because nothing falls on an airless moon and the server's weather list says
+  `storm`, not `rain`.
+- **Isometric, orthographic, framed in tiles.** The camera looks down from a corner at 32°, the
+  Habbo angle, so a block's top and two faces are visible and every block reads at the same scale
+  wherever it stands. The visible extent is `TILES_ACROSS` (32) tiles on the longer side rather than
+  a number of pixels, so a phone and a monitor frame the same plaza and the table lands on the same
+  paving. Resolution is the viewport at `devicePixelRatio` capped at 1.5 and 2400 px on the long
+  side (`renderSizeFor`).
+- **The engine is a lazy chunk.** `sceneCache.prepareScene` is the only importer of `render.ts`,
+  through a dynamic `import()`, so three.js never reaches the home page, a waiting room or a content
+  page; the map-loading gate is what absorbs the fetch (`mapPreload` reports it as the first 35% of
+  the bar, the build and the draw as the rest). The chunk comes off this origin like every other,
+  so the CSP is untouched and `csp.test.ts` still passes on `'self'`.
+- **A render that fails is a scene, not an error.** No WebGL, a lost context, a builder that
+  throws: the cache keeps the entry with a null bitmap, `<SceneBackdrop />` shows the rig's sky
+  gradient (which is on screen from the first frame anyway, under the bitmap), and the gate is
+  answered. A client that never sends `map_ready` is the one outcome the gate cannot survive, and it
+  is the reason `prepareScene` never rejects.
+- **The board and the loading screen share the frame.** Both draw `<SceneBackdrop />`, the board
+  with `blur` (depth of field: the room is behind the table, and a scene in focus competes with a
+  card edge, the one contest a card must always win at 720p), the loading screen sharp, because that
+  screen exists to show the room. The cache holds three entries (a match, its rematch, a resize) and
+  a resize past a 96 px step re-renders while the old frame is drawn stretched.
+
+### The table (`GameBoard.svelte`'s `.tableOval` / `.tablePlinth` / `.tableGlow`)
+A felt inside a rim, standing on a plinth, all CSS, on exactly `tableRect()`. Every room hands the
+same object its own materials (`MapDef.table` in `maps.ts`: `felt`, `feltDeep`, `rim`, `rimLight`,
+`base`, `inlay`), reaching the style block as `--tbl-*`; without a scene the variables fall back to
+the tokens' near-black table, which is what a lobby's felt and an unknown map id draw.
+- **The materials never follow the hour; the light does.** A table is a physical thing and night
+  does not repaint it, so `--tbl-*` are constants per room. What the rig hands the table is
+  `--scene-tint` (the sun's colour, on the sheen across the top of the felt and the rim's top edge)
+  and `--scene-dark` (a dimming of the felt, the rim, the vignette and the glow, through
+  `color-mix()` with a `calc()` percentage). Neon's black glass at noon and at midnight are the same
+  glass under two lights.
+- **It obeys the three rules every raised object obeys**: an ink line on both sides of the rim, a
+  hard bottom edge (the `0 16px 0` shadow *is* the rim's thickness, seen from above and in front),
+  and a soft shadow that is ambience, never structure. The **inlay** is the one line of the room's
+  accent set into the rim — a neon tube, a brass bead, a rune groove, a strip of lacquer — and it is
+  what makes six tables six objects rather than six recolours.
+- **The plinth is what makes it an object.** Its top is hidden under the felt; what shows is the
+  column and the foot, hanging below the ellipse, and that is the cue that says "standing in the
+  room" rather than "painted on its floor" — the cue the photographs bought with their rendered
+  bases and their squash ratios. It is positioned off `tableRect()` in fractions, so it scales with
+  the board like everything else.
+- **The rooms page draws the same table** (`content/TablesArticle.astro`, `.roomTable` /
+  `.roomPlinth` / `.roomGlow` in `content.css`): the two rulesets are a transcription of the board's
+  and move with it. A content page ships no script, so it cannot render the diorama; it shows each
+  room's table under the sky of its signature hour and lists the hours and skies the room can be
+  dealt under.
+
+### Reviewing a room
+Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the
+hour or the sky that changes the room the most) and `game-map-loading`. **These are the only place a
+room is reviewable without a server dealing a match, and what `make visual` shoots is exactly what a
+match draws**: the diorama is built in the browser from the three ids, so there is no art to drift
+from and no rectangle to measure. Review a new builder at `--viewports=wide,mobile`: the tile
+framing is the same but the plaza is a different shape of the frame on a phone, and a prop placed
+just past `PLAZA_R` on a monitor is under the hand on a phone. The harness runs the real engine in
+headless Chromium (SwiftShader), so a render that takes a second on a laptop takes a few there.
 
 ## Card face (`CardArt.svelte`, `cardArtSpace.ts`, `locoMark.ts`, `cardTheme.ts`)
 Reproduced from the brand's own card art. Review any change to it with
@@ -1040,7 +1086,7 @@ token:
   0.35 alpha, 1.5:1 on the card — and with `outline: none` on the field that shadow was the whole
   indicator. Both are the solid `--color-tertiary` at 3px, the ring `tokens.css` gives every
   `:focus-visible`.
-- **The map-loading roster** set a name still loading at 50% white over a photograph, with no shadow.
+- **The map-loading roster** set a name still loading at 50% white over the room, with no shadow.
   0.72 and the same shadow `.status` carries.
 - **`.formatLen`** was 10px with `opacity: 0.75` on the active pill; **the round summary's heads,
   progress title and gap, the game-over gap and the recap heads** were 11px. **12px is the floor**

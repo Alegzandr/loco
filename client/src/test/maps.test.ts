@@ -1,103 +1,92 @@
 import { describe, it, expect } from 'vitest'
-import { MAPS, MAP_IDS, resolveMap, mapAssets, MapId } from '../components/cards/maps'
-import { tableImageRect, tableRect } from '../components/cards/layout'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import {
+  MAPS,
+  MAP_IDS,
+  TIMES,
+  WEATHERS,
+  resolveMap,
+  resolveScene,
+  sceneKey,
+  type MapId,
+} from '../components/cards/maps'
+import { lightRig, rigCssVars, isTime, isWeather, mix, scale, desaturate, hexCss } from '../components/scene/sky'
+import { seededRng } from '../components/scene/rng'
+import { tableRect } from '../components/cards/layout'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+
+const REPO = path.resolve(__dirname, '..', '..', '..')
+const mapsGo = readFileSync(path.join(REPO, 'server', 'game', 'maps.go'), 'utf8')
 
 /**
- * Canvas size of a shipped `.webp`, read off its VP8X chunk.
- *
- * The distortion a playfield costs is a ratio of *pixels*, so the numbers in
- * `maps.ts` mean nothing without the file they were measured against. Reading
- * the real asset is what makes the assertion below a check rather than a second
- * copy of the same four fractions: replace the art with a differently-shaped
- * render and it fails, which is the case that would otherwise ship unnoticed.
- *
- * `make maps` writes an extended-format file for every table (it carries an
- * alpha channel), so VP8X is the only header shape here.
+ * The Go constants of one string type, in the order its All-slice lists them.
+ * `var MapIDs = []MapID{MapNeon, ...}` names constants; `MapNeon MapID = "neon"`
+ * gives each its value.
  */
-function webpSize(publicPath: string): { width: number; height: number } {
-  const buf = readFileSync(resolve(__dirname, '../../public', publicPath.replace(/^\//, '')))
-  const at = buf.indexOf('VP8X')
-  if (at < 0) throw new Error(`${publicPath}: not an extended WebP`)
-  return { width: buf.readUIntLE(at + 12, 3) + 1, height: buf.readUIntLE(at + 15, 3) + 1 }
+function goList(sliceName: string, typeName: string): string[] {
+  const slice = mapsGo.match(new RegExp(`var ${sliceName} = \\[\\]${typeName}\\{([^}]+)\\}`))
+  expect(slice, `${sliceName} not found in server/game/maps.go`).toBeTruthy()
+  return slice![1]
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((name) => {
+      const val = mapsGo.match(new RegExp(`${name}\\s+${typeName} = "([a-z]+)"`))
+      expect(val, `${name} has no value in maps.go`).toBeTruthy()
+      return val![1]
+    })
+}
+
+/** `MapWeathers` off the Go source, id → weathers. */
+function goMapWeathers(): Record<string, string[]> {
+  const block = mapsGo.match(/var MapWeathers = map\[MapID\]\[\]Weather\{([\s\S]+?)\n\}/)
+  expect(block, 'MapWeathers not found in server/game/maps.go').toBeTruthy()
+  const out: Record<string, string[]> = {}
+  for (const line of block![1].split('\n')) {
+    const m = line.match(/(Map[A-Z][a-z]+):\s*\{([^}]+)\}/)
+    if (!m) continue
+    const id = mapsGo.match(new RegExp(`${m[1]}\\s+MapID = "([a-z]+)"`))![1]
+    out[id] = m[2].split(',').map((w) => mapsGo.match(new RegExp(`${w.trim()}\\s+Weather = "([a-z]+)"`))![1])
+  }
+  return out
 }
 
 describe('map registry', () => {
-  it('ships art paths for every registered map', () => {
+  // The server draws from its lists and the client renders from its own. A map,
+  // an hour or a sky on one side and not the other is a match dealt into a room
+  // this client cannot draw — and it fails as a plain felt, silently.
+  it('lists the same maps, hours and skies as the server, in the same order', () => {
+    expect(MAP_IDS).toEqual(goList('MapIDs', 'MapID'))
+    expect([...TIMES]).toEqual(goList('TimesOfDay', 'TimeOfDay'))
+    expect([...WEATHERS]).toEqual(goList('Weathers', 'Weather'))
+  })
+
+  it('allows each map exactly the skies the server can deal it', () => {
+    const server = goMapWeathers()
     for (const id of MAP_IDS) {
-      const map = MAPS[id]
-      expect(map.id).toBe(id)
-      expect(map.room).toMatch(/^\/maps\/[a-z]+\/room\.webp$/)
-      expect(map.table).toMatch(/^\/maps\/[a-z]+\/table\.webp$/)
+      expect([...MAPS[id].weathers], id).toEqual(server[id])
     }
   })
 
-  // The registry is the only thing that says where a table's playing surface is
-  // inside its picture. A playfield outside 0–1, or an inverted one, silently
-  // slides the cards off the table instead of failing.
-  it('keeps every playfield inside its image', () => {
+  it('names every material of every table as a CSS colour', () => {
     for (const id of MAP_IDS) {
-      const { x, y, w, h } = MAPS[id].playfield
-      expect(w).toBeGreaterThan(0)
-      expect(h).toBeGreaterThan(0)
-      expect(x).toBeGreaterThanOrEqual(0)
-      expect(y).toBeGreaterThanOrEqual(0)
-      expect(x + w).toBeLessThanOrEqual(1)
-      expect(y + h).toBeLessThanOrEqual(1)
+      const m = MAPS[id]
+      expect(m.id).toBe(id)
+      for (const [name, value] of Object.entries(m.table)) {
+        expect(value, `${id}.table.${name}`).toMatch(/^#[0-9a-f]{6}$/)
+      }
+      expect(m.accent).toMatch(/^#[0-9a-f]{6}$/)
+      expect(m.accentDeep).toMatch(/^#[0-9a-f]{6}$/)
+      expect(m.weathers.length).toBeGreaterThan(0)
+      expect(m.weathers).toContain('clear')
     }
-  })
-
-  // The tables are photographed at an angle, so their surface is always a wide
-  // ellipse. A playfield taller than it is wide would mean a mis-measurement.
-  it('measures every playing surface as a wide ellipse', () => {
-    for (const id of MAP_IDS) {
-      const { w, h } = MAPS[id].playfield
-      expect(w).toBeGreaterThan(h)
-    }
-  })
-
-  // The picture is drawn with `object-fit: fill` into the box `tableImageRect()`
-  // solves for, so a playfield whose own aspect differs from the felt's stretches
-  // the whole table by exactly that difference — and the sign of it decides
-  // whether the table is an object. Drawn taller than it was rendered, a table
-  // gains apparent height and reads as something standing in the room (velvet
-  // 1.67×, neon 1.14×). Drawn flatter, it loses the one thing telling the eye it
-  // is not painted on the floor, which is exactly what `orbit` did at 0.82×.
-  // See docs/notes/visual.md.
-  // Rune sits on this floor, and it is the loosest a table has read as one: its
-  // carved frame is thick enough to carry the depth its surface loses. Nothing
-  // new goes under it, and a new map has no business near it at all.
-  const MIN_SQUASH = 0.88
-  it('never draws a table flatter than it was rendered', () => {
-    const felt = tableRect(1920, 1080)
-    for (const id of MAP_IDS) {
-      const { width: fileW, height: fileH } = webpSize(MAPS[id].table)
-      const { w, h } = MAPS[id].playfield
-      // How much taller the art is drawn than it was rendered: 1 = untouched.
-      const squash = (felt.height / (h * fileH)) / (felt.width / (w * fileW))
-      expect(squash, `${id} squash ${squash.toFixed(3)}`).toBeGreaterThanOrEqual(MIN_SQUASH)
-    }
-  })
-
-  // The floor above is rune's own value, so it alone would let orbit drift back
-  // to the platform's outline — the measurement that made it flat — without
-  // failing. Its box is the felt-shaped rectangle inscribed in that platform,
-  // and that is the whole point of it.
-  it('keeps orbit undistorted', () => {
-    const felt = tableRect(1920, 1080)
-    const { width: fileW, height: fileH } = webpSize(MAPS.orbit.table)
-    const { w, h } = MAPS.orbit.playfield
-    const squash = (felt.height / (h * fileH)) / (felt.width / (w * fileW))
-    expect(squash).toBeGreaterThan(0.98)
-    expect(squash).toBeLessThan(1.02)
   })
 
   it('resolves known ids and falls back to null for everything else', () => {
     expect(resolveMap('neon')).toBe(MAPS.neon)
-    // A lobby, a map this build has no art for, a malformed payload: all mean
+    // A lobby, a map this build has no scene for, a malformed payload: all mean
     // "use the built-in felt", never "crash" and never "blank table".
     expect(resolveMap('')).toBeNull()
     expect(resolveMap(null)).toBeNull()
@@ -106,71 +95,143 @@ describe('map registry', () => {
     expect(resolveMap('NEON')).toBeNull()
   })
 
-  it('preloads the table before the room', () => {
-    // The table is the object the cards land on; a missing room is a plain
-    // background, a missing table reads as a broken game.
-    expect(mapAssets(MAPS.orbit)).toEqual([MAPS.orbit.table, MAPS.orbit.room])
+  // The hour and the sky degrade one at a time, never the room with them: a
+  // reload must not lose the whole scene over a word this build does not know.
+  it('resolves a scene, defaulting the hour and the sky rather than dropping the room', () => {
+    expect(resolveScene('neon', 'night', 'rain')).toEqual({ map: MAPS.neon, time: 'night', weather: 'rain' })
+    expect(resolveScene('neon', 'noon', 'rain')?.time).toBe('day')
+    expect(resolveScene('neon', 'night', 'hail')?.weather).toBe('clear')
+    expect(resolveScene('neon', undefined, undefined)).toEqual({ map: MAPS.neon, time: 'day', weather: 'clear' })
+    // A sky the server never deals this map is treated like an unknown one.
+    expect(resolveScene('orbit', 'day', 'snow')?.weather).toBe('clear')
+    expect(resolveScene('atlantis', 'day', 'clear')).toBeNull()
+    expect(resolveScene('', 'day', 'clear')).toBeNull()
+  })
+
+  it('keys a scene on its three ids', () => {
+    expect(sceneKey({ map: MAPS.rune, time: 'dusk', weather: 'snow' })).toBe('rune:dusk:snow')
+    expect(sceneKey(resolveScene('rune', 'dusk', 'snow')!)).not.toBe(sceneKey(resolveScene('rune', 'dusk', 'fog')!))
   })
 
   // A map with no name and no line is a loading screen with a bar and nothing
-  // else, which is the version this feature exists to replace.
-  it('is named and described in both languages', () => {
-    for (const id of MAP_IDS) {
-      for (const [lang, t] of [['en', en], ['fr', fr]] as const) {
+  // else, which is the version this feature exists to replace. The hour and
+  // the sky are read beside the name, so they need words too.
+  it('is named and described in both languages, hours and skies included', () => {
+    for (const [lang, t] of [['en', en], ['fr', fr]] as const) {
+      for (const id of MAP_IDS) {
         const copy = t.maps[id as MapId]
         expect(copy, `${lang}/${id}`).toBeTruthy()
         expect(copy.name.length, `${lang}/${id} name`).toBeGreaterThan(0)
         expect(copy.tagline.length, `${lang}/${id} tagline`).toBeGreaterThan(20)
       }
+      for (const time of TIMES) expect(t.mapTimes[time], `${lang}/${time}`).toBeTruthy()
+      for (const w of WEATHERS) expect(t.mapWeathers[w], `${lang}/${w}`).toBeTruthy()
     }
   })
 })
 
-describe('tableImageRect', () => {
-  const felt = { left: 100, top: 50, width: 600, height: 300 }
-
-  // The whole contract: the sub-box of the picture named by the playfield has
-  // to land exactly on the felt, because that is the ellipse the piles, the
-  // seats and the direction ring are all placed against.
-  it('lands the playfield exactly on the felt', () => {
-    const pf = { x: 0.125, y: 0.25, w: 0.75, h: 0.4 }
-    const img = tableImageRect(felt, pf)
-    expect(img.left + pf.x * img.width).toBeCloseTo(felt.left, 6)
-    expect(img.top + pf.y * img.height).toBeCloseTo(felt.top, 6)
-    expect(pf.w * img.width).toBeCloseTo(felt.width, 6)
-    expect(pf.h * img.height).toBeCloseTo(felt.height, 6)
-  })
-
-  it('draws the picture larger than the felt and overhanging it', () => {
-    const img = tableImageRect(felt, MAPS.velvet.playfield)
-    expect(img.width).toBeGreaterThan(felt.width)
-    expect(img.height).toBeGreaterThan(felt.height)
-    expect(img.left).toBeLessThan(felt.left)
-    expect(img.top).toBeLessThan(felt.top)
-  })
-
-  it('reduces to the felt itself for a full-bleed playfield', () => {
-    expect(tableImageRect(felt, { x: 0, y: 0, w: 1, h: 1 })).toEqual(felt)
-  })
-
-  // Degenerate input must not divide by zero and take the whole board with it.
-  it('falls back to the felt for a zero-sized playfield', () => {
-    expect(tableImageRect(felt, { x: 0, y: 0, w: 0, h: 0.4 })).toEqual(felt)
-    expect(tableImageRect(felt, { x: 0, y: 0, w: 0.7, h: 0 })).toEqual(felt)
-  })
-
-  // The real geometry, at both ends of the board-scale range: every map's table
-  // must still cover the felt on a phone and on a 1440p monitor.
-  it('covers the felt at every board size, for every map', () => {
-    for (const [w, h] of [[1920, 1080], [1440, 900], [390, 844], [360, 640]]) {
-      const rect = tableRect(w, h, 90)
-      for (const id of MAP_IDS) {
-        const img = tableImageRect(rect, MAPS[id].playfield)
-        expect(img.left, `${id} @${w}x${h}`).toBeLessThanOrEqual(rect.left)
-        expect(img.top, `${id} @${w}x${h}`).toBeLessThanOrEqual(rect.top)
-        expect(img.left + img.width).toBeGreaterThanOrEqual(rect.left + rect.width)
-        expect(img.top + img.height).toBeGreaterThanOrEqual(rect.top + rect.height)
+describe('the light rig', () => {
+  it('lights every hour under every sky with finite numbers', () => {
+    for (const time of TIMES) {
+      for (const weather of WEATHERS) {
+        const rig = lightRig(time, weather)
+        expect(rig.time).toBe(time)
+        expect(rig.weather).toBe(weather)
+        expect(rig.sun.intensity).toBeGreaterThan(0)
+        expect(rig.ambient.intensity).toBeGreaterThan(0)
+        expect(rig.dark).toBeGreaterThanOrEqual(0)
+        expect(rig.dark).toBeLessThanOrEqual(1)
+        expect(rig.windowsLit).toBeGreaterThanOrEqual(0)
+        expect(rig.windowsLit).toBeLessThanOrEqual(1)
+        expect(rig.tintCss).toMatch(/^#[0-9a-f]{6}$/)
       }
     }
+  })
+
+  // The four hours have to be four moods, or a match at midnight and one at
+  // noon in the same room are the same room.
+  it('is darker at night than at noon, and lights the lamps after dark', () => {
+    expect(lightRig('night', 'clear').dark).toBeGreaterThan(lightRig('day', 'clear').dark)
+    expect(lightRig('night', 'clear').sun.intensity).toBeLessThan(lightRig('day', 'clear').sun.intensity)
+    expect(lightRig('day', 'clear').lampsOn).toBe(false)
+    expect(lightRig('night', 'clear').lampsOn).toBe(true)
+    expect(lightRig('dusk', 'clear').lampsOn).toBe(true)
+  })
+
+  // Each sky changes something the kit reads: what settles, what soaks, what
+  // veils. A weather that changed only the overlay would be a filter, not a sky.
+  it('answers each sky with the flag the kit builds from', () => {
+    expect(lightRig('day', 'snow').snow).toBe(true)
+    expect(lightRig('day', 'clear').snow).toBe(false)
+    expect(lightRig('day', 'rain').wet).toBe(true)
+    expect(lightRig('day', 'storm').wet).toBe(true)
+    expect(lightRig('day', 'fog').fog).not.toBeNull()
+    expect(lightRig('day', 'clear').fog).toBeNull()
+    expect(lightRig('day', 'storm').sun.intensity).toBeLessThan(lightRig('day', 'cloudy').sun.intensity)
+    expect(lightRig('day', 'rain').lampsOn).toBe(true)
+  })
+
+  it('writes the four variables the board and the overlay read', () => {
+    const css = rigCssVars(lightRig('dusk', 'clear'))
+    for (const v of ['--sky-top', '--sky-horizon', '--scene-tint', '--scene-dark']) expect(css).toContain(v)
+  })
+
+  it('narrows the wire strings', () => {
+    expect(isTime('dawn')).toBe(true)
+    expect(isTime('Dawn')).toBe(false)
+    expect(isTime(undefined)).toBe(false)
+    expect(isWeather('fog')).toBe(true)
+    expect(isWeather('hail')).toBe(false)
+  })
+
+  it('does colour arithmetic on plain numbers', () => {
+    expect(hexCss(mix(0x000000, 0xffffff, 0.5))).toBe('#808080')
+    expect(hexCss(scale(0x808080, 2))).toBe('#ffffff')
+    expect(hexCss(desaturate(0xff0000, 1))).toBe('#4d4d4d')
+    expect(hexCss(0x0a0b0c)).toBe('#0a0b0c')
+  })
+})
+
+describe('the scene rng', () => {
+  // A diorama is placed with hundreds of small decisions, and every one of them
+  // has to come out the same for every seat and the same after a reload.
+  it('is deterministic per seed', () => {
+    const a = seededRng('rune:dusk:snow')
+    const b = seededRng('rune:dusk:snow')
+    const c = seededRng('rune:dusk:fog')
+    const runA = Array.from({ length: 20 }, () => a.next())
+    const runB = Array.from({ length: 20 }, () => b.next())
+    const runC = Array.from({ length: 20 }, () => c.next())
+    expect(runA).toEqual(runB)
+    expect(runA).not.toEqual(runC)
+    for (const v of runA) {
+      expect(v).toBeGreaterThanOrEqual(0)
+      expect(v).toBeLessThan(1)
+    }
+  })
+
+  it('stays inside the ranges it is asked for', () => {
+    const r = seededRng(7)
+    for (let i = 0; i < 200; i++) {
+      const n = r.int(3, 5)
+      expect(n).toBeGreaterThanOrEqual(3)
+      expect(n).toBeLessThanOrEqual(5)
+      const f = r.range(-2, 2)
+      expect(f).toBeGreaterThanOrEqual(-2)
+      expect(f).toBeLessThan(2)
+      expect(['a', 'b']).toContain(r.pick(['a', 'b']))
+    }
+  })
+})
+
+describe('the table stays where the geometry puts it', () => {
+  // The scene replaces how the table is painted and nothing else: the felt is
+  // still `tableRect()`, at every size, so the piles and the ring do not move.
+  it('keeps the felt a wide oval on a desktop and rounder on a phone', () => {
+    const desk = tableRect(1920, 1080, 90)
+    expect(desk.width / desk.height).toBeGreaterThan(1.8)
+    const phone = tableRect(390, 844, 90)
+    expect(phone.width / phone.height).toBeLessThan(1.3)
+    expect(phone.width).toBeLessThanOrEqual(390 - 20)
   })
 })

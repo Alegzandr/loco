@@ -307,6 +307,13 @@ export const gameStateSchema = v.object({
   // every snapshot rather than only game_started so a reconnecting player
   // rebuilds the same table as everybody else. Empty = the built-in felt.
   map_id: v.optional(v.string()),
+  // TimeOfDay and Weather are the hour and the sky the match is dealt under
+  // (see game/maps.go), drawn beside MapID and travelling with it on every
+  // snapshot. Bare strings like MapID, for the same reason: a value this
+  // client does not know must degrade to a default sky, never drop the whole
+  // game_state.
+  time_of_day: v.optional(v.string()),
+  weather: v.optional(v.string()),
   scoreboard: v.optional(v.array(scoreboardEntrySchema)),
   // RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
   // Included in every snapshot so a reconnecting player recovers the table.

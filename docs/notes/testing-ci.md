@@ -112,8 +112,8 @@ bot's row, and the line the removed player is left holding. Score table.
 
 Matchmaking: pairing, cancel, disconnect-out-of-queue, the host controls a matchmade room refuses,
 the requeue an opponent's departure triggers, and every forfeit path (quit, disconnect, AFK).
-Link-preview tags against the committed `og.png`. Map draw, the loading gate and `tableImageRect` at
-every board size. Batch play and batch interrupt, unit **and** E2E. A draw against exhausted piles.
+Link-preview tags against the committed `og.png`. The map, hour and sky draw, the client's lists
+pinned to the server's, the light rig, the loading gate. Batch play and batch interrupt, unit **and** E2E. A draw against exhausted piles.
 `Origin` checking. The legal disclosures and the truncation of every logged address. Bots
 interjecting.
 
@@ -190,8 +190,9 @@ deliberately not covered here" below.
     start" makes honest in both directions.
 - **Being dealt into a matchmade table is the expensive step, and the default 30s test budget is
   built for one of them.** `waitForMatchmadeGame` waits out the match-found countdown and then the
-  map-loading gate, and the gate is real image downloads through the dev server into a browser
-  context with a cold cache: the single-deal tests in `matchmaking.spec.ts` land around 23s, and the
+  map-loading gate, and the gate is the engine's chunk through the dev server into a browser
+  context with a cold cache plus a WebGL render on SwiftShader: the single-deal tests in
+  `matchmaking.spec.ts` land around 23s, and the
   same test can take 4s on a warm run and 24s on a cold one. The rematch test is dealt in **twice**
   and carries its own `test.setTimeout(90_000)` for that reason. The failure mode is worth knowing
   because it lies: the test times out in whatever line the `finally` is on, with a screenshot of a

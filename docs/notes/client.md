@@ -19,7 +19,7 @@ Both are now what their names say, and the work sits beside the other work of it
 | `hooks/live.svelte.ts` | the narrowing every effect below watches one field through. Three lines, and the reason they exist is the section under this table |
 | `hooks/gameStore.svelte.ts` | the one reactive snapshot of it, which is what a component reads. Framework-free store, reactive mirror — the same split the theme and the preferences have |
 | `hooks/store/` | `types.ts` (the state shape and the five action interfaces), `initialState.ts`, `helpers.ts` (the pure ones), and one module per family of transitions |
-| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; preloading the room's art while the table is shut, then answering `map_ready` |
+| `hooks/gamePlay.svelte.ts` | what a tap on a card means and the two prompts it can open; the legality the board highlights with; the rattle an interception takes and the thump a Contre-LOCO! takes; rendering the room while the table is shut, then answering `map_ready` |
 | `hooks/viewEffects.svelte.ts` | a piece of table news that takes itself off screen; the held key; the reconnect overlay's own clock; the ticks over the last seconds of our own turn |
 | `hooks/appEffects.svelte.ts` | the one subscription that plays a sound; mirroring the seat into `sessionStorage`; the restore that never lands; the host's streamer mode reaching the table |
 | `dev/e2eBridge.svelte.ts` | the whole `window.__LOCO_E2E__` surface, dev builds only |
@@ -91,18 +91,18 @@ same one `reconnectAnimation` was bitten by: the cleanup runs whether or not the
 through.
 
 **The fifth one did not look like a motion bug at all, and it cost twenty seconds a match.**
-`mapPreload` starts the room's downloads once per map id and answers the loading gate when they
-settle; `GameView` asked whether the gate was open by reading `g.mapLoading !== null` *inside* the
+`mapPreload` starts the room's render once per scene key and answers the loading gate when it
+settles; `GameView` asked whether the gate was open by reading `g.mapLoading !== null` *inside* the
 effect, and `mapLoading` gets a new identity every time another seat reports in. So the effect re-ran
-on each arrival, its cleanup cancelled the download in flight, and the once-per-id guard then refused
+on each arrival, its cleanup cancelled the render in flight, and the once-per-key guard then refused
 to start it again: `done` never came, `map_ready` never went out, and the table opened on the
 server's 20s `MapLoadTimeout` with the player still watching a progress bar. **A table with a bot
 never showed it** — nobody else was there to re-broadcast anything — so the whole E2E suite and every
 solo run were clean while every real two-human table paid the full backstop. The fix is both halves:
 the question is narrowed to a `$derived` boolean before the effect sees it, and **abandoning a
-download is keyed on the map id like starting one is, instead of riding the effect's cleanup**. A
+render is keyed on the scene key like starting one is, instead of riding the effect's cleanup**. A
 cancellation that is not keyed on the same thing as the guard is the general shape of this bug.
-`mapLoading.test.ts` moves a seat in mid-download and asserts the answer still goes out.
+`mapLoading.test.ts` moves a seat in mid-render and asserts the answer still goes out.
 
 **A test that hands a hook a constant cannot see any of this**, which is why every per-hook test
 passed while the game misbehaved: the snapshot never moved underneath them. `src/test/liveDeps.test.ts`

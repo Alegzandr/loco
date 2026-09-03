@@ -112,14 +112,14 @@ export const UI: Record<string, Copy> = {
      * menu made it worse by sending "Tables" to a page about the four places.
      * The URL and the <title> keep the old word: they carry the search value.
      */
-    tablesH1: { en: "The four rooms", fr: "Les quatre décors" },
+    tablesH1: { en: "The six rooms", fr: "Les six décors" },
     tablesLede: {
-        en: "A match is dealt in a room, and the room is picked for you. Everyone at one table plays in the same one, so a clip of a game is a clip of a place.",
-        fr: "Une partie se joue dans un décor, et le décor t’est attribué. Tout le monde à une même table y joue, donc un extrait de partie est un extrait d’un lieu.",
+        en: "A match is dealt in a room, at an hour, under a sky, and all three are picked for you. Everyone at one table plays in the same one, so a clip of a game is a clip of a place.",
+        fr: "Une partie se joue dans un décor, à une heure, sous un ciel, et les trois te sont attribués. Tout le monde à une même table y joue, donc un extrait de partie est un extrait d’un lieu.",
     },
     tablesOutro: {
-        en: "The room changes how the felt is painted and nothing else: the seats, the pile and the reach of a card are the same at every table.",
-        fr: "Le décor change la façon dont le tapis est peint, et rien d’autre : les places, la pile et la portée d’une carte sont identiques à toutes les tables.",
+        en: "The room, the hour and the weather change how the table is painted and nothing else: the seats, the pile and the reach of a card are the same at every table.",
+        fr: "Le décor, l’heure et la météo changent la façon dont la table est peinte, et rien d’autre : les places, la pile et la portée d’une carte sont identiques à toutes les tables.",
     },
 
     // ── Playing with friends ────────────────────────────────────────────────

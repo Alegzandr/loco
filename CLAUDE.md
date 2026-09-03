@@ -62,7 +62,7 @@ client and E2E targets do need Node.
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make maps ARGS="--src=<folder>"`, `make bench-server` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make bench-server` |
 
 ## Done means
 Code + tests + passing + docs + Docker still works + behavior matches docs. **Update `README.md` when
@@ -140,7 +140,13 @@ needs jsdom and the `browser` resolve condition.
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
   PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` pure pixel math;
   `CardArt.svelte` + `cardArtSpace.ts` + `locoMark.ts` the face; `CardGlyph.svelte` + `cardGlyphs.ts`
-  the drawn rule glyphs; `SuitMark.svelte`; `maps.ts`; `cardTheme.ts`
+  the drawn rule glyphs; `SuitMark.svelte`; `maps.ts` (the registry: materials, accent, allowed
+  skies, `resolveScene`); `cardTheme.ts`
+- `src/components/scene/` the room: `sky.ts` (the hours, the skies, the light rig, framework-free),
+  `rng.ts`, `kit.ts` (the prop kit, the only file that turns a block into triangles), `maps/<id>.ts`
+  one builder per room + `maps/common.ts`, `render.ts` (one frame, then the context is released),
+  `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame),
+  `SceneBackdrop.svelte` + `WeatherLayer.svelte`
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
   the sounds and plays none of them
 - `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` + `e2eBridge.svelte.ts` (the whole
@@ -191,7 +197,7 @@ needs jsdom and the `browser` resolve condition.
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
 `playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`,
-`cover/shoot.mjs`, `maps/prepare.mjs`, `maps/scene-tester.html`, `audio/verify.mjs`, `csp/check.mjs`) ·
+`cover/shoot.mjs`, `audio/verify.mjs`, `csp/check.mjs`) ·
 **`brand/`** the 600×800 game covers, uploaded to IGDB and drawn by Twitch as the category's box art —
 **committed and deliberately not under `client/public/`**: they are an upload, and serving them would
 add a megabyte to the site for nobody · `docs/` spec + `docs/notes/` ·
@@ -1258,13 +1264,19 @@ stated at the top of `styles/tokens.css`:
   ledge. Still no opacity anywhere: the label clears 4.5:1 on the sunken fill in both themes, because
   Catch sits dead through the opening of every round and a spectator reads it at 720p.
   `actionBar.test.ts` measures both.
-- **A map's art is tried in the scene before it is submitted** (`tools/maps/scene-tester.html`): one
-  HTML file, opened off the disk, that rebuilds the board around a dropped room and table, measures
-  the `playfield`, and emits the `maps.ts` entry plus both `.webp` files at `prepare.mjs`'s own
-  qualities. **Its board maths is a transcription of `layout.ts` + `cardTheme.ts`, its paint one of
-  `GameBoard.svelte`, and its list of the four shipped maps a copy of `maps.ts`: all three move in
-  the same change set as their source**, or the tester approves a table the game draws elsewhere. It
-  ships nothing, nothing imports it, and it is the one place a webfont CDN is allowed.
+- **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
+  `maps.ts`). The room is a diorama of coloured blocks rendered in the browser by the isometric engine
+  from the three ids the server deals (`map_id`, `time_of_day`, `weather`); the table is CSS on
+  `tableRect()` from the room's own materials. **Rendered once, then the WebGL context is released**:
+  the board draws a static bitmap and everything that moves is a CSS transform layer
+  (`WeatherLayer.svelte`), because the compositing budget belongs to the cards. The engine is a lazy
+  chunk behind `sceneCache.prepareScene`, the only importer of `render.ts`; nothing else may import
+  three.js. **A render that fails is a scene, not an error** — the sky gradient is the room and the
+  gate is answered. The hour and the sky reach the table as `--scene-tint` and `--scene-dark` and
+  never as a repaint of `--tbl-*`; a `dry` room gets dust and a flash for a storm, never rain; a builder never touches three.js and keeps `PLAZA_R` clear; every
+  placement is seeded on the scene's key. `maps.test.ts` pins the client's lists of maps, hours,
+  skies and per-map skies to `server/game/maps.go`. Add a room by adding a builder, a registry entry
+  with its materials, its copy in both languages, its `MapID` and weather list in Go, and its scenes.
 - **The game cover carries the wordmark and no other text** (`src/dev/CoverCard.svelte`, three cuts,
   `make cover` → `brand/`). IGDB wants the title to be the largest text on it, and the way this art
   answers that is by being the only text; it also refuses platform logos, age ratings and watermarks.

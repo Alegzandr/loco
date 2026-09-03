@@ -86,6 +86,8 @@
       // A scene names its room explicitly; anything else falls back to the
       // built-in felt rather than inheriting the previous scene's map.
       mapId: '',
+      mapTime: '',
+      mapWeather: '',
       mapLoading: null,
       ...(s.state ?? {}),
     }

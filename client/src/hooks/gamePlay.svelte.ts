@@ -1,6 +1,7 @@
 import type { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
-import { type MapDef, mapAssets } from '../components/cards/maps'
+import { type SceneSpec, sceneKey } from '../components/cards/maps'
+import { prepareScene, renderSizeFor } from '../components/scene/sceneCache'
 import { MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
 import { prefersReducedMotion } from './motionPref'
 import { live } from './live.svelte'
@@ -341,52 +342,47 @@ export function boardShake(
 }
 
 /**
- * Downloads and decodes a map's images, reporting progress.
+ * Renders the room while the table is shut, reporting progress.
  *
- * `decode()` rather than the `load` event: `load` fires when the bytes have
- * arrived, not when the browser can paint them. **A failure counts as done** — an
- * image that 404s must never leave a player stranded; the board falls back to the
- * built-in felt, which is a worse-looking match, not a broken one.
+ * What used to be two image downloads is a build and a draw now: the engine's
+ * chunk is fetched (the first third of the bar), then the scene is built and
+ * rendered once at the viewport's size (the rest). `prepareScene` caches the
+ * frame, so the board and the loading screen draw the render this waited for.
+ * **A failure counts as done**: a browser with no WebGL must never leave a
+ * player stranded; the board falls back to the sky the rig describes, which is
+ * a worse-looking match, not a broken one.
  */
 function mapPreload(
-  map: () => MapDef | null,
+  scene: () => SceneSpec | null,
   enabled: () => boolean,
 ): { readonly current: MapPreloadState } {
   let state = $state<MapPreloadState>({ progress: 0, done: false })
-  // Keyed on the map id, not the object, so an update with an equal-but-new
-  // definition does not restart a load that is already half done.
+  // Keyed on the scene's key, not the object, so an update with an equal-but-new
+  // definition does not restart a render that is already half done.
   let startedFor: string | null = null
-  // Abandoning a download is keyed on the same id, deliberately, and is *not*
+  // Abandoning a render is keyed on the same key, deliberately, and is *not*
   // the effect's cleanup. The two were the same thing once, and a re-run — one
   // arrives every time another seat answers the gate — cancelled a load in
   // flight that the guard above then refused to restart: `done` never came, so
   // map_ready never went out and the table opened on the server's 20s backstop
   // with this player still watching a bar. Cancel when the load is genuinely
-  // over (the gate shut, or a different map), never because an effect ran twice.
+  // over (the gate shut, or a different scene), never because an effect ran twice.
   let abandon: (() => void) | null = null
 
   $effect(() => {
-    const m = map()
-    if (!enabled() || !m) {
+    const spec = scene()
+    if (!enabled() || !spec) {
       abandon?.()
       abandon = null
       startedFor = null
       return
     }
-    if (startedFor === m.id) return
+    const key = sceneKey(spec)
+    if (startedFor === key) return
     abandon?.()
-    startedFor = m.id
+    startedFor = key
 
-    const files = mapAssets(m)
-    let settled = 0
     let cancelled = false
-
-    const bump = () => {
-      if (cancelled) return
-      settled++
-      state = { progress: settled / files.length, done: settled >= files.length }
-    }
-
     const timer = window.setTimeout(() => {
       if (cancelled) return
       cancelled = true
@@ -394,16 +390,16 @@ function mapPreload(
     }, MAP_PRELOAD_TIMEOUT_MS)
 
     state = { progress: 0, done: false }
-    for (const src of files) {
-      const img = new Image()
-      img.src = src
-      const settle = () => bump()
-      if (typeof img.decode === 'function') img.decode().then(settle, settle)
-      else {
-        img.onload = settle
-        img.onerror = settle
-      }
+    const size = renderSizeFor(window.innerWidth, window.innerHeight)
+    const settle = () => {
+      if (cancelled) return
+      cancelled = true
+      window.clearTimeout(timer)
+      state = { progress: 1, done: true }
     }
+    prepareScene(spec, size, (p) => {
+      if (!cancelled && p < 1) state = { progress: p, done: false }
+    }).then(settle, settle)
 
     abandon = () => {
       cancelled = true
@@ -430,17 +426,17 @@ function mapPreload(
  * the gate cannot survive.
  */
 export function mapGate(
-  map: () => MapDef | null,
+  scene: () => SceneSpec | null,
   gateOpen: () => boolean,
   onSend: (msg: ClientMsg) => void,
 ): { readonly current: MapPreloadState } {
-  const preload = mapPreload(map, gateOpen)
+  const preload = mapPreload(scene, gateOpen)
   let sentReady = false
 
   $effect(() => {
     const open = gateOpen()
     const done = preload.current.done
-    const nothingToLoad = map() === null
+    const nothingToLoad = scene() === null
     if (!open) {
       sentReady = false
       return

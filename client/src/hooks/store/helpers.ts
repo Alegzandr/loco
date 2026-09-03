@@ -133,6 +133,8 @@ export function gameStateSliceFromDTO(state: GameStateDTO) {
     hasDrawn: state.has_drawn ?? false,
     roundNumber: state.round_number ?? 1,
     mapId: state.map_id ?? '',
+    mapTime: state.time_of_day ?? '',
+    mapWeather: state.weather ?? '',
     matchFormat: state.match_format ?? 'BO1',
     maxPlayers: state.max_players ?? 10,
     scoreboard: state.scoreboard ?? [],

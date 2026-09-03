@@ -20,11 +20,11 @@ bug, not a decision.
 The source code in this repository is released under the MIT licence
 (see [`LICENSE`](LICENSE)).
 
-That covers the code, and only the code. The map images under
-`client/public/maps/` are AI-generated: no third party holds rights in them, and
-they are deliberately **not** offered under the MIT licence, because an image
-produced from a prompt very likely carries no copyright to licence in the first
-place. See [`docs/notes/legal.md`](docs/notes/legal.md).
+That covers everything in the repository that is authored here, the rooms
+included: a room is a scene builder under `client/src/components/scene/maps/`,
+rendered in the browser by [three.js](https://threejs.org) (MIT). The rooms used
+to be generated images, kept outside the licence for the reason
+[`docs/notes/legal.md`](docs/notes/legal.md) still records; they are code now.
 
 ## Third-party services
 

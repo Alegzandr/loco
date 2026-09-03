@@ -14,7 +14,7 @@ DOCKER_GO_REPO = docker run --rm -v $(CURDIR):/repo -w /repo/server
 
 PROTOCOLGEN = go run ./cmd/protocolgen -src protocol -out ../client/src/types
 
-.PHONY: help dev down test test-server test-client test-e2e bench-server visual og maps audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check
+.PHONY: help dev down test test-server test-client test-e2e bench-server visual og audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?##"}{printf "  %-16s %s\n", $$1, $$2}'
@@ -60,9 +60,6 @@ icons: ## Rasterise favicon.svg into the manifest icons + favicon.ico — commit
 
 cover: ## Regenerate the 600x800 game covers into brand/ (IGDB / Twitch box art) — commit the result
 	node tools/cover/shoot.mjs $(ARGS)
-
-maps: ## Re-encode map art into client/public/maps/ (needs ARGS="--src=<folder>")
-	node tools/maps/prepare.mjs $(ARGS)
 
 audio-verify: ## Assert every synthesised voice actually produces signal (not in CI)
 	node tools/audio/verify.mjs $(ARGS)

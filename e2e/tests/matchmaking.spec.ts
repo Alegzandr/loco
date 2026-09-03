@@ -173,8 +173,9 @@ test.describe('1v1 matchmaking', () => {
   }: { browser: Browser }) => {
     // The only test here that is dealt in twice, and being dealt in is the
     // expensive part: `waitForMatchmadeGame` waits out the match-found countdown
-    // and then the map-loading gate, and the gate is real image downloads
-    // through the dev server into a browser context with a cold cache. The
+    // and then the map-loading gate, and the gate is the engine's chunk through
+    // the dev server into a browser context with a cold cache, then a WebGL
+    // render of the room on SwiftShader. The
     // single-deal tests in this file sit around 23s against the default 30s;
     // two deals do not fit, and the failure reads as a bare timeout in the
     // `finally` with every assertion having passed. Raised deliberately rather

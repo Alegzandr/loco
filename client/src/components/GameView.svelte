@@ -28,7 +28,7 @@
   import Preferences from './Preferences.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
-  import { resolveMap } from './cards/maps'
+  import { resolveScene } from './cards/maps'
   import MapLoadingScreen from './MapLoadingScreen.svelte'
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
@@ -286,9 +286,9 @@
     () => g.dismissRoundSummary(),
   )
 
-  // The room this match is played in. null = the built-in felt (a map id we have
-  // no art for).
-  const map = $derived(resolveMap(g.mapId))
+  // The room this match is played in, at its hour, under its sky. null = the
+  // built-in felt (a map id we have no scene for).
+  const scene = $derived(resolveScene(g.mapId, g.mapTime, g.mapWeather))
 
   // Whether the gate is open at all, narrowed to a boolean before the effect
   // sees it: `g.mapLoading` gets a new identity on every arrival, so reading it
@@ -296,9 +296,9 @@
   // question whose answer has not changed.
   const gateOpen = $derived(g.mapLoading !== null)
 
-  // Preload the room's art while the table is shut, and tell the server the
-  // moment we are in. See hooks/gamePlay.svelte.ts.
-  const preload = mapGate(() => map, () => gateOpen, onSend)
+  // Render the room while the table is shut, and tell the server the moment we
+  // are in. See hooks/gamePlay.svelte.ts.
+  const preload = mapGate(() => scene, () => gateOpen, onSend)
 
   // Past the format: the server's tiebreak chain separated nobody, so it dealt
   // one more round. The chip says which round it is, and there is no honest
@@ -356,7 +356,7 @@
     catchFlash={g.catchFlash}
     lastPlay={g.lastPlay}
     isReconnecting={g.isReconnecting || reconnect.current}
-    {map}
+    {scene}
     canDraw={play.isMyTurn && (g.pendingDraw > 0 || !g.hasDrawn)}
     onDraw={handleDraw}
     drawLabel={g.pendingDraw > 0 ? `${t.drawPile} +${g.pendingDraw}` : t.drawPile}
@@ -720,9 +720,9 @@
        screen instead of it: the board spends this time laying itself out and
        warming the images, so what the player sees when this lifts is a table that
        is already finished. -->
-  {#if g.mapLoading && map}
+  {#if g.mapLoading && scene}
     <MapLoadingScreen
-      {map}
+      {scene}
       ready={g.mapLoading.ready}
       players={g.players}
       myIndex={g.myIndex}

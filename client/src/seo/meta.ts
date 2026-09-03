@@ -167,11 +167,11 @@ export const TABLES: PageDef = {
   // The path and the title keep "tables": they carry the search value.
   navLabel: { en: 'Rooms', fr: 'Les décors' },
   title: {
-    en: 'The four LOCO! tables · Neon, Rune, Velvet, Orbit',
-    fr: 'Les quatre tables de LOCO! · Neon, Rune, Velvet, Orbit',
+    en: 'The six LOCO! tables · Six rooms, four hours, six skies',
+    fr: 'Les six tables de LOCO! · Décors, heures et ciels',
   },
   description: {
-    en: 'Every match is dealt in a room: a rooftop club, an arcane tavern, an art-deco lounge or a station in orbit. The four rooms.',
+    en: 'Every match is dealt in a room, at an hour, under a sky: a neon rooftop, a village square, a deco hotel, a moon base, a hot spring, a harbour.',
     fr: 'Chaque partie se joue dans un décor : club sur les toits, taverne arcanique, fumoir art déco ou station en orbite. Les quatre décors.',
   },
 }
