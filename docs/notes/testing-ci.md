@@ -92,7 +92,12 @@ build error, it survives the transform and becomes a call to a global that does 
 whenever that line first runs — which in a branch reached mid-match is a table that dies on a card
 nobody has played yet. That test strips comments before matching, so a module may explain in prose
 why it holds no state, and it checks that the reactive half is still non-empty: a rename turning
-every `.svelte.ts` into a plain module would otherwise read as compliance. **Every path the docs
+every `.svelte.ts` into a plain module would otherwise read as compliance. **That the Svelte
+compiler has nothing to say about any component** (`svelteWarnings.test.ts`, compiled with
+`dev: true`, which is what `make dev` compiles with): the boot printed thirty-three warnings and
+every one of them was expected, which is a boot nobody reads — the point of the test is the
+thirty-fourth, the one about a handler that will never fire, arriving alone instead of in the same
+scroll. **Every path the docs
 name** (`docPaths.test.ts`) — and do not
 add a phantom path to that test's allowlist to make it pass: the allowlist is for paths named in
 order to say they are absent, and widening it to cover a claim about the structure is how the guard

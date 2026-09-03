@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { playSfx } from '../audio/sfx'
   import { streamerModePref, setStreamerMode } from '../hooks/streamerMode'
@@ -44,7 +45,8 @@
   // does not have is a promise the panel cannot keep.
   const canBuzz = hapticsSupported()
 
-  let open = $state(defaultOpen)
+  // Read once: the prop seeds the panel, the player owns it afterwards.
+  let open = $state(untrack(() => defaultOpen))
   let wrap = $state<HTMLDivElement | null>(null)
   // Where the focus goes on the way out. The gear normally, but the panel can be
   // opened from the home page's drawer, whose button is not in this tree and is

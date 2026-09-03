@@ -280,8 +280,9 @@ export async function startGame(page: Page): Promise<void> {
 }
 
 /**
- * Locator for the React game board. Use this instead of `page.locator('canvas')`;
- * the legacy PixiJS renderer (which mounted a <canvas>) has been replaced.
+ * Locator for the game board. Use this rather than `page.locator('canvas')`: the
+ * board is DOM, and the only canvases under it are the two `<SceneBackdrop />`
+ * paints the rendered room onto.
  */
 export function gameBoard(page: Page) {
   return page.getByTestId('game-board')

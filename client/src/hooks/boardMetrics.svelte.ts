@@ -1,4 +1,4 @@
-import { NO_INSETS, type SafeAreaInsets } from '../components/cards/layout'
+import type { SafeAreaInsets } from '../components/cards/layout'
 import { readInsets } from './safeAreaInsets'
 
 /**
@@ -38,7 +38,12 @@ export function elementSize(node: () => HTMLElement | null): { readonly current:
  * loading screen with the podium already under the table.
  */
 export function viewportSize(): { readonly current: { width: number; height: number } } {
-  let size = $state({ width: 0, height: 0 })
+  // Read synchronously, not in the effect below: the map preload asks for the
+  // felt's anchor on its first run, before any effect has measured anything,
+  // and a viewport of 0 × 0 solves to a felt with no size. That first render
+  // — a whole room built around a point — was thrown away the moment the real
+  // size landed, so every match paid for its room twice.
+  let size = $state(typeof window === 'undefined' ? { width: 0, height: 0 } : { width: window.innerWidth, height: window.innerHeight })
 
   $effect(() => {
     const update = () => {
@@ -71,7 +76,15 @@ export function viewportSize(): { readonly current: { width: number; height: num
  * as "nothing continuous goes through framework state".
  */
 export function safeAreaInsets(): { readonly current: SafeAreaInsets } {
-  let insets = $state<SafeAreaInsets>(NO_INSETS)
+  // Read synchronously, for the reason `viewportSize` is — and this was the
+  // other half of the same bug. The map preload solves the felt's anchor on its
+  // first run, before any effect has measured anything, and on a notched phone
+  // an anchor solved with no insets is twenty pixels up the screen from the one
+  // the board settles on: the room was built around a table that was about to
+  // move, thrown away, and built again, on the main thread, while the loading
+  // screen was up. Twice per match, and only on the devices least able to
+  // afford it.
+  let insets = $state<SafeAreaInsets>(readInsets())
 
   $effect(() => {
     const update = () => {

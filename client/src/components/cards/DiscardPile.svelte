@@ -59,10 +59,10 @@
   // exception is the first card this pile ever shows (an opening discard, or a
   // board rebuilt after a reconnect), where nothing flew, and waiting for a flight
   // that never happened just blanks the pile.
-  let shown = $state<CardDTO | null>(card)
+  let shown = $state<CardDTO | null>(untrack(() => card))
   // The stamp that goes with `shown`, revealed in the same instant so the top's
   // key changes once per play and never between a flight and its landing.
-  let shownStamp = $state(playStamp)
+  let shownStamp = $state(untrack(() => playStamp))
   let isFirst = true
   const key = $derived(card ? `${cardKey(card)}|${playStamp}` : '')
 

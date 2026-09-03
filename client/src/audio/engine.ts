@@ -35,9 +35,10 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   // talking over the game must stay louder than the soundtrack.
   music: 0.32,
   // Deliberately a bare string rather than an import from `audio/tracks`: the
-  // engine is the bottom of the audio stack and must not depend on the track
-  // registry, which depends on it. `getTrack` falls back on an unknown id.
-  track: 'ressac',
+  // engine is the bottom of the audio stack and must not depend on the loop
+  // registry, which depends on it. `getLoop` falls back on an unknown id, which
+  // is also what carries a stored id from a previous registry across an update.
+  track: 'entracte',
 }
 
 function clamp01(n: number): number {

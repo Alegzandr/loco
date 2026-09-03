@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { CardDTO } from '../../types/protocol'
   import Card from './Card.svelte'
   import { calcHandSlots, handCardKeys } from './layout'
@@ -27,7 +28,7 @@
   // A hand that grows from empty is a deal — worth staggering. Any other growth is
   // a draw, which already has its own deck→hand flier and must not stagger.
   let prevLen = 0
-  let prevRound = roundNumber
+  let prevRound = untrack(() => roundNumber)
   let dealing = $state(false)
   // The deal ends at a wall-clock moment, not after "one timeout from whenever
   // this effect last ran". Any prop moving re-runs the effect and its cleanup

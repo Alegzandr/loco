@@ -37,7 +37,7 @@
   } from './layout'
   import type { SceneSpec } from './maps'
   import type { FeltAnchor } from './layout'
-  import { lightRig, rigCssVars, hexCss } from '../scene/sky'
+  import { lightRig, rigCssVars, hexCss, mix } from '../scene/sky'
   import SceneBackdrop from '../scene/SceneBackdrop.svelte'
   import { ACTIVE_RING, CARD_W, CARD_H, DEAL_FLIGHT_MS, DEAL_STAGGER_MS, flightFor } from './cardTheme'
   import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
@@ -209,7 +209,7 @@
   let suppressNextDiscardFx = false
   // Rebuild key forces the board's fade-in animation to replay after a reconnect.
   let rebuildKey = $state(0)
-  let wasReconnecting = p.isReconnecting
+  let wasReconnecting = untrack(() => p.isReconnecting)
 
   // The room is painted by this element, but the browser paints anything the page
   // itself does not own with the *root* element's colour: a safe area on a notched
@@ -219,7 +219,11 @@
   // draw in still looks like the sky.
   const mapId = $derived(p.scene?.map.id ?? '')
   const rig = $derived(p.scene ? lightRig(p.scene.time, p.scene.weather) : null)
-  const horizon = $derived(rig ? hexCss(rig.sky.horizon) : '')
+  // The horizon, taken well down towards the void. A noon sky is a near-white,
+  // and a band of it across the top of a phone in dark mode is the brightest
+  // thing on the screen — the opposite of what this property is for. Mixed
+  // down it is still the room's own sky rather than a neutral black.
+  const horizon = $derived(rig ? hexCss(mix(rig.sky.horizon, 0x07060f, 0.72)) : '')
   $effect(() => {
     const root = document.documentElement
     if (!mapId) {
@@ -333,7 +337,7 @@
   // Flies the card from the opponent's seat to the discard pile so the play is
   // legible without watching the pile. Declared before the discard-change effect
   // so it can claim the update and suppress the generic pile flier.
-  let lastPlayAt = p.lastPlay?.at ?? 0
+  let lastPlayAt = untrack(() => p.lastPlay?.at ?? 0)
   $effect(() => {
     // Keyed on the play timestamp: one flight per play, never a replay on resize.
     p.lastPlay?.at
@@ -456,8 +460,8 @@
   // off the deck one after another, each landing where the fan will hold it,
   // is a hand being dealt. Keyed on the round so a reload mid-round rebuilds
   // the fan quietly (the Hand's own stagger) and only a fresh deal flies.
-  let dealtFor = p.roundNumber ?? -1
-  let dealtOnce = p.myHand.length > 0
+  let dealtFor = untrack(() => p.roundNumber ?? -1)
+  let dealtOnce = untrack(() => p.myHand.length > 0)
   $effect(() => {
     const n = p.myHand.length
     const round = p.roundNumber ?? -1
@@ -486,7 +490,7 @@
   })
 
   // ─── Animation effect: my hand grew by one (drew a card) ─────────────────
-  let prevHandSize = p.myHand.length
+  let prevHandSize = untrack(() => p.myHand.length)
   $effect(() => {
     const curr = p.myHand.length
     if (!ready) return
@@ -537,7 +541,7 @@
   // dozen props this board takes moving re-runs this. So every message that
   // arrived while a Swap was announced drew the trails again, and a resize drew
   // them once per frame.
-  let lastSwapAt = p.swapNotice?.at ?? 0
+  let lastSwapAt = untrack(() => p.swapNotice?.at ?? 0)
   $effect(() => {
     p.swapNotice?.at
     const sn = p.swapNotice
@@ -570,7 +574,7 @@
   // Same guard as the swap trails, same reason: the flash outlives the message
   // that carried it, so without it the penalty cards left the deck again on every
   // update for as long as the banner was up.
-  let lastCatchAt = p.catchFlash?.at ?? 0
+  let lastCatchAt = untrack(() => p.catchFlash?.at ?? 0)
   $effect(() => {
     p.catchFlash?.at
     const cf = p.catchFlash

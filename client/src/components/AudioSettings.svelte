@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { createSubscriber } from 'svelte/reactivity'
   import { audio } from '../audio/engine'
-  import { getTrack, music } from '../audio/music'
+  import { getLoop, music } from '../audio/music'
   import { sceneFor } from '../audio/gameSounds'
   import { gameStore } from '../hooks/gameStore'
   import { playSfx, playVolumeAudition } from '../audio/sfx'
@@ -18,7 +19,7 @@
 
   const t = $derived(i18n.t)
   const lang = $derived(i18n.lang)
-  const current = $derived(getTrack(settings.track))
+  const current = $derived(getLoop(settings.track))
 
   type Props = {
     /**
@@ -30,7 +31,9 @@
 
   let { defaultOpen = false }: Props = $props()
 
-  let open = $state(defaultOpen)
+  // Read once: the panel is the player's from then on, so the prop opens it
+  // and never reopens it.
+  let open = $state(untrack(() => defaultOpen))
   let wrap = $state<HTMLDivElement | null>(null)
 
   const BUSES: ['master' | 'sfx' | 'music', () => string][] = [

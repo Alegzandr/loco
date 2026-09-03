@@ -52,6 +52,10 @@
     inset: 0;
     overflow: hidden;
     pointer-events: none;
+    /* Above both of the backdrop's frames, which stack at 1 and 2 so a new
+       render can be brought up over the one it replaces, and above the life
+       layer at 3: the rain falls on the boat, not under it. */
+    z-index: 4;
   }
 
   /* Each falling layer is drawn twice as tall as the frame and slid up by half
@@ -68,30 +72,37 @@
     will-change: transform;
   }
 
+  /* Both layers travel **exactly one background tile** per cycle, and nothing
+     else: a percentage of the frame is not a whole number of tiles, so the
+     pattern used to jump sideways every time the animation wrapped. The tile
+     is what fixes the speed, too — 240px in 0.72s is about 330px a second,
+     three times slower than it was. Rain a spectator reads as rain, not as a
+     screen of static. */
   .rain {
     background-image: repeating-linear-gradient(
       100deg,
       rgba(255, 255, 255, 0) 0 22px,
-      rgba(220, 235, 255, 0.28) 22px 23px,
+      rgba(220, 235, 255, 0.26) 22px 23px,
       rgba(255, 255, 255, 0) 23px 30px,
-      rgba(220, 235, 255, 0.16) 30px 31px,
+      rgba(220, 235, 255, 0.14) 30px 31px,
       rgba(255, 255, 255, 0) 31px 47px
     );
     background-size: 100% 240px;
-    animation: rainFall 0.55s linear infinite;
-    opacity: 0.85;
+    animation: rainFall 0.72s linear infinite;
+    opacity: 0.8;
   }
 
+  /* Farther away, so slower and fainter: 160px in 0.86s, about 185px a second. */
   .rainFar {
     background-image: repeating-linear-gradient(
       98deg,
       rgba(255, 255, 255, 0) 0 35px,
-      rgba(220, 235, 255, 0.14) 35px 36px,
+      rgba(220, 235, 255, 0.12) 35px 36px,
       rgba(255, 255, 255, 0) 36px 61px
     );
     background-size: 100% 160px;
-    animation-duration: 0.9s;
-    opacity: 0.6;
+    animation: rainFallFar 0.86s linear infinite;
+    opacity: 0.55;
   }
 
   @keyframes rainFall {
@@ -99,7 +110,16 @@
       transform: translate3d(0, 0, 0);
     }
     to {
-      transform: translate3d(-1.5%, 50%, 0);
+      transform: translate3d(0, 240px, 0);
+    }
+  }
+
+  @keyframes rainFallFar {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(0, 160px, 0);
     }
   }
 
@@ -112,20 +132,24 @@
       radial-gradient(circle at 28% 92%, rgba(255, 255, 255, 0.9) 0 2px, transparent 3px),
       radial-gradient(circle at 90% 74%, rgba(255, 255, 255, 0.9) 0 2px, transparent 3px);
     background-size: 180px 180px;
-    animation: snowFall 9s linear infinite;
+    animation: snowFall 1.8s linear infinite;
   }
 
+  /* Its own keyframe rather than a duration override: each layer falls exactly
+     one of its own tiles, so the three of them need three distances. */
   .snowMid {
     background-size: 260px 260px;
-    animation-duration: 14s;
-    animation-delay: -4s;
+    animation-name: snowFallMid;
+    animation-duration: 3.2s;
+    animation-delay: -1.4s;
     opacity: 0.8;
   }
 
   .snowFar {
     background-size: 340px 340px;
-    animation-duration: 21s;
-    animation-delay: -9s;
+    animation-name: snowFallFar;
+    animation-duration: 5s;
+    animation-delay: -2.6s;
     opacity: 0.55;
   }
 
@@ -134,34 +158,71 @@
       transform: translate3d(0, 0, 0);
     }
     to {
-      transform: translate3d(4%, 50%, 0);
+      transform: translate3d(0, 180px, 0);
+    }
+  }
+
+  @keyframes snowFallMid {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(0, 260px, 0);
+    }
+  }
+
+  @keyframes snowFallFar {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(0, 340px, 0);
     }
   }
 
   /* The fog is a sheet of horizontal haze, heavier towards the top of the frame
      (the far side of the room), drifting sideways. The render already carries
-     distance fog; this is the part of it that moves. */
+     distance fog; this is the part of it that moves.
+
+     **Every stop in the drifting half is a soft one, and the tile is the frame.**
+     It was a `repeating-linear-gradient` stepping from transparent to 0.12 in
+     one stop, which is not haze but a set of hard vertical bands laid over the
+     room — and because the layer travelled a percentage of the frame rather
+     than a whole tile, the bands jumped sideways every time the animation
+     wrapped. Three frame-widths wide, one tile per frame, translated by exactly
+     one tile: the drift has no seam and no edge anywhere in it. */
   .fog {
+    left: -100%;
     top: -20%;
     height: 140%;
-    width: 200%;
-    background:
-      linear-gradient(180deg, rgba(235, 240, 246, 0.42) 0%, rgba(235, 240, 246, 0.14) 45%, rgba(235, 240, 246, 0.05) 100%),
-      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0) 0 180px, rgba(255, 255, 255, 0.12) 180px 420px, rgba(255, 255, 255, 0) 420px 640px);
-    animation: fogDrift 38s linear infinite;
+    width: 300%;
+    background-image:
+      linear-gradient(180deg, rgba(235, 240, 246, 0.34) 0%, rgba(235, 240, 246, 0.12) 46%, rgba(235, 240, 246, 0.04) 100%),
+      linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.06) 17%,
+        rgba(255, 255, 255, 0.015) 36%,
+        rgba(255, 255, 255, 0.075) 58%,
+        rgba(255, 255, 255, 0.02) 81%,
+        rgba(255, 255, 255, 0) 100%
+      );
+    background-size: 100% 100%, 33.3333% 100%;
+    background-repeat: no-repeat, repeat;
+    animation: fogDrift 46s linear infinite;
   }
 
   .fogBack {
-    animation-duration: 61s;
+    animation-duration: 74s;
     animation-direction: reverse;
-    opacity: 0.6;
+    opacity: 0.55;
   }
 
   /* Dust on the wind: the fog sheet, thinner and faster, for a storm on a
      world with nothing to rain. */
   .dust {
     opacity: 0.35;
-    animation-duration: 18s;
+    animation-duration: 22s;
   }
 
   @keyframes fogDrift {
@@ -169,7 +230,7 @@
       transform: translate3d(0, 0, 0);
     }
     to {
-      transform: translate3d(-50%, 0, 0);
+      transform: translate3d(-33.3333%, 0, 0);
     }
   }
 

@@ -62,6 +62,7 @@ client and E2E targets do need Node.
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
+| Pack the rooms' models | `make models` after editing `scene/models/manifest.json` (needs the kits unpacked under `.assets-in/unpacked/`); `make models-check` says what is missing |
 | Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make bench-server` |
 
 ## Done means
@@ -143,8 +144,11 @@ needs jsdom and the `browser` resolve condition.
   the drawn rule glyphs; `SuitMark.svelte`; `maps.ts` (the registry: materials, accent, allowed
   skies, `resolveScene`); `cardTheme.ts`
 - `src/components/scene/` the room: `sky.ts` (the hours, the skies, the light rig, framework-free),
-  `rng.ts`, `kit.ts` (the prop kit, the only file that turns a block into triangles), `maps/<id>.ts`
-  one builder per room + `maps/common.ts`, `render.ts` (one frame, then the context is released),
+  `rng.ts`, `kit.ts` (the prop kit, the only file that turns a block into triangles), `shade.ts`
+  (the tones and the shadow polygons, pure), `placer.ts` (the ground plan, pure), `life.ts` + `LifeLayer.svelte`
+  (what moves), `models/` (`manifest.json` the allowlist of packed kits, `lib.ts` the GLB loader
+  and baker, `bake.ts` the pure half), `maps/<id>.ts`
+  one builder per room + `maps/common.ts` + `maps/actors.ts`, `render.ts` (one frame, then the context is released),
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame),
   `SceneBackdrop.svelte` + `WeatherLayer.svelte`
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
@@ -1053,6 +1057,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   is exactly that module. **Every type import is an `import type`.**
 - **Reading a piece of state inside the effect that writes it is a loop**, and Svelte will say so at
   runtime rather than at build. `untrack` is the way out and `GameBoard.svelte` is the example.
+- **A prop read once, at setup, says so with `untrack`.** Half the components here seed a piece of
+  state from a prop — `defaultOpen`, `initialCode`, a deadline a countdown is started from, the
+  previous round `Hand` compares against — and a bare read there compiles to the value the
+  component was mounted with, which is what was meant and is not what the code says. Svelte answers
+  it with `state_referenced_locally` on every one, and a build whose warnings are all expected is a
+  build nobody reads: the real one arrived in the same wall of text. `untrack(() => prop)` is the
+  same capture written down. **A callback prop handed to a hook takes a closure instead**
+  (`GameView`'s `send`), because there the initial value is not what was meant.
 
 ## Findability
 Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
@@ -1267,9 +1279,48 @@ stated at the top of `styles/tokens.css`:
 - **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
   `maps.ts`). The room is a diorama of coloured blocks rendered in the browser by the isometric engine
   from the three ids the server deals (`map_id`, `time_of_day`, `weather`); the table is CSS on
-  `tableRect()` from the room's own materials. **Rendered once, then the WebGL context is released**:
+  `tableRect()` from the room's own materials. **The room is drawn, not lit** (`scene/shade.ts`): no
+  light object and no shadow map — every face's tone (top, lit side, shade) is multiplied into its
+  vertex colour by the kit as the block is built, and every outlined block lays a hard polygon of
+  shadow on the ground, drawn once through the stencil so overlaps stay one tone. A toon ramp under
+  a real light banded every cylinder and PCF put noise on every façade. **In the room the outline
+  is a darker note of the block's own colour** (`inkFor`), never `INK`: ten thousand black rims
+  read as wire, and this is the one place the ink rule bends. **The frame is supersampled**
+  (`SUPERSAMPLE`, within `MAX_GL_PIXELS`) and scaled down, so an ink line is one clean stroke.
+  **Rendered once, then the WebGL context is released**:
   the board draws a static bitmap and everything that moves is a CSS transform layer
-  (`WeatherLayer.svelte`), because the compositing budget belongs to the cards. The engine is a lazy
+  (`WeatherLayer.svelte`, `LifeLayer.svelte`), because the compositing budget belongs to the cards.
+  **What moves is a sprite, built with the same kit under the same light in the same pass**
+  (`scene/life.ts`, `maps/actors.ts`): a builder returns its actors beside the room, each a
+  build-at-origin plus a route in screen tiles, rendered to its own bitmap and carried by one Web
+  Animations transform. **A route on the ground is a candidate, and the render decides where it
+  runs**: a sprite is drawn over everything, so after the frame the room is rendered once more as
+  depth (`readDepth`), and `trimRoute` keeps of every route the longest stretch where the ground
+  plan is free of the thing's footprint and nothing in the depth map stands nearer than its
+  silhouette — a cut loop walks its clear arc there and back, a cut `pass` fades, a short one is
+  dropped, and a `pick` group keeps the few worth most of the many a builder handed in. **Things
+  on the ground move at a speed** (`WALK_SPEED`, `DRIVE_SPEED`), measured on the ground, never
+  for a duration. **People walk the pavements and cars drive the lanes** of the `StreetPlan`
+  `cityGrid` returns, each built facing its heading; the pavement is `SIDEWALK` wide, off the
+  block, and `cityGrid` claims every lot. Reduced motion holds each on the first frame of its
+  route. `sceneShade.test.ts` and `sceneLife.test.ts` are the guards. **The props are drawn models, and
+  the kit is the only importer** (`scene/models/`, CC0 kits by Kenney and Quaternius, packed by
+  `make models` from `manifest.json` into `client/public/models/` and served from this origin —
+  never a CDN). A model is loaded once per tab, its palette texture is **baked into vertex
+  colours** (`bake.ts`) so it goes through exactly the pipeline a block does — tone of the hour,
+  shadow polygon, outline hull along smoothed normals, the faces in the kit's `glow` colours to
+  the unlit bucket after dark; and `k.person`, `k.car`, `k.tree`, `k.lamp`, `k.bush`, `k.rock`,
+  `k.crate`, `k.barrel` place the model when the room's kits hold one and the block otherwise, so
+  a builder never names three.js or a file. **Nothing stands inside anything else**: every
+  `k.model` goes through the placer (`placer.ts`, oriented rectangles with a margin) and is
+  refused when its footprint is taken, and a builder claims its zones (the plaza, the water) first.
+  `placer.test.ts` and `modelBake.test.ts` are the guards. **A resize is a
+  stretch, and then one render**: the street is composed in screen space, so two sizes are two
+  different cities and a drag on a window edge is hundreds of them — the frame already up is
+  stretched while the drag lasts, one render is asked for 240ms after the viewport holds still
+  (`RESIZE_SETTLE_MS`), and it is **faded in over** the old one on the second of `SceneBackdrop`'s
+  two canvases rather than swapped for it. The debounce is skipped only where there is nothing to
+  stretch, which is the path the loading gate waits on. The engine is a lazy
   chunk behind `sceneCache.prepareScene`, the only importer of `render.ts`; nothing else may import
   three.js. **A render that fails is a scene, not an error** — the sky gradient is the room and the
   gate is answered. The hour and the sky reach the table as `--scene-tint` and `--scene-dark` and
@@ -1281,9 +1332,47 @@ stated at the top of `styles/tokens.css`:
   sharp on the board as on the loading screen, and a blur between the two halves would be the seam.
   The rest of a room is a street grid (`cityGrid`: many small buildings, roads, cars, people, a
   canal) composed in screen space around the anchor, and **the band in front of the table is kept
-  low** (`Cell.front`): a building between the camera and the felt is cut by the table over it. `maps.test.ts` pins the client's lists of maps, hours,
+  low** (`Cell.front`): a building between the camera and the felt is cut by the table over it.
+  **Composition against a screen line goes through `screenSpan`**, never through a world-space `w`
+  and `d` — at `rot = π/4` one of them runs across the frame and the other up it at `sin(pitch)`,
+  and a quay written as "4.4 across" came out 1.2 tiles wide with its railing in the water.
+  **A landmark over seven tiles tall stands in a side band, never in the top one**: `sy + b + 8`
+  leaves seven tiles of headroom on a monitor, and the wizard's tower is twenty.
+  **`renderSizeFor` reports the ratio the size was solved at**, because `anchorFor` divides by it:
+  reporting the screen's own after capping the bitmap put the podium eight tiles off the table on
+  every HiDPI display, silently, and `make visual` shoots at 1× so nothing caught it.
+  **`SceneBackdrop` isolates its own stacking context** — its canvases and its weather carry a
+  z-index, and without `isolation: isolate` they climb into the board's and paint the room over the
+  cards. `sceneGeometry.test.ts` and `sceneBackdrop.test.ts` are the guards. `maps.test.ts` pins the client's lists of maps, hours,
   skies and per-map skies to `server/game/maps.go`. Add a room by adding a builder, a registry entry
   with its materials, its copy in both languages, its `MapID` and weather list in Go, and its scenes.
+- **The three tones are the whole of the lighting, so the step between them is not a taste setting**
+  (`scene/shade.ts`, 1 / 0.74 / 0.47, ratios pinned by `sceneShade.test.ts`). At 1 / 0.84 / 0.66 a
+  street of cubes came out as one flat wash of its own colour, and "it looks like there is no
+  lighting" was the correct reading. The cast shadow is a **shape**, not a tint, for the same reason.
+- **Every weather layer travels exactly one background tile per cycle, in pixels**
+  (`WeatherLayer.svelte`, `sceneWeather.test.ts`): a percentage of the frame is a whole tile only by
+  coincidence, so the pattern jumped sideways once a cycle. **And the fog interpolates everywhere** —
+  a `repeating-linear-gradient` of ranges is not haze but hard vertical bands laid over the city.
+- **A `loop` either walks its closing leg or fades over it, and there is no third option**
+  (`life.ts: closesTheRing`): a wrap the player can see is somebody teleporting home. A cloud, a bird
+  and a puff fade; anybody on the ground travels back.
+- **Lights round a square are strung on a ring of posts, never four** (`maps/common.ts:
+  stringLights`, the only way a room strings them): four posts round an oval table is a rectangle
+  over an ellipse, and each run is hung by its own length **on screen**.
+- **What a block reaches is `(w + d) / 2 / √2` across the frame, and both the `front` band and every
+  landmark beside the table are measured against that**, not against a centre — the table is drawn
+  over the render, so anything nearer the camera that it overlaps is cut by something behind it.
+  Cut by the **frame** is ordinary; cut by the table is a bug.
+- **The room is built exactly once per match, and three things guarantee it**: `viewportSize()` and
+  `safeAreaInsets()` both read synchronously (the gate solves the felt's anchor before any effect has
+  measured anything), and a frame within 4% of the size asked for is stretched rather than re-rendered
+  (`sizeCloseEnough`, `sameFelt`). Each missing one cost a second full render on the main thread at
+  the moment the gate lifted, which is the freeze the gate exists to hide. `sceneLoadingGate.test.ts`.
+- **Nothing pale is shown while the room is still building.** `.scene.bare` mixes the hour's sky down
+  over the void, and `--room-void` is the horizon **taken down**, not the horizon: a noon sky is a
+  near-white, and a full screen of it under the loading screen's white type reads as a page that
+  failed to load.
 - **The game cover carries the wordmark and no other text** (`src/dev/CoverCard.svelte`, three cuts,
   `make cover` → `brand/`). IGDB wants the title to be the largest text on it, and the way this art
   answers that is by being the only text; it also refuses platform logos, age ratings and watermarks.
@@ -1303,7 +1392,8 @@ stated at the top of `styles/tokens.css`:
 ## Audio
 Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 
-- Everything is synthesised at runtime. **No audio files ship with the client.**
+- **Every sound effect is synthesised at runtime; the music is not.** No sample library, and the
+  bed is six MP3 loops under `client/public/music/`, served from this origin and never a CDN.
 - **The board plays nothing; one subscription does.** `gameAudio()` in `hooks/appEffects.svelte.ts`
   is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
   `audio/gameSounds.ts` — pure, snapshot-diffing and unit-tested. A component calling `playSfx`
@@ -1337,16 +1427,39 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   to catch a voice gone silent, so a cue handed in at 1.07 clipped on every device and still printed a
   tick. Anything above 0.8 fails now. That is headroom below hard clip rather than a mixing opinion:
   two cues overlap here and the bus carries no limiter.
-- A track is **parts plus a form** (`audio/tracks/`), not a loop with layers. Add one by writing a
-  `TrackDef` and listing it in the registry. The bass stays soft. **A title names the writing, never
-  the genre**: `Ressac` is the vi-IV-I-V going out and coming back, `Ricochet` is the track on which
-  nothing lands where it is expected, `Rififi` is the one for a table that has stopped being polite.
-  They were `Neon Horizon`, `Pixel Rush` and `Voltage`, which is three names off one sample-pack shelf
-  and true of any other track as much as of these.
-- Playback is a **shuffled playlist**, not a selection: no picker, one "next" button.
+- **The music is six CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
+  files, credit in `NOTICE.md` and `licenses.txt`), normalised to −18 LUFS and encoded to MP3.
+  **MP3 and not the source OGG**: Safari decodes Ogg Vorbis only from 18.4 and refuses it in
+  `decodeAudioData` before that, which on this platform fails as silence. Add one by encoding a file
+  and writing a `LoopDef`.
+- **A loop is looped on the source file's duration, never the decoded buffer's** (`LoopDef.seconds`,
+  measured `loopStart` + that). MP3 carries encoder delay at the head and padding at the tail and
+  both survive `decodeAudioData`, which is the gap the pack's own README warns about; the source
+  files themselves have no silence at either end.
+- **The bed keeps more loops than sections, and that is what replaced the song form.** Each loop
+  declares the sections it can carry, **every section must be carried by at least two**
+  (`music.test.ts`), and the bed changes loop for exactly two reasons: the table moved to another
+  section, or this one has come round `LAPS_PER_LOOP` times. Drop either and an ordinary groove is a
+  chorus on repeat, which is the verdict that killed the version before the synthesiser.
+- **The intensity is slewed and the section is held** (`SLEW_PER_SEC`, `SECTION_HOLD_MS`): game
+  events move the intensity in jumps, and a Contre-LOCO! that lands and a hand that grows back would
+  otherwise crossfade the bed out and in twice inside two seconds.
+- **A loop change is a crossfade between two source gains, equal-power, and never touches
+  `out.gain`** — which belongs to `duck()` alone. The synthesised bed covered a change with a dip on
+  that same node and the dip cancelled the duck's return with it, bringing the bed back to full under
+  the one sound people clip.
+- **A title names the writing, never the genre and never the source file's date**: `Entracte` is what
+  plays while the table counts up, `Filou` is somebody setting something up, `Ruade` is the table
+  that has stopped being polite. They arrive as `Sketchbook 2024-05-29`, which says nothing about one
+  piece that it would not say about the two hundred others in the pack.
+- Playback is a **shuffled playlist**, not a selection: no picker, one "next" button, and ⏭ stays
+  inside the section the table is in.
 - `make audio-verify` is the only thing that catches a broken envelope or a mis-wired node, because
-  those produce silence rather than an error. Run it after touching `sfx.ts`, `music.ts` or
-  `engine.ts`. Deliberately outside CI.
+  those produce silence rather than an error — and a music file that 404s is the same silence with a
+  different cause. Run it after touching `sfx.ts`, `music.ts` or `engine.ts`, or after re-encoding a
+  loop. `music.setLapSeconds(n)` is its one seam, same convention as the server's `AFKKickThreshold`:
+  a real loop hands over after two to four minutes, so without it the unattended handover would be
+  the one behaviour here nothing ever checks. Deliberately outside CI.
 
 ## Legal and privacy
 Detail: [`docs/notes/legal.md`](docs/notes/legal.md).

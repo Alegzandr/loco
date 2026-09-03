@@ -900,6 +900,13 @@ export const SCENES: Scene[] = [
     deadlineIn: 19,
   },
   {
+    id: 'game-map-marina-day',
+    title: 'Map · Marina · plein jour',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'marina', mapTime: 'day', mapWeather: 'clear', discard: num('yellow', 6), activeColor: 'yellow' },
+    deadlineIn: 19,
+  },
+  {
     id: 'game-map-marina-storm',
     title: 'Map · Marina · nuit, orage',
     screen: 'game',

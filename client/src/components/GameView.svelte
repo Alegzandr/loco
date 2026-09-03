@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { CardColor, ClientMsg } from '../types/protocol'
   import { gameStore, UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
   import { game } from '../hooks/gameStore.svelte'
@@ -78,6 +79,16 @@
     initialConfirmLeave = false,
   }: Props = $props()
 
+  /**
+   * The one way this screen hands the socket to a hook.
+   *
+   * A prop is reactive, so handing `onSend` itself over captures the function
+   * this component was mounted with and a later one would never be seen. Every
+   * field beside it in `cardPlay` is already a getter; this is the same thing
+   * said as a closure.
+   */
+  const send = (msg: ClientMsg) => onSend(msg)
+
   const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
   const SWAP_NOTICE_MS = 3500
   const CATCH_FAIL_NOTICE_MS = 2800
@@ -109,7 +120,7 @@
   let showRules = $state(false)
   // The walk-out question, held here and not in a modal: it takes the chip's
   // place under the row it was pressed from, so the board does not move.
-  let confirmLeave = $state(initialConfirmLeave)
+  let confirmLeave = $state(untrack(() => initialConfirmLeave))
 
   /**
    * What leaving costs the people who are still holding cards.
@@ -183,7 +194,7 @@
     currentTurn: () => g.currentTurn,
     myIndex: () => g.myIndex,
     pendingDraw: () => g.pendingDraw,
-    onSend,
+    onSend: send,
     lastPlayAt: () => g.lastPlay?.at,
   })
 
@@ -309,7 +320,7 @@
 
   // Render the room while the table is shut, and tell the server the moment we
   // are in. See hooks/gamePlay.svelte.ts.
-  const preload = mapGate(() => scene, () => gateOpen, onSend, () => anchor)
+  const preload = mapGate(() => scene, () => gateOpen, send, () => anchor)
 
   // Past the format: the server's tiebreak chain separated nobody, so it dealt
   // one more round. The chip says which round it is, and there is no honest

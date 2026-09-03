@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import type { Lang } from '../lang'
   import { langUrl } from '../lang'
@@ -39,7 +40,9 @@
   const listId = `${uid}-list`
   const optionId = (i: number) => `${uid}-opt-${i}`
 
-  let open = $state(defaultOpen)
+  // Read once, like every other `defaultOpen` here: the prop seeds the panel
+  // and the player owns it afterwards.
+  let open = $state(untrack(() => defaultOpen))
   const indexOf = (code: Lang) => Math.max(0, LANGS.findIndex((l) => l.code === code))
 
   // Where the keyboard is, which is not the choice: arrowing through the list

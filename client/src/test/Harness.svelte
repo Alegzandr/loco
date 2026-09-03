@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   /**
    * A component whose only job is to be a component.
    *
@@ -31,7 +32,7 @@
 
   let { setup, hookProps, children }: Props = $props()
 
-  const value = setup(() => hookProps)
+  const value = untrack(() => setup)(() => hookProps)
 </script>
 
 <div data-testid="harness">

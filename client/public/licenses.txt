@@ -1,6 +1,24 @@
-LOCO! ships two typefaces inside its build. The SIL Open Font License requires
-its notice to travel with them, so it is served here rather than shown in the
-game. Nothing else in this file affects a player.
+LOCO! ships two typefaces and six music loops inside its build. Their licences
+require their notices to travel with them, so they are served here rather than
+shown in the game. Nothing else in this file affects a player.
+
+===============================================================
+Music — Abstraction, "Music Loop Bundle"
+===============================================================
+
+The music bed is six loops by Abstraction (Tallbeard Studios), from the Music
+Loop Bundle: https://tallbeard.itch.io/music-loop-bundle
+
+Released under CC0 1.0 Universal (Public Domain Dedication). To the extent
+possible under law, Abstraction Music (https://abstractionmusic.com/) and
+Tallbeard Studios have waived all copyright and related or neighboring rights to
+this music. No attribution is required; this notice is a credit.
+
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The loops are normalised and re-encoded, which the dedication permits. The
+authors ask that their work not be used in projects relating to NFTs or to
+machine learning, or resold unmodified, and none of those happens here.
 
 ===============================================================
 Fredoka Variable

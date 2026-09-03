@@ -90,6 +90,15 @@
       mapWeather: '',
       mapLoading: null,
       ...(s.state ?? {}),
+      // Room overrides, for looking at one diorama at every hour and every sky
+      // without a scene per combination: `?showcase=game-map-marina&time=day`.
+      // The registry still owns what `make visual` captures — these only exist
+      // for the pass where somebody is fixing a room and needs to see it at noon.
+      ...Object.fromEntries(
+        ([['map', 'mapId'], ['time', 'mapTime'], ['weather', 'mapWeather']] as const)
+          .map(([q, key]) => [key, params.get(q)])
+          .filter(([, v]) => v),
+      ),
     }
     // Module state, not store state: reset explicitly so a streamer scene does not
     // leak its blur into every scene captured after it.

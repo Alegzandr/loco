@@ -288,10 +288,14 @@ swipe bar and the round badge under the status bar.
   reads back as the unresolved token in several engines, so the resolved computed padding is the
   only reliable source. Reading the *tokens* rather than `env()` directly is also the seam the
   capture harness overrides.
-- **A match in a map pins `<html>` to `--room-void`** (`<GameBoard />` sets `data-room` on the root and writes the scene's horizon into the variable).
+- **A match in a map pins `<html>` to `--room-void`** (`<GameBoard />` sets `data-room` on the root
+  and writes the scene's horizon, **taken well down towards the void**, into the variable).
   The browser paints anything the page does not own with the root's colour, so this is the only
   thing that can reach a band left over by a floating browser bar. A violet strip across a dark room
-  reads as a broken layout; the same strip in the room's shadow reads as the room.
+  reads as a broken layout; the same strip in the room's shadow reads as the room. **The horizon
+  itself is not that shadow**: a noon sky is a near-white, so on a day map the variable was painting
+  the brightest thing on the screen — the opposite of what it is for — and the loading screen, which
+  wears the same value, went with it.
 - Review it with `make visual ARGS="--viewports=notch"` — no desktop browser reports an inset, so
   that viewport is the only place this layout is visible at all. `layout.test.ts` owns the maths and
   `safeArea.test.ts` owns the wiring through to the stage's transform.
@@ -414,18 +418,55 @@ what keeps twenty-four combinations from being six: a grey dusk is warm and a gr
 
 ### The kit and the builders (`scene/kit.ts`, `scene/maps/*.ts`)
 A builder never touches three.js. It calls `box`, `cyl`, `sphere`, `cone`, `prism`, `disc`, `halo`
-and the props composed from them (`tower` with its window grid, `lamp`, `tree` in four kinds,
-`person`, `car`, `stall`, `bench`, `fence`, `road`, `lantern`, `flag`…), and `build()` merges every
-block into four meshes — lit, glow, ink, halo — so a whole city is a handful of draw calls. Three
-decisions make it look like the rest of the UI rather than a tech demo, and each is the kit's, not a
-builder's:
-- **Every block carries an ink outline**, the same rule every raised object in `tokens.css` obeys. An
-  inverted hull per block, drawn back-face only, sized from the render's pixel density so the line is
-  ~2 CSS px on a phone and on a monitor alike. Per block rather than by pushing vertices along
-  normals, because a box's faces do not share vertices and a per-vertex push leaves the corners open.
-- **Colour is a vertex attribute and the shading is toon** (`MeshToonMaterial`, a four-step ramp), so
-  the light bands rather than blends: a gradient across a wall is a render, three flat tones are a
-  drawing. One directional sun with a hard PCF shadow, one hemisphere fill, from the rig.
+and the props composed from them (`tower` with its window grid, its door, its floor bands and
+something on its roof, `window` in a frame with a sill, `door`, `lamp`, `tree` in four kinds,
+`person` with legs, arms, a hat or a bag now and then, `car` with glass and hubcaps, `flowerbed`,
+`planter`, `bush` with berries, `stall`, `bench`, `fence`, `road`, `lantern`, `flag`…), and
+`build()` merges every block into five meshes — lit, glow, ink, shadow, halo — so a whole city is a
+handful of draw calls. Four decisions make it look like the rest of the UI rather than a tech demo,
+and each is the kit's, not a builder's:
+- **Every block carries an outline, in a darker note of its own colour** (`inkFor`), the rule every
+  raised object in `tokens.css` obeys with one deliberate difference: the interface draws its ink
+  in `INK` because a button is one object on a plain ground, and a city is ten thousand objects —
+  ten thousand black rims on it read as wire, not as drawing, and the reference illustration
+  separates its shapes with a deeper tone of each fill. An inverted hull per block, drawn back-face
+  only, sized from the render's pixel density so the line is ~2 CSS px on a phone and on a monitor
+  alike. Per block rather than by pushing vertices along normals, because a box's faces do not
+  share vertices and a per-vertex push leaves the corners open. **And a wall darkens towards its
+  foot** (`GROUND_SHADE`, on the sides of anything over 0.6 tiles tall): what an illustrator does to
+  sit a building on the ground, and what vertex interpolation gives for free.
+- **Colour is a vertex attribute, and so is the light** (`scene/shade.ts`, `sceneShade.test.ts`).
+  There is no light object in the scene: as a block is pushed, the tone of each face — the top in
+  the light, the side towards the sun a step down, the far side two steps down and leaning towards
+  the sky's ambient rather than the sun's colour — is multiplied into its vertex colour from its
+  normal, and anything in between snaps to the nearest of the three. **The size of the step is the
+  whole of the lighting, so it is not a taste setting**: at 1 / 0.84 / 0.66 there was a sixth of a
+  stop between a roof and the wall under it in full sun and a fifth between that wall and the one in
+  shade, and a street of cubes at that spacing comes out as one flat wash of its own colour —
+  "it looks like there is no lighting" is the correct reading of it, and it was the report. An
+  illustrated isometric puts the shaded side at about half the lit one; these are 1 / 0.74 / 0.47,
+  and `sceneShade.test.ts` pins the ratios rather than the numbers. A cylinder is three stripes,
+  a ball three crescents, never a gradient. Exposure follows `rig.dark` and the light's own colour
+  tints everything a little more the darker it is, so a dusk is amber and a night is blue rather
+  than merely dim. **What it replaced**: a `MeshToonMaterial` ramp under a real directional light
+  and a hemisphere fill, which banded on every cylinder and greyed every colour through the
+  ambient, plus a 3072² PCF shadow map, which put soft noise and acne on every façade. The
+  illustrated isometric city this room is modelled on has flat tones and hard shadows and nothing
+  else, and that is now exactly what is rendered.
+- **Every outlined block throws a shadow on the ground**, and it is a polygon, not a map: its
+  corners slid along the sun's ray to `SHADOW_PLANE_Y` (a tenth of a tile up, above the paving and
+  the roads and below anything that stands) and wrapped in a convex hull — exact for every convex
+  solid the kit builds, which is all of them. **A drawing's shadow is a shape, not a tint**: at 0.26
+  of a sky-blue it was a smudge nobody read as a shadow, which was the other half of the room
+  looking unlit, so it starts at 0.38 and still thins with the hour and with the sky.
+  The run is capped at 1.25× the height (`shadowRun`),
+  because a dawn sun eleven degrees up throws five times a block's height and a street of ten-tile
+  houses became a street of shadow. **Drawn once through the stencil** (`EqualStencilFunc` on 0,
+  `IncrementStencilOp` on pass): two shadows overlapping stay one tone rather than stacking their
+  alpha into a blot at every crowded corner. The renderer asks for `stencil: true`, which three.js
+  no longer gives by default. Whether a block throws one follows whether it is outlined — the two
+  together are what says "this is an object" rather than "this is a surface" — and a sprite of
+  something in the air is built with `shadows: false`.
 - **The weather is answered in the kit, once**: `snow` caps every flat top and whitens the ground and
   the foliage, `wet` darkens the ground the builder asks for and lays puddles catching the sky,
   `lampsOn` decides whether a lamp's head, a window, a neon tube or a lantern goes into the unlit
@@ -466,6 +507,15 @@ builder's:
   an object farther from the camera than it is, which reads as a table floating over a rooftop. A
   cell whose full-height building would rise into the felt is flagged, and every builder answers the
   flag with a low fill (a kiosk, a parked car, a garden, a tank farm) rather than a tower.
+  **The band is measured against what a block *reaches*, not against its centre.** A block is a
+  square in the world, and at `rot = π/4` both of its sides run diagonally, so it covers
+  `(w + d) / 2 / √2` across the frame — the band stopped a whole half-block short of that, and the
+  first row either side of the table put its awnings and its upper floors under the felt. A
+  **landmark** is the same arithmetic done by hand: the grand hotel is fifteen tiles square, which
+  is ten and a half across the frame, so at `sx + a + 10` its near corner stood a tile and a half
+  inside the felt and the table cut the ground floor off a building in front of it. Every landmark
+  beside the table sits at least its own half-width plus two clear of `a`. Being cut by the **frame**
+  is fine and ordinary; being cut by the table is not.
 
 ### The render (`scene/render.ts`, `scene/sceneCache.ts`)
 - **One frame, then the context is released.** A match is a hand of cards animating over the scene
@@ -477,7 +527,15 @@ builder's:
   storm's flash, the cloud shadow — is a CSS transform animation on a tiled gradient
   (`WeatherLayer.svelte`), one compositor layer each, and holds its first frame under reduced motion
   (the flash is the one thing that goes away entirely: a full-frame flicker is what the preference
-  exists to refuse). A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a
+  exists to refuse). **Every one of those layers travels exactly one background tile per cycle, in
+  pixels, and never a percentage of the frame** (`sceneWeather.test.ts`): the layer wraps back to
+  its start at the end of the cycle, so unless the distance it travelled is a whole tile the pattern
+  lands somewhere else than it left — the rain stepped sideways once a cycle on every screen whose
+  height was not a multiple of 240. Fixing the distance also fixes the speed, which is how the rain
+  came to be falling at nearly a thousand pixels a second: it is 240px in 0.72s now, about a third
+  of that. **And the fog's drifting half interpolates everywhere**: written as a
+  `repeating-linear-gradient` of ranges it stepped from transparent to 0.12 in one stop, which over
+  a city is not haze but a set of hard vertical bands laid across it. A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a
   drift of dust, because nothing falls on an airless moon and the server's weather list says
   `storm`, not `rain`.
 - **Isometric, orthographic, framed in tiles.** The camera looks down from a corner at 32°, the
@@ -486,8 +544,75 @@ builder's:
   a number of pixels, so a phone and a monitor frame the same density. The number is the density:
   the table hides roughly ±27 by ±12 tiles around its anchor on a monitor, a house is five tiles
   and a person one, so what is left is three rows of houses and a crowd around it. At 32 it was one
-  house. Resolution is the viewport at `devicePixelRatio` capped at 1.5 and 2400 px on the long
-  side (`renderSizeFor`).
+  house. Resolution is the viewport at `devicePixelRatio` capped at `MAX_DPR` (2) and `MAX_SIDE`
+  (2800) on the long side (`renderSizeFor`).
+- **The frame is supersampled** (`SUPERSAMPLE`, 2; `MAX_GL_PIXELS`, 7 M; `supersampleFor`). With
+  the light baked and the shadows flat, the one thing the GPU is asked for is edges: the frame is
+  rendered up to twice its size on each side, on top of multisampling, and scaled down with
+  `imageSmoothingQuality: 'high'`, so an ink line a tile long is one clean stroke at any angle
+  rather than a stair. The budget is in pixels, so a phone gets the full factor and a 4K monitor
+  at 2× gets what fits under seven million; the side is also held under 4096, which is the texture
+  a mobile GPU still accepts. This is what made the cap on `MAX_DPR` safe to raise from 1.5: the
+  bitmap kept for the match is still the viewport's size, only the render behind it is larger, and
+  the context is released the moment it is copied.
+- **The anchor is the same room whatever the screen is made of** (`renderSizeFor`, `anchorFor`,
+  `sceneGeometry.test.ts`). `renderSizeFor` caps the bitmap's long side at `MAX_SIDE` device pixels and
+  `anchorFor` divides CSS pixels by the ratio it reports, so the two have to agree: handing back the
+  ratio the *screen* asked for after cutting the size down put the anchor **eight tiles right of the
+  table and a fifth too large**, and the podium the whole room is composed around was built somewhere
+  the table is not. It bit on any display denser than 1× wider than 1600 CSS px — most laptops and
+  every phone in landscape — and never in CI, because `make visual` shoots at 1×. A room a few tiles
+  out is still a room: nothing errors, nothing looks broken, and the harbour's boats are simply
+  moored on the beach.
+- **Composition against a screen line goes through `screenSpan`** (`maps/common.ts`). `box(w, h, d)`
+  is world-space, and at `rot = π/4` its `w` runs across the frame one tile for one while its `d`
+  runs up it at `sin(pitch)` — so the harbour's pier, written as "4.4 across by 1.2 along", came out
+  **1.2 tiles wide on screen**, and its railing, its lamps and its cargo, all placed in screen tiles
+  either side of it, stood in the water beside a plank. Anything laid against a screen line takes the
+  helper, and its furniture is then placed at `at(sx ± sw/2)` and lands on it.
+- **A landmark taller than seven tiles belongs in a side band, not the top one.** `sy + b + 8` is
+  about a sixth of the way down a monitor's frame, which leaves seven tiles of headroom: the wizard's
+  tower is twenty and the rocket eighteen, so both were a base with everything above the top edge.
+  Beside the table (`sx ± (a + 8), sy + 2`) there are twenty-eight. The tavern and the bathhouse were
+  always there; the two that were not have moved. **On a phone the frame is barely eighteen tiles
+  wide and a side band is outside it** — which is already true of the fair, the beach and the torii,
+  and is what that band is for.
+- **A room is built once per match, and it is built on the main thread, so what it costs is
+  measured** (`render.ts` logs `build / merge / draw / sprites` in DEV). The neon city is about a
+  half-second of build on a laptop. Three things keep it there rather than at the two seconds it
+  reached — **a window is two quads on a sheet, never two blocks** (`Kit.quad`, flushed by
+  `build` into one geometry per bucket: the neon city has ten thousand windows, and as boxes they
+  were a hundred thousand geometries against seven thousand for everything else), `place()`
+  composes one matrix and applies it once (three passes with a normal-matrix update each), and a
+  tower's windows are spaced 1.15 tiles with no sill (the frame is the whole drawing at that
+  size). The primitives are cloned from cached unit shapes, which turned out to buy little: the
+  cost was the count, not the constructor. **And it is built exactly once**, which took three
+  separate guarantees and each of them was missing at some point:
+  - **`viewportSize()` reads the window synchronously.** The preload asked for the felt's anchor
+    before any effect had measured anything, solved it from 0 × 0 to a felt with no size, and
+    rendered a whole room around a point that the real size then threw away — every match paid for
+    its room twice, and the second one landed *after* the gate opened, as a stall on the first turn.
+    `<SceneBackdrop />` refuses a felt with no size for the same reason.
+  - **`safeAreaInsets()` reads them synchronously too**, and this was the same bug's other half. The
+    anchor is solved from the viewport *and* the insets; seeded at zero and filled in by an effect,
+    the room was built around a table twenty pixels up the screen from the one the board settles on,
+    thrown away, and built again — on a notched phone, twice a match, on the devices least able to
+    afford it. Measured with the probe in `hooks/safeAreaInsets.ts`, which is safe to call during
+    setup (no `document.body`, no insets).
+  - **A frame within four per cent of the size asked for is stretched, not re-rendered**
+    (`sizeCloseEnough`, `sameFelt`). Three things ask for the same room while a match opens — the
+    gate, off the viewport; the screen it puts up and the board behind it, each off its own element —
+    and they agree to the pixel only when nothing sits between the element and the edge of the
+    window. A scrollbar, a browser bar on its way out, a `dvh` that is not `innerHeight`: any of them
+    made the board's request a different cache key. The felt is compared by value, because the anchor
+    is a `$derived` object and an unchanged viewport still hands out a new one on every re-run.
+
+  `sceneLoadingGate.test.ts` owns all three.
+- **`make visual` waits for the room.** The showcase's ready flag fires when the screen mounts,
+  and the frame lands a build later — seconds, on headless Chromium's software GPU. Captured
+  before it, the room is the sky gradient with the frame mid-fade over it, which reads as a blue
+  veil over the whole city and is nothing but timing; `tools/visual/shoot.mjs` waits for
+  `.scene:not(.bare)` on any scene that has one.
 - **The engine is a lazy chunk.** `sceneCache.prepareScene` is the only importer of `render.ts`,
   through a dynamic `import()`, so three.js never reaches the home page, a waiting room or a content
   page; the map-loading gate is what absorbs the fetch (`mapPreload` reports it as the first 35% of
@@ -498,13 +623,215 @@ builder's:
   gradient (which is on screen from the first frame anyway, under the bitmap), and the gate is
   answered. A client that never sends `map_ready` is the one outcome the gate cannot survive, and it
   is the reason `prepareScene` never rejects.
+- **Nothing pale is shown while the room is still being built** (`.scene.bare`). Until a frame
+  lands, the sky gradient *is* the room — and at noon that is a full screen of near-white under the
+  loading screen's white type, on a game whose every other surface is dark: the reveal read as a page
+  that had failed to load rather than as a room about to open. `.bare` mixes both stops down to a
+  little over a third over the void, so it is still the hour's own sky (a dawn is pink, a dusk amber,
+  a night blue) and the type keeps its contrast. The frame is opaque, so this is only ever seen while
+  there is nothing to see — including the one case where there never will be, a render that failed.
 - **The board and the loading screen share the frame, and both draw it sharp.** The first cut
   blurred the board's copy as depth of field, and the blur was doing a second job: hiding that the
   table and the room were two pictures. With the podium under the felt they are one object, and a
   blur between them would be the seam, so `<SceneBackdrop />` has no blur at all. What keeps a card
   edge winning at 720p is the vignette and the cards' own ink line, not a softened room. The cache
   holds three entries (a match, its rematch, a resize), keyed on the scene, the device size **and
-  the anchor**, and a resize past a 96 px step re-renders while the old frame is drawn stretched.
+  the anchor**.
+- **The backdrop isolates its own stack** (`.scene { isolation: isolate }`, `sceneBackdrop.test.ts`).
+  It holds two canvases that swap places and the weather above both, so it declares `z-index` three
+  times — and `position: absolute` does not contain a z-index. Without the isolation those three
+  climb into the board's stacking context, where they outrank `.stage`: the room is painted over the
+  cards and the match has no table, no hand and no deck. `.board` isolates one level up for exactly
+  the same reason.
+- **A resize is a stretch, and then one render** (`SceneBackdrop.svelte`: `RESIZE_SETTLE_MS`, 240 ms).
+  The street is composed in screen space around the felt, so two sizes are two different cities, and
+  a window being dragged is hundreds of sizes. Rendered per resize event — which is what the first
+  cut did, because the effect read the raw viewport and the 96 px step it declared gated nothing —
+  the room rebuilt itself under the table dozens of times a second: a frame of main thread each time
+  and a visibly different street each time, which is what "the background regenerating" was. The
+  frame already up is stretched for free while the drag lasts, and one render is asked for once the
+  viewport has held still. **Quantising the size instead would buy nothing**: the podium is built
+  under the felt, so a felt that has moved needs a render whatever the width did. The debounce is
+  skipped in the one case where there is nothing to stretch — a first mount, a new map, a render
+  that failed — because that is the path the map-loading gate waits on.
+- **And the render that lands is faded in over the one it replaces, never swapped for it.**
+  `<SceneBackdrop />` holds two stacked canvases: the outgoing frame is left at full opacity
+  underneath and only the incoming one is animated (`--scene-fade`, 260 ms). Cross-fading them —
+  one down while the other comes up — lets the sky through at half opacity in the middle, and on a
+  room that has barely changed that reads as a flash. The incoming canvas is held at `opacity: 0`
+  with `transition: none` for one flush and a forced layout read, or the two writes coalesce and
+  there is no transition left to run. Reduced motion drops the transition and keeps the swap.
+
+### The models (`scene/models/`, `scene/placer.ts`, `tools/models/pack.mjs`)
+The blocks were the limit. A house of ten boxes is a box, and the reference the rooms are judged
+against is drawn by artists; so the props are drawn models now — Kenney's city, suburban, roads,
+nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces for the shrine,
+all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is what imports them.
+- **The manifest is the allowlist** (`models/manifest.json`): per kit, the unpacked archive it
+  comes from, the folder holding its GLBs, the scale that turns its units into tiles (a Kenney
+  city house is 1.3 units and stands 4.4 tiles wide here; a pirate lighthouse is 10 and stands
+  10), the palette colours that glow after dark, and the models used by name. `make models` copies
+  exactly those out of `.assets-in/unpacked/` into `client/public/models/<kit>/`, with the kit's
+  palette texture at the relative path the GLB references, and writes the credits. The downloads
+  are ignored by git; what is packed is committed, because the site serves it and a room a player
+  is dealt into cannot depend on somebody's downloads folder. **Served from this origin, never a
+  CDN**: the CSP allows no other, by the legal position in `legal.md`.
+- **A model is baked into buffers, once per tab** (`models/lib.ts`, `bake.ts`). The loader
+  (`GLTFLoader`, three's) gives a mesh with a palette texture and UVs; the palette is sampled at
+  each vertex's UV into a vertex colour (in linear, like the material factor a texture-less model
+  carries), the model is scaled into tiles, centred on the ground under it and stood on `y = 0`,
+  and what is kept is positions, normals, colours, an index, and **smoothed normals** — the
+  normals of every face meeting at a position averaged, one weight per face direction, which is
+  what the outline hull is pushed along, because a flat-shaded model's faces share no vertices and
+  a push along each face's own normal opens every corner. A person is baked in two poses off the
+  kit's own animation clips (`idle`, `walk` mid-stride) through `SkinnedMesh.applyBoneTransform`.
+  The three.js objects are disposed the moment the buffers are out.
+- **And then it is a block**: `k.model(id, x, z, {rot, y, scale})` transforms the buffers, multiplies
+  the tone of the hour and the ground shade into the colours (`pushBaked`), lays the shadow polygon
+  from its vertices, pushes the hull in each vertex's own darker note, and after dark sends the
+  faces painted in the kit's glow colours to the unlit bucket in the warm window colour every
+  block window wears (`splitGlow`) — so a Kenney house lights its windows at night and darkens its
+  foot the way a box house does, and the room stays one merged mesh per bucket.
+- **The kit's props take the model when the room has one.** `k.person` (a spacesuit where the room
+  has the space kit, one of twelve townsfolk otherwise, mid-stride when walking), `k.car` (Kenney's
+  drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; the cherry stays a
+  block, no kit has a pink crown), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
+  never names three.js, a file or a format; the same builder builds a room of blocks when the kits
+  are not loaded, which is what a model that failed to fetch degrades to.
+- **Nothing stands inside anything else** (`placer.ts`, `placer.test.ts`). Every `k.model` claims
+  its footprint — an oriented rectangle, the kit's rotation convention, grown by a margin — and is
+  refused when the claim overlaps one already made; the answer is the builder's to move on from. A
+  builder claims its zones first: the podium's steps and drum, the water, a road. The test is the
+  separating-axis test on two rectangles, and the claims are filed in a coarse grid so a room of a
+  thousand claims does not test each against every other.
+- **The kits per room are declared beside the builders** (`maps/index.ts: KITS`) and loaded by
+  `sceneCache.prepareScene` before the builder runs, as the middle half of the loading bar on a
+  first visit and nothing on a rematch. A packed room's models are one to two megabytes gzipped,
+  under the engine chunk.
+
+### What moves (`scene/life.ts`, `scene/LifeLayer.svelte`, `maps/actors.ts`)
+The room is rendered once and released, so nothing in it can move — and a room where nothing moves
+is a photograph again. What moves is **a sprite over it**: a boat, a balloon, a passer-by, a puff of
+smoke, built with the same kit under the same light and the same line weight, rendered to its own
+little bitmap **in the same pass as the room** (`render.ts`, after the frame: one more scene per
+actor, cleared transparent, sized to the actor's projected bounds, the ground point recorded), and
+carried along a route by one Web Animations transform (`LifeLayer.svelte`). The board's compositing
+budget still belongs to the cards: an actor is one composited layer under one animation, exactly
+what a rain layer is, so a ferry costs the board what a raindrop does, and the render loop it would
+otherwise take stays closed.
+- **A builder returns its actors beside the room** (`Builder = (k) => Actor[] | void`). An actor is a
+  `build` that draws the thing at the origin standing on `y = 0` heading +x, a `path` in the same
+  screen tiles everything else is composed in (`sceneLife.test.ts` pins that frame to the render's
+  own: `TILES_ACROSS` off the longer side, the origin at the centre, `sy` up), a `motion`: `loop`
+  (a circuit), `bounce` (there and back), `pass` (across once, then gone until `every`) — and
+  either a `duration` or, for a thing on the ground, a `speed`. `turn` flips the sprite on a leg
+  that heads left; `bob`, `spin` and `puff` animate an inner element; `fade` softens the ends of a
+  run; `flying` builds it without a ground shadow. The common ones — `cloud`, `bird`, `balloon`,
+  `plane`, `puff`, `walker`, `strollers` on the promenade round the plaza, `streetWalkers` on the
+  pavements, `traffic` in the lanes, `pacers`, `boat`, `mote` after dark — are `maps/actors.ts`;
+  the harbour's ferris wheel (spokes spinning about the hub, twelve cabins riding a circle upright)
+  and the moon's rover and satellite are their builders' own.
+- **A `loop` either walks its closing leg or fades over it, and there is no third option**
+  (`closesTheRing`, `sceneLife.test.ts`). A loop wraps to its start, and a wrap the player can *see*
+  is a person teleporting home and setting off again — which is what every walker whose route
+  survived trimming whole did, because the keyframes stopped at the last point and jumped back to
+  the first. Two honest ways to wrap: a cloud, a bird or a puff **fades** at both ends of its run, so
+  the jump happens while there is nothing on screen (that is what `fade` and `puff` are for); anything
+  else has to travel back, so the closing leg is walked and `routeLength` counts it. A path that
+  already ends where it started is a circuit and closes itself — `mote` is one.
+- **A thing on the ground moves at a speed, and distance is measured on the ground.** `WALK_SPEED`
+  is 0.75 tiles a second against a person a tile and a half tall, `DRIVE_SPEED` 3.2; the route
+  decides the duration (`durationFor`, there and back for a bounce), and every leg is weighted by
+  `groundDist` — a leg up the screen is `1 / sin(pitch)` longer than it looks. Written as
+  durations, the strollers did the plaza's ring in eighty seconds, which is two and a half tiles a
+  second, and a cloud drifting at one screen speed is the only thing here that should.
+- **A route on the ground is a candidate, and the render decides where it runs** (`life.ts:
+  trimRoute`, `selectActors`; `render.ts: readDepth`). A sprite is drawn over the whole frame, so
+  it passes in front of everything the render has, and a walker crossing a house at the wrong depth
+  is the illusion breaking — which is what every stroller did on the old ring, six and a half tiles
+  out from the felt, through the crowd, the market stalls and the first row of blocks, and what the
+  two cars lapping the paving did across the whole lower band. Now a builder says what a thing
+  takes up (`body`: width across the screen, height, footprint) and hands in every route it might
+  take; after the frame is drawn the room is rendered **once more, as depth** — the same scene
+  under a material that packs eye depth into RGBA, into a target at half the frame's resolution,
+  read back once and released with the context, the shadows and the halos left out — and every
+  route is sampled at half a tile. A sample stands where (1) it is inside the frame or three tiles
+  off it, (2) the ground plan (`placer.ts`) is free of its footprint — and `cityGrid` now claims
+  every lot it fills, since a house is blocks and blocks never claimed — and (3) nothing in the
+  depth map is nearer than the thing's own silhouette by more than `OCCLUSION_SLACK` (0.3 tiles),
+  the silhouette being the `body` stood on the sample and its depth written per row from the
+  camera's pitch (`depthAt`: a tile up the screen on the ground is `1 / tan(pitch)` farther, a tile
+  up a thing standing there is `tan(pitch)` nearer). The longest run of good samples is the
+  route: a loop that is cut walks its longest clear arc there and back, a `pass` fades over one
+  tile at either end (that is where it walks behind something, or off the frame), and a run
+  shorter than `minLen` (four tiles; ten for a stroller, twelve for a car) is dropped. A `part`
+  then takes a stretch of what survives, so three strollers handed the same arc are three walks.
+  **A `pick` group is how a builder asks for a few without having seen the frame**: `streetWalkers`
+  hands in both pavements of every run both ways, `traffic` the right-hand lane of every run both
+  ways, and the `keep` worth most survive — worth being the length *seen*, inside the frame and
+  not under the hand (`lengthInside`). Which pavements survive depends on the viewport: on a
+  monitor it is the ones with the plaza or the low front band on their near side, on a phone the
+  deep top and bottom bands. The moon and the citadel end up with a handful, which is honest.
+  `sceneLife.test.ts` pins the trimming, the selection, the depth arithmetic, and that `render.ts`
+  reads the depth back and selects before a single sprite is built.
+- **Pavements are the grid's, and a street is a run.** `SIDEWALK` (1.4 tiles) comes off each side
+  of a block before `fill` sees it, so the buildings stop at the building line; walkers keep to
+  `WALK_LINE` (0.45 in from that line), standers and lamps to `KERB_LINE` (0.25 in from the kerb),
+  and the 0.7 between them is what the placer's margin plus a person's claim needs
+  (`sceneGeometry.test.ts`). It was 0.6 wide, which is narrower than a person, and the people it
+  scattered "on the sidewalk" stood in the road. `cityGrid` returns a `StreetPlan`: every block-long
+  segment it laid, merged by `mergeRuns` into one run per street from the last block it borders to
+  the first it does not, so a car drives it end to end and a walker crosses the side streets. A car
+  is built facing the way its lane goes (`carRot`, `personRot` — a mirror of a sprite facing one
+  diagonal faces the *other* diagonal, not the way back, which is why a street walker is a `pass`
+  one way rather than a bounce with `turn`). Facing is answered per heading, and the walkers on
+  the promenade keep `turn` because that arc runs across the screen.
+- **Two things were tried and taken out before any of this existed**: the harbour's ferris wheel
+  turned for an afternoon as sprites (spokes spinning about the hub, twelve cabins riding a circle),
+  and the cabins rode across the roofs of the terrace standing in front of the fair as pale cubes
+  floating on the houses; and the ferry sailed the whole width of the frame, which took it through
+  the lighthouse island and over the pier head. The wheel stands still in the render now, and the
+  ferry runs east of the pier only, fading in there. Both would be trimmed correctly today; neither
+  is worth putting back, because a wheel that only turns where nothing is in front of it is a
+  wheel that stops.
+- **A pass writes its opacity on every frame.** A keyframe without a property interpolates towards
+  the next one that has it, so a route whose hidden tail alone said `opacity: 0` faded out across
+  its whole crossing, and the ferry came through as a grey ghost. `routeKeyframes` writes `1` on
+  the crossing whenever any frame carries opacity (`sceneLife.test.ts`).
+- **Facing is a quarter turn.** Screen-right is the world (1, −1) diagonal, so a thing that faces +x
+  at rot 0 (a car, a boat's bow) is built at π/4 and a person, who faces +z, at 3π/4. The mirror of
+  that sprite faces the other diagonal, which is what `turn` relies on.
+- **The layer is laid out in the frame's CSS pixels and scaled to the element**, one transform, so a
+  window being dragged stretches the boat with the water until the next render lands with sprites
+  of its own. It sits at z-index 3, above both frames and under the weather (4): the rain falls on
+  the boat. **Reduced motion holds every actor on the first frame of its route** — the boat is
+  still a boat, moored — which is the readable static state motion is required to degrade to.
+- **A sprite is keyed on the actor's id within the room**, and its seed is the room's key plus that
+  id, so the balloon's colours and the walker's hat are the same for every seat and after a reload.
+
+### Props that were the same mistake in every room (`scene/kit.ts`)
+Five of them, and each was one line of geometry standing in for something with a shape:
+- **`awning`** — a canopy that starts *at* the wall and carries a valance. Every shopfront in the
+  boulevard and every row house in the harbour hung a bare plate half a tile off its façade and
+  wider than the façade it was on, which reads as a coloured card hovering in the air.
+- **`festoon`** — the cord, and the lights on it. The square and the boulevard both placed their
+  bulbs on a sine and drew nothing between them: a curved line of lanterns floating in the air with
+  two posts standing some way off. **And a ring of posts, never four** (`stringLights`, in
+  `maps/common.ts`, the only way a room strings them now — `sceneGeometry.test.ts` fails on a builder
+  that festoons its own): four posts round an oval table is a rectangle laid over an ellipse, with
+  corners nothing else in the room has and two runs going straight up the frame, and what it read as
+  was a stray wireframe rather than bunting. Nine posts on the paving's own ring, and **each run hung
+  by its own length on screen** — a run going up the frame is drawn shorter than one going across it,
+  so the fixed count the two rooms guessed piled its lanterns on top of one another there and spaced
+  them out here.
+- **`stall`** — four legs, thick enough to be seen. Two posts a tenth of a tile wide on the centre
+  line are hidden by the canopy from this camera and by the counter from every other, so what was on
+  screen was a striped roof floating a tile above a box, in every market in the game.
+- **`tree({ kind: 'palm' })`** — a frond in two segments, out and then steeply down. Five flat
+  planks radiating from a trunk draw a five-pointed star, and a star is exactly what a 32° camera
+  sees of anything horizontal.
+- **A prism's `w` is its ridge**, so a roof rotated by `π/2` has to swap `w` and `d` with it. The
+  harbour's terraces did not, and every roof sat across the house it belonged to.
 
 ### The table (`GameBoard.svelte`'s `.tableOval` / `.tablePlinth` / `.tableGlow`)
 A felt inside a rim, standing on a plinth, all CSS, on exactly `tableRect()`. Every room hands the
@@ -858,6 +1185,13 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   `applyInterrupt`, cleared by the banner after 1800ms. Colour comes from `seatColor(actorIndex)`.
   `<GameView />` also shakes the board via the **Web Animations API** (not a CSS class — a class
   toggle would need a remount to replay, tearing down the board).
+  - **The tilt and the sweep are two elements, and they have to be** (`.slashTilt` / `.slash`,
+    `interruptHint.test.ts`). `skewY` moves a point vertically by its distance from the transform
+    origin, so the band — skewed about its own left edge, a fifth of a screen off the left of the
+    frame — arrived at the middle of the screen a hundred and forty pixels above where it was drawn:
+    on a wide monitor the words came down on empty board with their band floating over them. The
+    tilt now pivots about the centre, where the banner is; the sweep still starts at the left,
+    because that is the gesture.
 - **Contre-LOCO! verdict** (`<CatchBanner />`): driven by `uno_caught`, which the client used to
   consume for its window bookkeeping and nothing else. A landed catch was the **quietest** event in
   the game — the caught seat's hand grew by two, which on a board where hands grow all match long is
@@ -1169,6 +1503,11 @@ Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup dro
 `tools/lib/devserver.mjs`, walks the registry and writes
 `.visual/<scene>__<viewport>__<theme>.png` plus one contact sheet per viewport/theme.
 
+- **A room takes three query overrides on top of its scene**: `?showcase=game-map-marina&time=day`,
+  and the same for `weather` and `map`. Dev-only, applied over the scene patch in `Showcase.svelte`,
+  and there so that fixing a diorama does not need a registry entry per hour and sky — six rooms by
+  five hours by five skies is not a contact sheet anybody reads. The registry still owns what
+  `make visual` captures.
 - **Add a scene in the same change set as any new screen or visual state.**
 - `card-sheet` is the odd one out: not a screen but the whole deck, every kind in every suit, laid
   out to fit the capture viewport. Cards are the component the game draws forty of at once and no

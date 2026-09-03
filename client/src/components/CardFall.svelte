@@ -21,6 +21,7 @@
    * Still no JavaScript per frame: every card is two nested spans animating
    * `transform` and `opacity`, both of which stay on the compositor.
    */
+  import { untrack } from 'svelte'
   import type { CardDTO } from '../types/protocol'
   import Card from './cards/Card.svelte'
   import CardBack from './cards/CardBack.svelte'
@@ -74,7 +75,7 @@
   // Randomised once, in the script body, which runs on mount and never again.
   // Re-randomising on an update would restart every card's animation, so the
   // fall would stutter instead of landing.
-  const cards = Array.from({ length: count }, (_, i) => {
+  const cards = Array.from({ length: untrack(() => count) }, (_, i) => {
     // One number decides how near the card is, and everything reads off it: a
     // card close to the viewer is bigger and passes faster. Rolling size and
     // speed separately produces a big card drifting down slowly behind a small

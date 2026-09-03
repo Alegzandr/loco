@@ -12,9 +12,14 @@ import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, neonText, at, along, FLOOR } from './common'
 import { mix, cssHex } from '../sky'
+import type { Actor } from '../life'
+import { cloud, over, plane, puff, streetWalkers, strollers, traffic } from './actors'
 
 const GOLD = 0xe0b45a
 const CREAM = 0xf0e6d2
+
+/** The cars, parked along the streets and driving them. */
+const CARS = [0xd94c4c, 0x2f8fbf, 0xf4d35e, 0x2b2b2b, 0x8a5aa8, 0xf5f0e6] as const
 
 export const velvet: Builder = (k) => {
   const rng = k.rng
@@ -27,7 +32,7 @@ export const velvet: Builder = (k) => {
   const facades = [0xd7c6a8, 0xc9b8d8, 0x9fc3c6, 0xe8c9b0, 0xf0e6d2, 0xb8c8d8, 0xe6d3c0]
   const hotel = (x: number, z: number, w: number, d: number, h: number) => {
     const c = rng.pick(facades)
-    k.tower(x, z, w, h, d, c, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8 })
+    k.tower(x, z, w, h, d, c, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8, door: false })
     k.tower(x, z, w * 0.62, Math.max(1.5, h * 0.3), d * 0.62, mix(c, 0xffffff, 0.3), { y: h, floorH: 1.5, trim: GOLD, roof: 'flat' })
     if (rng.chance(0.4)) {
       k.cyl(x, h * 1.3, z, 0.18, 2.6, GOLD, { seg: 6, cap: false })
@@ -38,23 +43,33 @@ export const velvet: Builder = (k) => {
       k.box(x + w / 2 + 0.3, 1.5, z + d / 2 - 0.6, 0.5, h * 0.5, 0.25, 0x2a1a20)
       k.box(x + w / 2 + 0.58, 1.9, z + d / 2 - 0.6, 0.1, h * 0.45, 0.3, on ? c2 : mix(c2, 0x222222, 0.6), { glow: on, outline: false, cap: false })
     }
-    // A shopfront with an awning on the face towards the camera.
+    // A shopfront with an awning on the face towards the camera. Through
+    // `k.awning`, which starts at the wall and carries a valance: a bare plate
+    // floating six tenths of a tile off the façade is what every shopfront on
+    // this boulevard wore, and it read as a coloured card hovering in the air.
     k.box(x, 0.3, z + d / 2 + 0.05, w * 0.75, 1.5, 0.08, on ? 0xffe2a8 : 0x2a3346, { glow: on, outline: false, cap: false })
-    k.box(x, 2.2, z + d / 2 + 0.6, w * 0.8, 0.1, 1.3, rng.pick([0x7a2b3a, 0x2f8fbf, GOLD, 0x2fa07a]), { outline: false, cap: false })
+    k.awning(x, z + d / 2, 0, w * 0.78, rng.pick([0x7a2b3a, 0x2f8fbf, GOLD, 0x2fa07a]), { y: 2.3, depth: 1.1 })
+    // A pair of planters flanking the shopfront.
+    k.planter(x - w * 0.42, z + d / 2 + 0.7, { pot: 0x7a2b3a, r: 0.28 })
+    k.planter(x + w * 0.42, z + d / 2 + 0.7, { pot: 0x7a2b3a, r: 0.28 })
   }
 
-  const hotelSpot = { sx: sx + a + 10, sy: sy + 1 }
+  // Thirteen tiles out, not ten. The tower is fifteen tiles square, which is
+  // ten and a half across the frame, so at ten its near corner stood a tile and
+  // a half inside the felt — and the table, being drawn over the render, cut
+  // the ground floor off a building in front of it.
+  const hotelSpot = { sx: sx + a + 13, sy: sy + 1 }
   const fountainSpot = { sx: sx - 8, sy: sy + b + 7 }
   const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
 
-  cityGrid(k, {
+  const plan = cityGrid(k, {
     block: 11,
     road: 3.6,
     roadColor: 0x3a3d48,
     sidewalk: 0xd9cdb5,
     dashes: true,
     crossings: true,
-    cars: [0xd94c4c, 0x2f8fbf, 0xf4d35e, 0x2b2b2b, 0x8a5aa8, 0xf5f0e6],
+    cars: CARS,
     carDensity: 0.5,
     lamp: { h: 3.2, heads: 2, color: 0xfff0c0, post: 0x2a2a35 },
     people: 2,
@@ -89,7 +104,7 @@ export const velvet: Builder = (k) => {
   {
     const [hx, hz] = at(hotelSpot.sx, hotelSpot.sy)
     const rot = Math.PI / 4
-    k.tower(hx, hz, 16, 12, 16, CREAM, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8 })
+    k.tower(hx, hz, 15, 12, 15, CREAM, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8 })
     k.tower(hx, hz, 11, 5, 11, mix(CREAM, 0xffffff, 0.3), { y: 12, floorH: 1.5, trim: GOLD, roof: 'none' })
     k.tower(hx, hz, 7, 4, 7, mix(CREAM, 0xffffff, 0.5), { y: 17, floorH: 1.5, trim: GOLD, roof: 'none' })
     k.box(hx, 21, hz, 4, 3, 4, CREAM)
@@ -132,8 +147,8 @@ export const velvet: Builder = (k) => {
   }
 
   // ─── The fountain at the top, the benches, the guests ──────────────────
+  const [fx, fz] = at(fountainSpot.sx, fountainSpot.sy)
   {
-    const [fx, fz] = at(fountainSpot.sx, fountainSpot.sy)
     k.cyl(fx, 0, fz, 3.6, 0.6, 0xd9cdb5, { seg: 16 })
     k.disc(fx, 0.6, fz, 3.1, 0x6fc3ff, { seg: 16 })
     k.cyl(fx, 0.6, fz, 0.6, 1.8, 0xd9cdb5, { seg: 8 })
@@ -161,4 +176,19 @@ export const velvet: Builder = (k) => {
   }
   along(...at(sx - a - 6, sy + b + 4), ...at(sx - a - 6, sy - b - 4), 4, (x, z) => k.tree(x, z, { kind: 'palm', h: 2.6 }))
   crowd(k, 24)
+
+  // ─── What moves: the fountain, traffic round the square, a plane ───────
+  const life: Actor[] = []
+  for (let i = 0; i < 3; i++) {
+    life.push(puff(k, `spray-${i}`, { at: over(fx, fz, 4.4), rise: 1.4, duration: 1500 + i * 250, delay: i * 500, size: 0.6, color: 0xdff4ff }))
+  }
+  life.push(...traffic(k, plan, CARS, 2))
+  if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
+    life.push(cloud(k, 'cloud-0', { sy: 18.5, size: 1.2, duration: 175_000 }))
+    life.push(cloud(k, 'cloud-1', { sy: 15.5, size: 0.8, duration: 220_000, delay: 80_000, from: 50, to: -50 }))
+    life.push(plane(k, 'plane', { sy: 16.5, every: 120_000 }))
+  }
+  life.push(...strollers(k, 4))
+  life.push(...streetWalkers(k, plan, 3))
+  return life
 }

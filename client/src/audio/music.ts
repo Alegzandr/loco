@@ -1,54 +1,57 @@
 /**
  * Adaptive music bed — the engine.
  *
- * This file contains no music. Tracks are data (`audio/tracks/`), and this plays
- * any of them: scheduling, synthesis, the arrangement ladder, the song form.
+ * This file contains no music. Loops are data (`audio/tracks/`) and files under
+ * `client/public/music/`; this plays any of them: loading, loop points, the
+ * arrangement ladder, the crossfades.
  *
- * ## Two axes, and why
+ * ## What replaced the synthesiser, and what had to survive it
  *
- * The first version was one four-bar loop whose only variation was layer count.
- * However good four bars are, a twenty-minute match spends it in the first two
- * minutes — the feedback was, exactly, "it's just a chorus on repeat".
+ * Every note used to be generated here. A track was parts plus a form, and the
+ * engine walked the form, because the version before that was one four-bar loop
+ * whose only variation was layer count — the verdict on it was "it's just a
+ * chorus on repeat", and it was right.
  *
- * So what you hear is the product of two independent things:
+ * The music is recorded now (Abstraction, CC0 — see `tracks/index.ts`), so the
+ * form is gone. The property it defended is not, and it is bought here instead
+ * by keeping **more loops than sections**: each loop declares which sections it
+ * can carry, and the bed changes loop for two reasons.
  *
- * - **The form** advances on its own. A track is a set of parts (intro, verse,
- *   chorus, bridge, break) and an order; the engine walks it. Around forty bars
- *   pass before a part returns, and it usually returns in a different section.
- * - **The game's intensity** picks the *stack* (`sectionFor` → `LAYERS`) and
- *   *biases which part comes next* (`nextFormIndex`): a drop pulls the form
- *   toward a chorus, a round summary toward a break.
+ * - **The table moved.** `sectionFor` maps the game's intensity onto a section,
+ *   and a section the bed is not currently playing pulls a loop that carries it.
+ * - **This one has come round enough times.** At `LAPS_PER_LOOP` the bed hands
+ *   over to another loop of the same section, so a table that sits in an
+ *   ordinary groove for ten minutes does not sit on one piece of music.
  *
- * Both are pure functions, exported and unit-tested, because "does the music go
+ * Both go through one crossfade. `sectionFor`, `loopsFor`, `nextLoopId` and
+ * `shuffledOrder` are pure, exported and unit-tested, because "does the music go
  * somewhere" is a claim about behaviour and not about sound.
  *
- * ## Anti-repetition, deliberately
+ * ## Why the intensity is slewed and the section is held
  *
- * Beyond the form: a riser and a crash whenever the *next* part is a chorus, a
- * drum fill in the last bar of every part, and an octave lift on alternate
- * passes of a chorus. These exist because the ear forgives a repeated phrase
- * that arrives differently, and never forgives one that arrives identically.
- *
- * Scheduling uses the standard Web Audio lookahead pattern: a coarse timer wakes
- * up often, and every event it finds inside the next slice is scheduled with a
- * sample-accurate start time. setTimeout jitter therefore never reaches the
- * output.
+ * Game events move the intensity in jumps. Applied raw, a Contre-LOCO! that
+ * lands and a hand that grows back would crossfade the bed out and straight back
+ * in, twice, inside two seconds. So the intensity is **slewed** toward its
+ * target at `SLEW_PER_SEC`, and a section derived from it has to **hold** for
+ * `SECTION_HOLD_MS` before the bed acts on it. The two together mean a spike
+ * that is immediately undone is never heard, and a real change arrives about a
+ * second and a half later, which reads as the music answering rather than
+ * twitching.
  */
 import { audio } from './engine'
-import { DEFAULT_TRACK_ID, getTrack, TRACKS } from './tracks'
-import type { Adsr, DrumStyle, PartDef, PartRole, Slot, SynthSpec, TrackDef } from './tracks/types'
+import { DEFAULT_LOOP_ID, getLoop, LOOPS, MUSIC_BASE } from './tracks'
+import type { LoopDef } from './tracks/types'
 
 export type MusicScene = 'lobby' | 'game' | 'off'
 
-/** How far ahead of the clock notes are scheduled, in seconds. */
-const LOOKAHEAD = 0.18
-/** How often the scheduler wakes, in ms. Must be well under LOOKAHEAD. */
-const TICK_MS = 40
-
-const STEPS_PER_BAR = 16
+/** How often the bed re-reads where the table is, in ms. */
+const TICK_MS = 250
 
 /** Arrangement stacks, in the order intensity unlocks them. */
 export type Section = 'breakdown' | 'buildup' | 'groove' | 'drop'
+
+/** Every section, in ladder order. Exported so a test cannot fall behind it. */
+export const SECTIONS: Section[] = ['breakdown', 'buildup', 'groove', 'drop']
 
 /** Intensity at or above which each section plays. Ordered, ascending. */
 export const SECTION_AT: Record<Section, number> = {
@@ -58,67 +61,16 @@ export const SECTION_AT: Record<Section, number> = {
   drop: 0.58,
 }
 
-export interface LayerSet {
-  kick: boolean
-  hats: boolean
-  ride: boolean
-  /** 'beats' = on 2 and 4; 'sparse' = one hit every other bar; null = none. */
-  clap: 'beats' | 'sparse' | null
-  crash: boolean
-  bass: boolean
-  pad: boolean
-  lead: boolean
-  counter: boolean
-  stabs: boolean
-  leadOctave: boolean
-  /** Multiplier on the arp's written gain. */
-  arpGain: number
-  /** Fixed cutoff instead of the sweep, when the section wants it closed down. */
-  arpCutoff: number | null
-}
-
 /**
- * What plays in each section.
- *
- * The lead is in every one of them. That is not an oversight to tidy up later: an
- * earlier version gated its theme above `intensity > 0.5` while an ordinary turn
- * sits at 0.34, so players never heard a tune at all. Sparse sections get their
- * quietness from the *part* the form is on (a `break` part is written sparse),
- * not from muting the melody.
- */
-export const LAYERS: Record<Section, LayerSet> = {
-  breakdown: {
-    kick: false, hats: false, ride: false, clap: 'sparse', crash: false, bass: false,
-    pad: true, lead: true, counter: false, stabs: false, leadOctave: false,
-    arpGain: 0.35, arpCutoff: 1200,
-  },
-  buildup: {
-    kick: false, hats: false, ride: false, clap: null, crash: false, bass: false,
-    pad: true, lead: true, counter: false, stabs: false, leadOctave: false,
-    arpGain: 0.8, arpCutoff: null,
-  },
-  groove: {
-    kick: true, hats: true, ride: false, clap: 'beats', crash: false, bass: true,
-    pad: true, lead: true, counter: false, stabs: true, leadOctave: false,
-    arpGain: 1, arpCutoff: null,
-  },
-  drop: {
-    kick: true, hats: true, ride: true, clap: 'beats', crash: true, bass: true,
-    pad: true, lead: true, counter: true, stabs: true, leadOctave: true,
-    arpGain: 1, arpCutoff: null,
-  },
-}
-
-/**
- * Which stack a given intensity plays.
+ * Which section a given intensity plays.
  *
  * Pure and exported because it is the whole contract between game state and what
  * the room hears — a test can assert it without an AudioContext.
  */
 export function sectionFor(intensity: number, lobby = false): Section {
   // The lobby is a build-up, not a breakdown: people are reading names and
-  // pressing buttons, and a build-up is the section that has the tune without
-  // the drums.
+  // pressing buttons, and a build-up is the section with a tune and no weight
+  // behind it.
   if (lobby) return 'buildup'
   if (intensity >= SECTION_AT.drop) return 'drop'
   if (intensity >= SECTION_AT.groove) return 'groove'
@@ -126,63 +78,47 @@ export function sectionFor(intensity: number, lobby = false): Section {
   return 'breakdown'
 }
 
-/** Which part roles each section wants next, best first. */
-const ROLE_PREF: Record<Section, PartRole[]> = {
-  breakdown: ['break', 'intro'],
-  buildup: ['intro', 'verse', 'break'],
-  groove: ['verse', 'bridge', 'chorus'],
-  drop: ['chorus', 'bridge'],
+/** The loops that can carry a section, in registry order. */
+export function loopsFor(section: Section): LoopDef[] {
+  return LOOPS.filter((l) => l.sections.includes(section))
 }
 
 /**
- * Where the form goes next.
- *
- * A **single forward scan** for the first part whose role the section accepts.
- * Two properties matter and both were got wrong first time:
- *
- * - It can never return `from` (the scan stops one short of a full lap), so the
- *   form cannot stall. Preferring a role that only one part carries otherwise
- *   pins the track on that part — a loop, which is the exact thing this design
- *   exists to escape.
- * - It takes the *first* acceptable part rather than exhausting one role before
- *   trying the next. Ranking by role instead made a sustained groove ping-pong
- *   between the two verses and never reach the bridge or the choruses; taking
- *   them in written order tours the whole track.
- *
- * Falls through to the next entry when nothing matches, because silence is never
- * the right answer to a track with an unusual role mix.
+ * Intensity units per second. A full swing takes ~1.8s, so the bed answers a
+ * change rather than tracking it.
  */
-export function nextFormIndex(track: TrackDef, from: number, section: Section): number {
-  const prefs = ROLE_PREF[section]
-  const n = track.form.length
-  for (let k = 1; k < n; k++) {
-    const idx = (from + k) % n
-    const role = partById(track, track.form[idx])?.role
-    if (role && prefs.includes(role)) return idx
-  }
-  return (from + 1) % n
-}
-
-export function partById(track: TrackDef, id: string): PartDef | undefined {
-  return track.parts.find((p) => p.id === id)
-}
-
-/** Length of the note starting at `i`, in slots, following `-1` ties. */
-export function noteLength(row: Slot[], i: number): number {
-  let n = 1
-  while (i + n < row.length && row[i + n] === -1) n++
-  return n
-}
+export const SLEW_PER_SEC = 0.55
 
 /**
- * A shuffle bag: every track exactly once, in a random order that does not open
- * on `avoid`.
+ * How long a newly derived section must hold before the bed changes loop.
  *
- * Not `Math.random()` per track. Pure random repeats — roughly one handover in
- * three would play the track that just finished, which people hear as "it's
- * broken", not as "that's what random means". Dealing a shuffled bag and
- * refilling it when empty gives an order that feels random *and* guarantees you
- * hear everything before hearing anything twice.
+ * Under the slew this is nearly always already satisfied by the time a real
+ * change arrives; it exists for the value that parks on a threshold, where the
+ * slew alone would let rounding chatter the bed between two loops.
+ */
+export const SECTION_HOLD_MS = 1200
+
+/**
+ * How many times a loop comes round before the bed hands over to another one
+ * carrying the same section.
+ *
+ * Three turns of a 44–72s loop is two to four minutes, which is both a normal
+ * length for a piece of music and long enough that the handover is an event
+ * rather than a carousel. It is also the only thing that moves the music on a
+ * table whose tension never changes, so it may not be raised much further.
+ */
+export const LAPS_PER_LOOP = 3
+
+/** Crossfade length, in seconds, for every loop change. */
+export const CROSSFADE_S = 2
+
+/**
+ * A shuffle bag: every id exactly once, in a random order that does not open on
+ * `avoid`.
+ *
+ * Not `Math.random()` per pick. Pure random repeats — with two loops carrying a
+ * section, half of all handovers would replay the loop that just finished, which
+ * people hear as "it's broken", not as "that's what random means".
  */
 export function shuffledOrder(ids: string[], avoid: string | null, rand: () => number): string[] {
   const out = [...ids]
@@ -191,113 +127,112 @@ export function shuffledOrder(ids: string[], avoid: string | null, rand: () => n
     ;[out[i], out[j]] = [out[j], out[i]]
   }
   // One deterministic swap rather than a reshuffle loop: re-rolling until the
-  // head differs can, with one track in the bag, never terminate.
+  // head differs can, with one id in the bag, never terminate.
   if (out.length > 1 && out[0] === avoid) [out[0], out[1]] = [out[1], out[0]]
   return out
 }
 
 /**
- * How many parts a track plays before handing over.
+ * Which loop plays next for `section`, given the one playing now.
  *
- * One pass of a form is ~36 bars, about a minute — short for something presented
- * as a song. Two passes lands around two minutes, which is both a normal track
- * length and long enough that the handover is an event rather than a carousel.
+ * Never returns `current` while the section has something else to offer, which
+ * is what makes both reasons for changing loop actually change it: a handover
+ * that returned the same id would restart the piece from the top instead, and a
+ * section change that did so would be an audible seam in service of nothing.
+ * Falls back to `current` rather than to silence when the section is carried by
+ * one loop alone — a registry that thin is a failure `music.test.ts` catches
+ * before this is ever reached.
  */
-export const PASSES_PER_TRACK = 2
-
-/**
- * Intensity units per second. A full swing takes ~1.8s — about a bar, so a
- * change lands on a bar line rather than dragging past the moment.
- */
-const SLEW_PER_SEC = 0.55
-
-/** Above this much pending climb, a bar line launches a riser. */
-const RISER_GAP = 0.18
-
-/** Drum patterns, in sixteenths. The kit is the track's, the pattern is here. */
-const KITS: Record<DrumStyle, { kick: number[]; clap: number[]; hat: number[]; openHat: number[]; ride: number[] }> = {
-  // Four on the floor, offbeat hats — the trance engine.
-  trance: {
-    kick: [0, 4, 8, 12], clap: [4, 12], hat: [2, 6, 10, 14], openHat: [],
-    ride: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-  },
-  // Same kick, but the hat is on every eighth and the "and" gets an open one.
-  house: {
-    kick: [0, 4, 8, 12], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14],
-    openHat: [2, 6, 10, 14], ride: [],
-  },
-  // The kick leaves the grid: 1, the "a" of 2, 3, the "a" of 4.
-  electro: {
-    kick: [0, 6, 8, 14], clap: [4, 12], hat: [2, 6, 10, 14], openHat: [],
-    ride: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-  },
+export function nextLoopId(
+  section: Section,
+  current: string | null,
+  bag: string[],
+  rand: () => number,
+): { id: string; bag: string[] } {
+  const ids = loopsFor(section).map((l) => l.id)
+  if (ids.length === 0) return { id: current ?? DEFAULT_LOOP_ID, bag }
+  let rest = bag.filter((id) => ids.includes(id))
+  if (rest.length === 0) rest = shuffledOrder(ids, current, rand)
+  if (rest.length > 1 && rest[0] === current) rest = rest.slice(1).concat(rest[0])
+  const [id, ...tail] = rest
+  return { id, bag: tail }
 }
 
-function mtof(midi: number): number {
-  return 440 * Math.pow(2, (midi - 69) / 12)
+/** One loop that is sounding, or fading out. */
+interface Voice {
+  id: string
+  src: AudioBufferSourceNode
+  gain: GainNode
+  /** Context time the source was started at. */
+  startedAt: number
+  /** Seconds into the loop it was started at. */
+  offset: number
+  seconds: number
+}
+
+/** A decoded file plus the loop points measured on it. */
+interface Decoded {
+  buffer: AudioBuffer
+  loopStart: number
+  loopEnd: number
+}
+
+/**
+ * An equal-power crossfade curve.
+ *
+ * A linear ramp on both sides sums to a dip in the middle for material that is
+ * not correlated, and two different pieces of music never are: the bed audibly
+ * ducks halfway through every change. Cosine/sine holds the sum flat.
+ */
+function fadeCurve(up: boolean, points = 33): Float32Array {
+  const c = new Float32Array(points)
+  for (let i = 0; i < points; i++) {
+    const x = (i / (points - 1)) * (Math.PI / 2)
+    c[i] = up ? Math.sin(x) : Math.cos(x)
+  }
+  return c
 }
 
 class MusicBed {
   private timer: ReturnType<typeof setInterval> | null = null
   private out: GainNode | null = null
-  /**
-   * The tab is hidden. The scheduler is stopped for as long as it is, and the
-   * scene it was playing is kept so the bed comes back with the tab.
-   */
+  /** The tab is hidden. Sources are stopped and the scene is kept. */
   private hidden = false
   /**
-   * A track chosen while the bed was stopped (⏭ on a screen with no music),
+   * A loop chosen while the bed was stopped (⏭ on a screen with no music),
    * honoured by the next `start()` instead of the bag's own pick.
    */
   private chosen: string | null = null
-  /** When the current duck ends (context seconds), or 0. See duck/dipThrough. */
-  private duckUntil = 0
-  private duckAmount = 1
-  /** Pad-only bus carrying the stepped pump. */
-  private padBus: GainNode | null = null
-  private reverbIn: GainNode | null = null
-  private leadEchoIn: GainNode | null = null
-  private leadDelay: DelayNode | null = null
-  private arpEchoIn: GainNode | null = null
-  private arpDelay: DelayNode | null = null
-  private noiseBuf: AudioBuffer | null = null
-  /** Soft clipping for the kick — most of a 909's punch. */
-  private shaper: WaveShaperNode | null = null
+  /** Decoded files, by id. One fetch per tab. */
+  private cache = new Map<string, Decoded>()
+  /** In-flight loads, so two ticks never fetch the same file twice. */
+  private loading = new Map<string, Promise<Decoded | null>>()
 
-  private track: TrackDef = getTrack(DEFAULT_TRACK_ID)
-  private pendingTrack: TrackDef | null = null
-  /** True when the swap was asked for by a person and should not wait a part. */
-  private pendingNow = false
-  /** A track just changed; the next emitted step covers the seam with a dip. */
-  private dipPending = false
-  /** Remaining tracks in the current shuffle bag. */
-  private queue: string[] = []
-  /** Parts played in the current track; at `partsPerTrack()` it hands over. */
-  private partsPlayed = 0
-  /** Harness-only shortening of a track. See `setPartsPerTrack`. */
-  private partsOverride: number | null = null
-  /** Index into `track.form`. */
-  private formIndex = 0
-  /** Sixteenth within the current part. */
-  private partStep = 0
-  /** How many times the current part has played — drives per-pass variation. */
-  private partPass = 0
+  /** The loop that owns the bed. Fading-out voices are in `retiring`. */
+  private voice: Voice | null = null
+  private retiring: Voice[] = []
 
-  private nextStepTime = 0
+  private loop: LoopDef = getLoop(DEFAULT_LOOP_ID)
+  /** Remaining ids in the current shuffle bag. */
+  private bag: string[] = []
   /** Where the game wants the intensity. */
   private target = 0.35
   /** Where the bed actually is — slewed toward the target, never jumped. */
-  private current = 0.35
-  /** Sampled once per bar, so the arrangement never changes mid-phrase. */
-  private barIntensity = 0.35
+  private currentIntensity = 0.35
+  /** The section the bed is playing for. */
   private section: Section = 'groove'
+  /** A different section, and since when (ms epoch). See SECTION_HOLD_MS. */
+  private pendingSection: Section | null = null
+  private pendingSince = 0
   private scene: MusicScene = 'off'
-  /** Bars elapsed since the bed started — drives the slow filter sweeps. */
-  private barCount = 0
-  /** Deterministic variation, so hats are not a machine. */
-  private seed = 1
-  /** Scheduler time of the last slew, for a frame-rate-independent ramp. */
+  /** Wall-clock of the last slew, for a frame-rate-independent ramp. */
   private lastSlewAt = 0
+  /** Deterministic variation, seeded from the clock once per `start()`. */
+  private seed = 1
+  /** A change is in flight; the tick does not start a second one over it. */
+  private swapping = false
+  /** Harness-only shortening of a lap. See `setLapSeconds`. */
+  private lapOverride: number | null = null
 
   private rand(): number {
     // xorshift — cheap, dependency-free, and repeatable enough to debug.
@@ -317,7 +252,7 @@ class MusicBed {
 
   /** Current slewed intensity. Exposed for the verification harness. */
   getIntensity(): number {
-    return this.current
+    return this.currentIntensity
   }
 
   /** Section currently playing. Exposed for the verification harness. */
@@ -325,124 +260,69 @@ class MusicBed {
     return this.section
   }
 
-  getTrackId(): string {
-    return this.track.id
+  /** Loop currently playing. Exposed for the panel and the harness. */
+  getLoopId(): string {
+    return this.loop.id
   }
 
-  /** Part currently playing. Exposed so the harness can prove the form moves. */
-  getPartId(): string {
-    return this.track.form[this.formIndex] ?? ''
-  }
-
-  /**
-   * Switches track, persisting the choice. Used by the verification harness and
-   * by the automatic handover; people use `nextTrack()`.
-   *
-   * `now` swaps at the next bar line, roughly a second and a half away; without
-   * it the swap waits for the end of the current part, which can be four bars.
-   * That distinction is the whole difference between an automatic handover
-   * (which should land on a phrase boundary) and a button press (which has to
-   * feel like it did something).
-   */
-  setTrack(id: string, now = false): void {
-    const next = getTrack(id)
-    audio.setSettings({ track: next.id })
-    if (!this.isPlaying() || next.id === this.track.id) {
-      // Stopped, the choice used to be overwritten by `start()`'s own pick from
-      // a fresh bag: the label changed and the deal played something else.
-      if (!this.isPlaying()) this.chosen = next.id
-      this.track = next
-      this.pendingTrack = null
-      this.beginTrack()
-      return
-    }
-    this.pendingTrack = next
-    this.pendingNow = now
+  /** How many times the current loop has come round. Harness only. */
+  getLaps(): number {
+    const v = this.voice
+    const ctx = audio.context()
+    if (!v || !ctx) return 0
+    const lap = this.lapOverride ?? v.seconds
+    return Math.floor((ctx.currentTime - v.startedAt + v.offset) / lap)
   }
 
   /**
-   * Skips to the next track in the shuffle bag, refilling it when empty.
+   * Shortens a lap, for the verification harness only.
    *
-   * This is the only way a person changes track: there is no picker. Choosing
-   * from a list means reading three names to make a decision nobody came here to
-   * make, whereas "not this one" is a judgement you can act on in one tap.
+   * A real loop is 44 to 102 seconds and hands over after three of them, so the
+   * unattended handover — the only thing that moves the music on a table whose
+   * tension never changes — would be the one behaviour here that nothing ever
+   * checks. Same test seam the server uses for `AFKKickThreshold`; pass `null`
+   * to restore. It moves the handover decision alone and never the loop points,
+   * so what the harness hears is still the music playing properly.
    */
-  nextTrack(): void {
-    this.setTrack(this.takeFromQueue(), true)
-  }
-
-  /** How many parts this track plays before handing over. */
-  private partsPerTrack(): number {
-    return this.partsOverride ?? this.track.form.length * PASSES_PER_TRACK
-  }
-
-  /**
-   * Shortens a track, for the verification harness only.
-   *
-   * A real track runs about two minutes, which is the right length and far too
-   * long for a harness to sit through — so the automatic handover would be the
-   * one behaviour here that nothing ever checks. Same test seam the server uses
-   * for `AFKKickThreshold`; pass `null` to restore.
-   */
-  setPartsPerTrack(parts: number | null): void {
-    this.partsOverride = parts
-  }
-
-  private takeFromQueue(): string {
-    if (this.queue.length === 0) {
-      this.queue = shuffledOrder(TRACKS.map((t) => t.id), this.track.id, () => this.rand())
-    }
-    return this.queue.shift() ?? this.track.id
-  }
-
-  /** Resets the position counters for a track that is starting now. */
-  private beginTrack(): void {
-    this.formIndex = 0
-    this.partStep = 0
-    this.partPass = 0
-    this.partsPlayed = 0
-    this.retuneDelays()
-  }
-
-  /**
-   * Covers a track change with a short dip.
-   *
-   * Two pieces of music butt-joined on a bar line still click, because the tails
-   * of the outgoing one (reverb, delay repeats, a pad's 1.2s release) are cut
-   * mid-air. Fading down into the seam and back out of it costs a quarter of a
-   * second and removes the only artefact of the swap.
-   */
-  private dipThrough(ctx: AudioContext, at: number): void {
-    const out = this.out
-    if (!out) return
-    const from = Math.max(ctx.currentTime, at - 0.18)
-    out.gain.cancelScheduledValues(from)
-    out.gain.setValueAtTime(out.gain.value, from)
-    out.gain.linearRampToValueAtTime(0.06, at)
-    // Back to where the bed belongs, which under a fanfare is the ducked level
-    // and not full: the cancel above took the duck's own return with it, so it
-    // is scheduled again here rather than letting a track change slam the bed
-    // back up under the one sound people clip.
-    if (at + 0.28 < this.duckUntil) {
-      out.gain.linearRampToValueAtTime(this.duckAmount, at + 0.28)
-      out.gain.setValueAtTime(this.duckAmount, this.duckUntil)
-      out.gain.linearRampToValueAtTime(1, this.duckUntil + 0.5)
-      return
-    }
-    out.gain.linearRampToValueAtTime(1, at + 0.28)
+  setLapSeconds(seconds: number | null): void {
+    this.lapOverride = seconds
   }
 
   setIntensity(value: number): void {
     this.target = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0))
   }
 
-  /** Seconds per sixteenth, from the current track's tempo. */
-  private stepDur(): number {
-    return 60 / this.track.bpm / 4
+  /**
+   * Skips to another loop that carries the section currently playing.
+   *
+   * This is the only way a person changes the music: there is no picker.
+   * Choosing from a list means reading six names to make a decision nobody
+   * opened the panel to make, whereas "not this one" is a judgement you can act
+   * on in one tap.
+   */
+  nextTrack(): void {
+    const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand())
+    this.bag = bag
+    this.setLoop(id)
   }
 
-  private barDur(): number {
-    return this.stepDur() * STEPS_PER_BAR
+  /**
+   * Switches loop, persisting the choice. Used by `nextTrack`, by the section
+   * change and by the verification harness.
+   */
+  setLoop(id: string): void {
+    const next = getLoop(id)
+    audio.setSettings({ track: next.id })
+    if (!this.isPlaying()) {
+      // Stopped, the choice used to be overwritten by `start()`'s own pick from
+      // a fresh bag: the label changed and the deal played something else.
+      this.chosen = next.id
+      this.loop = next
+      return
+    }
+    if (next.id === this.loop.id) return
+    this.loop = next
+    void this.swapTo(next)
   }
 
   /**
@@ -457,120 +337,168 @@ class MusicBed {
       this.out = ctx.createGain()
       this.out.gain.value = 1
       // Fixed output trim, downstream of the duck so `duck()` can keep treating
-      // 1 as nominal on `out.gain`.
-      //
-      // Headroom is a real problem here: the pad is up to 7 unison voices per
-      // chord tone with a long release, so chords overlap, and a drop stacks that
-      // under an arp, a lead, a counter-line, stabs, a bass and drums. Measured
-      // bare, the bed peaked at 0.73 with the music slider at 1 — clipping once
-      // effects play over it. A `DynamicsCompressor` was the obvious fix and the
-      // wrong one: Chrome's applies an internal makeup gain, so the "limiter"
-      // came back *louder* (peak 0.81, RMS +45%). One multiplication is
-      // predictable, and every voice level is tuned against it.
+      // 1 as nominal on `out.gain`. The files are mastered to −18 LUFS with
+      // peaks under −2 dBTP, so this is headroom for the effects that play over
+      // them rather than a correction of the material.
       const trim = ctx.createGain()
       trim.gain.value = 0.55
       this.out.connect(trim)
       trim.connect(bus)
-      this.buildGraph(ctx, this.out)
     }
     return this.out
   }
 
   /**
-   * The fixed part of the graph, built once: pad bus, reverb, the two delays and
-   * the kick's waveshaper.
+   * Fetches and decodes a loop, once per tab.
    *
-   * All of it hangs off `out`, upstream of the duck, so `duck()` attenuates wet
-   * and dry together — a fanfare over a reverb tail that ignored the duck would
-   * be the same mush the duck exists to prevent.
+   * The loop points are measured here rather than trusted from the file. MP3
+   * carries encoder delay at the head and padding at the tail, both of which
+   * survive `decodeAudioData`, so a buffer looped on its own length inserts the
+   * gap the pack's README warns about. Finding the first audible sample and
+   * adding the source file's exact duration puts the seam back where the
+   * composer cut it.
    */
-  private buildGraph(ctx: AudioContext, out: GainNode) {
-    this.padBus = ctx.createGain()
-    this.padBus.gain.value = 1
-    this.padBus.connect(out)
+  private async load(id: string): Promise<Decoded | null> {
+    const hit = this.cache.get(id)
+    if (hit) return hit
+    const pending = this.loading.get(id)
+    if (pending) return pending
 
-    // Three lowpassed comb delays. A convolver would sound lusher, but this bed
-    // runs next to card animations on a phone, and "latency → smooth animation"
-    // outranks "lush" in this repo.
-    const revIn = ctx.createGain()
-    const revOut = ctx.createGain()
-    revOut.gain.value = 0.5
-    const preTone = ctx.createBiquadFilter()
-    preTone.type = 'lowpass'
-    preTone.frequency.value = 4200
-    revIn.connect(preTone)
-    for (const [time, fb] of [[0.037, 0.78], [0.041, 0.75], [0.053, 0.72]]) {
-      const comb = ctx.createDelay(0.2)
-      comb.delayTime.value = time
-      const loop = ctx.createGain()
-      loop.gain.value = fb
-      const damp = ctx.createBiquadFilter()
-      damp.type = 'lowpass'
-      damp.frequency.value = 2600
-      preTone.connect(comb)
-      comb.connect(damp)
-      damp.connect(loop)
-      loop.connect(comb)
-      damp.connect(revOut)
-    }
-    revOut.connect(out)
-    this.reverbIn = revIn
-
-    // Dotted delays — this genre's whole sense of space. The times are bar
-    // fractions recomputed on every tempo change (`retuneDelays`); typed in as
-    // seconds they would land between the beats and the groove would die.
-    const echo = (feedback: number, level: number, tone: number): [GainNode, DelayNode] => {
-      const input = ctx.createGain()
-      input.gain.value = level
-      const delay = ctx.createDelay(2)
-      const fb = ctx.createGain()
-      fb.gain.value = feedback
-      const lp = ctx.createBiquadFilter()
-      lp.type = 'lowpass'
-      lp.frequency.value = tone
-      input.connect(delay)
-      delay.connect(lp)
-      lp.connect(fb)
-      fb.connect(delay)
-      lp.connect(out)
-      return [input, delay]
-    }
-    const [leadIn, leadDelay] = echo(0.55, 0.5, 3200)
-    const [arpIn, arpDelay] = echo(0.45, 0.4, 2600)
-    this.leadEchoIn = leadIn
-    this.leadDelay = leadDelay
-    this.arpEchoIn = arpIn
-    this.arpDelay = arpDelay
-    this.retuneDelays()
-
-    const curve = new Float32Array(1024)
-    for (let i = 0; i < curve.length; i++) {
-      const x = (i / (curve.length - 1)) * 2 - 1
-      curve[i] = Math.tanh(x * 2.2)
-    }
-    this.shaper = ctx.createWaveShaper()
-    this.shaper.curve = curve
-    this.shaper.oversample = '2x'
-    this.shaper.connect(out)
+    const job = (async (): Promise<Decoded | null> => {
+      const ctx = audio.context()
+      if (!ctx) return null
+      try {
+        const res = await fetch(`${MUSIC_BASE}/${id}.mp3`)
+        if (!res.ok) return null
+        const buffer = await ctx.decodeAudioData(await res.arrayBuffer())
+        const def = getLoop(id)
+        const data = buffer.getChannelData(0)
+        let head = 0
+        while (head < data.length && Math.abs(data[head]) < 0.0015) head++
+        const loopStart = head / buffer.sampleRate
+        const decoded: Decoded = {
+          buffer,
+          loopStart,
+          loopEnd: Math.min(loopStart + def.seconds, buffer.duration),
+        }
+        this.cache.set(id, decoded)
+        return decoded
+      } catch {
+        // A bed that will not load is a quiet game, never a broken one: the
+        // caller keeps whatever is already sounding.
+        return null
+      } finally {
+        this.loading.delete(id)
+      }
+    })()
+    this.loading.set(id, job)
+    return job
   }
 
-  /** Keeps the dotted delays locked to the current track's tempo. */
-  private retuneDelays(): void {
-    const bar = this.barDur()
-    if (this.leadDelay) this.leadDelay.delayTime.value = bar * (3 / 8)
-    if (this.arpDelay) this.arpDelay.delayTime.value = bar * (3 / 16)
+  /**
+   * Warms the rest of the registry after the first loop is sounding.
+   *
+   * A section change that had to wait on a fetch would arrive late at exactly
+   * the moment the bed exists to answer — somebody reaching one card. One at a
+   * time, so the warm-up never competes with the page it is running under.
+   */
+  private async prefetch(): Promise<void> {
+    for (const l of LOOPS) {
+      if (!this.isPlaying()) return
+      if (!this.cache.has(l.id)) await this.load(l.id)
+    }
   }
 
-  /** One buffer of white noise, reused by every percussion voice and the riser. */
-  private noise(ctx: AudioContext): AudioBuffer {
-    if (!this.noiseBuf) {
-      const len = Math.floor(ctx.sampleRate * 2)
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate)
-      const data = buf.getChannelData(0)
-      for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1
-      this.noiseBuf = buf
+  /** Starts `def` under a fade-in, retiring whatever is sounding. */
+  private async swapTo(def: LoopDef, fade = CROSSFADE_S): Promise<void> {
+    if (this.swapping) return
+    this.swapping = true
+    try {
+      const ctx = audio.context()
+      const out = this.output()
+      if (!ctx || !out) return
+      const decoded = await this.load(def.id)
+      // Nothing to swap to: keep what is playing rather than going silent, and
+      // leave `this.loop` alone so the panel does not name a loop nobody hears.
+      if (!decoded || !this.isPlaying()) {
+        if (this.voice) this.loop = getLoop(this.voice.id)
+        return
+      }
+
+      const at = ctx.currentTime
+      const src = ctx.createBufferSource()
+      src.buffer = decoded.buffer
+      src.loop = true
+      src.loopStart = decoded.loopStart
+      src.loopEnd = decoded.loopEnd
+      const gain = ctx.createGain()
+      const cross = this.voice !== null && fade > 0
+      gain.gain.value = cross ? 0 : 1
+      if (cross) gain.gain.setValueCurveAtTime(fadeCurve(true), at, fade)
+      src.connect(gain)
+      gain.connect(out)
+      src.start(at, decoded.loopStart)
+
+      if (this.voice) this.retire(this.voice, at, fade)
+      this.voice = {
+        id: def.id,
+        src,
+        gain,
+        startedAt: at,
+        offset: 0,
+        seconds: decoded.loopEnd - decoded.loopStart,
+      }
+      this.loop = def
+    } finally {
+      this.swapping = false
     }
-    return this.noiseBuf
+  }
+
+  /**
+   * Fades a voice out and stops it.
+   *
+   * Note what this does *not* touch: `out.gain`, which belongs to `duck()`. The
+   * synthesised bed covered a track change with a dip on that node, and a change
+   * landing under a fanfare cancelled the duck's own return with it. A crossfade
+   * between two source gains cannot have that argument.
+   */
+  private retire(v: Voice, at: number, fade: number): void {
+    v.gain.gain.cancelScheduledValues(at)
+    if (fade > 0) v.gain.gain.setValueCurveAtTime(fadeCurve(false), at, fade)
+    else v.gain.gain.setValueAtTime(0, at)
+    try {
+      v.src.stop(at + fade + 0.05)
+    } catch {
+      // Already stopped. Nothing to do, and nothing worth reporting.
+    }
+    this.retiring.push(v)
+    const done = () => {
+      this.retiring = this.retiring.filter((x) => x !== v)
+      try {
+        v.gain.disconnect()
+      } catch {
+        // The graph is already gone.
+      }
+    }
+    v.src.onended = done
+  }
+
+  private stopVoices(): void {
+    for (const v of [this.voice, ...this.retiring]) {
+      if (!v) continue
+      try {
+        v.src.stop()
+      } catch {
+        // Already stopped.
+      }
+      try {
+        v.gain.disconnect()
+      } catch {
+        // Already disconnected.
+      }
+    }
+    this.voice = null
+    this.retiring = []
   }
 
   /**
@@ -578,14 +506,19 @@ class MusicBed {
    *
    * Used under the win/lose fanfares: two pieces of music competing for the same
    * moment makes both of them mush, and the fanfare is the one that matters.
+   *
+   * It owns `out.gain` outright and needs no bookkeeping to defend it. The
+   * synthesised bed had to remember when a duck would end, because it covered a
+   * track change with a dip on this same node and the dip's
+   * `cancelScheduledValues` took the duck's return with it — the bed came back
+   * to full under the one sound people clip. A loop change is a crossfade
+   * between two source gains and never touches this node at all.
    */
   duck(ms = 2200, amount = 0.22): void {
     const ctx = audio.context()
     const out = this.output()
     if (!ctx || !out) return
     const t = ctx.currentTime
-    this.duckUntil = t + ms / 1000
-    this.duckAmount = amount
     out.gain.cancelScheduledValues(t)
     out.gain.setValueAtTime(out.gain.value, t)
     out.gain.linearRampToValueAtTime(amount, t + 0.12)
@@ -594,14 +527,18 @@ class MusicBed {
   }
 
   /**
-   * Tells the bed whether the tab is hidden. Hidden stops the scheduler and
-   * keeps the scene; visible again starts it back up where the scene says.
+   * Tells the bed whether the tab is hidden. Hidden stops the sources and keeps
+   * the scene; visible again starts it back up where the scene says.
+   *
+   * A page that plays audio is exempt from timer throttling, so a backgrounded
+   * table would otherwise go on playing out loud from behind another window.
    */
   setHidden(hidden: boolean): void {
     if (this.hidden === hidden) return
     this.hidden = hidden
     if (hidden) {
       this.clearTimer()
+      this.stopVoices()
       return
     }
     if (this.scene !== 'off') this.start(this.scene)
@@ -620,538 +557,79 @@ class MusicBed {
       this.stop()
       return
     }
-    if (!audio.isReady() || this.timer || this.hidden) return
+    // Muted opens nothing: no fetch, no decode, no scheduler in service of
+    // silence. Unmuting is itself a gesture and starts the bed on the spot.
+    if (!audio.isReady() || audio.getSettings().muted || this.timer || this.hidden) return
     // Seed the shuffle from the clock, once. The generator is otherwise
-    // deterministic — fine for debugging a rhythm, useless for "play them in a
-    // random order", which would hand every session the same order forever.
+    // deterministic — fine for debugging, useless for "play them in a random
+    // order", which would hand every session the same order forever.
     this.seed = (Date.now() & 0x7fffffff) | 1
-    // The bag avoids the track that was playing when the bed last stopped: a
-    // search that ended in a deal restarted the same track one time in three,
-    // which people hear as broken rather than as random. A track chosen with
-    // ⏭ while the bed was off is what plays, and it is then spent.
-    this.queue = shuffledOrder(TRACKS.map((t) => t.id), this.track.id, () => this.rand())
-    this.track = getTrack(this.chosen ?? this.takeFromQueue())
+    this.section = sectionFor(this.currentIntensity, scene === 'lobby')
+    this.bag = []
+    this.lastSlewAt = Date.now()
+    this.timer = setInterval(() => this.tick(), TICK_MS)
+
+    // A loop chosen with ⏭ while the bed was off is what plays, and it is then
+    // spent; otherwise the bag picks one that carries the opening section.
+    let id = this.chosen
     this.chosen = null
-    audio.setSettings({ track: this.track.id })
-    this.beginTrack()
-    this.barCount = 0
-    this.lastSlewAt = 0
-    this.nextStepTime = audio.now() + 0.08
-    this.timer = setInterval(() => this.schedule(), TICK_MS)
+    if (!id || !getLoop(id).sections.includes(this.section)) {
+      const pick = nextLoopId(this.section, null, this.bag, () => this.rand())
+      this.bag = pick.bag
+      id = pick.id
+    }
+    const def = getLoop(id)
+    audio.setSettings({ track: def.id })
+    void this.swapTo(def, 0).then(() => this.prefetch())
   }
 
   stop(): void {
     this.clearTimer()
+    this.stopVoices()
     this.scene = 'off'
   }
 
-  private part(): PartDef {
-    return partById(this.track, this.track.form[this.formIndex]) ?? this.track.parts[0]
-  }
-
-  private schedule(): void {
+  /**
+   * One pass: slew the intensity, decide whether the section has really moved,
+   * and hand over a loop that has come round enough times.
+   */
+  private tick(): void {
+    if (!audio.isReady() || audio.getSettings().muted) return
     const ctx = audio.context()
-    const dest = this.output()
-    if (!ctx || !dest || !audio.isReady() || audio.getSettings().muted) return
+    if (!ctx) return
 
-    const horizon = ctx.currentTime + LOOKAHEAD
-    // Recover from a tab that was backgrounded: never try to catch up on
-    // thousands of missed steps, just resync to now.
-    if (this.nextStepTime < ctx.currentTime - 1) this.nextStepTime = ctx.currentTime + 0.05
+    const now = Date.now()
+    const dt = Math.min(1, Math.max(0, (now - this.lastSlewAt) / 1000))
+    this.lastSlewAt = now
+    const step = SLEW_PER_SEC * dt
+    const delta = this.target - this.currentIntensity
+    this.currentIntensity += Math.abs(delta) <= step ? delta : Math.sign(delta) * step
 
-    let guard = 0
-    while (this.nextStepTime < horizon && guard++ < 64) {
-      // A step whose time has passed is skipped, not played late: a stall
-      // shorter than the resync above (a long frame, a throttled tick) used to
-      // start every missed sixteenth at once — kick, bass, arp, lead and hats
-      // as one stacked hit. The form still advances through them, so the bar
-      // picks up where it should rather than where it stopped.
-      if (this.nextStepTime >= ctx.currentTime) this.emitStep(this.nextStepTime, ctx, dest)
-      this.nextStepTime += this.stepDur()
-      this.advance()
-    }
-  }
-
-  /** Moves one sixteenth on, crossing part boundaries and applying a track swap. */
-  private advance(): void {
-    this.partStep++
-    if (this.partStep % STEPS_PER_BAR === 0) this.barCount++
-    const len = this.part().bars.length * STEPS_PER_BAR
-    if (this.partStep < len) return
-
-    this.partStep = 0
-    this.partsPlayed++
-
-    // A track that has played its length hands over to the next one in the bag.
-    // The handover waits for this part boundary rather than a bar line: it is not
-    // a response to anything a person did, so it can afford to land on a phrase.
-    if (!this.pendingTrack && this.partsPlayed >= this.partsPerTrack()) {
-      this.pendingTrack = getTrack(this.takeFromQueue())
-      this.pendingNow = false
-    }
-    if (this.pendingTrack) {
-      this.applyPendingTrack()
+    const wanted = sectionFor(this.currentIntensity, this.scene === 'lobby')
+    if (wanted === this.section) {
+      this.pendingSection = null
+    } else if (this.pendingSection !== wanted) {
+      this.pendingSection = wanted
+      this.pendingSince = now
+    } else if (now - this.pendingSince >= SECTION_HOLD_MS) {
+      this.pendingSection = null
+      this.section = wanted
+      const { id, bag } = nextLoopId(wanted, this.loop.id, this.bag, () => this.rand())
+      this.bag = bag
+      this.setLoop(id)
       return
     }
 
-    const before = this.formIndex
-    this.formIndex = nextFormIndex(this.track, this.formIndex, this.section)
-    if (this.formIndex === before) this.partPass++
-    else this.partPass = 0
-  }
-
-  private applyPendingTrack(): void {
-    if (!this.pendingTrack) return
-    this.track = this.pendingTrack
-    this.pendingTrack = null
-    this.pendingNow = false
-    // Both routes in — button and end-of-track — get the dip. `advance()` has no
-    // scheduler time to hand to `dipThrough`, so it is flagged here and applied
-    // on the next emitted step, which is the seam itself.
-    this.dipPending = true
-    audio.setSettings({ track: this.track.id })
-    this.beginTrack()
-  }
-
-  /**
-   * Moves `current` toward `target` at SLEW_PER_SEC.
-   *
-   * Intensity is derived from discrete game events, so it arrives in jumps — a
-   * +4 landing can take it from 0.34 to 0.7 between one message and the next.
-   * Applied raw, the arrangement would cut from breakdown to drop mid-bar.
-   * Slewing turns that into a build, which is what the tension actually feels
-   * like — and it is what gives the riser something real to announce.
-   *
-   * The rate is per *second*, not per step: a sixteenth at 138 BPM lasts 109ms,
-   * so a per-step rate made the ramp depend on the tempo and took 14 seconds to
-   * cross the range, by which time the round was over.
-   */
-  private slew(now: number): void {
-    const dt = this.lastSlewAt === 0 ? 0 : Math.min(0.5, Math.max(0, now - this.lastSlewAt))
-    this.lastSlewAt = now
-    const maxDelta = SLEW_PER_SEC * dt
-    const d = this.target - this.current
-    if (Math.abs(d) <= maxDelta) this.current = this.target
-    else this.current += Math.sign(d) * maxDelta
-  }
-
-  /** Sine LFO in 0..1 over `bars` bars. */
-  private lfo(bars: number, offset = 0): number {
-    const pos = this.barCount + (this.partStep % STEPS_PER_BAR) / STEPS_PER_BAR
-    return 0.5 + 0.5 * Math.sin((2 * Math.PI * (pos + offset)) / bars)
-  }
-
-  private emitStep(when: number, ctx: AudioContext, dest: GainNode) {
-    // A person pressed "next": swap on this bar line rather than making them wait
-    // out the part. It happens *before* anything below reads the track, so the
-    // new one gets its own downbeat — applying it later and returning early
-    // silently swallowed the first sixteenth, which is where the kick, the pad
-    // and the first note of the tune all live.
-    if (this.pendingTrack && this.pendingNow && this.partStep % STEPS_PER_BAR === 0) {
-      this.applyPendingTrack()
+    // The table has not moved. What moves the music is the loop having come
+    // round enough times — the only thing that does, on a table whose tension
+    // holds still for ten minutes.
+    if (this.voice && this.getLaps() >= LAPS_PER_LOOP && loopsFor(this.section).length > 1) {
+      const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand())
+      this.bag = bag
+      this.setLoop(id)
     }
-    if (this.dipPending) {
-      this.dipThrough(ctx, when)
-      this.dipPending = false
-    }
-
-    const track = this.track
-    const part = this.part()
-    const step = this.partStep
-    const bar = Math.floor(step / STEPS_PER_BAR)
-    const inBar = step % STEPS_PER_BAR
-    const barDef = part.bars[bar]
-    const lobby = this.scene === 'lobby'
-    const stepDur = this.stepDur()
-
-    this.slew(when)
-    if (inBar === 0) {
-      // The arrangement is frozen at the bar line: a layer that appears on beat 3
-      // sounds like a mistake, the same layer on beat 1 sounds intended.
-      this.barIntensity = this.current
-      this.section = sectionFor(this.barIntensity, lobby)
-
-      const lastBar = bar === part.bars.length - 1
-      const next = partById(track, track.form[nextFormIndex(track, this.formIndex, this.section)])
-      // Build into a chorus. This is the single biggest thing separating a song
-      // from a loop: the arrival is announced before it happens.
-      if (lastBar && next?.role === 'chorus' && this.section !== 'breakdown') {
-        this.riser(ctx, dest)
-      } else if (!lobby && this.section !== 'drop' && this.target - this.current > RISER_GAP) {
-        // Otherwise a riser only fires from the *gap*: the game has asked for
-        // more tension than the bed has reached, so there is a real build.
-        this.riser(ctx, dest)
-      }
-      if (step === 0 && LAYERS[this.section].crash && part.role === 'chorus') {
-        this.crash(ctx, dest, when)
-      }
-    }
-
-    const L = LAYERS[this.section]
-
-    // ── Pump: stepped on every sixteenth, pad bus only.
-    if (this.padBus) {
-      this.padBus.gain.setValueAtTime(track.pump[inBar % track.pump.length], when)
-    }
-
-    // ── Pad: one sustained chord per bar.
-    if (L.pad && inBar === 0 && this.padBus) {
-      for (const midi of barDef.chord) {
-        this.synth(ctx, this.padBus, track.voices.pad, mtof(midi), when, this.barDur())
-      }
-    }
-
-    // ── Arp: the texture that never stops. Cutoff sweeps slowly across sixteen
-    //    bars, or sits closed when the section wants it out of the way.
-    const arpEvery = STEPS_PER_BAR / part.arpDiv
-    if (inBar % arpEvery === 0) {
-      const spec = track.voices.arp
-      const idx = (inBar / arpEvery) % barDef.arp.length
-      const open = spec.filter * (0.35 + 0.65 * this.lfo(16))
-      this.synth(ctx, dest, spec, mtof(barDef.arp[idx]), when, stepDur * arpEvery, {
-        gain: spec.gain * L.arpGain,
-        filter: L.arpCutoff ?? open,
-        pan: inBar % 2 === 0 ? -0.18 : 0.18,
-      })
-    }
-
-    // ── Lead, and its answer.
-    if (L.lead && part.lead) {
-      const every = STEPS_PER_BAR / part.div
-      if (inBar % every === 0) {
-        const row = part.lead[bar]
-        const slot = inBar / every
-        const midi = row[slot]
-        if (midi > 0) {
-          const len = noteLength(row, slot) * every * stepDur
-          // Alternate passes of a chorus lift an octave: same tune, more arrival.
-          const lift = L.leadOctave && part.role === 'chorus' && this.partPass % 2 === 1 ? 12 : 0
-          this.synth(ctx, dest, track.voices.lead, mtof(midi + lift), when, len)
-          if (L.leadOctave && lift === 0) {
-            this.synth(ctx, dest, track.voices.lead, mtof(midi + 12), when, len * 0.7, {
-              gain: track.voices.lead.gain * 0.3,
-              echo: null,
-              reverb: 0.3,
-            })
-          }
-        }
-      }
-    }
-    if (L.counter && part.counter) {
-      const every = STEPS_PER_BAR / part.div
-      if (inBar % every === 0) {
-        const row = part.counter[bar]
-        const slot = inBar / every
-        const midi = row[slot]
-        if (midi > 0) {
-          const len = noteLength(row, slot) * every * stepDur
-          this.synth(ctx, dest, track.voices.lead, mtof(midi), when, len, {
-            gain: track.voices.lead.gain * 0.55,
-            filter: track.voices.lead.filter * 0.6,
-          })
-        }
-      }
-    }
-
-    // ── Stabs: offbeat chord hits, the electro-house signature.
-    if (L.stabs && part.stabs?.includes(inBar)) {
-      for (const midi of barDef.chord.slice(1)) {
-        this.synth(ctx, dest, track.voices.stab, mtof(midi), when, stepDur)
-      }
-    }
-
-    // ── Bass.
-    if (L.bass) {
-      const offset = part.bass[inBar]
-      if (offset !== null && offset !== undefined) {
-        this.bassNote(ctx, dest, barDef.root + offset, when)
-      }
-    }
-
-    // ── Drums.
-    const kit = KITS[track.drums]
-    if (L.kick && kit.kick.includes(inBar)) this.kick(ctx, when)
-    if (L.hats && kit.hat.includes(inBar)) {
-      this.noiseVoice(ctx, dest, {
-        when, dur: 0.045, gain: 0.05 * (0.85 + this.rand() * 0.3),
-        type: 'highpass', freq: 8000, pan: (this.lfo(0.5) - 0.5) * 0.4,
-      })
-    }
-    if (L.hats && kit.openHat.includes(inBar)) {
-      this.noiseVoice(ctx, dest, {
-        when, dur: 0.13, gain: 0.03, type: 'highpass', freq: 7000, pan: 0.12,
-      })
-    }
-    if (L.ride && kit.ride.includes(inBar)) {
-      this.noiseVoice(ctx, dest, {
-        when, dur: 0.03, gain: 0.05 * [0.35, 0.15, 0.25, 0.15][inBar % 4],
-        type: 'highpass', freq: 9200, pan: -0.1,
-      })
-    }
-    if (L.clap === 'beats' && kit.clap.includes(inBar)) this.clap(ctx, dest, when)
-    if (L.clap === 'sparse' && inBar === 8 && bar % 2 === 0) this.clap(ctx, dest, when)
-
-    // ── Fill: the last beat of a part, when there are drums to fill with. Four
-    //    rising snare hits is a cliché, and clichés are how a listener knows a
-    //    section is ending.
-    const lastBar = bar === part.bars.length - 1
-    if ((L.kick || L.hats) && lastBar && inBar >= 12) {
-      this.noiseVoice(ctx, dest, {
-        when, dur: 0.06, gain: 0.03 + (inBar - 12) * 0.012,
-        type: 'bandpass', freq: 1400 + (inBar - 12) * 260, Q: 1.2, reverb: 0.25,
-      })
-    }
-  }
-
-  /**
-   * One synthesised voice: `unison` detuned oscillators through a lowpass with an
-   * ADSR, plus optional sends and pan.
-   *
-   * Detuned stacks are the sound of this genre — a single oscillator playing the
-   * same notes reads as a test tone however good the tune is. Level is divided by
-   * the unison count so widening a voice never also makes it louder.
-   */
-  private synth(
-    ctx: AudioContext,
-    dest: AudioNode,
-    spec: SynthSpec,
-    freq: number,
-    when: number,
-    dur: number,
-    override?: { gain?: number; filter?: number; pan?: number; reverb?: number; echo?: SynthSpec['echo'] },
-  ) {
-    const gain = override?.gain ?? spec.gain
-    const filter = override?.filter ?? spec.filter
-    const reverb = override?.reverb ?? spec.reverb
-    const echoName = override?.echo === undefined ? spec.echo : override.echo
-    const { attack, decay, sustain, release }: Adsr = spec.adsr
-
-    const g = ctx.createGain()
-    const sus = Math.max(0.0002, gain * sustain)
-    const relStart = Math.max(when + attack + decay, when + dur)
-    g.gain.setValueAtTime(0.0001, when)
-    g.gain.exponentialRampToValueAtTime(gain, when + attack)
-    g.gain.exponentialRampToValueAtTime(sus, when + attack + decay)
-    g.gain.setValueAtTime(sus, relStart)
-    g.gain.exponentialRampToValueAtTime(0.0001, relStart + release)
-    const end = relStart + release
-
-    const lp = ctx.createBiquadFilter()
-    lp.type = 'lowpass'
-    lp.frequency.setValueAtTime(filter, when)
-    lp.Q.value = spec.q ?? 0.9
-    lp.connect(g)
-
-    const level = 1 / spec.unison
-    const oscs: OscillatorNode[] = []
-    for (let n = 0; n < spec.unison; n++) {
-      const osc = ctx.createOscillator()
-      osc.type = spec.wave
-      osc.frequency.setValueAtTime(freq, when)
-      const cents = spec.unison === 1 ? 0 : -spec.detune / 2 + (spec.detune * n) / (spec.unison - 1)
-      osc.detune.setValueAtTime(cents, when)
-      const mix = ctx.createGain()
-      mix.gain.value = level
-      osc.connect(mix)
-      mix.connect(lp)
-      oscs.push(osc)
-    }
-
-    let tail: AudioNode = g
-    if (override?.pan !== undefined) {
-      const panner = ctx.createStereoPanner()
-      panner.pan.setValueAtTime(override.pan, when)
-      g.connect(panner)
-      tail = panner
-    }
-    tail.connect(dest)
-    this.send(ctx, tail, this.reverbIn, reverb)
-    if (echoName) {
-      this.send(ctx, tail, echoName === 'lead' ? this.leadEchoIn : this.arpEchoIn, 1)
-    }
-
-    for (const osc of oscs) {
-      osc.start(when)
-      osc.stop(end + 0.02)
-    }
-  }
-
-  private send(ctx: AudioContext, from: AudioNode, to: GainNode | null, amount?: number) {
-    if (!to || !amount) return
-    const g = ctx.createGain()
-    g.gain.value = amount
-    from.connect(g)
-    g.connect(to)
-  }
-
-  /**
-   * The bass: a sine sub for weight plus a filtered body for movement, one
-   * lowpass, no waveshaper.
-   *
-   * The reference sketch reaches for `lpq(8)` and `shape(.3)` — a great
-   * three-minute sound and an exhausting twenty-minute one, since the resonant
-   * peak lands where the ear is most sensitive and the distortion fills every gap
-   * the arp left. The user asked for this to be gentler by name.
-   */
-  private bassNote(ctx: AudioContext, dest: AudioNode, midi: number, when: number) {
-    const spec = this.track.voices.bass
-    const dur = this.stepDur() * spec.length
-    const freq = mtof(midi)
-    const env = (param: AudioParam, peak: number) => {
-      const sus = Math.max(0.0002, peak * 0.25)
-      // The decay lands at the note's end when the note is shorter than the
-      // decay: two of the three tracks write bass notes under 120 ms, and a
-      // hold set inside the ramp truncated it with a step in the gain on every
-      // note — a click four times a bar.
-      const decayEnd = when + Math.min(0.12, dur)
-      param.setValueAtTime(0.0001, when)
-      param.exponentialRampToValueAtTime(peak, when + 0.002)
-      param.exponentialRampToValueAtTime(sus, decayEnd)
-      param.setValueAtTime(sus, when + dur)
-      param.exponentialRampToValueAtTime(0.0001, when + dur + 0.05)
-    }
-
-    const sub = ctx.createOscillator()
-    sub.type = 'sine'
-    sub.frequency.setValueAtTime(freq, when)
-    const subG = ctx.createGain()
-    env(subG.gain, spec.subGain)
-    sub.connect(subG)
-    subG.connect(dest)
-    sub.start(when)
-    sub.stop(when + dur + 0.1)
-
-    const body = ctx.createOscillator()
-    body.type = spec.bodyWave
-    body.frequency.setValueAtTime(freq * 2, when)
-    const lp = ctx.createBiquadFilter()
-    lp.type = 'lowpass'
-    const [lo, hi] = spec.cutoff
-    lp.frequency.setValueAtTime(lo + this.lfo(8) * (hi - lo), when)
-    lp.Q.value = spec.q
-    if (spec.wobble) {
-      // A talking bass, slow enough not to become a novelty you tire of.
-      const lfo = ctx.createOscillator()
-      lfo.frequency.setValueAtTime(spec.wobble, when)
-      const depth = ctx.createGain()
-      depth.gain.value = (hi - lo) * 0.45
-      lfo.connect(depth)
-      depth.connect(lp.frequency)
-      lfo.start(when)
-      lfo.stop(when + dur + 0.1)
-    }
-    const bodyG = ctx.createGain()
-    env(bodyG.gain, spec.bodyGain)
-    body.connect(lp)
-    lp.connect(bodyG)
-    bodyG.connect(dest)
-    body.start(when)
-    body.stop(when + dur + 0.1)
-  }
-
-  /** One-shot noise voice, used by every percussion sound and the riser. */
-  private noiseVoice(
-    ctx: AudioContext,
-    dest: AudioNode,
-    o: {
-      when: number
-      dur: number
-      gain: number
-      type: BiquadFilterType
-      freq: number
-      endFreq?: number
-      Q?: number
-      pan?: number
-      reverb?: number
-      attack?: number
-    },
-  ) {
-    const src = ctx.createBufferSource()
-    src.buffer = this.noise(ctx)
-    src.loop = true
-    // Start somewhere else in the buffer each time so repeated hits differ.
-    const offset = this.rand() * 1.5
-
-    const filter = ctx.createBiquadFilter()
-    filter.type = o.type
-    filter.frequency.setValueAtTime(o.freq, o.when)
-    if (o.endFreq) filter.frequency.exponentialRampToValueAtTime(o.endFreq, o.when + o.dur)
-    if (o.Q) filter.Q.value = o.Q
-
-    const g = ctx.createGain()
-    g.gain.setValueAtTime(0.0001, o.when)
-    g.gain.exponentialRampToValueAtTime(o.gain, o.when + (o.attack ?? 0.002))
-    g.gain.exponentialRampToValueAtTime(0.0001, o.when + o.dur)
-
-    src.connect(filter)
-    filter.connect(g)
-    let tail: AudioNode = g
-    if (o.pan !== undefined) {
-      const panner = ctx.createStereoPanner()
-      panner.pan.setValueAtTime(o.pan, o.when)
-      g.connect(panner)
-      tail = panner
-    }
-    tail.connect(dest)
-    this.send(ctx, tail, this.reverbIn, o.reverb)
-    src.start(o.when, offset)
-    src.stop(o.when + o.dur + 0.05)
-  }
-
-  private kick(ctx: AudioContext, when: number) {
-    const dest = this.shaper ?? this.out
-    if (!dest) return
-    const osc = ctx.createOscillator()
-    osc.type = 'sine'
-    osc.frequency.setValueAtTime(158, when)
-    osc.frequency.exponentialRampToValueAtTime(46, when + 0.095)
-    const g = ctx.createGain()
-    g.gain.setValueAtTime(0.0001, when)
-    g.gain.exponentialRampToValueAtTime(0.3, when + 0.004)
-    g.gain.exponentialRampToValueAtTime(0.0001, when + 0.2)
-    osc.connect(g)
-    g.connect(dest)
-    osc.start(when)
-    osc.stop(when + 0.24)
-    // Click transient: without it the kick is felt but not heard on the laptop
-    // speakers most of this game gets played on.
-    this.noiseVoice(ctx, dest, { when, dur: 0.02, gain: 0.09, type: 'highpass', freq: 1900 })
-  }
-
-  /** Three quick bursts then a body — one burst reads as a tick, not as hands. */
-  private clap(ctx: AudioContext, dest: AudioNode, when: number) {
-    for (let n = 0; n < 3; n++) {
-      this.noiseVoice(ctx, dest, {
-        when: when + n * 0.011, dur: 0.02, gain: 0.055, type: 'bandpass', freq: 1500, Q: 1.4,
-      })
-    }
-    this.noiseVoice(ctx, dest, {
-      when: when + 0.032, dur: 0.15, gain: 0.06, type: 'bandpass', freq: 1300, Q: 0.9, reverb: 0.4,
-    })
-  }
-
-  private crash(ctx: AudioContext, dest: AudioNode, when: number) {
-    this.noiseVoice(ctx, dest, {
-      when, dur: 1.6, gain: 0.06, type: 'highpass', freq: 5000, reverb: 0.5, attack: 0.006,
-    })
-  }
-
-  /** One bar of noise sweeping up — the build-up. */
-  private riser(ctx: AudioContext, dest: AudioNode) {
-    const dur = this.barDur()
-    this.noiseVoice(ctx, dest, {
-      when: this.nextStepTime,
-      dur,
-      gain: 0.05,
-      type: 'bandpass',
-      freq: 400,
-      endFreq: 9000,
-      Q: 1.1,
-      reverb: 0.5,
-      attack: dur * 0.8,
-    })
   }
 }
 
 export const music = new MusicBed()
-export { TRACKS, getTrack, DEFAULT_TRACK_ID }
+export { LOOPS, getLoop, DEFAULT_LOOP_ID, MUSIC_BASE }

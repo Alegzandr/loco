@@ -11,8 +11,10 @@
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, along, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, stringLights, at, FLOOR } from './common'
 import { mix, cssHex } from '../sky'
+import type { Actor } from '../life'
+import { bird, cloud, over, puff, streetWalkers, strollers } from './actors'
 
 const RED = 0xd23b3b
 const WOOD = 0x4a3323
@@ -25,7 +27,7 @@ export const sakura: Builder = (k) => {
   const { sx, sy, a, b } = k.anchor
 
   k.floor(0x6aa84f, FLOOR)
-  podium(k, { stone: 0x7a1f1f, step: 0xcfc7b5, floor: 0xd9d2c2, floor2: 0xcfc7b5, accent: 0xffb7d0, top: cssHex(MAPS.sakura.table.felt) })
+  const plaza = podium(k, { stone: 0x7a1f1f, step: 0xcfc7b5, floor: 0xd9d2c2, floor2: 0xcfc7b5, accent: 0xffb7d0, top: cssHex(MAPS.sakura.table.felt) })
 
   const woodHouse = (x: number, z: number, w: number, d: number, rot: number) => {
     const h = rng.range(2.8, 3.8)
@@ -34,7 +36,15 @@ export const sakura: Builder = (k) => {
     k.box(x, h - 0.1, z, w + 1.6, 0.25, d + 1.6, mix(TILE, 0x000000, 0.35), { rot, outline: false, cap: false })
     const lit = rng.chance(k.rig.windowsLit)
     k.box(x + (d / 2 + 0.05) * Math.sin(rot), 0.9, z + (d / 2 + 0.05) * Math.cos(rot), 1.6, 1.2, 0.08, lit ? 0xffd98a : PAPER, { rot, glow: lit, outline: false, cap: false })
-    if (rng.chance(0.5)) k.lantern(x + (d / 2 + 0.4) * Math.sin(rot) + 1, 2.2, z + (d / 2 + 0.4) * Math.cos(rot), 0xff5a3c, 0.22)
+    if (rng.chance(0.5)) {
+      // Hung on a cord under the eave, at the end of the porch. The `+ 1` that
+      // used to sit on x whichever way the house faced put it beside the
+      // building rather than over its door, hanging from nothing at all.
+      const lx = x + (d / 2 + 0.35) * Math.sin(rot) + (w / 2 - 0.7) * Math.cos(rot)
+      const lz = z + (d / 2 + 0.35) * Math.cos(rot) - (w / 2 - 0.7) * Math.sin(rot)
+      k.cyl(lx, 2.35, lz, 0.03, h - 2.35, 0x2a2a2a, { seg: 4, cap: false, outline: false })
+      k.lantern(lx, 2.0, lz, 0xff5a3c, 0.22)
+    }
   }
   const stoneLantern = (x: number, z: number) => {
     k.box(x, 0, z, 0.9, 0.3, 0.9, 0x8a8f99)
@@ -45,12 +55,15 @@ export const sakura: Builder = (k) => {
     if (on) k.halo(x, 0, z, 1.8, 0xffd98a, 0.28)
   }
 
-  const bathSpot = { sx: sx + a + 10, sy: sy + 2 }
+  // Twelve and a half out: the bathhouse is fourteen by twelve and a half, which
+  // is nine and a half across the frame, and at ten its near wall was on the
+  // felt's rim — where the table cuts it.
+  const bathSpot = { sx: sx + a + 12.5, sy: sy + 2 }
   const pagodaSpot = { sx: sx - 18, sy: sy + b + 8 }
   const toriiSpot = { sx: sx - a - 4, sy: sy - b - 5 }
   const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
 
-  cityGrid(k, {
+  const plan = cityGrid(k, {
     block: 12,
     road: 2.8,
     roadColor: 0x9a9488,
@@ -59,6 +72,7 @@ export const sakura: Builder = (k) => {
     people: 1.2,
     maxHeight: 5.5,
     water: { line: 2, axis: 'x', color: k.rig.snow ? 0xb8dcee : 0x6fbfe8, bank: 0x8a8f99, bridge: RED },
+    plaza,
     fill: (c) => {
       if (near(c, bathSpot, 9) || near(c, pagodaSpot, 8)) return
       const ls = lots(c, 2, 2, 1.4)
@@ -71,6 +85,9 @@ export const sakura: Builder = (k) => {
           if (g < 0.5) {
             k.tree(l.x, l.z, { kind: 'sakura', h: rng.range(1.4, 2.2), r: rng.range(1.0, 1.4), trunk: 0x3d2a1e })
             if (rng.chance(0.5)) stoneLantern(l.x + 1.8, l.z + 1.4)
+          } else if (g < 0.62) {
+            k.flowerbed(l.x, l.z, Math.min(l.w - 1.2, 2.8), Math.min(l.d - 1.2, 2), { colors: [0xff8fb8, 0xffffff, 0xffc0d8, 0xf4d35e], kerb: 0x8a8f99 })
+            k.rock(l.x + 1.8, l.z - 1.2, 0.4)
           } else if (g < 0.75) {
             k.disc(l.x, 0, l.z, 1.8, 0x7fd1e8, { seg: 12 })
             for (let i = 0; i < 4; i++) k.slab(l.x + rng.range(-1, 1), l.z + rng.range(-1, 1), 0.4, 0.2, rng.chance(0.6) ? 0xff8a3c : 0xffffff, { y: 0.03, h: 0.02 })
@@ -86,6 +103,7 @@ export const sakura: Builder = (k) => {
   })
 
   // ─── The bathhouse, on the right, its pool in front ────────────────────
+  const poolSpot = at(bathSpot.sx - 6.5, bathSpot.sy - 9)
   {
     const [bx, bz] = at(bathSpot.sx, bathSpot.sy)
     const rot = Math.PI / 4
@@ -102,7 +120,7 @@ export const sakura: Builder = (k) => {
     k.box(dx, 1.6, dz, 0.06, 1.4, 2.4, 0x2f4a8a, { rot, outline: false, cap: false })
     k.lantern(...at(bathSpot.sx - 4.6, bathSpot.sy + 2.2), 2.6, 0xff5a3c, 0.32)
     k.lantern(...at(bathSpot.sx - 4.6, bathSpot.sy - 2.2), 2.6, 0xff5a3c, 0.32)
-    const [px, pz] = at(bathSpot.sx - 6.5, bathSpot.sy - 9)
+    const [px, pz] = poolSpot
     k.disc(px, 0, pz, 4.6, 0x8a8f99, { seg: 18 })
     k.disc(px, 0.12, pz, 4, 0x7fd1e8, { seg: 18 })
     for (let i = 0; i < 14; i++) {
@@ -168,16 +186,17 @@ export const sakura: Builder = (k) => {
     if (Math.cos(t) > 0.85) continue
     stoneLantern(x, z)
   }
-  const P: [number, number][] = [at(sx - a - 3, sy + b + 4), at(sx + a + 3, sy + b + 4), at(sx + a + 3, sy - b - 4), at(sx - a - 3, sy - b - 4)]
-  for (const [x, z] of P) k.cyl(x, 0, z, 0.12, 4, WOOD, { seg: 6, cap: false })
-  for (let i = 0; i < 4; i++) {
-    const [x1, z1] = P[i]
-    const [x2, z2] = P[(i + 1) % 4]
-    along(x1, z1, x2, z2, 22, (x, z, t) => {
-      if (t === 0 || t === 1) return
-      k.lantern(x, 3.4 - Math.sin(t * Math.PI) * 0.7, z, rng.chance(0.7) ? 0xff5a3c : 0xffffff, 0.24)
-    })
-  }
+  stringLights(k, {
+    padX: 3,
+    padY: 4,
+    height: 4,
+    postR: 0.12,
+    post: WOOD,
+    cord: WOOD,
+    sag: 0.7,
+    spacing: 1.6,
+    hang: (x, y, z) => k.lantern(x, y - 0.4, z, rng.chance(0.7) ? 0xff5a3c : 0xffffff, 0.24),
+  })
   const [cx, cz] = at(sx, sy)
   for (const [dsx, dsy] of [[-a - 6, -3], [-a + 5, -b - 6], [a - 4, b + 6]] as const) {
     const [x, z] = at(sx + dsx, sy + dsy)
@@ -189,7 +208,51 @@ export const sakura: Builder = (k) => {
     k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, WOOD)
   }
   crowd(k, 22, { shirt: undefined })
-  const [catx, catz] = at(sx + a + 5.5, sy + 6)
-  k.box(catx, 0.6, catz, 0.5, 0.25, 0.25, 0xff8a3c)
-  k.sphere(catx + 0.25, 0.95, catz, 0.14, 0xff8a3c, { seg: 5 })
+
+  // ─── What moves: steam off the pool, petals, a cat on the rim ──────────
+  const life: Actor[] = []
+  for (let i = 0; i < 3; i++) {
+    const [px, pz] = poolSpot
+    life.push(puff(k, `steam-${i}`, { at: over(px + (i - 1) * 1.6, pz + (i % 2) * 1.2, 0.4), rise: 2.2, duration: 3600 + i * 700, delay: i * 1200, size: 0.9, color: 0xf4f7fb }))
+  }
+  if (!k.rig.snow && k.rig.weather !== 'rain') {
+    // Petals drifting down the side bands, each a small pink plate on the
+    // wind, fading in at the top of its fall and out where it lands.
+    for (let i = 0; i < 8; i++) {
+      const side = i % 2 ? 1 : -1
+      const px = sx + side * (a + rng.range(2, 12))
+      life.push({
+        id: `petal-${i}`,
+        flying: true,
+        fade: true,
+        motion: 'loop',
+        path: [[px, sy + rng.range(12, 20)], [px + rng.range(2, 5), sy + rng.range(2, 6)], [px + rng.range(-1, 6), sy - rng.range(6, 10)]],
+        duration: rng.range(11_000, 16_000),
+        delay: rng.range(0, 12_000),
+        bob: { amp: 0.25, period: rng.range(1400, 2200) },
+        build: (kk) => kk.box(0, 6, 0, 0.36, 0.06, 0.28, rng.pick([0xf5a3c7, 0xffc0d8, 0xff8fb8]), { rot: rng.range(0, 3), tilt: 0.4, outline: false, cap: false }),
+      })
+    }
+  }
+  life.push({
+    id: 'cat',
+    path: [[sx + a + 4, sy + 7], [sx + a + 9, sy + 4]],
+    duration: 22_000,
+    motion: 'bounce',
+    turn: true,
+    build: (kk) => {
+      const rot = Math.PI / 4
+      kk.box(0, 0.25, 0, 0.5, 0.25, 0.25, 0xff8a3c, { rot })
+      kk.sphere(0.25 * Math.cos(rot), 0.55, -0.25 * Math.sin(rot), 0.14, 0xff8a3c, { seg: 5 })
+      kk.box(-0.3 * Math.cos(rot), 0.4, 0.3 * Math.sin(rot), 0.25, 0.06, 0.06, 0xff8a3c, { rot, tilt: 0.7, outline: false, cap: false })
+    },
+  })
+  if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
+    life.push(cloud(k, 'cloud-0', { sy: 19, size: 1.0, duration: 200_000 }))
+    life.push(cloud(k, 'cloud-1', { sy: 16, size: 0.7, duration: 250_000, delay: 120_000, from: 50, to: -50 }))
+    life.push(bird(k, 'bird-0', { path: [[-50, 16], [-15, 19], [25, 15], [50, 18]], duration: 36_000, color: 0x2a2a2a }))
+  }
+  life.push(...strollers(k, 3))
+  life.push(...streetWalkers(k, plan, 3))
+  return life
 }

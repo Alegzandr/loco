@@ -12,6 +12,8 @@ import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, at, ring, along, FLOOR } from './common'
 import { mix, scale, cssHex } from '../sky'
+import type { Actor } from '../life'
+import { over, streetWalkers, strollers } from './actors'
 
 const HULL = 0xe6e9ee
 const STRIPE = 0xff8a3c
@@ -70,10 +72,13 @@ export const orbit: Builder = (k) => {
     k.box(x, 1.22, z, 2.9, 0.04, 2.3, 0x9aa3b5, { outline: false, cap: false })
   }
 
-  const rocketSpot = { sx: sx + 12, sy: sy + b + 8 }
+  // In the right band rather than the top one: eighteen tiles of rocket over a
+  // pad set high on the frame is a rocket nobody sees the top of. See the same
+  // move in `rune.ts`.
+  const rocketSpot = { sx: sx + a + 8, sy: sy + 2 }
   const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
 
-  cityGrid(k, {
+  const plan = cityGrid(k, {
     block: 12,
     road: 3,
     roadColor: 0x6f737d,
@@ -137,28 +142,30 @@ export const orbit: Builder = (k) => {
     for (let y = 2; y < 16; y += 2.6) k.box(gx, y, gz, 2.2, 0.2, 2.2, 0x9aa3b5, { outline: false, cap: false })
     k.box(gx - 2.2, 12, gz + 0.5, 2.8, 0.3, 0.9, 0x9aa3b5, { rot: Math.PI / 4 })
     k.sphere(gx, 16.3, gz, 0.22, 0xff3b3b, { glow: true, seg: 5, outline: false })
-    const [fx, fz] = at(rocketSpot.sx - 7, rocketSpot.sy - 1.5)
+    const [fx, fz] = at(rocketSpot.sx - 3, rocketSpot.sy - 6)
     k.box(fx, 0.6, fz, 4, 1.2, 1.8, HULL, { rot: 0.3 })
     k.cyl(fx, 1.8, fz, 0.8, 3, STRIPE, { axis: 'x', rot: 0.3, seg: 10 })
     for (const dx of [-1.3, 1.3]) for (const dz of [-1, 1]) k.cyl(fx + dx * Math.cos(0.3) + dz * Math.sin(0.3), 0.45, fz - dx * Math.sin(0.3) + dz * Math.cos(0.3), 0.45, 0.4, 0x3a3f4a, { axis: 'z', rot: 0.3, seg: 8 })
-    k.person(...at(rocketSpot.sx - 4, rocketSpot.sy - 3), Math.PI / 4, suit)
+    k.person(...at(rocketSpot.sx - 2.5, rocketSpot.sy - 4), Math.PI / 4, suit)
   }
 
-  // ─── The rover, the antenna and the crew around the pad ────────────────
-  {
-    const [vx, vz] = at(sx - a - 6, sy - 4)
-    const rot = 0.7
-    k.box(vx, 0.6, vz, 2.8, 0.7, 1.7, HULL, { rot })
-    k.box(vx, 1.3, vz, 1.5, 0.7, 1.5, 0xbfe3f0, { rot })
+  // ─── The antenna and the crew around the pad; the rover is an actor ────
+  /** The rover, built at the origin heading screen-right. */
+  const rover = (kk: typeof k, vx: number, vz: number) => {
+    const rot = Math.PI / 4
+    kk.box(vx, 0.6, vz, 2.8, 0.7, 1.7, HULL, { rot })
+    kk.box(vx, 1.3, vz, 1.5, 0.7, 1.5, 0xbfe3f0, { rot })
     for (const dx of [-1, 0, 1]) {
       for (const dz of [-1, 1]) {
-        k.cyl(vx + dx * Math.cos(rot) + dz * Math.sin(rot), 0.4, vz - dx * Math.sin(rot) + dz * Math.cos(rot), 0.42, 0.3, 0x3a3f4a, { axis: 'z', rot, seg: 8 })
+        kk.cyl(vx + dx * Math.cos(rot) + dz * Math.sin(rot), 0.4, vz - dx * Math.sin(rot) + dz * Math.cos(rot), 0.42, 0.3, 0x3a3f4a, { axis: 'z', rot, seg: 8 })
       }
     }
-    k.cyl(vx - 1, 1.3, vz, 0.05, 1.8, 0x9aa3b5, { seg: 4, cap: false, outline: false })
-    k.box(vx - 1.45, 0.6, vz, 0.1, 0.3, 1.0, on ? 0xfff3c4 : 0xe8e8e8, { rot, glow: on, outline: false, cap: false })
-    k.person(vx + 2.2, vz + 1.6, -rot, suit)
-    const [ax, az] = at(sx + a + 7, sy + 3)
+    kk.cyl(vx - Math.cos(rot), 1.3, vz + Math.sin(rot), 0.05, 1.8, 0x9aa3b5, { seg: 4, cap: false, outline: false })
+    kk.box(vx + 1.45 * Math.cos(rot), 0.6, vz - 1.45 * Math.sin(rot), 0.1, 0.3, 1.0, on ? 0xfff3c4 : 0xe8e8e8, { rot, glow: on, outline: false, cap: false })
+  }
+  const [ax, az] = at(sx + a + 7, sy + 3)
+  const antenna = over(ax, az, 6.7)
+  {
     k.cyl(ax, 0, az, 1.0, 0.5, 0x9aa3b5, { seg: 10 })
     k.cyl(ax, 0.5, az, 0.28, 4, HULL, { seg: 6, cap: false })
     k.cyl(ax, 4.5, az, 0.4, 0.6, HULL, { seg: 12, rTop: 3, cap: false })
@@ -169,4 +176,46 @@ export const orbit: Builder = (k) => {
     k.flag(...at(sx + a + 4, sy - b - 3), 0xff3d68, 4)
   }
   crowd(k, 12, suit)
+
+  // ─── What moves: the rover, a satellite, the beacon, the crew ──────────
+  // No clouds and no birds: nothing lives in this sky but what the base put
+  // there.
+  const life: Actor[] = []
+  life.push({
+    id: 'rover',
+    path: [[sx - a - 11, sy - 2], [sx - a - 4, sy - 6]],
+    duration: 34_000,
+    motion: 'bounce',
+    turn: true,
+    build: (kk) => rover(kk, 0, 0),
+  })
+  life.push({
+    id: 'satellite',
+    flying: true,
+    path: [[-52, 12], [52, 21]],
+    duration: 40_000,
+    motion: 'pass',
+    every: 130_000,
+    build: (kk) => {
+      kk.box(0, 16, 0, 0.9, 0.7, 0.7, HULL)
+      kk.box(1.6, 16.3, 0, 2.2, 0.06, 0.9, 0x1d3a7a, { cap: false })
+      kk.box(-1.6, 16.3, 0, 2.2, 0.06, 0.9, 0x1d3a7a, { cap: false })
+      kk.cyl(0, 16.7, 0, 0.35, 0.3, 0x9aa3b5, { seg: 8, rTop: 0.1, cap: false })
+      kk.sphere(0, 15.8, 0, 0.08, 0xff3b3b, { glow: true, seg: 4, outline: false })
+    },
+  })
+  life.push({
+    id: 'beacon',
+    flying: true,
+    puff: true,
+    path: [antenna],
+    duration: 2200,
+    build: (kk) => {
+      kk.sphere(0, 0, 0, 0.22, 0xff3b3b, { glow: true, seg: 6, outline: false })
+      kk.halo(0, 0, 0, 0.7, 0xff3b3b, 0.5, false)
+    },
+  })
+  life.push(...strollers(k, 3, { look: suit, slow: 1.6 }))
+  life.push(...streetWalkers(k, plan, 2, { look: suit }))
+  return life
 }

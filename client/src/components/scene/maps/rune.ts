@@ -11,13 +11,17 @@ import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, at, ring, FLOOR } from './common'
 import { mix, scale, cssHex } from '../sky'
+import type { Actor } from '../life'
+import { bird, cloud, mote, over, puff, streetWalkers, strollers } from './actors'
 
 export const rune: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
+  /** Every chimney built, as a screen point at its mouth: the smoke starts there. */
+  const chimneys: [number, number][] = []
 
   k.floor(0x5fa653, FLOOR)
-  podium(k, { stone: 0x4a2e17, step: 0x8d857a, floor: 0x8d857a, floor2: 0x7c746a, accent: 0xffab52, top: cssHex(MAPS.rune.table.felt) })
+  const plaza = podium(k, { stone: 0x4a2e17, step: 0x8d857a, floor: 0x8d857a, floor2: 0x7c746a, accent: 0xffab52, top: cssHex(MAPS.rune.table.felt) })
 
   const plasters = [0xf1e3c8, 0xe9d6b8, 0xf5e9d2, 0xdcc7a4, 0xead9c7]
   const roofs = [0x8b3a2a, 0x6b4a2b, 0x3f4a5c, 0x7a5a3a, 0x9a4a3a]
@@ -39,23 +43,40 @@ export const rune: Builder = (k) => {
       const lx = -w / 2 + (c + 0.5) * (w / cols)
       const wx = x + lx * Math.cos(rot) + (d / 2 + 0.03) * Math.sin(rot)
       const wz = z - lx * Math.sin(rot) + (d / 2 + 0.03) * Math.cos(rot)
-      const lit = rng.chance(k.rig.windowsLit)
-      k.box(wx, 1.4, wz, 0.55, 0.6, 0.08, lit ? 0xffd98a : 0x2a3346, { rot, glow: lit, outline: false, cap: false })
+      // The ground floor's middle is the door; the rest are windows in
+      // timber frames, with a flower box under the upstairs ones.
+      if (c === Math.floor(cols / 2)) {
+        k.door(wx, 0.7, wz, 0.8, 1.5, 0x3a2414, { rot, frame: beam })
+      } else {
+        k.window(wx, 1.4, wz, 0.55, 0.6, 'z', 0xffd98a, { rot, frame: beam })
+      }
       if (h > 3.4) {
-        const lit2 = rng.chance(k.rig.windowsLit)
-        k.box(wx, h - 1.4, wz, 0.55, 0.6, 0.08, lit2 ? 0xffd98a : 0x2a3346, { rot, glow: lit2, outline: false, cap: false })
+        k.window(wx, h - 1.4, wz, 0.55, 0.6, 'z', 0xffd98a, { rot, frame: beam })
+        if (!k.rig.snow && rng.chance(0.5)) {
+          k.box(wx, h - 1.62, wz + 0.12, 0.7, 0.16, 0.2, 0x8a5a2f, { rot, cap: false })
+          for (let f = 0; f < 3; f++) k.sphere(wx - 0.22 + f * 0.22, h - 1.4, wz + 0.16, 0.08, rng.pick([0xff5a3c, 0xffc93c, 0xff8fb8]), { seg: 4, outline: false })
+        }
       }
     }
     k.prism(x, h, z, w + 0.5, Math.min(w, d) * 0.55, d + 0.5, roof, { rot })
-    k.box(x + w * 0.25 * Math.cos(rot), h, z - w * 0.25 * Math.sin(rot), 0.5, Math.min(w, d) * 0.55 + 0.5, 0.5, 0x6f6a62, { rot })
+    const cx = x + w * 0.25 * Math.cos(rot)
+    const cz = z - w * 0.25 * Math.sin(rot)
+    const ch = Math.min(w, d) * 0.55 + 0.5
+    k.box(cx, h, cz, 0.5, ch, 0.5, 0x6f6a62, { rot })
+    chimneys.push(over(cx, cz, h + ch))
   }
 
   const { sx, sy, a, b } = k.anchor
   const tavernCell = { sx: sx + a + 9, sy: sy + 2 }
-  const towerCell = { sx: sx - 22, sy: sy + b + 8 }
+  // In the left band, opposite the tavern, and not in the top one. A landmark
+  // set at `sy + b + 8` stands about a sixth of the way down a monitor's frame,
+  // which leaves it seven tiles of headroom: the tower is twenty, so all that
+  // was ever on screen was the grey stub of its base with the rest above the
+  // top edge. Beside the table there are twenty-eight.
+  const towerCell = { sx: sx - a - 4, sy: sy + 2 }
   const nearest = (c: { sx: number; sy: number }, p: { sx: number; sy: number }) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < 7.5
 
-  cityGrid(k, {
+  const plan = cityGrid(k, {
     block: 12,
     road: 3,
     roadColor: 0x9c7f58,
@@ -65,6 +86,7 @@ export const rune: Builder = (k) => {
     people: 1.5,
     maxHeight: 5,
     water: { line: -2, axis: 'z', color: k.rig.snow ? 0x9fd0e8 : 0x3f8fd6, bank: 0x6f6a62, bridge: 0x8a847a },
+    plaza,
     fill: (c) => {
       if (nearest(c, tavernCell) || nearest(c, towerCell)) return
       // One or two houses, the rest garden; in front of the table, garden only.
@@ -77,11 +99,25 @@ export const rune: Builder = (k) => {
           house(l.x, l.z, w, rng.range(3, 4.4), d, rng.pick([0, Math.PI / 2]))
           built++
         } else {
-          if (rng.chance(0.6)) k.tree(l.x, l.z, { kind: rng.chance(0.3) ? 'pine' : 'round', h: rng.range(1.2, 2), r: rng.range(0.8, 1.2) })
-          if (rng.chance(0.5)) k.bush(l.x + rng.range(-1.5, 1.5), l.z + rng.range(-1.5, 1.5), 0.5)
+          // One thing in the middle of the garden, not five. Rolled
+          // independently these all landed on the same square: a well inside a
+          // tree with a crate inside both and a bush growing out of the trunk.
+          // The fence is the exception — it runs along the lot's edge, so it
+          // never meets whatever is standing in the centre.
           if (rng.chance(0.3)) k.fence(l.x - l.w / 2, l.z + l.d / 2, l.x + l.w / 2, l.z + l.d / 2, 0x8a6a45, 0.8)
-          if (rng.chance(0.2)) k.crate(l.x, l.z, 0.6)
-          if (rng.chance(0.15)) {
+          const g = rng.next()
+          if (g < 0.42) {
+            k.tree(l.x, l.z, { kind: rng.chance(0.3) ? 'pine' : 'round', h: rng.range(1.2, 2), r: rng.range(0.8, 1.2) })
+            if (rng.chance(0.4)) k.bush(l.x + rng.range(1.4, 2.1), l.z + rng.range(1.4, 2.1), 0.5, 0x3f9e52, { berries: 0xff3d68 })
+          } else if (g < 0.58) {
+            k.flowerbed(l.x, l.z, Math.min(l.w - 1, 3.2), Math.min(l.d - 1, 2.2), { kerb: 0x8d857a })
+          } else if (g < 0.68) {
+            k.bush(l.x, l.z, 0.5)
+            k.bush(l.x + 1.2, l.z + 0.7, 0.4)
+          } else if (g < 0.8) {
+            k.crate(l.x, l.z, 0.6)
+            k.barrel(l.x + 1.1, l.z + 0.5)
+          } else if (g < 0.95) {
             k.cyl(l.x, 0, l.z, 1.0, 0.9, 0x6f6a62, { seg: 10 })
             k.disc(l.x, 0.9, l.z, 0.8, 0x1c2536, { seg: 10 })
             k.prism(l.x, 2.2, l.z, 2.6, 0.8, 1.6, 0x6b4a2b)
@@ -177,4 +213,29 @@ export const rune: Builder = (k) => {
   crowd(k, 26)
   for (let i = 0; i < 5; i++) k.rock(rng.range(-90, 90), rng.range(-90, 90), rng.range(0.5, 1.0), mix(0x8a8f99, 0x5fa653, 0.2))
   k.rock(-40, 30, 1.0, scale(0x8a8f99, 0.9))
+
+  // ─── What moves: smoke, the tower's spark, fireflies after dark ─────────
+  const life: Actor[] = []
+  // Smoke from the chimneys in the side bands, where a roof is in view: a
+  // chimney under the table smokes into the felt.
+  const smoking = chimneys.filter(([px, py]) => Math.abs(px - sx) > a + 2 && Math.abs(px) < 44 && Math.abs(py) < 20).slice(0, 6)
+  smoking.forEach(([px, py], i) => life.push(puff(k, `smoke-${i}`, { at: [px, py], rise: 2.6, duration: 4200 + i * 500, delay: i * 1300, size: 0.8 })))
+  {
+    const [wx, wz] = at(towerCell.sx, towerCell.sy)
+    const spark = mote(k, 'spark', { at: over(wx, wz, 20.4), color: 0xc56bff, r: 1.6, duration: 8000 })
+    if (spark) life.push(spark)
+    for (let i = 0; i < 5; i++) {
+      const f = mote(k, `firefly-${i}`, { at: [sx + rng.range(-a - 12, a + 12), sy + rng.range(-b - 8, -b - 2)], color: 0xd8ff6b, r: rng.range(0.8, 1.6), duration: rng.range(7000, 12_000), delay: rng.range(0, 6000) })
+      if (f) life.push(f)
+    }
+  }
+  if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
+    life.push(cloud(k, 'cloud-0', { sy: 18.5, size: 1.1, duration: 180_000 }))
+    life.push(cloud(k, 'cloud-1', { sy: 15, size: 0.75, duration: 230_000, delay: 100_000, from: 50, to: -50 }))
+    life.push(bird(k, 'bird-0', { path: [[-50, 17], [-10, 20], [30, 16], [50, 19]], duration: 34_000, color: 0x2a2a2a }))
+    life.push(bird(k, 'bird-1', { path: [[50, 14], [15, 17], [-25, 15], [-50, 18]], duration: 40_000, delay: 12_000, color: 0x2a2a2a }))
+  }
+  life.push(...strollers(k, 3))
+  life.push(...streetWalkers(k, plan, 3))
+  return life
 }

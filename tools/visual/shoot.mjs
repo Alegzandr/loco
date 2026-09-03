@@ -165,6 +165,15 @@ async function capture() {
         const file = `${scene.id}__${vpName}__${theme}.png`
         await page.goto(`${BASE}${HOME}?showcase=${scene.id}`, { waitUntil: 'domcontentloaded' })
         await page.waitForSelector('html[data-showcase-ready]', { timeout: 15_000 })
+        // A scene with a rendered room is not ready until the room is: the
+        // frame is built on the main thread after the screen mounts, and on
+        // this headless GPU that is seconds. Captured before it lands, the
+        // room is the sky gradient with the frame mid-fade over it, which
+        // reads as a blue veil over the whole city and is nothing but timing.
+        if (await page.locator('.scene').count()) {
+          await page.waitForSelector('.scene:not(.bare)', { timeout: 60_000 }).catch(() => {})
+          await page.waitForTimeout(400)
+        }
         await page.evaluate(() => document.fonts?.ready)
         // One extra frame so late layout (ResizeObserver-driven board) settles.
         await page.waitForTimeout(KEEP_MOTION ? 900 : 250)
