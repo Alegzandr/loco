@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { ClientMsg, LiveStreamDTO } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import { resolveServerError } from '../i18n/serverErrors'
@@ -84,8 +85,8 @@
   let nickname = $state(readNickname())
   // Read once, like the nickname: from here on the field belongs to the player,
   // and a link that has been spent must not put its code back.
-  let roomCode = $state(sanitizeTableCode(initialCode))
-  let mode = $state<LobbyMode>(initialMode)
+  let roomCode = $state(sanitizeTableCode(untrack(() => initialCode)))
+  let mode = $state<LobbyMode>(untrack(() => initialMode))
   let showRules = $state(false)
   // The shape rules the client can check itself, answered as the player types
   // rather than after a round trip. It says nothing the server would not have

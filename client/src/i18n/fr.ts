@@ -40,9 +40,10 @@ export const fr: Translations = {
   prefsTitle: 'Préférences',
   prefsClose: 'Fermer',
   prefsLanguage: 'Langue',
-  prefsTheme: 'Thème',
-  prefsThemeLight: 'Clair',
-  prefsThemeDark: 'Sombre',
+  prefsGraphics: 'Graphismes',
+  prefsGraphicsTier: { auto: 'Auto', high: 'Élevés', medium: 'Moyens', light: 'Légers' },
+  prefsGraphicsAutoHint: 'Choisi pour cet appareil : %tier. Le décor est dessiné une fois par partie, ça ne change que le temps que met la table à s’ouvrir.',
+  prefsGraphicsHint: 'Le décor est dessiné une fois par partie : ça ne change que le temps que met la table à s’ouvrir, et la météo qui passe dessus.',
   prefsStreamer: 'Mode streamer',
   prefsColorAssist: 'Formes des couleurs',
   // On nomme ce qui apparaît, pas une condition : personne ne devrait avoir à
@@ -196,21 +197,31 @@ export const fr: Translations = {
   maps: {
     neon: {
       name: 'Neon',
-      tagline: 'Un club sur les toits, face aux gratte-ciels. Marbre noir et cercle de lumière.',
+      tagline: 'Une terrasse sur les toits d’une ville de néons. Verre noir et un tube de lumière autour du rebord.',
     },
     rune: {
       name: 'Rune',
-      tagline: 'Le fond d’une taverne arcanique. Chêne sculpté, gemmes, chandelles.',
+      tagline: 'La place d’un village qui a son sorcier. Chêne sculpté et quatre pierres qui brillent la nuit.',
     },
     velvet: {
       name: 'Velvet',
-      tagline: 'Un fumoir art déco. Laiton, feutre bordeaux et lampes en veilleuse.',
+      tagline: 'Le parvis d’un grand hôtel art déco. Laiton, feutre bordeaux et une marquise à ampoules.',
     },
     orbit: {
       name: 'Orbit',
-      tagline: 'Un hangar de vaisseau en orbite haute. Alliage brossé sur table holographique.',
+      tagline: 'Une base sur une lune sans air. Alliage brossé sur surface holographique, balises cyan.',
+    },
+    sakura: {
+      name: 'Sakura',
+      tagline: 'Un village thermal sous les cerisiers. Laque rouge, tapis vert mousse et lanternes de papier.',
+    },
+    marina: {
+      name: 'Marina',
+      tagline: 'Un front de port au bord de l’eau. Teck patiné, tapis bleu marine et un phare qui tourne.',
     },
   },
+  mapTimes: { dawn: 'Aube', day: 'Plein jour', dusk: 'Crépuscule', night: 'Nuit' },
+  mapWeathers: { clear: 'Ciel dégagé', cloudy: 'Couvert', rain: 'Pluie', storm: 'Orage', snow: 'Neige', fog: 'Brume' },
   round: 'Manche',
   of: 'sur',
   complete: 'pliée',

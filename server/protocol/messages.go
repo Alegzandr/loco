@@ -628,7 +628,14 @@ type GameStateDTO struct {
 	// MapID names the room this match is played in (see game/maps.go). Rides
 	// every snapshot rather than only game_started so a reconnecting player
 	// rebuilds the same table as everybody else. Empty = the built-in felt.
-	MapID      string               `json:"map_id,omitempty"`
+	MapID string `json:"map_id,omitempty"`
+	// TimeOfDay and Weather are the hour and the sky the match is dealt under
+	// (see game/maps.go), drawn beside MapID and travelling with it on every
+	// snapshot. Bare strings like MapID, for the same reason: a value this
+	// client does not know must degrade to a default sky, never drop the whole
+	// game_state.
+	TimeOfDay  string               `json:"time_of_day,omitempty"`
+	Weather    string               `json:"weather,omitempty"`
 	Scoreboard []ScoreboardEntryDTO `json:"scoreboard,omitempty"`
 	// RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
 	// Included in every snapshot so a reconnecting player recovers the table.

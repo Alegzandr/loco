@@ -414,6 +414,12 @@ type Room struct {
 	// per match by Start(). Empty until then, and again after a rematch reset:
 	// a rematch is a new match and gets a new room. See maps.go.
 	MapID MapID
+	// MapTime and MapWeather are the hour and the sky the match is dealt under,
+	// drawn beside MapID and cleared with it. Presentation only, like the map:
+	// the client renders the scene from the three ids, so every seat has to be
+	// handed the same three.
+	MapTime    TimeOfDay
+	MapWeather Weather
 
 	// Match state (persists across rounds)
 	RoundNumber   int   // current round (1-based, set to 1 on Start)
@@ -632,8 +638,11 @@ func (r *Room) Start() error {
 	r.ensureRNG()
 
 	// Drawn once per match, not per round: the table is the room the whole match
-	// is played in, and swapping it between rounds would read as a bug.
+	// is played in, and swapping it between rounds would read as a bug. The hour
+	// and the sky are drawn with it, for the same reason.
 	r.MapID = r.pickMap()
+	r.MapTime = r.pickTime()
+	r.MapWeather = r.pickWeather(r.MapID)
 
 	r.Status = StatusPlaying
 	r.dealRound(r.rng.Intn(n))
@@ -1084,8 +1093,10 @@ func (r *Room) ResetForRematch() error {
 	r.RoundNumber = 0
 	// Cleared, not kept: the next Start() draws a new room. A rematch that opens
 	// on the same table reads as "nothing happened", and it is also the moment
-	// the loading gate exists for: a map nobody has downloaded yet.
+	// the loading gate exists for: a scene nobody has rendered yet.
 	r.MapID = ""
+	r.MapTime = ""
+	r.MapWeather = ""
 	// Left nil rather than zeroed: Start() reallocates them sized to whatever
 	// roster is present when the next match begins.
 	r.Scores = nil

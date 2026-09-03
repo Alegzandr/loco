@@ -28,9 +28,14 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="overlay" onclick={onCancel}>
   <!-- A dialog with a click handler needs no ignore: the role is the answer. -->
+  <!-- `tabindex="-1"` because a dialog is a focus container: it takes focus
+       programmatically when the panel it labels has nothing focusable left,
+       and it stays out of the tab order, so `dialogFocus`'s own cycle (which
+       looks for buttons and `tabindex="0"`) is untouched. -->
   <div
     class="picker"
     role="dialog"
+    tabindex="-1"
     aria-modal="true"
     aria-label={label}
     use:dialogFocus

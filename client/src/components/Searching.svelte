@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { playSfx } from '../audio/sfx'
   import { seatColor, seatInitial } from './playerColors'
@@ -36,7 +37,8 @@
   }: Props = $props()
 
   const t = $derived(i18n.t)
-  let elapsed = $state(Date.now() - startedAt)
+  // Seeded from the moment the search started; the tick below carries it on.
+  let elapsed = $state(untrack(() => Date.now() - startedAt))
   let showRules = $state(false)
 
   // One tick a second, and nothing else in this screen is stateful: the ring, the

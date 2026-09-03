@@ -2,7 +2,6 @@ import { mount, type Component } from 'svelte'
 import Root from './Root.svelte'
 import { initI18n } from './i18n/store'
 import { initTabLock } from './hooks/tabLock'
-import { initTheme } from './theme'
 import { initMotion } from './hooks/motionPref'
 import { initSessionRestore } from './hooks/sessionRestore'
 import { initTableInvite } from './hooks/tableInvite'
@@ -101,13 +100,8 @@ function boot() {
   // touches it.
   initLang()
 
-  // Write data-theme before the first paint: screens without a theme control
-  // would otherwise render in the light palette regardless of the user's choice.
-  initTheme()
-
-  // Same reason, for the same kind of preference: every reduced-motion rule in
-  // the CSS hangs off `data-motion`, and nothing writes that attribute until this
-  // runs. Without it a player whose system asks for less motion got the full set
+  // Every reduced-motion rule in the CSS hangs off `data-motion`, and nothing
+  // writes that attribute until this runs. Without it a player whose system asks for less motion got the full set
   // of animations for the whole session unless they happened to open Preferences
   // and toggle the switch themselves — the OS setting alone never reached the
   // stylesheet. This also registers the listener that keeps `auto` following the

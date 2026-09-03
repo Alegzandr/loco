@@ -189,6 +189,11 @@ export interface GameState {
   // every seat sees one table; '' means the built-in felt (a lobby, or a map id
   // this client has no art for). See components/cards/maps.ts.
   mapId: string
+  // The hour and the sky the match is dealt under, beside the map and off the
+  // same snapshot. '' before a match; an unknown value degrades to a default
+  // in `resolveScene`, never to a missing room.
+  mapTime: string
+  mapWeather: string
   // Set while the table is shut waiting for everyone's assets, and null the
   // instant the server opens it. `ready` is the seats that are in, which is the loading
   // screen's whole content, and what tells a player the wait is somebody else's

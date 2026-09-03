@@ -177,6 +177,8 @@ func (h *Hub) playerGameStateWith(t *table, playerIdx int, players []protocol.Pl
 			MaxPlayers:   room.MaxPlayers,
 			RoundNumber:  room.RoundNumber,
 			MapID:        string(room.MapID),
+			TimeOfDay:    string(room.MapTime),
+			Weather:      string(room.MapWeather),
 			StreamerMode: t.streamerMode,
 		}
 	}
@@ -200,6 +202,8 @@ func (h *Hub) playerGameStateWith(t *table, playerIdx int, players []protocol.Pl
 		MatchFormat:   matchFormatString(room.Format),
 		MaxPlayers:    room.MaxPlayers,
 		MapID:         string(room.MapID),
+		TimeOfDay:     string(room.MapTime),
+		Weather:       string(room.MapWeather),
 		Scoreboard:    shared.scoreboard,
 		RoundHistory:  room.RoundHistory,
 		MatchHistory:  shared.matchHistory,

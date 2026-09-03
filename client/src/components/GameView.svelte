@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { CardColor, ClientMsg } from '../types/protocol'
   import { gameStore, UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
   import { game } from '../hooks/gameStore.svelte'
@@ -28,7 +29,9 @@
   import Preferences from './Preferences.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
-  import { resolveMap } from './cards/maps'
+  import { resolveScene } from './cards/maps'
+  import { feltInViewport } from './cards/layout'
+  import { viewportSize, safeAreaInsets } from '../hooks/boardMetrics.svelte'
   import MapLoadingScreen from './MapLoadingScreen.svelte'
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
@@ -76,6 +79,16 @@
     initialConfirmLeave = false,
   }: Props = $props()
 
+  /**
+   * The one way this screen hands the socket to a hook.
+   *
+   * A prop is reactive, so handing `onSend` itself over captures the function
+   * this component was mounted with and a later one would never be seen. Every
+   * field beside it in `cardPlay` is already a getter; this is the same thing
+   * said as a closure.
+   */
+  const send = (msg: ClientMsg) => onSend(msg)
+
   const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
   const SWAP_NOTICE_MS = 3500
   const CATCH_FAIL_NOTICE_MS = 2800
@@ -107,7 +120,7 @@
   let showRules = $state(false)
   // The walk-out question, held here and not in a modal: it takes the chip's
   // place under the row it was pressed from, so the board does not move.
-  let confirmLeave = $state(initialConfirmLeave)
+  let confirmLeave = $state(untrack(() => initialConfirmLeave))
 
   /**
    * What leaving costs the people who are still holding cards.
@@ -181,7 +194,7 @@
     currentTurn: () => g.currentTurn,
     myIndex: () => g.myIndex,
     pendingDraw: () => g.pendingDraw,
-    onSend,
+    onSend: send,
     lastPlayAt: () => g.lastPlay?.at,
   })
 
@@ -286,9 +299,9 @@
     () => g.dismissRoundSummary(),
   )
 
-  // The room this match is played in. null = the built-in felt (a map id we have
-  // no art for).
-  const map = $derived(resolveMap(g.mapId))
+  // The room this match is played in, at its hour, under its sky. null = the
+  // built-in felt (a map id we have no scene for).
+  const scene = $derived(resolveScene(g.mapId, g.mapTime, g.mapWeather))
 
   // Whether the gate is open at all, narrowed to a boolean before the effect
   // sees it: `g.mapLoading` gets a new identity on every arrival, so reading it
@@ -296,9 +309,18 @@
   // question whose answer has not changed.
   const gateOpen = $derived(g.mapLoading !== null)
 
-  // Preload the room's art while the table is shut, and tell the server the
-  // moment we are in. See hooks/gamePlay.svelte.ts.
-  const preload = mapGate(() => map, () => gateOpen, onSend)
+  // Where the felt lands on screen, solved from the viewport and the roster the
+  // way the board solves it: the room is rendered with the table's podium under
+  // exactly this ellipse, before the board has measured anything.
+  const viewport = viewportSize()
+  const insets = safeAreaInsets()
+  const anchor = $derived(
+    feltInViewport(viewport.current.width, viewport.current.height, Math.max(0, g.players.length - 1), insets.current),
+  )
+
+  // Render the room while the table is shut, and tell the server the moment we
+  // are in. See hooks/gamePlay.svelte.ts.
+  const preload = mapGate(() => scene, () => gateOpen, send, () => anchor)
 
   // Past the format: the server's tiebreak chain separated nobody, so it dealt
   // one more round. The chip says which round it is, and there is no honest
@@ -356,7 +378,8 @@
     catchFlash={g.catchFlash}
     lastPlay={g.lastPlay}
     isReconnecting={g.isReconnecting || reconnect.current}
-    {map}
+    {scene}
+    {anchor}
     canDraw={play.isMyTurn && (g.pendingDraw > 0 || !g.hasDrawn)}
     onDraw={handleDraw}
     drawLabel={g.pendingDraw > 0 ? `${t.drawPile} +${g.pendingDraw}` : t.drawPile}
@@ -720,9 +743,10 @@
        screen instead of it: the board spends this time laying itself out and
        warming the images, so what the player sees when this lifts is a table that
        is already finished. -->
-  {#if g.mapLoading && map}
+  {#if g.mapLoading && scene}
     <MapLoadingScreen
-      {map}
+      {scene}
+      {anchor}
       ready={g.mapLoading.ready}
       players={g.players}
       myIndex={g.myIndex}

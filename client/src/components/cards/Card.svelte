@@ -95,6 +95,12 @@
   its suit: in a fan the cards overlap down to that corner, so it is the only
   place a mark is still visible in a full hand.
 -->
+<!-- The role and the tabindex below are one decision written twice: a card
+     with an `onclick` is a button and is reachable, one without is a picture
+     and is not. The compiler cannot see that the two ternaries agree, so it
+     reads the role as unknown and the tabindex as a stop on something inert.
+     They agree. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="card {extra}"
   class:shadow

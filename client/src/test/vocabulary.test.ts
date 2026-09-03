@@ -190,13 +190,13 @@ describe('the name is LOCO!, and the mark is part of it', () => {
     expect(offenders, offenders.join('\n')).toEqual([])
   })
 
-  it('is what the wordmark says, in the markup and in the dark repaint', () => {
-    // `a11y.test.ts` owns why the outline is painted by a pseudo-element in
-    // dark; this owns what it spells. The two dark blocks and the span all carry
-    // the mark, so a rename that reaches only the markup fails here.
+  it('is what the wordmark says, in the markup and in the outline repaint', () => {
+    // `a11y.test.ts` owns why the outline is painted by a pseudo-element;
+    // this owns what it spells. The outline and the span both carry the mark,
+    // so a rename that reaches only the markup fails here.
     const logo = readFileSync(join(process.cwd(), 'src', 'components', 'LocoLogo.svelte'), 'utf8')
     expect(logo).toContain('aria-label="LOCO!"')
     expect(logo).toContain('>LOCO!</span>')
-    expect(logo.match(/content: 'LOCO!' \/ ''/g) ?? []).toHaveLength(2)
+    expect(logo.match(/content: 'LOCO!' \/ ''/g) ?? []).toHaveLength(1)
   })
 })

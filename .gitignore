@@ -27,6 +27,10 @@ e2e/playwright-report/
 # Visual harness output (regenerate with `make visual`)
 .visual/
 
+# Downloaded model kits (the archives and their unpacked folders). What the
+# rooms use is packed into client/public/models by `make models`.
+.assets-in/
+
 # Environment
 .env
 

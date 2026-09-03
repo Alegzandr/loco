@@ -5,7 +5,7 @@
  * own hook: the content pages have to take part in this decision and
  * they mount nothing, so the storage key and the two home paths could not live
  * inside a provider. There is still exactly one definition of each — `i18n`,
- * `LanguageSwitcher` and `content/theme-boot.ts` all read them from here.
+ * `LanguageSwitcher` and `content/page-boot.ts` all read them from here.
  *
  * ## Why the home page translates itself rather than navigating
  *

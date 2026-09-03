@@ -55,10 +55,9 @@ const FAN = ['-24deg', '-8deg', '8deg', '24deg']
       </div>
 
       {/*
-        Drawn like a glyph on a card, which is why it does not follow the theme:
-        off-white filled, ink outlined, ledge underneath. The Outline Rule is
-        what carries it on the pale canvas as well as on the dark one, exactly as
-        it carries a 9 on a green card.
+        Drawn like a glyph on a card: off-white filled, ink outlined, ledge
+        underneath. The Outline Rule is what carries it on the canvas, exactly
+        as it carries a 9 on a green card.
       */}
       <p class="code" aria-hidden="true">404</p>
     </div>
@@ -82,9 +81,9 @@ const FAN = ['-24deg', '-8deg', '8deg', '24deg']
     /* The canvas, flat — which is what the site actually shows. `body` carries a
        candy gradient and three colour orbs, and nothing on this site paints
        them: the game covers them with `#root` (tokens.css paints it
-       `--color-canvas`) and a content page flattens them with `body.doc`. This
-       page has neither, so it was the one screen in the product wearing a
-       backdrop of its own. */
+       `--color-canvas`) and a content page flattens them with `body.doc`, the
+       landings being flat by decision. This page has neither, so it was the
+       one screen in the product wearing a backdrop of its own. */
     background: var(--color-canvas);
     min-height: 100dvh;
     display: flex;
@@ -139,9 +138,8 @@ const FAN = ['-24deg', '-8deg', '8deg', '24deg']
     position: relative;
     font: 700 clamp(4.75rem, 16vw, 8.75rem) / 0.9 var(--font-display);
     letter-spacing: 0.01em;
-    /* Card-glyph paint: off-white over ink, in both themes. A card is a
-       physical object and does not follow a preference; so does the code drawn
-       like one. */
+    /* Card-glyph paint: off-white over ink. A card is a physical object, and so
+       is the code drawn like one. */
     color: #efefef;
     -webkit-text-stroke: 0.055em var(--color-stroke);
     paint-order: stroke fill;

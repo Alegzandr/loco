@@ -8,7 +8,7 @@ import type { BooleanPref } from './prefStore'
  * the subscription when nothing is, so a preference costs one listener no matter
  * how many components display it. The store itself stays in `prefStore.ts`, with
  * no framework in it: that is what let a preference survive the crossing from
- * React unchanged, and it is what still lets `theme-boot.ts` read the same
+ * React unchanged, and it is what still lets `page-boot.ts` read the same
  * choice on a page that mounts nothing.
  */
 export function watchPref(pref: BooleanPref): { readonly current: boolean } {

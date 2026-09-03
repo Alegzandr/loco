@@ -29,7 +29,7 @@ went stale in silence once already, listing six notes when there were eight.
   notes listing six of them when there were eight.
 - **A pass with a script behind it goes stale differently, and worse.** Landing the Svelte migration
   on 2026-08-03 meant repointing paths mechanically, and the machine wrote sentences no human would:
-  a `theme.ts` "split out of `theme.ts`", a placeholder `<the motion preference>` left in three
+  a module "split out of" itself (the theme module, since dropped), a placeholder `<the motion preference>` left in three
   files, and a table in `client.md` whose five distinct rows had collapsed onto two modules and read
   as duplicates. None of it is caught by `docPaths.test.ts`, because every path in it exists — they
   are just the wrong paths, in prose that still parses. **After a bulk rename, read the prose, not

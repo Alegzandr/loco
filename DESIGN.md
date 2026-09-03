@@ -153,10 +153,9 @@ reference points are Nintendo's first-party menus and Gartic Phone: chunky round
 saturated candy colour, display type set far larger than a productivity app would dare.
 
 The system splits cleanly in two, and the split is the whole architecture. The **room** —
-lobby, waiting room, score panels, modals — is a bright candy sky in light theme and a deep
-indigo den in dark, painted once on `body` so screen containers stay transparent. The
-**table** is near-black in both themes and does not follow the theme at all, because a table
-is an object like the cards, not a surface that answers to a preference. Against that
+lobby, waiting room, score panels, modals — is a deep indigo den, painted once on `body` so
+screen containers stay transparent. The **table** is near-black, darker still, because a table
+is an object like the cards, not a surface. Against that
 near-black felt, the forty-odd cards are the only saturated bright objects in the frame.
 That is deliberate: a spectator watching a stream at 720p must be able to find the play
 without being told where to look.
@@ -171,6 +170,7 @@ and every soft-shadow card grid that reads as a settings page with a deck of car
 **Key Characteristics:**
 - Ink outline (3px) plus a hard bottom shadow on every raised object; soft blur is ambience, never structure
 - Candy-saturated room, near-black table, brand voltage carried by `#ff3d68`
+- One palette, the night one, measured once: there is no light mode
 - Fredoka display over Nunito body, both self-hosted; no CDN, the CSP stays closed
 - Two colour systems that never mix: UI brand palette and card-suit gameplay palette
 - Press feedback is physical travel, not a colour change
@@ -200,18 +200,21 @@ reserved exclusively for the cards.
   the brand red invites, this one stops.
 
 ### Neutral
-- **Ink** (`#241546`): Not black. Every outline, every heading, every piece of body copy in
-  light theme. A violet-tinted near-black keeps the outlines from reading as engineering.
-- **Body Violet** (`#4a3a75`) and **Muted Violet** (`#6f5f95`): secondary and tertiary copy.
-- **Canvas Lilac** (`#f4ecff`) / **Surface Card** (`#ffffff`) / **Surface Strong** (`#ece2ff`):
-  the room's three tiers in light theme. The canvas is never the card colour.
-- **Night Canvas** (`#150c2e`) / **Night Surface** (`#271a4f`) / **Night Ink** (`#f6f1ff`):
-  the same three tiers after dark. Dark theme changes the room, never the rules.
+- **Ink** (`#0b0618`): Not black. Every outline and every hard shadow. A violet-tinted
+  near-black keeps the outlines from reading as engineering.
+- **Night Ink** (`#f6f1ff`) / **Body** (`#ded4f5`) / **Muted** (`#ab9dd2`): headings, body copy,
+  secondary copy.
+- **Night Canvas** (`#150c2e`) / **Surface Soft** (`#1e1440`) / **Night Surface** (`#271a4f`) /
+  **Surface Strong** (`#33235f`): the den's tiers, and **Sunken** (`#1a1134`) the one below them.
+  The canvas is never the card colour.
 
 ### Table
-- **Table Felt** (`#262b3a` → `#12151f`) with a **Table Rim** (`#0a0c14`): identical in both
-  themes. The rim must stay several steps darker than the felt or it stops reading as an
+- **Table Felt** (`#262b3a` → `#12151f`) with a **Table Rim** (`#06080e`). The rim must stay several steps darker than the felt or it stops reading as an
   object edge and becomes a shade.
+- **A room hands the same object its own materials** (`MapDef.table` in `maps.ts`: felt, rim, the
+  sheen the rim catches, the plinth, and one inlay line in the room's accent). The hour it is dealt
+  at tints the sheen and dims the whole; it never repaints the materials. Without a room the tokens
+  above are what the table falls back to.
 
 ### Card Suits
 Four two-stop gradients, measured off the reference art and never eyeballed: red
@@ -243,7 +246,7 @@ glyph is therefore drawn twice, a wider ink pass first, giving ~15:1 glyph-again
 ~14:1 ink-against-any-face. **The suit colours are the brand and are never dimmed for
 contrast.**
 
-**The Dark Table Rule.** The felt is near-black in both themes. It was green once, and a
+**The Dark Table Rule.** The felt is near-black. It was green once, and a
 `#00ff6d` card on a `#1fbf8f` table loses its edge — the one thing a card must never do.
 
 ## 3. Typography
@@ -351,7 +354,7 @@ one place — the scrim behind a modal — and never as the material of a panel.
 
 ### Navigation
 There is no persistent nav. Orientation is carried by a top-right utility cluster —
-language, theme, audio, rules, scores — present on every screen at the same coordinates, each
+language, graphics, audio, rules, scores — present on every screen at the same coordinates, each
 a pill with the standard ledge and a 40px minimum height. On the game screen it sits above
 the board's overlays so the control that opens a panel is always the control that closes it.
 
@@ -387,7 +390,7 @@ pulses at exactly one card.
 - **Do** paint the room's gradient exactly once, on `body`. Screen containers stay
   `background: transparent`.
 - **Do** buy glyph contrast with an ink outline drawn underneath, never by darkening a suit.
-- **Do** keep the felt near-black in both themes.
+- **Do** keep the felt near-black.
 - **Do** size type for a 720p stream, then check it there before shrinking it. 11px is the floor,
   including for the Label step: the score table's column heads and its "you" badge sat at 10px and
   9px, which is not a size a spectator reads a standing off.
@@ -418,7 +421,7 @@ pulses at exactly one card.
 - **Don't** build identical card grids of icon + heading + text. This product has a table, not
   a dashboard.
 - **Don't** mix the UI palette with the suit palette in either direction.
-- **Don't** let the table follow the theme, and don't let a card face follow it either.
+- **Don't** give the interface a second palette, and don't let a table or a card face follow the one it has.
 - **Don't** set the chunky display face uppercase above the 11px Label step.
 - **Don't** reach for a modal first. The score table is held open with a key and pinned with a
   button precisely because it refused to become one.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { MatchFormat } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import { seatColor, seatInitial } from './playerColors'
@@ -16,7 +17,9 @@
   let { myNickname, opponentNickname, mySeat, startsAt, format }: Props = $props()
 
   const t = $derived(i18n.t)
-  let remaining = $state(Math.max(0, startsAt - Date.now()))
+  // Seeded from the deadline we were mounted with; the effect below is what
+  // follows a later one.
+  let remaining = $state(untrack(() => Math.max(0, startsAt - Date.now())))
 
   $effect(() => {
     const at = startsAt

@@ -130,6 +130,27 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
   }
 
   /**
+   * Let the socket go without asking for another one.
+   *
+   * `onclose` and `onerror` are nulled first: forcibly closing a CONNECTING
+   * socket would otherwise log a "WebSocket error" nobody can act on and schedule
+   * a reconnect against a page on its way out. Real errors during play are still
+   * reported, because this is the only place those handlers are ever cleared.
+   */
+  function dropSocket() {
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+    const socket = ws
+    if (!socket) return
+    socket.onclose = null
+    socket.onerror = null
+    socket.close()
+    ws = null
+  }
+
+  /**
    * Try again now, from the top of the backoff.
    *
    * Three things ask for this and they are the same thing: the network came
@@ -162,26 +183,34 @@ export function webSocket(onMessage: MessageHandler, getReconnectMsg?: GetReconn
     document.addEventListener('visibilitychange', wake)
     window.addEventListener('focus', wake)
 
+    // A page put into the back/forward cache is frozen rather than unloaded, and
+    // the browser keeps its WebSocket open with it. Nothing on the server can tell
+    // that document from a player: it went on counting somebody who had walked off
+    // to a content page, and the return to `/` opened a second socket beside the
+    // first — three connected, in Brave, where one person was there, and it stood
+    // until the cached document was evicted. Dropping it here costs nothing on a
+    // real unload, where the socket was going anyway.
+    const onPageHide = () => {
+      dropSocket()
+      status = 'closed'
+    }
+    // `persisted` is the restore, and only the restore. An ordinary load has
+    // already opened a socket in `connect()` above, and asking for a second one
+    // here would be the very thing this pair exists to prevent.
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) reconnectNow()
+    }
+    window.addEventListener('pagehide', onPageHide)
+    window.addEventListener('pageshow', onPageShow)
+
     return () => {
       unmounted = true
       window.removeEventListener('online', reconnectNow)
       document.removeEventListener('visibilitychange', wake)
       window.removeEventListener('focus', wake)
-      if (reconnectTimer !== null) {
-        clearTimeout(reconnectTimer)
-        reconnectTimer = null
-      }
-      const socket = ws
-      if (socket) {
-        // Null out onclose + onerror before closing so that forcibly closing a
-        // CONNECTING socket does not log a spurious "WebSocket error" or schedule
-        // a reconnect. Real errors during active use are still reported because
-        // these handlers are only cleared here, at intentional teardown time.
-        socket.onclose = null
-        socket.onerror = null
-        socket.close()
-        ws = null
-      }
+      window.removeEventListener('pagehide', onPageHide)
+      window.removeEventListener('pageshow', onPageShow)
+      dropSocket()
     }
   })
 

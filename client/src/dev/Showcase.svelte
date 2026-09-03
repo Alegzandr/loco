@@ -13,6 +13,8 @@
   import { game } from '../hooks/gameStore.svelte'
   import { setStreamerMode } from '../hooks/streamerMode'
   import { setColorAssist } from '../hooks/colorAssist'
+  import { setGraphicsPref } from '../hooks/graphicsPref'
+  import { setForceFullRender } from '../components/scene/quality'
   import Lobby from '../components/Lobby.svelte'
   import Searching from '../components/Searching.svelte'
   import MatchFound from '../components/MatchFound.svelte'
@@ -29,6 +31,7 @@
   import CardSheet from './CardSheet.svelte'
   import OgCard from './OgCard.svelte'
   import CoverCard from './CoverCard.svelte'
+  import RoomStill from './RoomStill.svelte'
   import { SCENES, type Scene } from './scenes'
 
   const noop = () => {}
@@ -40,6 +43,17 @@
   const id = params.get('showcase')
   const scene = SCENES.find((s) => s.id === id)
   let ready = $state(false)
+
+  // The render's tier, for a room reviewed at one in particular:
+  // `?gfx=high|medium|light`, and `?gfx=force` for the full render on a GPU
+  // that is a CPU — which is what `make rooms` shoots the stills with.
+  const gfx = params.get('gfx')
+  if (gfx === 'force') {
+    setGraphicsPref('high')
+    setForceFullRender(true)
+  } else if (gfx === 'high' || gfx === 'medium' || gfx === 'light') {
+    setGraphicsPref(gfx)
+  }
 
   /** Applies a scene's store patch. Relative timers become absolute at apply time. */
   function applyScene(s: Scene) {
@@ -86,8 +100,19 @@
       // A scene names its room explicitly; anything else falls back to the
       // built-in felt rather than inheriting the previous scene's map.
       mapId: '',
+      mapTime: '',
+      mapWeather: '',
       mapLoading: null,
       ...(s.state ?? {}),
+      // Room overrides, for looking at one diorama at every hour and every sky
+      // without a scene per combination: `?showcase=game-map-marina&time=day`.
+      // The registry still owns what `make visual` captures — these only exist
+      // for the pass where somebody is fixing a room and needs to see it at noon.
+      ...Object.fromEntries(
+        ([['map', 'mapId'], ['time', 'mapTime'], ['weather', 'mapWeather']] as const)
+          .map(([q, key]) => [key, params.get(q)])
+          .filter(([, v]) => v),
+      ),
     }
     // Module state, not store state: reset explicitly so a streamer scene does not
     // leak its blur into every scene captured after it.
@@ -152,6 +177,8 @@
     <OgCard variant={scene.ogVariant ?? 'default'} />
   {:else if scene.screen === 'cover'}
     <CoverCard variant={scene.coverVariant ?? 'duck'} />
+  {:else if scene.screen === 'roomStill'}
+    <RoomStill mapId={g.mapId} time={g.mapTime} weather={g.mapWeather} />
   {:else if scene.screen === 'lobby'}
     <Lobby
       onSend={noop}

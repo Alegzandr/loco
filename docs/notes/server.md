@@ -1283,7 +1283,8 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
 The table stays **shut** between "hands dealt" and "clock running" while every client downloads the
 map. `hub/maploading.go`.
 
-- **Why it is not cosmetic**: a map is ~600 kB of backdrop and table. Dealt straight into a match,
+- **Why it is not cosmetic**: a map is the engine's chunk, then a build and a render of a few
+  thousand blocks on the client's own GPU. Dealt straight into a match,
   the first player's 30 seconds start ticking while somebody else's table is still a grey rectangle,
   and in a game decided by arrival order that is a head start, not a slow paint.
 - Flow: `handleStartGame` broadcasts `game_started` (with **no** turn deadline) then

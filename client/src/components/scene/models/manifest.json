@@ -1,0 +1,135 @@
+{
+  "$comment": "The models the rooms are built from, one entry per kit. `dir` is the unpacked archive under .assets-in/unpacked, `sub` the folder holding the GLBs, `scale` the factor that turns the kit's units into tiles (one tile is about a metre and a half of a Kenney city kit, where a house is 1.3 units wide and stands 4.5 tiles wide here). `glow` lists the palette colours that are lit windows, lamps and signs after dark. Only the models named are packed (make models) and shipped.",
+  "kits": {
+    "city": {
+      "dir": "kenney_city-kit-commercial_2.1",
+      "sub": "GLB format",
+      "scale": 3.4,
+      "glow": ["#aad7ff", "#8fc9ff", "#bfe4ff"],
+      "models": [
+        "building-a", "building-b", "building-c", "building-d", "building-e", "building-f", "building-g", "building-h",
+        "building-i", "building-j", "building-k", "building-l", "building-m", "building-n",
+        "building-skyscraper-a", "building-skyscraper-b", "building-skyscraper-c", "building-skyscraper-d", "building-skyscraper-e",
+        "detail-awning", "detail-awning-wide", "detail-overhang", "detail-parasol-a", "detail-parasol-b"
+      ]
+    },
+    "suburb": {
+      "dir": "kenney_city-kit-suburban_20",
+      "sub": "GLB format",
+      "scale": 3.4,
+      "glow": ["#aad7ff", "#8fc9ff", "#bfe4ff"],
+      "models": [
+        "building-type-a", "building-type-b", "building-type-c", "building-type-d", "building-type-e", "building-type-f",
+        "building-type-g", "building-type-h", "building-type-i", "building-type-j", "building-type-k", "building-type-l",
+        "building-type-m", "building-type-n", "building-type-o", "building-type-p", "building-type-q", "building-type-r",
+        "building-type-s", "building-type-t", "building-type-u",
+        "fence", "fence-low", "planter", "tree-large", "tree-small", "path-short", "path-long", "driveway-short"
+      ]
+    },
+    "roads": {
+      "dir": "kenney_city-kit-roads",
+      "sub": "GLB format",
+      "scale": 3.4,
+      "glow": ["#fff1b8", "#ffe9a0"],
+      "models": [
+        "road-straight", "road-straight-half", "road-bend", "road-curve", "road-crossroad", "road-intersection", "road-end", "road-end-round",
+        "road-crossing", "road-crossroad-line", "road-side", "road-square", "road-roundabout",
+        "light-curved", "light-square", "light-curved-double", "traffic-light", "road-sign-street", "road-sign-stop", "dumpster",
+        "electricity-pole", "electricity-wires", "construction-cone", "construction-barrier"
+      ]
+    },
+    "nature": {
+      "dir": "kenney_nature-kit",
+      "sub": "GLTF format",
+      "scale": 2.6,
+      "glow": [],
+      "models": [
+        "tree_default", "tree_detailed", "tree_oak", "tree_fat", "tree_tall", "tree_thin", "tree_small", "tree_simple", "tree_plateau",
+        "tree_pineDefaultA", "tree_pineRoundA", "tree_pineTallA", "tree_pineSmallA", "tree_pineGroundA",
+        "tree_palm", "tree_palmBend", "tree_palmDetailedTall", "tree_palmDetailedShort",
+        "plant_bush", "plant_bushDetailed", "plant_bushLarge", "plant_bushSmall", "grass", "grass_large",
+        "flower_redA", "flower_redB", "flower_yellowA", "flower_yellowB", "flower_purpleA", "flower_purpleB",
+        "rock_largeA", "rock_largeB", "rock_smallA", "rock_smallB", "rock_tallA", "stone_largeA", "stone_smallA",
+        "bridge_wood", "bridge_stone", "bridge_stoneRound", "path_stone", "path_wood",
+        "fence_simple", "fence_planks", "log", "log_stack", "campfire_logs", "canoe", "lily_large", "lily_small",
+        "statue_column", "statue_obelisk", "statue_head", "tent_smallClosed", "sign"
+      ]
+    },
+    "cars": {
+      "dir": "kenney_car-kit",
+      "sub": "GLB format",
+      "scale": 0.85,
+      "glow": ["#fff1b8", "#ffe9a0"],
+      "models": ["sedan", "sedan-sports", "hatchback-sports", "suv", "suv-luxury", "van", "taxi", "police", "delivery", "truck", "firetruck", "ambulance", "tractor", "race", "race-future"]
+    },
+    "people": {
+      "dir": "kenney_mini-characters",
+      "sub": "GLB format",
+      "scale": 1.9,
+      "glow": [],
+      "models": [
+        "character-female-a", "character-female-b", "character-female-c", "character-female-d", "character-female-e", "character-female-f",
+        "character-male-a", "character-male-b", "character-male-c", "character-male-d", "character-male-e", "character-male-f"
+      ]
+    },
+    "pirate": {
+      "dir": "kenney_pirate-kit",
+      "sub": "GLB format",
+      "scale": 1.0,
+      "glow": ["#fff1b8", "#ffe9a0"],
+      "models": [
+        "tower-complete-large", "tower-complete-small", "ship-large", "ship-medium", "ship-small", "ship-pirate-medium", "ship-pirate-small",
+        "boat-row-large", "boat-row-small", "structure-platform-dock", "structure-platform-dock-small", "structure-platform", "structure-fence",
+        "palm-straight", "palm-bend", "palm-detailed-straight", "palm-detailed-bend", "barrel", "crate", "crate-bottles", "chest", "cannon",
+        "rocks-a", "rocks-b", "rocks-c", "rocks-sand-a", "flag", "flag-high", "mast", "patch-grass", "patch-sand", "grass-patch", "castle-wall", "castle-door"
+      ]
+    },
+    "fantasy": {
+      "dir": "kenney_fantasy-town-kit_2.0",
+      "sub": "GLB format",
+      "scale": 2.4,
+      "glow": ["#ffe9a0", "#fff1b8"],
+      "models": [
+        "wall", "wall-wood", "wall-window-shutters", "wall-wood-window-shutters", "wall-door", "wall-wood-door", "wall-window-glass", "wall-wood-window-glass",
+        "wall-corner", "wall-wood-corner", "wall-half", "wall-wood-half", "wall-arch", "wall-doorway-round",
+        "roof", "roof-corner", "roof-gable", "roof-gable-end", "roof-gable-top", "roof-point", "roof-high", "roof-high-gable", "roof-high-corner", "roof-window", "roof-flat",
+        "chimney", "chimney-top", "overhang", "balcony-wall", "banner-red", "banner-green", "lantern", "stall", "stall-red", "stall-green", "stall-bench",
+        "fountain-round", "fountain-round-detail", "fountain-center", "hedge", "hedge-large", "fence", "fence-gate", "cart", "cart-high", "windmill", "watermill",
+        "tree", "tree-high", "tree-high-round", "tree-crooked", "rock-large", "rock-small", "road", "road-corner", "road-edge", "road-curb",
+        "stairs-stone", "stairs-wide-stone", "pillar-stone", "pillar-wood", "planks", "poles"
+      ]
+    },
+    "space": {
+      "dir": "kenney_space-kit",
+      "sub": "GLTF format",
+      "scale": 2.2,
+      "glow": ["#ffffff", "#e8f4ff"],
+      "models": [
+        "hangar_largeA", "hangar_largeB", "hangar_roundA", "hangar_roundB", "hangar_roundGlass", "hangar_smallA", "hangar_smallB",
+        "corridor", "corridor_corner", "corridor_cross", "corridor_end", "corridor_window", "corridor_detailed",
+        "rocket_baseA", "rocket_fuelA", "rocket_sidesA", "rocket_finsA", "rocket_topA", "rocket_baseB", "rocket_fuelB", "rocket_topB",
+        "satelliteDish", "satelliteDish_detailed", "satelliteDish_large", "rover", "craft_speederA", "craft_speederB", "craft_cargoA", "craft_miner",
+        "machine_generator", "machine_generatorLarge", "machine_wireless", "machine_barrel", "barrels", "barrel",
+        "rock", "rock_largeA", "rock_largeB", "rock_crystals", "rock_crystalsLargeA", "rocks_smallA", "crater", "craterLarge", "meteor",
+        "terrain", "terrain_roadStraight", "terrain_roadCorner", "terrain_roadCross", "platform_large", "platform_center", "astronautA", "astronautB", "gate_simple", "supports_low", "pipe_straight", "pipe_corner", "turret_single", "monorail_trackStraight", "monorail_trainFront", "monorail_trainPassenger"
+      ]
+    },
+    "holiday": {
+      "dir": "kenney_holiday-kit",
+      "sub": "GLB format",
+      "scale": 2.4,
+      "glow": ["#fff1b8", "#ffe9a0", "#ffd166", "#ff6b6b", "#4ecdc4"],
+      "models": [
+        "tree-snow-a", "tree-snow-b", "tree-snow-c", "tree-decorated-snow", "snowman", "snowman-hat", "snow-pile", "snow-flat", "snow-flat-large",
+        "cabin-roof-snow", "cabin-roof-snow-chimney", "cabin-roof-snow-dormer", "bench", "lantern", "lantern-hanging", "lights-colored", "sled", "rocks-medium"
+      ]
+    },
+    "quaternius": {
+      "dir": "quaternius",
+      "sub": ".",
+      "scale": 160,
+      "glow": [],
+      "models": ["temple", "torii"]
+    }
+  }
+}

@@ -134,6 +134,7 @@ export interface Scene {
     | 'cards'
     | 'og'
     | 'cover'
+    | 'roomStill'
   /**
    * Store patch applied before mounting. `deadlineIn`/`unoIn` are relative so
    * captures stay stable regardless of when they run.
@@ -809,38 +810,84 @@ export const SCENES: Scene[] = [
     deadlineIn: 8,
   },
   // ─── Maps ────────────────────────────────────────────────────────────────
-  // One scene per room, plus the loading screen that introduces it. These are
-  // the only place the art is reviewable without a server dealing a match, and
-  // the table's placement (see maps.ts `playfield`) is measured by eye off the
-  // art, so a drifted table shows up here and nowhere else.
+  // One scene per room at a representative hour, a few more at the hours and
+  // skies that change the most, plus the loading screen that introduces it.
+  // These are the only place a room is reviewable without a server dealing a
+  // match: the diorama is rendered in the browser from the three ids, so what
+  // `make visual` shoots here is exactly what a match draws.
+  // The stills the rooms page is drawn from: each room alone, at its signature
+  // hour under a clear sky, framed 16:9 with the podium under where the page's
+  // CSS table will sit. `make rooms` (tools/rooms/shoot.mjs) shoots these six
+  // into client/src/assets/rooms/ and commits them; a content page ships no
+  // script, so a photograph of the render is the only way it can show the
+  // room. The hours here and `SIGNATURE` in content/TablesArticle.astro are
+  // one list, pinned by contentPages.test.ts.
+  ...(
+    [
+      ['neon', 'night'],
+      ['rune', 'dusk'],
+      ['velvet', 'dusk'],
+      ['orbit', 'night'],
+      ['sakura', 'day'],
+      ['marina', 'dawn'],
+    ] as const
+  ).map(([mapId, mapTime]) => ({
+    id: `room-still-${mapId}`,
+    title: `Décor · ${mapId} (vignette de la page des décors)`,
+    screen: 'roomStill' as const,
+    state: { mapId, mapTime, mapWeather: 'clear' },
+  })),
   {
     id: 'game-map-neon',
-    title: 'Map · Neon',
+    title: 'Map · Neon · nuit, pluie',
     screen: 'game',
-    state: { ...gameBase, mapId: 'neon' },
+    state: { ...gameBase, mapId: 'neon', mapTime: 'night', mapWeather: 'rain' },
+    deadlineIn: 21,
+  },
+  {
+    id: 'game-map-neon-day',
+    title: 'Map · Neon · plein jour',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'neon', mapTime: 'day', mapWeather: 'clear', discard: num('blue', 7), activeColor: 'blue' },
     deadlineIn: 21,
   },
   {
     id: 'game-map-rune',
-    title: 'Map · Rune',
+    title: 'Map · Rune · crépuscule',
     screen: 'game',
-    state: { ...gameBase, mapId: 'rune', discard: card('green', 'draw_two'), activeColor: 'green' },
+    state: { ...gameBase, mapId: 'rune', mapTime: 'dusk', mapWeather: 'clear', discard: card('green', 'draw_two'), activeColor: 'green' },
+    deadlineIn: 18,
+  },
+  {
+    id: 'game-map-rune-snow',
+    title: 'Map · Rune · jour, neige',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'rune', mapTime: 'day', mapWeather: 'snow' },
     deadlineIn: 18,
   },
   {
     id: 'game-map-velvet',
-    title: 'Map · Velvet',
+    title: 'Map · Velvet · crépuscule',
     screen: 'game',
-    state: { ...gameBase, mapId: 'velvet', discard: num('yellow', 4), activeColor: 'yellow' },
+    state: { ...gameBase, mapId: 'velvet', mapTime: 'dusk', mapWeather: 'clear', discard: num('yellow', 4), activeColor: 'yellow' },
+    deadlineIn: 24,
+  },
+  {
+    id: 'game-map-velvet-fog',
+    title: 'Map · Velvet · aube, brume',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'velvet', mapTime: 'dawn', mapWeather: 'fog' },
     deadlineIn: 24,
   },
   {
     id: 'game-map-orbit',
-    title: 'Map · Orbit',
+    title: 'Map · Orbit · nuit',
     screen: 'game',
     state: {
       ...gameBase,
       mapId: 'orbit',
+      mapTime: 'night',
+      mapWeather: 'clear',
       discard: card('wild', 'wild'),
       activeColor: 'blue',
       direction: -1,
@@ -848,7 +895,49 @@ export const SCENES: Scene[] = [
     deadlineIn: 13,
   },
   {
-    // The reveal. Two seats in, one still downloading: the state the roster
+    id: 'game-map-orbit-storm',
+    title: 'Map · Orbit · jour, tempête',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'orbit', mapTime: 'day', mapWeather: 'storm' },
+    deadlineIn: 13,
+  },
+  {
+    id: 'game-map-sakura',
+    title: 'Map · Sakura · plein jour',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'sakura', mapTime: 'day', mapWeather: 'clear', discard: num('green', 2), activeColor: 'green' },
+    deadlineIn: 16,
+  },
+  {
+    id: 'game-map-sakura-night',
+    title: 'Map · Sakura · nuit, neige',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'sakura', mapTime: 'night', mapWeather: 'snow' },
+    deadlineIn: 16,
+  },
+  {
+    id: 'game-map-marina',
+    title: 'Map · Marina · aube',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'marina', mapTime: 'dawn', mapWeather: 'clear', discard: card('blue', 'skip'), activeColor: 'blue' },
+    deadlineIn: 19,
+  },
+  {
+    id: 'game-map-marina-day',
+    title: 'Map · Marina · plein jour',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'marina', mapTime: 'day', mapWeather: 'clear', discard: num('yellow', 6), activeColor: 'yellow' },
+    deadlineIn: 19,
+  },
+  {
+    id: 'game-map-marina-storm',
+    title: 'Map · Marina · nuit, orage',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'marina', mapTime: 'night', mapWeather: 'storm' },
+    deadlineIn: 19,
+  },
+  {
+    // The reveal. Two seats in, one still rendering: the state the roster
     // exists for, since a bar alone cannot tell a slow player from a hung game.
     id: 'game-map-loading',
     title: 'Map · écran de chargement',
@@ -856,6 +945,8 @@ export const SCENES: Scene[] = [
     state: {
       ...gameBase,
       mapId: 'rune',
+      mapTime: 'dusk',
+      mapWeather: 'rain',
       mapLoading: { ready: [0, 2] },
       turnDeadline: null,
     },

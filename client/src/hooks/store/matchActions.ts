@@ -152,6 +152,8 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       // The next match draws its own room, and its assets are ones this client
       // may not hold yet, so the gate re-arms and the map is unknown until then.
       mapId: '',
+      mapTime: '',
+      mapWeather: '',
       mapLoading: null,
       scoreboard: [],
       roundHistory: [],
