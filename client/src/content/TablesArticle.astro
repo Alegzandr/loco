@@ -6,11 +6,20 @@
 // board paints from; the hours and skies from the same lists the server draws
 // from. Nothing here describes a room a second time.
 //
-// What this page cannot show is the room itself: the scene is rendered in the
-// browser by the isometric engine, and a content page ships no script (see
-// docs/notes/seo.md). So each room is shown as the thing the page *can* draw
-// without one — its table, in CSS, under the sky of its signature hour — and
-// the rest is told: which hours and which skies the server can deal it under.
+// A content page ships no script (see docs/notes/seo.md), so it cannot render
+// the diorama the way the board does. What it shows instead is a photograph of
+// that render: `make rooms` (tools/rooms/shoot.mjs) shoots each room alone at
+// its signature hour, with the podium built under where the table sits, into
+// `src/assets/rooms/`, and this page lays the board's own CSS table over the
+// still — the same materials, the same rim, the same inlay — so the room and
+// the table are one object here as they are in a match. The rest is told:
+// which hours and which skies the server can deal the room under.
+//
+// A room whose still has not been shot yet falls back to its sky: the page
+// must never fail to build over a picture, and `contentPages.test.ts` is what
+// says the picture is missing.
+import { Image } from 'astro:assets'
+import type { ImageMetadata } from 'astro'
 import { MAPS, MAP_IDS, TIMES, type MapId, type TimeOfDay } from '../components/cards/maps'
 import { lightRig, hexCss } from '../components/scene/sky'
 import { ui } from './ui'
@@ -27,10 +36,12 @@ const t = lang === 'fr' ? fr : en
 
 /*
  * The hour each room is shown at here. A room has four, and this is the one
- * its tagline was written for: the sky the page paints behind the table is that
- * hour's, from the same rig the renderer lights the scene with.
+ * its tagline was written for: the still is shot at it, and the sky the page
+ * paints behind the table while the still loads is that hour's, from the same
+ * rig the renderer lights the scene with. One list with the `room-still-*`
+ * scenes in `src/dev/scenes.ts`, pinned by `contentPages.test.ts`.
  */
-const SIGNATURE: Record<MapId, TimeOfDay> = {
+export const SIGNATURE: Record<MapId, TimeOfDay> = {
   neon: 'night',
   rune: 'dusk',
   velvet: 'dusk',
@@ -38,15 +49,20 @@ const SIGNATURE: Record<MapId, TimeOfDay> = {
   sakura: 'day',
   marina: 'dawn',
 }
+
+const stills = import.meta.glob<{ default: ImageMetadata }>('../assets/rooms/*.webp', { eager: true })
+const stillOf = (id: MapId): ImageMetadata | undefined => stills[`../assets/rooms/${id}.webp`]?.default
 ---
 
 <h1>{ui('tablesH1', lang)}</h1>
 <p class="lede">{ui('tablesLede', lang)}</p>
 
+<div class="rooms">
 {MAP_IDS.map((id) => {
   const map = MAPS[id]
   const copy = t.maps[id]
   const rig = lightRig(SIGNATURE[id], 'clear')
+  const still = stillOf(id)
   const vars = [
     `--accent: ${map.accent}`,
     `--sky-top: ${hexCss(rig.sky.top)}`,
@@ -62,17 +78,31 @@ const SIGNATURE: Record<MapId, TimeOfDay> = {
   ].join('; ')
   return (
     <article class="room">
-      <h2>{copy.name}</h2>
+      <div class="roomHead">
+        <h2>{copy.name}</h2>
+        <span class="roomHour">{t.mapTimes[SIGNATURE[id]]}</span>
+      </div>
       {/*
-        The table, drawn the way the board draws it: the same materials, the
-        same rim, the same plinth, under the sky of the room's signature hour.
+        The room, then the table the way the board draws it: the same
+        materials, the same rim, no plinth (the render carries the podium).
         The two `--tbl-*` rulesets in content.css are a transcription of
         GameBoard.svelte's, and move with it.
       */}
-      <div class="roomArt" style={vars} aria-hidden="true">
-        <div class="roomGlow"></div>
-        <div class="roomPlinth"></div>
-        <div class="roomTable"></div>
+      <div class="roomArt" style={vars}>
+        {still && (
+          <Image
+            class="roomStill"
+            src={still}
+            alt={copy.tagline}
+            widths={[720, 1120, 1600]}
+            sizes="(max-width: 50rem) 100vw, 46rem"
+            format="webp"
+            loading="lazy"
+            decoding="async"
+          />
+        )}
+        <div class="roomGlow" aria-hidden="true"></div>
+        <div class="roomTable" aria-hidden="true"></div>
       </div>
       <p>{copy.tagline}</p>
       <ul class="roomMoments">
@@ -86,5 +116,6 @@ const SIGNATURE: Record<MapId, TimeOfDay> = {
     </article>
   )
 })}
+</div>
 
 <p>{ui('tablesOutro', lang)}</p>

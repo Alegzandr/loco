@@ -197,13 +197,20 @@ try {
     music.setIntensity(0.4)
     music.start('game')
     await settle(1600)
+    // Press it once per loop the section carries, so the bag is dealt right
+    // through. A fixed five presses was fine when a section had three loops and
+    // silently untestable the moment the groove grew to seven.
+    // One press per loop plus one. The bag carried over from the opening
+    // section is partial, so a full deal of this section needs one more press
+    // than it has loops; at exactly `grooveLoops` the coverage check failed on a
+    // bed that was dealing perfectly.
+    const grooveLoops = LOOPS.filter((l) => l.sections.includes('groove')).length
     const skipped = [music.getLoopId()]
-    for (let n = 0; n < 5; n++) {
+    for (let n = 0; n <= grooveLoops; n++) {
       music.nextTrack()
       await settle(2800)
       skipped.push(music.getLoopId())
     }
-    const grooveLoops = LOOPS.filter((l) => l.sections.includes('groove')).length
 
     /**
      * A loop that has come round enough times has to hand over on its own, with
@@ -419,12 +426,20 @@ try {
     // different pieces of music), and what this now guards is that they arrive
     // at the same level — a loop added later without normalising would show up
     // here and nowhere else, as a bed that lurches every time the table does.
+    //
+    // The window is wide on purpose. This is unweighted RMS over one window and
+    // the mastering target is gated, K-weighted LUFS: two loops at exactly
+    // −18 LUFS still read differently here if their crest factors differ, which
+    // for a sparse piece against a dense funk one they do. What it has to catch
+    // is a file that was never normalised at all, and the raw archive spanned
+    // ten units — about ×3 — so anything inside this window is material and
+    // anything outside it is a missing encode step.
     const ratio = results.tenseRms / (results.calmRms || 1e-9)
-    const levelOk = ratio > 0.7 && ratio < 1.4
+    const levelOk = ratio > 0.55 && ratio < 1.8
     if (!levelOk) failures++
     console.log(
       `${levelOk ? '✓' : '✗'} ${'levelling'.padEnd(12)} calm=${results.calmRms.toFixed(4)} ` +
-        `tense=${results.tenseRms.toFixed(4)} (×${ratio.toFixed(2)}, want ~1.00)`,
+        `tense=${results.tenseRms.toFixed(4)} (×${ratio.toFixed(2)}, want 0.55-1.80)`,
     )
 
     // The loop choice is the adaptivity, so check the section actually moved.

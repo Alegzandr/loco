@@ -1,5 +1,6 @@
 ﻿import type { MapId, TimeOfDay, Weather } from '../components/cards/maps'
 import type { CardKind, Emote } from '../types/protocol'
+import type { GraphicsPref } from '../hooks/graphicsPref'
 
 export interface RulesSection {
   heading: string
@@ -148,9 +149,11 @@ export interface Translations {
   /** The ✕ on the phone's sheet, where the gear that opened it is not on screen. */
   prefsClose: string
   prefsLanguage: string
-  prefsTheme: string
-  prefsThemeLight: string
-  prefsThemeDark: string
+  prefsGraphics: string
+  prefsGraphicsTier: Record<GraphicsPref, string>
+  /** `%tier` is the tier `auto` landed on for this device. */
+  prefsGraphicsAutoHint: string
+  prefsGraphicsHint: string
   prefsStreamer: string
   prefsColorAssist: string
   prefsColorAssistHint: string
@@ -547,9 +550,10 @@ export const en: Translations = {
   prefsTitle: 'Preferences',
   prefsClose: 'Close',
   prefsLanguage: 'Language',
-  prefsTheme: 'Theme',
-  prefsThemeLight: 'Light',
-  prefsThemeDark: 'Dark',
+  prefsGraphics: 'Graphics',
+  prefsGraphicsTier: { auto: 'Auto', high: 'High', medium: 'Medium', light: 'Light' },
+  prefsGraphicsAutoHint: 'Picked for this device: %tier. The room is drawn once per match, so this only changes how long the table takes to open.',
+  prefsGraphicsHint: 'The room is drawn once per match, so this only changes how long the table takes to open and how much weather sits over it.',
   prefsStreamer: 'Streamer mode',
   prefsColorAssist: 'Colour shapes',
   // Named after what appears, not after a condition: nobody should have to

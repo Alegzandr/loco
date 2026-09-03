@@ -24,12 +24,23 @@
 body.doc {
   -webkit-user-select: text;
   user-select: text;
-  /* Flat. The board sits in a room and earns the candy gradient the game paints
-     under it; a page of prose does not, and the blurred orbs behind it read as
-     a backdrop somebody forgot to remove — the more so when they were pinned to
-     the viewport and the text slid over them. The colour stays the game's, so
-     the page still belongs to it. */
-  background: var(--color-canvas);
+  /* The game's own canvas: the den's gradient and its three colour orbs, the
+     same declaration `tokens.css` paints under every screen of the game. It
+     was flattened to the bare canvas colour once, on the grounds that the orbs
+     read as a backdrop under scrolling prose — and they did while they were
+     pinned to the viewport. Anchored to the top of the document and sized to
+     one screen, they are the first screenful's sky and the page below it is
+     the den; a reader arriving from the game meets the room they left. The
+     panels the prose sits in are what make the text legible over it, exactly
+     as they are in the game. */
+  background:
+    radial-gradient(22% 30% at 8% 18%, rgba(255, 201, 60, 0.2) 0%, rgba(255, 201, 60, 0) 70%),
+    radial-gradient(26% 34% at 93% 26%, rgba(108, 92, 255, 0.22) 0%, rgba(108, 92, 255, 0) 70%),
+    radial-gradient(30% 26% at 76% 90%, rgba(255, 61, 104, 0.16) 0%, rgba(255, 61, 104, 0) 70%),
+    var(--bg-gradient);
+  background-repeat: no-repeat;
+  background-size: 100% 100lvh, 100% 100lvh, 100% 100lvh, 100% 100lvh;
+  background-color: var(--color-canvas);
 }
 
 /* The header is pinned, so every in-page jump — the skip link, the table of
@@ -50,7 +61,7 @@ html:has(body.doc) {
    keep the instant jump and no stylesheet here may query that preference —
    `reducedMotionCss.test.ts` owns that rule.
    `data-motion` is not available here either: it is written by the game's
-   `initMotion()`, which these pages never mount. So `theme-boot.ts` reads the
+   `initMotion()`, which these pages never mount. So `page-boot.ts` reads the
    system preference itself and writes the attribute, and with the script off
    nothing is smooth, which is the safe half. */
 html[data-scroll="smooth"]:has(body.doc) {
@@ -88,7 +99,7 @@ html[data-scroll="smooth"]:has(body.doc) {
    is a tap: the bare `:focus` published the link over the header for a reader
    who has no use for it and no obvious way to dismiss it. This selector is only
    half the guard — Safari counts a programmatic `focus()` as keyboard focus
-   whatever the gesture was — so `theme-boot.ts` moves the focus only on a
+   whatever the gesture was — so `page-boot.ts` moves the focus only on a
    keyboard activation. Both halves are needed; neither alone hides it on iOS. */
 .skip:focus-visible {
   left: max(1rem, var(--safe-left));
@@ -110,15 +121,21 @@ html[data-scroll="smooth"]:has(body.doc) {
  * edge to edge; the row inside keeps `--shell`, which is what keeps the logo on
  * the same x as the <h1>.
  *
- * Opaque, not blurred, for the reason the footer is: prose sliding under a
- * frosted panel is still prose, half-legible. The hairline is the footer's
- * border-top mirrored, so the page is a column between two rules.
+ * Near-opaque over a blur, the way the game's scrims sit over a board: the
+ * canvas under it is a gradient now, and a flat band of one colour across a
+ * gradient is a seam. At 92% of the canvas nothing under it is legible enough
+ * to compete with the mark and the button, which was the reason it used to be
+ * opaque; the blur is the frosted glass the rest of the product's overlays
+ * wear, and on a static page it costs nothing per frame. The hairline is the
+ * footer's border-top mirrored, so the page is a column between two rules.
  */
 .headerBar {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: var(--color-canvas);
+  background: color-mix(in srgb, var(--color-canvas) 92%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
   border-bottom: 2px solid var(--color-hairline);
 }
 
@@ -151,15 +168,25 @@ html[data-scroll="smooth"]:has(body.doc) {
   min-height: var(--touch-target);
 }
 
-.cta {
-  display: inline-block;
+/* The game's primary button, to the declaration (`Lobby.svelte`'s `.btn`):
+   the moulded gradient, the ink outline, the 5px ledge, the label's own
+   shadow, the press travelling into the ledge. It was a flat red pill here,
+   which next to the game's buttons read as a different product's. */
+.cta,
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
   flex: none;
   white-space: nowrap;
-  padding: 0.6rem 1.35rem;
+  padding: 0.65rem 1.4rem;
+  min-height: 3rem;
   border-radius: var(--radius-full);
   border: var(--stroke) solid var(--color-stroke);
-  background: var(--color-primary);
+  background: var(--gradient-primary);
   color: var(--color-on-primary);
+  text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
   font-family: var(--font-display);
   /* 1.2rem, not the 1.05rem it sat at: white on LOCO Red is 3.43:1, which clears
      the bar for large text (3:1) and misses it for body text (4.5:1), and 14pt
@@ -167,21 +194,61 @@ html[data-scroll="smooth"]:has(body.doc) {
      darkening the brand red on the one control that is most obviously the brand,
      so the type grew instead. Same reason `.navPopCta` is sized where it is. */
   font-size: 1.2rem;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 1.2;
   text-decoration: none;
-  box-shadow: var(--shadow-hard);
+  box-shadow: 0 5px 0 var(--color-stroke-soft);
   transition:
-    transform 0.12s ease,
-    background-color 0.12s ease;
+    transform 0.12s var(--ease-bounce),
+    box-shadow 0.12s var(--ease-out),
+    filter 0.12s ease;
+  touch-action: manipulation;
 }
+/* `.content a` paints links in `--color-link` and outranks a bare class, so the
+   button's label is claimed from the same depth: it is a button, not a link in
+   a paragraph. */
+.content .btnPrimary,
+.content .btnPrimary:hover,
+.content .btnPrimary:focus-visible {
+  color: var(--color-on-primary);
+}
+
 .cta:hover,
-.cta:focus-visible {
-  background: var(--color-primary-active);
-  transform: translateY(-1px);
+.cta:focus-visible,
+.btnPrimary:hover,
+.btnPrimary:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 0 var(--color-stroke-soft);
+  filter: brightness(1.06);
 }
-.cta:active {
-  transform: translateY(2px);
+.cta:active,
+.btnPrimary:active {
+  transform: translateY(3px);
   box-shadow: 0 2px 0 var(--color-stroke-soft);
+}
+
+/* A button on its own line in the prose: the row it stands in, and the width
+   it takes. Below 46rem it is the full column, the way every button in the
+   game is on a phone. */
+.btnRow {
+  margin: 1.4rem 0 0.4rem;
+}
+
+.btnPrimary {
+  padding-inline: 1.7rem;
+  min-height: 3.375rem;
+}
+
+.btnPrimary svg {
+  flex: none;
+  filter: drop-shadow(0 2px 0 rgba(120, 10, 40, 0.4));
+}
+
+@media (max-width: 46rem) {
+  .btnPrimary {
+    display: flex;
+    width: 100%;
+  }
 }
 
 /* ── The column ────────────────────────────────────────────────────────── */
@@ -348,13 +415,47 @@ html[data-scroll="smooth"]:has(body.doc) {
   color: var(--color-muted);
 }
 
-/* Sections are separated by space and by the rule over the next heading, and by
-   nothing else. A full-width line was drawn in `--color-stroke-soft`, which is
-   near-black by design — it is the colour under a raised object, not a colour to
-   put *on* one — so on the dark page it read as a black bar across the prose.
-   The chapter is already marked twice: the gap, and the accent above the h2. */
-.content section + section {
-  margin-top: clamp(3rem, 6vw, 4.2rem);
+/* ── Panels ────────────────────────────────────────────────────────────── */
+
+/*
+ * A chapter is a panel: the card every screen of the game puts its content on
+ * — surface, ink outline, the solid ledge and the soft drop of `--shadow-pop`
+ * — at the radius the rules modal and the round summary wear. The prose used
+ * to sit bare on the canvas, separated by air and a red bar over each heading,
+ * and beside the game it read as a documentation site that happened to share
+ * a font: everything in the game is an object on a surface, and nothing on
+ * these pages was. The same card is what makes the text legible over the
+ * canvas gradient the page now paints.
+ *
+ * Only the top-level chapters: a section nested inside one (the rules page's
+ * sub-headings) stays prose inside its panel, and so do the things a panel
+ * holds that were themselves raised — the tables, the steps, the card entries
+ * — which drop to a quieter, sunken treatment below rather than stacking a
+ * ledge on a ledge.
+ */
+.content > section,
+.content > .qa,
+.content > .rooms > .room {
+  padding: clamp(1.3rem, 3.2vw, 1.9rem) clamp(1.2rem, 3.6vw, 2rem) clamp(1.4rem, 3.2vw, 2rem);
+  background: var(--color-surface-card);
+  border: var(--stroke) solid var(--color-stroke);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-pop);
+}
+
+/* The panels stand a hand apart, and nothing else separates them: the
+   chapter is already marked by the card itself and the accent over its h2. */
+.content section + section,
+.content > .qa + .qa {
+  margin-top: 1.4rem;
+}
+
+/* The last thing in a panel owes it no margin: a ledge with a paragraph's
+   worth of air under it is a card that stops short of its own content. */
+.content > section > :last-child,
+.content > .qa > :last-child,
+.content > .rooms > .room > :last-child {
+  margin-bottom: 0;
 }
 
 .content h2 {
@@ -450,14 +551,16 @@ html[data-scroll="smooth"]:has(body.doc) {
   outline-offset: 3px;
 }
 
-/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+/* Wide content scrolls inside its own box; the page never scrolls sideways.
+   Sunken into its panel rather than raised on it: the surface below the card's,
+   a hairline rather than ink, no ledge — the treatment the game gives a slot
+   cut into a bar, because a raised object on a raised object is two ledges. */
 .tableWrap {
   overflow-x: auto;
   margin: 1.6rem 0;
-  border: var(--stroke) solid var(--color-stroke);
+  border: var(--stroke-thin) solid var(--color-hairline);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-hard-lg);
-  background: var(--color-surface-card);
+  background: var(--color-surface-soft);
 }
 
 /* Every rule below is scoped to `.tableWrap`, and that scope is the whole point.
@@ -533,15 +636,14 @@ html[data-scroll="smooth"]:has(body.doc) {
   margin: 0 -0.7rem 0.4rem;
 }
 
-/* One card of the deck, on its own slab: the art is the answer on this page, so
-   it gets the outline and the hard shadow every raised object here gets. */
+/* One card of the deck, on its own slab inside the chapter's panel: sunken,
+   like the tables, so the card's own outline and ledge are the raised thing. */
 .cardEntry {
-  margin-top: 1.6rem;
+  margin-top: 1.4rem;
   padding: 1.3rem 1.4rem 1rem;
-  border: var(--stroke) solid var(--color-stroke);
+  border: var(--stroke-thin) solid var(--color-hairline);
   border-radius: var(--radius-lg);
-  background: var(--color-surface-card);
-  box-shadow: var(--shadow-hard-lg);
+  background: var(--color-surface-soft);
 }
 
 .cardEntry h3 {
@@ -573,6 +675,8 @@ html[data-scroll="smooth"]:has(body.doc) {
   padding: 0;
 }
 
+/* Each step is a panel of its own when the list opens the page (the friends
+   page), and a sunken row when it sits inside a chapter (the live page). */
 .steps > li {
   counter-increment: step;
   display: grid;
@@ -581,9 +685,20 @@ html[data-scroll="smooth"]:has(body.doc) {
   align-items: baseline;
   padding: 1.2rem 1.4rem;
   border: var(--stroke) solid var(--color-stroke);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-xl);
   background: var(--color-surface-card);
-  box-shadow: var(--shadow-hard-lg);
+  box-shadow: var(--shadow-pop);
+}
+
+.content > section .steps > li {
+  border: var(--stroke-thin) solid var(--color-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-soft);
+  box-shadow: none;
+}
+
+.content > section .steps {
+  margin-bottom: 0;
 }
 
 .steps > li::before {
@@ -630,34 +745,81 @@ html[data-scroll="smooth"]:has(body.doc) {
 
 /* ── Rooms ─────────────────────────────────────────────────────────────── */
 
-.room {
-  margin-bottom: 3rem;
+.rooms {
+  display: grid;
+  gap: 1.4rem;
+  margin-bottom: 1.4rem;
+}
+
+.roomHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.roomHead h2 {
+  margin: 0;
+}
+
+/* The hour the still was shot at, beside the name: the one of its four the
+   tagline was written for. */
+.roomHour {
+  flex: none;
+  font: 700 0.85rem/1.2 var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
 }
 
 /*
- * A room, as much of it as a page without a script can draw: the sky of its
- * signature hour, and its table. The frame is 16:9 like the board, and the
- * room's own accent is the frame's inner outline, so the border belongs to the
- * room rather than to the page.
+ * A room: the still `make rooms` shot of the render, and over it the board's
+ * own table. The frame is 16:9 like the board, and the room's own accent is
+ * the frame's inner outline, so the border belongs to the room rather than to
+ * the page. The sky gradient behind is the hour's, from the same rig, and is
+ * what a reader sees while the still loads — and the whole room, for a build
+ * whose stills have not been shot.
  */
 .roomArt {
   position: relative;
   aspect-ratio: 16 / 9;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   border: var(--stroke) solid var(--color-stroke);
   box-shadow: var(--shadow-hard-lg);
   outline: 2px solid var(--accent);
   outline-offset: -6px;
   margin-bottom: 1rem;
+  background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-horizon) 100%);
+}
+
+.roomStill {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The board's own vignette over the still, so the table's band is where the
+   eye lands: the same two gradients `GameBoard.svelte` lays over a room. */
+.roomArt::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(3, 2, 10, 0.18) 0%, rgba(3, 2, 10, 0) 30%, rgba(3, 2, 10, 0) 60%, rgba(3, 2, 10, 0.34) 100%),
-    linear-gradient(180deg, var(--sky-top) 0%, var(--sky-horizon) 100%);
+    radial-gradient(62% 52% at 50% 44%, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0) 55%, rgba(3, 2, 10, calc(0.14 + var(--scene-dark) * 0.16)) 100%),
+    linear-gradient(180deg, rgba(3, 2, 10, calc(0.12 + var(--scene-dark) * 0.14)) 0%, rgba(3, 2, 10, 0) 24%, rgba(3, 2, 10, 0) 62%, rgba(3, 2, 10, calc(0.22 + var(--scene-dark) * 0.2)) 100%);
 }
 
 /*
- * The table, transcribed from GameBoard.svelte's `.tableOval`, `.tablePlinth`
- * and `.tableGlow`: same materials, same rim, same hard edge, same inlay. The
+ * The table, transcribed from GameBoard.svelte's `.tableOval` and `.tableGlow`:
+ * same materials, same rim, same hard edge, same inlay. No plinth: in a room
+ * the render carries the podium, here as on the board, and the still was shot
+ * with it built under exactly this ellipse (`src/dev/RoomStill.svelte`). The
  * board's is measured in board pixels under a stage transform; this one is in
  * fractions of the frame, at the proportion `tableRect()` gives a desktop.
  */
@@ -677,27 +839,6 @@ html[data-scroll="smooth"]:has(body.doc) {
   transform: scale(1.55);
   filter: blur(18px);
   opacity: calc(0.25 + var(--scene-dark) * 0.35);
-}
-
-.roomPlinth {
-  position: absolute;
-  left: 40%;
-  top: 56%;
-  width: 20%;
-  height: 34%;
-  border-radius: 50% 50% 46% 46% / 30% 30% 50% 50%;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--tbl-base), #000 10%) 0%,
-    color-mix(in srgb, var(--tbl-base), #000 40%) 100%
-  );
-  box-shadow:
-    inset 0 0 0 2px rgba(6, 3, 16, 0.55),
-    inset 10px 0 20px rgba(255, 255, 255, 0.05),
-    inset -10px 0 20px rgba(0, 0, 0, 0.35),
-    0 6px 0 color-mix(in srgb, var(--tbl-base), #000 55%),
-    0 6px 0 2px rgba(6, 3, 16, 0.55),
-    0 16px 26px rgba(6, 3, 16, 0.4);
 }
 
 .roomTable {
@@ -726,14 +867,28 @@ html[data-scroll="smooth"]:has(body.doc) {
     0 20px 36px rgba(6, 3, 16, calc(0.35 + var(--scene-dark) * 0.15));
 }
 
-/* The hours and the skies a room can be dealt under: chips, the hours first. */
-.roomMoments {
+/* The hours and the skies a room can be dealt under: chips, the hours first.
+   `.content ul` styles every list in the prose as a bulleted column, and it
+   outranks a bare class, so the row and its chips are addressed from
+   `.content` too — without that the chips stacked, each behind a bullet. */
+.content .roomMoments {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
   margin: 0.8rem 0 0;
   padding: 0;
+  max-width: none;
   list-style: none;
+}
+
+.content .roomMoments > li,
+.content .liveList > li {
+  padding: 0;
+}
+
+.content .roomMoments > li::before,
+.content .liveList > li::before {
+  content: none;
 }
 
 .roomMoment {
@@ -780,9 +935,10 @@ html[data-scroll="smooth"]:has(body.doc) {
   padding: 0.7rem max(1.5rem, var(--safe-right)) max(0.7rem, var(--safe-bottom))
     max(1.5rem, var(--safe-left));
   border-top: 2px solid var(--color-hairline);
-  /* Opaque, not blurred: the bar sits over the page and text scrolling under a
-     frosted panel is still text, half-legible. */
-  background: var(--color-canvas);
+  /* The header's glass, mirrored: see `.headerBar`. */
+  background: color-mix(in srgb, var(--color-canvas) 92%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .footerNav,
@@ -871,8 +1027,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
 }
 
-.langBtn,
-.themeBtn {
+.langBtn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -882,33 +1037,8 @@ html[data-scroll="smooth"]:has(body.doc) {
   cursor: pointer;
 }
 
-.langBtn svg,
-.themeBtn svg {
+.langBtn svg {
   display: block;
-}
-
-/* One switch, two icons, and the one on show is the theme you would get by
-   pressing it: a sun while it is dark out, a moon while it is light. Drawn, not
-   `☀`/`🌙`, for the same reason the globe is. */
-.themeBtn {
-  color: var(--color-muted);
-  transition: color 0.15s;
-}
-.themeBtn:hover,
-.themeBtn:focus-visible {
-  color: var(--color-ink);
-}
-.themeBtn[hidden] {
-  display: none;
-}
-.themeBtn .themeSun {
-  display: none;
-}
-.themeBtn[data-theme-state='dark'] .themeSun {
-  display: block;
-}
-.themeBtn[data-theme-state='dark'] .themeMoon {
-  display: none;
 }
 
 /* ── The burger and its drawer ─────────────────────────────────────────── */
@@ -1124,8 +1254,9 @@ html[data-scroll="smooth"]:has(body.doc) {
   padding: 0 0.7rem;
   border: var(--stroke) solid var(--color-stroke);
   border-radius: var(--radius-md);
-  background: var(--color-primary);
+  background: var(--gradient-primary);
   color: var(--color-on-primary);
+  text-shadow: 0 2px 0 rgba(120, 10, 40, 0.4);
   font-family: var(--font-display);
   /* Above 14pt bold for the reason `.cta` is: white on LOCO Red is 3.43:1, which
      is a pass for large text and a fail for anything under it. */
@@ -1138,7 +1269,7 @@ html[data-scroll="smooth"]:has(body.doc) {
 
 .navPop .navPopCta:hover,
 .navPop .navPopCta:focus-visible {
-  background: var(--color-primary-active);
+  filter: brightness(1.06);
   color: var(--color-on-primary);
 }
 
@@ -1164,8 +1295,8 @@ html[data-scroll="smooth"]:has(body.doc) {
   display: none;
 }
 
-/* The two settings, side by side under a rule: they are not pages, and a row of
-   its own is what says so. */
+/* The language, under a rule: it is not a page, and a row of its own is what
+   says so. */
 .navPopEnd {
   display: flex;
   flex-wrap: wrap;
@@ -1183,7 +1314,6 @@ html[data-scroll="smooth"]:has(body.doc) {
   display: block;
 }
 
-.navPopEnd .themeBtn,
 .navPopEnd .langBtn {
   min-height: 2.75rem;
   padding: 0 0.5rem;
@@ -1191,8 +1321,6 @@ html[data-scroll="smooth"]:has(body.doc) {
   font: 700 0.95rem/1.3 var(--font-body);
 }
 
-.navPopEnd .themeBtn:hover,
-.navPopEnd .themeBtn:focus-visible,
 .navPopEnd .langBtn:hover,
 .navPopEnd .langBtn:focus-visible {
   color: var(--color-ink);

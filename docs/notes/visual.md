@@ -37,49 +37,30 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   its own; do not re-declare it per component.
 - Card faces: see "Card face" below. The deck has its own identity — full-bleed suit gradients and
   the LOCO mark — and it is the one part of the UI that does **not** follow the app's chunky-sticker
-  language or its theme. A card is an object, not a control.
+  language. A card is an object, not a control.
 - `--ease-bounce` for anything that should feel physical; `--ease-out` for travel.
-- **Theme is applied by `initTheme()` in `entry.ts`, before first render.** It used to be written
-  only by the toggle's own hook, so any screen without one (game over, a reload straight into a
-  match) silently rendered light. The control now lives in the preferences panel, which makes that
-  init call the only thing standing between a reload and the wrong palette.
-- **Reduced motion is applied the same way and for the same reason**, by `initMotion()`: every
+- **Reduced motion is applied by `initMotion()` in `entry.ts`, before first render**: every
   reduced-motion rule in the CSS hangs off `:root[data-motion="reduce"]` instead of a media query,
   so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
 
-#### Day ↔ night crosses, it does not cut
-`setTheme` writes `data-theme-anim` on `<html>` for `THEME_FADE_MS` (260ms, mirrored in `tokens.css`
-as `--theme-fade`), and the blanket rule behind that attribute transitions colour — `background-color`,
-`border-color`, `outline-color`, `box-shadow`, `color`, `fill`, `stroke` — across the whole document.
-`themeTransition.test.ts` owns both halves.
+#### One palette
+There used to be two — a candy-sky "day" and the indigo "night" — behind `[data-theme]` on `<html>`,
+with the dark block duplicated under `@media (prefers-color-scheme: dark)` so the first frame of a
+content page was right, a 260ms colour fade armed by `setTheme`, a switch in the preferences panel
+and another in the content pages' bar. All of it went in one change, on a product decision: the
+game is played in rendered rooms over a near-black table and is built to be captured, and a pale
+canvas around that read as a website with a game embedded in it. What the second palette cost was
+not only its code: every contrast in the product was measured twice, the wordmark needed two
+outline rules, the content pages flashed white between navigations until the media query was
+duplicated, and `make visual` shot everything twice.
 
-It looked for a long time as though the content pages had a fade and the game did not. Nothing
-animated the theme anywhere: `body` carried a lone `transition: background-color`, and on a page of
-prose `body` **is** the visible surface, so that one property was the whole effect. In the game `#root`
-paints the canvas over it and every panel, outline, label and shadow above that comes from a token, so
-the same press swapped a full screen in one frame. That declaration is gone now and this rule is the
-one definition, which is also why `content/theme-boot.ts` switches through `setTheme` rather than
-writing `localStorage` and `data-theme` itself.
-
-Four things about it are load-bearing:
-
-- **The attribute lands in its own style recalc, before the colours move.** A transition compares the
-  style before the change to the style after it; if the element only acquires `transition` in the same
-  pass that its colours change, there was no transition in the "before" style and the swap is instant.
-  Nothing in the CSS looks wrong when that happens. `void root.offsetWidth` between the two is the flush.
-- **It comes back off.** A permanent `*` transition would put a quarter of a second of lag on every
-  colour a live match moves — the active-colour ring, a catch button arming, a seat taking its turn.
-- **Colour only.** A `transform` or an `opacity` in that rule would run over card flights, the
-  reconnect curtain and every open panel for the length of the fade.
-- **Reduced motion is not a branch in the script.** The rule is `!important` so a component's own
-  `transition: color 0.15s` cannot leave its background cutting, and it still loses to
-  `:root[data-motion="reduce"] *` — `(0,2,0)` against `(0,1,1)`, both `!important` — so a player who
-  asked for less motion gets the instant swap back through the same attribute every other animation
-  here obeys.
-
-The boot never arms it: `initTheme()` and `theme-boot.ts`'s first paint call `applyTheme`, which only
-writes `data-theme`. Fading there would cross the light palette into the player's actual choice in
-front of them, which is the flash `themeFlash.test.ts` exists to prevent, animated.
+So `tokens.css` declares the night palette on `:root`, once, with `color-scheme: dark` so the
+browser's own widgets follow; the wordmark's outline is one `::before`; the content pages paint
+the game's own canvas. `noLightTheme.test.ts` fails on `data-theme`, `prefers-color-scheme`,
+`loco_theme` or `theme-boot` anywhere in the client, the E2E suite or the tools, and on a second
+`--color-canvas` in the tokens. The card faces and the rooms are untouched by any of this: they never
+followed a theme, and the reasoning that they are objects and places rather than surfaces is what
+the interface has now been brought in line with.
 
 ### Colour assist (the suit silhouettes)
 `SUIT_SHAPE` in `cardTheme.ts`, drawn by `SuitMark.svelte`, off by default and switched on from the
@@ -524,20 +505,36 @@ and each is the kit's, not a builder's:
   diorama is rendered **once**, the pixels are copied into a 2D canvas, the geometries and the
   WebGL context are disposed, and what the board draws from then on is a static bitmap, exactly as
   cheap as the photograph it replaced. Everything that moves — rain, snow, the fog's drift, the
-  storm's flash, the cloud shadow — is a CSS transform animation on a tiled gradient
-  (`WeatherLayer.svelte`), one compositor layer each, and holds its first frame under reduced motion
-  (the flash is the one thing that goes away entirely: a full-frame flicker is what the preference
-  exists to refuse). **Every one of those layers travels exactly one background tile per cycle, in
-  pixels, and never a percentage of the frame** (`sceneWeather.test.ts`): the layer wraps back to
-  its start at the end of the cycle, so unless the distance it travelled is a whole tile the pattern
-  lands somewhere else than it left — the rain stepped sideways once a cycle on every screen whose
-  height was not a multiple of 240. Fixing the distance also fixes the speed, which is how the rain
-  came to be falling at nearly a thousand pixels a second: it is 240px in 0.72s now, about a third
-  of that. **And the fog's drifting half interpolates everywhere**: written as a
-  `repeating-linear-gradient` of ranges it stepped from transparent to 0.12 in one stop, which over
-  a city is not haze but a set of hard vertical bands laid across it. A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a
-  drift of dust, because nothing falls on an airless moon and the server's weather list says
-  `storm`, not `rain`.
+  storm's flash, the cloud shadow — is a CSS transform animation on a **drawn tile**
+  (`weatherTiles.ts`, `WeatherLayer.svelte`), one compositor layer each, and holds its first frame
+  under reduced motion (the flash and the bolt are the one thing that goes away entirely: a
+  full-frame flicker is what the preference exists to refuse). The tiles used to be CSS gradients —
+  a `repeating-linear-gradient` of one-pixel lines for rain, six radial dots for snow — and looked
+  like it: every streak the same length and the same white, every flake the same dot, a pattern the
+  eye picked out in a second. A tile is a seeded bitmap now, drawn once per tab into a canvas and
+  handed to the sheet as a data URL (`img-src` allows `data:`): sixty streaks of different lengths,
+  weights and fades, soft flakes with a few big blurred ones close to the lens, haze and cloud shadow
+  made of overlapping blobs. Every shape near an edge is drawn again one tile over, in both axes, so
+  the tile wraps; the shapes are pure and seeded (`rainDrops`, `snowFlakes`, `fogBlobs`,
+  `dustSpecks`) and are what `sceneWeather.test.ts` asserts, since jsdom has no canvas — a
+  browser with none gets an empty URL and a dry room, never a throw.
+  **Every sheet travels exactly one tile per cycle, and never a percentage of the frame**: the sheet
+  wraps back to its start at the end of the cycle, so unless the distance it travelled is a whole
+  tile the pattern lands somewhere else than it left — the rain stepped sideways once a cycle on
+  every screen whose height was not a multiple of 240. `tiled()` writes the tile as the sheet's
+  background **and** as `--tile-w` / `--tile-h`, and the two keyframes (`fall`, `drift`) travel by
+  those variables and by no literal, so the two cannot disagree. **The wind is a skew, never a
+  diagonal travel**: a streak leaning ten degrees has to fall along its lean or it reads as a drawn
+  line sliding down the screen, but a diagonal translation only wraps when both legs are whole
+  tiles, which pins the angle to the tile's shape; `.wind` skews the sheets and the vertical wrap is
+  untouched. The snow sways on an outer element and falls on an inner one, two transforms on two
+  layers. Nearer is faster and brighter (`FALL_S`, `DRIFT_S`, `SWAY` beside `TILES`, so a speed is
+  a number somebody can read), and none of it faster than about 550 px/s, past which a spectator
+  reads static. How many sheets is the graphics tier's: three of rain and of snow on `high`, two on
+  `medium`, one on `light`. Lightning is a sheet flash plus the glow of the bolt off one top corner,
+  two flashes close together and a lone one every seventeen seconds, the sheet never past a third.
+  A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a drift of dust, because
+  nothing falls on an airless moon and the server's weather list says `storm`, not `rain`.`storm`, not `rain`.
 - **Isometric, orthographic, framed in tiles.** The camera looks down from a corner at 32°, the
   Habbo angle, so a block's top and two faces are visible and every block reads at the same scale
   wherever it stands. The visible extent is `TILES_ACROSS` (80) tiles on the longer side rather than
@@ -555,6 +552,39 @@ and each is the kit's, not a builder's:
   a mobile GPU still accepts. This is what made the cap on `MAX_DPR` safe to raise from 1.5: the
   bitmap kept for the match is still the viewport's size, only the render behind it is larger, and
   the context is released the moment it is copied.
+- **And then the frame is photographed** (`scene/post.ts`, `scene/quality.ts`, `sceneQuality.test.ts`).
+  The room is drawn flat on purpose, and what the finishing passes add is the *camera* that
+  photographed the drawing: a last FXAA pass over the supersampling (the compact form of 3.11, five
+  taps to find the edge's direction and four along it — the last quarter-pixel of stair a diagonal
+  ink line still shows at 2×), the lamps' bloom (a bright pass at a quarter of the frame, blurred
+  twice, added back scaled by `rig.dark` so at noon the snow does not glow and at midnight the lamps
+  are the light), a **tilt-shift** focus held on the felt's band and easing off towards the top and
+  bottom of the frame — which is how a diorama is photographed, and the one of these a viewer names
+  — a vignette elliptical with the frame, a colour fringe out in the corners only, and a fine static
+  grain so a wall is a surface rather than a fill. A slight grade in linear light: a touch of
+  saturation and of contrast about mid-grey, small because the tones were chosen by hand.
+  - **Colour is the contract with the plain path.** The scene renders into a half-float target
+    (eight bits of linear light band in the darks of a night room; a GPU that refuses the format
+    gets bytes) in linear, the passes work in linear, and the composite ends on
+    `colorspace_fragment`, which is the same sRGB encoding `outputColorSpace` gives the direct
+    render — so a room with every pass off comes out the colour it came out before there were
+    passes. Multisampling is off once supersampling covers it: a 4× MSAA half-float target at 4096²
+    is more memory than a phone will grant.
+  - **It runs once, and everything it allocates is released with the context.** Every target is
+    disposed in a `finally`, and a throw anywhere inside — a target the GPU will not hold — falls
+    back to the plain render (`renderScene`: `photographed`), never to no room. A software GPU
+    (headless Chromium) is handed the plain frame as before, unless tooling asked for the full one
+    (`setForceFullRender`, `?gfx=force`), which is how `make rooms` and a `--gfx=force` visual
+    review get it.
+  - **Which passes run is the graphics tier's** (`QUALITY`): `high` supersamples up to 3× under 12 M
+    pixels and runs all of them; `medium` 2× under 7 M with FXAA, bloom and the vignette; `light`
+    is the plain multisampled frame. The tier is the player's (`hooks/graphicsPref.ts`): `auto`
+    reads memory, cores and pointer (`autoTier`: under 4 GiB is light, a coarse pointer or four
+    cores is medium, else high — a browser that says nothing is a desktop until proven otherwise,
+    because the cost of guessing high is a longer gate and not a slow match), and the three explicit
+    tiers win over it both ways. It is a segmented row in the preferences panel with the hint naming
+    what `auto` landed on, and **it is part of the cache key** (`sceneCache`, `PreparedScene.tier`)
+    so moving it mid-match renders the room again, faded in over the old like any re-render.
 - **The anchor is the same room whatever the screen is made of** (`renderSizeFor`, `anchorFor`,
   `sceneGeometry.test.ts`). `renderSizeFor` caps the bitmap's long side at `MAX_SIDE` device pixels and
   `anchorFor` divides CSS pixels by the ratio it reports, so the two have to agree: handing back the
@@ -855,11 +885,18 @@ the tokens' near-black table, which is what a lobby's felt and an unknown map id
   room" rather than "painted on its floor". `.tablePlinth` is drawn only when there is no scene (a
   lobby's felt, an unknown map id, the rooms page): a CSS column under a rendered drum would be two
   bases for one table.
-- **The rooms page draws the same table** (`content/TablesArticle.astro`, `.roomTable` /
-  `.roomPlinth` / `.roomGlow` in `content.css`): the two rulesets are a transcription of the board's
-  and move with it. A content page ships no script, so it cannot render the diorama; it shows each
-  room's table under the sky of its signature hour and lists the hours and skies the room can be
-  dealt under.
+- **The rooms page lays the same table over a photograph of the render** (`content/TablesArticle.astro`,
+  `.roomTable` / `.roomGlow` in `content.css`, `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`,
+  `roomsPage.test.ts`). A content page ships no script, so it cannot render the diorama; `make rooms`
+  opens the `room-still-<id>` scene for each room — the room alone at its signature hour under a
+  clear sky, 16:9, at `?gfx=force` so headless Chromium's software GPU renders the full tier — with
+  the podium built under exactly the ellipse `.roomTable` draws (centred, 70% by 50%), and writes
+  `src/assets/rooms/<id>.webp`, served through `<Image />` at three widths. The page then draws the
+  board's own CSS table over it: same materials, same rim, same inlay, and no plinth, since the
+  render carries the podium there as on the board. The hour is written twice — `SIGNATURE` on the
+  page, the scene list in `scenes.ts` — and the test pins the two; a room with no still falls back
+  to its sky and fails the test rather than the build. Re-shoot after touching a builder, the kit,
+  the rig or the passes: nothing checks that the stills still match the render.
 
 ### Reviewing a room
 Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the
@@ -984,8 +1021,7 @@ shows.
   face. Numerals get `-webkit-text-stroke` + `paint-order: stroke fill`; the SVG glyphs are stroked
   icons with no fill to outline, so they are **drawn twice**, a wider ink pass first. The suit
   colours are never darkened to buy contrast — they are the brand.
-- The face does **not** follow the light/dark theme. A card is a physical object; the same card in
-  two themes is two cards.
+- The face does **not** follow the interface's palette. A card is a physical object.
 - `CardBack` is the wild card's face plus the **same cropped, tilted mark every face carries**, in
   all four suits at once — the one place the full palette appears. The paint is what makes it a back;
   the framing is a card's, like everything else in this space. It briefly also carried the whole mark
@@ -1143,7 +1179,7 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
 - Disconnected: muted fill and a softened outline, the drawn ✗ beside the name — and **the ink is
   not faded**. It was `opacity: 0.72` on the pill *and* `--color-muted-soft` on the label, which
   multiplied out to 2.31:1 on the seat whose absence is the news; the label is `--color-muted` now,
-  4.5:1 on the dimmed fill in both themes. Quiet is a hue.
+  4.5:1 on the dimmed fill. Quiet is a hue.
 - Mini card-back fan inside `full`/`compact` pills (rotation ±14°/±8°/0° depending on count, "+N"
   overflow label). `mini` drops the fan — at that size it would be unreadable mush.
 
@@ -1170,7 +1206,7 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   landscape: the felt is roughly a 2.7:1 ellipse, so a mark sized off the width lands half outside
   the curve and `overflow:hidden` slices it into fragments. `aspect-ratio` is set explicitly — an
   absolutely-positioned `<svg>` with one axis `auto` does not reliably take its intrinsic ratio.
-- **The table is near-black, in both themes.** It used to be green felt, which fought the deck: a
+- **The table is near-black.** It used to be green felt, which fought the deck: a
   `#00ff6d` card on a `#1fbf8f` table loses its edge, and a card losing its edge is the one thing
   that must not happen. Dark also makes the table the stage and the cards the only bright objects on
   it. The mark is branded into the felt at 7% — the piles sit on top of it, so anything more is a
@@ -1445,10 +1481,10 @@ token:
   `--color-surface-card`, a white pill on a white bar in light.
 - **The round summary's delta** was `--color-mint` on `--color-surface-strong`, 1.81:1 in light —
   the one number the card is opened for. `--color-mint-text` is the mint as *text on a panel*, the
-  same hue pushed until it clears AA on each canvas, the way `--color-link` is the indigo as text;
-  dark keeps the brand mint, which is 6:1 there. The winner row's two literals (`#7a4a00`,
-  `#1f6b3c`) are `--color-on-secondary-muted` and `--color-on-secondary-mint`, theme-independent
-  like the yellow they sit on; the green moved one step past the literal, which was 4.25:1 on the
+  same hue as text, the way `--color-link` is the indigo as text; on this canvas the brand mint
+  itself is 6:1, so the two land on one value. The winner row's two literals (`#7a4a00`,
+  `#1f6b3c`) are `--color-on-secondary-muted` and `--color-on-secondary-mint`, fixed like the
+  yellow they sit on; the green moved one step past the literal, which was 4.25:1 on the
   flat yellow.
 - **The two text-field focus rings** (`Lobby` `.input`, `WaitingRoom` `.maxInput`) were the indigo at
   0.35 alpha, 1.5:1 on the card — and with `outline: none` on the field that shadow was the whole
@@ -1501,7 +1537,7 @@ Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup dro
 
 `tools/visual/shoot.mjs` (`make visual`) boots the dev server through
 `tools/lib/devserver.mjs`, walks the registry and writes
-`.visual/<scene>__<viewport>__<theme>.png` plus one contact sheet per viewport/theme.
+`.visual/<scene>__<viewport>.png` plus one contact sheet per viewport.
 
 - **A room takes three query overrides on top of its scene**: `?showcase=game-map-marina&time=day`,
   and the same for `weather` and `map`. Dev-only, applied over the scene patch in `Showcase.svelte`,
@@ -1512,7 +1548,7 @@ Gated behind `import.meta.env.DEV` (dynamic import in `entry.ts`), so Rollup dro
 - `card-sheet` is the odd one out: not a screen but the whole deck, every kind in every suit, laid
   out to fit the capture viewport. Cards are the component the game draws forty of at once and no
   gameplay scene shows more than a handful of kinds — review any card change against it.
-- Flags: `--scenes=a,b`, `--viewports=desktop,mobile,wide,small,notch`, `--themes=light,dark`,
+- Flags: `--scenes=a,b`, `--viewports=desktop,mobile,wide,small,notch`, `--gfx=high|medium|light|force` (the tier a room is rendered at; `force` is the full tier on the harness's software GPU, which is otherwise handed the plain frame — the way the finishing passes are reviewed),
   `--motion` (keep animations running), `--port`. Default runs `desktop` (1440×900) + `mobile`
   (390×844). The two ends of the board-scale range are where its regressions show up — check
   **both** after touching `layout.ts`: `wide` (1920×1080, scaled up) and `small` (360×640, scaled
@@ -1546,8 +1582,8 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 - **Built from the real `<LocoLogo />` and the real `<Card />`** (`client/src/dev/OgCard.svelte`), not a
   redrawn copy: the duck on the preview is the duck on the cards is the duck in the tab, and a
   hand-authored twin would drift the first time either is touched. `OgCard` pins `--color-stroke` /
-  `--color-primary` locally — a link preview is one picture and must not depend on which theme the
-  machine that captured it was in.
+  `--color-primary` locally — a link preview is one picture and must not depend on what the tokens
+  say the day it is captured.
 - **Show, don't tell**: the duck, the wordmark and a five-card fan, one line of copy. Discord renders
   this at ~400px wide; a paragraph is unread there. The +4 sits mid-arc, where a crop or an avatar
   overlay can't take it.

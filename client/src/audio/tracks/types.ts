@@ -37,12 +37,22 @@ export interface LoopDef {
   /**
    * What a player reads in the audio panel.
    *
+   * **One string, in English, and never translated.** A title is a name, not
+   * copy: it is what this piece is called, the way a font or a room is called
+   * something, and a name that changed with the interface language would be two
+   * different pieces to anybody who switched. `blurb` below is the copy and is
+   * per language, which is the line between the two.
+   *
    * A title names the writing, never the genre, and never the source file's
    * date — these arrive as `Sketchbook 2024-05-29`, which says nothing about
    * this piece that it would not say about the other two hundred in the pack.
    */
   title: string
-  /** One line in the panel, under the title. */
+  /**
+   * One line in the panel, under the title. This *is* copy, so it is written in
+   * both languages and follows the game's voice like every other string a
+   * player reads.
+   */
   blurb: { fr: string; en: string }
   /**
    * Which sections this loop can carry, in no particular order. At least one,

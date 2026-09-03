@@ -1,25 +1,22 @@
 /**
- * The one script a content page loads: the theme, applied and switchable.
+ * The one script a content page loads.
  *
- * `tokens.css` keys its dark palette on `[data-theme='dark']`, so without this a
- * player who chose the dark theme in the game and then tapped "Rules" would land
- * on a bright white page. It is the same choice `src/entry.ts` applies, and it
- * imports `src/theme.ts` — which pulls in no framework — so a content page pays
- * a few hundred bytes and mounts nothing. The *system* preference no longer depends on any of
- * it: `tokens.css` carries the dark palette behind
- * `@media (prefers-color-scheme: dark)` as well, so the first frame is already
- * right and this has only the stored choice left to apply.
+ * Four behaviours, one request: the phone's drawer shutting when the window
+ * widens, the language choice being written down on the way out, the smooth
+ * in-page travel and the way back to the top, and on `/live/` the list of who
+ * is streaming. Each is a few lines, and each is here rather than in a script
+ * of its own because there is only ever one script on these pages — a second
+ * behaviour is a second `import` below, never a second `<script>`.
  *
- * The switch is wired here rather than shipped as a second script, because there
- * is only ever one script on these pages. It starts `hidden` in the markup and
- * is revealed below: with JavaScript off a toggle can neither store a choice nor
- * repaint, and a dead control is worse than none — that reader has already been
- * given the theme their system asks for.
+ * It used to boot the theme as well, and was named for it. The site has one
+ * palette now (see the head of `styles/tokens.css`), so nothing here paints
+ * anything: every control this file touches is `hidden` in the markup and
+ * revealed here, because a control that needs a script to do its job must not
+ * be offered to a reader whose browser runs none.
  *
  * Astro bundles this to an external module, which is what `script-src 'self'`
  * allows.
  */
-import { applyTheme, getTheme, setTheme, type Theme } from '../theme'
 import { isLang, rememberLang } from '../lang'
 import { closeMenuWhenWidened } from './navMenu'
 import { fillLiveList } from './liveList'
@@ -29,11 +26,8 @@ import { fillLiveList } from './liveList'
 closeMenuWhenWidened()
 
 // The live-channels list on `/live/`, and nothing at all on every other page —
-// it returns immediately when there is no list to fill. Here rather than in a
-// script of its own for the reason stated above the theme switch: there is only
-// ever one script on these pages, so a second behaviour is a few more lines
-// rather than a second request. The fetch it makes is same-origin, which is
-// what leaves `connect-src` alone. See content/liveList.ts.
+// it returns immediately when there is no list to fill. The fetch it makes is
+// same-origin, which is what leaves `connect-src` alone. See content/liveList.ts.
 fillLiveList()
 
 // ── Language ───────────────────────────────────────────────────────────────
@@ -58,47 +52,6 @@ document.addEventListener('click', (e) => {
   if (isLang(chosen)) rememberLang(chosen)
 })
 
-// ── Theme ──────────────────────────────────────────────────────────────────
-
-// `getTheme()` reads the stored choice — the same one the game reads — and
-// `applyTheme` paints it without a fade: there is nothing to fade from on the
-// first frame, and crossing into the player's own choice in front of them is the
-// flash `themeFlash.test.ts` exists to prevent, animated.
-let theme: Theme = getTheme()
-applyTheme(theme)
-
-// Two of them, and never both on screen: one in the footer bar and one in the
-// mobile drawer, which is the same navigation rendered at two widths. They are
-// painted and wired together, so whichever one the reader meets is already
-// showing the theme they are on.
-const buttons = [...document.querySelectorAll<HTMLButtonElement>('.themeBtn')]
-
-if (buttons.length) {
-  const paint = () => {
-    for (const button of buttons) {
-      // Which of the button's two icons is shown, and what a screen reader is
-      // told the control is currently set to.
-      button.dataset.themeState = theme
-      button.setAttribute('aria-pressed', String(theme === 'dark'))
-    }
-  }
-
-  for (const button of buttons) {
-    button.hidden = false
-    button.addEventListener('click', () => {
-      theme = theme === 'dark' ? 'light' : 'dark'
-      // `setTheme` is the whole switch: it stores the choice under the key the
-      // game reads, so a theme picked on a page is the one the game opens with
-      // and the other way round, and it fades rather than cuts — one definition
-      // of what changing the theme looks like, on both halves of the site.
-      setTheme(theme)
-      paint()
-    })
-  }
-
-  paint()
-}
-
 // ── Smooth in-page travel ──────────────────────────────────────────────────
 //
 // The attribute `content.css` hangs `scroll-behavior: smooth` off. Read here
@@ -117,9 +70,8 @@ fluid.addEventListener('change', syncScrollMode)
 
 // ── Back to top ────────────────────────────────────────────────────────────
 //
-// Wired here rather than shipped as a second script: there is only ever one
-// script on these pages. It appears a screenful down and not before, because a
-// button offering to take you where you already are is clutter.
+// It appears a screenful down and not before, because a button offering to
+// take you where you already are is clutter.
 const toTop = document.querySelector<HTMLAnchorElement>('.toTop')
 
 if (toTop) {

@@ -102,15 +102,34 @@ export const SECTION_HOLD_MS = 1200
  * How many times a loop comes round before the bed hands over to another one
  * carrying the same section.
  *
- * Three turns of a 44–72s loop is two to four minutes, which is both a normal
- * length for a piece of music and long enough that the handover is an event
- * rather than a carousel. It is also the only thing that moves the music on a
- * table whose tension never changes, so it may not be raised much further.
+ * Two, and it was three. Three turns of a 44s loop is 2m10 of the same piece,
+ * and the first verdict on the recorded bed was that it repeats — which it did,
+ * from both ends at once: a groove carried by three loops, each held for over
+ * two minutes. Both halves are fixed, and this is the half that matters on a
+ * table whose tension never changes, because it is the only thing that moves
+ * the music there at all.
+ *
+ * It cannot go to one: a piece heard exactly once is a piece nobody recognises,
+ * and the bed would read as a shuffle rather than as music somebody chose.
  */
-export const LAPS_PER_LOOP = 3
+export const LAPS_PER_LOOP = 2
 
 /** Crossfade length, in seconds, for every loop change. */
 export const CROSSFADE_S = 2
+
+/**
+ * How many loops the bed keeps warm, out of a registry of eighteen.
+ *
+ * The warm-up used to walk the whole list, which was right at six loops and
+ * five megabytes and is wrong at eighteen and eighteen: a player who sits at one
+ * table would pull the entire library in the background for music most of which
+ * their match never reaches. Six is a working set — the section playing and its
+ * neighbours, which `prefetch` orders by `distance` — and it is re-warmed from
+ * wherever the table has moved to, so what is near is always what is cached.
+ * Everything else loads on demand, which the section hold and the crossfade give
+ * about three seconds of warning for.
+ */
+export const PREFETCH_MAX = 6
 
 /**
  * A shuffle bag: every id exactly once, in a random order that does not open on
@@ -396,17 +415,37 @@ class MusicBed {
   }
 
   /**
-   * Warms the rest of the registry after the first loop is sounding.
+   * Warms the registry after the first loop is sounding.
    *
    * A section change that had to wait on a fetch would arrive late at exactly
-   * the moment the bed exists to answer — somebody reaching one card. One at a
-   * time, so the warm-up never competes with the page it is running under.
+   * the moment the bed exists to answer — somebody reaching one card. One file
+   * at a time, so the warm-up never competes with the page it is running under.
+   *
+   * Ordered and bounded, and both are the point at eighteen loops and eighteen
+   * megabytes. The section the table is in comes first, because that is where
+   * the next handover will be; then the sections on either side, because that is
+   * where the table will go next. It stops at `PREFETCH_MAX` rather than walking
+   * the registry, and it is **called again on every section change**, so the
+   * working set follows the table instead of being decided once at the deal.
+   *
+   * Already-cached loops count toward the budget: a bed that has been through
+   * three sections has most of what it needs, and the point is a ceiling on what
+   * is held, not a quota of fetches to keep issuing.
    */
   private async prefetch(): Promise<void> {
-    for (const l of LOOPS) {
+    const here = SECTIONS.indexOf(this.section)
+    const order = [...LOOPS]
+      .sort((a, b) => this.distance(a, here) - this.distance(b, here))
+      .slice(0, PREFETCH_MAX)
+    for (const l of order) {
       if (!this.isPlaying()) return
       if (!this.cache.has(l.id)) await this.load(l.id)
     }
+  }
+
+  /** How many rungs of the ladder away from `here` a loop's nearest section is. */
+  private distance(loop: LoopDef, here: number): number {
+    return Math.min(...loop.sections.map((s) => Math.abs(SECTIONS.indexOf(s) - here)))
   }
 
   /** Starts `def` under a fade-in, retiring whatever is sounding. */
@@ -617,6 +656,9 @@ class MusicBed {
       const { id, bag } = nextLoopId(wanted, this.loop.id, this.bag, () => this.rand())
       this.bag = bag
       this.setLoop(id)
+      // The working set follows the table. Cheap and idempotent: everything it
+      // already holds is a cache hit, and the sort now starts from here.
+      void this.prefetch()
       return
     }
 

@@ -1,4 +1,4 @@
-LOCO! ships two typefaces and six music loops inside its build. Their licences
+LOCO! ships two typefaces and eighteen music loops inside its build. Their licences
 require their notices to travel with them, so they are served here rather than
 shown in the game. Nothing else in this file affects a player.
 
@@ -6,7 +6,7 @@ shown in the game. Nothing else in this file affects a player.
 Music — Abstraction, "Music Loop Bundle"
 ===============================================================
 
-The music bed is six loops by Abstraction (Tallbeard Studios), from the Music
+The music bed is eighteen loops by Abstraction (Tallbeard Studios), from the Music
 Loop Bundle: https://tallbeard.itch.io/music-loop-bundle
 
 Released under CC0 1.0 Universal (Public Domain Dedication). To the extent

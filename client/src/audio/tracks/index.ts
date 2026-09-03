@@ -26,8 +26,8 @@ export const MUSIC_BASE = '/music'
 
 export const LOOPS: LoopDef[] = [
   {
-    id: 'entracte',
-    title: 'Entracte',
+    id: 'intermission',
+    title: 'Intermission',
     blurb: {
       fr: 'Le jazz qui passe pendant que la table compte les points.',
       en: 'The jazz that plays while the table counts up.',
@@ -36,8 +36,8 @@ export const LOOPS: LoopDef[] = [
     seconds: 101.647074829932,
   },
   {
-    id: 'badinage',
-    title: 'Badinage',
+    id: 'small-talk',
+    title: 'Small Talk',
     blurb: {
       fr: "Rien de sérieux ne s'est encore produit, et ça s'entend.",
       en: 'Nothing serious has happened yet, and it shows.',
@@ -46,8 +46,8 @@ export const LOOPS: LoopDef[] = [
     seconds: 60,
   },
   {
-    id: 'chahut',
-    title: 'Chahut',
+    id: 'rowdy',
+    title: 'Rowdy',
     blurb: {
       fr: 'Ça commence à parler fort autour de la table.',
       en: 'The table is starting to talk over itself.',
@@ -56,8 +56,8 @@ export const LOOPS: LoopDef[] = [
     seconds: 72,
   },
   {
-    id: 'filou',
-    title: 'Filou',
+    id: 'sleight',
+    title: 'Sleight',
     blurb: {
       fr: "La musique de quelqu'un qui prépare un mauvais coup.",
       en: 'The music of somebody setting something up.',
@@ -66,8 +66,8 @@ export const LOOPS: LoopDef[] = [
     seconds: 56.470589569161,
   },
   {
-    id: 'cavale',
-    title: 'Cavale',
+    id: 'on-the-run',
+    title: 'On the Run',
     blurb: {
       fr: 'Le funk qui se déclenche quand la fin arrive trop vite.',
       en: 'The funk that starts when the finish comes up too fast.',
@@ -76,14 +76,134 @@ export const LOOPS: LoopDef[] = [
     seconds: 43.8260997732426,
   },
   {
-    id: 'ruade',
-    title: 'Ruade',
+    id: 'bad-manners',
+    title: 'Bad Manners',
     blurb: {
       fr: "Une carte en main quelque part, et plus personne n'est poli.",
       en: 'One card in somebody’s hand, and nobody is polite any more.',
     },
     sections: ['drop'],
     seconds: 50.0869614512472,
+  },
+  {
+    id: 'nightcap',
+    title: 'Nightcap',
+    blurb: {
+      fr: 'Le calme juste avant que ça reparte.',
+      en: 'The quiet just before it starts again.',
+    },
+    sections: ['breakdown', 'buildup'],
+    seconds: 40.421065759637,
+  },
+  {
+    id: 'sidetrack',
+    title: 'Sidetrack',
+    blurb: {
+      fr: 'La partie a pris une direction, on ne sait pas encore laquelle.',
+      en: 'The match has picked a direction, nobody knows which yet.',
+    },
+    sections: ['buildup', 'groove'],
+    seconds: 51,
+  },
+  {
+    id: 'mirage',
+    title: 'Mirage',
+    blurb: {
+      fr: 'Quelqu’un croit avoir compris ce que tient son voisin.',
+      en: 'Somebody thinks they know what their neighbour is holding.',
+    },
+    sections: ['groove'],
+    seconds: 61.5384807256236,
+  },
+  {
+    id: 'pile-up',
+    title: 'Pile-Up',
+    blurb: {
+      fr: 'Trois cartes identiques et plus personne ne sait à qui c’est le tour.',
+      en: 'Three identical cards and nobody knows whose turn it is.',
+    },
+    sections: ['groove', 'drop'],
+    seconds: 38.4,
+  },
+  {
+    id: 'uproar',
+    title: 'Uproar',
+    blurb: {
+      fr: 'Le moment où toute la table se met à parler en même temps.',
+      en: 'The moment the whole table starts talking at once.',
+    },
+    sections: ['groove', 'drop'],
+    seconds: 43.6363718820862,
+  },
+  {
+    id: 'idle-hands',
+    title: 'Idle Hands',
+    blurb: {
+      fr: 'Personne ne joue, tout le monde regarde le tapis.',
+      en: 'Nobody is playing, everybody is looking at the felt.',
+    },
+    sections: ['breakdown'],
+    seconds: 101.684218,
+  },
+  {
+    id: 'fanned-out',
+    title: 'Fanned Out',
+    blurb: {
+      fr: 'Le jazz qui se joue pendant qu’on remet les cartes en ordre.',
+      en: 'The jazz that plays while hands get sorted back out.',
+    },
+    sections: ['breakdown', 'buildup'],
+    seconds: 87.272744,
+  },
+  {
+    id: 'patience',
+    title: 'Patience',
+    blurb: {
+      fr: 'On attend quelqu’un, et ça ne presse pas encore.',
+      en: 'Somebody is still missing, and there is no hurry yet.',
+    },
+    sections: ['buildup'],
+    seconds: 90.352948,
+  },
+  {
+    id: 'full-table',
+    title: 'Full Table',
+    blurb: {
+      fr: 'Le tour de chacun, sans que rien de grave arrive.',
+      en: 'Everybody’s turn, and nothing much at stake.',
+    },
+    sections: ['groove'],
+    seconds: 60.923084,
+  },
+  {
+    id: 'clockwork',
+    title: 'Clockwork',
+    blurb: {
+      fr: 'La partie tourne, chacun voit son plan avancer.',
+      en: 'The match turns over, everybody watching their own plan.',
+    },
+    sections: ['groove'],
+    seconds: 67.764717,
+  },
+  {
+    id: 'neck-and-neck',
+    title: 'Neck and Neck',
+    blurb: {
+      fr: 'Deux joueurs se tiennent et personne ne lâche.',
+      en: 'Two players neck and neck, and neither is letting go.',
+    },
+    sections: ['groove', 'drop'],
+    seconds: 56.470590,
+  },
+  {
+    id: 'runaway',
+    title: 'Runaway',
+    blurb: {
+      fr: 'Ça part dans tous les sens et ça ne se rattrape plus.',
+      en: 'It has got away from everybody and there is no catching it.',
+    },
+    sections: ['drop'],
+    seconds: 58.666667,
   },
 ]
 

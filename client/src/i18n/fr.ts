@@ -40,9 +40,10 @@ export const fr: Translations = {
   prefsTitle: 'Préférences',
   prefsClose: 'Fermer',
   prefsLanguage: 'Langue',
-  prefsTheme: 'Thème',
-  prefsThemeLight: 'Clair',
-  prefsThemeDark: 'Sombre',
+  prefsGraphics: 'Graphismes',
+  prefsGraphicsTier: { auto: 'Auto', high: 'Élevés', medium: 'Moyens', light: 'Légers' },
+  prefsGraphicsAutoHint: 'Choisi pour cet appareil : %tier. Le décor est dessiné une fois par partie, ça ne change que le temps que met la table à s’ouvrir.',
+  prefsGraphicsHint: 'Le décor est dessiné une fois par partie : ça ne change que le temps que met la table à s’ouvrir, et la météo qui passe dessus.',
   prefsStreamer: 'Mode streamer',
   prefsColorAssist: 'Formes des couleurs',
   // On nomme ce qui apparaît, pas une condition : personne ne devrait avoir à

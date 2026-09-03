@@ -45,8 +45,6 @@ export const UI: Record<string, Copy> = {
     langTitle: { en: "Read this in", fr: "Lire cette page en" },
     /** The panel's own way out, for a reader who never presses Escape. */
     langClose: { en: "Close", fr: "Fermer" },
-    /** The switch's accessible name; the icon says which way it is set. */
-    themeLabel: { en: "Dark mode", fr: "Mode sombre" },
     /** Appears once the reader is a screenful down. Icon only, so this is its name. */
     toTop: { en: "Back to top", fr: "Revenir en haut" },
 

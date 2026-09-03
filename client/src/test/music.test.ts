@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CROSSFADE_S,
   LAPS_PER_LOOP,
+  PREFETCH_MAX,
   loopsFor,
   nextLoopId,
   SECTION_AT,
@@ -62,8 +63,12 @@ describe('the loop registry', () => {
         for (const s of loop.sections) expect(SECTIONS).toContain(s)
       })
 
-      it('is named and described in both languages', () => {
+      it('is named once, in English, and described in both languages', () => {
+        // A title is a name and a blurb is copy: only the second is translated.
+        // A piece whose name changes with the interface language is two pieces
+        // to anybody who switches, and neither is the one the composer put out.
         expect(loop.title.trim().length).toBeGreaterThan(0)
+        expect(loop.title, loop.id).toMatch(/^[A-Za-z0-9 '-]+$/)
         expect(loop.blurb.fr.trim().length).toBeGreaterThan(0)
         expect(loop.blurb.en.trim().length).toBeGreaterThan(0)
         // A title names the writing. The source files arrive as
@@ -73,6 +78,25 @@ describe('the loop registry', () => {
       })
     })
   }
+
+  it('offers the groove enough loops to hold a long match', () => {
+    // Where a match actually lives. Two was the floor everywhere and it was not
+    // enough here: the first table to run on the recorded bed came back with
+    // "it repeats", and an ordinary turn is where it was heard.
+    expect(loopsFor('groove').length).toBeGreaterThanOrEqual(5)
+  })
+
+  it('keeps the warm set smaller than the library it is drawn from', () => {
+    // The bound only means something while there is something to leave out. If
+    // the registry ever shrinks to the budget, the sort in `prefetch` is doing
+    // nothing and the comment above it is a lie.
+    expect(PREFETCH_MAX).toBeLessThan(LOOPS.length)
+    // And it has to be able to hold a whole section, or a handover inside the
+    // section the table is sitting in would fetch on the spot every time.
+    expect(PREFETCH_MAX).toBeGreaterThanOrEqual(
+      Math.min(...SECTIONS.map((s) => loopsFor(s).length)),
+    )
+  })
 
   it('offers every section at least two loops', () => {
     // The whole anti-repetition argument rests on this. One loop for a section
@@ -84,9 +108,6 @@ describe('the loop registry', () => {
     }
   })
 
-  it('keeps a loop for the section a match spends most of its time in', () => {
-    expect(loopsFor('groove').length).toBeGreaterThanOrEqual(2)
-  })
 })
 
 describe('the arrangement ladder', () => {
@@ -155,12 +176,16 @@ describe('shuffled playback', () => {
     expect(orders.size).toBeGreaterThan(5)
   })
 
-  it('gives a loop a song-length turn before handing over', () => {
-    // Three turns of the shortest loop still has to read as a piece of music
-    // somebody chose to play, not as a carousel.
+  it('gives a loop a turn long enough to be a piece and short enough not to nag', () => {
+    // Both ends are the repetition complaint. Under two, a piece is heard once
+    // and the bed reads as a shuffle; over about two minutes the same loop is
+    // still playing long after the ear has finished with it, which is what
+    // three laps of a 44s loop did.
     expect(LAPS_PER_LOOP).toBeGreaterThanOrEqual(2)
     const shortest = Math.min(...LOOPS.map((l) => l.seconds))
-    expect(shortest * LAPS_PER_LOOP).toBeGreaterThan(100)
+    const longest = Math.max(...LOOPS.map((l) => l.seconds))
+    expect(shortest * LAPS_PER_LOOP).toBeGreaterThan(60)
+    expect(longest * LAPS_PER_LOOP).toBeLessThan(220)
     expect(CROSSFADE_S).toBeGreaterThan(0)
     expect(CROSSFADE_S).toBeLessThan(6)
   })

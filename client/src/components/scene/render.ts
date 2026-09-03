@@ -22,6 +22,13 @@
  * clean stroke at any angle. The budget is in pixels (`MAX_GL_PIXELS`), so a
  * phone gets the full factor and a 4K monitor gets what fits.
  *
+ * **And then it is photographed** (`post.ts`): the flat frame goes through
+ * the finishing passes the graphics tier allows — a last edge pass, the
+ * lamps' bloom, a tilt-shift focus on the table's band, grain, a fringe in
+ * the corners, a vignette — once, before it is copied out. The tier is the
+ * player's (`hooks/graphicsPref.ts`, `quality.ts`) and says how far the
+ * supersampling goes and which passes run; `light` is the plain frame.
+ *
  * Isometric, orthographic: the camera looks down from a corner at the angle a
  * Habbo room is drawn at, so a block's top and two faces are visible and every
  * block reads at the same scale wherever it stands. The visible width is fixed
@@ -39,6 +46,9 @@ import { BUILDERS, KITS } from './maps'
 import { TILES_ACROSS, lengthInside, occluded, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite } from './life'
 import { at } from './maps/common'
 import { loadModelLib, type ModelLib } from './models/lib'
+import { forceFullRender, renderQuality, type RenderQuality } from './quality'
+import { renderWithPost } from './post'
+import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
 
 /** Loads the kits `spec`'s room is built from. Fetched once per tab. */
 export function prepareModels(spec: SceneSpec, onProgress?: (p: number) => void): Promise<ModelLib> {
@@ -72,11 +82,13 @@ const DEPTH_SCALE = 2
 const OUTLINE_PX = 1.8
 /**
  * Supersampling: the frame is rendered up to this many times larger on each
- * side and scaled down. Two is where the edges stop improving.
+ * side and scaled down. This is the `medium` tier's factor; `quality.ts` has
+ * the ladder, and the high tier goes one further with the finishing passes
+ * over it.
  */
-export const SUPERSAMPLE = 2
-/** The pixels one render may ask the GPU for. Past this the factor shrinks. */
-export const MAX_GL_PIXELS = 7_000_000
+export const SUPERSAMPLE = renderQuality('medium').supersample
+/** The pixels one render may ask the GPU for on `medium`. Past this the factor shrinks. */
+export const MAX_GL_PIXELS = renderQuality('medium').glPixels
 /** A texture side no mobile GPU refuses. */
 const MAX_GL_SIDE = 4096
 
@@ -95,12 +107,12 @@ export function anchorFor(felt: FeltAnchor, size: RenderSize): Anchor {
   }
 }
 
-/** The supersampling factor a bitmap of this size can afford. */
-export function supersampleFor(size: RenderSize): number {
+/** The supersampling factor a bitmap of this size can afford on this tier. */
+export function supersampleFor(size: RenderSize, q: RenderQuality = renderQuality('medium')): number {
   const px = size.width * size.height
-  const byBudget = Math.sqrt(MAX_GL_PIXELS / Math.max(1, px))
+  const byBudget = Math.sqrt(q.glPixels / Math.max(1, px))
   const bySide = MAX_GL_SIDE / Math.max(size.width, size.height)
-  return Math.max(1, Math.min(SUPERSAMPLE, byBudget, bySide))
+  return Math.max(1, Math.min(q.supersample, byBudget, bySide))
 }
 
 /** True on a GPU that is a CPU: SwiftShader, llvmpipe, Mesa's software paths. */
@@ -227,25 +239,30 @@ function dispose(group: Group) {
  * headless browser without GL). The caller treats that as "no scene", never as
  * "no match".
  */
-export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, models: ModelLib): RenderedScene {
+export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, models: ModelLib, tier: GraphicsTier = resolveGraphics()): RenderedScene {
   const rig = lightRig(spec.time, spec.weather)
   const key = sceneKey(spec)
   const ppu = Math.max(size.width, size.height) / TILES_ACROSS
-  const ssWanted = supersampleFor(size)
+  const q = renderQuality(tier)
+  const ssWanted = supersampleFor(size, q)
   const outline = (OUTLINE_PX * size.pixelRatio) / ppu
 
   const gl = document.createElement('canvas')
   // `stencil` is off by default since r163 and the shadows draw through it;
-  // `alpha` so the sprites come out on nothing.
-  const renderer = new WebGLRenderer({ canvas: gl, antialias: true, alpha: true, stencil: true, powerPreference: 'high-performance' })
+  // `alpha` so the sprites come out on nothing. Multisampling only where the
+  // supersampling does not already cover the edges: on the light tier.
+  const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: true, powerPreference: 'high-performance' })
   try {
     renderer.setPixelRatio(1)
     renderer.outputColorSpace = SRGBColorSpace
     renderer.toneMapping = NoToneMapping
     // A software GPU pays for every supersampled pixel on the CPU, and the one
     // place this runs on one is headless Chromium in CI, behind the
-    // map-loading gate's clock. It gets the plain frame.
-    const ss = softwareGl(renderer) ? 1 : ssWanted
+    // map-loading gate's clock. It gets the plain frame — unless tooling asked
+    // for the full one, which is `make rooms` with all evening to spend.
+    const software = softwareGl(renderer) && !forceFullRender()
+    const ss = software ? 1 : ssWanted
+    const post = software ? null : q.post
     const gw = Math.round(size.width * ss)
     const gh = Math.round(size.height * ss)
 
@@ -276,7 +293,22 @@ export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor,
     camera.top = vh / 2
     camera.bottom = -vh / 2
     camera.updateProjectionMatrix()
-    renderer.render(scene, camera)
+    // The photograph. The focus band is the felt, in the render's own pixels;
+    // a GPU that refuses a target this size throws inside, and the plain frame
+    // is the answer rather than no room.
+    let photographed = false
+    if (post) {
+      try {
+        const k = size.pixelRatio * ss
+        renderWithPost(renderer, scene, camera, gw, gh, rig, { cx: felt.cx * k, cy: felt.cy * k, rx: felt.rx * k, ry: felt.ry * k }, post, seededRng(key).next() * 1000)
+        photographed = true
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('post-processing failed, plain frame', err)
+        renderer.setRenderTarget(null)
+        renderer.setClearColor(new Color(rig.sky.horizon), 1)
+      }
+    }
+    if (!photographed) renderer.render(scene, camera)
     const t3 = performance.now()
 
     const frame = document.createElement('canvas')
@@ -380,7 +412,7 @@ export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor,
       // Where a room's second goes, for whoever is making it heavier.
       const t4 = performance.now()
       console.debug(
-        `scene ${key} @${size.width}×${size.height} ×${ss.toFixed(2)} felt ${felt.cx.toFixed(0)},${felt.cy.toFixed(0)},${felt.rx.toFixed(0)},${felt.ry.toFixed(0)}: build ${(t1 - t0).toFixed(0)} ms, merge ${(t2 - t1).toFixed(0)} ms, draw ${(t3 - t2).toFixed(0)} ms, ${sprites.length} of ${candidates.length} sprites ${(t4 - t3).toFixed(0)} ms`,
+        `scene ${key} @${size.width}×${size.height} ×${ss.toFixed(2)} ${tier}${photographed ? '+post' : ''} felt ${felt.cx.toFixed(0)},${felt.cy.toFixed(0)},${felt.rx.toFixed(0)},${felt.ry.toFixed(0)}: build ${(t1 - t0).toFixed(0)} ms, merge ${(t2 - t1).toFixed(0)} ms, draw ${(t3 - t2).toFixed(0)} ms, ${sprites.length} of ${candidates.length} sprites ${(t4 - t3).toFixed(0)} ms`,
       )
     }
     return { frame, sprites }

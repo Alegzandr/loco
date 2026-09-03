@@ -135,40 +135,6 @@ const { page, lang, jsonLd } = Astro.props
         is the whole job of the button.
       */}
       <div class="navPopEnd">
-        <button type="button" class="themeBtn" hidden aria-label={ui('themeLabel', lang)}>
-          <svg
-            class="themeSun"
-            viewBox="0 0 24 24"
-            width="17"
-            height="17"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <circle cx="12" cy="12" r="4.2"></circle>
-              <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2"></path>
-              <path d="M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"></path>
-            </g>
-          </svg>
-          <svg
-            class="themeMoon"
-            viewBox="0 0 24 24"
-            width="17"
-            height="17"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <path
-              d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linejoin="round"
-            ></path>
-          </svg>
-          <span>{ui('themeLabel', lang)}</span>
-        </button>
-
         <button
           type="button"
           class="langBtn"
@@ -195,10 +161,9 @@ const { page, lang, jsonLd } = Astro.props
       Appears once the reader is a screenful down, above the bar and out of the
       column: these pages are long, the navigation is pinned to the *bottom*, and
       the way back to the top was a scroll the whole way or a key a phone does
-      not have. `hidden` in the markup and revealed by `theme-boot.ts` for the
-      same reason the theme switch is — with no script it could neither know it
-      was wanted nor animate the return, and a reader with no script still has
-      the browser's own way home. A real `href`, so it works if the click
+      not have. `hidden` in the markup and revealed by `page-boot.ts` — with no
+      script it could neither know it was wanted nor animate the return, and a
+      reader with no script still has the browser's own way home. A real `href`, so it works if the click
       handler ever does not.
     */}
     <a class="toTop" href="#top" hidden aria-label={ui('toTop', lang)}>
@@ -245,55 +210,15 @@ const { page, lang, jsonLd } = Astro.props
         </a>
 
         {/*
-          Hidden until `theme-boot.ts` reveals it: a switch that cannot store a
-          choice is a button that does nothing, and a reader with no JavaScript
-          already gets their system's theme from the media query in tokens.css.
-          Both icons are in the markup and CSS shows the one that applies — the
-          state is on the button, so nothing has to be drawn at runtime.
-        */}
-        <button type="button" class="themeBtn" hidden aria-label={ui('themeLabel', lang)}>
-          <svg
-            class="themeSun"
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <circle cx="12" cy="12" r="4.2"></circle>
-              <path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2"></path>
-              <path d="M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"></path>
-            </g>
-          </svg>
-          <svg
-            class="themeMoon"
-            viewBox="0 0 24 24"
-            width="15"
-            height="15"
-            aria-hidden="true"
-            focusable="false"
-          >
-            <path
-              d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linejoin="round"
-            ></path>
-          </svg>
-        </button>
-
-        {/*
           A drawn globe, never a glyph: `🌐` is a different object on every
           platform and renders as a coloured emoji next to flat 12px text.
 
           The globe alone, with no language name beside it: the page is already
           in that language, so the word only restated what the reader is looking
-          at, and in the bar it sat as a third piece of text next to the theme
-          switch and the legal link. The name is where the choice is made, on
-          the two links inside the panel. `aria-label` still says "Language",
-          which is what a button with no text owes a screen reader.
+          at, and in the bar it sat as a second piece of text next to the legal
+          link. The name is where the choice is made, on the two links inside
+          the panel. `aria-label` still says "Language", which is what a button
+          with no text owes a screen reader.
         */}
         <button
           type="button"
@@ -367,12 +292,12 @@ const { page, lang, jsonLd } = Astro.props
   </div>
 
   {/*
-    The only script on a content page, and it exists because tokens.css keys the
-    dark palette on `[data-theme]`: without it a player who picked dark in the
-    game lands on a white page one tap later. No `is:inline`, so Astro bundles it
-    to an external module and `script-src 'self'` is satisfied.
+    The only script on a content page: the drawer, the language choice, the
+    smooth travel and the way back up, and on `/live/` the list. No `is:inline`,
+    so Astro bundles it to an external module and `script-src 'self'` is
+    satisfied.
   */}
   <script>
-    import '../content/theme-boot'
+    import '../content/page-boot'
   </script>
 </Base>

@@ -122,7 +122,9 @@
     font: 700 1em / 1 var(--font-display);
     letter-spacing: -0.045em;
     color: var(--color-primary);
-    -webkit-text-stroke: 0.07em var(--color-stroke);
+    /* No stroke on the word itself: the outline is painted by the ::before
+       below, for the reason written there. */
+    position: relative;
     paint-order: stroke fill;
     text-shadow:
       0 0.07em 0 var(--color-stroke),
@@ -131,28 +133,18 @@
   }
 
   /*
-   * The ink outline, in dark, drawn by a pseudo-element instead of by the word.
+   * The ink outline, drawn by a pseudo-element instead of by the word.
    *
    * A contrast checker reads `-webkit-text-stroke` as the colour of the text, not
-   * as an edge around it. That is right on the light theme, where a near-black
-   * outline is what the eye reads the letters by (14.7:1), and wrong on the dark
-   * one, where the outline and the canvas are both near-black: the checker scored
-   * the wordmark at 1.07:1 and failed every page of the site on a logotype WCAG
-   * exempts by name. LOCO Red against the dark canvas is 5.4:1 and passes on its
-   * own, so in dark the word carries no stroke and a ::before painted over it
-   * carries the outline — the same two passes, the same drawing, and nothing for
-   * the checker to measure but the red.
-   *
-   * Declared twice for the reason `tokens.css` declares the dark palette twice:
-   * `[data-theme]` is written by a script and cannot paint the first frame, while
-   * the media query is known at parse time and is still beaten by an explicit
-   * choice. The two blocks may not drift; `a11y.test.ts` pins them together.
+   * as an edge around it, and on this canvas the outline and the canvas are both
+   * near-black: the checker scored the wordmark at 1.07:1 and failed every page
+   * of the site on a logotype WCAG exempts by name. LOCO Red against the canvas
+   * is 5.4:1 and passes on its own, so the word carries no stroke and a ::before
+   * painted over it carries the outline — the same two passes, the same drawing,
+   * and nothing for the checker to measure but the red. `a11y.test.ts` pins
+   * the pair: no stroke on the word, the outline on the pseudo-element.
    */
-  :root[data-theme='dark'] .word {
-    position: relative;
-    -webkit-text-stroke: 0;
-  }
-  :root[data-theme='dark'] .word::before {
+  .word::before {
     /* The empty alt keeps the word out of the accessibility tree: the logo names
        itself once, on the element that carries `role="img"`. */
     content: 'LOCO!' / '';
@@ -164,22 +156,6 @@
     /* The word underneath already casts it; a second copy would double the soft
        drop. */
     text-shadow: none;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) .word {
-      position: relative;
-      -webkit-text-stroke: 0;
-    }
-    :root:not([data-theme='light']) .word::before {
-      content: 'LOCO!' / '';
-      position: absolute;
-      inset: 0;
-      color: inherit;
-      -webkit-text-stroke: 0.07em var(--color-stroke);
-      paint-order: stroke fill;
-      text-shadow: none;
-    }
   }
 
   .animated {

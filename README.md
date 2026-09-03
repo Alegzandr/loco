@@ -25,12 +25,12 @@ big moments (interception, LOCO!, victory) have to land in a muted clip.
 | Backend   | **Go**                  | Low latency, native concurrency, small binary, excellent stdlib       |
 | Realtime  | **WebSockets** (gorilla)| Persistent bidirectional connection; lowest latency for game events   |
 | Frontend  | **Svelte 5 + TypeScript** | Component model, type safety, and a compiler rather than a runtime: a card that moves does not re-render a tree to do it |
-| Site      | **Astro** (static output) | Builds the game page and the content pages from one project. The game is *not* server-rendered: it mounts client-side, so nothing about theme, language, session or board geometry has to be guessed on a server. Output stays static files behind nginx, no Node runtime in production |
+| Site      | **Astro** (static output) | Builds the game page and the content pages from one project. The game is *not* server-rendered: it mounts client-side, so nothing about language, session or board geometry has to be guessed on a server. Output stays static files behind nginx, no Node runtime in production |
 | Bundler   | **Vite** (via Astro)    | Near-instant dev server, fast HMR                                     |
 | Rendering | **Svelte + CSS + WAAPI** | DOM-based card rendering, no animation library: the fan and the seats reflow on CSS transitions, and a card in flight is one `element.animate` call handed straight to the browser |
 | State     | **`hooks/store/createStore.ts`** (~40 lines) | `getState`/`setState`/`subscribe` plus a middleware slot, with no framework in it, because the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, `hooks/sessionRestore.ts`, the E2E bridge) and by no framework in particular; `src/test/storeCore.test.ts` states every semantic the app depends on |
 | Validation| **Valibot**             | Runtime schema for inbound `ServerMsg`. Both it and the TypeScript types are **generated from `server/protocol/`** by `make protocol`, so Go↔TS drift is not caught late, it is not possible: CI regenerates and fails on any difference. Valibot because it interprets its schemas: a validator that JIT-compiles them with `Function()` is refused by the production CSP, and the failure only ever appears on the served page |
-| Audio     | **Web Audio API** (hand-rolled) | Every sound effect is synthesised at runtime: no sample library, no cache-miss on a cue that has to answer a tap. The music bed is six CC0 loops served from this origin, crossfaded by the game's own tension |
+| Audio     | **Web Audio API** (hand-rolled) | Every sound effect is synthesised at runtime: no sample library, no cache-miss on a cue that has to answer a tap. The music bed is eighteen CC0 loops served from this origin, crossfaded by the game's own tension |
 | Type      | **Fredoka + Nunito** (self-hosted, `@fontsource`) | Rounded display faces that match the art direction; self-hosted so the CSP stays closed |
 | Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest runs on Astro's own Vite config (`getViteConfig`), so tests resolve modules exactly as the build does |
 | Visual QA | **Playwright** screenshot harness | Renders every screen/state without a server and contact-sheets them (`make visual`) |
@@ -46,7 +46,7 @@ loco/
 ├── server/                # Go game server: game/ (domain), hub/ (sockets, tables), protocol/ (wire)
 ├── client/                # Astro site + Svelte/TypeScript game
 ├── e2e/                   # Playwright suite (separate package.json)
-├── tools/                 # visual/ og/ icons/ cover/ audio/ csp/ — one harness per make target
+├── tools/                 # visual/ og/ rooms/ icons/ cover/ audio/ csp/ — one harness per make target
 ├── docs/                  # Rules spec, protocol, deployment + notes/ (the reasoning)
 ├── deploy/                # Production compose + traefik config
 ├── docker-compose.yml     # Production-style full-stack compose
@@ -114,7 +114,7 @@ client and E2E targets do need Node (22.12+ — Astro 7 declares it in `engines`
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/` |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
 | Pack the rooms' models | `make models` (from the CC0 kits unpacked under `.assets-in/unpacked/`, which git ignores; the packed result under `client/public/models/` is committed) — `make models-check` lists what is missing |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make bench-server` |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
 
 Without Docker: `cd server && go run .` (listens on :8080) and `cd client && npm install && npm run
 dev`. Test-by-test invocations, what each harness catches that no assertion would, and why four of
@@ -175,7 +175,7 @@ the shutdown snapshot on its `/data` mount.
 
 Full grouped list: [`docs/features.md`](docs/features.md) — the lobby and the 1v1 queue, the whole
 112-card deck and every rule on it, the interrupt and catch windows, bots that play the entire game,
-the six rooms rendered in the browser at a random hour under a random sky and the synchronised load into them, an adaptive music bed of six loops that answers the table,
+the six rooms rendered in the browser at a random hour under a random sky and the synchronised load into them, an adaptive music bed of eighteen loops that answers the table,
 and the server surfaces underneath all of it.
 
 ### Known Limitations
@@ -199,7 +199,7 @@ and the server surfaces underneath all of it.
 - Only English and French are translated; adding a language is a new file in `client/src/i18n/` and an
   entry in the `translations` map
 - Sound effects are synthesised, not recorded: the result is deliberately arcade-like rather than
-  orchestral. The music is recorded, and it is six loops rather than six written pieces — the bed
+  orchestral. The music is recorded, and it is eighteen loops rather than written pieces — the bed
   varies by choosing between them, not within one
 - The visual showcase and its screenshot harness are development tooling, excluded from production
   builds

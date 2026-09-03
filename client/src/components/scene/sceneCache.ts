@@ -22,11 +22,14 @@ import { lightRig, type LightRig } from './sky'
 import type { RenderSize } from './render'
 import type { FeltAnchor } from '../cards/layout'
 import type { Sprite } from './life'
+import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
 
 export interface PreparedScene {
   key: string
   size: RenderSize
   felt: FeltAnchor
+  /** The graphics tier the frame was rendered at: a different tier is a different frame. */
+  tier: GraphicsTier
   /** The frame, or null when it could not be rendered. */
   canvas: HTMLCanvasElement | null
   /** What moves in the room, one bitmap each. Empty when the frame is null. */
@@ -108,8 +111,8 @@ export function sameFelt(a: FeltAnchor, b: FeltAnchor): boolean {
   return feltKey(a) === feltKey(b)
 }
 
-function entryKey(spec: SceneSpec, size: RenderSize, felt: FeltAnchor): string {
-  return `${sceneKey(spec)}@${size.width}x${size.height}@${feltKey(felt)}`
+function entryKey(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, tier: GraphicsTier): string {
+  return `${sceneKey(spec)}@${size.width}x${size.height}@${feltKey(felt)}@${tier}`
 }
 
 /**
@@ -117,8 +120,8 @@ function entryKey(spec: SceneSpec, size: RenderSize, felt: FeltAnchor): string {
  * one, otherwise any size (drawn stretched until the right one lands), else
  * null. Synchronous, for a component's first paint.
  */
-export function peekScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor): PreparedScene | null {
-  const exact = cache.get(entryKey(spec, size, felt))
+export function peekScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, tier: GraphicsTier = resolveGraphics()): PreparedScene | null {
+  const exact = cache.get(entryKey(spec, size, felt, tier))
   if (exact) return exact
   const key = sceneKey(spec)
   let best: PreparedScene | null = null
@@ -135,8 +138,9 @@ export function prepareScene(
   size: RenderSize,
   felt: FeltAnchor,
   onProgress?: (p: number) => void,
+  tier: GraphicsTier = resolveGraphics(),
 ): Promise<PreparedScene> {
-  const k = entryKey(spec, size, felt)
+  const k = entryKey(spec, size, felt, tier)
   const hit = cache.get(k)
   if (hit) {
     onProgress?.(1)
@@ -159,14 +163,14 @@ export function prepareScene(
       // Let the loading screen paint its first frame before the main thread
       // is taken for the build and the draw.
       await new Promise<void>((r) => setTimeout(r, 0))
-      const out = renderScene(spec, size, felt, models)
+      const out = renderScene(spec, size, felt, models, tier)
       canvas = out.frame
       sprites = out.sprites
     } catch (err) {
       // Left null: the sky gradient is the room now.
       if (import.meta.env.DEV) console.warn('scene render failed', err)
     }
-    const entry: PreparedScene = { key: sceneKey(spec), size, felt, canvas, sprites, rig }
+    const entry: PreparedScene = { key: sceneKey(spec), size, felt, tier, canvas, sprites, rig }
     remember(k, entry)
     inFlight.delete(k)
     onProgress?.(1)

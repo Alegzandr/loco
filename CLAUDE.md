@@ -63,7 +63,8 @@ client and E2E targets do need Node.
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
 | Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
 | Pack the rooms' models | `make models` after editing `scene/models/manifest.json` (needs the kits unpacked under `.assets-in/unpacked/`); `make models-check` says what is missing |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make bench-server` |
+| Re-shoot the rooms page's stills | `make rooms` after touching a builder, the kit, the light rig or the finishing passes — commit the result |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
 
 ## Done means
 Code + tests + passing + docs + Docker still works + behavior matches docs. **Update `README.md` when
@@ -121,15 +122,16 @@ needs jsdom and the `browser` resolve condition.
 - `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
   the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
   bundled module script, never an island
-- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
-  key, the two home paths, `chooseLang`) — those two pull in no framework, so a content page can
-  use them · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
+- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/lang.ts` (storage
+  key, the two home paths, `chooseLang`) — it pulls in no framework, so a content page can
+  use it · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
   app-only · `src/pinchGuard.ts` the seated half of "no accidental zoom" and `src/contextGuard.ts`
   the same gate over the browser's own menu, both installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `liveList.ts`, `navMenu.ts`,
-  `theme-boot.ts`. **Never imported by the app**
+  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `TablesArticle.astro`, `liveList.ts`,
+  `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
+  the rooms page shows, shot by `make rooms` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, CardFall, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
@@ -150,7 +152,8 @@ needs jsdom and the `browser` resolve condition.
   and baker, `bake.ts` the pure half), `maps/<id>.ts`
   one builder per room + `maps/common.ts` + `maps/actors.ts`, `render.ts` (one frame, then the context is released),
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame),
-  `SceneBackdrop.svelte` + `WeatherLayer.svelte`
+  `quality.ts` (what each graphics tier buys) + `post.ts` (the finishing passes),
+  `SceneBackdrop.svelte` + `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
   the sounds and plays none of them
 - `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` + `e2eBridge.svelte.ts` (the whole
@@ -170,7 +173,7 @@ needs jsdom and the `browser` resolve condition.
   `locoActions` `matchActions` `queueActions`), `serverMessages.ts`, `sessionPersistence.ts`,
   `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, and the preference
   and constant modules the reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`,
-  `webSocketPolicy`, `mapPreload`, `safeAreaInsets`). **The `use` prefix went with React**: none of
+  `webSocketPolicy`, `mapPreload`, `safeAreaInsets`, `graphicsPref`). **The `use` prefix went with React**: none of
   these is a hook, they are constants, pure functions and plain stores, and **nothing in a plain
   `.ts` file here may reach for a rune** — it would not be compiled, and the failure is silent.
   `src/test/runeScope.test.ts` is the guard.
@@ -200,7 +203,7 @@ needs jsdom and the `browser` resolve condition.
   refuses anything it cannot spell honestly rather than guessing
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
-`playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`,
+`playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`, `rooms/shoot.mjs`,
 `cover/shoot.mjs`, `audio/verify.mjs`, `csp/check.mjs`) ·
 **`brand/`** the 600×800 game covers, uploaded to IGDB and drawn by Twitch as the category's box art —
 **committed and deliberately not under `client/public/`**: they are an upload, and serving them would
@@ -790,7 +793,9 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   opens the same menu and is never the only way in. **The question takes the menu's place**, Escape
   backs out one step at a time, and **below 46rem the dropdown is a bottom sheet with a scrim**. The
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
-- **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
+- **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language,
+  graphics (`hooks/graphicsPref.ts`: `auto` / high / medium / light, the ladder the room is rendered
+  and finished at — see Visual — with the hint naming what `auto` landed on),
   streamer mode, colour shapes, reduced motion, and vibrations where the device has a motor
   (`hooks/haptics.ts`: patterns decided beside the sounds, one per moment, never a chain). Each on/off preference is a `createBooleanPref` module
   store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
@@ -1010,7 +1015,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   delay is a mechanism, not polish** — `round_ended` and `match_end` are two messages, so without it
   an ordinary final round is labelled decisive for a frame; it survives reduced motion. And it never
   says who the extra round crowns: past two seats the winner of it may leave the tie standing.
-- `initLang()` first, then `initTheme()`, `initMotion()`, `initI18n()`, `initPinchGuard()`,
+- `initLang()` first, then `initMotion()`, `initI18n()`, `initPinchGuard()`,
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
   order**. Each has a reason to be where it is, written next to it.
 - **A document is never in two languages at once, and `/` translates itself rather than navigating.**
@@ -1072,7 +1077,7 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **A content page restates what the game already knows, so it is pinned to the source**: the rules
   page maps `t.rules` rather than copying it, and the deck table is checked against
   `server/game/deck.go` and `server/game/card.go` by `contentPages.test.ts`.
-- **A content page ships no JavaScript except `theme-boot.ts`.** No `client:` directive, so
+- **A content page ships no JavaScript except `page-boot.ts`.** No `client:` directive, so
   `<LocoLogo />` and every `<Card />` on `/cards/` are static markup. Anything interactive is a
   **native control**: the home sheet is `<details>`, the language chooser a `[popover]`. That one
   script now also fills the live list on `/live/` (`content/liveList.ts`, a same-origin `fetch`, so
@@ -1088,14 +1093,14 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   A bare `table`/`th`/`td` rule there styles the score table and the evening recap alongside the
   rules page, and `thead th`'s ink fill did exactly that: an ink band behind two sets of column
   heads whose labels were coloured `--color-muted` on the assumption they sat on their own panel,
-  at 2.2:1 in both themes. Every table on a content page is inside `.tableWrap`, so the scope costs
+  at 2.2:1. Every table on a content page is inside `.tableWrap`, so the scope costs
   the pages nothing; `contentPages.test.ts` fails on a bare element selector.
 - **One `--shell`, one bar, no backdrop.** Header, column and footer share one width. The navigation
   is a **fixed footer bar**, the same links in the same order as the home page's row. `body.doc`
   is flat canvas, `background-attachment: fixed` is gone, and text selection is put back.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
 - **Every in-page jump glides**, anchors and "back to top" alike: `scroll-behavior: smooth` behind
-  `html[data-scroll="smooth"]`, which `theme-boot.ts` writes from the system preference — a media
+  `html[data-scroll="smooth"]`, which `page-boot.ts` writes from the system preference — a media
   query is refused here and `data-motion` is the game's. **Anything that focuses an element after a
   smooth scroll passes `preventScroll: true`**, or the scroll-into-view cancels the animation before
   its first frame.
@@ -1107,12 +1112,12 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   them, five of which fail silently and none of which a test reading the source can see.
 - **The language chooser's two links are real `<a href>`s** with `hreflang`/`lang`, in the document
   open or shut, and the panel keeps its ✕ — the only dismissal a phone has.
-- **The dark palette is in `tokens.css` twice, and that is the point**: `[data-theme]` for the choice,
-  `@media (prefers-color-scheme: dark)` on `:root:not([data-theme='light'])` for the first frame.
-  `themeFlash.test.ts` compares them declaration by declaration.
-- **The content pages' theme switch is `theme-boot.ts` wiring one button**, `hidden` until that
-  script reveals it, writing the same `loco_theme` key `src/theme.ts` reads — one definition of the
-  theme for the app and for a page that mounts nothing.
+- **One palette, the night one, on `:root`, and nothing keys on a theme.** The day palette went
+  with its attribute, its media query, its fade and its switch (`noLightTheme.test.ts` fails on
+  `data-theme`, `prefers-color-scheme` or `loco_theme` anywhere in the client, the E2E suite or the
+  tools). The content pages paint the game's own canvas — the den's gradient and its three orbs,
+  anchored to the first screenful — and set their prose on the game's panels: a content page is the
+  game's, not a site beside it.
 - **`/` serves its own `<h1>`, in text, and it is never the wordmark**, and it stays the only one:
   app screens head themselves at `<h2>`, and `seo.test.ts` fails on an `<h1>` under `src/components/`.
 - **A title is ≤ 60 characters and a description is 100-155**, both languages, pinned by
@@ -1246,11 +1251,6 @@ stated at the top of `styles/tokens.css`:
   delay animates the shortest one over an empty slot. **A direction is named in the ring's own
   words, never drawn as `→`**: one glyph cannot mean the same thing to every chair around the
   table, and a line a player reads in passing stops at the event and the heading.
-- **The theme crosses, it does not cut, and one mechanism does it for the game and the pages alike**:
-  `setTheme` arms `data-theme-anim` on `<html>` for `THEME_FADE_MS` / `--theme-fade`, and the rule
-  behind it transitions **colour only**, over the whole document, for exactly that long. The boot
-  never arms it, the attribute must come back off, and reduced motion wins by specificity rather than
-  by a branch in the script (`themeTransition.test.ts`).
 - **The action bar never reflows, and it never empties either.** Fixed three-column grid, **Catch
   mounted in the centre column all match and nothing else ever in it**, enabled and armed in place. A
   reaction game cannot move its buttons mid-match. **All three columns hold their button the whole
@@ -1273,7 +1273,7 @@ stated at the top of `styles/tokens.css`:
   It wore
   `--color-surface-strong` — which is exactly what a **live** Pass wears — so half the bar read as
   pressable for the whole of somebody else's turn, told apart only by a label colour and a missing
-  ledge. Still no opacity anywhere: the label clears 4.5:1 on the sunken fill in both themes, because
+  ledge. Still no opacity anywhere: the label clears 4.5:1 on the sunken fill, because
   Catch sits dead through the opening of every round and a spectator reads it at 720p.
   `actionBar.test.ts` measures both.
 - **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
@@ -1286,7 +1286,18 @@ stated at the top of `styles/tokens.css`:
   a real light banded every cylinder and PCF put noise on every façade. **In the room the outline
   is a darker note of the block's own colour** (`inkFor`), never `INK`: ten thousand black rims
   read as wire, and this is the one place the ink rule bends. **The frame is supersampled**
-  (`SUPERSAMPLE`, within `MAX_GL_PIXELS`) and scaled down, so an ink line is one clean stroke.
+  (`quality.ts`: up to 3× on `high`, within the tier's pixel budget) and scaled down, so an ink
+  line is one clean stroke. **And then it is photographed** (`scene/post.ts`, once, before the copy):
+  the flat frame goes through the finishing passes the graphics tier allows — a last FXAA pass over
+  the supersampling, the lamps' bloom (scaled by `rig.dark`, so noon snow does not glow), a
+  tilt-shift focus held on the felt's band and easing off towards the top and bottom of the frame,
+  a vignette, a colour fringe in the corners, fine static grain. The scene renders into a
+  half-float target in linear light and the composite ends on `colorspace_fragment`, so a room
+  with every pass off comes out the colour it came out before there were passes; a GPU that refuses
+  a target gets the plain frame, never no room (`sceneQuality.test.ts`). **The tier is the
+  player's** (`hooks/graphicsPref.ts`: `auto` reads memory, cores and pointer; `high` / `medium` /
+  `light` win over it both ways) and **is part of the cache key**, so moving it mid-match renders
+  the room again. `light` is the plain multisampled frame with one sheet of weather.
   **Rendered once, then the WebGL context is released**:
   the board draws a static bitmap and everything that moves is a CSS transform layer
   (`WeatherLayer.svelte`, `LifeLayer.svelte`), because the compositing budget belongs to the cards.
@@ -1350,10 +1361,24 @@ stated at the top of `styles/tokens.css`:
   (`scene/shade.ts`, 1 / 0.74 / 0.47, ratios pinned by `sceneShade.test.ts`). At 1 / 0.84 / 0.66 a
   street of cubes came out as one flat wash of its own colour, and "it looks like there is no
   lighting" was the correct reading. The cast shadow is a **shape**, not a tint, for the same reason.
-- **Every weather layer travels exactly one background tile per cycle, in pixels**
-  (`WeatherLayer.svelte`, `sceneWeather.test.ts`): a percentage of the frame is a whole tile only by
-  coincidence, so the pattern jumped sideways once a cycle. **And the fog interpolates everywhere** —
-  a `repeating-linear-gradient` of ranges is not haze but hard vertical bands laid over the city.
+- **The weather is drawn tiles, and every sheet travels exactly one tile per cycle**
+  (`scene/weatherTiles.ts`, `WeatherLayer.svelte`, `sceneWeather.test.ts`). A tile is a seeded
+  bitmap drawn once per tab — sixty streaks of different lengths and fades, soft flakes with a few
+  blurred ones near the lens, haze made of overlapping blobs — with every shape near an edge drawn
+  again one tile over, so it wraps; the pure half (`rainDrops`, `snowFlakes`, `fogBlobs`) is what
+  the test asserts, since jsdom has no canvas. `tiled()` writes the tile as the sheet's background
+  **and** as `--tile-w` / `--tile-h`, and the two keyframes travel by those and never by a literal:
+  a cycle that is not a whole tile lands the pattern somewhere else than it left. **The wind is a
+  skew, never a diagonal travel** — a diagonal only wraps when both legs are whole tiles, which pins
+  the angle to the tile's shape. Three sheets of rain and of snow on `high`, two on `medium`, one on
+  `light`; the snow sways on an outer element and falls on an inner one.
+- **The rooms page shows a photograph of the render, and the board's own table over it**
+  (`content/TablesArticle.astro`, `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`,
+  `roomsPage.test.ts`). A content page ships no script, so `make rooms` shoots each room alone at
+  its signature hour — the `room-still-<id>` scenes, at `?gfx=force` so headless Chromium's software
+  GPU renders the full tier — with the podium built under exactly the ellipse `.roomTable` draws, into
+  `src/assets/rooms/`, served through `<Image />`. The hour is written twice (`SIGNATURE` and the
+  scenes) and the test pins the two; a missing still fails it rather than the build.
 - **A `loop` either walks its closing leg or fades over it, and there is no third option**
   (`life.ts: closesTheRing`): a wrap the player can see is somebody teleporting home. A cloud, a bird
   and a puff fade; anybody on the ground travels back.
@@ -1393,7 +1418,7 @@ stated at the top of `styles/tokens.css`:
 Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 
 - **Every sound effect is synthesised at runtime; the music is not.** No sample library, and the
-  bed is six MP3 loops under `client/public/music/`, served from this origin and never a CDN.
+  bed is eighteen MP3 loops under `client/public/music/`, served from this origin and never a CDN.
 - **The board plays nothing; one subscription does.** `gameAudio()` in `hooks/appEffects.svelte.ts`
   is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
   `audio/gameSounds.ts` — pure, snapshot-diffing and unit-tested. A component calling `playSfx`
@@ -1427,8 +1452,13 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   to catch a voice gone silent, so a cue handed in at 1.07 clipped on every device and still printed a
   tick. Anything above 0.8 fails now. That is headroom below hard clip rather than a mixing opinion:
   two cues overlap here and the bus carries no limiter.
-- **The music is six CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
-  files, credit in `NOTICE.md` and `licenses.txt`), normalised to −18 LUFS and encoded to MP3.
+- **The music is eighteen CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
+  files, credit in `NOTICE.md` and `licenses.txt`), normalised to −18 LUFS and encoded to MP3. The
+  registry is **warmed in ladder order from the section playing outward**, one file at a time, and
+  **bounded at `PREFETCH_MAX`** — eighteen megabytes on disk is a library, not a download, so the bed
+  keeps a working set of six and re-warms it from wherever the table has moved to. Everything else
+  loads on demand, which the section hold plus the crossfade give about three seconds of warning
+  for.
   **MP3 and not the source OGG**: Safari decodes Ogg Vorbis only from 18.4 and refuses it in
   `decodeAudioData` before that, which on this platform fails as silence. Add one by encoding a file
   and writing a `LoopDef`.
@@ -1437,10 +1467,14 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   both survive `decodeAudioData`, which is the gap the pack's own README warns about; the source
   files themselves have no silence at either end.
 - **The bed keeps more loops than sections, and that is what replaced the song form.** Each loop
-  declares the sections it can carry, **every section must be carried by at least two**
-  (`music.test.ts`), and the bed changes loop for exactly two reasons: the table moved to another
-  section, or this one has come round `LAPS_PER_LOOP` times. Drop either and an ordinary groove is a
-  chorus on repeat, which is the verdict that killed the version before the synthesiser.
+  declares the sections it can carry, **every section must be carried by at least two and the
+  groove by at least five** (`music.test.ts`), and the bed changes loop for exactly two reasons: the
+  table moved to another section, or this one has come round `LAPS_PER_LOOP` times. Drop either and
+  an ordinary groove is a chorus on repeat, which is the verdict that killed the version before the
+  synthesiser and the first verdict on this one. **The groove's floor is five and not two** because
+  that is where a match spends its time: two everywhere was enough to pass a test and not enough to
+  listen to. `LAPS_PER_LOOP` is **2**, and three was the other half of the same complaint — three
+  turns of a 44s loop is 2m10 of one piece.
 - **The intensity is slewed and the section is held** (`SLEW_PER_SEC`, `SECTION_HOLD_MS`): game
   events move the intensity in jumps, and a Contre-LOCO! that lands and a hand that grows back would
   otherwise crossfade the bed out and in twice inside two seconds.
@@ -1448,10 +1482,14 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   `out.gain`** — which belongs to `duck()` alone. The synthesised bed covered a change with a dip on
   that same node and the dip cancelled the duck's return with it, bringing the bed back to full under
   the one sound people clip.
-- **A title names the writing, never the genre and never the source file's date**: `Entracte` is what
-  plays while the table counts up, `Filou` is somebody setting something up, `Ruade` is the table
-  that has stopped being polite. They arrive as `Sketchbook 2024-05-29`, which says nothing about one
-  piece that it would not say about the two hundred others in the pack.
+- **A loop's title is a name and its blurb is copy, and only one of the two is translated.** The
+  title is **one string, in English, never per language** — a name that changed with the interface
+  would be two different pieces to anybody who switched — and `music.test.ts` fails on a character
+  outside `[A-Za-z0-9 '-]`. The blurb is written in both, like every other string a player reads.
+- **A title names the writing, never the genre and never the source file's date**: `Intermission` is
+  what plays while the table counts up, `Sleight` is somebody setting something up, `Bad Manners` is
+  the table that has stopped being polite. They arrive as `Sketchbook 2024-05-29`, which says nothing
+  about one piece that it would not say about the two hundred others in the pack.
 - Playback is a **shuffled playlist**, not a selection: no picker, one "next" button, and ⏭ stays
   inside the section the table is in.
 - `make audio-verify` is the only thing that catches a broken envelope or a mis-wired node, because

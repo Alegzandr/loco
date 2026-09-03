@@ -6,6 +6,7 @@
   import { lightRig, rigCssVars } from './sky'
   import { peekScene, prepareScene, renderSizeFor, sameFelt, sizeCloseEnough, type PreparedScene } from './sceneCache'
   import { elementSize } from '../../hooks/boardMetrics.svelte'
+  import { graphicsPref } from '../../hooks/uiPrefs.svelte'
   import WeatherLayer from './WeatherLayer.svelte'
   import LifeLayer from './LifeLayer.svelte'
 
@@ -120,6 +121,10 @@
     const k = key
     const w = size.current.width
     const h = size.current.height
+    // The graphics tier is part of what a frame is: a player moving the
+    // preference mid-match gets the room again at the new one, faded in over
+    // the old like any other re-render.
+    const tier = graphicsPref.tier
     if (w <= 0 || h <= 0) return
 
     const target = renderSizeFor(w, h)
@@ -128,7 +133,7 @@
     // room built around it is a room nobody will see: the real anchor is one
     // effect away and re-runs this.
     if (felt.rx <= 0 || felt.ry <= 0) return
-    const have = untrack(() => peekScene(scene, target, felt))
+    const have = untrack(() => peekScene(scene, target, felt, tier))
     // Stretched, and only when it is not already the frame on screen: redrawing
     // an identical bitmap on every resize tick is an upload for no pixels.
     if (have && have !== shown) untrack(() => paint(have))
@@ -136,14 +141,14 @@
     // value through the cache key rather than by identity here, because the
     // anchor is a derived object and a new one with the same numbers is the
     // same podium.
-    if (have && have.canvas && sizeCloseEnough(have.size, target) && sameFelt(have.felt, felt)) return
+    if (have && have.canvas && have.tier === tier && sizeCloseEnough(have.size, target) && sameFelt(have.felt, felt)) return
 
     let live = true
     // `prepareScene` never rejects by contract; the catch is for a stub or a
     // future that forgets, because an unhandled rejection here would be logged
     // over a board that is otherwise fine.
     const request = () => {
-      prepareScene(scene, target, felt)
+      prepareScene(scene, target, felt, undefined, tier)
         .then((entry) => {
           if (!live || entry.key !== k) return
           paint(entry)

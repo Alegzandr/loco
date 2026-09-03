@@ -225,7 +225,7 @@ extension under `src/`.
 What the crossing left behind is worth keeping, because it is what made it survivable:
 
 - **The state that two frameworks had to share is still framework-free.** The language
-  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`), the theme (`src/theme.ts`) and
+  (`i18n/store.ts`), the game state (`hooks/store/createStore.ts`) and
   every on/off preference (`hooks/prefStore.ts`) are plain modules with a subscription, read through
   `createSubscriber` (`i18n/i18n.svelte.ts`, `hooks/prefs.svelte.ts`). They left React first
   *because* a Svelte component could not read a React context, and they stay where they are for a
@@ -1230,8 +1230,8 @@ the table, one more round — and lets the scoreboard answer the rest.
 
 ### One document, one language
 
-The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework, for the
-reason `theme.ts` exists: the content pages take part in this decision and mount nothing at all.
+The key, the pair of languages and the two home paths live in `src/lang.ts`, free of any framework, because
+the content pages take part in this decision and mount nothing at all.
 
 The bug that produced it. A stored choice outranks the URL in `detectLang`, and half of `/` is markup
 Astro built per URL — the footer row, the drawer, the sheet of prose — which no in-app state rewrites.
@@ -1290,19 +1290,25 @@ ever a shortcut to a document that exists. A crawler asking for `/` still gets t
 its own canonical and its `hreflang` pair intact.
 
 The other half is the content pages' globe. Its two links stay real `<a href>`s — the href is what
-makes an `hreflang` pair navigable and a crawler follows nothing else — and `theme-boot.ts` adds one
+makes an `hreflang` pair navigable and a crawler follows nothing else — and `page-boot.ts` adds one
 delegated listener that records the choice on the way out. Without it the choice reached the pages
 and never the game: a reader who switched to French, read the rules and pressed "Jouer" arrived at
-`/fr/` with English still stored, and the stored choice won. The theme has worked this way since it
-was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does too.
+`/fr/` with English still stored, and the stored choice won. One key, written by both halves.
 
 ## Preferences
 `Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
-the board. It holds the language chooser (`LanguageSwitcher`, a child), the theme, and three
+the board. It holds the language chooser (`LanguageSwitcher`, a child), the graphics tier, and three
 switches: streamer mode, colour shapes, reduced motion.
 
-- **The language is a dropdown, and the pick is the application — on every screen.** The theme below
-  it is a segmented pair applied on the press, which is right for a setting that changes the screen
+- **The graphics tier is the one preference that decides how much a render may cost**
+  (`hooks/graphicsPref.ts`, `components/scene/quality.ts`, `sceneQuality.test.ts`): `auto` / high /
+  medium / light, a segmented row of four with the hint naming what `auto` resolved to on this
+  device. Framework-free like the other preference modules, read by the renderer through
+  `resolveGraphics()` and by Svelte through `uiPrefs.svelte.ts`; part of the scene cache's key, so
+  moving it mid-match renders the room again. What each tier buys is in `visual.md`.
+
+- **The language is a dropdown, and the pick is the application — on every screen.** The graphics tier below
+  it is a segmented row applied on the press, which is right for a setting that changes the screen
   in place, and the language is now exactly that setting: `setLang` swaps the game's strings and
   records the choice, `swapServedLang` takes the half Astro served and the address bar with it.
 
@@ -1342,7 +1348,7 @@ switches: streamer mode, colour shapes, reduced motion.
   Scene `lobby-prefs-lang` exists because this state had no screenshot before: the open list was
   drawn by the OS, so `make visual` could not have caught it going wrong. Worth the `small` viewport
   too — there the rows are 46px in a sheet, not 40px in a 292px dropdown.
-- **Why a panel.** Language and theme sat bare in the top bar, which is right for one or two
+- **Why a panel.** Language and the theme (since dropped, see `visual.md`) sat bare in the top bar, which is right for one or two
   preferences. The row also carries sound and rules; one more bare control makes it a settings strip,
   and the one after that makes it unreadable on a phone. The gear replaced the theme chip rather than
   being added beside it, so the cluster is the same size it was.

@@ -14,7 +14,7 @@ DOCKER_GO_REPO = docker run --rm -v $(CURDIR):/repo -w /repo/server
 
 PROTOCOLGEN = go run ./cmd/protocolgen -src protocol -out ../client/src/types
 
-.PHONY: help dev down test test-server test-client test-e2e bench-server models models-check visual og audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check
+.PHONY: help dev down test test-server test-client test-e2e bench-server models models-check visual og rooms audio-verify csp lint lint-server lint-client build-server build-client protocol protocol-check
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?##"}{printf "  %-16s %s\n", $$1, $$2}'
@@ -60,6 +60,9 @@ visual: ## Screenshot every showcase scene into .visual/ (no server needed)
 
 og: ## Regenerate the link preview (client/public/og.png, 1200x630) — commit the result
 	node tools/og/shoot.mjs $(ARGS)
+
+rooms: ## Re-shoot the six room stills the rooms page shows (client/src/assets/rooms) — commit the result
+	node tools/rooms/shoot.mjs $(ARGS)
 
 icons: ## Rasterise favicon.svg into the manifest icons + favicon.ico — commit the result
 	node tools/icons/shoot.mjs $(ARGS)

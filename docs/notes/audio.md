@@ -1,6 +1,6 @@
 # Audio
 
-Every sound effect is synthesised at runtime. The music is six CC0 loops, served from this origin.
+Every sound effect is synthesised at runtime. The music is eighteen CC0 loops, served from this origin.
 
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
@@ -9,7 +9,7 @@ Every sound effect is synthesised at runtime. The music is six CC0 loops, served
 **Every sound effect is synthesised at runtime** — nothing to download, nothing to licence, no
 cache-miss silence on the first play of a cue that has to answer a tap in the same frame.
 
-**The music is not, any more.** It is six loops by Abstraction, released CC0, normalised and encoded
+**The music is not, any more.** It is eighteen loops by Abstraction, released CC0, normalised and encoded
 to MP3 under `client/public/music/`. What that bought and what it cost is the section below; the
 short version is that a sound effect is a reaction and a bed is not, so only one of the two can
 afford a fetch.
@@ -100,8 +100,11 @@ afford a fetch.
   arrangement ladder, the crossfades).
 - `audio/tracks/` — the registry. `types.ts` documents the schema; `index.ts` lists the loops (add
   one by encoding a file and writing a `LoopDef` — engine, panel, tests and harness all read that
-  list). Six ship: **Entracte** (the jazz that plays while the table counts up), **Badinage**,
-  **Chahut**, **Filou**, **Cavale** and **Ruade**.
+  list). Eighteen ship, laid out along the ladder: **Intermission**, **Idle Hands**, **Fanned Out**,
+  **Nightcap** and **Small Talk** over the count-up and the wait, **Patience**, **Rowdy**,
+  **Sidetrack**, **Sleight**, **Mirage**, **Full Table** and **Clockwork** over ordinary play, and
+  **Pile-Up**, **Uproar**, **Neck and Neck**, **On the Run**, **Runaway** and **Bad Manners** as it
+  gets away from everybody.
 
 ### Why the synthesiser went, and what had to be bought back
 
@@ -117,14 +120,27 @@ Cartoon premium wants jazz, funk and something a bit silly; the sequencer was no
 So the music is recorded now. What that costs is the form, and the property the form defended has to
 be bought some other way:
 
-- **More loops than sections.** Each loop declares which sections it can carry, and every section is
-  carried by **at least two** — pinned by `music.test.ts`, because one loop for a section means a
-  table sitting in that section hears one piece of music for as long as it sits there, which is the
-  failure the whole design exists to escape. Groove, where a match spends most of its time, has
-  three.
+- **More loops than sections.** Each loop declares which sections it can carry, every section is
+  carried by **at least two**, and the **groove by at least five** — all pinned by `music.test.ts`,
+  because one loop for a section means a table sitting in that section hears one piece of music for
+  as long as it sits there, which is the failure the whole design exists to escape.
 - **Two reasons to change loop, not one.** The table moved to another section, or this loop has come
   round `LAPS_PER_LOOP` times. The second is what moves the music on a table whose tension never
   changes, and a bed that only ever answered the game would be a loop with extra steps.
+
+**Both floors are calibration, and both were wrong the first time.** The bed shipped with six loops,
+a floor of two everywhere and three laps, and the first verdict on it was that it repeats. It did,
+from both ends at once: an ordinary groove is where a match lives, it had three loops, and each was
+held for over two minutes. Six became eleven and then eighteen, the groove three then seven then ten,
+and three laps became two. Neither number is a preference — a groove floor of two passed every test
+and was not something anyone wanted to listen to, and the way that failure shows up is a player
+saying "it repeats" rather than a red line.
+
+**Two archives were bought and only one was used.** `2024-q3` is 55 to 102 second pieces and seven of
+them are in the registry; `2026-q2` was rejected whole, because outside its ambient tracks nothing in
+it runs past 32 seconds and two laps of that is barely a minute — padding the registry with short
+loops is the complaint, not the fix. Length is a selection criterion here and `music.test.ts` holds
+the floor at 30 seconds.
 
 Both go through one crossfade, and `sectionFor`, `loopsFor`, `nextLoopId` and `shuffledOrder` stay
 pure, exported and unit-tested for the same reason they always were: "does the music go somewhere" is
@@ -165,9 +181,17 @@ a claim about behaviour, not about taste.
   straight back in, twice, inside two seconds. `SLEW_PER_SEC` gives a full swing ~1.8s and
   `SECTION_HOLD_MS` catches the value that parks on a threshold, where the slew alone would let
   rounding chatter the bed between two loops.
-- **The registry is warmed after the first loop is sounding**, one file at a time. A section change
-  that had to wait on a fetch would arrive late at exactly the moment the bed exists to answer:
-  somebody reaching one card.
+- **The registry is warmed after the first loop is sounding**, one file at a time, **in ladder order
+  outward from the section playing** and **bounded at `PREFETCH_MAX`**. A section change that had to
+  wait on a fetch would arrive late at exactly the moment the bed exists to answer: somebody reaching
+  one card. Both properties earned themselves: the order at eleven loops, when a player who never
+  left an ordinary groove still had to get the useful ones first; the bound at eighteen, when
+  warming the whole list became eighteen megabytes pulled in the background for music most matches
+  never reach. `prefetch` sorts by `distance` — the rungs between a loop's nearest section and the
+  one sounding — takes six, and is **called again on every section change**, so the working set
+  follows the table rather than being decided at the deal. `music.test.ts` holds the budget under the
+  registry size and above the smallest section, because a bound that cannot hold one section fetches
+  on every handover.
 - **A bed that will not load is a quiet game, never a broken one.** A 404 or a decode failure leaves
   whatever is already sounding in place and leaves `this.loop` naming it, so the panel never
   announces a loop nobody can hear. `music.test.ts` asserts every declared id has a file of a
@@ -191,10 +215,18 @@ a claim about behaviour, not about taste.
   random.
 - **⏭ stays inside the section the table is in.** The alternative is a button that answers a press by
   contradicting the game, and the panel is open over a live board.
+- **A title is a name; a blurb is copy; only the blurb is translated.** The title is one string, in
+  English, and `music.test.ts` refuses a character outside `[A-Za-z0-9 '-]` so a French one cannot
+  drift back in. The first pass had them French — `Entracte`, `Filou`, `Ruade` — which read fine
+  next to a French blurb and made the panel look like it was translating the music: a piece whose
+  name changes with the interface language is two pieces to anybody who switches, and neither is the
+  one the composer released. Names are `Intermission`, `Sleight`, `Bad Manners` now; the blurbs
+  underneath stayed in both languages, because those really are the game talking.
 - **A title names the writing, never the genre**, and here also never the source file's date. They
   arrive as `Sketchbook 2024-05-29`, a name that says nothing about one piece that it would not say
-  about the two hundred others in the bundle. `Entracte` is what plays while the table counts up;
-  `Filou` is somebody setting something up; `Ruade` is the table that has stopped being polite.
+  about the two hundred others in the bundle. `Intermission` is what plays while the table counts up;
+  `Sleight` is somebody setting something up; `Bad Manners` is the table that has stopped being
+  polite.
 - **`music.duck(ms)`** pulls the bed under the win/lose fanfares through the bed's own output stage,
   so it never touches the user's music volume. Two pieces of music fighting for the same moment makes
   both of them mush, and the fanfare is the one people clip.

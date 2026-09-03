@@ -1,17 +1,36 @@
 <script lang="ts">
   import type { Weather } from './sky'
+  import { graphicsPref } from '../../hooks/uiPrefs.svelte'
+  import { DRIFT_S, FALL_S, SWAY, TILES, tileUrl, type TileKind } from './weatherTiles'
 
   /**
-   * What falls, drifts or flashes over a rendered room. Pure CSS, every layer
-   * a transform animation on a tiled gradient, so the weather costs the board
-   * nothing per frame: the rain is one composited layer sliding down, the snow
-   * three at three speeds, the fog a wide gradient drifting sideways, the storm
-   * the rain plus a flash every few seconds. Nothing here goes through
-   * reactive state and nothing is a particle system.
+   * What falls, drifts or flashes over a rendered room. Every layer is one
+   * drawn tile (`weatherTiles.ts`) under one transform animation, so the
+   * weather costs the board nothing per frame: the rain is three sheets of
+   * streaks sliding down at three speeds behind a skew that leans them into
+   * the wind, the snow three sheets of soft flakes falling and swaying, the fog
+   * two sheets of haze drifting against each other under a vertical veil, the
+   * storm the rain plus a sheet flash and a bolt's glow every few seconds.
+   * Nothing here goes through reactive state and nothing is a particle system.
    *
-   * Under reduced motion every layer holds its first frame: the rain is still
-   * rain, drawn as streaks that do not move, which is the readable static
-   * state motion is required to degrade to.
+   * **A layer travels exactly one tile per cycle.** The tile is what the layer
+   * is painted with, so a cycle that is not a whole tile lands the pattern
+   * somewhere else than it left and the weather jumps once a cycle. Both are
+   * one number here: `tiled()` writes the tile as the background and as
+   * `--tile-w` / `--tile-h`, and the keyframes below travel by those.
+   *
+   * **The wind is a skew, never a diagonal travel.** A streak leaning ten
+   * degrees has to fall along its own lean or it reads as a drawn line sliding
+   * down the screen; but a diagonal translation only wraps when both legs are
+   * whole tiles, which pins the angle to the tile's shape. Skewing the sheet
+   * instead maps a vertical travel inside it onto the lean outside it, and
+   * the tile keeps wrapping vertically as before.
+   *
+   * How many sheets there are is the graphics tier's to say: three on `high`,
+   * two on `medium`, one on `light`. Under reduced motion every layer holds
+   * its first frame: the rain is still rain, drawn as streaks that do not
+   * move, which is the readable static state motion is required to degrade
+   * to.
    */
   type Props = {
     weather: Weather
@@ -19,30 +38,80 @@
     dry?: boolean
   }
   let { weather, dry = false }: Props = $props()
+
+  const tier = $derived(graphicsPref.tier)
+  const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? Math.min(2, devicePixelRatio) : 1
+
+  const rainKinds = $derived<TileKind[]>(
+    tier === 'high' ? ['rainFar', 'rainMid', 'rainNear'] : tier === 'medium' ? ['rainFar', 'rainMid'] : ['rainMid'],
+  )
+  const snowKinds = $derived<TileKind[]>(
+    tier === 'high' ? ['snowFar', 'snowMid', 'snowNear'] : tier === 'medium' ? ['snowFar', 'snowMid'] : ['snowMid'],
+  )
+  const fogKinds = $derived<TileKind[]>(tier === 'light' ? ['fogA'] : ['fogB', 'fogA'])
+
+  /**
+   * The inline style of a tiled layer: its tile as the background and as the
+   * distance one cycle travels, and the seconds the cycle takes.
+   */
+  function tiled(kind: TileKind): string {
+    const t = TILES[kind]
+    const cycle = FALL_S[kind] ?? DRIFT_S[kind] ?? 1
+    const sway = SWAY[kind]
+    return [
+      `background-image: url("${tileUrl(kind, dpr)}")`,
+      `--tile-w: ${t.w}px`,
+      `--tile-h: ${t.h}px`,
+      `--cycle: ${cycle}s`,
+      sway ? `--sway-px: ${sway.px}px; --sway-s: ${sway.s}s` : '',
+    ]
+      .filter(Boolean)
+      .join('; ')
+  }
+
+  /** The far layers start part-way through their cycle, so three sheets never line up. */
+  const phase = (i: number) => `animation-delay: ${(-0.37 * (i + 1)).toFixed(2)}s`
 </script>
 
-<div class="weather" data-weather={weather} aria-hidden="true">
+<div class="weather" data-weather={weather} data-tier={tier} aria-hidden="true">
   {#if weather === 'rain' || (weather === 'storm' && !dry)}
-    <div class="rain"></div>
-    <div class="rain rainFar"></div>
+    <!-- The sheets lean into the wind together, a little more in a storm. -->
+    <div class="wind" class:windStorm={weather === 'storm'}>
+      {#each rainKinds as kind, i (kind)}
+        <div class="sheet fall {kind}" style="{tiled(kind)}; {phase(i)}"></div>
+      {/each}
+    </div>
+    <!-- Rain in the air: a faint haze thickening towards the ground, where the
+         streaks bounce. Static, so it costs one layer and no animation. -->
+    <div class="mist"></div>
   {/if}
   {#if weather === 'storm' && dry}
-    <div class="fog fogBack dust"></div>
+    <div class="sheet drift dust" style={tiled('dust')}></div>
   {/if}
   {#if weather === 'storm'}
+    <div class="bolt"></div>
     <div class="flash"></div>
   {/if}
   {#if weather === 'snow'}
-    <div class="snow"></div>
-    <div class="snow snowMid"></div>
-    <div class="snow snowFar"></div>
+    {#each snowKinds as kind, i (kind)}
+      <!-- Two transforms on two elements: the outer sways, the inner falls.
+           One element could not carry both without the fall's keyframes
+           owning the sway too. -->
+      <div class="sway" style="--sway-px: {SWAY[kind]?.px ?? 0}px; --sway-s: {SWAY[kind]?.s ?? 1}s; {phase(i)}">
+        <div class="sheet fall {kind}" style="{tiled(kind)}; {phase(i)}"></div>
+      </div>
+    {/each}
   {/if}
   {#if weather === 'fog'}
-    <div class="fog"></div>
-    <div class="fog fogBack"></div>
+    <!-- The veil: heavier towards the top of the frame, the far side of the
+         room. The render already carries distance fog; this is its breath. -->
+    <div class="veil"></div>
+    {#each fogKinds as kind, i (kind)}
+      <div class="sheet drift {kind}" class:driftBack={i === 0 && fogKinds.length > 1} style={tiled(kind)}></div>
+    {/each}
   {/if}
   {#if weather === 'cloudy'}
-    <div class="cloudShade"></div>
+    <div class="sheet drift cloud" style={tiled('cloud')}></div>
   {/if}
 </div>
 
@@ -58,249 +127,217 @@
     z-index: 4;
   }
 
-  /* Each falling layer is drawn twice as tall as the frame and slid up by half
-     its height, so the tile repeats seamlessly. `will-change` pins it to its own
-     compositor layer, which is the whole point. */
-  .rain,
-  .snow,
-  .fog {
+  /* A sheet is drawn taller and wider than the frame and slid so its travel —
+     one tile down or one tile across — never shows an edge. `will-change` pins
+     it to its own compositor layer, which is the whole point. */
+  .sheet {
     position: absolute;
-    left: -10%;
+    left: -25%;
     top: -100%;
-    width: 120%;
+    width: 150%;
     height: 200%;
+    background-repeat: repeat;
+    /* The tile, as written by `tiled()`: the one size the keyframes travel. */
+    background-size: var(--tile-w) var(--tile-h);
     will-change: transform;
   }
 
-  /* Both layers travel **exactly one background tile** per cycle, and nothing
-     else: a percentage of the frame is not a whole number of tiles, so the
-     pattern used to jump sideways every time the animation wrapped. The tile
-     is what fixes the speed, too — 240px in 0.72s is about 330px a second,
-     three times slower than it was. Rain a spectator reads as rain, not as a
-     screen of static. */
-  .rain {
-    background-image: repeating-linear-gradient(
-      100deg,
-      rgba(255, 255, 255, 0) 0 22px,
-      rgba(220, 235, 255, 0.26) 22px 23px,
-      rgba(255, 255, 255, 0) 23px 30px,
-      rgba(220, 235, 255, 0.14) 30px 31px,
-      rgba(255, 255, 255, 0) 31px 47px
-    );
-    background-size: 100% 240px;
-    animation: rainFall 0.72s linear infinite;
-    opacity: 0.8;
+  .fall {
+    animation: fall var(--cycle) linear infinite;
   }
 
-  /* Farther away, so slower and fainter: 160px in 0.86s, about 185px a second. */
+  .drift {
+    left: -100%;
+    top: -10%;
+    width: 300%;
+    height: 120%;
+    animation: drift var(--cycle) linear infinite;
+  }
+
+  .driftBack {
+    animation-direction: reverse;
+  }
+
+  @keyframes fall {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(0, var(--tile-h), 0);
+    }
+  }
+
+  @keyframes drift {
+    from {
+      transform: translate3d(0, 0, 0);
+    }
+    to {
+      transform: translate3d(calc(-1 * var(--tile-w)), 0, 0);
+    }
+  }
+
+  /* ─── Rain ─────────────────────────────────────────────────────────────── */
+
+  /* The lean. Wider than the frame by the skew's reach so the top corners are
+     still under rain. */
+  .wind {
+    position: absolute;
+    inset: 0;
+    transform: skewX(-9deg);
+    transform-origin: 50% 100%;
+  }
+
+  .windStorm {
+    transform: skewX(-15deg);
+  }
+
+  .rainNear {
+    opacity: 0.85;
+  }
+  .rainMid {
+    opacity: 0.8;
+  }
   .rainFar {
-    background-image: repeating-linear-gradient(
-      98deg,
-      rgba(255, 255, 255, 0) 0 35px,
-      rgba(220, 235, 255, 0.12) 35px 36px,
-      rgba(255, 255, 255, 0) 36px 61px
-    );
-    background-size: 100% 160px;
-    animation: rainFallFar 0.86s linear infinite;
-    opacity: 0.55;
+    opacity: 0.7;
   }
 
-  @keyframes rainFall {
+  .mist {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(200, 214, 236, 0) 0%, rgba(200, 214, 236, 0) 58%, rgba(200, 214, 236, 0.1) 84%, rgba(210, 222, 240, 0.18) 100%);
+  }
+
+  /* ─── Snow ─────────────────────────────────────────────────────────────── */
+
+  .sway {
+    position: absolute;
+    inset: 0;
+    will-change: transform;
+    animation: sway var(--sway-s) ease-in-out infinite alternate;
+  }
+
+  @keyframes sway {
     from {
-      transform: translate3d(0, 0, 0);
+      transform: translate3d(calc(-1 * var(--sway-px)), 0, 0);
     }
     to {
-      transform: translate3d(0, 240px, 0);
+      transform: translate3d(var(--sway-px), 0, 0);
     }
-  }
-
-  @keyframes rainFallFar {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 160px, 0);
-    }
-  }
-
-  .snow {
-    background-image:
-      radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.95) 0 2.2px, transparent 3px),
-      radial-gradient(circle at 44% 62%, rgba(255, 255, 255, 0.9) 0 2px, transparent 3px),
-      radial-gradient(circle at 78% 30%, rgba(255, 255, 255, 0.95) 0 2.4px, transparent 3.4px),
-      radial-gradient(circle at 63% 86%, rgba(255, 255, 255, 0.85) 0 1.8px, transparent 3px),
-      radial-gradient(circle at 28% 92%, rgba(255, 255, 255, 0.9) 0 2px, transparent 3px),
-      radial-gradient(circle at 90% 74%, rgba(255, 255, 255, 0.9) 0 2px, transparent 3px);
-    background-size: 180px 180px;
-    animation: snowFall 1.8s linear infinite;
-  }
-
-  /* Its own keyframe rather than a duration override: each layer falls exactly
-     one of its own tiles, so the three of them need three distances. */
-  .snowMid {
-    background-size: 260px 260px;
-    animation-name: snowFallMid;
-    animation-duration: 3.2s;
-    animation-delay: -1.4s;
-    opacity: 0.8;
   }
 
   .snowFar {
-    background-size: 340px 340px;
-    animation-name: snowFallFar;
-    animation-duration: 5s;
-    animation-delay: -2.6s;
-    opacity: 0.55;
+    opacity: 0.75;
   }
 
-  @keyframes snowFall {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 180px, 0);
-    }
+  /* ─── Fog ──────────────────────────────────────────────────────────────── */
+
+  .veil {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(235, 240, 246, 0.32) 0%, rgba(235, 240, 246, 0.14) 40%, rgba(235, 240, 246, 0.05) 75%, rgba(235, 240, 246, 0.02) 100%);
   }
 
-  @keyframes snowFallMid {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 260px, 0);
-    }
+  .fogB {
+    opacity: 0.7;
   }
 
-  @keyframes snowFallFar {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 340px, 0);
-    }
-  }
+  /* ─── Storm ────────────────────────────────────────────────────────────── */
 
-  /* The fog is a sheet of horizontal haze, heavier towards the top of the frame
-     (the far side of the room), drifting sideways. The render already carries
-     distance fog; this is the part of it that moves.
-
-     **Every stop in the drifting half is a soft one, and the tile is the frame.**
-     It was a `repeating-linear-gradient` stepping from transparent to 0.12 in
-     one stop, which is not haze but a set of hard vertical bands laid over the
-     room — and because the layer travelled a percentage of the frame rather
-     than a whole tile, the bands jumped sideways every time the animation
-     wrapped. Three frame-widths wide, one tile per frame, translated by exactly
-     one tile: the drift has no seam and no edge anywhere in it. */
-  .fog {
-    left: -100%;
-    top: -20%;
-    height: 140%;
-    width: 300%;
-    background-image:
-      linear-gradient(180deg, rgba(235, 240, 246, 0.34) 0%, rgba(235, 240, 246, 0.12) 46%, rgba(235, 240, 246, 0.04) 100%),
-      linear-gradient(
-        90deg,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.06) 17%,
-        rgba(255, 255, 255, 0.015) 36%,
-        rgba(255, 255, 255, 0.075) 58%,
-        rgba(255, 255, 255, 0.02) 81%,
-        rgba(255, 255, 255, 0) 100%
-      );
-    background-size: 100% 100%, 33.3333% 100%;
-    background-repeat: no-repeat, repeat;
-    animation: fogDrift 46s linear infinite;
-  }
-
-  .fogBack {
-    animation-duration: 74s;
-    animation-direction: reverse;
-    opacity: 0.55;
-  }
-
-  /* Dust on the wind: the fog sheet, thinner and faster, for a storm on a
-     world with nothing to rain. */
+  /* Dust on the wind: specks drifting sideways, for a storm on a world with
+     nothing to rain. */
   .dust {
-    opacity: 0.35;
-    animation-duration: 22s;
+    opacity: 0.5;
   }
 
-  @keyframes fogDrift {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(-33.3333%, 0, 0);
-    }
-  }
-
-  /* A storm's lightning: a white sheet, off nearly all the time. Two flashes
-     close together every ten seconds, which is how lightning actually reads,
-     and never brighter than a third: the cards on top still have to win. */
+  /* Lightning is two things: a sheet that lights the whole frame for a frame
+     or two, and the glow of the bolt itself, off one top corner, that lingers
+     a little longer. Two flashes close together, then a lone one, every
+     seventeen seconds, which is how lightning actually reads; and never
+     brighter than a third on the sheet, because the cards on top still have
+     to win. */
   .flash {
     position: absolute;
     inset: 0;
     background: rgba(236, 240, 255, 1);
     opacity: 0;
-    animation: lightning 11s linear infinite;
+    animation: lightning 17s linear infinite;
+  }
+
+  .bolt {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(38% 46% at 18% -6%, rgba(220, 228, 255, 0.9) 0%, rgba(220, 228, 255, 0.3) 40%, rgba(220, 228, 255, 0) 100%),
+      radial-gradient(30% 40% at 78% -4%, rgba(220, 228, 255, 0.6) 0%, rgba(220, 228, 255, 0) 100%);
+    opacity: 0;
+    animation: bolt 17s linear infinite;
   }
 
   @keyframes lightning {
     0%,
-    62%,
-    63.6%,
-    64.4%,
-    66%,
+    30.4%,
+    31.6%,
+    32.2%,
+    33.4%,
+    73.6%,
+    74.8%,
     100% {
       opacity: 0;
     }
-    62.6% {
-      opacity: 0.32;
+    30.8% {
+      opacity: 0.3;
     }
-    63.2% {
+    31.2% {
       opacity: 0.08;
     }
-    65% {
+    32.8% {
       opacity: 0.24;
     }
-  }
-
-  /* Overcast: a slow-moving cloud shadow across the ground. */
-  .cloudShade {
-    position: absolute;
-    left: -50%;
-    top: -20%;
-    width: 200%;
-    height: 140%;
-    background: repeating-linear-gradient(
-      75deg,
-      rgba(0, 0, 0, 0) 0 300px,
-      rgba(10, 14, 30, 0.14) 300px 620px,
-      rgba(0, 0, 0, 0) 620px 900px
-    );
-    will-change: transform;
-    animation: cloudDrift 52s linear infinite;
-  }
-
-  @keyframes cloudDrift {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(25%, 0, 0);
+    74.2% {
+      opacity: 0.2;
     }
   }
 
-  :root[data-motion="reduce"] .rain,
-  :root[data-motion="reduce"] .snow,
-  :root[data-motion="reduce"] .fog,
-  :root[data-motion="reduce"] .cloudShade {
+  @keyframes bolt {
+    0%,
+    30.4%,
+    35%,
+    73.6%,
+    77%,
+    100% {
+      opacity: 0;
+    }
+    30.8% {
+      opacity: 0.9;
+    }
+    31.4% {
+      opacity: 0.35;
+    }
+    32.8% {
+      opacity: 0.7;
+    }
+    74.2% {
+      opacity: 0.6;
+    }
+  }
+
+  /* ─── Overcast ─────────────────────────────────────────────────────────── */
+
+  .cloud {
+    opacity: 0.9;
+  }
+
+  /* ─── Reduced motion ───────────────────────────────────────────────────── */
+
+  :root[data-motion="reduce"] .sheet,
+  :root[data-motion="reduce"] .sway {
     animation: none;
   }
 
   /* No flash at all under reduced motion: a full-frame flicker is the one
      thing the preference exists to refuse. */
-  :root[data-motion="reduce"] .flash {
+  :root[data-motion="reduce"] .flash,
+  :root[data-motion="reduce"] .bolt {
     display: none;
   }
 </style>

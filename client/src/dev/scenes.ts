@@ -134,6 +134,7 @@ export interface Scene {
     | 'cards'
     | 'og'
     | 'cover'
+    | 'roomStill'
   /**
    * Store patch applied before mounting. `deadlineIn`/`unoIn` are relative so
    * captures stay stable regardless of when they run.
@@ -814,6 +815,28 @@ export const SCENES: Scene[] = [
   // These are the only place a room is reviewable without a server dealing a
   // match: the diorama is rendered in the browser from the three ids, so what
   // `make visual` shoots here is exactly what a match draws.
+  // The stills the rooms page is drawn from: each room alone, at its signature
+  // hour under a clear sky, framed 16:9 with the podium under where the page's
+  // CSS table will sit. `make rooms` (tools/rooms/shoot.mjs) shoots these six
+  // into client/src/assets/rooms/ and commits them; a content page ships no
+  // script, so a photograph of the render is the only way it can show the
+  // room. The hours here and `SIGNATURE` in content/TablesArticle.astro are
+  // one list, pinned by contentPages.test.ts.
+  ...(
+    [
+      ['neon', 'night'],
+      ['rune', 'dusk'],
+      ['velvet', 'dusk'],
+      ['orbit', 'night'],
+      ['sakura', 'day'],
+      ['marina', 'dawn'],
+    ] as const
+  ).map(([mapId, mapTime]) => ({
+    id: `room-still-${mapId}`,
+    title: `Décor · ${mapId} (vignette de la page des décors)`,
+    screen: 'roomStill' as const,
+    state: { mapId, mapTime, mapWeather: 'clear' },
+  })),
   {
     id: 'game-map-neon',
     title: 'Map · Neon · nuit, pluie',
