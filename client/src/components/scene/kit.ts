@@ -51,11 +51,24 @@ import type { Hex, LightRig } from './sky'
 import { mix, scale } from './sky'
 import type { Rng } from './rng'
 
+/**
+ * Where the table is, in screen tiles: the centre of the felt's ellipse and its
+ * semi-axes, `sy` up. `render.ts` solves it from the felt's place in the
+ * viewport, and the podium is built under it.
+ */
+export interface Anchor {
+  sx: number
+  sy: number
+  a: number
+  b: number
+}
+
 export interface KitOptions {
   rig: LightRig
   rng: Rng
   /** Outline thickness in world units (solved from the render's pixel density). */
   outline: number
+  anchor: Anchor
 }
 
 export interface BlockOptions {
@@ -86,6 +99,7 @@ export class Kit {
   readonly rig: LightRig
   readonly rng: Rng
   readonly outline: number
+  readonly anchor: Anchor
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
 
@@ -93,6 +107,7 @@ export class Kit {
     this.rig = o.rig
     this.rng = o.rng
     this.outline = o.outline
+    this.anchor = o.anchor
   }
 
   // ─── Weather-aware colours ────────────────────────────────────────────────
@@ -173,6 +188,29 @@ export class Kit {
     }
     if (this.rig.snow && o.cap !== false && !o.glow && !o.axis && rTop > 0.2) {
       this.push(this.place(new CylinderGeometry(rTop * 0.97, rTop * 0.97, 0.1, seg), x, y + h + 0.04, z), SNOW, 'lit')
+    }
+  }
+
+  /**
+   * An elliptical drum: semi-axes `a` along x and `b` along z before `rot`.
+   * What the podium under the table is made of, since a screen ellipse is a
+   * ground ellipse and never a ground circle.
+   */
+  oval(x: number, y: number, z: number, a: number, b: number, h: number, color: Hex, o: BlockOptions & { seg?: number } = {}) {
+    const seg = o.seg ?? 48
+    const bucket: Bucket = o.glow ? 'glow' : 'lit'
+    const make = (ra: number, rb: number, hh: number) => {
+      const g = new CylinderGeometry(1, 1, hh, seg)
+      g.scale(ra, 1, rb)
+      return g
+    }
+    this.push(this.place(make(a, b, h), x, y + h / 2, z, o.rot), color, bucket)
+    if (o.outline !== false) {
+      const t = this.outline
+      this.push(this.place(make(a + t, b + t, h + 2 * t), x, y + h / 2, z, o.rot), INK, 'ink')
+    }
+    if (this.rig.snow && o.cap !== false && !o.glow) {
+      this.push(this.place(make(a * 0.98, b * 0.98, 0.1), x, y + h + 0.04, z, o.rot), SNOW, 'lit')
     }
   }
 

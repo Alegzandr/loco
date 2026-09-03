@@ -341,6 +341,49 @@ export function tableRect(
   }
 }
 
+// ─── The felt, in viewport pixels ───────────────────────────────────────────
+
+export interface FeltAnchor {
+  /** Centre of the felt's ellipse, in CSS pixels of the viewport. */
+  cx: number
+  cy: number
+  /** Its semi-axes. */
+  rx: number
+  ry: number
+}
+
+/**
+ * Where the felt lands on the screen, for a viewport of `pxWidth × pxHeight`
+ * with `opponentCount` seats above the table.
+ *
+ * The same four functions the board runs, in the same order, so the answer is
+ * the board's to the pixel: the scene engine draws the podium the table stands
+ * on under exactly this ellipse (`scene/maps/common.ts: podium`), and the
+ * loading gate renders the room before the board has measured anything, from
+ * the viewport and the roster alone. A podium a few pixels off is a table
+ * floating beside its base, which is the one thing the podium exists to stop.
+ */
+export function feltInViewport(
+  pxWidth: number,
+  pxHeight: number,
+  opponentCount: number,
+  insets: SafeAreaInsets = NO_INSETS,
+): FeltAnchor {
+  const scale = boardScale(
+    pxWidth - insets.left - insets.right,
+    pxHeight - insets.top - insets.bottom,
+  )
+  const space = boardSpace(pxWidth, pxHeight, scale, insets)
+  const seats = seatLayout(opponentCount, space.width, space.height)
+  const felt = tableRect(space.width, space.height, seats.blockHeight)
+  return {
+    cx: space.offsetX + (felt.left + felt.width / 2) * scale,
+    cy: space.offsetY + (felt.top + felt.height / 2) * scale,
+    rx: (felt.width / 2) * scale,
+    ry: (felt.height / 2) * scale,
+  }
+}
+
 // ─── Play direction ─────────────────────────────────────────────────────────
 
 export interface DirectionMarker {

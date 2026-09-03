@@ -1,66 +1,53 @@
 /**
  * Marina: a harbour front.
  *
- * The table stands on a wooden deck at the water's edge. The quay runs straight
- * across the top of the frame, the sea beyond it: a pier out to the boats, a
- * lighthouse on its rocks, buoys, a ferry in the channel. A row of narrow
- * painted houses faces the quay on either side, a fair has set up its wheel on
- * the right, and a beach with its umbrellas closes the bottom left. The sea is
- * what makes the weather here: a storm on the marina is the one that looks
- * like something.
+ * The table stands on a deck at the water's edge. The quay runs across the
+ * top of the frame, the sea beyond it: a pier out to the boats, a lighthouse
+ * on its rocks, buoys, a ferry in the channel. Behind the quay, blocks of
+ * narrow painted houses along canals, a fish market, a fair with its wheel on
+ * the right, a beach with its umbrellas at the bottom left. The sea is what
+ * makes the weather here: a storm on the marina is the one that looks like
+ * something.
  */
 import type { Builder } from './common'
-import { crowd, ring, at, PLAZA_R, INNER, OUTER, FAR, FLOOR } from './common'
-import { mix, scale } from '../sky'
+import { MAPS } from '../../cards/maps'
+import { cityGrid, lots, podium, crowd, at, screenOf, FLOOR } from './common'
+import { mix, scale, cssHex } from '../sky'
 
 const SEA = 0x2c86c9
 const DECK = 0xc49a62
 const DECK2 = 0xb88c58
-/** The quay's line on screen, in tiles up: just above the table's top edge. */
-const QUAY = 14.5
 
 export const marina: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
-  const screenY = (x: number, z: number) => (-(x + z) / Math.SQRT2) * 0.53
-  const screenX = (x: number, z: number) => (x - z) / Math.SQRT2
-  const atSea = (x: number, z: number) => screenY(x, z) > QUAY
+  const { sx, sy, a, b } = k.anchor
+  /** The quay's line on screen: just above the table's podium. */
+  const QUAY = sy + b + 4
+  const atSea = (x: number, z: number) => screenOf(x, z)[1] > QUAY
 
-  // The sea, below everything, and the waves on it.
   const sea = k.rig.wet ? mix(SEA, 0x1a3550, 0.4) : SEA
   k.box(0, -1.7, 0, FLOOR, 1, FLOOR, sea, { outline: false, cap: false })
   for (let i = 0; i < 320; i++) {
     const x = rng.range(-110, 110), z = rng.range(-110, 110)
-    if (!atSea(x, z) || screenY(x, z) < QUAY + 1) continue
+    if (screenOf(x, z)[1] < QUAY + 1) continue
     k.slab(x, z, rng.range(0.6, 1.8), 0.16, mix(sea, 0xffffff, k.rig.weather === 'storm' ? 0.7 : 0.45), { y: -0.7, h: 0.03, rot: rng.range(-0.3, 0.3) })
   }
-
-  // ─── The land: a diamond whose top edge is the quay ────────────────────
   {
-    const L = 160
+    const L = 170
     const [cx, cz] = at(0, QUAY - (L / 2) * 0.53)
     k.box(cx, -0.7, cz, L, 0.7, L, 0x6b6660, { rot: Math.PI / 4, outline: true, cap: false })
     k.box(cx, 0, cz, L, 0.06, L, k.ground(0x9a948a), { rot: Math.PI / 4, outline: false, cap: false })
   }
-  // The deck plaza: planks, on the diagonal like the quay.
-  for (let i = -24; i <= 24; i++) {
-    for (let j = -3; j <= 3; j++) {
-      const sx = i * 1.5, sy = j * 4.4
-      if (Math.abs(sx) < 26 && Math.abs(sy) < 11) continue
-      if (sy > QUAY - 2.5) continue
-      k.slab(...at(sx, sy), 1.3, 5.6, k.ground((i + j) % 2 ? DECK : DECK2), { h: 0.1, y: 0.02, rot: -Math.PI / 4 })
-    }
-  }
-  k.disc(0, 0.12, 0, PLAZA_R - 2, k.ground(0x2c5f8a), { seg: 48 })
-  k.disc(0, 0.15, 0, PLAZA_R - 3.2, k.ground(DECK), { seg: 48 })
-  k.puddles(0, 0, PLAZA_R - 4, 22)
+  podium(k, { stone: 0x6e5232, step: DECK2, floor: DECK, floor2: DECK2, accent: 0xffd166, top: cssHex(MAPS.marina.table.felt) })
+
   // Bollards, lifebuoys and lamps along the quay.
-  for (let sx = -60; sx <= 60; sx += 3.6) k.cyl(...at(sx, QUAY - 0.6), 0, 0.24, 0.7, 0x2a2f3a, { seg: 8 })
-  for (let sx = -54; sx <= 54; sx += 12) k.cyl(...at(sx, QUAY + 0.2), -0.3, 0.55, 0.25, 0xd94c4c, { axis: 'x', rot: Math.PI / 4, seg: 8 })
-  for (let sx = -48; sx <= 48; sx += 12) { if (Math.abs(sx + 18) > 4) k.lamp(...at(sx, QUAY - 1.6), { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a }) }
+  for (let x = -60; x <= 60; x += 3.6) k.cyl(...at(x, QUAY - 0.6), 0, 0.24, 0.7, 0x2a2f3a, { seg: 8 })
+  for (let x = -54; x <= 54; x += 12) k.cyl(...at(x, QUAY + 0.2), -0.3, 0.55, 0.25, 0xd94c4c, { axis: 'x', rot: Math.PI / 4, seg: 8 })
+  for (let x = -48; x <= 48; x += 12) { if (Math.abs(x + 18) > 4) k.lamp(...at(x, QUAY - 1.6), { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a }) }
   for (let i = 0; i < 8; i++) k.person(...at(rng.range(-40, 40), QUAY - 1.2 - rng.range(0, 1)), -Math.PI / 4 + Math.PI)
 
-  // ─── The pier, straight out from the quay ──────────────────────────────
+  // ─── The pier ──────────────────────────────────────────────────────────
   {
     const PX = -18
     for (let t = 0; t < 20; t += 0.9) {
@@ -82,8 +69,8 @@ export const marina: Builder = (k) => {
   }
 
   // ─── Boats ─────────────────────────────────────────────────────────────
-  const boat = (sx: number, sy: number, rot: number, hull: number, o: { sail?: boolean; cabin?: boolean; len?: number } = {}) => {
-    const [x, z] = at(sx, sy)
+  const boat = (bsx: number, bsy: number, rot: number, hull: number, o: { sail?: boolean; cabin?: boolean; len?: number } = {}) => {
+    const [x, z] = at(bsx, bsy)
     const len = o.len ?? 4.2
     k.box(x, -0.55, z, len, 0.9, 1.8, hull, { rot })
     k.box(x + (len / 2) * Math.cos(rot), -0.4, z - (len / 2) * Math.sin(rot), 1.0, 0.75, 1.2, hull, { rot: rot + Math.PI / 4 })
@@ -130,7 +117,10 @@ export const marina: Builder = (k) => {
   // ─── The lighthouse, top right, on its rocks ───────────────────────────
   {
     const [lx, lz] = at(12, QUAY + 5.5)
-    ring(k, 11, 3.6, (x, z) => k.rock(lx + x, lz + z, rng.range(0.7, 1.4), 0x6f6a62), 0.2)
+    for (let i = 0; i < 11; i++) {
+      const t = (i / 11) * Math.PI * 2
+      k.rock(lx + Math.cos(t) * 3.6, lz + Math.sin(t) * 3.6, rng.range(0.7, 1.4), 0x6f6a62)
+    }
     k.cyl(lx, -0.7, lz, 3, 1.8, 0x6f6a62, { seg: 12 })
     for (let i = 0; i < 7; i++) k.cyl(lx, 1.1 + i * 1.6, lz, 1.7 - i * 0.09, 1.6, i % 2 ? 0xd94c4c : 0xf5f0e6, { seg: 12, cap: false })
     k.cyl(lx, 12.3, lz, 1.7, 0.3, 0x2a2f3a, { seg: 12 })
@@ -146,95 +136,135 @@ export const marina: Builder = (k) => {
     k.prism(lx + 3.4, 2.2, lz + 1.4, 3.6, 1.2, 3.2, 0xd94c4c, { rot: 0.3 })
   }
 
-  // ─── The houses facing the quay, both sides ────────────────────────────
+  // ─── The town behind the quay: blocks of painted houses along canals ───
   const paints = [0xf0a34c, 0x5aa0d8, 0xe85c5c, 0xf4d35e, 0x62b58a, 0xd9a4c8, 0xf5f0e6]
-  const rowHouse = (sx: number, sy: number, rot: number) => {
-    const [x, z] = at(sx, sy)
-    const h = rng.range(5, 8.5)
+  const rowHouse = (x: number, z: number, w: number, d: number, rot: number) => {
+    const h = rng.range(4.5, 8)
     const c = rng.pick(paints)
-    k.box(x, 0, z, 4.4, h, 5.2, c, { rot })
-    k.tower(x, z, 4.4, h, 5.2, c, { floorH: 1.7, roof: 'none', windows: false })
+    k.box(x, 0, z, w, h, d, c, { rot })
     for (let r = 0; r < Math.floor((h - 0.7) / 1.7); r++) {
-      for (const t of [-1.3, 0, 1.3]) {
+      for (const t of [-1.2, 0, 1.2]) {
         const lit = rng.chance(k.rig.windowsLit)
-        const wx = x + t * Math.cos(rot) - 2.63 * Math.sin(rot)
-        const wz = z - t * Math.sin(rot) - 2.63 * Math.cos(rot)
+        const wx = x + t * Math.cos(rot) + (d / 2 + 0.03) * Math.sin(rot)
+        const wz = z - t * Math.sin(rot) + (d / 2 + 0.03) * Math.cos(rot)
         k.box(wx, 0.55 + r * 1.7, wz, 0.5, 0.62, 0.06, lit ? 0xffe2a8 : 0x1a2233, { rot, glow: lit, outline: false, cap: false })
       }
     }
-    k.prism(x, h, z, 4.7, 2.2, 5.5, rng.pick([0x8b3a2a, 0x3f4a5c, 0x6b4a2b]), { rot: rot + Math.PI / 2 })
-    k.box(x - 2.65 * Math.sin(rot), 0, z - 2.65 * Math.cos(rot), 1.0, 1.9, 0.1, scale(c, 0.5), { rot, outline: false, cap: false })
-    if (rng.chance(0.5)) k.box(x - 3 * Math.sin(rot), 2.0, z - 3 * Math.cos(rot), 3.6, 0.08, 0.9, rng.pick([0xd94c4c, 0x2f8fbf, 0xf5f0e6]), { rot, outline: false, cap: false })
+    k.prism(x, h, z, w + 0.3, 2, d + 0.3, rng.pick([0x8b3a2a, 0x3f4a5c, 0x6b4a2b]), { rot: rot + Math.PI / 2 })
+    k.box(x + (d / 2 + 0.05) * Math.sin(rot) - 1.5 * Math.cos(rot), 0, z + (d / 2 + 0.05) * Math.cos(rot) + 1.5 * Math.sin(rot), 1.0, 1.9, 0.1, scale(c, 0.5), { rot, outline: false, cap: false })
+    if (rng.chance(0.5)) k.box(x + (d / 2 + 0.5) * Math.sin(rot), 2.0, z + (d / 2 + 0.5) * Math.cos(rot), 3.4, 0.08, 0.9, rng.pick([0xd94c4c, 0x2f8fbf, 0xf5f0e6]), { rot, outline: false, cap: false })
   }
-  // Left row and right row, each a line down the frame's side, doors to the square.
-  for (let i = 0; i < 8; i++) rowHouse(-34, 10 - i * 3.4, Math.PI / 4)
-  for (let i = 0; i < 6; i++) rowHouse(-39, 12 - i * 3.6, Math.PI / 4)
-  for (let i = 0; i < 4; i++) rowHouse(34, 10 - i * 3.4, -3 * Math.PI / 4)
-  for (let i = 0; i < 5; i++) rowHouse(39, 12 - i * 3.6, -3 * Math.PI / 4)
-  for (let i = 0; i < 7; i++) rowHouse(-30 + i * 4.6, -21, 0)
-  for (let i = 0; i < 6; i++) rowHouse(20 + i * 4.6, -24, 0)
-  k.road(...at(-31, -6), 60, 3, { rot: Math.PI / 4, color: 0x6f6a62, dashes: false })
-  k.road(...at(31, -6), 60, 3, { rot: Math.PI / 4, color: 0x6f6a62, dashes: false })
+  const wheelSpot = { sx: sx + a + 9, sy: sy - b - 4 }
+  const beachSpot = { sx: sx - a - 8, sy: sy - b - 5 }
+  const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
+
+  cityGrid(k, {
+    block: 11,
+    road: 3.2,
+    roadColor: 0x6f6a62,
+    sidewalk: 0x9a948a,
+    dashes: false,
+    cars: [0xd94c4c, 0x2f8fbf, 0xf4d35e, 0xf5f0e6],
+    carDensity: 0.3,
+    lamp: { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a },
+    people: 1.5,
+    maxHeight: 10,
+    water: { line: 1, axis: 'x', color: sea, bank: 0x6b6660, bridge: 0x8a847a },
+    land: (c) => !atSea(c.x, c.z) && screenOf(c.x, c.z)[1] < QUAY - 6,
+    fill: (c) => {
+      if (near(c, wheelSpot, 9) || near(c, beachSpot, 8)) return
+      if (c.front) {
+        // The market: stalls, crates and umbrellas, nothing over a storey.
+        for (const l of lots(c, 2, 2, 1)) {
+          const r = rng.next()
+          if (r < 0.4) k.stall(l.x, l.z, rng.pick([0, Math.PI / 2, Math.PI]), 0x2f8fbf, 0xf5f0e6)
+          else if (r < 0.7) {
+            k.crate(l.x, l.z, 0.7, 0xbfe3f0)
+            k.crate(l.x + 1, l.z + 0.6, 0.55, 0xbfe3f0)
+            k.barrel(l.x - 1, l.z + 0.8)
+          } else {
+            k.cyl(l.x, 0.05, l.z, 0.05, 2.2, 0xf5f0e6, { seg: 4, cap: false, outline: false })
+            k.cone(l.x, 1.9, l.z, 1.2, 0.55, rng.pick([0xd94c4c, 0x2f8fbf, 0xf4d35e]), { seg: 8, cap: false })
+            k.bench(l.x + 1.4, l.z, 0, 0x6b4a2b)
+          }
+        }
+        return
+      }
+      // Row houses shoulder to shoulder along the block's camera-facing sides.
+      const n = 3
+      for (let i = 0; i < n; i++) {
+        const t = -c.w / 2 + (i + 0.5) * (c.w / n)
+        rowHouse(c.x + t, c.z + c.d / 2 - 2.2, c.w / n - 0.3, 4.4, 0)
+        rowHouse(c.x + c.w / 2 - 2.2, c.z - c.d / 2 + (i + 0.5) * (c.d / n) - 0.0, 4.4, c.d / n - 0.3, Math.PI / 2)
+      }
+      const [g] = lots(c, 2, 2, 0)
+      if (rng.chance(0.6)) k.tree(g.x - 0.5, g.z - 0.5, { kind: rng.chance(0.5) ? 'pine' : 'palm', h: rng.range(1.8, 2.6), r: 1.1 })
+      if (rng.chance(0.4)) k.barrel(g.x + 1.5, g.z - 1)
+    },
+  })
 
   // ─── The fish market, the fair, the beach ──────────────────────────────
-  k.stall(...at(-28, 11), -Math.PI / 4 + Math.PI, 0x2f8fbf, 0xf5f0e6)
-  k.stall(...at(-31, 6), Math.PI / 2 - 0.3, 0x2f8fbf, 0xf5f0e6)
-  k.crate(...at(-29, 8.5), 0.6, 0xbfe3f0)
-  k.crate(...at(-28.4, 9.2), 0.5, 0xbfe3f0)
-  for (let i = 0; i < 5; i++) k.box(...at(-29 + rng.range(-0.4, 0.4), 8.5 + rng.range(-0.3, 0.3)), 0.6, 0.4, 0.1, 0.16, 0x8fb8c8, { outline: false, cap: false })
+  const [cx, cz] = at(sx, sy)
+  for (const [dsx, dsy] of [[-a - 5, 4], [-a - 8, -1]] as const) {
+    const [x, z] = at(sx + dsx, sy + dsy)
+    k.stall(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x2f8fbf, 0xf5f0e6)
+  }
+  k.crate(...at(sx - a - 6, sy + 1), 0.6, 0xbfe3f0)
+  k.crate(...at(sx - a - 5.4, sy + 1.6), 0.5, 0xbfe3f0)
   {
-    const [wx, wz] = at(29, -16), r = 6
+    const [wx, wz] = at(wheelSpot.sx, wheelSpot.sy), r = 6
     k.box(wx - 2.6, 0, wz, 0.45, 7.2, 0.45, 0x2a2f3a, { tilt: 0.36, rot: Math.PI / 4 })
     k.box(wx + 2.6, 0, wz, 0.45, 7.2, 0.45, 0x2a2f3a, { tilt: -0.36, rot: Math.PI / 4 })
     k.cyl(wx, 7, wz, 0.55, 1.1, 0xd94c4c, { axis: 'z', rot: Math.PI / 4, seg: 10 })
     for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * Math.PI * 2
-      k.box(wx, 7, wz, r, 0.18, 0.18, 0x9aa3b5, { tilt: a, rot: Math.PI / 4, outline: false, cap: false })
-      const cx = wx + Math.cos(a) * r * Math.SQRT1_2, cz = wz - Math.cos(a) * r * Math.SQRT1_2, cy = 7 + Math.sin(a) * r
-      k.box(cx, cy - 0.4, cz, 0.8, 0.8, 0.8, rng.pick(paints), { cap: false })
-      if (on) k.sphere(cx, cy + 0.2, cz, 0.11, rng.pick([0xffd23c, 0xff3d68, 0x4fd6ff]), { glow: true, seg: 4, outline: false })
+      const t = (i / 12) * Math.PI * 2
+      k.box(wx, 7, wz, r, 0.18, 0.18, 0x9aa3b5, { tilt: t, rot: Math.PI / 4, outline: false, cap: false })
+      const px = wx + Math.cos(t) * r * Math.SQRT1_2, pz = wz - Math.cos(t) * r * Math.SQRT1_2, py = 7 + Math.sin(t) * r
+      k.box(px, py - 0.4, pz, 0.8, 0.8, 0.8, rng.pick(paints), { cap: false })
+      if (on) k.sphere(px, py + 0.2, pz, 0.11, rng.pick([0xffd23c, 0xff3d68, 0x4fd6ff]), { glow: true, seg: 4, outline: false })
     }
     for (let i = 0; i < 28; i++) {
-      const a = (i / 28) * Math.PI * 2
-      k.sphere(wx + Math.cos(a) * (r + 0.55) * Math.SQRT1_2, 7 + Math.sin(a) * (r + 0.55), wz - Math.cos(a) * (r + 0.55) * Math.SQRT1_2, 0.11, on ? 0xfff0c0 : 0x9aa3b5, { glow: on, seg: 4, outline: false })
+      const t = (i / 28) * Math.PI * 2
+      k.sphere(wx + Math.cos(t) * (r + 0.55) * Math.SQRT1_2, 7 + Math.sin(t) * (r + 0.55), wz - Math.cos(t) * (r + 0.55) * Math.SQRT1_2, 0.11, on ? 0xfff0c0 : 0x9aa3b5, { glow: on, seg: 4, outline: false })
     }
     if (on) k.halo(wx + 0.5, 7, wz + 0.5, r + 1.2, 0xffd23c, 0.2, false)
-    k.box(...at(29, -20), 0, 2.4, 1.3, 1.3, 0xf4d35e, { rot: Math.PI / 4 })
-    k.person(...at(30.5, -20), -Math.PI / 4, { hat: 0xd94c4c })
-    const [mx, mz] = at(21, -19)
+    k.box(...at(wheelSpot.sx, wheelSpot.sy - 4), 0, 2.4, 1.3, 1.3, 0xf4d35e, { rot: Math.PI / 4 })
+    k.person(...at(wheelSpot.sx + 1.5, wheelSpot.sy - 4), -Math.PI / 4, { hat: 0xd94c4c })
+    const [mx, mz] = at(wheelSpot.sx - 8, wheelSpot.sy - 3)
     k.cyl(mx, 0, mz, 4, 0.5, 0xf5f0e6, { seg: 14 })
     k.cyl(mx, 0.5, mz, 0.3, 3, 0xd94c4c, { seg: 6, cap: false })
     k.cone(mx, 3.5, mz, 4.6, 1.6, 0xd94c4c, { seg: 14 })
-    ring(k, 8, 2.8, (x, z) => {
-      k.cyl(mx + x, 0.5, mz + z, 0.06, 3, 0xe0b45a, { seg: 4, cap: false, outline: false })
-      k.box(mx + x, 1.2, mz + z, 0.9, 0.7, 0.5, rng.pick(paints), { cap: false })
-    }, 0)
+    for (let i = 0; i < 8; i++) {
+      const t = (i / 8) * Math.PI * 2
+      k.cyl(mx + Math.cos(t) * 2.8, 0.5, mz + Math.sin(t) * 2.8, 0.06, 3, 0xe0b45a, { seg: 4, cap: false, outline: false })
+      k.box(mx + Math.cos(t) * 2.8, 1.2, mz + Math.sin(t) * 2.8, 0.9, 0.7, 0.5, rng.pick(paints), { cap: false })
+    }
     if (on) k.halo(mx, 0.55, mz, 5, 0xffe2a8, 0.25)
   }
   {
-    const [bx, bz] = at(-26, -17)
-    k.box(bx, -0.7, bz, 30, 0.75, 16, 0xe8d6a8, { rot: Math.PI / 4, outline: true, cap: false })
-    for (let i = 0; i < 9; i++) {
-      const [x, z] = at(-34 + rng.range(0, 16), -14 - rng.range(0, 7))
+    const [bx, bz] = at(beachSpot.sx, beachSpot.sy)
+    k.box(bx, -0.7, bz, 26, 0.75, 16, 0xe8d6a8, { rot: Math.PI / 4, outline: true, cap: false })
+    for (let i = 0; i < 8; i++) {
+      const [x, z] = at(beachSpot.sx - 7 + rng.range(0, 14), beachSpot.sy + 2 - rng.range(0, 6))
       k.cyl(x, 0.05, z, 0.05, 2.2, 0xf5f0e6, { seg: 4, cap: false, outline: false })
       k.cone(x, 1.9, z, 1.2, 0.55, rng.pick([0xd94c4c, 0x2f8fbf, 0xf4d35e, 0xff3d68]), { seg: 8, cap: false })
       k.slab(x + 0.9, z + 0.7, 1.7, 0.9, rng.pick(paints), { y: 0.06, h: 0.03, rot: rng.range(-0.4, 0.4) })
     }
-    const [cx, cz] = at(-20, -14)
-    k.box(cx - 0.5, 0, cz, 0.2, 2.8, 0.2, 0xf5f0e6, { cap: false })
-    k.box(cx + 0.5, 0, cz, 0.2, 2.8, 0.2, 0xf5f0e6, { cap: false })
-    k.box(cx, 2.6, cz, 1.5, 0.5, 1.3, 0xd94c4c)
-    k.person(cx, cz - 0.1, Math.PI, { shirt: 0xd94c4c, hat: 0xf5f0e6 })
-    k.tree(...at(-24, -12), { kind: 'palm', h: 2.6 })
-    k.tree(...at(-33, -13), { kind: 'palm', h: 3 })
-    k.tree(...at(-29, -21), { kind: 'palm', h: 2.4 })
-    for (let i = 0; i < 5; i++) k.person(...at(-33 + rng.range(0, 14), -15 - rng.range(0, 5)), rng.range(0, 6.3))
+    const [lx, lz] = at(beachSpot.sx + 4, beachSpot.sy + 3)
+    k.box(lx - 0.5, 0, lz, 0.2, 2.8, 0.2, 0xf5f0e6, { cap: false })
+    k.box(lx + 0.5, 0, lz, 0.2, 2.8, 0.2, 0xf5f0e6, { cap: false })
+    k.box(lx, 2.6, lz, 1.5, 0.5, 1.3, 0xd94c4c)
+    k.person(lx, lz - 0.1, Math.PI, { shirt: 0xd94c4c, hat: 0xf5f0e6 })
+    k.tree(...at(beachSpot.sx + 2, beachSpot.sy + 5), { kind: 'palm', h: 2.6 })
+    k.tree(...at(beachSpot.sx - 7, beachSpot.sy + 3), { kind: 'palm', h: 3 })
+    for (let i = 0; i < 5; i++) k.person(...at(beachSpot.sx - 6 + rng.range(0, 12), beachSpot.sy + 1 - rng.range(0, 5)), rng.range(0, 6.3))
   }
-
-  ring(k, 12, PLAZA_R - 1, (x, z) => { if (screenY(x, z) < QUAY - 3) k.lamp(x, z, { h: 2.6, color: 0xffe1a1, post: 0x2a2f3a }) }, 0.05)
-  ring(k, 10, PLAZA_R - 8, (x, z, a) => k.bench(x, z, -a + Math.PI / 2, 0x6b4a2b), 0.02)
-  ring(k, 10, INNER + 4, (x, z) => { if (screenY(x, z) < QUAY - 4 && Math.abs(screenX(x, z)) < 26 && screenY(x, z) > -12) k.tree(x, z, { kind: rng.chance(0.5) ? 'pine' : 'palm', h: rng.range(1.8, 2.6), r: 1.1 }) }, 0.3)
-  ring(k, 16, OUTER + 8, (x, z) => { if (!atSea(x, z) && screenY(x, z) < -18) k.tree(x, z, { kind: 'pine', h: rng.range(2, 3), r: 1.3 }) }, 0.3)
-  ring(k, 20, FAR + 12, (x, z) => { if (!atSea(x, z)) k.tree(x, z, { kind: 'pine', h: rng.range(2.2, 3.4), r: 1.4 }) }, 0.3)
-  crowd(k, 26, PLAZA_R - 8, PLAZA_R)
+  for (let i = 0; i < 10; i++) {
+    const t = (i / 10) * Math.PI * 2
+    const [x, z] = at(sx + Math.cos(t) * (a + 7), sy + Math.sin(t) * (b + 4.5))
+    if (screenOf(x, z)[1] > QUAY - 3) continue
+    if (i % 2) k.lamp(x, z, { h: 2.6, color: 0xffe1a1, post: 0x2a2f3a })
+    else k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x6b4a2b)
+  }
+  crowd(k, 22)
 }

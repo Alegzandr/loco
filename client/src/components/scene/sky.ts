@@ -141,6 +141,11 @@ export function desaturate(c: Hex, t: number): Hex {
   return fromChannels(r + (grey - r) * t, g + (grey - g) * t, b + (grey - b) * t)
 }
 
+/** A CSS `#rrggbb` as a number, for a builder reading a table's materials. */
+export function cssHex(css: string): Hex {
+  return parseInt(css.replace('#', ''), 16)
+}
+
 export function hexCss(c: Hex): string {
   return `#${c.toString(16).padStart(6, '0')}`
 }
@@ -264,10 +269,30 @@ export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
  * table's highlight and the overlay. One place turns numbers into strings.
  */
 export function rigCssVars(rig: LightRig): string {
+  const [dx, dy] = shadowDirection(rig)
   return [
     `--sky-top: ${hexCss(rig.sky.top)}`,
     `--sky-horizon: ${hexCss(rig.sky.horizon)}`,
     `--scene-tint: ${rig.tintCss}`,
     `--scene-dark: ${rig.dark.toFixed(2)}`,
+    `--sun-dx: ${dx.toFixed(3)}`,
+    `--sun-dy: ${dy.toFixed(3)}`,
   ].join('; ')
+}
+
+/**
+ * Where a shadow falls on screen under this sun: a unit-ish vector, x right and
+ * y down, longer the lower the sun. The CSS table's cast shadow takes it, so
+ * the table's shadow lies the way every block's does in the render behind it.
+ */
+export function shadowDirection(rig: LightRig): [number, number] {
+  const az = (rig.sun.azimuth * Math.PI) / 180
+  const el = (rig.sun.elevation * Math.PI) / 180
+  // The shadow runs away from the sun: world (-sin az, 0, -cos az).
+  const wx = -Math.sin(az)
+  const wz = -Math.cos(az)
+  const dx = (wx - wz) / Math.SQRT2
+  const dy = ((wx + wz) / Math.SQRT2) * Math.sin((32 * Math.PI) / 180)
+  const len = Math.min(2.2, Math.max(0.35, 0.45 / Math.tan(el)))
+  return [dx * len, dy * len]
 }

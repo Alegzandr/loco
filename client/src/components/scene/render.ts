@@ -31,9 +31,10 @@ import {
 } from 'three'
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
+import type { FeltAnchor } from '../cards/layout'
 import { lightRig } from './sky'
 import { seededRng } from './rng'
-import { Kit } from './kit'
+import { Kit, type Anchor } from './kit'
 import { BUILDERS } from './maps'
 
 export interface RenderSize {
@@ -63,13 +64,28 @@ const CAMERA_DIST = 180
 const OUTLINE_PX = 1.9
 
 /**
+ * The felt's ellipse, from CSS pixels of the viewport to screen tiles. The
+ * podium is built under this, so it is solved exactly rather than rounded.
+ */
+export function anchorFor(felt: FeltAnchor, size: RenderSize): Anchor {
+  const ppu = Math.max(size.width, size.height) / TILES_ACROSS
+  const k = size.pixelRatio
+  return {
+    sx: (felt.cx * k - size.width / 2) / ppu,
+    sy: (size.height / 2 - felt.cy * k) / ppu,
+    a: (felt.rx * k) / ppu,
+    b: (felt.ry * k) / ppu,
+  }
+}
+
+/**
  * Renders `spec` at `size` and returns a 2D canvas holding the frame.
  *
  * Throws when a context cannot be had (WebGL off, a driver blacklist, a
  * headless browser without GL). The caller treats that as "no scene", never as
  * "no match".
  */
-export function renderScene(spec: SceneSpec, size: RenderSize): HTMLCanvasElement {
+export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor): HTMLCanvasElement {
   const rig = lightRig(spec.time, spec.weather)
   const key = sceneKey(spec)
   const ppu = Math.max(size.width, size.height) / TILES_ACROSS
@@ -94,7 +110,7 @@ export function renderScene(spec: SceneSpec, size: RenderSize): HTMLCanvasElemen
       scene.fog = new Fog(new Color(rig.fog.color), from + rig.fog.near * DEPTH_SPAN, from + rig.fog.far * DEPTH_SPAN)
     }
 
-    const kit = new Kit({ rig, rng: seededRng(key), outline: (OUTLINE_PX * size.pixelRatio) / ppu })
+    const kit = new Kit({ rig, rng: seededRng(key), outline: (OUTLINE_PX * size.pixelRatio) / ppu, anchor: anchorFor(felt, size) })
     BUILDERS[spec.map.id](kit)
     const group = kit.build()
     scene.add(group)

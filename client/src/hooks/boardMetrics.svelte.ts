@@ -32,6 +32,37 @@ export function elementSize(node: () => HTMLElement | null): { readonly current:
 }
 
 /**
+ * The viewport's CSS-pixel size, re-measured on resize. What the felt's place
+ * on screen is solved from before the board has measured anything
+ * (`layout.ts: feltInViewport`), so the room can be rendered behind the
+ * loading screen with the podium already under the table.
+ */
+export function viewportSize(): { readonly current: { width: number; height: number } } {
+  let size = $state({ width: 0, height: 0 })
+
+  $effect(() => {
+    const update = () => {
+      const w = window.innerWidth
+      const h = window.innerHeight
+      if (size.width !== w || size.height !== h) size = { width: w, height: h }
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('orientationchange', update)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('orientationchange', update)
+    }
+  })
+
+  return {
+    get current() {
+      return size
+    },
+  }
+}
+
+/**
  * Current safe-area insets, re-measured when the device is rotated or the window
  * resized (landscape moves the notch from the top to one side).
  *

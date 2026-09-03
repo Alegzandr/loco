@@ -2,11 +2,14 @@
   import type { PlayerDTO } from '../types/protocol'
   import type { Translations } from '../i18n/en'
   import type { SceneSpec } from './cards/maps'
+  import type { FeltAnchor } from './cards/layout'
   import { seatColor } from './playerColors'
   import SceneBackdrop from './scene/SceneBackdrop.svelte'
 
   type Props = {
     scene: SceneSpec
+    /** Where the felt will be, so the render behind this screen carries the podium. */
+    anchor: FeltAnchor
     /** Seats whose client has the room rendered, straight from the server. */
     ready: number[]
     players: PlayerDTO[]
@@ -16,7 +19,7 @@
     t: Translations
   }
 
-  let { scene, ready, players, myIndex, progress, t }: Props = $props()
+  let { scene, anchor, ready, players, myIndex, progress, t }: Props = $props()
 
   const copy = $derived(t.maps[scene.map.id])
   const moment = $derived(`${t.mapTimes[scene.time]} · ${t.mapWeathers[scene.weather]}`)
@@ -50,7 +53,7 @@
   data-scene-time={scene.time}
   data-scene-weather={scene.weather}
 >
-  <SceneBackdrop {scene} />
+  <SceneBackdrop {scene} {anchor} />
   <div class="scrim"></div>
 
   <div class="body">

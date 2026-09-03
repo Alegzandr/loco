@@ -31,7 +31,7 @@ vi.mock('../components/scene/sceneCache', () => ({
   renderSizeFor: (width: number, height: number) => ({ width, height, pixelRatio: 1 }),
   peekScene: () => null,
   clearSceneCache: () => {},
-  prepareScene: (_spec: unknown, size: unknown, onProgress?: (p: number) => void) =>
+  prepareScene: (_spec: unknown, size: unknown, _felt: unknown, onProgress?: (p: number) => void) =>
     new Promise((resolve, reject) => {
       const settle = () => {
         if (renders.fail) {
@@ -39,7 +39,7 @@ vi.mock('../components/scene/sceneCache', () => ({
           return
         }
         onProgress?.(1)
-        resolve({ key: 'stub', size, canvas: null, rig: null })
+        resolve({ key: 'stub', size, felt: _felt, canvas: null, rig: null })
       }
       if (renders.hold) renders.pending.push(settle)
       else settle()

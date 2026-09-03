@@ -11,9 +11,9 @@ import {
   sceneKey,
   type MapId,
 } from '../components/cards/maps'
-import { lightRig, rigCssVars, isTime, isWeather, mix, scale, desaturate, hexCss } from '../components/scene/sky'
+import { lightRig, rigCssVars, isTime, isWeather, mix, scale, desaturate, hexCss, cssHex } from '../components/scene/sky'
 import { seededRng } from '../components/scene/rng'
-import { tableRect } from '../components/cards/layout'
+import { tableRect, feltInViewport, boardScale, boardSpace, seatLayout } from '../components/cards/layout'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
 
@@ -184,6 +184,11 @@ describe('the light rig', () => {
     expect(isWeather('hail')).toBe(false)
   })
 
+  it('reads a table material back as the number a builder paints with', () => {
+    expect(cssHex('#1a1530')).toBe(0x1a1530)
+    for (const id of MAP_IDS) expect(hexCss(cssHex(MAPS[id].table.felt))).toBe(MAPS[id].table.felt)
+  })
+
   it('does colour arithmetic on plain numbers', () => {
     expect(hexCss(mix(0x000000, 0xffffff, 0.5))).toBe('#808080')
     expect(hexCss(scale(0x808080, 2))).toBe('#ffffff')
@@ -233,5 +238,40 @@ describe('the table stays where the geometry puts it', () => {
     const phone = tableRect(390, 844, 90)
     expect(phone.width / phone.height).toBeLessThan(1.3)
     expect(phone.width).toBeLessThanOrEqual(390 - 20)
+  })
+
+  // The podium is rendered under the felt, and the felt is wherever the board
+  // puts it: this is the same maths `GameBoard` lays the table out with, in
+  // viewport pixels, so the two halves of the room meet on the same ellipse.
+  it('places the felt anchor exactly where the board draws the table', () => {
+    for (const [w, h, opp] of [
+      [1920, 1080, 3],
+      [390, 844, 1],
+      [1024, 1366, 5],
+    ] as const) {
+      const scale = boardScale(w, h)
+      const space = boardSpace(w, h, scale)
+      const seats = seatLayout(opp, space.width, space.height)
+      const felt = tableRect(space.width, space.height, seats.blockHeight)
+      const a = feltInViewport(w, h, opp)
+      expect(a.cx).toBeCloseTo(space.offsetX + (felt.left + felt.width / 2) * scale, 6)
+      expect(a.cy).toBeCloseTo(space.offsetY + (felt.top + felt.height / 2) * scale, 6)
+      expect(a.rx).toBeCloseTo((felt.width / 2) * scale, 6)
+      expect(a.ry).toBeCloseTo((felt.height / 2) * scale, 6)
+      // Centred across, and inside the frame on every side.
+      expect(a.cx).toBeCloseTo(w / 2, 6)
+      expect(a.cx - a.rx).toBeGreaterThan(0)
+      expect(a.cx + a.rx).toBeLessThan(w)
+      expect(a.cy - a.ry).toBeGreaterThan(0)
+      expect(a.cy + a.ry).toBeLessThan(h)
+    }
+  })
+
+  it('moves the anchor with the safe-area insets, as the board moves', () => {
+    const flat = feltInViewport(390, 844, 1)
+    const notch = feltInViewport(390, 844, 1, { top: 47, right: 0, bottom: 34, left: 0 })
+    expect(notch.cx).toBeCloseTo(flat.cx, 6)
+    expect(notch.cy).not.toBeCloseTo(flat.cy, 0)
+    expect(notch.ry).toBeLessThanOrEqual(flat.ry)
   })
 })

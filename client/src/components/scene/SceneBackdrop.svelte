@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import type { SceneSpec } from '../cards/maps'
+  import type { FeltAnchor } from '../cards/layout'
   import { sceneKey } from '../cards/maps'
   import { lightRig, rigCssVars } from './sky'
   import { peekScene, prepareScene, renderSizeFor } from './sceneCache'
@@ -12,9 +13,10 @@
    *
    * Three layers, back to front: the sky gradient from the rig (on screen from
    * the first frame, and all there is when a render fails), the rendered frame
-   * drawn into this element's own canvas, and the weather. `blur` is the depth
-   * of field the board asks for and the loading screen does not: the room is
-   * behind the table, and a scene in focus competes with a card edge.
+   * drawn into this element's own canvas, and the weather. Sharp, on the board
+   * as on the loading screen: the table stands on a podium the render carries
+   * under exactly the felt (`anchor`), so the two halves are one object and a
+   * blur between them would be the seam.
    *
    * The frame comes from `sceneCache`, so the board and the loading screen
    * share the render the gate waited for. A resize asks for a new one at the
@@ -23,9 +25,10 @@
    */
   type Props = {
     scene: SceneSpec
-    blur?: boolean
+    /** Where the felt is on screen: the podium is rendered under it. */
+    anchor: FeltAnchor
   }
-  let { scene, blur = false }: Props = $props()
+  let { scene, anchor }: Props = $props()
 
   let host = $state<HTMLDivElement | null>(null)
   let canvas = $state<HTMLCanvasElement | null>(null)
@@ -66,14 +69,15 @@
     void bucket
     if (w <= 0 || h <= 0) return
     const target = renderSizeFor(w, h)
-    const have = untrack(() => peekScene(scene, target))
+    const felt = anchor
+    const have = untrack(() => peekScene(scene, target, felt))
     if (have) paint(have.canvas)
-    if (have && have.size.width === target.width && have.size.height === target.height) return
+    if (have && have.size.width === target.width && have.size.height === target.height && have.felt === felt) return
     let live = true
     // `prepareScene` never rejects by contract; the catch is for a stub or a
     // future that forgets, because an unhandled rejection here would be logged
     // over a board that is otherwise fine.
-    prepareScene(scene, target)
+    prepareScene(scene, target, felt)
       .then((entry) => {
         if (!live || entry.key !== k) return
         paint(entry.canvas)
@@ -88,7 +92,6 @@
 <div
   bind:this={host}
   class="scene"
-  class:blur
   class:bare={drawn === null}
   style={rigCssVars(rig)}
   data-scene={key}
@@ -119,13 +122,5 @@
 
   .bare .frame {
     visibility: hidden;
-  }
-
-  /* Depth of field for the board: slight, in vmin because the board scales
-     with the viewport, and scaled up to hide the transparent rim a blur pulls
-     in at the edges. */
-  .blur .frame {
-    filter: blur(0.3vmin);
-    transform: scale(1.03);
   }
 </style>

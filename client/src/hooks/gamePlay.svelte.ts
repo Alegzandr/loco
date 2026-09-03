@@ -2,9 +2,11 @@ import type { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
 import { type SceneSpec, sceneKey } from '../components/cards/maps'
 import { prepareScene, renderSizeFor } from '../components/scene/sceneCache'
+import type { FeltAnchor } from '../components/cards/layout'
 import { MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
 import { prefersReducedMotion } from './motionPref'
 import { live } from './live.svelte'
+import { untrack } from 'svelte'
 
 /** A card waiting on a colour. `copies` carries a batch slam through the prompt. */
 export interface ColorPick {
@@ -355,6 +357,7 @@ export function boardShake(
 function mapPreload(
   scene: () => SceneSpec | null,
   enabled: () => boolean,
+  anchor: () => FeltAnchor,
 ): { readonly current: MapPreloadState } {
   let state = $state<MapPreloadState>({ progress: 0, done: false })
   // Keyed on the scene's key, not the object, so an update with an equal-but-new
@@ -391,13 +394,16 @@ function mapPreload(
 
     state = { progress: 0, done: false }
     const size = renderSizeFor(window.innerWidth, window.innerHeight)
+    // Read once, untracked: a felt that moves mid-render (a seat arriving) is
+    // the backdrop's to re-render, not a reason to restart the gate.
+    const felt = untrack(anchor)
     const settle = () => {
       if (cancelled) return
       cancelled = true
       window.clearTimeout(timer)
       state = { progress: 1, done: true }
     }
-    prepareScene(spec, size, (p) => {
+    prepareScene(spec, size, felt, (p) => {
       if (!cancelled && p < 1) state = { progress: p, done: false }
     }).then(settle, settle)
 
@@ -429,8 +435,9 @@ export function mapGate(
   scene: () => SceneSpec | null,
   gateOpen: () => boolean,
   onSend: (msg: ClientMsg) => void,
+  anchor: () => FeltAnchor,
 ): { readonly current: MapPreloadState } {
-  const preload = mapPreload(scene, gateOpen)
+  const preload = mapPreload(scene, gateOpen, anchor)
   let sentReady = false
 
   $effect(() => {

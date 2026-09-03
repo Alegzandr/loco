@@ -434,10 +434,38 @@ builder's:
 - **Every decision is seeded** (`scene/rng.ts`, mulberry32 on the scene's key): which windows are
   lit, where a crate stands, how tall the third tower is. A place that rearranges itself on refresh
   is not a place, and every seat at the table has to see the same one.
-- **The plaza is kept clear** (`maps/common.ts`, `PLAZA_R` = 10 tiles): the CSS table covers roughly
-  16 × 8 tiles around the origin on a monitor, so nothing taller than a bench stands there and the
-  floor under it carries a pattern that survives being mostly covered. A builder that puts a
-  building at the centre puts it under the felt.
+- **The table stands on a podium the render carries under exactly the felt** (`maps/common.ts:
+  podium`, `layout.ts: feltInViewport`). The board's geometry is reproduced in viewport pixels
+  (`boardScale` → `boardSpace` → `seatLayout` → `tableRect`, the same chain `GameBoard` lays the
+  table out with) and handed to the render as the felt's screen ellipse (`FeltAnchor`, then
+  `k.anchor` in tiles). A screen ellipse is a ground ellipse with semi-axes `a` across and
+  `b / sin(pitch)` along, and a drum of height `h` shows its top `h · cos(pitch)` higher on screen
+  than its base, so the drum is placed that far below the anchor and its top face lands under the
+  CSS felt to the pixel, with two steps, a paved plaza and a ring of the room's light around it.
+  **This join is what let the blur go**: the felt is CSS and the podium is a bitmap, but they are one
+  object, and the seam between a sharp table and a blurred room was the thing that said "painted
+  over a photograph". The drum's top is the room's felt colour, so the loading screen (which draws no
+  table) shows an empty table where the match will be dealt. `maps.test.ts` pins the anchor to the
+  board's own chain at three viewports, and the anchor is part of the cache key, so a resize that
+  moves the table re-renders the podium under it.
+- **Composition is done in screen space** (`at()`, `screenOf()`, `underTable()`): a builder places
+  its heroes relative to `k.anchor` (the tavern to the right of the table, the pagoda above it, the
+  torii bottom-left) rather than at world coordinates, so the same builder frames a monitor and a
+  phone. What the table hides is an ellipse around the anchor; the hand covers the bottom middle and
+  the seat pills the top; what is meant to be seen stands in the side bands and the top band, and
+  the grid fills every corner behind them.
+- **The rest of the room is a street grid** (`cityGrid`): blocks and roads over the whole floor, with
+  dashes, sidewalks, crossings, a lamp at the corners, cars along the segments, people on the
+  sidewalks, and optionally one road line that is water with a bridge at every crossing. Each
+  builder hands it a `fill` for a block (`lots()` subdivides one into houses) and a `land` predicate
+  (the sea, the plaza). This is what the example the rooms are modelled on is made of — many small
+  simple buildings, roads between them, something on every corner — and a builder that draws heroes
+  and nothing else comes out as a monument in a field.
+- **The band in front of the table is kept low** (`Cell.front`, from `GridSpec.maxHeight`). The
+  table is drawn over the render, so a building standing between the camera and the felt is cut by
+  an object farther from the camera than it is, which reads as a table floating over a rooftop. A
+  cell whose full-height building would rise into the felt is flagged, and every builder answers the
+  flag with a low fill (a kiosk, a parked car, a garden, a tank farm) rather than a tower.
 
 ### The render (`scene/render.ts`, `scene/sceneCache.ts`)
 - **One frame, then the context is released.** A match is a hand of cards animating over the scene
@@ -454,9 +482,11 @@ builder's:
   `storm`, not `rain`.
 - **Isometric, orthographic, framed in tiles.** The camera looks down from a corner at 32°, the
   Habbo angle, so a block's top and two faces are visible and every block reads at the same scale
-  wherever it stands. The visible extent is `TILES_ACROSS` (32) tiles on the longer side rather than
-  a number of pixels, so a phone and a monitor frame the same plaza and the table lands on the same
-  paving. Resolution is the viewport at `devicePixelRatio` capped at 1.5 and 2400 px on the long
+  wherever it stands. The visible extent is `TILES_ACROSS` (80) tiles on the longer side rather than
+  a number of pixels, so a phone and a monitor frame the same density. The number is the density:
+  the table hides roughly ±27 by ±12 tiles around its anchor on a monitor, a house is five tiles
+  and a person one, so what is left is three rows of houses and a crowd around it. At 32 it was one
+  house. Resolution is the viewport at `devicePixelRatio` capped at 1.5 and 2400 px on the long
   side (`renderSizeFor`).
 - **The engine is a lazy chunk.** `sceneCache.prepareScene` is the only importer of `render.ts`,
   through a dynamic `import()`, so three.js never reaches the home page, a waiting room or a content
@@ -468,11 +498,13 @@ builder's:
   gradient (which is on screen from the first frame anyway, under the bitmap), and the gate is
   answered. A client that never sends `map_ready` is the one outcome the gate cannot survive, and it
   is the reason `prepareScene` never rejects.
-- **The board and the loading screen share the frame.** Both draw `<SceneBackdrop />`, the board
-  with `blur` (depth of field: the room is behind the table, and a scene in focus competes with a
-  card edge, the one contest a card must always win at 720p), the loading screen sharp, because that
-  screen exists to show the room. The cache holds three entries (a match, its rematch, a resize) and
-  a resize past a 96 px step re-renders while the old frame is drawn stretched.
+- **The board and the loading screen share the frame, and both draw it sharp.** The first cut
+  blurred the board's copy as depth of field, and the blur was doing a second job: hiding that the
+  table and the room were two pictures. With the podium under the felt they are one object, and a
+  blur between them would be the seam, so `<SceneBackdrop />` has no blur at all. What keeps a card
+  edge winning at 720p is the vignette and the cards' own ink line, not a softened room. The cache
+  holds three entries (a match, its rematch, a resize), keyed on the scene, the device size **and
+  the anchor**, and a resize past a 96 px step re-renders while the old frame is drawn stretched.
 
 ### The table (`GameBoard.svelte`'s `.tableOval` / `.tablePlinth` / `.tableGlow`)
 A felt inside a rim, standing on a plinth, all CSS, on exactly `tableRect()`. Every room hands the
@@ -490,11 +522,12 @@ the tokens' near-black table, which is what a lobby's felt and an unknown map id
   and a soft shadow that is ambience, never structure. The **inlay** is the one line of the room's
   accent set into the rim — a neon tube, a brass bead, a rune groove, a strip of lacquer — and it is
   what makes six tables six objects rather than six recolours.
-- **The plinth is what makes it an object.** Its top is hidden under the felt; what shows is the
-  column and the foot, hanging below the ellipse, and that is the cue that says "standing in the
-  room" rather than "painted on its floor" — the cue the photographs bought with their rendered
-  bases and their squash ratios. It is positioned off `tableRect()` in fractions, so it scales with
-  the board like everything else.
+- **In a room the render carries the plinth; without one the CSS does.** On a scene the table
+  stands on the rendered podium (above), and its own cast shadow falls on the top step in the
+  direction of the rig's sun (`--sun-dx` / `--sun-dy`), which is the cue that says "standing in the
+  room" rather than "painted on its floor". `.tablePlinth` is drawn only when there is no scene (a
+  lobby's felt, an unknown map id, the rooms page): a CSS column under a rendered drum would be two
+  bases for one table.
 - **The rooms page draws the same table** (`content/TablesArticle.astro`, `.roomTable` /
   `.roomPlinth` / `.roomGlow` in `content.css`): the two rulesets are a transcription of the board's
   and move with it. A content page ships no script, so it cannot render the diorama; it shows each
@@ -507,8 +540,9 @@ hour or the sky that changes the room the most) and `game-map-loading`. **These 
 room is reviewable without a server dealing a match, and what `make visual` shoots is exactly what a
 match draws**: the diorama is built in the browser from the three ids, so there is no art to drift
 from and no rectangle to measure. Review a new builder at `--viewports=wide,mobile`: the tile
-framing is the same but the plaza is a different shape of the frame on a phone, and a prop placed
-just past `PLAZA_R` on a monitor is under the hand on a phone. The harness runs the real engine in
+density is the same but the table covers a different shape of the frame on a phone, and a hero placed
+just past the felt's edge on a monitor is under the hand on a phone. Check the podium's rim shows
+under the table's lower edge on both, and that nothing in the front band rises into the felt. The harness runs the real engine in
 headless Chromium (SwiftShader), so a render that takes a second on a laptop takes a few there.
 
 ## Card face (`CardArt.svelte`, `cardArtSpace.ts`, `locoMark.ts`, `cardTheme.ts`)

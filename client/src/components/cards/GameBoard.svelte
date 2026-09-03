@@ -36,6 +36,7 @@
     boardSpace,
   } from './layout'
   import type { SceneSpec } from './maps'
+  import type { FeltAnchor } from './layout'
   import { lightRig, rigCssVars, hexCss } from '../scene/sky'
   import SceneBackdrop from '../scene/SceneBackdrop.svelte'
   import { ACTIVE_RING, CARD_W, CARD_H, DEAL_FLIGHT_MS, DEAL_STAGGER_MS, flightFor } from './cardTheme'
@@ -111,6 +112,8 @@
      * every animation coordinate are identical with or without one.
      */
     scene: SceneSpec | null
+    /** Where the felt lands in the viewport (`feltInViewport`), for the room's podium. */
+    anchor: FeltAnchor
     /** True when drawing is legal right now — makes the deck clickable. */
     canDraw: boolean
     onDraw: () => void
@@ -687,10 +690,9 @@
   style={boardStyle}
 >
   {#if p.scene}
-    <!-- The room, rendered once and blurred: it is behind the table, and a
-         scene in focus competes with a card edge, the one contest a card must
-         always win at 720p. -->
-    <SceneBackdrop scene={p.scene} blur />
+    <!-- The room, rendered once, sharp: its podium is under the felt to the
+         pixel, so the table stands in it rather than in front of it. -->
+    <SceneBackdrop scene={p.scene} anchor={p.anchor} />
     <div class="vignette"></div>
   {/if}
   <div
@@ -710,14 +712,15 @@
               style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px"
             ></div>
           {/if}
-          <!-- The table: a felt, a rim, and the plinth it stands on, all CSS.
-               The felt is exactly tableRect(); the plinth hangs below it and the
-               shadow falls on the room's floor, so the object overhangs the
-               geometry the way a photograph of a table used to. -->
-          <div
-            class="tablePlinth"
-            style="left: {table.left + table.width * 0.3}px; top: {table.top + table.height * 0.62}px; width: {table.width * 0.4}px; height: {table.height * 0.62}px"
-          ></div>
+          <!-- The table: a felt and a rim, CSS on exactly tableRect(). In a room
+               it stands on the podium the render carries under it; without one
+               it gets a CSS plinth, so the built-in felt is still an object. -->
+          {#if !p.scene}
+            <div
+              class="tablePlinth"
+              style="left: {table.left + table.width * 0.3}px; top: {table.top + table.height * 0.62}px; width: {table.width * 0.4}px; height: {table.height * 0.62}px"
+            ></div>
+          {/if}
           <div
             class="tableOval"
             data-testid="table"
@@ -844,14 +847,14 @@
         62% 52% at 50% 44%,
         rgba(0, 0, 0, 0) 0%,
         rgba(0, 0, 0, 0) 55%,
-        rgba(3, 2, 10, calc(0.22 + var(--scene-dark, 0) * 0.2)) 100%
+        rgba(3, 2, 10, calc(0.14 + var(--scene-dark, 0) * 0.16)) 100%
       ),
       linear-gradient(
         180deg,
-        rgba(3, 2, 10, calc(0.18 + var(--scene-dark, 0) * 0.16)) 0%,
+        rgba(3, 2, 10, calc(0.12 + var(--scene-dark, 0) * 0.14)) 0%,
         rgba(3, 2, 10, 0) 24%,
         rgba(3, 2, 10, 0) 62%,
-        rgba(3, 2, 10, calc(0.3 + var(--scene-dark, 0) * 0.25)) 100%
+        rgba(3, 2, 10, calc(0.22 + var(--scene-dark, 0) * 0.2)) 100%
       );
   }
 
@@ -946,7 +949,9 @@
       0 -2px 0 2px color-mix(in srgb, var(--tbl-rim-light, var(--table-rim-light)) 45%, transparent),
       0 16px 0 var(--tbl-base, var(--table-rim)),
       0 16px 0 2px rgba(6, 3, 16, 0.55),
-      0 30px 54px rgba(6, 3, 16, calc(0.35 + var(--scene-dark, 1) * 0.15));
+      /* the cast shadow lies the way the room's sun lays every other one */
+      calc(var(--sun-dx, 0) * 22px) calc(16px + var(--sun-dy, 0.7) * 24px) 44px
+        rgba(6, 3, 16, calc(0.35 + var(--scene-dark, 1) * 0.15));
     pointer-events: none;
     overflow: hidden;
   }

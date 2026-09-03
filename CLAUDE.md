@@ -1273,8 +1273,15 @@ stated at the top of `styles/tokens.css`:
   chunk behind `sceneCache.prepareScene`, the only importer of `render.ts`; nothing else may import
   three.js. **A render that fails is a scene, not an error** — the sky gradient is the room and the
   gate is answered. The hour and the sky reach the table as `--scene-tint` and `--scene-dark` and
-  never as a repaint of `--tbl-*`; a `dry` room gets dust and a flash for a storm, never rain; a builder never touches three.js and keeps `PLAZA_R` clear; every
-  placement is seeded on the scene's key. `maps.test.ts` pins the client's lists of maps, hours,
+  never as a repaint of `--tbl-*`; a `dry` room gets dust and a flash for a storm, never rain; a
+  builder never touches three.js; every placement is seeded on the scene's key. **The table stands
+  on a podium the render carries under exactly the felt** (`feltInViewport` reproduces the board's
+  own layout chain in viewport pixels, `podium()` places a drum whose top lands on that ellipse, and
+  the anchor is part of the cache key), which is the join that let the blur go: `SceneBackdrop` is
+  sharp on the board as on the loading screen, and a blur between the two halves would be the seam.
+  The rest of a room is a street grid (`cityGrid`: many small buildings, roads, cars, people, a
+  canal) composed in screen space around the anchor, and **the band in front of the table is kept
+  low** (`Cell.front`): a building between the camera and the felt is cut by the table over it. `maps.test.ts` pins the client's lists of maps, hours,
   skies and per-map skies to `server/game/maps.go`. Add a room by adding a builder, a registry entry
   with its materials, its copy in both languages, its `MapID` and weather list in Go, and its scenes.
 - **The game cover carries the wordmark and no other text** (`src/dev/CoverCard.svelte`, three cuts,
