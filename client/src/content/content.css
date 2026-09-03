@@ -24,23 +24,14 @@
 body.doc {
   -webkit-user-select: text;
   user-select: text;
-  /* The game's own canvas: the den's gradient and its three colour orbs, the
-     same declaration `tokens.css` paints under every screen of the game. It
-     was flattened to the bare canvas colour once, on the grounds that the orbs
-     read as a backdrop under scrolling prose — and they did while they were
-     pinned to the viewport. Anchored to the top of the document and sized to
-     one screen, they are the first screenful's sky and the page below it is
-     the den; a reader arriving from the game meets the room they left. The
-     panels the prose sits in are what make the text legible over it, exactly
-     as they are in the game. */
-  background:
-    radial-gradient(22% 30% at 8% 18%, rgba(255, 201, 60, 0.2) 0%, rgba(255, 201, 60, 0) 70%),
-    radial-gradient(26% 34% at 93% 26%, rgba(108, 92, 255, 0.22) 0%, rgba(108, 92, 255, 0) 70%),
-    radial-gradient(30% 26% at 76% 90%, rgba(255, 61, 104, 0.16) 0%, rgba(255, 61, 104, 0) 70%),
-    var(--bg-gradient);
-  background-repeat: no-repeat;
-  background-size: 100% 100lvh, 100% 100lvh, 100% 100lvh, 100% 100lvh;
-  background-color: var(--color-canvas);
+  /* Flat canvas, on purpose. These pages once wore the den's gradient and its
+     three colour orbs, anchored to the first screenful, so that a reader
+     arriving from the game met the room they left. The verdict was the other
+     way round: a landing is a page to read, and a coloured glow behind prose
+     is ambience competing with it. `/` paints `#root` flat and the 404 paints
+     its `.page` flat; this is the same decision for the third surface, and
+     the panels the prose sits on carry the colour instead. */
+  background: var(--color-canvas);
 }
 
 /* The header is pinned, so every in-page jump — the skip link, the table of
@@ -867,43 +858,84 @@ html[data-scroll="smooth"]:has(body.doc) {
     0 20px 36px rgba(6, 3, 16, calc(0.35 + var(--scene-dark) * 0.15));
 }
 
-/* The hours and the skies a room can be dealt under: chips, the hours first.
-   `.content ul` styles every list in the prose as a bulleted column, and it
-   outranks a bare class, so the row and its chips are addressed from
-   `.content` too — without that the chips stacked, each behind a bullet. */
+/*
+ * The hours and the skies a room can be dealt under, as two named rows: the
+ * label in the first column, its values in the second, and under 46rem the
+ * label above its own row. One flat run of ten words made the reader do the
+ * sorting — four hours then six skies, told apart only by a border colour —
+ * and on a phone the wrap fell wherever it fell, so a line could open on
+ * "Ciel dégagé" with nothing saying the subject had changed.
+ *
+ * `.content ul` styles every list in the prose as a bulleted column and
+ * outranks a bare class, which is why the row is addressed from `.content`
+ * too: `.liveList` is still a `ul` and still needs its bullet taken off.
+ */
 .content .roomMoments {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: 0.9rem;
+  row-gap: 0.6rem;
+  margin: 1.15rem 0 0;
+  padding: 0;
+  max-width: none;
+}
+
+/* The same Label step the hour beside the room's name is set at: this card
+   carries two pieces of metadata and they are drawn alike. */
+.roomMomentsLabel {
+  font: 700 0.7rem/1.2 var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.roomMomentsRow {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  margin: 0.8rem 0 0;
-  padding: 0;
-  max-width: none;
-  list-style: none;
+  margin: 0;
 }
 
-.content .roomMoments > li,
 .content .liveList > li {
   padding: 0;
 }
 
-.content .roomMoments > li::before,
 .content .liveList > li::before {
   content: none;
 }
 
+/*
+ * A value, and deliberately not a chip. `.chipRow a` up this file is a
+ * pressable object and wears what this system gives one: an ink outline and a
+ * hard ledge, travelling on press. These are ten words that do nothing, so
+ * they get neither, and a plate that is filled rather than outlined is what
+ * says so at a glance. It also retires a 2px hairline on the canvas, which
+ * measured 1.57:1 — the ghost outline `.chipRow a` was already fixed for.
+ */
 .roomMoment {
-  padding: 0.3rem 0.7rem;
+  padding: 0.3rem 0.75rem;
   border-radius: var(--radius-full);
-  border: 2px solid var(--color-hairline);
+  background: var(--color-surface-strong);
   font-family: var(--font-display);
   font-size: 0.85rem;
   font-weight: 700;
-  color: var(--color-muted);
+  line-height: 1.25;
+  color: var(--color-ink);
 }
 
-.roomMomentHour {
-  border-color: var(--color-stroke);
-  color: var(--color-ink);
+/* On a phone the second column has no room left beside its label, so the label
+   goes above its own row and the two pairs are told apart by the air between
+   them instead of by the column. */
+@media (max-width: 46rem) {
+  .content .roomMoments {
+    grid-template-columns: 1fr;
+    row-gap: 0.4rem;
+  }
+
+  .roomMomentsRow + .roomMomentsLabel {
+    margin-top: 0.6rem;
+  }
 }
 
 /* ── The footer bar ────────────────────────────────────────────────────── */

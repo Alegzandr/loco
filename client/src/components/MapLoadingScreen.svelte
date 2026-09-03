@@ -53,8 +53,10 @@
   data-scene-time={scene.time}
   data-scene-weather={scene.weather}
 >
-  <SceneBackdrop {scene} {anchor} />
-  <div class="scrim"></div>
+  <div class="room">
+    <SceneBackdrop {scene} {anchor} />
+    <div class="scrim"></div>
+  </div>
 
   <div class="body">
     <div class="kicker">{t.mapLoadingTitle}</div>
@@ -107,11 +109,23 @@
        the home indicator. */
     padding: calc(var(--safe-top)) calc(var(--safe-right)) calc(var(--safe-bottom))
       calc(var(--safe-left));
+    /* Opaque from its very first frame, and that is the whole job of this
+       screen: the board is mounted behind it, already laying out its felt and
+       its seats. Fading the screen itself in — which is what it used to do —
+       faded the void off the table it exists to hide, so every match opened on
+       half a second of the room and the cards showing through the reveal. The
+       fade belongs to what is *inside* the curtain, never to the curtain. */
     background-color: var(--room-void);
-    /* The room fades up as it renders, so the wait shows itself finishing
-       rather than snapping in at the end. */
-    animation: mapRoomIn 0.6s var(--ease-out) both;
     text-align: center;
+  }
+
+  /* The room comes up out of the void as it renders, so the wait shows itself
+     finishing rather than snapping in at the end. The void stays painted behind
+     it, so none of the board underneath is ever let through. */
+  .room {
+    position: absolute;
+    inset: 0;
+    animation: mapRoomIn 0.6s var(--ease-out) both;
   }
 
   @keyframes mapRoomIn {

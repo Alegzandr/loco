@@ -25,7 +25,7 @@
  * would mean an ordinary turn — where a match spends most of its time — hearing
  * one piece of music forever, which is the failure this design exists to avoid.
  */
-import type { Section } from '../music'
+import type { Family, Section } from '../music'
 
 export interface LoopDef {
   /**
@@ -60,6 +60,17 @@ export interface LoopDef {
    * registry — otherwise a table that sits in one section hears one loop.
    */
   sections: Section[]
+  /**
+   * The palette this loop belongs to. A match is played inside one family, so
+   * every loop change in it is a change of piece and never a change of genre:
+   * a bed that handed a jazz groove over to an ambient one and then to a funk
+   * drop was eighteen good loops that did not sound like one game. Grouped on
+   * the composer's own tags for the pack (`jazz`, `silly`/`funk`,
+   * `ambient`/`electronic`/`lofi`/`dnb`) and their energy, since nobody here
+   * can listen in a test; `music.test.ts` pins that every family carries every
+   * section, and moving a loop between families is a matter of this one field.
+   */
+  family: Family
   /**
    * One turn of the loop, in seconds, taken from the **source** file rather
    * than from the MP3.

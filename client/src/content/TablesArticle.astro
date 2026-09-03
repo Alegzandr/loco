@@ -105,14 +105,28 @@ const stillOf = (id: MapId): ImageMetadata | undefined => stills[`../assets/room
         <div class="roomTable" aria-hidden="true"></div>
       </div>
       <p>{copy.tagline}</p>
-      <ul class="roomMoments">
-        {TIMES.map((time) => (
-          <li class="roomMoment roomMomentHour">{t.mapTimes[time]}</li>
-        ))}
-        {map.weathers.map((w) => (
-          <li class="roomMoment">{t.mapWeathers[w]}</li>
-        ))}
-      </ul>
+      {/*
+        The two things the lede promises beside the room — an hour, a sky — as
+        two named rows rather than one run of ten words. They are a definition
+        list because that is what they are: a reader hears "Hours: dawn, day…"
+        instead of a list of ten with no shape, and the four hours stop running
+        into the six skies when the row wraps on a phone. Nothing here is
+        pressable, so nothing here is drawn as a chip.
+      */}
+      <dl class="roomMoments">
+        <dt class="roomMomentsLabel">{ui('tablesHours', lang)}</dt>
+        <dd class="roomMomentsRow">
+          {TIMES.map((time) => (
+            <span class="roomMoment">{t.mapTimes[time]}</span>
+          ))}
+        </dd>
+        <dt class="roomMomentsLabel">{ui('tablesSkies', lang)}</dt>
+        <dd class="roomMomentsRow">
+          {map.weathers.map((w) => (
+            <span class="roomMoment">{t.mapWeathers[w]}</span>
+          ))}
+        </dd>
+      </dl>
     </article>
   )
 })}

@@ -660,6 +660,14 @@ and each is the kit's, not a builder's:
   little over a third over the void, so it is still the hour's own sky (a dawn is pink, a dusk amber,
   a night blue) and the type keeps its contrast. The frame is opaque, so this is only ever seen while
   there is nothing to see — including the one case where there never will be, a render that failed.
+- **And nothing of the board is shown either: the curtain is opaque from its first frame.** The
+  loading screen is an overlay over a *mounted* board — that is the whole point of it, since the
+  board spends the wait laying itself out — so an entrance animation on `.screen` fades the void off
+  the table it exists to hide. It had one, `mapRoomIn` at 0.6s, and every match opened on half a
+  second of the felt and the seats showing through the reveal. The fade belongs to what is *inside*
+  the curtain: `.room` wraps the backdrop and the scrim and comes up out of the void, which is the
+  effect that was wanted, while `.screen` paints `--room-void` from the start and lets nothing
+  through. `sceneLoadingGate.test.ts` pins both halves.
 - **The board and the loading screen share the frame, and both draw it sharp.** The first cut
   blurred the board's copy as depth of field, and the blur was doing a second job: hiding that the
   table and the room were two pictures. With the podium under the felt they are one object, and a

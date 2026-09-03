@@ -89,3 +89,29 @@ describe('nothing pale is shown while the room is still being built', () => {
     expect(source).toMatch(/hexCss\(mix\(rig\.sky\.horizon, 0x07060f, 0\.\d+\)\)/)
   })
 })
+
+describe('the curtain is opaque from its first frame', () => {
+  // The loading screen is an overlay over a *mounted* board: it is put up while
+  // the board lays itself out, which is what makes the table finished when it
+  // lifts. So anything that fades the screen itself in fades the void off the
+  // felt and the seats underneath — half a second of the table, at the start of
+  // every match, which is exactly the reveal this screen replaced.
+  it('paints the void on the screen and never animates it', () => {
+    const source = read('components/MapLoadingScreen.svelte')
+    const rule = source.match(/\n {2}\.screen \{[\s\S]*?\n {2}\}/)
+    expect(rule, '.screen rule not found').not.toBeNull()
+    expect(rule![0]).toMatch(/background-color: var\(--room-void\)/)
+    expect(rule![0]).not.toMatch(/animation:|opacity:/)
+  })
+
+  it('fades the room inside it instead, over that void', () => {
+    const source = read('components/MapLoadingScreen.svelte')
+    // The wrapper is what carries the reveal, so the backdrop and the scrim have
+    // to be inside it — a backdrop left outside is a room that snaps in.
+    expect(source).toMatch(/<div class="room">\s*<SceneBackdrop[\s\S]*?class="scrim"[\s\S]*?<\/div>/)
+    const rule = source.match(/\n {2}\.room \{[\s\S]*?\n {2}\}/)
+    expect(rule, '.room rule not found').not.toBeNull()
+    expect(rule![0]).toMatch(/animation: mapRoomIn/)
+    expect(rule![0]).toMatch(/position: absolute/)
+  })
+})

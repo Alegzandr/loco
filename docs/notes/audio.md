@@ -127,6 +127,22 @@ be bought some other way:
 - **Two reasons to change loop, not one.** The table moved to another section, or this loop has come
   round `LAPS_PER_LOOP` times. The second is what moves the music on a table whose tension never
   changes, and a bed that only ever answered the game would be a loop with extra steps.
+- **A match is played inside one family** (`LoopDef.family`, `FAMILIES`: `lounge`, `party`,
+  `night`). Eighteen loops chosen one by one to fit a card game did not fit each other: the groove
+  alone held jazz, funk, a drum-and-bass sketch and an ambient piece, and the bag dealt them in any
+  order, so every loop change — a section move, a second lap, a ⏭ — was heard as the *genre*
+  changing rather than the piece, and a match sounded like a radio being retuned. A family is the
+  loops that share a palette, `nextLoopId` takes one and never leaves it while it carries the
+  section asked for, `prefetch` warms the family's loops only, and `start()` draws a family per
+  scene — and draws another, away from the current one, when the scene moves under a running bed,
+  which is the one moment a change of palette lands on a loop change the bed was making anyway.
+  **The grouping is the composer's tags for the pack** (`jazz`, `silly`/`funk`,
+  `ambient`/`electronic`/`lofi`/`dnb`, plus each track's energy) recovered from the bundle's
+  `csv_data.js` by matching each loop's `seconds` to its source file — nobody can listen in a
+  test — so a loop that turns out to sit in the wrong room moves by editing one field.
+  `music.test.ts` pins that every family carries every section and a groove of at least two:
+  the fallback in `loopsFor` that would reach into another family exists so a thin family cannot
+  go silent, and the test is what keeps it from ever being taken.
 
 **Both floors are calibration, and both were wrong the first time.** The bed shipped with six loops,
 a floor of two everywhere and three laps, and the first verdict on it was that it repeats. It did,
@@ -181,17 +197,79 @@ a claim about behaviour, not about taste.
   straight back in, twice, inside two seconds. `SLEW_PER_SEC` gives a full swing ~1.8s and
   `SECTION_HOLD_MS` catches the value that parks on a threshold, where the slew alone would let
   rounding chatter the bed between two loops.
-- **The registry is warmed after the first loop is sounding**, one file at a time, **in ladder order
-  outward from the section playing** and **bounded at `PREFETCH_MAX`**. A section change that had to
-  wait on a fetch would arrive late at exactly the moment the bed exists to answer: somebody reaching
-  one card. Both properties earned themselves: the order at eleven loops, when a player who never
-  left an ordinary groove still had to get the useful ones first; the bound at eighteen, when
-  warming the whole list became eighteen megabytes pulled in the background for music most matches
-  never reach. `prefetch` sorts by `distance` — the rungs between a loop's nearest section and the
-  one sounding — takes six, and is **called again on every section change**, so the working set
-  follows the table rather than being decided at the deal. `music.test.ts` holds the budget under the
-  registry size and above the smallest section, because a bound that cannot hold one section fetches
-  on every handover.
+- **And a fall is believed later than a rise** (`SECTION_RELEASE_MS`, `sectionHoldMs`). The slew and
+  the hold were tuned on a spike — one event, answered and gone — and the endgame is not a spike:
+  `intensityOf` crosses the drop's threshold at one card in any hand, and an endgame hand goes
+  1 → 3 → 2 → 1 every few turns as seats draw and play back down, so the bed crossfaded out of the
+  drop and back into it on every dip, a different piece every ten seconds on the tensest table of
+  the evening. A rise is still answered on the hold, because somebody reaching their last card is
+  what the drop exists for. A fall has to hold **twelve seconds, continuously** — `pendingSince`
+  resets whenever the wanted section changes, so one return above the line restarts the wait — which
+  is long enough to be the table calming down and not one seat drawing. The breakdown is exempt:
+  the only way in-game intensity reaches it is the round summary, which is a stop and not a dip,
+  and the one section a round's end is meant to sound like.
+- **But the scene moving is not a fall in tension, and it must not wait on that hold**
+  (`start()`'s `moved` branch). This is the one the release hold broke, and it was reported from the
+  outside as "I start a match, I quit, I start another one, and it is still the same music": leaving
+  the table asks for the menu's build-up, which is a *fall*, so the bed sat on twelve seconds of
+  patience — and pressing play again inside that window reset the wanted section before the wait was
+  ever crossed. The menu, the second deal and everything between them came out as one unbroken
+  piece. A scene move is a fact about where the player is standing, not a reading of how tense a
+  round is, so `start()` answers it on the spot: another palette (`nextFamily`), the section the new
+  screen asks for, and a crossfade into a loop of it. The intensity is **snapped** to its target
+  there for the same reason — the slew exists to absorb a spike inside a round, and a player leaving
+  the table is not a spike. `musicScene.test.ts` drives a real bed over a fake context, because both
+  halves of this defect were individually correct and only their ordering was wrong.
+### Loading, and why none of it is audible
+
+The bed starts on the **entry screen**, not at the deal: `sceneFor` maps `lobby` and `waiting` to
+music, so the first fetch happens while somebody is typing a nickname. That is most of the answer to
+"is the first load covered" — nobody is waiting for music on a screen they have just opened, and by
+the time the deal turns the section from build-up to groove the warm-up has had the whole wait.
+
+The rest is the order of operations rather than the warm-up:
+
+- **`swapTo` awaits the incoming buffer before it touches the outgoing voice.** A loop that is not
+  cached therefore costs a slightly later crossfade and never a gap. This is the property that makes
+  a cold change inaudible; warming only shortens the delay, which is why `PREFETCH_MAX` is 3 against
+  a registry of 18 and does not need to grow with it.
+- **The cache is bounded by memory, and memory is not file size.** This was measured rather than
+  assumed, and the numbers are the reason the mechanism exists: an `AudioBuffer` is deinterleaved
+  float32 at the context's sample rate, so `idle-hands` — a **1.5 MB** MP3 of 102 seconds — decodes
+  to **37 MB of RAM**, about twenty-four times its own weight. Eighteen decoded at once is **418 MB**
+  and the worst six is **191 MB**, which an unevicted cache was quietly holding on a phone once a
+  table had been through all four sections. `CACHE_BUDGET_BYTES` is 64 MB with least-recently-used
+  eviction, and a full simulated match now peaks at **61.8 MB**.
+- **Eviction never drops a voice that is sounding or fading out.** Deleting the `Decoded` does not
+  stop the `AudioBufferSourceNode` already reading it, so the next reference would decode a second
+  copy of something the room can hear and the two would coexist — memory spent to save memory.
+- **Eviction is close to free.** nginx serves `/music/` with a week of `Cache-Control`, so re-entering
+  a loop costs one `decodeAudioData` — measured at 72–208 ms — and no network at all. That lands well
+  inside the window the outgoing voice is still covering.
+- **`PREFETCH_MAX` has to fit inside `CACHE_BUDGET_BYTES`**, or the warm-up evicts what the warm-up
+  just decoded: three fetches and three decodes spent to hold three buffers anyway. `music.test.ts`
+  pins the relation against the longest loops in the registry rather than against a typed-in figure.
+- **`prefetch` sorts by `distance`** — the rungs between a loop's nearest section and the one
+  sounding — and is **called again on every section change**, so the working set follows the table
+  instead of being decided at the deal.
+
+Three defects came out of writing that down, all of them invisible from the outside:
+
+- **A request arriving during a swap was dropped.** The `swapping` guard returned early, but
+  `setLoop` had already written `this.loop` on the way past — so the panel named a piece that would
+  never play, and `nextLoopId` then treated that name as the one to avoid while the real voice was a
+  candidate to be "changed" to itself, which restarts it from the top. Requests land in `desired`
+  now and `runSwaps` drains them, so a section change during a cold fetch is honoured rather than
+  lost.
+- **Nothing a player can see or hear may move before the piece is sounding.** `this.loop` and the
+  persisted `track` setting are written at the commit inside `swapTo`; `getLoopId()` reads the voice.
+- **A failed opening load left the table silent for good.** The fetch returns null, the caller
+  correctly keeps what is sounding — and at the start of a match that is nothing. The tick now asks
+  again when there is no voice, nothing in flight and nothing swapping, because the next section
+  change is minutes away on a long round and may never come in a solo game.
+- **`start()` goes through the same door as every other change.** It used to call `swapTo` directly
+  while the tick was already running, so a tick firing 250 ms in could start a second voice on top of
+  the first one's load.
 - **A bed that will not load is a quiet game, never a broken one.** A 404 or a decode failure leaves
   whatever is already sounding in place and leaves `this.loop` naming it, so the panel never
   announces a loop nobody can hear. `music.test.ts` asserts every declared id has a file of a
@@ -201,6 +279,16 @@ a claim about behaviour, not about taste.
 - **Hidden stops the sources**, where it used to stop a scheduler. A page that plays audio is exempt
   from timer throttling, so the old bed went on synthesising from behind another window; a looping
   `AudioBufferSourceNode` would go on playing outright.
+- **And visible again resumes the same loop from the same bar** (`park` / `resume`, `resumeOffset`,
+  `RESUME_FADE_S`). The return used to go through `start()`, which reseeds the shuffle, empties the
+  bag and draws a loop, so every alt-tab was a different piece of music — and Chrome marks an
+  occluded window hidden, so on desktop that was every glance at another window. The pause parks
+  the sounding loop with its position in the run (laps included, so `getLaps` carries on counting)
+  and comes back to it under a 0.4s fade rather than a cut into the middle of a phrase; the section
+  and the scheduler are left where they were, so a table that moved while the tab was away is
+  answered through the ordinary hold like any other change. Only a scene that moved meanwhile —
+  the match ended, a rematch dealt — goes through `start()` again, because that is a new scene and
+  not a pause.
 - **`music.setLapSeconds(n)` is the harness seam**, same convention as the server's
   `AFKKickThreshold`. A real loop is 44 to 102 seconds and hands over after three of them, so without
   it the unattended handover is the one behaviour nothing ever checks. It moves the handover decision

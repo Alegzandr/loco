@@ -216,6 +216,18 @@ describe('the content stylesheet', () => {
     }
   })
 
+  it('keeps the landings flat: no gradient and no colour orb behind the prose', () => {
+    // The den's gradient and its three colour orbs were tried twice on these
+    // pages and refused both times: a landing is a page to read, and a glow
+    // behind prose is ambience competing with it. `/` and the 404 are flat for
+    // the same reason, so `body.doc` paints the canvas colour and nothing else.
+    const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
+    const doc = css.match(/body\.doc\s*\{[^}]*\}/)?.[0]
+    expect(doc, 'body.doc declares the page').toBeTruthy()
+    expect(doc).toMatch(/background:\s*var\(--color-canvas\);/)
+    expect(doc).not.toMatch(/radial-gradient|linear-gradient|--bg-gradient/)
+  })
+
   it('leaves no fallback to hide a missing one behind', () => {
     const css = readFileSync(path.join(CLIENT, 'src', 'content', 'content.css'), 'utf8')
     const withFallback = [...css.matchAll(/var\(--[\w-]+\s*,[^)]*\)/g)].map((m) => m[0])

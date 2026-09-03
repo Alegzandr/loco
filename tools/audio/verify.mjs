@@ -204,7 +204,10 @@ try {
     // section is partial, so a full deal of this section needs one more press
     // than it has loops; at exactly `grooveLoops` the coverage check failed on a
     // bed that was dealing perfectly.
-    const grooveLoops = LOOPS.filter((l) => l.sections.includes('groove')).length
+    // Inside the family the bed opened on: a match is played in one palette,
+    // and the bag is dealt through that palette's groove, never the registry's.
+    const family = music.getFamily()
+    const grooveLoops = LOOPS.filter((l) => l.sections.includes('groove') && l.family === family).length
     const skipped = [music.getLoopId()]
     for (let n = 0; n <= grooveLoops; n++) {
       music.nextTrack()

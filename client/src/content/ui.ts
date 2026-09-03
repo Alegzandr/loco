@@ -119,6 +119,15 @@ export const UI: Record<string, Copy> = {
         en: "The room, the hour and the weather change how the table is painted and nothing else: the seats, the pile and the reach of a card are the same at every table.",
         fr: "Le décor, l’heure et la météo changent la façon dont la table est peinte, et rien d’autre : les places, la pile et la portée d’une carte sont identiques à toutes les tables.",
     },
+    /*
+     * The two things the lede promises alongside the room — "at an hour, under a
+     * sky" — naming the two rows of values under each still. They are the row's
+     * own labels, so they are the page's words rather than the game's: the hours
+     * and the skies themselves come from `t.mapTimes` / `t.mapWeathers`, the copy
+     * the loading screen shows.
+     */
+    tablesHours: { en: "Hours", fr: "Heures" },
+    tablesSkies: { en: "Skies", fr: "Ciels" },
 
     // ── Playing with friends ────────────────────────────────────────────────
     friendsH1: { en: "Playing with friends", fr: "Jouer entre amis" },

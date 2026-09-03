@@ -455,9 +455,31 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   could expire before the server had even started counting the 60 s it holds the seat for, which is
   the case where giving up cost a seat that was still there.
 - **The recovery path is not the schedule.** `reconnectNow()` retries from the top and is wired to
-  three things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
-  `visibilitychange`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
+  four things that all mean the same thing: `online`, the tab becoming visible again (`focus` +
+  `visibilitychange`), the page being restored from the back/forward cache (`pageshow` with
+  `persisted`), and the button on the curtain (`GameView`'s `onRetryConnection`). `connect()`
   refuses a socket that is already CONNECTING or OPEN, so every entry point is safe to fire twice.
+- **A frozen page is not a player, and the socket has to be given up for it.** Navigating from `/`
+  to a content page does not unload the document, it freezes it into the back/forward cache — and
+  the browser keeps the open WebSocket with it. Nothing on the server distinguishes that socket from
+  somebody sitting at the home screen, so `players_online` went on counting a visitor who was
+  reading the rules, and clicking *Play* back to `/` built a second document with a second socket
+  beside the first. What a player saw was the count going up by one on their own, for as long as the
+  browser kept the cached copy, which is exactly the shape of a bug that reads as the game inventing
+  people. `pagehide` drops the socket and `pageshow` asks for it again when `persisted` says the
+  page was restored; on a real unload the drop costs nothing, because the socket was going anyway.
+  A restore lands on the ordinary reconnect path, seat reclaim included, so a player who wandered
+  off mid-match and came back with the Back button is covered by the machinery that was already
+  there.
+
+  Two things about finding it, both worth keeping in mind for the next one of these. **The end-to-end
+  suite is blind to it**: Playwright launches Chromium with `--disable-back-forward-cache`, so every
+  navigation in the suite really does unload the page and the socket really does close. It reproduces
+  in a browser the way a player has one — measured in Brave with the cache back on, three connected
+  sockets for one person. And **the count itself was never lying**: `players_online` is
+  `len(h.clients)` and it reported exactly what the server was holding, which is why the first place
+  to look, the broadcast in `hub/online.go`, had nothing wrong with it. The 5s tick only decides how
+  long the wrong number stays on screen after the truth changes.
 - `getReconnectMsg` is `reconnectMessageFor`; see "session persistence" below for what each screen
   sends.
 - **Everything the server can say lives in `hooks/serverMessages.ts`**, not in `App`.

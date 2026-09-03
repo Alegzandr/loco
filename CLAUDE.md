@@ -653,9 +653,18 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   CSP keeps **both** origins for that reason, `client/Dockerfile` substitutes `__WS_DIRECT_ORIGIN__`
   from the same build-arg as the bundle and **fails rather than shipping the placeholder**, and nginx
   answers `ws.*` with the socket and a 404 (`ws-proxy.conf`, included by both server blocks).
-- **The socket never stops trying to come back, and three things retry it on the spot**: `online`,
-  the tab returning, and the button on the reconnect curtain (`webSocket.reconnectNow`). A ceiling
-  on attempts is a curtain that never comes down over a seat the server may still be holding.
+- **The socket never stops trying to come back, and four things retry it on the spot**: `online`,
+  the tab returning, the page coming back from the back/forward cache, and the button on the
+  reconnect curtain (`webSocket.reconnectNow`). A ceiling on attempts is a curtain that never comes
+  down over a seat the server may still be holding.
+- **The socket does not survive the page being frozen** (`pagehide` drops it, `pageshow` asks for it
+  back on `persisted`). A document put into the back/forward cache is frozen rather than unloaded and
+  the browser keeps its WebSocket open with it — which nothing on the server can tell from a player,
+  so it went on counting somebody who had walked off to a content page, and the return to `/` opened
+  a second socket beside the first. Measured in Brave: three connected where one person was there,
+  and it stood until the cached document was evicted. **The end-to-end suite cannot see this one** —
+  Playwright drives Chromium with the back/forward cache off — so `wsFreeze.test.ts` is what pins
+  both halves.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
 - **One tab holds the game and the others open no socket** (`hooks/tabLock.ts`, `Root.svelte`,
@@ -1115,9 +1124,10 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **One palette, the night one, on `:root`, and nothing keys on a theme.** The day palette went
   with its attribute, its media query, its fade and its switch (`noLightTheme.test.ts` fails on
   `data-theme`, `prefers-color-scheme` or `loco_theme` anywhere in the client, the E2E suite or the
-  tools). The content pages paint the game's own canvas — the den's gradient and its three orbs,
-  anchored to the first screenful — and set their prose on the game's panels: a content page is the
-  game's, not a site beside it.
+  tools). **The landings are flat**: `/`, the 404 and every content page paint `--color-canvas` and
+  nothing else — no gradient, no colour orb, no glow — and set their prose on the game's panels: a
+  content page is the game's, not a site beside it. The orbs were tried twice on the content pages
+  and refused both times; do not bring them back.
 - **`/` serves its own `<h1>`, in text, and it is never the wordmark**, and it stays the only one:
   app screens head themselves at `<h2>`, and `seo.test.ts` fails on an `<h1>` under `src/components/`.
 - **A title is ≤ 60 characters and a description is 100-155**, both languages, pinned by
@@ -1398,6 +1408,11 @@ stated at the top of `styles/tokens.css`:
   over the void, and `--room-void` is the horizon **taken down**, not the horizon: a noon sky is a
   near-white, and a full screen of it under the loading screen's white type reads as a page that
   failed to load.
+- **And nothing of the board is shown either: the loading curtain is opaque from its first frame.**
+  It is an overlay over a *mounted* board, so an entrance fade on `MapLoadingScreen`'s `.screen`
+  takes the void off the table it exists to hide — which is what it did, for 0.6s, at the start of
+  every match. The fade belongs to `.room`, the wrapper around the backdrop and the scrim, which
+  comes up out of a void that stays painted. `sceneLoadingGate.test.ts`.
 - **The game cover carries the wordmark and no other text** (`src/dev/CoverCard.svelte`, three cuts,
   `make cover` → `brand/`). IGDB wants the title to be the largest text on it, and the way this art
   answers that is by being the only text; it also refuses platform logos, age ratings and watermarks.
@@ -1455,10 +1470,7 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 - **The music is eighteen CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
   files, credit in `NOTICE.md` and `licenses.txt`), normalised to −18 LUFS and encoded to MP3. The
   registry is **warmed in ladder order from the section playing outward**, one file at a time, and
-  **bounded at `PREFETCH_MAX`** — eighteen megabytes on disk is a library, not a download, so the bed
-  keeps a working set of six and re-warms it from wherever the table has moved to. Everything else
-  loads on demand, which the section hold plus the crossfade give about three seconds of warning
-  for.
+  bounded — see the loading rules below.
   **MP3 and not the source OGG**: Safari decodes Ogg Vorbis only from 18.4 and refuses it in
   `decodeAudioData` before that, which on this platform fails as silence. Add one by encoding a file
   and writing a `LoopDef`.
@@ -1475,9 +1487,53 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   that is where a match spends its time: two everywhere was enough to pass a test and not enough to
   listen to. `LAPS_PER_LOOP` is **2**, and three was the other half of the same complaint — three
   turns of a 44s loop is 2m10 of one piece.
+- **A scene move changes the piece on the spot, and it is not subject to either hold**
+  (`music.start()`'s `moved` branch): another family, the section the new screen asks for, the
+  intensity snapped to its target, one crossfade. The holds below read tension inside a round; the
+  menu and the table are two places, not two tensions. Left to the tick, leaving the table was a
+  *fall* — twelve seconds of `SECTION_RELEASE_MS` — and pressing play again inside that window reset
+  the wait before it was ever crossed, so a match, the menu and the next match were one unbroken
+  piece of music. `musicScene.test.ts`.
 - **The intensity is slewed and the section is held** (`SLEW_PER_SEC`, `SECTION_HOLD_MS`): game
   events move the intensity in jumps, and a Contre-LOCO! that lands and a hand that grows back would
-  otherwise crossfade the bed out and in twice inside two seconds.
+  otherwise crossfade the bed out and in twice inside two seconds. **And a fall is believed twelve
+  seconds after a rise** (`SECTION_RELEASE_MS`, `sectionHoldMs`): an endgame hand goes 1 → 3 → 1
+  every few turns, and each dip crossfaded the bed out of the drop and back in. A rise is still
+  answered on the hold; a fall has to hold continuously, and every return above the line restarts
+  the wait. The breakdown is exempt, because the round summary is a stop and not a dip.
+- **A match is played inside one family** (`LoopDef.family`, `FAMILIES`: `lounge` / `party` /
+  `night`). Every loop change — a section move, a second lap, a ⏭ — stays in the palette the scene
+  opened on, `prefetch` warms that palette only, and a scene change draws another family, away from
+  the current one, on the loop change it was making anyway. The grouping is the composer's own tags
+  for the pack, recovered by matching `seconds` to the source file; a loop in the wrong room moves
+  by editing one field. `music.test.ts` pins that every family carries every section and a groove
+  of at least two, which is what keeps `loopsFor`'s cross-family fallback from ever being taken.
+- **A hidden tab is a pause, and the return resumes the same loop from the same bar** (`park` /
+  `resume`, `resumeOffset`). Going through `start()` reshuffled, so every alt-tab was a different
+  piece — Chrome marks an occluded window hidden, so on desktop that was every glance at another
+  window. Only a scene that moved meanwhile starts over.
+- **A cold loop change is inaudible, and that is a property of the order, not of the warm-up.**
+  `swapTo` awaits the incoming buffer *before* it touches the outgoing voice, so a loop that is not
+  cached costs a slightly later crossfade and never a gap. Warming makes that delay shorter; it is
+  not what makes the change possible, which is why `PREFETCH_MAX` (3) is far smaller than the
+  registry.
+- **The number that bounds the cache is memory, not download** (`CACHE_BUDGET_BYTES`, 64 MB, LRU,
+  never evicting a voice that is sounding or fading). An `AudioBuffer` is deinterleaved float32 at
+  the context rate, so a **1.5 MB MP3 of 102 seconds decodes to 37 MB of RAM** — measured. Eighteen
+  at once is **418 MB**, which is what an unevicted cache held on a phone once a table had been
+  through all four sections. Evicting is close to free: nginx serves `/music/` with a week of cache,
+  so a re-entry costs one `decodeAudioData` (72–208 ms) and no network, and it lands inside the
+  window the outgoing voice is still covering. **`PREFETCH_MAX` must stay inside that budget**
+  (`music.test.ts`), or the warm-up evicts what the warm-up just decoded.
+- **Nothing a player can see or hear moves before the piece is sounding.** `this.loop` and the
+  persisted `track` setting are written at the **commit** inside `swapTo`, never at the request:
+  between the two there is a load, and during it the honest answer to "what is playing" is still the
+  outgoing piece (`getLoopId()` reads the voice). **A request arriving during a swap is recorded in
+  `desired`, never dropped** — a `swapping` guard that returned early used to leave `this.loop`
+  naming a piece that would never play, which the handover logic then treated as the one to avoid.
+- **A bed with nothing sounding and nothing on its way asks again on the next tick.** A failed
+  opening fetch otherwise left the table silent until the next section change, which on a long round
+  is minutes away and in a solo game may never come.
 - **A loop change is a crossfade between two source gains, equal-power, and never touches
   `out.gain`** — which belongs to `duck()` alone. The synthesised bed covered a change with a dip on
   that same node and the dip cancelled the duck's return with it, bringing the bed back to full under

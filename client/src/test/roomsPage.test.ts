@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { MAP_IDS } from '../components/cards/maps'
+import { UI } from '../content/ui'
 
 const CLIENT = path.resolve(__dirname, '..', '..')
 const read = (p: string) => readFileSync(path.join(CLIENT, 'src', p), 'utf8')
@@ -37,6 +38,35 @@ describe('the rooms page', () => {
     // Both lists know every room, and agree on the hour of each.
     expect(Object.keys(sig).sort()).toEqual([...MAP_IDS].sort())
     expect(shot).toEqual(sig)
+  })
+
+  it('names the two rows of values, in the page\'s own copy', () => {
+    // The lede promises a room, an hour and a sky; the row under the still is
+    // where the last two are shown, and it used to show them as one flat run of
+    // ten words told apart by a border colour. The labels come from `ui()` so
+    // the French page is not left with the English words.
+    const article = read('content/TablesArticle.astro')
+    expect(article).toMatch(/ui\('tablesHours', lang\)/)
+    expect(article).toMatch(/ui\('tablesSkies', lang\)/)
+    for (const key of ['tablesHours', 'tablesSkies'] as const) {
+      expect(UI[key].en, key).toBeTruthy()
+      expect(UI[key].fr, key).toBeTruthy()
+    }
+  })
+
+  it('draws a value as a plate, never as a pressable chip', () => {
+    // `.chipRow a` in the same file is a link, and wears what this system gives
+    // a pressable object: an ink outline and a hard ledge it travels into on
+    // press. These ten are words that do nothing. A border here is also how the
+    // row got a 2px hairline on the canvas at 1.57:1 — the ghost outline
+    // `.chipRow a` carries a comment about having been fixed for.
+    const css = read('content/content.css')
+    const plate = css.match(/\.roomMoment \{[^}]*\}/)?.[0]
+    expect(plate, '.roomMoment is gone or renamed').toBeTruthy()
+    // `border-radius` is the pill and stays; any border that draws a line does not.
+    expect(plate, 'a value is filled, not outlined').not.toMatch(/\bborder(?!-radius)[-:\s]/)
+    expect(plate, 'a ledge says pressable, and this is not').not.toMatch(/box-shadow/)
+    expect(plate).toMatch(/background: var\(--color-surface-strong\)/)
   })
 
   it('lays the board\'s table over the still, and no plinth', () => {

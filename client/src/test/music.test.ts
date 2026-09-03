@@ -3,8 +3,14 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   CROSSFADE_S,
+  FAMILIES,
   LAPS_PER_LOOP,
+  nextFamily,
+  resumeOffset,
+  SECTION_RELEASE_MS,
+  sectionHoldMs,
   PREFETCH_MAX,
+  CACHE_BUDGET_BYTES,
   loopsFor,
   nextLoopId,
   SECTION_AT,
@@ -63,6 +69,10 @@ describe('the loop registry', () => {
         for (const s of loop.sections) expect(SECTIONS).toContain(s)
       })
 
+      it('belongs to one of the families', () => {
+        expect(FAMILIES).toContain(loop.family)
+      })
+
       it('is named once, in English, and described in both languages', () => {
         // A title is a name and a blurb is copy: only the second is translated.
         // A piece whose name changes with the interface language is two pieces
@@ -91,11 +101,40 @@ describe('the loop registry', () => {
     // the registry ever shrinks to the budget, the sort in `prefetch` is doing
     // nothing and the comment above it is a lie.
     expect(PREFETCH_MAX).toBeLessThan(LOOPS.length)
-    // And it has to be able to hold a whole section, or a handover inside the
-    // section the table is sitting in would fetch on the spot every time.
-    expect(PREFETCH_MAX).toBeGreaterThanOrEqual(
-      Math.min(...SECTIONS.map((s) => loopsFor(s).length)),
-    )
+    expect(PREFETCH_MAX).toBeGreaterThanOrEqual(2)
+  })
+
+  it('can hold everything it warms, so the warm-up never feeds the eviction', () => {
+    // An AudioBuffer is deinterleaved float32 at the context rate, so a loop
+    // costs about `seconds x 44100 x 2 x 4` bytes — a 102s piece is 37 MB, which
+    // is 24 times its own MP3. If the budget could not hold `PREFETCH_MAX` of
+    // the longest, warming would evict what warming had just decoded: three
+    // fetches and three decodes spent to end up holding three buffers anyway.
+    const longest = [...LOOPS].sort((a, b) => b.seconds - a.seconds).slice(0, PREFETCH_MAX)
+    const worst = longest.reduce((n, l) => n + l.seconds * 44100 * 2 * 4, 0)
+    expect(worst).toBeLessThanOrEqual(CACHE_BUDGET_BYTES * 1.6)
+    // And the budget must not quietly become "hold everything", which is the
+    // state this whole mechanism was added to get out of: 18 loops decoded at
+    // once was measured at 418 MB.
+    const all = LOOPS.reduce((n, l) => n + l.seconds * 44100 * 2 * 4, 0)
+    expect(CACHE_BUDGET_BYTES).toBeLessThan(all / 3)
+  })
+
+  it('lets every family carry a whole match', () => {
+    // A match is played inside one family, so a family missing a section would
+    // send that section to another palette — the genre change the families
+    // exist to remove — through `loopsFor`'s fallback. And the groove is where
+    // a match lives: with one loop there the lap handover has nothing to hand
+    // over to, and with two it alternates, which is the "chorus on repeat" the
+    // registry-wide floor of five was raised for.
+    for (const family of FAMILIES) {
+      for (const section of SECTIONS) {
+        const own = loopsFor(section, family).filter((l) => l.family === family)
+        expect(own.length, `${family} has nothing for ${section}`).toBeGreaterThanOrEqual(1)
+      }
+      const groove = loopsFor('groove', family).filter((l) => l.family === family)
+      expect(groove.length, `${family} groove`).toBeGreaterThanOrEqual(2)
+    }
   })
 
   it('offers every section at least two loops', () => {
@@ -140,6 +179,84 @@ describe('the arrangement ladder', () => {
     expect(fullSwing).toBeLessThan(4)
     expect(SECTION_HOLD_MS).toBeGreaterThan(0)
     expect(SECTION_HOLD_MS).toBeLessThan(3000)
+  })
+
+  it('answers a rise in a bar and believes a fall only after it has held', () => {
+    // An endgame hand goes 1 → 3 → 2 → 1 every few turns. Each dip under the
+    // drop's threshold was a crossfade out and one back in, so a tense table
+    // heard a different piece every ten seconds. A rise is still the moment the
+    // drop exists for; a fall has to hold long enough to be the table calming
+    // down rather than one seat drawing.
+    expect(sectionHoldMs('groove', 'drop')).toBe(SECTION_HOLD_MS)
+    expect(sectionHoldMs('breakdown', 'groove')).toBe(SECTION_HOLD_MS)
+    expect(sectionHoldMs('drop', 'groove')).toBe(SECTION_RELEASE_MS)
+    expect(sectionHoldMs('groove', 'buildup')).toBe(SECTION_RELEASE_MS)
+    expect(sectionHoldMs('drop', 'buildup')).toBe(SECTION_RELEASE_MS)
+    expect(SECTION_RELEASE_MS).toBeGreaterThanOrEqual(8000)
+    expect(SECTION_RELEASE_MS).toBeLessThan(30_000)
+    // The breakdown is the round summary — a stop, not a dip — and the one
+    // section the ending is meant to sound like.
+    expect(sectionHoldMs('drop', 'breakdown')).toBe(SECTION_HOLD_MS)
+    expect(sectionHoldMs('groove', 'breakdown')).toBe(SECTION_HOLD_MS)
+  })
+})
+
+describe('a hidden tab', () => {
+  it('resumes the loop where it was, on the same lap', () => {
+    // Every alt-tab used to draw another loop: the return went through
+    // `start()`, which reshuffles. The pause is a pause, so the position is
+    // kept — modulo the loop, since the seconds parked include whole laps.
+    expect(resumeOffset(10, 60)).toBe(10)
+    expect(resumeOffset(70, 60)).toBeCloseTo(10)
+    expect(resumeOffset(0, 60)).toBe(0)
+    expect(resumeOffset(-5, 60)).toBe(0)
+    expect(resumeOffset(30, 0)).toBe(0)
+  })
+})
+
+describe('the families', () => {
+  const rand = seeded(5)
+
+  it('keeps a match inside the palette it opened on', () => {
+    for (const family of FAMILIES) {
+      for (const section of SECTIONS) {
+        let bag: string[] = []
+        let current: string | null = null
+        for (let n = 0; n < 30; n++) {
+          const pick = nextLoopId(section, current, bag, rand, family)
+          bag = pick.bag
+          current = pick.id
+          expect(LOOPS.find((l) => l.id === pick.id)?.family, `${family}/${section}`).toBe(family)
+        }
+      }
+    }
+  })
+
+  it("tours a family's groove rather than alternating two of its loops", () => {
+    for (const family of FAMILIES) {
+      const all = loopsFor('groove', family).map((l) => l.id)
+      let bag: string[] = []
+      let current: string | null = null
+      const seen = new Set<string>()
+      for (let n = 0; n < all.length * 4; n++) {
+        const pick = nextLoopId('groove', current, bag, rand, family)
+        bag = pick.bag
+        current = pick.id
+        seen.add(pick.id)
+      }
+      expect(seen.size, family).toBe(all.length)
+    }
+  })
+
+  it('moves to another palette when the scene moves', () => {
+    for (const family of FAMILIES) {
+      for (let n = 0; n < 20; n++) {
+        const next = nextFamily(family, rand)
+        expect(FAMILIES).toContain(next)
+        expect(next).not.toBe(family)
+      }
+    }
+    expect(FAMILIES).toContain(nextFamily(null, rand))
   })
 })
 

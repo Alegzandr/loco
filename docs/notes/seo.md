@@ -504,13 +504,14 @@ palette twice so the first frame of a page was right before the script that wrot
 run. The site has one palette now (see `visual.md`, "One palette"): nothing here keys on a theme,
 `page-boot.ts` boots no theme, and `noLightTheme.test.ts` fails on any of it coming back.
 
-What the pages paint instead is the game's canvas. `body.doc` used to be the flat canvas colour, on
-the grounds that the den's three colour orbs read as a backdrop under scrolling prose — and they did
-while they were pinned to the viewport. They are anchored to the first screenful now
-(`background-size: 100% 100lvh`, no repeat), so the top of every page is the sky the home page has
-and the rest is the den, and a reader arriving from the game meets the room they left. The header
-band and the footer bar are the same frosted glass over it (92% of the canvas over a 14px blur): a
-flat band of one colour across a gradient was a seam. **And the prose sits on the game's panels**:
+What the pages paint instead is the flat canvas, `--color-canvas` on `body.doc` and nothing else.
+The den's gradient and its three colour orbs were tried twice here — pinned to the viewport, then
+anchored to the first screenful so the top of every page was the home page's sky — and both times the
+verdict was the same: a landing is a page to read, and a coloured glow behind prose is ambience
+competing with it. The decision is now explicit and it is the same one `/` (`#root`) and the 404
+(`.page`) already took: **the landings are flat, no glow, no orb**. The header band and the footer
+bar are frosted glass over that flat canvas (92% of the canvas over a 14px blur), which costs nothing
+on a solid ground and keeps them the same object as the game's. **And the prose sits on the game's panels**:
 every top-level `<section>`, FAQ entry and room is the card every screen of the game puts its
 content on — `--color-surface-card`, the ink outline, `--shadow-pop`, `--radius-xl` — which is
 what makes the text legible over the gradient and what stopped the pages reading as a documentation
@@ -609,8 +610,21 @@ podium built under exactly the ellipse the page's CSS table draws — and writes
 each through `<Image />` (three widths, lazy, with the hour's sky gradient behind it while it
 loads) and lays `.roomTable` / `.roomGlow` over it — a transcription of `GameBoard.svelte`'s
 table, no plinth since the render carries the podium — and tells the rest: the hours and skies the
-room can be dealt under, as chips. `roomsPage.test.ts` pins the hour written on the page to the
+room can be dealt under. `roomsPage.test.ts` pins the hour written on the page to the
 hour the scene is shot at and fails on a room with no still; the E2E counts six.
+
+**Those are two named rows, and they are values rather than chips.** A definition list: the label
+in the first column, its plates in the second, and under 46rem the label above its own row. One
+flat run of ten words made the reader do the sorting the lede had already promised — a room, *an
+hour*, *a sky* — and the four hours were told from the six skies by a border colour alone, which a
+screen reader does not read and a wrap on a phone destroys: a line could open on "Ciel dégagé"
+with nothing saying the subject had changed. Nothing in the row is pressable, so nothing in it
+wears the ink outline and the hard ledge `.chipRow a` wears two hundred lines up in the same
+file — the plates are filled instead, which is also what retired a 2px hairline that measured
+1.57:1 on the canvas, the ghost outline that file had already been fixed for once. The labels are
+the page's own words (`tablesHours` / `tablesSkies` in `content/ui.ts`); the values stay the
+game's. `roomsPage.test.ts` fails on a plate that grows a border or a ledge, and on a label
+written into the markup instead of taken from the copy.
 
 It replaced a CSS table under a bare sky gradient, which was honest about what a scriptless page can
 draw and told a reader nothing about the place — and before that, eight photographs composited by
