@@ -43,7 +43,7 @@ import { lightRig } from './sky'
 import { seededRng } from './rng'
 import { Kit, type Anchor } from './kit'
 import { BUILDERS, KITS } from './maps'
-import { TILES_ACROSS, lengthInside, occluded, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite } from './life'
+import { DEFAULT_BODY, TILES_ACROSS, lengthInside, occluded, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
 import { at } from './maps/common'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
@@ -224,6 +224,25 @@ function readDepth(renderer: WebGLRenderer, scene: Scene, group: Group, camera: 
   }
 }
 
+/**
+ * A veil as the image a layer can wear: alpha only, at the depth map's own
+ * resolution, and the browser stretches it over the frame — the edge of a
+ * building is soft by a frame pixel, which reads as the anti-aliasing the
+ * room already has. Null when the actor has nothing in front of it.
+ */
+function veilImage(veil: Veil | null): string | null {
+  if (!veil) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = veil.w
+  canvas.height = veil.h
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  const img = ctx.createImageData(veil.w, veil.h)
+  for (let i = 0; i < veil.data.length; i++) img.data[i * 4 + 3] = veil.data[i]
+  ctx.putImageData(img, 0, 0)
+  return canvas.toDataURL('image/png')
+}
+
 function dispose(group: Group) {
   group.traverse((obj) => {
     const mesh = obj as { geometry?: { dispose(): void }; material?: { dispose(): void } }
@@ -354,24 +373,27 @@ export async function renderScene(
     // ─── Where a thing on the ground may go ──────────────────────────────
     // Every route the builder handed in is a candidate: it is kept where the
     // thing would stand on ground the plan has not claimed, inside the frame
-    // or just off it, and with nothing the render drew standing nearer the
-    // camera across its silhouette. A candidate with no such stretch is
-    // dropped, and of each `pick` group the longest survivors are kept.
+    // or just off it. A candidate with no such stretch is dropped, and of
+    // each `pick` group the survivors worth most are kept. What stands in
+    // front of a route does not cut it — the sprite's layer is veiled there
+    // (below) — but it counts for nothing: the worth is what anybody sees.
     const depth = readDepth(renderer, scene, group, camera, size, ppu)
     const pad = 3
     const standable = (pt: ScreenPt, actor: Actor) => {
       if (Math.abs(pt[0]) > vw / 2 + pad || Math.abs(pt[1]) > vh / 2 + pad) return false
-      const body = actor.body ?? { w: 0.7, h: 1.2 }
+      const body = actor.body ?? DEFAULT_BODY
       const foot = body.foot ?? body.w
       const [x, z] = at(pt[0], pt[1])
-      if (!kit.free(x, z, foot, foot)) return false
-      return !occluded(depth, pt, body)
+      // With no margin: a passer-by brushes past a lamp post; only standing
+      // inside something is refused. The margin is for building.
+      return kit.free(x, z, foot, foot, 0, 0)
     }
     // A route is worth what anybody sees of it: the part inside the frame,
-    // and not under the hand and the action bar, which sit under the felt.
+    // not under the hand and the action bar, which sit under the felt, and
+    // not behind something the room drew nearer the camera.
     const { sx: ax, sy: ay, a, b } = kit.anchor
     const seen = (pt: ScreenPt) => Math.abs(pt[0]) < vw / 2 && Math.abs(pt[1]) < vh / 2 && !(Math.abs(pt[0] - ax) < a * 0.55 && pt[1] < ay - b + 1)
-    const worth = (actor: Actor) => lengthInside(actor, seen)
+    const worth = (actor: Actor) => lengthInside(actor, (pt) => seen(pt) && (actor.flying === true || !occluded(depth, pt, actor.body ?? DEFAULT_BODY)))
     const actors = selectActors(candidates, standable, worth)
     dispose(group)
     await report(RENDER_STEPS.placed)
@@ -440,7 +462,8 @@ export async function renderScene(
         sctx.drawImage(gl, 0, 0, Math.round(sw * ss), Math.round(sh * ss), 0, 0, sw, sh)
       }
       corner.set(0, 0, 0).applyMatrix4(view)
-      sprites.push({ actor, canvas, ox: (corner.x - minX) * ppu, oy: (maxY - corner.y) * ppu })
+      const mask = veilImage(occlusionVeil(depth, actor))
+      sprites.push({ actor, canvas, ox: (corner.x - minX) * ppu, oy: (maxY - corner.y) * ppu, ...(mask ? { mask } : {}) })
       dispose(g)
     }
     if (import.meta.env.DEV) {

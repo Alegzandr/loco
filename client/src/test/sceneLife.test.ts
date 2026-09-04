@@ -22,6 +22,8 @@ import {
   trimRoute,
   selectActors,
   occluded,
+  occlusionVeil,
+  cycleRoute,
   depthAt,
   PITCH_SIN,
   PITCH_COS,
@@ -140,6 +142,17 @@ describe('a route is trimmed to where the thing can stand', () => {
     expect(trimRoute(walker({ path: [[0, 0], [20, 0]], motion: 'pass' }), () => true)!.fade).toBe(true)
   })
 
+  it('gives a whole pass its fade points, so the crossing itself is opaque', () => {
+    // Fading the two endpoints of a two-point route is a walk that is
+    // transparent from end to end: the fade has to be written as points one
+    // tile in, exactly as it is for a pass that was cut.
+    const t = trimRoute(walker({ path: [[0, 0], [20, 0]], motion: 'pass' }), () => true)!
+    expect(t.path.length).toBeGreaterThanOrEqual(4)
+    const f = routeKeyframes(t, 1920, 1080, tilePx(1920, 1080))
+    expect(f.some((k) => k.opacity === 1)).toBe(true)
+    expect(f[0].opacity).toBe(0)
+  })
+
   it('cuts a loop to its longest clear arc and walks it there and back', () => {
     // Nothing may stand on the top side (`sy > 5`).
     const t = trimRoute(walker({ path: square, motion: 'loop' }), (pt) => pt[1] < 5)!
@@ -176,7 +189,14 @@ describe('a route is trimmed to where the thing can stand', () => {
     ]
     expect(selectActors(cands, () => true).map((a) => a.id).sort()).toEqual(['b', 'c'])
     // Worth can say otherwise than length.
-    expect(selectActors(cands, () => true, (a) => (a.id === 'a' ? 100 : 1)).map((a) => a.id).sort()).toEqual(['a', 'c'])
+    expect(selectActors(cands, () => true, (a) => (a.id === 'a' ? 100 : 8)).map((a) => a.id).sort()).toEqual(['a', 'c'])
+  })
+
+  it('drops a survivor worth less than its floor, whatever its length', () => {
+    // A route that runs whole behind a terrace is a layer nobody sees.
+    const cands = [walker({ id: 'seen', path: [[0, 0], [30, 0]], motion: 'pass' }), walker({ id: 'hidden', path: [[0, 5], [30, 5]], motion: 'pass' })]
+    const worth = (a: Actor) => (a.id === 'hidden' ? 1 : 30)
+    expect(selectActors(cands, () => true, worth).map((a) => a.id)).toEqual(['seen'])
   })
 })
 
@@ -219,6 +239,51 @@ describe('the depth map says what stands in front', () => {
   it('knows nothing off the map, so nothing is in front there', () => {
     expect(occluded(flat(), [60, 60], PERSON_BODY)).toBe(false)
   })
+
+  describe('and what does is a veil over the sprite, never a cut in its route', () => {
+    const walk = (over: Partial<Actor> = {}): Actor => actor({ path: [[-4, 0], [4, 0]], motion: 'pass', body: PERSON_BODY, ...over })
+    const at = (v: { w: number; data: Uint8ClampedArray }, x: number, y: number) => v.data[y * v.w + x]
+
+    it('is nothing on open ground, and nothing for a thing in the air', () => {
+      expect(occlusionVeil(flat(), walk())).toBeNull()
+      const front = flat()
+      wall(front, -1, 3, 2)
+      expect(occlusionVeil(front, walk({ flying: true, body: undefined }))).toBeNull()
+    })
+
+    it('cuts the wall in front out of the layer, along the route and nowhere else', () => {
+      const map = flat()
+      wall(map, -1, 2, 2)
+      const veil = occlusionVeil(map, walk())!
+      expect(veil).not.toBeNull()
+      expect(veil.w).toBe(map.w)
+      // The wall stands a tile down the screen from the walker's feet and rises
+      // two: the rows of it across the walker's own height are veiled, in its columns.
+      const wallRow = Math.round(map.h / 2 - (-1 + 1.5 * PITCH_COS) * map.ppu)
+      expect(at(veil, 50, wallRow)).toBe(0)
+      expect(at(veil, 20, wallRow)).toBe(0)
+      // A column the route never reaches is left alone, wall or no wall.
+      expect(at(veil, 2, wallRow)).toBe(255)
+      expect(at(veil, 97, wallRow)).toBe(255)
+      // And so is the open ground above the wall, where the walker's head is.
+      expect(at(veil, 50, Math.round(map.h / 2 - 1.0 * PITCH_COS * map.ppu))).toBe(255)
+    })
+
+    it('leaves a wall behind the route where it is', () => {
+      const map = flat()
+      wall(map, 1, 3, -2)
+      expect(occlusionVeil(map, walk())).toBeNull()
+    })
+
+    it('follows the route as the keyframes do, there and back included', () => {
+      const bounce = actor({ path: [[0, 0], [5, 0]], motion: 'bounce' })
+      expect(cycleRoute(bounce)).toEqual([[0, 0], [5, 0], [0, 0]])
+      const ring = actor({ path: [[0, 0], [5, 0], [5, 5]], motion: 'loop' })
+      expect(cycleRoute(ring)).toEqual([[0, 0], [5, 0], [5, 5], [0, 0]])
+      const cloud = actor({ path: [[-50, 0], [50, 0]], motion: 'loop', fade: true })
+      expect(cycleRoute(cloud)).toEqual(cloud.path)
+    })
+  })
 })
 
 describe('the render asks before it draws a sprite', () => {
@@ -235,6 +300,19 @@ describe('the render asks before it draws a sprite', () => {
   it('asks the ground plan as well as the depth', () => {
     expect(render).toMatch(/kit\.free\(/)
     expect(render).toMatch(/occluded\(depth/)
+  })
+
+  it('cuts a route on the plan and veils it on the depth, never the other way round', () => {
+    // What stands in front of a route costs it worth, not length: the
+    // standable test asks the plan alone, the worth asks the depth, and every
+    // sprite is handed the veil the depth map cuts for it.
+    const standable = render.slice(render.indexOf('const standable ='), render.indexOf('const seen ='))
+    expect(standable).toMatch(/kit\.free\(/)
+    expect(standable).not.toMatch(/occluded\(/)
+    const worth = render.slice(render.indexOf('const worth ='), render.indexOf('selectActors(candidates'))
+    expect(worth).toMatch(/occluded\(depth/)
+    expect(render).toMatch(/occlusionVeil\(depth, actor\)/)
+    expect(render.indexOf('occlusionVeil(depth, actor)')).toBeLessThan(render.indexOf('sprites.push('))
   })
 })
 
@@ -266,5 +344,16 @@ describe('the layer', () => {
   it('is scaled to the element rather than re-laid-out on a resize', () => {
     expect(layer).toMatch(/transform-origin:\s*0 0/)
     expect(layer).toMatch(/scale\(/)
+  })
+
+  it('wears the veil on an element that does not move, around the one that does', () => {
+    // The mask is the frame's; the actor is animated inside it. A mask on the
+    // actor itself would travel with it.
+    expect(layer).toMatch(/\{#if sprite\.mask\}/)
+    expect(layer).toMatch(/class="veil"[^>]*--veil: url\('\{sprite\.mask\}'\)/)
+    expect(layer).toMatch(/\.veil \{[^}]*mask-image: var\(--veil\)/)
+    expect(layer).toMatch(/-webkit-mask-image: var\(--veil\)/)
+    expect(layer).toMatch(/mask-size: 100% 100%/)
+    expect(layer).not.toMatch(/\.actor \{[^}]*mask/)
   })
 })

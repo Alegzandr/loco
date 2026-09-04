@@ -83,4 +83,22 @@ export interface LoopDef {
    * seam back exactly where the composer cut it.
    */
   seconds: number
+  /**
+   * The tempo, in beats per minute of a 4/4 bar, so `240 / bpm` is one bar.
+   *
+   * This is what lets a change of loop land on a bar line instead of on the
+   * 250 ms tick that happened to notice it (`music.ts`, `untilNextBar`): the
+   * incoming piece's downbeat is put on the outgoing piece's next downbeat, so
+   * a crossfade is heard as a musical cut and never as a radio being retuned
+   * mid-phrase. Measured on the file — onset autocorrelation constrained to a
+   * whole number of bars, since every loop here is one — and where a tempo and
+   * its double both fit, the **slower** is written: its bar lines are downbeats
+   * under either reading, the faster one's are not.
+   *
+   * `music.test.ts` asserts that `seconds × bpm / 240` is a whole number of
+   * bars, to a fiftieth. That is the check that catches a wrong tempo: a loop
+   * that is not a whole number of bars at the tempo written here has the wrong
+   * tempo written here, because the composer cut it on one.
+   */
+  bpm: number
 }

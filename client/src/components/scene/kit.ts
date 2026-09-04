@@ -192,9 +192,9 @@ export class Kit {
     this.placer.claim({ x, z, w, d, rot })
   }
 
-  /** True when a footprint is free of everything placed and claimed so far. */
-  free(x: number, z: number, w: number, d: number, rot = 0): boolean {
-    return this.placer.free({ x, z, w, d, rot })
+  /** True when a footprint is free of everything placed and claimed so far, at the placer's margin or the one given. */
+  free(x: number, z: number, w: number, d: number, rot = 0, margin?: number): boolean {
+    return this.placer.free({ x, z, w, d, rot }, margin)
   }
 
   // ─── Models ───────────────────────────────────────────────────────────────

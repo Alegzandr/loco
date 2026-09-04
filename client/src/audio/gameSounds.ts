@@ -50,6 +50,11 @@ function stingFor(card: CardDTO): SfxName | null {
  * breakdown, and without it the bed's calmest section would be unreachable.
  */
 export function intensityOf(s: State): number {
+  // The game-over screen is the evening's count-up: the match resolved, the
+  // recap and the rematch offers up. It is played in the match's own palette
+  // (see `sceneFor`) and it falls to the breakdown, the same section a round
+  // ending sounds like — a drop that resolves rather than a bed that stops.
+  if (s.screen === 'gameover') return 0.1
   if (s.screen !== 'game') return 0.2
   if (s.showRoundSummary) return 0.1
   let i = 0.34
@@ -66,11 +71,29 @@ function totalHandSizes(s: State): number {
   return s.players.reduce((n, p) => n + p.hand_size, 0)
 }
 
+/**
+ * Which scene the bed plays for a screen. A scene is a palette and a
+ * starting section, and moving between two of them changes the piece on the
+ * spot (`music.start`'s `moved` branch).
+ *
+ * The queue's two screens are the wait, like the waiting room: the menu's
+ * music goes on under the search and under the reveal, because a search is
+ * somebody waiting for the game to start, not somebody who left it — and
+ * the bed used to stop dead at the press and start again at the deal, so
+ * the whole 1v1 path opened in silence. The game-over screen is the
+ * **game's** scene, not the menu's: the match ended, the palette did not,
+ * and `intensityOf` takes it to the breakdown, so the drop fades into the
+ * after-hours piece under the recap. Only a screen with nothing to play for
+ * — the reload's `restoring` — is off, and it fades rather than cuts.
+ */
 export function sceneFor(s: State): 'lobby' | 'game' | 'off' {
   switch (s.screen) {
     case 'lobby':
+    case 'searching':
+    case 'matchfound':
     case 'waiting': return 'lobby'
-    case 'game': return 'game'
+    case 'game':
+    case 'gameover': return 'game'
     default: return 'off'
   }
 }

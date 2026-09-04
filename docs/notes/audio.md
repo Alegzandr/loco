@@ -1,6 +1,6 @@
 # Audio
 
-Every sound effect is synthesised at runtime. The music is eighteen CC0 loops, served from this origin.
+Every sound effect is synthesised at runtime. The music is nineteen CC0 loops, served from this origin.
 
 > Detailed note split out of `CLAUDE.md`. The root file carries the rule; this file carries the
 > reasoning, the edge cases, and the bugs that produced them.
@@ -9,7 +9,7 @@ Every sound effect is synthesised at runtime. The music is eighteen CC0 loops, s
 **Every sound effect is synthesised at runtime** — nothing to download, nothing to licence, no
 cache-miss silence on the first play of a cue that has to answer a tap in the same frame.
 
-**The music is not, any more.** It is eighteen loops by Abstraction, released CC0, normalised and encoded
+**The music is not, any more.** It is nineteen loops by Abstraction, released CC0, normalised and encoded
 to MP3 under `client/public/music/`. What that bought and what it cost is the section below; the
 short version is that a sound effect is a reaction and a bed is not, so only one of the two can
 afford a fetch.
@@ -100,11 +100,12 @@ afford a fetch.
   arrangement ladder, the crossfades).
 - `audio/tracks/` — the registry. `types.ts` documents the schema; `index.ts` lists the loops (add
   one by encoding a file and writing a `LoopDef` — engine, panel, tests and harness all read that
-  list). Eighteen ship, laid out along the ladder: **Intermission**, **Idle Hands**, **Fanned Out**,
-  **Nightcap** and **Small Talk** over the count-up and the wait, **Patience**, **Rowdy**,
-  **Sidetrack**, **Sleight**, **Mirage**, **Full Table** and **Clockwork** over ordinary play, and
-  **Pile-Up**, **Uproar**, **Neck and Neck**, **On the Run**, **Runaway** and **Bad Manners** as it
-  gets away from everybody.
+  list). Nineteen ship, laid out along the ladder: **Intermission**, **Idle Hands**, **Fanned Out**,
+  **Nightcap** and **Small Talk** over the count-up and the wait, **Patience** and **Late Arrivals**
+  over the wait alone, **Rowdy**, **Sidetrack**, **Mirage**, **Full Table** and **Clockwork** over
+  ordinary play, and **Sleight**, **Pile-Up**, **Uproar**, **Neck and Neck**, **On the Run**,
+  **Runaway** and **Bad Manners** as it gets away from everybody. Each carries its tempo
+  (`LoopDef.bpm`), which is what lets a change land on a bar line — see "Where a change lands".
 
 ### Why the synthesiser went, and what had to be bought back
 
@@ -140,9 +141,21 @@ be bought some other way:
   `ambient`/`electronic`/`lofi`/`dnb`, plus each track's energy) recovered from the bundle's
   `csv_data.js` by matching each loop's `seconds` to its source file — nobody can listen in a
   test — so a loop that turns out to sit in the wrong room moves by editing one field.
-  `music.test.ts` pins that every family carries every section and a groove of at least two:
-  the fallback in `loopsFor` that would reach into another family exists so a thin family cannot
-  go silent, and the test is what keeps it from ever being taken.
+  `music.test.ts` pins that every family carries every section, a groove of at least two, **and a
+  build-up and a drop of at least two**: the fallback in `loopsFor` that would reach into another
+  family exists so a thin family cannot go silent, and the test is what keeps it from ever being
+  taken. The last two floors came from reading the registry against the ladder rather than from a
+  complaint, and the complaint was on its way: the lounge's drop was **On the Run** alone, so an
+  endgame there was one 44-second funk loop for as long as somebody stayed on one card, and its
+  build-up was **Fanned Out** alone, so a player who left the home screen up in that palette heard
+  one piece of jazz for the whole evening. **Sleight** (the composer's second-highest energy in the
+  lounge) now carries the drop as well, **Idle Hands** the build-up as well, and **Late Arrivals** —
+  Sketchbook 2024-09-18, jazz, energy 2, the one wait-shaped jazz piece left in the archive — was
+  encoded for the same reason. **Sidetrack** went the other way: at 160 BPM and the second-loudest
+  file in the registry it was the night palette's *waiting room*, tagged energy 3 by the composer and
+  measured as the most driving thing in its family, so it is ordinary play now and nothing else. None
+  of that was heard; it was read off the composer's tags and off `librosa`, which is the only way a
+  registry nobody can listen to in a test gets audited.
 
 **Both floors are calibration, and both were wrong the first time.** The bed shipped with six loops,
 a floor of two everywhere and three laps, and the first verdict on it was that it repeats. It did,
@@ -220,10 +233,71 @@ a claim about behaviour, not about taste.
   there for the same reason — the slew exists to absorb a spike inside a round, and a player leaving
   the table is not a spike. `musicScene.test.ts` drives a real bed over a fake context, because both
   halves of this defect were individually correct and only their ordering was wrong.
+### Where a change lands
+
+The bed changed loop whenever a 250 ms tick noticed a reason to, and a crossfade that starts on a
+tick lands wherever the tick fell: mid-bar, beat three, the second half of a phrase. Two loops of the
+same family at compatible tempos still sounded like a radio being retuned, because the ear hears a
+change that lands off the grid as a mistake and one that lands on the one as a cut. Three rules fix
+it, and all three are timing rather than sound, which is why `musicHandover.test.ts` drives a real
+bed over a fake context whose clock the test moves and reads the times the bed *scheduled*.
+
+- **A section change lands on the outgoing loop's next bar line** (`untilNextBar`, `nextBarAt`). The
+  incoming piece's downbeat is put on the outgoing piece's downbeat and both curves run from there.
+  The wait is under a bar — 3.4 s at the slowest tempo — after the slew and the hold have already
+  spent their second and a half, so a rise still reads as an answer. A bar line closer than
+  `MIN_LEAD_S` is skipped for the next: a start inside the scheduler's own latency lands late, and
+  late is off the beat, which is worse than a bar later.
+- **A lap handover lands on the wrap** (`untilNextWrap`, `land`). Before, the tick noticed the second
+  lap had completed up to 250 ms after the fact and started a 2 s crossfade, so the outgoing loop
+  restarted its top under the incoming one's: two downbeats a second apart, on every handover, on
+  the one change nothing in the game had asked for. Now the handover is decided
+  `HANDOVER_LOOKAHEAD_S` before the wrap that completes `LAPS_PER_LOOP`, the file is loaded, the
+  incoming source is scheduled to start *exactly* at that wrap and arrives whole (a 20 ms ramp, for
+  the click and nothing else), and the outgoing one fades over its own last bar, `HANDOVER_TAIL_S`,
+  ending where the new one starts. A breath, then the one. The lookahead is the load budget — a
+  cache hit needs none of it, a cold decode 72–208 ms — and a file that is not ready by its moment
+  falls back to an ordinary crossfade the instant it is, which is exactly what a cold change cost
+  before any of this. `getLoopId()` keeps naming the outgoing piece until the scheduled one is
+  sounding, so the panel does not announce a handover four seconds early.
+- **A scene move and ⏭ are answered on the spot.** Both are something the player just did, and a
+  press answered a bar later is a press that felt ignored; the bar grid is for the changes the bed
+  makes on its own.
+
+**The tempo is data on the loop** (`LoopDef.bpm`, one bar is `240 / bpm`), and it had to be
+measured: the pack carries the composer's energy and genre tags but no tempo. Each file's onset
+envelope was autocorrelated at candidate bar lengths constrained to a **whole number of bars** —
+every loop here is one, the composer cut them on bar lines — and the candidate with the strongest
+periodicity at one, two, four and eight beats won. Where a tempo and its double both fit (85 and 170
+for the drum-and-bass **Neck and Neck**, 80 and 160 for **Sidetrack**), the **slower** is written:
+its bar lines are downbeats under either reading, the faster one's fall on beat three half the time.
+Two were genuinely ambiguous between a 3:2 pair (**On the Run** at 76.67 or 115, **Full Table** at
+86.67 or 130) and went to the reading with the stronger eight-beat periodicity; if one of them ever
+sounds off at a handover, the field is the fix. `music.test.ts` asserts that `seconds × bpm / 240`
+is whole to a fiftieth, which is the check that catches a wrong tempo, and that the slowest bar is
+well under the release hold, so aligning a fall never doubles its wait.
+
+**The fade's length is the reason for it** (`fadeFor`). One `CROSSFADE_S` for everything meant the
+drop arriving at the same speed as the round summary's jazz. A rise is `RISE_FADE_S`, 1.5 s: somebody
+reached their last card, and the drop is what the bed exists for. A fall is `FALL_FADE_S`, 4 s:
+nothing about the table settling is urgent, and it is the fade that plays under the round-end fanfare
+and its duck, which a slow one sits under rather than fighting. What the player did — a scene move, a
+⏭ — keeps the 2 s. And the scene going `off` **fades** (`STOP_FADE_S`) instead of cutting: `stop()`
+took the voice down mid-bar, which for a hidden tab is right and for a screen change was a click.
+
+**Two screens were silent that had no reason to be.** `sceneFor` mapped `searching` and `matchfound`
+to `off`, so the bed stopped dead — a hard cut — at the 1v1 press and started again at the deal: the
+one screen a player spends minutes on opened in silence, and the queue's own cue landed on nothing.
+Both are the wait now, like the waiting room. And `gameover` was `off` too, so the match's last
+sound was the fanfare over a bed being cut under it, and the recap — the evening's count-up, the
+screen **Intermission**'s blurb describes — was silent. It is the **match's** scene now at the round
+summary's intensity: the palette stays, the drop falls into the breakdown under the recap through
+the 4 s fade, and a rematch or a requeue is the scene move it always was. Only `restoring` is off.
+
 ### Loading, and why none of it is audible
 
-The bed starts on the **entry screen**, not at the deal: `sceneFor` maps `lobby` and `waiting` to
-music, so the first fetch happens while somebody is typing a nickname. That is most of the answer to
+The bed starts on the **entry screen**, not at the deal: `sceneFor` maps `lobby`, `waiting` and the
+queue's two screens to music, so the first fetch happens while somebody is typing a nickname. That is most of the answer to
 "is the first load covered" — nobody is waiting for music on a screen they have just opened, and by
 the time the deal turns the section from build-up to groove the warm-up has had the whole wait.
 
@@ -290,7 +364,7 @@ Three defects came out of writing that down, all of them invisible from the outs
   the match ended, a rematch dealt — goes through `start()` again, because that is a new scene and
   not a pause.
 - **`music.setLapSeconds(n)` is the harness seam**, same convention as the server's
-  `AFKKickThreshold`. A real loop is 44 to 102 seconds and hands over after three of them, so without
+  `AFKKickThreshold`. A real loop is 38 to 102 seconds and hands over after two of them, so without
   it the unattended handover is the one behaviour nothing ever checks. It moves the handover decision
   alone and never the loop points, so what `make audio-verify` hears is still the music playing
   properly.

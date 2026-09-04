@@ -19,3 +19,19 @@ export interface MapPreloadState {
 
 // The loader is `gamePlay.svelte.ts`'s `mapPreload`. What is left here is the
 // contract it fills and the one number the timeout is measured against.
+
+/**
+ * How long the bar is held full before the room is declared loaded.
+ *
+ * A load ends full or it does not read as a load at all: a curtain that lifts
+ * on a bar at four fifths says the room was given up on rather than finished,
+ * and the last fifth is exactly where the render spends its time. So the bar is
+ * put at one, painted, and given the time its own CSS transition takes to
+ * travel there before `done` goes out — and `done` is what sends `map_ready`.
+ *
+ * Kept just above `.fill`'s transition in `MapLoadingScreen.svelte`, which
+ * `mapLoading.test.ts` pins rather than trusting the two to be edited together.
+ * It is paid once per match, behind a curtain that is already up, and it stays
+ * far under the server's own `MapLoadTimeout`.
+ */
+export const MAP_BAR_FULL_MS = 460

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import { gameStore } from '../hooks/gameStore'
-import { dealFor, soundsForTransition } from '../audio/gameSounds'
+import { dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
+import { sectionFor } from '../audio/music'
 import { audio, DEFAULT_SETTINGS } from '../audio/engine'
 import { playVolumeAudition } from '../audio/sfx'
 import AudioSettings from '../components/AudioSettings.svelte'
@@ -209,6 +210,32 @@ describe('soundsForTransition', () => {
     // And exactly once: the reveal counts down for several seconds, and every
     // store tick through it is another transition into the same screen.
     expect(soundsForTransition(next, next)).not.toContain('matchFound')
+  })
+})
+
+describe('which scene a screen plays', () => {
+  it('keeps the menu music running under the queue and its reveal', () => {
+    // The bed used to stop dead at the 1v1 press and start again at the deal,
+    // so the whole path to a match — the one screen somebody spends minutes
+    // on — opened in silence. A search is a wait, and the wait has music.
+    expect(sceneFor(state({ screen: 'lobby' }))).toBe('lobby')
+    expect(sceneFor(state({ screen: 'waiting' }))).toBe('lobby')
+    expect(sceneFor(state({ screen: 'searching' }))).toBe('lobby')
+    expect(sceneFor(state({ screen: 'matchfound' }))).toBe('lobby')
+  })
+
+  it("plays the recap in the match's own palette, and lets it fall to the breakdown", () => {
+    // The match ended; the palette did not. The game-over screen is the
+    // game's scene at the round summary's intensity, so the drop fades into
+    // the after-hours piece under the recap instead of the bed cutting out
+    // under the fanfare.
+    expect(sceneFor(state({ screen: 'gameover' }))).toBe('game')
+    expect(sectionFor(intensityOf(state({ screen: 'gameover' })))).toBe('breakdown')
+    expect(sectionFor(intensityOf(state({ screen: 'game', showRoundSummary: true })))).toBe('breakdown')
+  })
+
+  it('is off only where there is nothing to play for', () => {
+    expect(sceneFor(state({ screen: 'restoring' }))).toBe('off')
   })
 })
 

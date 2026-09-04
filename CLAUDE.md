@@ -1248,6 +1248,15 @@ stated at the top of `styles/tokens.css`:
   own.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
+- **A countdown bar is drawn back out of a slot, never scaled flat** (`loco-slide` in
+  `tokens.css`, the turn clock's `.turnTimerBar` / `.turnTimerFill` and the catch capsule's
+  fill): the drain is a `translateX` of the whole fill, so its rounded tip and the gloss on it ride
+  along instead of being squashed to a sliver by a `scaleX`. The turn clock is a sunken slot flush
+  with the safe top edge (the chip row and the round badge start 12px lower) and the bar in it is
+  a raised object like everything else — gloss along the top, shade along the bottom, a bright cap
+  at the leading edge — and **its heat is the palette's own three in their own roles**
+  (`loco-drain-heat`: indigo orients, amber warns, LOCO Red acts), never a hex written into the
+  keyframes. `drainBar` still owns the timing and never re-renders for it.
 - **Table news is one pill, and no arrow in any of them** (`GameView`'s `.notice`, `.noticeSwap` /
   `.noticePenalty` / `.noticeDeparture`): a Swap or a Global Switch, a Contre-LOCO! that came too
   late, a seat that is gone. All three wear the board's own chrome — plate, ink outline, hard
@@ -1315,11 +1324,20 @@ stated at the top of `styles/tokens.css`:
   (`scene/life.ts`, `maps/actors.ts`): a builder returns its actors beside the room, each a
   build-at-origin plus a route in screen tiles, rendered to its own bitmap and carried by one Web
   Animations transform. **A route on the ground is a candidate, and the render decides where it
-  runs**: a sprite is drawn over everything, so after the frame the room is rendered once more as
-  depth (`readDepth`), and `trimRoute` keeps of every route the longest stretch where the ground
-  plan is free of the thing's footprint and nothing in the depth map stands nearer than its
-  silhouette — a cut loop walks its clear arc there and back, a cut `pass` fades, a short one is
-  dropped, and a `pick` group keeps the few worth most of the many a builder handed in. **Things
+  runs**: `trimRoute` keeps of every route the longest stretch where the ground plan is free of
+  the thing's own footprint, **asked with no margin** — a passer-by brushes past a lamp post, and
+  the margin is for building — so a cut loop walks its clear arc there and back, a cut `pass`
+  fades, a short one is dropped, and a `pick` group keeps the few worth most of the many a
+  builder handed in. **What stands in front of a route is a veil over the sprite, never a cut in
+  the route** (`occlusionVeil`, `Sprite.mask`, `LifeLayer`'s `.veil`): a sprite is drawn over
+  everything, so after the frame the room is rendered once more as depth (`readDepth`), and
+  every pixel where the room stands nearer the camera than the thing would at that point of its
+  route is masked out of the sprite's layer — the walker goes *behind* the lamp, the bystander
+  and the parked car and comes out the other side. Cutting the route there instead left the
+  pavements as three-tile walks that faded at every lamp and turned round at every tree, which is
+  what "they walk backwards and fade away" was. What is in front still counts for nothing: the
+  worth a `pick` ranks by is the length *seen*, and a survivor worth less than its `minLen` is
+  dropped rather than animated behind a terrace. **Things
   on the ground move at a speed** (`WALK_SPEED`, `DRIVE_SPEED`), measured on the ground, never
   for a duration. **People walk the pavements and cars drive the lanes** of the `StreetPlan`
   `cityGrid` returns, each built facing its heading; the pavement is `SIDEWALK` wide, off the
@@ -1410,6 +1428,14 @@ stated at the top of `styles/tokens.css`:
   timer for a hidden tab — before the next one takes the thread. A `setTimeout(0)` is not a paint:
   it fires inside the frame, and the bar went from empty to full over one long freeze. Anything new
   and heavy inside the render goes between two reports, never inside one. `sceneProgress.test.ts`.
+- **A load ends on a full bar, always** (`gamePlay.svelte.ts`'s `mapPreload`, `MAP_BAR_FULL_MS`):
+  nothing under that bar ever reports one — the render stops at its last batch of sprites — so the
+  curtain lifted on a bar around nine tenths, which reads as a room given up on rather than
+  finished. The settle puts the bar at one, paints it, holds it for just longer than `.fill`'s own
+  transition, and only then publishes `done`, which is what sends `map_ready`. The preload timeout
+  ends the same way, zero hold under reduced motion, and 12s + the hold stays far under the
+  server's `MapLoadTimeout`. `mapLoading.test.ts` pins the order and reads the transition off
+  `MapLoadingScreen.svelte` rather than trusting the two numbers to be edited together.
 - **Nothing pale is shown while the room is still building.** `.scene.bare` mixes the hour's sky down
   over the void, and `--room-void` is the horizon **taken down**, not the horizon: a noon sky is a
   near-white, and a full screen of it under the loading screen's white type reads as a page that
@@ -1439,7 +1465,7 @@ stated at the top of `styles/tokens.css`:
 Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 
 - **Every sound effect is synthesised at runtime; the music is not.** No sample library, and the
-  bed is eighteen MP3 loops under `client/public/music/`, served from this origin and never a CDN.
+  bed is nineteen MP3 loops under `client/public/music/`, served from this origin and never a CDN.
 - **The board plays nothing; one subscription does.** `gameAudio()` in `hooks/appEffects.svelte.ts`
   is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
   `audio/gameSounds.ts` — pure, snapshot-diffing and unit-tested. A component calling `playSfx`
@@ -1473,7 +1499,7 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   to catch a voice gone silent, so a cue handed in at 1.07 clipped on every device and still printed a
   tick. Anything above 0.8 fails now. That is headroom below hard clip rather than a mixing opinion:
   two cues overlap here and the bus carries no limiter.
-- **The music is eighteen CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
+- **The music is nineteen CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
   files, credit in `NOTICE.md` and `licenses.txt`), normalised to −18 LUFS and encoded to MP3. The
   registry is **warmed in ladder order from the section playing outward**, one file at a time, and
   bounded — see the loading rules below.
@@ -1492,7 +1518,29 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   synthesiser and the first verdict on this one. **The groove's floor is five and not two** because
   that is where a match spends its time: two everywhere was enough to pass a test and not enough to
   listen to. `LAPS_PER_LOOP` is **2**, and three was the other half of the same complaint — three
-  turns of a 44s loop is 2m10 of one piece.
+  turns of a 44s loop is 2m10 of one piece. **And every family carries the wait and the endgame at
+  least twice over** (buildup and drop ≥ 2 per family, `music.test.ts`): those are the two other
+  places a table sits, and a lap handover with nothing to hand over to is one loop on repeat — the
+  lounge's endgame was one 44s funk loop for as long as somebody stayed on one card. The breakdown is
+  exempt: it plays under the round summary and the recap, both left inside a minute.
+- **A change of loop lands on the beat, and `LoopDef.bpm` is what makes that possible**
+  (`untilNextBar`, `untilNextWrap`, `musicHandover.test.ts`). A section move waits for the outgoing
+  loop's next bar line and puts the incoming downbeat on it; a lap handover is decided
+  `HANDOVER_LOOKAHEAD_S` before the wrap that completes `LAPS_PER_LOOP` and lands **on** it, the old
+  piece fading over its last bar (`HANDOVER_TAIL_S`) and the new one arriving whole on the one; a
+  scene move and ⏭ are answered on the spot, because the player just did something. **Every loop is
+  a whole number of bars at the tempo written for it**, and `music.test.ts` fails on one that is not:
+  that is the test that catches a wrong tempo, because the composer cut every one of these on a bar
+  line. Where a tempo and its double both fit, the **slower** is written — its bar lines are
+  downbeats under either reading. A file not ready by its moment falls back to an ordinary crossfade
+  the instant it is, which is what a cold change already cost.
+- **The fade's length is the reason for it** (`fadeFor`): a rise is `RISE_FADE_S` (1.5s), a fall
+  `FALL_FADE_S` (4s), a change the player made `CROSSFADE_S` (2s), the scene going off `STOP_FADE_S`
+  (1.2s). **Only a hidden tab and an unmount cut.**
+- **The queue is the wait and the recap is the game** (`sceneFor`, `intensityOf`): `searching` and
+  `matchfound` play the menu's scene, so the 1v1 path does not open in silence; `gameover` is the
+  **match's** scene at the round summary's intensity, so the drop fades into the breakdown under the
+  recap instead of the bed cutting out under the fanfare. Only `restoring` is off.
 - **A scene move changes the piece on the spot, and it is not subject to either hold**
   (`music.start()`'s `moved` branch): another family, the section the new screen asks for, the
   intensity snapped to its target, one crossfade. The holds below read tension inside a round; the
