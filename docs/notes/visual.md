@@ -645,9 +645,24 @@ and each is the kit's, not a builder's:
   `.scene:not(.bare)` on any scene that has one.
 - **The engine is a lazy chunk.** `sceneCache.prepareScene` is the only importer of `render.ts`,
   through a dynamic `import()`, so three.js never reaches the home page, a waiting room or a content
-  page; the map-loading gate is what absorbs the fetch (`mapPreload` reports it as the first 35% of
-  the bar, the build and the draw as the rest). The chunk comes off this origin like every other,
-  so the CSP is untouched and `csp.test.ts` still passes on `'self'`.
+  page; the map-loading gate is what absorbs the fetch (`sceneCache.PROGRESS`: the chunk is the
+  first 10% of the bar, the kits the next 25%, the render's own phases the rest). The chunk comes
+  off this origin like every other, so the CSP is untouched and `csp.test.ts` still passes on
+  `'self'`.
+- **The loading bar is painted between the phases of the render, and that is what makes it a
+  bar.** The room is built and drawn on the main thread, and on a rematch — chunk and kits cached
+  per tab — that stretch is the whole wait. It used to run in one synchronous piece after a
+  `setTimeout(0)`, which was meant to let the screen paint first and did not: a macrotask fires a
+  few milliseconds later, inside the same frame, so the thread was taken with the bar drawn at zero
+  and the next paint anybody saw had it at one. The player's reading — "it goes from empty to
+  loaded, it looks stuck" — was exact. Two things fix it (`scene/nextPaint.ts`,
+  `sceneProgress.test.ts`): a report is followed by **two animation frames** (the first callback
+  runs before its frame is painted, the second after; a timer stands in for a hidden tab, where no
+  frame ever comes and the render still has to happen), and `renderScene` is asynchronous in
+  phases — build, merge, draw, depth, then the sprites a few at a time — reporting
+  `RENDER_STEPS` and yielding to a paint between each. The weights are a rough measure of where a
+  room's second goes, not a promise: the bar is honest about *moving*, which is the thing a player
+  can check, and only roughly about *how far*.
 - **A render that fails is a scene, not an error.** No WebGL, a lost context, a builder that
   throws: the cache keeps the entry with a null bitmap, `<SceneBackdrop />` shows the rig's sky
   gradient (which is on screen from the first frame anyway, under the bitmap), and the gate is
