@@ -663,6 +663,19 @@ and each is the kit's, not a builder's:
   `RENDER_STEPS` and yielding to a paint between each. The weights are a rough measure of where a
   room's second goes, not a promise: the bar is honest about *moving*, which is the thing a player
   can check, and only roughly about *how far*.
+- **And it ends full.** Nothing under that bar ever reports one: the render stops at its last
+  batch of sprites, `prepareScene`'s own `onProgress(1)` lands in the same tick as the resolution,
+  and the curtain used to lift on a bar somewhere around nine tenths — which reads as a room that
+  was given up on, not one that finished. So the settle is two steps now (`gamePlay.svelte.ts`'s
+  `mapPreload`): the bar is put at one, painted (`nextPaint`), and held for `MAP_BAR_FULL_MS`
+  (`hooks/mapPreload.ts`) — just above `.fill`'s own transition, so the fill has travelled the whole
+  track before anything moves — and only then is `done` published, which is what sends `map_ready`.
+  The 12s preload timeout ends through the same settle for the same reason, and 12s plus this is
+  still far under the server's 20s `MapLoadTimeout`. The wait is paid once per match behind a
+  curtain that is already up, and under reduced motion the hold is zero: the fill snaps, so there is
+  nothing to wait for. `mapLoading.test.ts` pins both halves — that the bar is full before
+  `map_ready` goes out, and that the hold outlasts the transition it is paying for, read off
+  `MapLoadingScreen.svelte` rather than typed twice.
 - **A render that fails is a scene, not an error.** No WebGL, a lost context, a builder that
   throws: the cache keeps the entry with a null bitmap, `<SceneBackdrop />` shows the rig's sky
   gradient (which is on screen from the first frame anyway, under the bitmap), and the gate is
@@ -805,28 +818,66 @@ otherwise take stays closed.
   out from the felt, through the crowd, the market stalls and the first row of blocks, and what the
   two cars lapping the paving did across the whole lower band. Now a builder says what a thing
   takes up (`body`: width across the screen, height, footprint) and hands in every route it might
-  take; after the frame is drawn the room is rendered **once more, as depth** — the same scene
-  under a material that packs eye depth into RGBA, into a target at half the frame's resolution,
-  read back once and released with the context, the shadows and the halos left out — and every
-  route is sampled at half a tile. A sample stands where (1) it is inside the frame or three tiles
-  off it, (2) the ground plan (`placer.ts`) is free of its footprint — and `cityGrid` now claims
-  every lot it fills, since a house is blocks and blocks never claimed — and (3) nothing in the
-  depth map is nearer than the thing's own silhouette by more than `OCCLUSION_SLACK` (0.3 tiles),
-  the silhouette being the `body` stood on the sample and its depth written per row from the
-  camera's pitch (`depthAt`: a tile up the screen on the ground is `1 / tan(pitch)` farther, a tile
-  up a thing standing there is `tan(pitch)` nearer). The longest run of good samples is the
-  route: a loop that is cut walks its longest clear arc there and back, a `pass` fades over one
-  tile at either end (that is where it walks behind something, or off the frame), and a run
+  take, and every route is sampled at half a tile. A sample stands where (1) it is inside the frame
+  or three tiles off it and (2) the ground plan (`placer.ts`) is free of its footprint — `cityGrid`
+  claims every lot it fills, since a house is blocks and blocks never claimed — **asked with no
+  margin** (`Placer.free(f, margin)`, `kit.free(…, 0, 0)`). The placer's 0.3 keeps two things
+  *built* from touching; a thing passing through only has to not stand inside anything, and with
+  the margin on, a bystander standing at the kerb line refused the walk line 0.7 tiles behind him
+  and cut every pavement into stretches of three or four tiles. The longest run of good samples is
+  the route: a loop that is cut walks its longest clear arc there and back, a `pass` fades over
+  one tile at either end (that is where it would walk into something the plan has claimed, or off
+  the frame — and a pass that survives whole gets those fade *points* too, because fading the two
+  endpoints of a two-point route is a crossing that is transparent from end to end), and a run
   shorter than `minLen` (four tiles; ten for a stroller, twelve for a car) is dropped. A `part`
   then takes a stretch of what survives, so three strollers handed the same arc are three walks.
   **A `pick` group is how a builder asks for a few without having seen the frame**: `streetWalkers`
   hands in both pavements of every run both ways, `traffic` the right-hand lane of every run both
-  ways, and the `keep` worth most survive — worth being the length *seen*, inside the frame and
-  not under the hand (`lengthInside`). Which pavements survive depends on the viewport: on a
-  monitor it is the ones with the plaza or the low front band on their near side, on a phone the
-  deep top and bottom bands. The moon and the citadel end up with a handful, which is honest.
-  `sceneLife.test.ts` pins the trimming, the selection, the depth arithmetic, and that `render.ts`
-  reads the depth back and selects before a single sprite is built.
+  ways, and the `keep` worth most survive — worth being the length *seen*, inside the frame, not
+  under the hand, and not behind anything the room drew nearer (`lengthInside`, `occluded`); a
+  survivor worth less than its `minLen` is dropped whatever its length, since a route that runs
+  whole behind a terrace is a layer nobody sees. Which pavements survive depends on the viewport:
+  on a monitor it is the ones with the plaza or the low front band on their near side, on a phone
+  the deep top and bottom bands. `sceneLife.test.ts` pins the trimming, the selection, the depth
+  arithmetic, and that `render.ts` reads the depth back and selects before a single sprite is built.
+- **What stands in front of a route is a veil over the sprite, never a cut in the route**
+  (`life.ts: occlusionVeil`, `Sprite.mask`, `render.ts: veilImage`, `LifeLayer`'s `.veil`). After
+  the frame is drawn the room is rendered **once more, as depth** — the same scene under a
+  material that packs eye depth into RGBA, into a target at half the frame's resolution, read back
+  once and released with the context, the shadows and the halos left out. The first version of
+  this used that map to *cut* routes: a sample was refused wherever anything in the depth map was
+  nearer than the thing's own silhouette by more than `OCCLUSION_SLACK` (0.3 tiles), the silhouette
+  being the `body` stood on the sample and its depth written per row from the camera's pitch
+  (`depthAt`: a tile up the screen on the ground is `1 / tan(pitch)` farther, a tile up a thing
+  standing there is `tan(pitch)` nearer). The arithmetic was right and the consequence was wrong:
+  a pavement has a lamp every block, a bystander at the kerb and a parked car in the lane beside
+  it, and each one is *in front* of the walk line on the far side of the street, so every pavement
+  became a row of three-tile walks — a `pass` fading in beside one lamp and out at the next, a
+  stroller's ring cut into arcs walked there and back between two bystanders. Measured on the
+  boulevard at 1920×1080: eight walkers of 3 to 9 tiles, no car at all. That is what "the things
+  in the rooms walk backwards and fade away" was, and no threshold fixes it, because the test was
+  answering the right question about the wrong thing. Now the same test is made **once per pixel
+  and kept**: `occlusionVeil` walks the route in the depth map's own pixels, finds under each
+  column the ground point the route stands at there (the nearest one where it passes twice, the
+  silhouette's own width either side), and for the rows from its feet up its `body` — plus the
+  little the shadow spreads below — writes 0 where the room's depth is nearer than the thing's own
+  by more than the slack and 255 elsewhere. That byte map is the alpha of a frame-sized PNG
+  (`veilImage`, at the depth map's resolution: the browser stretches it, so the edge of a building
+  is soft by a frame pixel, which reads as the anti-aliasing the room already has), and the sprite's
+  layer wears it as a CSS `mask-image` on a **wrapper that does not move** — the actor is animated
+  inside it — so the walker goes *behind* the lamp post, the bystander and the parked car and comes
+  out the other side, and a car drives its whole run. A sprite with nothing in front of it wears
+  none and costs what it cost. Something in the air is never veiled. The mask is a `data:` URL, which
+  `img-src` already allows, so nothing off this origin is fetched for it. The depth map is still
+  what says what a route is *worth* (above): a route the veil would hide entirely is dropped
+  before a sprite is built for it. `sceneLife.test.ts` pins the veil's arithmetic (a wall in front
+  cuts the rows it covers in the columns the route reaches and nothing else; one behind cuts
+  nothing; the air is never veiled), that `render.ts` cuts on the plan and veils on the depth and
+  hands every sprite its veil, and that the layer wears the mask on the wrapper and not on the
+  actor. The residual: a sprite is one bitmap, so its own silhouette is masked by *anything*
+  nearer along the route's column, including a thing it is standing in front of at another moment
+  of a route that doubles back — the nearer of the two ground points wins, so a doubling route
+  ghosts over rather than vanishes behind.
 - **Pavements are the grid's, and a street is a run.** `SIDEWALK` (1.4 tiles) comes off each side
   of a block before `fill` sees it, so the buildings stop at the building line; walkers keep to
   `WALK_LINE` (0.45 in from that line), standers and lamps to `KERB_LINE` (0.25 in from the kerb),
@@ -1099,6 +1150,32 @@ real element.
 - `Hand` staggers cards in only when the hand grows **from empty** (a deal). Any other growth is a draw, which already has its own deck→hand flier.
 - `DiscardPile`: 2 static neutral under-layers for pile thickness (deliberately untinted — the active-colour ring owns the colour there) + top card keyed on `cardKey(card)` so each new top card remounts and replays a spring settle at a deterministic `hashTilt`.
 - `store.lastPlay { actorIndex, card, at }` is set by `applyCardPlayed` and exists **only** for animation. Never read it for rules decisions.
+
+### The turn clock (`GameView`'s `.turnTimerBar`, `tokens.css`'s `loco-slide`)
+The only place the remaining time is written down, read from across the room and from the seat
+opposite alike, so it stays a full-width strip flush with the safe top edge — the chip row and
+the round badge start 12px lower, so the two never meet. It used to be a 6px band of raw colour
+with a `currentColor` glow, emptied by a `scaleX` that squashed its rounded end into a sliver as
+it went, and coloured by three hex values typed into the keyframes. Now:
+- **The track is a slot, the way a dead action-bar button is**: `--color-surface-sunken`, a hard
+  shadow inside its top edge, a hairline under it, so the bar sits *in* something rather than
+  floating on the room.
+- **The bar is drawn back out of it** (`loco-slide`: `translateX(0)` → `translateX(-100%)` on
+  the whole fill, the track clipping) rather than scaled flat (`loco-drain`, which survives for
+  anything that wants it). Same one compositor-side transform, same `--drain-ms` /
+  `--drain-delay` written by `drainBar`, and the rounded leading edge stays round: a bar being
+  drawn back reads as an object, a rectangle being flattened reads as a bug in the renderer.
+- **It is a raised object at a size where an outline would be half of it**: a gloss along the
+  top and a shade along the bottom in place of the ink line, and a bright cap on the leading edge
+  (`::after`, a white gradient) so the eye has a tip to follow and the heat reads on the tip too.
+- **The heat is the palette's** (`loco-drain-heat`): indigo while there is time, amber past
+  halfway, LOCO Red in the last quarter — orient, warn, act — as `background-color` on the fill,
+  which is what lets the gloss and the cap stay on top of it. A colour written out by hand at a
+  call site is the bug, and the keyframes were three of them.
+- The catch capsule's fill takes `loco-slide` and the gloss for the same reason, and keeps its own
+  paint: five seconds is not long enough to report a trend.
+- Reviewed with `--motion` at 2, 9, 15 and 19 seconds of a 21-second turn on `game-my-turn`, and on
+  `mobile`, where the strip runs under the notch and above the badges exactly as before.
 
 ### Cues stay on the compositor
 A cue that runs for as long as a state lasts — a catch window, a pending stack, the whole match —

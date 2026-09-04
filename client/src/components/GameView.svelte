@@ -389,7 +389,7 @@
        emptying and the colour are driven by drainBar, which never re-renders. -->
   {#if g.turnDeadline !== null}
     <div class="turnTimerBar" class:turnTimerUrgent={turnUrgent}>
-      <div bind:this={turnFill} class="turnTimerFill loco-heat"></div>
+      <div bind:this={turnFill} class="turnTimerFill loco-slide loco-heat"></div>
     </div>
   {/if}
 
@@ -1024,6 +1024,13 @@
   }
 
   /* Per-turn countdown bar */
+  /* The turn clock: a slot cut along the top edge of the screen, and a bar of
+     the palette's colour drawn back out of it. Full width and flush with the
+     safe edge, because it is read from across the room and from the seat
+     opposite alike; the chip row and the round badge start 12px lower, so the
+     two never meet. The slot is sunken the way a dead action-bar button is
+     (fill below the chrome, hard shadow inside its top edge, hairline under it)
+     so the bar sits *in* something rather than floating on the room. */
   .turnTimerBar {
     position: absolute;
     /* Under the notch, not behind it: this bar is the only place the remaining
@@ -1031,26 +1038,50 @@
     top: var(--safe-top);
     left: var(--safe-left);
     right: var(--safe-right);
-    height: 6px;
-    background: rgba(36, 21, 70, 0.18);
+    height: 8px;
+    background: var(--color-surface-sunken);
+    border-bottom: 1px solid var(--color-hairline);
+    box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.35);
+    overflow: hidden;
     z-index: 5;
     pointer-events: none;
   }
 
-  /* Full width and drained by scaleX (see .loco-draining in tokens.css). Width was
-     the obvious property and the wrong one: it lays out the page on every frame,
-     where a transform is composited. The fill's colour comes from the drain
-     animation too, so nothing here sets a background. */
+  /* Full width and drained by translateX (`loco-slide` in tokens.css), so the
+     rounded leading edge and the gloss on it ride out with the bar instead of
+     being squashed flat. Width was the obvious property and the wrong one: it
+     lays out the page on every frame, where a transform is composited. The
+     fill's colour comes from the drain animation (`loco-heat`), so nothing
+     here sets a background colour. */
   .turnTimerFill {
+    position: relative;
     height: 100%;
-    border-bottom-right-radius: 3px;
-    border-top-right-radius: 3px;
-    background: var(--color-primary);
-    box-shadow: 0 0 12px currentColor;
+    border-radius: 0 var(--radius-full) var(--radius-full) 0;
+    background-color: var(--color-tertiary);
+    /* A gloss along the top and a shade along the bottom: the bar is a raised
+       object like everything else here, at a size where an outline would be
+       half of it. */
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.32),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.22);
+  }
+
+  /* The leading edge: a bright cap the eye can follow, glowing in the bar's
+     own colour so the heat reads on the tip too. */
+  .turnTimerFill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55));
   }
 
   /* Urgency pulse sits on the track, not on the fill: the fill's transform and
-     animation already belong to the drain, and one node never has two owners. */
+     animation already belong to the drain, and one node never has two owners.
+     The track is what dims, so the bar inside it beats against its slot. */
   .turnTimerUrgent {
     animation: timerPulse 0.6s ease-in-out infinite alternate;
   }

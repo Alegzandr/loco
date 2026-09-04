@@ -92,14 +92,19 @@ export class Placer {
     return keys
   }
 
-  /** True when nothing claimed so far overlaps `f`. */
-  free(f: Footprint): boolean {
+  /**
+   * True when nothing claimed so far overlaps `f`, grown by `margin` — the
+   * placer's own by default, which keeps two things built from touching; a
+   * thing passing through asks with none, since brushing past is not standing
+   * inside.
+   */
+  free(f: Footprint, margin = this.margin): boolean {
     const seen = new Set<Footprint>()
     for (const key of this.keysOf(f)) {
       for (const other of this.grid.get(key) ?? []) {
         if (seen.has(other)) continue
         seen.add(other)
-        if (overlaps(f, other, this.margin)) return false
+        if (overlaps(f, other, margin)) return false
       }
     }
     return true

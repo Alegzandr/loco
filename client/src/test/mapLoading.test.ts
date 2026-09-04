@@ -4,6 +4,9 @@ import { act } from './renderHook'
 import GameView from '../components/GameView.svelte'
 import { gameStore } from '../hooks/gameStore'
 import type { CardDTO } from '../types/protocol'
+import { MAP_BAR_FULL_MS } from '../hooks/mapPreload'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 
 const red3: CardDTO = { color: 'red', kind: 'number', value: 3 }
 
@@ -128,6 +131,35 @@ describe('map loading screen', () => {
 
     await act(async () => { flushRenders() })
     await waitFor(() => expect(onSend).toHaveBeenCalledWith({ type: 'map_ready' }))
+  })
+
+  // A load ends full or it does not read as a load. Nothing under the bar ever
+  // reports one — the render stops at its last batch of sprites — so the screen
+  // used to lift on a bar around nine tenths, which says the room was given up
+  // on rather than finished. The bar is filled first and map_ready waits for it.
+  it('fills the bar before it answers map_ready', async () => {
+    renders.hold = true
+    const onSend = renderGame()
+    const panel = await screen.findByTestId('map-loading')
+    const fill = () => panel.querySelector('.fill') as HTMLElement
+
+    await act(async () => { flushRenders() })
+    await waitFor(() => expect(fill().style.transform).toBe('scaleX(1)'))
+    expect(onSend).not.toHaveBeenCalledWith({ type: 'map_ready' })
+
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith({ type: 'map_ready' }), { timeout: 2000 })
+    expect(fill().style.transform).toBe('scaleX(1)')
+  })
+
+  // The hold has to outlast the travel it is paying for: the two live in
+  // different files, so the number is read off the stylesheet rather than
+  // trusted to be edited alongside it.
+  it('holds the bar full for at least as long as the fill takes to travel', () => {
+    const src = readFileSync(path.resolve(__dirname, '..', 'components', 'MapLoadingScreen.svelte'), 'utf8')
+    const fill = src.slice(src.indexOf('.fill {'))
+    const travel = /transition:\s*transform\s*([\d.]+)s/.exec(fill)
+    expect(travel).not.toBeNull()
+    expect(MAP_BAR_FULL_MS).toBeGreaterThanOrEqual(Number(travel![1]) * 1000)
   })
 
   // A render that fails (no WebGL, a lost context) must never strand a player:

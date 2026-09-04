@@ -189,9 +189,11 @@ try {
     /**
      * The next button has to work, and the bag has to deal.
      *
-     * Pressing next swaps on a bar line, so a second is plenty. Collecting the
-     * ids proves three things at once: the button changes track, the shuffle
-     * never repeats back to back, and the bag really does cover the catalogue.
+     * Pressing next is answered on the spot (a press is a press; only the
+     * bed's own changes wait for a bar line), so a couple of seconds is plenty.
+     * Collecting the ids proves three things at once: the button changes
+     * track, the shuffle never repeats back to back, and the bag really does
+     * cover the catalogue.
      */
     music.stop()
     music.setIntensity(0.4)
@@ -250,9 +252,12 @@ try {
     music.setIntensity(0.05)
     music.start('game')
     const ladder = []
+    // Each rung is answered on the outgoing loop's next bar line, which at 70
+    // BPM is up to 3.4s away, after the slew and the hold: seven seconds is
+    // the honest wait, and `getLoopId` names the outgoing piece until then.
     for (const target of [0.05, 0.25, 0.4, 0.95]) {
       music.setIntensity(target)
-      await settle(5200)
+      await settle(7000)
       ladder.push(`${music.getSection()}:${music.getLoopId()}`)
     }
 

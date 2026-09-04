@@ -2,11 +2,18 @@ import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  barSeconds,
   CROSSFADE_S,
+  fadeFor,
+  FALL_FADE_S,
   FAMILIES,
+  HANDOVER_LOOKAHEAD_S,
+  HANDOVER_TAIL_S,
   LAPS_PER_LOOP,
+  MIN_LEAD_S,
   nextFamily,
   resumeOffset,
+  RISE_FADE_S,
   SECTION_RELEASE_MS,
   sectionHoldMs,
   PREFETCH_MAX,
@@ -19,6 +26,9 @@ import {
   sectionFor,
   shuffledOrder,
   SLEW_PER_SEC,
+  STOP_FADE_S,
+  untilNextBar,
+  untilNextWrap,
   type Section,
 } from '../audio/music'
 import { LOOPS } from '../audio/tracks'
@@ -67,6 +77,18 @@ describe('the loop registry', () => {
       it('declares at least one real section', () => {
         expect(loop.sections.length).toBeGreaterThan(0)
         for (const s of loop.sections) expect(SECTIONS).toContain(s)
+      })
+
+      it('is a whole number of bars at the tempo written for it', () => {
+        // The bar grid a change lands on is counted from the loop's own start,
+        // and it only survives the wrap because the loop is a whole number of
+        // bars. A loop that is not one at this tempo has the wrong tempo
+        // written here: the composer cut every one of these on a bar line.
+        expect(loop.bpm, loop.id).toBeGreaterThanOrEqual(60)
+        expect(loop.bpm, loop.id).toBeLessThanOrEqual(190)
+        const bars = (loop.seconds * loop.bpm) / 240
+        expect(Math.abs(bars - Math.round(bars)), `${loop.id}: ${bars} bars`).toBeLessThan(0.02)
+        expect(barSeconds(loop)).toBeCloseTo(240 / loop.bpm, 9)
       })
 
       it('belongs to one of the families', () => {
@@ -134,6 +156,18 @@ describe('the loop registry', () => {
       }
       const groove = loopsFor('groove', family).filter((l) => l.family === family)
       expect(groove.length, `${family} groove`).toBeGreaterThanOrEqual(2)
+      // The wait and the endgame are the two other places a table sits: the
+      // home screen holds the build-up for as long as somebody reads it, and
+      // an endgame holds the drop for as long as somebody stays on one card.
+      // With one loop each the lap handover had nothing to hand over to, so
+      // the lounge's endgame was one 44-second funk loop on repeat and its
+      // waiting room one piece of jazz for the whole evening. The breakdown
+      // is exempt: it plays under the round summary and the recap, both of
+      // which are left in under a minute.
+      for (const section of ['buildup', 'drop'] as const) {
+        const own = loopsFor(section, family).filter((l) => l.family === family)
+        expect(own.length, `${family} ${section}`).toBeGreaterThanOrEqual(2)
+      }
     }
   })
 
@@ -198,6 +232,62 @@ describe('the arrangement ladder', () => {
     // section the ending is meant to sound like.
     expect(sectionHoldMs('drop', 'breakdown')).toBe(SECTION_HOLD_MS)
     expect(sectionHoldMs('groove', 'breakdown')).toBe(SECTION_HOLD_MS)
+  })
+})
+
+describe('where a change lands', () => {
+  it('puts a change on the next bar line, never inside the scheduling latency', () => {
+    // Half a bar in: half a bar to go.
+    expect(untilNextBar(1, 2)).toBeCloseTo(1, 9)
+    // On the line already, or a hair after it: this bar is too close, take the next.
+    expect(untilNextBar(2, 2)).toBeCloseTo(2, 9)
+    expect(untilNextBar(2 - MIN_LEAD_S / 2, 2)).toBeCloseTo(2 + MIN_LEAD_S / 2, 9)
+    expect(untilNextBar(2 - MIN_LEAD_S, 2)).toBeCloseTo(MIN_LEAD_S, 9)
+    // The grid is the loop's, so a run of several laps still lands on it.
+    expect(untilNextBar(45.5, 2)).toBeCloseTo(0.5, 9)
+    // Scheduled ahead (a landing not yet started): counted from its start.
+    expect(untilNextBar(-0.5, 2)).toBeCloseTo(0.5, 9)
+    expect(untilNextBar(3, 0)).toBe(0)
+    expect(untilNextBar(Number.NaN, 2)).toBe(0)
+  })
+
+  it('names the wrap that completes each lap', () => {
+    expect(untilNextWrap(0, 40)).toEqual({ wait: 40, laps: 1 })
+    expect(untilNextWrap(39.9, 40).laps).toBe(1)
+    expect(untilNextWrap(39.9, 40).wait).toBeCloseTo(0.1, 9)
+    expect(untilNextWrap(40, 40)).toEqual({ wait: 40, laps: 2 })
+    expect(untilNextWrap(77, 40)).toEqual({ wait: 3, laps: 2 })
+    // A voice scheduled ahead has not started its first lap.
+    expect(untilNextWrap(-2, 40)).toEqual({ wait: 40, laps: 1 })
+    expect(untilNextWrap(5, 0)).toEqual({ wait: 0, laps: 0 })
+  })
+
+  it('fades quickly upward and slowly downward', () => {
+    expect(fadeFor('groove', 'drop')).toBe(RISE_FADE_S)
+    expect(fadeFor('breakdown', 'groove')).toBe(RISE_FADE_S)
+    expect(fadeFor('drop', 'groove')).toBe(FALL_FADE_S)
+    expect(fadeFor('groove', 'breakdown')).toBe(FALL_FADE_S)
+    expect(RISE_FADE_S).toBeLessThan(CROSSFADE_S)
+    expect(CROSSFADE_S).toBeLessThan(FALL_FADE_S)
+    expect(RISE_FADE_S).toBeGreaterThanOrEqual(1)
+    expect(FALL_FADE_S).toBeLessThanOrEqual(6)
+    expect(STOP_FADE_S).toBeGreaterThan(0)
+    expect(STOP_FADE_S).toBeLessThan(CROSSFADE_S)
+  })
+
+  it('decides a handover early enough to load and late enough to be one', () => {
+    // The tail must fit inside the lookahead, or the fade would have to start
+    // before the file is known to be ready; and both must fit inside the
+    // shortest loop, or a handover would be decided before the lap it ends.
+    expect(HANDOVER_TAIL_S).toBeLessThan(HANDOVER_LOOKAHEAD_S)
+    const shortest = Math.min(...LOOPS.map((l) => l.seconds))
+    expect(HANDOVER_LOOKAHEAD_S).toBeLessThan(shortest / 4)
+    // A bar of the slowest loop is still shorter than the wait for a fall to
+    // be believed, so aligning to it never doubles that wait.
+    const slowestBar = Math.max(...LOOPS.map((l) => barSeconds(l)))
+    expect(slowestBar * 1000).toBeLessThan(SECTION_RELEASE_MS / 2)
+    expect(MIN_LEAD_S).toBeGreaterThan(0)
+    expect(MIN_LEAD_S).toBeLessThan(0.5)
   })
 })
 

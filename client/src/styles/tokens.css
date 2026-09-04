@@ -347,20 +347,34 @@ html[data-room] body {
    `<style>` block, which Svelte would scope out of the hook's reach; `--drain-ms` / `--drain-delay` are written on the
    element by the hook (the delay is negative: the part already elapsed).
 
+   Two ways to drain. `loco-drain` squeezes the fill (scaleX), which squashes
+   whatever cap it has into a sliver as it empties. `loco-slide` moves the whole
+   fill out of the left of its track instead (translateX), so a rounded leading
+   edge stays round and a highlight drawn on it rides along: the bar reads as an
+   object being drawn back rather than a rectangle being flattened. Both are one
+   compositor-side transform; the track clips.
+
    Add `loco-heat` for a bar that should also change colour: it runs on the same
-   clock, so the colour becomes a second readout of the same number: blue while
-   there is time, amber past halfway, red in the last quarter. It is keyed off
-   elapsed time, hence the reversed thresholds. The short catch window opts out
-   and keeps its own paint: five seconds is not long enough to report a trend. */
+   clock, so the colour becomes a second readout of the same number: indigo while
+   there is time, amber past halfway, LOCO Red in the last quarter — the palette's
+   own three, in the roles the palette gives them (orient, warn, act), never a hex
+   written here. It is keyed off elapsed time, hence the reversed thresholds. The
+   short catch window opts out and keeps its own paint: five seconds is not long
+   enough to report a trend. */
 @keyframes loco-drain {
   from { transform: scaleX(1); }
   to   { transform: scaleX(0); }
 }
 
+@keyframes loco-slide {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
 @keyframes loco-drain-heat {
-  0%,     50%  { background: #4d96ff; }
-  50.01%, 75%  { background: #ffa502; }
-  75.01%, 100% { background: #ff4757; }
+  0%,     50%  { background-color: var(--color-tertiary); }
+  50.01%, 75%  { background-color: var(--color-amber); }
+  75.01%, 100% { background-color: var(--color-primary); }
 }
 
 .loco-draining {
@@ -369,9 +383,19 @@ html[data-room] body {
   animation: loco-drain var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
 }
 
+.loco-draining.loco-slide {
+  animation: loco-slide var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
+}
+
 .loco-draining.loco-heat {
   animation:
     loco-drain      var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards,
+    loco-drain-heat var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
+}
+
+.loco-draining.loco-slide.loco-heat {
+  animation:
+    loco-slide      var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards,
     loco-drain-heat var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
 }
 

@@ -72,7 +72,7 @@ sent on the wire and they are not in the browser bundle.
 Every sound effect is synthesised at runtime by `client/src/audio/sfx.ts`: there
 is no sample library to credit for any of them.
 
-The music is not. The bed is eighteen loops from Abstraction (Tallbeard Studios),
+The music is not. The bed is nineteen loops from Abstraction (Tallbeard Studios),
 *Music Loop Bundle*, released under **CC0 1.0** — copyright waived, no
 attribution required, commercial use and modification permitted. This entry is
 therefore a credit and not an obligation, and it is here because the work
@@ -82,7 +82,7 @@ deserves one:
 | --- | --- | --- |
 | [Music Loop Bundle](https://tallbeard.itch.io/music-loop-bundle) (`client/public/music/`) | [Abstraction](https://abstractionmusic.com/) | CC0 1.0 |
 
-Eighteen loops of it are vendored, normalised to −18 LUFS and re-encoded to MP3; they
+Nineteen loops of it are vendored, normalised to −18 LUFS and re-encoded to MP3; they
 are served from this origin like every other asset, never from a CDN. The
 authors ask that their work not be used for NFTs, for training machine-learning
 models, or resold unmodified, and none of those happens here.

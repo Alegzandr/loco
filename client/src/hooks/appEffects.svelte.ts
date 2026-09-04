@@ -95,10 +95,10 @@ export function gameAudio(): void {
       music.setIntensity(intensityOf(next))
       const scene = sceneFor(next)
       // start() is idempotent: it swaps the scene in place when the bed is already
-      // running, so moving lobby→game changes the pacing without cutting the pad
-      // mid-bar.
-      if (scene === 'off') music.stop()
-      else music.start(scene)
+      // running, so moving lobby→game changes the palette without cutting the
+      // bed mid-bar — and `off` is a scene too, one that fades the bed out
+      // rather than cutting it, which is what `stop()` alone would do.
+      music.start(scene)
     })
 
     return () => {

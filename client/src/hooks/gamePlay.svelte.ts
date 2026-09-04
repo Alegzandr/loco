@@ -2,8 +2,9 @@ import type { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
 import { type SceneSpec, sceneKey } from '../components/cards/maps'
 import { prepareScene, renderSizeFor } from '../components/scene/sceneCache'
+import { nextPaint } from '../components/scene/nextPaint'
 import type { FeltAnchor } from '../components/cards/layout'
-import { MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
+import { MAP_BAR_FULL_MS, MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
 import { prefersReducedMotion } from './motionPref'
 import { live } from './live.svelte'
 import { untrack } from 'svelte'
@@ -385,31 +386,51 @@ function mapPreload(
     abandon?.()
     startedFor = key
 
-    let cancelled = false
-    const timer = window.setTimeout(() => {
-      if (cancelled) return
-      cancelled = true
-      state = { progress: 1, done: true }
-    }, MAP_PRELOAD_TIMEOUT_MS)
+    let settled = false
+    let abandoned = false
+    let timer = 0
+    let full = 0
+
+    // A load ends full. The bar is put at one and `done` — the thing that sends
+    // map_ready and so lifts this screen — waits for it to have been painted
+    // and travelled there. Nothing under the bar ever reported one: the render
+    // stops at its last batch of sprites and the curtain came down on a bar
+    // somewhere near nine tenths, which reads as a room given up on rather than
+    // finished. The wait is paid once per match, behind a curtain that is
+    // already up. The preload timeout below ends the same way for the same
+    // reason, and 12s + this still lands well under the server's own backstop.
+    const settle = () => {
+      if (settled || abandoned) return
+      settled = true
+      window.clearTimeout(timer)
+      state = { progress: 1, done: false }
+      void nextPaint().then(() => {
+        if (abandoned) return
+        full = window.setTimeout(
+          () => {
+            if (!abandoned) state = { progress: 1, done: true }
+          },
+          prefersReducedMotion() ? 0 : MAP_BAR_FULL_MS,
+        )
+      })
+    }
+
+    timer = window.setTimeout(settle, MAP_PRELOAD_TIMEOUT_MS)
 
     state = { progress: 0, done: false }
     const size = renderSizeFor(window.innerWidth, window.innerHeight)
     // Read once, untracked: a felt that moves mid-render (a seat arriving) is
     // the backdrop's to re-render, not a reason to restart the gate.
     const felt = untrack(anchor)
-    const settle = () => {
-      if (cancelled) return
-      cancelled = true
-      window.clearTimeout(timer)
-      state = { progress: 1, done: true }
-    }
     prepareScene(spec, size, felt, (p) => {
-      if (!cancelled && p < 1) state = { progress: p, done: false }
+      if (!settled && !abandoned && p < 1) state = { progress: p, done: false }
     }).then(settle, settle)
 
     abandon = () => {
-      cancelled = true
+      abandoned = true
+      settled = true
       window.clearTimeout(timer)
+      window.clearTimeout(full)
     }
   })
 

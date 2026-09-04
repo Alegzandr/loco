@@ -1054,7 +1054,10 @@ reads.
   thread is dealing a hand. This replaced a `requestAnimationFrame` → state loop that
   re-rendered the entire board for the whole 30-second turn *and* the 5-second catch
   window, i.e. exactly during the two moments the game asks for a fast reaction.
-- It drains by `scaleX`, never `width`: width lays out the page every frame.
+- It drains by a transform, never `width`: width lays out the page every frame. `loco-drain` is a
+  `scaleX`; `loco-slide` moves the whole fill out of its track instead, which is what the turn
+  clock and the catch capsule wear so their rounded tip stays a tip (`docs/notes/visual.md`,
+  "The turn clock").
 - The colour is a second readout of the same clock (`loco-heat`), so no timer or state
   is needed to change it. The 5s catch bar opts out: five seconds cannot show a trend.
 - **A countdown bar survives `prefers-reduced-motion`.** The blanket 0.01ms rule at the

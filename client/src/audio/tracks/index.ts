@@ -35,6 +35,7 @@ export const LOOPS: LoopDef[] = [
     family: 'lounge',
     sections: ['breakdown'],
     seconds: 101.647074829932,
+    bpm: 85,
   },
   {
     id: 'small-talk',
@@ -46,6 +47,7 @@ export const LOOPS: LoopDef[] = [
     family: 'party',
     sections: ['breakdown', 'buildup'],
     seconds: 60,
+    bpm: 80,
   },
   {
     id: 'rowdy',
@@ -57,6 +59,7 @@ export const LOOPS: LoopDef[] = [
     family: 'party',
     sections: ['buildup', 'groove'],
     seconds: 72,
+    bpm: 120,
   },
   {
     id: 'sleight',
@@ -66,8 +69,9 @@ export const LOOPS: LoopDef[] = [
       en: 'The music of somebody setting something up.',
     },
     family: 'lounge',
-    sections: ['groove'],
+    sections: ['groove', 'drop'],
     seconds: 56.470589569161,
+    bpm: 85,
   },
   {
     id: 'on-the-run',
@@ -79,6 +83,7 @@ export const LOOPS: LoopDef[] = [
     family: 'lounge',
     sections: ['groove', 'drop'],
     seconds: 43.8260997732426,
+    bpm: 76.67,
   },
   {
     id: 'bad-manners',
@@ -90,6 +95,7 @@ export const LOOPS: LoopDef[] = [
     family: 'party',
     sections: ['drop'],
     seconds: 50.0869614512472,
+    bpm: 115,
   },
   {
     id: 'nightcap',
@@ -101,6 +107,7 @@ export const LOOPS: LoopDef[] = [
     family: 'night',
     sections: ['breakdown', 'buildup'],
     seconds: 40.421065759637,
+    bpm: 95,
   },
   {
     id: 'sidetrack',
@@ -110,8 +117,9 @@ export const LOOPS: LoopDef[] = [
       en: 'The match has picked a direction, nobody knows which yet.',
     },
     family: 'night',
-    sections: ['buildup', 'groove'],
+    sections: ['groove'],
     seconds: 51,
+    bpm: 80,
   },
   {
     id: 'mirage',
@@ -123,6 +131,7 @@ export const LOOPS: LoopDef[] = [
     family: 'night',
     sections: ['groove'],
     seconds: 61.5384807256236,
+    bpm: 78,
   },
   {
     id: 'pile-up',
@@ -134,6 +143,7 @@ export const LOOPS: LoopDef[] = [
     family: 'party',
     sections: ['groove', 'drop'],
     seconds: 38.4,
+    bpm: 100,
   },
   {
     id: 'uproar',
@@ -145,6 +155,7 @@ export const LOOPS: LoopDef[] = [
     family: 'party',
     sections: ['groove', 'drop'],
     seconds: 43.6363718820862,
+    bpm: 110,
   },
   {
     id: 'idle-hands',
@@ -154,8 +165,9 @@ export const LOOPS: LoopDef[] = [
       en: 'Nobody is playing, everybody is looking at the felt.',
     },
     family: 'lounge',
-    sections: ['breakdown'],
+    sections: ['breakdown', 'buildup'],
     seconds: 101.684218,
+    bpm: 94.41,
   },
   {
     id: 'fanned-out',
@@ -167,6 +179,19 @@ export const LOOPS: LoopDef[] = [
     family: 'lounge',
     sections: ['breakdown', 'buildup'],
     seconds: 87.272744,
+    bpm: 88,
+  },
+  {
+    id: 'late-arrivals',
+    title: 'Late Arrivals',
+    blurb: {
+      fr: 'Le jazz qui joue pendant que les dernières chaises se remplissent.',
+      en: 'The jazz that plays while the last chairs fill up.',
+    },
+    family: 'lounge',
+    sections: ['buildup'],
+    seconds: 54.857143,
+    bpm: 70,
   },
   {
     id: 'patience',
@@ -178,6 +203,7 @@ export const LOOPS: LoopDef[] = [
     family: 'night',
     sections: ['buildup'],
     seconds: 90.352948,
+    bpm: 85,
   },
   {
     id: 'full-table',
@@ -189,6 +215,7 @@ export const LOOPS: LoopDef[] = [
     family: 'lounge',
     sections: ['groove'],
     seconds: 60.923084,
+    bpm: 130,
   },
   {
     id: 'clockwork',
@@ -200,6 +227,7 @@ export const LOOPS: LoopDef[] = [
     family: 'night',
     sections: ['groove'],
     seconds: 67.764717,
+    bpm: 85,
   },
   {
     id: 'neck-and-neck',
@@ -211,6 +239,7 @@ export const LOOPS: LoopDef[] = [
     family: 'night',
     sections: ['groove', 'drop'],
     seconds: 56.470590,
+    bpm: 85,
   },
   {
     id: 'runaway',
@@ -222,6 +251,7 @@ export const LOOPS: LoopDef[] = [
     family: 'night',
     sections: ['drop'],
     seconds: 58.666667,
+    bpm: 90,
   },
 ]
 

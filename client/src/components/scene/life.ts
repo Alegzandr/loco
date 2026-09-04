@@ -14,15 +14,23 @@
  * paths in the same screen tiles it composes everything else in. This file is
  * the description and the arithmetic; no three.js, no framework.
  *
- * **A route is a candidate until the render has looked at it.** A sprite is
+ * **A route is a candidate until the render has looked at it.** `trimRoute`
+ * keeps the stretch of every route along which the thing stands on ground
+ * the plan has not claimed, inside the frame or just off it. What is left of
+ * a loop is a walk there and back; what is left of nothing is dropped. A
+ * builder may hand in more candidates than it wants (`pick`), and the
+ * survivors worth most — the length anybody sees — are kept.
+ *
+ * **What stands in front of the route is a veil, never a cut.** A sprite is
  * drawn over the whole frame, so a walker behind a house would walk across
  * its roof; the render answers with a depth map (`DepthMap`, one extra pass
- * over the room, read back once) and `trimRoute` keeps the stretch of every
- * route along which the thing would neither stand inside anything the ground
- * plan has claimed nor be overlapped on screen by anything standing nearer
- * the camera. What is left of a loop is a walk there and back; what is left
- * of nothing is dropped. A builder may hand in more candidates than it wants
- * (`pick`), and the longest survivors are kept.
+ * over the room, read back once) and `occlusionVeil` turns it into a mask
+ * for the sprite's layer: every pixel where the room stands nearer the camera
+ * than the thing would at that point of its route is cut out of the layer, so
+ * the walker goes *behind* the lamp post, the bystander and the parked car
+ * and comes out the other side. Cutting the route there instead — which is
+ * what this did — left a pavement of three-tile walks that faded out at every
+ * lamp and turned round at every tree.
  */
 import type { Kit } from './kit'
 
@@ -115,6 +123,11 @@ export interface Sprite {
   canvas: HTMLCanvasElement
   ox: number
   oy: number
+  /**
+   * The frame-sized mask the sprite's layer wears, as an image URL, when
+   * anything in the room stands in front of its route (`occlusionVeil`).
+   */
+  mask?: string
 }
 
 /**
@@ -189,6 +202,20 @@ export function durationFor(actor: Actor): number {
   return Math.max(1000, (routeLength(actor) / actor.speed) * 1000)
 }
 
+/**
+ * Every point one cycle visits, in order: there and back for a bounce, round
+ * to the start for a loop that walks its closing leg, the path as written
+ * otherwise. Shared by the keyframes and the veil, so the two agree about
+ * where the thing goes.
+ */
+export function cycleRoute(actor: Actor): ScreenPt[] {
+  const pts = actor.path
+  const motion = actor.motion ?? (pts.length > 1 ? 'loop' : 'bounce')
+  if (motion === 'bounce') return [...pts, ...pts.slice(0, -1).reverse()]
+  if (closesTheRing(actor)) return [...pts, pts[0]]
+  return [...pts]
+}
+
 export interface Keyframe {
   offset: number
   transform: string
@@ -204,18 +231,12 @@ export interface Keyframe {
  * the sprite when a leg heads left.
  */
 export function routeKeyframes(actor: Actor, w: number, h: number, ppu: number): Keyframe[] {
-  const pts = actor.path.map((p) => toPx(p, w, h, ppu))
-  const motion = actor.motion ?? (pts.length > 1 ? 'loop' : 'bounce')
-  if (pts.length === 1) {
-    const [x, y] = pts[0]
+  const motion = actor.motion ?? (actor.path.length > 1 ? 'loop' : 'bounce')
+  if (actor.path.length === 1) {
+    const [x, y] = toPx(actor.path[0], w, h, ppu)
     return [{ offset: 0, transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)` }]
   }
-  const route =
-    motion === 'bounce'
-      ? [...pts, ...pts.slice(0, -1).reverse()]
-      : closesTheRing(actor)
-        ? [...pts, pts[0]]
-        : [...pts]
+  const route = cycleRoute(actor).map((p) => toPx(p, w, h, ppu))
   const legs: number[] = []
   let total = 0
   for (let i = 1; i < route.length; i++) {
@@ -330,6 +351,84 @@ export function occluded(map: DepthMap, pt: ScreenPt, body: Body): boolean {
   return false
 }
 
+/**
+ * The pixels of the frame a sprite's layer keeps, one byte per depth-map
+ * pixel: 255 where the sprite is drawn, 0 where the room stands in front of
+ * it. Null when nothing does.
+ */
+export interface Veil {
+  data: Uint8ClampedArray
+  w: number
+  h: number
+}
+
+/**
+ * What of the frame stands between the camera and this actor along its route.
+ *
+ * Under each column of the depth map the route has a ground point — the
+ * nearest one, where it passes twice — and the thing standing there covers
+ * the rows from its feet up its `body`, plus the little the shadow spreads
+ * below. A row of that column is veiled when the room's depth there is nearer
+ * than the thing's own by more than `OCCLUSION_SLACK`: the same test
+ * `occluded` makes to decide whether a sample is worth anything, made once
+ * per pixel and kept, so the sprite is masked by the lamp post as it passes
+ * rather than stopped in front of it. A column the route never reaches stays
+ * clear, since nothing is ever drawn there. Something in the air is never
+ * veiled: nothing stands in front of the sky.
+ */
+export function occlusionVeil(map: DepthMap, actor: Actor): Veil | null {
+  if (actor.flying || actor.path.length < 2) return null
+  const body = actor.body ?? DEFAULT_BODY
+  const { w, h, scale, ppu } = map
+  const route = cycleRoute(actor).map((p) => {
+    const [x, y] = toPx(p, map.fw, map.fh, ppu)
+    return [x / scale, y / scale] as [number, number]
+  })
+  // The ground under each column, in map pixels: the lowest point on screen
+  // the route stands at there, the silhouette's own width either side.
+  const ground = new Float32Array(w).fill(NaN)
+  const halfW = ((body.w / 2) * ppu) / scale
+  for (let i = 1; i < route.length; i++) {
+    const [x0, y0] = route[i - 1]
+    const [x1, y1] = route[i]
+    const lo = Math.max(0, Math.floor(Math.min(x0, x1) - halfW))
+    const hi = Math.min(w - 1, Math.ceil(Math.max(x0, x1) + halfW))
+    for (let x = lo; x <= hi; x++) {
+      const t = x1 === x0 ? 1 : Math.min(1, Math.max(0, (x - x0) / (x1 - x0)))
+      const y = x1 === x0 ? Math.max(y0, y1) : y0 + (y1 - y0) * t
+      if (!(ground[x] >= y)) ground[x] = y
+    }
+  }
+  const data = new Uint8ClampedArray(w * h).fill(255)
+  const tall = (body.h * PITCH_COS * ppu) / scale
+  const below = ((body.foot ?? body.w) * PITCH_SIN * ppu) / scale
+  const slack = OCCLUSION_SLACK * PITCH_COS * map.perTile
+  let hidden = 0
+  for (let x = 0; x < w; x++) {
+    const g = ground[x]
+    if (Number.isNaN(g)) continue
+    const sy = (map.fh / 2 - g * scale) / ppu
+    const top = Math.max(0, Math.floor(g - tall))
+    const bottom = Math.min(h - 1, Math.ceil(g + below))
+    for (let y = top; y <= bottom; y++) {
+      const up = ((g - y) * scale) / ppu
+      // Above the feet, a point up the thing; below them, the ground it spreads onto.
+      const own = up >= 0 ? depthAt(map, sy, up) : depthAt(map, sy + up, 0)
+      if (map.data[y * w + x] < own - slack) {
+        data[y * w + x] = 0
+        hidden++
+      }
+    }
+  }
+  return hidden > 0 ? { data, w, h } : null
+}
+
+/** What a thing on the ground with no `body` of its own is taken to be: the moon's rover, a boat. */
+export const DEFAULT_BODY: Body = { w: 0.7, h: 1.2 }
+
+/** The shortest route worth animating, in ground tiles, unless the actor says otherwise. */
+export const MIN_LEN = 4
+
 /** Whether a thing of this actor's body may stand at `pt`. */
 export type Standable = (pt: ScreenPt, actor: Actor) => boolean
 
@@ -352,13 +451,14 @@ function pointAlong(path: ScreenPt[], dist: number): ScreenPt {
  * none worth taking.
  *
  * The route is sampled every `step` ground tiles and each sample asked of
- * `ok`; the longest run of good samples is the route that survives, with the
- * original corners kept along it. A loop that is whole stays a loop; one that
- * is cut becomes a walk there and back along its longest good arc, turning
- * round where it was cut. A `pass` fades at its ends instead, over one tile:
- * where it was cut is where the thing walks behind something, and an end
- * that was not cut is off the frame. Something in the air is
- * returned as it is: nothing stands in front of the sky. Either way the
+ * `ok` — the frame and the ground plan, never what stands in front, which is
+ * the veil's business; the longest run of good samples is the route that
+ * survives, with the original corners kept along it. A loop that is whole
+ * stays a loop; one that is cut becomes a walk there and back along its
+ * longest good arc, turning round where it was cut. A `pass` fades at its
+ * ends instead, over one tile: where it was cut is where the thing would walk
+ * into something the plan has claimed, and an end that was not cut is off
+ * the frame. Something in the air is returned as it is. Either way the
  * duration is resolved from `speed` here, since it is the survivor's length
  * it depends on.
  */
@@ -385,11 +485,14 @@ export function trimRoute(actor: Actor, ok: Standable, step = 0.5): Actor | null
   const n = samples.length
   const good = samples.map((p) => ok(p, actor))
   if (good.every(Boolean)) {
-    if (actor.part) return finish({ ...actor, motion: motion === 'loop' ? 'bounce' : motion, fade: actor.fade || motion === 'pass' }, actor.minLen ?? 4)
-    if (routeLength({ ...actor, motion: 'pass' }) < (actor.minLen ?? 4)) return null
-    const whole = { ...actor, duration: durationFor(actor) }
-    if (motion === 'pass') whole.fade = true
-    return whole
+    // A whole loop is a loop. A whole pass still fades at its ends — with the
+    // fade *points* `finish` writes: fading the endpoints alone of a two-point
+    // route is a crossing that is transparent from end to end.
+    if (motion === 'loop' && !actor.part) {
+      if (routeLength({ ...actor, motion: 'pass' }) < (actor.minLen ?? MIN_LEN)) return null
+      return { ...actor, duration: durationFor(actor) }
+    }
+    return finish({ ...actor, motion: motion === 'loop' ? 'bounce' : motion, fade: actor.fade || motion === 'pass' }, actor.minLen ?? MIN_LEN)
   }
   // The longest run of good samples; around the end for a loop.
   let bestStart = -1
@@ -420,7 +523,7 @@ export function trimRoute(actor: Actor, ok: Standable, step = 0.5): Actor | null
   // A pass fades where it was cut: that is where it walks behind something.
   // A bounce turns round there instead, which needs no fade.
   const trimmed: Actor = { ...actor, path, motion: motion === 'loop' ? 'bounce' : motion, fade: actor.fade || motion === 'pass' }
-  return finish(trimmed, actor.minLen ?? 4)
+  return finish(trimmed, actor.minLen ?? MIN_LEN)
 }
 
 /** A polyline cut to the stretch between `from` and `to` tiles along it. */
@@ -481,9 +584,11 @@ export function lengthInside(actor: Actor, inside: (pt: ScreenPt) => boolean, st
 
 /**
  * Every actor the room ends up with: each candidate trimmed to where it can
- * stand, and of those a builder handed in as a `pick` group, the `keep` worth
- * most — the longest, unless `worth` says otherwise. Deterministic: ties go
- * by id.
+ * stand, dropped when what survives is worth less than its `minLen`, and of
+ * those a builder handed in as a `pick` group, the `keep` worth most — the
+ * longest, unless `worth` says otherwise. The render's worth is the length
+ * anybody sees, so a route that runs whole behind a terrace costs no layer.
+ * Deterministic: ties go by id.
  */
 export function selectActors(actors: Actor[], ok: Standable, worth: Worth = routeLength): Actor[] {
   const kept: Actor[] = []
@@ -491,6 +596,7 @@ export function selectActors(actors: Actor[], ok: Standable, worth: Worth = rout
   for (const a of actors) {
     const t = trimRoute(a, ok)
     if (!t) continue
+    if (worth(t) < (t.minLen ?? MIN_LEN)) continue
     if (!t.pick) {
       kept.push(t)
       continue

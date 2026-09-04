@@ -45,6 +45,17 @@ describe('Placer', () => {
     expect(p.count).toBe(2)
   })
 
+  it('asks at its own margin unless told another: passing through is not building', () => {
+    const p = new Placer(0.3)
+    p.claim({ x: 0, z: 0, w: 1, d: 1, rot: 0 })
+    // A quarter tile clear of the claim: too close to build beside it, room enough to walk past.
+    const past = { x: 0.9, z: 0, w: 0.3, d: 0.3, rot: 0 }
+    expect(p.free(past)).toBe(false)
+    expect(p.free(past, 0)).toBe(true)
+    // Inside it is refused either way.
+    expect(p.free({ x: 0.2, z: 0, w: 0.3, d: 0.3, rot: 0 }, 0)).toBe(false)
+  })
+
   it('treats a zone claimed first as ground nothing may take', () => {
     const p = new Placer()
     p.claim({ x: 0, z: 0, w: 40, d: 12, rot: Math.PI / 4 })

@@ -30,7 +30,7 @@ big moments (interception, LOCO!, victory) have to land in a muted clip.
 | Rendering | **Svelte + CSS + WAAPI** | DOM-based card rendering, no animation library: the fan and the seats reflow on CSS transitions, and a card in flight is one `element.animate` call handed straight to the browser |
 | State     | **`hooks/store/createStore.ts`** (~40 lines) | `getState`/`setState`/`subscribe` plus a middleware slot, with no framework in it, because the board is read by three modules that render nothing (`hooks/appEffects.svelte.ts`, `hooks/sessionRestore.ts`, the E2E bridge) and by no framework in particular; `src/test/storeCore.test.ts` states every semantic the app depends on |
 | Validation| **Valibot**             | Runtime schema for inbound `ServerMsg`. Both it and the TypeScript types are **generated from `server/protocol/`** by `make protocol`, so Go↔TS drift is not caught late, it is not possible: CI regenerates and fails on any difference. Valibot because it interprets its schemas: a validator that JIT-compiles them with `Function()` is refused by the production CSP, and the failure only ever appears on the served page |
-| Audio     | **Web Audio API** (hand-rolled) | Every sound effect is synthesised at runtime: no sample library, no cache-miss on a cue that has to answer a tap. The music bed is eighteen CC0 loops served from this origin, crossfaded by the game's own tension |
+| Audio     | **Web Audio API** (hand-rolled) | Every sound effect is synthesised at runtime: no sample library, no cache-miss on a cue that has to answer a tap. The music bed is nineteen CC0 loops served from this origin, crossfaded by the game's own tension |
 | Type      | **Fredoka + Nunito** (self-hosted, `@fontsource`) | Rounded display faces that match the art direction; self-hosted so the CSP stays closed |
 | Testing   | **Go test** + **Vitest**| Standard Go testing; Vitest runs on Astro's own Vite config (`getViteConfig`), so tests resolve modules exactly as the build does |
 | Visual QA | **Playwright** screenshot harness | Renders every screen/state without a server and contact-sheets them (`make visual`) |
@@ -175,7 +175,7 @@ the shutdown snapshot on its `/data` mount.
 
 Full grouped list: [`docs/features.md`](docs/features.md) — the lobby and the 1v1 queue, the whole
 112-card deck and every rule on it, the interrupt and catch windows, bots that play the entire game,
-the six rooms rendered in the browser at a random hour under a random sky and the synchronised load into them, an adaptive music bed of eighteen loops that answers the table,
+the six rooms rendered in the browser at a random hour under a random sky and the synchronised load into them, an adaptive music bed of nineteen loops that answers the table,
 and the server surfaces underneath all of it.
 
 ### Known Limitations
@@ -199,7 +199,7 @@ and the server surfaces underneath all of it.
 - Only English and French are translated; adding a language is a new file in `client/src/i18n/` and an
   entry in the `translations` map
 - Sound effects are synthesised, not recorded: the result is deliberately arcade-like rather than
-  orchestral. The music is recorded, and it is eighteen loops rather than written pieces — the bed
+  orchestral. The music is recorded, and it is nineteen loops rather than written pieces — the bed
   varies by choosing between them, not within one
 - The visual showcase and its screenshot harness are development tooling, excluded from production
   builds
