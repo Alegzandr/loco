@@ -227,7 +227,7 @@ describe('the render asks before it draws a sprite', () => {
   it('reads the depth back and trims every candidate before the sprites are built', () => {
     expect(render).toMatch(/readRenderTargetPixels/)
     const trimmed = render.indexOf('selectActors(candidates')
-    const sprites = render.indexOf('for (const actor of actors)')
+    const sprites = render.indexOf('for (const [i, actor] of actors.entries())')
     expect(trimmed).toBeGreaterThan(0)
     expect(sprites).toBeGreaterThan(trimmed)
   })

@@ -49,6 +49,7 @@ import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
 import { renderWithPost } from './post'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
+import { nextPaint } from './nextPaint'
 
 /** Loads the kits `spec`'s room is built from. Fetched once per tab. */
 export function prepareModels(spec: SceneSpec, onProgress?: (p: number) => void): Promise<ModelLib> {
@@ -232,14 +233,41 @@ function dispose(group: Group) {
 }
 
 /**
+ * Where the bar stands after each phase of `renderScene`, in [0, 1] of the
+ * render. The sprites take what is left after `placed`.
+ */
+export const RENDER_STEPS = { built: 0.2, merged: 0.35, drawn: 0.65, placed: 0.75 } as const
+/** Sprites rendered between two paints of the bar. */
+const SPRITES_PER_PAINT = 4
+
+/**
  * Renders `spec` at `size` and returns the frame plus one sprite per actor the
  * builder declared.
  *
  * Throws when a context cannot be had (WebGL off, a driver blacklist, a
  * headless browser without GL). The caller treats that as "no scene", never as
  * "no match".
+ *
+ * **Asynchronous in phases, and the phases are the progress bar.** The build,
+ * the merge, the draw, the depth pass and the sprites each take a slice of the
+ * main thread, and between two of them the function reports where it is and
+ * waits for a paint (`nextPaint`). Done in one synchronous stretch, the whole
+ * render was a freeze the loading screen could not draw through: its bar was
+ * painted empty before and full after, whatever was reported in between. The
+ * weights are a rough measure of where a room's second goes, not a promise.
  */
-export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, models: ModelLib, tier: GraphicsTier = resolveGraphics()): RenderedScene {
+export async function renderScene(
+  spec: SceneSpec,
+  size: RenderSize,
+  felt: FeltAnchor,
+  models: ModelLib,
+  tier: GraphicsTier = resolveGraphics(),
+  onProgress?: (p: number) => void,
+): Promise<RenderedScene> {
+  const report = async (p: number) => {
+    onProgress?.(p)
+    await nextPaint()
+  }
   const rig = lightRig(spec.time, spec.weather)
   const key = sceneKey(spec)
   const ppu = Math.max(size.width, size.height) / TILES_ACROSS
@@ -283,8 +311,10 @@ export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor,
     const kit = new Kit({ rig, rng: seededRng(key), outline, anchor: anchorFor(felt, size), frame: { w: vw, h: vh }, models })
     const candidates: Actor[] = BUILDERS[spec.map.id](kit) ?? []
     const t1 = performance.now()
+    await report(RENDER_STEPS.built)
     const group = kit.build()
     const t2 = performance.now()
+    await report(RENDER_STEPS.merged)
     scene.add(group)
 
     const camera = isoCamera()
@@ -310,6 +340,7 @@ export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor,
     }
     if (!photographed) renderer.render(scene, camera)
     const t3 = performance.now()
+    await report(RENDER_STEPS.drawn)
 
     const frame = document.createElement('canvas')
     frame.width = size.width
@@ -343,6 +374,7 @@ export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor,
     const worth = (actor: Actor) => lengthInside(actor, seen)
     const actors = selectActors(candidates, standable, worth)
     dispose(group)
+    await report(RENDER_STEPS.placed)
 
     // ─── The sprites ─────────────────────────────────────────────────────
     // Same kit, same light, same line weight, same camera: an actor is a
@@ -354,7 +386,10 @@ export function renderScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor,
     const spriteScene = new Scene()
     if (scene.fog) spriteScene.fog = scene.fog
     const corner = new Vector3()
-    for (const actor of actors) {
+    for (const [i, actor] of actors.entries()) {
+      // A sprite is a build and a draw of its own, so a room full of them is
+      // the last quarter of the bar, paid a few at a time.
+      if (i > 0 && i % SPRITES_PER_PAINT === 0) await report(RENDER_STEPS.placed + (1 - RENDER_STEPS.placed) * (i / actors.length))
       const k = new Kit({ rig, rng: seededRng(`${key}:${actor.id}`), outline, anchor: { sx: 0, sy: 0, a: 0, b: 0 }, shadows: !actor.flying, models })
       actor.build(k)
       const g = k.build()

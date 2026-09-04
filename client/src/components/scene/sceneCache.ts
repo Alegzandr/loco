@@ -23,6 +23,7 @@ import type { RenderSize } from './render'
 import type { FeltAnchor } from '../cards/layout'
 import type { Sprite } from './life'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
+import { nextPaint } from './nextPaint'
 
 export interface PreparedScene {
   key: string
@@ -130,8 +131,17 @@ export function peekScene(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, t
 }
 
 /**
+ * Where the bar stands once the engine's chunk is in, and once the models are:
+ * the render's phases take the rest. On a rematch both land at once — the
+ * chunk and the kits are cached per tab — so the bar is mostly the render.
+ */
+export const PROGRESS = { engine: 0.1, models: 0.35 } as const
+
+/**
  * Renders `spec` at `size`, once, reporting progress in [0, 1]. Resolves with
- * the cached entry, bitmap or not.
+ * the cached entry, bitmap or not. **Every report is painted**: the render
+ * yields to the browser between its phases, so the bar moves while the room is
+ * built rather than jumping from empty to full after one long freeze.
  */
 export function prepareScene(
   spec: SceneSpec,
@@ -155,15 +165,18 @@ export function prepareScene(
     let sprites: Sprite[] = []
     try {
       const { renderScene, prepareModels } = await import('./render')
-      onProgress?.(0.2)
-      // The room's models: fetched from this origin once per tab, the middle
-      // half of the bar on a first visit and nothing on a rematch.
-      const models = await prepareModels(spec, (p) => onProgress?.(0.2 + p * 0.55))
-      onProgress?.(0.75)
-      // Let the loading screen paint its first frame before the main thread
-      // is taken for the build and the draw.
-      await new Promise<void>((r) => setTimeout(r, 0))
-      const out = renderScene(spec, size, felt, models, tier)
+      onProgress?.(PROGRESS.engine)
+      // The room's models: fetched from this origin once per tab, a stretch of
+      // the bar on a first visit and nothing on a rematch.
+      const models = await prepareModels(spec, (p) => onProgress?.(PROGRESS.engine + p * (PROGRESS.models - PROGRESS.engine)))
+      onProgress?.(PROGRESS.models)
+      // The bar has to be on screen before the main thread is taken for the
+      // build: a `setTimeout(0)` here fired inside the same frame and the bar
+      // was never painted between empty and full.
+      await nextPaint()
+      // The rest of the bar is the render's own phases, each painted before
+      // the next one takes the thread.
+      const out = await renderScene(spec, size, felt, models, tier, (p) => onProgress?.(PROGRESS.models + p * (1 - PROGRESS.models)))
       canvas = out.frame
       sprites = out.sprites
     } catch (err) {

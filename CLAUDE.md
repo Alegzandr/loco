@@ -1404,6 +1404,12 @@ stated at the top of `styles/tokens.css`:
   measured anything), and a frame within 4% of the size asked for is stretched rather than re-rendered
   (`sizeCloseEnough`, `sameFelt`). Each missing one cost a second full render on the main thread at
   the moment the gate lifted, which is the freeze the gate exists to hide. `sceneLoadingGate.test.ts`.
+- **The loading bar moves because the render yields to a paint between its phases**
+  (`renderScene` is asynchronous, `RENDER_STEPS`, `scene/nextPaint.ts`): build, merge, draw, depth,
+  then the sprites a few at a time, each reported and then **painted** — two animation frames, with a
+  timer for a hidden tab — before the next one takes the thread. A `setTimeout(0)` is not a paint:
+  it fires inside the frame, and the bar went from empty to full over one long freeze. Anything new
+  and heavy inside the render goes between two reports, never inside one. `sceneProgress.test.ts`.
 - **Nothing pale is shown while the room is still building.** `.scene.bare` mixes the hour's sky down
   over the void, and `--room-void` is the horizon **taken down**, not the horizon: a noon sky is a
   near-white, and a full screen of it under the loading screen's white type reads as a page that
