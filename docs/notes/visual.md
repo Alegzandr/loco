@@ -102,6 +102,11 @@ scaling on width alone pushes the hand under the action bar.
   the reference and sits at ≈0.96; an iPhone SE or a 360×640 Android would otherwise show the same
   objects too big for the screen rather than a table seen from above.
 - Between the two (560px ≤ w < 1240px) the scale is 1 and the responsive behaviour takes over.
+- **A phone on its side** (`isLandscape`: wider than tall and under `LANDSCAPE_MAX_H` = 560px tall):
+  the phone reference turned, `clamp(min(w/830, h/405), MIN_BOARD_SCALE, 1)`. But the scale is the
+  smaller half of the answer there — see "A phone on its side" under Mobile: the composition changes,
+  and the mode is decided **from pixels, once**, because a short window at 0.78 is taller in virtual
+  units than a desktop window at 1 and the virtual space cannot tell them apart.
 
 `boardSpace(pxW, pxH, s, insets)` — **not** plain `px / s` — converts pixels to the virtual space. The board is
 bracketed by two bands of **real chrome that do not scale with it**: `TOP_CHROME` (round badge,
@@ -263,6 +268,48 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
   edge to edge, a table that has to drop a column. **A panel that changes shape does it at 46rem**,
   which is where the navigation becomes a burger and where all four sheets flip together; see
   "One sheet, four surfaces" in [`client.md`](client.md).
+
+### A phone on its side (`layout.ts: isLandscape`, `ActionBar.svelte`'s landscape block)
+Portrait stacks the table — seats, felt, hand, action bar — and the two chrome bands that do not
+scale are 198 pixels of that stack. An iPhone 13 Pro sideways with Safari's bar showing is 340
+pixels tall: at the scale that fits the stack a card is 25 pixels wide, so the report was right that
+"horizontal does not work at all" — the board was laid out at scale 1 (the width was past the phone
+threshold), the hand sat across the felt and the seats under the turn pill.
+
+Landscape is therefore **another composition, not a smaller one**, and the whole of it is in
+`layout.ts` behind one `landscape` flag every layout function takes:
+- `isLandscape(w, h)`: wider than tall and under `LANDSCAPE_MAX_H` (560px). Decided in `GameBoard`
+  from the element's pixel size and in `feltInViewport` from the viewport's, and handed down — the
+  virtual space cannot re-derive it (see "Board scale"). A short desktop window gets it too, and it
+  is the right answer there for the same reason.
+- `boardSpace`: the chrome that does not scale is **up the right edge** — the action stack's band,
+  `SIDE_RESERVE` = 160 pixels, the stack's 124px slot plus its padding, stroke, margin and a gap —
+  and along the top, `TOP_CHROME_LANDSCAPE` = 44 for the round chip and the turn clock. Nothing is
+  under the hand: it runs along the bottom safe edge itself, `HAND_MARGIN_LANDSCAPE` above it.
+- `seatLayout` → `seatColumn`: the seats stand in a column down the left band
+  (`SEAT_BAND_LANDSCAPE`, a compact pill and its margins), centred on the felt, **next player at the
+  bottom** — play runs clockwise on screen, 6 → 9 → 12 → 3, so the ring is unchanged. Compact pills
+  while the column holds them, mini when it needs the room; what the column cannot hold continues
+  **along the top of the felt, left to right**, stopping short of the chip row (`CHIP_ROW_CLEAR`),
+  and the felt drops under that row by `blockHeight` exactly as it does under a portrait row.
+- `tableRect`: the felt takes the whole band between the top chrome and the hand and the whole
+  width right of the seat band, flatter than portrait's oval, never taller than the band.
+- The piles stand **high in the felt** (`pileTop`, `PILE_INSET_LANDSCAPE`) and the turn pill takes
+  the band under them, centred on the felt (`turnPillPlace`, which also owns the portrait reserve
+  above the hand): between a felt that ends a hair above the hand and a hand whose top edge carries
+  every card's value, there was nowhere else to put it. A felt squeezed under a top row is shorter
+  than the piles and the pill together; the pill then rides the bottom rim and stops short of the
+  hand.
+- The action bar is a **stack**: draw, Contre-LOCO!, pass, top to bottom, the reaction still in
+  the middle, the LOCO! chip above it, at the right safe edge. The same three fixed slots that never
+  reflow — only the axis turns, with the phone. `@media (orientation: landscape) and (max-height:
+  559px)`, and every measurement the `max-width: 480px` block sets is set again, because a phone on
+  its side is wider than that. The chip row stays top-right, above the stack.
+
+`landscape.test.ts` runs the board's whole chain at 844×340 with the notch on one flank, and pins
+the stack's CSS to `SIDE_RESERVE` and `LANDSCAPE_MAX_H`, since a stylesheet cannot import a constant.
+Review with `make visual ARGS="--viewports=landscape"`, the only viewport the composition is visible
+in; `game-eight-players` is the one with a top row.
 
 ### Safe areas (the notch and the home indicator)
 The page owns the whole screen and keeps the game off its edges. Both halves are needed: without
@@ -1148,7 +1195,14 @@ real element.
   - **Hand grew by 1**: deck→last-slot card-back flier (draws).
   - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.
 - Hover lift: CSS-only (`Hand.svelte`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
-  **The turn pill's reserve is that transform written out** (`TurnIndicator.svelte`: `PILL_H +
+  **The hover is a mouse's and nobody else's**: `.hovered` is set on `pointerenter` gated on
+  `pointerType === 'mouse'`. It was `mouseenter`, which a touch screen synthesises on the tap and
+  never follows with a `mouseleave` until the finger lands somewhere else, so a card tapped and
+  refused stayed lifted and straightened over the fan for the rest of the turn — the "it puts a card
+  forward and it stays like that" of the bug report. A finger gets the press (`.slot:active`) and
+  nothing else, and the platform's grey tap wash is off the card (`-webkit-tap-highlight-color`).
+  `handTouch.test.ts`; same rule as the deck's `@media (hover: hover)` below.
+  **The turn pill's reserve is that transform written out** (`layout.ts: turnPillPlace`, `TURN_PILL_H +
   REST_LIFT + HOVER_LIFT + CLEARANCE`, where `HOVER_LIFT = 14 × 1.08 + 0.04 × CARD_H`). It was a
   flat 58px, which cleared the 9px rest lift and nothing else, so a card under the pointer put its
   top ~20px into the pill. Change the hover and the reserve follows; change the reserve by hand and

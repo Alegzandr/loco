@@ -82,6 +82,18 @@ const VIEWPORTS = {
     hasTouch: true,
     insets: { top: 59, right: 0, bottom: 34, left: 0 },
   },
+  // A phone on its side (iPhone 13 Pro, Safari's bar still showing, so the
+  // page is 340px tall). The board turns into its landscape composition here
+  // — seats down the left, the action stack up the right, the hand along the
+  // bottom — and this is the only viewport that composition is visible in.
+  // The notch is on one flank and the home indicator still along the bottom.
+  landscape: {
+    viewport: { width: 844, height: 340 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    insets: { top: 0, right: 47, bottom: 21, left: 47 },
+  },
 }
 
 const viewports = String(args.viewports ?? 'desktop,mobile').split(',').filter(Boolean)

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
-  import { CARD_H, BOTTOM_RESERVE } from './cardTheme'
+  import { turnPillPlace } from './layout'
   import { reducedMotion } from '../../hooks/uiPrefs.svelte'
 
   export type TurnTexts = {
@@ -23,7 +23,12 @@
     canCounter: boolean
     currentTurn: number
     players: { index: number; nickname: string }[]
+    width: number
     height: number
+    /** Vertical space claimed by the opponent seats — the felt, and the pill in landscape, follow it. */
+    topReserve?: number
+    /** A phone on its side: the pill stands inside the felt, under the piles (`layout.ts`). */
+    landscape?: boolean
     texts: TurnTexts
   }
 
@@ -33,7 +38,10 @@
     canCounter,
     currentTurn,
     players,
+    width,
     height,
+    topReserve = 0,
+    landscape = false,
     texts,
   }: Props = $props()
 
@@ -51,20 +59,9 @@
 
   const isPenalty = $derived(isMyTurn && pendingDraw > 0)
 
-  // Sits clear above the hand — clear of a *hovered* card, not only a resting
-  // one. The reserve used to be 58px, which covered the pill (~38px) plus the
-  // 9px a playable card lifts at rest and nothing else; the hover in
-  // `Hand.svelte` is `scale(1.08) translateY(-14px)` about the card's centre,
-  // which carries the top edge a further 14 × 1.08 + 0.04 × CARD_H ≈ 19.4px
-  // up, so a card under the pointer put its top ~20px into the pill. The
-  // numbers below are that transform written out, so the reserve moves with it.
-  const PILL_H = 38
-  const REST_LIFT = 9
-  const HOVER_LIFT = 14 * 1.08 + 0.04 * CARD_H
-  const CLEARANCE = 8
-  const top = $derived(
-    height - CARD_H - BOTTOM_RESERVE - Math.ceil(PILL_H + REST_LIFT + HOVER_LIFT + CLEARANCE),
-  )
+  // Where it sits is layout maths (`layout.ts: turnPillPlace`), beside the
+  // hand and the felt it has to stay clear of, so the three agree.
+  const place = $derived(turnPillPlace(width, height, topReserve, landscape))
 
   // Framer Motion took the preference through <MotionConfig>; a Svelte transition
   // is given it here. The label still swaps — only the movement goes, which is the
@@ -72,7 +69,7 @@
   const dur = $derived(reducedMotion.current ? 0 : 180)
 </script>
 
-<div class="anchor" style="top: {top}px">
+<div class="anchor" style="top: {place.top}px; left: {place.centreX}px">
   <!-- Keyed on the message so a turn change crossfades instead of swapping text
        mid-glance. The wrapper holds the centering transform, so the pill inside is
        free to animate its own. -->
@@ -95,7 +92,6 @@
      transform. */
   .anchor {
     position: absolute;
-    left: 50%;
     transform: translateX(-50%);
     pointer-events: none;
     z-index: 3;

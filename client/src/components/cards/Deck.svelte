@@ -9,6 +9,8 @@
     height: number
     /** Vertical space claimed by the opponent seats — the piles follow the felt. */
     topReserve?: number
+    /** A phone on its side: the felt sits right of the seat column (`layout.ts`). */
+    landscape?: boolean
     /** True when drawing is currently legal — the pile then becomes a button. */
     canDraw?: boolean
     onDraw?: () => void
@@ -16,14 +18,14 @@
     drawLabel?: string
   }
 
-  let { width, height, topReserve = 0, canDraw = false, onDraw, drawLabel }: Props = $props()
+  let { width, height, topReserve = 0, landscape = false, canDraw = false, onDraw, drawLabel }: Props = $props()
 
   // Depth of the visible stack. Deeper layers are drawn first and offset down-right
   // so the pile reads as a physical block of cards seen from slightly above.
   const LAYERS = [3, 2, 1, 0]
   const LAYER_OFFSET = 3
 
-  const pos = $derived(deckPosition(width, height, topReserve))
+  const pos = $derived(deckPosition(width, height, topReserve, landscape))
   const interactive = $derived(canDraw && Boolean(onDraw))
 
   function onKey(e: KeyboardEvent) {

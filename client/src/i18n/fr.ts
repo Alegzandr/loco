@@ -279,10 +279,10 @@ export const fr: Translations = {
   recapMatchCol: 'M%n',
   recapWonCol: 'Gagnés',
   matchDuration: (duration) => `${duration} de jeu`,
-  durationUnderMinute: 'Moins d\'une minute',
-  durationMinutes: (minutes) => `${minutes} min`,
-  durationHours: (hours, minutes) =>
-    minutes === 0 ? `${hours} h` : `${hours} h ${String(minutes).padStart(2, '0')}`,
+  durationSeconds: (seconds) => `${seconds} s`,
+  durationMinutes: (minutes, seconds) => `${minutes} min ${String(seconds).padStart(2, '0')} s`,
+  durationHours: (hours, minutes, seconds) =>
+    `${hours} h ${String(minutes).padStart(2, '0')} min ${String(seconds).padStart(2, '0')} s`,
   rematch: 'Revanche',
   leaveRoom: 'Quitter la table',
   leaveMatchBtn: 'Quitter le match',
