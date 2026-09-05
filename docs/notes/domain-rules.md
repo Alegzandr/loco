@@ -226,6 +226,17 @@ a string it is free to reword.
 - **The opening discard is interceptable, and that is why the window and its author are two fields.** They used to be one, and a dealt card has no author: a seat holding the twin of the card the round opened on was answered `interrupt window closed`, which the client renders as *"somebody was faster"* — on a table where nobody had played anything yet. `dealRound` now sets `InterruptOpen: true` with `LastPlayBy` still -1: the window is open and belongs to no seat, so every rule below (no deadline, nobody excluded, the current player included) applies to it unchanged. `TestRoom_InterruptPlay_OpeningDiscardIsInterceptable` reads it off a real deal rather than a fixture, because the bug was in what `dealRound` left behind.
 - **Bots are the one exception, and it costs nothing to state twice**: `game.BotInterrupt` and `hub.maybeScheduleBotInterrupt` both gate on `LastPlayBy >= 0`, not on `InterruptOpen`, so they answer plays and not deals. A bot slamming the opening discard would take the round's first turn off the seat the deal handed it, before that player had touched anything — an interject is a reaction, and there is nothing there to react to. The hub half is belt and braces: it only schedules off a human's move anyway.
 - Resolution: fastest-server-received wins (single-goroutine event loop serializes).
+- **The window's state is on the wire, because the client cannot derive it.** `interrupt_open`
+  rides `card_played` (open, unless the play took the round), `card_drawn` (shut when the seat at
+  turn drew, unchanged when a penalty merely grew a hand — the two are the same message type, which
+  is why the flag and not the type is what the client reads), `turn_changed` (shut: a pass, a
+  timeout, a retirement), `match_ready` (the deal's, open) and every `GameStateDTO` (always present
+  there). A pointer on `ServerMsg`: false is the answer that matters and `omitempty` would drop it;
+  absent means unchanged, which is also what an older server or a fixture says. The client kept no
+  copy at all and offered the twin for as long as it was on top, so a slam after somebody had drawn
+  was refused `interrupt window closed` and rendered as *"somebody was faster"* on a table where
+  nobody had been — the same lie the opening discard used to tell, from the other side.
+  `interruptWindow.test.ts`, `TestInterruptOpen_RidesTheWire`.
 - Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards?, declare_loco? }` — `play_cards` non-empty takes precedence, and `declare_loco` is only read when the batch empties the hand (see the gate above). Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
 - **Batch play** (`Room.PlayCards`): current player plays N identical via `play_cards` (precedence over `card`). Effects stack (DrawTwo `2*N`, WildDrawFour `4*N`, Skips skip N, Reverses parity). Swap/GlobalSwitch excluded.
 

@@ -75,6 +75,8 @@ interface PlayParams {
   currentTurn: () => number
   myIndex: () => number
   pendingDraw: () => number
+  /** The server's word on whether the pile can still be slammed. */
+  interruptOpen: () => boolean
   onSend: (msg: ClientMsg) => void
   /** When the last card landed, whoever played it. Closes an open prompt. */
   lastPlayAt: () => number | undefined
@@ -106,7 +108,7 @@ export function cardPlay(params: PlayParams) {
     // exact match of the top discard, send interrupt_play_card (the server
     // enforces the time window and ordering). Otherwise ignore the tap.
     if (params.currentTurn() !== params.myIndex()) {
-      if (!clientMayInterrupt(card, discard, pendingDraw)) return false
+      if (!clientMayInterrupt(card, discard, pendingDraw, params.interruptOpen())) return false
       // Auto-batch: if the player holds multiple identical copies, send them all
       // in a single interrupt — the rule allows playing any number of identical
       // matching cards together. Swap and global_switch never batch.
@@ -208,6 +210,7 @@ export function cardPlay(params: PlayParams) {
     const discard = params.discard()
     const pendingDraw = params.pendingDraw()
     const activeColor = params.activeColor()
+    const windowOpen = params.interruptOpen()
     const mine = params.currentTurn() === params.myIndex()
     if (!pendingPick) return
     const { card, interrupt } = pendingPick
@@ -217,7 +220,7 @@ export function cardPlay(params: PlayParams) {
     const stillLegal =
       stillHeld &&
       (interrupt
-        ? clientMayInterrupt(card, discard, pendingDraw)
+        ? clientMayInterrupt(card, discard, pendingDraw, windowOpen)
         : mine && clientMayPlay(card, discard, activeColor, pendingDraw))
     if (stillLegal) return
     colorPicker = null
@@ -230,10 +233,10 @@ export function cardPlay(params: PlayParams) {
   const isPlayable = (card: CardDTO): boolean =>
     isMyTurn
       ? clientMayPlay(card, params.discard(), params.activeColor(), params.pendingDraw())
-      : clientMayInterrupt(card, params.discard(), params.pendingDraw())
+      : clientMayInterrupt(card, params.discard(), params.pendingDraw(), params.interruptOpen())
 
   const isInteractive = (card: CardDTO): boolean =>
-    isMyTurn || clientMayInterrupt(card, params.discard(), params.pendingDraw())
+    isMyTurn || clientMayInterrupt(card, params.discard(), params.pendingDraw(), params.interruptOpen())
 
   // True when the player has at least one card they can legally play right now.
   // Used to de-emphasise the Draw button so it doesn't look like the required

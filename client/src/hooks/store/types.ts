@@ -184,6 +184,13 @@ export interface GameState {
   direction: number
   pendingDraw: number
   hasDrawn: boolean
+  // Whether a twin of the top discard may still be slammed onto it. The
+  // server's answer, carried on every message that can open or shut the window
+  // (card_played opens it, a draw or a pass by the seat at turn shuts it). The
+  // client kept no copy of it, so the twin stayed offered after somebody had
+  // drawn and the slam came back "somebody was faster" on a table where nobody
+  // had been.
+  interruptOpen: boolean
   turnDeadline: number | null  // unix ms when current turn expires (null = no timer)
   // The room this match is played in, straight off the wire. Server-drawn so
   // every seat sees one table; '' means the built-in felt (a lobby, or a map id

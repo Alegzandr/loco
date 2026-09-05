@@ -657,9 +657,10 @@ func (h *Hub) announceRetiredSeat(t *table, turnBefore int) {
 	if room.State.CurrentTurn != turnBefore {
 		h.scheduleTurnTimer(t)
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:         protocol.SMsgTurnChanged,
-			Turn:         room.State.CurrentTurn,
-			TurnDeadline: turnDeadlineMs(t),
+			Type:          protocol.SMsgTurnChanged,
+			Turn:          room.State.CurrentTurn,
+			TurnDeadline:  turnDeadlineMs(t),
+			InterruptOpen: interruptOpenPtr(room.State),
 		})
 	}
 	h.maybeScheduleBot(t)

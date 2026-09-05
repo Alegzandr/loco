@@ -369,6 +369,14 @@ polish.
   face alone an intercepted +4 drew no `+N`, no impact and no settle — nothing at all on the loudest
   moment in the game — and the "already covered by a flight" flag was left set to swallow the next
   genuine change. The flag is now read and cleared before any early return.
+- **Whether the pile may still be slammed is read off the store, never off the card**
+  (`store.interruptOpen`, the fourth argument of `clientMayInterrupt`). The server says it on every
+  message that can move the window — a play opens it, a draw or a pass by the seat at turn shuts
+  it, a penalty growing a hand leaves it, and the snapshot carries it (omitted there means shut).
+  The client kept no copy and offered the twin for as long as it was on top, so a slam after
+  somebody had drawn was refused and rendered as *"somebody was faster"* on a table where nobody
+  had been; the highlight, the tap and the prompt-closing effect all read the flag now.
+  `interruptWindow.test.ts`.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ### Every deadline is on the server's clock, and the client has to know how far off its own is

@@ -331,6 +331,10 @@ export const gameStateSchema = v.object({
   match_history: v.optional(v.array(matchRecordSchema)),
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline: v.optional(v.number()),
+  // InterruptOpen is whether the top discard may still be slammed. See
+  // ServerMsg.InterruptOpen; here a plain bool, since a snapshot says the whole
+  // board: omitted means shut, and the client reads it that way.
+  interrupt_open: v.optional(v.boolean()),
   // CatchSeats is who owes the table a declaration right now, exactly as
   // card_played carries it. A tab that reloads two seconds into a five-second
   // window used to rebuild a board on which nobody was catchable, and lose the
@@ -452,6 +456,15 @@ export const serverMsgSchema = v.object({
   // Included in card_played, card_drawn, turn_changed, and game_started to let clients
   // display and reset the countdown when a new turn begins.
   turn_deadline: v.optional(v.number()),
+  // InterruptOpen is whether a twin of the top discard may still be slammed
+  // onto it. Carried by every message that can open or shut the window —
+  // card_played opens it, a draw or a pass by the seat at turn shuts it, a
+  // round end shuts it, match_ready reports the deal's — because the client
+  // used to keep no copy of it: it offered the twin for as long as the card was
+  // on top, and a slam after somebody had drawn came back "somebody was faster"
+  // on a table where nobody had been. A pointer, because false is the answer
+  // that matters and omitempty would drop it; absent means "unchanged".
+  interrupt_open: v.optional(v.boolean()),
   // SMsgCardPlayed: every seat that owes the table a declaration once this
   // play has resolved, with the instant each window shuts.
   //

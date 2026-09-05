@@ -209,6 +209,7 @@ func (h *Hub) playerGameStateWith(t *table, playerIdx int, players []protocol.Pl
 		RoundHistory:  room.RoundHistory,
 		MatchHistory:  shared.matchHistory,
 		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: state.InterruptOpen,
 		CatchSeats:    shared.catchSeats,
 		DeclaredSeats: shared.declared,
 		StreamerMode:  t.streamerMode,

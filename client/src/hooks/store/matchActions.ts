@@ -149,6 +149,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       direction: 1,
       pendingDraw: 0,
       hasDrawn: false,
+      interruptOpen: true,
       roundNumber: 1,
       // The next match draws its own room, and its assets are ones this client
       // may not hold yet, so the gate re-arms and the map is unknown until then.

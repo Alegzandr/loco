@@ -194,6 +194,7 @@
     currentTurn: () => g.currentTurn,
     myIndex: () => g.myIndex,
     pendingDraw: () => g.pendingDraw,
+    interruptOpen: () => g.interruptOpen,
     onSend: send,
     lastPlayAt: () => g.lastPlay?.at,
   })

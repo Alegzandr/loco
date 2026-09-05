@@ -194,9 +194,10 @@ func (h *Hub) openTable(t *table, reason string) {
 	// Order matters: the deadline broadcast below reads what this arms.
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgMatchReady,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgMatchReady,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }

@@ -226,7 +226,11 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    `Room.decisiveLeader`, covers the early stop and the end of the format alike.
 4. **Voluntary draw is allowed**, still one draw per turn.
 5. **A forced draw does not cost the turn.** The victim takes the stack and then plays or passes;
-   `hub.handleDrawCard` re-arms the turn timer on every draw.
+   `hub.handleDrawCard` re-arms the turn timer on every draw. **The auto-action fires
+   `TurnTimeoutGrace` (400 ms) after the deadline the client is shown**, which stays `TurnTimeout`:
+   a play sent on the last frame of the bar still has a network to cross, and a server acting on
+   the very millisecond refused it with "not your turn" after the player had beaten their own clock.
+   The grace is the server's patience and never on the wire.
 6. **Nobody forgets LOCO! and wins** (`requireLocoToFinish`, `ErrMustDeclareLoco`): every play
    that empties a hand is refused without the call. A seat already on one card must have declared
    **before** this message — a late call is always accepted, so forgetting costs a press and the
@@ -284,7 +288,13 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 - **Interrupts have no deadline and exclude nobody.** Anyone may play N identical cards matching the
   top discard, wilds included; the player who just played and the current player may both take the
   lead back. Effects stack. Removing those freedoms is what would make the mechanic turn-based: do
-  not reinstate them.
+  not reinstate them. **Whether the pile may still be slammed is the server's word, and it rides
+  every message that can open or shut the window** (`interrupt_open` on `card_played`, `card_drawn`,
+  `turn_changed`, `match_ready` and every `GameStateDTO`; `store.interruptOpen`,
+  `clientMayInterrupt`'s fourth argument). The client kept no copy of it and offered the twin for as
+  long as the card was on top, so a slam after the seat at turn had drawn or passed came back
+  "somebody was faster" on a table where nobody had been. A pointer on the message: false is the
+  answer that matters, and absent means unchanged. `interruptWindow.test.ts`.
 - **The window is open from the deal, and the opening discard is a card like any other**
   (`GameState.InterruptOpen`, set by `dealRound`, distinct from `LastPlayBy` which says *who* played).
   A seat dealt the twin of the card the round opens on may slam it before the first turn is taken.

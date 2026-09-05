@@ -699,12 +699,13 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	}
 	state := room.State
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: intPtr(playerID),
-		DrawnCount:  len(state.Hands[playerID].Cards) - priorSize,
-		Turn:        state.CurrentTurn,
-		PendingDraw: intPtr(state.PendingDraw),
-		HasDrawn:    boolPtr(state.HasDrawn),
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(playerID),
+		DrawnCount:    len(state.Hands[playerID].Cards) - priorSize,
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		InterruptOpen: interruptOpenPtr(state),
 	})
 	// A forced draw does not cost the turn (rules.md §14.5), so the seat is
 	// still ours: play the drawn card or pass. The branch that used to handle a
@@ -718,9 +719,10 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	if err := room.PassTurn(playerID); err == nil {
 		h.scheduleTurnTimer(t)
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:         protocol.SMsgTurnChanged,
-			Turn:         room.State.CurrentTurn,
-			TurnDeadline: turnDeadlineMs(t),
+			Type:          protocol.SMsgTurnChanged,
+			Turn:          room.State.CurrentTurn,
+			TurnDeadline:  turnDeadlineMs(t),
+			InterruptOpen: interruptOpenPtr(room.State),
 		})
 	}
 	return false
@@ -802,9 +804,10 @@ func (h *Hub) botRecover(t *table, playerID int) {
 	}
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgTurnChanged,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }

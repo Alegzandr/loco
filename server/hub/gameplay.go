@@ -201,25 +201,27 @@ func (h *Hub) handleDrawCard(t *table, c *Client, msg protocol.ClientMsg) {
 
 	// Tell the drawing player all their new cards plus the updated turn state.
 	c.Send(protocol.ServerMsg{
-		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(c.playerID()),
-		Cards:        cardDTOs(newCards),
-		Turn:         state.CurrentTurn,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		TurnDeadline: dl,
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(c.playerID()),
+		Cards:         cardDTOs(newCards),
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		TurnDeadline:  dl,
+		InterruptOpen: interruptOpenPtr(state),
 	})
 	// Tell others how many cards changed hands so they can update the hand-size
 	// counter. They get the same turn state: has_drawn / pending_draw describe
 	// the table, not the recipient, and a client left to infer them desyncs.
 	h.broadcastToRoom(t, protocol.ServerMsg{
-		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(c.playerID()),
-		DrawnCount:   drawnCount,
-		Turn:         state.CurrentTurn,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		TurnDeadline: dl,
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(c.playerID()),
+		DrawnCount:    drawnCount,
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		TurnDeadline:  dl,
+		InterruptOpen: interruptOpenPtr(state),
 	}, c)
 	h.maybeScheduleBot(t)
 }
@@ -232,9 +234,10 @@ func (h *Hub) handlePassTurn(t *table, c *Client, msg protocol.ClientMsg) {
 	}
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgTurnChanged,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }

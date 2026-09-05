@@ -162,3 +162,17 @@ describe('the interception slam lands where the words are', () => {
     expect(source).toMatch(/:root\[data-motion="reduce"\] \.slashTilt \{[^}]*display:\s*none/)
   })
 })
+
+describe('the interrupt window', () => {
+  const red5: CardDTO = { color: 'red', kind: 'number', value: 5 }
+
+  // The card on top says nothing about whether it may still be slammed: a
+  // draw or a pass by the seat at turn shuts the window, and the server is
+  // the one that knows. Offered without that answer, the twin stayed tappable
+  // after somebody had drawn and the press came back "somebody was faster" on
+  // a table where nobody had been.
+  it('is the server\'s word, and a shut window offers nothing', () => {
+    expect(clientMayInterrupt(red5, red5, 0, true)).toBe(true)
+    expect(clientMayInterrupt(red5, red5, 0, false)).toBe(false)
+  })
+})

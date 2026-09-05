@@ -47,10 +47,10 @@ description of the wire that a program does not check: when it disagrees with th
 | `player_disconnected` | `player_index`, `nickname`, `players`, `forfeit_deadline` (matchmade rooms only) |
 | `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`, `session_token` (self)  |
 | `game_started`        | `state` (personalized per player; includes `round_number`, `match_format`, `scoreboard`) |
-| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players`, `chosen_player` (swap only), `catch_seats[]`, `turn_deadline` |
+| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players`, `chosen_player` (swap only), `catch_seats[]`, `turn_deadline`, `interrupt_open` |
 | `interrupt_success`   | `player_index`, `cards[]` (sent immediately before the matching `card_played`) |
-| `card_drawn`          | `cards[]` (drawer only) / `drawn_count` (everyone else), `player_index`, `turn`, `pending_draw`, `has_drawn` |
-| `turn_changed`        | `turn`                                                                      |
+| `card_drawn`          | `cards[]` (drawer only) / `drawn_count` (everyone else), `player_index`, `turn`, `pending_draw`, `has_drawn`, `interrupt_open` |
+| `turn_changed`        | `turn`, `turn_deadline`, `interrupt_open`                                   |
 | `uno_declared`        | `player_index`                                                              |
 | `uno_caught`          | `player_index`                                                              |
 | `round_end`           | `round_number`, `round_winner`, `scoreboard`, `round_history`               |
@@ -82,6 +82,7 @@ Every server message also carries `server_now`, the server's clock in unix milli
 ## Notes
 
 - `card_played` carries `chosen_player` only for `swap` (target seat index). `global_switch` and other cards omit it.
+- **`interrupt_open` says whether the top discard may still be slammed**, on `card_played`, `card_drawn`, `turn_changed`, `match_ready` and in every `GameStateDTO`. It is nullable on the wire like `has_drawn` and for the same reason: false is the answer that matters, and an absent field means unchanged — a draw by the seat at turn shuts the window, a penalty growing a hand leaves it where it was, and both arrive as `card_drawn`. A client that offers a slam without reading it is answered `interrupt window closed` for a race nobody ran.
 - **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at` and `forfeit_deadline` are unix milliseconds on the server's clock; a client that compared them to its own clock as they arrived was wrong by however far its clock was off, which on a phone is easily seconds — enough to hide a five-second catch window entirely, or to keep it on screen past its end and charge a card for the press. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/hooks/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
 - `chosen_color` is required for **every** wild (`wild`, `wild_draw_four` **and** `global_switch`) on `play_card`, `play_cards`, `counter_draw` and `interrupt_play_card`. A colourless wild is rejected (`must choose a color for a wild card`); the value `wild` counts as colourless, since it matches no coloured card and would strand the whole table.
 - `interrupt_success` is emitted before the corresponding `card_played` so the client can render lead-taking distinctly.

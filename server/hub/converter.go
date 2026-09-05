@@ -127,6 +127,15 @@ func parseMatchFormat(s protocol.MatchFormat) (game.MatchFormat, error) {
 	return 0, fmt.Errorf("invalid match format %q: must be BO1, BO3, BO5, or BO7", s)
 }
 
+// interruptOpenPtr is the interrupt window as the wire carries it: a pointer,
+// so that "shut" survives omitempty. See protocol.ServerMsg.InterruptOpen.
+func interruptOpenPtr(state *game.GameState) *bool {
+	if state == nil {
+		return nil
+	}
+	return boolPtr(state.InterruptOpen)
+}
+
 // intPtr / boolPtr wrap a value for the pointer-typed wire fields whose zero
 // value must survive `omitempty` (see protocol.ServerMsg.PendingDraw).
 func intPtr(v int) *int    { return &v }

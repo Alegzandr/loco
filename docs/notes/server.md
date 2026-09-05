@@ -1413,6 +1413,12 @@ round ended.
 
 ## Room lifecycle cleanup
 - `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
+- `hub.TurnTimeoutGrace` (var, default 400ms): how long past the advertised deadline the auto-action
+  waits. `turn_deadline` still says `TurnTimeout`, so the bar is honest and only the server's
+  patience is longer: a play sent on the last frame of the bar has a round trip to cross, and a
+  server that acted on the very millisecond answered it "not your turn" after the player had beaten
+  their own clock — the one refusal in the game that reads as the clock lying. Every timer-armed
+  test that shortens `TurnTimeout` inherits the grace; shorten it too where the arithmetic matters.
 - `hub.ReconnectTimeout` (var, default 60s): disconnected-in-game slot hold. `MatchmakingReconnectTimeout` (15s) replaces it in a matchmade room, and its expiry forfeits the match rather than merely freeing the seat.
 - Both vars exported for test override; restore via `t.Cleanup`.
 - Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(t)`.
