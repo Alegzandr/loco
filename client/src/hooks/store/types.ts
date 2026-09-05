@@ -282,6 +282,14 @@ export interface GameState {
   // same breath as the catch we just won. Cleared by `applyCardPlayed`: a card
   // played is the one thing that can put a new offer on the table.
   catchSpent: boolean
+  // A Contre-LOCO! we pressed and the server has not answered yet. The button
+  // holds itself down for exactly that long, so the press is seen the instant it
+  // is made and the round trip reads as a call in flight rather than as a dead
+  // control: the verdict is the server's and nothing here presumes it, but the
+  // fact of the press is ours. Raised by both press actions, lowered by either
+  // verdict (`applyUnoCaught`, `applyCatchFailed`), by a refusal, by the board
+  // moving (`applyCardPlayed`) and by every reset that lowers `catchFlash`.
+  catchPending: boolean
   // The mirror: a Contre-LOCO! that landed, for its slam banner, its sting and
   // the penalty cards flying to the caught seat. Cleared by the banner.
   catchFlash: CatchFlash | null

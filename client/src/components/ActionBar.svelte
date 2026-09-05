@@ -28,6 +28,13 @@
      */
     catchLive: boolean
     /**
+     * A Contre-LOCO! we pressed that the server has not answered yet. The
+     * button holds itself down for exactly that long (`.called`): the verdict
+     * is the server's, the press is ours, and the one has to be seen the
+     * instant it is made or the round trip reads as a control that did nothing.
+     */
+    catchPending: boolean
+    /**
      * True once we have already called it on the card we hold. A declaration is
      * spent — the server refuses the second one — so the button must stop asking.
      */
@@ -47,6 +54,7 @@
     hasPlayableCard,
     catchArmed,
     catchLive,
+    catchPending,
     hasDeclared,
     onDraw,
     onPass,
@@ -122,9 +130,15 @@
          within reach of finishing; armed only once one of them actually owes the
          call. Pressing it in between costs a card, which is what makes pressing
          it a read rather than a reflex test. -->
+    <!-- And held down from the press to the verdict. The press is the one
+         thing about a Contre-LOCO! that is decided on this screen, so it is
+         shown here and now; everything after it — the stamp, the penalty, the
+         card drawn for a miss — waits for the server, and the round trip is
+         the network's, not this button's to hide. -->
     <button
       class="btn btnCatch"
       class:armed={catchArmed}
+      class:called={catchPending}
       use:pressToAct={onCatch}
       disabled={!catchLive}
     >
@@ -349,6 +363,26 @@
   .armed {
     animation: armPop 0.42s var(--ease-bounce);
     z-index: 1; /* the pop overshoots its slot; it must ride over its neighbours */
+  }
+
+  /* The press, acknowledged on the frame it lands. A call in flight is the
+     button held down: the ledge collapses, the face darkens, and nothing else
+     moves — the stamp and the penalty are the server's to deliver. It wins over
+     `.armed`, whose pop and halo would otherwise carry on over a press already
+     made, and it is a state rather than an animation so the round trip it
+     covers looks the same at 5 ms and at 500. Static under reduced motion by
+     construction. */
+  .btnCatch.called,
+  .btnCatch.called:not(:disabled):hover {
+    animation: none;
+    transform: translateY(3px);
+    box-shadow: inset 0 0 0 999px rgba(30, 10, 90, 0.4);
+    filter: brightness(0.82);
+  }
+
+  .btnCatch.called::before {
+    animation: none;
+    opacity: 0;
   }
 
   /* The pulsing halo, as a pseudo-element with a *static* shadow, breathed on

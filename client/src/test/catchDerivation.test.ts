@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { gameStore } from '../hooks/gameStore'
 import type { GameStateDTO, PlayerDTO } from '../types/protocol'
+import { CATCH_LATE_GRACE_MS } from '../components/catchAvailability'
 
 const now = () => Date.now()
 
@@ -118,11 +119,14 @@ describe('our own declaration is completed by the store', () => {
  * current: an action that changes the roster, the seat we hold or the windows
  * the server named must not be able to leave the button where it was.
  *
- * There is no latch. A seat that draws itself out of reach, or whose window
- * runs out, takes the button down — held past that, the offer could be farmed
- * a card at a time for a Swap to hand on, which is the abuse this replaced.
- * What is still NOT read is who spoke: a declared seat stays offered until
- * its window ends, so the button reports nothing about the call.
+ * The offer is the window, and it runs its course whatever happens inside it:
+ * the seat speaks, its hand grows back out of reach, somebody else catches it
+ * first — none of that may grey the button out under a thumb that has already
+ * committed, because the server charges that press a card and a mistake the
+ * interface prevents is a mistake the player never gets to make. What ends it
+ * is the clock: the window plus CATCH_LATE_GRACE_MS, the same stretch the
+ * server keeps charging for. Not a latch, then — held to the next card played,
+ * the offer could be farmed a card at a time for a Swap to hand on.
  */
 describe('the pressable button is completed by the store', () => {
   const deal = (players: PlayerDTO[]): GameStateDTO => ({
@@ -156,17 +160,25 @@ describe('the pressable button is completed by the store', () => {
   })
 
   // A seat on its last card takes a stack of four and is holding five: out of
-  // reach, out of the armed cue, and out of the button. Nothing is offered
-  // against five cards, and the server would answer a press with silence.
-  it('falls when a seat draws itself out of reach', () => {
+  // the armed cue, because nothing about it can be caught any more — and still
+  // under the button, because the window it opened is still running. That
+  // press is the late half of the wager and the server charges a card for it,
+  // so the interface may not spare the player by greying out underneath their
+  // thumb. It was the exact frame they had already committed on.
+  it('keeps the button live when a seat draws itself out of reach', () => {
     gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
-    gameStore.setState({ onHookUntil: { 1: now() + 5000 } })
+    gameStore.setState({
+      catchWindows: [{ seat: 1, endsAt: now() + 5000 }],
+      onHookUntil: { 1: now() + 5000 },
+    })
     expect(gameStore.getState().catchLive).toBe(true)
     gameStore.getState().applyCardDrawn(null, 1, 0, undefined, 4, 0)
     const s = gameStore.getState()
     expect(s.players.find((p) => p.index === 1)?.hand_size).toBe(5)
+    // The armed cue is a promise and there is nothing left to promise.
     expect(s.catchTarget).toBeNull()
-    expect(s.catchLive).toBe(false)
+    // The wager is not a promise, and it is still on the table.
+    expect(s.catchLive).toBe(true)
   })
 
   // The pin on what the button must not know: the seat calls it, its window is
@@ -193,9 +205,13 @@ describe('the pressable button is completed by the store', () => {
     gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
     gameStore.setState({ onHookUntil: { 1: now() + 30 } })
     expect(gameStore.getState().catchLive).toBe(true)
-    expect(gameStore.getState().catchLiveUntil).toBe(gameStore.getState().onHookUntil[1])
+    // The timer waits for the grace as well as the window: the button has to go
+    // dark when the server stops charging, not when the bar finishes draining.
+    expect(gameStore.getState().catchLiveUntil).toBe(
+      gameStore.getState().onHookUntil[1] + CATCH_LATE_GRACE_MS,
+    )
     // Past the deadline: the clock is read off Date.now() in the derivation.
-    gameStore.setState({ onHookUntil: { 1: now() - 1 } })
+    gameStore.setState({ onHookUntil: { 1: now() - CATCH_LATE_GRACE_MS } })
     gameStore.getState().rereadCatchLive()
     expect(gameStore.getState().catchLive).toBe(false)
     expect(gameStore.getState().catchLiveUntil).toBeNull()
@@ -256,5 +272,80 @@ describe('the pressable button is completed by the store', () => {
     gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
     gameStore.setState({ errorMsg: 'nope' })
     expect(gameStore.getState().catchLive).toBe(true)
+  })
+})
+
+/**
+ * The third reading the centre button owes the player, and the one the store
+ * deliberately does not answer: the wager is spent.
+ *
+ * `catchLive` is the *offer* — is a seat near the finish — and it must stay
+ * blind to everything else, or the button starts reporting the table. Whether
+ * *we* still have a press to make against that offer is a separate question
+ * (`catchSpent`, the client's copy of the server's ration), and it is the
+ * question a live button that does nothing was failing to answer: the press
+ * would be a blind send the store suppresses, so the control looked pressable
+ * and was inert. `GameView` narrows the one with the other, and only where
+ * there is nothing left to aim at — a window still unspent names itself in
+ * `catchTarget`, which is the ordinary second catch after a Swap.
+ */
+describe('the spent wager, which is not the offer', () => {
+  beforeEach(() => {
+    gameStore.setState({
+      myIndex: 0,
+      catchWindows: [],
+      onHookUntil: {},
+      players: [],
+      catchLive: false,
+      catchSpent: false,
+    })
+  })
+
+  it('leaves the offer standing when our call is spent', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
+    gameStore.getState().noteBlindCatchAttempt()
+    const s = gameStore.getState()
+    // The store still says a seat is near the finish, because it is.
+    expect(s.catchLive).toBe(true)
+    // And it says our press is spent, which is what the bar draws dead.
+    expect(s.catchSpent).toBe(true)
+    expect(s.catchTarget).toBeNull()
+  })
+
+  it('keeps a second window to aim at after the first press', () => {
+    const end = now() + 5000
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 1), seat(2, 1)])
+    gameStore.setState({
+      catchWindows: [
+        { seat: 1, endsAt: end },
+        { seat: 2, endsAt: end + 500 },
+      ],
+      onHookUntil: { 1: end, 2: end + 500 },
+    })
+    gameStore.getState().noteCatchAttempt(1)
+    const s = gameStore.getState()
+    expect(s.catchSpent).toBe(true)
+    // Not spent *here*: seat 2 still owes the call, so the bar stays pressable.
+    expect(s.catchTarget).toBe(2)
+  })
+
+  it('is handed back by the card that puts a new offer on the table', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
+    gameStore.getState().noteBlindCatchAttempt()
+    expect(gameStore.getState().catchSpent).toBe(true)
+    gameStore
+      .getState()
+      .applyCardPlayed(
+        1,
+        { color: 'red', kind: 'number', value: 3 },
+        0,
+        0,
+        'red',
+        [seat(0, 8), seat(1, 1)],
+        undefined,
+        1,
+        [{ player_index: 1, ends_at: now() + 5000 }],
+      )
+    expect(gameStore.getState().catchSpent).toBe(false)
   })
 })

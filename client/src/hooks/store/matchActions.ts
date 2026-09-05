@@ -37,6 +37,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         catchLive: false,
         catchFailed: null,
         catchFlash: null,
+        catchPending: false,
       }
     }),
 
@@ -190,6 +191,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       catchLive: false,
       catchFailed: null,
       catchFlash: null,
+      catchPending: false,
       turnDeadline: null,
       swapNotice: null,
       lastPlay: null,

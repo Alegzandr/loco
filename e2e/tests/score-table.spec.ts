@@ -171,7 +171,11 @@ test.describe('in-game score table', () => {
     await startGame(page)
 
     await holdScores(page, async () => {
-      await expect(scoreTable(page).getByText('BOT')).toBeVisible()
+      // `exact` because the label and the bot's own nickname are the same word:
+      // getByText matches a case-insensitive substring, so a bare 'BOT' catches
+      // <span class="nickname">Bot1</span> as well as the ping cell and the
+      // assertion dies of its own ambiguity the moment both are on screen.
+      await expect(scoreTable(page).getByText('BOT', { exact: true })).toBeVisible()
 
       // The server pings every 5s and broadcasts every 3s, so the first real
       // number lands within a couple of cycles. Before that the cell says so

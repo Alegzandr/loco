@@ -38,6 +38,8 @@ export const fr: Translations = {
   // ─── Préférences ──────────────────────────────────────────────
   prefsBtn: 'Préférences',
   prefsTitle: 'Préférences',
+  fullscreenBtn: 'Plein écran',
+  fullscreenExitBtn: 'Quitter le plein écran',
   prefsClose: 'Fermer',
   prefsLanguage: 'Langue',
   prefsGraphics: 'Graphismes',
@@ -159,7 +161,7 @@ export const fr: Translations = {
   choosePlayer: 'Tu veux la main de qui\u00a0?',
   swapTargetCards: '%n cartes',
   swapTargetCardOne: '1 carte',
-  catchWindow: 'Attrape-le\u00a0!',
+  catchWindow: 'Une chance de contrer',
   catchFailedYou: 'Trop tard. +1 carte',
   catchFailedOther: '%player a crié trop tard\u00a0: +1 carte',
   catchBannerTitle: 'CONTRE-LOCO!',
@@ -405,7 +407,7 @@ export const fr: Translations = {
         'Quand il ne te reste qu\'une carte, tape LOCO! Tout de suite.',
         'Recevoir sa dernière carte compte aussi\u00a0: après un Échange ou une Rotation, tous ceux qui sont à une carte doivent l\'annoncer.',
         'Si tu restes muet, chaque adversaire a cinq secondes pour tenter un Contre-LOCO! Tu piocheras deux cartes.',
-        'Le Contre-LOCO! est un pari, pas un coup gratuit\u00a0: lancé après l\'annonce, il coûte une carte à celui qui le crie.',
+        'Le Contre-LOCO! est un pari, pas un coup gratuit\u00a0: trop tôt ou trop tard, il coûte une carte à celui qui le crie.',
       ],
     },
     {

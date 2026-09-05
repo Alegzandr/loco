@@ -668,6 +668,25 @@ export const SCENES: Scene[] = [
     deadlineIn: 11,
   },
   {
+    // The press, before the verdict: we have pressed on Pixel and the server
+    // has not answered. The centre button is held down — ledge collapsed, face
+    // darkened, the armed pop stopped — and nothing else on the board has
+    // moved, because nothing else is ours to decide. Review it beside
+    // `game-catch-window`: the two differ by the button alone.
+    id: 'game-catch-pressed',
+    title: 'Partie · Contre-LOCO! envoyé',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchTarget: 3,
+      catchPending: true,
+      players: [player(0, 'Nova', 5), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    unoIn: 3.0,
+    deadlineIn: 14,
+  },
+  {
     // The wager lost: our Contre-LOCO! arrived after Pixel's own call and drew
     // us a card for it. The notice is red and sits below the swap pill so the
     // two can share the screen; both are table news, not errors.
@@ -678,8 +697,15 @@ export const SCENES: Scene[] = [
       ...gameBase,
       currentTurn: 0,
       catchFailed: { seat: 0, at: 1 },
+      // The third reading of the centre button, and the board that produces it:
+      // our call missed, the wager is spent, and Pixel's window is still
+      // running with nothing left for us to aim at. A live button there would
+      // do nothing at all when pressed, so it is drawn dead.
+      catchSpent: true,
+      catchTarget: 3,
       players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
     },
+    unoIn: 1.8,
     deadlineIn: 16,
   },
   {
@@ -694,8 +720,13 @@ export const SCENES: Scene[] = [
       ...gameBase,
       currentTurn: 0,
       catchFlash: { seat: 3, at: 1 },
+      // Pixel's hand has grown to three and the button is still live over it:
+      // the offer is the window, not the hand, so a press a beat late is a
+      // mistake the player is still allowed to make.
+      catchTarget: 3,
       players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 3)],
     },
+    unoIn: 1.2,
     deadlineIn: 16,
   },
   {

@@ -27,6 +27,7 @@
   import InterruptBanner from './InterruptBanner.svelte'
   import CatchBanner from './CatchBanner.svelte'
   import Preferences from './Preferences.svelte'
+  import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
   import { resolveScene } from './cards/maps'
@@ -227,10 +228,23 @@
   const catchDeadline = $derived(g.catchTarget !== null ? g.unoTimerEnd : null)
   // Whether the centre button is pressable at all — a looser question than
   // whether anybody is on the hook, and deliberately so (`catchAvailability.ts`).
-  // The store owns it, latch and all, so no screen may narrow it on the way to
-  // the bar: a declaration the table has heard and a seat that drew out of reach
-  // are both things the bar would be reporting if it answered them.
-  const catchLive = $derived(g.catchLive)
+  // The store owns *the offer*, and no screen may narrow that on the way to the
+  // bar: a declaration the table has heard and a seat that drew out of reach are
+  // both things the bar would be reporting if it answered them.
+  //
+  // The one thing narrowed here is the *wager*, which is a different question:
+  // we have already spent our call on this board (`catchSpent`, the client's
+  // copy of the server's ration) and there is no window left to aim at, so a
+  // press would be a blind send the store suppresses — a live button that does
+  // literally nothing. Dead is the honest drawing of that, and it is the third
+  // reading this bar owes the player beside "nobody is close" and "somebody
+  // owes the call". It costs no press: while any window is still unspent
+  // `catchTarget` names it, which is the ordinary second catch after a Swap.
+  // Named apart from `g.catchSpent` on purpose: the store's field is "we have
+  // called on this board", this is that *and* nothing left to aim at, which is
+  // the narrower condition the button is drawn from.
+  const wagerSpent = $derived(g.catchSpent && g.catchTarget === null)
+  const catchLive = $derived(g.catchLive && !wagerSpent)
   const turnDeadline = $derived(g.turnDeadline)
   const catchWindowEnd = $derived(g.unoTimerEnd)
   drainBar(() => turnFill, () => turnDeadline, 'auto')
@@ -486,6 +500,7 @@
     hasPlayableCard={play.hasPlayableCard}
     catchArmed={g.catchTarget !== null}
     catchLive={catchLive}
+    catchPending={g.catchPending}
     hasDeclared={g.myDeclared}
     onDraw={handleDraw}
     onPass={() => guardDoubleTap('pass', () => onSend({ type: 'pass_turn' }))}
@@ -540,6 +555,7 @@
         </g>
       </svg>
     </button>
+    <FullscreenButton />
     <Preferences />
     <AudioSettings />
     <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />

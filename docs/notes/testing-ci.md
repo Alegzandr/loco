@@ -78,8 +78,12 @@ that makes the button pressable (`catchAvailability.test.ts`), the arming that i
 from the pressing (`actionBar.test.ts`), the card a press that finds nobody costs, and — on both
 sides of the wire, because either half alone is a rule that reads fine and plays badly — that it
 costs exactly one per offer however often it is pressed, nothing at all where nothing is offered,
-and that a press inside the seat's 1.5s head start is held and lands when the head start ends
-(`hub/catch_headstart_test.go`, `penalties.spec.ts`).
+that a press is answered on the instant it arrives (`hub/catch_immediate_test.go`), and that the
+button is still live — and the press still charged — for `catchGrace` after the offer vanished, the
+half of the wager an interface can silently take away (`penalties.spec.ts`). **Which of two presses
+arrives first is not an E2E assertion**: measured through Playwright, a 6ms head start given to one
+page's `WebSocket.send` did not survive to the server, so that test decided on the harness rather
+than on the rule and the ordering is pinned in Go instead.
 
 Reconnect (60s, nickname + room code) **and session restore across a page reload**. Rematch: the ask
 **everybody** at the table has to make, one ask dealing nothing, a departure retiring an ask and

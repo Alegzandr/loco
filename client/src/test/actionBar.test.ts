@@ -17,7 +17,7 @@ const noop = () => {}
 
 function renderBar(over: Partial<ComponentProps<typeof ActionBar>> = {}) {
   return render(
-    ActionBar, { isMyTurn: true, pendingDraw: 0, handSize: 5, hasDrawn: false, hasPlayableCard: true, catchArmed: false, catchLive: false, hasDeclared: false, onDraw: noop, onPass: noop, onUno: noop, onCatch: noop, t: t, ...over },
+    ActionBar, { isMyTurn: true, pendingDraw: 0, handSize: 5, hasDrawn: false, hasPlayableCard: true, catchArmed: false, catchLive: false, catchPending: false, hasDeclared: false, onDraw: noop, onPass: noop, onUno: noop, onCatch: noop, t: t, ...over },
   )
 }
 
@@ -35,6 +35,24 @@ describe('ActionBar', () => {
     expect(slotOf(/^Draw$/)).toBe('left')
     expect(slotOf(/^Catch!$/)).toBe('center')
     expect(slotOf(/^Pass$/)).toBe('right')
+  })
+
+  // The press is the one thing about a Contre-LOCO! decided on this screen, so
+  // it is shown the frame it lands: the button holds itself down until the
+  // server answers. Measured at 3–5 ms locally, the round trip is whatever the
+  // player's network makes it, and a control that shows nothing until the
+  // verdict comes back reads as a control that ignored the tap.
+  it('holds the catch button down while a press is waiting on the server', () => {
+    renderBar({ catchLive: true, catchArmed: true, catchPending: true })
+    const catchBtn = btn(/^Catch!$/)
+    expect(catchBtn).toHaveClass('called')
+    // Held, not spent: a second window after a Swap is still one more tap.
+    expect(catchBtn).toBeEnabled()
+  })
+
+  it('lets the catch button go once nothing is in flight', () => {
+    renderBar({ catchLive: true, catchArmed: true, catchPending: false })
+    expect(btn(/^Catch!$/)).not.toHaveClass('called')
   })
 
   it('holds the centre with a disabled catch when nobody is near finishing', () => {

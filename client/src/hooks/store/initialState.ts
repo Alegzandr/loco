@@ -48,6 +48,7 @@ export const initialState: GameState = {
   catchFailed: null,
   catchFlash: null,
   catchSpent: false,
+  catchPending: false,
 
   matchFormat: 'BO1',
   maxPlayers: 10,

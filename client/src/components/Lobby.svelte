@@ -6,6 +6,7 @@
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
   import Preferences from './Preferences.svelte'
+  import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import LocoLogo from './LocoLogo.svelte'
   import { playSfx } from '../audio/sfx'
@@ -197,6 +198,7 @@
   {/if}
 
   <div class="topBar">
+    <FullscreenButton />
     <!-- The one screen where the gear stands down on a phone: this is the only
          screen the home page's burger is on, and its drawer carries a Preferences
          row already. Everywhere past a taken seat that drawer is gone with the

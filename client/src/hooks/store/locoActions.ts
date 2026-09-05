@@ -39,6 +39,8 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       return {
         catchWindows,
         catchFlash: { seat, at: stamp() },
+        // The verdict is in, whoever's press it answers: the button lets go.
+        catchPending: false,
       }
     }),
 
@@ -68,18 +70,18 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       const catchWindows = s.catchWindows.map((w) =>
         w.seat === seat ? { ...w, attempted: true } : w
       )
-      return { catchWindows, catchSpent: true }
+      return { catchWindows, catchSpent: true, catchPending: true }
     }),
 
   // A press that named nobody: the button is live whenever a seat is close to
   // finishing, so this is the player betting there was a window and losing. One
   // per board — see `catchSpent`, and the server's per-offer ration, which is
   // the same rule written on the side that enforces it.
-  noteBlindCatchAttempt: () => set({ catchSpent: true }),
+  noteBlindCatchAttempt: () => set({ catchSpent: true, catchPending: true }),
 
   // Somebody's call arrived too late and they drew for it. The +1 card itself
   // comes through the ordinary card_drawn path; this is only the notice.
-  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: stamp() } }),
+  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: stamp() }, catchPending: false }),
 
   clearCatchFailed: () => set({ catchFailed: null }),
 })

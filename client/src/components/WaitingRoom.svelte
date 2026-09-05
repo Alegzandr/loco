@@ -5,6 +5,7 @@
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
   import Preferences from './Preferences.svelte'
+  import FullscreenButton from './FullscreenButton.svelte'
   import TableCode from './TableCode.svelte'
   import { tableInviteUrl } from '../hooks/tableInvite'
   import AudioSettings from './AudioSettings.svelte'
@@ -158,6 +159,7 @@
 
 <div class="container">
   <div class="topBar">
+    <FullscreenButton />
     <Preferences />
     <AudioSettings />
     <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />

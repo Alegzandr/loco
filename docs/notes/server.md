@@ -533,12 +533,12 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     whose button was live a moment ago), not counted. What stays refused-and-counted is a
     `target_index` the table does not have: no client of ours composes it, so it is a forged message
     rather than a wager, and `noteRejection` still counts it toward `suspected_cheats`.
-  - **And a press inside the target's head start is held, not answered** (`game.CatchHeadStart`,
-    `hub.holdCatch`, `table.heldCatches`): one `time.AfterFunc` per catcher per window, posted back
-    to the table like every other reaction timer, resolved through the same `resolveCatch` a live
-    press takes. The seat that owes the call gets the first 1.5s of its window whatever anybody is
-    pressing; a spammer buys one held press, resolved once. Lossy on a full box like every other
-    reaction timer — the press is the one thing a player can simply make again.
+  - **And nothing holds a press back on the way in.** `handleCatchUno` reaches its verdict on the
+    instant the message arrives, because the ration above is what answers a mashed button and it
+    answers it without costing the single honest press anything. The opening 1.5s of every window
+    used to be held for the seat that owed the call (`CatchHeadStart`, `holdCatch`,
+    `table.heldCatches`, one `time.AfterFunc` per catcher per window); what that bought and what it
+    cost is in [`domain-rules.md`](domain-rules.md), "Both ways to lose".
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply

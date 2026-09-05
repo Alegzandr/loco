@@ -240,8 +240,13 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
    while one is on the table** (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, `CatchOffered`,
    rationed by `catchOfferKey` + `CatchPaidFor`). The offer is a seat on **exactly two** cards or a
-   seat on its last card **inside its window** (`catchNearHand`, `catchRaceRecent`); the button is
-   live for exactly that, so the press is a **read of the table** and not an answer to a cue. **Two,
+   seat with a **window still running** — 5s plus `catchGrace`, 2s (`catchNearHand`,
+   `catchRaceRecent`);
+   the button is live for exactly that, so the press is a **read of the table** and not an answer to
+   a cue. **The offer is the window, not the hand**: a seat can leave the near-finish picture with
+   no card played — it draws, it swallows a stack of four, a catch lands on it — and read off the
+   hand the offer vanished on that frame, which took the *late* half of the wager away from a thumb
+   already on its way down. **Two,
    not three, and the missing card is the calibration**: a card is only a punishment while it stays
    in the hand that drew it, so a window a player can miss *on purpose* is a Swap away from being
    ammunition — the wager is offered one ordinary play before it can pay off and no earlier. **The
@@ -250,19 +255,27 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    voluntary draw, and the hand a Swap is fed with. So the second press against the same near-finish
    picture costs nothing, changes nothing and is broadcast to nobody, and so does the catcher's own
    play. **A press against a table where nothing is offered is answered by nobody and charged to
-   nobody**: the seat drew under the thumb, or the client is not ours, and a charge there is the farm
-   reopened to anybody willing to forge the message. A catch that *lands* spends no offer. A seat
-   number the table does not have is still refused rather than charged: that one is a forged message,
-   not a wager.
-8. **The seat that owes the call gets the first 1.5s of its own window, whoever is pressing what**
-   (`CatchHeadStart`, `ErrCatchTooEarly`, `hub.holdCatch`). A catcher holding the button down used to
-   land on the millisecond the card touched the pile, before the seat's LOCO! could have crossed the
-   wire, which made spamming the button the way to deny every declaration at the table. A press
-   inside the head start is neither refused nor answered: the hub **holds it** (`table.heldCatches`,
-   one per catcher per window — the second and the tenth are the same press) and resolves it the
-   instant the head start ends, in arrival order, through the same road as a live press. It lands if
-   the seat is still silent and costs its card if the seat spoke. **The bots never fire inside it**
-   (`scheduleBotCatch` clamps to `CatchHeadStartEnd`), whatever a test sets `BotCatchDelay` to.
+   nobody**: nothing was near the finish at all, so the client is not ours or its board is a round
+   trip stale, and a charge there is the farm reopened to anybody willing to forge the message. A
+   catch that *lands* spends no offer. A seat number the table does not have is still refused rather
+   than charged: that one is a forged message, not a wager. **And this ration is the whole of what
+   stands between the mechanic and a mashed button** — see rule 8 — which it can be because the
+   price follows the *picture* rather than the press: a thumb held down through a round pays a card
+   every time the near-finish picture moves, and every card it pays makes the hand it is trying to
+   empty bigger.
+8. **A press is answered on the instant it arrives, and it can be lost in both directions.** Nothing
+   holds a Contre-LOCO! back: the faster of the two presses wins, because a reaction the server
+   delays is not a reaction it measures. The opening 1.5s of every window used to be held for the
+   seat that owed the call (`CatchHeadStart`, `hub.holdCatch`) so a thumb that never let go could
+   not deny every declaration at the table — and it cost the honest reflex the race it had won,
+   more than a second of a dead-looking button, and the chance of being overtaken by the seat it
+   had already caught. **Rule 7's ration is what replaced it**, and it is the better answer: one
+   press per offer is charged and the rest are silent, so holding the button down buys nothing a
+   single press did not. **The other direction has to stay losable too**: the offer outlives the
+   picture that made it, so a press made a beat after the window shut, or after the
+   seat's hand grew out of reach, is a call that came **too late** and costs the same card as one
+   that came too early. A control that goes dark the frame the offer vanishes makes the read for
+   the player and makes it in their favour, which is the same failure as announcing the call.
 
 - **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **`Deck.Replenish`
   appends the pile to what is left of the deck, never in place of it**: it runs when the deck is
@@ -452,7 +465,9 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   a late call costs a card. **One attempt per window and one press, however many bots are at the
   table**: `botCatchAttempt` derives the verdict, the delay and the instant from the window itself
   (seat + `LastCardAt`), so the re-arming every action inside those five seconds performs changes
-  nothing. Armed with the bots' own LOCO! by one `maybeScheduleBotReactions`, after **every** action,
+  nothing. **Their lateness is theirs alone**: nothing in the domain holds an early press back, so
+  `BotCatchDelay` is the only thing between a bot and the instant a window opens. Armed with the
+  bots' own LOCO! by one `maybeScheduleBotReactions`, after **every** action,
   human or bot: armed after human actions alone, a bot's Swap handed a human their last card and
   nobody ever answered it.
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
@@ -741,8 +756,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   and every content page. It hides nothing and protects nothing, and it listens on the bubble phase,
   so the roster row's own right-click menu opens first. `contextGuard.test.ts`.
 - **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
-  `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding **exactly two** cards, or its **last card
-  inside the window** the server named for it, makes it live. A control that unlocks on the server's
+  `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding **exactly two** cards, or with a **window
+  still running** — the end the server named plus `CATCH_LATE_GRACE_MS` (1s) — makes it live.
+  **That second is deliberately shorter than the server's `catchGrace` (2s), and the difference is
+  the wire**: a press made on the last frame the button is live has a whole second to arrive and
+  still be charged. Longer would be a live button over a wager the server answers with silence;
+  equal would drop the last late press by exactly one network hop. `serverMirrors.test.ts` pins the
+  inequality, not a number. A control that unlocks on the server's
   cue can be answered but never anticipated, and the window it answers is five seconds. The price is
   what keeps that honest — see the domain rule above — and **the threshold is what keeps the price
   from being buyable**: from two cards out the window is one ordinary play away, where from three it
@@ -752,23 +772,35 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   opponent calls it would **report that call** to a player who was not listening for it. The clock it
   reads is `store.onHookUntil`, seat → the window end the server sent in `catch_seats`: written by
   `applyCardPlayed` and `applyGameState`, kept past the declaration and past the window's retirement
-  from `catchWindows`, so a declared seat stays offered until its window ends and goes dark **when
-  the window does**, which is a clock that runs the same whether the seat spoke or not. A reloaded
-  tab holds no clock, so a last card the snapshot does not name is dark there. Only the *armed* cue
-  is a promise, and it rides `catchTarget`.
-- **There is no latch: a seat that draws, swallows a stack of four or takes two penalty cards takes
-  the button down with it, and so does the window running out** (`isCatchLive` + `catchLiveUntil`,
-  derived by `deriveCatchMiddleware`; `GameView` arms one timer on `store.catchLiveUntil` and calls
-  `rereadCatchLive`). It used to be held live until the next card played, on the argument that the
-  thumb was already committed — and held, the offer was farmed a card at a time: press, watch the seat
-  draw, press again after anybody plays, hand the pile on with a Swap. The committed thumb is answered
-  on the server by silence now, never by a card (`CatchOffered`). `store.declaredSeats` survives for
+  from `catchWindows`, **and past the hand growing back out of reach**, so the button goes dark on
+  the clock alone — a clock that runs the same whether the seat spoke, drew, or swallowed a stack of
+  four. That is what makes the *late* press possible, and the server charges for exactly the same
+  stretch (`catchOffered`): a control that greys out under a committed thumb is sparing the player a
+  mistake the server would have billed them for either way. A reloaded tab holds no clock, so a last
+  card the snapshot does not name is dark there. Only the *armed* cue is a promise, and it rides
+  `catchTarget`.
+- **There is no latch either: what ends the offer is the clock and never the next card**
+  (`isCatchLive` + `catchLiveUntil`, derived by `deriveCatchMiddleware`; `GameView` arms one timer on
+  `store.catchLiveUntil` and calls `rereadCatchLive`). Held to the next card played, the offer was
+  farmed a card at a time: press, watch the seat draw, press again after anybody plays, hand the pile
+  on with a Swap. So it runs on a deadline the server also honours, and the timer waits for the
+  window **and its grace** — the button has to go dark when the server stops charging, not when the
+  bar finishes draining. `store.declaredSeats` survives for
   `store.myDeclared`, our own seat's LOCO! chip, derived by `deriveCatchMiddleware` rather than
   written by an action. **`store.catchSpent` is the client's copy of the server's ration**, set by
   every press and cleared by `applyCardPlayed`, the one event that can put a new offer on the table;
   it suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
   the second tap of a double tap on a catch that landed — a catch that lands spends no offer, so the
   server's own guard does not cover it.
+- **The press is acknowledged on the frame it lands, and the verdict is still the server's**
+  (`store.catchPending`, `ActionBar`'s `.called`). The whole client-plus-server path of a
+  Contre-LOCO! measures 3–5 ms; everything a player waits for beyond that is the network, and a
+  button that shows nothing until the verdict comes back makes every millisecond of it read as a
+  dead control. So the button
+  holds itself down from the press to the answer: raised by both press actions, lowered by
+  `applyUnoCaught`, `applyCatchFailed`, a refusal (`setError`), `applyCardPlayed` and every reset
+  that lowers `catchFlash`. **It presumes nothing** — no stamp, no penalty, no card — and **it
+  disables nothing**: a second window after a Swap is still one more tap.
 - **Every deadline is read on the server's clock** (`hooks/serverClock.ts`): `turn_deadline`,
   `catch_seats[].ends_at`, `forfeit_deadline` and the snapshot's two are absolute server instants,
   and every bar counts them down against `Date.now()`. The handler takes `server_now` off every
@@ -779,6 +811,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
   opener is the one exception. `escapeClose.test.ts`.
+- **The five-second capsule names an opening, it does not give an order** (`t.catchWindow`, drawn by
+  `UnoTimer`). *Catch them!* / *Attrape-le !* sent a first-timer after somebody and made the press
+  sound free, when it is a wager that costs a card whenever it misses — and missing is the ordinary
+  outcome, because the seat it is aimed at is looking at its own LOCO! chip. *A chance to catch* /
+  *Une chance de contrer* is the same five seconds said as what they are. The price is taught where
+  there is time to read it, in the rules modal, and never on a capsule that is up for five seconds.
 - **A refused action never shows a wire string.** `i18n/serverErrors.ts` maps server prose by ordered
   regex, resolved at render. **Add the string there when you add a server error**
   (`serverErrors.test.ts`).
@@ -823,6 +861,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `createBooleanPref` module store (`localStorage`, presentation only). **Streamer mode is the one
   that also leaves the client**, and only from the host's — see below; every other one is local and
   must stay that way. Those icons are **drawn SVG, never a font character**.
+- **Fullscreen is a chip in that same row, on every screen that draws the row, and it is not a
+  preference** (`FullscreenButton.svelte`): nothing stored, the icon follows the document's own
+  `fullscreenchange` because Escape leaves fullscreen without asking us. **Desktop only** — gone
+  below 46rem with the rest of the row, and absent altogether where `document.fullscreenEnabled` is
+  false (an iframe, a WebView, iOS Safari) rather than a button that throws on press. Two drawn
+  glyphs, brackets out to enter and in to leave, never one rotated. `fullscreenButton.test.ts`.
 - **Every glyph a player sees is one we drew, and that includes the ones that shout**
   (`drawnGlyphs.test.ts`, which scans every `.svelte` and `.astro` plus both copy files). An emoji is
   drawn by the reader's OS: it arrives at a weight and a hue nothing here chose, in colour on one
@@ -1266,8 +1310,12 @@ stated at the top of `styles/tokens.css`:
   match and go dead rather than away**: draw and pass rendered only on our turn left one lone pill in
   a wide trough and pinched the bar's outline to a point at each end of it. The penalty draw is the
   one recolour left, and it is ours only. Three states: dead, pressable while a seat is on exactly
-  two cards or on its last card inside its window — on hand sizes and the clock alone, a declaration
-  the table heard included (`components/catchAvailability.ts`) — armed while a seat owes the call. **LOCO! is a small chip centred above the bar**, out of the grid so it moves no
+  two cards or has a window still running — on hand sizes and the clock alone, a declaration the
+  table heard included and a hand that grew back included (`components/catchAvailability.ts`) —
+  armed while a seat owes the call. **Dead also once our own wager is spent** (`GameView`'s
+  `catchSpent`: the store's ration is spent *and* `catchTarget` is null, so a press would be a blind
+  send the store suppresses). A control that is live and inert is the one lie a reaction bar cannot
+  afford; while any window is still ours to aim at, `catchTarget` names it and the bar stays live. **LOCO! is a small chip centred above the bar**, out of the grid so it moves no
   column, **on screen the whole match** and dead unless we hold one uncalled card. Never a fourth
   column, never something that appears: a control found only in the two seconds it is worth pressing
   is a control nobody has ever aimed at. **`BOTTOM_RESERVE` covers the chip's band as well as the

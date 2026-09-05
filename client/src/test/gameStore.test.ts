@@ -976,6 +976,96 @@ describe('gameStore', () => {
     expect(gameStore.getState().catchFlash).toBeNull()
   })
 
+  // The press is acknowledged on the spot and released by whatever answers it.
+  // Nothing here presumes the verdict: `catchPending` says a call is in flight
+  // and nothing about how it will land.
+  describe('catchPending: the press in flight', () => {
+    const board = () => {
+      const now = Date.now()
+      gameStore.setState({
+        myIndex: 3,
+        players: [
+          { index: 0, nickname: 'A', hand_size: 1, connected: true },
+          { index: 3, nickname: 'Me', hand_size: 4, connected: true },
+        ],
+        catchWindows: [{ seat: 0, endsAt: now + 2000 }],
+        catchPending: false,
+      })
+    }
+
+    it('is raised by a press naming a seat and by a blind one', () => {
+      board()
+      gameStore.getState().noteCatchAttempt(0)
+      expect(gameStore.getState().catchPending).toBe(true)
+      gameStore.setState({ catchPending: false })
+      gameStore.getState().noteBlindCatchAttempt()
+      expect(gameStore.getState().catchPending).toBe(true)
+    })
+
+    it('is lowered by the catch landing', () => {
+      board()
+      gameStore.getState().noteCatchAttempt(0)
+      gameStore.getState().applyUnoCaught(0)
+      expect(gameStore.getState().catchPending).toBe(false)
+    })
+
+    it('is lowered by the catch missing', () => {
+      board()
+      gameStore.getState().noteCatchAttempt(0)
+      gameStore.getState().applyCatchFailed(3)
+      expect(gameStore.getState().catchPending).toBe(false)
+    })
+
+    it('is lowered by a refusal', () => {
+      board()
+      gameStore.getState().noteBlindCatchAttempt()
+      gameStore.getState().setError('no catch window')
+      expect(gameStore.getState().catchPending).toBe(false)
+    })
+
+    it('is lowered by the board moving on', () => {
+      board()
+      gameStore.getState().noteCatchAttempt(0)
+      gameStore.getState().applyCardPlayed(
+        0,
+        { color: 'red', kind: 'number', value: 4 },
+        3,
+        0,
+        'red',
+        [
+          { index: 0, nickname: 'A', hand_size: 1, connected: true },
+          { index: 3, nickname: 'Me', hand_size: 4, connected: true },
+        ],
+        undefined,
+        1,
+        [],
+      )
+      expect(gameStore.getState().catchPending).toBe(false)
+    })
+
+    it('is lowered by an authoritative snapshot', () => {
+      board()
+      gameStore.getState().noteCatchAttempt(0)
+      gameStore.setState({ catchPending: true })
+      gameStore.getState().applyGameState({
+        your_index: 3,
+        hand: [],
+        players: [
+          { index: 0, nickname: 'A', hand_size: 1, connected: true },
+          { index: 3, nickname: 'Me', hand_size: 4, connected: true },
+        ],
+        discard: { color: 'red', kind: 'number', value: 3 },
+        active_color: 'red',
+        turn: 0,
+        direction: 1,
+        round_number: 1,
+        match_format: 'BO1',
+        max_players: 10,
+      })
+      expect(gameStore.getState().catchPending).toBe(false)
+    })
+  })
+
   it('applyCatchFailed names the seat that paid, clearCatchFailed retires it', () => {
     gameStore.getState().applyCatchFailed(2)
     expect(gameStore.getState().catchFailed?.seat).toBe(2)

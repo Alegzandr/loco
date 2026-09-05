@@ -45,7 +45,11 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       }
     }),
 
-  setError: (errorMsg) => set({ errorMsg, errorAt: stamp() }),
+  // A refusal answers the press as surely as a verdict does: the one Contre-LOCO!
+  // the server refuses outright rather than charges is a forged seat, but a
+  // button held down for a call the table will never hear about is wrong
+  // whatever the reason.
+  setError: (errorMsg) => set({ errorMsg, errorAt: stamp(), catchPending: false }),
   clearError: () => set({ errorMsg: '' }),
   setIsReconnecting: (isReconnecting) => set({ isReconnecting }),
   setServerUpdating: (serverUpdating) => set({ serverUpdating }),
@@ -106,6 +110,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       declaredSeats: [],
       catchFailed: null,
       catchFlash: null,
+      catchPending: false,
       swapNotice: null,
       lastPlay: null,
       interruptFlash: null,

@@ -6,17 +6,14 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"loco/server/game"
 	"loco/server/protocol"
 )
 
-// The head start. A catcher holding the button down used to land the catch on
-// the millisecond the card touched the pile, before the seat's own LOCO! could
-// possibly have crossed the wire, which made spamming Contre-LOCO! the way to
-// deny every declaration at the table. The seat that owes the call now gets the
-// opening stretch of its own window (game.CatchHeadStart), and a press made
-// inside it is held rather than refused: it lands the instant the head start
-// ends if the seat has said nothing, and costs its card if the seat spoke.
+// A Contre-LOCO! is answered on the instant it arrives, and what keeps the
+// button from being mashed is that only the first press against an offer is
+// charged. Both halves are here: the press that would once have been held for
+// the opening 1.5s of the window now lands straight away, and six presses in a
+// row cost exactly one card.
 
 // playDownToOne has the active seat play to a single card without calling it,
 // and hands back which socket owes the call, which one can catch, and the
@@ -54,7 +51,13 @@ func playDownToOne(t *testing.T, srv *httptest.Server) (activeConn, catcherConn 
 	return activeConn, catcherConn, activeIdx, catcherIdx
 }
 
-func TestCatchUNO_PressInsideTheHeadStartLandsWhenItEnds(t *testing.T) {
+// Nothing stands between the press and the verdict. The opening 1.5s of every
+// window used to be held for the seat that owed the call: a press made there
+// was kept by the hub and resolved when the stretch ended, so the player whose
+// reflex had won the race waited more than a second to find out, and could be
+// overtaken by the seat they had already caught. A reaction the server delays
+// is not a reaction it measures.
+func TestCatchUNO_LandsOnTheInstantItArrives(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	_, srv := newTestHub(t)
 	activeConn, catcherConn, activeIdx, _ := playDownToOne(t, srv)
@@ -66,32 +69,28 @@ func TestCatchUNO_PressInsideTheHeadStartLandsWhenItEnds(t *testing.T) {
 	if caught.Seat() != activeIdx {
 		t.Errorf("uno_caught PlayerIndex = %d, want %d", caught.Seat(), activeIdx)
 	}
-	// Not before the head start ends, with a margin for the card_played's
-	// own trip: the press was made inside the seat's opening stretch and had
-	// to wait it out.
-	if waited := time.Since(pressedAt); waited < game.CatchHeadStart-200*time.Millisecond {
-		t.Errorf("the catch landed %v after the press; a press inside the head start waits until it ends (%v)", waited, game.CatchHeadStart)
+	// Generous enough to survive a loaded runner, and far under the 1.5s hold
+	// it exists to fail on.
+	if waited := time.Since(pressedAt); waited > time.Second {
+		t.Errorf("the catch landed %v after the press: something is holding it back", waited)
 	}
 	if seen := readMsgOfType(t, catcherConn, protocol.SMsgUnoCaught); seen.Seat() != activeIdx {
 		t.Errorf("catcher saw uno_caught for seat %d, want %d", seen.Seat(), activeIdx)
 	}
 }
 
-// The head start protects the declaration, not the wager. A seat that speaks
-// inside it turns the held press into a lost race: charged once, announced
-// once, and the seat keeps its single card.
-func TestCatchUNO_DeclarationInsideTheHeadStartBeatsTheHeldPress(t *testing.T) {
+// And the seat that speaks first still wins. Being early is a wager, not a
+// guarantee: the declaration arrived before the press, so the press is a race
+// lost, charged once and announced once, and the seat keeps its single card.
+func TestCatchUNO_DeclaringFirstBeatsThePress(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	_, srv := newTestHub(t)
 	activeConn, catcherConn, activeIdx, catcherIdx := playDownToOne(t, srv)
 
-	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
-	// Well inside the head start, and after the press: the order the abuse
-	// depended on.
-	time.Sleep(150 * time.Millisecond)
 	sendMsg(t, activeConn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
 	readMsgOfType(t, activeConn, protocol.SMsgUnoDeclared)
 	readMsgOfType(t, catcherConn, protocol.SMsgUnoDeclared)
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
 
 	failed := readMsgOfType(t, catcherConn, protocol.SMsgCatchFailed)
 	if failed.Seat() != catcherIdx {
@@ -111,28 +110,31 @@ func TestCatchUNO_DeclarationInsideTheHeadStartBeatsTheHeldPress(t *testing.T) {
 	}
 }
 
-// Holding the button down inside the head start is one press. The second and
-// the tenth are dropped where they arrive, so a spammer buys exactly what a
-// single honest reflex bought: one held press, resolved once.
-func TestCatchUNO_SpamInsideTheHeadStartIsOnePress(t *testing.T) {
+// Holding the button down is one press, and this is the whole of what stands
+// between the mechanic and a mashed button now that nothing delays a press.
+// Six presses against one offer cost one card: the second and the tenth change
+// nothing, are broadcast to nobody and are answered to nobody, so a spammer
+// buys exactly what one honest reflex bought.
+func TestCatchUNO_SpamAgainstOneOfferIsOneCard(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	_, srv := newTestHub(t)
 	activeConn, catcherConn, activeIdx, catcherIdx := playDownToOne(t, srv)
 
-	for i := 0; i < 6; i++ {
-		sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
-	}
-	time.Sleep(150 * time.Millisecond)
+	// The seat speaks first, so every press below is a race already lost.
 	sendMsg(t, activeConn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
 	readMsgOfType(t, activeConn, protocol.SMsgUnoDeclared)
 	readMsgOfType(t, catcherConn, protocol.SMsgUnoDeclared)
+
+	for i := 0; i < 6; i++ {
+		sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
+	}
 
 	if failed := readMsgOfType(t, catcherConn, protocol.SMsgCatchFailed); failed.Seat() != catcherIdx {
 		t.Errorf("catch_failed PlayerIndex = %d, want the catcher %d", failed.Seat(), catcherIdx)
 	}
 	readMsgOfType(t, catcherConn, protocol.SMsgCardDrawn)
-	catcherConn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	catcherConn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
 	if _, _, err := catcherConn.ReadMessage(); err == nil {
-		t.Error("six presses inside one head start were answered more than once")
+		t.Error("six presses against one offer were charged more than once")
 	}
 }

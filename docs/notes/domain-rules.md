@@ -24,10 +24,9 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
    than an answer to a cue the server gave — an unpriced one is free to mash and the reaction stops
    being one, and a per-press price would bill the same misread ten times over. Two rather than
    three because the price is only a price while the card stays where it landed: see "The threshold
-   is what keeps the price from being buyable" below. **And the seat that owes the call gets the
-   first 1.5s of its own window** (`CatchHeadStart`): a press inside it is held by the hub and
-   resolved when the head start ends, so nobody's LOCO! can be denied by a thumb that never lets go.
-   See "The head start" below.
+   is what keeps the price from being buyable" below. **A press is answered on the instant it
+   arrives, and the offer outlives the picture that made it**, so the wager can be lost by being too
+   late as well as by being too early. See "Both ways to lose" below.
 
 ## Scoring & match system
 - `CardValue(c Card) int` (`game/card.go`): Number=face; Reverse=10; Skip=20; DrawTwo=30; Swap=30; GlobalSwitch=40; WildCard=40; WildDrawFour=50. Matches `docs/rules.md` §10.
@@ -397,22 +396,42 @@ won, and a one-card hand had made them finishes by accident.
     button had been live a round trip earlier. The client's threshold (`CATCH_LIVE_MAX_HAND`) and
     this are the same shape on two sides of the wire, and `catchAvailability.test.ts` and
     `room_test.go`'s `PenalizeFailedCatch` cases pin each side.
-  - **The head start** (`CatchHeadStart`, 1.5s, `ErrCatchTooEarly`, `hub.holdCatch` /
-    `resolveHeldCatch`, `table.heldCatches`). A catch that would land inside the first 1.5s of the
-    target's window is neither landed nor refused: the domain answers `ErrCatchTooEarly` *after*
-    every check that could make the press a miss — a press that is early and wrong is charged now,
-    not held and charged later — and the hub holds it, one per catcher per window (the key carries
-    `LastCardAt`, so a window reopened underneath it drops the press rather than landing it on the
-    next), and posts it back to the table at `CatchHeadStartEnd` through `resolveCatch`, the same
-    road a live press takes. It lands if the seat is still silent, costs its card if the seat spoke,
-    and several catchers resolve in arrival order because the table's box is FIFO. Before it, a
-    catcher holding the button down landed on the millisecond the card touched the pile, before
-    the seat's LOCO! could have crossed the wire: spamming Contre-LOCO! was the way to deny every
-    declaration at the table. 1.5s is a thumb's trip from the card played to the LOCO! chip plus a
-    round trip; the bots' `BotCatchDelay` sits at more than twice that and `scheduleBotCatch` clamps
-    to the head start anyway, so a test that lowers the delay cannot make a bot the spammer.
-    `catch_window_test.go` owns the domain half (`catchTime()` is how every test that catches on a
-    window it just opened gets past the head start), `hub/catch_headstart_test.go` the hold.
+  - **Both ways to lose.** A press is answered on the instant it arrives — the faster of the two
+    presses wins — and it is offered for long enough that arriving late is a mistake a player can
+    actually make. Neither half was true, and each was wrong in the same direction: the interface
+    and the server between them were deciding the wager on the player's behalf.
+
+    *Too early used to be impossible to win.* The opening 1.5s of every window was held for the seat
+    that owed the call (`CatchHeadStart`, `ErrCatchTooEarly`, `hub.holdCatch` / `resolveHeldCatch`,
+    `table.heldCatches`): a press made there was kept by the hub and resolved when the stretch
+    ended. It was written against a real abuse — a thumb that never let go landed on the millisecond
+    the card touched the pile, before the seat's LOCO! could have crossed the wire, which made
+    spamming the way to deny every declaration at the table — and it bought that at the price of the
+    mechanic. The reflex that won the race waited more than a second to learn it had, watching a
+    button that looked dead, and could be overtaken by the seat it had already caught. **The ration
+    above is what stops the mashing now** (one press per offer charged, the rest silent), and it is
+    the better answer because it costs a spammer a card every time the near-finish picture moves
+    while costing the single honest press nothing at all.
+
+    *Too late used to be impossible to lose.* The offer was read off the hand, so it vanished on the
+    frame a seat left the near-finish picture — it drew, it swallowed a stack of four, a catch
+    landed on it and its hand grew by two — and the button greyed out under a thumb already on its
+    way down. A control that retracts there is making the read for the player and making it in their
+    favour, which is the same failure as announcing the call. So the offer is the **window**
+    (`catchOffered` asks `catchRaceRecent` before it asks the hand, `catchOfferKey` is keyed on
+    `LastCardAt` so the ration survives the hand moving underneath it), and the client offers the
+    late press for **less** than the server charges for it: `CATCH_LATE_GRACE_MS` is 1s against
+    `catchGrace`'s 2s, and the difference is the round trip. Live *longer* than the server charges
+    is a button that does nothing when pressed; live for *exactly* as long puts a press made on the
+    final live frame outside the server's window by one network hop, which is the dark button's
+    failure arriving from the other side. `serverMirrors.test.ts` pins the inequality rather than
+    either number, so both can move as long as the room between them survives.
+
+    `catch_window_test.go` owns the domain half of both, `hub/catch_immediate_test.go` the
+    immediacy and the one-card ration through a real socket. **The race itself is not an E2E test
+    and must not become one**: measured through Playwright, a 6ms head start given to one page's
+    `WebSocket.send` did not survive to the server, so the outcome was decided by the harness rather
+    than by the rule.
   - `catchRaceRecent` still separates the two kinds of failure, and it still matters even though
     both now cost the same card: the target's window must have opened inside
     `catchWindow + catchGrace` (5s + 2s) for the call to count as a lost race, and outside that it
@@ -497,32 +516,36 @@ won, and a one-card hand had made them finishes by accident.
     that call** to a player who was not listening for it, which is the listening the game is asking
     them to do, and it would refuse the press §14.6 exists to charge for — the thumb already on its
     way down when the seat shouted. That press is the spasm the wager is made of. So a declared seat
-    stays offered until its window ends, and goes dark **when the window does** — a clock that runs
-    the same whether the seat spoke or not, and so reports nothing.
+    stays offered until its window ends, and goes dark **when the clock says so** — a clock that
+    runs the same whether the seat spoke or not, and so reports nothing.
     (`catchAvailability.test.ts` pins the seat on a declared single card as **live** inside its
-    window and **dead** past it.)
+    window and **dead** past it and its grace.)
   - **The clock is `store.onHookUntil`**, seat → the window end the server sent in `catch_seats`,
-    written by `applyCardPlayed` and `applyGameState` (`updateOnHook`) and read against the roster.
+    written by `applyCardPlayed` and `applyGameState` (`updateOnHook`), plus `CATCH_LATE_GRACE_MS`
+    (1s).
     It is a separate structure from `catchWindows` on purpose: those are retired by `uno_declared`,
     `uno_caught` and a draw, because they drive the *armed* cue, and the clock must survive all
-    three. A reloaded tab holds no clock, so a last card the snapshot does not name is dark there —
+    three — **and it must survive the hand growing, too**, which is why it is read against the seat
+    and never against what the seat is holding now. A reloaded tab holds no clock, so a last card the snapshot does not name is dark there —
     the one reading a tab that was not listening can honestly give.
   - **Absence of a window is not a declaration either**, and it must reach the armed cue even less:
     catch seats ride `card_played` only, so a reloaded tab holds none of them.
-- **And there is no latch any more** (`isCatchLive` + `catchLiveUntil`, derived by
-  `deriveCatchMiddleware`; `GameView` arms one timer on `store.catchLiveUntil` and calls
+- **And what ends it is the clock, never the next card** (`isCatchLive` + `catchLiveUntil`, derived
+  by `deriveCatchMiddleware`; `GameView` arms one timer on `store.catchLiveUntil` and calls
   `rereadCatchLive`, which is a write naming `catchLive` and nothing else, enough to come back
-  through the derivation). The button used to be held live from the moment it rose until the next
-  card played, on the argument that a seat escaping — calling it, drawing, swallowing a stack of
-  four — was the instant a betting thumb had already committed, and a control retracting there was
-  the interface making the read for the player. The argument was right about the thumb and wrong
-  about the price: held, the offer was **farmed**. Press against a seat on two, watch it draw to
-  three, wait for anybody to play, press again — a card a play, collected on purpose, for a Swap to
-  hand on. That is the abuse the latch's own bound was written against, arriving by the door the
-  latch opened. So the button is a photograph again: it rises on the roster and the clock and falls
-  on either, and the committed thumb is answered on the server by silence (`CatchOffered`), never by
-  a card. `catchDerivation.test.ts` owns both halves; `penalties.spec.ts` plays the whole shape out
-  against a real server, catch included.
+  through the derivation). The button was once held live from the moment it rose until the next card
+  played, on the argument that a seat escaping — calling it, drawing, swallowing a stack of four —
+  was the instant a betting thumb had already committed. The argument was right about the thumb and
+  wrong about the price: held, the offer was **farmed**. Press against a seat on two, watch it draw
+  to three, wait for anybody to play, press again — a card a play, collected on purpose, for a Swap
+  to hand on.
+
+  Read off the hand instead, it was wrong in the other direction: the button went dark on the frame
+  the seat left the picture, and that is the committed thumb again, spared. So the offer is the
+  **window** and the clock is what ends it — the window plus a second, inside the two the server
+  charges for, long enough that a press made a beat too late costs the card it should and short
+  enough that nothing can be farmed. `catchDerivation.test.ts` owns both halves;
+  `penalties.spec.ts` plays the whole shape out against a real server, catch included.
 - **`applyGameState` filters catch windows, it does not wipe them.** Swap and GlobalSwitch are
   followed by a personalised `game_state`, so clearing there made the exact rule this exists for
   unreachable: the player handed their last card was catchable for a few milliseconds and then
