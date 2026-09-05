@@ -95,6 +95,12 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         // spoke, or whose window ran out — is dark there, which is the one
         // reading a tab that was not listening can honestly give.
         onHookUntil: updateOnHook(s.onHookUntil, state.catch_seats, state.players, now),
+        // Our own lockout, which only a snapshot can restore: a reloaded tab
+        // and a corrected one both come back with a button the server is still
+        // refusing, and a live control over a press answered by silence is the
+        // one failure this whole mechanic is written around. Absent means not
+        // locked.
+        catchLockedUntil: state.catch_locked_until ?? 0,
         // Same authority over a press in flight: the snapshot is the server's
         // whole answer, and a correction is how a refused press comes back.
         catchPending: false,

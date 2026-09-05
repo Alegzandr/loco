@@ -343,6 +343,15 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
         store.applyCatchFailed(msg.player_index ?? -1)
         break
 
+      // Our own call put us out of the mechanic for a moment, and this says
+      // until when. Sent to the caller alone and on *every* press made inside
+      // the lockout, not only the one that armed it, so the button's countdown
+      // restarts exactly when the server's does — which is what makes holding
+      // it down buy nothing. Absent means the seat is free again.
+      case 'catch_locked':
+        store.applyCatchLocked(msg.catch_locked_until ?? 0)
+        break
+
       // Sent immediately before the resulting card_played so the steal can be
       // presented on its own — banner, sting, screen shake — instead of
       // looking like an ordinary turn.

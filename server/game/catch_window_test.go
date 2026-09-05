@@ -217,3 +217,120 @@ func TestCatchUndeclared_CatcherOutOfRange(t *testing.T) {
 		t.Fatal("a catcher this deal has no hand for must be refused, not indexed")
 	}
 }
+
+// ─── The lockout ────────────────────────────────────────────────────────────
+//
+// The card a fruitless call costs is rationed per *offer*, which bounds what
+// mashing costs and not what it buys: after the first one, every press against
+// the same near-finish picture was silent and free, and the one that landed on
+// the frame a window opened took the catch for nothing, because a catch that
+// lands spends no offer. So the lockout is rationed per *press* instead.
+
+// The whole exploit, in the domain. A seat is one play from the finish, the
+// masher's press finds nobody and pays for it, the seat plays down to its last
+// card — and the press that used to collect that window is refused.
+func TestCatchLockout_MashingCannotTakeTheWindowItOpensOn(t *testing.T) {
+	r := twoSeatRoom(t, 3, 2)
+	now := time.Now()
+
+	if !r.CatchOffered(0, now) {
+		t.Fatal("a seat on two cards is the offer this whole mechanic is priced on")
+	}
+	if _, charged := r.PenalizeFailedCatch(0, now); !charged {
+		t.Fatal("the press found nobody and must be charged a card")
+	}
+	r.LockCatch(0, now)
+
+	// The window opens a beat later, well inside the lockout.
+	r.State.Hands[1] = Hand{Cards: []Card{{Color: Red, Kind: Number, Value: 1}}}
+	r.State.openCatchWindow(1)
+
+	at := now.Add(150 * time.Millisecond)
+	if !r.CatchLocked(0, at) {
+		t.Fatal("the lockout must still be running when the window opens")
+	}
+	err := r.CatchUndeclared(0, 1, at)
+	if !errors.Is(err, ErrCatchLocked) {
+		t.Fatalf("want ErrCatchLocked, got %v", err)
+	}
+	if got := r.State.Hands[1].Size(); got != 1 {
+		t.Fatalf("the caught seat drew %d cards for a press that was refused", got-1)
+	}
+	// Refused, but not suspicious and not a miss: the press cost a card once
+	// already, and both clocks are honest.
+	if IsMissedCatch(err) {
+		t.Fatal("a locked press is not a lost race")
+	}
+	if !IsLostRace(err) {
+		t.Fatal("a locked press is ordinary play, not a tampered client")
+	}
+}
+
+// And a press made inside it costs nothing more. The card stays rationed per
+// offer: billing every press of a held button is the farm this mechanic spent
+// two rewrites closing.
+func TestCatchLockout_APressInsideItIsFree(t *testing.T) {
+	r := twoSeatRoom(t, 3, 2)
+	now := time.Now()
+	r.LockCatch(0, now)
+
+	before := r.State.Hands[0].Size()
+	if _, charged := r.PenalizeFailedCatch(0, now.Add(100*time.Millisecond)); charged {
+		t.Fatal("a press inside the lockout must be charged nothing")
+	}
+	if got := r.State.Hands[0].Size(); got != before {
+		t.Fatalf("the locked seat drew %d cards, want none", got-before)
+	}
+}
+
+// It ends on the clock, like every other deadline here, and a press made while
+// it runs pushes that clock out. That is the whole of what a held thumb pays,
+// and the reason it is never live at the instant a window opens.
+func TestCatchLockout_EndsOnTheClockAndEveryPressRearmsIt(t *testing.T) {
+	r := twoSeatRoom(t, 3, 2)
+	now := time.Now()
+
+	first := r.LockCatch(0, now)
+	if !r.CatchLocked(0, now.Add(catchLockout-time.Millisecond)) {
+		t.Fatal("the lockout ended early")
+	}
+	if r.CatchLocked(0, now.Add(catchLockout)) {
+		t.Fatal("the lockout outlived its own deadline")
+	}
+
+	// A second press, a beat before it would have expired.
+	second := r.LockCatch(0, now.Add(catchLockout-100*time.Millisecond))
+	if !second.After(first) {
+		t.Fatal("a press inside the lockout must push its deadline out")
+	}
+	if !r.CatchLocked(0, now.Add(catchLockout)) {
+		t.Fatal("the seat came back live at the deadline the first press set")
+	}
+}
+
+// Nothing about it survives the deal: a lockout is a price paid on one board,
+// and the next round is another one.
+func TestCatchLockout_IsClearedByTheDeal(t *testing.T) {
+	r := twoSeatRoom(t, 3, 2)
+	now := time.Now()
+	r.LockCatch(0, now)
+
+	if err := r.BeginNextRound(); err != nil {
+		t.Fatalf("BeginNextRound: %v", err)
+	}
+	if r.CatchLocked(0, now) {
+		t.Fatal("the lockout survived the deal")
+	}
+}
+
+// A seat this deal has no hand for answers zero rather than panicking: these
+// are read on the way to the wire, on every snapshot.
+func TestCatchLockedAt_OutOfRangeSeat(t *testing.T) {
+	r := twoSeatRoom(t, 3, 1)
+	if !r.CatchLockedAt(9).IsZero() {
+		t.Fatal("a seat the table does not have must answer zero")
+	}
+	if !r.LockCatch(9, time.Now()).IsZero() {
+		t.Fatal("locking a seat the table does not have must change nothing")
+	}
+}

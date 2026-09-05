@@ -520,6 +520,13 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       // The seat it was aimed at keeps its hand throughout: a failed call is the
       // caller's business and nobody else's obligation.
       expect((after?.players ?? []).find((p) => p.index === bobIdx)?.hand_size).toBe(2)
+      // And what those four free presses *did* buy is the other ration: each one
+      // re-armed the lockout, so the button is dead and says why. This is the
+      // half the card alone never covered — free presses used to sit there
+      // waiting for a window to open under them.
+      expect(after?.catchLocked).toBe(true)
+      expect(after?.catchLockedUntil ?? 0).toBeGreaterThan(Date.now())
+      await expect(alice.getByRole('button', { name: T.catchBtn })).toBeDisabled()
     } finally {
       await ctx1.close()
       await ctx2.close()

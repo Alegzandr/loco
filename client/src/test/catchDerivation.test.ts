@@ -349,3 +349,70 @@ describe('the spent wager, which is not the offer', () => {
     expect(gameStore.getState().catchSpent).toBe(false)
   })
 })
+
+/**
+ * The lockout goes through the same door: `catchLocked` and the clock the
+ * button comes back on are derived off `catchLockedUntil`, never written beside
+ * it. An action that raised one and forgot the other would leave a live button
+ * over a press the server refuses in silence, and nothing would fail.
+ */
+describe('the lockout is completed by the store', () => {
+  beforeEach(() => {
+    gameStore.setState({
+      myIndex: 0,
+      catchWindows: [],
+      players: [],
+      onHookUntil: {},
+      catchLockedUntil: 0,
+      catchLive: false,
+    })
+  })
+
+  it('is derived from a bare write to catchLockedUntil', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
+    expect(gameStore.getState().catchLive).toBe(true)
+
+    gameStore.getState().applyCatchLocked(now() + 2000)
+    const s = gameStore.getState()
+    expect(s.catchLocked).toBe(true)
+    // Dead while it runs, whatever the table is holding.
+    expect(s.catchLive).toBe(false)
+    // And the instant the answer changes by itself, which is what GameView arms
+    // its one timer on: a lock is two seconds and a quiet table is longer.
+    expect(s.catchLiveUntil).toBe(s.catchLockedUntil)
+  })
+
+  it('lets the button back up when the lock has run out', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
+    gameStore.getState().applyCatchLocked(now() - 1)
+    const s = gameStore.getState()
+    expect(s.catchLocked).toBe(false)
+    expect(s.catchLive).toBe(true)
+  })
+
+  // A snapshot is how a reloaded tab and a corrected one learn the board, and
+  // our own lockout is on it: without that they came back with a live button
+  // over a press answered by silence.
+  it('is restored by a snapshot', () => {
+    const until = now() + 2000
+    gameStore.getState().applyGameState({
+      your_index: 0,
+      hand: [],
+      players: [seat(0, 8), seat(1, 2)],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      active_color: 'red',
+      turn: 0,
+      direction: 1,
+      pending_draw: 0,
+      has_drawn: false,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 2,
+      catch_locked_until: until,
+    } as unknown as GameStateDTO)
+    const s = gameStore.getState()
+    expect(s.catchLockedUntil).toBe(until)
+    expect(s.catchLocked).toBe(true)
+    expect(s.catchLive).toBe(false)
+  })
+})

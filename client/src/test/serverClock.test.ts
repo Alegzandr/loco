@@ -59,6 +59,7 @@ describe('serverClock', () => {
       turn_deadline: 106_000 + 30_000,
       forfeit_deadline: 106_000 + 15_000,
       catch_seats: [{ player_index: 1, ends_at: 106_000 + 5000 }],
+      catch_locked_until: 106_000 + 2000,
       state: {
         your_index: 0,
         hand: [],
@@ -72,6 +73,7 @@ describe('serverClock', () => {
         max_players: 2,
         turn_deadline: 106_000 + 30_000,
         catch_seats: [{ player_index: 1, ends_at: 106_000 + 5000 }],
+        catch_locked_until: 106_000 + 2000,
       },
     }
     vi.useFakeTimers()
@@ -82,6 +84,11 @@ describe('serverClock', () => {
     expect(out.catch_seats?.[0].ends_at).toBe(105_000)
     expect(out.state?.turn_deadline).toBe(130_000)
     expect(out.state?.catch_seats?.[0].ends_at).toBe(105_000)
+    // Our own lockout is a deadline like the rest of them: read on the wrong
+    // clock, a phone two seconds fast would draw a padlock the server had
+    // already lifted, and one two seconds slow would offer a press it refuses.
+    expect(out.catch_locked_until).toBe(102_000)
+    expect(out.state?.catch_locked_until).toBe(102_000)
     // The input is not written to: a message is data the socket handed over.
     expect(msg.turn_deadline).toBe(136_000)
 

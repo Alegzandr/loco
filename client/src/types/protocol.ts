@@ -188,6 +188,18 @@ export type ServerMsgType =
   // charged a card for it. Broadcast to the whole room: the wager is public,
   // like the catch it lost to.
   | 'catch_failed'
+  // SMsgCatchLocked says when this seat's Contre-LOCO! becomes pressable
+  // again after a call that found nobody, and it is sent to that seat alone.
+  //
+  // The lockout is rationed per press where the card is rationed per offer
+  // (game.catchLockout), so a held button re-arms its own lock and is never
+  // live at the instant a window opens. That only reaches the player if every
+  // press is answered: the button has to be able to say *why* it is dead and
+  // for how long, or a control that goes quiet under a thumb is indistinguishable
+  // from one that is broken. Caller-only, deliberately — a lockout is a price
+  // the table does not have to render, and a broadcast per press would be the
+  // amplification catchGrace was written to stop.
+  | 'catch_locked'
   | 'interrupt_success'
   // Round / match lifecycle
   | 'round_end'
@@ -462,6 +474,12 @@ export interface ServerMsg {
   // it just arms Contre-LOCO! on a tap the server will refuse, or leaves it
   // dark on a seat the player was entitled to catch.
   catch_seats?: CatchSeatDTO[]
+  // SMsgCatchLocked: unix milliseconds when the recipient's Contre-LOCO!
+  // lockout ends, absolute on the server's clock like every other deadline
+  // here. Zero, and therefore absent, means the seat is not locked — the same
+  // convention TurnDeadline uses, and the reason nothing on this side has to
+  // know how long a lockout lasts.
+  catch_locked_until?: number
   // SMsgCardPlayed / SMsgCardDrawn: the authoritative turn state AFTER the
   // event.
   //
@@ -664,6 +682,13 @@ export interface GameStateDTO {
   // Without it a reload put the LOCO! button back in front of a player whose
   // call was already spent, and the press came back "player already declared".
   declared_seats?: number[]
+  // CatchLockedUntil is the recipient's own Contre-LOCO! lockout, personalised
+  // like the hand above it and absolute on the server's clock. A snapshot is
+  // how a reloaded tab and a corrected one learn a board, and without this one
+  // they came back with a live button over a press the server refuses in
+  // silence — the one failure the whole mechanic is written around. Zero, and
+  // absent, means not locked. See ServerMsg.CatchLockedUntil.
+  catch_locked_until?: number
   // StreamerMode is the host's answer, carried in every snapshot for the same
   // reason MapID is: a tab that reloads mid-match rebuilds the table from this
   // and nothing else, and a table code that comes back readable on a stream is

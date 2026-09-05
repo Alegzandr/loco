@@ -1,4 +1,4 @@
-import { catchLiveUntil, isCatchLive } from '../../components/catchAvailability'
+import { catchLiveUntil, isCatchLive, isCatchLocked } from '../../components/catchAvailability'
 import { StateCreator } from './createStore'
 import { deriveCatch } from './helpers'
 import { GameStore } from './types'
@@ -54,6 +54,7 @@ export const deriveCatchState =
           !('declaredSeats' in patch) &&
           !('players' in patch) &&
           !('onHookUntil' in patch) &&
+          !('catchLockedUntil' in patch) &&
           !('catchLive' in patch)
         ) {
           return patch
@@ -64,8 +65,21 @@ export const deriveCatchState =
           ...patch,
           ...deriveCatch(merged.catchWindows, merged.myIndex),
           myDeclared: merged.declaredSeats.includes(merged.myIndex),
-          catchLive: isCatchLive(merged.players, merged.myIndex, merged.onHookUntil, now),
-          catchLiveUntil: catchLiveUntil(merged.players, merged.myIndex, merged.onHookUntil, now),
+          catchLive: isCatchLive(
+            merged.players,
+            merged.myIndex,
+            merged.onHookUntil,
+            merged.catchLockedUntil,
+            now,
+          ),
+          catchLiveUntil: catchLiveUntil(
+            merged.players,
+            merged.myIndex,
+            merged.onHookUntil,
+            merged.catchLockedUntil,
+            now,
+          ),
+          catchLocked: isCatchLocked(merged.catchLockedUntil, now),
         }
       })
     }) as typeof set

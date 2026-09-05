@@ -156,6 +156,7 @@ export const fr: Translations = {
   unoBtn: 'LOCO!',
   unoBanner: 'LOCO!',
   catchBtn: 'Contre-LOCO!',
+  catchLockedLabel: 'Contre-LOCO! verrouillé après un contre manqué',
   chooseColor: 'Annonce la couleur',
   pickerCancel: 'Repose la carte',
   choosePlayer: 'Tu veux la main de qui\u00a0?',
@@ -408,6 +409,7 @@ export const fr: Translations = {
         'Recevoir sa dernière carte compte aussi\u00a0: après un Échange ou une Rotation, tous ceux qui sont à une carte doivent l\'annoncer.',
         'Si tu restes muet, chaque adversaire a cinq secondes pour tenter un Contre-LOCO! Tu piocheras deux cartes.',
         'Le Contre-LOCO! est un pari, pas un coup gratuit\u00a0: trop tôt ou trop tard, il coûte une carte à celui qui le crie.',
+        'Un contre raté verrouille aussi ton bouton deux secondes, et chaque appui pendant ce temps les fait repartir de zéro.',
       ],
     },
     {

@@ -318,6 +318,12 @@ export interface Translations {
   unoBtn: string
   unoBanner: string
   catchBtn: string
+  // The centre button's accessible name while our own last call has it locked
+  // (`catch_locked`). The face of it is a padlock and a bar draining, which is
+  // the whole story at 720p; this is the same story for anybody who cannot see
+  // it, and it names the cause, because a control that goes dead without one
+  // is a control the player keeps pressing.
+  catchLockedLabel: string
   chooseColor: string
   choosePlayer: string
   pickerCancel: string          // the ✕ on both pickers: puts the card back in the hand
@@ -687,6 +693,7 @@ export const en: Translations = {
   unoBtn: 'LOCO!',
   unoBanner: 'LOCO!',
   catchBtn: 'Catch!',
+  catchLockedLabel: 'Catch! is locked after a missed call',
   chooseColor: 'Call the color',
   choosePlayer: 'Whose hand do you want?',
   pickerCancel: 'Put it back',
@@ -939,6 +946,7 @@ export const en: Translations = {
         'Being handed your last card counts too: after a Swap or a Global Switch, everyone sitting on one card owes the call.',
         'Stay quiet and any opponent has five seconds to hit Catch! You draw two.',
         'Catch! is a bet, not a free shot: too early or too late, it costs the caller a card.',
+        'A miss also locks your own Catch! for two seconds, and pressing it while it is locked starts them over.',
       ],
     },
     {

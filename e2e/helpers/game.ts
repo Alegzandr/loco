@@ -1,4 +1,4 @@
-import { Page, expect } from '@playwright/test'
+import { Page, expect, test } from '@playwright/test'
 
 /** Text labels from the English translations (en.ts). */
 export const T = {
@@ -95,6 +95,31 @@ export const T = {
   // a locator matches on. Asking for '✕' finds nothing and times out.
   pickerCancel: 'Put it back',
 } as const
+
+/**
+ * A wait may not outlive the test that owns it.
+ *
+ * Several helpers here were written with the length of the thing they wait for
+ * — a whole match is 120s — while the test around them had Playwright's
+ * default 30s. Two things fell out of that, and both cost CI time. The cap
+ * could never fire, so a hung wait was always reported as "Test timeout of
+ * 30000ms exceeded" with no word about what it had been waiting for; and a
+ * match that legitimately ran past 30s on a loaded runner failed, was retried,
+ * and paid for the whole thing twice.
+ *
+ * So the cap is now the smaller of what the wait is worth and what the test
+ * has left it, minus a margin for the assertion that follows. A test that
+ * genuinely needs longer says so with `test.setTimeout`, and this follows it.
+ */
+export function budget(wantMs: number): number {
+  try {
+    const owned = test.info().timeout
+    return owned > 0 ? Math.max(5_000, Math.min(wantMs, owned - 5_000)) : wantMs
+  } catch {
+    // Outside a test (a helper reused by tooling): take the wait at its word.
+    return wantMs
+  }
+}
 
 interface DebugHandOverride {
   playerIndex: number
@@ -240,7 +265,7 @@ export async function findMatch(page: Page, nickname: string): Promise<void> {
 }
 
 /** Wait for a matchmade pairing to deal and open its table. */
-export async function waitForMatchmadeGame(page: Page, timeoutMs = 30_000): Promise<void> {
+export async function waitForMatchmadeGame(page: Page, timeoutMs = budget(30_000)): Promise<void> {
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getState?.()?.screen === 'game',
     undefined,
@@ -263,7 +288,7 @@ export async function addBot(page: Page): Promise<void> {
  * reply that never comes. The client answers on its own (it preloads the map
  * and sends map_ready); this only waits for the answer to land.
  */
-export async function waitForTableOpen(page: Page, timeoutMs = 30_000): Promise<void> {
+export async function waitForTableOpen(page: Page, timeoutMs = budget(30_000)): Promise<void> {
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getState?.()?.mapLoading == null,
     undefined,
@@ -301,7 +326,7 @@ export async function setMatchFormat(
 }
 
 /** Wait until it's the local player's turn (up to timeoutMs). */
-export async function waitForMyTurn(page: Page, timeoutMs = 30_000): Promise<void> {
+export async function waitForMyTurn(page: Page, timeoutMs = budget(30_000)): Promise<void> {
   await page.waitForFunction(
     () => {
       const state = window.__LOCO_E2E__?.getState?.()
@@ -387,7 +412,7 @@ export async function drawAndPass(page: Page): Promise<void> {
 }
 
 /** Wait for the round summary overlay to appear. */
-export async function waitForRoundSummary(page: Page, timeoutMs = 60_000): Promise<void> {
+export async function waitForRoundSummary(page: Page, timeoutMs = budget(60_000)): Promise<void> {
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getState?.()?.showRoundSummary === true,
     undefined,
@@ -415,7 +440,7 @@ export async function closeRulesModal(page: Page): Promise<void> {
 }
 
 /** Wait for the game-over screen (screen='gameover'). */
-export async function waitForGameOver(page: Page, timeoutMs = 120_000): Promise<void> {
+export async function waitForGameOver(page: Page, timeoutMs = budget(120_000)): Promise<void> {
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getState?.()?.screen === 'gameover',
     undefined,
@@ -520,7 +545,7 @@ export async function clickContinue(page: Page): Promise<void> {
 export async function waitForPendingDraw(
   page: Page,
   min = 1,
-  timeoutMs = 60_000,
+  timeoutMs = budget(60_000),
 ): Promise<void> {
   await page.waitForFunction(
     (threshold: number) => (window.__LOCO_E2E__?.getState?.()?.pendingDraw ?? 0) >= threshold,
@@ -533,7 +558,7 @@ export async function waitForPendingDraw(
  * Wait for any player to declare UNO (store.unoDeclared === true).
  * Bots auto-declare when they play to 1 card.
  */
-export async function waitForUnoDeclared(page: Page, timeoutMs = 90_000): Promise<void> {
+export async function waitForUnoDeclared(page: Page, timeoutMs = budget(90_000)): Promise<void> {
   await page.waitForFunction(
     () => window.__LOCO_E2E__?.getState?.()?.unoDeclared === true,
     undefined,
@@ -548,7 +573,7 @@ export async function waitForUnoDeclared(page: Page, timeoutMs = 90_000): Promis
 export async function waitForRoundNumber(
   page: Page,
   n: number,
-  timeoutMs = 30_000,
+  timeoutMs = budget(30_000),
 ): Promise<void> {
   await page.waitForFunction(
     (target: number) => (window.__LOCO_E2E__?.getState?.()?.roundNumber ?? 0) >= target,

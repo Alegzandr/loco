@@ -170,16 +170,16 @@ deliberately not covered here" below.
 - **Every test must stay self-contained** — no `beforeAll`, no `describe.serial`, no state carried
   between tests; each one creates its own room. That is what lets CI shard the suite per *test*
   (`fullyParallel: true`) instead of per spec file, which is what makes four shards even instead of
-  27/39/0/21. Sequential execution is `workers: 1`'s job, not `fullyParallel`'s.
+  27/39/0/21. It is also what lets `workers` be more than one off CI.
 - **The 1v1 queue is the one thing a test cannot open its own of, so it is locked rather than
   hidden.** A room code is private: two tests hold two rooms on one server and never meet. There is
   exactly one matchmaking queue per process, it is a FIFO, and `tryPair` hands seat 0 to whoever is
   at the front — so a searcher belonging to another test, arriving between one test's two, is paired
   with one of them. The symptom is not a clean failure: a test waits out its timeout on a
   `match_found` that went to a stranger, and the *other* test fails too.
-  `workers: 1` hid this and CI's four shards each start their own `server-bin`, so nothing was
-  actually broken — but `fullyParallel: true` states the opposite promise two lines above that
-  setting, and raising `workers` would have broken exactly six tests in a way that reads as flake.
+  A single worker hid this and CI's four shards each start their own `server-bin`, so nothing was
+  actually broken — but `fullyParallel: true` states the opposite promise, and raising `workers`
+  would have broken exactly six tests in a way that reads as flake.
   `e2e/helpers/matchmakingQueue.ts` is a cross-process mutex (an atomic `mkdir`, a pid the next
   claimant can check, a staleness backstop above the slowest holder) and every test in
   `matchmaking.spec.ts` claims it. **That is a lock on a shared resource, not shared state**: nothing
@@ -284,6 +284,69 @@ deliberately not covered here" below.
 - Two controls must never share an accessible name — the draw pile is `drawPile` ("Pioche"), not
   "Draw", precisely because a strict-mode locator caught the collision.
 - Canvas not inspected; verify via DOM (ActionBar, RoundSummary, GameOver) + `__LOCO_E2E__.getState()`.
+
+### The suite that opens the most tables renders the fewest rooms
+
+`VITE_E2E_NO_SCENE=1`, set by `playwright.config.ts` on the dev server it owns, read by
+`sceneCache.prepareScene`.
+
+Every test that reaches a board goes through the map-loading gate, and the gate waits for a
+three.js render of the room. Measured against the dev server, per fresh context:
+
+| | requests | transferred | render |
+| --- | --- | --- | --- |
+| the app's page alone | 217 | 0.4 MB | — |
+| the same page with the room | 466 (220 of them models) | ~7 MB | +2.2 s |
+
+The suite opens about 167 tables (95 `startGame`, 60 explicit `waitForTableOpen` on secondary
+pages, 12 matchmade), so the room cost roughly six minutes of wall clock and 1.2 GB served on a
+fast machine with a warm Vite cache — and considerably more on a CI runner or a cloud sandbox,
+where the GPU is SwiftShader and the CPU is shared. **It bought no assertion**: nothing in `e2e/`
+touches the scene, because appearance belongs to `make visual` and behaviour to this suite.
+
+What the flag does is take the path a machine with no WebGL already takes: `prepareScene` keeps the
+entry with a null bitmap, the board draws the sky gradient the rig describes, the gate is answered
+and `map_ready` is still sent. The gate's own mechanism — the bar, `MAP_BAR_FULL_MS`, the timeout —
+is exercised exactly as before, and so is every ordering the server enforces behind it.
+
+Two decisions inside that are less obvious than they look:
+
+- **It goes on the dev server, not in an init script.** A page reaches this suite four ways: the
+  `page` fixture, a bare `browser.newContext()` (112 of those), a second tab, an invitation link.
+  An `addInitScript` hung off `createRoom` covers the first and misses the rest, and what it misses
+  is a room quietly rendered with nobody noticing the flag did not apply. The dev server is the one
+  thing all four share.
+- **`import.meta.env.DEV` is what keeps it out of production**, not the absence of the variable.
+  Vite replaces `DEV` with `false` in a build, the constant folds, and the branch — with the lazy
+  `import('./render')` inside it — is the only path that survives. A flag guarded only by its own
+  environment variable is a production bundle one `docker build --build-arg` away from shipping a
+  game with no rooms.
+
+`sceneLoadingGate.test.ts` pins all four ends: the flag is off in Vitest, the name the config sets
+is the name the cache reads, the `DEV` guard is present, and the engine import is still *inside* the
+guard — which is where the saving actually is.
+
+### A wait may not outlive the test that owns it
+
+`helpers/game.ts: budget()`, plus `timeout: 60_000` in the config.
+
+Several helpers were written with the length of the thing they wait for: `waitForGameOver` capped at
+120s, `waitForUnoDeclared` at 90s, `waitForRoundSummary` at 60s. The test around them had
+Playwright's default 30s. Two things fell out of that and both cost CI time.
+
+The caps could never fire, so a genuinely hung wait was always reported as `Test timeout of 30000ms
+exceeded` — the one message that says nothing about what was being waited for, which is precisely
+what you need from a runner you cannot attach a debugger to. And a match that ran past 30s honestly,
+which a BO1 against a bot on a loaded runner does, failed and was retried in full.
+
+`budget(wantMs)` reads `test.info().timeout` and returns the smaller of what the wait is worth and
+what the test has left it, less a margin for the assertion that follows. A test that genuinely needs
+longer says so with `test.setTimeout` and the helpers follow it — `round-progression.spec.ts` asks
+for 120s and gets it. Outside a test it takes the wait at its word, so the helpers stay reusable by
+tooling.
+
+Raising the global budget to 60s is the other half: it stops the suite relying on luck, and
+`budget()` is what stops a hung test spending all of it in silence.
 
 ## CI/CD
 Pipeline: `.gitlab-ci.yml`, stages `test → build → deploy`.

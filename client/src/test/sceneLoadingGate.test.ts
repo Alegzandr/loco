@@ -14,7 +14,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { renderHook } from './renderHook'
-import { sizeCloseEnough } from '../components/scene/sceneCache'
+import { sizeCloseEnough, skipsRender } from '../components/scene/sceneCache'
 
 const NOTCH = { top: 59, right: 0, bottom: 34, left: 0 }
 
@@ -113,5 +113,52 @@ describe('the curtain is opaque from its first frame', () => {
     expect(rule, '.room rule not found').not.toBeNull()
     expect(rule![0]).toMatch(/animation: mapRoomIn/)
     expect(rule![0]).toMatch(/position: absolute/)
+  })
+})
+
+/**
+ * The suite that opens the most tables renders the fewest rooms.
+ *
+ * Playwright drives ~167 tables through this gate and asserts nothing about
+ * what the gate was waiting for — appearance is `make visual`'s. Rendering it
+ * anyway cost 2.2s, ~250 requests and ~7MB of models per table, on headless
+ * Chromium's software GPU. `sceneCache` skips it and answers with the sky
+ * gradient, which is the path a machine with no WebGL already takes.
+ *
+ * Two ends, in two repositories' worth of config, and nothing but this
+ * connects them: the name the Playwright config sets and the name `sceneCache`
+ * reads. Drift and the suite silently pays for the room again.
+ */
+describe('the end-to-end suite gets no room', () => {
+  const cache = read('components/scene/sceneCache.ts')
+  const pw = readFileSync(join(process.cwd(), '..', 'e2e', 'playwright.config.ts'), 'utf8')
+
+  it('is off unless something asks for it', () => {
+    // Vitest is neither the dev server nor a production build, and the room is
+    // rendered here exactly as it is for a player.
+    expect(skipsRender()).toBe(false)
+  })
+
+  it('reads the variable the Playwright config sets', () => {
+    const read_ = cache.match(/import\.meta\.env\.(VITE_[A-Z0-9_]+) === '1'/)
+    expect(read_, 'sceneCache must read a VITE_ flag').toBeTruthy()
+    const set = pw.match(/(VITE_[A-Z0-9_]+): '1',/)
+    expect(set, 'playwright.config.ts must set a VITE_ flag on its dev server').toBeTruthy()
+    expect(set![1]).toBe(read_![1])
+  })
+
+  it('can never be on in a production build', () => {
+    // `import.meta.env.DEV` is what folds the branch away: without it the flag
+    // is a live environment variable in the shipped bundle.
+    expect(cache).toMatch(/const NO_SCENE = import\.meta\.env\.DEV &&/)
+  })
+
+  it('keeps the engine and the models behind the flag', () => {
+    // The skip is worth what it skips: if the lazy import moved above the
+    // guard, three.js and the room's kits would be fetched anyway.
+    const guard = cache.indexOf('if (!NO_SCENE)')
+    const engine = cache.indexOf("await import('./render')")
+    expect(guard).toBeGreaterThan(-1)
+    expect(engine).toBeGreaterThan(guard)
   })
 })

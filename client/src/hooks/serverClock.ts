@@ -74,12 +74,15 @@ export function localizeDeadlines(msg: ServerMsg): ServerMsg {
   const out: ServerMsg = { ...msg }
   if (msg.turn_deadline) out.turn_deadline = shift(msg.turn_deadline)
   if (msg.forfeit_deadline) out.forfeit_deadline = shift(msg.forfeit_deadline)
+  if (msg.catch_locked_until) out.catch_locked_until = shift(msg.catch_locked_until)
   if (msg.catch_seats) {
     out.catch_seats = msg.catch_seats.map((c) => ({ ...c, ends_at: c.ends_at - offset }))
   }
   if (msg.state) {
     out.state = { ...msg.state }
     if (msg.state.turn_deadline) out.state.turn_deadline = shift(msg.state.turn_deadline)
+    if (msg.state.catch_locked_until)
+      out.state.catch_locked_until = shift(msg.state.catch_locked_until)
     if (msg.state.catch_seats) {
       out.state.catch_seats = msg.state.catch_seats.map((c) => ({ ...c, ends_at: c.ends_at - offset }))
     }

@@ -59,6 +59,10 @@ interface LocoE2EState {
   catchLive: boolean
   /** Whether our own call is already spent on this board (the client's copy of the server's ration). */
   catchSpent: boolean
+  /** Whether our own last call has the centre button locked (rules §14.6). */
+  catchLocked: boolean
+  /** When that lockout ends, on our clock. 0 = never locked. */
+  catchLockedUntil: number
   /** Seat whose Contre-LOCO! missed and drew a card for it (rules §14.6). */
   catchFailed: { seat: number; at: number } | null
   /** Seat a Contre-LOCO! just landed on (drives the verdict stamp + penalty cards). */

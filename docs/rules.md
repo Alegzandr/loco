@@ -159,7 +159,10 @@ you press it on a read rather than on a cue. It is answered the instant it
 arrives: the faster of the two presses wins and nothing waits for anybody. If
 nobody owed the call — or that seat's own "LOCO!" got there first, or its hand
 grew, or the window had just closed — the call misses and *you* draw **1 card**
-for it. Once per offer, however many times you press.
+for it. Once per offer, however many times you press — and your own button locks
+for 2 seconds, with a padlock counting it down. Every press you make while it is
+locked starts those 2 seconds over, so mashing costs you the next window instead
+of winning it.
 
 **You cannot forget the call and still take the round** (§14.7). The play that
 empties your hand is refused until the call has been made, whichever of the four
@@ -226,7 +229,8 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Change Cards All Round: simultaneous hand rotation
 - [ ] LOCO! call at 2→1 cards; penalty = draw 2 if forgotten
 - [ ] A hand-emptying play is refused without the call (§14.7); a finishing batch carries it
-- [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card
+- [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card and locks
+      their button for 2 s (§14.6), re-armed by every press made while it runs
 - [ ] Round ends on last card played
 - [ ] Scoring: correct point values, configurable mode/threshold
 - [ ] 2-player: Change Direction = Miss a Turn behavior
@@ -297,6 +301,15 @@ is given a start: whoever gets there first wins, which is what makes this a
 reaction and not a queue. Holding the button down is still one press, not a
 hundred — the same misread is charged once however many times you make it, so
 mashing buys nothing a single press did not.
+**And a call that finds nobody locks your own button for 2 seconds.** The padlock
+on it counts the time down. While it runs your Contre-LOCO! wins nothing and
+costs nothing, and every press you make in the meantime starts the 2 seconds
+over — so a button held down is never live at the instant somebody's window
+opens. The card is charged once per read of the table; the lockout is charged
+once per press, and that is the half a mashed button pays. Two seconds is the
+beat a player needs to notice they are down to one card and call it, and it is
+short enough that a seat which genuinely forgot is still yours to catch three
+seconds later: being punished is not an amnesty for the table.
 **And it stays live long enough to be pressed too late.** A seat leaves the
 button's reach without a card being played — it draws, it swallows a stack of
 four, a Contre-LOCO! lands on it, its window simply runs out — and the button

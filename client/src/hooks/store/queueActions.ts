@@ -34,6 +34,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       // belongs to one board, and this is a new one.
       catchWindows: [],
       onHookUntil: {},
+      catchLockedUntil: 0,
       declaredSeats: [],
       catchLive: false,
       matchFormat: found.matchFormat,
@@ -78,6 +79,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       rematchNeeded: 0,
       catchWindows: [],
       onHookUntil: {},
+      catchLockedUntil: 0,
       declaredSeats: [],
       catchLive: false,
       // Another hand against the server is another match: it starts as quiet as

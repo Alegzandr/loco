@@ -1786,6 +1786,29 @@ renders the `og-card` scene at 1200×630 into `client/public/og.png`.
 
 
 
+## The game cover
+
+`src/dev/CoverCard.svelte`, three cuts, shot by `make cover` into `brand/` — committed, and
+deliberately not under `client/public/`, because it is an **upload** rather than something this site
+serves. IGDB takes it and Twitch draws it as the category's box art.
+
+**It carries the wordmark and no other text.** IGDB's guidance asks that the title be the largest
+text on the cover, and the way this art answers that is by being the *only* text — no tagline, no
+"card game", no version. The same guidance refuses platform logos, age ratings and watermarks, and
+none of those has a reason to be here either.
+
+**It is judged at 40px.** That is the width a Twitch category is picked out of a sidebar at, and it
+is the size that decides whether anybody clicks. A cover composed at 600×800 and admired at 600×800
+is a cover nobody has actually looked at: at 40px the mark either reads as one shape or it is a
+smudge, and every cut is chosen on that test rather than on how the full-size art feels.
+
+**Built from the real `<LocoLogo />` and the real `<Card />`**, for the reason the link preview is:
+the art leaves this repository, and nothing here can watch it go stale. A hand-drawn copy of the
+wordmark would keep whatever proportions it had the day it was traced, on a surface that is by
+definition out of reach the moment it is uploaded.
+
+`coverCard.test.ts` pins the ratio, the 40px floor and the no-other-text rule.
+
 ## Ambience and celebration
 
 The brief this pass answered was "everything that feels soulless". Four things, each small, each in

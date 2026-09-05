@@ -78,6 +78,21 @@ afford a fetch.
   - **Air** (`whoosh`: noise swelling into a sweep, panned across the room when it crosses one):
     the breath before the LOCO! and the slam, the two hands of a swap passing each other, the
     rush in front of a match found. It says "something moved fast" without playing a note.
+  - **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()`). Every
+    celebration used to be `arp()` — a run of notes — and five of them ran the same major triad
+    upward: `wild` and `roundWin` came out **note for note identical**, so the game said the same
+    thing about two events that mean nothing alike. Major-going-up for good and minor-coming-down
+    for bad is the reflex every prototype has, and it gave twenty-three voices one sentence at four
+    speeds.
+
+    The bed is 138 BPM trance and does not talk that way. A chord under a filter that opens on the
+    transient and shuts as it falls says its whole piece **in one hit**, which is also what keeps a
+    cue shorter than the gap before the next card — an arpeggio is by construction as long as its
+    note count, and a card game plays faster than that. **`arp()` is gone; do not bring it back.**
+  - **A tail is a send, never an insert** (`audio.sfxReverbSend()`). The card handling is paper and
+    stays dry at zero: putting the reverb in the voice meant every cue carried a room it could not
+    be taken out of, and the one family that must sound like an object on felt was the family it
+    ruined.
   - Two cues are envelopes nobody else has, on purpose: `reverse` is a note played backwards (it
     swells in and stops dead, then the mallet lands on the far side) and `skip` is a zip past the
     seat into a dead note. The ear knows what the ring did before the eye does.

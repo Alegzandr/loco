@@ -11,13 +11,14 @@ const t = {
   pass: 'Pass',
   unoBtn: 'LOCO!',
   catchBtn: 'Catch!',
+  catchLockedLabel: 'Catch! is locked after a missed call',
 } as unknown as Translations
 
 const noop = () => {}
 
 function renderBar(over: Partial<ComponentProps<typeof ActionBar>> = {}) {
   return render(
-    ActionBar, { isMyTurn: true, pendingDraw: 0, handSize: 5, hasDrawn: false, hasPlayableCard: true, catchArmed: false, catchLive: false, catchPending: false, hasDeclared: false, onDraw: noop, onPass: noop, onUno: noop, onCatch: noop, t: t, ...over },
+    ActionBar, { isMyTurn: true, pendingDraw: 0, handSize: 5, hasDrawn: false, hasPlayableCard: true, catchArmed: false, catchLive: false, catchPending: false, catchLocked: false, catchLockedUntil: 0, hasDeclared: false, onDraw: noop, onPass: noop, onUno: noop, onCatch: noop, t: t, ...over },
   )
 }
 
@@ -251,5 +252,33 @@ describe('a dead action button', () => {
     const ink = token('--color-disabled-ink', scope)
     const fill = token('--color-surface-sunken', scope)
     expect(contrast(ink, fill), `${ink} on ${fill}`).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
+// The lockout, drawn. A missed Contre-LOCO! costs a card and a couple of
+// seconds of the button (`game.catchLockout`), and the second half only works
+// if the player can see it: a control that goes quiet without a reason is one
+// they keep pressing, and pressing is exactly what pushes the deadline out.
+describe('ActionBar · the Contre-LOCO! lockout', () => {
+  it('names the reason it is dead, and keeps the centre column', () => {
+    renderBar({ catchLocked: true, catchLockedUntil: Date.now() + 2000 })
+    const locked = btn(/locked/)
+    expect(locked).toBeDisabled()
+    expect(locked.closest('[data-slot]')?.getAttribute('data-slot')).toBe('center')
+  })
+
+  // A halo is a promise. `catchArmed` says somebody at the table owes a call,
+  // which stays true while we are locked out of answering it, and a control
+  // that pulses over a press it will refuse is the one lie a reaction bar
+  // cannot afford.
+  it('does not arm while it is locked', () => {
+    renderBar({ catchArmed: true, catchLocked: true, catchLockedUntil: Date.now() + 2000 })
+    expect([...btn(/locked/).classList].some((c) => c.includes('armed'))).toBe(false)
+  })
+
+  it('goes back to the ordinary dead button once the lock has run out', () => {
+    renderBar({ catchArmed: false, catchLocked: false })
+    expect(btn(/^Catch!$/)).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /locked/ })).toBeNull()
   })
 })

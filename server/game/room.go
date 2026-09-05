@@ -54,6 +54,35 @@ const (
 	// caller something, or the correct play is to mash the button on every
 	// single card anybody ever holds.
 	failedCatchPenalty = 1
+	// catchLockout is how long a Contre-LOCO! that found nobody puts its caller
+	// out of the mechanic. It is the second half of the price, and it is the
+	// half a held thumb pays.
+	//
+	// The card (failedCatchPenalty) is rationed per *offer*, which bounds what
+	// mashing costs but not what it buys: press, pay one card, keep pressing —
+	// every later press against the same near-finish picture is silent and free
+	// — and the press that happens to land on the frame a window opens takes the
+	// catch, because a catch that lands spends no offer. So a spammer paid one
+	// card and collected every window at the table, each of them worth two cards
+	// to somebody else. The reflex the button is supposed to measure was not in
+	// it anywhere.
+	//
+	// So the card is per offer and **the lockout is per press**: any call that
+	// finds nobody arms it, charged or not, and while it runs the button is
+	// refused outright — no catch, no card, no broadcast. A thumb that never
+	// lets go re-arms its own lock forever and is therefore never live at the
+	// instant a window opens; a single aimed press pays it once and has the rest
+	// of the window back.
+	//
+	// Two seconds, and the number is the declaration it has to protect. A seat
+	// that plays down to one card needs a beat to notice and call it, and that
+	// beat is exactly what a mashed button used to take: this is the stretch
+	// CatchHeadStart (1.5s, retired) held open for the seat that owed the call,
+	// plus the margin the press may arrive before the play. Against a 5s window
+	// it is short enough that a genuine forgotten LOCO! is still catchable by
+	// the same player three seconds later — being punished must not be an
+	// amnesty for the table.
+	catchLockout = 2 * time.Second
 	// catchWindow is how long after a player's last card play other players can catch them.
 	catchWindow = 5 * time.Second
 	// catchGrace is how long past a window a Contre-LOCO! is still a wager: a
@@ -157,6 +186,22 @@ type GameState struct {
 	// Indexed by player index like every other seat-keyed slice here, and sized
 	// in dealRound.
 	CatchPaidFor []string
+
+	// CatchLockedUntil[i] is the instant seat i may press Contre-LOCO! again
+	// after a call that found nobody. Zero = not locked.
+	//
+	// It is the other half of the price, and it is rationed per *press* where
+	// CatchPaidFor is rationed per offer (catchLockout). The card bounds the
+	// farm; this bounds the snipe — the held button that pays one card and then
+	// takes, for free, every window that opens at the table, because a catch
+	// that lands spends no offer. Armed by every fruitless call, re-armed by
+	// every press made while it runs, so a thumb that never lets go is never
+	// live when a window opens; the honest single press pays it once and gets
+	// the rest of the window back.
+	//
+	// Indexed by player index like every other seat-keyed slice here, and sized
+	// in dealRound.
+	CatchLockedUntil []time.Time
 
 	// Retired marks the seats that have left the match for good, copied from
 	// Room.Retired at every deal. The seat stays in every index — hands, scores
@@ -400,6 +445,40 @@ func (r *Room) CatchOffered(catcher int, now time.Time) bool {
 		}
 	}
 	return false
+}
+
+// CatchLockedAt is when catcher's lockout ends: the instant its Contre-LOCO!
+// becomes pressable again after a call that found nobody. A zero time means
+// the seat is not locked, and so does an instant already past — the lock ends
+// on the clock, like every other deadline in this mechanic. Out-of-range seats
+// answer zero rather than panicking: this is read on the way to the wire.
+func (r *Room) CatchLockedAt(catcher int) time.Time {
+	if r.State == nil || catcher < 0 || catcher >= len(r.State.CatchLockedUntil) {
+		return time.Time{}
+	}
+	return r.State.CatchLockedUntil[catcher]
+}
+
+// CatchLocked reports whether catcher is inside its lockout at now, i.e.
+// whether every Contre-LOCO! from that seat is refused outright.
+func (r *Room) CatchLocked(catcher int, now time.Time) bool {
+	at := r.CatchLockedAt(catcher)
+	return !at.IsZero() && now.Before(at)
+}
+
+// LockCatch arms — or re-arms — catcher's lockout and returns the instant it
+// now ends. Called for every call that finds nobody and for every press made
+// while one is already running: the card is rationed per offer, this is
+// rationed per press, and that asymmetry is the whole of what a held button
+// costs (catchLockout). It touches nothing else, so a seat may be locked out
+// of the mechanic while it plays its turn normally.
+func (r *Room) LockCatch(catcher int, now time.Time) time.Time {
+	if r.State == nil || catcher < 0 || catcher >= len(r.State.CatchLockedUntil) {
+		return time.Time{}
+	}
+	until := now.Add(catchLockout)
+	r.State.CatchLockedUntil[catcher] = until
+	return until
 }
 
 // catchOfferKey names the offer catcher is pressing against: the window of
@@ -820,6 +899,7 @@ func (r *Room) dealRound(startingPlayer int) {
 		LastCardDeclared: make([]bool, n),
 		LastCardAt:       make([]time.Time, n),
 		CatchPaidFor:     make([]string, n),
+		CatchLockedUntil: make([]time.Time, n),
 		Retired:          retired,
 	}
 
@@ -1438,6 +1518,17 @@ var (
 // message that client did not make.
 var ErrNoCatchWindow = errors.New("target did not just play their last card")
 
+// ErrCatchLocked is a Contre-LOCO! sent by a seat still inside the lockout its
+// own last fruitless call armed (catchLockout). Like ErrNoCatchWindow it is
+// deliberately NOT a missed catch — the press cost a card once already, and
+// billing every press of a held button is the farm this exists to close — and
+// like it, it is not suspicious either: the client's lock ends on a clock, and
+// a press made a few milliseconds before the server agrees is one honest
+// button beating one honest button by a round trip. What it is, and what
+// ErrNoCatchWindow is not, is a press worth answering: the caller is told when
+// their lock ends so their own countdown restarts (hub.lockCatch).
+var ErrCatchLocked = errors.New("catch is locked after a failed call")
+
 // IsMissedCatch reports whether a CatchUndeclared error is a lost race — the
 // only class of rejection that costs the caller a card.
 func IsMissedCatch(err error) bool {
@@ -1520,6 +1611,9 @@ func IsLostRace(err error) bool {
 		errors.Is(err, ErrInterruptMismatch) ||
 		errors.Is(err, ErrInterruptNotADrawCard) ||
 		errors.Is(err, ErrAlreadyDeclared) ||
+		// A press that beat its own lockout by a round trip. Both clocks are
+		// honest and the client's is the one that has to guess at the wire.
+		errors.Is(err, ErrCatchLocked) ||
 		// Tapping the last card before calling LOCO! is a player forgetting, and
 		// forgetting is what the rule is about. Counting it would make the
 		// cheat metric a measure of how often the table played badly.
@@ -1539,6 +1633,14 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	}
 	if catcherIndex == targetIndex {
 		return errors.New("cannot catch yourself")
+	}
+	// Above every refusal that costs a card, and above the catch itself: a seat
+	// inside its own lockout is out of the mechanic entirely, so this press
+	// neither wins nor pays (catchLockout). It is the belt on the hub's own
+	// check — the rule belongs to the domain, and the bot path calls straight
+	// in here.
+	if r.CatchLocked(catcherIndex, now) {
+		return ErrCatchLocked
 	}
 	// Before the three timing refusals below, and above them for a reason: each
 	// of those costs the caller a card and announces the miss to the table, which
@@ -1604,6 +1706,14 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 // error nobody can act on.
 func (r *Room) PenalizeFailedCatch(catcherIndex int, now time.Time) ([]Card, bool) {
 	if !r.CatchOffered(catcherIndex, now) {
+		return nil, false
+	}
+	// A seat inside its lockout pays nothing: the press it is being charged for
+	// was already paid for, and a lock that also billed would be the per-press
+	// price this mechanic spent two rewrites getting rid of. The belt on the
+	// hub's own check — and the reason the caller arms the lock *after* this
+	// runs and never before it (LockCatch).
+	if r.CatchLocked(catcherIndex, now) {
 		return nil, false
 	}
 	key := r.State.catchOfferKey(catcherIndex, now)

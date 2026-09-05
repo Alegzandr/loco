@@ -83,5 +83,15 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
   // comes through the ordinary card_drawn path; this is only the notice.
   applyCatchFailed: (seat) => set({ catchFailed: { seat, at: stamp() }, catchPending: false }),
 
+  // The server telling us, and only us, when our own Contre-LOCO! is pressable
+  // again. It arrives on the press that armed the lockout and on every press
+  // made while it runs, so a thumb that never lets go keeps pushing its own
+  // deadline out — which is the whole of what the lockout costs, and the reason
+  // the instant comes from the server rather than from a duration mirrored
+  // here. It lowers `catchLive` through `deriveCatchMiddleware`, like every
+  // other input to that answer, and lets the press go: the verdict is in, and
+  // it is "not yet".
+  applyCatchLocked: (until) => set({ catchLockedUntil: until, catchPending: false }),
+
   clearCatchFailed: () => set({ catchFailed: null }),
 })

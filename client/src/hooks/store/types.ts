@@ -268,6 +268,22 @@ export interface GameState {
   // window running out), or null. Derived beside it; `GameView` arms one timer
   // on it and asks the store to read again (`rereadCatchLive`).
   catchLiveUntil: number | null
+  // When our own Contre-LOCO! becomes pressable again after a call that found
+  // nobody: the server's lockout, absolute on its clock (`catch_locked`, and
+  // every snapshot). 0 = not locked.
+  //
+  // The second half of the price, and the half a held button pays: the card is
+  // rationed per offer, the lockout per press. It lowers `catchLive` through
+  // the same derivation as everything else here, so the bar goes dead — and
+  // `ActionBar` draws it as a lock with the remaining time draining, because a
+  // control that goes quiet without saying why is one the player keeps pressing.
+  catchLockedUntil: number
+  // Whether that lockout is running right now. **Derived** beside `catchLive`
+  // and off the same clock, never written by an action: it is the difference
+  // between a button that is dead because nobody is near the finish and one
+  // that is dead because we just missed, and only the second one owes the
+  // player an explanation.
+  catchLocked: boolean
   // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
   // like the catch it lost to. Cleared by the GameView after a short timeout.
   catchFailed: { seat: number; at: number } | null
@@ -437,6 +453,11 @@ export interface LocoActions {
   noteCatchAttempt: (seat: number) => void
   noteBlindCatchAttempt: () => void
   applyCatchFailed: (seat: number) => void
+  // The server answering one of our presses with "not yet, and here is when".
+  // Sent to us alone, on every press made inside the lockout as well as on the
+  // one that armed it, so the countdown on the button restarts exactly when
+  // the server's does.
+  applyCatchLocked: (until: number) => void
   clearCatchFailed: () => void
 }
 
