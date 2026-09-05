@@ -108,15 +108,18 @@ describe('double-tap guard is per control', () => {
   })
 
   // A missed Contre-LOCO! costs a card, and the server answers a round trip
-  // later. The press is therefore spent on the click, not on the reply.
-  //
-  // The button stays *pressable* — Bob is still on one card, so the table is
-  // still worth watching, and a control that greys out under the thumb is the
-  // thing this bar exists not to do. What is spent is the wager: the second tap
-  // sends nothing at all. Without that, it would go out naming no seat, and the
+  // later. The press is therefore spent on the click, not on the reply: the
+  // second tap sends nothing at all, or it would go out naming no seat and the
   // server would read it as a fresh bet against a window that has just shut —
   // a card, charged in the same breath as the catch that landed.
-  it('spends the catch wager on press, without disarming the button', () => {
+  //
+  // And once it is spent with nothing left to aim at, the button says so. The
+  // bar must never grey out because the *table* moved — that is the press the
+  // price exists to charge for, and hiding it makes the read for the player —
+  // but a button that is live over a send the store suppresses is telling the
+  // same lie in the other direction. Bob's window is still running here; what
+  // is over is our turn at it.
+  it('spends the catch wager on press, and goes dead with nothing left to aim at', () => {
     const now = Date.now()
     gameStore.setState({
       players: [seat(0, 'Alice', 3), seat(1, 'Bob', 1)],
@@ -126,10 +129,13 @@ describe('double-tap guard is per control', () => {
       unoTimerEnd: now + 5000,
     })
     const { onSend } = renderGame()
-    const catchBtn = screen.getByRole('button', { name: 'Catch!' })
-    fireEvent.click(catchBtn)
-    expect(screen.getByRole('button', { name: 'Catch!' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Catch!' }))
+    // The offer itself is untouched: the store still says a seat is near the
+    // finish, because it is.
+    expect(gameStore.getState().catchLive).toBe(true)
+    const catchBtn = screen.getByRole('button', { name: 'Catch!' })
+    expect(catchBtn).toBeDisabled()
+    fireEvent.click(catchBtn)
     expect(onSend.mock.calls.filter((c) => c[0].type === 'catch_uno')).toHaveLength(1)
   })
 

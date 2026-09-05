@@ -316,7 +316,7 @@ func TestRoom_LastCardDeclaration_PenaltyIfForgot(t *testing.T) {
 	}
 
 	// Bob catches alice for not declaring
-	err = r.CatchUndeclared(1, 0, catchTime())
+	err = r.CatchUndeclared(1, 0, time.Now())
 	if err != nil {
 		t.Fatalf("CatchUndeclared() error: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestRoom_CatchUndeclared_AfterDeclared(t *testing.T) {
 	}
 
 	// Bob tries to catch — must fail
-	err := r.CatchUndeclared(1, 0, catchTime())
+	err := r.CatchUndeclared(1, 0, time.Now())
 	if err == nil {
 		t.Fatal("expected error catching after declaration, got nil")
 	}
@@ -411,7 +411,7 @@ func TestRoom_CatchUndeclared_NotReopenedByLaterPlay(t *testing.T) {
 		t.Fatalf("bob PlayCard: %v", err)
 	}
 
-	if err := r.CatchUndeclared(2, 0, catchTime()); err == nil {
+	if err := r.CatchUndeclared(2, 0, time.Now()); err == nil {
 		t.Error("alice declared; a later play by bob must not make her catchable again")
 	}
 	if len(r.State.Hands[0].Cards) != 1 {
@@ -478,7 +478,7 @@ func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 	}
 
 	// Any catch attempt must fail: zero LastCardAt → window is always expired
-	err := r.CatchUndeclared(0, 1, catchTime())
+	err := r.CatchUndeclared(0, 1, time.Now())
 	if err == nil {
 		t.Fatal("catch at round-2 start must fail (zero LastCardAt means window expired)")
 	}
@@ -2582,7 +2582,7 @@ func TestRoom_CatchUndeclared_NoTargetYet(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	// Every seat starts with a full hand and a zero LastCardAt, so a catch
 	// attempt at the start of the game must be rejected (target not at 1 card).
-	if err := r.CatchUndeclared(1, 0, catchTime()); err == nil {
+	if err := r.CatchUndeclared(1, 0, time.Now()); err == nil {
 		t.Error("catch at game start should fail (no one played to 1 card yet)")
 	}
 }
@@ -2617,7 +2617,7 @@ func TestRoom_Swap_ReceiverOwesDeclaration(t *testing.T) {
 	if got := r.State.Hands[1].Size(); got != 1 {
 		t.Fatalf("bob hand = %d, want 1 (received alice's leftover)", got)
 	}
-	if err := r.CatchUndeclared(2, 1, catchTime()); err != nil {
+	if err := r.CatchUndeclared(2, 1, time.Now()); err != nil {
 		t.Fatalf("bob received a single card and never declared, so he must be catchable: %v", err)
 	}
 	if got := r.State.Hands[1].Size(); got != 3 {
@@ -2647,7 +2647,7 @@ func TestRoom_Swap_ReceiverCanDeclare(t *testing.T) {
 	if err := r.DeclareLastCard(1); err != nil {
 		t.Fatalf("bob must be able to declare the card he received: %v", err)
 	}
-	if err := r.CatchUndeclared(2, 1, catchTime()); err == nil {
+	if err := r.CatchUndeclared(2, 1, time.Now()); err == nil {
 		t.Error("bob declared; catching him must fail")
 	}
 }
@@ -2684,10 +2684,10 @@ func TestRoom_GlobalSwitch_EverySingleCardSeatIsCatchable(t *testing.T) {
 		}
 	}
 	// Both are catchable, independently.
-	if err := r.CatchUndeclared(2, 0, catchTime()); err != nil {
+	if err := r.CatchUndeclared(2, 0, time.Now()); err != nil {
 		t.Errorf("seat 0 must be catchable: %v", err)
 	}
-	if err := r.CatchUndeclared(2, 1, catchTime()); err != nil {
+	if err := r.CatchUndeclared(2, 1, time.Now()); err != nil {
 		t.Errorf("seat 1 must be catchable too, one slot cannot hold two debts: %v", err)
 	}
 }
@@ -2705,7 +2705,7 @@ func TestRoom_CatchUndeclared_CannotCatchYourself(t *testing.T) {
 	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
 		t.Fatalf("PlayCard: %v", err)
 	}
-	if err := r.CatchUndeclared(0, 0, catchTime()); err == nil {
+	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil {
 		t.Error("a player must not be able to catch themselves")
 	}
 }
@@ -2792,7 +2792,7 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 	}
 
 	// And alice (idx 0) can catch carol if she didn't declare in time.
-	if err := r.CatchUndeclared(0, 2, catchTime()); err != nil {
+	if err := r.CatchUndeclared(0, 2, time.Now()); err != nil {
 		t.Errorf("catch on undeclared interject must succeed: %v", err)
 	}
 }
@@ -2946,7 +2946,7 @@ func TestRoom_CatchUndeclared_MissedByDeclaration(t *testing.T) {
 	if err := r.DeclareLastCard(0); err != nil {
 		t.Fatalf("DeclareLastCard: %v", err)
 	}
-	err := r.CatchUndeclared(1, 0, catchTime())
+	err := r.CatchUndeclared(1, 0, time.Now())
 	if err == nil {
 		t.Fatal("catching a declared player must fail")
 	}
@@ -2983,10 +2983,10 @@ func TestRoom_CatchUndeclared_MissedByExpiry(t *testing.T) {
 // not be charged a card, and the hub still counts it as suspect.
 func TestRoom_CatchUndeclared_InvalidTargetIsNotAMiss(t *testing.T) {
 	r := setupThreePlayerGame(t)
-	if err := r.CatchUndeclared(1, 99, catchTime()); err == nil || IsMissedCatch(err) {
+	if err := r.CatchUndeclared(1, 99, time.Now()); err == nil || IsMissedCatch(err) {
 		t.Errorf("CatchUndeclared(1, 99) = %v, want a non-miss error", err)
 	}
-	if err := r.CatchUndeclared(0, 0, catchTime()); err == nil || IsMissedCatch(err) {
+	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil || IsMissedCatch(err) {
 		t.Errorf("self-catch = %v, want a non-miss error", err)
 	}
 }

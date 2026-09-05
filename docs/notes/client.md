@@ -382,11 +382,9 @@ polish.
   one card, a click on the centre button): from the click being dispatched to `uno_caught` applied
   in the store and the caught hand grown by two is **3–5 ms**. The client does nothing slow — the
   press goes straight to `socket.send`, the handler is synchronous on the table's goroutine, the
-  answer is one broadcast — so everything a player waits for beyond that is either the wire (the
-  CDN path below on the dev host, or their own connection) or **the target's head start**: a press
-  inside the first 1.5 s of a window is held by the server and resolved when the stretch ends
-  (`domain-rules.md`, "The head start"), which from the catcher's seat is up to 1.5 s between the
-  press and the verdict. What made either wait read as *the button ignoring the tap* was that the
+  answer is one broadcast — so everything a player waits for beyond that is the wire: the CDN path
+  below on the dev host, or their own connection. What made that wait read as *the button ignoring
+  the tap* was that the
   button showed nothing at all until the answer came back: the only immediate change was the armed
   glow going out, which reads as "dead" rather than as "in flight". So the press is now shown the
   instant it is made — `store.catchPending`, rendered as `.called` on the

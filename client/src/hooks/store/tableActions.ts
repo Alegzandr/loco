@@ -2,7 +2,7 @@ import { StateCreator } from './createStore'
 import { CardColor } from '../../types/protocol'
 import { stamp, gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
-import type { OnHookUntil } from '../../components/catchAvailability'
+import { offerEnd, type OnHookUntil } from '../../components/catchAvailability'
 
 /**
  * The clock the centre button runs on, brought up to date by what the server
@@ -15,10 +15,12 @@ function updateOnHook(
   prev: OnHookUntil,
   catchSeats: { player_index: number; ends_at: number }[] | undefined,
   players: { index: number; hand_size: number }[],
+  now: number,
 ): OnHookUntil {
   const next: OnHookUntil = {}
   for (const p of players) {
-    if (p.hand_size === 1 && prev[p.index] !== undefined) next[p.index] = prev[p.index]
+    const end = offerEnd(p.index, prev)
+    if (end !== undefined && end > now) next[p.index] = prev[p.index]
   }
   for (const c of catchSeats ?? []) next[c.player_index] = c.ends_at
   return next
@@ -92,7 +94,7 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         // nothing from before, so a seat the snapshot does not name — one that
         // spoke, or whose window ran out — is dark there, which is the one
         // reading a tab that was not listening can honestly give.
-        onHookUntil: updateOnHook(s.onHookUntil, state.catch_seats, state.players),
+        onHookUntil: updateOnHook(s.onHookUntil, state.catch_seats, state.players, now),
         // Same authority over a press in flight: the snapshot is the server's
         // whole answer, and a correction is how a refused press comes back.
         catchPending: false,
@@ -175,7 +177,7 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
           opened.map((w) => w.seat),
         ),
         catchWindows,
-        onHookUntil: updateOnHook(s.onHookUntil, catchSeats, updatedPlayers),
+        onHookUntil: updateOnHook(s.onHookUntil, catchSeats, updatedPlayers, Date.now()),
         // The board moved, so a Contre-LOCO! is a fresh read rather than the
         // same one repeated: a card played is the one event that can put a new
         // offer on the table, and the server's own ration is keyed on the

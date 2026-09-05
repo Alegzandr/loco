@@ -154,13 +154,12 @@ cannot be repeated while that card is held. A rearranging play that hands you a
 *different* last card is a new obligation, and the call comes back.
 
 **Calling "Contre-LOCO!" is a wager** (§14.6). The button is live while anybody
-else is down to exactly 2 cards, or to 1 inside the 5 s window that card opened,
-so you press it on a read rather than on a cue. It only lands inside that window,
-and never in its first 1.5 s: the seat that owes the call always gets the opening
-stretch of its own window, and a call pressed inside it waits for the stretch to
-end. If nobody owed the call — or that seat's own "LOCO!" got there first, or its
-hand grew, or the window had just closed — the call misses and *you* draw **1
-card** for it. Once per offer, however many times you press.
+else is down to exactly 2 cards, or has a window running on their last card, so
+you press it on a read rather than on a cue. It is answered the instant it
+arrives: the faster of the two presses wins and nothing waits for anybody. If
+nobody owed the call — or that seat's own "LOCO!" got there first, or its hand
+grew, or the window had just closed — the call misses and *you* draw **1 card**
+for it. Once per offer, however many times you press.
 
 **You cannot forget the call and still take the round** (§14.7). The play that
 empties your hand is refused until the call has been made, whichever of the four
@@ -287,18 +286,23 @@ the target's own call arrives first, when the target's hand has grown, when the
 window has expired — and when no seat owed the table a call at all.
 The button does not wait for the server's permission: it is pressable while
 **any other player is down to exactly 2 cards**, i.e. one ordinary play before
-anybody is catchable, **or down to 1 inside the 5 s window** that card opened.
+anybody is catchable, **or has a window running on their last card** — the 5 s
+that card opened, and a short grace after it.
 Pressing it is therefore a read of the table, and a wrong read is paid for like a
-lost race. Past the window, and past two cards, the button is dark: nothing about
-that seat can be caught, so a press there is not a wager, and the server answers
-it with nothing rather than with a card.
-**The seat that owes the call gets the first 1.5 s of its own window.** No
-Contre-LOCO! lands inside that stretch, whoever pressed it and however early: a
-call pressed inside it is held and resolved the moment the stretch ends, landing
-if the seat is still silent and missing if the seat spoke. Holding the button
-down is one press, not a hundred. Without this, a thumb that never let go landed
-on the millisecond the card touched the pile, before the "LOCO!" it was racing
-could have crossed the wire — which made spamming the way to deny every call.
+lost race. Past that grace, and past two cards, the button is dark:
+nothing about that seat can be caught, so a press there is not a wager, and the
+server answers it with nothing rather than with a card.
+**A press is answered the instant it arrives.** Nothing is held back and nobody
+is given a start: whoever gets there first wins, which is what makes this a
+reaction and not a queue. Holding the button down is still one press, not a
+hundred — the same misread is charged once however many times you make it, so
+mashing buys nothing a single press did not.
+**And it stays live long enough to be pressed too late.** A seat leaves the
+button's reach without a card being played — it draws, it swallows a stack of
+four, a Contre-LOCO! lands on it, its window simply runs out — and the button
+stays live a moment longer: pressing there is a call that came too late, and it
+costs the card that a call which came too early costs. Both halves of a wager
+have to be losable, or it is not one.
 **It stops one card short of that on purpose.** From three cards out only an
 interject of two identical cards reaches the window, so arming the button there
 would leave it live through a long stretch of the round where pressing it can
@@ -311,7 +315,7 @@ picture of who is near the finish: the seat on two cards, or the seat on its las
 card and the window it opened. The second, third and tenth press against the same
 picture cost nothing, change nothing and are announced to nobody, and so does a
 press after your own play, because your play changed nothing about that seat.
-The near seat plays down to one, or draws out of reach, or another seat comes
+The near seat plays down to one, or its window runs out, or another seat comes
 within two, and the button is a fresh wager again. Charged per card played, a
 press before and a press after one's own play bought two cards a turn off one
 opponent sitting on two — faster than the voluntary draw, and every card of it

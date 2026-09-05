@@ -118,7 +118,25 @@
     setStreamerMode(s.streamerMode ?? false)
     setColorAssist(s.colorAssist ?? false)
     if (s.deadlineIn !== undefined) patch.turnDeadline = Date.now() + s.deadlineIn * 1000
-    if (s.unoIn !== undefined) patch.unoTimerEnd = Date.now() + s.unoIn * 1000
+    // A catch window, seeded the way the game seeds one: `catchWindows` is what
+    // the store derives `catchTarget` and `unoTimerEnd` from, and `onHookUntil`
+    // is the separate clock the centre button reads. A scene that set
+    // `catchTarget` alone had it derived straight back to null by
+    // `deriveCatchMiddleware` — no capsule, and the button awake instead of
+    // armed, which is the one thing these scenes exist to show.
+    if (s.unoIn !== undefined) {
+      const endsAt = Date.now() + s.unoIn * 1000
+      const target = (patch as { catchTarget?: number | null }).catchTarget
+      patch.unoTimerEnd = endsAt
+      if (typeof target === 'number') {
+        // `catchSpent` in a scene means we have already called on this board, so
+        // the window is marked the way `noteCatchAttempt` marks it: still open
+        // and still holding the button's clock, but no longer ours to aim at.
+        const attempted = (patch as { catchSpent?: boolean }).catchSpent || undefined
+        patch.catchWindows = [{ seat: target, endsAt, attempted }]
+        patch.onHookUntil = { [target]: endsAt }
+      }
+    }
     // Same relative-to-now rule as the two above: an emote carries the instant
     // it arrived, which is the key its pop animation is armed on. Restated from
     // now so the shot catches the bubbles settled rather than mid-flight. The

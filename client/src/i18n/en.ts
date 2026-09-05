@@ -325,6 +325,14 @@ export interface Translations {
   // matters most here and "1 cards" is wrong in both languages.
   swapTargetCards: string             // contains %n
   swapTargetCardOne: string
+  // The label on the five-second capsule, above the bar draining under it.
+  // It names an opening, it does not give an order: "Catch them!" told a
+  // first-timer to go and made the press sound free, when the press is a wager
+  // that costs a card if it misses — and misses are the ordinary outcome, since
+  // the seat it is aimed at is looking at its own LOCO! chip. A chance is
+  // something you may take or let go; a command is something you obey and then
+  // wonder why you were charged for it. The price itself is taught in the rules
+  // modal, which is where somebody has the time to read it.
   catchWindow: string
   // A Contre-LOCO! that arrived after the target's own call: it costs the
   // caller one card, so the table is told whose it was.
@@ -684,7 +692,7 @@ export const en: Translations = {
   pickerCancel: 'Put it back',
   swapTargetCards: '%n cards',
   swapTargetCardOne: '1 card',
-  catchWindow: 'Catch them!',
+  catchWindow: 'A chance to catch',
   catchFailedYou: 'Too late. +1 card',
   catchFailedOther: '%player called too late: +1 card',
   catchBannerTitle: 'CAUGHT!',
@@ -930,7 +938,7 @@ export const en: Translations = {
         'Down to your last card, hit LOCO! Right away.',
         'Being handed your last card counts too: after a Swap or a Global Switch, everyone sitting on one card owes the call.',
         'Stay quiet and any opponent has five seconds to hit Catch! You draw two.',
-        'Catch! is a bet, not a free shot: thrown after the LOCO!, it costs the caller a card.',
+        'Catch! is a bet, not a free shot: too early or too late, it costs the caller a card.',
       ],
     },
     {

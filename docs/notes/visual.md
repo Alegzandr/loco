@@ -199,14 +199,22 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
     that press is precisely the one §14.6 charges for: the thumb already committed when the seat
     shouted. Three states, and only the third one is a promise. What the declaration closes is the
     *armed* cue, which rides `catchTarget`.
-  - **And it is a photograph, not a latch** (`isCatchLive` + `catchLiveUntil`, `store.catchLive`).
-    The declaration is the one way a seat leaves the armed cue that leaves the middle state alone:
-    the window keeps running and the button keeps offering until it ends. The other three — it
-    draws, swallows a stack of four, takes two penalty cards from a Contre-LOCO! that landed on it —
-    take the button down with them, and so does the window running out. It used to stay awake until
-    the next card played on the argument that a bet on that seat had already been made; held, the
-    offer was farmed a card at a time, which is the abuse the hold was meant to bound. The committed
-    thumb is answered on the server by silence now, never by a card (`domain-rules.md`).
+  - **A fourth reading, and it is the only one that is about us rather than the table: the wager is
+    spent** (`GameView`'s `catchSpent` — `store.catchSpent` *and* no `catchTarget` left). We have
+    already called on this board, so the press the store would send is the blind one it suppresses,
+    and the button was drawn live over an action that did nothing at all. That is the one lie a
+    reaction bar cannot afford, so it is drawn dead — the same sunken slot as "nobody is close",
+    because from the thumb's side the two mean the same thing. It costs no legitimate press: a
+    window still ours to aim at names itself in `catchTarget`, which is the ordinary second catch
+    after a Swap, and the next card played hands the wager back. `game-catch-failed` is its scene.
+  - **And what ends the middle state is a clock, not the board** (`isCatchLive` + `catchLiveUntil`,
+    `store.catchLive`). None of the four ways a seat leaves the armed cue touches it — it calls the
+    thing, it draws, it swallows a stack of four, it takes two penalty cards from a Contre-LOCO!
+    that landed on it — because each of those is the instant a betting thumb has already committed,
+    and a button that greys out there is sparing the player a press the server charges a card for
+    either way. What takes it down is the window running out, plus the grace the server keeps
+    charging through. It is not a latch: held to the next card played instead, the offer was farmed
+    a card at a time (`domain-rules.md`).
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same

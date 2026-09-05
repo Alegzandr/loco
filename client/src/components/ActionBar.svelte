@@ -369,9 +369,9 @@
      button held down: the ledge collapses, the face darkens, and nothing else
      moves — the stamp and the penalty are the server's to deliver. It wins over
      `.armed`, whose pop and halo would otherwise carry on over a press already
-     made, and it is a state rather than an animation so the wait it covers —
-     a round trip, or the whole of the target's head start — looks the same at
-     5 ms and at 1.5 s. Static under reduced motion by construction. */
+     made, and it is a state rather than an animation so the round trip it
+     covers looks the same at 5 ms and at 500. Static under reduced motion by
+     construction. */
   .btnCatch.called,
   .btnCatch.called:not(:disabled):hover {
     animation: none;

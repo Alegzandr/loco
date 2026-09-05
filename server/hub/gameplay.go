@@ -290,11 +290,13 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 		return
 	}
 	catcher := c.playerID()
-	// Nothing near the finish: no honest screen has the button live, so this
-	// press is a board that moved under a thumb — the seat it was aimed at drew
-	// a moment ago — or a client this game did not write. Neither is a wager,
-	// so neither is charged, and neither is answered: an answer would be the
-	// one thing a dead button could still make the server say.
+	// Nothing near the finish and no window still running: no honest screen has
+	// the button live, so this press is a board a client is a long way behind on
+	// — the last window shut seconds ago — or a client this game did not write.
+	// Neither is a wager, so neither is charged, and neither is answered: an
+	// answer would be the one thing a dead button could still make the server
+	// say. A seat that drew a moment ago is *not* this case, deliberately: its
+	// window is still running, and that press is the late half of the wager.
 	if !room.CatchOffered(catcher, now) {
 		return
 	}
@@ -307,24 +309,17 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 		h.penalizeFailedCatch(t, catcher, now)
 		return
 	}
-	h.resolveCatch(t, c, catcher, targetIdx, now)
-}
-
-// resolveCatch is the one road a Contre-LOCO! travels to its verdict, whether
-// it arrived on a socket this instant or was held through the head start
-// (holdCatch). c is the socket to answer a refusal to, and nil for a held
-// press, which has nobody waiting on it.
-func (h *Hub) resolveCatch(t *table, c *Client, catcher, targetIdx int, now time.Time) {
-	room := t.room
+	// The verdict, on the instant the message arrived and never later. A
+	// Contre-LOCO! that beats the target's LOCO! to this loop wins, however
+	// early in the window it lands: this is a reaction the game measures, and
+	// it used to be held back for the opening 1.5s of every window so the seat
+	// being caught could not be beaten by a thumb that was simply faster. What
+	// keeps the button from being mashed is that only the first press against
+	// an offer is charged (PenalizeFailedCatch) and every later one is silent,
+	// so holding it down buys nothing a single press did not.
 	priorSize := len(room.State.Hands[targetIdx].Cards)
 	if err := room.CatchUndeclared(catcher, targetIdx, now); err != nil {
 		switch {
-		// Inside the target's head start, and it would have landed: held, and
-		// resolved again the instant the head start ends. The seat that owes
-		// the call always gets the first stretch of its own window; a thumb
-		// that was faster than that is not refused, just made to wait its turn.
-		case errors.Is(err, game.ErrCatchTooEarly):
-			h.holdCatch(t, catcher, targetIdx)
 		// A lost race is the mechanic working, not an attack: the button was
 		// armed when it was pressed and the target's LOCO! (or a hand that grew,
 		// or the last millisecond of the window) simply reached the hub first.
@@ -334,7 +329,7 @@ func (h *Hub) resolveCatch(t *table, c *Client, catcher, targetIdx int, now time
 		// the same misread as pressing with no seat named at all.
 		case game.IsMissedCatch(err) || errors.Is(err, game.ErrNoCatchWindow):
 			h.penalizeFailedCatch(t, catcher, now)
-		case c != nil:
+		default:
 			c.sendError(err.Error())
 			c.noteRejection(err)
 		}
@@ -347,58 +342,6 @@ func (h *Hub) resolveCatch(t *table, c *Client, catcher, targetIdx int, now time
 	// The penalty cards are a hand change like any other: the caught player must
 	// be sent the cards themselves, everyone else the new count.
 	h.sendHandGrowth(t, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
-}
-
-// heldCatch is one Contre-LOCO! waiting out the head start of the window it
-// was aimed at. The window is part of the key, so a press held on a window
-// that is reopened underneath it is dropped rather than landed on the next.
-type heldCatch struct {
-	catcher, target int
-	windowAt        time.Time
-}
-
-// holdCatch keeps an early Contre-LOCO! until the target's head start ends,
-// then runs it through resolveCatch exactly as if it had arrived then. One
-// press per catcher per window: the second and the tenth inside the same head
-// start are the same press, and holding the button down buys nothing that
-// pressing it once did not. Several catchers are resolved in arrival order,
-// which is the order the table's box keeps — the first lands, the rest lose
-// the race and pay for it, as they would have a second later.
-func (h *Hub) holdCatch(t *table, catcher, target int) {
-	state := t.room.State
-	k := heldCatch{catcher: catcher, target: target, windowAt: state.LastCardAt[target]}
-	if _, dup := t.heldCatches[k]; dup {
-		return
-	}
-	t.heldCatches[k] = struct{}{}
-	wait := time.Until(state.CatchHeadStartEnd(target))
-	if wait < 0 {
-		wait = 0
-	}
-	// Lossy on a full box like every other reaction timer: the press is the
-	// one thing here a player can simply make again.
-	time.AfterFunc(wait, func() {
-		t.postFromTimer("held_catch", func() { h.resolveHeldCatch(t, k) })
-	})
-}
-
-// resolveHeldCatch is the head start ending on one held press.
-func (h *Hub) resolveHeldCatch(t *table, k heldCatch) {
-	delete(t.heldCatches, k)
-	room := t.room
-	if room.Status != game.StatusPlaying || room.State == nil {
-		return
-	}
-	state := room.State
-	if k.target >= len(state.Hands) || k.catcher >= len(state.Hands) {
-		return
-	}
-	// Reopened underneath the press: the seat is on a different last card
-	// now, with a head start of its own. The press was about the old one.
-	if !state.LastCardAt[k.target].Equal(k.windowAt) {
-		return
-	}
-	h.resolveCatch(t, nil, k.catcher, k.target, time.Now())
 }
 
 // penalizeFailedCatch charges one card for a Contre-LOCO! that found nothing and

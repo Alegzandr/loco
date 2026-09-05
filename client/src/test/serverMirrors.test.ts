@@ -21,6 +21,7 @@ import path from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { TABLE_CODE_CHARS, TABLE_CODE_LENGTH, isTableCodeValid } from '../components/tableCodeRules'
 import { NICKNAME_MAX_CHARS, isNicknameShapeValid } from '../components/nicknameRules'
+import { CATCH_LATE_GRACE_MS, CATCH_LIVE_MAX_HAND } from '../components/catchAvailability'
 
 const REPO = path.resolve(__dirname, '..', '..', '..')
 const read = (...p: string[]) => readFileSync(path.join(REPO, 'server', ...p), 'utf8')
@@ -115,5 +116,36 @@ describe('the nickname, against the server', () => {
     for (const name of refused) {
       expect(isNicknameShapeValid(name), `${JSON.stringify(name)} must be refused`).toBe(false)
     }
+  })
+})
+
+/**
+ * The third mirror, and the one that costs a card when it drifts.
+ * `catchAvailability.ts` decides when the centre button is pressable, and the
+ * server decides when a press against it is a wager it charges for
+ * (`game.CatchOffered`). The two have to name the same instants: live where the
+ * server charges nothing is a button that does nothing when pressed, and dark
+ * where the server still charges is the interface deciding the player may not
+ * make a mistake it will bill them for either way.
+ *
+ * Both drift silently. Neither is visible in a screenshot, and neither fails
+ * anything else in this suite.
+ */
+describe('the catch offer, against the server', () => {
+  const room = read('game', 'room.go')
+
+  it('opens on the same hand size the server does', () => {
+    const near = room.match(/const catchNearHand = (\d+)/)
+    expect(near, 'catchNearHand not found in server/game/room.go').toBeTruthy()
+    expect(Number(near![1])).toBe(CATCH_LIVE_MAX_HAND)
+  })
+
+  // The late half of the wager: past its window a call is still charged for
+  // catchGrace, so the button stays live for exactly that long after it.
+  it('stays live for exactly the grace the server keeps charging for', () => {
+    const grace = room.match(/\n\tcatchGrace = (\d+) \* time\.(Second|Millisecond)\n/)
+    expect(grace, 'catchGrace not found in server/game/room.go').toBeTruthy()
+    const ms = Number(grace![1]) * (grace![2] === 'Second' ? 1000 : 1)
+    expect(ms).toBe(CATCH_LATE_GRACE_MS)
   })
 })

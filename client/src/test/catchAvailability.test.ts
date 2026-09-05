@@ -3,6 +3,7 @@ import {
   isCatchLive,
   catchLiveUntil,
   CATCH_LIVE_MAX_HAND,
+  CATCH_LATE_GRACE_MS,
 } from '../components/catchAvailability'
 import type { PlayerDTO } from '../types/protocol'
 
@@ -60,16 +61,31 @@ describe('isCatchLive', () => {
     expect(isCatchLive([], 0, {}, NOW)).toBe(false)
   })
 
-  // A seat on its last card is offered for exactly as long as its window runs.
-  // Past it nothing about the seat can be caught, so a button live over it
-  // was a wager that could only ever lose — and a loss a player can schedule
-  // is a card drawn on purpose, for a Swap to hand on.
-  it('offers a last card inside its window and not past it', () => {
+  // A seat on its last card is offered for as long as its window runs, and
+  // then for the late grace: pressing a beat after it shut is a call that came
+  // too late, which the server charges a card for and which therefore has to
+  // be a press the player is allowed to make. Past the grace nothing about the
+  // seat can be caught and the server answers with silence, so a button live
+  // there would be offering a wager nobody takes.
+  it('offers a last card through its window and the late grace after it', () => {
     const players = [seat(0, 8), seat(1, 1)]
     expect(isCatchLive(players, 0, { 1: NOW + WINDOW }, NOW)).toBe(true)
     expect(isCatchLive(players, 0, { 1: NOW + 1 }, NOW)).toBe(true)
-    expect(isCatchLive(players, 0, { 1: NOW }, NOW)).toBe(false)
+    // The window itself has run out here, and the press is still a wager.
+    expect(isCatchLive(players, 0, { 1: NOW - CATCH_LATE_GRACE_MS + 1 }, NOW)).toBe(true)
+    expect(isCatchLive(players, 0, { 1: NOW - CATCH_LATE_GRACE_MS }, NOW)).toBe(false)
     expect(isCatchLive(players, 0, { 1: NOW - 60_000 }, NOW)).toBe(false)
+  })
+
+  // The half of it the interface used to take away. A seat leaves the
+  // near-finish picture without a card being played — it draws, it swallows a
+  // stack of four, a Contre-LOCO! lands on it and its hand grows by two — and
+  // the button greyed out on that frame, under a thumb already on its way
+  // down. The offer is the window, so it runs its course whatever the hand
+  // does inside it, and the server charges for exactly the same stretch.
+  it('keeps offering a window whose hand has grown out of reach', () => {
+    expect(isCatchLive([seat(0, 8), seat(1, 5)], 0, { 1: NOW + WINDOW }, NOW)).toBe(true)
+    expect(isCatchLive([seat(0, 8), seat(1, 3)], 0, { 1: NOW + WINDOW }, NOW)).toBe(true)
   })
 
   // A seat on one card the table was never told a window for — a reloaded tab
@@ -79,10 +95,11 @@ describe('isCatchLive', () => {
     expect(isCatchLive([seat(0, 8), seat(1, 1)], 0, {}, NOW)).toBe(false)
   })
 
-  // The clock is per seat and read against the roster: an entry left behind
-  // by a seat that has since drawn counts for nothing.
-  it('ignores a window entry for a seat no longer on one card', () => {
-    expect(isCatchLive([seat(0, 8), seat(1, 4)], 0, { 1: NOW + WINDOW }, NOW)).toBe(false)
+  // And it is still a clock, not a latch: the entry a seat left behind stops
+  // counting when its grace runs out, whatever the seat is holding by then.
+  // Held past that, the offer could be farmed a card at a time.
+  it('drops a window entry once its grace has run out', () => {
+    expect(isCatchLive([seat(0, 8), seat(1, 4)], 0, { 1: NOW - WINDOW }, NOW)).toBe(false)
   })
 
   // What this function does NOT read, and it is the pin on the rule: whether
@@ -101,7 +118,9 @@ describe('isCatchLive', () => {
 describe('catchLiveUntil', () => {
   it('is null while the button is dead', () => {
     expect(catchLiveUntil([seat(0, 8), seat(1, 8)], 0, {}, NOW)).toBeNull()
-    expect(catchLiveUntil([seat(0, 8), seat(1, 1)], 0, { 1: NOW - 1 }, NOW)).toBeNull()
+    expect(
+      catchLiveUntil([seat(0, 8), seat(1, 1)], 0, { 1: NOW - CATCH_LATE_GRACE_MS }, NOW),
+    ).toBeNull()
   })
 
   // A seat on two cards only leaves the band by a card being played, and a
@@ -113,8 +132,12 @@ describe('catchLiveUntil', () => {
     ).toBeNull()
   })
 
-  it('is the end of the last window when only last cards hold it live', () => {
-    expect(catchLiveUntil([seat(0, 8), seat(1, 1)], 0, { 1: NOW + 800 }, NOW)).toBe(NOW + 800)
+  // The grace is part of what the timer waits for: the button has to go dark
+  // when the *server* stops charging, not when the bar finishes draining.
+  it('is the last window plus its grace when only windows hold it live', () => {
+    expect(catchLiveUntil([seat(0, 8), seat(1, 1)], 0, { 1: NOW + 800 }, NOW)).toBe(
+      NOW + 800 + CATCH_LATE_GRACE_MS,
+    )
     expect(
       catchLiveUntil(
         [seat(0, 8), seat(1, 1), seat(2, 1)],
@@ -122,7 +145,15 @@ describe('catchLiveUntil', () => {
         { 1: NOW + 800, 2: NOW + 3000 },
         NOW,
       ),
-    ).toBe(NOW + 3000)
+    ).toBe(NOW + 3000 + CATCH_LATE_GRACE_MS)
+  })
+
+  // A window whose hand has grown still runs its clock: that is the press the
+  // grace exists to let the player lose.
+  it('runs the clock on a window whose hand has grown out of reach', () => {
+    expect(catchLiveUntil([seat(0, 8), seat(1, 3)], 0, { 1: NOW + 800 }, NOW)).toBe(
+      NOW + 800 + CATCH_LATE_GRACE_MS,
+    )
   })
 
   it('never runs a clock on our own window', () => {

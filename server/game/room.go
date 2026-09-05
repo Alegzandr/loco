@@ -56,10 +56,20 @@ const (
 	failedCatchPenalty = 1
 	// catchWindow is how long after a player's last card play other players can catch them.
 	catchWindow = 5 * time.Second
-	// catchGrace is how long past that window a Contre-LOCO! is still read as a
-	// race that was lost rather than as a call on a seat that was never on the
-	// hook. It covers the round trip plus the frame the button was drawn in, and
-	// nothing else.
+	// catchGrace is how long past a window a Contre-LOCO! is still a wager: a
+	// press made there is a call that came too late, charged like any other
+	// miss, rather than a call on a seat that was never on the hook.
+	//
+	// It is the *late* half of the mistake this button is made of, and the
+	// client is live for exactly as long (CATCH_LATE_GRACE_MS, pinned by
+	// serverMirrors.test.ts). A press can be too early — the seat had not
+	// spoken yet, or never would — and that is a wager anybody can make and
+	// win. It has to be possible to be too late in the same way, and it was
+	// not: the button went dark on the frame the offer vanished, whether the
+	// window ran out or the seat's hand grew, which quietly took the losing
+	// half of the wager away and left a control that only ever let you press
+	// when pressing was safe. An interface that cannot be got wrong is not
+	// measuring anything.
 	//
 	// The distinction is what stops the penalty being a free broadcast. Every
 	// timing refusal costs the caller a card, which is what makes the wager
@@ -69,19 +79,6 @@ const (
 	// run dry and the penalty draw comes back empty. Outside this grace the call
 	// is refused to its sender alone.
 	catchGrace = 2 * time.Second
-	// CatchHeadStart is the opening stretch of a catch window in which no
-	// Contre-LOCO! may land. The seat that owes the call always gets it, whoever
-	// is pressing what: a catcher holding the button down used to land on the
-	// millisecond the card touched the pile, before the seat's own LOCO! could
-	// possibly have crossed the wire, which made spamming the button the way to
-	// deny every declaration at the table. A press made inside it is not
-	// refused — the hub holds it and resolves it the instant the head start
-	// ends, in arrival order — so an early, honest reflex still wins the catch
-	// if the seat stays silent, and still pays for it if the seat spoke.
-	//
-	// 1.5s is a thumb's trip from the card just played to the LOCO! chip, plus
-	// a round trip; the bots wait out more than twice that (BotCatchDelay).
-	CatchHeadStart = 1500 * time.Millisecond
 )
 
 // Player holds per-player metadata.
@@ -142,6 +139,15 @@ type GameState struct {
 	// rationed by the offer and not by the press: the button is live while some
 	// other seat is one play from the finish, so a player who presses it twice
 	// against the same near-finish picture has made one misread, not two.
+	//
+	// This is also the whole of what stands between the mechanic and a mashed
+	// button, and it is enough because the price follows the *picture* rather
+	// than the press: a thumb held down through a round pays a card every time
+	// the near-finish picture changes — a seat reaching two, a window opening,
+	// another seat joining them — and every card it pays makes the hand it is
+	// trying to empty bigger. A catch that lands spends nothing, which is the
+	// point: pressing once, at the right instant, is free and is the whole
+	// skill the button measures.
 	// Indexed by player index like every other seat-keyed slice here, and sized
 	// in dealRound.
 	CatchPaidFor []string
@@ -336,12 +342,6 @@ func (s *GameState) CatchWindowEnd(i int) time.Time {
 	return s.LastCardAt[i].Add(catchWindow)
 }
 
-// CatchHeadStartEnd is the first instant a Contre-LOCO! on seat i may land:
-// the hub holds an earlier press until then. See CatchHeadStart.
-func (s *GameState) CatchHeadStartEnd(i int) time.Time {
-	return s.LastCardAt[i].Add(CatchHeadStart)
-}
-
 // catchNearHand is the biggest hand a Contre-LOCO! is offered against: one
 // ordinary play from owing the call. Mirrored by the client's
 // CATCH_LIVE_MAX_HAND, and the reasoning is the same on both sides: from three
@@ -351,22 +351,29 @@ func (s *GameState) CatchHeadStartEnd(i int) time.Time {
 const catchNearHand = 2
 
 // catchOffered reports whether seat i is what makes the Contre-LOCO! button
-// worth pressing at now, as seen from catcher's chair: a seat on exactly
-// catchNearHand cards, or a seat on its last card whose window is still live
-// enough for a call on it to be a race (catchRaceRecent). A seat stuck on one
-// card long after its window shut is not one, and neither is a hand that has
-// grown back: nothing a correct client shows lights up on either.
+// worth pressing at now, as seen from catcher's chair: a seat whose window is
+// still recent enough for a call on it to be a race (catchRaceRecent), or a
+// seat on exactly catchNearHand cards, which is one ordinary play from opening
+// one. A seat that has been sitting on a card long after its window shut is
+// neither, and nothing a correct client shows lights up on it.
+//
+// **The window outlives the hand it opened on, deliberately.** A seat on its
+// last card can leave the near-finish picture without a card being played —
+// it draws, it swallows a stack of four, a Contre-LOCO! lands on it and its
+// hand grows by two — and read off the hand alone, the offer vanished on that
+// frame and a press a moment later was answered by nobody and charged to
+// nobody. That is the losing half of the wager being taken away from the
+// player: the thumb was already on its way down, and it is the thumb this
+// mechanic exists to measure. So the offer is the window, and it runs its
+// course whatever the hand does inside it.
 func (s *GameState) catchOffered(catcher, i int, now time.Time) bool {
 	if i == catcher || s.Retired[i] {
 		return false
 	}
-	switch s.Hands[i].Size() {
-	case catchNearHand:
+	if s.catchRaceRecent(i, now) {
 		return true
-	case 1:
-		return s.catchRaceRecent(i, now)
 	}
-	return false
+	return s.Hands[i].Size() == catchNearHand
 }
 
 // CatchOffered reports whether a Contre-LOCO! from catcher is a wager at now —
@@ -389,31 +396,34 @@ func (r *Room) CatchOffered(catcher int, now time.Time) bool {
 	return false
 }
 
-// catchOfferKey names the offer catcher is pressing against: every seat that
-// is one play from the finish with the size of its hand, and the instant its
-// window opened when it is down to one card. A fruitless call is charged once
-// per key (PenalizeFailedCatch). What is deliberately NOT in it is the
-// catcher's own hand and the cards other seats play from far out: a seat that
-// takes a penalty and then plays a card of its own has not been offered a
-// second wager, and neither has one that watched a six-card hand become five.
+// catchOfferKey names the offer catcher is pressing against: the window of
+// every seat that has one, and the hand size of every seat that is one play
+// from opening one. A fruitless call is charged once per key
+// (PenalizeFailedCatch), which is the whole of "only the first press counts".
+// What is deliberately NOT in it is the catcher's own hand and the cards other
+// seats play from far out: a seat that takes a penalty and then plays a card of
+// its own has not been offered a second wager, and neither has one that watched
+// a six-card hand become five.
 // Rationed by cards played, a press before and a press after the catcher's own
 // play bought two cards per turn off one seat sitting on two, which is faster
 // than the voluntary draw and is what a hand stocked up for a Swap was made of.
-func (s *GameState) catchOfferKey(catcher int) string {
+func (s *GameState) catchOfferKey(catcher int, now time.Time) string {
 	var b strings.Builder
 	for i := range s.Hands {
-		if i == catcher || s.Retired[i] {
+		if !s.catchOffered(catcher, i, now) {
 			continue
 		}
-		size := s.Hands[i].Size()
-		if size < 1 || size > catchNearHand {
+		// A seat with a window is keyed on the window and never on its hand,
+		// because the hand is exactly what moves underneath it: a draw, or the
+		// two cards a catch that landed just cost it. Keyed on the size, the
+		// second press of one misread — the one made a beat too late, at the
+		// board the player was actually looking at — came out as a fresh offer
+		// and was charged a second card for the same mistake.
+		if s.catchRaceRecent(i, now) {
+			fmt.Fprintf(&b, "%d@%d;", i, s.LastCardAt[i].UnixNano())
 			continue
 		}
-		fmt.Fprintf(&b, "%d:%d", i, size)
-		if size == 1 {
-			fmt.Fprintf(&b, "@%d", s.LastCardAt[i].UnixNano())
-		}
-		b.WriteByte(';')
+		fmt.Fprintf(&b, "%d:%d;", i, s.Hands[i].Size())
 	}
 	return b.String()
 }
@@ -1415,12 +1425,6 @@ var (
 	ErrTargetNotSingleCard = errors.New("target does not have exactly 1 card")
 )
 
-// ErrCatchTooEarly is a Contre-LOCO! that would land, arriving inside the
-// target's head start (CatchHeadStart). It is neither a miss nor a refusal:
-// the hub holds the press and resolves it again the instant the head start
-// ends, so nothing about it reaches the caller or the table until then.
-var ErrCatchTooEarly = errors.New("catch inside the head start")
-
 // ErrNoCatchWindow is a Contre-LOCO! on a seat that has not been catchable at
 // all: no window open, none shut inside catchGrace. It is deliberately NOT a
 // missed catch, so it costs nothing and tells nobody: a correct client only
@@ -1546,11 +1550,14 @@ func (r *Room) CatchUndeclared(catcherIndex, targetIndex int, now time.Time) err
 	if !r.State.catchWindowOpen(targetIndex, now) {
 		return ErrCatchWindowExpired
 	}
-	// Last, and after every check that could make the call a miss: a press that
-	// is early *and* wrong is charged now, not held and charged later.
-	if now.Before(r.State.CatchHeadStartEnd(targetIndex)) {
-		return ErrCatchTooEarly
-	}
+	// Nothing below this line waits for anything. A Contre-LOCO! that beats the
+	// target's LOCO! to the hub lands on the instant it arrives, however early
+	// in the window that is: the mechanic measures a reaction, and a server that
+	// held the fastest press back until the seat it caught had been given its
+	// chance was answering the reflex it asked for with a delay. What stops the
+	// button being mashed is the ration below (PenalizeFailedCatch), not a
+	// stretch of window nobody may win in.
+	//
 	// The penalty shrinks to whatever is left; the catch itself always stands.
 	// Cancelling a call that beat its target on time because the piles happen to
 	// be empty punishes the one player who did everything right, and it is the
@@ -1593,7 +1600,7 @@ func (r *Room) PenalizeFailedCatch(catcherIndex int, now time.Time) ([]Card, boo
 	if !r.CatchOffered(catcherIndex, now) {
 		return nil, false
 	}
-	key := r.State.catchOfferKey(catcherIndex)
+	key := r.State.catchOfferKey(catcherIndex, now)
 	if r.State.CatchPaidFor[catcherIndex] == key {
 		return nil, false
 	}
