@@ -715,6 +715,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 **Screens**
 - **The home menu is four buttons and they are all drawn alike** (`Lobby.svelte`): 1v1, the bot, new
   table, join a table, in that order. **Hierarchy is a hue, never a smaller kind of control.**
+- **The entry screen is another composition on a phone held sideways too, on the board's own height**
+  (`Lobby.svelte`'s `@media (orientation: landscape) and (max-height: 559px)`, pinned to
+  `LANDSCAPE_MAX_H` by `landscape.test.ts`): the lockup beside the controls, the four buttons in a
+  2×2 grid, and **the padding is what clears the chrome this screen draws absolutely** — the chip row
+  above (`--topbar-h`, never a literal), the live strip below. Stacked it overflowed 340px and ran
+  through all of it. **Nothing here is demoted to a smaller control**; upright it is untouched.
+  **The queue's two screens took the same pass**: `Searching` becomes two columns and centres
+  `safe` on **both** axes — a column taller than its row overflows upwards into the row it just
+  cleared — and `MatchFound` is squeezed, never recomposed. The waiting room is left alone.
 - **The lobby answers a nickname as it is typed** (`nicknameRules.ts`, shape only, the word list stays
   server-side) and **disables "Take a seat" until the code is whole** (`tableCodeRules.ts`). Both
   decide nothing, and both render the line the server's refusal resolves to.
