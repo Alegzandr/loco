@@ -1094,6 +1094,11 @@ export const SCENES: Scene[] = [
       scoreboard: SCOREBOARD,
       players: PLAYERS_4,
       myIndex: 0,
+      // One record is the match that just ended: the recap stays off, and the
+      // duration line under the heading is drawn from it.
+      matchHistory: [
+        { rounds_won: [2, 1, 0, 0], scores: [90, 55, 20, 10], winner_index: 0, duration_ms: 14 * 60_000 },
+      ],
     },
   },
   {
@@ -1111,10 +1116,10 @@ export const SCENES: Scene[] = [
       players: PLAYERS_4,
       myIndex: 0,
       matchHistory: [
-        { rounds_won: [2, 1, 0, 0], scores: [90, 55, 20, 10], winner_index: 0 },
-        { rounds_won: [1, 0, 2, 0], scores: [40, 5, 85, 15], winner_index: 2 },
-        { rounds_won: [0, 2, 1, 0], scores: [12, 88, 44, 0], winner_index: 1 },
-        { rounds_won: [2, 0, 1, 0], scores: [95, 10, 35, 5], winner_index: 0 },
+        { rounds_won: [2, 1, 0, 0], scores: [90, 55, 20, 10], winner_index: 0, duration_ms: 14 * 60_000 },
+        { rounds_won: [1, 0, 2, 0], scores: [40, 5, 85, 15], winner_index: 2, duration_ms: 11 * 60_000 },
+        { rounds_won: [0, 2, 1, 0], scores: [12, 88, 44, 0], winner_index: 1, duration_ms: 17 * 60_000 },
+        { rounds_won: [2, 0, 1, 0], scores: [95, 10, 35, 5], winner_index: 0, duration_ms: 65 * 60_000 },
       ],
     },
   },
@@ -1168,6 +1173,11 @@ export const SCENES: Scene[] = [
       scoreboard: SCOREBOARD,
       players: PLAYERS_4,
       myIndex: 0,
+      // Under the "takes the match" sentence this time: the duration line has
+      // to sit as well under a sub as under the heading alone.
+      matchHistory: [
+        { rounds_won: [1, 2, 0, 0], scores: [55, 90, 20, 10], winner_index: 1, duration_ms: 23 * 60_000 },
+      ],
     },
   },
   {
@@ -1204,6 +1214,11 @@ export const SCENES: Scene[] = [
       scoreboard: SCOREBOARD.slice(0, 2),
       players: PLAYERS_4.slice(0, 2),
       myIndex: 0,
+      // A walkover is timed like any other match, from the open to the moment
+      // the seat gave up.
+      matchHistory: [
+        { rounds_won: [0, 0], scores: [0, 0], winner_index: 0, duration_ms: 40_000 },
+      ],
     },
   },
   {

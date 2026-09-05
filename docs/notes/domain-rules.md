@@ -98,6 +98,19 @@ room's reset.
   mid-match expiry that names a seat, re-bases nothing and carries nothing.
 - The client draws it only past one record: a single column is the standings immediately above it,
   said twice (`hasEveningToShow`).
+- **Each record carries how long the match was played** (`matchRecord.DurationMs`, on the wire as
+  `duration_ms`). Measured on the table between two stamps: `table.matchStartedAt`, written by
+  `openTable` — `match_ready`, the moment the turn clock starts, and not the deal, because the
+  map-loading gate is a wait and not the game — and the `now` handed to `recordFinishedMatch`. Handed
+  in rather than read inside, so the internal test chooses both ends. **Zero means "cannot say" and
+  is omitted from the wire**, so a match that opened is rounded *up* to at least one millisecond
+  (`matchDurationMs`): the client draws nothing for zero, and a played match must never read as an
+  untimed one. The two zero cases are real: a forfeit inside the loading gate (nothing was played),
+  and a match restored from a snapshot written before `roomSnapshot.MatchStartedAt` existed. The
+  stamp rides the drain snapshot for that reason — a deploy mid-match must not restart the clock —
+  and `resetForNextMatch` clears it, because the next match is timed from its own open. The client's
+  half is `components/matchDuration.ts`: the last record is the match that just ended (recorded
+  before it is announced), worded in minutes and never seconds, under a minute said in words.
 
 ### Round and match plumbing
 - Hub flow on round end: broadcast `round_end` (scoreboard, `RoundNumber`=just-completed) → `BeginNextRound` → `game_started` per player. On match end: `match_end` (scoreboard + match_winner).

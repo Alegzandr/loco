@@ -33,6 +33,9 @@ export const T = {
   continueBtn: 'Next round',
   rematch: 'Rematch',
   rematchWaitingOpponent: 'Waiting on them…',
+  // The duration line under the game-over heading, for a match that took less
+  // than a minute — which is every match this suite plays.
+  matchUnderAMinute: 'Under a minute of play',
   leaveRoom: 'Leave the table',
   leaveConfirmYes: 'Yes, leave',
   // Walking out of a match, which every table allows. Its own strings: the

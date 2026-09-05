@@ -54,7 +54,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `uno_declared`        | `player_index`                                                              |
 | `uno_caught`          | `player_index`                                                              |
 | `round_end`           | `round_number`, `round_winner`, `scoreboard`, `round_history`               |
-| `match_end`           | `match_winner`, `scoreboard`, `forfeit`, `player_index` (the seat that left, on a forfeit) |
+| `match_end`           | `match_winner`, `scoreboard`, `forfeit`, `player_index` (the seat that left, on a forfeit), `match_history` (every finished match at this table, the one just ended last) |
 | `rematch_started`     | `room_code`, `player_id`, `players`, `match_format`, `max_players` (per-recipient) |
 | `matchmaking_queued`  | — (deliberately empty: see the notes)                                       |
 | `rematch_offered`     | `rematch_offers[]`, `rematch_needed`, `player_index` (whoever just asked; absent when the change was a departure) |
@@ -72,6 +72,7 @@ description of the wire that a program does not check: when it disagrees with th
 ## DTO shapes
 
 - `PlayerDTO`: `index`, `nickname`, `hand_size`, `connected`.
+- `MatchRecordDTO`: `rounds_won`, `scores` (both indexed by seat), `winner_index` (-1 once that seat has left), `duration_ms` (how long the match was played, from `match_ready` to the end, in whole milliseconds; absent when the server cannot say — a forfeit before the table opened — and never zero for a played match).
 - `LatencyEntryDTO`: `player_index`, `rtt_ms` (-1 = nothing measured), `bot`.
 - `LiveStreamDTO`: `login`, `name`, `lang`, `viewers`, `thumb`. `thumb` is a path on **this** origin (`/live-thumb/<key>`) and never a Twitch URL; it is empty when the picture could not be fetched, and the row is drawn without one. There is deliberately no title field — see [`notes/live.md`](notes/live.md).
 - `GameStateDTO`: includes `catch_seats` and `declared_seats` (who owes the table a declaration and until when, and whose single card has already been called — the same answers `card_played` carries, so a reload inside a window lands on the window and a spent LOCO! stays spent), `streamer_mode` (the table's answer, so a reload is blurred without waiting for the host to touch the switch), `event_log` (capped to last 50 entries, **sent only on the reconnect snapshot**: it is the one unbounded field in a per-recipient payload and no client reads it during play), `round_number`, `match_format`, `max_players`, `scoreboard` (cumulative per-player scores), `round_history` (`round_history[k][player_index]` = points scored in round k+1), and the player's own hand.

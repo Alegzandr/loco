@@ -97,6 +97,13 @@ type table struct {
 	// swapSeats. A slice of records, deliberately not a twelfth map.
 	matchHistory []matchRecord
 
+	// matchStartedAt is when the turn clock started for the match in progress:
+	// openTable stamps it, and it is what the duration on the match's record is
+	// measured from. Zero means no match has been opened, which is also what a
+	// match still behind the loading gate looks like — a forfeit there records
+	// no duration, because nothing was played.
+	matchStartedAt time.Time
+
 	// turnStartedAt is what a turn timer re-checks itself against on the way in.
 	// Zero means no turn is being timed, which is also what a bot's turn looks
 	// like: they keep their own time and the client draws no bar for them.
@@ -148,6 +155,10 @@ type matchRecord struct {
 	// table. A departure re-bases every seat above it, and a winner that quietly
 	// followed the shift would credit the match to whoever slid into the index.
 	Winner int `json:"winner"`
+	// DurationMs is how long the match was played, measured from
+	// matchStartedAt. Zero means the server cannot say, and it is omitted from
+	// the wire rather than shown as a match that took no time.
+	DurationMs int64 `json:"duration_ms,omitempty"`
 }
 
 // recordFinishedMatch appends the match that has just ended. Called once per
@@ -156,13 +167,17 @@ type matchRecord struct {
 // The room's own arrays are copied rather than referenced — ResetForRematch nils
 // them and Start reallocates them, so a record holding the live slice would be
 // the next match's scoreboard by the time anybody read it.
-func (t *table) recordFinishedMatch() {
+//
+// now is when the match ended. It is handed in rather than read here so the
+// duration is a difference between two stamps a test can choose.
+func (t *table) recordFinishedMatch(now time.Time) {
 	room := t.room
 	n := len(room.Players)
 	rec := matchRecord{
-		RoundsWon: make([]int, n),
-		Scores:    make([]int, n),
-		Winner:    -1,
+		RoundsWon:  make([]int, n),
+		Scores:     make([]int, n),
+		Winner:     -1,
+		DurationMs: matchDurationMs(t.matchStartedAt, now),
 	}
 	copy(rec.RoundsWon, room.RoundsWon)
 	copy(rec.Scores, room.Scores)
@@ -173,6 +188,22 @@ func (t *table) recordFinishedMatch() {
 		}
 	}
 	t.matchHistory = append(t.matchHistory, rec)
+}
+
+// matchDurationMs is how long a match that opened at startedAt and ended at now
+// was played, in whole milliseconds, rounded up.
+//
+// Rounded up and not down because zero is the "cannot say" value on the wire:
+// a match that opened is reported as at least one millisecond, however fast
+// the table went, so the client never reads a played match as an unknown one.
+// A zero startedAt is a match that never opened (a forfeit inside the loading
+// gate, a snapshot from a process that did not stamp it) and answers zero.
+func matchDurationMs(startedAt, now time.Time) int64 {
+	if startedAt.IsZero() || !now.After(startedAt) {
+		return 0
+	}
+	d := now.Sub(startedAt)
+	return int64((d + time.Millisecond - 1) / time.Millisecond)
 }
 
 // dropSeatFromHistory removes one seat from every recorded match, so a table
@@ -526,6 +557,7 @@ func (t *table) resetForNextMatch() {
 	t.afk = make(map[int]int)
 	t.awayAt = make(map[int]time.Time)
 	t.gone = make(map[int]struct{})
+	t.matchStartedAt = time.Time{}
 	t.turnStartedAt = time.Time{}
 	t.emptyAt = time.Time{}
 	t.loading = nil

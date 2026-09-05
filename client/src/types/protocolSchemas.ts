@@ -245,6 +245,13 @@ export const matchRecordSchema = v.object({
   // it has since left the table. No omitempty: seat 0 is a winner like any
   // other, and dropping it would hand the match to nobody.
   winner_index: v.number(),
+  // DurationMs is how long the match was played, from the moment the turn
+  // clock started (match_ready, not the deal: the map-loading gate is a wait,
+  // not the game) to the moment it ended. Absent when the server cannot say —
+  // a forfeit inside the loading gate, or a match restored from a snapshot an
+  // older process wrote — and never zero for a match that was played: a
+  // started match reports at least one millisecond.
+  duration_ms: v.optional(v.number()),
 })
 
 // LatencyEntryDTO is one seat's measured round-trip time.

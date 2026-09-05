@@ -70,6 +70,7 @@ func matchHistoryDTO(t *table) []protocol.MatchRecordDTO {
 			RoundsWon:   append(make([]int, 0, len(rec.RoundsWon)), rec.RoundsWon...),
 			Scores:      append(make([]int, 0, len(rec.Scores)), rec.Scores...),
 			WinnerIndex: rec.Winner,
+			DurationMs:  rec.DurationMs,
 		}
 	}
 	return out
