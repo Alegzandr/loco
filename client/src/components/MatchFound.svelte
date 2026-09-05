@@ -276,6 +276,36 @@
     }
   }
 
+  /* A phone on its side. Nothing here overlaps anything — this screen draws no
+     chip row — but the reveal is what a player is looking at for two and a half
+     seconds, and stacked it ran the two cards off the bottom of a 340px page.
+     Same height as the rest of the app's landscape blocks (`layout.ts:
+     LANDSCAPE_MAX_H`): the column is squeezed rather than recomposed, because
+     the meeting of the two cards *is* the composition. */
+  @media (orientation: landscape) and (max-height: 559px) {
+    .container {
+      gap: var(--space-sm);
+      padding-top: calc(var(--space-md) + var(--safe-top));
+      padding-bottom: calc(var(--space-md) + var(--safe-bottom));
+    }
+
+    .side {
+      padding: var(--space-sm) var(--space-md);
+      gap: var(--space-xs);
+    }
+
+    .avatar {
+      width: clamp(52px, 8vw, 68px);
+      height: clamp(52px, 8vw, 68px);
+      font-size: clamp(22px, 3.4vw, 28px);
+    }
+
+    .vs {
+      width: clamp(44px, 6vw, 56px);
+      height: clamp(44px, 6vw, 56px);
+    }
+  }
+
   @media (max-width: 520px) {
     .versus {
       gap: var(--space-sm);

@@ -88,63 +88,72 @@
     <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />
   </div>
 
-  <LocoLogo size="clamp(30px, 5vw, 48px)" />
+  <!-- The mark and the pair of seats under it: one object, wrapped as one for
+       the same reason the entry screen's lockup is — sideways it becomes the
+       left half of the screen and the words move beside it. -->
+  <div class="stageSide">
+    <LocoLogo size="clamp(30px, 5vw, 48px)" />
 
-  <div class="stage">
-    <!-- The radar is the one thing on screen that is unambiguously *doing*
-         something. Three rings on staggered delays so the pulse never has a still
-         frame, and a sweep that keeps turning even when it stops. -->
-    <div class="radar" aria-hidden="true">
-      <span class="ring"></span>
-      <span class="ring"></span>
-      <span class="ring"></span>
-      <span class="sweep"></span>
-      <span class="avatar" style="background: {seatColor(0)}">{seatInitial(nickname)}</span>
-    </div>
+    <div class="stage">
+      <!-- The radar is the one thing on screen that is unambiguously *doing*
+           something. Three rings on staggered delays so the pulse never has a still
+           frame, and a sweep that keeps turning even when it stops. -->
+      <div class="radar" aria-hidden="true">
+        <span class="ring"></span>
+        <span class="ring"></span>
+        <span class="ring"></span>
+        <span class="sweep"></span>
+        <span class="avatar" style="background: {seatColor(0)}">{seatInitial(nickname)}</span>
+      </div>
 
-    <!-- The empty chair opposite. It is what the whole screen is about, and
-         leaving it visibly empty is more honest than a spinner. Same box as the
-         radar so the two sides balance: this is a 1v1, and a lopsided pair reads
-         as a layout bug rather than as a missing player. -->
-    <div class="opponent" aria-hidden="true">
-      <span class="opponentSlot">?</span>
+      <!-- The empty chair opposite. It is what the whole screen is about, and
+           leaving it visibly empty is more honest than a spinner. Same box as the
+           radar so the two sides balance: this is a 1v1, and a lopsided pair reads
+           as a layout bug rather than as a missing player. -->
+      <div class="opponent" aria-hidden="true">
+        <span class="opponentSlot">?</span>
+      </div>
     </div>
   </div>
 
-  <!-- An h2: the document's top-level heading is served by GamePage.astro and
-       describes the page itself. A screen inside the game heads its own section. -->
-  <h2 class="title">{t.searchTitle}</h2>
+  <!-- What the screen says and the two ways out of it, in one box: sideways
+       this is the column that stands beside the radar. -->
+  <div class="panel">
+    <!-- An h2: the document's top-level heading is served by GamePage.astro and
+         describes the page itself. A screen inside the game heads its own section. -->
+    <h2 class="title">{t.searchTitle}</h2>
 
-  <!-- aria-live so the stage change is announced rather than silently swapped:
-       somebody using a screen reader is doing exactly the same thing as everybody
-       else here, which is waiting. -->
-  <p class="subtitle" aria-live="polite">
-    {stage === 'long' ? t.searchLong : stage === 'patient' ? t.searchPatient : t.searchFresh}
-  </p>
+    <!-- aria-live so the stage change is announced rather than silently swapped:
+         somebody using a screen reader is doing exactly the same thing as everybody
+         else here, which is waiting. -->
+    <p class="subtitle" aria-live="polite">
+      {stage === 'long' ? t.searchLong : stage === 'patient' ? t.searchPatient : t.searchFresh}
+    </p>
 
-  <p class="elapsed">
-    <span class="elapsedLabel">{t.searchElapsed}</span>
-    <span class="elapsedValue">{formatElapsed(elapsed)}</span>
-  </p>
+    <p class="elapsed">
+      <span class="elapsedLabel">{t.searchElapsed}</span>
+      <span class="elapsedValue">{formatElapsed(elapsed)}</span>
+    </p>
 
-  <div class="actions">
-    <button
-      class="cancel"
-      onclick={() => {
-        playSfx('uiBack')
-        onCancel()
-      }}
-    >
-      {t.searchCancel}
-    </button>
-    {#if stage === 'long'}
-      <!-- Both classes rather than the `composes: cancel` this used under CSS
-           Modules: Svelte's <style> has no such directive, and duplicating the
-           declarations would be two buttons to keep in step instead of one. -->
-      <button class="cancel alternative" onclick={onCreateTable}>
-        {t.searchCreateTable}
+    <div class="actions">
+      <button
+        class="cancel"
+        onclick={() => {
+          playSfx('uiBack')
+          onCancel()
+        }}
+      >
+        {t.searchCancel}
       </button>
-    {/if}
+      {#if stage === 'long'}
+        <!-- Both classes rather than the `composes: cancel` this used under CSS
+             Modules: Svelte's <style> has no such directive, and duplicating the
+             declarations would be two buttons to keep in step instead of one. -->
+        <button class="cancel alternative" onclick={onCreateTable}>
+          {t.searchCreateTable}
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if showRules}
@@ -245,6 +254,17 @@
     border-radius: 50%;
     background: var(--color-mint);
     flex: none;
+  }
+
+  /* The two halves of this screen, as boxes. Upright they are plain columns the
+     container's own gap runs through, so the screen is laid out exactly as it
+     was; sideways they stand side by side. */
+  .stageSide,
+  .panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-base);
   }
 
   /* The player and the chair opposite, on one line: this is a 1v1 and the layout
@@ -468,6 +488,68 @@
     to {
       opacity: 1;
       transform: none;
+    }
+  }
+
+  /* A phone on its side. The same failure the entry screen had and the same
+     answer, on the same height (`layout.ts: LANDSCAPE_MAX_H`, pinned by
+     `landscape.test.ts`): stacked, the mark stood up into the chip row this
+     screen draws absolutely — the wait is the longest a player ever spends on
+     one screen, so that row is here too — and the way out of the queue was off
+     the bottom of the page. The radar takes one half, the words and the two
+     buttons the other, and the top padding clears the row. Notes:
+     `docs/notes/visual.md`. */
+  @media (orientation: landscape) and (max-height: 559px) {
+    .container {
+      flex-direction: row;
+      /* `safe`, and it is the whole point: a column taller than the box
+         overflows *both* ways when it is centred, and the half that goes up
+         goes under the chip row the padding below is clearing. */
+      align-items: safe center;
+      justify-content: safe center;
+      gap: var(--space-lg);
+      padding-top: calc(var(--space-base) + var(--topbar-h) + var(--space-sm) + var(--safe-top));
+    }
+
+    /* The words take the width they need so they do not become a narrow column
+       of five lines, which is what made this side too tall to fit at all. */
+    .title {
+      font-size: clamp(22px, 3.4vw, 30px);
+    }
+
+    .subtitle {
+      max-width: 42ch;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+
+    .elapsed {
+      padding: 6px 14px;
+    }
+
+    .stage {
+      --slot-box: clamp(104px, 15vw, 150px);
+      --slot-disc: clamp(60px, 8vw, 84px);
+      margin-bottom: 0;
+    }
+
+    .stageSide,
+    .panel {
+      gap: var(--space-sm);
+    }
+
+    .panel {
+      min-width: 0;
+    }
+
+    .actions {
+      width: clamp(240px, 30vw, 320px);
+      margin-top: 0;
+    }
+
+    .cancel {
+      min-height: 44px;
+      padding: 10px 20px;
     }
   }
 

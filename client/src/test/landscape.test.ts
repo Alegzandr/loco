@@ -225,3 +225,89 @@ describe('the action stack', () => {
     expect(slotW + padding).toBeGreaterThan(SIDE_RESERVE - 20)
   })
 })
+
+// The entry screen is the other screen a phone can be held sideways at, and the
+// only one whose chrome — the chip row, the connected-player plate, the live
+// strip — is absolutely positioned and therefore reserves nothing. Stacked it
+// overflowed a 340px page and ran straight through all three. Same answer as the
+// board's, so the same height, and the paddings that clear that chrome are what
+// the fix actually is: assert them, not the fact that a media query exists.
+describe('the entry screen on its side', () => {
+  const lobby = read('components', 'Lobby.svelte')
+  const block = lobby.match(
+    /@media \(orientation: landscape\) and \(max-height: (\d+)px\)\s*\{([\s\S]*?)\n {2}\}\n/,
+  )
+
+  it('turns on the same height the board does', () => {
+    expect(block, 'Lobby.svelte must carry a landscape block').toBeTruthy()
+    expect(Number(block![1])).toBe(LANDSCAPE_MAX_H - 1)
+  })
+
+  it('lays the lockup beside the controls instead of over them', () => {
+    const css = block![2]
+    expect(css).toMatch(/flex-direction:\s*row/)
+    // Four rows of buttons do not fit sideways; two columns of two do.
+    expect(css).toMatch(/grid-template-columns:\s*1fr 1fr/)
+  })
+
+  it('clears the chip row it draws absolutely, in the tokens and not in a literal', () => {
+    const css = block![2]
+    expect(css).toMatch(
+      /padding-top:\s*calc\(var\(--space-base\) \+ var\(--topbar-h\) \+ var\(--space-sm\) \+ var\(--safe-top\)\)/,
+    )
+  })
+
+  it('clears the live strip at the foot, and the second plate the narrow end carries', () => {
+    expect(block![2]).toMatch(/padding-bottom:\s*calc\(var\(--space-base\) \+ var\(--safe-bottom\)/)
+    // Under 46rem the connected-player count moves to the foot and the strip
+    // stacks above it (LiveStrip.svelte), so that band is taller.
+    const narrow = lobby.match(
+      /@media \(orientation: landscape\) and \(max-height: \d+px\) and \(max-width: 46rem\)\s*\{([\s\S]*?)\n {2}\}\n/,
+    )
+    expect(narrow, 'Lobby.svelte must clear the narrow foot too').toBeTruthy()
+    expect(narrow![1]).toMatch(/padding-bottom:\s*calc\(var\(--space-lg\) \+ var\(--safe-bottom\)/)
+  })
+
+  it('keeps the mark sizeable from CSS rather than from a literal prop', () => {
+    expect(lobby).toMatch(/<LocoLogo size="var\(--lobby-logo\)"/)
+    expect(block![2]).toMatch(/--lobby-logo:/)
+  })
+})
+
+// The queue's two screens have the same shape of problem — one carries the chip
+// row and overlapped it, the other simply ran off the bottom — and take the same
+// height. A screen that clears the row at the top but centres a column taller
+// than the box still puts it under that row: `safe` on both axes is the fix, and
+// it is the assertion worth keeping.
+describe('the queue on its side', () => {
+  const searching = read('components', 'Searching.svelte')
+  const found = read('components', 'MatchFound.svelte')
+  const block = (src: string) =>
+    src.match(/@media \(orientation: landscape\) and \(max-height: (\d+)px\)\s*\{([\s\S]*?)\n {2}\}\n/)
+
+  it('turns on the same height everything else does', () => {
+    for (const [name, src] of [['Searching', searching], ['MatchFound', found]] as const) {
+      const m = block(src)
+      expect(m, `${name}.svelte must carry a landscape block`).toBeTruthy()
+      expect(Number(m![1]), name).toBe(LANDSCAPE_MAX_H - 1)
+    }
+  })
+
+  it('puts the radar beside the words, clear of the chip row, and cannot overflow up into it', () => {
+    const css = block(searching)![2]
+    expect(css).toMatch(/flex-direction:\s*row/)
+    expect(css).toMatch(
+      /padding-top:\s*calc\(var\(--space-base\) \+ var\(--topbar-h\) \+ var\(--space-sm\) \+ var\(--safe-top\)\)/,
+    )
+    expect(css).toMatch(/align-items:\s*safe center/)
+    expect(css).toMatch(/justify-content:\s*safe center/)
+  })
+
+  it('keeps the reveal inside the page rather than recomposing it', () => {
+    const css = block(found)![2]
+    // The two cards meeting is the whole screen: it may be squeezed, never
+    // turned into two columns.
+    expect(css).not.toMatch(/flex-direction:\s*row/)
+    expect(css).toMatch(/padding-bottom:\s*calc\(var\(--space-md\) \+ var\(--safe-bottom\)\)/)
+  })
+})
