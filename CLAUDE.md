@@ -240,7 +240,8 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
    while one is on the table** (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, `CatchOffered`,
    rationed by `catchOfferKey` + `CatchPaidFor`). The offer is a seat on **exactly two** cards or a
-   seat with a **window still running** — 5s plus `catchGrace` (`catchNearHand`, `catchRaceRecent`);
+   seat with a **window still running** — 5s plus `catchGrace`, 2s (`catchNearHand`,
+   `catchRaceRecent`);
    the button is live for exactly that, so the press is a **read of the table** and not an answer to
    a cue. **The offer is the window, not the hand**: a seat can leave the near-finish picture with
    no card played — it draws, it swallows a stack of four, a catch lands on it — and read off the
@@ -271,7 +272,7 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    had already caught. **Rule 7's ration is what replaced it**, and it is the better answer: one
    press per offer is charged and the rest are silent, so holding the button down buys nothing a
    single press did not. **The other direction has to stay losable too**: the offer outlives the
-   picture that made it by `catchGrace`, so a press made a beat after the window shut, or after the
+   picture that made it, so a press made a beat after the window shut, or after the
    seat's hand grew out of reach, is a call that came **too late** and costs the same card as one
    that came too early. A control that goes dark the frame the offer vanishes makes the read for
    the player and makes it in their favour, which is the same failure as announcing the call.
@@ -756,8 +757,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   so the roster row's own right-click menu opens first. `contextGuard.test.ts`.
 - **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
   `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding **exactly two** cards, or with a **window
-  still running** — the end the server named plus `CATCH_LATE_GRACE_MS`, mirrored from the domain's
-  `catchGrace` and pinned by `serverMirrors.test.ts` — makes it live. A control that unlocks on the server's
+  still running** — the end the server named plus `CATCH_LATE_GRACE_MS` (1s) — makes it live.
+  **That second is deliberately shorter than the server's `catchGrace` (2s), and the difference is
+  the wire**: a press made on the last frame the button is live has a whole second to arrive and
+  still be charged. Longer would be a live button over a wager the server answers with silence;
+  equal would drop the last late press by exactly one network hop. `serverMirrors.test.ts` pins the
+  inequality, not a number. A control that unlocks on the server's
   cue can be answered but never anticipated, and the window it answers is five seconds. The price is
   what keeps that honest — see the domain rule above — and **the threshold is what keeps the price
   from being buyable**: from two cards out the window is one ordinary play away, where from three it

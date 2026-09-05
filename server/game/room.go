@@ -60,16 +60,22 @@ const (
 	// press made there is a call that came too late, charged like any other
 	// miss, rather than a call on a seat that was never on the hook.
 	//
-	// It is the *late* half of the mistake this button is made of, and the
-	// client is live for exactly as long (CATCH_LATE_GRACE_MS, pinned by
-	// serverMirrors.test.ts). A press can be too early — the seat had not
-	// spoken yet, or never would — and that is a wager anybody can make and
-	// win. It has to be possible to be too late in the same way, and it was
-	// not: the button went dark on the frame the offer vanished, whether the
-	// window ran out or the seat's hand grew, which quietly took the losing
-	// half of the wager away and left a control that only ever let you press
-	// when pressing was safe. An interface that cannot be got wrong is not
-	// measuring anything.
+	// It is the *late* half of the mistake this button is made of. A press can
+	// be too early — the seat had not spoken yet, or never would — and that is a
+	// wager anybody can make and win. It has to be possible to be too late in
+	// the same way, and it was not: the button went dark on the frame the offer
+	// vanished, whether the window ran out or the seat's hand grew, which
+	// quietly took the losing half of the wager away and left a control that
+	// only ever let you press when pressing was safe. An interface that cannot
+	// be got wrong is not measuring anything.
+	//
+	// **The client offers that late press for less than this** (1s,
+	// CATCH_LATE_GRACE_MS, and serverMirrors.test.ts pins the inequality): the
+	// difference is the wire. The player is given one second to be late in, and
+	// the second second is the round trip that press still has to make — a call
+	// the player was allowed to send and this server then dropped in silence
+	// would be the same failure as the dark button, arriving from the other
+	// side.
 	//
 	// The distinction is what stops the penalty being a free broadcast. Every
 	// timing refusal costs the caller a card, which is what makes the wager

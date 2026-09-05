@@ -25,8 +25,8 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
    being one, and a per-press price would bill the same misread ten times over. Two rather than
    three because the price is only a price while the card stays where it landed: see "The threshold
    is what keeps the price from being buyable" below. **A press is answered on the instant it
-   arrives, and the offer outlives the picture that made it** by `catchGrace`, so the wager can be
-   lost by being too late as well as by being too early. See "Both ways to lose" below.
+   arrives, and the offer outlives the picture that made it**, so the wager can be lost by being too
+   late as well as by being too early. See "Both ways to lose" below.
 
 ## Scoring & match system
 - `CardValue(c Card) int` (`game/card.go`): Number=face; Reverse=10; Skip=20; DrawTwo=30; Swap=30; GlobalSwitch=40; WildCard=40; WildDrawFour=50. Matches `docs/rules.md` §10.
@@ -419,10 +419,13 @@ won, and a one-card hand had made them finishes by accident.
     way down. A control that retracts there is making the read for the player and making it in their
     favour, which is the same failure as announcing the call. So the offer is the **window**
     (`catchOffered` asks `catchRaceRecent` before it asks the hand, `catchOfferKey` is keyed on
-    `LastCardAt` so the ration survives the hand moving underneath it), and the client is live for
-    exactly the same stretch — `CATCH_LATE_GRACE_MS`, pinned to `catchGrace` by
-    `serverMirrors.test.ts`, because live where the server charges nothing is a button that does
-    nothing and dark where it still charges is the bug this paragraph is about.
+    `LastCardAt` so the ration survives the hand moving underneath it), and the client offers the
+    late press for **less** than the server charges for it: `CATCH_LATE_GRACE_MS` is 1s against
+    `catchGrace`'s 2s, and the difference is the round trip. Live *longer* than the server charges
+    is a button that does nothing when pressed; live for *exactly* as long puts a press made on the
+    final live frame outside the server's window by one network hop, which is the dark button's
+    failure arriving from the other side. `serverMirrors.test.ts` pins the inequality rather than
+    either number, so both can move as long as the room between them survives.
 
     `catch_window_test.go` owns the domain half of both, `hub/catch_immediate_test.go` the
     immediacy and the one-card ration through a real socket. **The race itself is not an E2E test
@@ -518,7 +521,8 @@ won, and a one-card hand had made them finishes by accident.
     (`catchAvailability.test.ts` pins the seat on a declared single card as **live** inside its
     window and **dead** past it and its grace.)
   - **The clock is `store.onHookUntil`**, seat → the window end the server sent in `catch_seats`,
-    written by `applyCardPlayed` and `applyGameState` (`updateOnHook`), plus `CATCH_LATE_GRACE_MS`.
+    written by `applyCardPlayed` and `applyGameState` (`updateOnHook`), plus `CATCH_LATE_GRACE_MS`
+    (1s).
     It is a separate structure from `catchWindows` on purpose: those are retired by `uno_declared`,
     `uno_caught` and a draw, because they drive the *armed* cue, and the clock must survive all
     three — **and it must survive the hand growing, too**, which is why it is read against the seat
@@ -538,7 +542,7 @@ won, and a one-card hand had made them finishes by accident.
 
   Read off the hand instead, it was wrong in the other direction: the button went dark on the frame
   the seat left the picture, and that is the committed thumb again, spared. So the offer is the
-  **window** and the clock is what ends it — the window plus its grace, the same stretch the server
+  **window** and the clock is what ends it — the window plus a second, inside the two the server
   charges for, long enough that a press made a beat too late costs the card it should and short
   enough that nothing can be farmed. `catchDerivation.test.ts` owns both halves;
   `penalties.spec.ts` plays the whole shape out against a real server, catch included.

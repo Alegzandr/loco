@@ -212,8 +212,8 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
     thing, it draws, it swallows a stack of four, it takes two penalty cards from a Contre-LOCO!
     that landed on it — because each of those is the instant a betting thumb has already committed,
     and a button that greys out there is sparing the player a press the server charges a card for
-    either way. What takes it down is the window running out, plus the grace the server keeps
-    charging through. It is not a latch: held to the next card played instead, the offer was farmed
+    either way. What takes it down is the window running out, plus the one second of grace that
+    makes being late a mistake you can make rather than one the interface refuses for you. It is not a latch: held to the next card played instead, the offer was farmed
     a card at a time (`domain-rules.md`).
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo

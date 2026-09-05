@@ -44,13 +44,21 @@ export const CATCH_LIVE_MAX_HAND = 2
  * is the same failure as announcing a call: a button that cannot be got wrong
  * is not measuring anything.
  *
- * So the offer outlives the picture that made it, by exactly as long as the
- * server keeps charging for it — `catchGrace` in `server/game/room.go`, pinned
- * by `serverMirrors.test.ts`. Live any longer and the button would be offering
- * a wager the server answers with silence; any shorter and it goes dark while
- * a press would still cost a card, which is the bug this exists for.
+ * So the offer outlives the picture that made it. One second: long enough to be
+ * a beat you can miss by, short enough that it is still the same gesture and not
+ * a second chance.
+ *
+ * **It is deliberately shorter than the server's own `catchGrace` (2s), and the
+ * difference is the wire.** The server charges any call that arrives inside two
+ * seconds of a window; the button offers one for one. A press made on the last
+ * frame it is live therefore has a whole second to cross the network and still
+ * be charged — which is the point, because a press the player made and the
+ * server dropped in silence is the same failure as a button that greys out
+ * under their thumb: they were allowed to be late, and nothing happened. Longer
+ * than `catchGrace` would be the other failure, a live button over a wager the
+ * server answers with nothing. `serverMirrors.test.ts` pins the inequality.
  */
-export const CATCH_LATE_GRACE_MS = 2000
+export const CATCH_LATE_GRACE_MS = 1000
 
 /**
  * When each seat's current last card stops being catchable: seat → the end of
@@ -93,7 +101,8 @@ export type OnHookUntil = Record<number, number>
  * a stack of four, a Contre-LOCO! lands on it — and the button used to grey out
  * on that frame, which spared the player the late half of their own wager. The
  * offer is the window, so it runs its course whatever the hand does inside it,
- * and the server charges for exactly the same stretch (`catchOffered`).
+ * and the server charges for that press too (`catchOffered`, whose own window is wider still by a
+ * round trip).
  *
  * What it is still not is a latch. The window ends, grace and all, and the
  * button goes dark on the clock rather than waiting for the next card: held

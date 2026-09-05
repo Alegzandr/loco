@@ -140,12 +140,16 @@ describe('the catch offer, against the server', () => {
     expect(Number(near![1])).toBe(CATCH_LIVE_MAX_HAND)
   })
 
-  // The late half of the wager: past its window a call is still charged for
-  // catchGrace, so the button stays live for exactly that long after it.
-  it('stays live for exactly the grace the server keeps charging for', () => {
+  // The late half of the wager, and the one relationship that matters: the
+  // button may not be live where the server charges nothing (a press that does
+  // nothing at all), and the room it leaves under that ceiling is the round trip
+  // the last late press still has to make. Equal would put a press made on the
+  // final live frame outside the server's window by exactly one network hop.
+  it('offers the late press inside the window the server still charges for', () => {
     const grace = room.match(/\n\tcatchGrace = (\d+) \* time\.(Second|Millisecond)\n/)
     expect(grace, 'catchGrace not found in server/game/room.go').toBeTruthy()
     const ms = Number(grace![1]) * (grace![2] === 'Second' ? 1000 : 1)
-    expect(ms).toBe(CATCH_LATE_GRACE_MS)
+    expect(CATCH_LATE_GRACE_MS).toBeGreaterThan(0)
+    expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms)
   })
 })
