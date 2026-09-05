@@ -187,6 +187,10 @@ func (h *Hub) openTable(t *table, reason string) {
 	log.Printf("table opened code=%s map=%s reason=%s waited=%dms",
 		code, room.MapID, reason, time.Since(st.startedAt).Milliseconds())
 
+	// The match is timed from here, not from the deal: the wait behind the gate
+	// was nobody's game. Once per match — a rematch resets it and opens again.
+	t.matchStartedAt = time.Now()
+
 	// Order matters: the deadline broadcast below reads what this arms.
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{

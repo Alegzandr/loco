@@ -83,6 +83,11 @@ type roomSnapshot struct {
 	// and losing them to a deploy would mean the recap silently restarting at
 	// "Match 1" for a group that has been playing for an hour.
 	MatchHistory []matchRecord `json:"match_history,omitempty"`
+	// MatchStartedAt is when the match in flight opened, so the duration on its
+	// record is still measured from the real start on the far side of a
+	// restart. A snapshot written before this field existed carries a zero, and
+	// that match records no duration rather than a wrong one.
+	MatchStartedAt time.Time `json:"match_started_at"`
 }
 
 // snapshotReq is a save or load asking to be run on the event loop.
@@ -152,14 +157,15 @@ func (h *Hub) saveSnapshot(path string) error {
 			continue
 		}
 		snap.Rooms = append(snap.Rooms, roomSnapshot{
-			Room:          t.room,
-			SessionTokens: t.tokens,
-			BotSlots:      sortedKeys(t.bots),
-			Matchmade:     t.isMatchmade(),
-			Solo:          t.solo,
-			StreamerMode:  t.streamerMode,
-			AFKTimeouts:   t.afk,
-			MatchHistory:  t.matchHistory,
+			Room:           t.room,
+			SessionTokens:  t.tokens,
+			BotSlots:       sortedKeys(t.bots),
+			Matchmade:      t.isMatchmade(),
+			Solo:           t.solo,
+			StreamerMode:   t.streamerMode,
+			AFKTimeouts:    t.afk,
+			MatchHistory:   t.matchHistory,
+			MatchStartedAt: t.matchStartedAt,
 		})
 	}
 	if len(snap.Rooms) == 0 {
@@ -281,6 +287,7 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	if len(rs.MatchHistory) > 0 {
 		t.matchHistory = rs.MatchHistory
 	}
+	t.matchStartedAt = rs.MatchStartedAt
 	for _, seat := range rs.BotSlots {
 		t.bots[seat] = struct{}{}
 	}

@@ -290,7 +290,11 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   thing that can say who won six matches on one code. **It also rides every `player_left` that
   re-bases the roster**, because the screen reading it is already open: a seat going shifts every
   row's columns, and the client cannot re-base them itself — the column that went belongs to a seat
-  in neither roster.
+  in neither roster. **Each record says how long its match was played** (`duration_ms`, from
+  `table.matchStartedAt` stamped by `openTable` at `match_ready` — the gate is a wait, not the game —
+  to the `now` handed to `recordFinishedMatch`). **Zero is "cannot say" and stays off the wire**, so
+  a played match is rounded up to at least 1 ms; the stamp rides the drain snapshot and is cleared by
+  `resetForNextMatch`. The client words it (`components/matchDuration.ts`), in minutes, never seconds.
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md).

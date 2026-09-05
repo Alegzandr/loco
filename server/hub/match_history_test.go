@@ -30,6 +30,22 @@ func TestMatchHistory_FirstMatchIsOneRow(t *testing.T) {
 	}
 }
 
+// The record says how long the match was played. It is measured on the server
+// from the moment the table opened (match_ready), so a reload at the game-over
+// screen and a deploy in the middle of the match both keep the same number.
+func TestMatchHistory_RecordsHowLongTheMatchTook(t *testing.T) {
+	conn1, conn2 := openBO1Table(t)
+	end := winMatchReturningEnd(t, conn1, conn2)
+
+	if len(end.MatchHistory) != 1 {
+		t.Fatalf("match_history = %d rows, want 1", len(end.MatchHistory))
+	}
+	// At least one: zero is "cannot say", and this match was played.
+	if got := end.MatchHistory[0].DurationMs; got < 1 {
+		t.Errorf("duration_ms = %d, want at least 1 for a match that was played", got)
+	}
+}
+
 // The one that matters: a rematch nils the room's scores, and the recap has to
 // outlive that.
 func TestMatchHistory_SurvivesARematch(t *testing.T) {

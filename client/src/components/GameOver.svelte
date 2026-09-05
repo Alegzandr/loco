@@ -6,6 +6,7 @@
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
+  import { formatMatchDuration, lastMatchDurationMs } from './matchDuration'
   import { EMOTE_ORDER } from './emotes'
   import { countUp } from './countUp'
 
@@ -117,6 +118,10 @@
   )
   const recap = $derived(buildMatchRecap(players, matchHistory))
   const showRecap = $derived(hasEveningToShow(matchHistory))
+  // How long the match took, in the server's measurement: the last record of
+  // the recap is the match that just ended. Null when the server could not
+  // time it, and then the line is simply not there.
+  const duration = $derived(formatMatchDuration(lastMatchDurationMs(matchHistory), t))
   // Read through a $derived rather than out of the snapshot inside the markup:
   // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
@@ -165,6 +170,12 @@
       <p class="sub">{iForfeited ? t.forfeitYouLeftSub : t.forfeitWonSub}</p>
     {:else if !isWinner}
       <p class="sub">{winner} {matchOver ? t.winsMatch : t.winsGame}</p>
+    {/if}
+    <!-- The one number about the match that is not a score. Quiet on purpose:
+         it is a fact for the screenshot, not a result, and it sits under a win,
+         a loss and a forfeit alike without changing what any of them says. -->
+    {#if duration}
+      <p class="duration">{duration}</p>
     {/if}
 
     {#if scoreboard && scoreboard.length > 0}
@@ -399,6 +410,20 @@
     margin-top: calc(-1 * var(--space-sm));
     font: 600 16px/1.4 var(--font-body);
     color: var(--color-body);
+    text-align: center;
+  }
+
+  /* The duration is a footnote to the heading, so it is pulled up against
+     whatever it follows — the heading itself or the sentence under it — and
+     set in the same micro-caps the panel titles wear: a fact about the match,
+     drawn in the register of a label rather than of a result. Quiet is a hue
+     (--color-muted), never an opacity. */
+  .duration {
+    margin-top: calc(-1 * var(--space-sm));
+    font: 700 12px/1.2 var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--color-muted);
     text-align: center;
   }
 

@@ -41,6 +41,7 @@ rules, `docs/notes/` the reasoning.
   logged or carried across a deploy: it is shown for a few seconds and forgotten. One line per seat,
   replaced as often as that seat likes, refused to its sender alone, never to or from a bot.
 - **Evening recap on the game-over screen**: one column per match this table has finished, with each seat's rounds won and points, and its total of matches taken. A rematch wipes the scoreboard, so without it a group playing six matches on one code ends up with nobody able to say who won the night. Hidden until the table has rematched, since one column would be the standings above it said twice.
+- **How long the match took**, one quiet line under the game-over heading (*12 min of play*). Measured on the server from the moment the turn clock started to the moment the match ended, carried on the match's own record, so a reload at the game-over screen and a deploy mid-match both keep it. Minutes, never seconds; under a minute is said in words; absent when the server cannot time it (a forfeit before the table opened).
 - Win detection (empty hand) and deck replenishment from the discard pile.
 - **The rules page opens on what is different**: eight lines for a visitor who already knows a card
   game of colours and symbols, above the rules themselves. The hand size, the deck size and the

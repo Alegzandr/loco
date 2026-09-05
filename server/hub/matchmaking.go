@@ -662,7 +662,7 @@ func (h *Hub) forfeitMatch(t *table, awaySeat int) {
 	// A walkover is a finished match like any other as far as the evening's
 	// recap is concerned: the scoreboard it ended on is exactly what happened,
 	// which is also why ForfeitTo leaves that scoreboard alone.
-	t.recordFinishedMatch()
+	t.recordFinishedMatch(time.Now())
 
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
 		Type:         protocol.SMsgMatchEnd,

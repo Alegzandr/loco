@@ -333,7 +333,13 @@ test.describe('rematch', () => {
     // One match is one column, which is the standings above it said twice: the
     // block has to stay off until there is an evening to show.
     await expect(page.getByText(T.recapTitle)).toHaveCount(0)
-    expect((await getState(page))?.matchHistory ?? []).toHaveLength(1)
+    const first = (await getState(page))?.matchHistory ?? []
+    expect(first).toHaveLength(1)
+    // The match was timed on the server, and the card says so: a real match
+    // through the map gate takes well under a minute here, which is the
+    // wording the card gives anything below sixty seconds.
+    expect(first[0].duration_ms ?? 0).toBeGreaterThanOrEqual(1)
+    await expect(page.getByText(T.matchUnderAMinute)).toBeVisible()
 
     await clickRematch(page)
     await startGame(page)
