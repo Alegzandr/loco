@@ -319,6 +319,68 @@ the stack's CSS to `SIDE_RESERVE` and `LANDSCAPE_MAX_H`, since a stylesheet cann
 Review with `make visual ARGS="--viewports=landscape"`, the only viewport the composition is visible
 in; `game-eight-players` is the one with a top row.
 
+### The entry screen on its side (`Lobby.svelte`'s landscape block)
+The board is not the only screen a phone can be held sideways at, and the entry screen was the one
+that had never been laid out for it. Stacked — wordmark, tagline, four buttons — it needs about 430
+pixels; the page is 340 minus the footer row, so at 844×340 three things went wrong at once, and all
+three are the same failure. Every piece of chrome on this screen is **absolutely positioned so it
+reserves nothing** (the chip row, the connected-player plate, the live strip — each for a good
+reason, written where it is styled), and a column that overflows runs straight through all of it:
+the wordmark stood up into the gear and the speaker, the live strip landed across the middle of the
+1v1 button, and the three entry points below the first were under the footer, on a page that is
+exactly one viewport and never scrolls. Nothing was unreachable *and* nothing said so.
+
+So it takes the same answer the board takes, on the same height and with the same words: **another
+composition, not a smaller one**, at `@media (orientation: landscape) and (max-height: 559px)` —
+`LANDSCAPE_MAX_H - 1`, which `landscape.test.ts` pins here as it does on `ActionBar.svelte`.
+
+- The column becomes **two**: the lockup (mark + tagline, wrapped as `.lockup` because it is one
+  object) on one side, everything the player acts on (`.panel`: the refusal and whichever form is
+  up) on the other. That is the whole reason those two wrappers exist; upright they are plain
+  columns the container's own gap runs through, and every portrait, small, notch and desktop capture
+  of this screen is pixel-identical to what it was.
+- The four ways into the game become a **2×2 grid**, a third of the height of a stack of them.
+  Hierarchy is a hue: the 1v1 button keeps its fill, its height and its first place in reading
+  order, and nothing is demoted to a smaller kind of control. The forms take the same grid — one
+  field to a row, except the join form, where the name and the code sit side by side over their two
+  buttons. Their `<input>`s need `min-width: 0`: a grid track is `min-content` first, and an input
+  asks for twenty characters, which solved the form wider than the screen.
+- The container's padding is where the absolute chrome is finally accounted for: the chip row's band
+  at the top (`--space-base + --topbar-h + --space-sm + --safe-top`, the same expression the waiting
+  room and the table use, never a 40 written out again) and the live strip's at the foot. Under
+  46rem — a split screen, a small window — the foot carries two plates rather than one, because the
+  connected-player count has moved down there and the strip stacks above it, so that padding grows.
+  `justify-content: safe center` was already right and was never the problem: it anchors overflowing
+  content at the top, which is *under* a chip row that reserves nothing.
+- The mark's type size is a token on the container (`--lobby-logo`) rather than a literal on
+  `<LocoLogo />`: sideways it wants a smaller one, and a prop cannot be written twice.
+- **Every row the same height and every label on one line**, and both are sized, not hoped for.
+  `grid-auto-rows: 1fr`, because the 1v1 button carries a second line and a first row taller than
+  the second read as a mistake rather than a hierarchy. The grid is half the viewport wide and the
+  type steps down a size at the narrow end (under 46rem: an iPhone SE sideways gives a column 180px)
+  so that "Jouer contre un bot" and "Rejoindre une table", nineteen characters each, never break —
+  the one button that wraps beside three that do not is the one the eye reads as the odd one out.
+  The tagline is set centred under the mark: a left-ragged pill under a centred logo was two objects.
+  Checked at 667×375, 740×360, 844×340 and 932×430.
+
+The queue's two screens took the same pass, because the defect was the same one:
+- **`Searching.svelte`** carries the chip row as well — the wait is the longest a player ever spends
+  on one screen, so turning the music down has to stay reachable — and the wordmark stood straight
+  under it. Same two columns (`.stageSide`, `.panel`), same padding, and `align-items: safe center`
+  beside `justify-content`: a *column* taller than the row it is in overflows both ways when it is
+  centred, and the half that goes up goes under the very row the padding is clearing. The words are
+  also given a wider measure sideways — a narrow column of five lines was most of why that side did
+  not fit.
+- **`MatchFound.svelte`** draws no chip row, so nothing overlapped; it simply ran the two cards off
+  the bottom, on the one screen a player does nothing but look at for two and a half seconds. It is
+  squeezed rather than recomposed — the meeting of the two cards *is* the composition.
+
+The waiting room is deliberately untouched: it already clears the chip row, and its roster scrolls
+by design at any size.
+
+Review it with `make visual ARGS="--viewports=landscape --scenes=lobby-home,lobby-live,lobby-join,matchmaking-searching-long,matchmaking-found"`
+— `lobby-live` is the one where the strip is drawn, and it was the worst of them all.
+
 ### Safe areas (the notch and the home indicator)
 The page owns the whole screen and keeps the game off its edges. Both halves are needed: without
 `viewport-fit=cover` iOS confines the page to the safe area and fills the notch and home-indicator

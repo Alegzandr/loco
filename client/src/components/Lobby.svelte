@@ -215,21 +215,17 @@
   <!-- The mark, not the page's heading. `GamePage.astro` serves the one top-level
        heading this document has, in text, before any of this mounts; wrapping a
        logotype in a second one gave `/` two headings that both said "LOCO" and
-       neither of which said what the page was. -->
-  <div class="title">
-    <LocoLogo size="clamp(58px, 11vw, 128px)" animated />
-  </div>
-  <p class="tagline">{t.tagline}</p>
+       neither of which said what the page was.
 
-  <!-- An alert, not a control: it announces itself to assistive tech and clears
-       as soon as the player edits the field it is complaining about, so it never
-       needed to be clickable to be dismissible. Styling it as a filled pill the
-       same size as the CTA below made it read as a third button on the screen. -->
-  {#if nicknameRefused || error}
-    <p class="error" role="alert">
-      {nicknameRefused ? t.errors.nicknameRejected : resolveServerError(error, t.errors)}
-    </p>
-  {/if}
+       The mark and the line under it are one object — the lockup — and they are
+       wrapped as one because on a phone held sideways they become the left half
+       of the screen while the controls take the right. -->
+  <div class="lockup">
+    <div class="title">
+      <LocoLogo size="var(--lobby-logo)" animated />
+    </div>
+    <p class="tagline">{t.tagline}</p>
+  </div>
 
   <!-- The foot of the entry screen, and only this screen: the three forms own
        it once they are up, and a link out of the game beside the nickname field
@@ -237,126 +233,144 @@
        here, so it reserves nothing and the screen still never scrolls. -->
   {#if mode === 'home'}
     <LiveStrip streams={liveStreams} />
-
-    <div class="buttonGroup">
-      <!-- One player, one button, one opponent. It leads because it is the only
-           entry point that needs nobody else to be organised, and it carries the
-           game's hue for that reason. The two table buttons underneath stay
-           equally weighted between themselves: neither of them is a fallback for
-           the other. -->
-      <button class="btn" onclick={() => (mode = 'find')}>
-        {t.findMatch}
-        <span class="btnHint">{t.findMatchHint}</span>
-      </button>
-      <!-- An entry point like the other three, drawn like the other three. It
-           sits under the queue because it is the same offer with the wait taken
-           out — no code, no waiting room, nothing to set, a hand on the press —
-           and it is the quietest fill of the four so the human queue is still
-           the one being led with. Underlined text between two ledged buttons
-           read as a footnote nobody pressed. -->
-      <button class="btn btnBot" onclick={() => (mode = 'bot')}>{t.playBot}</button>
-      <button class="btn btnAlt" onclick={() => (mode = 'create')}>{t.createRoom}</button>
-      <button class="btn btnJoin" onclick={() => (mode = 'join')}>{t.joinRoom}</button>
-    </div>
   {/if}
 
-  {#if mode === 'find'}
-    <form class="form" onsubmit={handleFind}>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="input"
-        bind:this={nicknameField}
-        placeholder={t.yourNickname}
-        value={nickname}
-        oninput={(e) => editNickname(e.currentTarget.value)}
-        maxlength="20"
-        autofocus
-      />
-      <!-- Nothing to send without a name on the seat. Same guard on all three
-           forms: the button is off until the field holds a nickname the client
-           can already see is usable. -->
-      <button class="btn" type="submit" disabled={!nicknameOk}>{t.findMatchGo}</button>
-      <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
-    </form>
-  {/if}
+  <!-- Everything the player acts on, in one box: the refusal and whichever of
+       the four forms is up. One box rather than four siblings because sideways
+       this is the column that stands beside the lockup, and a screen that turns
+       into two columns has to have two things to put in them. -->
+  <div class="panel">
+    <!-- An alert, not a control: it announces itself to assistive tech and clears
+         as soon as the player edits the field it is complaining about, so it never
+         needed to be clickable to be dismissible. Styling it as a filled pill the
+         same size as the CTA below made it read as a third button on the screen. -->
+    {#if nicknameRefused || error}
+      <p class="error" role="alert">
+        {nicknameRefused ? t.errors.nicknameRejected : resolveServerError(error, t.errors)}
+      </p>
+    {/if}
 
-  {#if mode === 'bot'}
-    <form class="form" onsubmit={handlePlayBot}>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="input"
-        bind:this={nicknameField}
-        placeholder={t.yourNickname}
-        value={nickname}
-        oninput={(e) => editNickname(e.currentTarget.value)}
-        maxlength="20"
-        autofocus
-      />
-      <button class="btn" type="submit" disabled={!nicknameOk}>{t.playBotGo}</button>
-      <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
-    </form>
-  {/if}
+    {#if mode === 'home'}
+      <div class="buttonGroup">
+        <!-- One player, one button, one opponent. It leads because it is the only
+             entry point that needs nobody else to be organised, and it carries the
+             game's hue for that reason. The two table buttons underneath stay
+             equally weighted between themselves: neither of them is a fallback for
+             the other. -->
+        <button class="btn" onclick={() => (mode = 'find')}>
+          {t.findMatch}
+          <span class="btnHint">{t.findMatchHint}</span>
+        </button>
+        <!-- An entry point like the other three, drawn like the other three. It
+             sits under the queue because it is the same offer with the wait taken
+             out — no code, no waiting room, nothing to set, a hand on the press —
+             and it is the quietest fill of the four so the human queue is still
+             the one being led with. Underlined text between two ledged buttons
+             read as a footnote nobody pressed. -->
+        <button class="btn btnBot" onclick={() => (mode = 'bot')}>{t.playBot}</button>
+        <button class="btn btnAlt" onclick={() => (mode = 'create')}>{t.createRoom}</button>
+        <button class="btn btnJoin" onclick={() => (mode = 'join')}>{t.joinRoom}</button>
+      </div>
+    {/if}
 
-  {#if mode === 'create'}
-    <form class="form" onsubmit={handleCreate}>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="input"
-        bind:this={nicknameField}
-        placeholder={t.yourNickname}
-        value={nickname}
-        oninput={(e) => editNickname(e.currentTarget.value)}
-        maxlength="20"
-        autofocus
-      />
-      <button class="btn" type="submit" disabled={!nicknameOk}>{t.createGame}</button>
-      <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
-    </form>
-  {/if}
+    {#if mode === 'find'}
+      <form class="form" onsubmit={handleFind}>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="input"
+          bind:this={nicknameField}
+          placeholder={t.yourNickname}
+          value={nickname}
+          oninput={(e) => editNickname(e.currentTarget.value)}
+          maxlength="20"
+          autofocus
+        />
+        <!-- Nothing to send without a name on the seat. Same guard on all three
+             forms: the button is off until the field holds a nickname the client
+             can already see is usable. -->
+        <button class="btn" type="submit" disabled={!nicknameOk}>{t.findMatchGo}</button>
+        <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
+      </form>
+    {/if}
 
-  {#if mode === 'join'}
-    <form class="form" onsubmit={handleJoin}>
-      <!-- A returning player already has a name in the field, so the caret
-           belongs on the one thing they still have to type. -->
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="input"
-        bind:this={nicknameField}
-        placeholder={t.yourNickname}
-        value={nickname}
-        oninput={(e) => editNickname(e.currentTarget.value)}
-        maxlength="20"
-        autofocus={!nickname}
-      />
-      <!-- The field only ever holds a possible code: the alphabet is the server's
-           (tableCodeRules.ts), and anything else is dropped as it is typed or
-           pasted rather than kept for the server to refuse. -->
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        class="input"
-        placeholder={t.roomCodeLabel}
-        value={roomCode}
-        oninput={(e) => {
-          roomCode = sanitizeTableCode(e.currentTarget.value)
-          e.currentTarget.value = roomCode
-          onClearError()
-        }}
-        maxlength={TABLE_CODE_LENGTH}
-        autofocus={!!nickname && !roomCode}
-        inputmode="text"
-        autocapitalize="characters"
-        autocorrect="off"
-        spellcheck="false"
-      />
-      <!-- Nothing to take a seat at until the name and the code are both whole.
-           The button says so instead of sending a request whose only outcome is an
-           error line under a form the player has not finished filling in. -->
-      <button class="btn" type="submit" disabled={!nicknameOk || !isTableCodeValid(roomCode)}>
-        {t.joinGame}
-      </button>
-      <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
-    </form>
-  {/if}
+    {#if mode === 'bot'}
+      <form class="form" onsubmit={handlePlayBot}>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="input"
+          bind:this={nicknameField}
+          placeholder={t.yourNickname}
+          value={nickname}
+          oninput={(e) => editNickname(e.currentTarget.value)}
+          maxlength="20"
+          autofocus
+        />
+        <button class="btn" type="submit" disabled={!nicknameOk}>{t.playBotGo}</button>
+        <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
+      </form>
+    {/if}
+
+    {#if mode === 'create'}
+      <form class="form" onsubmit={handleCreate}>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="input"
+          bind:this={nicknameField}
+          placeholder={t.yourNickname}
+          value={nickname}
+          oninput={(e) => editNickname(e.currentTarget.value)}
+          maxlength="20"
+          autofocus
+        />
+        <button class="btn" type="submit" disabled={!nicknameOk}>{t.createGame}</button>
+        <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
+      </form>
+    {/if}
+
+    {#if mode === 'join'}
+      <form class="form" onsubmit={handleJoin}>
+        <!-- A returning player already has a name in the field, so the caret
+             belongs on the one thing they still have to type. -->
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="input"
+          bind:this={nicknameField}
+          placeholder={t.yourNickname}
+          value={nickname}
+          oninput={(e) => editNickname(e.currentTarget.value)}
+          maxlength="20"
+          autofocus={!nickname}
+        />
+        <!-- The field only ever holds a possible code: the alphabet is the server's
+             (tableCodeRules.ts), and anything else is dropped as it is typed or
+             pasted rather than kept for the server to refuse. -->
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="input"
+          placeholder={t.roomCodeLabel}
+          value={roomCode}
+          oninput={(e) => {
+            roomCode = sanitizeTableCode(e.currentTarget.value)
+            e.currentTarget.value = roomCode
+            onClearError()
+          }}
+          maxlength={TABLE_CODE_LENGTH}
+          autofocus={!!nickname && !roomCode}
+          inputmode="text"
+          autocapitalize="characters"
+          autocorrect="off"
+          spellcheck="false"
+        />
+        <!-- Nothing to take a seat at until the name and the code are both whole.
+             The button says so instead of sending a request whose only outcome is an
+             error line under a form the player has not finished filling in. -->
+        <button class="btn" type="submit" disabled={!nicknameOk || !isTableCodeValid(roomCode)}>
+          {t.joinGame}
+        </button>
+        <button class="btnSecondary" type="button" onclick={goHome}>{t.back}</button>
+      </form>
+    {/if}
+  </div>
 
   <!-- Privacy and terms are not here any more: they are a page, linked at the
        right-hand end of the footer this screen sits above (GamePage.astro). A
@@ -373,6 +387,10 @@
      with depth and the two CTAs are unmistakably pressable. */
 
   .container {
+    /* The mark's type size, and a token rather than a literal on <LocoLogo />
+       because the sideways composition needs a smaller one and a prop cannot be
+       written twice. Everything in that drawing is an `em` of this. */
+    --lobby-logo: clamp(58px, 11vw, 128px);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -463,6 +481,17 @@
 
   /* The rules opener is <RulesButton />, which carries its own styling: the
      "How to play" pill here, the question-mark chip at the table. */
+
+  /* The mark and its line, as one object. Upright it is a column exactly as
+     wide as its contents and the container's own gap runs through it, so the
+     screen is laid out the way it always was; sideways it is the left half. */
+  .lockup,
+  .panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-lg);
+  }
 
   /* The wordmark and its treatment live in <LocoLogo />, which the waiting room
      and the game-over card share. All this owns is the space around it. */
@@ -708,6 +737,177 @@
     .buttonGroup {
       width: 90vw;
       max-width: 340px;
+    }
+  }
+
+  /* A phone on its side, and it is another composition rather than a smaller
+     one — the same rule the board obeys, on the same height (`layout.ts:
+     LANDSCAPE_MAX_H`, pinned to this block by `landscape.test.ts`).
+
+     Stacked, this screen ran off the bottom of a 340px page: the wordmark stood
+     up into the chip row, the live strip landed across the 1v1 button, and three
+     of the four ways into the game were under the footer where nothing but a
+     scroll reached them — on a page that is exactly one viewport and never
+     scrolls. So the column becomes two: the lockup on one side, everything the
+     player acts on on the other, and the four buttons in a 2×2 grid that is a
+     third of the height a stack of them is.
+
+     The two paddings are the chrome this screen draws absolutely and therefore
+     reserves nothing for: the chip row's band at the top (the number is
+     `--topbar-h`, not a 40 written out here) and the live strip's at the foot.
+     Upright there is room to centre past both; sideways there is not, and a
+     `justify-content: safe center` that anchors overflowing content at the top
+     anchors it *under* them. */
+  @media (orientation: landscape) and (max-height: 559px) {
+    .container {
+      --lobby-logo: clamp(44px, 6.9vw, 72px);
+      flex-direction: row;
+      align-items: center;
+      justify-content: safe center;
+      gap: var(--space-xl);
+      padding-top: calc(var(--space-base) + var(--topbar-h) + var(--space-sm) + var(--safe-top));
+      padding-bottom: calc(var(--space-base) + var(--safe-bottom) + 30px);
+    }
+
+    /* Shrink-to-fit against the controls, which take the width they need
+       first: the lockup is the half that can give, and the tagline wraps
+       rather than pushing a button off the screen. */
+    .lockup {
+      flex: 0 1 auto;
+      min-width: 0;
+      gap: 10px;
+    }
+
+    /* Two short lines under the mark rather than one long one beside nothing,
+       set centred like the mark above them — a left-ragged pill under a
+       centred logo read as two objects. */
+    .tagline {
+      margin-top: -4px;
+      padding: 8px 14px;
+      font-size: 12px;
+      line-height: 1.4;
+      text-align: center;
+      text-wrap: balance;
+    }
+
+    .panel {
+      flex: 0 0 auto;
+      gap: var(--space-md);
+    }
+
+    /* Two columns of controls instead of four rows. Nothing is demoted by it:
+       every button keeps its height, its outline and its ledge, and the 1v1
+       button still leads on the hue and on being first in the grid — hierarchy
+       here is a hue, never a smaller control. */
+    .buttonGroup,
+    .form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      /* Every row the height of the tallest: the 1v1 button carries a second
+         line, and a grid whose first row is taller than its second reads as
+         a mistake rather than a hierarchy. */
+      grid-auto-rows: 1fr;
+      width: clamp(320px, 50vw, 440px);
+      gap: 10px;
+    }
+
+    /* A grid track is `min-content` before it is `1fr`, and an <input> asks for
+       twenty characters: without this the two-field form solved wider than the
+       width above and hung off the right edge of the screen. */
+    .buttonGroup > :global(*),
+    .form > :global(*) {
+      min-width: 0;
+    }
+
+    /* A field is the widest thing in its form and takes the row — except in the
+       one form that has two of them, where the name and the code sit side by
+       side and the row below is the pair of buttons under them. */
+    .form .input {
+      grid-column: span 2;
+    }
+    .form:has(.input + .input) .input {
+      grid-column: auto;
+    }
+
+    /* Sized so every label sits on one line in its column at 844px: a button
+       whose name wraps beside three that do not is the one the eye reads as
+       the odd one out, and both the table labels are nineteen characters. */
+    .btn {
+      min-height: 48px;
+      padding: 8px 12px;
+      font-size: 16px;
+    }
+
+    .btn:has(.btnHint) {
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+
+    .btnHint {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+
+    .btnSecondary {
+      min-height: 48px;
+      padding: 8px 12px;
+      font-size: 15px;
+    }
+
+    .input {
+      height: 46px;
+      padding: 10px 16px;
+      font-size: 16px;
+    }
+
+    /* It is the width of the controls beside it, not of the screen: a refusal
+       set wider than the form it answers reads as a banner over the page. */
+    .error {
+      max-width: 100%;
+      font-size: 14px;
+      padding: 8px 14px;
+    }
+  }
+
+  /* The narrow end of that range — a split screen, a small window — where the
+     foot of the page carries two plates instead of one: under 46rem the
+     connected-player count moves down there and the live strip stacks above it
+     (`LiveStrip.svelte` says so in the same words). Both are absolute, so the
+     band they take is again something this padding has to know. */
+  @media (orientation: landscape) and (max-height: 559px) and (max-width: 46rem) {
+    .container {
+      --lobby-logo: clamp(40px, 6.4vw, 72px);
+      gap: var(--space-lg);
+      padding-bottom: calc(var(--space-lg) + var(--safe-bottom) + 64px);
+    }
+
+    /* The same one-line-per-label promise at 667px, where a column is 180px
+       wide: the type steps down a size rather than the label breaking. */
+    .tagline {
+      font-size: 11px;
+      padding: 7px 12px;
+    }
+
+    .buttonGroup,
+    .form {
+      width: clamp(320px, 56vw, 440px);
+      gap: 8px;
+    }
+
+    .btn,
+    .btnSecondary {
+      font-size: 14px;
+      padding-inline: 10px;
+    }
+
+    .btnHint {
+      font-size: 10px;
+    }
+
+    .input {
+      padding-inline: 12px;
+      font-size: 15px;
     }
   }
 
