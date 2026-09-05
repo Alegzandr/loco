@@ -18,28 +18,32 @@ describe('formatMatchDuration', () => {
     expect(formatMatchDuration(Number.NaN, en)).toBeNull()
   })
 
-  // Minutes, never seconds: "0 min" and "7:42" both read as a broken timer.
-  it('words anything under a minute rather than counting seconds', () => {
-    expect(formatMatchDuration(1, en)).toBe('Under a minute of play')
-    expect(formatMatchDuration(59_999, en)).toBe('Under a minute of play')
+  // To the second, units written out: `7:42` reads as a clock, and a player
+  // who asked for the seconds gets them at every magnitude.
+  it('counts the seconds under a minute, never below one', () => {
+    expect(formatMatchDuration(1, en)).toBe('1 s of play')
+    expect(formatMatchDuration(400, en)).toBe('1 s of play')
+    expect(formatMatchDuration(42_000, en)).toBe('42 s of play')
+    expect(formatMatchDuration(59_400, en)).toBe('59 s of play')
   })
 
-  it('rounds to the nearest minute and never below one', () => {
-    expect(formatMatchDuration(MIN, en)).toBe('1 min of play')
-    expect(formatMatchDuration(12 * MIN + 29_000, en)).toBe('12 min of play')
-    expect(formatMatchDuration(12 * MIN + 31_000, en)).toBe('13 min of play')
+  it('rounds to the nearest second and carries into the minute', () => {
+    expect(formatMatchDuration(59_600, en)).toBe('1 min 00 s of play')
+    expect(formatMatchDuration(MIN, en)).toBe('1 min 00 s of play')
+    expect(formatMatchDuration(12 * MIN + 29_400, en)).toBe('12 min 29 s of play')
+    expect(formatMatchDuration(12 * MIN + 30_600, en)).toBe('12 min 31 s of play')
   })
 
-  it('turns to hours at sixty minutes, with the minutes padded', () => {
-    expect(formatMatchDuration(59 * MIN + 40_000, en)).toBe('1 h of play')
-    expect(formatMatchDuration(65 * MIN, en)).toBe('1 h 05 of play')
-    expect(formatMatchDuration(150 * MIN, en)).toBe('2 h 30 of play')
+  it('turns to hours at sixty minutes, minutes and seconds padded', () => {
+    expect(formatMatchDuration(59 * MIN + 59_600, en)).toBe('1 h 00 min 00 s of play')
+    expect(formatMatchDuration(65 * MIN + 12_000, en)).toBe('1 h 05 min 12 s of play')
+    expect(formatMatchDuration(150 * MIN + 7_000, en)).toBe('2 h 30 min 07 s of play')
   })
 
   it('is written in French too', () => {
-    expect(formatMatchDuration(30_000, fr)).toBe("Moins d'une minute de jeu")
-    expect(formatMatchDuration(12 * MIN, fr)).toBe('12 min de jeu')
-    expect(formatMatchDuration(65 * MIN, fr)).toBe('1 h 05 de jeu')
+    expect(formatMatchDuration(30_000, fr)).toBe('30 s de jeu')
+    expect(formatMatchDuration(12 * MIN + 34_000, fr)).toBe('12 min 34 s de jeu')
+    expect(formatMatchDuration(65 * MIN + 12_000, fr)).toBe('1 h 05 min 12 s de jeu')
   })
 })
 
@@ -77,7 +81,7 @@ describe('<GameOver /> duration line', () => {
       ...base,
       matchHistory: [{ rounds_won: [2, 1], scores: [80, 40], winner_index: 0, duration_ms: 12 * MIN }],
     })
-    expect(screen.getByText(en.matchDuration(en.durationMinutes(12)))).toBeTruthy()
+    expect(screen.getByText(en.matchDuration(en.durationMinutes(12, 0)))).toBeTruthy()
   })
 
   // A forfeit is a match end too, and the line sits under it without changing
@@ -90,7 +94,7 @@ describe('<GameOver /> duration line', () => {
       matchHistory: [{ rounds_won: [0, 0], scores: [0, 0], winner_index: 1, duration_ms: 3 * MIN }],
     })
     expect(screen.getByText(en.forfeitWon)).toBeTruthy()
-    expect(screen.getByText(en.matchDuration(en.durationMinutes(3)))).toBeTruthy()
+    expect(screen.getByText(en.matchDuration(en.durationMinutes(3, 0)))).toBeTruthy()
   })
 
   it('draws no line when the server sent no duration', () => {

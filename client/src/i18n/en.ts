@@ -443,12 +443,13 @@ export interface Translations {
   recapWonCol: string     // matches taken, the total column
   // How long the match was played, one quiet line under the heading. The
   // server measures it from the moment the turn clock started; the client only
-  // words it. The three shapes are a duration's three magnitudes, and the
-  // sentence is neutral on purpose: it sits under a win, a loss and a forfeit.
-  matchDuration: (duration: string) => string  // "12 min of play"
-  durationUnderMinute: string                   // the whole duration, below 60s
-  durationMinutes: (minutes: number) => string  // "12 min"
-  durationHours: (hours: number, minutes: number) => string  // "1 h 05"
+  // words it, to the second. The three shapes are a duration's three
+  // magnitudes, and the sentence is neutral on purpose: it sits under a win, a
+  // loss and a forfeit.
+  matchDuration: (duration: string) => string  // "12 min 34 s of play"
+  durationSeconds: (seconds: number) => string  // "42 s", below a minute
+  durationMinutes: (minutes: number, seconds: number) => string  // "12 min 34 s"
+  durationHours: (hours: number, minutes: number, seconds: number) => string  // "1 h 05 min 12 s"
   rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
   // Walking out of a match in progress, which every table allows. The chip is
@@ -802,10 +803,10 @@ export const en: Translations = {
   recapMatchCol: 'M%n',
   recapWonCol: 'Won',
   matchDuration: (duration) => `${duration} of play`,
-  durationUnderMinute: 'Under a minute',
-  durationMinutes: (minutes) => `${minutes} min`,
-  durationHours: (hours, minutes) =>
-    minutes === 0 ? `${hours} h` : `${hours} h ${String(minutes).padStart(2, '0')}`,
+  durationSeconds: (seconds) => `${seconds} s`,
+  durationMinutes: (minutes, seconds) => `${minutes} min ${String(seconds).padStart(2, '0')} s`,
+  durationHours: (hours, minutes, seconds) =>
+    `${hours} h ${String(minutes).padStart(2, '0')} min ${String(seconds).padStart(2, '0')} s`,
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',
   leaveMatchBtn: 'Leave the match',

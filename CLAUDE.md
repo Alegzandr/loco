@@ -61,7 +61,7 @@ client and E2E targets do need Node.
 | Lint | `make lint` (golangci-lint in docker + ESLint) |
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
-| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
+| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch,landscape"` |
 | Pack the rooms' models | `make models` after editing `scene/models/manifest.json` (needs the kits unpacked under `.assets-in/unpacked/`); `make models-check` says what is missing |
 | Re-shoot the rooms page's stills | `make rooms` after touching a builder, the kit, the light rig or the finishing passes — commit the result |
 | Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
@@ -306,7 +306,8 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   `match_ready` — the gate is a wait, not the game — to the `now` handed to `recordFinishedMatch`).
   **Zero is "cannot say" and stays off the wire**, so a played match is rounded up to at least 1 ms;
   the stamp rides the drain snapshot and is cleared by `resetForNextMatch`. The client words it
-  (`components/matchDuration.ts`), in minutes, never seconds.
+  (`components/matchDuration.ts`) **to the second, units written out** — `12 min 34 s`, never `12:34`,
+  which reads as a clock; under a minute is `42 s`, and a played match is never `0 s`.
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md).
@@ -628,6 +629,15 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   nothing** — N of them name one colour — so it goes out alone unless the batch empties the hand and
   takes the round. Nobody is asked how many copies to send, because an interject is a reaction.
   `game.BotInterrupt` mirrors it.
+- **The hand's hover is a mouse's and nobody else's** (`Hand.svelte`, `pointerenter` gated on
+  `pointerType === 'mouse'`): a touch screen synthesises `mouseenter` on the tap and never follows
+  it with a `mouseleave`, so a refused card stayed lifted over the fan for the rest of the turn. A
+  finger gets the press feedback (`.slot:active`) and the platform's grey tap wash is off the card.
+  `handTouch.test.ts`. Same rule as the deck's `@media (hover: hover)`.
+- **At a seat, text selection is refused on every element, not inherited from the body**
+  (`Base.astro`, `:root[data-seated] :not(input, textarea)`): iOS Safari selects a disabled button's
+  label on a double tap whatever the body says, and it did — the dead LOCO! chip came up highlighted
+  under Copy / Look Up mid-round. `a11y.test.ts`.
 - **Every board control acts on the press, never on the release** (`components/press.ts`,
   `use:pressToAct`): `click` waits for the pointer to come back up, and an interject is decided by
   arrival order. Keyboard clicks still act; a disabled control fires on neither path.
@@ -1154,6 +1164,17 @@ stated at the top of `styles/tokens.css`:
   `boardScale`/`boardSpace`, never by bumping `CARD_W` or `SEAT_DIMS`. `boardSpace` takes the
   safe-area insets, so the coordinate space stops short of the notch and the home indicator while the
   element still runs edge to edge.
+- **A phone on its side is another composition, not a smaller one** (`layout.ts: isLandscape`,
+  `LANDSCAPE_MAX_H`; wider than tall and under 560px tall, decided **from pixels, once**, in
+  `GameBoard` and `feltInViewport`, and handed to every layout call — the virtual space cannot tell
+  the two apart on its own). The seats stand in a column down the left, next player at the bottom
+  and the overflow along the top of the felt; the action bar is a **stack up the right edge**
+  (`ActionBar.svelte`'s landscape block, draw / Contre-LOCO! / pass top to bottom, LOCO! above it —
+  the same three fixed slots, only the axis turned), outside the coordinate space as `SIDE_RESERVE`
+  the way the bottom band is in portrait; the felt takes the band between and the hand runs along
+  the bottom safe edge; the piles stand high in the felt and the turn pill takes the band under them
+  (`turnPillPlace`). `landscape.test.ts` pins the geometry and the stack to each other; review with
+  `--viewports=landscape`, the only viewport the composition is visible in.
 - **Animate transforms, never `left`/`top`.** A node's transform has exactly one owner. Layout math is
   radians, CSS `rotate()` is degrees (`radToDeg` at the render boundary, and nowhere else). Hand keys
   come from `handCardKeys(hand)`, never the index.

@@ -8,32 +8,38 @@
  * word it, and is pure so the three magnitudes are unit-tested rather than
  * eyeballed.
  *
- * Minutes, never seconds: a card game is not timed to the second, and a figure
- * like `7:42` on the screenshot people post reads as a speedrun timer. Under a
- * minute is said in words for the same reason — "0 min" is a number that
- * looks broken.
+ * To the second. It was minutes only, on the argument that a card game is not
+ * timed to the second; the player asked for the seconds, and a recap that says
+ * `12 min 34 s` is a record where `12 min` was an estimate. Units are written
+ * out (`min`, `s`) rather than `12:34`, which reads as a clock or a speedrun
+ * split, and the seconds are padded so the column of an evening's recaps lines
+ * up. Never zero: the server omits the field for a match it could not time,
+ * and a match that was played is rounded up to a second.
  */
 import type { MatchRecordDTO } from '../types/protocol'
 import type { Translations } from '../i18n/en'
 
-const MINUTE_MS = 60_000
+const SECOND_MS = 1_000
 
 /**
  * Words a duration, or returns null when there is nothing honest to say.
  *
  * Null for zero and below: the server omits the field for a match it cannot
  * time (a forfeit inside the loading gate, a match restored from an older
- * snapshot), and a line saying "0 min of play" over a match that was played
+ * snapshot), and a line saying "0 s of play" over a match that was played
  * would be worse than no line.
  */
 export function formatMatchDuration(ms: number | undefined, t: Translations): string | null {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return null
-  if (ms < MINUTE_MS) return t.matchDuration(t.durationUnderMinute)
-  // Rounded to the nearest minute, and never below one: 59.6 minutes is an
-  // hour, and 60.4 seconds is a minute rather than "under a minute" again.
-  const minutes = Math.max(1, Math.round(ms / MINUTE_MS))
-  if (minutes < 60) return t.matchDuration(t.durationMinutes(minutes))
-  return t.matchDuration(t.durationHours(Math.floor(minutes / 60), minutes % 60))
+  // Rounded to the nearest second, and never below one: 59.6 seconds is a
+  // minute, and 400 ms of play is a second rather than nothing.
+  const total = Math.max(1, Math.round(ms / SECOND_MS))
+  const seconds = total % 60
+  const minutes = Math.floor(total / 60) % 60
+  const hours = Math.floor(total / 3600)
+  if (hours > 0) return t.matchDuration(t.durationHours(hours, minutes, seconds))
+  if (minutes > 0) return t.matchDuration(t.durationMinutes(minutes, seconds))
+  return t.matchDuration(t.durationSeconds(seconds))
 }
 
 /**

@@ -112,7 +112,7 @@ client and E2E targets do need Node (22.12+ — Astro 7 declares it in `engines`
 | Lint | `make lint` |
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`) |
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/` |
-| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
+| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch,landscape"` |
 | Pack the rooms' models | `make models` (from the CC0 kits unpacked under `.assets-in/unpacked/`, which git ignores; the packed result under `client/public/models/` is committed) — `make models-check` lists what is missing |
 | Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
 

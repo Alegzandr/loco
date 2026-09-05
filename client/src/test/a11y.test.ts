@@ -49,6 +49,17 @@ describe('a seat costs the pinch, and nothing else does', () => {
   // panning a magnified table with a five-second window open. `data-seated` is
   // exactly the line between the two, so it is what the refusal hangs off —
   // never the viewport tag, which is global and which the test above owns.
+  // iOS Safari selects the label of a disabled button on a double tap whatever
+  // the body's `user-select` says, so at a table the refusal is written on the
+  // element itself — every element, not the body it would inherit from.
+  it('refuses text selection on every element once a seat is taken', () => {
+    const seated = base.match(/:root\[data-seated\]\s+:not\(input, textarea\)\s*\{([^}]*)\}/s)?.[1]
+    expect(seated, 'Base.astro must refuse selection per element at the seat').toBeTruthy()
+    expect(seated).toMatch(/-webkit-user-select:\s*none/)
+    expect(seated).toMatch(/[^-]user-select:\s*none/)
+    expect(seated).toMatch(/-webkit-touch-callout:\s*none/)
+  })
+
   it('drops pinch-zoom under [data-seated] and leaves panning alone', () => {
     const seated = base.match(/:root\[data-seated\]\s+body\s*\{([^}]*)\}/s)?.[1]
     expect(seated, 'Base.astro must scope the refusal to a taken seat').toBeTruthy()

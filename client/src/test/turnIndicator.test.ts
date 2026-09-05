@@ -17,7 +17,7 @@ const players = [
 describe('TurnIndicator', () => {
   it('offers the counter only when a card in hand can stack the penalty', () => {
     render(
-      TurnIndicator, { isMyTurn: true, pendingDraw: 2, canCounter: true, currentTurn: 0, players: players, height: 700, texts: texts },
+      TurnIndicator, { isMyTurn: true, pendingDraw: 2, canCounter: true, currentTurn: 0, players: players, width: 1240, height: 700, texts: texts },
     )
     expect(screen.getByText('Draw 2 or counter!')).toBeTruthy()
   })
@@ -26,7 +26,7 @@ describe('TurnIndicator', () => {
     // A +4 does not answer a +2, so most hands cannot counter. Promising the
     // counter anyway sends the player tapping cards that will never leave.
     render(
-      TurnIndicator, { isMyTurn: true, pendingDraw: 2, canCounter: false, currentTurn: 0, players: players, height: 700, texts: texts },
+      TurnIndicator, { isMyTurn: true, pendingDraw: 2, canCounter: false, currentTurn: 0, players: players, width: 1240, height: 700, texts: texts },
     )
     expect(screen.getByText('Draw 2')).toBeTruthy()
     expect(screen.queryByText('Draw 2 or counter!')).toBeNull()
@@ -34,7 +34,7 @@ describe('TurnIndicator', () => {
 
   it('names the current player when the turn is not ours', () => {
     render(
-      TurnIndicator, { isMyTurn: false, pendingDraw: 0, canCounter: false, currentTurn: 1, players: players, height: 700, texts: texts },
+      TurnIndicator, { isMyTurn: false, pendingDraw: 0, canCounter: false, currentTurn: 1, players: players, width: 1240, height: 700, texts: texts },
     )
     expect(screen.getByText("bob's turn")).toBeTruthy()
   })
