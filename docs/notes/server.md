@@ -957,7 +957,12 @@ that, and the smallest is the point.
   every rate-limited message in this server is written to.
 - **Never to or from a bot.** A seat the server plays has no opinion about the match and no socket to
   receive one. The guard is written down even though it is unreachable: the rule is about the seat,
-  not about the transport.
+  not about the transport. **The client draws the consequence rather than leaving it implicit**
+  (`GameOver.svelte`): a bot gets no line in the feed — its line could never be written, and an
+  empty slot that can never fill is height the card pays for nothing — and a table whose every other
+  seat is one, a solo game against the server first of all, draws no emote block at all. It *goes*
+  rather than going dead: a dead control on that card means an offer that may still come back, and
+  nothing is coming back to answer a “gg” at a table of bots.
 
 ## A rematch by agreement
 `handleRematch`. It was the host's decision and it is nobody's now. The host's standing is over the

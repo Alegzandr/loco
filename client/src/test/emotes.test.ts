@@ -79,6 +79,48 @@ describe('the three things', () => {
   })
 })
 
+/*
+ * A seat the server plays is refused the emote in both directions
+ * (`hub/emotes.go`), so it is not somebody to say "gg" to. At a table where
+ * every other seat is one, the three buttons could only ever be pressed at
+ * nobody.
+ */
+describe('nobody to talk to', () => {
+  const withBot = (seats: (string | null)[]): PlayerDTO[] =>
+    seats.map((nickname, index) => ({
+      index,
+      nickname: nickname ?? `Bot${index}`,
+      hand_size: 0,
+      connected: true,
+      is_bot: nickname === null,
+    }))
+
+  beforeEach(() => {
+    gameStore.getState().resetToHome()
+  })
+
+  // The block goes rather than going dead: a dead control on this card means an
+  // offer that may still come back, and nothing is coming back to answer this
+  // one.
+  it('draws nothing where every other seat is the server', () => {
+    render(GameOver, { ...base, players: withBot(['Alice', null]), onEmote: vi.fn() })
+    expect(document.querySelector('.emotes')).toBeNull()
+    expect(document.querySelector('.emoteRow')).toBeNull()
+  })
+
+  it('keeps it where one human is still at the table among the bots', () => {
+    render(GameOver, { ...base, players: withBot(['Alice', null, 'Bob', null]), onEmote: vi.fn() })
+    expect(document.querySelector('.emoteRow')).toBeTruthy()
+  })
+
+  // A bot's line is empty forever, which is height paid for a sentence that
+  // cannot be written: the feed is the seats that can speak.
+  it('gives a bot no line of its own', () => {
+    render(GameOver, { ...base, players: withBot(['Alice', null, 'Bob', null]), onEmote: vi.fn() })
+    expect(document.querySelectorAll('.emoteSlot')).toHaveLength(2)
+  })
+})
+
 describe('one line per seat, and the card never grows', () => {
   beforeEach(() => {
     gameStore.getState().resetToHome()

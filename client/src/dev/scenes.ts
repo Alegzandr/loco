@@ -1182,7 +1182,8 @@ export const SCENES: Scene[] = [
   },
   {
     // No rematch to negotiate: the other seat is the server. Another press, or
-    // the queue.
+    // the queue. And nothing to say either: the emote block is gone rather than
+    // dead, because the only seat that could hear it is one the server plays.
     id: 'gameover-solo',
     title: 'Fin de match · contre un bot',
     screen: 'gameover',
@@ -1203,8 +1204,9 @@ export const SCENES: Scene[] = [
   },
   {
     // The three fixed things, and two of the four seats already talking: the
-    // feed is one line per seat, so the two that said nothing are the empty
-    // slots holding the card's height still. Nothing about any of it is kept.
+    // feed is one line per seat that can speak, so the two that said nothing
+    // are the empty slots holding the card's height still. Nothing about any of
+    // it is kept.
     id: 'gameover-emotes',
     title: 'Fin de match · émotes',
     screen: 'gameover',
@@ -1218,6 +1220,28 @@ export const SCENES: Scene[] = [
         { seat: 1, emote: 'gg', at: 1 },
         { seat: 0, emote: 'close', at: 2 },
       ],
+    },
+  },
+  {
+    // Two humans and two bots. The row is there — there is somebody to say it
+    // to — but the feed is two lines rather than four: a seat the server plays
+    // is refused the emote in both directions, so its line could never be
+    // written and the card does not pay for it.
+    id: 'gameover-emotes-bots',
+    title: 'Fin de match · émotes avec des bots',
+    screen: 'gameover',
+    state: {
+      matchWinner: 'Nova',
+      matchOver: true,
+      scoreboard: SCOREBOARD,
+      players: [
+        player(0, 'Nova', 0),
+        { ...player(1, 'Bot1', 4), is_bot: true },
+        player(2, 'Pixel', 2),
+        { ...player(3, 'Bot2', 6), is_bot: true },
+      ],
+      myIndex: 0,
+      emotes: [{ seat: 2, emote: 'gg', at: 1 }],
     },
   },
   {

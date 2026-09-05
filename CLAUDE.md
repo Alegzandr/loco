@@ -769,9 +769,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   of a forfeit we are on is answered **once, when `match_end` lands** (`store.forfeitedByMe`); the
   recap is **re-sent by the server**, never re-based here. Anything else that outlives a roster change
   takes the same treatment.
-- **The three things are one line per seat, and that card's height is the table's size**
-  (`GameOver.svelte`, `.emoteSlot`): `applyEmote` **replaces**, never appends. **The screen opens
-  quiet every time** — all four doors clear it.
+- **The three things are one line per seat that can speak, and that card's height is the table's
+  size** (`GameOver.svelte`, `.emoteSlot`): `applyEmote` **replaces**, never appends. **A bot gets no
+  line, and a table whose every other seat is one gets no block at all** — the server refuses the
+  emote both ways, so it would be a control pressed at nobody. **The screen opens quiet every time**
+  — all four doors clear it.
 - **The evening's recap pins the two columns that answer it**: who, and matches taken. Heads are
   `M%n`. **The seat that took a match is a gold pill** — LOCO Red measures 2.9:1 on that panel.
 - **The round past the format has a name, not a number** (`t.decisiveRound`, off `formatRounds`). The
