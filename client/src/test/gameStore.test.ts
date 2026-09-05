@@ -803,6 +803,45 @@ describe('gameStore', () => {
     expect(seats).toEqual([0, 1])
   })
 
+  // A snapshot says who is on the hook itself now (`catch_seats`), and when it
+  // does that list is the answer: a tab reloading into somebody's window has
+  // no windows to filter, and used to be told about none at all. A call already
+  // spent on the same window stays spent.
+  it('applyGameState takes its catch windows from the snapshot when it carries them', () => {
+    const endsAt = Date.now() + 4000
+    gameStore.setState({
+      myIndex: 0,
+      catchWindows: [{ seat: 1, endsAt, attempted: true }],
+    })
+    gameStore.getState().applyGameState({
+      your_index: 0,
+      hand: [],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 5, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 1, connected: true },
+        { index: 2, nickname: 'carol', hand_size: 1, connected: true },
+      ],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      active_color: 'red',
+      turn: 0,
+      direction: 1,
+      round_number: 1,
+      match_format: 'BO1',
+      max_players: 3,
+      catch_seats: [
+        { player_index: 1, ends_at: endsAt },
+        { player_index: 2, ends_at: endsAt + 500 },
+      ],
+    })
+    const s = gameStore.getState()
+    expect(s.catchWindows).toEqual([
+      { seat: 1, endsAt, attempted: true },
+      { seat: 2, endsAt: endsAt + 500, attempted: undefined },
+    ])
+    // The one we already called on is spent, so the other is the offered catch.
+    expect(s.catchTarget).toBe(2)
+  })
+
   it('applyCardPlayed leaves a seat with a full hand off the hook after a global_switch', () => {
     gameStore.setState({
       myIndex: 0,

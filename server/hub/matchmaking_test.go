@@ -210,9 +210,11 @@ func TestMatchmaking_OpponentDisconnectForfeitsAfterTheShortHold(t *testing.T) {
 	}
 }
 
-// An ordinary room keeps the 60s hold and does not forfeit: those are people
-// who came in together, and the hold exists so a drop is not the end.
-func TestMatchmaking_OrdinaryRoomDoesNotForfeitOnDisconnect(t *testing.T) {
+// An ordinary room keeps the 60s hold: those are people who came in together,
+// and the hold exists so a drop is not the end. Nothing is forfeited while it
+// runs. Once it has run out the seat is gone for good, and a match of two ends
+// the way it ends when that seat walks out on purpose.
+func TestMatchmaking_OrdinaryRoomHoldsTheSeatBeforeForfeiting(t *testing.T) {
 	prevReconnect := hub.ReconnectTimeout
 	hub.ReconnectTimeout = 150 * time.Millisecond
 	t.Cleanup(func() { hub.ReconnectTimeout = prevReconnect })
@@ -226,19 +228,17 @@ func TestMatchmaking_OrdinaryRoomDoesNotForfeitOnDisconnect(t *testing.T) {
 	if gone.ForfeitDeadline != 0 {
 		t.Errorf("forfeit_deadline = %d in an ordinary room, want 0", gone.ForfeitDeadline)
 	}
-	left := readMsgOfType(t, conn1, protocol.SMsgPlayerLeft)
-	if left.Type != protocol.SMsgPlayerLeft {
-		t.Fatal("expected player_left")
+	// The whole hold passes with the seat held and the match untouched: the
+	// next thing the table hears is the departure, never a match_end.
+	next := readMsg(t, conn1)
+	if next.Type != protocol.SMsgPlayerLeft {
+		t.Fatalf("after the disconnect the table heard %s, want player_left once the hold ran out", next.Type)
 	}
-	conn1.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
-	for {
-		var msg protocol.ServerMsg
-		if err := conn1.ReadJSON(&msg); err != nil {
-			break
-		}
-		if msg.Type == protocol.SMsgMatchEnd {
-			t.Fatal("an ordinary room forfeited a match on a disconnect")
-		}
+	// Only once the hold has run out does the match end, and it ends the way
+	// leave_room ends a match of two: a forfeit to the seat that stayed.
+	end := readMsgOfType(t, conn1, protocol.SMsgMatchEnd)
+	if !end.Forfeit || end.MatchWinner != "Alice" {
+		t.Errorf("match_end: forfeit=%t winner=%q, want a forfeit to Alice", end.Forfeit, end.MatchWinner)
 	}
 }
 

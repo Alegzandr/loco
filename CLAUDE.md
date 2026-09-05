@@ -381,7 +381,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   too** — the match is over, the rematch is not — so `join_room` reclaims a held seat at any table
   that is not a lobby, the reclaim carries **no `state`** when there is none, and the expiry there
   removes the seat for real. A finished matchmade table is excluded on purpose; **a matchmade table
-  in its versus reveal holds its seats too** and reclaims them the same way.
+  in its versus reveal holds its seats too** and reclaims them the same way. **`awayAt` and `afk`
+  re-base with every other seat-keyed map** (`table.shiftSeatKeys`, the one list `dropSeat` and `dropClient`
+  share), and **an expiry finds its hold by the instant it began, never by the seat number it was
+  armed with** (`heldSeatAt`): two holds at a finished table, the lower one running out first, used
+  to leave the second keyed to a seat that had moved — reported connected, unreclaimable, and removed
+  from the wrong index or not at all. A finished table with no socket and no hold left closes on the
+  spot, since nothing but a token reclaim can enter it.
 - **Personalised sends index by slot, never by `member.playerID`.**
 - **Removing a seat re-bases everything the scoreboard is drawn from** (`RemoveLobbyPlayer`), and the
   `player_left` that shrinks the roster carries the re-based `scoreboard` and `round_history`.
@@ -502,6 +508,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   2 consecutive turn timeouts as away, and **both expiries forfeit the match**, as does `leave_room`.
   **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, and every room allows `leave_room`
   in its waiting room behind one in-place confirmation, the only one in the game.
+- **A hold that runs out is settled the way `leave_room` settles the seat** (`settleExpiredSeat`,
+  off the ordinary table's expiry): above `WalkOutFloor` the seat is **retired** (`retireAbsentSeat`,
+  the hand back to the deck, the turn stepping over it, the scoreboard untouched), at or below it the
+  match **goes to the seat that stayed** as a forfeit, and a table with no socket and no hold left is
+  `closeAbandonedMatch`'s. The seat used to stay in the round with its cards and the clock auto-drew
+  and auto-passed for it every thirty seconds for the rest of the match — the AFK threshold only
+  ever acts on a seat with a socket — which at a table of four is a dead half-minute per lap for
+  everybody still playing. `expiry_settle_test.go`.
 - **`leave_room` is refused nowhere, and the table decides what it does** (`leaveAtTable`, four
   branches in this order): a matchmade match **forfeits**; a solo game **or** a table nobody can come
   back to (`table.abandonedBy`: every other seat a human with no socket and **no hold left**) is
@@ -530,7 +544,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   stay above `LOCO_DRAIN_TIMEOUT`**; one policy for every environment, so **a deploy never waits on
   the tables that are up**.
 - **The map-loading gate refuses every gameplay message while open**, and the turn clock starts at
-  `match_ready`, not `game_started`. Per match, not per round.
+  `match_ready`, not `game_started`. Per match, not per round. **Nothing arms a clock or a bot behind
+  it either**: `scheduleTurnTimer` and `maybeScheduleBot` return while `t.isLoading()`, and a bot
+  move armed in the previous match that lands in this one's gate returns too — a departure during
+  the gate used to reach both through `retireSeat` and start the first turn over a loading screen.
+- **Every message carries `server_now`**, stamped where a message is marshalled (`Client.Send`,
+  `broadcastToRoom`): every deadline on the wire is an absolute server instant, and the client
+  reads it against a clock this is the only measure of. See the client rule.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
   marshal once. `Client.SendBytes` force-closes on a full send buffer. **The versus reveal's deal is
   armed twice** (`MatchmakingRevealBackstop`): every other dropped job is lossy, that one is
@@ -739,6 +759,13 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   it suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
   the second tap of a double tap on a catch that landed — a catch that lands spends no offer, so the
   server's own guard does not cover it.
+- **Every deadline is read on the server's clock** (`hooks/serverClock.ts`): `turn_deadline`,
+  `catch_seats[].ends_at`, `forfeit_deadline` and the snapshot's two are absolute server instants,
+  and every bar counts them down against `Date.now()`. The handler takes `server_now` off every
+  message, keeps the largest recent `server_now - Date.now()` (the sample with the least latency in
+  it), and `localizeDeadlines` moves every deadline by it in one place before the store sees it. A
+  phone six seconds fast saw every five-second catch window already shut; six seconds slow, it kept
+  the capsule up past the server's window and paid a card for the press. `serverClock.test.ts`.
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
   opener is the one exception. `escapeClose.test.ts`.

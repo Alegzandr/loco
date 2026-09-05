@@ -14,7 +14,11 @@ import (
 // if the player (human only) does not act within TurnTimeout.
 func (h *Hub) scheduleTurnTimer(t *table) {
 	code, room := t.code, t.room
-	if room.Status != game.StatusPlaying {
+	// No clock behind the map gate: the match begins at match_ready, and openTable
+	// is what arms the first turn. A departure during the gate used to reach this
+	// and start the first player's thirty seconds while their table was still a
+	// grey rectangle.
+	if room.Status != game.StatusPlaying || t.isLoading() {
 		return
 	}
 	turn := room.State.CurrentTurn

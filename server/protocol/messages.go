@@ -342,6 +342,22 @@ type LatencyEntryDTO struct {
 type ServerMsg struct {
 	Type ServerMsgType `json:"type"`
 
+	// ServerNow is the server's clock, in unix milliseconds, at the instant the
+	// message was written. On every message, because it is what makes every
+	// deadline below readable.
+	//
+	// TurnDeadline, CatchSeatDTO.EndsAt and ForfeitDeadline are absolute server
+	// instants, and the client counts them down against its own clock. A phone
+	// whose clock is six seconds fast sees every five-second catch window already
+	// shut, so the armed capsule never draws and the player is told nobody is on
+	// the hook; six seconds slow, the capsule stays up after the server's window
+	// has closed and the press it invites costs a card. The client reads this
+	// against its own clock on arrival, keeps the offset, and converts every
+	// deadline it is handed into its own time. One-way latency is the residual
+	// error — a few tens of milliseconds, in the direction of a window shown a
+	// touch longer than it is — where clock skew is seconds either way.
+	ServerNow int64 `json:"server_now,omitempty"`
+
 	// SMsgRoomCreated / SMsgRoomJoined / SMsgPlayerReconnected (self) /
 	// SMsgRematchStarted: the recipient's OWN seat.
 	//

@@ -321,6 +321,7 @@ func (c *Client) writePump() {
 // Send marshals a server message and queues it for delivery.
 // See SendBytes for the overflow / slow-client policy.
 func (c *Client) Send(msg protocol.ServerMsg) {
+	msg.ServerNow = time.Now().UnixMilli()
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("marshal error: %v", err)

@@ -250,7 +250,11 @@ func (h *Hub) scheduleBotMove(t *table, playerID int) {
 
 // maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
 func (h *Hub) maybeScheduleBot(t *table) {
-	if t.room.Status != game.StatusPlaying {
+	// A shut table has no turns: openTable arms the first bot itself once every
+	// human is in. A retirement or a departure during the gate used to reach
+	// this and start a bot playing against players who were still watching a
+	// loading bar — the head start the gate exists to refuse.
+	if t.room.Status != game.StatusPlaying || t.isLoading() {
 		return
 	}
 	if turn := t.room.State.CurrentTurn; t.isBot(turn) {
@@ -610,6 +614,13 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 	if room.State.CurrentTurn != bm.playerID {
 		// Turn advanced (e.g. human played or another scheduled move already fired).
 		// Very common during normal play — log only at debug level (omitted in prod).
+		return
+	}
+	// A move armed in the last match can land in the next one's loading gate: the
+	// table went finished, then lobby, then playing again, and this seat is a bot
+	// whose turn it happens to be. The gate refuses every human message until the
+	// last table is decoded, so it refuses the bots too; openTable re-arms them.
+	if t.isLoading() {
 		return
 	}
 	if !t.isBot(bm.playerID) {

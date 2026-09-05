@@ -1,5 +1,6 @@
 import { gameStore, UNO_CATCH_WINDOW_MS } from './gameStore'
 import { ServerMsg } from '../types/protocol'
+import { localizeDeadlines } from './serverClock'
 
 /**
  * The LOCO! banner's own timer, owned by the caller.
@@ -28,7 +29,12 @@ export interface UnoBannerTimer {
 export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
   const store = gameStore.getState()
 
-  return (msg: ServerMsg) => {
+  return (raw: ServerMsg) => {
+    // Every deadline below is read on our clock from here on: the server's stamp
+    // is taken off this message and the instants it carries are moved by the
+    // difference. See serverClock.ts for why a deadline compared to Date.now()
+    // as it arrived was wrong by seconds on a device whose clock was.
+    const msg = localizeDeadlines(raw)
     switch (msg.type) {
       case 'room_created':
       case 'room_joined': {

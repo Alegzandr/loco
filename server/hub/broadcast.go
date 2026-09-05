@@ -125,6 +125,9 @@ func (h *Hub) broadcastToRoom(t *table, msg protocol.ServerMsg, exclude *Client)
 	if len(members) == 0 {
 		return
 	}
+	// Stamped here and in Client.Send, the two places a message is marshalled:
+	// see protocol.ServerMsg.ServerNow for what the client does with it.
+	msg.ServerNow = time.Now().UnixMilli()
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("broadcast marshal error code=%s err=%v", t.code, err)

@@ -43,11 +43,11 @@ description of the wire that a program does not check: when it disagrees with th
 | `streamer_mode_changed`| `streamer_mode` (the host's answer for this table; broadcast to every seat, at any status) |
 | `player_joined`       | `nickname`, `players`                                                       |
 | `host_changed`        | `nickname` (the new host), `players`, `player_id` (the recipient's own seat) — sent per recipient, because the swap moves two seats |
-| `player_left`         | `nickname`, `players`                                                       |
+| `player_left`         | `nickname`, `players`, `player_index` (the mid-match expiry and the walk-out only: the seat that is gone for good, and nothing re-based), `match_history` (the departures that re-base the roster) |
 | `player_disconnected` | `player_index`, `nickname`, `players`, `forfeit_deadline` (matchmade rooms only) |
 | `player_reconnected`  | `player_index`/`player_id`, `state` (self), `players`, `session_token` (self)  |
 | `game_started`        | `state` (personalized per player; includes `round_number`, `match_format`, `scoreboard`) |
-| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players`, `chosen_player` (swap only) |
+| `card_played`         | `player_index`, `card`, `turn`, `pending_draw`, `players`, `chosen_player` (swap only), `catch_seats[]`, `turn_deadline` |
 | `interrupt_success`   | `player_index`, `cards[]` (sent immediately before the matching `card_played`) |
 | `card_drawn`          | `cards[]` (drawer only) / `drawn_count` (everyone else), `player_index`, `turn`, `pending_draw`, `has_drawn` |
 | `turn_changed`        | `turn`                                                                      |
@@ -69,6 +69,8 @@ description of the wire that a program does not check: when it disagrees with th
 | `server_updating`     | — (this process is being replaced; the match is unaffected: see the notes)   |
 | `error`               | `error`                                                                     |
 
+Every server message also carries `server_now`, the server's clock in unix milliseconds at the instant it was written. See the notes.
+
 ## DTO shapes
 
 - `PlayerDTO`: `index`, `nickname`, `hand_size`, `connected`.
@@ -80,6 +82,7 @@ description of the wire that a program does not check: when it disagrees with th
 ## Notes
 
 - `card_played` carries `chosen_player` only for `swap` (target seat index). `global_switch` and other cards omit it.
+- **Every deadline is an absolute server instant, and `server_now` is how the client reads it.** `turn_deadline`, `catch_seats[].ends_at` and `forfeit_deadline` are unix milliseconds on the server's clock; a client that compared them to its own clock as they arrived was wrong by however far its clock was off, which on a phone is easily seconds — enough to hide a five-second catch window entirely, or to keep it on screen past its end and charge a card for the press. The client keeps the largest recent `server_now - Date.now()` as its offset and moves every deadline by it on arrival (`client/src/hooks/serverClock.ts`). `server_now` is stamped on every message so the estimate is always fresh; it is optional on the wire so an older fixture still validates.
 - `chosen_color` is required for **every** wild (`wild`, `wild_draw_four` **and** `global_switch`) on `play_card`, `play_cards`, `counter_draw` and `interrupt_play_card`. A colourless wild is rejected (`must choose a color for a wild card`); the value `wild` counts as colourless, since it matches no coloured card and would strand the whole table.
 - `interrupt_success` is emitted before the corresponding `card_played` so the client can render lead-taking distinctly.
 - `pending_draw` and `has_drawn` describe the **table** after the event, not the recipient, and `card_played` / `card_drawn` carry both to every seat. They are nullable on the wire on purpose: a hand can grow without anybody having drawn on their turn (the LOCO-catch penalty), so a missing `has_drawn` must mean "unchanged" and never be defaulted to `true` — a client that guessed it disabled its own draw button and had every pass refused with `you must draw a card before passing`.
