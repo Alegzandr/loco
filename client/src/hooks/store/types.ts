@@ -241,30 +241,39 @@ export interface GameState {
   // (never ourselves) and the end of that window. null = nobody to catch.
   catchTarget: number | null
   unoTimerEnd: number | null   // end of the 5s catch window (null = closed)
+  // When each seat's current last card stops being catchable, seat → end of
+  // the window the server named for it. Unlike `catchWindows` it survives the
+  // declaration the table hears and the window's retirement: it is the clock
+  // the centre button runs on, and that clock must not know who spoke
+  // (`components/catchAvailability.ts`). Written from `catch_seats` by
+  // `applyCardPlayed` and `applyGameState`, and read against the roster, so a
+  // stale entry for a seat that is no longer on one card counts for nothing.
+  onHookUntil: Record<number, number>
   // Whether the centre button is pressable at all — a much looser question than
   // `catchTarget`, which is the promise that somebody is actually on the hook.
-  // **Derived and latched** by the store itself (`store/deriveCatchMiddleware.ts`
-  // through `components/catchAvailability.ts`), never written by an action
-  // except to put it back down: it rises the moment any other seat comes within
-  // reach of the finish, and only a card played or a fresh authoritative
-  // snapshot lowers it again. A seat escaping — declaring, drawing, taking a
-  // stack of four — leaves it exactly where it is, because a button that
-  // retracts under the thumb aiming at it is the interface reading the table on
-  // the player's behalf.
+  // **Derived** by the store itself (`store/deriveCatchMiddleware.ts` through
+  // `components/catchAvailability.ts`), never written by an action: some other
+  // seat is on exactly two cards, or on its last card inside its window. It is
+  // a read of the roster and the clock and nothing else — a declaration the
+  // table heard does not lower it — and it is re-read at `catchLiveUntil`.
   catchLive: boolean
+  // The instant `catchLive` will fall on its own if nothing moves (the last
+  // window running out), or null. Derived beside it; `GameView` arms one timer
+  // on it and asks the store to read again (`rereadCatchLive`).
+  catchLiveUntil: number | null
   // Whose Contre-LOCO! just missed and cost them a card. The penalty is public,
   // like the catch it lost to. Cleared by the GameView after a short timeout.
   catchFailed: { seat: number; at: number } | null
   // Whether we have already spent a Contre-LOCO! on the board as it stands. The
-  // server charges a fruitless call at most once per card played, and this is
-  // the client's half of that rule: a second *blind* press — one that names no
+  // server charges a fruitless call at most once per offer, and this is the
+  // client's half of that rule: a second *blind* press — one that names no
   // seat, because none is on the hook — is not sent at all while this is true.
   //
   // It is not only about spam. Tapping twice on a catch that lands would send
   // the second press with no target, and the server would read that as a fresh
   // wager against a board where the window has just shut: a card, charged in the
-  // same breath as the catch we just won. Cleared by `applyCardPlayed`, which is
-  // exactly what moves the server's own epoch on.
+  // same breath as the catch we just won. Cleared by `applyCardPlayed`: a card
+  // played is the one thing that can put a new offer on the table.
   catchSpent: boolean
   // The mirror: a Contre-LOCO! that landed, for its slam banner, its sting and
   // the penalty cards flying to the caught seat. Cleared by the banner.
@@ -409,6 +418,7 @@ export interface LocoActions {
   applyUnoCaught: (seat: number) => void
   clearCatchFlash: () => void
   pruneCatchWindows: () => void
+  rereadCatchLive: () => void
   noteCatchAttempt: (seat: number) => void
   noteBlindCatchAttempt: () => void
   applyCatchFailed: (seat: number) => void

@@ -82,6 +82,13 @@ type table struct {
 	// whole set is broadcast rather than the increment; see rematch.go.
 	rematchOffers map[int]struct{}
 
+	// heldCatches is every Contre-LOCO! waiting out the head start of the
+	// window it was aimed at, one entry per catcher per window. See
+	// gameplay.go: holdCatch puts one in, resolveHeldCatch takes it out, and
+	// the timer between the two is what gives the seat that owes the call the
+	// first stretch of its own window whatever anybody else is pressing.
+	heldCatches map[heldCatch]struct{}
+
 	// (An emote leaves no state here at all — not what was said and not when. It
 	// is relayed and forgotten; see emotes.go.)
 
@@ -267,6 +274,7 @@ func newTable(code string, room *game.Room) *table {
 		bots:          make(map[int]struct{}),
 		afk:           make(map[int]int),
 		rematchOffers: make(map[int]struct{}),
+		heldCatches:   make(map[heldCatch]struct{}),
 		box:           make(chan tableJob, tableBoxDepth),
 		quit:          make(chan struct{}),
 		done:          make(chan struct{}),
@@ -554,6 +562,7 @@ func setToken(m map[int]string, key int, val string, present bool) {
 // field.
 func (t *table) resetForNextMatch() {
 	t.rematchOffers = make(map[int]struct{})
+	t.heldCatches = make(map[heldCatch]struct{})
 	t.afk = make(map[int]int)
 	t.awayAt = make(map[int]time.Time)
 	t.gone = make(map[int]struct{})

@@ -2,6 +2,7 @@ package hub
 
 import (
 	"testing"
+	"time"
 
 	"loco/server/game"
 )
@@ -31,23 +32,30 @@ func TestPenalizeFailedCatch_DryPilesTellOnlyTheCaller(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
+	// Bob one play from the finish, so the press is a wager at all.
+	room.State.Hands[1] = game.Hand{Cards: []game.Card{
+		{Color: game.Red, Kind: game.Number, Value: 1},
+		{Color: game.Red, Kind: game.Number, Value: 2},
+	}}
 	// Deck empty and nothing under the top discard, so the replenish behind the
 	// draw finds nothing either.
 	room.State.Deck.Cards = nil
 	room.State.Discard = room.State.Discard[len(room.State.Discard)-1:]
-	if drawn, _ := room.PenalizeFailedCatch(0); len(drawn) != 0 {
+	if drawn, _ := room.PenalizeFailedCatch(0, time.Now()); len(drawn) != 0 {
 		t.Fatalf("fixture is wrong: the penalty still drew %d cards", len(drawn))
 	}
-	// That probe spent seat 0's one charge for this board — a seat pays at most
-	// once per card played — so move the board on before the call under test.
-	room.State.PlayEpoch++
+	// That probe spent seat 0's one charge for this offer — a seat pays at most
+	// once per offer — so put a fresh one on the table before the call under
+	// test: Bob down to his last card, window just opened.
+	room.State.Hands[1] = game.Hand{Cards: []game.Card{{Color: game.Red, Kind: game.Number, Value: 1}}}
+	room.State.LastCardAt[1] = time.Now()
 
 	tbl := newTable("AAAAAA", room)
 	caller := &Client{send: make(chan []byte, 8)}
 	bystander := &Client{send: make(chan []byte, 8)}
 	tbl.members = []*Client{caller, bystander}
 
-	h.penalizeFailedCatch(tbl, 0)
+	h.penalizeFailedCatch(tbl, 0, time.Now())
 
 	if got := len(bystander.send); got != 0 {
 		t.Errorf("the rest of the table was sent %d messages for a penalty nobody paid", got)

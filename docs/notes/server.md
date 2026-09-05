@@ -520,15 +520,25 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     And the free-once-the-piles-are-dry half survived `catchGrace` on its own, *inside* a live
     window: `penalizeFailedCatch` answers an empty draw to its caller alone, so a penalty nobody paid
     is not a table-wide send either.
-  - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is now live
-    from two cards out, so "no client was drawing that button" is no longer true of a press with
-    no window behind it — that press is the mechanic, and `ErrNoCatchWindow` costs its caller a card
-    like every other miss (`docs/rules.md` §14.6). What replaces the free-refusal as the amplifica-
-    tion guard is `GameState.PlayEpoch`: **a seat is charged at most once per card played**, and
-    every press after that draws nothing, broadcasts nothing and answers nobody. Ten messages a
-    second still buy exactly one `catch_failed`. What stays refused-and-counted is a `target_index`
-    the table does not have: no client of ours composes it, so it is a forged message rather than a
-    wager, and `noteRejection` still counts it toward `suspected_cheats`.
+  - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is live
+    while some other seat is on two cards or on a last card inside its window, so a press with no
+    window behind it can be the mechanic — and `ErrNoCatchWindow` costs its caller a card like every
+    other miss *while something is offered* (`docs/rules.md` §14.6, `Room.CatchOffered`). What
+    replaces the free-refusal as the amplification guard is the offer key (`catchOfferKey`,
+    `CatchPaidFor`): **a seat is charged at most once per offer**, and every press after that draws
+    nothing, broadcasts nothing and answers nobody. Ten messages a second still buy exactly one
+    `catch_failed`. A press against a table where nothing is offered — eight-card hands all round, or
+    the seat drew a round trip before the press landed — is the same silence: not charged (charged,
+    it was a card farm for anybody forging the message), not answered (a toast there scolds a player
+    whose button was live a moment ago), not counted. What stays refused-and-counted is a
+    `target_index` the table does not have: no client of ours composes it, so it is a forged message
+    rather than a wager, and `noteRejection` still counts it toward `suspected_cheats`.
+  - **And a press inside the target's head start is held, not answered** (`game.CatchHeadStart`,
+    `hub.holdCatch`, `table.heldCatches`): one `time.AfterFunc` per catcher per window, posted back
+    to the table like every other reaction timer, resolved through the same `resolveCatch` a live
+    press takes. The seat that owes the call gets the first 1.5s of its window whatever anybody is
+    pressing; a spammer buys one held press, resolved once. Lossy on a full box like every other
+    reaction timer — the press is the one thing a player can simply make again.
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply

@@ -33,6 +33,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       // A fresh table owes nobody a call and offers no wager yet: the latch
       // belongs to one board, and this is a new one.
       catchWindows: [],
+      onHookUntil: {},
       declaredSeats: [],
       catchLive: false,
       matchFormat: found.matchFormat,
@@ -76,6 +77,7 @@ export const createQueueActions: StateCreator<GameStore, QueueActions> = (set) =
       rematchOffers: [],
       rematchNeeded: 0,
       catchWindows: [],
+      onHookUntil: {},
       declaredSeats: [],
       catchLive: false,
       // Another hand against the server is another match: it starts as quiet as

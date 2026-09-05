@@ -316,7 +316,7 @@ func TestRoom_LastCardDeclaration_PenaltyIfForgot(t *testing.T) {
 	}
 
 	// Bob catches alice for not declaring
-	err = r.CatchUndeclared(1, 0, time.Now())
+	err = r.CatchUndeclared(1, 0, catchTime())
 	if err != nil {
 		t.Fatalf("CatchUndeclared() error: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestRoom_CatchUndeclared_AfterDeclared(t *testing.T) {
 	}
 
 	// Bob tries to catch — must fail
-	err := r.CatchUndeclared(1, 0, time.Now())
+	err := r.CatchUndeclared(1, 0, catchTime())
 	if err == nil {
 		t.Fatal("expected error catching after declaration, got nil")
 	}
@@ -411,7 +411,7 @@ func TestRoom_CatchUndeclared_NotReopenedByLaterPlay(t *testing.T) {
 		t.Fatalf("bob PlayCard: %v", err)
 	}
 
-	if err := r.CatchUndeclared(2, 0, time.Now()); err == nil {
+	if err := r.CatchUndeclared(2, 0, catchTime()); err == nil {
 		t.Error("alice declared; a later play by bob must not make her catchable again")
 	}
 	if len(r.State.Hands[0].Cards) != 1 {
@@ -478,7 +478,7 @@ func TestRoom_UNOStateCleanOnNewRound(t *testing.T) {
 	}
 
 	// Any catch attempt must fail: zero LastCardAt → window is always expired
-	err := r.CatchUndeclared(0, 1, time.Now())
+	err := r.CatchUndeclared(0, 1, catchTime())
 	if err == nil {
 		t.Fatal("catch at round-2 start must fail (zero LastCardAt means window expired)")
 	}
@@ -2582,7 +2582,7 @@ func TestRoom_CatchUndeclared_NoTargetYet(t *testing.T) {
 	r := setupTwoPlayerGame(t)
 	// Every seat starts with a full hand and a zero LastCardAt, so a catch
 	// attempt at the start of the game must be rejected (target not at 1 card).
-	if err := r.CatchUndeclared(1, 0, time.Now()); err == nil {
+	if err := r.CatchUndeclared(1, 0, catchTime()); err == nil {
 		t.Error("catch at game start should fail (no one played to 1 card yet)")
 	}
 }
@@ -2617,7 +2617,7 @@ func TestRoom_Swap_ReceiverOwesDeclaration(t *testing.T) {
 	if got := r.State.Hands[1].Size(); got != 1 {
 		t.Fatalf("bob hand = %d, want 1 (received alice's leftover)", got)
 	}
-	if err := r.CatchUndeclared(2, 1, time.Now()); err != nil {
+	if err := r.CatchUndeclared(2, 1, catchTime()); err != nil {
 		t.Fatalf("bob received a single card and never declared, so he must be catchable: %v", err)
 	}
 	if got := r.State.Hands[1].Size(); got != 3 {
@@ -2647,7 +2647,7 @@ func TestRoom_Swap_ReceiverCanDeclare(t *testing.T) {
 	if err := r.DeclareLastCard(1); err != nil {
 		t.Fatalf("bob must be able to declare the card he received: %v", err)
 	}
-	if err := r.CatchUndeclared(2, 1, time.Now()); err == nil {
+	if err := r.CatchUndeclared(2, 1, catchTime()); err == nil {
 		t.Error("bob declared; catching him must fail")
 	}
 }
@@ -2684,10 +2684,10 @@ func TestRoom_GlobalSwitch_EverySingleCardSeatIsCatchable(t *testing.T) {
 		}
 	}
 	// Both are catchable, independently.
-	if err := r.CatchUndeclared(2, 0, time.Now()); err != nil {
+	if err := r.CatchUndeclared(2, 0, catchTime()); err != nil {
 		t.Errorf("seat 0 must be catchable: %v", err)
 	}
-	if err := r.CatchUndeclared(2, 1, time.Now()); err != nil {
+	if err := r.CatchUndeclared(2, 1, catchTime()); err != nil {
 		t.Errorf("seat 1 must be catchable too, one slot cannot hold two debts: %v", err)
 	}
 }
@@ -2705,7 +2705,7 @@ func TestRoom_CatchUndeclared_CannotCatchYourself(t *testing.T) {
 	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
 		t.Fatalf("PlayCard: %v", err)
 	}
-	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil {
+	if err := r.CatchUndeclared(0, 0, catchTime()); err == nil {
 		t.Error("a player must not be able to catch themselves")
 	}
 }
@@ -2792,7 +2792,7 @@ func TestRoom_InterruptPlay_OpensCatchWindow(t *testing.T) {
 	}
 
 	// And alice (idx 0) can catch carol if she didn't declare in time.
-	if err := r.CatchUndeclared(0, 2, time.Now()); err != nil {
+	if err := r.CatchUndeclared(0, 2, catchTime()); err != nil {
 		t.Errorf("catch on undeclared interject must succeed: %v", err)
 	}
 }
@@ -2946,7 +2946,7 @@ func TestRoom_CatchUndeclared_MissedByDeclaration(t *testing.T) {
 	if err := r.DeclareLastCard(0); err != nil {
 		t.Fatalf("DeclareLastCard: %v", err)
 	}
-	err := r.CatchUndeclared(1, 0, time.Now())
+	err := r.CatchUndeclared(1, 0, catchTime())
 	if err == nil {
 		t.Fatal("catching a declared player must fail")
 	}
@@ -2983,25 +2983,36 @@ func TestRoom_CatchUndeclared_MissedByExpiry(t *testing.T) {
 // not be charged a card, and the hub still counts it as suspect.
 func TestRoom_CatchUndeclared_InvalidTargetIsNotAMiss(t *testing.T) {
 	r := setupThreePlayerGame(t)
-	if err := r.CatchUndeclared(1, 99, time.Now()); err == nil || IsMissedCatch(err) {
+	if err := r.CatchUndeclared(1, 99, catchTime()); err == nil || IsMissedCatch(err) {
 		t.Errorf("CatchUndeclared(1, 99) = %v, want a non-miss error", err)
 	}
-	if err := r.CatchUndeclared(0, 0, time.Now()); err == nil || IsMissedCatch(err) {
+	if err := r.CatchUndeclared(0, 0, catchTime()); err == nil || IsMissedCatch(err) {
 		t.Errorf("self-catch = %v, want a non-miss error", err)
 	}
+}
+
+// nearSeat puts seat i one ordinary play from the finish, which is what makes
+// a Contre-LOCO! from any other chair a wager (CatchOffered) rather than a
+// message no honest client sends.
+func nearSeat(r *Room, i int) {
+	r.State.Hands[i] = Hand{Cards: []Card{
+		{Color: Red, Kind: Number, Value: 1},
+		{Color: Red, Kind: Number, Value: 2},
+	}}
 }
 
 // The wager: a miss costs the caller exactly one card, and nothing else about
 // the round moves — not the turn, not the target's hand, not the draw flag.
 func TestRoom_PenalizeFailedCatch(t *testing.T) {
 	r := setupThreePlayerGame(t)
+	nearSeat(r, 0)
 	before := r.State.Hands[1].Size()
 	turn, hasDrawn := r.State.CurrentTurn, r.State.HasDrawn
 	targetBefore := r.State.Hands[0].Size()
 
-	cards, charged := r.PenalizeFailedCatch(1)
+	cards, charged := r.PenalizeFailedCatch(1, time.Now())
 	if !charged {
-		t.Fatal("the first failed catch on a board must be charged")
+		t.Fatal("the first failed catch on an offer must be charged")
 	}
 	if len(cards) != failedCatchPenalty {
 		t.Fatalf("PenalizeFailedCatch drew %d cards, want %d", len(cards), failedCatchPenalty)
@@ -3021,17 +3032,18 @@ func TestRoom_PenalizeFailedCatch(t *testing.T) {
 // caller simply gets away with it rather than the round freezing.
 func TestRoom_PenalizeFailedCatch_EmptyDeck(t *testing.T) {
 	r := setupThreePlayerGame(t)
+	nearSeat(r, 0)
 	r.State.Deck.Cards = nil
 	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
 	before := r.State.Hands[1].Size()
-	cards, charged := r.PenalizeFailedCatch(1)
+	cards, charged := r.PenalizeFailedCatch(1, time.Now())
 	if len(cards) != 0 {
 		t.Fatalf("PenalizeFailedCatch on an exhausted deck drew %d cards, want 0", len(cards))
 	}
 	// Charged all the same: the wager was taken, the table simply had no card
 	// left to take it with. Otherwise a dry deck would refund every press.
 	if !charged {
-		t.Error("a call against dry piles is still the seat's one charge for this board")
+		t.Error("a call against dry piles is still the seat's one charge for this offer")
 	}
 	if got := r.State.Hands[1].Size(); got != before {
 		t.Errorf("catcher hand = %d, want %d unchanged", got, before)
@@ -3039,19 +3051,20 @@ func TestRoom_PenalizeFailedCatch_EmptyDeck(t *testing.T) {
 }
 
 // The anti-spam rule, and the reason the button can afford to be live for most
-// of a round: a seat pays for one misread per board, not per press. Anything
+// of an endgame: a seat pays for one misread per offer, not per press. Anything
 // else would tax the reflex the whole mechanic is asking for.
-func TestRoom_PenalizeFailedCatch_ChargesOncePerBoard(t *testing.T) {
+func TestRoom_PenalizeFailedCatch_ChargesOncePerOffer(t *testing.T) {
 	r := setupThreePlayerGame(t)
-	if _, charged := r.PenalizeFailedCatch(1); !charged {
+	nearSeat(r, 0)
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); !charged {
 		t.Fatal("the first press must be charged")
 	}
 	before := r.State.Hands[1].Size()
 
 	for i := 0; i < 5; i++ {
-		cards, charged := r.PenalizeFailedCatch(1)
+		cards, charged := r.PenalizeFailedCatch(1, time.Now())
 		if charged || len(cards) != 0 {
-			t.Fatalf("press %d on an unchanged board charged again", i+2)
+			t.Fatalf("press %d on an unchanged offer charged again", i+2)
 		}
 	}
 	if got := r.State.Hands[1].Size(); got != before {
@@ -3059,26 +3072,88 @@ func TestRoom_PenalizeFailedCatch_ChargesOncePerBoard(t *testing.T) {
 	}
 }
 
-// And the other half: the guard is "since the last card", not "once a round".
-// A board that moved is a new obligation to misread.
-func TestRoom_PenalizeFailedCatch_ChargesAgainOnceACardIsPlayed(t *testing.T) {
+// A press against a table where nobody is near the finish is not a wager: no
+// honest screen has the button live, so there is nothing to misread and
+// nothing to charge. This is also what closes the farm to a client this game
+// did not write — the price can only ever be paid where the offer is.
+func TestRoom_PenalizeFailedCatch_NothingOfferedChargesNothing(t *testing.T) {
 	r := setupThreePlayerGame(t)
-	if _, charged := r.PenalizeFailedCatch(1); !charged {
+	before := r.State.Hands[1].Size()
+	if cards, charged := r.PenalizeFailedCatch(1, time.Now()); charged || len(cards) != 0 {
+		t.Fatal("eight-card hands all round: nothing was offered, so nothing may be charged")
+	}
+	// A seat on one card whose window shut long ago is the same table: the
+	// button went dark when the window did.
+	r.State.Hands[0] = Hand{Cards: []Card{{Color: Red, Kind: Number, Value: 1}}}
+	r.State.LastCardAt[0] = time.Now().Add(-time.Minute)
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); charged {
+		t.Fatal("a seat stuck on one card past its window is not an offer")
+	}
+	// Three cards out is not one either — the client's threshold, pinned here.
+	r.State.Hands[0] = Hand{Cards: []Card{
+		{Color: Red, Kind: Number, Value: 1},
+		{Color: Red, Kind: Number, Value: 2},
+		{Color: Red, Kind: Number, Value: 3},
+	}}
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); charged {
+		t.Fatal("three cards out is one too many to be an offer")
+	}
+	if got := r.State.Hands[1].Size(); got != before {
+		t.Errorf("catcher hand = %d, want %d untouched", got, before)
+	}
+}
+
+// The other half of the ration, and the farm it closes: the catcher's own play
+// is not a new offer. Charged per card played, a press before and a press
+// after one's own play bought two cards a turn off a seat sitting on two —
+// faster than the voluntary draw, and exactly the hand a Swap is fed with.
+func TestRoom_PenalizeFailedCatch_OwnPlayIsNotANewOffer(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	nearSeat(r, 0)
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); !charged {
 		t.Fatal("the first press must be charged")
 	}
 
-	// A real play, through the real path: the epoch is the discard's, and a test
-	// that bumped the counter by hand would pass over a play site that forgot to.
+	// The catcher plays a card, through the real path.
 	top := r.State.topCard()
 	card := Card{Color: r.State.ActiveColor, Kind: Number, Value: top.Value}
-	r.State.Hands[0].Add(card)
-	r.State.CurrentTurn = 0
-	if err := r.PlayCard(0, card, 0, -1); err != nil {
+	r.State.Hands[1].Add(card)
+	r.State.CurrentTurn = 1
+	if err := r.PlayCard(1, card, 0, -1); err != nil {
 		t.Fatalf("PlayCard: %v", err)
 	}
 
-	if _, charged := r.PenalizeFailedCatch(1); !charged {
-		t.Error("a card was played, so the next misread is a new one and is charged")
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); charged {
+		t.Error("the seat on two has not moved, so the second press is the same misread")
+	}
+}
+
+// And what IS a new offer: the near seat playing down to its last card. The
+// anticipation miss and the race miss are two reads of two boards.
+func TestRoom_PenalizeFailedCatch_ChargesAgainOnANewOffer(t *testing.T) {
+	r := setupThreePlayerGame(t)
+	r.State.ActiveColor = Red
+	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
+	nearSeat(r, 0)
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); !charged {
+		t.Fatal("the first press must be charged")
+	}
+	r.State.CurrentTurn = 0
+	if err := r.PlayCard(0, Card{Color: Red, Kind: Number, Value: 2}, Red, -1); err != nil {
+		t.Fatalf("PlayCard: %v", err)
+	}
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); !charged {
+		t.Error("the seat is on its last card now: a new offer, a new wager, a new card")
+	}
+	// A second window on the same seat is a second offer too: the card it is
+	// down to is not the card it was down to.
+	r.State.Hands[0].Add(Card{Color: Red, Kind: Number, Value: 3})
+	r.State.Hands[0].Cards = r.State.Hands[0].Cards[1:]
+	r.State.openCatchWindow(0)
+	// Distinct from the first window whatever the clock's resolution.
+	r.State.LastCardAt[0] = r.State.LastCardAt[0].Add(time.Millisecond)
+	if _, charged := r.PenalizeFailedCatch(1, time.Now()); !charged {
+		t.Error("a reopened window is a fresh offer")
 	}
 }
 

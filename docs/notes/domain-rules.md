@@ -13,16 +13,21 @@ Authoritative spec: `docs/rules.md` §14. Summary of intentional deviations:
 3. **Best-of-N match format**, not 600-point threshold — BO1/BO3/BO5/BO7 (`game.MatchFormat`), and **the match is taken by rounds won rather than by points**. See "Rounds won take the match" below for the whole rule and the bug it closed. Rationale: predictable online game length, and a format label that is true.
 4. **Voluntary draw is allowed** — current player may draw even with a playable card in hand (still 1 draw max per turn). `Room.DrawCard` only enforces `HasDrawn` to prevent a second draw. Rationale: strategic depth; matches UNO official rules.
 5. **A forced draw does not cost the turn** — the victim of a +2/+4 stack takes the whole accumulated amount and then plays normally (or passes). `Room.DrawCard` sets `HasDrawn` in both branches and never advances `CurrentTurn`; nothing but `PlayCard`/`PassTurn`/an effect moves the turn. **`hub.handleDrawCard` re-arms the turn timer on every draw** — the domain kept the turn but the clock was still the one armed when the +2 landed, so a victim who took a few seconds to decide against countering drew the stack and was auto-passed right after: the deviation held on paper and the seat still vanished. One draw per turn bounds the extension. Rationale: cards *and* turn for one played card is two punishments, and it reads as a bug — the hand jumps and the seat is gone before the player can act. Stacking (`CounterDraw`) is still how you avoid drawing at all.
-6. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per card played** — the
-   call only lands inside the target's 5s window, and every other press is charged: the target's own
-   LOCO! got there first, its hand grew, the window had already closed, or no seat owed the call at
-   all. SOLO ignores an unfounded call. `failedCatchPenalty` + `Room.PenalizeFailedCatch`, rationed
-   by `GameState.PlayEpoch`; see "LOCO! declaration & catch windows" and `docs/rules.md` §14.6.
+6. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
+   while one is on the table** — the call only lands inside the target's 5s window, and a press that
+   misses while somebody is one play from the finish is charged: the target's own LOCO! got there
+   first, its hand grew, the window had already closed, or no seat owed the call at all. A press
+   against a table where nobody is that close is not a wager and is answered by nobody. SOLO ignores
+   an unfounded call. `failedCatchPenalty` + `Room.PenalizeFailedCatch` + `Room.CatchOffered`,
+   rationed by `catchOfferKey`; see "LOCO! declaration & catch windows" and `docs/rules.md` §14.6.
    Rationale: the button is live from two cards out, so pressing it is a read of the table rather
    than an answer to a cue the server gave — an unpriced one is free to mash and the reaction stops
    being one, and a per-press price would bill the same misread ten times over. Two rather than
    three because the price is only a price while the card stays where it landed: see "The threshold
-   is what keeps the price from being buyable" below.
+   is what keeps the price from being buyable" below. **And the seat that owes the call gets the
+   first 1.5s of its own window** (`CatchHeadStart`): a press inside it is held by the hub and
+   resolved when the head start ends, so nobody's LOCO! can be denied by a thumb that never lets go.
+   See "The head start" below.
 
 ## Scoring & match system
 - `CardValue(c Card) int` (`game/card.go`): Number=face; Reverse=10; Skip=20; DrawTwo=30; Swap=30; GlobalSwitch=40; WildCard=40; WildDrawFour=50. Matches `docs/rules.md` §10.
@@ -337,12 +342,12 @@ won, and a one-card hand had made them finishes by accident.
     three.** A card is a punishment only while it stays in the hand that drew it: a player holding a
     Swap or a Global Switch is about to hand their whole hand to somebody else, so a penalty they
     *chose* to take is ammunition, and the round's scoring pays them for it twice — the big hand
-    leaves, and it lands on the seat that was about to win. The rationing by `PlayEpoch` bounds the
-    *rate* of that (one card per card played) but not its *direction*, and the rate is worse the
-    bigger the table: a full turn at four seats is three or four epochs, i.e. three or four cards, a
-    good deal faster than the voluntary draw (deviation 4) which is the legitimate way to fatten a
-    hand at one card per turn of your own. Worse, the cards it hands over are what make the Swap
-    likelier to be there in the first place, so the penalty finances its own profitability.
+    leaves, and it lands on the seat that was about to win. The rationing (once per offer, and it
+    used to be once per card played) bounds the *rate* of that but not its *direction*, and per card
+    played the rate was worse the bigger the table: a full turn at four seats was three or four
+    cards, a good deal faster than the voluntary draw (deviation 4) which is the legitimate way to
+    fatten a hand at one card per turn of your own. Worse, the cards it hands over are what make the
+    Swap likelier to be there in the first place, so the penalty finances its own profitability.
     - The fix is at the offer, not at the price. From **two** cards the window is one ordinary play
       away, so the miss is the thumb that had already committed when the seat drew instead of
       playing — a spasm, which is what a missed reaction is supposed to be. From **three** it needs
@@ -352,15 +357,47 @@ won, and a one-card hand had made them finishes by accident.
     - The criterion, if this is ever re-tuned: **a failed Contre-LOCO! must never be a faster source
       of cards than the voluntary draw**, and the wager must never be offered for longer than it can
       plausibly pay off.
-  - **The price is per card played, not per press** (`GameState.PlayEpoch`, `CatchPenaltyEpoch`).
-    `pushDiscard` is the only way a card reaches the pile and it moves the epoch on; a seat is
-    charged once per epoch, and `PenalizeFailedCatch` returns `charged=false` for every press after
-    that, which `hub.penalizeFailedCatch` answers with silence — no card, no broadcast, no notice.
-    Two reasons, and the second is the one that matters: a game that billed each press would be
-    taxing the reflex it spends the whole match asking for, and a table-wide `catch_failed` per
-    press is the amplification `catchGrace` was written to stop, back at ten messages a second.
-    A press that *lands* does not spend the epoch, so a Swap that puts two seats on one card can
-    still be answered twice.
+  - **The price is per offer, not per press and not per card played** (`catchOfferKey`,
+    `GameState.CatchPaidFor`). The offer is the near-finish picture the button is live for, as seen
+    from the catcher's chair: every *other* seat on exactly two cards, and every other seat on its
+    last card with the instant its window opened. A seat is charged once per key, and
+    `PenalizeFailedCatch` returns `charged=false` for every press after that, which
+    `hub.penalizeFailedCatch` answers with silence — no card, no broadcast, no notice. Two reasons
+    as before: a game that billed each press would be taxing the reflex it spends the whole match
+    asking for, and a table-wide `catch_failed` per press is the amplification `catchGrace` was
+    written to stop. **It used to be per card played (`PlayEpoch`), and that was the farm**: a
+    catcher pressed against a seat sitting on two, played a card of their own, and pressed again —
+    two cards a turn off one opponent, faster than the voluntary draw, and every card of it stocked
+    a hand for a Swap to hand on. The catcher's own play is deliberately not in the key, and neither
+    is a card played from far out by anybody else; what moves the key is the near seat moving (down
+    to one, which opens a window; back up, which ends the offer) or another seat arriving at two.
+    A press that *lands* spends no key, so a Swap that puts two seats on one card can still be
+    answered twice.
+  - **And only while something is offered** (`Room.CatchOffered`, `catchNearHand`): a press against
+    a table where no other seat is on two cards or on a last card inside `catchWindow + catchGrace`
+    is not a wager. It is a board that moved under a thumb — the seat drew a moment before the
+    press landed — or a client this game did not write, and neither is charged, answered or
+    counted: `handleCatchUno` returns before it names anybody. Charged, it was the farm reopened by
+    the back door to anybody forging the message; refused with a toast, it scolded a player whose
+    button had been live a round trip earlier. The client's threshold (`CATCH_LIVE_MAX_HAND`) and
+    this are the same shape on two sides of the wire, and `catchAvailability.test.ts` and
+    `room_test.go`'s `PenalizeFailedCatch` cases pin each side.
+  - **The head start** (`CatchHeadStart`, 1.5s, `ErrCatchTooEarly`, `hub.holdCatch` /
+    `resolveHeldCatch`, `table.heldCatches`). A catch that would land inside the first 1.5s of the
+    target's window is neither landed nor refused: the domain answers `ErrCatchTooEarly` *after*
+    every check that could make the press a miss — a press that is early and wrong is charged now,
+    not held and charged later — and the hub holds it, one per catcher per window (the key carries
+    `LastCardAt`, so a window reopened underneath it drops the press rather than landing it on the
+    next), and posts it back to the table at `CatchHeadStartEnd` through `resolveCatch`, the same
+    road a live press takes. It lands if the seat is still silent, costs its card if the seat spoke,
+    and several catchers resolve in arrival order because the table's box is FIFO. Before it, a
+    catcher holding the button down landed on the millisecond the card touched the pile, before
+    the seat's LOCO! could have crossed the wire: spamming Contre-LOCO! was the way to deny every
+    declaration at the table. 1.5s is a thumb's trip from the card played to the LOCO! chip plus a
+    round trip; the bots' `BotCatchDelay` sits at more than twice that and `scheduleBotCatch` clamps
+    to the head start anyway, so a test that lowers the delay cannot make a bot the spammer.
+    `catch_window_test.go` owns the domain half (`catchTime()` is how every test that catches on a
+    window it just opened gets past the head start), `hub/catch_headstart_test.go` the hold.
   - `catchRaceRecent` still separates the two kinds of failure, and it still matters even though
     both now cost the same card: the target's window must have opened inside
     `catchWindow + catchGrace` (5s + 2s) for the call to count as a lost race, and outside that it
@@ -393,11 +430,12 @@ won, and a one-card hand had made them finishes by accident.
   The window itself stays open — it is still somebody else's obligation, and another player can still
   take it — and **the button stays pressable**, because greying out under a thumb already on it is
   the one thing the action bar exists not to do.
-- **`store.catchSpent` is the client's copy of `PlayEpoch`**, cleared by `applyCardPlayed`. It gates
-  the *blind* press only: with a target named, the press always goes. Without it, the second tap of a
-  double tap on a catch that landed would leave naming nobody, and the server would read it as a
-  fresh wager against a window that had just shut — a card, charged in the same breath as the win.
-  The server's guard would not have caught that one: a successful catch does not spend the epoch.
+- **`store.catchSpent` is the client's copy of the server's ration**, cleared by `applyCardPlayed`,
+  the one event that can put a new offer on the table. It gates the *blind* press only: with a
+  target named, the press always goes. Without it, the second tap of a double tap on a catch that
+  landed would leave naming nobody, and the server would read it as a fresh wager against a window
+  that had just shut — a card, charged in the same breath as the win. The server's guard would not
+  have caught that one: a successful catch spends no offer.
 - `store.catchFailed { seat, at }` (set by `applyCatchFailed`) drives a red pill in `<GameView />`,
   auto-cleared after `CATCH_FAIL_NOTICE_MS=2800`, plus the `penalty` sting in `soundsForTransition`.
   The penalty reads as an ordinary draw otherwise, which is exactly the wrong story: the card was a
@@ -437,37 +475,39 @@ won, and a one-card hand had made them finishes by accident.
   - **`myDeclared`**, our own seat, which spends the LOCO! chip. It is **derived** by
     `deriveCatchMiddleware` like `catchTarget`, for the same reason: an action that forgets to clear
     it leaves a dead button over an obligation the player still owes, and nothing fails.
-  - **`isCatchLive` deliberately does not.** It reads hand sizes and our own seat, and a declaration
-    the table has heard is not allowed to reach it. The button answers "is a seat near the finish",
-    never "is somebody catchable", and the gap between the two questions is where the mechanic
-    lives: a control that went dead the moment the last opponent called it would **report that call**
-    to a player who was not listening for it, which is the listening the game is asking them to do,
-    and it would refuse the press §14.6 exists to charge for — the thumb already on its way down when
-    the seat shouted. That press is the spasm the wager is made of. Guaranteeing it can never be
-    further than one ordinary play from paying off is `CATCH_LIVE_MAX_HAND`'s job and the whole of
-    it; whether it pays *this* time is the player's read, and the interface must not answer it.
-    (`catchAvailability.test.ts` pins the seat on a declared single card as **live**.)
-  - **Absence of a window is not a declaration either**, and it must reach the button even less: catch
-    seats ride `card_played` only, so a reloaded tab holds none of them and would find a button that
-    read them grey over a table it could still catch.
-- **And the button is latched, because the same argument outlives the roster** (`nextCatchLive`,
-  `store.catchLive`). Keeping the declaration out of `isCatchLive` closed one way the interface could
-  retract the offer under a committed thumb; a hand size closes the rest of them. A seat leaves the
-  band without anybody playing a card in four ways — it calls it, it draws, it swallows a stack of
-  four, or a Contre-LOCO! lands on it and its hand grows by two — and each is precisely the moment
-  the bet is already made. Read as a photograph of the roster the button dies in that instant, which
-  is the interface making the read on the player's behalf and, worse, making it in their favour: the
-  spasm §14.6 charges for would be silently refunded, and "he drew instead" would stop being
-  something that can happen to you.
-  - So liveness **rises** on the roster and is **put back down by the board moving on**, by nothing
-    else. Two writes lower it, `applyCardPlayed` and `applyGameState`, and the store's middleware
-    raises it wherever `players` or `myIndex` move, so no action can forget either half.
-  - **The latch is what makes the bound possible, and the bound is the point.** An offer that never
-    expired could be held open and farmed a card at a time by a player stocking a hand up for a Swap
-    to hand off — the original abuse, arriving by another door. The card that lands ends the hold and
-    the roster is read again from nothing, so the wager is made on one board and never carried to the
-    next. `catchDerivation.test.ts` owns both halves; `penalties.spec.ts` plays the whole shape out
-    against a real server, catch included.
+  - **`isCatchLive` deliberately does not.** It reads hand sizes, our own seat and the clock, and a
+    declaration the table has heard is not allowed to reach it. The button answers "is a seat near
+    the finish", never "is somebody catchable", and the gap between the two questions is where the
+    mechanic lives: a control that went dead the moment the last opponent called it would **report
+    that call** to a player who was not listening for it, which is the listening the game is asking
+    them to do, and it would refuse the press §14.6 exists to charge for — the thumb already on its
+    way down when the seat shouted. That press is the spasm the wager is made of. So a declared seat
+    stays offered until its window ends, and goes dark **when the window does** — a clock that runs
+    the same whether the seat spoke or not, and so reports nothing.
+    (`catchAvailability.test.ts` pins the seat on a declared single card as **live** inside its
+    window and **dead** past it.)
+  - **The clock is `store.onHookUntil`**, seat → the window end the server sent in `catch_seats`,
+    written by `applyCardPlayed` and `applyGameState` (`updateOnHook`) and read against the roster.
+    It is a separate structure from `catchWindows` on purpose: those are retired by `uno_declared`,
+    `uno_caught` and a draw, because they drive the *armed* cue, and the clock must survive all
+    three. A reloaded tab holds no clock, so a last card the snapshot does not name is dark there —
+    the one reading a tab that was not listening can honestly give.
+  - **Absence of a window is not a declaration either**, and it must reach the armed cue even less:
+    catch seats ride `card_played` only, so a reloaded tab holds none of them.
+- **And there is no latch any more** (`isCatchLive` + `catchLiveUntil`, derived by
+  `deriveCatchMiddleware`; `GameView` arms one timer on `store.catchLiveUntil` and calls
+  `rereadCatchLive`, which is a write naming `catchLive` and nothing else, enough to come back
+  through the derivation). The button used to be held live from the moment it rose until the next
+  card played, on the argument that a seat escaping — calling it, drawing, swallowing a stack of
+  four — was the instant a betting thumb had already committed, and a control retracting there was
+  the interface making the read for the player. The argument was right about the thumb and wrong
+  about the price: held, the offer was **farmed**. Press against a seat on two, watch it draw to
+  three, wait for anybody to play, press again — a card a play, collected on purpose, for a Swap to
+  hand on. That is the abuse the latch's own bound was written against, arriving by the door the
+  latch opened. So the button is a photograph again: it rises on the roster and the clock and falls
+  on either, and the committed thumb is answered on the server by silence (`CatchOffered`), never by
+  a card. `catchDerivation.test.ts` owns both halves; `penalties.spec.ts` plays the whole shape out
+  against a real server, catch included.
 - **`applyGameState` filters catch windows, it does not wipe them.** Swap and GlobalSwitch are
   followed by a personalised `game_state`, so clearing there made the exact rule this exists for
   unreachable: the player handed their last card was catchable for a few milliseconds and then

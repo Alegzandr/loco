@@ -277,6 +277,24 @@
     return () => clearTimeout(id)
   })
 
+  // The centre button runs on a clock as well as on the roster: a seat on its
+  // last card is offered until its window runs out, and then the button goes
+  // dark whether or not the seat spoke. Nothing arrives at that instant, so the
+  // store is asked to read again. One timer, to an absolute deadline, and the
+  // action read off the store for the reason the prune above gives.
+  $effect(() => {
+    const until = g.catchLiveUntil
+    if (until === null) return
+    const remaining = until - Date.now()
+    const reread = gameStore.getState().rereadCatchLive
+    if (remaining <= 0) {
+      reread()
+      return
+    }
+    const id = setTimeout(reread, remaining)
+    return () => clearTimeout(id)
+  })
+
   // Three pieces of table news that take themselves off screen. The swap notice's
   // matching trail animation lives in <GameBoard /> (keyed by swapNotice.at), and
   // the refusal is deliberately the shortest of the three.

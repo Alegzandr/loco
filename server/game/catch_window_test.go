@@ -12,6 +12,65 @@ import (
 // used to be charged, announced to the whole table, and — once the piles ran
 // dry and the penalty draw came back empty — free.
 
+// catchTime is "now" for a Contre-LOCO! that is meant to land: past the head
+// start of a window opened this instant. Every test that opens a window and
+// catches on it in the same breath goes through here, because a press inside
+// the head start is held rather than answered (ErrCatchTooEarly).
+func catchTime() time.Time {
+	return time.Now().Add(CatchHeadStart)
+}
+
+// The head start. A catcher holding the button down used to land the catch on
+// the millisecond the card touched the pile, before the seat's own LOCO! could
+// have crossed the wire — which made spamming the button the way to deny every
+// declaration at the table. The seat that owes the call always gets the opening
+// stretch of its own window.
+func TestCatchUndeclared_InsideTheHeadStartIsHeldNotAnswered(t *testing.T) {
+	r := twoSeatRoom(t, 3, 1)
+	r.State.openCatchWindow(1)
+
+	err := r.CatchUndeclared(0, 1, time.Now())
+	if !errors.Is(err, ErrCatchTooEarly) {
+		t.Fatalf("want ErrCatchTooEarly, got %v", err)
+	}
+	if IsMissedCatch(err) {
+		t.Fatal("an early press is not a miss: nothing about it is charged")
+	}
+	if r.State.Hands[1].Size() != 1 || r.State.LastCardDeclared[1] {
+		t.Fatal("an early press must touch nothing")
+	}
+	// The same press, re-run when the head start ends, lands.
+	if err := r.CatchUndeclared(0, 1, r.State.CatchHeadStartEnd(1)); err != nil {
+		t.Fatalf("the instant the head start ends the catch lands: %v", err)
+	}
+	if got := r.State.Hands[1].Size(); got != 1+undeclaredPenalty {
+		t.Fatalf("penalty not applied: hand %d", got)
+	}
+}
+
+// The head start protects the declaration, not the wager: a seat that speaks
+// inside it makes the early press a lost race, answered — and charged — now
+// rather than held and charged later.
+func TestCatchUndeclared_DeclaredInsideTheHeadStartIsARaceLostNow(t *testing.T) {
+	r := twoSeatRoom(t, 3, 1)
+	r.State.openCatchWindow(1)
+	if err := r.DeclareLastCard(1); err != nil {
+		t.Fatalf("declare: %v", err)
+	}
+	err := r.CatchUndeclared(0, 1, time.Now())
+	if !errors.Is(err, ErrAlreadyDeclared) {
+		t.Fatalf("want ErrAlreadyDeclared, got %v", err)
+	}
+}
+
+// The bots' delay sits past the head start with room to spare, or a table of
+// bots would be the spammer the head start was written against.
+func TestCatchHeadStart_IsShorterThanTheWindow(t *testing.T) {
+	if CatchHeadStart >= catchWindow {
+		t.Fatalf("head start %v leaves nothing of the %v window to catch in", CatchHeadStart, catchWindow)
+	}
+}
+
 // twoSeatRoom deals a room and hands back its state, with every seat holding
 // the number of cards the caller asked for.
 func twoSeatRoom(t *testing.T, sizes ...int) *Room {
@@ -39,7 +98,7 @@ func TestCatchUndeclared_SeatThatWasNeverOnTheHook(t *testing.T) {
 	r := twoSeatRoom(t, 3, 5)
 	// Seat 1 holds five cards and has never played down to one: its LastCardAt
 	// is the zero value, so nothing about it was ever catchable.
-	err := r.CatchUndeclared(0, 1, time.Now())
+	err := r.CatchUndeclared(0, 1, catchTime())
 	if !errors.Is(err, ErrNoCatchWindow) {
 		t.Fatalf("want ErrNoCatchWindow, got %v", err)
 	}
@@ -57,7 +116,7 @@ func TestCatchUndeclared_LongClosedWindowIsNotARace(t *testing.T) {
 	// client stopped drawing the button when it did.
 	r.State.LastCardAt[1] = time.Now().Add(-time.Minute)
 
-	err := r.CatchUndeclared(0, 1, time.Now())
+	err := r.CatchUndeclared(0, 1, catchTime())
 	if !errors.Is(err, ErrNoCatchWindow) {
 		t.Fatalf("want ErrNoCatchWindow, got %v", err)
 	}
@@ -85,7 +144,7 @@ func TestCatchUndeclared_OpenWindowStillCatches(t *testing.T) {
 	r := twoSeatRoom(t, 3, 1)
 	r.State.openCatchWindow(1)
 
-	if err := r.CatchUndeclared(0, 1, time.Now()); err != nil {
+	if err := r.CatchUndeclared(0, 1, catchTime()); err != nil {
 		t.Fatalf("an open window must still be catchable: %v", err)
 	}
 	if got := r.State.Hands[1].Size(); got != 1+undeclaredPenalty {
@@ -100,7 +159,7 @@ func TestCatchUndeclared_DeclaredInsideTheWindowIsStillARace(t *testing.T) {
 		t.Fatalf("declare: %v", err)
 	}
 
-	err := r.CatchUndeclared(0, 1, time.Now())
+	err := r.CatchUndeclared(0, 1, catchTime())
 	if !errors.Is(err, ErrAlreadyDeclared) {
 		t.Fatalf("want ErrAlreadyDeclared, got %v", err)
 	}
@@ -113,7 +172,7 @@ func TestCatchUndeclared_CatcherOutOfRange(t *testing.T) {
 	r := twoSeatRoom(t, 3, 1)
 	r.State.openCatchWindow(1)
 
-	if err := r.CatchUndeclared(9, 1, time.Now()); err == nil {
+	if err := r.CatchUndeclared(9, 1, catchTime()); err == nil {
 		t.Fatal("a catcher this deal has no hand for must be refused, not indexed")
 	}
 }

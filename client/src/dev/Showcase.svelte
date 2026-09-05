@@ -74,10 +74,9 @@
       unoDeclared: false,
       unoDeclaredByIndex: -1,
       catchTarget: null,
-      // The centre button is latched: once awake it stays awake until a card is
-      // played, so without this a scene inherits the previous scene's live
-      // button and shoots a table nobody is near the finish at with a pressable
-      // Catch. Put down here; the store raises it again off this scene's roster.
+      // The centre button's clock is per seat; a scene starts it from nothing
+      // and the store reads the button off this scene's roster.
+      onHookUntil: {},
       catchLive: false,
       unoTimerEnd: null,
       turnDeadline: null,
