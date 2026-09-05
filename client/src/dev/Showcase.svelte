@@ -137,6 +137,11 @@
         patch.onHookUntil = { [target]: endsAt }
       }
     }
+    // Our own lockout, seeded the way the server seeds one: an absolute instant,
+    // which `deriveCatchMiddleware` turns into `catchLocked` and the button
+    // drains to. Setting `catchLocked` on its own would be derived straight back
+    // to false, exactly like `catchTarget` above.
+    if (s.lockedIn !== undefined) patch.catchLockedUntil = Date.now() + s.lockedIn * 1000
     // Same relative-to-now rule as the two above: an emote carries the instant
     // it arrived, which is the key its pop animation is armed on. Restated from
     // now so the shot catches the bubbles settled rather than mid-flight. The

@@ -116,9 +116,35 @@ export function isCatchLive(
   players: PlayerDTO[],
   myIndex: number,
   onHookUntil: OnHookUntil,
+  lockedUntil: number,
   now: number,
 ): boolean {
+  if (isCatchLocked(lockedUntil, now)) return false
   return players.some((p) => offeredBy(p, myIndex, onHookUntil, now))
+}
+
+/**
+ * Whether our own last Contre-LOCO! has put us out of the mechanic for a
+ * moment: the server's lockout, as an absolute instant it sent us
+ * (`catch_locked` / `catch_locked_until`, moved onto our clock like every other
+ * deadline).
+ *
+ * It is the half of the price a held thumb pays. The card is rationed per
+ * *offer*, so after the first one every later press against the same
+ * near-finish picture was silent and free — and the one that landed on the
+ * frame a window opened took the catch, because a catch that lands spends no
+ * offer. Mashing cost one card and collected every window at the table. The
+ * lockout is rationed per *press* instead: every call that finds nobody arms
+ * it, every press made while it runs re-arms it, so a button held down is never
+ * live at the instant a window opens, and a single aimed press pays it once and
+ * has the rest of the window back.
+ *
+ * Nothing is mirrored here on purpose — no duration, no constant. The server
+ * says when it ends and the button counts that down, so the two cannot drift
+ * and a re-arm is one message rather than a guess.
+ */
+export function isCatchLocked(lockedUntil: number, now: number): boolean {
+  return lockedUntil > now
 }
 
 /**
@@ -144,8 +170,14 @@ export function catchLiveUntil(
   players: PlayerDTO[],
   myIndex: number,
   onHookUntil: OnHookUntil,
+  lockedUntil: number,
   now: number,
 ): number | null {
+  // Locked out: the answer changes when the lock does, whatever the table is
+  // holding. It is the *earliest* of the two — a lock that outlives every
+  // window leaves a dead button that re-reads once and stays dead, which is
+  // the right answer arrived at the right instant.
+  if (isCatchLocked(lockedUntil, now)) return lockedUntil
   let until: number | null = null
   for (const p of players) {
     if (p.index === myIndex) continue

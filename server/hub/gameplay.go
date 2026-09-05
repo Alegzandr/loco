@@ -300,6 +300,18 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	if !room.CatchOffered(catcher, now) {
 		return
 	}
+	// Still inside the lockout this seat's own last fruitless call armed. The
+	// press wins nothing and costs nothing — and it re-arms the lock, which is
+	// the whole of what a held button buys now: the card is rationed per offer,
+	// so mashing used to be free after the first one and took, for nothing,
+	// every window that happened to open under the thumb. Re-armed per press,
+	// a thumb that never lets go is never live when one opens. The caller is
+	// told when it ends, so its own countdown restarts and the dead button says
+	// why it is dead; the table hears nothing.
+	if room.CatchLocked(catcher, now) {
+		h.lockCatch(t, catcher, now)
+		return
+	}
 	// Nobody is on the hook and the client said so by naming no seat. That is not
 	// a bug: the button is live from the moment any seat is one play from
 	// finishing, so pressing it into an empty window is the wager the mechanic
@@ -329,6 +341,11 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 		// the same misread as pressing with no seat named at all.
 		case game.IsMissedCatch(err) || errors.Is(err, game.ErrNoCatchWindow):
 			h.penalizeFailedCatch(t, catcher, now)
+		// The domain's own lockout guard, reached only if this seat's lock was
+		// armed between the check above and here. Answered like the check
+		// above: the lock is re-stated to its owner and nobody is charged.
+		case errors.Is(err, game.ErrCatchLocked):
+			h.lockCatch(t, catcher, now)
 		default:
 			c.sendError(err.Error())
 			c.noteRejection(err)
@@ -349,7 +366,23 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 // that guesses wrong pays the same price, or the two are playing different games.
 func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) {
 	room := t.room
+	// Nothing near the finish at all: there was no wager to lose, so there is
+	// no card and no lockout either. handleCatchUno returns before it gets
+	// here; the bot path arrives through IsMissedCatch, where a window was open
+	// a moment ago and this cannot be true.
+	if !room.CatchOffered(catcherIdx, now) {
+		return
+	}
 	drawn, charged := room.PenalizeFailedCatch(catcherIdx, now)
+	// Every call that finds nobody arms the lockout, charged or not: the card is
+	// rationed per offer and the lockout per press, and it is the second one a
+	// held button pays. Two things about the placement are load-bearing. It is
+	// *after* the charge, because a seat already inside a lockout is charged
+	// nothing and arming first would refund every miss. And it is deferred, so
+	// the answer lands behind the news it is the consequence of: the caller
+	// reads that the call missed, and then for how long the button is theirs to
+	// wait out.
+	defer h.lockCatch(t, catcherIdx, now)
 	// The seat already paid for this offer — or nothing was offered — and the
 	// domain declined to charge it. Nothing happened, so nothing is said: an
 	// answer here would be a second notice for one mistake, and a spammed
@@ -378,6 +411,33 @@ func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) {
 	}
 	h.broadcastToRoomAll(t, msg)
 	h.sendHandGrowth(t, catcherIdx, drawn)
+}
+
+// lockCatch arms — or re-arms — one seat's Contre-LOCO! lockout and tells that
+// seat when it ends (game.catchLockout).
+//
+// Caller-only, deliberately. A lockout is a price the rest of the table has no
+// business rendering, and a press re-arms it, so a broadcast here would be the
+// one gameplay message a held button could turn into table-wide traffic at the
+// rate limiter's ceiling — which is exactly what catchGrace was written to stop.
+// But it must reach the seat itself, on every press: the button has to be able
+// to say how long it stays dead, or a control that goes quiet under a thumb is
+// indistinguishable from one that is broken, and the player would keep pressing
+// — which is the behaviour the lockout exists to make pointless. A bot has no
+// socket and simply carries the lock in the domain.
+func (h *Hub) lockCatch(t *table, catcherIdx int, now time.Time) {
+	until := t.room.LockCatch(catcherIdx, now)
+	if until.IsZero() {
+		return
+	}
+	c := t.client(catcherIdx)
+	if c == nil {
+		return
+	}
+	c.Send(protocol.ServerMsg{
+		Type:             protocol.SMsgCatchLocked,
+		CatchLockedUntil: until.UnixMilli(),
+	})
 }
 
 func (h *Hub) handleCounterDraw(t *table, c *Client, msg protocol.ClientMsg) {

@@ -104,6 +104,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       turnDeadline: null,
       catchWindows: [],
       onHookUntil: {},
+      catchLockedUntil: 0,
       catchLive: false,
       unoDeclared: false,
       unoDeclaredByIndex: -1,

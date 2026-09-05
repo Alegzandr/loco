@@ -45,6 +45,8 @@ export const initialState: GameState = {
   unoTimerEnd: null,
   catchLive: false,
   catchLiveUntil: null,
+  catchLockedUntil: 0,
+  catchLocked: false,
   catchFailed: null,
   catchFlash: null,
   catchSpent: false,

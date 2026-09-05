@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Translations } from '../i18n/en'
+  import { drainBar } from '../hooks/drainBar.svelte'
   import { pressToAct } from './press'
 
   type Props = {
@@ -35,6 +36,23 @@
      */
     catchPending: boolean
     /**
+     * True while our own last Contre-LOCO! has us locked out of the mechanic
+     * (`game.catchLockout`). It is one of the reasons `catchLive` is false, and
+     * the only one the player caused: the card a missed call costs is rationed
+     * per offer, so mashing used to be free after the first one and took, for
+     * nothing, whichever window happened to open under the thumb. The lockout
+     * is rationed per press instead, which is why the button has to *say* it —
+     * a control that goes quiet without a reason is one the player keeps
+     * pressing, and pressing is exactly what re-arms it.
+     */
+    catchLocked: boolean
+    /**
+     * When that lockout ends, absolute on our own clock. The bar under the
+     * padlock drains to it, so the player can wait it out instead of guessing,
+     * and a press made in the meantime pushes it out again.
+     */
+    catchLockedUntil: number
+    /**
      * True once we have already called it on the card we hold. A declaration is
      * spent — the server refuses the second one — so the button must stop asking.
      */
@@ -55,6 +73,8 @@
     catchArmed,
     catchLive,
     catchPending,
+    catchLocked,
+    catchLockedUntil,
     hasDeclared,
     onDraw,
     onPass,
@@ -85,6 +105,20 @@
   // outside our turn neither is ours to take.
   const canDraw = $derived(isMyTurn && !hasDrawn)
   const canPass = $derived(isMyTurn && pendingDraw === 0 && hasDrawn)
+
+  // The lockout's own countdown, drained on the compositor like every other
+  // window in this game: the element is handed one CSS animation whose duration
+  // is what is left, and nothing here re-renders while it runs. `'auto'`
+  // anchors "full" to whatever remained when the deadline arrived, which for a
+  // lock is its whole length — and a press that re-arms it hands over a new
+  // deadline, so the bar starts over at full rather than resuming somebody
+  // else's clock.
+  let lockFill = $state<HTMLSpanElement | null>(null)
+  drainBar(
+    () => lockFill,
+    () => (catchLocked ? catchLockedUntil : null),
+    'auto',
+  )
 </script>
 
 <!--
@@ -135,14 +169,50 @@
          shown here and now; everything after it — the stamp, the penalty, the
          card drawn for a miss — waits for the server, and the round trip is
          the network's, not this button's to hide. -->
+    <!-- And locked, for a couple of seconds, whenever our own last call found
+         nobody. That state is drawn rather than merely dead: `:disabled`
+         already cuts the button into the bar like every other unavailable
+         control, and on top of it go a padlock and a bar draining to the
+         instant the server named. The reason is the mechanic itself — the
+         lockout is what a held thumb pays, and a player who cannot see it is a
+         player who keeps pressing and keeps pushing it out.
+
+         It also takes the halo off. `catchArmed` says somebody at the table
+         owes a call, which stays true while we are locked out of answering it,
+         and a control that pulses over a press it will refuse is the one lie a
+         reaction bar cannot afford. The capsule above still names the window:
+         the opening is real, it is just not ours this time. -->
     <button
       class="btn btnCatch"
-      class:armed={catchArmed}
+      class:armed={catchArmed && !catchLocked}
       class:called={catchPending}
       use:pressToAct={onCatch}
       disabled={!catchLive}
+      aria-label={catchLocked ? t.catchLockedLabel : undefined}
     >
-      {t.catchBtn}
+      <span class="catchFace">
+        {#if catchLocked}
+          <!-- Drawn, like every glyph in this game: a shackle stroked in the
+               label's own colour over a solid body, so it reads at 720p and
+               takes the disabled ink without being told to. -->
+          <svg class="lockGlyph" viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M8.2 10.4V7.6a3.8 3.8 0 0 1 7.6 0v2.8"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.4"
+              stroke-linecap="round"
+            />
+            <rect x="4.6" y="10.2" width="14.8" height="10.4" rx="2.8" fill="currentColor" />
+          </svg>
+        {/if}
+        <span class="catchLabel">{t.catchBtn}</span>
+      </span>
+      {#if catchLocked}
+        <span class="lockTrack" aria-hidden="true">
+          <span class="lockFill loco-slide" bind:this={lockFill}></span>
+        </span>
+      {/if}
     </button>
   </div>
 
@@ -320,6 +390,59 @@
     cursor: not-allowed;
     pointer-events: none;
     box-shadow: inset 0 2px 0 var(--color-stroke-soft);
+  }
+
+  /* Locked Contre-LOCO!. Everything that makes it look dead is already
+     `.btn:disabled` above — sunken fill, hairline outline, hard shadow inside
+     the top edge — because a locked button is a dead button with a reason, not
+     a fourth kind of object. What is added is the reason: the padlock, and the
+     bar that says how much of it is left.
+
+     The bar is inside the pill and clips itself: `.btn` deliberately carries no
+     `overflow: hidden` (it would cut the hit targets and the halos off every
+     other control), so the track owns the rounding and the fill slides out of
+     it. `loco-slide` rather than a scale, like every other countdown here — the
+     fill is drawn back out of its slot instead of being squashed flat. */
+  .catchFace {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .catchLabel {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .lockGlyph {
+    width: 15px;
+    height: 15px;
+    flex: none;
+    /* The shackle is stroked and the body filled, both in the label's colour,
+       so the glyph follows `--color-disabled-ink` without naming it. */
+    color: inherit;
+  }
+
+  .lockTrack {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 6px;
+    height: 4px;
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    background: var(--color-hairline);
+    pointer-events: none;
+  }
+
+  .lockFill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--color-disabled-ink);
   }
 
   /* Draw button — primary */

@@ -144,6 +144,8 @@ export interface Scene {
   deadlineIn?: number
   /** Seconds left in the UNO catch window. */
   unoIn?: number
+  /** Seconds left on our own Contre-LOCO! lockout (`game.catchLockout`). */
+  lockedIn?: number
   overlay?: SceneOverlay
   /** Lobby sub-screen: drives Lobby's internal mode. */
   lobbyMode?: 'home' | 'find' | 'bot' | 'create' | 'join'
@@ -706,6 +708,30 @@ export const SCENES: Scene[] = [
       players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
     },
     unoIn: 1.8,
+    deadlineIn: 16,
+  },
+  {
+    // The fourth reading of the centre button, and the one the player caused: a
+    // call that found nobody has locked us out of the mechanic for a couple of
+    // seconds (`game.catchLockout`). Pixel's window is still running above —
+    // the capsule says so — and the button under it is a padlock over a bar
+    // draining, because the opening is real and simply not ours this time.
+    // Review it beside `game-catch-failed`: the two are one beat apart, and
+    // they must not read as the same dead button.
+    id: 'game-catch-locked',
+    title: 'Partie · Contre-LOCO! verrouillé',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      // Deliberately *not* `catchSpent`: the button is dead for one reason
+      // here, and the capsule above it is up, so the scene is the lockout and
+      // nothing else.
+      catchTarget: 3,
+      players: [player(0, 'Nova', 6), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    unoIn: 3.4,
+    lockedIn: 1.4,
     deadlineIn: 16,
   },
   {

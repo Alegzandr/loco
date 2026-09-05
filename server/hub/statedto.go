@@ -212,6 +212,22 @@ func (h *Hub) playerGameStateWith(t *table, playerIdx int, players []protocol.Pl
 		InterruptOpen: state.InterruptOpen,
 		CatchSeats:    shared.catchSeats,
 		DeclaredSeats: shared.declared,
-		StreamerMode:  t.streamerMode,
+		// The one catch field that is not shared: a lockout belongs to the seat
+		// that earned it, and the rest of the table has no business rendering
+		// it. Past instants go out as they are — the client reads it against
+		// the clock like every other deadline, and an expired one is simply not
+		// a lock any more.
+		CatchLockedUntil: catchLockedMs(room, playerIdx),
+		StreamerMode:     t.streamerMode,
 	}
+}
+
+// catchLockedMs is one seat's Contre-LOCO! lockout as a wire instant, 0 when
+// the seat never earned one. See game.catchLockout.
+func catchLockedMs(room *game.Room, seat int) int64 {
+	at := room.CatchLockedAt(seat)
+	if at.IsZero() {
+		return 0
+	}
+	return at.UnixMilli()
 }

@@ -9,16 +9,33 @@ import (
 	"loco/server/protocol"
 )
 
-// A Contre-LOCO! is answered on the instant it arrives, and what keeps the
-// button from being mashed is that only the first press against an offer is
-// charged. Both halves are here: the press that would once have been held for
-// the opening 1.5s of the window now lands straight away, and six presses in a
-// row cost exactly one card.
+// A Contre-LOCO! is answered on the instant it arrives, and two rations keep
+// the button from being mashed: the card is charged once per offer, and the
+// lockout is armed once per press. All of it is here — the press that would
+// once have been held for the opening 1.5s of the window now lands straight
+// away, six presses in a row cost exactly one card, and a thumb that never
+// lets go is never live when a window opens.
 
 // playDownToOne has the active seat play to a single card without calling it,
 // and hands back which socket owes the call, which one can catch, and the
 // seats behind each.
 func playDownToOne(t *testing.T, srv *httptest.Server) (activeConn, catcherConn *websocket.Conn, activeIdx, catcherIdx int) {
+	t.Helper()
+	activeConn, catcherConn, activeIdx, catcherIdx = seatOneCardAway(t, srv)
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, activeConn, protocol.SMsgCardPlayed)
+	readMsgOfType(t, catcherConn, protocol.SMsgCardPlayed)
+	return activeConn, catcherConn, activeIdx, catcherIdx
+}
+
+// seatOneCardAway stops one play short of that: the seat at turn holds exactly
+// catchNearHand cards, so a Contre-LOCO! from the other chair is offered — the
+// button is live — and there is nothing yet to catch. It is the board a wager
+// is lost on, and the one a masher is sitting on when the window opens.
+func seatOneCardAway(t *testing.T, srv *httptest.Server) (activeConn, catcherConn *websocket.Conn, activeIdx, catcherIdx int) {
 	t.Helper()
 	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
 	// Whose turn it is decides who plays down to one.
@@ -42,12 +59,6 @@ func playDownToOne(t *testing.T, srv *httptest.Server) (activeConn, catcherConn 
 	})
 	readMsgOfType(t, activeConn, protocol.SMsgGameState)
 	readMsgOfType(t, catcherConn, protocol.SMsgGameState)
-	sendMsg(t, activeConn, protocol.ClientMsg{
-		Type: protocol.CMsgPlayCard,
-		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
-	})
-	readMsgOfType(t, activeConn, protocol.SMsgCardPlayed)
-	readMsgOfType(t, catcherConn, protocol.SMsgCardPlayed)
 	return activeConn, catcherConn, activeIdx, catcherIdx
 }
 
@@ -110,11 +121,10 @@ func TestCatchUNO_DeclaringFirstBeatsThePress(t *testing.T) {
 	}
 }
 
-// Holding the button down is one press, and this is the whole of what stands
-// between the mechanic and a mashed button now that nothing delays a press.
-// Six presses against one offer cost one card: the second and the tenth change
-// nothing, are broadcast to nobody and are answered to nobody, so a spammer
-// buys exactly what one honest reflex bought.
+// Holding the button down is one press as far as the card is concerned: six
+// presses against one offer cost exactly one, and every later one is broadcast
+// to nobody. What each of them *does* buy is another two seconds of lockout,
+// answered to its sender alone — the whole of what a mashed button pays now.
 func TestCatchUNO_SpamAgainstOneOfferIsOneCard(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	_, srv := newTestHub(t)
@@ -125,16 +135,98 @@ func TestCatchUNO_SpamAgainstOneOfferIsOneCard(t *testing.T) {
 	readMsgOfType(t, activeConn, protocol.SMsgUnoDeclared)
 	readMsgOfType(t, catcherConn, protocol.SMsgUnoDeclared)
 
-	for i := 0; i < 6; i++ {
+	const presses = 6
+	for i := 0; i < presses; i++ {
 		sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
 	}
 
-	if failed := readMsgOfType(t, catcherConn, protocol.SMsgCatchFailed); failed.Seat() != catcherIdx {
-		t.Errorf("catch_failed PlayerIndex = %d, want the catcher %d", failed.Seat(), catcherIdx)
+	// Everything the six presses produced, drained until the socket goes quiet.
+	// The card is charged once; the rest is the lockout, and nothing else may
+	// be in there at all.
+	var failed, drawn, locked int
+	catcherConn.SetReadDeadline(time.Now().Add(600 * time.Millisecond))
+	for {
+		var msg protocol.ServerMsg
+		if err := catcherConn.ReadJSON(&msg); err != nil {
+			break
+		}
+		switch msg.Type {
+		case protocol.SMsgCatchFailed:
+			failed++
+			if msg.Seat() != catcherIdx {
+				t.Errorf("catch_failed PlayerIndex = %d, want the catcher %d", msg.Seat(), catcherIdx)
+			}
+		case protocol.SMsgCardDrawn:
+			drawn++
+		case protocol.SMsgCatchLocked:
+			locked++
+			if msg.CatchLockedUntil <= 0 {
+				t.Error("catch_locked carried no instant to count down to")
+			}
+		default:
+			t.Errorf("a mashed button produced a %q", msg.Type)
+		}
 	}
-	readMsgOfType(t, catcherConn, protocol.SMsgCardDrawn)
-	catcherConn.SetReadDeadline(time.Now().Add(400 * time.Millisecond))
-	if _, _, err := catcherConn.ReadMessage(); err == nil {
-		t.Error("six presses against one offer were charged more than once")
+	if failed != 1 || drawn != 1 {
+		t.Errorf("six presses against one offer: %d charges and %d cards, want 1 and 1", failed, drawn)
+	}
+	// One per press, and that is the point: a held thumb keeps pushing its own
+	// deadline out, so it is never live at the instant a window opens.
+	if locked != presses {
+		t.Errorf("the caller was told about %d lockouts, want one per press (%d)", locked, presses)
+	}
+}
+
+// The exploit the lockout closes, played out end to end. A catcher mashes the
+// button while a seat sits one card from the finish: the first press costs a
+// card, and every later one used to be free and silent — so the one that landed
+// on the frame the window opened took the catch for nothing, because a catch
+// that lands spends no offer. Mashing bought every window at the table for one
+// card.
+//
+// Now each of those free presses re-arms a two-second lockout, so the press
+// that arrives with the window is refused: the seat that owed the call gets to
+// make it, which is the reaction this whole mechanic exists to measure.
+func TestCatchUNO_MashingCannotTakeTheWindowItOpensOn(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+	_, srv := newTestHub(t)
+	activeConn, catcherConn, activeIdx, _ := seatOneCardAway(t, srv)
+
+	// The masher's first press: the seat is one play from the finish, so the
+	// button is live and the wager is real, and it finds nobody. One card, and
+	// the lockout that is the point of this test.
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
+	readMsgOfType(t, catcherConn, protocol.SMsgCatchFailed)
+	locked := readMsgOfType(t, catcherConn, protocol.SMsgCatchLocked)
+	if locked.CatchLockedUntil <= 0 {
+		t.Fatal("catch_locked carried no instant to count down to")
+	}
+
+	// The seat plays down to its last card without calling it. This is the
+	// window a mashed button used to collect for free: the press below lands
+	// milliseconds after it opens, long before any human could have declared.
+	sendMsg(t, activeConn, protocol.ClientMsg{
+		Type: protocol.CMsgPlayCard,
+		Card: &protocol.CardDTO{Color: "red", Kind: "number", Value: 7},
+	})
+	readMsgOfType(t, catcherConn, protocol.SMsgCardPlayed)
+
+	sendMsg(t, catcherConn, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &activeIdx})
+
+	// Refused, and told so: the lock is re-stated and nothing is caught. The
+	// seat that owed the call still owes it, which is the reaction this mechanic
+	// exists to measure.
+	if again := readMsgOfType(t, catcherConn, protocol.SMsgCatchLocked); again.CatchLockedUntil < locked.CatchLockedUntil {
+		t.Error("a press inside the lockout moved the deadline backwards")
+	}
+	catcherConn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	for {
+		var msg protocol.ServerMsg
+		if err := catcherConn.ReadJSON(&msg); err != nil {
+			break
+		}
+		if msg.Type == protocol.SMsgUnoCaught {
+			t.Fatal("a press made inside the lockout still took the catch")
+		}
 	}
 }

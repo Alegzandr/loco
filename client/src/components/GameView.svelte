@@ -501,6 +501,8 @@
     catchArmed={g.catchTarget !== null}
     catchLive={catchLive}
     catchPending={g.catchPending}
+    catchLocked={g.catchLocked}
+    catchLockedUntil={g.catchLockedUntil}
     hasDeclared={g.myDeclared}
     onDraw={handleDraw}
     onPass={() => guardDoubleTap('pass', () => onSend({ type: 'pass_turn' }))}

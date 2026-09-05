@@ -15,6 +15,13 @@
  * builder that throws: the entry is kept with a null bitmap and the board falls
  * back to the sky gradient the rig already describes. A client that never
  * answers `map_ready` is the one outcome the gate cannot survive.
+ *
+ * **And that fallback is what the end-to-end suite runs on** (`NO_SCENE`): the
+ * suite opens ~167 tables and asserts nothing about the room — appearance is
+ * `make visual`'s, behaviour is Playwright's — while a headless render costs
+ * 2.2s, 250 requests and 7MB of models *per table*, on a software GPU. The
+ * whole gate is exercised either way: the entry is still built, `map_ready` is
+ * still sent on it, and the board still draws the sky gradient underneath.
  */
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
@@ -47,6 +54,26 @@ const KEEP = 3
 
 const cache = new Map<string, PreparedScene>()
 const inFlight = new Map<string, Promise<PreparedScene>>()
+
+/**
+ * Skip the render and answer the gate with the sky gradient.
+ *
+ * Set by `e2e/playwright.config.ts` on the dev server it owns, never by a
+ * test: a page reaches this suite four ways — the `page` fixture, a bare
+ * `browser.newContext()`, a second tab, an invitation link — and an init
+ * script attached at one of them is a room quietly rendered at the other
+ * three. The dev server is the one thing all four share.
+ *
+ * `import.meta.env.DEV` is the guarantee it can never be on in production:
+ * Vite replaces it with `false`, the constant folds, and the branch below —
+ * with the lazy `import('./render')` inside it — is the only path left.
+ */
+const NO_SCENE = import.meta.env.DEV && import.meta.env.VITE_E2E_NO_SCENE === '1'
+
+/** Test seam: `sceneCache.test.ts` asserts the flag is off unless asked for. */
+export function skipsRender(): boolean {
+  return NO_SCENE
+}
 
 /**
  * The device-pixel size to render a `w × h` CSS-pixel viewport at.
@@ -163,25 +190,30 @@ export function prepareScene(
   const work = (async (): Promise<PreparedScene> => {
     let canvas: HTMLCanvasElement | null = null
     let sprites: Sprite[] = []
-    try {
-      const { renderScene, prepareModels } = await import('./render')
-      onProgress?.(PROGRESS.engine)
-      // The room's models: fetched from this origin once per tab, a stretch of
-      // the bar on a first visit and nothing on a rematch.
-      const models = await prepareModels(spec, (p) => onProgress?.(PROGRESS.engine + p * (PROGRESS.models - PROGRESS.engine)))
-      onProgress?.(PROGRESS.models)
-      // The bar has to be on screen before the main thread is taken for the
-      // build: a `setTimeout(0)` here fired inside the same frame and the bar
-      // was never painted between empty and full.
-      await nextPaint()
-      // The rest of the bar is the render's own phases, each painted before
-      // the next one takes the thread.
-      const out = await renderScene(spec, size, felt, models, tier, (p) => onProgress?.(PROGRESS.models + p * (1 - PROGRESS.models)))
-      canvas = out.frame
-      sprites = out.sprites
-    } catch (err) {
-      // Left null: the sky gradient is the room now.
-      if (import.meta.env.DEV) console.warn('scene render failed', err)
+    // Nothing below is imported, fetched or drawn when the suite asked for
+    // no room: the engine's chunk and the models are behind this line, which
+    // is most of what the skip is worth.
+    if (!NO_SCENE) {
+      try {
+        const { renderScene, prepareModels } = await import('./render')
+        onProgress?.(PROGRESS.engine)
+        // The room's models: fetched from this origin once per tab, a stretch of
+        // the bar on a first visit and nothing on a rematch.
+        const models = await prepareModels(spec, (p) => onProgress?.(PROGRESS.engine + p * (PROGRESS.models - PROGRESS.engine)))
+        onProgress?.(PROGRESS.models)
+        // The bar has to be on screen before the main thread is taken for the
+        // build: a `setTimeout(0)` here fired inside the same frame and the bar
+        // was never painted between empty and full.
+        await nextPaint()
+        // The rest of the bar is the render's own phases, each painted before
+        // the next one takes the thread.
+        const out = await renderScene(spec, size, felt, models, tier, (p) => onProgress?.(PROGRESS.models + p * (1 - PROGRESS.models)))
+        canvas = out.frame
+        sprites = out.sprites
+      } catch (err) {
+        // Left null: the sky gradient is the room now.
+        if (import.meta.env.DEV) console.warn('scene render failed', err)
+      }
     }
     const entry: PreparedScene = { key: sceneKey(spec), size, felt, tier, canvas, sprites, rig }
     remember(k, entry)

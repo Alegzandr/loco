@@ -60,7 +60,9 @@ func TestPenalizeFailedCatch_DryPilesTellOnlyTheCaller(t *testing.T) {
 	if got := len(bystander.send); got != 0 {
 		t.Errorf("the rest of the table was sent %d messages for a penalty nobody paid", got)
 	}
-	if got := len(caller.send); got != 1 {
-		t.Errorf("the caller was sent %d messages, want the one answer their own button asked for", got)
+	// Two, and both are the caller's own business: the penalty nobody paid, and
+	// the lockout every fruitless call arms. The table gets neither.
+	if got := len(caller.send); got != 2 {
+		t.Errorf("the caller was sent %d messages, want the two answers their own button asked for", got)
 	}
 }

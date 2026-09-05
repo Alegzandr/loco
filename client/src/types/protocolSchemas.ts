@@ -113,6 +113,7 @@ export const serverMsgTypeSchema = v.picklist([
   'uno_declared',
   'uno_caught',
   'catch_failed',
+  'catch_locked',
   'interrupt_success',
   'round_end',
   'match_end',
@@ -344,6 +345,13 @@ export const gameStateSchema = v.object({
   // Without it a reload put the LOCO! button back in front of a player whose
   // call was already spent, and the press came back "player already declared".
   declared_seats: v.optional(v.array(v.number())),
+  // CatchLockedUntil is the recipient's own Contre-LOCO! lockout, personalised
+  // like the hand above it and absolute on the server's clock. A snapshot is
+  // how a reloaded tab and a corrected one learn a board, and without this one
+  // they came back with a live button over a press the server refuses in
+  // silence — the one failure the whole mechanic is written around. Zero, and
+  // absent, means not locked. See ServerMsg.CatchLockedUntil.
+  catch_locked_until: v.optional(v.number()),
   // StreamerMode is the host's answer, carried in every snapshot for the same
   // reason MapID is: a tab that reloads mid-match rebuilds the table from this
   // and nothing else, and a table code that comes back readable on a stream is
@@ -476,6 +484,12 @@ export const serverMsgSchema = v.object({
   // it just arms Contre-LOCO! on a tap the server will refuse, or leaves it
   // dark on a seat the player was entitled to catch.
   catch_seats: v.optional(v.array(catchSeatSchema)),
+  // SMsgCatchLocked: unix milliseconds when the recipient's Contre-LOCO!
+  // lockout ends, absolute on the server's clock like every other deadline
+  // here. Zero, and therefore absent, means the seat is not locked — the same
+  // convention TurnDeadline uses, and the reason nothing on this side has to
+  // know how long a lockout lasts.
+  catch_locked_until: v.optional(v.number()),
   // SMsgCardPlayed / SMsgCardDrawn: the authoritative turn state AFTER the
   // event.
   //

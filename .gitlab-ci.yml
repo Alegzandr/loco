@@ -168,10 +168,12 @@ e2e_test:
   image: mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-jammy
   tags:
     - devops
-  # The tests run sequentially inside a job (the suite is stateful, so
-  # `workers` stays at 1); sharding is what parallelises them. `fullyParallel:
-  # true` in playwright.config.ts is what makes the split even — sharding whole
-  # spec files instead gave 27/39/0/21, one job running empty.
+  # One worker inside a job — not because the suite is stateful, it is not,
+  # but because a job is given one share of the runner and four browsers on it
+  # is slower than one. Sharding is what parallelises them here; off CI, where
+  # there is no sharding, playwright.config.ts raises workers instead.
+  # `fullyParallel: true` is what makes the split even — sharding whole spec
+  # files instead gave 27/39/0/21, one job running empty.
   #
   # This is only a win if the runner accepts concurrent jobs — with
   # `concurrent = 1` in the runner's config.toml the shards queue behind each

@@ -296,6 +296,26 @@ says it can. Two more tools now hold the same ceiling independently — `svelte-
 `@astrojs/svelte@9` both declare `typescript: ^5 || ^6` — so this is three votes rather than one.
 The E2E package is held to the same major for one decision rather than two.
 
+## A snapshot is authoritative when it arrives, and never afterwards
+
+Nothing that carries a board may be held and replayed. The server stamps every message and the
+board it describes is true at that instant; holding one back to show it later means showing a table
+that no longer exists, and the round summary is exactly the place that temptation arises — it is up
+for several seconds while the next round is already being dealt underneath.
+
+So **the summary is an overlay, not a pause**. The next round's `game_started` is applied under it,
+`applyGameState` does not touch `showRoundSummary` or `roundWinner`, and `dismissRoundSummary` takes
+the card down and puts **no board back** — there is nothing to put back, because the board under it
+has been current the whole time. Buffering the state instead meant the card came down onto the
+board as it stood when the round ended, and the first message after that corrected it in one frame.
+
+`pendingMatchEnd` is the one thing still buffered, and it is the exception that shows the rule:
+**nothing follows a match end**. There is no later board for it to be stale against.
+
+The `yourTurn` cue is the same rule heard rather than seen (`audio/gameSounds.ts`): it waits for the
+card to come down, because a cue for a turn the player cannot see yet is a cue about a board that is
+behind a card.
+
 ## The realtime path (tap → wire → table)
 Every hop between a player's finger and the other clients' boards is on the critical path of a
 mechanic that is decided by arrival order. Treat a delay added here as a rules change, not as
@@ -377,6 +397,59 @@ polish.
   somebody had drawn was refused and rendered as *"somebody was faster"* on a table where nobody
   had been; the highlight, the tap and the prompt-closing effect all read the flag now.
   `interruptWindow.test.ts`.
+- **A slam batches by itself, so it may only batch what a second copy buys** (`batchForSlam`).
+  An interject is a reaction, so nobody is asked how many copies to send — the client decides, and
+  the answer is per kind: a +2, a +4, a Skip, a Reverse and a Number each gain something real from
+  the second copy (more cards, more seats stepped over, a bigger swing), where **N plain wilds name
+  one colour between them** and the extra ones are simply cards handed away for nothing. So a wild
+  goes out alone, unless the batch empties the hand and takes the round, which is worth any number
+  of them. `game.BotInterrupt` mirrors the same table, because a bot that batched differently would
+  be visibly playing a different game.
+- **Contre-LOCO! is pressable before the server has named anybody**
+  (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`). A control that only unlocks on the
+  server's cue can be *answered* and never *anticipated*, and the window it answers is five seconds:
+  by the time the cue has crossed the wire and the eye has found the button, the press is a
+  reflex to a stimulus rather than a read of the table. So the button goes live on what this client
+  can already see — any *other* seat holding exactly two cards, or any seat whose window is still
+  running — and the wager's price is what keeps that honest (`domain-rules.md`).
+
+  **Two, not three, is the calibration.** From two cards out the window is one ordinary play away,
+  so the read is about the table in front of you. From three it would need an interject of two
+  identical cards, which is a loss a player can *schedule* — and a threshold a player can schedule
+  around is a threshold that makes the price buyable.
+
+  **Hand sizes, our own seat and the clock decide it, and nothing else may.** `isCatchLive`
+  deliberately does not take `declaredSeats`: a button that went dead the moment the last opponent
+  called LOCO! would be **reporting that call** to a player who was not listening for it, which is
+  the one thing the mechanic cannot leak. The clock it reads instead is `store.onHookUntil` — seat →
+  the window end the server sent on `catch_seats`, written by `applyCardPlayed` and
+  `applyGameState`, and kept past the declaration, past the window's retirement from `catchWindows`,
+  and **past the hand growing back out of reach**. So the button dies on the clock alone, and that
+  clock runs the same whether the seat spoke, drew, or swallowed a stack of four.
+
+  That is what makes the *late* press possible at all, and the server charges for exactly the same
+  stretch (`catchOffered`): a control that greys out under a committed thumb is sparing the player a
+  mistake the server would have billed them for either way. **`CATCH_LATE_GRACE_MS` (1s) is
+  deliberately shorter than the server's `catchGrace` (2s), and the difference is the wire** — a
+  press made on the last frame the button is live has a whole second to arrive and still be charged.
+  Longer would be a live button over a wager the server answers with silence; equal would drop the
+  last late press by exactly one network hop. `serverMirrors.test.ts` pins the inequality rather than
+  either number. A reloaded tab holds no clock, so a last card the snapshot does not name is dark
+  there; only the *armed* cue is a promise, and it rides `catchTarget`.
+- **There is no latch: what ends the offer is the clock and never the next card**
+  (`isCatchLive` + `catchLiveUntil`, derived by `deriveCatchMiddleware`; `GameView` arms one timer on
+  `store.catchLiveUntil` and calls `rereadCatchLive`). Held open until the next card landed, the
+  offer was farmable a card at a time: press, watch the seat draw, press again once anybody plays,
+  hand the pile on with a Swap. The timer waits for the window **and its grace**, because the button
+  has to go dark when the server stops charging and not when the bar finishes draining.
+- **`store.catchSpent` is the client's copy of the server's ration**, set by every press and cleared
+  by `applyCardPlayed` — the one event that can put a new offer on the table. It suppresses the
+  *blind* send only, never a press that names a seat. The case it exists for is narrow and real: the
+  second tap of a double tap on a catch that **landed**. A catch that lands spends no offer, so the
+  server's own ration does not cover it, and without this the second tap was a free blind press
+  against a table that had just changed shape. `store.declaredSeats` survives alongside it for
+  `store.myDeclared` — our own seat's LOCO! chip — derived by `deriveCatchMiddleware` rather than
+  written by an action, like everything else that is a function of the board.
 - **A Contre-LOCO! is acknowledged on the frame it is pressed, and the verdict is still the server's.**
   Measured with Playwright against the real Go server (two browsers, a fixture putting one seat on
   one card, a click on the centre button): from the click being dispatched to `uno_caught` applied
@@ -394,11 +467,35 @@ polish.
   nothing about the verdict and disables nothing: a second window after a Swap is still one more
   tap. `gameStore.test.ts` owns the store half, `actionBar.test.ts` the button, and the
   `game-catch-pressed` scene is the state beside `game-catch-window` in the contact sheet.
+- **And the one dead state that explains itself is the lockout.** A call that finds nobody costs a
+  card *and* two seconds of the button (`game.catchLockout`; the reasoning is in
+  [`domain-rules.md`](domain-rules.md), because the rule is the server's). What is this side's is
+  that the player can *see* it: `store.catchLockedUntil` is the absolute instant the server sent,
+  `store.catchLocked` is derived beside `catchLive` off the same clock, and `<ActionBar />` draws
+  the sunken slot every unavailable control wears plus a padlock and a bar draining to that instant
+  (`loco-slide`, on the compositor, nothing re-rendering while it runs).
+
+  It has to say something, and the reason is the mechanic rather than politeness: **every press
+  made inside the lockout re-arms it**, so a button that simply went quiet would be pressed again,
+  and again, by a player with no way of knowing that each press was the thing keeping it dead. The
+  padlock and the drain are what turn a punishment into a thing you can wait out. No digits — a two
+  second countdown reads as "2, 1", where a drain is the same number said the way this game says
+  every other window.
+
+  Two smaller things fall out of it. The **halo comes off** (`class:armed={catchArmed &&
+  !catchLocked}`): a seat can owe the table a call while we are locked out of answering it, and a
+  control that pulses over a press it will refuse is the one lie a reaction bar cannot afford — the
+  capsule above still names the window, because the opening is real and simply not ours. And
+  `catchLiveUntil` becomes **the lock's own end** while it runs, so `GameView`'s single timer brings
+  the button back on the clock rather than on the next message: a lock is two seconds and a quiet
+  table is longer than that. `catchAvailability.test.ts`, `catchDerivation.test.ts` and
+  `actionBar.test.ts` own the three halves; the scene is `game-catch-locked`.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ### Every deadline is on the server's clock, and the client has to know how far off its own is
-`turn_deadline`, `catch_seats[].ends_at`, `forfeit_deadline` and the snapshot's `turn_deadline` /
-`catch_seats` are absolute unix-millisecond instants written by the server, and every bar and capsule
+`turn_deadline`, `catch_seats[].ends_at`, `catch_locked_until`, `forfeit_deadline` and the
+snapshot's `turn_deadline` / `catch_seats` / `catch_locked_until` are absolute unix-millisecond
+instants written by the server, and every bar and capsule
 on screen (`drainBar`, `pruneCatchWindows`, `turnCountdownSfx`, `OpponentAway`) counts them down
 against `Date.now()`. Those are two clocks, and the difference used to be nobody's. A device six
 seconds fast saw every five-second catch window already shut on arrival — `pruneCatchWindows` dropped
@@ -1384,6 +1481,16 @@ and never the game: a reader who switched to French, read the rules and pressed 
 the board. It holds the language chooser (`LanguageSwitcher`, a child), the graphics tier, and three
 switches: streamer mode, colour shapes, reduced motion.
 
+Each on/off preference is a `createBooleanPref` module store over `localStorage`, and vibrations
+are the same shape where the device has a motor (`hooks/haptics.ts`, one pattern per moment and
+never a chain, decided beside the sounds so the two cannot disagree about what happened). The
+icons are drawn SVG, never a font character, like every other glyph a player sees.
+
+**Streamer mode is the one preference that also leaves the client**, and only from the host's seat
+(below). Every other one is local and must stay that way: a presentation preference on the wire is
+a second thing the server has to hold per seat, and the reason streamer mode earns it is that the
+table code is one string shared by everybody who can see it.
+
 ### Fullscreen, beside the gear and not inside it
 `FullscreenButton.svelte` is the chip to the left of the gear, in every row the gear is in (the
 lobby, the search, the waiting room, the board, the reconnect splash, the tab-taken curtain). It is
@@ -1679,6 +1786,13 @@ something a person at the table would say, and rewriting one means keeping it in
   confirmation: it is a reaction game, and a second press on every action is how it stops being one.
 - **Nothing is exclamatory twice.** The banners shout (`INTERCEPTED!`, `CAUGHT!`, `LOCO!`) because
   they are the streamable moments; everything around them stays calm so those keep their weight.
+- **The five-second capsule names an opening, it does not give an order** (`t.catchWindow`, drawn
+  by `UnoTimer`). *Catch them!* / *Attrape-le !* reads as the game telling you to go, and it made
+  the press sound free — where it is a wager that costs a card whenever it misses, and **missing is
+  the ordinary outcome**, because the seat it is aimed at is looking straight at its own LOCO! chip.
+  *A chance to catch* / *Une chance de contrer* is the same five seconds said as what they are: an
+  opening, which may or may not be yours. The price is taught where there is time to read it — the
+  rules modal — and never on a capsule that is up for five seconds.
 - **No em dash in copy**, in either language: a colon, a full stop, or two sentences.
 
 ### What is different, and where it is allowed to be said
@@ -1851,6 +1965,21 @@ time somebody opened the network tab. And it is **not a capture phase listener**
 screen that means something by the right-click has already opened its own thing by the time the
 browser's is refused. `src/test/contextGuard.test.ts` dispatches a real event on both sides of the
 attribute.
+### The hand's hover is a mouse's and nobody else's
+
+`Hand.svelte` gates `pointerenter` on `pointerType === 'mouse'`.
+
+A touch screen synthesises `mouseenter` on the tap for the benefit of pages written before touch
+existed, and then never follows it with a `mouseleave`, because a finger does not leave anywhere —
+it stops existing. So a card tapped and refused stayed lifted out of the fan for the rest of the
+turn, over a hand the player was still trying to read, and nothing but another tap somewhere else
+put it back.
+
+A finger gets `.slot:active` instead, which is press feedback rather than hover state: it exists
+exactly as long as the contact does. The platform's grey tap wash is off the card, because a card
+is a physical object and the wash is a web control's. Same rule and the same reason as the deck's
+`@media (hover: hover)`. `handTouch.test.ts`.
+
 ## Every panel closes twice
 
 Two ways out, on everything that opens over the board, and they are not interchangeable:

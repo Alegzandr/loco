@@ -204,6 +204,24 @@ unconditionally sent players tapping cards that
 were never going to leave. `canCounter` is `pendingDraw > 0 && hasPlayableCard`: while a penalty is
 pending the only legal cards are the ones that stack it, so the two questions are the same one.
 
+## The turn clock's grace (`TurnTimeoutGrace`)
+
+The deadline the client is shown stays `TurnTimeout`. The auto-action — draw and pass for a seat
+that ran out of time — fires **400 ms after it** (`hub.scheduleTurnTimer`).
+
+The reason is the wire. A play sent on the last frame of the draining bar still has a network to
+cross, and a server acting on the very millisecond of the deadline refused it with *"not your
+turn"* — to a player who had beaten their own clock and watched the bar prove it. There is no
+reading of that refusal that is not the game lying, and it is the one refusal in the game a player
+can measure against something on their own screen.
+
+So the grace is the server's patience and **never on the wire**: it is not in the deadline, it is
+not in a snapshot, and no client may add its own. Two clients disagreeing about how much slack there
+is would be worse than none, and a client that knew about the 400 ms would spend it.
+
+**A forced draw does not cost the turn**, so `hub.handleDrawCard` re-arms the timer on every draw:
+the victim takes the stack and then plays or passes, on a fresh clock.
+
 ## Refusals that prove a stale client
 `PlayCard` / `PlayCards` / `CounterDraw` / `DrawCard` / `PassTurn` / `InterruptPlayCards` return
 **sentinels, not new strings**, for the four refusals a correct client cannot produce on a board it
@@ -387,6 +405,58 @@ won, and a one-card hand had made them finishes by accident.
     to one, which opens a window; back up, which ends the offer) or another seat arriving at two.
     A press that *lands* spends no key, so a Swap that puts two seats on one card can still be
     answered twice.
+  - **And the card is only half the price. The other half is a lockout, and it is the half a held
+    thumb pays** (`catchLockout` = 2s, `GameState.CatchLockedUntil`, `Room.LockCatch` /
+    `CatchLocked` / `CatchLockedAt`, `ErrCatchLocked`).
+
+    **The hole the ration above left open.** Rationing per offer bounds what mashing *costs*; it
+    says nothing about what mashing *buys*. Press once against a seat sitting on two: one card, and
+    from then on every press against the same picture is silent and free. Now the seat plays its
+    second-to-last card. The window opens, and the press already in flight — one of ten a second —
+    lands milliseconds later, long before any human could have declared. It is a *successful*
+    catch, so it spends no offer and costs nothing at all. A held button therefore paid one card
+    and collected every window at the table, each of them worth two cards to the seat it landed on.
+    The reflex the button exists to measure was not in it anywhere, and a player who had just been
+    charged could simply keep leaning on it until the greyed-out control came back.
+
+    **The fix is a second ration on the other axis.** The card stays per offer; the lockout is per
+    *press*. Every call that finds nobody arms it — **charged or not**, which is the point: the
+    silent free presses are exactly the ones that were buying windows — and **every press made
+    while it runs re-arms it**, so a thumb that never lets go pushes its own deadline out forever
+    and is never live at the instant a window opens. A single aimed press pays it once and has the
+    rest of the window back.
+
+    While it runs, the press **wins nothing and costs nothing**: `CatchUndeclared` refuses with
+    `ErrCatchLocked` above every refusal that charges, `PenalizeFailedCatch` declines to charge,
+    and the hub answers with `catch_locked` to the caller alone. Charging there would be the
+    per-press price this mechanic spent two rewrites removing; saying nothing at all would leave a
+    button that goes quiet for no reason a player can see, and a player who cannot see it keeps
+    pressing — which is what pushes the deadline out. A press against a table where nothing is
+    offered arms no lock, because it was never a wager (`hub.penalizeFailedCatch` returns on
+    `CatchOffered` first).
+
+    **Two seconds, and the number is the declaration it protects.** A seat that plays down to one
+    card needs a beat to notice and call it, and that beat is exactly what a mashed button used to
+    take — it is the stretch `CatchHeadStart` (1.5s, retired) held open for *everybody*, which is
+    why that answer cost the honest reflex its own race. Held only against a seat that has just
+    misread the table, it costs nothing to anyone who did not. Against a 5s window it is short
+    enough that a seat which genuinely forgot is still catchable by the same player three seconds
+    later: being punished must not be an amnesty for the table.
+
+    **Ordering is load-bearing in two places.** `hub.penalizeFailedCatch` arms the lock *after*
+    `PenalizeFailedCatch` has decided the card — armed first, the domain's own guard would refund
+    every miss — and *deferred*, so the answer lands behind the news it is the consequence of. And
+    `IsMissedCatch` deliberately does not include `ErrCatchLocked` (a locked press is not a lost
+    race and pays no card) while `IsLostRace` does (both clocks are honest, and the client's is the
+    one guessing at the wire).
+
+    Bots take it on the same terms: `handleBotCatch` calls straight into `CatchUndeclared`, which
+    refuses, and a refusal that is not a miss simply means the bot did not press. In practice they
+    attempt once per window, so it costs them nothing they were going to use.
+
+    `server/game/catch_window_test.go` owns the domain half, including the exploit played out end
+    to end; `hub/catch_immediate_test.go` owns the socket half, where six presses cost one card and
+    six lockouts and the press that used to steal the opening window is refused.
   - **And only while something is offered** (`Room.CatchOffered`, `catchNearHand`): a press against
     a table where no other seat is on two cards or on a last card inside `catchWindow + catchGrace`
     is not a wager. It is a board that moved under a thumb — the seat drew a moment before the
@@ -470,6 +540,29 @@ won, and a one-card hand had made them finishes by accident.
   landed would leave naming nobody, and the server would read it as a fresh wager against a window
   that had just shut — a card, charged in the same breath as the win. The server's guard would not
   have caught that one: a successful catch spends no offer.
+- **`store.catchLockedUntil` is the client's copy of the *other* ration, and it is not a mirror.**
+  The server sends the instant (`catch_locked { catch_locked_until }` to the caller alone, and
+  `GameStateDTO.catch_locked_until` in every snapshot, personalised); nothing on this side knows how
+  long a lockout lasts, so a re-arm is one message rather than a guess and the two cannot drift.
+  `localizeDeadlines` moves it onto our clock with every other deadline — read on the wrong one, a
+  phone two seconds fast draws a padlock the server has already lifted, and one two seconds slow
+  offers a press it refuses. `applyCatchLocked` writes it and lowers `catchPending`: the verdict is
+  in, and it is "not yet".
+  - **`store.catchLocked` is derived beside `catchLive`**, off the same clock and through the same
+    middleware, never written by an action — an action that raised one and forgot the other leaves a
+    live button over a press answered by silence, and nothing fails. `catchLiveUntil` becomes the
+    lock's own end while it runs, so `GameView`'s single timer brings the button back on the clock
+    rather than on the next message: a lock is two seconds and a quiet table is longer than that.
+  - **It is drawn rather than merely dead** (`ActionBar`'s padlock + `loco-slide` drain, scene
+    `game-catch-locked`). `:disabled` already cuts the button into the bar like every other
+    unavailable control; what the lockout adds is the reason and the clock, because it is the one
+    dead state the player caused and can wait out. No digits: the countdown is a window running
+    out, this game draws those on the compositor, and "2, 1" is a coarser reading of a smoother
+    thing. **And it takes the halo off** — `catchArmed` stays true while a seat owes the call, and
+    a control that pulses over a press it will refuse is the one lie a reaction bar cannot afford.
+    The capsule above still names the window: the opening is real, it is simply not ours this time.
+  - **A reloaded tab gets it back from the snapshot.** Without that, the one board a correction
+    exists to settle came back with a live button over a refusal the server answers in silence.
 - `store.catchFailed { seat, at }` (set by `applyCatchFailed`) drives a red pill in `<GameView />`,
   auto-cleared after `CATCH_FAIL_NOTICE_MS=2800`, plus the `penalty` sting in `soundsForTransition`.
   The penalty reads as an ordinary draw otherwise, which is exactly the wrong story: the card was a
