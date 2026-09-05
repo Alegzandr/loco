@@ -129,16 +129,32 @@
   const nameOf = $derived((s: number) => players.find((p) => p.index === s)?.nickname ?? '')
 
   /*
-   * One slot per seat, in seat order, drawn whether or not that seat has said
-   * anything.
+   * Who is at this table to be talked to.
+   *
+   * The server refuses an emote to and from a bot in both directions
+   * (`hub/emotes.go`): a seat the server plays has no opinion about the match
+   * and no socket to receive one. So a table where every other seat is a bot —
+   * a solo game against the server, or a room somebody filled with bots — draws
+   * no emote block at all. It goes rather than going dead: a dead control on
+   * this card means an offer that may still come back, and nobody is coming
+   * back to answer a "gg" here.
+   */
+  const talkers = $derived(players.filter((p) => !p.is_bot))
+  const canTalk = $derived(talkers.some((p) => p.index !== mySeat))
+
+  /*
+   * One slot per seat that can speak, in seat order, drawn whether or not that
+   * seat has said anything.
    *
    * The card's height is the table's size and nothing else: a slot that only
    * existed once somebody spoke moved the two offers and the way out down the
    * screen under the thumb aiming for them, and every arrival moved them again.
-   * An empty slot renders as height and nothing else.
+   * An empty slot renders as height and nothing else — but a bot's slot is
+   * empty *forever*, which is height paid for a line that cannot ever be
+   * written, so the bots are not in here either.
    */
   const emoteSlots = $derived(
-    players.map((p) => ({ seat: p.index, flash: emotes.find((e) => e.seat === p.index) ?? null })),
+    talkers.map((p) => ({ seat: p.index, flash: emotes.find((e) => e.seat === p.index) ?? null })),
   )
   /** What we are saying, so the row can show which of the three is ours. */
   const myEmote = $derived(emotes.find((e) => e.seat === mySeat)?.emote ?? null)
@@ -295,12 +311,13 @@
          text would be a moderation surface this game promises not to have.
          Nothing said here is stored, logged or carried anywhere: it is shown for
          a few seconds and forgotten. -->
-    {#if onEmote}
+    {#if onEmote && canTalk}
       <div class="emotes">
-        <!-- One line per seat, always drawn: what changes when the table talks
-             is what a line says, never how many there are. `aria-live` is on
-             the list rather than on a bubble that comes and goes, so a screen
-             reader is told the new sentence and not a new region. -->
+        <!-- One line per seat that can speak, always drawn: what changes when
+             the table talks is what a line says, never how many there are.
+             `aria-live` is on the list rather than on a bubble that comes and
+             goes, so a screen reader is told the new sentence and not a new
+             region. -->
         <ul class="emoteFeed" aria-live="polite">
           {#each emoteSlots as slot (slot.seat)}
             <li class="emoteSlot" class:emoteSlotMine={slot.seat === mySeat}>

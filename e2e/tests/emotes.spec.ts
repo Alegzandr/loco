@@ -11,6 +11,7 @@ import {
   T,
   createRoom,
   joinRoom,
+  addBot,
   startGame,
   debugSetState,
   winWith,
@@ -84,5 +85,32 @@ test.describe('the three things', () => {
 
     await hostCtx.close()
     await guestCtx.close()
+  })
+
+  // The other refusal, and the one a player meets far more often: a seat the
+  // server plays is refused the emote in both directions, so a table where the
+  // only other seat is a bot has nobody to say it to. One page is the whole
+  // test — the point is that the second one would never exist.
+  test('is not offered where the only tablemate is the server', async ({ page }) => {
+    await createRoom(page, 'Alice')
+    await addBot(page)
+    await startGame(page)
+
+    await debugSetState(page, {
+      hand: [{ color: 'red', kind: 'number', value: 7 }],
+      hands: [{ playerIndex: 1, hand: [{ color: 'blue', kind: 'number', value: 9 }] }],
+      discard: { color: 'red', kind: 'number', value: 5 },
+      pendingDraw: 0,
+      currentTurn: 0,
+    })
+    await winWith(page, { type: 'play_card', card: { color: 'red', kind: 'number', value: 7 } })
+    await waitForRoundSummary(page, 20_000)
+    await clickContinue(page)
+    await waitForGameOver(page, 30_000)
+
+    // `waitForGameOver` has already found the way out, so the screen is drawn
+    // and the absence below is the block being gone rather than nothing at all.
+    await expect(page.locator('.emotes')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: T.emoteGG })).toHaveCount(0)
   })
 })
