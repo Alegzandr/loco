@@ -47,7 +47,7 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 					(c.Kind == DrawTwo || c.Kind == WildDrawFour) {
 					chosen := activeColor
 					if c.IsWild() {
-						chosen = botPreferredColor(hand)
+						chosen = botPreferredColor(hand, activeColor)
 					}
 					return BotAction{Kind: BotCounter, Card: c, ChosenColor: chosen}
 				}
@@ -90,10 +90,14 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 	if botSwapPays(state, playerIdx) {
 		swapTarget = botSwapTarget(state, playerIdx)
 	}
+	// Everything legal, minus a Swap that hurts: the pool a pick falls back to
+	// once the preferred cards turn out to be worth nothing.
+	fallback := legal
 	if swapTarget < 0 {
+		fallback = withoutKind(legal, Swap)
 		candidates = withoutKind(candidates, Swap)
 		if len(candidates) == 0 {
-			candidates = withoutKind(legal, Swap)
+			candidates = fallback
 		}
 		if len(candidates) == 0 {
 			// Nothing but a Swap that hurts: a card off the deck is the cheaper
@@ -102,11 +106,27 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 		}
 	}
 
+	// The same test the Swap just took, on the other card whose worth is not in
+	// the card: a plain Wild naming the colour already active. It is held while
+	// anything else is playable and played when it is all there is — a card off
+	// the deck is worse than a card leaving the hand, and it may be the one that
+	// empties it. Wilds sit in `preferred`, so without this a bot spent every
+	// colour change it drew on the colour the table was already showing.
+	if botWildIsIdle(hand, activeColor) {
+		trimmed := withoutKind(candidates, WildCard)
+		if len(trimmed) == 0 {
+			trimmed = withoutKind(fallback, WildCard)
+		}
+		if len(trimmed) > 0 {
+			candidates = trimmed
+		}
+	}
+
 	pick := candidates[rand.Intn(len(candidates))]
 	chosen := activeColor
 	chosenPlayer := -1
 	if pick.IsWild() {
-		chosen = botPreferredColor(hand)
+		chosen = botPreferredColor(hand, activeColor)
 	}
 	if pick.Kind == Swap {
 		chosenPlayer = swapTarget
@@ -225,7 +245,7 @@ func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
 	}
 	// Every wild names a colour, GlobalSwitch included.
 	if top.IsWild() {
-		action.ChosenColor = botPreferredColor(state.Hands[playerIdx])
+		action.ChosenColor = botPreferredColor(state.Hands[playerIdx], state.ActiveColor)
 	}
 	if top.Kind == Swap {
 		// Same rule as the turn: a Swap that hands the bot a fuller hand is
@@ -277,8 +297,13 @@ func botSwapPays(state *GameState, playerIdx int) bool {
 	return state.Hands[target].Size() < own
 }
 
-// botPreferredColor returns the color most frequent in the bot's hand, or Red if tie.
-func botPreferredColor(hand Hand) Color {
+// botPreferredColor returns the colour the bot holds most of. `active` is the
+// colour already on the table, and it breaks the ties: naming the colour the
+// table is already on is a wild spent to move nothing, so where two colours are
+// level the one that actually changes something wins. Never a colour the hand
+// holds less of — that would be paying for the change, which is a worse hand
+// for a better picture.
+func botPreferredColor(hand Hand, active Color) Color {
 	counts := map[Color]int{}
 	for _, c := range hand.Cards {
 		if !c.IsWild() {
@@ -288,10 +313,20 @@ func botPreferredColor(hand Hand) Color {
 	best := Red
 	bestN := -1
 	for _, col := range []Color{Red, Yellow, Green, Blue} {
-		if counts[col] > bestN {
-			bestN = counts[col]
+		n := counts[col]
+		if n > bestN || (n == bestN && best == active && col != active) {
+			bestN = n
 			best = col
 		}
 	}
 	return best
+}
+
+// botWildIsIdle says whether a plain Wild would move nothing at all: it is only
+// ever the colour it names, so one naming the colour already active is a colour
+// change the table watches land on the colour it was already on. The other two
+// wilds are never idle — a +4 draws four and a GlobalSwitch turns every hand at
+// the table, whatever colour they end up naming.
+func botWildIsIdle(hand Hand, active Color) bool {
+	return botPreferredColor(hand, active) == active
 }

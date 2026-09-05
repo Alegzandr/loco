@@ -465,9 +465,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
 
 **Bots and the gate**
 - **Bots**: `game/bot.go` decides, `hub` schedules, through the same domain calls and broadcasts as
-  humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**; it batches
-  its copies as a human's tap does; **a refused bot move gives the turn up, never the table**
-  (`botRecover`); `botCanPlayDrawn` asks `BotThink`, not `CanPlay`.
+  humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**, and **a plain
+  Wild that would name the colour already active is held the same way** (`botWildIsIdle`) — it is
+  only ever the colour it names, so it would move nothing; the +4 and the Rotation always pay and are
+  never held. **A colour tie is broken towards the change and never bought**
+  (`botPreferredColor(hand, active)`). It batches its copies as a human's tap does; **a refused bot
+  move gives the turn up, never the table** (`botRecover`); `botCanPlayDrawn` asks `BotThink`, not
+  `CanPlay`.
 - **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, never
   past the deadline. **One attempt per window and one press, however many bots are at the table**
   (`botCatchAttempt`, derived from seat + `LastCardAt`). **Their lateness is theirs alone** —
