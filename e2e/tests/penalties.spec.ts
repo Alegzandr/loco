@@ -345,26 +345,35 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
 
       const catchBtn = alice.getByRole('button', { name: T.catchBtn })
       await expect(catchBtn).toHaveClass(/\barmed\b/, { timeout: 5_000 })
-      await catchBtn.click()
 
-      // The catch lands and Bob's hand grows by two: three cards from the
-      // finish, and out of the armed cue.
+      // Bob swallows a stack of four without a card being played: five cards
+      // now, nothing about him can be caught, and the armed cue goes with it.
+      // Alice has pressed nothing — her wager is the one this test is about, so
+      // it has to still be hers to lose.
+      await debugSetState(alice, {
+        hands: [
+          { playerIndex: bobIdx, hand: [
+            { color: 'blue', kind: 'number', value: 3 },
+            { color: 'blue', kind: 'number', value: 4 },
+            { color: 'blue', kind: 'number', value: 5 },
+            { color: 'blue', kind: 'number', value: 6 },
+            { color: 'blue', kind: 'number', value: 7 },
+          ] },
+        ],
+      })
       await alice.waitForFunction(
         (seat) =>
           (window.__LOCO_E2E__?.getState?.()?.players ?? []).find((p) => p.index === seat)
-            ?.hand_size === 3,
+            ?.hand_size === 5,
         bobIdx,
         { timeout: 10_000 },
       )
       await expect(catchBtn).not.toHaveClass(/\barmed\b/)
       expect((await getState(alice))?.catchTarget).toBeNull()
-      // The press was acknowledged on the spot and the verdict released it: a
-      // button still held down after the catch landed would be waiting on an
-      // answer that has already arrived.
-      expect((await getState(alice))?.catchPending).toBe(false)
-      await expect(catchBtn).not.toHaveClass(/\bcalled\b/)
-      // And still pressable, with Bob three cards from the finish: his window
-      // is what the button is offered against, and it is still running.
+      // And still pressable, with Bob five cards from the finish: his window is
+      // what the button is offered against, and it is still running. A control
+      // that greyed out on this frame would be sparing Alice the late press the
+      // server charges her a card for.
       await expect(catchBtn).toBeEnabled()
 
       // It ends on the clock and on nothing else: the window plus its grace,
@@ -571,11 +580,12 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
         undefined,
         { timeout: 5_000 },
       )
-      // The offer stands — Bob's window is still running, and the store still
-      // says so — but our call is spent, so the control goes dead rather than
-      // sitting there live over a press that would send nothing.
+      // Our call is spent, so the control goes dead rather than sitting there
+      // live over a press that would send nothing. That the *offer* itself
+      // outlives the press is pinned in `catchDerivation.test.ts`, and
+      // deliberately not here: it is true for one second of wall clock, which
+      // is not a thing to assert through a browser and a network.
       expect((await getState(alice))?.catchSpent).toBe(true)
-      expect((await getState(alice))?.catchLive).toBe(true)
       await expect(catchBtn).toBeDisabled()
     } finally {
       await ctx1.close()
