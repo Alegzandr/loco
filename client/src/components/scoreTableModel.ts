@@ -66,7 +66,14 @@ export function buildScoreRows(
       total: entry?.score ?? 0,
       wins: entry?.rounds_won ?? 0,
       rtt: ping && ping.rtt_ms >= 0 ? ping.rtt_ms : null,
-      bot: ping?.bot ?? false,
+      // The roster answers this, and it has to: the latency broadcast is held
+      // back until a human has answered a ping, so a table read in the first
+      // seconds of a match knows nothing about who is a bot. Labelling that
+      // seat off the pings left it saying "no ping" for six seconds, which
+      // reads as a connection nobody can measure rather than as a bot. The
+      // broadcast's own flag is kept as the second source: it is the same
+      // answer, a beat later.
+      bot: p.is_bot === true || ping?.bot === true,
     }
   })
   // Most rounds won first, then points, then seat order — the same ordering the

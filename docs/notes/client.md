@@ -980,7 +980,12 @@ this section.
   back, and a roster with the kick on every row except those would be lying about which of them the
   host owns. The transfer is absent because the server refuses it: a table handed to a bot can never
   deal. **`is_bot` rides the roster** for exactly this — `Bot1` is a nickname a player is allowed to
-  take, so the name is not a way to tell.
+  take, so the name is not a way to tell. **The in-game score table reads the same field**, and it
+  has to: `buildScoreRows` used to take the bot flag off the latency broadcast alone, which the
+  server holds back until a human has answered a ping (`PingPeriod` 5s, `LatencyBroadcastPeriod`
+  3s). For the first six seconds of every match the bot's cell therefore said "no ping" — a
+  connection nobody can measure, which is the one thing a bot's seat is not. The broadcast's flag
+  stays as the second source; the roster is what answers in time.
 - **The removed player is told, and it lands where every refusal lands.** `kicked` resets the store
   like `left_room` and then writes `removed by the host`, which `serverErrors.ts` resolves to
   `errors.kicked` under the lobby form. Order matters: `resetToHome` clears `errorMsg`.

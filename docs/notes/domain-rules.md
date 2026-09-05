@@ -324,6 +324,19 @@ exception and is always played — the round ends before any exchange (§13). `g
 applies the same test before slamming one, so the interject is not a faster way to make a bad trade.
 `bot_test.go` and `bot_interrupt_test.go` pin all four cases.
 
+**A plain Wild that would change nothing is held, and every wild breaks a colour tie towards the
+change** (`botWildIsIdle`, `botPreferredColor`). It is the Swap's test applied to the other card
+whose worth is not written on it. A Wild is *only* the colour it names, so one naming the colour
+already active is a colour change the table watches land on the colour it was already on — and
+because wilds sit in the `preferred` pool `BotThink` picks from first, a bot spent every colour
+change it drew on the turn it drew it, usually on the colour already showing. It now goes out only
+when nothing else is playable, which also keeps the case where it is the card that empties the hand:
+a card off the deck is worse than a card leaving the hand. The other two wilds are never held — a +4
+draws four and a GlobalSwitch turns every hand whatever colour it names — but all three take the
+tie-break: where two colours are level in hand, the one that is not already active wins. The
+tie-break is free or it is not taken; a colour the hand holds *less* of is paying for the change,
+which is a worse hand bought for a better picture.
+
 **Fixtures.** Any test that drives a round to its end now makes the call: `declareLast` in the
 domain suite, `declareBeforeWinning` over the wire in the hub suite. Three hub fixtures went the
 other way and were given a **second card** instead (`drain_test`, `snapshot_test`,

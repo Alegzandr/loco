@@ -175,6 +175,11 @@ test.describe('in-game score table', () => {
       // getByText matches a case-insensitive substring, so a bare 'BOT' catches
       // <span class="nickname">Bot1</span> as well as the ping cell and the
       // assertion dies of its own ambiguity the moment both are on screen.
+      //
+      // No timeout of its own: the label is read off the roster, which arrives
+      // with the first game_state. Needing one here would mean it had gone back
+      // to waiting on the latency broadcast, which the server holds until a
+      // human has answered a ping — six seconds of "no ping" under a bot.
       await expect(scoreTable(page).getByText('BOT', { exact: true })).toBeVisible()
 
       // The server pings every 5s and broadcasts every 3s, so the first real

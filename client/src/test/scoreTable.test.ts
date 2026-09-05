@@ -84,6 +84,19 @@ describe('buildScoreRows', () => {
     expect(rows.find((r) => r.index === 2)!.bot).toBe(true)
   })
 
+  // The server holds the latency broadcast back until a human has answered a
+  // ping, so for the first seconds of every match the table has a roster and no
+  // pings at all. The bot's cell has to say BOT through that, not "no ping".
+  it('labels a bot off the roster, before any ping has been broadcast', () => {
+    const roster: PlayerDTO[] = [
+      { index: 0, nickname: 'alice', hand_size: 8, connected: true },
+      { index: 1, nickname: 'Bot1', hand_size: 8, connected: true, is_bot: true },
+    ]
+    const rows = buildScoreRows(roster, [], [], [])
+    expect(rows.find((r) => r.index === 1)!.bot).toBe(true)
+    expect(rows.find((r) => r.index === 0)!.bot).toBe(false)
+  })
+
   // The roster arrives with game_state; the scoreboard and the latency
   // broadcast can each be a beat behind it, and a missing row is worse than a
   // zero: the player it belongs to disappears from the standings.
