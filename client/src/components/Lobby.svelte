@@ -760,11 +760,11 @@
      anchors it *under* them. */
   @media (orientation: landscape) and (max-height: 559px) {
     .container {
-      --lobby-logo: clamp(44px, 7.4vw, 76px);
+      --lobby-logo: clamp(44px, 6.9vw, 72px);
       flex-direction: row;
       align-items: center;
       justify-content: safe center;
-      gap: var(--space-lg);
+      gap: var(--space-xl);
       padding-top: calc(var(--space-base) + var(--topbar-h) + var(--space-sm) + var(--safe-top));
       padding-bottom: calc(var(--space-base) + var(--safe-bottom) + 30px);
     }
@@ -775,13 +775,18 @@
     .lockup {
       flex: 0 1 auto;
       min-width: 0;
-      gap: var(--space-md);
+      gap: 10px;
     }
 
+    /* Two short lines under the mark rather than one long one beside nothing,
+       set centred like the mark above them — a left-ragged pill under a
+       centred logo read as two objects. */
     .tagline {
-      margin-top: -6px;
+      margin-top: -4px;
+      padding: 8px 14px;
       font-size: 12px;
-      line-height: 1.35;
+      line-height: 1.4;
+      text-align: center;
       text-wrap: balance;
     }
 
@@ -798,8 +803,12 @@
     .form {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      width: clamp(300px, 46vw, 420px);
-      gap: var(--space-sm);
+      /* Every row the height of the tallest: the 1v1 button carries a second
+         line, and a grid whose first row is taller than its second reads as
+         a mistake rather than a hierarchy. */
+      grid-auto-rows: 1fr;
+      width: clamp(320px, 50vw, 440px);
+      gap: 10px;
     }
 
     /* A grid track is `min-content` before it is `1fr`, and an <input> asks for
@@ -820,10 +829,13 @@
       grid-column: auto;
     }
 
+    /* Sized so every label sits on one line in its column at 844px: a button
+       whose name wraps beside three that do not is the one the eye reads as
+       the odd one out, and both the table labels are nineteen characters. */
     .btn {
-      min-height: 46px;
-      padding: 8px 16px;
-      font-size: 17px;
+      min-height: 48px;
+      padding: 8px 12px;
+      font-size: 16px;
     }
 
     .btn:has(.btnHint) {
@@ -831,9 +843,16 @@
       padding-bottom: 6px;
     }
 
+    .btnHint {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+
     .btnSecondary {
-      min-height: 46px;
-      padding: 8px 16px;
+      min-height: 48px;
+      padding: 8px 12px;
+      font-size: 15px;
     }
 
     .input {
@@ -858,7 +877,37 @@
      band they take is again something this padding has to know. */
   @media (orientation: landscape) and (max-height: 559px) and (max-width: 46rem) {
     .container {
+      --lobby-logo: clamp(40px, 6.4vw, 72px);
+      gap: var(--space-lg);
       padding-bottom: calc(var(--space-lg) + var(--safe-bottom) + 64px);
+    }
+
+    /* The same one-line-per-label promise at 667px, where a column is 180px
+       wide: the type steps down a size rather than the label breaking. */
+    .tagline {
+      font-size: 11px;
+      padding: 7px 12px;
+    }
+
+    .buttonGroup,
+    .form {
+      width: clamp(320px, 56vw, 440px);
+      gap: 8px;
+    }
+
+    .btn,
+    .btnSecondary {
+      font-size: 14px;
+      padding-inline: 10px;
+    }
+
+    .btnHint {
+      font-size: 10px;
+    }
+
+    .input {
+      padding-inline: 12px;
+      font-size: 15px;
     }
   }
 

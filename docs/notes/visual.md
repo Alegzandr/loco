@@ -354,6 +354,14 @@ composition, not a smaller one**, at `@media (orientation: landscape) and (max-h
   content at the top, which is *under* a chip row that reserves nothing.
 - The mark's type size is a token on the container (`--lobby-logo`) rather than a literal on
   `<LocoLogo />`: sideways it wants a smaller one, and a prop cannot be written twice.
+- **Every row the same height and every label on one line**, and both are sized, not hoped for.
+  `grid-auto-rows: 1fr`, because the 1v1 button carries a second line and a first row taller than
+  the second read as a mistake rather than a hierarchy. The grid is half the viewport wide and the
+  type steps down a size at the narrow end (under 46rem: an iPhone SE sideways gives a column 180px)
+  so that "Jouer contre un bot" and "Rejoindre une table", nineteen characters each, never break —
+  the one button that wraps beside three that do not is the one the eye reads as the odd one out.
+  The tagline is set centred under the mark: a left-ragged pill under a centred logo was two objects.
+  Checked at 667×375, 740×360, 844×340 and 932×430.
 
 The queue's two screens took the same pass, because the defect was the same one:
 - **`Searching.svelte`** carries the chip row as well — the wait is the longest a player ever spends
