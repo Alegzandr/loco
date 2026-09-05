@@ -2142,8 +2142,10 @@ func TestBotCatch_StaleCallback_IgnoredAfterDeclared(t *testing.T) {
 	sendMsg(t, conn, protocol.ClientMsg{Type: protocol.CMsgDeclareUno})
 	readMsgOfType(t, conn, protocol.SMsgUnoDeclared)
 
-	// Wait past the bot catch delay.
-	time.Sleep(400 * time.Millisecond)
+	// Wait past the bot catch delay — and past the head start every bot catch
+	// is clamped behind (game.CatchHeadStart, 1.5s), or the callback under test
+	// has not fired yet when the read below gives up.
+	time.Sleep(2 * time.Second)
 
 	// No uno_caught must arrive after declaration.
 	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))

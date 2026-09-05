@@ -118,18 +118,62 @@ func TestCatch_ForgedTargetTellsNobody(t *testing.T) {
 	}
 }
 
-// One step in from a forged seat, and the answer is the opposite: seat 1 exists
-// and holds eight cards, which is a wrong read of the table and not a message no
-// client composes. The button is live from three cards out, so this is the
-// ordinary wager and it costs the caller a card, in public.
-//
-// What it may not cost is a card per press. The charge is rationed by the board
-// (GameState.PlayEpoch), which is what stops one socket at the rate limit from
-// turning a live button into ten table-wide sends a second — the amplification
-// the old free-refusal used to prevent by refusing.
-func TestCatch_WithNobodyOnTheHookIsChargedOncePerBoard(t *testing.T) {
+// One step in from a forged seat: seat 1 exists and holds eight cards. No
+// honest screen has the button live against that table, so the press is a
+// board that moved under a thumb or a client this game did not write — and
+// either way it is not a wager. Nothing is charged, and nothing is answered:
+// an answer would be the one thing a dead button could still make the server
+// say, and a charge would be the farm this rule closed, reopened to anybody
+// willing to forge the message.
+func TestCatch_WithNobodyNearTheFinishIsSilent(t *testing.T) {
 	_, srv := newTestHub(t)
 	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+
+	one := 1
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &one})
+	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno})
+
+	// The negative reads end this test: a read that times out leaves the
+	// connection broken.
+	conn2.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, _, err := conn2.ReadMessage(); err == nil {
+		t.Error("a Contre-LOCO! against a table nobody is near the finish at reached the table")
+	}
+	conn1.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if _, _, err := conn1.ReadMessage(); err == nil {
+		t.Error("the caller was answered for a press that was not a wager")
+	}
+}
+
+// nearTheFinish puts the seat behind conn one play from the finish, which is
+// what makes a Contre-LOCO! from the other chair a wager: the button is live
+// from two cards out, and a press against that table is the ordinary misread
+// that costs a card, in public. Both sockets are drained of the snapshot the
+// fixture answers with.
+func nearTheFinish(t *testing.T, conn, other *websocket.Conn) {
+	t.Helper()
+	sendMsg(t, conn, protocol.ClientMsg{
+		Type: protocol.CMsgDebugSetState,
+		Debug: &protocol.DebugStateDTO{
+			Hand: []protocol.CardDTO{{Color: "red", Kind: "number", Value: 6}, {Color: "red", Kind: "number", Value: 7}},
+		},
+	})
+	readMsgOfType(t, conn, protocol.SMsgGameState)
+	readMsgOfType(t, other, protocol.SMsgGameState)
+}
+
+// The wager itself, and its ration. Seat 1 is on two cards, so the button is
+// live on seat 0's screen and a press there is a read of the table; it finds
+// nobody on the hook and costs a card. What it may not cost is a card per
+// press: the charge is rationed by the offer — the near-finish picture the
+// button is live for — which is what stops one socket at the rate limit from
+// turning a live button into ten table-wide sends a second, and what stops a
+// player collecting a card per press for a Swap to hand on.
+func TestCatch_OnAnOfferIsChargedOncePerOffer(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+	_, srv := newTestHub(t)
+	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+	nearTheFinish(t, conn2, conn1)
 
 	one := 1
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno, TargetIndex: &one})
@@ -147,7 +191,7 @@ func TestCatch_WithNobodyOnTheHookIsChargedOncePerBoard(t *testing.T) {
 	// connection broken.
 	conn2.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 	if _, _, err := conn2.ReadMessage(); err == nil {
-		t.Error("a second Contre-LOCO! against an unchanged board reached the table")
+		t.Error("a second Contre-LOCO! against an unchanged offer reached the table")
 	}
 }
 
@@ -155,8 +199,10 @@ func TestCatch_WithNobodyOnTheHookIsChargedOncePerBoard(t *testing.T) {
 // the client could not see one. It is the same wager and the same card — a
 // press that names nobody must not be the cheap way to press the button.
 func TestCatch_WithNoSeatNamedIsChargedLikeAnyOtherMiss(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
 	_, srv := newTestHub(t)
 	conn1, conn2, _ := setupTwoPlayerGame(t, srv)
+	nearTheFinish(t, conn2, conn1)
 
 	sendMsg(t, conn1, protocol.ClientMsg{Type: protocol.CMsgCatchUno})
 	if msg := readMsgOfType(t, conn2, protocol.SMsgCatchFailed); msg.Seat() != 0 {

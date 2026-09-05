@@ -2,7 +2,6 @@ package game
 
 import (
 	"testing"
-	"time"
 )
 
 // exhaustPiles leaves exactly keep cards in the deck and a single card on the
@@ -113,7 +112,7 @@ func TestCatchUndeclared_EmptyDeckStillCatches(t *testing.T) {
 	r.State.openCatchWindow(0)
 	exhaustPiles(r, 0)
 
-	if err := r.CatchUndeclared(1, 0, time.Now()); err != nil {
+	if err := r.CatchUndeclared(1, 0, catchTime()); err != nil {
 		t.Fatalf("CatchUndeclared on empty piles: %v, want nil", err)
 	}
 	if !r.State.LastCardDeclared[0] {
@@ -130,7 +129,7 @@ func TestCatchUndeclared_PartialPenalty(t *testing.T) {
 	r.State.openCatchWindow(0)
 	exhaustPiles(r, 1)
 
-	if err := r.CatchUndeclared(1, 0, time.Now()); err != nil {
+	if err := r.CatchUndeclared(1, 0, catchTime()); err != nil {
 		t.Fatalf("CatchUndeclared with 1 card left: %v, want nil", err)
 	}
 	if got := r.State.Hands[0].Size(); got != 2 {

@@ -406,6 +406,12 @@ func (h *Hub) scheduleBotCatch(t *table, target int) {
 	// already holding, instead of adding a second, later attempt at the end of
 	// the window where it would cost the bot a card.
 	fireAt := windowAt.Add(delay)
+	// Never inside the seat's head start, whatever the tunables say: a bot
+	// pressing there would be the spammer the head start was written against,
+	// and the domain would only hold the press anyway (game.ErrCatchTooEarly).
+	if headStartEnd := state.CatchHeadStartEnd(target); fireAt.Before(headStartEnd) {
+		fireAt = headStartEnd
+	}
 	if !fireAt.Before(state.CatchWindowEnd(target)) {
 		return // scheduled past the deadline: a call nobody could win
 	}
@@ -575,11 +581,14 @@ func (h *Hub) handleBotCatch(t *table, cm botCatchMsg) {
 	}
 	catcherID := eligible[mrand.Intn(len(eligible))]
 	priorSize := len(state.Hands[cm.targetPlayer].Cards)
-	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
+	now := time.Now()
+	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, now); err != nil {
 		// Window may have expired or state changed — normal race condition, and
-		// the bot pays for it exactly like a human who mistimed the button.
+		// the bot pays for it exactly like a human who mistimed the button. A
+		// bot inside the head start (BotCatchDelay is well past it) simply does
+		// not press: nothing here chose the moment.
 		if game.IsMissedCatch(err) {
-			h.penalizeFailedCatch(t, catcherID)
+			h.penalizeFailedCatch(t, catcherID, now)
 		}
 		return
 	}

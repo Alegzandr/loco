@@ -43,6 +43,22 @@ Three rules the whole UI obeys (stated at the top of `styles/tokens.css`):
   reduced-motion rule in the CSS hangs off `:root[data-motion="reduce"]` instead of a media query,
   so the attribute has to be on `<html>` before the first paint. See `docs/notes/client.md`.
 
+#### Four families, and what each one means
+LOCO Red acts, sunny yellow marks a win, electric indigo orients, signal mint confirms. That
+separation *is* the palette — it is worth more than any individual hex, and the way it gets undone is
+one colour at a time on grounds that have nothing to do with it. The two secondaries were once moved
+to orchid and teal because the originals sat near a CSS framework's defaults: true, thin, and it cost
+the palette its logic, because the new pair no longer said *win* and *orient* to anybody who had
+played a round. **Judge a proposed colour on what it does to the other three, not on its
+provenance**, and if it has to move, move it inside its own family.
+
+Two things constrain `--color-tertiary` and both are measured rather than eyeballed: the focus ring
+wears it and has to clear **3:1 on the dark card** (WCAG 1.4.11, currently 3.42), and `--color-link`
+is the same hue pushed until it clears AA on each canvas separately. A colour written out by hand at
+a call site is the bug — `ScoreTable`'s ping tiers held the mint as a literal, a copy nothing keeps
+in step — and `playerColors.ts` moves with the token or a seat and the interface disagree about one
+colour.
+
 #### One palette
 There used to be two — a candy-sky "day" and the indigo "night" — behind `[data-theme]` on `<html>`,
 with the dark block duplicated under `@media (prefers-color-scheme: dark)` so the first frame of a
@@ -178,14 +194,14 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
     that press is precisely the one §14.6 charges for: the thumb already committed when the seat
     shouted. Three states, and only the third one is a promise. What the declaration closes is the
     *armed* cue, which rides `catchTarget`.
-  - **And once awake it stays awake until a card is played** (`nextCatchLive`, `store.catchLive`).
-    The declaration is only the first of four ways a seat leaves the band with nothing played: it can
-    also draw, swallow a stack of four, or take two penalty cards from a Contre-LOCO! that landed on
-    it. All four are the instant a bet on that seat has already been made, so **the middle state
-    never falls under a thumb**. What ends it is the next card reaching the discard: the hold drops
-    and the roster is read again, which is what keeps the offer attached to one board instead of
-    standing open to be farmed. Two writes lower it, `applyCardPlayed` and `applyGameState`; nothing
-    on screen may lower it on its own.
+  - **And it is a photograph, not a latch** (`isCatchLive` + `catchLiveUntil`, `store.catchLive`).
+    The declaration is the one way a seat leaves the armed cue that leaves the middle state alone:
+    the window keeps running and the button keeps offering until it ends. The other three — it
+    draws, swallows a stack of four, takes two penalty cards from a Contre-LOCO! that landed on it —
+    take the button down with them, and so does the window running out. It used to stay awake until
+    the next card played on the argument that a bet on that seat had already been made; held, the
+    offer was farmed a card at a time, which is the abuse the hold was meant to bound. The committed
+    thumb is answered on the server by silence now, never by a card (`domain-rules.md`).
 - **`.armed` is the same cue on Catch and on LOCO**, applied to Catch when `catchArmed` and to LOCO
   whenever it is shown: a punch-in (`armPop`, with a brightness flash) plus a pulsing halo
   (`armGlow`, tinted per button by `--arm-glow`). Deliberately identical — the two are the same

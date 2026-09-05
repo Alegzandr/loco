@@ -2,6 +2,27 @@ import { StateCreator } from './createStore'
 import { CardColor } from '../../types/protocol'
 import { stamp, gameStateSliceFromDTO, keepDeclarations, makeSwapNotice, removePlayedCards } from './helpers'
 import { CatchWindow, GameStore, TableActions } from './types'
+import type { OnHookUntil } from '../../components/catchAvailability'
+
+/**
+ * The clock the centre button runs on, brought up to date by what the server
+ * named: every seat in `catchSeats` gets its window end, every seat that is no
+ * longer on one card is dropped, and everything else is kept as it was — a
+ * seat the server stopped naming because it spoke is still on the clock, and
+ * the clock is what must not know that.
+ */
+function updateOnHook(
+  prev: OnHookUntil,
+  catchSeats: { player_index: number; ends_at: number }[] | undefined,
+  players: { index: number; hand_size: number }[],
+): OnHookUntil {
+  const next: OnHookUntil = {}
+  for (const p of players) {
+    if (p.hand_size === 1 && prev[p.index] !== undefined) next[p.index] = prev[p.index]
+  }
+  for (const c of catchSeats ?? []) next[c.player_index] = c.ends_at
+  return next
+}
 
 export const createTableActions: StateCreator<GameStore, TableActions> = (set) => ({
   applyGameState: (state) =>
@@ -60,12 +81,11 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
             state.players.find((p) => p.index === seat)?.hand_size,
           ),
         catchWindows,
-        // A snapshot is authoritative when it arrives, and that includes the
-        // centre button: whatever the roster said a moment ago, this is the
-        // roster. Put down here and raised again by the store if the board
-        // still warrants it — without which a fresh deal opens with the
-        // button live, carrying the last round's endgame into eight-card hands.
-        catchLive: false,
+        // The centre button's clock, off the same list. A reloaded tab holds
+        // nothing from before, so a seat the snapshot does not name — one that
+        // spoke, or whose window ran out — is dark there, which is the one
+        // reading a tab that was not listening can honestly give.
+        onHookUntil: updateOnHook(s.onHookUntil, state.catch_seats, state.players),
       }
     }),
 
@@ -145,16 +165,12 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
           opened.map((w) => w.seat),
         ),
         catchWindows,
+        onHookUntil: updateOnHook(s.onHookUntil, catchSeats, updatedPlayers),
         // The board moved, so a Contre-LOCO! is a fresh read rather than the
-        // same one repeated. This is the client's copy of the server's PlayEpoch
-        // and it is cleared by the same event the server counts.
+        // same one repeated: a card played is the one event that can put a new
+        // offer on the table, and the server's own ration is keyed on the
+        // offer.
         catchSpent: false,
-        // And the offer itself is re-read on the same event. Between two cards
-        // the button never goes dead under a thumb — a seat that declares, draws
-        // or swallows a stack of four does not take it away — but the card that
-        // lands ends that hold and the store answers on the new roster alone.
-        // The wager belongs to one board; it is not carried to the next.
-        catchLive: false,
         swapNotice,
         lastPlay: { actorIndex: playerIndex, card, at: stamp() },
       }

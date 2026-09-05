@@ -1,4 +1,4 @@
-import { nextCatchLive } from '../../components/catchAvailability'
+import { catchLiveUntil, isCatchLive } from '../../components/catchAvailability'
 import { StateCreator } from './createStore'
 import { deriveCatch } from './helpers'
 import { GameStore } from './types'
@@ -22,11 +22,12 @@ import { GameStore } from './types'
  * forgetting impossible rather than merely unlikely.
  * `src/test/catchDerivation.test.ts` owns the rule.
  *
- * `catchLive` is the one with a memory: `nextCatchLive` only ever raises it, so
- * an action that wants it back down has to say so, and exactly two do —
- * `applyCardPlayed` and `applyGameState`, the two moments the board becomes a
- * fresh read. Every other write leaves a live button live, which is the point
- * (`components/catchAvailability.ts`).
+ * `catchLive` is the one that also reads the clock: a seat on its last card is
+ * offered for as long as its window runs and not a moment longer, so beside
+ * it the store keeps `catchLiveUntil`, the instant that answer changes by
+ * itself. `GameView` arms one timer on it and calls `rereadCatchLive`, which
+ * is a write naming `catchLive` and nothing else — enough to come back
+ * through here (`components/catchAvailability.ts`).
  */
 type Creator = StateCreator<GameStore>
 
@@ -52,16 +53,19 @@ export const deriveCatchState =
           !('myIndex' in patch) &&
           !('declaredSeats' in patch) &&
           !('players' in patch) &&
+          !('onHookUntil' in patch) &&
           !('catchLive' in patch)
         ) {
           return patch
         }
         const merged = { ...state, ...patch }
+        const now = Date.now()
         return {
           ...patch,
           ...deriveCatch(merged.catchWindows, merged.myIndex),
           myDeclared: merged.declaredSeats.includes(merged.myIndex),
-          catchLive: nextCatchLive(merged.catchLive, merged.players, merged.myIndex),
+          catchLive: isCatchLive(merged.players, merged.myIndex, merged.onHookUntil, now),
+          catchLiveUntil: catchLiveUntil(merged.players, merged.myIndex, merged.onHookUntil, now),
         }
       })
     }) as typeof set

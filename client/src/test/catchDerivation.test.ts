@@ -112,18 +112,19 @@ describe('our own declaration is completed by the store', () => {
 })
 
 /**
- * `catchLive` is the same completion with a memory, and the memory is the
- * mechanic: the centre button never goes dead between two cards. What takes a
- * seat out of reach without a card being played — a declaration, a draw, a
- * stack of four swallowed whole, the round being won — is precisely what a
- * player betting on that seat has already committed their thumb to, and an
- * interface that retracts the offer there is making the read for them.
+ * `catchLive` is the same completion read off the roster and the clock. The
+ * centre button is pressable while some other seat is on exactly two cards or
+ * on its last card inside its window, and that answer is the store's to keep
+ * current: an action that changes the roster, the seat we hold or the windows
+ * the server named must not be able to leave the button where it was.
  *
- * The bound is the card that lands: it puts the latch down and the store reads
- * the roster again. So the wager is offered on one board and never carried to
- * the next, which is what keeps it from being farmed a card at a time.
+ * There is no latch. A seat that draws itself out of reach, or whose window
+ * runs out, takes the button down — held past that, the offer could be farmed
+ * a card at a time for a Swap to hand on, which is the abuse this replaced.
+ * What is still NOT read is who spoke: a declared seat stays offered until
+ * its window ends, so the button reports nothing about the call.
  */
-describe('the pressable button is completed and latched by the store', () => {
+describe('the pressable button is completed by the store', () => {
   const deal = (players: PlayerDTO[]): GameStateDTO => ({
     your_index: 0,
     hand: [],
@@ -138,7 +139,13 @@ describe('the pressable button is completed and latched by the store', () => {
   })
 
   beforeEach(() => {
-    gameStore.setState({ myIndex: 0, catchWindows: [], players: [], catchLive: false })
+    gameStore.setState({
+      myIndex: 0,
+      catchWindows: [],
+      onHookUntil: {},
+      players: [],
+      catchLive: false,
+    })
   })
 
   it('rises on a bare write to the roster', () => {
@@ -148,57 +155,105 @@ describe('the pressable button is completed and latched by the store', () => {
     expect(gameStore.getState().catchLive).toBe(true)
   })
 
-  // The bait, drawn from the roster this time: a seat on its last card takes a
-  // stack of four and is holding five, and nothing has been played.
-  it('holds through a seat drawing itself out of reach', () => {
+  // A seat on its last card takes a stack of four and is holding five: out of
+  // reach, out of the armed cue, and out of the button. Nothing is offered
+  // against five cards, and the server would answer a press with silence.
+  it('falls when a seat draws itself out of reach', () => {
     gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
+    gameStore.setState({ onHookUntil: { 1: now() + 5000 } })
     expect(gameStore.getState().catchLive).toBe(true)
     gameStore.getState().applyCardDrawn(null, 1, 0, undefined, 4, 0)
     const s = gameStore.getState()
     expect(s.players.find((p) => p.index === 1)?.hand_size).toBe(5)
-    // Out of reach, out of the armed cue, and still pressable.
     expect(s.catchTarget).toBeNull()
-    expect(s.catchLive).toBe(true)
+    expect(s.catchLive).toBe(false)
   })
 
-  // Same hold, the other way a seat escapes: it calls it.
+  // The pin on what the button must not know: the seat calls it, its window is
+  // retired from the armed cue, and the button stays exactly where it was for
+  // the rest of the window.
   it('holds through the declaration that closes the window', () => {
     gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
-    gameStore.setState({ catchWindows: [{ seat: 1, endsAt: now() + 5000 }] })
+    gameStore.setState({
+      catchWindows: [{ seat: 1, endsAt: now() + 5000 }],
+      onHookUntil: { 1: now() + 5000 },
+    })
     expect(gameStore.getState().catchTarget).toBe(1)
     gameStore.getState().applyUnoDeclared(1)
     const s = gameStore.getState()
     expect(s.catchTarget).toBeNull()
     expect(s.catchLive).toBe(true)
+    expect(s.catchLiveUntil).not.toBeNull()
   })
 
-  // And the bound. The card that lands ends the hold, and what answers next is
-  // the new roster on its own — here, a table nobody is near the finish at.
-  it('is put back down by the card played, and re-read on the new roster', () => {
+  // And the clock. The window the server named runs out, nothing arrives, and
+  // the store is asked to read again: the seat is still on one card, but
+  // nothing about it can be caught any more.
+  it('falls when the last window runs out and the store re-reads', () => {
     gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
-    gameStore.getState().applyCardDrawn(null, 1, 0, undefined, 4, 0)
+    gameStore.setState({ onHookUntil: { 1: now() + 30 } })
     expect(gameStore.getState().catchLive).toBe(true)
+    expect(gameStore.getState().catchLiveUntil).toBe(gameStore.getState().onHookUntil[1])
+    // Past the deadline: the clock is read off Date.now() in the derivation.
+    gameStore.setState({ onHookUntil: { 1: now() - 1 } })
+    gameStore.getState().rereadCatchLive()
+    expect(gameStore.getState().catchLive).toBe(false)
+    expect(gameStore.getState().catchLiveUntil).toBeNull()
+  })
+
+  // The clock is written from what the server names on card_played, and it
+  // survives the window's retirement so the declaration cannot reach the
+  // button through it.
+  it('takes its clock from catch_seats on the card played', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
+    const endsAt = now() + 5000
     gameStore
       .getState()
-      .applyCardPlayed(0, { color: 'red', kind: 'number', value: 3 }, 1, 0, 'red', [
-        seat(0, 7),
-        seat(1, 5),
-      ])
-    expect(gameStore.getState().catchLive).toBe(false)
+      .applyCardPlayed(
+        1,
+        { color: 'red', kind: 'number', value: 3 },
+        0,
+        0,
+        'red',
+        [seat(0, 8), seat(1, 1)],
+        undefined,
+        1,
+        [{ player_index: 1, ends_at: endsAt }],
+      )
+    expect(gameStore.getState().onHookUntil).toEqual({ 1: endsAt })
+    expect(gameStore.getState().catchLive).toBe(true)
+    gameStore.getState().applyUnoDeclared(1)
+    expect(gameStore.getState().onHookUntil).toEqual({ 1: endsAt })
+    expect(gameStore.getState().catchLive).toBe(true)
   })
 
   // A snapshot is authoritative when it arrives, and a fresh deal is the case
   // that matters: without this the last round's endgame lights the button over
   // a table of eight-card hands.
   it('is put back down by an authoritative snapshot', () => {
-    gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
     expect(gameStore.getState().catchLive).toBe(true)
     gameStore.getState().applyGameState(deal([seat(0, 8), seat(1, 8)]))
     expect(gameStore.getState().catchLive).toBe(false)
   })
 
-  it('leaves a write that names neither the roster nor our seat alone', () => {
-    gameStore.getState().setPlayers([seat(0, 8), seat(1, 1)])
+  // A reloaded tab holds no clock from before, so a seat the snapshot does not
+  // name — one that spoke, or whose window ran out — is dark there: the one
+  // reading a tab that was not listening can honestly give. One it does name
+  // is on the clock the server sent.
+  it("reads a snapshot's catch_seats onto the clock and nothing else", () => {
+    gameStore.getState().applyGameState(deal([seat(0, 8), seat(1, 1)]))
+    expect(gameStore.getState().catchLive).toBe(false)
+    const endsAt = now() + 4000
+    gameStore
+      .getState()
+      .applyGameState({ ...deal([seat(0, 8), seat(1, 1)]), catch_seats: [{ player_index: 1, ends_at: endsAt }] })
+    expect(gameStore.getState().onHookUntil).toEqual({ 1: endsAt })
+    expect(gameStore.getState().catchLive).toBe(true)
+  })
+
+  it('leaves a write that names neither the roster, the clock nor our seat alone', () => {
+    gameStore.getState().setPlayers([seat(0, 8), seat(1, 2)])
     gameStore.setState({ errorMsg: 'nope' })
     expect(gameStore.getState().catchLive).toBe(true)
   })

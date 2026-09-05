@@ -86,6 +86,9 @@ describe('double-tap guard is per control', () => {
         { seat: 1, endsAt: now + 5000 },
         { seat: 2, endsAt: now + 6000 },
       ],
+      // The clock the centre button runs on, which card_played would have
+      // written from the same list.
+      onHookUntil: { 1: now + 5000, 2: now + 6000 },
       // catchTarget / unoTimerEnd are derived from catchWindows by the store's
       // own actions; seeding state directly has to seed the derivation too.
       catchTarget: 1,
@@ -118,6 +121,7 @@ describe('double-tap guard is per control', () => {
     gameStore.setState({
       players: [seat(0, 'Alice', 3), seat(1, 'Bob', 1)],
       catchWindows: [{ seat: 1, endsAt: now + 5000 }],
+      onHookUntil: { 1: now + 5000 },
       catchTarget: 1,
       unoTimerEnd: now + 5000,
     })
@@ -132,8 +136,8 @@ describe('double-tap guard is per control', () => {
   // The other half of the same rule. The button is live from two cards, so a
   // press can still be made on a read rather than on a window — and that read
   // costs a card when it is wrong. Leaning on the button must cost one card,
-  // not one per press, which is what the server's "once per card played" says
-  // and what this stops us from testing the server's patience about.
+  // not one per press, which is what the server's "once per offer" says and
+  // what this stops us from testing the server's patience about.
   it('sends one blind catch per board, and names no seat when doing it', () => {
     gameStore.setState({
       players: [seat(0, 'Alice', 5), seat(1, 'Bob', 2)],
