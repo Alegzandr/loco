@@ -4,8 +4,20 @@ import type { CardDTO, CardColor } from '../types/protocol'
 // (color + kind + value all match the current top discard). Every kind qualifies,
 // wilds included — they all carry the 'wild' colour, so the same equality test
 // keeps a wild off a wild_draw_four. Server is authoritative.
-export function clientMayInterrupt(card: CardDTO, discard: CardDTO | null, pendingDraw: number): boolean {
-  if (!discard) return false
+//
+// `windowOpen` is the server's word on whether the pile can still be slammed at
+// all: a draw or a pass by the seat at turn shuts it, and the card on top says
+// nothing about that. Offered without it, the twin stayed tappable after
+// somebody had drawn and the press came back "somebody was faster" on a table
+// where nobody had been. It defaults to open for the callers that only ask
+// about the cards.
+export function clientMayInterrupt(
+  card: CardDTO,
+  discard: CardDTO | null,
+  pendingDraw: number,
+  windowOpen = true,
+): boolean {
+  if (!discard || !windowOpen) return false
   // During an active draw chain only an identical draw card extends it.
   if (pendingDraw > 0 && card.kind !== 'draw_two' && card.kind !== 'wild_draw_four') return false
   return card.color === discard.color && card.kind === discard.kind && card.value === discard.value

@@ -33,6 +33,13 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       // their last card, was never catchable by anyone. A window survives only
       // while it is unexpired and its seat still holds exactly one card, so a
       // fresh deal (nobody on one card) still clears everything.
+      //
+      // The snapshot now says who is on the hook itself (`catch_seats`, the same
+      // list card_played carries), and when it does that list is the answer: a
+      // reloaded tab has no windows to filter, and the snapshot a refusal
+      // answers with knows more than what this client was holding. A call we
+      // already spent on the same window stays spent. A snapshot with no field
+      // at all is an older server or a fixture, and gets the filter.
       const now = Date.now()
       // The server says who is on the hook (`catch_seats`), exactly as it does
       // on card_played, so a reload two seconds into a window lands on a board

@@ -1,5 +1,6 @@
 import { gameStore, UNO_CATCH_WINDOW_MS } from './gameStore'
 import { ServerMsg } from '../types/protocol'
+import { localizeDeadlines } from './serverClock'
 
 /**
  * The LOCO! banner's own timer, owned by the caller.
@@ -28,7 +29,12 @@ export interface UnoBannerTimer {
 export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
   const store = gameStore.getState()
 
-  return (msg: ServerMsg) => {
+  return (raw: ServerMsg) => {
+    // Every deadline below is read on our clock from here on: the server's stamp
+    // is taken off this message and the instants it carries are moved by the
+    // difference. See serverClock.ts for why a deadline compared to Date.now()
+    // as it arrived was wrong by seconds on a device whose clock was.
+    const msg = localizeDeadlines(raw)
     switch (msg.type) {
       case 'room_created':
       case 'room_joined': {
@@ -244,6 +250,8 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
       // starts, which is why the deadline rides this message.
       case 'match_ready':
         store.applyMatchReady(msg.turn ?? 0, msg.turn_deadline ?? null)
+        // The deal's window is open: the opening discard is a card like any other.
+        gameStore.setState({ interruptOpen: msg.interrupt_open ?? true })
         break
 
       case 'game_state':
@@ -270,6 +278,10 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
             msg.catch_seats,
           )
           store.setTurnDeadline(msg.turn_deadline ?? null)
+          // A card on the pile opens the window unless the server says the play
+          // shut it (the round-winning card). Absent is an older server or a
+          // fixture, and a play opens the window.
+          gameStore.setState({ interruptOpen: msg.interrupt_open ?? true })
         }
         break
 
@@ -283,10 +295,20 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
           msg.pending_draw
         )
         store.setTurnDeadline(msg.turn_deadline ?? null)
+        // The seat at turn drawing shuts the window; a penalty growing a hand
+        // does not. The server says which, so absent means unchanged.
+        if (typeof msg.interrupt_open === 'boolean') gameStore.setState({ interruptOpen: msg.interrupt_open })
         break
 
       case 'turn_changed':
-        gameStore.setState({ currentTurn: msg.turn ?? 0, hasDrawn: false, turnDeadline: msg.turn_deadline ?? null })
+        gameStore.setState({
+          currentTurn: msg.turn ?? 0,
+          hasDrawn: false,
+          turnDeadline: msg.turn_deadline ?? null,
+          // A pass, a timeout or a retirement moved the turn without a card
+          // landing, and every one of those shuts the window.
+          interruptOpen: msg.interrupt_open ?? false,
+        })
         break
 
       // A declaration closes the catch window on the declarer: from here on the

@@ -14,7 +14,11 @@ import (
 // if the player (human only) does not act within TurnTimeout.
 func (h *Hub) scheduleTurnTimer(t *table) {
 	code, room := t.code, t.room
-	if room.Status != game.StatusPlaying {
+	// No clock behind the map gate: the match begins at match_ready, and openTable
+	// is what arms the first turn. A departure during the gate used to reach this
+	// and start the first player's thirty seconds while their table was still a
+	// grey rectangle.
+	if room.Status != game.StatusPlaying || t.isLoading() {
 		return
 	}
 	turn := room.State.CurrentTurn
@@ -35,7 +39,8 @@ func (h *Hub) scheduleTurnTimer(t *table) {
 	t.turnStartedAt = now
 	tm := turnTimerMsg{roomCode: code, playerID: turn, turnStartedAt: now}
 	// Non-critical if the box is full: the player just gets a free extra turn.
-	time.AfterFunc(TurnTimeout, func() {
+	// Armed past the deadline the client is shown: see TurnTimeoutGrace.
+	time.AfterFunc(TurnTimeout+TurnTimeoutGrace, func() {
 		t.postFromTimer("turn_timeout", func() { h.handleTurnTimeout(t, tm) })
 	})
 }
@@ -82,9 +87,10 @@ func (h *Hub) handleTurnTimeout(t *table, tm turnTimerMsg) {
 	// turn — until some unrelated message happened to carry a live one.
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgTurnChanged,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }

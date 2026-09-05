@@ -466,7 +466,9 @@ func (h *Hub) releaseSeat(t *table, c *Client) {
 			// screen built from the columns this departure has just shifted.
 			MatchHistory: matchHistoryDTO(t),
 		})
-	} else {
+	} else if !h.closeAbandonedMatch(t) {
+		// Nobody human is left. A lobby keeps its code live for the empty-room
+		// timeout; a finished table nobody can come back to closes on the spot.
 		h.scheduleRoomCleanup(t)
 	}
 	c.leaveSeat()
@@ -619,6 +621,33 @@ func (h *Hub) retireSeat(t *table, c *Client) {
 		Players:     h.playerList(t),
 	})
 
+	h.announceRetiredSeat(t, turnBefore)
+}
+
+// retireAbsentSeat is retireSeat for a seat whose hold has just run out: the
+// same domain call and the same bookkeeping, minus the socket, which is gone,
+// and minus the player_left, which handleExpireReconnect has already sent with
+// this seat's number on it. See settleExpiredSeat for why an expiry retires a
+// seat at all.
+func (h *Hub) retireAbsentSeat(t *table, seat int) {
+	room := t.room
+	turnBefore := room.State.CurrentTurn
+	if err := room.RetireSeat(seat); err != nil {
+		log.Printf("WARN retire on expiry failed code=%s player=%d err=%v", t.code, seat, err)
+		return
+	}
+	t.gone[seat] = struct{}{}
+	delete(t.awayAt, seat)
+	delete(t.afk, seat)
+	delete(t.tokens, seat)
+	log.Printf("absent seat retired code=%s player=%d left=%d", t.code, seat, t.playableSeats())
+	h.announceRetiredSeat(t, turnBefore)
+}
+
+// announceRetiredSeat hands every seat the board a retirement left behind, and
+// moves the clock and the bots on if the turn moved with it.
+func (h *Hub) announceRetiredSeat(t *table, turnBefore int) {
+	room := t.room
 	// The hand went back to the deck and the turn may have moved, so every seat
 	// needs the board again. One personalised snapshot rather than a turn_changed
 	// plus a hand-size patch: the two would have to agree, and this is the one
@@ -628,9 +657,10 @@ func (h *Hub) retireSeat(t *table, c *Client) {
 	if room.State.CurrentTurn != turnBefore {
 		h.scheduleTurnTimer(t)
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:         protocol.SMsgTurnChanged,
-			Turn:         room.State.CurrentTurn,
-			TurnDeadline: turnDeadlineMs(t),
+			Type:          protocol.SMsgTurnChanged,
+			Turn:          room.State.CurrentTurn,
+			TurnDeadline:  turnDeadlineMs(t),
+			InterruptOpen: interruptOpenPtr(room.State),
 		})
 	}
 	h.maybeScheduleBot(t)
@@ -675,8 +705,12 @@ func (h *Hub) forfeitMatch(t *table, awaySeat int) {
 }
 
 // remainingSeat picks the seat a forfeited match goes to: a connected human
-// first, and failing that any seat that is not the one that left. The fallback
-// matters for the AFK path, where the away player's socket is still open.
+// first, then a human inside their reconnect window, then any seat that is
+// neither the one that left nor one that has already walked out of the match.
+// The fallbacks matter for the AFK path, where the away player's socket is
+// still open, and for an expiry at a table where the last human left is held
+// rather than seated. A retired seat is never a candidate: it left the match
+// for good, and awarding it the match would hand a win to a chair.
 func (t *table) remainingSeat(awaySeat int) int {
 	room := t.room
 	for seat, member := range t.members {
@@ -686,7 +720,12 @@ func (t *table) remainingSeat(awaySeat int) int {
 		return seat
 	}
 	for seat := range room.Players {
-		if seat != awaySeat {
+		if _, held := t.awayAt[seat]; held && seat != awaySeat && !room.IsRetired(seat) {
+			return seat
+		}
+	}
+	for seat := range room.Players {
+		if seat != awaySeat && !room.IsRetired(seat) {
 			return seat
 		}
 	}

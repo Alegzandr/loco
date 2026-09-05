@@ -1037,14 +1037,28 @@ strangers will not, and the player who is still at the table did nothing wrong.
   has a quit button for host and guest alike, `releaseSeat` frees the seat on the spot and the rest
   of the table gets `player_left`. That is the whole point of sending it rather than closing the tab,
   which would hold the slot instead.
-- **A table nobody can come back to is closed rather than forfeited.** The other seat's socket goes,
-  its hold expires, and from then on nothing at that seat will ever act again — the clock auto-draws
-  and auto-passes for it every 30 s until the round runs out. `table.abandonedBy` is the question:
-  every other seat a human, with no socket **and no hold left**. Away is not gone — while the hold is
-  running the seat is somebody who may return, so leaving in front of it is the ordinary 1v1 ending
-  and the match is theirs to come back to. Once it is gone, no forfeit is issued at all, because
-  `remainingSeat` would award the match to the seat that is not there: the seat is swept and the
-  table is closed.
+- **A hold running out at an ordinary table is settled where it runs out** (`settleExpiredSeat`,
+  called by `handleExpireReconnect` after the `player_left` that names the seat). It is `leaveAtTable`'s
+  answer given to the same departure: above `WalkOutFloor` the seat is retired (`retireAbsentSeat`,
+  the domain's `RetireSeat` plus the bookkeeping `retireSeat` does for a walk-out, minus the socket
+  and minus a second `player_left`), at or below it the match is forfeited to the seat that stayed,
+  and a table with no socket and no hold left is left to `closeAbandonedMatch`. It used to be settled
+  nowhere: the seat kept its cards and its place in the turn order, the clock auto-drew and
+  auto-passed for it every 30 s, and the AFK threshold never reached it because `kickIfAFK` acts on
+  a socket and there was none. At a table of four that was one dead half-minute per lap for three
+  people still playing, for every round left in the match. The client already handled both outcomes:
+  a `player_left` naming a seat followed by a personalised `game_state`, exactly what a walk-out
+  sends, or a `match_end` with `forfeit`. `remainingSeat` prefers a connected human, then a held
+  one, and never a retired seat — a forfeit awarded to a chair is not a forfeit.
+- **A table nobody can come back to is closed rather than forfeited.** `table.abandonedBy` is the
+  question: every other seat a human, with no socket **and no hold left**. Away is not gone — while
+  the hold is running the seat is somebody who may return, so leaving in front of it is the ordinary
+  1v1 ending and the match is theirs to come back to. Once it is gone, no forfeit is issued at all,
+  because `remainingSeat` would award the match to a bot: the seat is swept and the table is closed.
+  With the settle above, the state this question describes is reached almost only by a solo game or
+  a snapshot restore nobody came back from; it is kept because it is the correct answer whenever it
+  is asked. `closeAbandonedMatch` closes a *finished* ordinary table on the same terms, since
+  `joinAtTable` accepts nothing there but a token reclaim and a reclaim needs a hold.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.
@@ -1073,6 +1087,18 @@ a nil one would hand the client an empty board and put it back at the table — 
 `rematch_offered` state. When the hold does expire, the seat is removed for real
 (`RemoveLobbyPlayer` + `dropSeat`): a phantom at a finished table is worse than a stale flag,
 because the next match would deal a hand to nobody.
+
+**Two holds at one finished table is where the seat-keyed maps have to move together.** `dropSeat`
+and `dropClient` re-based the members, the bots, the tokens, `gone` and the recap, and not `awayAt`
+or `afk`. So Bob (seat 1) and Carol (seat 2) both dropping on the game-over screen, Bob's hold running
+out first, left Carol at seat 1 with her hold still keyed 2: `playerList` read seat 1 as connected,
+`findHeldSeat` found her hold at 2 and checked her token against seat 2's — gone with Bob's — so her
+reclaim was refused with `game already in progress`, and her expiry either removed whoever had slid
+into seat 2 or nobody, leaving a phantom for the next deal. `table.shiftSeatKeys` is now the one list
+every removal goes through, `awayAt` and `afk` included. The timer is the other half: it was armed
+with a seat number, so `handleExpireReconnect` matches on the instant the hold began instead
+(`heldSeatAt`, the seat number kept as the tie-break for the snapshot restore, which stamps every
+seat with one clock and never drops one mid-match). `expiry_settle_test.go` runs both holds.
 
 **Matchmade tables are deliberately excluded from that hold.** Two strangers are done with each
 other, the survivor's client requeues the moment the roster says it is alone, and holding a seat
@@ -1302,6 +1328,13 @@ map. `hub/maploading.go`.
   → `match_loading` again per arrival → once nobody is left, `openTable` arms the turn timer,
   broadcasts `match_ready { turn, turn_deadline }` and schedules the bots. **The clock starts at
   `match_ready`, not at `game_started`** (`TestTurnTimer_StartsAtMatchReadyNotGameStarted`).
+- **Nothing arms a clock or a bot behind the gate either.** `scheduleTurnTimer` and
+  `maybeScheduleBot` return while `t.isLoading()`, and `executeBotMove` returns if the move it was
+  armed for lands inside a gate — a match ends, a rematch reopens the table and deals, and a bot move
+  armed at the end of the last match can fire into the next one's loading screen with the right seat
+  number. A departure during the gate used to reach both through `retireSeat`, and the first turn's
+  thirty seconds ran against a grey rectangle: the head start the gate exists to refuse, from the
+  server's own timer. `openTable` arms both once the last human is in.
 - **Every gameplay message is refused while the gate is open** (`isGameplayMsg` + `isMapLoading` in
   `dispatch`, "waiting for every player to load the table"). Trusting the client's own loading screen
   would leave a client that skipped it as the only one able to act.
@@ -1380,6 +1413,12 @@ round ended.
 
 ## Room lifecycle cleanup
 - `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
+- `hub.TurnTimeoutGrace` (var, default 400ms): how long past the advertised deadline the auto-action
+  waits. `turn_deadline` still says `TurnTimeout`, so the bar is honest and only the server's
+  patience is longer: a play sent on the last frame of the bar has a round trip to cross, and a
+  server that acted on the very millisecond answered it "not your turn" after the player had beaten
+  their own clock — the one refusal in the game that reads as the clock lying. Every timer-armed
+  test that shortens `TurnTimeout` inherits the grace; shorten it too where the arithmetic matters.
 - `hub.ReconnectTimeout` (var, default 60s): disconnected-in-game slot hold. `MatchmakingReconnectTimeout` (15s) replaces it in a matchmade room, and its expiry forfeits the match rather than merely freeing the seat.
 - Both vars exported for test override; restore via `t.Cleanup`.
 - Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(t)`.

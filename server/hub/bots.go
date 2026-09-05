@@ -250,7 +250,11 @@ func (h *Hub) scheduleBotMove(t *table, playerID int) {
 
 // maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
 func (h *Hub) maybeScheduleBot(t *table) {
-	if t.room.Status != game.StatusPlaying {
+	// A shut table has no turns: openTable arms the first bot itself once every
+	// human is in. A retirement or a departure during the gate used to reach
+	// this and start a bot playing against players who were still watching a
+	// loading bar — the head start the gate exists to refuse.
+	if t.room.Status != game.StatusPlaying || t.isLoading() {
 		return
 	}
 	if turn := t.room.State.CurrentTurn; t.isBot(turn) {
@@ -612,6 +616,13 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 		// Very common during normal play — log only at debug level (omitted in prod).
 		return
 	}
+	// A move armed in the last match can land in the next one's loading gate: the
+	// table went finished, then lobby, then playing again, and this seat is a bot
+	// whose turn it happens to be. The gate refuses every human message until the
+	// last table is decoded, so it refuses the bots too; openTable re-arms them.
+	if t.isLoading() {
+		return
+	}
 	if !t.isBot(bm.playerID) {
 		// Slot is no longer a bot (should not happen under current logic).
 		log.Printf("bot move skipped, not a bot slot code=%s player=%d", bm.roomCode, bm.playerID)
@@ -688,12 +699,13 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	}
 	state := room.State
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: intPtr(playerID),
-		DrawnCount:  len(state.Hands[playerID].Cards) - priorSize,
-		Turn:        state.CurrentTurn,
-		PendingDraw: intPtr(state.PendingDraw),
-		HasDrawn:    boolPtr(state.HasDrawn),
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(playerID),
+		DrawnCount:    len(state.Hands[playerID].Cards) - priorSize,
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		InterruptOpen: interruptOpenPtr(state),
 	})
 	// A forced draw does not cost the turn (rules.md §14.5), so the seat is
 	// still ours: play the drawn card or pass. The branch that used to handle a
@@ -707,9 +719,10 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	if err := room.PassTurn(playerID); err == nil {
 		h.scheduleTurnTimer(t)
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:         protocol.SMsgTurnChanged,
-			Turn:         room.State.CurrentTurn,
-			TurnDeadline: turnDeadlineMs(t),
+			Type:          protocol.SMsgTurnChanged,
+			Turn:          room.State.CurrentTurn,
+			TurnDeadline:  turnDeadlineMs(t),
+			InterruptOpen: interruptOpenPtr(room.State),
 		})
 	}
 	return false
@@ -791,9 +804,10 @@ func (h *Hub) botRecover(t *table, playerID int) {
 	}
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgTurnChanged,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }

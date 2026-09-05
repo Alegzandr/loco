@@ -137,6 +137,8 @@ describe('a timing effect ignores the fields it does not watch', () => {
           currentTurn: () => 0,
           myIndex: () => 0,
           pendingDraw: () => 0,
+
+          interruptOpen: () => true,
           onSend: () => {},
           // A card landed earlier in the round, which is the ordinary case.
           lastPlayAt: () => p().watched,

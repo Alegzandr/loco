@@ -131,6 +131,9 @@ export function gameStateSliceFromDTO(state: GameStateDTO) {
     direction: state.direction,
     pendingDraw: state.pending_draw ?? 0,
     hasDrawn: state.has_drawn ?? false,
+    // A snapshot says the whole board, and the server omits a shut window: absent
+    // is shut. A fixture that wants the twin offered says so.
+    interruptOpen: state.interrupt_open ?? false,
     roundNumber: state.round_number ?? 1,
     mapId: state.map_id ?? '',
     mapTime: state.time_of_day ?? '',

@@ -31,6 +31,8 @@ function slam(hand: CardDTO[]): { sent: ClientMsg[]; played: boolean } {
         currentTurn: () => 1,
         myIndex: () => 0,
         pendingDraw: () => 0,
+
+        interruptOpen: () => true,
         onSend: (msg) => sent.push(msg),
         lastPlayAt: () => undefined,
       }),

@@ -526,7 +526,14 @@ func (h *Hub) handleCleanup(t *table, cm cleanupMsg) {
 // left to wait for and no information left to protect: the cleanup's job, done
 // the moment it is certain instead of on a timer.
 func (h *Hub) closeAbandonedMatch(t *table) bool {
-	if t.room.Status != game.StatusPlaying {
+	// A lobby is left to the empty-room cleanup: its code is live and anybody
+	// can still type it. A match has nobody to wait for once every hold is gone,
+	// and so has a finished ordinary table — joinAtTable accepts nothing there
+	// but a token reclaim, and a reclaim needs a hold. Closing the second on the
+	// spot rather than on the five-minute timer matters now that an expiry can
+	// end a match: two seats that both drop and both run out leave a finished
+	// table behind, and it would otherwise sit in memory for the whole timeout.
+	if t.room.Status == game.StatusLobby {
 		return false
 	}
 	if len(t.awayAt) > 0 || !t.allSeatsEmpty() {

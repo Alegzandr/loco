@@ -369,7 +369,41 @@ polish.
   face alone an intercepted +4 drew no `+N`, no impact and no settle — nothing at all on the loudest
   moment in the game — and the "already covered by a flight" flag was left set to swallow the next
   genuine change. The flag is now read and cleared before any early return.
+- **Whether the pile may still be slammed is read off the store, never off the card**
+  (`store.interruptOpen`, the fourth argument of `clientMayInterrupt`). The server says it on every
+  message that can move the window — a play opens it, a draw or a pass by the seat at turn shuts
+  it, a penalty growing a hand leaves it, and the snapshot carries it (omitted there means shut).
+  The client kept no copy and offered the twin for as long as it was on top, so a slam after
+  somebody had drawn was refused and rendered as *"somebody was faster"* on a table where nobody
+  had been; the highlight, the tap and the prompt-closing effect all read the flag now.
+  `interruptWindow.test.ts`.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
+
+### Every deadline is on the server's clock, and the client has to know how far off its own is
+`turn_deadline`, `catch_seats[].ends_at`, `forfeit_deadline` and the snapshot's `turn_deadline` /
+`catch_seats` are absolute unix-millisecond instants written by the server, and every bar and capsule
+on screen (`drainBar`, `pruneCatchWindows`, `turnCountdownSfx`, `OpponentAway`) counts them down
+against `Date.now()`. Those are two clocks, and the difference used to be nobody's. A device six
+seconds fast saw every five-second catch window already shut on arrival — `pruneCatchWindows` dropped
+it, `catchTarget` never lit, and the player was told nobody was on the hook. Six seconds slow, the
+capsule stayed up after the server's window had closed, and the press it invited cost a card. Neither
+is latency, and no amount of it explains what the player saw.
+
+- The server stamps every message with `server_now` (`Client.Send`, `broadcastToRoom`).
+- `hooks/serverClock.ts` keeps the last `CLOCK_SAMPLES` values of `server_now - Date.now()` and reads
+  the **largest** as the offset: a sample undershoots the true offset by exactly that message's
+  one-way latency, so the largest is the closest and errs towards a window shown a few tens of
+  milliseconds longer than it is. Clock skew was seconds either way. A sliding window rather than an
+  average so a clock that steps (NTP catching up) is followed within a handful of messages.
+- `localizeDeadlines(msg)` is the one door: the handler in `serverMessages.ts` passes every message
+  through it before the `switch`, and every deadline field the protocol has is moved there. A new
+  deadline field is added to that function and nowhere else — a field the handler forgot to convert
+  would fail the way the whole class used to, silently and only on a device whose clock is off. An
+  absent or zero deadline is left alone: zero means no timer, and moving it would invent one.
+- Zero until the server has said anything, so a fixture's deadlines land exactly where the test wrote
+  them, and a message carrying no stamp says nothing about the clock.
+- `serverClock.test.ts` pins the estimate, every field, and the store reading the result on its own
+  clock through the real handler.
 
 ## Client transport
 
@@ -437,7 +471,9 @@ Only the socket leaves. The HTML, the bundle and the images all still want the e
   variable, because `docker-compose.dev.yml`, `e2e/playwright.config.ts`, `client/Dockerfile` and the
   README all already name it. `src/test/wsEnv.test.ts` fails whenever the hook reads a prefix the
   config does not expose. Anything else the app needs from the environment obeys the same rule.
-- `webSocket.send(msg)` queues to `pendingRef: ClientMsg[]` when not OPEN; FIFO flush on `onopen`.
+- `webSocket.send(msg)` queues `{ type, data, at }` when not OPEN; FIFO flush on `onopen`, **after**
+  the reclaim message, and a gameplay intent that aged past `PENDING_INTENT_MAX_AGE_MS` is dropped at
+  the flush rather than replayed onto a board that has moved on (`keepPendingIntent`, above).
 - Auto-reconnect: `reconnectDelay(attempt)` walks `RECONNECT_DELAYS_MS`
   (250ms, 500ms, 1s, 2s, 4s, 8s, 15s, then held), `attempts` resets on `onopen`. The
   schedule and the `WsStatus` vocabulary live apart from the socket, in `hooks/webSocketPolicy.ts`:
@@ -1149,10 +1185,16 @@ and must not put the banner back up over a board the table has moved on from —
 departures, the walk-out and the hold that ran out, because to everybody else they are the same news.
 
 ### The curtain underneath it
-Every other seat's hold has expired, so the clock draws and passes for empty chairs until the round
-runs out and nothing on this board will ever move again. The chip alone would be enough now that
-leaving is never refused, but the state still deserves saying out loud rather than leaving the player
-to work out that the table is empty.
+Every other seat's hold has expired and nothing on this board will ever move again. The chip alone
+would be enough now that leaving is never refused, but the state still deserves saying out loud rather
+than leaving the player to work out that the table is empty.
+
+The server now settles an expired hold itself (`settleExpiredSeat`, `docs/notes/server.md`): a table
+that can spare the seat retires it and sends the same `player_left` + `game_state` a walk-out sends,
+a table that cannot ends the match with a `match_end { forfeit }` to the seat that stayed. So the
+state this curtain describes is reached far less often than it was — a snapshot restore nobody else
+came back from, mostly — but the client keeps answering it, because the answer is right whenever the
+question is asked and the server is free to be the one that changes.
 
 - **Held and gone read identically in the roster.** Both are `connected: false`, and only one of them
   can come back — so the difference is remembered rather than derived. `goneSeats` is written by

@@ -23,6 +23,7 @@ export const initialState: GameState = {
   direction: 1,
   pendingDraw: 0,
   hasDrawn: false,
+  interruptOpen: true,
   turnDeadline: null,
   mapId: '',
   mapTime: '',

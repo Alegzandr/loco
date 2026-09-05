@@ -28,24 +28,26 @@ func (h *Hub) sendHandGrowth(t *table, playerID int, newCards []game.Card) {
 	client := t.client(playerID)
 	if client != nil {
 		client.Send(protocol.ServerMsg{
-			Type:         protocol.SMsgCardDrawn,
-			PlayerIndex:  intPtr(playerID),
-			Cards:        cardDTOs(newCards),
-			Turn:         state.CurrentTurn,
-			PendingDraw:  intPtr(state.PendingDraw),
-			HasDrawn:     boolPtr(state.HasDrawn),
-			TurnDeadline: dl,
+			Type:          protocol.SMsgCardDrawn,
+			PlayerIndex:   intPtr(playerID),
+			Cards:         cardDTOs(newCards),
+			Turn:          state.CurrentTurn,
+			PendingDraw:   intPtr(state.PendingDraw),
+			HasDrawn:      boolPtr(state.HasDrawn),
+			TurnDeadline:  dl,
+			InterruptOpen: interruptOpenPtr(state),
 		})
 	}
 	// client == nil (bot seat, or a player mid-reconnect) still needs the count fan-out.
 	h.broadcastToRoom(t, protocol.ServerMsg{
-		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(playerID),
-		DrawnCount:   len(newCards),
-		Turn:         state.CurrentTurn,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		TurnDeadline: dl,
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(playerID),
+		DrawnCount:    len(newCards),
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		TurnDeadline:  dl,
+		InterruptOpen: interruptOpenPtr(state),
 	}, client)
 }
 
@@ -125,6 +127,9 @@ func (h *Hub) broadcastToRoom(t *table, msg protocol.ServerMsg, exclude *Client)
 	if len(members) == 0 {
 		return
 	}
+	// Stamped here and in Client.Send, the two places a message is marshalled:
+	// see protocol.ServerMsg.ServerNow for what the client does with it.
+	msg.ServerNow = time.Now().UnixMilli()
 	data, err := json.Marshal(msg)
 	if err != nil {
 		log.Printf("broadcast marshal error code=%s err=%v", t.code, err)
@@ -153,17 +158,18 @@ func (h *Hub) broadcastCardPlayed(t *table, playerID int, chosenPlayer int) {
 	state := room.State
 	top := state.Discard[len(state.Discard)-1]
 	msg := protocol.ServerMsg{
-		Type:         protocol.SMsgCardPlayed,
-		PlayerIndex:  intPtr(playerID),
-		Card:         cardToDTO(top),
-		ActiveColor:  colorName(state.ActiveColor),
-		Turn:         state.CurrentTurn,
-		Direction:    state.Direction,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		Players:      h.playerList(t),
-		TurnDeadline: turnDeadlineMs(t),
-		CatchSeats:   catchSeats(state),
+		Type:          protocol.SMsgCardPlayed,
+		PlayerIndex:   intPtr(playerID),
+		Card:          cardToDTO(top),
+		ActiveColor:   colorName(state.ActiveColor),
+		Turn:          state.CurrentTurn,
+		Direction:     state.Direction,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		Players:       h.playerList(t),
+		TurnDeadline:  turnDeadlineMs(t),
+		CatchSeats:    catchSeats(state),
+		InterruptOpen: interruptOpenPtr(state),
 	}
 	if top.Kind == game.Swap && chosenPlayer >= 0 {
 		cp := chosenPlayer
