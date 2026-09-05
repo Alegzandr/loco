@@ -34,6 +34,7 @@
     seatLayout,
     boardScale,
     boardSpace,
+    isLandscape,
   } from './layout'
   import type { SceneSpec } from './maps'
   import type { FeltAnchor } from './layout'
@@ -181,6 +182,10 @@
   // the home indicator. The picture may live there; the game may not.
   const insets = safeAreaInsets()
 
+  // A phone on its side gets another composition (see `layout.ts`), decided
+  // here from the element's pixel size and handed to every layout call below:
+  // the virtual space cannot tell the two apart on its own.
+  const landscape = $derived(isLandscape(size.current.width, size.current.height))
   // Everything below works in the board's own coordinate space; <div .stage>
   // scales that space to the element's pixel size. Children — and the pure layout
   // maths they share with the animations — never see the scale.
@@ -188,10 +193,11 @@
     boardScale(
       size.current.width - insets.current.left - insets.current.right,
       size.current.height - insets.current.top - insets.current.bottom,
+      landscape,
     ),
   )
   const space = $derived(
-    boardSpace(size.current.width, size.current.height, scale, insets.current),
+    boardSpace(size.current.width, size.current.height, scale, insets.current, landscape),
   )
   const width = $derived(space.width)
   const height = $derived(space.height)
@@ -328,7 +334,7 @@
   // seatLayout picks the pill size and row count that actually fit this viewport,
   // and reports how much vertical space the seats claim so the table can be placed
   // underneath them rather than through them.
-  const seats = $derived(seatLayout(ready ? others.length : 0, width, height))
+  const seats = $derived(seatLayout(ready ? others.length : 0, width, height, landscape))
   // Every pile/animation coordinate needs the same seat reserve the felt uses,
   // otherwise the deck, the discard and the fliers drift apart from the table.
   const topReserve = $derived(seats.blockHeight)
@@ -346,8 +352,8 @@
     lastPlayAt = lp.at
     // Own plays already fly out of the hand via handleCardClick.
     if (lp.actorIndex === p.myIndex) return
-    const from = seatPosition(lp.actorIndex, p.players, p.myIndex, width, height)
-    const dest = discardPosition(width, height, topReserve)
+    const from = seatPosition(lp.actorIndex, p.players, p.myIndex, width, height, landscape)
+    const dest = discardPosition(width, height, topReserve, landscape)
     const flight = flightFor(lp.card)
     addFliers(
       {
@@ -396,7 +402,7 @@
     // playing your own Skip must announce itself just like an opponent's.
     const card = p.discard!
     if (!covered) {
-      const target = discardPosition(width, height, topReserve)
+      const target = discardPosition(width, height, topReserve, landscape)
       const flight = flightFor(card)
       addFliers(
         {
@@ -421,7 +427,7 @@
           text: eff.text,
           color: eff.color,
           x: width / 2,
-          y: discardPosition(width, height, topReserve).y - 10,
+          y: discardPosition(width, height, topReserve, landscape).y - 10,
           delayMs: flightFor(card).duration,
         },
       )
@@ -449,7 +455,7 @@
         text: label,
         color: ACTIVE_RING[active],
         x: width / 2,
-        y: discardPosition(width, height, topReserve).y - 10,
+        y: discardPosition(width, height, topReserve, landscape).y - 10,
         delayMs: (disc ? flightFor(disc).duration : 0) + COLOR_CALLOUT_DELAY_MS,
       },
     )
@@ -472,8 +478,8 @@
     dealtFor = round
     dealtOnce = true
     if (prefersReducedMotion()) return
-    const slots = calcHandSlots(n, width, height)
-    const start = deckPosition(width, height, topReserve)
+    const slots = calcHandSlots(n, width, height, landscape)
+    const start = deckPosition(width, height, topReserve, landscape)
     addFliers(
       ...slots.map((slot, i) => ({
         id: newId(),
@@ -497,9 +503,9 @@
     const prev = prevHandSize
     prevHandSize = curr
     if (curr !== prev + 1) return // only single-card draws (penalty draws batch differently)
-    const slots = calcHandSlots(curr, width, height)
+    const slots = calcHandSlots(curr, width, height, landscape)
     const target = slots[curr - 1]
-    const start = deckPosition(width, height, topReserve)
+    const start = deckPosition(width, height, topReserve, landscape)
     addFliers(
       {
         id: newId(),
@@ -548,8 +554,8 @@
     if (!ready || !sn || sn.at === lastSwapAt) return
     lastSwapAt = sn.at
     if (sn.kind === 'swap' && sn.targetIndex >= 0) {
-      const a = seatPosition(sn.actorIndex, p.players, p.myIndex, width, height)
-      const b = seatPosition(sn.targetIndex, p.players, p.myIndex, width, height)
+      const a = seatPosition(sn.actorIndex, p.players, p.myIndex, width, height, landscape)
+      const b = seatPosition(sn.targetIndex, p.players, p.myIndex, width, height, landscape)
       spawnSwapTrail(a, b, 0)
       spawnSwapTrail(b, a, 90)
     } else if (sn.kind === 'global_switch') {
@@ -559,8 +565,8 @@
         const fromIdx = ordered[i].index
         const toIdx = ordered[(i + step) % ordered.length].index
         if (fromIdx === toIdx) continue
-        const a = seatPosition(fromIdx, p.players, p.myIndex, width, height)
-        const b = seatPosition(toIdx, p.players, p.myIndex, width, height)
+        const a = seatPosition(fromIdx, p.players, p.myIndex, width, height, landscape)
+        const b = seatPosition(toIdx, p.players, p.myIndex, width, height, landscape)
         spawnSwapTrail(a, b, i * 60)
       }
     }
@@ -580,8 +586,8 @@
     const cf = p.catchFlash
     if (!ready || !cf || cf.at === lastCatchAt) return
     lastCatchAt = cf.at
-    const seat = seatPosition(cf.seat, p.players, p.myIndex, width, height)
-    const deck = deckPosition(width, height, topReserve)
+    const seat = seatPosition(cf.seat, p.players, p.myIndex, width, height, landscape)
+    const deck = deckPosition(width, height, topReserve, landscape)
     const from = {
       x: deck.x + CARD_W / 2 - CATCH_CARD_W / 2,
       y: deck.y + CARD_H / 2 - CATCH_CARD_H / 2,
@@ -636,10 +642,10 @@
   // frame.
   function flyFromHand(card: CardDTO, idx: number) {
     if (!ready) return
-    const slots = calcHandSlots(p.myHand.length, width, height)
+    const slots = calcHandSlots(p.myHand.length, width, height, landscape)
     const slot = slots[idx]
     if (!slot) return
-    const dest = discardPosition(width, height, topReserve)
+    const dest = discardPosition(width, height, topReserve, landscape)
     // The lift applied to playable cards in <Hand /> shifts them up by 9px at
     // rest; mirror it so the fly starts at the visually correct spot.
     const liftedY = p.isPlayable(card) ? slot.y - 9 : slot.y
@@ -668,6 +674,7 @@
     p.myHand
     width
     height
+    landscape
     p.setFlightHandle?.({ flyFromHand })
     return () => p.setFlightHandle?.(null)
   })
@@ -681,7 +688,7 @@
   }
 
   // Felt table — geometry lives in layout.ts so tests and animations share it.
-  const table = $derived(tableRect(width, height, topReserve))
+  const table = $derived(tableRect(width, height, topReserve, landscape))
 </script>
 
 <div
@@ -740,6 +747,7 @@
             <DirectionRing rect={table} direction={p.direction} label={p.directionLabel} />
           {/key}
           <Deck
+            {landscape}
             {width}
             {height}
             {topReserve}
@@ -748,6 +756,7 @@
             drawLabel={p.drawLabel}
           />
           <DiscardPile
+            {landscape}
             card={p.discard}
             playStamp={p.lastPlay?.at ?? 0}
             activeColor={p.activeColor}
@@ -757,6 +766,9 @@
             {topReserve}
           />
           <TurnIndicator
+            {width}
+            {topReserve}
+            {landscape}
             isMyTurn={p.currentTurn === p.myIndex}
             pendingDraw={p.pendingDraw}
             canCounter={p.canCounter}
@@ -777,6 +789,7 @@
             />
           {/each}
           <Hand
+            {landscape}
             hand={p.myHand}
             roundNumber={p.roundNumber}
             {width}

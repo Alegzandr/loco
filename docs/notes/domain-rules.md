@@ -115,7 +115,11 @@ room's reset.
   stamp rides the drain snapshot for that reason — a deploy mid-match must not restart the clock —
   and `resetForNextMatch` clears it, because the next match is timed from its own open. The client's
   half is `components/matchDuration.ts`: the last record is the match that just ended (recorded
-  before it is announced), worded in minutes and never seconds, under a minute said in words.
+  before it is announced), worded to the second with the units written out — `12 min 34 s`, `42 s`
+  under a minute, `1 h 05 min 12 s` past an hour — and never as `12:34`, which reads as a clock or a
+  speedrun split. It was minutes only; the player asked for the seconds, and a recap that carries
+  them is a record where the rounded figure was an estimate. Rounded to the nearest second and never
+  below one, so a played match never reads `0 s`.
 
 ### Round and match plumbing
 - Hub flow on round end: broadcast `round_end` (scoreboard, `RoundNumber`=just-completed) → `BeginNextRound` → `game_started` per player. On match end: `match_end` (scoreboard + match_winner).

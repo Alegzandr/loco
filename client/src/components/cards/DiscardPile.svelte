@@ -24,6 +24,8 @@
     height: number
     /** Vertical space claimed by the opponent seats — the piles follow the felt. */
     topReserve?: number
+    /** A phone on its side: the felt sits right of the seat column (`layout.ts`). */
+    landscape?: boolean
     /**
      * The stamp of the play that put `card` on the pile, 0 when none did (a
      * snapshot). Part of the pile's key: an interject is the same face as the
@@ -33,7 +35,7 @@
     playStamp?: number
   }
 
-  let { card, activeColor, pendingDraw, width, height, topReserve = 0, playStamp = 0 }: Props = $props()
+  let { card, activeColor, pendingDraw, width, height, topReserve = 0, landscape = false, playStamp = 0 }: Props = $props()
 
   const assist = watchPref(colorAssistPref)
 
@@ -95,7 +97,7 @@
     return () => clearTimeout(timer)
   })
 
-  const pos = $derived(discardPosition(width, height, topReserve))
+  const pos = $derived(discardPosition(width, height, topReserve, landscape))
   const tilt = $derived(shown ? hashTilt(shown) : 0)
 </script>
 

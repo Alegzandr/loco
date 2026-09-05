@@ -11,6 +11,8 @@
     roundNumber?: number
     width: number
     height: number
+    /** A phone on its side: the fan sits on the bottom edge, not above a bar (`layout.ts`). */
+    landscape?: boolean
     /** Predicate run per card to decide playable/highlight state. */
     isPlayable: (card: CardDTO) => boolean
     /**
@@ -21,7 +23,7 @@
     onCardClick: (card: CardDTO, idx: number) => void
   }
 
-  let { hand, roundNumber = -1, width, height, isPlayable, isInteractive, onCardClick }: Props = $props()
+  let { hand, roundNumber = -1, width, height, landscape = false, isPlayable, isInteractive, onCardClick }: Props = $props()
 
   let hoveredIdx = $state<number | null>(null)
 
@@ -57,13 +59,21 @@
     return () => clearTimeout(id)
   })
 
-  const slots = $derived(calcHandSlots(hand.length, width, height))
+  const slots = $derived(calcHandSlots(hand.length, width, height, landscape))
   const keys = $derived(handCardKeys(hand))
 </script>
 
 <!--
   The local player's fanned cards. Pure presentational — position and rotation come
   from `calcHandSlots`, hover state is local.
+
+  The hover is a mouse's and nobody else's. It listened to `mouseenter`, which a
+  touch screen synthesises on the tap and never follows with a `mouseleave`
+  until the finger lands somewhere else: a card tapped and refused stayed lifted
+  and straightened over the fan for the rest of the turn, which read as the game
+  having picked it. Pointer events say what the pointer is, so a finger lifts
+  nothing — the press feedback below is the touch's whole answer — and a
+  refused tap leaves the fan exactly as it found it.
 
   Each slot is positioned purely by transform, so when a card leaves the fan the
   neighbours glide into the gap instead of snapping to their new left/top. Framer
@@ -93,8 +103,10 @@
           : radToDeg(slot.rotation)}deg); transition-delay: {dealing
           ? i * DEAL_STAGGER_MS
           : 0}ms; animation-delay: {dealing ? i * DEAL_STAGGER_MS + DEAL_FLIGHT_MS : 0}ms"
-        onmouseenter={() => (hoveredIdx = i)}
-        onmouseleave={() => {
+        onpointerenter={(e) => {
+          if (e.pointerType === 'mouse') hoveredIdx = i
+        }}
+        onpointerleave={() => {
           if (hoveredIdx === i) hoveredIdx = null
         }}
       >

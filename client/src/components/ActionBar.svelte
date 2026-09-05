@@ -474,6 +474,41 @@
        a second full-height button sat directly over the centre column. */
   }
 
+  /* A phone on its side. The bar becomes a stack up the right edge — draw,
+     Contre-LOCO!, pass, top to bottom, the reaction still in the middle — and
+     the LOCO! chip keeps its place above it. The same three fixed slots that
+     never reflow: only the axis turns, with the phone. The band this takes,
+     its width plus its margins, is `layout.ts: SIDE_RESERVE`, which the board's
+     coordinate space stops short of, and the height ceiling is
+     `LANDSCAPE_MAX_H` there; `landscape.test.ts` pins both to this block. The
+     `max-width: 480px` block above cannot match here — a phone on its side is
+     wider than that — so every measurement it sets is set again. */
+  @media (orientation: landscape) and (max-height: 559px) {
+    .actionBar {
+      left: auto;
+      right: calc(10px + var(--safe-right));
+      bottom: calc(10px + var(--safe-bottom));
+      transform: none;
+      grid-template-columns: var(--slot-w);
+      grid-template-rows: repeat(3, auto);
+      --slot-w: 124px;
+      gap: var(--space-xs);
+      padding: var(--space-xs);
+    }
+
+    .btn {
+      min-height: 44px;
+      padding: 10px 6px;
+      min-width: 0;
+      font-size: 14px;
+    }
+
+    .locoSlot .btn {
+      min-height: 34px;
+      padding: 6px 18px;
+    }
+  }
+
   :root[data-motion="reduce"] .btnPenalty::before {
     display: none;
   }

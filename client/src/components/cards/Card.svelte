@@ -289,6 +289,9 @@
   .interactive {
     cursor: pointer;
     touch-action: manipulation;
+    /* The press is answered by the card giving under the thumb (`Hand.svelte`),
+       not by the platform's grey wash over it. */
+    -webkit-tap-highlight-color: transparent;
   }
 
   .interactive:focus-visible {

@@ -336,8 +336,8 @@ test.describe('rematch', () => {
     const first = (await getState(page))?.matchHistory ?? []
     expect(first).toHaveLength(1)
     // The match was timed on the server, and the card says so: a real match
-    // through the map gate takes well under a minute here, which is the
-    // wording the card gives anything below sixty seconds.
+    // through the map gate takes well under a minute here, so the card words
+    // it in seconds alone.
     expect(first[0].duration_ms ?? 0).toBeGreaterThanOrEqual(1)
     await expect(page.getByText(T.matchUnderAMinute)).toBeVisible()
 
