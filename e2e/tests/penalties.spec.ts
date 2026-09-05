@@ -359,6 +359,11 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
       )
       await expect(catchBtn).not.toHaveClass(/\barmed\b/)
       expect((await getState(alice))?.catchTarget).toBeNull()
+      // The press was acknowledged on the spot and the verdict released it: a
+      // button still held down after the catch landed would be waiting on an
+      // answer that has already arrived.
+      expect((await getState(alice))?.catchPending).toBe(false)
+      await expect(catchBtn).not.toHaveClass(/\bcalled\b/)
       // And still pressable: nothing was played, so nothing re-read the table.
       await expect(catchBtn).toBeEnabled()
 

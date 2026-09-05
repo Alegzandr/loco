@@ -4,6 +4,7 @@
   import { seatColor, seatInitial } from './playerColors'
   import LocoLogo from './LocoLogo.svelte'
   import Preferences from './Preferences.svelte'
+  import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import RulesButton from './RulesButton.svelte'
   import RulesModal from './RulesModal.svelte'
@@ -79,6 +80,7 @@
        every other screen carries stays reachable here too: turning the music down
        or reading the rules is exactly what one does while queueing. -->
   <div class="topBar">
+    <FullscreenButton />
     <Preferences />
     <AudioSettings />
     <RulesButton label={t.rulesHowBtn} variant="text" onclick={() => (showRules = true)} />

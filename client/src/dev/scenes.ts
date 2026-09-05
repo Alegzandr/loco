@@ -667,6 +667,25 @@ export const SCENES: Scene[] = [
     deadlineIn: 11,
   },
   {
+    // The press, before the verdict: we have pressed on Pixel and the server
+    // has not answered. The centre button is held down — ledge collapsed, face
+    // darkened, the armed pop stopped — and nothing else on the board has
+    // moved, because nothing else is ours to decide. Review it beside
+    // `game-catch-window`: the two differ by the button alone.
+    id: 'game-catch-pressed',
+    title: 'Partie · Contre-LOCO! envoyé',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      currentTurn: 0,
+      catchTarget: 3,
+      catchPending: true,
+      players: [player(0, 'Nova', 5), player(1, 'Kiwi', 4), player(2, 'Bot1', 9), player(3, 'Pixel', 1)],
+    },
+    unoIn: 3.0,
+    deadlineIn: 14,
+  },
+  {
     // The wager lost: our Contre-LOCO! arrived after Pixel's own call and drew
     // us a card for it. The notice is red and sits below the swap pill so the
     // two can share the screen; both are table news, not errors.

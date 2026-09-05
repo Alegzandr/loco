@@ -53,6 +53,8 @@ interface LocoE2EState {
   /** Player the server is tracking as catchable for a missed LOCO!; null = nobody. */
   catchTarget: number | null
   unoTimerEnd: number | null
+  /** A Contre-LOCO! we pressed that the server has not answered yet. */
+  catchPending: boolean
   /** Seat whose Contre-LOCO! missed and drew a card for it (rules §14.6). */
   catchFailed: { seat: number; at: number } | null
   /** Seat a Contre-LOCO! just landed on (drives the verdict stamp + penalty cards). */

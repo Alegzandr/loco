@@ -326,6 +326,22 @@ polish.
   setting `lastPlay`, so the prompt stayed up over a table that had gone and the choice went out
   against a state the server had already replaced. Being asked for a swap target and *then* refused
   is the one rejection in this game that reads as a broken promise rather than as an illegal card.
+- **A Contre-LOCO! is acknowledged on the frame it is pressed, and the verdict is still the server's.**
+  Measured with Playwright against the real Go server (two browsers, a fixture putting one seat on
+  one card, a click on the centre button): from the click being dispatched to `uno_caught` applied
+  in the store and the caught hand grown by two is **3–5 ms**. The client does nothing slow — the
+  press goes straight to `socket.send`, the handler is synchronous on the table's goroutine, the
+  answer is one broadcast — so everything a player waits for beyond that is the wire: the CDN path
+  (below) on the dev host, or their own connection. What made that wait read as *the button ignoring
+  the tap* was that the button showed nothing at all until the answer came back: the only immediate
+  change was the armed glow going out, which reads as "dead" rather than as "in flight". So the
+  press is now shown the instant it is made — `store.catchPending`, rendered as `.called` on the
+  button: ledge collapsed, face darkened, the armed pop stopped — and it stays until whatever answers
+  the press arrives: the catch landing (`applyUnoCaught`), the miss (`applyCatchFailed`), a refusal
+  (`setError`), the board moving on (`applyCardPlayed`), or an authoritative snapshot. It presumes
+  nothing about the verdict and disables nothing: a second window after a Swap is still one more
+  tap. `gameStore.test.ts` owns the store half, `actionBar.test.ts` the button, and the
+  `game-catch-pressed` scene is the state beside `game-catch-window` in the contact sheet.
 - `src/test/realtime.test.ts` owns all of the above on the client side.
 
 ## Client transport
@@ -1257,6 +1273,28 @@ was split out (`THEME_STORAGE_KEY`, one key, both halves); the language now does
 `Preferences.svelte` is the gear in the top bar of the lobby, the waiting room, the reconnect splash and
 the board. It holds the language chooser (`LanguageSwitcher`, a child), the theme, and three
 switches: streamer mode, colour shapes, reduced motion.
+
+### Fullscreen, beside the gear and not inside it
+`FullscreenButton.svelte` is the chip to the left of the gear, in every row the gear is in (the
+lobby, the search, the waiting room, the board, the reconnect splash, the tab-taken curtain). It is
+deliberately not a preference and not in the panel: a preference is something the player sets once
+and the game remembers, and fullscreen is a state the browser owns and drops on its own terms —
+Escape leaves it, so does a tab switch on some desktops, and a reload always does. Nothing is stored;
+the chip reads the document's `fullscreenchange` and its icon and name follow it, so a player who left
+with Escape is offered "Full screen" again and never a button that thinks it is still in.
+
+- **Desktop only.** Below 46rem the chip is hidden with the rest of the row's desktop concerns — that
+  width already belongs to the burger — and a phone has nothing to gain from an API half its browsers
+  refuse (iOS Safari answers only for `<video>`). Where `document.fullscreenEnabled` is false (an
+  iframe without `allowfullscreen`, a WebView, jsdom) the chip is not rendered at all: a button that
+  throws on press is worse than no button.
+- **Two drawings, never one rotated**: four brackets pointing out to enter, pointing in to leave. The
+  chip sits beside two others and is read at a glance; a rotation is not a word.
+- **Not a keyboard shortcut.** There is no key bound to it here (F11 is the browser's, and does not
+  go through the API on every desktop). Its one listener is `fullscreenchange`, which reads no key —
+  `noKeyboardShortcuts.test.ts` is about keys and is untouched.
+- `fullscreenButton.test.ts` pins the absent-when-unsupported case, the request and the exit, the
+  name following the document, the French name, the 46rem rule and that every row with a gear has it.
 
 - **The language is a dropdown, and the pick is the application — on every screen.** The theme below
   it is a segmented pair applied on the press, which is right for a setting that changes the screen

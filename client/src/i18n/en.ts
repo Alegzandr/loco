@@ -144,6 +144,9 @@ export interface Translations {
   // the second preference, and two of them belong in a panel.
   prefsBtn: string
   prefsTitle: string
+  /** The fullscreen chip beside the gear, desktop only; two names, one per state. */
+  fullscreenBtn: string
+  fullscreenExitBtn: string
   /** The ✕ on the phone's sheet, where the gear that opened it is not on screen. */
   prefsClose: string
   prefsLanguage: string
@@ -523,6 +526,8 @@ export const en: Translations = {
   // ─── Preferences ──────────────────────────────────────────────
   prefsBtn: 'Preferences',
   prefsTitle: 'Preferences',
+  fullscreenBtn: 'Full screen',
+  fullscreenExitBtn: 'Leave full screen',
   prefsClose: 'Close',
   prefsLanguage: 'Language',
   prefsTheme: 'Theme',

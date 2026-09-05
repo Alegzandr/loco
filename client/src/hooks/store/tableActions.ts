@@ -51,6 +51,9 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         // still warrants it — without which a fresh deal opens with the
         // button live, carrying the last round's endgame into eight-card hands.
         catchLive: false,
+        // Same authority over a press in flight: the snapshot is the server's
+        // whole answer, and a correction is how a refused press comes back.
+        catchPending: false,
       }
     }),
 
@@ -134,6 +137,10 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
         // same one repeated. This is the client's copy of the server's PlayEpoch
         // and it is cleared by the same event the server counts.
         catchSpent: false,
+        // A press still waiting on this board was answered by the board moving:
+        // whatever the server says about it now, the call was about the last
+        // card, and the button has to be free for the next one.
+        catchPending: false,
         // And the offer itself is re-read on the same event. Between two cards
         // the button never goes dead under a thumb — a seat that declares, draws
         // or swallows a stack of four does not take it away — but the card that

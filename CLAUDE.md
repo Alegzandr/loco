@@ -713,6 +713,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
   the second tap of a double tap on a catch that landed — the server's own guard does not cover it,
   because a catch that lands spends no epoch.
+- **The press is acknowledged on the frame it lands, and the verdict is still the server's**
+  (`store.catchPending`, `ActionBar`'s `.called`). The whole client-plus-server path of a
+  Contre-LOCO! measures 3–5 ms; everything a player waits for beyond that is the network, and a
+  button that shows nothing until the verdict comes back makes every millisecond of it read as a
+  dead control. So the button holds itself down from the press to the answer: raised by both press
+  actions, lowered by `applyUnoCaught`, `applyCatchFailed`, a refusal (`setError`), `applyCardPlayed`
+  and every reset that lowers `catchFlash`. **It presumes nothing** — no stamp, no penalty, no card —
+  and **it disables nothing**: a second window after a Swap is still one more tap.
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
   opener is the one exception. `escapeClose.test.ts`.
@@ -762,6 +770,12 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
   and only from the host's — see below; every other one is local and must stay that way. Those icons
   are **drawn SVG, never a font character**.
+- **Fullscreen is a chip in that same row, on every screen that draws the row, and it is not a
+  preference** (`FullscreenButton.svelte`): nothing stored, the icon follows the document's own
+  `fullscreenchange` because Escape leaves fullscreen without asking us. **Desktop only** — gone
+  below 46rem with the rest of the row, and absent altogether where `document.fullscreenEnabled` is
+  false (an iframe, a WebView, iOS Safari) rather than a button that throws on press. Two drawn
+  glyphs, brackets out to enter and in to leave, never one rotated. `fullscreenButton.test.ts`.
 - **Every glyph a player sees is one we drew, and that includes the ones that shout**
   (`drawnGlyphs.test.ts`, which scans every `.svelte` and `.astro` plus both copy files). The rule
   was written for the gear and the ✕ and broken everywhere else: the game-over card headed itself

@@ -38,6 +38,8 @@ export const fr: Translations = {
   // ─── Préférences ──────────────────────────────────────────────
   prefsBtn: 'Préférences',
   prefsTitle: 'Préférences',
+  fullscreenBtn: 'Plein écran',
+  fullscreenExitBtn: 'Quitter le plein écran',
   prefsClose: 'Fermer',
   prefsLanguage: 'Langue',
   prefsTheme: 'Thème',

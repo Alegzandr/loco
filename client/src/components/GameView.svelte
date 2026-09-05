@@ -26,6 +26,7 @@
   import InterruptBanner from './InterruptBanner.svelte'
   import CatchBanner from './CatchBanner.svelte'
   import Preferences from './Preferences.svelte'
+  import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
   import { resolveMap } from './cards/maps'
@@ -436,6 +437,7 @@
     hasPlayableCard={play.hasPlayableCard}
     catchArmed={g.catchTarget !== null}
     catchLive={catchLive}
+    catchPending={g.catchPending}
     hasDeclared={g.myDeclared}
     onDraw={handleDraw}
     onPass={() => guardDoubleTap('pass', () => onSend({ type: 'pass_turn' }))}
@@ -490,6 +492,7 @@
         </g>
       </svg>
     </button>
+    <FullscreenButton />
     <Preferences />
     <AudioSettings />
     <RulesButton label={t.rulesBtn} onclick={() => (showRules = true)} />

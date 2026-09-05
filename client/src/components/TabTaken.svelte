@@ -2,6 +2,7 @@
   import { i18n } from '../i18n/i18n.svelte'
   import LocoLogo from './LocoLogo.svelte'
   import Preferences from './Preferences.svelte'
+  import FullscreenButton from './FullscreenButton.svelte'
 
   type Props = {
     /**
@@ -33,6 +34,7 @@
 -->
 <div class="container">
   <div class="topBar">
+    <FullscreenButton />
     <Preferences />
   </div>
 
