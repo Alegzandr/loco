@@ -187,8 +187,10 @@ func TestDeck_Replenish(t *testing.T) {
 	drawn, _ := d.DrawN(110)
 	discard := drawn[:109]
 	d.Replenish(discard, nil)
-	if len(d.Cards) != 109 {
-		t.Errorf("After Replenish(), deck len = %d, want 109", len(d.Cards))
+	// The two cards still in the deck stay in it: a replenish adds the pile to
+	// what is left, it does not replace it.
+	if len(d.Cards) != 111 {
+		t.Errorf("After Replenish(), deck len = %d, want 111", len(d.Cards))
 	}
 }
 

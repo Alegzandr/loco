@@ -21,7 +21,7 @@
 <div class="unoTimer">
   <span class="unoTimerLabel">{label}</span>
   <div class="unoTimerBar">
-    <div bind:this={fill} class="unoTimerFill"></div>
+    <div bind:this={fill} class="unoTimerFill loco-slide"></div>
   </div>
 </div>
 
@@ -84,15 +84,17 @@
     overflow: hidden;
   }
 
-  /* Full width, drained by scaleX (see .loco-draining in tokens.css) so the
+  /* Full width, drained by translateX (`loco-slide` in tokens.css) so the
      5s window costs the main thread nothing while the catch is live, which is
-     exactly the moment the player needs their click handled instantly.
-     The drain animation paints the fill, so the gradient is a fallback for the
-     frame before it is armed. */
+     exactly the moment the player needs their click handled instantly — and so
+     the rounded tip stays a tip as it goes, rather than being squashed to a
+     sliver by a scale. This one keeps its own paint: five seconds is not long
+     enough to report a trend. */
   .unoTimerFill {
     height: 100%;
     border-radius: var(--radius-full);
-    background: linear-gradient(90deg, #ffc93c 0%, var(--color-primary) 100%);
+    background: linear-gradient(90deg, var(--color-secondary) 0%, var(--color-primary) 100%);
+    box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.32);
   }
 
   @keyframes catchIn {

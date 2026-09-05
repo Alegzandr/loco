@@ -93,20 +93,44 @@
    * `fill: 'forwards'` matters: every one of these ends somewhere other than
    * where the element sits, and without it the card would snap back for the one
    * frame before its owner removes it.
+   *
+   * Under reduced motion a flight collapses to its destination: a zero-length
+   * animation is the card already there, which is the right answer for a
+   * flier and for a landing ring. It is the wrong answer for a callout, whose
+   * *destination* is gone — SKIP, REVERSE, +2, +4 and the colour a wild named
+   * were finishing in the same frame they started and never painted, for
+   * exactly the player who had asked for a board they could read. So a spec
+   * may carry a `still`: the frame to hold and for how long, played at the
+   * spec's own delay so the sequencing survives (the colour callout still
+   * lands `COLOR_CALLOUT_DELAY_MS` after the card's).
    */
   function play(
     node: HTMLElement,
-    spec: { frames: Keyframe[]; duration: number; delay: number; done: () => void },
+    spec: {
+      frames: Keyframe[]
+      duration: number
+      delay: number
+      done: () => void
+      still?: { frames: Keyframe[]; duration: number }
+    },
   ) {
     let anim: Animation | null = null
     const start = (s: typeof spec) => {
       anim?.cancel()
-      anim = node.animate(s.frames, {
-        duration: reducedMotion.current ? 0 : s.duration,
-        delay: reducedMotion.current ? 0 : s.delay,
-        easing: EASE,
-        fill: 'forwards',
-      })
+      const reduced = reducedMotion.current
+      anim =
+        reduced && s.still
+          ? node.animate(s.still.frames, {
+              duration: s.still.duration,
+              delay: s.delay,
+              fill: 'forwards',
+            })
+          : node.animate(s.frames, {
+              duration: reduced ? 0 : s.duration,
+              delay: reduced ? 0 : s.delay,
+              easing: EASE,
+              fill: 'forwards',
+            })
       anim.finished.then(s.done).catch(() => {})
     }
     start(spec)
@@ -163,6 +187,15 @@
     { opacity: 0, transform: 'translateY(-62px) scale(1.16)', offset: 1 },
   ]
 
+  // The callout under reduced motion: its held frame, for as long as the full
+  // animation spends readable (the 0.16 → 0.6 stretch of a second). Two
+  // identical keyframes — a hold, not a tween.
+  const EFFECT_STILL_MS = 900
+  const EFFECT_STILL_FRAMES: Keyframe[] = [
+    { opacity: 1, transform: 'translateY(-16px) scale(1.1)' },
+    { opacity: 1, transform: 'translateY(-16px) scale(1.1)' },
+  ]
+
   const IMPACT_FRAMES: Keyframe[] = [
     { opacity: 0.9, transform: 'scale(0.18)' },
     { opacity: 0, transform: 'scale(1)' },
@@ -212,6 +245,7 @@
           duration: 1000,
           delay: et.delayMs ?? 0,
           done: () => onEffectDone(et.id),
+          still: { frames: EFFECT_STILL_FRAMES, duration: EFFECT_STILL_MS },
         }}
       >
         {et.text}

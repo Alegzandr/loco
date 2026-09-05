@@ -24,9 +24,18 @@
     height: number
     /** Vertical space claimed by the opponent seats — the piles follow the felt. */
     topReserve?: number
+    /** A phone on its side: the felt sits right of the seat column (`layout.ts`). */
+    landscape?: boolean
+    /**
+     * The stamp of the play that put `card` on the pile, 0 when none did (a
+     * snapshot). Part of the pile's key: an interject is the same face as the
+     * card under it, and keyed on the face alone the top never remounted, so
+     * the settle never replayed on the one play the table most needs to see.
+     */
+    playStamp?: number
   }
 
-  let { card, activeColor, pendingDraw, width, height, topReserve = 0 }: Props = $props()
+  let { card, activeColor, pendingDraw, width, height, topReserve = 0, landscape = false, playStamp = 0 }: Props = $props()
 
   const assist = watchPref(colorAssistPref)
 
@@ -52,9 +61,12 @@
   // exception is the first card this pile ever shows (an opening discard, or a
   // board rebuilt after a reconnect), where nothing flew, and waiting for a flight
   // that never happened just blanks the pile.
-  let shown = $state<CardDTO | null>(card)
+  let shown = $state<CardDTO | null>(untrack(() => card))
+  // The stamp that goes with `shown`, revealed in the same instant so the top's
+  // key changes once per play and never between a flight and its landing.
+  let shownStamp = $state(untrack(() => playStamp))
   let isFirst = true
-  const key = $derived(card ? cardKey(card) : '')
+  const key = $derived(card ? `${cardKey(card)}|${playStamp}` : '')
 
   $effect(() => {
     // The card's identity is the *only* dependency, and on this board a
@@ -67,6 +79,7 @@
     // object out of the dependency list (same reason `GameBoard` uses it).
     key
     const next = untrack(() => card)
+    const stampNow = untrack(() => playStamp)
     if (!next) {
       shown = null
       return
@@ -74,13 +87,17 @@
     if (isFirst) {
       isFirst = false
       shown = next
+      shownStamp = stampNow
       return
     }
-    const timer = window.setTimeout(() => (shown = next), flightFor(next).duration)
+    const timer = window.setTimeout(() => {
+      shown = next
+      shownStamp = stampNow
+    }, flightFor(next).duration)
     return () => clearTimeout(timer)
   })
 
-  const pos = $derived(discardPosition(width, height, topReserve))
+  const pos = $derived(discardPosition(width, height, topReserve, landscape))
   const tilt = $derived(shown ? hashTilt(shown) : 0)
 </script>
 
@@ -111,7 +128,7 @@
       ></div>
     {/each}
     <!-- Keyed on the card so every new top card remounts and replays the settle. -->
-    {#key cardKey(shown)}
+    {#key `${cardKey(shown)}|${shownStamp}`}
       <div class="top" style="--tilt: {tilt}deg">
         <Card card={shown} />
       </div>
@@ -233,12 +250,15 @@
   }
 
   /* The settle: the card lands a touch large and over-tilted, then sits. */
+  /* No `will-change`: the settle is one 420ms animation per new top card, and
+     the browser promotes an animating element for its duration on its own. A
+     permanent hint kept a layer alive for the whole round for a card that
+     moves once. */
   .top {
     position: absolute;
     top: 0;
     left: 0;
     transform-origin: 50% 50%;
-    will-change: transform;
     animation: topSettle 0.42s var(--ease-bounce) both;
   }
 

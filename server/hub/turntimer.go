@@ -14,7 +14,11 @@ import (
 // if the player (human only) does not act within TurnTimeout.
 func (h *Hub) scheduleTurnTimer(t *table) {
 	code, room := t.code, t.room
-	if room.Status != game.StatusPlaying {
+	// No clock behind the map gate: the match begins at match_ready, and openTable
+	// is what arms the first turn. A departure during the gate used to reach this
+	// and start the first player's thirty seconds while their table was still a
+	// grey rectangle.
+	if room.Status != game.StatusPlaying || t.isLoading() {
 		return
 	}
 	turn := room.State.CurrentTurn
@@ -35,7 +39,8 @@ func (h *Hub) scheduleTurnTimer(t *table) {
 	t.turnStartedAt = now
 	tm := turnTimerMsg{roomCode: code, playerID: turn, turnStartedAt: now}
 	// Non-critical if the box is full: the player just gets a free extra turn.
-	time.AfterFunc(TurnTimeout, func() {
+	// Armed past the deadline the client is shown: see TurnTimeoutGrace.
+	time.AfterFunc(TurnTimeout+TurnTimeoutGrace, func() {
 		t.postFromTimer("turn_timeout", func() { h.handleTurnTimeout(t, tm) })
 	})
 }
@@ -57,6 +62,12 @@ func (h *Hub) handleTurnTimeout(t *table, tm turnTimerMsg) {
 
 	log.Printf("turn timeout code=%s player=%d auto-acting", code, tm.playerID)
 
+	// A kick answers the *socket*, never the turn. The seat is held for its
+	// reconnect window like any other drop, and a held seat is still the seat
+	// the clock is on, so the auto-draw and the pass below run either way: a
+	// return here left `CurrentTurn` on the kicked player with nothing armed to
+	// move it, and a three-human table sat on "not your turn" for the rest of
+	// the match. Only the matchmade forfeit ends the turn, by ending the match.
 	if h.kickIfAFK(t, tm.playerID, t.client(tm.playerID)) {
 		return
 	}
@@ -76,9 +87,10 @@ func (h *Hub) handleTurnTimeout(t *table, tm turnTimerMsg) {
 	// turn — until some unrelated message happened to carry a live one.
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgTurnChanged,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }
@@ -102,8 +114,11 @@ func stillTheSameTurn(t *table, tm turnTimerMsg) bool {
 
 // kickIfAFK bumps the AFK counter for human players and acts once the threshold
 // is reached. Bots are exempt: their timeouts are driven by the scheduler, not
-// player inactivity. Returns true when the player was dealt with and the caller
-// must not go on to auto-act for them.
+// player inactivity. Returns true only when the match itself was ended (the
+// matchmade forfeit), which is the one outcome that leaves nothing to auto-act
+// on. An ordinary kick closes the socket and returns false: the seat is held,
+// the turn is still that seat's, and the caller draws and passes for it exactly
+// as it would for any empty chair.
 //
 // In a matchmade room the threshold is lower and the outcome is different: the
 // match is forfeited on the spot rather than the socket being closed. Closing it
@@ -135,7 +150,7 @@ func (h *Hub) kickIfAFK(t *table, playerID int, client *Client) bool {
 	log.Printf("AFK kick code=%s player=%d threshold=%d", code, playerID, AFKKickThreshold)
 	client.Send(protocol.ServerMsg{Type: protocol.SMsgError, Error: "afk_kicked"})
 	client.conn.Close()
-	return true
+	return false
 }
 
 // autoDrawOnTimeout draws for a player who hasn't drawn yet this turn, and
@@ -155,6 +170,12 @@ func (h *Hub) autoDrawOnTimeout(t *table, playerID int) bool {
 		log.Printf("turn timeout draw error code=%s player=%d err=%v", t.code, playerID, err)
 		return false
 	}
+	// sendHandGrowth reads the deadline, and the one on the table is the clock
+	// that has just run out: every client applied a timestamp in the past and
+	// drained its bar to nothing for the frames before turn_changed. Re-armed
+	// here for the same seat; the pass right after re-arms it again for the
+	// next one, and the stamp check makes the earlier timer a no-op.
+	h.scheduleTurnTimer(t)
 	h.sendHandGrowth(t, playerID, room.State.Hands[playerID].Cards[priorSize:])
 	return true
 }

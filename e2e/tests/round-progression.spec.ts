@@ -278,6 +278,6 @@ test.describe('round summary and match progression', () => {
 
     // Round indicator: "Round 1 · BO3" (the BO3 suffix distinguishes from BO1 which hides it).
     await expect(page.getByText(/Round\s+1/)).toBeVisible({ timeout: 5_000 })
-    await expect(page.getByText(/BO3/)).toBeVisible({ timeout: 5_000 })
+    await expect(page.getByText(/BO3/).filter({ visible: true })).toBeVisible({ timeout: 5_000 })
   })
 })

@@ -245,6 +245,13 @@ export const matchRecordSchema = v.object({
   // it has since left the table. No omitempty: seat 0 is a winner like any
   // other, and dropping it would hand the match to nobody.
   winner_index: v.number(),
+  // DurationMs is how long the match was played, from the moment the turn
+  // clock started (match_ready, not the deal: the map-loading gate is a wait,
+  // not the game) to the moment it ended. Absent when the server cannot say —
+  // a forfeit inside the loading gate, or a match restored from a snapshot an
+  // older process wrote — and never zero for a match that was played: a
+  // started match reports at least one millisecond.
+  duration_ms: v.optional(v.number()),
 })
 
 // LatencyEntryDTO is one seat's measured round-trip time.
@@ -307,6 +314,13 @@ export const gameStateSchema = v.object({
   // every snapshot rather than only game_started so a reconnecting player
   // rebuilds the same table as everybody else. Empty = the built-in felt.
   map_id: v.optional(v.string()),
+  // TimeOfDay and Weather are the hour and the sky the match is dealt under
+  // (see game/maps.go), drawn beside MapID and travelling with it on every
+  // snapshot. Bare strings like MapID, for the same reason: a value this
+  // client does not know must degrade to a default sky, never drop the whole
+  // game_state.
+  time_of_day: v.optional(v.string()),
+  weather: v.optional(v.string()),
   scoreboard: v.optional(v.array(scoreboardEntrySchema)),
   // RoundHistory[k][playerIndex] = points scored in round k+1 (see ServerMsg).
   // Included in every snapshot so a reconnecting player recovers the table.
@@ -317,6 +331,19 @@ export const gameStateSchema = v.object({
   match_history: v.optional(v.array(matchRecordSchema)),
   // Per-turn deadline: unix milliseconds when the current turn expires (0 = no timer active)
   turn_deadline: v.optional(v.number()),
+  // InterruptOpen is whether the top discard may still be slammed. See
+  // ServerMsg.InterruptOpen; here a plain bool, since a snapshot says the whole
+  // board: omitted means shut, and the client reads it that way.
+  interrupt_open: v.optional(v.boolean()),
+  // CatchSeats is who owes the table a declaration right now, exactly as
+  // card_played carries it. A tab that reloads two seconds into a five-second
+  // window used to rebuild a board on which nobody was catchable, and lose the
+  // three seconds it could still have won.
+  catch_seats: v.optional(v.array(catchSeatSchema)),
+  // DeclaredSeats is every seat whose single card has already been called.
+  // Without it a reload put the LOCO! button back in front of a player whose
+  // call was already spent, and the press came back "player already declared".
+  declared_seats: v.optional(v.array(v.number())),
   // StreamerMode is the host's answer, carried in every snapshot for the same
   // reason MapID is: a tab that reloads mid-match rebuilds the table from this
   // and nothing else, and a table code that comes back readable on a stream is
@@ -362,6 +389,21 @@ export const liveStreamSchema = v.object({
 // ServerMsg is the envelope for all server-to-client messages.
 export const serverMsgSchema = v.object({
   type: serverMsgTypeSchema,
+  // ServerNow is the server's clock, in unix milliseconds, at the instant the
+  // message was written. On every message, because it is what makes every
+  // deadline below readable.
+  //
+  // TurnDeadline, CatchSeatDTO.EndsAt and ForfeitDeadline are absolute server
+  // instants, and the client counts them down against its own clock. A phone
+  // whose clock is six seconds fast sees every five-second catch window already
+  // shut, so the armed capsule never draws and the player is told nobody is on
+  // the hook; six seconds slow, the capsule stays up after the server's window
+  // has closed and the press it invites costs a card. The client reads this
+  // against its own clock on arrival, keeps the offset, and converts every
+  // deadline it is handed into its own time. One-way latency is the residual
+  // error — a few tens of milliseconds, in the direction of a window shown a
+  // touch longer than it is — where clock skew is seconds either way.
+  server_now: v.optional(v.number()),
   // SMsgRoomCreated / SMsgRoomJoined / SMsgPlayerReconnected (self) /
   // SMsgRematchStarted: the recipient's OWN seat.
   //
@@ -414,6 +456,15 @@ export const serverMsgSchema = v.object({
   // Included in card_played, card_drawn, turn_changed, and game_started to let clients
   // display and reset the countdown when a new turn begins.
   turn_deadline: v.optional(v.number()),
+  // InterruptOpen is whether a twin of the top discard may still be slammed
+  // onto it. Carried by every message that can open or shut the window —
+  // card_played opens it, a draw or a pass by the seat at turn shuts it, a
+  // round end shuts it, match_ready reports the deal's — because the client
+  // used to keep no copy of it: it offered the twin for as long as the card was
+  // on top, and a slam after somebody had drawn came back "somebody was faster"
+  // on a table where nobody had been. A pointer, because false is the answer
+  // that matters and omitempty would drop it; absent means "unchanged".
+  interrupt_open: v.optional(v.boolean()),
   // SMsgCardPlayed: every seat that owes the table a declaration once this
   // play has resolved, with the instant each window shuts.
   //

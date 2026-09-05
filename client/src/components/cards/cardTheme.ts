@@ -85,6 +85,12 @@ export const EASE_OUT_CARD = [0.16, 1, 0.3, 1] as const
 
 // Per-card delay when a fresh hand is dealt, in ms.
 export const DEAL_STAGGER_MS = 45
+/**
+ * How long one dealt card takes to fly from the deck to its slot. The fan's own
+ * fade-in waits this long past the card's stagger, so a card appears where its
+ * flier lands and never before it.
+ */
+export const DEAL_FLIGHT_MS = 260
 
 // ─── Rarity & the throw ─────────────────────────────────────────────────────
 // Presentation only. `game/` never consults any of this: it is how a card

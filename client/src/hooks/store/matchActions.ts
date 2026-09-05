@@ -1,4 +1,5 @@
 import { StateCreator } from './createStore'
+import { stamp } from './helpers'
 import { GameStore, MatchActions, RoundScoreEntry } from './types'
 
 export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, get) => ({
@@ -32,6 +33,8 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
         unoDeclared: false,
         declaredSeats: [],
         catchWindows: [],
+        onHookUntil: {},
+        catchLive: false,
         catchFailed: null,
         catchFlash: null,
         catchPending: false,
@@ -116,7 +119,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
   // the table's size, so a table that keeps talking moves nothing.
   applyEmote: (seat, emote) =>
     set((s) => ({
-      emotes: [...s.emotes.filter((e) => e.seat !== seat), { seat, emote, at: Date.now() }],
+      emotes: [...s.emotes.filter((e) => e.seat !== seat), { seat, emote, at: stamp() }],
     })),
 
   // The server sends the whole offer state, not the increment, and this stores
@@ -147,10 +150,13 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       direction: 1,
       pendingDraw: 0,
       hasDrawn: false,
+      interruptOpen: true,
       roundNumber: 1,
       // The next match draws its own room, and its assets are ones this client
       // may not hold yet, so the gate re-arms and the map is unknown until then.
       mapId: '',
+      mapTime: '',
+      mapWeather: '',
       mapLoading: null,
       scoreboard: [],
       roundHistory: [],
@@ -181,6 +187,8 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       unoDeclaredByIndex: -1,
       declaredSeats: [],
       catchWindows: [],
+      onHookUntil: {},
+      catchLive: false,
       catchFailed: null,
       catchFlash: null,
       catchPending: false,

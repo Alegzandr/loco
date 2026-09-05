@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Translations } from '../i18n/en'
+  import { pressToAct } from './press'
 
   type Props = {
     isMyTurn: boolean
@@ -19,11 +20,11 @@
      * watching (`catchAvailability.ts`). This is what makes the button pressable,
      * and it is deliberately looser than `catchArmed`: a press that finds nobody
      * on the hook is a card, not a refusal, so the player can commit to the
-     * gesture before the server has named anybody. And once it is true it stays
-     * true until a card is played: a seat that calls LOCO!, draws, or takes a
-     * stack of four does not pull the button out from under the thumb already
-     * aiming at it. That miss is the wager, and the interface does not get to
-     * make it for anybody.
+     * gesture before the server has named anybody. A seat on exactly two
+     * cards, or on its last card inside its window — and a seat that calls
+     * LOCO! does not pull the button out from under the thumb already aiming
+     * at it: the window runs its course either way. That miss is the wager,
+     * and the interface does not get to make it for anybody.
      */
     catchLive: boolean
     /**
@@ -109,14 +110,14 @@
          only — on somebody else's turn the stack is theirs to answer, so the
          column stays the ordinary draw, dead. -->
     {#if isMyTurn && pendingDraw > 0}
-      <button class="btn btnPenalty" onclick={onDraw}>{t.draw} +{pendingDraw}</button>
+      <button class="btn btnPenalty" use:pressToAct={onDraw}>{t.draw} +{pendingDraw}</button>
     {:else}
       <button
         class="btn"
         class:btnDisabled={!canDraw}
         class:btnDrawSecondary={!canDraw || hasPlayableCard}
         class:btnDraw={canDraw && !hasPlayableCard}
-        onclick={onDraw}
+        use:pressToAct={onDraw}
         disabled={!canDraw}
       >
         {t.draw}
@@ -138,7 +139,7 @@
       class="btn btnCatch"
       class:armed={catchArmed}
       class:called={catchPending}
-      onclick={onCatch}
+      use:pressToAct={onCatch}
       disabled={!catchLive}
     >
       {t.catchBtn}
@@ -146,7 +147,7 @@
   </div>
 
   <div class="slot" data-slot="right">
-    <button class="btn btnPass" class:btnDisabled={!canPass} onclick={onPass} disabled={!canPass}>
+    <button class="btn btnPass" class:btnDisabled={!canPass} use:pressToAct={onPass} disabled={!canPass}>
       {t.pass}
     </button>
   </div>
@@ -160,7 +161,7 @@
       class="btn btnUno"
       class:armed={locoOwed}
       class:hit-target={locoOwed}
-      onclick={onUno}
+      use:pressToAct={onUno}
       disabled={!locoOwed}
     >
       {t.unoBtn}
@@ -270,10 +271,12 @@
     transition:
       transform 0.12s var(--ease-bounce),
       box-shadow 0.12s var(--ease-out),
-      filter 0.12s ease,
-      opacity 0.15s ease;
+      filter 0.12s ease;
     position: relative;
-    overflow: hidden;
+    /* No `overflow: hidden`. It clipped everything a button hangs outside its
+       own box: the 44px `.hit-target::after` on the LOCO! chip — drawn 34px,
+       and the catcher it was promised was being cut back to the paint — and
+       the halo pseudo-elements below. Nothing inside a pill overflows it. */
   }
 
   .btn:not(:disabled):hover {
@@ -287,20 +290,36 @@
     box-shadow: 0 1px 0 var(--color-stroke-soft);
   }
 
-  /* Disabled state.
-     Deliberately *not* the fill swap the rest of the game uses (surface-strong +
-     muted label): on this bar `.btnPass` already wears surface-strong while it is
-     enabled, so a fill swap would draw a disabled button and a live Pass as the
-     same object. The ledge is what carries the meaning instead — a disabled
-     object is flat and has stopped being a body. Held at 0.55 rather than 0.42
-     because Catch sits here disabled through the opening of every round, and a
-     spectator still has to be able to read what the centre column is for. */
-  .btnDisabled,
+  /* Disabled state — a slot cut into the bar, not a button waiting to be pressed.
+     Quiet is a hue, so the state was already a fill swap rather than an opacity
+     (0.55 put the dead Catch label at ~2:1, and Catch is disabled through the
+     opening of every round). But the fill it swapped to was
+     `--color-surface-strong`, which is exactly what a *live* Pass wears: the two
+     differed by a label colour and a missing ledge, so half the bar read as
+     pressable at a glance for the whole of somebody else's turn.
+
+     Three things say it now, and they are the inverse of the three that make
+     every raised object in this game:
+       - the fill is BELOW the bar rather than on it (`--color-surface-sunken`,
+         desaturated as well as darker — the live Pass keeps the lilac),
+       - the hard ledge underneath is replaced by a hard shadow INSIDE the top
+         edge, which is the same 0-blur vocabulary read as a hollow,
+       - the outline drops to the hairline. Not the ink, and not the panel
+         border either: at `--color-border-strong` on a sunken fill the dead
+         buttons came out as ringed ghost pills, which is a pressable shape in
+         every other interface a player has used.
+     The label is `--color-disabled-ink`, 5.1:1 in light and 6.1:1 in dark,
+     because a spectator at 720p still has to be able to read what the centre
+     column is for. */
+  .btn.btnDisabled,
   .btn:disabled {
-    opacity: 0.55;
+    background: var(--color-surface-sunken);
+    border-color: var(--color-hairline);
+    color: var(--color-disabled-ink);
+    text-shadow: none;
     cursor: not-allowed;
     pointer-events: none;
-    box-shadow: none;
+    box-shadow: inset 0 2px 0 var(--color-stroke-soft);
   }
 
   /* Draw button — primary */
@@ -311,9 +330,11 @@
   }
 
   /* Draw — secondary (the player already has a legal card, so drawing is a choice
-     rather than the expected move). */
+     rather than the expected move). Surface-strong like Pass, never surface-card:
+     the bar itself is surface-card, so that was a white pill on a white bar in
+     light, held apart by nothing but its outline. */
   .btnDrawSecondary {
-    background: var(--color-surface-card);
+    background: var(--color-surface-strong);
     color: var(--color-ink);
   }
 
@@ -330,7 +351,6 @@
     font-weight: 700;
     letter-spacing: 0.3px;
     --arm-glow: rgba(255, 196, 46, 0.6);
-    --arm-glow-0: rgba(255, 196, 46, 0);
   }
 
   /* The moment a race becomes winnable. Both the catch window and our own LOCO
@@ -341,25 +361,61 @@
      an opacity going from 0.42 to 1 is one nobody notices in peripheral vision
      while they are reading their hand. */
   .armed {
-    animation:
-      armPop 0.42s var(--ease-bounce),
-      armGlow 0.85s ease-in-out 0.42s infinite alternate;
+    animation: armPop 0.42s var(--ease-bounce);
     z-index: 1; /* the pop overshoots its slot; it must ride over its neighbours */
   }
 
   /* The press, acknowledged on the frame it lands. A call in flight is the
      button held down: the ledge collapses, the face darkens, and nothing else
      moves — the stamp and the penalty are the server's to deliver. It wins over
-     `.armed`, whose pop would otherwise carry on over a press already made,
-     and it is a state rather than an animation so the round trip it covers
-     can be 5 ms or 500 and look the same. Static under reduced motion by
-     construction. */
+     `.armed`, whose pop and halo would otherwise carry on over a press already
+     made, and it is a state rather than an animation so the wait it covers —
+     a round trip, or the whole of the target's head start — looks the same at
+     5 ms and at 1.5 s. Static under reduced motion by construction. */
   .btnCatch.called,
   .btnCatch.called:not(:disabled):hover {
     animation: none;
     transform: translateY(3px);
     box-shadow: inset 0 0 0 999px rgba(30, 10, 90, 0.4);
     filter: brightness(0.82);
+  }
+
+  .btnCatch.called::before {
+    animation: none;
+    opacity: 0;
+  }
+
+  /* The pulsing halo, as a pseudo-element with a *static* shadow, breathed on
+     opacity and scale. It was `armGlow`, a `box-shadow` keyframe on the button
+     itself, infinite alternate — and a shadow that changes is repainted on every
+     frame, for the whole of every catch window, on the one control this game
+     asks to be answered fastest. Opacity and transform composite; the shadow is
+     rasterised once. `::before` because `::after` is the 44px hit target on the
+     LOCO! chip, and the two are armed together. `z-index: -1` inside the
+     button's own stacking context (`.armed` sets one) puts the glow under the
+     label and over the fill. */
+  .armed::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    z-index: -1;
+    border-radius: inherit;
+    box-shadow:
+      0 0 0 4px var(--arm-glow),
+      0 0 22px 6px var(--arm-glow);
+    pointer-events: none;
+    animation: armHalo 0.85s ease-in-out 0.42s infinite alternate;
+  }
+
+  @keyframes armHalo {
+    from {
+      opacity: 0.5;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1.05);
+    }
   }
 
   @keyframes armPop {
@@ -377,26 +433,27 @@
     }
   }
 
-  @keyframes armGlow {
-    from {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 0 var(--arm-glow),
-        0 0 14px 2px var(--arm-glow);
-    }
-    to {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 16px var(--arm-glow-0),
-        0 0 22px 4px var(--arm-glow);
-    }
-  }
-
-  /* Penalty draw — urgent. */
+  /* Penalty draw — urgent. The pulse is the same device as the armed halo: a
+     ring on a pseudo-element, scaled out and faded, where it used to be a
+     `box-shadow` spread keyframe repainting the button every frame for as long
+     as the stack stood. `isolation` gives the button a stacking context of its
+     own so the ring can sit under the label at `z-index: -1` (without it, -1
+     would drop the ring behind the whole bar). */
   .btnPenalty {
     background: linear-gradient(180deg, #ff8a5c 0%, #ef3d2a 100%);
     color: var(--color-on-primary);
     text-shadow: 0 1px 0 rgba(120, 20, 0, 0.45);
+    isolation: isolate;
+  }
+
+  .btnPenalty::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    z-index: -1;
+    border-radius: inherit;
+    border: 4px solid rgba(239, 61, 42, 0.55);
+    pointer-events: none;
     animation: penaltyPulse 0.9s ease-in-out infinite alternate;
   }
 
@@ -409,19 +466,16 @@
     color: var(--color-on-dark);
     text-shadow: 0 1px 0 rgba(30, 10, 90, 0.4);
     --arm-glow: rgba(155, 139, 255, 0.62);
-    --arm-glow-0: rgba(155, 139, 255, 0);
   }
 
   @keyframes penaltyPulse {
     from {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 0 rgba(239, 61, 42, 0.55);
+      opacity: 0.85;
+      transform: scale(1);
     }
     to {
-      box-shadow:
-        0 3px 0 var(--color-stroke-soft),
-        0 0 0 12px rgba(239, 61, 42, 0);
+      opacity: 0;
+      transform: scale(1.2);
     }
   }
 
@@ -454,16 +508,55 @@
        a second full-height button sat directly over the centre column. */
   }
 
-  :root[data-motion="reduce"] .btnPenalty {
-    animation: none;
+  /* A phone on its side. The bar becomes a stack up the right edge — draw,
+     Contre-LOCO!, pass, top to bottom, the reaction still in the middle — and
+     the LOCO! chip keeps its place above it. The same three fixed slots that
+     never reflow: only the axis turns, with the phone. The band this takes,
+     its width plus its margins, is `layout.ts: SIDE_RESERVE`, which the board's
+     coordinate space stops short of, and the height ceiling is
+     `LANDSCAPE_MAX_H` there; `landscape.test.ts` pins both to this block. The
+     `max-width: 480px` block above cannot match here — a phone on its side is
+     wider than that — so every measurement it sets is set again. */
+  @media (orientation: landscape) and (max-height: 559px) {
+    .actionBar {
+      left: auto;
+      right: calc(10px + var(--safe-right));
+      bottom: calc(10px + var(--safe-bottom));
+      transform: none;
+      grid-template-columns: var(--slot-w);
+      grid-template-rows: repeat(3, auto);
+      --slot-w: 124px;
+      gap: var(--space-xs);
+      padding: var(--space-xs);
+    }
+
+    .btn {
+      min-height: 44px;
+      padding: 10px 6px;
+      min-width: 0;
+      font-size: 14px;
+    }
+
+    .locoSlot .btn {
+      min-height: 34px;
+      padding: 6px 18px;
+    }
+  }
+
+  :root[data-motion="reduce"] .btnPenalty::before {
+    display: none;
   }
 
   /* Degrades to a static halo rather than to nothing: "this button just became
-     clickable" is information, not decoration. */
+     clickable" is information, not decoration. The halo's shadow is static
+     already; only its breathing stops. */
   :root[data-motion="reduce"] .armed {
     animation: none;
-    box-shadow:
-      0 3px 0 var(--color-stroke-soft),
-      0 0 0 5px var(--arm-glow);
+  }
+
+  :root[data-motion="reduce"] .armed::before {
+    animation: none;
+    opacity: 1;
+    transform: none;
   }
 </style>

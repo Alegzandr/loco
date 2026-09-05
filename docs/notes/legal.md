@@ -158,38 +158,21 @@ redistributes the font files and the licence has to travel with them. It does, a
 game. Regenerate it from `node_modules/@fontsource-variable/*/LICENSE` if either
 font is bumped or replaced.
 
-## Map artwork is AI-generated
+## The rooms are code, and the photographs they replaced are gone
 
-The four rooms under `client/public/maps/` were generated, not sourced. That
-settles the question that mattered, which was whether a third party had terms
-attached to them: nobody does. Two consequences follow, and neither is urgent.
+The four rooms used to be generated images shipped as static files, and this note carried a
+section on what that meant: probably not copyrightable, unencumbered rather than owned, generated on
+a paid OpenAI account whose terms asked nothing, and **deliberately not licensed under MIT** because
+offering a licence over something that may not be protectable would have been the one false
+statement in the set. `NOTICE.md` said the same.
 
-**They are probably not copyrightable, and that is fine.** Both the US Copyright
-Office and the EU standard of "the author's own intellectual creation" require
-human authorship; an image produced from a prompt has none in the sense either
-regime means. So the maps are not owned in the way the code is, and anyone could
-in principle use them. Nobody else can claim them either, which is the part that
-would have hurt. For a free, non-commercial game, this is an academic problem.
-
-**The generator was ChatGPT Image 2 (OpenAI), on a paid Plus subscription, and
-its terms ask nothing of us.** OpenAI's terms of use assign to the user whatever
-right, title and interest OpenAI may hold in the output, permit commercial use,
-and require no attribution and no notice. The tier matters only because some
-other services restrict commercial use on a free plan and not on a paid one;
-OpenAI does not draw that line at all, and this was a paid account regardless.
-So there is nothing to add to `NOTICE.md`, nothing to display in the credits, and
-nothing that would change if this game ever stopped being free.
-That assignment cannot manufacture a copyright that never existed, which is why
-the paragraph above still stands: the maps are unencumbered rather than owned.
-
-Worth re-reading only if the art is regenerated with a different tool. The terms
-attach to whoever ran the generation, not to the image, so a future map from a
-different service inherits none of this.
-
-Practical rule: **do not licence the maps under MIT**. `LICENSE` covers the code,
-`NOTICE.md` says so explicitly, and offering a licence over something that may
-not be protectable in the first place would be the only false statement in the
-whole set.
+None of that applies any more. A room is now a builder in `client/src/components/scene/maps/`, a few
+hundred lines of TypeScript placing coloured blocks, rendered in the browser by three.js (MIT, and
+listed in `NOTICE.md` like every other dependency). It is authored the way the rest of the client is
+authored, it is covered by `LICENSE` the way the rest of the client is, and there is no third party
+with terms attached to any of it. The section is kept as a paragraph rather than deleted, because
+the reasoning is worth having if generated art ever comes back: the terms attach to whoever ran the
+generation, not to the image, and a licence cannot manufacture a copyright that never existed.
 
 ## Who the game says it is
 

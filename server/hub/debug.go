@@ -148,11 +148,12 @@ func (h *Hub) handleDebugSetState(t *table, c *Client, msg protocol.ClientMsg) {
 
 	// Broadcast personalised game_state to every connected player.
 	pl := h.playerList(t)
+	shared := h.sharedGameState(t)
 	for i, member := range t.members {
 		if member != nil {
 			member.Send(protocol.ServerMsg{
 				Type:  protocol.SMsgGameState,
-				State: h.playerGameStateUsing(t, i, pl),
+				State: h.playerGameStateWith(t, i, pl, shared),
 			})
 		}
 	}

@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { ComponentProps } from 'svelte'
 import { render, screen } from './render'
 import ActionBar from '../components/ActionBar.svelte'
@@ -171,5 +173,83 @@ describe('ActionBar', () => {
     expect(btn(/^LOCO!$/)).toBeDisabled()
     expect(slotOf(/^LOCO!$/)).toBe('loco')
     expect(slotOf(/^Catch!$/)).toBe('center')
+  })
+})
+
+/**
+ * A dead button is read off the source, because jsdom applies no component
+ * styles: what is asserted here is the declaration, the way `rulesModal` and
+ * `preferences` assert theirs.
+ */
+const BAR_CSS = readFileSync(join(process.cwd(), 'src', 'components', 'ActionBar.svelte'), 'utf8')
+const TOKENS = readFileSync(join(process.cwd(), 'src', 'styles', 'tokens.css'), 'utf8')
+
+/** The body of a rule, by a selector that has to appear in it. */
+function rule(css: string, selector: string): string {
+  const at = css.indexOf(selector)
+  expect(at, `${selector} is gone from ActionBar.svelte`).toBeGreaterThan(-1)
+  const open = css.indexOf('{', at)
+  return css.slice(open + 1, css.indexOf('}', open))
+}
+
+/** A token's value in a block of `tokens.css`, by the selector that opens it. */
+function token(name: string, scope: string): string {
+  const at = TOKENS.indexOf(scope)
+  expect(at, `${scope} is gone from tokens.css`).toBeGreaterThan(-1)
+  const decl = TOKENS.indexOf(`${name}:`, at)
+  expect(decl, `${name} is not declared under ${scope}`).toBeGreaterThan(-1)
+  const value = TOKENS.slice(decl + name.length + 1, TOKENS.indexOf(';', decl)).trim()
+  expect(value, `${name} under ${scope} is not a hex colour`).toMatch(/^#[0-9a-f]{6}$/)
+  return value
+}
+
+const channels = (hex: string) =>
+  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+const luminance = (hex: string) => {
+  const [r, g, b] = channels(hex).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+const contrast = (a: string, b: string) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe('a dead action button', () => {
+  // The failure this replaces: the disabled fill *was* `--color-surface-strong`,
+  // which is what a live Pass wears, so the two differed by a label colour and a
+  // missing ledge. Half the bar read as pressable for the whole of somebody
+  // else's turn. The dead fill is now below the bar rather than on it.
+  it('is printed into the bar, not raised off it', () => {
+    const dead = rule(BAR_CSS, '.btn.btnDisabled')
+    expect(dead).toContain('background: var(--color-surface-sunken)')
+    expect(dead).toContain('color: var(--color-disabled-ink)')
+    // A hard shadow inside the top edge: the ledge's own vocabulary, read as a
+    // hollow. Never a ledge of its own, and never an opacity — quiet is a hue.
+    expect(dead).toMatch(/box-shadow:\s*inset /)
+    expect(dead).not.toMatch(/opacity:/)
+    // And not the ink either: an outlined pill on a sunken fill is the ghost
+    // button every other interface uses to mean "press me".
+    expect(dead).toContain('border-color: var(--color-hairline)')
+  })
+
+  it('shares no fill with the live buttons beside it', () => {
+    const dead = rule(BAR_CSS, '.btn.btnDisabled')
+    for (const live of ['.btnPass', '.btnDrawSecondary']) {
+      const body = rule(BAR_CSS, live)
+      const fill = /background:\s*([^;]+);/.exec(body)?.[1]
+      expect(fill, `${live} declares no fill`).toBeTruthy()
+      expect(dead, `${live} and the dead state wear the same fill`).not.toContain(
+        `background: ${fill}`,
+      )
+    }
+  })
+
+  // Catch sits disabled through the opening of every round, so this is the state
+  // a spectator sees most: it stays readable at 720p.
+  it('keeps its label above 4.5:1 on the sunken fill', () => {
+    const scope = ':root {'
+    const ink = token('--color-disabled-ink', scope)
+    const fill = token('--color-surface-sunken', scope)
+    expect(contrast(ink, fill), `${ink} on ${fill}`).toBeGreaterThanOrEqual(4.5)
   })
 })

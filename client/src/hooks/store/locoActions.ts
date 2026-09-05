@@ -1,4 +1,5 @@
 import { StateCreator } from './createStore'
+import { stamp } from './helpers'
 import { GameStore, LocoActions } from './types'
 
 export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => ({
@@ -16,6 +17,7 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       return {
         unoDeclared: true,
         unoDeclaredByIndex: declarer,
+        unoDeclaredAt: stamp(),
         declaredSeats: s.declaredSeats.includes(declarer)
           ? s.declaredSeats
           : [...s.declaredSeats, declarer],
@@ -36,7 +38,7 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       const catchWindows = s.catchWindows.filter((w) => w.seat !== seat)
       return {
         catchWindows,
-        catchFlash: { seat, at: Date.now() },
+        catchFlash: { seat, at: stamp() },
         // The verdict is in, whoever's press it answers: the button lets go.
         catchPending: false,
       }
@@ -54,6 +56,12 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
       return { catchWindows }
     }),
 
+  // The last window ran out and nothing else moved: the centre button's answer
+  // changed on the clock alone. A write naming `catchLive` is what sends the
+  // store back through its derivation (`deriveCatchMiddleware`); the value
+  // written here is never what is kept.
+  rereadCatchLive: () => set({ catchLive: false }),
+
   // Spends the button on this seat the moment we press it, before the server has
   // answered. A missed Contre-LOCO! costs a card now, so the cost of leaving it
   // armed for one more round trip is a second penalty for the same call.
@@ -67,13 +75,13 @@ export const createLocoActions: StateCreator<GameStore, LocoActions> = (set) => 
 
   // A press that named nobody: the button is live whenever a seat is close to
   // finishing, so this is the player betting there was a window and losing. One
-  // per board — see `catchSpent`, and the server's PlayEpoch, which is the same
-  // rule written on the side that enforces it.
+  // per board — see `catchSpent`, and the server's per-offer ration, which is
+  // the same rule written on the side that enforces it.
   noteBlindCatchAttempt: () => set({ catchSpent: true, catchPending: true }),
 
   // Somebody's call arrived too late and they drew for it. The +1 card itself
   // comes through the ordinary card_drawn path; this is only the notice.
-  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: Date.now() }, catchPending: false }),
+  applyCatchFailed: (seat) => set({ catchFailed: { seat, at: stamp() }, catchPending: false }),
 
   clearCatchFailed: () => set({ catchFailed: null }),
 })

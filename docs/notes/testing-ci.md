@@ -25,6 +25,11 @@ Keep tests fast, targeted, non-brittle, and cover game rules over UI details. Re
 and motion changes with `make visual` instead: reading four contact sheets catches what no assertion
 was going to describe. Assertions own behaviour, screenshots own appearance.
 
+Both browser harnesses (`make visual`, `make audio-verify`) launch the Chromium their `playwright`
+package downloaded; on a machine that has a browser but not that one, `LOCO_CHROMIUM=/path/to/chrome`
+points them at it instead of fetching another copy. The Playwright suite itself is pinned to its
+image (`PLAYWRIGHT_VERSION`) and takes no such override.
+
 ### The three seams a component test goes through
 
 None of these is optional plumbing. Each one exists because a whole class of test lied without it.
@@ -72,7 +77,9 @@ catch windows, simultaneous resolution. **Contre-LOCO!'s three states and its pr
 that makes the button pressable (`catchAvailability.test.ts`), the arming that is a separate thing
 from the pressing (`actionBar.test.ts`), the card a press that finds nobody costs, and — on both
 sides of the wire, because either half alone is a rule that reads fine and plays badly — that it
-costs exactly one per card played however often it is pressed.
+costs exactly one per offer however often it is pressed, nothing at all where nothing is offered,
+and that a press inside the seat's 1.5s head start is held and lands when the head start ends
+(`hub/catch_headstart_test.go`, `penalties.spec.ts`).
 
 Reconnect (60s, nickname + room code) **and session restore across a page reload**. Rematch: the ask
 **everybody** at the table has to make, one ask dealing nothing, a departure retiring an ask and
@@ -87,7 +94,12 @@ build error, it survives the transform and becomes a call to a global that does 
 whenever that line first runs — which in a branch reached mid-match is a table that dies on a card
 nobody has played yet. That test strips comments before matching, so a module may explain in prose
 why it holds no state, and it checks that the reactive half is still non-empty: a rename turning
-every `.svelte.ts` into a plain module would otherwise read as compliance. **Every path the docs
+every `.svelte.ts` into a plain module would otherwise read as compliance. **That the Svelte
+compiler has nothing to say about any component** (`svelteWarnings.test.ts`, compiled with
+`dev: true`, which is what `make dev` compiles with): the boot printed thirty-three warnings and
+every one of them was expected, which is a boot nobody reads — the point of the test is the
+thirty-fourth, the one about a handler that will never fire, arriving alone instead of in the same
+scroll. **Every path the docs
 name** (`docPaths.test.ts`) — and do not
 add a phantom path to that test's allowlist to make it pass: the allowlist is for paths named in
 order to say they are absent, and widening it to cover a claim about the structure is how the guard
@@ -107,8 +119,8 @@ bot's row, and the line the removed player is left holding. Score table.
 
 Matchmaking: pairing, cancel, disconnect-out-of-queue, the host controls a matchmade room refuses,
 the requeue an opponent's departure triggers, and every forfeit path (quit, disconnect, AFK).
-Link-preview tags against the committed `og.png`. Map draw, the loading gate and `tableImageRect` at
-every board size. Batch play and batch interrupt, unit **and** E2E. A draw against exhausted piles.
+Link-preview tags against the committed `og.png`. The map, hour and sky draw, the client's lists
+pinned to the server's, the light rig, the loading gate. Batch play and batch interrupt, unit **and** E2E. A draw against exhausted piles.
 `Origin` checking. The legal disclosures and the truncation of every logged address. Bots
 interjecting.
 
@@ -185,8 +197,9 @@ deliberately not covered here" below.
     start" makes honest in both directions.
 - **Being dealt into a matchmade table is the expensive step, and the default 30s test budget is
   built for one of them.** `waitForMatchmadeGame` waits out the match-found countdown and then the
-  map-loading gate, and the gate is real image downloads through the dev server into a browser
-  context with a cold cache: the single-deal tests in `matchmaking.spec.ts` land around 23s, and the
+  map-loading gate, and the gate is the engine's chunk through the dev server into a browser
+  context with a cold cache plus a WebGL render on SwiftShader: the single-deal tests in
+  `matchmaking.spec.ts` land around 23s, and the
   same test can take 4s on a warm run and 24s on a cold one. The rematch test is dealt in **twice**
   and carries its own `test.setTimeout(90_000)` for that reason. The failure mode is worth knowing
   because it lies: the test times out in whatever line the `finally` is on, with a screenshot of a

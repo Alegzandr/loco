@@ -40,7 +40,7 @@ import (
 
 // SnapshotSchemaVersion is bumped by hand whenever the shape of what is written
 // below changes, game.Room included. A restore refuses anything else.
-const SnapshotSchemaVersion = 3
+const SnapshotSchemaVersion = 4
 
 // SnapshotMaxAge is how old a snapshot may be and still be worth restoring.
 //
@@ -83,6 +83,11 @@ type roomSnapshot struct {
 	// and losing them to a deploy would mean the recap silently restarting at
 	// "Match 1" for a group that has been playing for an hour.
 	MatchHistory []matchRecord `json:"match_history,omitempty"`
+	// MatchStartedAt is when the match in flight opened, so the duration on its
+	// record is still measured from the real start on the far side of a
+	// restart. A snapshot written before this field existed carries a zero, and
+	// that match records no duration rather than a wrong one.
+	MatchStartedAt time.Time `json:"match_started_at"`
 }
 
 // snapshotReq is a save or load asking to be run on the event loop.
@@ -152,14 +157,15 @@ func (h *Hub) saveSnapshot(path string) error {
 			continue
 		}
 		snap.Rooms = append(snap.Rooms, roomSnapshot{
-			Room:          t.room,
-			SessionTokens: t.tokens,
-			BotSlots:      sortedKeys(t.bots),
-			Matchmade:     t.isMatchmade(),
-			Solo:          t.solo,
-			StreamerMode:  t.streamerMode,
-			AFKTimeouts:   t.afk,
-			MatchHistory:  t.matchHistory,
+			Room:           t.room,
+			SessionTokens:  t.tokens,
+			BotSlots:       sortedKeys(t.bots),
+			Matchmade:      t.isMatchmade(),
+			Solo:           t.solo,
+			StreamerMode:   t.streamerMode,
+			AFKTimeouts:    t.afk,
+			MatchHistory:   t.matchHistory,
+			MatchStartedAt: t.matchStartedAt,
 		})
 	}
 	if len(snap.Rooms) == 0 {
@@ -281,6 +287,7 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	if len(rs.MatchHistory) > 0 {
 		t.matchHistory = rs.MatchHistory
 	}
+	t.matchStartedAt = rs.MatchStartedAt
 	for _, seat := range rs.BotSlots {
 		t.bots[seat] = struct{}{}
 	}
@@ -294,30 +301,42 @@ func (h *Hub) restoreRoom(rs roomSnapshot) bool {
 	t.solo = rs.Solo
 	t.streamerMode = rs.StreamerMode
 
+	// Every seat is away until somebody reclaims it. Written here, before the
+	// table runs: these are the table's fields, and the goroutine about to own
+	// them must never find the hub still writing.
+	now := time.Now()
+	for seat := range room.Players {
+		if !t.isBot(seat) {
+			t.awayAt[seat] = now
+		}
+	}
+
 	// Started here, and not one line earlier: everything above is this function
 	// filling the table in, and a goroutine reading fields still being written
 	// is the race table.start exists to avoid. Everything below arms a timer,
 	// which the table must be running to receive.
 	t.start(h)
 
-	now := time.Now()
 	for seat := range room.Players {
-		if t.isBot(seat) {
-			continue
+		if !t.isBot(seat) {
+			h.scheduleReconnectExpiry(t, seat, now)
 		}
-		t.awayAt[seat] = now
-		h.scheduleReconnectExpiry(t, seat, now)
 	}
 
+	// The three arms below write the table's own stamps (`turnStartedAt`,
+	// `emptyAt`), so they run on the table's goroutine, as its first job.
+	//
 	// The turn clock restarts whole. The fraction of it that elapsed before the
 	// restart is not recoverable from a wall-clock stamp anyway (the process was
 	// down for part of it), and the error is in the player's favour.
-	h.scheduleTurnTimer(t)
-	h.maybeScheduleBot(t)
-
-	// Nobody is at this table yet. If nobody arrives, this is what ends it
-	// rather than leaving a room on the server for the rest of its life.
-	h.scheduleRoomCleanup(t)
+	//
+	// Nobody is at this table yet. If nobody arrives, the cleanup is what ends
+	// it rather than leaving a room on the server for the rest of its life.
+	h.postCritical(t, "restore_arm", time.Second, func() {
+		h.scheduleTurnTimer(t)
+		h.maybeScheduleBot(t)
+		h.scheduleRoomCleanup(t)
+	})
 
 	log.Printf("room restored code=%s players=%d round=%d bots=%d matchmade=%t",
 		code, len(room.Players), room.RoundNumber, len(bots), rs.Matchmade)

@@ -33,6 +33,10 @@ export const T = {
   continueBtn: 'Next round',
   rematch: 'Rematch',
   rematchWaitingOpponent: 'Waiting on them…',
+  // The duration line under the game-over heading, for a match that took less
+  // than a minute — which is every match this suite plays: the seconds, and
+  // never zero of them.
+  matchUnderAMinute: /^[1-9]\d? s of play$/,
   leaveRoom: 'Leave the table',
   leaveConfirmYes: 'Yes, leave',
   // Walking out of a match, which every table allows. Its own strings: the
@@ -280,8 +284,9 @@ export async function startGame(page: Page): Promise<void> {
 }
 
 /**
- * Locator for the React game board. Use this instead of `page.locator('canvas')`;
- * the legacy PixiJS renderer (which mounted a <canvas>) has been replaced.
+ * Locator for the game board. Use this rather than `page.locator('canvas')`: the
+ * board is DOM, and the only canvases under it are the two `<SceneBackdrop />`
+ * paints the rendered room onto.
  */
 export function gameBoard(page: Page) {
   return page.getByTestId('game-board')

@@ -82,6 +82,13 @@ type table struct {
 	// whole set is broadcast rather than the increment; see rematch.go.
 	rematchOffers map[int]struct{}
 
+	// heldCatches is every Contre-LOCO! waiting out the head start of the
+	// window it was aimed at, one entry per catcher per window. See
+	// gameplay.go: holdCatch puts one in, resolveHeldCatch takes it out, and
+	// the timer between the two is what gives the seat that owes the call the
+	// first stretch of its own window whatever anybody else is pressing.
+	heldCatches map[heldCatch]struct{}
+
 	// (An emote leaves no state here at all — not what was said and not when. It
 	// is relayed and forgotten; see emotes.go.)
 
@@ -96,6 +103,13 @@ type table struct {
 	// Indexed by seat like everything else here, so it moves with dropSeat and
 	// swapSeats. A slice of records, deliberately not a twelfth map.
 	matchHistory []matchRecord
+
+	// matchStartedAt is when the turn clock started for the match in progress:
+	// openTable stamps it, and it is what the duration on the match's record is
+	// measured from. Zero means no match has been opened, which is also what a
+	// match still behind the loading gate looks like — a forfeit there records
+	// no duration, because nothing was played.
+	matchStartedAt time.Time
 
 	// turnStartedAt is what a turn timer re-checks itself against on the way in.
 	// Zero means no turn is being timed, which is also what a bot's turn looks
@@ -148,6 +162,10 @@ type matchRecord struct {
 	// table. A departure re-bases every seat above it, and a winner that quietly
 	// followed the shift would credit the match to whoever slid into the index.
 	Winner int `json:"winner"`
+	// DurationMs is how long the match was played, measured from
+	// matchStartedAt. Zero means the server cannot say, and it is omitted from
+	// the wire rather than shown as a match that took no time.
+	DurationMs int64 `json:"duration_ms,omitempty"`
 }
 
 // recordFinishedMatch appends the match that has just ended. Called once per
@@ -156,13 +174,17 @@ type matchRecord struct {
 // The room's own arrays are copied rather than referenced — ResetForRematch nils
 // them and Start reallocates them, so a record holding the live slice would be
 // the next match's scoreboard by the time anybody read it.
-func (t *table) recordFinishedMatch() {
+//
+// now is when the match ended. It is handed in rather than read here so the
+// duration is a difference between two stamps a test can choose.
+func (t *table) recordFinishedMatch(now time.Time) {
 	room := t.room
 	n := len(room.Players)
 	rec := matchRecord{
-		RoundsWon: make([]int, n),
-		Scores:    make([]int, n),
-		Winner:    -1,
+		RoundsWon:  make([]int, n),
+		Scores:     make([]int, n),
+		Winner:     -1,
+		DurationMs: matchDurationMs(t.matchStartedAt, now),
 	}
 	copy(rec.RoundsWon, room.RoundsWon)
 	copy(rec.Scores, room.Scores)
@@ -173,6 +195,22 @@ func (t *table) recordFinishedMatch() {
 		}
 	}
 	t.matchHistory = append(t.matchHistory, rec)
+}
+
+// matchDurationMs is how long a match that opened at startedAt and ended at now
+// was played, in whole milliseconds, rounded up.
+//
+// Rounded up and not down because zero is the "cannot say" value on the wire:
+// a match that opened is reported as at least one millisecond, however fast
+// the table went, so the client never reads a played match as an unknown one.
+// A zero startedAt is a match that never opened (a forfeit inside the loading
+// gate, a snapshot from a process that did not stamp it) and answers zero.
+func matchDurationMs(startedAt, now time.Time) int64 {
+	if startedAt.IsZero() || !now.After(startedAt) {
+		return 0
+	}
+	d := now.Sub(startedAt)
+	return int64((d + time.Millisecond - 1) / time.Millisecond)
 }
 
 // dropSeatFromHistory removes one seat from every recorded match, so a table
@@ -236,6 +274,7 @@ func newTable(code string, room *game.Room) *table {
 		bots:          make(map[int]struct{}),
 		afk:           make(map[int]int),
 		rematchOffers: make(map[int]struct{}),
+		heldCatches:   make(map[heldCatch]struct{}),
 		box:           make(chan tableJob, tableBoxDepth),
 		quit:          make(chan struct{}),
 		done:          make(chan struct{}),
@@ -244,6 +283,16 @@ func newTable(code string, room *game.Room) *table {
 
 // client returns the socket at a seat, or nil for a seat that is empty, held or
 // out of range. Bounds-checked because seat numbers arrive from the wire.
+// handSize is how many cards `seat` holds, or 0 when there is no board or no
+// such seat. A bounds answer rather than a panic: it is read before a message
+// has been validated, which is exactly when the seat may be nonsense.
+func (t *table) handSize(seat int) int {
+	if t.room == nil || t.room.State == nil || seat < 0 || seat >= len(t.room.State.Hands) {
+		return 0
+	}
+	return t.room.State.Hands[seat].Size()
+}
+
 func (t *table) client(seat int) *Client {
 	if seat < 0 || seat >= len(t.members) {
 		return nil
@@ -424,10 +473,7 @@ func (t *table) dropSeat(id int) (hasHuman bool) {
 	if id >= 0 && id < len(t.members) {
 		t.members = append(t.members[:id], t.members[id+1:]...)
 	}
-	t.bots = shiftIntKeySet(t.bots, id)
-	t.tokens = shiftIntKeyMap(t.tokens, id)
-	t.gone = shiftIntKeySet(t.gone, id)
-	dropSeatFromHistory(t.matchHistory, id)
+	t.shiftSeatKeys(id)
 	return t.reseat()
 }
 
@@ -442,11 +488,53 @@ func (t *table) dropClient(c *Client, id int) (hasHuman bool) {
 		}
 	}
 	t.members = kept
-	t.bots = shiftIntKeySet(t.bots, id)
-	t.tokens = shiftIntKeyMap(t.tokens, id)
-	t.gone = shiftIntKeySet(t.gone, id)
-	dropSeatFromHistory(t.matchHistory, id)
+	t.shiftSeatKeys(id)
 	return t.reseat()
+}
+
+// shiftSeatKeys re-bases every seat-keyed structure above a removed seat. It is
+// one list on purpose: a map added to the table and not to this list keeps its
+// old indices while members moves, which is the class of bug the type exists
+// to close.
+//
+// awayAt and afk are on it now and were not, and the hole was a finished table:
+// its seats are held rather than removed, so two sockets dropping on the
+// game-over screen left two holds, and the first expiry dropped a seat from
+// under the second. The surviving hold kept its old key, so the roster read
+// that player as connected, findHeldSeat looked for their token at the wrong
+// index and refused the reclaim, and the expiry that finally came for the key
+// removed whichever player had slid into it — or nobody, leaving a phantom seat
+// the next match dealt a hand to.
+func (t *table) shiftSeatKeys(removed int) {
+	t.bots = shiftIntKeySet(t.bots, removed)
+	t.tokens = shiftIntKeyMap(t.tokens, removed)
+	t.gone = shiftIntKeySet(t.gone, removed)
+	t.awayAt = shiftTimeKeyMap(t.awayAt, removed)
+	t.afk = shiftIntIntMap(t.afk, removed)
+	dropSeatFromHistory(t.matchHistory, removed)
+}
+
+// heldSeatAt finds the seat whose hold began at `at`, preferring `hint` when it
+// still answers to that instant.
+//
+// A reconnect expiry is armed against a seat number, and the number can be
+// re-based before the timer fires: a finished table drops the seats whose holds
+// run out one at a time, and every hold above the dropped seat moves down a
+// key. The instant the hold began is what does not move, so it is what the
+// expiry is matched on. The hint is the ordinary case (nothing moved) and the
+// tie-break for the one caller that stamps several holds with one clock, the
+// snapshot restore — there no seat is ever dropped mid-match, so the hint is
+// always right.
+func (t *table) heldSeatAt(hint int, at time.Time) (int, bool) {
+	if held, ok := t.awayAt[hint]; ok && held.Equal(at) {
+		return hint, true
+	}
+	for seat, held := range t.awayAt {
+		if held.Equal(at) {
+			return seat, true
+		}
+	}
+	return -1, false
 }
 
 // swapSeats exchanges two seats and everything keyed by them: the sockets, the
@@ -513,9 +601,11 @@ func setToken(m map[int]string, key int, val string, present bool) {
 // field.
 func (t *table) resetForNextMatch() {
 	t.rematchOffers = make(map[int]struct{})
+	t.heldCatches = make(map[heldCatch]struct{})
 	t.afk = make(map[int]int)
 	t.awayAt = make(map[int]time.Time)
 	t.gone = make(map[int]struct{})
+	t.matchStartedAt = time.Time{}
 	t.turnStartedAt = time.Time{}
 	t.emptyAt = time.Time{}
 	t.loading = nil
@@ -589,6 +679,42 @@ func shiftIntKeySet(m map[int]struct{}, removed int) map[int]struct{} {
 			k--
 		}
 		out[k] = struct{}{}
+	}
+	return out
+}
+
+// shiftTimeKeyMap is shiftIntKeySet for map[int]time.Time (the holds).
+func shiftTimeKeyMap(m map[int]time.Time, removed int) map[int]time.Time {
+	if m == nil {
+		return nil
+	}
+	out := make(map[int]time.Time, len(m))
+	for k, v := range m {
+		if k == removed {
+			continue
+		}
+		if k > removed {
+			k--
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// shiftIntIntMap is shiftIntKeySet for map[int]int (the AFK counters).
+func shiftIntIntMap(m map[int]int, removed int) map[int]int {
+	if m == nil {
+		return nil
+	}
+	out := make(map[int]int, len(m))
+	for k, v := range m {
+		if k == removed {
+			continue
+		}
+		if k > removed {
+			k--
+		}
+		out[k] = v
 	}
 	return out
 }

@@ -49,6 +49,17 @@ describe('a seat costs the pinch, and nothing else does', () => {
   // panning a magnified table with a five-second window open. `data-seated` is
   // exactly the line between the two, so it is what the refusal hangs off —
   // never the viewport tag, which is global and which the test above owns.
+  // iOS Safari selects the label of a disabled button on a double tap whatever
+  // the body's `user-select` says, so at a table the refusal is written on the
+  // element itself — every element, not the body it would inherit from.
+  it('refuses text selection on every element once a seat is taken', () => {
+    const seated = base.match(/:root\[data-seated\]\s+:not\(input, textarea\)\s*\{([^}]*)\}/s)?.[1]
+    expect(seated, 'Base.astro must refuse selection per element at the seat').toBeTruthy()
+    expect(seated).toMatch(/-webkit-user-select:\s*none/)
+    expect(seated).toMatch(/[^-]user-select:\s*none/)
+    expect(seated).toMatch(/-webkit-touch-callout:\s*none/)
+  })
+
   it('drops pinch-zoom under [data-seated] and leaves panning alone', () => {
     const seated = base.match(/:root\[data-seated\]\s+body\s*\{([^}]*)\}/s)?.[1]
     expect(seated, 'Base.astro must scope the refusal to a taken seat').toBeTruthy()
@@ -86,29 +97,19 @@ describe('the wordmark is a logotype, not prose', () => {
     expect(logo).toMatch(/aria-hidden="true"/)
   })
 
-  it('drops the ink outline in dark, where it is what fails the check', () => {
+  it('keeps the ink outline off the word itself, where it is what fails the check', () => {
     // A checker reads `-webkit-text-stroke` as the colour of the text. Against
-    // the dark canvas that outline is 1.07:1 and the red it wraps is 5.4:1, so
-    // in dark the word carries no stroke and a ::before paints the outline over
-    // it. Light keeps the stroke: there, the near-black edge is 14.7:1 and the
-    // red alone would be 2.2:1.
-    for (const selector of [
-      /:root\[data-theme='dark'\] \.word \{[^}]*-webkit-text-stroke:\s*0/s,
-      /:root:not\(\[data-theme='light'\]\) \.word \{[^}]*-webkit-text-stroke:\s*0/s,
-    ]) {
-      expect(logo, `${selector} must drop the stroke`).toMatch(selector)
-    }
-    // Declared twice for the reason tokens.css declares the dark palette twice:
-    // a scripted attribute cannot paint the first frame, and a media query
-    // cannot be overridden by a choice. Both must carry the outline back.
-    const outlines = logo.match(/\.word::before \{[^}]*\}/gs) ?? []
-    expect(outlines, 'both dark blocks must repaint the outline').toHaveLength(2)
-    for (const block of outlines) {
-      expect(block).toMatch(/-webkit-text-stroke:\s*0\.07em var\(--color-stroke\)/)
-      // An empty alt: the logo is named by `role="img"`, and generated content
-      // is announced by Chrome.
-      expect(block).toMatch(/content:\s*'LOCO!'\s*\/\s*''/)
-    }
+    // the canvas that outline is 1.07:1 and the red it wraps is 5.4:1, so the
+    // word carries no stroke and a ::before paints the outline over it.
+    const word = /\n {2}\.word \{([^}]*)\}/s.exec(logo)?.[1]
+    expect(word, '.word rule not found').toBeTruthy()
+    expect(word, 'the word must carry no stroke of its own').not.toMatch(/-webkit-text-stroke/)
+    const outline = /\.word::before \{([^}]*)\}/s.exec(logo)?.[1]
+    expect(outline, 'the ::before must repaint the outline').toBeTruthy()
+    expect(outline).toMatch(/-webkit-text-stroke:\s*0\.07em var\(--color-stroke\)/)
+    // An empty alt: the logo is named by `role="img"`, and generated content
+    // is announced by Chrome.
+    expect(outline).toMatch(/content:\s*'LOCO!'\s*\/\s*''/)
   })
 })
 
@@ -117,8 +118,10 @@ describe('white on LOCO Red clears the bar it can clear', () => {
   // alternative was darkening the brand red on the two controls that are most
   // obviously the brand, so the type grew instead. 1.2rem is 19.2px.
   it.each(['.cta', '.navPop .navPopCta'])('%s is set above 18.66px', (selector) => {
+    // The selector may head a list (`.cta,\n.btnPrimary {`): the rule is the
+    // block that list opens.
     const rule = contentCss.match(
-      new RegExp(`\\n${selector.replace(/[.\\]/g, '\\$&')} \\{([^}]*)\\}`, 's'),
+      new RegExp(`\\n${selector.replace(/[.\\]/g, '\\$&')}(?:,\\n[^{]*)? \\{([^}]*)\\}`, 's'),
     )?.[1]
     expect(rule, `${selector} must exist in content.css`).toBeTruthy()
     const size = rule?.match(/font-size:\s*([\d.]+)rem/)?.[1]

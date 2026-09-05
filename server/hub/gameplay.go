@@ -4,6 +4,7 @@ package hub
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -15,8 +16,18 @@ import (
 // ClientMsg. The batch field (PlayCards) takes precedence over the singular
 // Card. Returns (cards, chosenColor, ok); ok=false means an error has already
 // been sent to the client and the caller should return.
-func (h *Hub) parseCardsFromMsg(c *Client, msg protocol.ClientMsg) ([]game.Card, game.Color, bool) {
+func (h *Hub) parseCardsFromMsg(c *Client, t *table, msg protocol.ClientMsg) ([]game.Card, game.Color, bool) {
 	if len(msg.PlayCards) > 0 {
+		// A batch longer than the hand cannot be legal and is refused before a
+		// single card of it is decoded: a 4 KB message carries a hundred DTOs,
+		// and the domain would otherwise walk every one of them, at the rate
+		// limit, to reach the refusal it was always going to give.
+		if hand := t.handSize(c.playerID()); len(msg.PlayCards) > hand {
+			err := fmt.Errorf("batch of %d cards exceeds the hand", len(msg.PlayCards))
+			c.sendError(err.Error())
+			c.noteRejection(err)
+			return nil, 0, false
+		}
 		cards := make([]game.Card, len(msg.PlayCards))
 		var chosenColor game.Color
 		for i, dto := range msg.PlayCards {
@@ -48,7 +59,7 @@ func (h *Hub) handlePlayCard(t *table, c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, t, msg)
 	if !ok {
 		return
 	}
@@ -132,7 +143,7 @@ func (h *Hub) handleRoundOrMatchEnd(t *table) {
 			code, room.MatchWinner, room.RoundNumber, matchFormatString(room.Format))
 		// Recorded before it is announced: the message carries the recap, and the
 		// match that has just ended is the last column of it.
-		t.recordFinishedMatch()
+		t.recordFinishedMatch(time.Now())
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
 			Type:         protocol.SMsgMatchEnd,
 			MatchWinner:  room.MatchWinner,
@@ -152,13 +163,14 @@ func (h *Hub) handleRoundOrMatchEnd(t *table) {
 	// personalized state. Build the player list once and share across recipients.
 	h.scheduleTurnTimer(t)
 	pl := h.playerList(t)
+	shared := h.sharedGameState(t)
 	for seat, member := range t.members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameStateUsing(t, seat, pl),
+			State: h.playerGameStateWith(t, seat, pl, shared),
 		})
 	}
 	h.maybeScheduleBot(t)
@@ -189,25 +201,27 @@ func (h *Hub) handleDrawCard(t *table, c *Client, msg protocol.ClientMsg) {
 
 	// Tell the drawing player all their new cards plus the updated turn state.
 	c.Send(protocol.ServerMsg{
-		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(c.playerID()),
-		Cards:        cardDTOs(newCards),
-		Turn:         state.CurrentTurn,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		TurnDeadline: dl,
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(c.playerID()),
+		Cards:         cardDTOs(newCards),
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		TurnDeadline:  dl,
+		InterruptOpen: interruptOpenPtr(state),
 	})
 	// Tell others how many cards changed hands so they can update the hand-size
 	// counter. They get the same turn state: has_drawn / pending_draw describe
 	// the table, not the recipient, and a client left to infer them desyncs.
 	h.broadcastToRoom(t, protocol.ServerMsg{
-		Type:         protocol.SMsgCardDrawn,
-		PlayerIndex:  intPtr(c.playerID()),
-		DrawnCount:   drawnCount,
-		Turn:         state.CurrentTurn,
-		PendingDraw:  intPtr(state.PendingDraw),
-		HasDrawn:     boolPtr(state.HasDrawn),
-		TurnDeadline: dl,
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(c.playerID()),
+		DrawnCount:    drawnCount,
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		TurnDeadline:  dl,
+		InterruptOpen: interruptOpenPtr(state),
 	}, c)
 	h.maybeScheduleBot(t)
 }
@@ -220,9 +234,10 @@ func (h *Hub) handlePassTurn(t *table, c *Client, msg protocol.ClientMsg) {
 	}
 	h.scheduleTurnTimer(t)
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:         protocol.SMsgTurnChanged,
-		Turn:         room.State.CurrentTurn,
-		TurnDeadline: turnDeadlineMs(t),
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
 	})
 	h.maybeScheduleBot(t)
 }
@@ -247,35 +262,69 @@ func (h *Hub) handleDeclareUno(t *table, c *Client, msg protocol.ClientMsg) {
 
 func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	room := t.room
+	now := time.Now()
 	// A Swap or a GlobalSwitch can leave several seats catchable at once, so the
 	// catcher names the one they spotted. Older clients send nothing: fall back
 	// to the window closest to expiring, which is the catch about to be lost.
 	targetIdx := -1
 	if msg.TargetIndex != nil {
 		targetIdx = *msg.TargetIndex
-	} else if open := room.State.CatchableTargets(time.Now()); len(open) > 0 {
+		// A named seat below zero is the out-of-range case with the sign
+		// flipped, not "nobody": refused and counted like the one below, rather
+		// than charged as a wager no client of ours composes.
+		if targetIdx < 0 {
+			c.sendError(game.ErrNoCatchWindow.Error())
+			c.noteRejection(game.ErrNoCatchWindow)
+			return
+		}
+	} else if open := room.State.CatchableTargets(now); len(open) > 0 {
 		targetIdx = open[0]
 	}
-	// Nobody is on the hook and the client said so by naming no seat. That is not
-	// a bug: the button is live from the moment any seat is close to finishing,
-	// so pressing it into an empty window is the wager the mechanic is made of,
-	// and it costs the same card as losing the race. The domain refuses to charge
-	// it twice on a board that has not moved since.
-	if targetIdx < 0 {
-		h.penalizeFailedCatch(t, c.playerID())
-		return
-	}
-	// A seat number the table does not have is another matter: it is not a wager,
-	// it is a message no client of ours composes. Refused rather than charged,
-	// and counted — a forged target used to be the one gameplay message that cost
-	// its sender nothing and told the operator nothing either.
+	// A seat number the table does not have is not a wager, it is a message no
+	// client of ours composes. Refused rather than charged, and counted — a
+	// forged target used to be the one gameplay message that cost its sender
+	// nothing and told the operator nothing either.
 	if targetIdx >= len(room.State.Hands) {
 		c.sendError(game.ErrNoCatchWindow.Error())
 		c.noteRejection(game.ErrNoCatchWindow)
 		return
 	}
+	catcher := c.playerID()
+	// Nothing near the finish: no honest screen has the button live, so this
+	// press is a board that moved under a thumb — the seat it was aimed at drew
+	// a moment ago — or a client this game did not write. Neither is a wager,
+	// so neither is charged, and neither is answered: an answer would be the
+	// one thing a dead button could still make the server say.
+	if !room.CatchOffered(catcher, now) {
+		return
+	}
+	// Nobody is on the hook and the client said so by naming no seat. That is not
+	// a bug: the button is live from the moment any seat is one play from
+	// finishing, so pressing it into an empty window is the wager the mechanic
+	// is made of, and it costs the same card as losing the race. The domain
+	// refuses to charge it twice on the same offer.
+	if targetIdx < 0 {
+		h.penalizeFailedCatch(t, catcher, now)
+		return
+	}
+	h.resolveCatch(t, c, catcher, targetIdx, now)
+}
+
+// resolveCatch is the one road a Contre-LOCO! travels to its verdict, whether
+// it arrived on a socket this instant or was held through the head start
+// (holdCatch). c is the socket to answer a refusal to, and nil for a held
+// press, which has nobody waiting on it.
+func (h *Hub) resolveCatch(t *table, c *Client, catcher, targetIdx int, now time.Time) {
+	room := t.room
 	priorSize := len(room.State.Hands[targetIdx].Cards)
-	if err := room.CatchUndeclared(c.playerID(), targetIdx, time.Now()); err != nil {
+	if err := room.CatchUndeclared(catcher, targetIdx, now); err != nil {
+		switch {
+		// Inside the target's head start, and it would have landed: held, and
+		// resolved again the instant the head start ends. The seat that owes
+		// the call always gets the first stretch of its own window; a thumb
+		// that was faster than that is not refused, just made to wait its turn.
+		case errors.Is(err, game.ErrCatchTooEarly):
+			h.holdCatch(t, catcher, targetIdx)
 		// A lost race is the mechanic working, not an attack: the button was
 		// armed when it was pressed and the target's LOCO! (or a hand that grew,
 		// or the last millisecond of the window) simply reached the hub first.
@@ -283,12 +332,12 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 		// suspicion, since the client shows the penalty itself.
 		// ErrNoCatchWindow joins them: the seat exists but owed nothing, which is
 		// the same misread as pressing with no seat named at all.
-		if game.IsMissedCatch(err) || errors.Is(err, game.ErrNoCatchWindow) {
-			h.penalizeFailedCatch(t, c.playerID())
-			return
+		case game.IsMissedCatch(err) || errors.Is(err, game.ErrNoCatchWindow):
+			h.penalizeFailedCatch(t, catcher, now)
+		case c != nil:
+			c.sendError(err.Error())
+			c.noteRejection(err)
 		}
-		c.sendError(err.Error())
-		c.noteRejection(err)
 		return
 	}
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
@@ -300,16 +349,68 @@ func (h *Hub) handleCatchUno(t *table, c *Client, msg protocol.ClientMsg) {
 	h.sendHandGrowth(t, targetIdx, room.State.Hands[targetIdx].Cards[priorSize:])
 }
 
+// heldCatch is one Contre-LOCO! waiting out the head start of the window it
+// was aimed at. The window is part of the key, so a press held on a window
+// that is reopened underneath it is dropped rather than landed on the next.
+type heldCatch struct {
+	catcher, target int
+	windowAt        time.Time
+}
+
+// holdCatch keeps an early Contre-LOCO! until the target's head start ends,
+// then runs it through resolveCatch exactly as if it had arrived then. One
+// press per catcher per window: the second and the tenth inside the same head
+// start are the same press, and holding the button down buys nothing that
+// pressing it once did not. Several catchers are resolved in arrival order,
+// which is the order the table's box keeps — the first lands, the rest lose
+// the race and pay for it, as they would have a second later.
+func (h *Hub) holdCatch(t *table, catcher, target int) {
+	state := t.room.State
+	k := heldCatch{catcher: catcher, target: target, windowAt: state.LastCardAt[target]}
+	if _, dup := t.heldCatches[k]; dup {
+		return
+	}
+	t.heldCatches[k] = struct{}{}
+	wait := time.Until(state.CatchHeadStartEnd(target))
+	if wait < 0 {
+		wait = 0
+	}
+	// Lossy on a full box like every other reaction timer: the press is the
+	// one thing here a player can simply make again.
+	time.AfterFunc(wait, func() {
+		t.postFromTimer("held_catch", func() { h.resolveHeldCatch(t, k) })
+	})
+}
+
+// resolveHeldCatch is the head start ending on one held press.
+func (h *Hub) resolveHeldCatch(t *table, k heldCatch) {
+	delete(t.heldCatches, k)
+	room := t.room
+	if room.Status != game.StatusPlaying || room.State == nil {
+		return
+	}
+	state := room.State
+	if k.target >= len(state.Hands) || k.catcher >= len(state.Hands) {
+		return
+	}
+	// Reopened underneath the press: the seat is on a different last card
+	// now, with a head start of its own. The press was about the old one.
+	if !state.LastCardAt[k.target].Equal(k.windowAt) {
+		return
+	}
+	h.resolveCatch(t, nil, k.catcher, k.target, time.Now())
+}
+
 // penalizeFailedCatch charges one card for a Contre-LOCO! that found nothing and
 // tells the room whose call it was. Shared by the human and the bot path — a bot
 // that guesses wrong pays the same price, or the two are playing different games.
-func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int) {
+func (h *Hub) penalizeFailedCatch(t *table, catcherIdx int, now time.Time) {
 	room := t.room
-	drawn, charged := room.PenalizeFailedCatch(catcherIdx)
-	// The seat already paid for this board and the domain declined to charge it
-	// again. Nothing happened, so nothing is said: an answer here would be a
-	// second notice for one mistake, and a spammed button would still be a way to
-	// make the table talk.
+	drawn, charged := room.PenalizeFailedCatch(catcherIdx, now)
+	// The seat already paid for this offer — or nothing was offered — and the
+	// domain declined to charge it. Nothing happened, so nothing is said: an
+	// answer here would be a second notice for one mistake, and a spammed
+	// button would still be a way to make the table talk.
 	if !charged {
 		return
 	}
@@ -363,7 +464,7 @@ func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
 	if msg.ChosenPlayer != nil {
 		chosenPlayer = *msg.ChosenPlayer
 	}
-	cards, chosenColor, ok := h.parseCardsFromMsg(c, msg)
+	cards, chosenColor, ok := h.parseCardsFromMsg(c, t, msg)
 	if !ok {
 		return
 	}

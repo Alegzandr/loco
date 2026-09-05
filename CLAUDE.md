@@ -61,8 +61,10 @@ client and E2E targets do need Node.
 | Lint | `make lint` (golangci-lint in docker + ESLint) |
 | Regenerate the protocol | `make protocol` after any change to `server/protocol/`; `make protocol-check` is what CI runs |
 | Type-check | `make build-client` (`astro check && svelte-check && astro build`); no separate typecheck script |
-| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch"` |
-| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make maps ARGS="--src=<folder>"`, `make bench-server` |
+| Visual review | `make visual ARGS="--scenes=... --viewports=wide,small,notch,landscape"` |
+| Pack the rooms' models | `make models` after editing `scene/models/manifest.json` (needs the kits unpacked under `.assets-in/unpacked/`); `make models-check` says what is missing |
+| Re-shoot the rooms page's stills | `make rooms` after touching a builder, the kit, the light rig or the finishing passes — commit the result |
+| Deliberately outside CI | `make audio-verify`, `make csp`, `make og`, `make icons`, `make cover`, `make rooms`, `make bench-server` |
 
 ## Done means
 Code + tests + passing + docs + Docker still works + behavior matches docs. **Update `README.md` when
@@ -120,50 +122,59 @@ needs jsdom and the `browser` resolve condition.
 - `src/App.svelte` the screen switch · `src/Root.svelte` the one above it, which mounts the app or
   the curtain saying another tab holds the game · `src/entry.ts` mounts *that* into `#root` via a
   bundled module script, never an island
-- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/theme.ts` · `src/lang.ts` (storage
-  key, the two home paths, `chooseLang`) — those two pull in no framework, so a content page can
-  use them · `src/langSwap.ts` translates the served half of `/` in place and moves the address bar,
-  app-only · `src/pinchGuard.ts` the seated half of "no accidental zoom" and `src/contextGuard.ts`
-  the same gate over the browser's own menu, both installed by `entry.ts`
+- `src/homeSheet.ts` the home sheet's Esc, scrim-click and ✕ · `src/lang.ts` (storage key, the two
+  home paths, `chooseLang`) — framework-free, so a content page can use it · `src/langSwap.ts`
+  translates the served half of `/` in place and moves the address bar, app-only · `src/pinchGuard.ts`
+  the seated half of "no accidental zoom" and `src/contextGuard.ts` the same gate over the browser's
+  own menu, both installed by `entry.ts`
 - `src/seo/meta.ts` the page registry + link-preview tags, as data
 - `src/content/` prose and data behind the content pages: `content.css`, `legal.ts`, `faq.ts`,
-  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `liveList.ts`, `navMenu.ts`,
-  `theme-boot.ts`. **Never imported by the app**
+  `HomeProse.astro`, `CardsArticle.astro`, `LiveArticle.astro`, `TablesArticle.astro`, `liveList.ts`,
+  `navMenu.ts`, `page-boot.ts`. **Never imported by the app** · `src/assets/rooms/` the six stills
+  the rooms page shows, shot by `make rooms` and committed
 - `src/components/` screens + shared: Lobby, WaitingRoom, GameView, GameOver, RulesModal +
   RulesButton + `cardCatalogue.ts`, Preferences + LanguageSwitcher, TableCode, AudioSettings, ActionBar, InterruptBanner,
   CatchBanner, RoundSummary, UnoTimer, CardFall, MapLoadingScreen, Reconnecting, TabTaken, ServerUpdating,
   ColorPicker, PlayerPicker, ScoreTable + `scoreTableModel.ts`, LocoLogo, `playerColors.ts`,
   `swapNoticeText.ts`, `interruptHelpers.ts`, `catchAvailability.ts`, LiveStrip + `liveStreams.ts` +
-  `twitchLinks.ts`, the two server mirrors `nicknameRules.ts` +
-  `tableCodeRules.ts`, and the queue's `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` /
-  `OpponentAway.svelte`
+  `twitchLinks.ts`, the two server mirrors `nicknameRules.ts` + `tableCodeRules.ts`, and the queue's
+  `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` / `OpponentAway.svelte`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
   PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` pure pixel math;
   `CardArt.svelte` + `cardArtSpace.ts` + `locoMark.ts` the face; `CardGlyph.svelte` + `cardGlyphs.ts`
-  the drawn rule glyphs; `SuitMark.svelte`; `maps.ts`; `cardTheme.ts`
+  the drawn rule glyphs; `SuitMark.svelte`; `maps.ts` (the registry: materials, accent, allowed
+  skies, `resolveScene`); `cardTheme.ts`
+- `src/components/scene/` the room: `sky.ts` (the hours, the skies, the light rig, framework-free),
+  `rng.ts`, `kit.ts` (the prop kit, the only file that turns a block into triangles), `shade.ts`
+  (the tones and the shadow polygons, pure), `placer.ts` (the ground plan, pure), `life.ts` +
+  `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the allowlist of packed kits, `lib.ts`
+  the GLB loader and baker, `bake.ts` the pure half), `maps/<id>.ts` one builder per room +
+  `maps/common.ts` + `maps/actors.ts`, `render.ts` (one frame, then the context is released),
+  `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame), `quality.ts`
+  (what each graphics tier buys) + `post.ts` (the finishing passes), `SceneBackdrop.svelte` +
+  `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
   the sounds and plays none of them
-- `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` + `e2eBridge.svelte.ts` (the whole
-  `window.__LOCO_E2E__` surface in one file), all behind `import.meta.env.DEV`
+- `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` +
+  `e2eBridge.svelte.ts` (the whole `window.__LOCO_E2E__` surface in one file), all behind
+  `import.meta.env.DEV`
 - `src/hooks/` splits in two, and the split is the point. **`.svelte.ts` is anything that owns
   reactive state or an effect** — a rune is only compiled in a `.svelte` or `.svelte.ts` file, so the
-  extension is the declaration: `webSocket`,
-  `gameStore` (the snapshot every component reads), `appEffects` (audio, session persistence, the
-  host's streamer mode going out on the wire, the
+  extension is the declaration: `webSocket`, `gameStore` (the snapshot every component reads),
+  `appEffects` (audio, session persistence, the host's streamer mode going out on the wire, the
   restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
   `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
-  insets), `drainBar`, `escapeKey`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one narrowing
-  every effect above watches its own field through). **Everything else is
-  framework-free on purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` +
-  `store/`: `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`,
-  `deriveCatchMiddleware.ts`, and one module per family — `sessionActions` `tableActions`
-  `locoActions` `matchActions` `queueActions`), `serverMessages.ts`, `sessionPersistence.ts`,
-  `sessionRestore.ts`, `nicknameMemory.ts`, `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, and the preference
-  and constant modules the reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`,
-  `webSocketPolicy`, `mapPreload`, `safeAreaInsets`). **The `use` prefix went with React**: none of
-  these is a hook, they are constants, pure functions and plain stores, and **nothing in a plain
-  `.ts` file here may reach for a rune** — it would not be compiled, and the failure is silent.
-  `src/test/runeScope.test.ts` is the guard.
+  insets), `drainBar`, `escapeKey`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one
+  narrowing every effect above watches its own field through). **Everything else is framework-free on
+  purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` + `store/`:
+  `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`, `deriveCatchMiddleware.ts`, and one
+  module per family — `sessionActions` `tableActions` `locoActions` `matchActions` `queueActions`),
+  `serverMessages.ts`, `sessionPersistence.ts`, `sessionRestore.ts`, `nicknameMemory.ts`,
+  `tableInvite.ts`, `tabLock.ts`, `prefStore.ts`, and the preference and constant modules the
+  reactive half wraps (`motionPref`, `colorAssist`, `streamerMode`, `webSocketPolicy`, `mapPreload`,
+  `safeAreaInsets`, `graphicsPref`). **The `use` prefix went with React**: none of these is a hook,
+  and **nothing in a plain `.ts` file here may reach for a rune** — it would not be compiled, and the
+  failure is silent. `src/test/runeScope.test.ts` is the guard.
 - `src/styles/tokens.css` design tokens · `src/i18n/` · `src/test/` (its three seams are in
   [`docs/notes/testing-ci.md`](docs/notes/testing-ci.md)) · `public/`
 - `src/types/` **generated from `server/protocol/` by `make protocol`**: `protocol.ts` (the types),
@@ -190,12 +201,12 @@ needs jsdom and the `browser` resolve condition.
   refuses anything it cannot spell honestly rather than guessing
 
 **The rest.** `e2e/` Playwright suite (`tests/`, `helpers/game.ts`, `types.d.ts`,
-`playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`,
-`cover/shoot.mjs`, `maps/prepare.mjs`, `maps/scene-tester.html`, `audio/verify.mjs`, `csp/check.mjs`) ·
+`playwright.config.ts`) · `tools/` (`lib/devserver.mjs`, `visual/shoot.mjs`, `og/shoot.mjs`, `rooms/shoot.mjs`,
+`cover/shoot.mjs`, `audio/verify.mjs`, `csp/check.mjs`) ·
 **`brand/`** the 600×800 game covers, uploaded to IGDB and drawn by Twitch as the category's box art —
-**committed and deliberately not under `client/public/`**: they are an upload, and serving them would
-add a megabyte to the site for nobody · `docs/` spec + `docs/notes/` ·
-`LICENSE` (MIT) · `NOTICE.md` · `.gitlab-ci.yml` the only CI definition · root config / Docker / env.
+**committed and deliberately not under `client/public/`**: they are an upload · `docs/` spec +
+`docs/notes/` · `LICENSE` (MIT) · `NOTICE.md` · `.gitlab-ci.yml` the only CI definition · root
+config / Docker / env.
 
 ---
 
@@ -215,28 +226,48 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
    `Room.decisiveLeader`, covers the early stop and the end of the format alike.
 4. **Voluntary draw is allowed**, still one draw per turn.
 5. **A forced draw does not cost the turn.** The victim takes the stack and then plays or passes;
-   `hub.handleDrawCard` re-arms the turn timer on every draw.
+   `hub.handleDrawCard` re-arms the turn timer on every draw. **The auto-action fires
+   `TurnTimeoutGrace` (400 ms) after the deadline the client is shown**, which stays `TurnTimeout`:
+   a play sent on the last frame of the bar still has a network to cross, and a server acting on
+   the very millisecond refused it with "not your turn" after the player had beaten their own clock.
+   The grace is the server's patience and never on the wire.
 6. **Nobody forgets LOCO! and wins** (`requireLocoToFinish`, `ErrMustDeclareLoco`): every play
    that empties a hand is refused without the call. A seat already on one card must have declared
    **before** this message — a late call is always accepted, so forgetting costs a press and the
    catch risk, never the round. A batch that empties two or more never passed through one card, so
    no window ever opened on it: that message **carries** the call (`declare_loco`) and the table
    hears `uno_declared` before `card_played`.
-7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per card played**
-   (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, rationed by `GameState.PlayEpoch` +
-   `CatchPenaltyEpoch`). The button is live from **two** cards out, so the press is a **read of the
-   table** and not an answer to a cue: a call that lost a race and a call on a table where nobody
-   owed anything are the same misread and cost the same card. **Two, not three, and the missing card
-   is the calibration**: a card is only a punishment while it stays in the hand that drew it, so a
-   window a player can miss *on purpose* is a Swap away from being ammunition — the wager is offered
-   one ordinary play before it can pay off and no earlier. **The second press against a board
-   that has not moved costs nothing, changes nothing and is broadcast to nobody** — a per-press
-   price would tax the reflex the mechanic asks for. A catch that *lands* does not spend the epoch.
-   A seat number the table does not have is still refused rather than charged: that one is a forged
-   message, not a wager.
+7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
+   while one is on the table** (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, `CatchOffered`,
+   rationed by `catchOfferKey` + `CatchPaidFor`). The offer is a seat on **exactly two** cards or a
+   seat on its last card **inside its window** (`catchNearHand`, `catchRaceRecent`); the button is
+   live for exactly that, so the press is a **read of the table** and not an answer to a cue. **Two,
+   not three, and the missing card is the calibration**: a card is only a punishment while it stays
+   in the hand that drew it, so a window a player can miss *on purpose* is a Swap away from being
+   ammunition — the wager is offered one ordinary play before it can pay off and no earlier. **The
+   ration is the offer, never the card played**: rationed per card played, a press before and a press
+   after the catcher's own play bought two cards a turn off one seat sitting on two — faster than the
+   voluntary draw, and the hand a Swap is fed with. So the second press against the same near-finish
+   picture costs nothing, changes nothing and is broadcast to nobody, and so does the catcher's own
+   play. **A press against a table where nothing is offered is answered by nobody and charged to
+   nobody**: the seat drew under the thumb, or the client is not ours, and a charge there is the farm
+   reopened to anybody willing to forge the message. A catch that *lands* spends no offer. A seat
+   number the table does not have is still refused rather than charged: that one is a forged message,
+   not a wager.
+8. **The seat that owes the call gets the first 1.5s of its own window, whoever is pressing what**
+   (`CatchHeadStart`, `ErrCatchTooEarly`, `hub.holdCatch`). A catcher holding the button down used to
+   land on the millisecond the card touched the pile, before the seat's LOCO! could have crossed the
+   wire, which made spamming the button the way to deny every declaration at the table. A press
+   inside the head start is neither refused nor answered: the hub **holds it** (`table.heldCatches`,
+   one per catcher per window — the second and the tenth are the same press) and resolves it the
+   instant the head start ends, in arrival order, through the same road as a live press. It lands if
+   the seat is still silent and costs its card if the seat spoke. **The bots never fire inside it**
+   (`scheduleBotCatch` clamps to `CatchHeadStartEnd`), whatever a test sets `BotCatchDelay` to.
 
-- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **Swap is coloured**
-  and follows ordinary matching; the three wilds are Wild, WildDrawFour, GlobalSwitch.
+- **Deck**: 112 cards, 8-card opening hands, opening discard must be a Number. **`Deck.Replenish`
+  appends the pile to what is left of the deck, never in place of it**: it runs when the deck is
+  short, which is exactly when it is not empty. **Swap is coloured** and follows ordinary matching;
+  the three wilds are Wild, WildDrawFour, GlobalSwitch.
 - **Every wild must name a real colour**, GlobalSwitch included, and every entry point rejects a
   colourless one. `Wild` must never reach `State.ActiveColor`.
 - **A draw never fails.** `DrawCard` validates first, draws through `DrawUpTo`, and only *then*
@@ -251,19 +282,25 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 - **The four ways to empty a hand all go through the same gate**: `PlayCard`, `PlayCards`,
   `InterruptPlayCards` and `CounterDraw` each ask `requireLocoToFinish` before they mutate
   anything. Add a fifth win path and it asks too — a finish that skips the gate is a round taken
-  in silence, which is the bug the rule exists for.
+  in silence.
 - **Who is on the hook is the server's to say and it rides `card_played`** (`catch_seats`, from
   `CatchableTargets` + `CatchWindowEnd`): the client renders that list and never re-derives it.
 - **Interrupts have no deadline and exclude nobody.** Anyone may play N identical cards matching the
   top discard, wilds included; the player who just played and the current player may both take the
   lead back. Effects stack. Removing those freedoms is what would make the mechanic turn-based: do
-  not reinstate them.
+  not reinstate them. **Whether the pile may still be slammed is the server's word, and it rides
+  every message that can open or shut the window** (`interrupt_open` on `card_played`, `card_drawn`,
+  `turn_changed`, `match_ready` and every `GameStateDTO`; `store.interruptOpen`,
+  `clientMayInterrupt`'s fourth argument). The client kept no copy of it and offered the twin for as
+  long as the card was on top, so a slam after the seat at turn had drawn or passed came back
+  "somebody was faster" on a table where nobody had been. A pointer on the message: false is the
+  answer that matters, and absent means unchanged. `interruptWindow.test.ts`.
 - **The window is open from the deal, and the opening discard is a card like any other**
   (`GameState.InterruptOpen`, set by `dealRound`, distinct from `LastPlayBy` which says *who* played).
-  A seat dealt the twin of the card the round opens on may slam it before the first turn is taken;
-  refusing it answered "somebody was faster" on a table where nobody had played. **Bots stay out of
-  that one window** — they read `LastPlayBy`, which the deal leaves at -1 — because taking the
-  round's first turn off the seat the deal gave it is not a reaction to anything a player did.
+  A seat dealt the twin of the card the round opens on may slam it before the first turn is taken.
+  **Bots stay out of that one window** — they read `LastPlayBy`, which the deal leaves at -1 —
+  because taking the round's first turn off the seat the deal gave it is not a reaction to anything a
+  player did.
 - **Scoring**: single-finisher round, `CardValue` per `docs/rules.md` §10, cumulative `Room.Scores`,
   tiebreakers **rounds won then score** then lost-hand total then sudden death. **The score measures
   the gap, it does not crown anybody** — and `biggestLoser` stays indexed on it on purpose, because
@@ -273,9 +310,14 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   other seat-keyed structure, rides the drain snapshot and the personalised state, and is what the
   game-over screen's evening recap is drawn from. A rematch nils the scoreboard; this is the only
   thing that can say who won six matches on one code. **It also rides every `player_left` that
-  re-bases the roster**, because the screen reading it is already open: a seat going shifts every
-  row's columns, and the client cannot re-base them itself — the column that went belongs to a seat
-  in neither roster.
+  re-bases the roster**: a seat going shifts every row's columns, and the client cannot re-base them
+  itself — the column that went belongs to a seat in neither roster. **Each record says how long its
+  match was played** (`duration_ms`, from `table.matchStartedAt` stamped by `openTable` at
+  `match_ready` — the gate is a wait, not the game — to the `now` handed to `recordFinishedMatch`).
+  **Zero is "cannot say" and stays off the wire**, so a played match is rounded up to at least 1 ms;
+  the stamp rides the drain snapshot and is cleared by `resetForNextMatch`. The client words it
+  (`components/matchDuration.ts`) **to the second, units written out** — `12 min 34 s`, never `12:34`,
+  which reads as a clock; under a minute is `42 s`, and a played match is never `0 s`.
 
 ## Server
 Detail: [`docs/notes/server.md`](docs/notes/server.md).
@@ -302,18 +344,16 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   first and *appends* to `X-Forwarded-For`, so the latter's leftmost entry is the client's to invent.
   **That order is a security property**: a client can put its own `X-Real-IP` on a proxied request.
   Anything unbelievable falls back to the peer, **an address no browser on the internet could have
-  included** (`isRoutableClient`: loopback, private, link-local, multicast, unspecified) — a forged
-  public one buys a bucket of its own, a forged private one is aimed at the bucket everybody else
-  falls back into. Truncated on the way in like every other address.
+  included** (`isRoutableClient`: loopback, private, link-local, multicast, unspecified). Truncated
+  on the way in like every other address.
 - **Which of those headers a host may forward is the host's to declare, never the shared proxy
   block's** (`client/nginx.conf` `set $loco_cf_ip` / `$loco_real_ip`, read by `ws-proxy.conf`). The
   site's host vouches for `CF-Connecting-IP` because Cloudflare sets it there; **`ws.` is
   grey-clouded, so nothing sets or strips that header on it** and a client writes its own — which
   this server believes, because the peer is the same nginx either way. Forwarding both from both was
-  one forged header per socket buying one network key per socket, and with it a private copy of every
-  per-network ceiling. The other side is emptied, which makes nginx omit it. `csp.test.ts` pins it;
-  the residual — reaching Traefik directly and bypassing the CDN — is closed by an allowlist on the
-  host Traefik, not here.
+  one forged header per socket buying a private copy of every per-network ceiling. The other side is
+  emptied, which makes nginx omit it. `csp.test.ts` pins it; the residual — reaching Traefik directly
+  and bypassing the CDN — is closed by an allowlist on the host Traefik, not here.
 - **`LOCO_ALLOWED_ORIGINS` is mandatory in production now.** The page and the socket are deliberately
   on two hostnames, so `originAllowed`'s default (Origin's hostname == request's Host) refuses every
   upgrade. It names the **page's** origin, never the socket's.
@@ -350,8 +390,17 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   match cannot remove from being broadcast as connected. **A finished ordinary table holds its seats
   too** — the match is over, the rematch is not — so `join_room` reclaims a held seat at any table
   that is not a lobby, the reclaim carries **no `state`** when there is none, and the expiry there
-  removes the seat for real. Matchmade tables are excluded on purpose.
+  removes the seat for real. A finished matchmade table is excluded on purpose; **a matchmade table
+  in its versus reveal holds its seats too** and reclaims them the same way. **`awayAt` and `afk`
+  re-base with every other seat-keyed map** (`table.shiftSeatKeys`, the one list `dropSeat` and `dropClient`
+  share), and **an expiry finds its hold by the instant it began, never by the seat number it was
+  armed with** (`heldSeatAt`): two holds at a finished table, the lower one running out first, used
+  to leave the second keyed to a seat that had moved — reported connected, unreclaimable, and removed
+  from the wrong index or not at all. A finished table with no socket and no hold left closes on the
+  spot, since nothing but a token reclaim can enter it.
 - **Personalised sends index by slot, never by `member.playerID`.**
+- **Removing a seat re-bases everything the scoreboard is drawn from** (`RemoveLobbyPlayer`), and the
+  `player_left` that shrinks the roster carries the re-based `scoreboard` and `round_history`.
 - **Room codes, session tokens and the room's own RNG all come from `crypto/rand`**, no fallback.
   `game.newRNG` seeds the source that picks the map, the starting seat and the shuffle: **the deal is
   hidden state, so a clock seed hands every hand to anyone who timed `create_room`**.
@@ -368,18 +417,16 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **A refused action is not automatically suspicious.** `game.IsLostRace(err)` names what a correct
   client produces all match; handlers call `Client.noteRejection(err)`, not `noteSuspect`. Always
   `errors.Is`, never string comparison.
-- **A refused message must never be cheaper than an accepted one.** Three rules fall out of it, and
-  each closed a way a refusal paid better than a play:
+- **A refused message must never be cheaper than an accepted one.** Three rules fall out of it:
   - **A refusal does not clear the AFK counter.** `dispatchAtTable` resets it *after* the handler and
     only when `Client.refusals` did not move; `sendError` is the single funnel that moves it. Reset
     before the handler, one refused `declare_uno` a turn bought permanent immunity.
   - **A refusal answers its sender and nobody else**, unless the rules say the table pays too. Same
     rule makes `rematch` idempotent: an ask already in the set republishes nothing. **A penalty that
     drew nothing is the same case**: against two dry piles a missed catch costs nothing, so it tells
-    its caller and not the table — otherwise a call inside somebody's window was still a free
-    broadcast. **A Contre-LOCO! already charged for this board is the same case again**: `PlayEpoch`
-    makes the second press draw nothing, broadcast nothing and answer nobody, which is what keeps a
-    button that is live most of the endgame from being a table-wide send ten times a second.
+    its caller and not the table. **A Contre-LOCO! already charged for this offer is the same case
+    again**, and so is one against a table where nothing is offered: `PenalizeFailedCatch` draws
+    nothing, broadcasts nothing and answers nobody.
   - **A correction is throttled** (`resyncPeriod`, 1s per socket): one snapshot settles the drift,
     and everything sent in the millisecond after it was composed against the old board.
 - **The gameplay gate also bounds the seat.** `dispatchAtTable` refuses a sender whose `playerID` is
@@ -391,17 +438,23 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   `pending_draw`, `has_drawn`, `player_index` and `player_id` are pointers. Read seats with
   `ServerMsg.Seat()` / `ServerMsg.OwnSeat()` (-1 = no seat named).
 - **Bots**: `game/bot.go` decides, `hub` schedules, through the same domain calls and broadcasts as
-  humans. Only `LOCO_BOT_THINK_MS` / `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on
-  `LOCO_E2E=1`); **every other bot delay is a reaction window somebody is meant to be able to win.**
+  humans. **A bot's Swap goes to the smallest hand and is held when it would not pay**; a bot batches
+  its identical copies on its turn exactly as a human's tap does; **a refused bot move gives the turn
+  up, never the table** (`botRecover`), and `botCanPlayDrawn` asks `BotThink`, not `CanPlay`.
+- **An AFK kick answers the socket, never the turn**: the clock draws and passes for the kicked seat
+  like any empty chair, a reclaim clears the counter, and the auto-draw re-arms before it broadcasts.
+- **Every snapshot carries `catch_seats` and `declared_seats`**, and what is the same for every
+  recipient is built once per broadcast (`sharedGameState`). Only `LOCO_BOT_THINK_MS` /
+  `LOCO_BOT_JITTER_MS` are tunable from the environment (gated on `LOCO_E2E=1`); **every other bot
+  delay is a reaction window somebody is meant to be able to win.**
 - **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, so the
   seat that owes the call always has the first half of it; never scheduled past the deadline, because
   a late call costs a card. **One attempt per window and one press, however many bots are at the
   table**: `botCatchAttempt` derives the verdict, the delay and the instant from the window itself
   (seat + `LastCardAt`), so the re-arming every action inside those five seconds performs changes
-  nothing — rolled per arming, the delay is the minimum of N draws and a table of bots sits at the
-  fast end of the range. Armed with the bots' own LOCO! by one `maybeScheduleBotReactions`, after
-  **every** action, human or bot: armed after human actions alone, a bot's Swap handed a human their
-  last card and nobody ever answered it.
+  nothing. Armed with the bots' own LOCO! by one `maybeScheduleBotReactions`, after **every** action,
+  human or bot: armed after human actions alone, a bot's Swap handed a human their last card and
+  nobody ever answered it.
 - **1v1 matchmaking is one FIFO queue** and its size is **never on the wire** — `matchmaking_queued`
   is an empty acknowledgement, the number lives only on `/metrics`. Nothing player-facing says
   "unranked".
@@ -411,8 +464,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   would otherwise reach every socket at once on a timer. **What each socket was last told is kept per
   socket** (`Client.onlineSent`), because a hub-wide watermark skips the player who has just left a
   table and waits for a number that, on a quiet server, never moves again. The floor under which it
-  is not shown is the **client's** (`components/playersOnline.ts`, two players): the number stays
-  true, the screen decides whether it is worth drawing.
+  is not shown is the **client's** (`components/playersOnline.ts`, two players).
 - **A table with no host is a shape, not a mode** (`table.hostless`, `refuseWithoutHost`). Two answer
   to it — a matchmade pair and a solo game — and `add_bot`, `start_game`, `set_match_format`,
   `set_max_players`, `kick_player` and `transfer_host` are refused at both.
@@ -422,16 +474,14 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   property the E2E suite depends on. Its `game_started` carries `room_code` / `player_id` /
   `session_token`, because it is the only message the mode sends and a reload still has to reclaim
   the seat. **`rematch` is the one room where it is refused** — there is nobody to ask; another press
-  is another `play_bot`. Reconnect, drain and the snapshot treat it as an ordinary table: the
-  matchmade timings exist because a stranger will not wait for you.
+  is another `play_bot`. Reconnect, drain and the snapshot treat it as an ordinary table.
 - **Three fixed emotes, on the game-over screen, and no free text anywhere in this game**
   (`hub/emotes.go`, `protocol.AllEmotes`). The set is **closed and server-side** — an identifier this
   server does not know is refused and counted, never relayed. **Nothing is kept, anywhere**: not in
   the event log, not on the `Room`, not in the snapshot, and not on the table either — `hub/emotes.go`
   holds no state at all. Refused anywhere but a finished match and **never to or from a bot**; **both
   refusals answer their sender and broadcast nothing.** **A seat changes its mind as often as it
-  likes**: the 2s per-seat cooldown is gone, because the client *replaces* a seat's line instead of
-  stacking it — so the screen never needed a cap, and the cap only ever refused somebody rewording.
+  likes**: no per-seat cooldown, because the client *replaces* a seat's line instead of stacking it.
   The per-client token bucket is the bound, as it is for every other message. Free text would be a
   moderation surface, and collecting nothing is the compliance strategy.
 - **`set_streamer_mode` is the one setting a client's *presentation* preference is allowed to reach
@@ -440,8 +490,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   thing being captured is the match. It carries a state and never a toggle, a repeat of the state the
   table is already in is **answered by nobody**, and the answer travels on `streamer_mode_changed`,
   on `room_joined` and in every `GameStateDTO`. It survives `resetForNextMatch` and rides the drain
-  snapshot: the stream does not stop because the match ended or the server was deployed. **Nothing
-  else about a player's presentation may follow it here.**
+  snapshot. **Nothing else about a player's presentation may follow it here.**
 - **`kick_player` is the one host control that acts on a person, so it is the strictest**: host only,
   lobby only, matchmade never, **never seat 0**. The work is `releaseSeat`, so the table sees an
   ordinary `player_left` and the removed client gets `kicked` on its own socket; an unmanned seat goes
@@ -460,17 +509,23 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   carrying the **whole** offer state and the quorum, never the increment), and **two asks deal the
   next match at any size** — one offering, one accepting (`RematchQuorum`; below two connected it is
   whoever is there, and bots are not asked). **Nobody is dropped by that**: the room reopens with
-  everybody still at the table, so a seat that had not answered lands in the waiting room and not out
-  of the game. **And the reopened table is hosted by somebody who asked for it**
+  everybody still at the table. **And the reopened table is hosted by somebody who asked for it**
   (`promoteRematchHost`: the earliest-seated asker, moved with `SwapLobbyPlayers` + `swapSeats` like
-  `transfer_host`, then `keepHostHuman`) — seat 0 owns the press that starts the match, so leaving it
-  with a host who said nothing or who left is the wait this quorum exists to end. **A departure retires
-  that seat's ask and re-bases the rest**, completing the agreement on the spot when what is left has
-  already asked. In a matchmade room the client requeues the survivor instead.
+  `transfer_host`, then `keepHostHuman`) — seat 0 owns the press that starts the match. **A departure
+  retires that seat's ask and re-bases the rest**, completing the agreement on the spot when what is
+  left has already asked. In a matchmade room the client requeues the survivor instead.
 - **Nobody waits for somebody who is not there.** A matchmade room holds a dropped seat 15s and treats
   2 consecutive turn timeouts as away, and **both expiries forfeit the match**, as does `leave_room`.
   **The scoreboard is left alone.** Ordinary rooms keep 60s and 4, and every room allows `leave_room`
   in its waiting room behind one in-place confirmation, the only one in the game.
+- **A hold that runs out is settled the way `leave_room` settles the seat** (`settleExpiredSeat`,
+  off the ordinary table's expiry): above `WalkOutFloor` the seat is **retired** (`retireAbsentSeat`,
+  the hand back to the deck, the turn stepping over it, the scoreboard untouched), at or below it the
+  match **goes to the seat that stayed** as a forfeit, and a table with no socket and no hold left is
+  `closeAbandonedMatch`'s. The seat used to stay in the round with its cards and the clock auto-drew
+  and auto-passed for it every thirty seconds for the rest of the match — the AFK threshold only
+  ever acts on a seat with a socket — which at a table of four is a dead half-minute per lap for
+  everybody still playing. `expiry_settle_test.go`.
 - **`leave_room` is refused nowhere, and the table decides what it does** (`leaveAtTable`, four
   branches in this order): a matchmade match **forfeits**; a solo game **or** a table nobody can come
   back to (`table.abandonedBy`: every other seat a human with no socket and **no hold left**) is
@@ -478,8 +533,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   the floor the round **carries on** without the seat; at or below it the match **ends and goes to
   the seat that stayed**, announced as a forfeit with the scoreboard untouched. **And a match nobody
   is at and nobody can return to ends where that becomes true** (`closeAbandonedMatch`, off the last
-  expiry), rather than auto-drawing for empty seats until `EmptyRoomTimeout` and holding a deploy
-  open for five minutes.
+  expiry), rather than auto-drawing for empty seats until `EmptyRoomTimeout`.
 - **`WalkOutFloor` = 2 is what a match needs to keep being a match**, not a permission (`Hub.canWalkOut`,
   `Room.RetireSeat`). A player who has to go has one other exit — the turn clock auto-passing for an
   empty chair until the AFK threshold — so refusing only ever bought a closed tab. **Evaluated once,
@@ -500,7 +554,13 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   stay above `LOCO_DRAIN_TIMEOUT`**; one policy for every environment, so **a deploy never waits on
   the tables that are up**.
 - **The map-loading gate refuses every gameplay message while open**, and the turn clock starts at
-  `match_ready`, not `game_started`. Per match, not per round.
+  `match_ready`, not `game_started`. Per match, not per round. **Nothing arms a clock or a bot behind
+  it either**: `scheduleTurnTimer` and `maybeScheduleBot` return while `t.isLoading()`, and a bot
+  move armed in the previous match that lands in this one's gate returns too — a departure during
+  the gate used to reach both through `retireSeat` and start the first turn over a loading screen.
+- **Every message carries `server_now`**, stamped where a message is marshalled (`Client.Send`,
+  `broadcastToRoom`): every deadline on the wire is an absolute server instant, and the client
+  reads it against a clock this is the only measure of. See the client rule.
 - Deferred async is `time.AfterFunc`. Critical channel sends retry once then `WARN`. Broadcasts
   marshal once. `Client.SendBytes` force-closes on a full send buffer. **The versus reveal's deal is
   armed twice** (`MatchmakingRevealBackstop`): every other dropped job is lossy, that one is
@@ -514,7 +574,7 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
   (the deepest one table's box has been) and `loop_slowest_us` (the longest one message has taken
   anywhere) beside `messages_dropped_busy`. Every counter lives on one `hubMetrics` struct
   (`hub/metrics.go`), and the high-water marks are raised by CAS, not load-then-store. **Argue about
-  scaling with those numbers or not at all** — the note has the table and what it rules out.
+  scaling with those numbers or not at all.**
 - **Every third-party call leaves through Janus, and nothing the gateway already does is written
   again here** (`JANUS.md`, `server/janus/`): no cache, no retry, no backoff, no circuit breaker, no
   token store, and **no Twitch credential in this repository at all**. A 429's `Retry-After` is
@@ -549,10 +609,10 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md).
 - **The log never touches the event loop.** `main` installs `hub.NewAsyncLog` as the standard
   logger's writer, so every `log.Printf` stays where it is and becomes a channel send: a line was the
   most expensive call in a handler and the only one a reader outside the process could stall. The
-  queue is bounded, **overflow is dropped rather than waited on** (waiting is the failure being
-  removed), and what is dropped is both counted on `/metrics` (`log_lines_dropped`) and admitted in
-  the log itself. Never route that notice back through `log`. `main` closes the sink last, waits for
-  the shutdown before returning, and does not call `log.Fatal`.
+  queue is bounded, **overflow is dropped rather than waited on**, and what is dropped is both
+  counted on `/metrics` (`log_lines_dropped`) and admitted in the log itself. Never route that notice
+  back through `log`. `main` closes the sink last, waits for the shutdown before returning, and does
+  not call `log.Fatal`.
 
 ## Client
 Detail: [`docs/notes/client.md`](docs/notes/client.md).
@@ -562,90 +622,90 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   fails on any `client:*` or `is:inline`. Same rule sends the fast-refresh preamble through
   `astro.config.mjs`.
 - **A dependency can break the CSP without appearing in our sources**, so **`make csp` belongs after
-  a dependency bump too**. Zod 4 JIT-compiled each schema with `Function()`, which `script-src 'self'`
-  refuses; the validator is Valibot now, and `csp.test.ts` asserts the property rather than the old
-  workaround's config flag: it runs a real validation with `Function` proxied and fails if anything
-  reaches for it.
+  a dependency bump too**. The validator is Valibot rather than Zod, whose JIT reached for
+  `Function()`, which `script-src 'self'` refuses; `csp.test.ts` asserts the property rather than a config flag — it runs a real
+  validation with `Function` proxied and fails if anything reaches for it.
 - **`astro.config.mjs` puts the `VITE_` env prefix back**, which Astro narrows away
   (`src/test/wsEnv.test.ts`).
 - **`/` arrives in one piece, and the background is never part of the arrival.** Hold `#root > *`,
   `.homeIntroMain`, `.homeBurger` at `opacity: 0` — **never `#root` or `.homeIntro`**, which paint the
-  canvas. Opacity only, never a transform. The four details that make it safe rather than a way to
-  lose the page are in the note, and `contentPages.test.ts` pins each.
+  canvas. Opacity only, never a transform. The four details that make it safe are in the note, and
+  `contentPages.test.ts` pins each.
 - **Derived state in the store is completed by the store, never by the actions**
   (`store/deriveCatchMiddleware.ts`, `catchDerivation.test.ts`).
 - **A snapshot is authoritative when it arrives and never afterwards, so nothing that carries a
   board may be held and replayed.** The round summary is an overlay: the next round's `game_started`
   is applied under it, `applyGameState` does not touch `showRoundSummary` or `roundWinner`, and
-  `dismissRoundSummary` takes the card down and puts no board back. Buffering that deal and
-  replaying it on dismissal rolled the table back eight seconds — discard, hand sizes and
-  `currentTurn` — for whoever read the scores, and **a rolled-back turn that lands on the reader's
-  own seat cannot heal**: they are shown somebody else's turn so they do not play, nobody else can,
-  and the table sits there until the server's turn clock expires. `pendingMatchEnd` is the one thing
-  still buffered, because nothing follows a match end. Same reason the `yourTurn` cue waits for the
-  card to come down (`audio/gameSounds.ts`).
+  `dismissRoundSummary` takes the card down and puts no board back. `pendingMatchEnd` is the one
+  thing still buffered, because nothing follows a match end. Same reason the `yourTurn` cue waits for
+  the card to come down (`audio/gameSounds.ts`).
 - **An effect that watches one field of the store reads it through `live()`** (`hooks/live.svelte.ts`),
   or through a `$derived` when it is written in a component. `game.current` is **one** `$state.raw`
   replaced whole on every message, so a `$effect` reading `g.x` depends on the entire match and
   re-runs several times a second — which for these effects means clearing and re-arming the timer
-  they own. React compared dependencies by value and this is what the crossing lost: a notice that
-  never comes down, a reconnect curtain over a table that is already back, a drain bar snapping to
-  full on every play, a colour picker closing itself under the player's thumb.
-  `src/test/liveDeps.test.ts` moves a field nobody is watching and asserts nothing noticed.
-- **A child gets no narrowing either: reading a prop is not depending on its value.** A sibling prop
-  being re-evaluated re-runs the effect, and every component under `GameView` is handed a dozen props
-  off the same snapshot. So **an effect that spawns an animation guards on its trigger's timestamp**
-  (the board's `lastPlayAt` / `lastSwapAt` / `lastCatchAt`, `DiscardPile`'s `key` + `untrack`) and
-  **an effect that holds a timer works to an absolute deadline** (`Hand`'s `dealUntil`, `drainBar`),
-  never to "one timeout from whenever this last ran" — the cleanup takes the timer with it. And
-  **an effect that starts work once per key abandons it on that same key, never in the effect's
-  cleanup** (`mapPreload`): a re-run that the guard sends straight back cancelled a download nothing
-  would restart, so `map_ready` never went out and every two-human table opened on the server's 20s
-  backstop.
+  they own. `src/test/liveDeps.test.ts` moves a field nobody is watching and asserts nothing noticed.
+- **A child gets no narrowing either: reading a prop is not depending on its value.** So **an effect
+  that spawns an animation guards on its trigger's timestamp** (the board's `lastPlayAt` /
+  `lastSwapAt` / `lastCatchAt`, `DiscardPile`'s `key` + `untrack`), **an effect that holds a timer
+  works to an absolute deadline** (`Hand`'s `dealUntil`, `drainBar`), never to "one timeout from
+  whenever this last ran", and **an effect that starts work once per key abandons it on that same
+  key, never in the effect's cleanup** (`mapPreload`).
 - **Nothing continuous goes through reactive state.** Countdown bars use `drainBar`, never a
-  percentage: the element is handed a CSS animation whose duration is the window, so the drain costs
-  zero updates. Svelte builds the board once and keeps it, which is a guarantee only until somebody
-  puts a `{#key}` around it or keys a block on something that moves with the state
-  (`appSubscription.test.ts` counts instantiations for exactly that reason).
+  percentage: the element is handed a CSS animation whose duration is the window. Svelte builds the
+  board once and keeps it, which is a guarantee only until somebody puts a `{#key}` around it or keys
+  a block on something that moves with the state (`appSubscription.test.ts` counts instantiations).
 - **A slam batches by itself, so it may only batch what a copy buys** (`batchForSlam`): a +2, a +4,
   a Skip, a Reverse and a Number each gain something from the second copy; **a plain wild gains
   nothing** — N of them name one colour — so it goes out alone unless the batch empties the hand and
-  takes the round. Nobody is asked how many copies to send, because an interject is a reaction; that
-  is why the tap must never spend more than the reaction was worth. `game.BotInterrupt` mirrors it.
+  takes the round. Nobody is asked how many copies to send, because an interject is a reaction.
+  `game.BotInterrupt` mirrors it.
+- **The hand's hover is a mouse's and nobody else's** (`Hand.svelte`, `pointerenter` gated on
+  `pointerType === 'mouse'`): a touch screen synthesises `mouseenter` on the tap and never follows
+  it with a `mouseleave`, so a refused card stayed lifted over the fan for the rest of the turn. A
+  finger gets the press feedback (`.slot:active`) and the platform's grey tap wash is off the card.
+  `handTouch.test.ts`. Same rule as the deck's `@media (hover: hover)`.
+- **At a seat, text selection is refused on every element, not inherited from the body**
+  (`Base.astro`, `:root[data-seated] :not(input, textarea)`): iOS Safari selects a disabled button's
+  label on a double tap whatever the body says, and it did — the dead LOCO! chip came up highlighted
+  under Copy / Look Up mid-round. `a11y.test.ts`.
+- **Every board control acts on the press, never on the release** (`components/press.ts`,
+  `use:pressToAct`): `click` waits for the pointer to come back up, and an interject is decided by
+  arrival order. Keyboard clicks still act; a disabled control fires on neither path.
 - **Send first, animate second.** `onCardClick` returns whether the card left the hand; the flight
   spawns only on `true`. **A tap that is not a play animates nothing**, and the legality check runs
   *before* the prompts, so a refused card opens no picker.
 - **The socket does not go through the CDN, and `webSocketPolicy.ts` is what decides that.** Measured
-  Paris to Paris on an **established** connection: 389 ms median through the proxy, 8.5 ms direct, and
-  an interrupt is decided by arrival order — so it is the mechanic, not the polish. Production dials
-  `VITE_WS_ORIGIN` (baked in at build time, **tag only**), takes the **scheme from the page** so mixed
-  content cannot fail as silence, and **falls back one-way** to the page's origin after
-  `DIRECT_FAILURES_BEFORE_FALLBACK` sockets that never opened — because that hostname's certificate is
-  the one thing here nothing renews and nothing can see expire, and a slow game beats a dead one. The
-  CSP keeps **both** origins for that reason, `client/Dockerfile` substitutes `__WS_DIRECT_ORIGIN__`
-  from the same build-arg as the bundle and **fails rather than shipping the placeholder**, and nginx
-  answers `ws.*` with the socket and a 404 (`ws-proxy.conf`, included by both server blocks).
-- **The socket never stops trying to come back, and three things retry it on the spot**: `online`,
-  the tab returning, and the button on the reconnect curtain (`webSocket.reconnectNow`). A ceiling
-  on attempts is a curtain that never comes down over a seat the server may still be holding.
+  Paris to Paris on an **established** connection: 389 ms median through the proxy, 8.5 ms direct —
+  so it is the mechanic, not the polish. Production dials `VITE_WS_ORIGIN` (baked in at build time,
+  **tag only**), takes the **scheme from the page** so mixed content cannot fail as silence, and
+  **falls back one-way** to the page's origin after `DIRECT_FAILURES_BEFORE_FALLBACK` sockets that
+  never opened. The CSP keeps **both** origins for that reason, `client/Dockerfile` substitutes
+  `__WS_DIRECT_ORIGIN__` from the same build-arg as the bundle and **fails rather than shipping the
+  placeholder**, and nginx answers `ws.*` with the socket and a 404 (`ws-proxy.conf`, included by
+  both server blocks).
+- **The socket never stops trying to come back, and four things retry it on the spot**: `online`,
+  the tab returning, the page coming back from the back/forward cache, and the button on the
+  reconnect curtain (`webSocket.reconnectNow`). A ceiling on attempts is a curtain that never comes
+  down over a seat the server may still be holding.
+- **The socket does not survive the page being frozen** (`pagehide` drops it, `pageshow` asks for it
+  back on `persisted`). A document in the back/forward cache is frozen rather than unloaded and the
+  browser keeps its WebSocket open with it, which nothing on the server can tell from a player.
+  **The end-to-end suite cannot see this one** — Playwright drives Chromium with the back/forward
+  cache off — so `wsFreeze.test.ts` pins both halves.
 - **The rejoin covers every screen a socket can drop on** (`reconnectMessageFor`): `searching` asks
   again, `matchfound` and `gameover` reclaim with the token, a matchmade `gameover` does not.
 - **One tab holds the game and the others open no socket** (`hooks/tabLock.ts`, `Root.svelte`,
-  `TabTaken.svelte`). A second tab used to be a second player: a second count in `players_online`,
-  and a second entry in a queue that deduplicates by socket pointer, so it could be **paired against
-  the first one**. The election is **one synchronous `localStorage` read before the first paint**,
-  never a race on `BroadcastChannel` — a boot that waits either flashes a curtain over the owner or
-  opens a socket "just in case", which is the thing being prevented. The record is a **heartbeat**
-  (`BEAT_MS` / `STALE_MS`), because a tab that crashes sends no release and a flag would lock the
-  game away for good. **In every doubt the tab owns the game**: no storage, no channel, storage that
-  throws, JSON that will not parse. **It is not mounted inside `App.svelte`** — `webSocket()` is
+  `TabTaken.svelte`); a second tab was a second player, and could be **paired against the first one**.
+  The election is **one synchronous `localStorage` read before the first paint**, never a race on
+  `BroadcastChannel`. The record is a **heartbeat** (`BEAT_MS` / `STALE_MS`), because a tab that
+  crashes sends no release. **In every doubt the tab owns the game**: no storage, no channel, storage
+  that throws, JSON that will not parse. **It is not mounted inside `App.svelte`** — `webSocket()` is
   called at the top of that script, so not opening a socket means not mounting the app, which is the
   only reason `Root.svelte` exists. **Taking the game inherits nothing** (the other tab's token is in
   *its* `sessionStorage`), so the curtain says what the press costs *before* it is pressed, the way
   `leaveNote` does. **That curtain does not close on `Escape`** and is the documented exception to
-  the rule below: it is the state of the tab, not a panel somebody opened, and there is nothing
-  behind it to go back to. And it is a client mechanism: **two browsers or a private window bypass
-  all of it**, the queue included.
+  the rule below. And it is a client mechanism: **two browsers or a private window bypass all of
+  it**, the queue included.
 - **The board's way out is a chip in the chrome row, at every table, and never on the action bar** —
   that bar is a fixed three-column grid a reaction is aimed at and must not grow a fourth control.
   It asks in place, and **the line under the question is the feature**: what the player cannot see
@@ -661,66 +721,70 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `player_left` that names a seat — and waits behind the reconnect curtains: our own socket being
   down may be the whole reason the table looks empty.
 - **There are no gameplay keyboard shortcuts and there must never be any.** No key plays, draws,
-  passes, calls LOCO! or throws a Contre-LOCO!. Aiming at a button that lights up for a few
-  seconds *is* the skill the game measures, and a shortcut deletes that gesture rather than
-  assisting it; this and the fixed three-column action bar are the same decision seen from two
-  sides — the controls hold their coordinates so they can be aimed at, and there is no way not to
-  aim at them. **Global and focused are not the same thing**: a `window`/`document` listener fires
-  on a press nobody aimed and is refused, while a focused control (a card and the draw pile on
-  Enter/Space, the language listbox on arrows and Home/End) demands that you got there first and
-  is the accessibility path — do not remove it in the name of this rule. Exactly three global key
-  listeners are allowed: `heldKey` (score table on TAB), `escapeKey.svelte.ts`, and the audio
-  unlock; everywhere else a global listener may read `Escape` and nothing else.
-  `noKeyboardShortcuts.test.ts` is the guard.
+  passes, calls LOCO! or throws a Contre-LOCO!. Aiming at a button that lights up for a few seconds
+  *is* the skill the game measures. **Global and focused are not the same thing**: a
+  `window`/`document` listener fires on a press nobody aimed and is refused, while a focused control
+  (a card and the draw pile on Enter/Space, the language listbox on arrows and Home/End) demands that
+  you got there first and is the accessibility path — do not remove it in the name of this rule.
+  Exactly three global key listeners are allowed: `heldKey` (score table on TAB),
+  `escapeKey.svelte.ts`, and the audio unlock; everywhere else a global listener may read `Escape`
+  and nothing else. `noKeyboardShortcuts.test.ts` is the guard.
+- **TAB at the table is the scoreboard and nothing else, from the press, and it moves no focus**
+  (`heldKey`): hold it and the standings are there, let go and they are gone. It is not a shortcut —
+  the panel is read-only and moves nothing on the board — and it carries no arming delay.
+  **Shift+TAB is never taken, and it is the keyboard's whole way around the board**, so owning the
+  plain key is not a keyboard trap. Ctrl/Alt/Meta go back to the browser and the OS for the same
+  reason. Inside a dialog TAB belongs to the dialog (`enabled: false`, `components/dialogFocus.ts`).
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
 - **The browser's own menu stops at the seat** (`contextGuard.ts`, gated on `data-seated` like the
-  pinch, read at event time). A right-click over a table offers "copy image address", "save image
-  as" and a reload — four entries about a document, over cards, seats and a five-second window, and
-  `WaitingRoom.svelte` already refused it row by row for exactly that reason. **The landings keep
-  it**: `/` before a seat is taken, its prose sheet and every content page, where copying a link or
-  opening a rule in a new tab is the ordinary way to read a page. It hides nothing and protects
-  nothing — the art is in the bundle either way — and it listens on the bubble phase, so the roster
-  row's own right-click menu opens first. `contextGuard.test.ts`.
+  pinch, read at event time). **The landings keep it**: `/` before a seat is taken, its prose sheet
+  and every content page. It hides nothing and protects nothing, and it listens on the bubble phase,
+  so the roster row's own right-click menu opens first. `contextGuard.test.ts`.
 - **Contre-LOCO! is pressable before the server has named anybody** (`components/catchAvailability.ts`,
-  `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding 1–2 cards makes it live. A control that unlocks
-  on the server's cue can be answered but never anticipated, and the window it answers is five
-  seconds. The price is what keeps that honest — see the domain rule above — and **the threshold is
-  what keeps the price from being buyable**: from two cards out the window is one ordinary play
-  away, so a miss is the thumb that had committed when the seat drew instead; from three it needs an
-  interject of two identical cards, which is a long stretch of round where the press can only lose,
-  and a loss a player can schedule is a card drawn on purpose for a Swap to hand on. **Hand sizes and
-  our own seat decide when it wakes up, and nothing else may** — a declaration the table has heard
-  least of all (`isCatchLive` does not take `declaredSeats`). The button says a seat is near the
-  finish, never that somebody is catchable: going dead when the last opponent calls it would **report
-  that call** to a player who was not listening for it, and would refuse the press the price exists to
-  charge for — the thumb already coming down when the seat shouted, which is the spasm the whole wager
-  is made of. **A seat with no open catch window is the same case and worse**: a reloaded tab is told
-  no windows at all. Only the *armed* cue is a promise, and it rides `catchTarget`.
-- **And once awake it does not go dead until a card is played** (`nextCatchLive`, `store.catchLive`,
-  latched by `deriveCatchMiddleware`). A seat leaves the button's reach in four ways and **not one of
-  them is a card**: it calls LOCO!, it draws, it swallows a stack of four, or a Contre-LOCO! lands on
-  it and its hand grows by two. Each is the exact instant somebody betting on that seat has already
-  committed, so a control that retracted there would be **making the read for them**, and making it
-  in their favour — the interface deciding a wager is the same failure as the interface announcing a
-  call. **The bound is the next card played**: it puts the latch down and the roster is read again
-  from scratch, so the offer belongs to one board and is never carried to the next — which is what
-  stops it being held open and farmed a card at a time for a Swap to hand on. Only two things lower
-  it, `applyCardPlayed` and `applyGameState`, and a snapshot is authoritative when it arrives like
-  every other snapshot here. `store.declaredSeats` survives
-  for `store.myDeclared`, our own seat's LOCO! chip, derived
-  by `deriveCatchMiddleware` rather than written by an action. **`store.catchSpent` is
-  the client's copy of `PlayEpoch`**, set by every press and cleared by `applyCardPlayed`; it
-  suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
-  the second tap of a double tap on a catch that landed — the server's own guard does not cover it,
-  because a catch that lands spends no epoch.
+  `CATCH_LIVE_MAX_HAND = 2`): any *other* seat holding **exactly two** cards, or its **last card
+  inside the window** the server named for it, makes it live. A control that unlocks on the server's
+  cue can be answered but never anticipated, and the window it answers is five seconds. The price is
+  what keeps that honest — see the domain rule above — and **the threshold is what keeps the price
+  from being buyable**: from two cards out the window is one ordinary play away, where from three it
+  needs an interject of two identical cards and a loss a player can schedule. **Hand sizes, our own
+  seat and the clock decide when it wakes up, and nothing else may** — a declaration the table has
+  heard least of all (`isCatchLive` does not take `declaredSeats`), because going dead when the last
+  opponent calls it would **report that call** to a player who was not listening for it. The clock it
+  reads is `store.onHookUntil`, seat → the window end the server sent in `catch_seats`: written by
+  `applyCardPlayed` and `applyGameState`, kept past the declaration and past the window's retirement
+  from `catchWindows`, so a declared seat stays offered until its window ends and goes dark **when
+  the window does**, which is a clock that runs the same whether the seat spoke or not. A reloaded
+  tab holds no clock, so a last card the snapshot does not name is dark there. Only the *armed* cue
+  is a promise, and it rides `catchTarget`.
+- **There is no latch: a seat that draws, swallows a stack of four or takes two penalty cards takes
+  the button down with it, and so does the window running out** (`isCatchLive` + `catchLiveUntil`,
+  derived by `deriveCatchMiddleware`; `GameView` arms one timer on `store.catchLiveUntil` and calls
+  `rereadCatchLive`). It used to be held live until the next card played, on the argument that the
+  thumb was already committed — and held, the offer was farmed a card at a time: press, watch the seat
+  draw, press again after anybody plays, hand the pile on with a Swap. The committed thumb is answered
+  on the server by silence now, never by a card (`CatchOffered`). `store.declaredSeats` survives for
+  `store.myDeclared`, our own seat's LOCO! chip, derived by `deriveCatchMiddleware` rather than
+  written by an action. **`store.catchSpent` is the client's copy of the server's ration**, set by
+  every press and cleared by `applyCardPlayed`, the one event that can put a new offer on the table;
+  it suppresses the *blind* send only, never a press that names a seat, and the case it exists for is
+  the second tap of a double tap on a catch that landed — a catch that lands spends no offer, so the
+  server's own guard does not cover it.
 - **The press is acknowledged on the frame it lands, and the verdict is still the server's**
   (`store.catchPending`, `ActionBar`'s `.called`). The whole client-plus-server path of a
-  Contre-LOCO! measures 3–5 ms; everything a player waits for beyond that is the network, and a
-  button that shows nothing until the verdict comes back makes every millisecond of it read as a
-  dead control. So the button holds itself down from the press to the answer: raised by both press
-  actions, lowered by `applyUnoCaught`, `applyCatchFailed`, a refusal (`setError`), `applyCardPlayed`
-  and every reset that lowers `catchFlash`. **It presumes nothing** — no stamp, no penalty, no card —
-  and **it disables nothing**: a second window after a Swap is still one more tap.
+  Contre-LOCO! measures 3–5 ms; everything a player waits for beyond that is the network or the
+  target's head start (up to 1.5 s, held silently by the hub), and a button that shows nothing until
+  the verdict comes back makes every millisecond of either read as a dead control. So the button
+  holds itself down from the press to the answer: raised by both press actions, lowered by
+  `applyUnoCaught`, `applyCatchFailed`, a refusal (`setError`), `applyCardPlayed` and every reset
+  that lowers `catchFlash`. **It presumes nothing** — no stamp, no penalty, no card — and **it
+  disables nothing**: a second window after a Swap is still one more tap.
+- **Every deadline is read on the server's clock** (`hooks/serverClock.ts`): `turn_deadline`,
+  `catch_seats[].ends_at`, `forfeit_deadline` and the snapshot's two are absolute server instants,
+  and every bar counts them down against `Date.now()`. The handler takes `server_now` off every
+  message, keeps the largest recent `server_now - Date.now()` (the sample with the least latency in
+  it), and `localizeDeadlines` moves every deadline by it in one place before the store sees it. A
+  phone six seconds fast saw every five-second catch window already shut; six seconds slow, it kept
+  the capsule up past the server's window and paid a card for the press. `serverClock.test.ts`.
 - **Anything that opens over the board closes two ways: `Escape` and a pressable control.** Escape
   goes through `hooks/escapeKey.svelte.ts`, one hook for all of them. A dropdown anchored to its own
   opener is the one exception. `escapeClose.test.ts`.
@@ -728,48 +792,46 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   regex, resolved at render. **Add the string there when you add a server error**
   (`serverErrors.test.ts`).
 - **`src/types/protocol.ts` and `src/types/protocolSchemas.ts` are generated and must not be edited.**
-  A new message type or field goes in `server/protocol/`, then `make protocol`. The wire used to be
-  described three times with nothing checking the three agreed; `protocol_check` in CI regenerates
-  and fails on any difference, so a hand edit is undone rather than merged. Details, and what the
-  generator refuses to guess, in [`docs/notes/client.md`](docs/notes/client.md).
+  A new message type or field goes in `server/protocol/`, then `make protocol`; `protocol_check` in
+  CI regenerates and fails on any difference, so a hand edit is undone rather than merged.
 - **The copy is the game talking, not a website.** Players open a **table**, share a table code, take
   a seat: no "lobby", in any player-facing string. French is **tutoiement**. A button is
   the verb about to happen; a refusal says what to do next and never scolds; only the streamable
   moments shout. Full voice in the note; `docs/rules.md` stays the spec the modal must not contradict.
 - **The name is `LOCO!`, the mark is part of it, and in French it stays glued.** Everywhere a player
   reads it — the wordmark, every `<title>`, the manifest, the prose, and the call itself — never a
-  bare `LOCO` and never `LOCO !` with a space: the exclamation belongs to the name, not to the
-  sentence around it, the way nobody writes `Yahoo !`. Bare, the word is a Spanish adjective and the
-  name of a dozen other card games, which is what makes a category nobody can search for; whole, it
-  is the product. `vocabulary.test.ts` fails on either spelling in player copy, and pins the wordmark
-  in all three places it is written. The internal naming is untouched exactly as below —
+  bare `LOCO` and never `LOCO !` with a space: the exclamation belongs to the name, the way nobody
+  writes `Yahoo !`. Bare, the word is a Spanish adjective and the name of a dozen other card games;
+  whole, it is the product. `vocabulary.test.ts` fails on either spelling in player copy, and pins
+  the wordmark in all three places it is written. The internal naming is untouched —
   `LOCO_MARK_PATH`, `LOCO_ALLOWED_ORIGINS`, `LOCO Red`, `locoMark.ts` — this is a rule about copy.
   **A `<title>` is still capped at 60**, so the extra character is paid for in the copy.
 - **One word per thing: a table is the seats, a room is the place.** A **table** is the group of
   seats a code is shared for, always. A **room** — *décor* in French — is one of the four places a
   match is dealt in, always. `salle`, `salon` and `pièce` name neither and are banned outright:
   `vocabulary.test.ts` fails on any of the three in player copy. The internal naming (`maps`,
-  `game/maps.go`, `mapPreload`, `cardTheme`) is untouched — this is a rule about copy. **The URLs
-  and the `<title>`s keep "tables"**: they carry the search value, and a path is not copy.
+  `game/maps.go`, `mapPreload`, `cardTheme`) is untouched. **The URLs and the `<title>`s keep
+  "tables"**: they carry the search value, and a path is not copy.
 - **The rules page opens on what is different, and the rules modal does not** (`content/contrasts.ts`,
-  eight lines, **numbers taken from the server, never typed**). A visitor arrives holding a model of a
-  card game of colours and symbols and is looking for the delta; the modal is a reference read
-  standing up mid-round and is not the place for an argument. `contentPages.test.ts` pins both halves.
+  eight lines, **numbers taken from the server, never typed**): a visitor is looking for the delta,
+  where the modal is a reference read standing up mid-round. `contentPages.test.ts` pins both halves.
 - **Under 46rem the burger is the only way to anything the footer row carried, prose included.**
   `#navAbout` is the drawer's first line, ships `hidden`, is revealed by `homeSheet.ts` and opens the
-  same `<details>` sheet — same contract as `#navPrefs`. Without it a first visit on a phone was a
-  logo, a tagline, two buttons and a burger, and nothing at all about the game.
+  same `<details>` sheet — same contract as `#navPrefs`.
 - **The host's two controls over a row live behind one ⋯, never their own row, and both ask**
   (`WaitingRoom.svelte` + `RosterRowMenu.svelte`): hand the table over, remove from the table. A bot's
   row carries the second only — `is_bot` rides the roster because a nickname cannot say it. Right-click
   opens the same menu and is never the only way in. **The question takes the menu's place**, Escape
   backs out one step at a time, and **below 46rem the dropdown is a bottom sheet with a scrim**. The
   removed player is reset like `left_room` and *then* told why: `resetToHome` clears `errorMsg`.
-- **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language, theme,
-  streamer mode, colour shapes, reduced motion. Each on/off preference is a `createBooleanPref` module
-  store (`localStorage`, presentation only). **Streamer mode is the one that also leaves the client**,
-  and only from the host's — see below; every other one is local and must stay that way. Those icons
-  are **drawn SVG, never a font character**.
+- **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language,
+  graphics (`hooks/graphicsPref.ts`: `auto` / high / medium / light, the ladder the room is rendered
+  and finished at — see Visual — with the hint naming what `auto` landed on), streamer mode, colour
+  shapes, reduced motion, and vibrations where the device has a motor (`hooks/haptics.ts`: patterns
+  decided beside the sounds, one per moment, never a chain). Each on/off preference is a
+  `createBooleanPref` module store (`localStorage`, presentation only). **Streamer mode is the one
+  that also leaves the client**, and only from the host's — see below; every other one is local and
+  must stay that way. Those icons are **drawn SVG, never a font character**.
 - **Fullscreen is a chip in that same row, on every screen that draws the row, and it is not a
   preference** (`FullscreenButton.svelte`): nothing stored, the icon follows the document's own
   `fullscreenchange` because Escape leaves fullscreen without asking us. **Desktop only** — gone
@@ -777,36 +839,29 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   false (an iframe, a WebView, iOS Safari) rather than a button that throws on press. Two drawn
   glyphs, brackets out to enter and in to leave, never one rotated. `fullscreenButton.test.ts`.
 - **Every glyph a player sees is one we drew, and that includes the ones that shout**
-  (`drawnGlyphs.test.ts`, which scans every `.svelte` and `.astro` plus both copy files). The rule
-  was written for the gear and the ✕ and broken everywhere else: the game-over card headed itself
-  with a nested ternary of 🏆 / 😔 / 🏳️ / 🚪, the round summary carried a second trophy, the audio
-  chip sat beside a drawn gear as 🔇/🔊, a held seat appended `✗` to its own nickname, and the rules
-  copy named Swap and Global Switch with `⇋` and `↻` — the two characters `visual.md` already
-  singles out as the wrong tool, because Fredoka carries neither. An emoji is drawn by the reader's
-  OS: it arrives at a weight and a hue nothing here chose, in colour on one platform and flat on the
-  next, and it cannot take the ink outline and hard bottom shadow every other raised object wears.
-  **The four ways a match ends are `OutcomeMark.svelte`**, in the game's own vocabulary rather than a
-  picture library's: the mark in the scoreboard's gold for a win, the cards still in your hand for a
-  loss, a card face-down for a forfeit. **No trophy and no face** — a losing screen that draws a sad
-  face is telling the player how to feel about a card game, and the quiet drawing reads better at
-  720p. Same component, `size="sm"`, on the round summary: a round won and a match won are one event
-  at two scales.
+  (`drawnGlyphs.test.ts`, which scans every `.svelte` and `.astro` plus both copy files). An emoji is
+  drawn by the reader's OS: it arrives at a weight and a hue nothing here chose, in colour on one
+  platform and flat on the next, and it cannot take the ink outline and hard bottom shadow every
+  other raised object wears — and Fredoka carries neither `⇋` nor `↻`. **The four ways a match ends
+  are `OutcomeMark.svelte`**, in the game's own vocabulary rather than a picture library's: the mark
+  in the scoreboard's gold for a win, the cards still in your hand for a loss, a card face-down for a
+  forfeit. **No trophy and no face** — a losing screen that draws a sad face is telling the player how
+  to feel about a card game, and the quiet drawing reads better at 720p. Same component, `size="sm"`,
+  on the round summary: a round won and a match won are one event at two scales.
 - **The rules opener is a "How to play" pill before the deal and the "?" chip at the table**
   (`RulesButton`, `variant="text"` / `"icon"`): a glyph is faster mid-match, and a word is the only
   onboarding a first-time player gets on the screens where they are still deciding. The pill's
   visible label **is** its accessible name, so it carries no `aria-label`.
 - **What it opens has two halves, and the deck drawn is one of them** (`RulesModal`, tabs "Rules" and
-  "Cards", opening on the rules). A first-timer arrives holding a model of a card game of colours and
-  symbols, and the two cards this one adds — Swap and Global Switch — are exactly the two that model
-  has no slot for: a bullet naming one asks them to picture it, a face lets them recognise it in
-  their hand. `components/cardCatalogue.ts` is the faces (one kind, one suit each, `<Card />`
-  itself), `t.cardNames` the names and `t.cardBriefs` the one-liners; **nothing about a card is
-  spelled out twice**. It stays eight lines: the copies, the points and the long form are the
-  `/cards/` page, and **this modal still links nowhere** — a link mid-match is an invitation to leave
-  the table. `rulesModal.test.ts` pins both halves. **Switching between them changes the contents and
-  nothing else**: the card holds one height for both, the scroll reset is instant, and the arriving
-  panel fades in on opacity alone — a card sized to its own contents resized under the tab row on
-  every press, and took the control that had just been pressed with it.
+  "Cards", opening on the rules): the two cards this game adds — Swap and Global Switch — are exactly
+  the two a card-game model has no slot for, and a face lets a first-timer recognise one in their
+  hand. `components/cardCatalogue.ts` is the faces (one kind, one suit each, `<Card />` itself),
+  `t.cardNames` the names and `t.cardBriefs` the one-liners; **nothing about a card is spelled out
+  twice**. It stays eight lines: the copies, the points and the long form are the `/cards/` page, and
+  **this modal still links nowhere** — a link mid-match is an invitation to leave the table.
+  `rulesModal.test.ts` pins both halves. **Switching between them changes the contents and nothing
+  else**: the card holds one height for both, the scroll reset is instant, and the arriving panel
+  fades in on opacity alone.
 - **Below 46rem that panel is a sheet, and only `Lobby` may pass `triggerBelowPhone={false}`.** The
   scrim **wraps** the panel, and its ✕ needs `position: relative`. **`AudioSettings` is the same
   sheet at the same width** — same row, same thumb — and **a sheet does not keep the dropdown's
@@ -816,33 +871,29 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   corners at `--radius-xl` over the 4px stroke, 92vh, a **20px title beside a 40px ✕** carrying a 20px
   drawing, the body scrolling between a pinned header and a pinned foot, the last control clear of
   `--safe-bottom`, and an entry of `translateY(24px)` at `0.26s var(--ease-bounce)` — **from the edge
-  it is anchored to, never a scale**: a dropdown punches in from the control it hangs off, a sheet
-  scaling up is a card growing out of the bottom of the screen. **46rem is the width, everywhere**: a
-  panel that changed shape at 480px arrived as a desktop card over a screen whose navigation had
-  already become a burger. The ✕ is one drawn path in all four, never a font character.
-  `rulesModal.test.ts` asserts the modal's half **against `Preferences.svelte`** rather than against
-  numbers typed into it, `contentPages.test.ts` the home sheet's against `RulesModal.svelte`.
+  it is anchored to, never a scale**. **46rem is the width, everywhere**: a panel that changed shape
+  at 480px arrived as a desktop card over a screen whose navigation had already become a burger. The
+  ✕ is one drawn path in all four, never a font character. `rulesModal.test.ts` asserts the modal's
+  half **against `Preferences.svelte`** rather than against numbers typed into it,
+  `contentPages.test.ts` the home sheet's against `RulesModal.svelte`.
 - **Both panels are one 292px dropdown above that width, and everything in them is sized to be
   pressed**: switch rows 50px, segmented options 38px, the language control 42px, a 14px slider track
   under a 26px thumb. **A section in either is grouped by space and a micro-caps heading, never by a
   rule drawn across the card** — an ink line inside an ink outline cuts the panel in half.
 - **Anything that opens over a screen declares its own `text-align`** (`RulesModal`'s `.backdrop`,
   both panels' `.panel`): the property inherits and `position: fixed` does not stop it, so an
-  overlay that sets nothing is set by whatever screen is underneath — the searching screen centres
-  its column, and the rulebook opened from there came out centred. Pinned by source scan in
+  overlay that sets nothing is set by whatever screen is underneath. Pinned by source scan in
   `rulesModal.test.ts` and `preferences.test.ts`; jsdom applies no component styles.
 - **That dropdown is ours, and it has to be**: a `<select>` is the closed control plus a list the OS
-  paints, and `appearance: none` only ever reached the first, so the panel dropped a white system
-  menu with a blue system highlight over a dark board. A button plus a `role="listbox"`, arrows and
-  Enter and Home/End on the button, `aria-activedescendant` naming the row. **Escape there closes the
-  list and nothing else** — the panel listens for the same key on `document`, and one press closes one
-  thing.
+  paints, and `appearance: none` only ever reached the first. A button plus a `role="listbox"`,
+  arrows and Enter and Home/End on the button, `aria-activedescendant` naming the row. **Escape there
+  closes the list and nothing else** — the panel listens for the same key on `document`, and one
+  press closes one thing.
 - **The language is a dropdown and the pick applies itself, on every screen.** `setLang` swaps the
   game's strings and records the choice, `swapServedLang` takes the half Astro served and the address
-  bar with it, and nothing reloads — so there is no Apply button and no sentence promising one.
-  It had both at the entry screen while applying *cost the page*, because a control that costs the
-  page must not fire on the press aiming for it: **that rule stands, so if a language ever reloads
-  again the button comes back with it.**
+  bar with it, and nothing reloads — so there is no Apply button and no sentence promising one. A
+  control that costs the page must not fire on the press aiming for it: **that rule stands, so if a
+  language ever reloads again the button comes back with it.**
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
 - **Quiet is a hue, never an opacity**: `--color-muted`, never `--color-ink` at 0.34.
@@ -855,61 +906,53 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   to stay off a stream is the six characters, not the fact that the plate copies a link.
 - **Streamer mode blurs the table code, and `TableCode.svelte` is the only way a screen prints it.** CSS
   over the real text, so copy still copies. **Nothing uncovers it — there is no reveal at all**: not
-  hover, not focus, not a click, not a tap. Every guard written for one input was answered by
-  another, and each put the six characters back on the capture; the way to share a table with the
-  mode on is the link the plate copies. `TableCode.svelte` holds no state selector and the blurred
-  span is out of the tab order (`preferences.test.ts`).
+  hover, not focus, not a click, not a tap; every guard written for one input was answered by
+  another. The way to share a table with the mode on is the link the plate copies.
+  `TableCode.svelte` holds no state selector and the blurred span is out of the tab order
+  (`preferences.test.ts`).
 - **The host's streamer mode is the table's, and it is the one preference that goes on the wire.** The
   code is one string shared by everybody who can see it, so blurring only the host's copy protects
   the one screen that was already being watched. `set_streamer_mode` is **host only, refused at a
-  hostless table**, accepted at every status (a host streams the match, not the wait), and answered
-  with `streamer_mode_changed` to the whole table; the answer also rides `room_joined` and every
-  state snapshot, so an arrival and a reload are blurred without waiting for the switch to move
-  again. The client ORs it with the local preference (`store.tableStreamer`, `TableCode.svelte`) and
-  **never overwrites one with the other**. `hostStreamerSync` sends on exactly two moments — the
-  preference moved, or we opened a table with it already on — and **a change of seat sends nothing**:
-  `transfer_host` would otherwise uncover the code for a host still sitting there streaming.
-  `tableStreamerMode.test.ts`, `hub/streamermode_test.go`.
+  hostless table**, accepted at every status, and answered with `streamer_mode_changed` to the whole
+  table; the answer also rides `room_joined` and every state snapshot, so an arrival and a reload are
+  blurred without waiting for the switch to move again. The client ORs it with the local preference
+  (`store.tableStreamer`, `TableCode.svelte`) and **never overwrites one with the other**.
+  `hostStreamerSync` sends on exactly two moments — the preference moved, or we opened a table with
+  it already on — and **a change of seat sends nothing**: `transfer_host` would otherwise uncover the
+  code for a host still sitting there streaming. `tableStreamerMode.test.ts`,
+  `hub/streamermode_test.go`.
 - **Colour assist gives each suit a silhouette** (`SUIT_SHAPE`, drawn by `SuitMark.svelte`): on the card,
   every picker swatch and the active-colour chip. **Never a letter.** A wild stays unmarked. Anything
   new that means something by hue alone needs the mark.
 - **Reduced motion is scoped to `:root[data-motion="reduce"]`, never a media query** — a media query
   cannot be overridden, and `full` has to be able to win over a system that asks for less.
   `initMotion()` writes the attribute from the system setting *and* the player's answer, and it is
-  now the whole mechanism: Svelte transitions and the two WAAPI shakes ask `prefersReducedMotion()`
+  the whole mechanism: Svelte transitions and the two WAAPI shakes ask `prefersReducedMotion()`
   themselves. `reducedMotionCss.test.ts` owns the rules, `motionPref.test.ts` the wiring.
 - **The home menu is four buttons and they are all drawn alike** (`Lobby.svelte`): 1v1, the bot, new
   table, join a table, in that order. **Hierarchy is a hue, never a smaller kind of control** — the
-  bot's is the one neutral fill, and it used to be a line of underlined text under the queue's
-  button, which between two ledged buttons reads as a footnote and gets pressed like one.
+  bot's is the one neutral fill, and a line of underlined text between two ledged buttons reads as a
+  footnote and gets pressed like one.
 - **The count of connected players is drawn from two up and absent below it**
   (`components/playersOnline.ts`, `Lobby.svelte` and `Searching.svelte`, opposite the chip row,
   `position: absolute` so it reserves nothing, and **below 46rem at the foot of the screen, centred,
   on both screens that draw it** — one placement for that width, because the top line is full at it
-  either way: on `/` the burger owns the left corner, on the wait the row opposite is three controls
-  wide, and the plate ran straight under the gear and the speaker with the count half-covered.
-  **Never rounded, never padded,
-  never reworded**: what is on screen is exactly the number the server sent, and the floor decides
-  only whether the plate is there at all — a count of one is the "close the tab" sentence the
-  searching screen is already forbidden from writing. It says *connected* / *online*, never
-  *searching*: it counts connections, it is not the queue. **The wait draws the same plate, in the
-  same words** — that is the screen where somebody is wondering whether there is anybody to be
-  paired with, and the honest answer is the one the server already sends. **A second,
-  queue-flavoured wording of it there would be the queue size in disguise**, which is off the wire
-  on purpose. `setPlayersOnline` stays out of `resetToHome` — the count belongs to the socket, not
-  to the seat.
+  either way). **Never rounded, never padded, never reworded**: what is on screen is exactly the
+  number the server sent, and the floor decides only whether the plate is there at all. It says
+  *connected* / *online*, never *searching*: it counts connections, it is not the queue. **The wait
+  draws the same plate, in the same words**, and **a second, queue-flavoured wording of it there would
+  be the queue size in disguise**, which is off the wire on purpose. `setPlayersOnline` stays out of
+  `resetToHome` — the count belongs to the socket, not to the seat.
 - **Who is streaming the game is a strip along the foot of the entry screen, and nobody live is
   nothing at all** (`components/LiveStrip.svelte` + `liveStreams.ts`, fed by `live_streams` exactly
-  as the count is by `players_online`). No plate, no invitation, no line saying the category is
-  empty: a plate reporting that nobody is playing is a plate saying the game is dead. **Absolute like
-  the rest of the chrome here**, so it reserves nothing and `/` still never scrolls; **entry screen
-  only** — a form owns the screen once it is up, and a link out of the game beside the nickname field
-  is an exit offered on the way in — and **never at a table**, for the reason the rules modal links
-  nowhere. **The order is the server's, which is Twitch's**: `topLiveStreams` cuts and never sorts.
-  Under 46rem it becomes one line above the connected-player plate, which keeps its place: the count
-  decides whether to start a game, the strip invites you elsewhere. Every `<img>` carries `width` and
-  `height`, and **no Twitch logo is drawn anywhere** — their guidelines forbid redrawing their marks
-  and every glyph a player sees is one we drew, so the strip writes the word.
+  as the count is by `players_online`): no plate, no invitation, no line saying the category is
+  empty. **Absolute like the rest of the chrome here**, so it reserves nothing and `/` still never
+  scrolls; **entry screen only** — a link out of the game beside the nickname field is an exit
+  offered on the way in — and **never at a table**, for the reason the rules modal links nowhere.
+  **The order is the server's, which is Twitch's**: `topLiveStreams` cuts and never sorts. Under
+  46rem it becomes one line above the connected-player plate, which keeps its place. Every `<img>`
+  carries `width` and `height`, and **no Twitch logo is drawn anywhere** — their guidelines forbid
+  redrawing their marks, so the strip writes the word.
 - **An external address is named in one module and assembled there** (`components/twitchLinks.ts`),
   and **nothing it produces is ever a `src`**: previews come from our own origin. The rule is
   narrower than "no literal URLs" — what `csp.test.ts` protects is that the browser *fetches* nothing
@@ -930,9 +973,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   and **spent on arrival** by `initTableInvite` before the first render, which lands on `/`. A link
   naming another table clears a stale reclaim record; one naming the same table leaves it alone. **A
   link carries a table, never a player**: join on its own only when `nicknameMemory` has a usable
-  name. **The parameter is only read on `/i/`**: `/?t=CODE` is what the button handed out before the
-  invite page existed and now means nothing on the home page, where it is left in the URL like any
-  other parameter nobody here put there.
+  name. **The parameter is only read on `/i/`**: `/?t=CODE` now means nothing on the home page, where
+  it is left in the URL like any other parameter nobody here put there.
 - **`/i/` is a page of its own because a link preview is served HTML.** An unfurler runs no script,
   so a link on the home page can only preview as the home page; `/i/` is `noindex`, **absent from
   `PAGES` and filtered out of the sitemap** (which walks emitted pages, not the registry), and
@@ -959,49 +1001,46 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **A seat is an index, and an index is only true for as long as the roster it indexes.** A forfeit
   is the one match end that moves the seats it just named — the leaver leaves the roster, everybody
   above re-bases, `setPlayers` re-resolves `myIndex` — so a table of two whose host walks out gives
-  seat 0, the seat `forfeitBy` names, to the player who stayed, and the screen told the winner they
-  had quit. Which side of a forfeit we are on is answered **once, when `match_end` lands**
-  (`store.forfeitedByMe`), never re-derived on the screen; the recap is **re-sent by the server** on
-  the message that moved the seats, never re-based here. Anything else that outlives a roster change
-  takes the same treatment.
+  seat 0, the seat `forfeitBy` names, to the player who stayed. Which side of a forfeit we are on is
+  answered **once, when `match_end` lands** (`store.forfeitedByMe`), never re-derived on the screen;
+  the recap is **re-sent by the server** on the message that moved the seats, never re-based here.
+  Anything else that outlives a roster change takes the same treatment.
 - **The three things are one line per seat, and that card's height is the table's size**
   (`GameOver.svelte`, `.emoteSlot`): a slot is drawn for every player whether or not that seat has
   said anything, `applyEmote` **replaces** what a seat was saying instead of adding to it, and the
-  row marks the one that is ours. A feed that grew pushed the two offers and the way out down the
-  card once per thing anybody said, under the thumb already aiming for them. **And the screen opens
-  quiet every time**: what was said belongs to the match it was said about, so all four doors clear
-  it — `applyMatchEnd`, `dismissRoundSummary`'s buffered end, `applyRematch`, and
-  `applyMatchFound` / `applySoloStarted`. The buffered end is the ordinary one and it is the one
-  that was missing, so the second match opened on the first one's congratulations.
+  row marks the one that is ours — a feed that grew pushed the two offers and the way out down the
+  card under the thumb already aiming for them. **And the screen opens quiet every time**: what was
+  said belongs to the match it was said about, so all four doors clear it — `applyMatchEnd`,
+  `dismissRoundSummary`'s buffered end, `applyRematch`, and `applyMatchFound` / `applySoloStarted`.
 - **The evening's recap pins the two columns that answer it** (`GameOver.svelte`, `.recapName` and
   `.recapTotal` sticky): who, and matches taken. The match columns scroll between them, so a long
   evening never carries the conclusion off the right edge of a phone. Heads are `M%n`, the score
-  table's convention — a word set over a two-digit column sizes the grid on the label, and four
-  matches ran off a 360px screen that way. **The seat that took a match is a gold pill**, the colour
-  the scoreboard above it wins in: LOCO Red on that panel measures 2.9:1, and a recoloured digit is
-  not something a spectator picks out of a grid at 720p.
+  table's convention — a word set over a two-digit column sizes the grid on the label. **The seat
+  that took a match is a gold pill**, the colour the scoreboard above it wins in: LOCO Red on that
+  panel measures 2.9:1, and a recoloured digit is not something a spectator picks out of a grid at
+  720p.
 - **The round past the format has a name, not a number** (`t.decisiveRound`, `GameView`'s chip and
   `RoundSummary`'s title, both off `formatRounds` in `matchLengthModel.ts`): the server deals one more
-  round when its tiebreak chain separates nobody, and `Round 4 · BO3` / `Round 4 of 3` read as a
-  counter that has come loose at the tensest point of the evening. The chip goes **gold**, the hue the
-  scoreboard wins in — LOCO Red under white is 3.43:1 and the chip is 13px. The card announces the
-  *next* one on `roundNumber >= matchRoundsNeeded && !matchOverPending` (`pendingMatchEnd`), never on
-  the format alone: a settled last round and a tied one are the same number. **That band's fade-in
-  delay is a mechanism, not polish** — `round_ended` and `match_end` are two messages, so without it
-  an ordinary final round is labelled decisive for a frame; it survives reduced motion. And it never
-  says who the extra round crowns: past two seats the winner of it may leave the tie standing.
-- `initLang()` first, then `initTheme()`, `initMotion()`, `initI18n()`, `initPinchGuard()`,
+  round when its tiebreak chain separates nobody, and `Round 4 · BO3` reads as a counter that has come
+  loose at the tensest point of the evening. The chip goes **gold**, the hue the scoreboard wins in —
+  LOCO Red under white is 3.43:1 and the chip is 13px. The card announces the *next* one on
+  `roundNumber >= matchRoundsNeeded && !matchOverPending` (`pendingMatchEnd`), never on the format
+  alone: a settled last round and a tied one are the same number. **That band's fade-in delay is a
+  mechanism, not polish** — `round_ended` and `match_end` are two messages, so without it an ordinary
+  final round is labelled decisive for a frame; it survives reduced motion. And it never says who the
+  extra round crowns: past two seats the winner of it may leave the tie standing.
+- `initLang()` first, then `initMotion()`, `initI18n()`, `initPinchGuard()`,
   `initTableInvite()`, `initSessionRestore()` in `entry.ts` before the first render, **in that
   order**. Each has a reason to be where it is, written next to it.
 - **A document is never in two languages at once, and `/` translates itself rather than navigating.**
   The served markup carries the other language in `data-alt` / `data-alt-href` / `data-alt-aria` and
   `data-alt-title`; `langSwap.ts` exchanges them and moves the address bar with
-  `history.replaceState`, **carrying the query string and the fragment** (a parameter belongs to
-  whoever put it there). **The copy stays in the markup**: importing `content/ui.ts` or `seo/meta.ts`
-  to rebuild the footer would ship the whole site's copy to every player. **A link left behind is the
-  failure that matters** — a content page mounts nothing and cannot correct itself — so
-  `homeLangSwap.test.ts` counts `href={` against `data-alt-href={`. **`data-served-lang` is never
-  rewritten**: it says what the page was built as, and `detectLang` reads it.
+  `history.replaceState`, **carrying the query string and the fragment**. **The copy stays in the
+  markup**: importing `content/ui.ts` or `seo/meta.ts` to rebuild the footer would ship the whole
+  site's copy to every player. **A link left behind is the failure that matters** — a content page
+  mounts nothing and cannot correct itself — so `homeLangSwap.test.ts` counts `href={` against
+  `data-alt-href={`. **`data-served-lang` is never rewritten**: it says what the page was built as,
+  and `detectLang` reads it.
 - **A stored choice wins everywhere; the browser's language wins only on `/`.** That URL is where
   somebody lands without saying anything, and `/fr/` is somebody having asked — a French link opened
   by an English browser stays French. **A detection is never persisted**: storing it would make it a
@@ -1012,11 +1051,9 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The client is Svelte 5, and React is gone — do not bring it back.** No `react`, no `react-dom`,
   no `@astrojs/react`, no framer-motion, no `.tsx`, no `.module.css`. `src/test/noReact.test.ts` is
   the guard and it checks four things: the manifest, the Astro and ESLint configs, every import, and
-  every file extension. The bridge that mounted Svelte inside a React tree left with the last
-  wrapper. **What survived the crossing is the shape, not the framework**: the language
+  every file extension. **What survived the crossing is the shape, not the framework**: the language
   (`i18n/store.ts`) and the game state (`hooks/store/createStore.ts`) are still framework-free
-  stores read through `createSubscriber`, because that is what let them keep their value while the
-  screens around them were rewritten — and it is still what a content page needs in order to import
+  stores read through `createSubscriber`, which is what a content page needs in order to import
   `lang.ts` without pulling a framework in behind it.
 - **A component's props are ordinary props and its events are lowercase DOM names.** `onclick`, not
   `onClick`. Svelte **silently ignores a prop it does not know**, so a stale camelCase name is a
@@ -1037,6 +1074,14 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   is exactly that module. **Every type import is an `import type`.**
 - **Reading a piece of state inside the effect that writes it is a loop**, and Svelte will say so at
   runtime rather than at build. `untrack` is the way out and `GameBoard.svelte` is the example.
+- **A prop read once, at setup, says so with `untrack`.** Half the components here seed a piece of
+  state from a prop — `defaultOpen`, `initialCode`, a deadline a countdown is started from, the
+  previous round `Hand` compares against — and a bare read there compiles to the value the component
+  was mounted with, which is what was meant and is not what the code says. Svelte answers it with
+  `state_referenced_locally` on every one, and a build whose warnings are all expected is a build
+  nobody reads. `untrack(() => prop)` is the same capture written down. **A callback prop handed to a
+  hook takes a closure instead** (`GameView`'s `send`), because there the initial value is not what
+  was meant.
 
 ## Findability
 Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
@@ -1044,10 +1089,10 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **A content page restates what the game already knows, so it is pinned to the source**: the rules
   page maps `t.rules` rather than copying it, and the deck table is checked against
   `server/game/deck.go` and `server/game/card.go` by `contentPages.test.ts`.
-- **A content page ships no JavaScript except `theme-boot.ts`.** No `client:` directive, so
+- **A content page ships no JavaScript except `page-boot.ts`.** No `client:` directive, so
   `<LocoLogo />` and every `<Card />` on `/cards/` are static markup. Anything interactive is a
   **native control**: the home sheet is `<details>`, the language chooser a `[popover]`. That one
-  script now also fills the live list on `/live/` (`content/liveList.ts`, a same-origin `fetch`, so
+  script also fills the live list on `/live/` (`content/liveList.ts`, a same-origin `fetch`, so
   `connect-src` is untouched) — **still one script, still no island, still nothing third-party**, and
   a second behaviour belongs in it rather than in a second request.
 - **`/live/` is prose first and a list second** ([`docs/notes/live.md`](docs/notes/live.md)). What is
@@ -1058,16 +1103,14 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   was written by a stranger.
 - **`content.css` is loaded by `GamePage.astro` too, so every selector in it is scoped to a class.**
   A bare `table`/`th`/`td` rule there styles the score table and the evening recap alongside the
-  rules page, and `thead th`'s ink fill did exactly that: an ink band behind two sets of column
-  heads whose labels were coloured `--color-muted` on the assumption they sat on their own panel,
-  at 2.2:1 in both themes. Every table on a content page is inside `.tableWrap`, so the scope costs
-  the pages nothing; `contentPages.test.ts` fails on a bare element selector.
+  rules page. Every table on a content page is inside `.tableWrap`, so the scope costs the pages
+  nothing; `contentPages.test.ts` fails on a bare element selector.
 - **One `--shell`, one bar, no backdrop.** Header, column and footer share one width. The navigation
   is a **fixed footer bar**, the same links in the same order as the home page's row. `body.doc`
   is flat canvas, `background-attachment: fixed` is gone, and text selection is put back.
 - **The header is sticky and the bar is fixed, so both ways out are always on screen.**
 - **Every in-page jump glides**, anchors and "back to top" alike: `scroll-behavior: smooth` behind
-  `html[data-scroll="smooth"]`, which `theme-boot.ts` writes from the system preference — a media
+  `html[data-scroll="smooth"]`, which `page-boot.ts` writes from the system preference — a media
   query is refused here and `data-motion` is the game's. **Anything that focuses an element after a
   smooth scroll passes `preventScroll: true`**, or the scroll-into-view cancels the animation before
   its first frame.
@@ -1079,12 +1122,13 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
   them, five of which fail silently and none of which a test reading the source can see.
 - **The language chooser's two links are real `<a href>`s** with `hreflang`/`lang`, in the document
   open or shut, and the panel keeps its ✕ — the only dismissal a phone has.
-- **The dark palette is in `tokens.css` twice, and that is the point**: `[data-theme]` for the choice,
-  `@media (prefers-color-scheme: dark)` on `:root:not([data-theme='light'])` for the first frame.
-  `themeFlash.test.ts` compares them declaration by declaration.
-- **The content pages' theme switch is `theme-boot.ts` wiring one button**, `hidden` until that
-  script reveals it, writing the same `loco_theme` key `src/theme.ts` reads — one definition of the
-  theme for the app and for a page that mounts nothing.
+- **One palette, the night one, on `:root`, and nothing keys on a theme.** The day palette went
+  with its attribute, its media query, its fade and its switch (`noLightTheme.test.ts` fails on
+  `data-theme`, `prefers-color-scheme` or `loco_theme` anywhere in the client, the E2E suite or the
+  tools). **The landings are flat**: `/`, the 404 and every content page paint `--color-canvas` and
+  nothing else — no gradient, no colour orb, no glow — and set their prose on the game's panels: a
+  content page is the game's, not a site beside it. The orbs were tried twice on the content pages
+  and refused both times; do not bring them back.
 - **`/` serves its own `<h1>`, in text, and it is never the wordmark**, and it stays the only one:
   app screens head themselves at `<h2>`, and `seo.test.ts` fails on an `<h1>` under `src/components/`.
 - **A title is ≤ 60 characters and a description is 100-155**, both languages, pinned by
@@ -1125,21 +1169,19 @@ Detail: [`docs/notes/seo.md`](docs/notes/seo.md).
 - **Every redirect this stack emits names a path, never an origin** (`absolute_redirect off;`).
   nginx declares no redirect and emits one anyway — `try_files $uri/` resolving a directory 301s
   `/fr` to `/fr/` — and by default it builds that `Location` out of `$scheme`, which behind
-  Cloudflare and Traefik is always `http`: every unslashed URL sent an https visitor into plaintext
-  and left it to an edge setting to bring them back. A relative `Location` knows nothing about the
-  scheme, so it cannot disagree with the request that produced it. `redirects.test.ts` replays every
-  public URL, both spellings, and fails on a chain that loops, leaves https, or ends anywhere but a
-  200.
+  Cloudflare and Traefik is always `http`. A relative `Location` cannot disagree with the request
+  that produced it. `redirects.test.ts` replays every public URL, both spellings, and fails on a
+  chain that loops, leaves https, or ends anywhere but a 200.
 - `make og` and `make icons` **commit their output**: CI has no browser.
 - **The viewport may never forbid zooming** (no `user-scalable=no`, no `maximum-scale`; the
   double-tap is answered by `touch-action: manipulation` on `body`). **The seat is what costs the
   pinch, never the tag**: under `[data-seated]` the reset drops to `touch-action: pan-x pan-y` and
   `pinchGuard.ts` refuses WebKit's `gesturestart` — a board already scaled to the viewport is only
   ever zoomed by accident, and everything a visitor *reads* (`/`, the prose sheet, every content
-  page) keeps the gesture. Safari has ignored `user-scalable=no` since iOS 10, so the tag would have
-  cost the audit and fixed nothing. **White on LOCO Red is 3.43:1**,
-  so anything wearing it is 1.2rem or larger, never darkened. **A box that scrolls sideways takes
-  `tabindex="0"`** and a `:focus-visible` ring. All four pinned by `client/src/test/a11y.test.ts`.
+  page) keeps the gesture. Safari has ignored `user-scalable=no` since iOS 10. **White on LOCO Red is
+  3.43:1**, so anything wearing it is 1.2rem or larger, never darkened. **A box that scrolls sideways
+  takes `tabindex="0"`** and a `:focus-visible` ring. All four pinned by
+  `client/src/test/a11y.test.ts`.
 - **Two things keep a page fast**: `build.inlineStylesheets: 'always'` (`style-src` allows
   `'unsafe-inline'`, **scripts still may not**) and the tables page's art through `<Image />`.
 - **Never fade in the element the browser measures the LCP against.** Chrome takes its candidate at
@@ -1159,24 +1201,32 @@ stated at the top of `styles/tokens.css`:
 3. Type is display-weight and large: a spectator reads it at 720p.
 
 - **The palette is four families and each one means one thing**: LOCO Red acts, sunny yellow marks a
-  win, electric indigo orients, signal mint confirms. That separation is the whole of it, and it is
-  worth more than any individual hex: the two secondaries were once moved to orchid and teal on the
-  grounds that they sat near a CSS framework's defaults, which was true, thin, and cost the palette
-  its logic. **Judge a proposed colour on what it does to the other three, not on its provenance**,
-  and if it has to move, move it inside its own family. Two things constrain `--color-tertiary` and
-  both are measured, not eyeballed: the focus ring wears it and has to clear **3:1 on the dark card**
-  (WCAG 1.4.11, where it currently sits at 3.42), and `--color-link` is the same hue pushed until it
-  clears AA on each canvas separately. **A colour written out by hand at a call site is the bug**
-  (`ScoreTable`'s ping tiers held the mint as a literal, a copy nothing keeps in step), and
-  `playerColors.ts` moves with the token or a seat and the interface disagree about one colour.
-  `--radius-full` is `999px` and **never `50%`**: half of every pill in this product is wider than it
-  is tall, and a percentage radius would make each of them an ellipse.
+  win, electric indigo orients, signal mint confirms. That separation is worth more than any
+  individual hex. **Judge a proposed colour on what it does to the other three, not on its
+  provenance**, and if it has to move, move it inside its own family. Two things constrain
+  `--color-tertiary` and both are measured, not eyeballed: the focus ring wears it and has to clear
+  **3:1 on the dark card** (WCAG 1.4.11, where it currently sits at 3.42), and `--color-link` is the
+  same hue pushed until it clears AA on each canvas separately. **A colour written out by hand at a
+  call site is the bug**, and `playerColors.ts` moves with the token or a seat and the interface
+  disagree about one colour. `--radius-full` is `999px` and **never `50%`**: half of every pill in
+  this product is wider than it is tall, and a percentage radius would make each of them an ellipse.
 - **`tableRect()` is the single authority on board geometry**, and `seatLayout()` on seating. Maps
   change how the felt is *painted*, never where anything is. Three callers must agree exactly.
 - **The board is a fixed coordinate space scaled by `<div .stage>`.** Fix scale problems in
   `boardScale`/`boardSpace`, never by bumping `CARD_W` or `SEAT_DIMS`. `boardSpace` takes the
   safe-area insets, so the coordinate space stops short of the notch and the home indicator while the
   element still runs edge to edge.
+- **A phone on its side is another composition, not a smaller one** (`layout.ts: isLandscape`,
+  `LANDSCAPE_MAX_H`; wider than tall and under 560px tall, decided **from pixels, once**, in
+  `GameBoard` and `feltInViewport`, and handed to every layout call — the virtual space cannot tell
+  the two apart on its own). The seats stand in a column down the left, next player at the bottom
+  and the overflow along the top of the felt; the action bar is a **stack up the right edge**
+  (`ActionBar.svelte`'s landscape block, draw / Contre-LOCO! / pass top to bottom, LOCO! above it —
+  the same three fixed slots, only the axis turned), outside the coordinate space as `SIDE_RESERVE`
+  the way the bottom band is in portrait; the felt takes the band between and the hand runs along
+  the bottom safe edge; the piles stand high in the felt and the turn pill takes the band under them
+  (`turnPillPlace`). `landscape.test.ts` pins the geometry and the stack to each other; review with
+  `--viewports=landscape`, the only viewport the composition is visible in.
 - **Animate transforms, never `left`/`top`.** A node's transform has exactly one owner. Layout math is
   radians, CSS `rotate()` is degrees (`radToDeg` at the render boundary, and nowhere else). Hand keys
   come from `handCardKeys(hand)`, never the index.
@@ -1193,17 +1243,26 @@ stated at the top of `styles/tokens.css`:
 - **The top-right chip row is absolute, so it reserves nothing**: a screen whose content can overflow
   clears it with `--space-base + --topbar-h + --space-sm + --safe-top` of top padding, never a
   spacing step that merely looks generous. `safe center` parks overflowing content against that
-  padding, and 32px put the waiting room's heading under the gear.
+  padding.
 - **The standings are opened in order to be read, so nothing the board draws crosses them**
   (`ScoreTable`'s `.overlay`, **z-index 48**): above the whole transient band — notices 14, the toast
-  30, both banners 45, the chip row and the leave question 46, the catch capsule 47 — and below the
-  reconnect curtain (50), the two pickers (100), the map gate (900) and the rules modal (1000), which
-  are the only things that outrank a read. **The chip row going under it is deliberate**: the panel
-  answers for its own dismissal with a 40px ✕ and a scrim, so covering the button that pinned it costs
-  nothing. `scoreTable.test.ts` asserts the floor **per file**, so a fifth banner at 46 fails on its
-  own.
+  30, the three shouts (both banners and the LOCO! line) 45, the chip row and the leave question 46,
+  the catch capsule and the round summary 47 — and below the reconnect curtain (50), the two pickers
+  (100), the map gate (900) and the rules modal (1000), which are the only things that outrank a
+  read. **The chip row going under it is deliberate**: the panel answers for its own dismissal with a
+  40px ✕ and a scrim. `scoreTable.test.ts` asserts the floor **per file**, so a fifth banner at 46
+  fails on its own.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
+- **A countdown bar is drawn back out of a slot, never scaled flat** (`loco-slide` in `tokens.css`,
+  the turn clock's `.turnTimerBar` / `.turnTimerFill` and the catch capsule's fill): the drain is a
+  `translateX` of the whole fill, so its rounded tip and the gloss on it ride along instead of being
+  squashed to a sliver by a `scaleX`. The turn clock is a sunken slot flush with the safe top edge
+  (the chip row and the round badge start 12px lower) and the bar in it is a raised object like
+  everything else — gloss along the top, shade along the bottom, a bright cap at the leading edge —
+  and **its heat is the palette's own three in their own roles** (`loco-drain-heat`: indigo orients,
+  amber warns, LOCO Red acts), never a hex written into the keyframes. `drainBar` still owns the
+  timing and never re-renders for it.
 - **Table news is one pill, and no arrow in any of them** (`GameView`'s `.notice`, `.noticeSwap` /
   `.noticePenalty` / `.noticeDeparture`): a Swap or a Global Switch, a Contre-LOCO! that came too
   late, a seat that is gone. All three wear the board's own chrome — plate, ink outline, hard
@@ -1213,37 +1272,169 @@ stated at the top of `styles/tokens.css`:
   `inset-inline: 0` + `margin-inline: auto`, never `left: 50%`** — an absolute box anchored at the
   midpoint is shrink-to-fit against the half of the screen to its right, and wraps there whatever
   `max-width` says. **Each pill leaves with its own timer**: the component's constant rides in as
-  `--notice-life` and the exit is delayed off it, because the three durations differ and a fixed
-  delay animates the shortest one over an empty slot. **A direction is named in the ring's own
-  words, never drawn as `→`**: one glyph cannot mean the same thing to every chair around the
-  table, and a line a player reads in passing stops at the event and the heading.
-- **The theme crosses, it does not cut, and one mechanism does it for the game and the pages alike**:
-  `setTheme` arms `data-theme-anim` on `<html>` for `THEME_FADE_MS` / `--theme-fade`, and the rule
-  behind it transitions **colour only**, over the whole document, for exactly that long. The boot
-  never arms it, the attribute must come back off, and reduced motion wins by specificity rather than
-  by a branch in the script (`themeTransition.test.ts`).
+  `--notice-life` and the exit is delayed off it, because the three durations differ. **A direction
+  is named in the ring's own words, never drawn as `→`**: one glyph cannot mean the same thing to
+  every chair around the table.
 - **The action bar never reflows, and it never empties either.** Fixed three-column grid, **Catch
   mounted in the centre column all match and nothing else ever in it**, enabled and armed in place. A
   reaction game cannot move its buttons mid-match. **All three columns hold their button the whole
-  match and go dead rather than away**: draw and pass used to be rendered only on our turn, which
-  left one lone pill in a wide trough and pinched the bar's outline to a point at each end of it —
-  little teeth that came and went with the turn. The penalty draw is the one recolour left, and it is
-  ours only. Three states: dead, pressable from two cards out — on hand sizes alone, a declaration the
-  table heard included, and **then held pressable until a card is played, whatever the seat does to
-  escape** (`components/catchAvailability.ts`) — armed while a seat owes the call. **LOCO! is a small chip
-  centred above the bar**, out of the grid so it moves no column, **on screen the whole match** and
-  dead unless we hold one uncalled card. Never a fourth column, never something that appears: a
-  control found only in the two seconds it is worth pressing is a control nobody has ever aimed at.
-  **`BOTTOM_RESERVE` covers the chip's band as well as the bar**, so the hand is dealt clear of it
-  permanently and nothing shifts when it lights up. Drawn under 44px and quiet on purpose — forgetting
-  the call is a turn of the game — so its target comes from `.hit-target`, only while it is live.
-- **A map's art is tried in the scene before it is submitted** (`tools/maps/scene-tester.html`): one
-  HTML file, opened off the disk, that rebuilds the board around a dropped room and table, measures
-  the `playfield`, and emits the `maps.ts` entry plus both `.webp` files at `prepare.mjs`'s own
-  qualities. **Its board maths is a transcription of `layout.ts` + `cardTheme.ts`, its paint one of
-  `GameBoard.svelte`, and its list of the four shipped maps a copy of `maps.ts`: all three move in
-  the same change set as their source**, or the tester approves a table the game draws elsewhere. It
-  ships nothing, nothing imports it, and it is the one place a webfont CDN is allowed.
+  match and go dead rather than away**: draw and pass rendered only on our turn left one lone pill in
+  a wide trough and pinched the bar's outline to a point at each end of it. The penalty draw is the
+  one recolour left, and it is ours only. Three states: dead, pressable while a seat is on exactly
+  two cards or on its last card inside its window — on hand sizes and the clock alone, a declaration
+  the table heard included (`components/catchAvailability.ts`) — armed while a seat owes the call. **LOCO! is a small chip centred above the bar**, out of the grid so it moves no
+  column, **on screen the whole match** and dead unless we hold one uncalled card. Never a fourth
+  column, never something that appears: a control found only in the two seconds it is worth pressing
+  is a control nobody has ever aimed at. **`BOTTOM_RESERVE` covers the chip's band as well as the
+  bar**, so the hand is dealt clear of it permanently and nothing shifts when it lights up. Drawn
+  under 44px and quiet on purpose, so its target comes from `.hit-target`, only while it is live.
+- **A dead button on that bar is a slot cut into it, never a quieter object** (`--color-surface-sunken`,
+  `--color-disabled-ink`): the fill sits *below* the bar rather than on it, the hard ledge is replaced
+  by a hard shadow inside the top edge, and the outline drops to `--color-hairline` — never the ink a
+  live object is drawn with, and not the panel border either, which came out as a ringed ghost pill.
+  It wore `--color-surface-strong` — exactly what a **live** Pass wears — so half the bar read as
+  pressable for the whole of somebody else's turn. Still no opacity anywhere: the label clears 4.5:1
+  on the sunken fill, because Catch sits dead through the opening of every round and a spectator
+  reads it at 720p. `actionBar.test.ts` measures both.
+- **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
+  `maps.ts`). The room is a diorama of coloured blocks rendered in the browser by the isometric engine
+  from the three ids the server deals (`map_id`, `time_of_day`, `weather`); the table is CSS on
+  `tableRect()` from the room's own materials.
+  - **The room is drawn, not lit** (`scene/shade.ts`): no light object and no shadow map — every
+    face's tone (top, lit side, shade) is multiplied into its vertex colour by the kit as the block
+    is built, and every outlined block lays a hard polygon of shadow on the ground, drawn once
+    through the stencil so overlaps stay one tone. **In the room the outline is a darker note of the
+    block's own colour** (`inkFor`), never `INK` — the one place the ink rule bends. **The frame is
+    supersampled** (`quality.ts`: up to 3× on `high`, within the tier's pixel budget) and scaled
+    down, so an ink line is one clean stroke.
+  - **And then it is photographed** (`scene/post.ts`, once, before the copy): the finishing passes
+    the graphics tier allows — a last FXAA pass over the supersampling, the lamps' bloom (scaled by
+    `rig.dark`), a tilt-shift focus held on the felt's band, a vignette, a colour fringe in the
+    corners, fine static grain. The scene renders into a half-float target in linear light and the
+    composite ends on `colorspace_fragment`, so a room with every pass off comes out the colour it
+    came out before there were passes; a GPU that refuses a target gets the plain frame, never no
+    room (`sceneQuality.test.ts`). **The tier is the player's** (`hooks/graphicsPref.ts`: `auto`
+    reads memory, cores and pointer; `high` / `medium` / `light` win over it both ways) and **is part
+    of the cache key**. `light` is the plain multisampled frame with one sheet of weather.
+  - **Rendered once, then the WebGL context is released**: the board draws a static bitmap and
+    everything that moves is a CSS transform layer (`WeatherLayer.svelte`, `LifeLayer.svelte`),
+    because the compositing budget belongs to the cards.
+  - **What moves is a sprite, built with the same kit under the same light in the same pass**
+    (`scene/life.ts`, `maps/actors.ts`): a builder returns its actors beside the room, each a
+    build-at-origin plus a route in screen tiles, rendered to its own bitmap and carried by one Web
+    Animations transform. **A route on the ground is a candidate, and the render decides where it
+    runs**: `trimRoute` keeps of every route the longest stretch where the ground plan is free of the
+    thing's own footprint, **asked with no margin** — so a cut loop walks its clear arc there and
+    back, a cut `pass` fades, a short one is dropped, and a `pick` group keeps the few worth most of
+    the many a builder handed in. **What stands in front of a route is a veil over the sprite, never
+    a cut in the route** (`occlusionVeil`, `Sprite.mask`, `LifeLayer`'s `.veil`): after the frame the
+    room is rendered once more as depth (`readDepth`), and every pixel where the room stands nearer
+    the camera than the thing would at that point of its route is masked out of the sprite's layer.
+    What is in front still counts for nothing: the worth a `pick` ranks by is the length *seen*, and
+    a survivor worth less than its `minLen` is dropped rather than animated behind a terrace.
+    **Things on the ground move at a speed** (`WALK_SPEED`, `DRIVE_SPEED`), measured on the ground,
+    never for a duration. **People walk the pavements and cars drive the lanes** of the `StreetPlan`
+    `cityGrid` returns, each built facing its heading; the pavement is `SIDEWALK` wide, off the
+    block, and `cityGrid` claims every lot. Reduced motion holds each on the first frame of its
+    route. `sceneShade.test.ts` and `sceneLife.test.ts` are the guards.
+  - **The props are drawn models, and the kit is the only importer** (`scene/models/`, CC0 kits by
+    Kenney and Quaternius, packed by `make models` from `manifest.json` into `client/public/models/`
+    and served from this origin — never a CDN). A model is loaded once per tab, its palette texture
+    is **baked into vertex colours** (`bake.ts`) so it goes through exactly the pipeline a block does
+    — tone of the hour, shadow polygon, outline hull along smoothed normals, the faces in the kit's
+    `glow` colours to the unlit bucket after dark; and `k.person`, `k.car`, `k.tree`, `k.lamp`,
+    `k.bush`, `k.rock`, `k.crate`, `k.barrel` place the model when the room's kits hold one and the
+    block otherwise, so a builder never names three.js or a file. **Nothing stands inside anything
+    else**: every `k.model` goes through the placer (`placer.ts`, oriented rectangles with a margin)
+    and is refused when its footprint is taken, and a builder claims its zones (the plaza, the water)
+    first. `placer.test.ts` and `modelBake.test.ts` are the guards.
+  - **A resize is a stretch, and then one render**: the street is composed in screen space, so two
+    sizes are two different cities — the frame already up is stretched while the drag lasts, one
+    render is asked for 240ms after the viewport holds still (`RESIZE_SETTLE_MS`), and it is **faded
+    in over** the old one on the second of `SceneBackdrop`'s two canvases rather than swapped for it.
+    The debounce is skipped only where there is nothing to stretch, which is the path the loading
+    gate waits on. The engine is a lazy chunk behind `sceneCache.prepareScene`, the only importer of
+    `render.ts`; nothing else may import three.js. **A render that fails is a scene, not an error** —
+    the sky gradient is the room and the gate is answered. The hour and the sky reach the table as
+    `--scene-tint` and `--scene-dark` and never as a repaint of `--tbl-*`; a `dry` room gets dust and
+    a flash for a storm, never rain; a builder never touches three.js; every placement is seeded on
+    the scene's key.
+  - **The table stands on a podium the render carries under exactly the felt** (`feltInViewport`
+    reproduces the board's own layout chain in viewport pixels, `podium()` places a drum whose top
+    lands on that ellipse, and the anchor is part of the cache key), which is the join that let the
+    blur go. The rest of a room is a street grid (`cityGrid`: many small buildings, roads, cars,
+    people, a canal) composed in screen space around the anchor, and **the band in front of the table
+    is kept low** (`Cell.front`). **Composition against a screen line goes through `screenSpan`**,
+    never through a world-space `w` and `d` — at `rot = π/4` one of them runs across the frame and
+    the other up it at `sin(pitch)`. **A landmark over seven tiles tall stands in a side band, never
+    in the top one**: `sy + b + 8` leaves seven tiles of headroom on a monitor, and the wizard's
+    tower is twenty. **`renderSizeFor` reports the ratio the size was solved at**, because
+    `anchorFor` divides by it: reporting the screen's own after capping the bitmap put the podium
+    eight tiles off the table on every HiDPI display, silently, and `make visual` shoots at 1×.
+    **`SceneBackdrop` isolates its own stacking context** — its canvases and its weather carry a
+    z-index, and without `isolation: isolate` they climb into the board's and paint the room over the
+    cards. `sceneGeometry.test.ts` and `sceneBackdrop.test.ts` are the guards.
+  - `maps.test.ts` pins the client's lists of maps, hours, skies and per-map skies to
+    `server/game/maps.go`. Add a room by adding a builder, a registry entry with its materials, its
+    copy in both languages, its `MapID` and weather list in Go, and its scenes.
+- **The three tones are the whole of the lighting, so the step between them is not a taste setting**
+  (`scene/shade.ts`, 1 / 0.74 / 0.47, ratios pinned by `sceneShade.test.ts`). At 1 / 0.84 / 0.66 a
+  street of cubes came out as one flat wash of its own colour. The cast shadow is a **shape**, not a
+  tint, for the same reason.
+- **The weather is drawn tiles, and every sheet travels exactly one tile per cycle**
+  (`scene/weatherTiles.ts`, `WeatherLayer.svelte`, `sceneWeather.test.ts`). A tile is a seeded
+  bitmap drawn once per tab — sixty streaks of different lengths and fades, soft flakes with a few
+  blurred ones near the lens, haze made of overlapping blobs — with every shape near an edge drawn
+  again one tile over, so it wraps; the pure half (`rainDrops`, `snowFlakes`, `fogBlobs`) is what
+  the test asserts, since jsdom has no canvas. `tiled()` writes the tile as the sheet's background
+  **and** as `--tile-w` / `--tile-h`, and the two keyframes travel by those and never by a literal:
+  a cycle that is not a whole tile lands the pattern somewhere else than it left. **The wind is a
+  skew, never a diagonal travel** — a diagonal only wraps when both legs are whole tiles. Three
+  sheets of rain and of snow on `high`, two on `medium`, one on `light`; the snow sways on an outer
+  element and falls on an inner one.
+- **The rooms page shows a photograph of the render, and the board's own table over it**
+  (`content/TablesArticle.astro`, `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`,
+  `roomsPage.test.ts`). A content page ships no script, so `make rooms` shoots each room alone at
+  its signature hour — the `room-still-<id>` scenes, at `?gfx=force` so headless Chromium's software
+  GPU renders the full tier — with the podium built under exactly the ellipse `.roomTable` draws, into
+  `src/assets/rooms/`, served through `<Image />`. The hour is written twice (`SIGNATURE` and the
+  scenes) and the test pins the two; a missing still fails it rather than the build.
+- **A `loop` either walks its closing leg or fades over it, and there is no third option**
+  (`life.ts: closesTheRing`): a wrap the player can see is somebody teleporting home. A cloud, a bird
+  and a puff fade; anybody on the ground travels back.
+- **Lights round a square are strung on a ring of posts, never four** (`maps/common.ts:
+  stringLights`, the only way a room strings them): four posts round an oval table is a rectangle
+  over an ellipse, and each run is hung by its own length **on screen**.
+- **What a block reaches is `(w + d) / 2 / √2` across the frame, and both the `front` band and every
+  landmark beside the table are measured against that**, not against a centre. Cut by the **frame**
+  is ordinary; cut by the table is a bug.
+- **The room is built exactly once per match, and three things guarantee it**: `viewportSize()` and
+  `safeAreaInsets()` both read synchronously (the gate solves the felt's anchor before any effect has
+  measured anything), and a frame within 4% of the size asked for is stretched rather than re-rendered
+  (`sizeCloseEnough`, `sameFelt`). Each missing one cost a second full render on the main thread at
+  the moment the gate lifted, which is the freeze the gate exists to hide. `sceneLoadingGate.test.ts`.
+- **The loading bar moves because the render yields to a paint between its phases**
+  (`renderScene` is asynchronous, `RENDER_STEPS`, `scene/nextPaint.ts`): build, merge, draw, depth,
+  then the sprites a few at a time, each reported and then **painted** — two animation frames, with a
+  timer for a hidden tab — before the next one takes the thread. A `setTimeout(0)` is not a paint:
+  it fires inside the frame. Anything new and heavy inside the render goes between two reports, never
+  inside one. `sceneProgress.test.ts`.
+- **A load ends on a full bar, always** (`gamePlay.svelte.ts`'s `mapPreload`, `MAP_BAR_FULL_MS`):
+  nothing under that bar ever reports one — the render stops at its last batch of sprites — so the
+  curtain lifted on a bar around nine tenths, which reads as a room given up on. The settle puts the
+  bar at one, paints it, holds it for just longer than `.fill`'s own transition, and only then
+  publishes `done`, which is what sends `map_ready`. The preload timeout ends the same way, zero hold
+  under reduced motion, and 12s + the hold stays far under the server's `MapLoadTimeout`.
+  `mapLoading.test.ts` pins the order and reads the transition off `MapLoadingScreen.svelte` rather
+  than trusting the two numbers to be edited together.
+- **Nothing pale is shown while the room is still building.** `.scene.bare` mixes the hour's sky down
+  over the void, and `--room-void` is the horizon **taken down**, not the horizon: a noon sky is a
+  near-white, and a full screen of it under the loading screen's white type reads as a page that
+  failed to load.
+- **And nothing of the board is shown either: the loading curtain is opaque from its first frame.**
+  It is an overlay over a *mounted* board, so an entrance fade on `MapLoadingScreen`'s `.screen`
+  takes the void off the table it exists to hide. The fade belongs to `.room`, the wrapper around the
+  backdrop and the scrim, which comes up out of a void that stays painted. `sceneLoadingGate.test.ts`.
 - **The game cover carries the wordmark and no other text** (`src/dev/CoverCard.svelte`, three cuts,
   `make cover` → `brand/`). IGDB wants the title to be the largest text on it, and the way this art
   answers that is by being the only text; it also refuses platform logos, age ratings and watermarks.
@@ -1251,6 +1442,11 @@ stated at the top of `styles/tokens.css`:
   600×800 it is drawn at. Built from the real `<LocoLogo />` and the real `<Card />` for the reason
   the link preview is: the art leaves this repository, and nothing here can watch it go stale.
   `coverCard.test.ts` pins the ratio, the floor and the no-other-text rule.
+- **No painted ambience behind a screen: no glowing blobs, no floating silhouettes.** The canvas is
+  the designed gradient and the objects on it carry the life. **A hand is dealt off the deck card by card**
+  (`GameBoard`'s deal effect, `DEAL_FLIGHT_MS`, keyed on `roundNumber`), **numbers are counted**
+  (`countUp.ts`) and **every screen arrives** (`hooks/screenIn.ts`, in only, never out). The
+  reasoning and the constraints are under "Ambience and celebration" in the note.
 - **Add a scene to `src/dev/scenes.ts` in the same change set as any new screen or visual state**, and
   review with `make visual` (`--viewports=wide,small` after touching `layout.ts`, `notch` for safe
   areas, `--scenes=card-sheet` for anything on a card).
@@ -1258,46 +1454,138 @@ stated at the top of `styles/tokens.css`:
 ## Audio
 Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
 
-- Everything is synthesised at runtime. **No audio files ship with the client.**
+- **Every sound effect is synthesised at runtime; the music is not.** No sample library, and the
+  bed is nineteen MP3 loops under `client/public/music/`, served from this origin and never a CDN.
 - **The board plays nothing; one subscription does.** `gameAudio()` in `hooks/appEffects.svelte.ts`
   is the only place a game sound is played, and what to play is decided by `soundsForTransition` in
   `audio/gameSounds.ts` — pure, snapshot-diffing and unit-tested. A component calling `playSfx`
   directly is only ever a UI tap (`uiTap`, `uiBack`), never a game event.
 - **A control that makes a sound on every step of a drag throttles it, and the sample says where the
-  control now is.** `<AudioSettings />`'s sliders fire `input` dozens of times a second; one 100ms
-  sample per event overlaps itself several deep and what a player hears is not a level but a shrill
-  continuous buzz — the engine's per-frame voice budget is a clipping guard and does not see this.
-  `AUDITION_MS` spaces them; `playVolumeAudition(level)` climbs the travel on a pentatonic, so the
-  spacing costs nothing and the drag reads as a run. **Level moves the pitch, never the gain** — the
-  bus being moved already applies it. It takes an argument, so it is not a `SfxName` and
-  `make audio-verify` measures it by hand, both ends and the climb between them.
+  control now is.** `<AudioSettings />`'s sliders fire `input` dozens of times a second, and one
+  100ms sample per event overlaps itself several deep into a shrill continuous buzz — the engine's
+  per-frame voice budget is a clipping guard and does not see this. `AUDITION_MS` spaces them;
+  `playVolumeAudition(level)` climbs the travel on a pentatonic, so the spacing costs nothing and the
+  drag reads as a run. **Level moves the pitch, never the gain** — the bus being moved already
+  applies it. It takes an argument, so it is not a `SfxName` and `make audio-verify` measures it by
+  hand, both ends and the climb between them.
 - **Mobile Safari loses the context three ways and all three fail as silence, not as an error**:
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at
   creation.
+- **Every sound is made of one of four materials, and none is a bare oscillator**: card stock on
+  felt (`cardHit`, `snap`, `thud`, combed `noise`), wood (`mallet`, every interface sound), brass and
+  bell (`stab`, `bell`), air (`whoosh`). A sine or a square under an envelope is the sound every
+  prototype makes; the note says what replaced it and why.
 - **A cue is a struck chord, not a scale, and no two moments may share one** (`stab()` in `sfx.ts`).
   Every celebration used to be `arp()`, and five of them ran the same major triad upward: `wild` and
-  `roundWin` were note for note identical, so playing a Global Switch sounded exactly like taking the
-  round, and both losing cues were that figure inverted. Major-going-up for good and minor-coming-down
-  for bad is the reflex, and it gave twenty-three voices one sentence at four speeds. The bed is 138
-  BPM trance and does not talk that way: a chord under a filter that opens on the transient and shuts
-  as it falls says its whole piece in one hit, which is also what keeps the cue shorter than the gap
-  before the next card. `arp()` is gone; do not bring it back. **A tail is a send, never an insert**
+  `roundWin` were note for note identical. Major-going-up for good and minor-coming-down for bad is
+  the reflex, and it gave twenty-three voices one sentence at four speeds. The bed is 138 BPM trance
+  and does not talk that way: a chord under a filter that opens on the transient and shuts as it
+  falls says its whole piece in one hit, which is also what keeps the cue shorter than the gap before
+  the next card. `arp()` is gone; do not bring it back. **A tail is a send, never an insert**
   (`audio.sfxReverbSend()`): the card handling is paper and stays dry at zero.
 - **`make audio-verify` has a floor and a ceiling, and the ceiling is the newer half.** It was written
   to catch a voice gone silent, so a cue handed in at 1.07 clipped on every device and still printed a
-  tick. Anything above 0.8 fails now. That is headroom below hard clip rather than a mixing opinion:
-  two cues overlap here and the bus carries no limiter.
-- A track is **parts plus a form** (`audio/tracks/`), not a loop with layers. Add one by writing a
-  `TrackDef` and listing it in the registry. The bass stays soft. **A title names the writing, never
-  the genre**: `Ressac` is the vi-IV-I-V going out and coming back, `Ricochet` is the track on which
-  nothing lands where it is expected, `Rififi` is the one for a table that has stopped being polite.
-  They were `Neon Horizon`, `Pixel Rush` and `Voltage`, which is three names off one sample-pack shelf
-  and true of any other track as much as of these.
-- Playback is a **shuffled playlist**, not a selection: no picker, one "next" button.
+  tick. Anything above 0.8 fails now — headroom below hard clip rather than a mixing opinion: two
+  cues overlap here and the bus carries no limiter.
+- **The music is nineteen CC0 loops by Abstraction** (`audio/tracks/` the registry, `public/music/` the
+  files, credit in `NOTICE.md` and `licenses.txt`), normalised to −18 LUFS and encoded to MP3. The
+  registry is **warmed in ladder order from the section playing outward**, one file at a time, and
+  bounded — see the loading rules below. **MP3 and not the source OGG**: Safari decodes Ogg Vorbis
+  only from 18.4 and refuses it in `decodeAudioData` before that, which on this platform fails as
+  silence. Add one by encoding a file and writing a `LoopDef`.
+- **A loop is looped on the source file's duration, never the decoded buffer's** (`LoopDef.seconds`,
+  measured `loopStart` + that). MP3 carries encoder delay at the head and padding at the tail and
+  both survive `decodeAudioData`; the source files themselves have no silence at either end.
+- **The bed keeps more loops than sections, and that is what replaced the song form.** Each loop
+  declares the sections it can carry, **every section must be carried by at least two and the
+  groove by at least five** (`music.test.ts`), and the bed changes loop for exactly two reasons: the
+  table moved to another section, or this one has come round `LAPS_PER_LOOP` times. Drop either and
+  an ordinary groove is a chorus on repeat. **The groove's floor is five and not two** because that
+  is where a match spends its time. `LAPS_PER_LOOP` is **2** — three turns of a 44s loop is 2m10 of
+  one piece. **And every family carries the wait and the endgame at least twice over** (buildup and
+  drop ≥ 2 per family, `music.test.ts`): those are the two other places a table sits, and a lap
+  handover with nothing to hand over to is one loop on repeat. The breakdown is exempt: it plays
+  under the round summary and the recap, both left inside a minute.
+- **A change of loop lands on the beat, and `LoopDef.bpm` is what makes that possible**
+  (`untilNextBar`, `untilNextWrap`, `musicHandover.test.ts`). A section move waits for the outgoing
+  loop's next bar line and puts the incoming downbeat on it; a lap handover is decided
+  `HANDOVER_LOOKAHEAD_S` before the wrap that completes `LAPS_PER_LOOP` and lands **on** it, the old
+  piece fading over its last bar (`HANDOVER_TAIL_S`) and the new one arriving whole on the one; a
+  scene move and ⏭ are answered on the spot, because the player just did something. **Every loop is
+  a whole number of bars at the tempo written for it**, and `music.test.ts` fails on one that is not:
+  that is the test that catches a wrong tempo, because the composer cut every one of these on a bar
+  line. Where a tempo and its double both fit, the **slower** is written. A file not ready by its
+  moment falls back to an ordinary crossfade the instant it is.
+- **The fade's length is the reason for it** (`fadeFor`): a rise is `RISE_FADE_S` (1.5s), a fall
+  `FALL_FADE_S` (4s), a change the player made `CROSSFADE_S` (2s), the scene going off `STOP_FADE_S`
+  (1.2s). **Only a hidden tab and an unmount cut.**
+- **The queue is the wait and the recap is the game** (`sceneFor`, `intensityOf`): `searching` and
+  `matchfound` play the menu's scene, so the 1v1 path does not open in silence; `gameover` is the
+  **match's** scene at the round summary's intensity, so the drop fades into the breakdown under the
+  recap instead of the bed cutting out under the fanfare. Only `restoring` is off.
+- **A scene move changes the piece on the spot, and it is not subject to either hold**
+  (`music.start()`'s `moved` branch): another family, the section the new screen asks for, the
+  intensity snapped to its target, one crossfade. The holds below read tension inside a round; the
+  menu and the table are two places, not two tensions. Left to the tick, leaving the table was a
+  *fall* — twelve seconds of `SECTION_RELEASE_MS` — and a match, the menu and the next match came out
+  as one unbroken piece of music. `musicScene.test.ts`.
+- **The intensity is slewed and the section is held** (`SLEW_PER_SEC`, `SECTION_HOLD_MS`): game
+  events move the intensity in jumps, and a Contre-LOCO! that lands and a hand that grows back would
+  otherwise crossfade the bed out and in twice inside two seconds. **And a fall is believed twelve
+  seconds after a rise** (`SECTION_RELEASE_MS`, `sectionHoldMs`): an endgame hand goes 1 → 3 → 1
+  every few turns. A rise is still answered on the hold; a fall has to hold continuously, and every
+  return above the line restarts the wait. The breakdown is exempt, because the round summary is a
+  stop and not a dip.
+- **A match is played inside one family** (`LoopDef.family`, `FAMILIES`: `lounge` / `party` /
+  `night`). Every loop change — a section move, a second lap, a ⏭ — stays in the palette the scene
+  opened on, `prefetch` warms that palette only, and a scene change draws another family, away from
+  the current one, on the loop change it was making anyway. The grouping is the composer's own tags
+  for the pack, recovered by matching `seconds` to the source file; a loop in the wrong room moves
+  by editing one field. `music.test.ts` pins that every family carries every section and a groove
+  of at least two, which is what keeps `loopsFor`'s cross-family fallback from ever being taken.
+- **A hidden tab is a pause, and the return resumes the same loop from the same bar** (`park` /
+  `resume`, `resumeOffset`). Going through `start()` reshuffled, so every alt-tab was a different
+  piece — Chrome marks an occluded window hidden. Only a scene that moved meanwhile starts over.
+- **A cold loop change is inaudible, and that is a property of the order, not of the warm-up.**
+  `swapTo` awaits the incoming buffer *before* it touches the outgoing voice, so a loop that is not
+  cached costs a slightly later crossfade and never a gap. Warming makes that delay shorter; it is
+  not what makes the change possible, which is why `PREFETCH_MAX` (3) is far smaller than the
+  registry.
+- **The number that bounds the cache is memory, not download** (`CACHE_BUDGET_BYTES`, 64 MB, LRU,
+  never evicting a voice that is sounding or fading). An `AudioBuffer` is deinterleaved float32 at
+  the context rate, so a **1.5 MB MP3 of 102 seconds decodes to 37 MB of RAM** — measured. Eighteen
+  at once is **418 MB**. Evicting is close to free: nginx serves `/music/` with a week of cache, so a
+  re-entry costs one `decodeAudioData` (72–208 ms) and no network, and it lands inside the window the
+  outgoing voice is still covering. **`PREFETCH_MAX` must stay inside that budget**
+  (`music.test.ts`), or the warm-up evicts what the warm-up just decoded.
+- **Nothing a player can see or hear moves before the piece is sounding.** `this.loop` and the
+  persisted `track` setting are written at the **commit** inside `swapTo`, never at the request:
+  between the two there is a load, and during it the honest answer to "what is playing" is still the
+  outgoing piece (`getLoopId()` reads the voice). **A request arriving during a swap is recorded in
+  `desired`, never dropped** — a `swapping` guard that returned early left `this.loop` naming a piece
+  that would never play, which the handover logic then treated as the one to avoid.
+- **A bed with nothing sounding and nothing on its way asks again on the next tick.** A failed
+  opening fetch otherwise left the table silent until the next section change, which on a long round
+  is minutes away and in a solo game may never come.
+- **A loop change is a crossfade between two source gains, equal-power, and never touches
+  `out.gain`** — which belongs to `duck()` alone. A dip on that same node cancelled the duck's return
+  with it, bringing the bed back to full under the one sound people clip.
+- **A loop's title is a name and its blurb is copy, and only one of the two is translated.** The
+  title is **one string, in English, never per language** — a name that changed with the interface
+  would be two different pieces to anybody who switched — and `music.test.ts` fails on a character
+  outside `[A-Za-z0-9 '-]`. The blurb is written in both, like every other string a player reads.
+- **A title names the writing, never the genre and never the source file's date**: `Intermission` is
+  what plays while the table counts up, `Sleight` is somebody setting something up, `Bad Manners` is
+  the table that has stopped being polite. They arrive as `Sketchbook 2024-05-29`.
+- Playback is a **shuffled playlist**, not a selection: no picker, one "next" button, and ⏭ stays
+  inside the section the table is in.
 - `make audio-verify` is the only thing that catches a broken envelope or a mis-wired node, because
-  those produce silence rather than an error. Run it after touching `sfx.ts`, `music.ts` or
-  `engine.ts`. Deliberately outside CI.
+  those produce silence rather than an error — and a music file that 404s is the same silence with a
+  different cause. Run it after touching `sfx.ts`, `music.ts` or `engine.ts`, or after re-encoding a
+  loop. `music.setLapSeconds(n)` is its one seam, same convention as the server's `AFKKickThreshold`:
+  a real loop hands over after two to four minutes, so without it the unattended handover would be
+  the one behaviour here nothing ever checks. Deliberately outside CI.
 
 ## Legal and privacy
 Detail: [`docs/notes/legal.md`](docs/notes/legal.md).

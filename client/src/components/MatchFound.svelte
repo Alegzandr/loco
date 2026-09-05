@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { MatchFormat } from '../types/protocol'
   import { i18n } from '../i18n/i18n.svelte'
   import { seatColor, seatInitial } from './playerColors'
@@ -16,7 +17,9 @@
   let { myNickname, opponentNickname, mySeat, startsAt, format }: Props = $props()
 
   const t = $derived(i18n.t)
-  let remaining = $state(Math.max(0, startsAt - Date.now()))
+  // Seeded from the deadline we were mounted with; the effect below is what
+  // follows a later one.
+  let remaining = $state(untrack(() => Math.max(0, startsAt - Date.now())))
 
   $effect(() => {
     const at = startsAt
@@ -132,6 +135,11 @@
     gap: var(--space-sm);
     flex: 1 1 0;
     min-width: 0;
+    /* The two cards paint above the VS, so the ring below passes behind them
+       instead of across their faces. They never overlap the badge itself, so
+       this costs the collision nothing. */
+    position: relative;
+    z-index: 1;
     padding: var(--space-base) var(--space-md);
     border-radius: var(--radius-lg);
     border: var(--stroke) solid var(--color-stroke);
@@ -156,6 +164,12 @@
     box-shadow: var(--shadow-hard-lg);
     color: var(--color-on-dark);
     font: 700 clamp(26px, 5vw, 36px) / 1 var(--font-display);
+    /* Ink outline, like the interception banner's title and every glyph on a
+       card: white alone fails 3:1 on six of the ten seat colours (the yellow
+       and the mint worst), and the fill is the seat's and may not be darkened.
+       Outlined, the letter is ~14:1 against its own ink whatever the seat. */
+    -webkit-text-stroke: 3px var(--color-stroke);
+    paint-order: stroke fill;
     text-shadow: 0 2px 0 rgba(36, 21, 70, 0.35);
   }
 
@@ -276,6 +290,42 @@
   :root[data-motion="reduce"] .right,
   :root[data-motion="reduce"] .vs,
   :root[data-motion="reduce"] .kicker {
+    animation: none;
+  }
+
+  /* The VS lands with a ring: one burst on a pseudo-element, transform and
+     opacity, timed to the punch. The collision is the moment of this screen.
+
+     It grows past the gap between the two cards, and what it does there is the
+     whole difference between a burst and a stray line: drawn over them, a
+     stroke crosses two nicknames and an avatar at the exact instant the screen
+     is asking who they are. `.side` carries the z-index that puts it behind. */
+  .vs {
+    position: relative;
+    isolation: isolate;
+  }
+  .vs::before {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    z-index: -1;
+    border-radius: var(--radius-full);
+    border: 3px solid var(--color-secondary);
+    opacity: 0;
+    pointer-events: none;
+    animation: vsRing 0.7s ease-out 0.55s 1 both;
+  }
+  @keyframes vsRing {
+    from {
+      opacity: 0.95;
+      transform: scale(0.7);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+  }
+  :root[data-motion='reduce'] .vs::before {
     animation: none;
   }
 </style>

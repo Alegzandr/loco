@@ -31,13 +31,16 @@
     deckPosition,
     seatPosition,
     tableRect,
-    tableImageRect,
     seatLayout,
     boardScale,
     boardSpace,
+    isLandscape,
   } from './layout'
-  import type { MapDef } from './maps'
-  import { ACTIVE_RING, CARD_W, CARD_H, flightFor } from './cardTheme'
+  import type { SceneSpec } from './maps'
+  import type { FeltAnchor } from './layout'
+  import { lightRig, rigCssVars, hexCss, mix } from '../scene/sky'
+  import SceneBackdrop from '../scene/SceneBackdrop.svelte'
+  import { ACTIVE_RING, CARD_W, CARD_H, DEAL_FLIGHT_MS, DEAL_STAGGER_MS, flightFor } from './cardTheme'
   import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
   import type { SwapNotice, LastPlay, CatchFlash } from '../../hooks/gameStore'
   import { CATCH_PENALTY_CARDS } from '../../hooks/gameStore'
@@ -46,6 +49,12 @@
 
   type Props = {
     myHand: CardDTO[]
+    /**
+     * Which round this hand was dealt for. A hand that appears with a new round
+     * number is a deal, and a deal is flown from the deck card by card; a hand
+     * that merely grew is a draw, which has its own flier below.
+     */
+    roundNumber?: number
     discard: CardDTO | null
     activeColor: CardColor
     players: PlayerDTO[]
@@ -96,13 +105,16 @@
     /** True while reconnect overlay is visible; board fades back in afterwards. */
     isReconnecting: boolean
     /**
-     * The room this match is played in, or null for the built-in felt.
+     * The room this match is played in, at its hour and under its sky, or null
+     * for the built-in felt.
      *
-     * A map replaces how the table is *painted* and nothing else: `tableRect()`
+     * A scene replaces how the table is *painted* and nothing else: `tableRect()`
      * still owns the geometry, so the piles, the seats, the direction ring and
-     * every animation coordinate are identical in all five cases.
+     * every animation coordinate are identical with or without one.
      */
-    map: MapDef | null
+    scene: SceneSpec | null
+    /** Where the felt lands in the viewport (`feltInViewport`), for the room's podium. */
+    anchor: FeltAnchor
     /** True when drawing is legal right now — makes the deck clickable. */
     canDraw: boolean
     onDraw: () => void
@@ -170,6 +182,10 @@
   // the home indicator. The picture may live there; the game may not.
   const insets = safeAreaInsets()
 
+  // A phone on its side gets another composition (see `layout.ts`), decided
+  // here from the element's pixel size and handed to every layout call below:
+  // the virtual space cannot tell the two apart on its own.
+  const landscape = $derived(isLandscape(size.current.width, size.current.height))
   // Everything below works in the board's own coordinate space; <div .stage>
   // scales that space to the element's pixel size. Children — and the pure layout
   // maths they share with the animations — never see the scale.
@@ -177,10 +193,11 @@
     boardScale(
       size.current.width - insets.current.left - insets.current.right,
       size.current.height - insets.current.top - insets.current.bottom,
+      landscape,
     ),
   )
   const space = $derived(
-    boardSpace(size.current.width, size.current.height, scale, insets.current),
+    boardSpace(size.current.width, size.current.height, scale, insets.current, landscape),
   )
   const width = $derived(space.width)
   const height = $derived(space.height)
@@ -198,25 +215,53 @@
   let suppressNextDiscardFx = false
   // Rebuild key forces the board's fade-in animation to replay after a reconnect.
   let rebuildKey = $state(0)
-  let wasReconnecting = p.isReconnecting
+  let wasReconnecting = untrack(() => p.isReconnecting)
 
   // The room is painted by this element, but the browser paints anything the page
   // itself does not own with the *root* element's colour: a safe area on a notched
   // phone, the strip a floating browser bar reserves. The app's candy gradient
-  // there reads as two bright bands laid across a dark room, so while a map is up
-  // the root is pinned to the room's own near-black and a band we never get to
-  // draw in still looks like the room's shadow.
-  const mapId = $derived(p.map?.id ?? '')
+  // there reads as two bright bands laid across a room, so while a scene is up
+  // the root is pinned to the scene's own horizon and a band we never get to
+  // draw in still looks like the sky.
+  const mapId = $derived(p.scene?.map.id ?? '')
+  const rig = $derived(p.scene ? lightRig(p.scene.time, p.scene.weather) : null)
+  // The horizon, taken well down towards the void. A noon sky is a near-white,
+  // and a band of it across the top of a phone in dark mode is the brightest
+  // thing on the screen — the opposite of what this property is for. Mixed
+  // down it is still the room's own sky rather than a neutral black.
+  const horizon = $derived(rig ? hexCss(mix(rig.sky.horizon, 0x07060f, 0.72)) : '')
   $effect(() => {
     const root = document.documentElement
     if (!mapId) {
       delete root.dataset.room
+      root.style.removeProperty('--room-void')
       return
     }
     root.dataset.room = mapId
+    root.style.setProperty('--room-void', horizon)
     return () => {
       delete root.dataset.room
+      root.style.removeProperty('--room-void')
     }
+  })
+
+  // The table's materials, as CSS. A room's felt and rim never change with the
+  // hour: a table is a physical thing and night does not repaint it. What the
+  // hour does is in `rigCssVars`: a tint on the sheen and a dimming of the whole.
+  const boardStyle = $derived.by(() => {
+    if (!p.scene || !rig) return undefined
+    const m = p.scene.map
+    return [
+      `--map-accent: ${m.accent}`,
+      `--map-accent-deep: ${m.accentDeep}`,
+      `--tbl-felt: ${m.table.felt}`,
+      `--tbl-felt-deep: ${m.table.feltDeep}`,
+      `--tbl-rim: ${m.table.rim}`,
+      `--tbl-rim-light: ${m.table.rimLight}`,
+      `--tbl-base: ${m.table.base}`,
+      `--tbl-inlay: ${m.table.inlay}`,
+      rigCssVars(rig),
+    ].join('; ')
   })
 
   /**
@@ -270,6 +315,7 @@
     const flight = flightFor(card)
     if (flight.impact <= 0) return
     const timer = window.setTimeout(() => {
+      landTimers = landTimers.filter((id) => id !== timer)
       addImpacts(
         {
           id: newId(),
@@ -288,7 +334,7 @@
   // seatLayout picks the pill size and row count that actually fit this viewport,
   // and reports how much vertical space the seats claim so the table can be placed
   // underneath them rather than through them.
-  const seats = $derived(seatLayout(ready ? others.length : 0, width, height))
+  const seats = $derived(seatLayout(ready ? others.length : 0, width, height, landscape))
   // Every pile/animation coordinate needs the same seat reserve the felt uses,
   // otherwise the deck, the discard and the fliers drift apart from the table.
   const topReserve = $derived(seats.blockHeight)
@@ -297,7 +343,7 @@
   // Flies the card from the opponent's seat to the discard pile so the play is
   // legible without watching the pile. Declared before the discard-change effect
   // so it can claim the update and suppress the generic pile flier.
-  let lastPlayAt = p.lastPlay?.at ?? 0
+  let lastPlayAt = untrack(() => p.lastPlay?.at ?? 0)
   $effect(() => {
     // Keyed on the play timestamp: one flight per play, never a replay on resize.
     p.lastPlay?.at
@@ -306,8 +352,8 @@
     lastPlayAt = lp.at
     // Own plays already fly out of the hand via handleCardClick.
     if (lp.actorIndex === p.myIndex) return
-    const from = seatPosition(lp.actorIndex, p.players, p.myIndex, width, height)
-    const dest = discardPosition(width, height, topReserve)
+    const from = seatPosition(lp.actorIndex, p.players, p.myIndex, width, height, landscape)
+    const dest = discardPosition(width, height, topReserve, landscape)
     const flight = flightFor(lp.card)
     addFliers(
       {
@@ -332,9 +378,20 @@
   // ─── Animation effect: discard top changed (any source) ─────────────────
   let lastDiscardKey = ''
   $effect(() => {
-    const key = discardKey(p.discard)
+    // Keyed on the face *and* the play that put it there. An interject is by
+    // definition the same face as the card under it, so keyed on the face alone
+    // an intercepted +4 drew no +N, no SKIP, no impact — nothing at all on the
+    // loudest moment in the game — and the flag below was left set, swallowing
+    // the next genuine change. A Swap's snapshot carries no play and keys on
+    // the face, as before.
+    const face = discardKey(p.discard)
+    const key = face === '' ? '' : `${face}|${p.lastPlay?.at ?? 0}`
     const pending = p.pendingDraw
     const texts = p.fxTexts
+    // Read and cleared first, before any early return: the flag describes this
+    // update and nothing after it.
+    const covered = suppressNextDiscardFx
+    suppressNextDiscardFx = false
     if (!ready) return
     if (key === '' || key === lastDiscardKey) return
     const isFirstRender = lastDiscardKey === ''
@@ -343,11 +400,9 @@
     // A hand→discard or seat→discard flight already showed the card travelling;
     // only the generic pile flier is redundant. The effect callout still fires —
     // playing your own Skip must announce itself just like an opponent's.
-    const covered = suppressNextDiscardFx
-    suppressNextDiscardFx = false
     const card = p.discard!
     if (!covered) {
-      const target = discardPosition(width, height, topReserve)
+      const target = discardPosition(width, height, topReserve, landscape)
       const flight = flightFor(card)
       addFliers(
         {
@@ -372,7 +427,7 @@
           text: eff.text,
           color: eff.color,
           x: width / 2,
-          y: discardPosition(width, height, topReserve).y - 10,
+          y: discardPosition(width, height, topReserve, landscape).y - 10,
           delayMs: flightFor(card).duration,
         },
       )
@@ -400,23 +455,57 @@
         text: label,
         color: ACTIVE_RING[active],
         x: width / 2,
-        y: discardPosition(width, height, topReserve).y - 10,
+        y: discardPosition(width, height, topReserve, landscape).y - 10,
         delayMs: (disc ? flightFor(disc).duration : 0) + COLOR_CALLOUT_DELAY_MS,
       },
     )
   })
 
+  // ─── Animation effect: the deal ─────────────────────────────────────────
+  // Eight cards fading into a fan is a screen being drawn; eight cards flying
+  // off the deck one after another, each landing where the fan will hold it,
+  // is a hand being dealt. Keyed on the round so a reload mid-round rebuilds
+  // the fan quietly (the Hand's own stagger) and only a fresh deal flies.
+  let dealtFor = untrack(() => p.roundNumber ?? -1)
+  let dealtOnce = untrack(() => p.myHand.length > 0)
+  $effect(() => {
+    const n = p.myHand.length
+    const round = p.roundNumber ?? -1
+    if (!ready) return
+    const fresh = !dealtOnce && n >= 2
+    const newRound = round !== dealtFor && n >= 2
+    if (!fresh && !newRound) return
+    dealtFor = round
+    dealtOnce = true
+    if (prefersReducedMotion()) return
+    const slots = calcHandSlots(n, width, height, landscape)
+    const start = deckPosition(width, height, topReserve, landscape)
+    addFliers(
+      ...slots.map((slot, i) => ({
+        id: newId(),
+        kind: 'back' as const,
+        from: { x: start.x, y: start.y, rotation: 0 },
+        to: { x: slot.x, y: slot.y, rotation: slot.rotation },
+        startAlpha: 0.85,
+        startScale: 0.92,
+        duration: DEAL_FLIGHT_MS,
+        delayMs: i * DEAL_STAGGER_MS,
+        arcHeight: 14,
+      })),
+    )
+  })
+
   // ─── Animation effect: my hand grew by one (drew a card) ─────────────────
-  let prevHandSize = p.myHand.length
+  let prevHandSize = untrack(() => p.myHand.length)
   $effect(() => {
     const curr = p.myHand.length
     if (!ready) return
     const prev = prevHandSize
     prevHandSize = curr
     if (curr !== prev + 1) return // only single-card draws (penalty draws batch differently)
-    const slots = calcHandSlots(curr, width, height)
+    const slots = calcHandSlots(curr, width, height, landscape)
     const target = slots[curr - 1]
-    const start = deckPosition(width, height, topReserve)
+    const start = deckPosition(width, height, topReserve, landscape)
     addFliers(
       {
         id: newId(),
@@ -458,15 +547,15 @@
   // dozen props this board takes moving re-runs this. So every message that
   // arrived while a Swap was announced drew the trails again, and a resize drew
   // them once per frame.
-  let lastSwapAt = p.swapNotice?.at ?? 0
+  let lastSwapAt = untrack(() => p.swapNotice?.at ?? 0)
   $effect(() => {
     p.swapNotice?.at
     const sn = p.swapNotice
     if (!ready || !sn || sn.at === lastSwapAt) return
     lastSwapAt = sn.at
     if (sn.kind === 'swap' && sn.targetIndex >= 0) {
-      const a = seatPosition(sn.actorIndex, p.players, p.myIndex, width, height)
-      const b = seatPosition(sn.targetIndex, p.players, p.myIndex, width, height)
+      const a = seatPosition(sn.actorIndex, p.players, p.myIndex, width, height, landscape)
+      const b = seatPosition(sn.targetIndex, p.players, p.myIndex, width, height, landscape)
       spawnSwapTrail(a, b, 0)
       spawnSwapTrail(b, a, 90)
     } else if (sn.kind === 'global_switch') {
@@ -476,8 +565,8 @@
         const fromIdx = ordered[i].index
         const toIdx = ordered[(i + step) % ordered.length].index
         if (fromIdx === toIdx) continue
-        const a = seatPosition(fromIdx, p.players, p.myIndex, width, height)
-        const b = seatPosition(toIdx, p.players, p.myIndex, width, height)
+        const a = seatPosition(fromIdx, p.players, p.myIndex, width, height, landscape)
+        const b = seatPosition(toIdx, p.players, p.myIndex, width, height, landscape)
         spawnSwapTrail(a, b, i * 60)
       }
     }
@@ -491,14 +580,14 @@
   // Same guard as the swap trails, same reason: the flash outlives the message
   // that carried it, so without it the penalty cards left the deck again on every
   // update for as long as the banner was up.
-  let lastCatchAt = p.catchFlash?.at ?? 0
+  let lastCatchAt = untrack(() => p.catchFlash?.at ?? 0)
   $effect(() => {
     p.catchFlash?.at
     const cf = p.catchFlash
     if (!ready || !cf || cf.at === lastCatchAt) return
     lastCatchAt = cf.at
-    const seat = seatPosition(cf.seat, p.players, p.myIndex, width, height)
-    const deck = deckPosition(width, height, topReserve)
+    const seat = seatPosition(cf.seat, p.players, p.myIndex, width, height, landscape)
+    const deck = deckPosition(width, height, topReserve, landscape)
     const from = {
       x: deck.x + CARD_W / 2 - CATCH_CARD_W / 2,
       y: deck.y + CARD_H / 2 - CATCH_CARD_H / 2,
@@ -553,10 +642,10 @@
   // frame.
   function flyFromHand(card: CardDTO, idx: number) {
     if (!ready) return
-    const slots = calcHandSlots(p.myHand.length, width, height)
+    const slots = calcHandSlots(p.myHand.length, width, height, landscape)
     const slot = slots[idx]
     if (!slot) return
-    const dest = discardPosition(width, height, topReserve)
+    const dest = discardPosition(width, height, topReserve, landscape)
     // The lift applied to playable cards in <Hand /> shifts them up by 9px at
     // rest; mirror it so the fly starts at the visually correct spot.
     const liftedY = p.isPlayable(card) ? slot.y - 9 : slot.y
@@ -585,6 +674,7 @@
     p.myHand
     width
     height
+    landscape
     p.setFlightHandle?.({ flyFromHand })
     return () => p.setFlightHandle?.(null)
   })
@@ -598,22 +688,24 @@
   }
 
   // Felt table — geometry lives in layout.ts so tests and animations share it.
-  const table = $derived(tableRect(width, height, topReserve))
-  // The map's table is placed *around* the felt: its picture is scaled so that the
-  // playing surface inside the file lands exactly on `table`. See tableImageRect()
-  // for why the result overhangs on every side.
-  const tableImg = $derived(p.map ? tableImageRect(table, p.map.playfield) : null)
+  const table = $derived(tableRect(width, height, topReserve, landscape))
 </script>
 
 <div
   bind:this={boardEl}
   class="board"
   data-testid="game-board"
-  data-map={p.map?.id ?? ''}
-  style={p.map
-    ? `background-image: url(${p.map.room}); --map-accent: ${p.map.accent}; --map-accent-deep: ${p.map.accentDeep}`
-    : undefined}
+  data-map={mapId}
+  data-scene-time={p.scene?.time ?? ''}
+  data-scene-weather={p.scene?.weather ?? ''}
+  style={boardStyle}
 >
+  {#if p.scene}
+    <!-- The room, rendered once, sharp: its podium is under the felt to the
+         pixel, so the table stands in it rather than in front of it. -->
+    <SceneBackdrop scene={p.scene} anchor={p.anchor} />
+    <div class="vignette"></div>
+  {/if}
   <div
     bind:this={stageEl}
     class="stage"
@@ -625,37 +717,37 @@
           <!-- The light the table casts on the room's floor. Drawn under the table
                itself and sized off the felt, so it tracks the board scale like
                everything else. -->
-          {#if p.map}
+          {#if p.scene}
             <div
               class="tableGlow"
               style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px"
             ></div>
           {/if}
-          {#if p.map && tableImg}
-            <img
-              class="tableImage"
-              src={p.map.table}
-              alt=""
-              aria-hidden="true"
-              draggable="false"
-              style="left: {tableImg.left}px; top: {tableImg.top}px; width: {tableImg.width}px; height: {tableImg.height}px"
-            />
-          {:else}
+          <!-- The table: a felt and a rim, CSS on exactly tableRect(). In a room
+               it stands on the podium the render carries under it; without one
+               it gets a CSS plinth, so the built-in felt is still an object. -->
+          {#if !p.scene}
             <div
-              class="tableOval"
-              style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px"
-            >
-              <svg class="tableMark" viewBox={LOCO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
-                <path d={LOCO_MARK_PATH} fill-rule="evenodd" fill="#ffffff" />
-              </svg>
-            </div>
+              class="tablePlinth"
+              style="left: {table.left + table.width * 0.3}px; top: {table.top + table.height * 0.62}px; width: {table.width * 0.4}px; height: {table.height * 0.62}px"
+            ></div>
           {/if}
+          <div
+            class="tableOval"
+            data-testid="table"
+            style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px"
+          >
+            <svg class="tableMark" viewBox={LOCO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
+              <path d={LOCO_MARK_PATH} fill-rule="evenodd" fill="#ffffff" />
+            </svg>
+          </div>
           <!-- Keyed on the direction so a Reverse remounts the ring and replays its
                flip: the change of heading is the event. -->
           {#key p.direction >= 0 ? 'cw' : 'ccw'}
             <DirectionRing rect={table} direction={p.direction} label={p.directionLabel} />
           {/key}
           <Deck
+            {landscape}
             {width}
             {height}
             {topReserve}
@@ -664,7 +756,9 @@
             drawLabel={p.drawLabel}
           />
           <DiscardPile
+            {landscape}
             card={p.discard}
+            playStamp={p.lastPlay?.at ?? 0}
             activeColor={p.activeColor}
             pendingDraw={p.pendingDraw}
             {width}
@@ -672,6 +766,9 @@
             {topReserve}
           />
           <TurnIndicator
+            {width}
+            {topReserve}
+            {landscape}
             isMyTurn={p.currentTurn === p.myIndex}
             pendingDraw={p.pendingDraw}
             canCounter={p.canCounter}
@@ -692,7 +789,9 @@
             />
           {/each}
           <Hand
+            {landscape}
             hand={p.myHand}
+            roundNumber={p.roundNumber}
             {width}
             {height}
             isPlayable={p.isPlayable}
@@ -731,89 +830,49 @@
     overflow: hidden;
   }
 
-  /* ─── Maps ────────────────────────────────────────────────────────────────
-     A map replaces the painted room, never the geometry: `layout.ts` still owns
+  /* ─── Scenes ──────────────────────────────────────────────────────────────
+     A scene replaces the painted room, never the geometry: `layout.ts` still owns
      where the felt, the piles, the seats and the direction ring go. Everything
      below is paint.
 
-     `background-size: cover` because the art is 3:2 and the board is anything
-     from an ultrawide strip to a phone: letterboxing the room would put two bands
-     of nothing where the seats sit.
-
-     The room itself comes in as an inline `background-image`, which outranks the
-     shorthand above and so takes the decorative orbs with it. */
+     The room comes in as <SceneBackdrop />, rendered once by the isometric
+     engine and drawn blurred (depth of field: the table is what the eye is
+     focused on). It carries its own sky, so the decorative orbs go. */
   .board[data-map]:not([data-map='']) {
-    background-color: var(--room-void);
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    /* The blurred copy below sits at a negative z-index, and a negative layer
-       escapes to the nearest stacking context, which here would put it *behind*
-       this element's own background, i.e. nowhere. Isolating makes .board that
-       context. Safe: nothing inside the board goes past z-index 3. */
+    background: var(--room-void);
+    /* The backdrop and the vignette are positioned children under the stage,
+       and nothing inside the board goes past z-index 3, so isolating keeps the
+       whole stack local. */
     isolation: isolate;
   }
 
-  /* The same room again, blurred, over its own sharp copy.
-     Depth of field: the table is what the eye is focused on and the room is
-     behind it, so a busy photograph stops competing with a card edge, the one
-     contest a card must always win, at 720p through stream compression most of
-     all. Deliberately slight: the room still has to be recognisable as the room
-     the loading screen just spent a second introducing, which is also why that
-     screen keeps its backdrop sharp.
-
-     `background-image: inherit` picks up the inline url set above, so exactly one
-     place still names the file. The radius is in `vmin` rather than px because
-     the board scales with the viewport (see boardScale): a fixed one is a haze on
-     a phone and a smudge on a 1440p monitor. The scale-up covers the transparent
-     rim a blur pulls in at the edges. */
-  .board[data-map]:not([data-map=''])::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    background-image: inherit;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    filter: blur(0.55vmin);
-    transform: scale(1.06);
-    pointer-events: none;
+  /* The room already carries its own lighting, so the decorative orbs and the
+     spotlight are dropped, because two lighting schemes on one image read as
+     fog. What stays is a vignette, because the hand and the action bar sit on
+     top of the scene's busiest corners. A real element rather than ::before,
+     so it paints between the backdrop and the stage in tree order. */
+  .board[data-map]:not([data-map=''])::before {
+    content: none;
   }
 
-  /* The room already carries its own lighting, so the decorative orbs and the
-     spotlight are dropped, because two lighting schemes on one image read as fog.
-     What stays is a vignette, because the hand and the action bar sit on top of
-     the photograph's busiest corners. */
-  .board[data-map]:not([data-map=''])::before {
+  .vignette {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
     background:
       radial-gradient(
         62% 52% at 50% 44%,
         rgba(0, 0, 0, 0) 0%,
         rgba(0, 0, 0, 0) 55%,
-        rgba(3, 2, 10, 0.42) 100%
+        rgba(3, 2, 10, calc(0.14 + var(--scene-dark, 0) * 0.16)) 100%
       ),
       linear-gradient(
         180deg,
-        rgba(3, 2, 10, 0.34) 0%,
+        rgba(3, 2, 10, calc(0.12 + var(--scene-dark, 0) * 0.14)) 0%,
         rgba(3, 2, 10, 0) 24%,
         rgba(3, 2, 10, 0) 62%,
-        rgba(3, 2, 10, 0.55) 100%
+        rgba(3, 2, 10, calc(0.22 + var(--scene-dark, 0) * 0.2)) 100%
       );
-  }
-
-  /* The map's table, scaled so its playing surface lands on tableRect(). It
-     overhangs the felt on every side (rim, base, cast shadow), which is most of
-     what makes each room a different object. */
-  .tableImage {
-    position: absolute;
-    object-fit: fill;
-    pointer-events: none;
-    user-select: none;
-    -webkit-user-drag: none;
-    /* Grounds the table on the room's floor. The art carries its own shadow, but
-       it was rendered against a neutral backdrop, not against this floor. */
-    filter: drop-shadow(0 18px 30px rgba(0, 0, 0, 0.55));
   }
 
   /* The light the table throws on the room. This is where a map's accent colour
@@ -830,7 +889,7 @@
     );
     transform: scale(1.55);
     filter: blur(26px);
-    opacity: 0.55;
+    opacity: calc(0.25 + var(--scene-dark, 1) * 0.35);
     pointer-events: none;
   }
 
@@ -875,26 +934,64 @@
     }
   }
 
-  /* Felt table. The rim is a real ring (thick border) so the table reads as a
-     solid object with an edge, not a coloured smudge on the background. */
+  /* ─── The table ───────────────────────────────────────────────────────────
+     A felt inside a rim, standing on a plinth. Every room hands the same object
+     its own materials (`--tbl-*`, from `maps.ts`), and the hour hands it a tint
+     for the sheen and a dimming for the whole; without a scene the tokens'
+     near-black table is what the variables fall back to.
+
+     It obeys the three rules every raised object here obeys: an ink outline on
+     both sides of the rim, a hard bottom edge (the `0 16px 0` shadow is the
+     rim's thickness, seen from above and in front), and a soft shadow that is
+     ambience, never structure. The inlay is the one line of the room's accent
+     set into the rim: a neon tube, a brass bead, a rune groove. */
   .tableOval {
     position: absolute;
     border-radius: 50%;
+    --felt-1: color-mix(in srgb, var(--tbl-felt, var(--table-felt-1)), #000 calc(var(--scene-dark, 1) * 22%));
+    --felt-2: color-mix(in srgb, var(--tbl-felt-deep, var(--table-felt-2)), #000 calc(var(--scene-dark, 1) * 22%));
     background:
-      radial-gradient(58% 58% at 50% 34%, var(--table-rim-light) 0%, rgba(0, 0, 0, 0) 62%),
-      linear-gradient(170deg, var(--table-felt-1) 0%, var(--table-felt-2) 68%);
-    border: 11px solid var(--table-rim);
+      radial-gradient(60% 58% at 50% 28%, color-mix(in srgb, var(--scene-tint, #ffffff) 16%, transparent) 0%, rgba(0, 0, 0, 0) 68%),
+      radial-gradient(58% 58% at 50% 34%, color-mix(in srgb, var(--tbl-rim-light, var(--table-rim-light)) 14%, transparent) 0%, rgba(0, 0, 0, 0) 62%),
+      linear-gradient(170deg, var(--felt-1) 0%, var(--felt-2) 68%);
+    border: 11px solid color-mix(in srgb, var(--tbl-rim, var(--table-rim)), #000 calc(var(--scene-dark, 1) * 18%));
     box-shadow:
-      /* ink outline on both sides of the rim, so the table edge survives any
-         background colour behind it */
-      inset 0 0 0 2px rgba(6, 3, 16, 0.35),
-      inset 0 8px 24px rgba(255, 255, 255, 0.1),
+      /* the inlay, then the ink line inside the rim */
+      inset 0 0 0 2px color-mix(in srgb, var(--tbl-inlay, var(--table-rim-light)) 70%, transparent),
+      inset 0 0 0 4px rgba(6, 3, 16, 0.4),
+      inset 0 8px 24px color-mix(in srgb, var(--scene-tint, #ffffff) 10%, transparent),
       inset 0 -20px 36px rgba(0, 0, 0, 0.36),
-      0 0 0 2px rgba(6, 3, 16, 0.45),
-      0 13px 0 rgba(4, 5, 12, 0.6),
-      0 28px 52px rgba(12, 6, 30, 0.42);
+      /* ink outline outside, the sheen on the rim's top edge, the rim's thickness, the ink under that */
+      0 0 0 2px rgba(6, 3, 16, 0.55),
+      0 -2px 0 2px color-mix(in srgb, var(--tbl-rim-light, var(--table-rim-light)) 45%, transparent),
+      0 16px 0 var(--tbl-base, var(--table-rim)),
+      0 16px 0 2px rgba(6, 3, 16, 0.55),
+      /* the cast shadow lies the way the room's sun lays every other one */
+      calc(var(--sun-dx, 0) * 22px) calc(16px + var(--sun-dy, 0.7) * 24px) 44px
+        rgba(6, 3, 16, calc(0.35 + var(--scene-dark, 1) * 0.15));
     pointer-events: none;
     overflow: hidden;
+  }
+
+  /* The plinth: what the table stands on, drawn under it. Its top is hidden by
+     the felt; what shows is the column and the foot, which is what tells the eye
+     this is an object standing in the room and not a decal on its floor. */
+  .tablePlinth {
+    position: absolute;
+    border-radius: 50% 50% 46% 46% / 30% 30% 50% 50%;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--tbl-base, var(--table-rim)), #000 10%) 0%,
+      color-mix(in srgb, var(--tbl-base, var(--table-rim)), #000 40%) 100%
+    );
+    box-shadow:
+      inset 0 0 0 2px rgba(6, 3, 16, 0.55),
+      inset 16px 0 30px rgba(255, 255, 255, 0.05),
+      inset -16px 0 30px rgba(0, 0, 0, 0.35),
+      0 10px 0 color-mix(in srgb, var(--tbl-base, var(--table-rim)), #000 55%),
+      0 10px 0 2px rgba(6, 3, 16, 0.55),
+      0 26px 40px rgba(6, 3, 16, 0.4);
+    pointer-events: none;
   }
 
   /* The mark, branded into the felt the way a casino brands its baize. Kept at

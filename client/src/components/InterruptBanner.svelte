@@ -48,7 +48,7 @@
 {#if flash && visible}
   {#key flash.at}
     <div class="overlay" aria-live="assertive">
-      <div class="slash"></div>
+      <div class="slashTilt"><div class="slash"></div></div>
       <div class="banner" style="--actor-color: {seatColor(flash.actorIndex)}">
         <span class="title">{t.interruptTitle}</span>
         <span class="subtitle">{subtitle}</span>
@@ -78,14 +78,30 @@
     overflow: hidden;
   }
 
-  /* A colour wipe crossing the screen behind the words. */
-  .slash {
+  /* A colour wipe crossing the screen behind the words.
+
+     **The tilt and the sweep are two elements, and they have to be.** `skewY`
+     moves a point vertically by its distance from the transform origin, so the
+     band skewed about its own left edge — which is a fifth of a screen off the
+     left of the frame — arrived at the middle of the screen a hundred and forty
+     pixels above where it was drawn, and on a wide monitor the words came down
+     on empty board with the band floating over them. The sweep still starts at
+     the left, because that is the gesture; the tilt now pivots about the centre,
+     which is where the banner is. */
+  .slashTilt {
     position: absolute;
     top: 50%;
     left: -20%;
     width: 140%;
     height: 168px;
     margin-top: -84px;
+    transform: skewY(-6deg);
+    transform-origin: center center;
+  }
+
+  .slash {
+    position: absolute;
+    inset: 0;
     background: linear-gradient(
       90deg,
       rgba(255, 61, 104, 0) 0%,
@@ -93,26 +109,26 @@
       rgba(108, 92, 255, 0.85) 78%,
       rgba(108, 92, 255, 0) 100%
     );
-    transform: skewY(-6deg) scaleX(0);
+    transform: scaleX(0);
     transform-origin: left center;
     animation: slashSweep 0.9s var(--ease-out) forwards;
   }
 
   @keyframes slashSweep {
     0% {
-      transform: skewY(-6deg) scaleX(0);
+      transform: scaleX(0);
       opacity: 0;
     }
     22% {
-      transform: skewY(-6deg) scaleX(1);
+      transform: scaleX(1);
       opacity: 1;
     }
     70% {
-      transform: skewY(-6deg) scaleX(1);
+      transform: scaleX(1);
       opacity: 1;
     }
     100% {
-      transform: skewY(-6deg) scaleX(1);
+      transform: scaleX(1);
       opacity: 0;
     }
   }
@@ -202,7 +218,24 @@
     }
   }
 
-  :root[data-motion="reduce"] .slash {
+  /* Same treatment the catch stamp has at this width: a nickname is up to 20
+     characters, and a subtitle that may not wrap took one off both edges of a
+     360px screen. */
+  @media (max-width: 480px) {
+    .banner {
+      padding: 13px 24px;
+    }
+    .combo {
+      right: -10px;
+      font-size: 17px;
+    }
+    .subtitle {
+      white-space: normal;
+      text-align: center;
+    }
+  }
+
+  :root[data-motion="reduce"] .slashTilt {
     display: none;
   }
 

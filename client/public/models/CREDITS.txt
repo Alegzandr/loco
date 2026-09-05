@@ -1,0 +1,285 @@
+Models used by the rooms. Every kit below is Creative Commons Zero (CC0), and is packed here by tools/models/pack.mjs from the manifest.
+
+## city (kenney_city-kit-commercial_2.1)
+
+City Kit Commercial (2.1)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 21-07-2025 18:16
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:	 twitter.com/KenneyNL
+	• BlueSky:	 kenney.bsky.social
+	• Instagram: instagram.com/kenney_nl
+
+## suburb (kenney_city-kit-suburban_20)
+
+City Kit Suburban (2.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 23-04-2025 20:22
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:	 twitter.com/KenneyNL
+	• BlueSky:	 kenney.bsky.social
+	• Instagram: instagram.com/kenney_nl
+
+## roads (kenney_city-kit-roads)
+
+City Kit Roads (2.1)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 18-08-2026 10:43
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:	 twitter.com/KenneyNL
+	• BlueSky:	 kenney.bsky.social
+	• Instagram: instagram.com/kenney_nl
+
+## nature (kenney_nature-kit)
+
+Nature Kit (2.1)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 29-04-2020 01:02
+
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	This content is free to use in personal, educational and commercial projects.
+	Support us by crediting Kenney or www.kenney.nl (this is not mandatory)
+
+			------------------------------
+
+	Donate:   http://support.kenney.nl
+	Request:  http://request.kenney.nl
+	Patreon:  http://patreon.com/kenney/
+
+	Follow on Twitter for updates:
+	http://twitter.com/KenneyNL
+
+## cars (kenney_car-kit)
+
+Car Kit (3.1)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 02-04-2026 14:03
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:	 twitter.com/KenneyNL
+	• BlueSky:	 kenney.bsky.social
+	• Instagram: instagram.com/kenney_nl
+
+## people (kenney_mini-characters)
+
+Mini Characters (1.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 17-07-2024 11:31
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:   twitter.com/KenneyNL
+	• Instagram: instagram.com/kenney_nl
+	• Mastodon:  mastodon.gamedev.place/@kenney
+
+## pirate (kenney_pirate-kit)
+
+Pirate Kit (2.1)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 17-02-2026 13:57
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:	 twitter.com/KenneyNL
+	• BlueSky:	 kenney.bsky.social
+	• Instagram: instagram.com/kenney_nl
+
+## fantasy (kenney_fantasy-town-kit_2.0)
+
+Fantasy Town Kit (2.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 03-08-2025 13:56
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:	 twitter.com/KenneyNL
+	• BlueSky:	 kenney.bsky.social
+	• Instagram: instagram.com/kenney_nl
+
+## space (kenney_space-kit)
+
+Space Kit (2.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 27-08-2020 14:20
+
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	This content is free to use in personal, educational and commercial projects.
+	Support us by crediting Kenney or www.kenney.nl (this is not mandatory)
+
+			------------------------------
+
+	Donate:   http://support.kenney.nl
+	Request:  http://request.kenney.nl
+	Patreon:  http://patreon.com/kenney/
+
+	Follow on Twitter for updates:
+	http://twitter.com/KenneyNL
+
+## holiday (kenney_holiday-kit)
+
+Holiday Kit (2.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 11-12-2024 14:31
+	
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You can use this content for personal, educational, and commercial purposes.
+
+	Support by crediting 'Kenney' or 'www.kenney.nl' (this is not a requirement)
+
+			------------------------------
+
+	• Website : www.kenney.nl
+	• Donate  : www.kenney.nl/donate
+
+	• Patreon : patreon.com/kenney
+	
+	Follow on social media for updates:
+
+	• Twitter:   twitter.com/KenneyNL
+	• Instagram: instagram.com/kenney_nl
+	• Mastodon:  mastodon.gamedev.place/@kenney
+
+## quaternius (quaternius)
+
+CC0 1.0 Universal (public domain), as published by the author.

@@ -119,16 +119,16 @@ test.describe('read without JavaScript', () => {
     }
   })
 
-  test('the tables page shows all four rooms', async ({ page }) => {
+  test('the tables page shows all six rooms', async ({ page }) => {
     await page.goto('/tables/')
     const body = await page.locator('main').innerText()
-    for (const id of ['neon', 'rune', 'velvet', 'orbit'] as const) {
+    for (const id of ['neon', 'rune', 'velvet', 'orbit', 'sakura', 'marina'] as const) {
       expect(body, `room: ${id}`).toContain(en.maps[id].name)
       expect(body, `tagline: ${id}`).toContain(en.maps[id].tagline)
     }
-    // Room plus table for each: the page composites them exactly as the board
-    // does, so a missing one is a room with no table in it.
-    await expect(page.locator('main img')).toHaveCount(8)
+    // One still per room, with the page's own CSS table over it: a missing
+    // one is a room shown as its sky, which is the fallback and not the page.
+    await expect(page.locator('main .roomStill')).toHaveCount(6)
   })
 
   test('the FAQ answers every question it declares to a search engine', async ({ page }) => {
@@ -311,35 +311,6 @@ test.describe('read without JavaScript', () => {
 })
 
 test.describe('with JavaScript, it is still the game', () => {
-  test('the theme switch follows the reader from page to page', async ({ page }) => {
-    await page.goto('/rules/')
-    const button = page.locator('.siteFooter .themeBtn')
-    // Hidden in the markup and revealed by theme-boot: a switch that cannot
-    // store a choice is a button that does nothing.
-    await expect(button).toBeVisible()
-
-    const theme = async () => page.locator('html').getAttribute('data-theme')
-    const before = await theme()
-    await button.click()
-    expect(await theme()).not.toBe(before)
-
-    // There are two of these — one in the bar, one in the drawer — and they are
-    // painted together, so the one in the drawer is already showing the theme
-    // the reader is on by the time they open it.
-    await expect(page.locator('.navPop .themeBtn')).toHaveAttribute(
-      'data-theme-state',
-      (await theme())!,
-    )
-
-    // Stored under the key `src/theme.ts` reads, so the choice survives the walk
-    // back to the game as well as the walk to the next page.
-    const chosen = await theme()
-    await page.goto('/faq/')
-    expect(await theme()).toBe(chosen)
-    expect(await page.evaluate(() => localStorage.getItem('loco_theme'))).toBe(chosen)
-  })
-
-
   test('the home page boots the app', async ({ page }) => {
     await page.goto('/')
     // The lobby's tagline only exists once React has mounted, so this is the

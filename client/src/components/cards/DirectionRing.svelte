@@ -47,6 +47,10 @@
       transform="translate({m.x} {m.y}) rotate({m.angle})"
       style="animation-delay: {(i * CHASE_MS) / DIRECTION_MARKER_COUNT}ms"
     >
+      <!-- Drawn twice, the wider soft pass first: the halo that holds an edge on
+           near-black felt, as a stroke rather than a filter — see the style
+           block. -->
+      <path class="halo" d="M -11 -13 L 4 0 L -11 13" />
       <path d="M -11 -13 L 4 0 L -11 13" />
     </g>
   {/each}
@@ -86,9 +90,17 @@
   }
 
   /* Just enough light to hold an edge on near-black felt after a stream re-encode
-     eats the thin end of a white stroke. Not a neon. */
-  .ring path {
-    filter: drop-shadow(0 0 5px rgba(150, 210, 240, 0.45));
+     eats the thin end of a white stroke. Not a neon.
+
+     A second, wider, translucent stroke under the chevron rather than a
+     `filter: drop-shadow()` on it: ten chevrons each carried a filter under an
+     infinite opacity animation, and a filtered element is re-rasterised on every
+     frame its opacity moves, so the ambience was ten blurs a frame for the
+     whole match. Two strokes are painted once; the chase then animates the
+     group's opacity and nothing else. Same device as the card glyphs' ink pass. */
+  .halo {
+    stroke: rgba(150, 210, 240, 0.45);
+    stroke-width: 11;
   }
 
   @keyframes dirChase {

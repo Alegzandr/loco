@@ -110,8 +110,7 @@ const links = alternates(page)
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ece3ff" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#150c2e" />
+    <meta name="theme-color" content="#150c2e" />
     {/*
       `viewport-fit=cover` because the board paints a room and a table, and
       without it iOS confines the page to the safe area and fills the notch and
@@ -228,6 +227,20 @@ const links = alternates(page)
       */
       :root[data-seated] body {
         touch-action: pan-x pan-y;
+      }
+      /*
+        …and the selection goes with it, on every element and not only by
+        inheritance from the body. iOS Safari selects the label of a disabled
+        `<button>` on a double tap whatever the body says — a dead LOCO! chip
+        came up highlighted with Copy / Look Up over the action bar mid-round —
+        so past the entry screen the refusal is written on the element itself.
+        Nothing at a table is there to be copied: the code plate copies by
+        script, and the fields a player types into are the entry screen's.
+      */
+      :root[data-seated] :not(input, textarea) {
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
       }
     </style>
   </head>

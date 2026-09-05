@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { drainBar } from '../hooks/drainBar.svelte'
 
@@ -12,7 +13,8 @@
 
   const t = $derived(i18n.t)
   let fill = $state<HTMLDivElement | null>(null)
-  let seconds = $state(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)))
+  // Seeded from the deadline we were mounted with; the tick below follows it.
+  let seconds = $state(untrack(() => Math.max(0, Math.ceil((deadline - Date.now()) / 1000))))
 
   drainBar(() => fill, () => deadline, 'auto')
 

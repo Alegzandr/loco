@@ -12,11 +12,26 @@
  *   3. Type is display-weight and large: a spectator reads it from a stream
  *      at 720p, not a designer at arm's length.
  *
+ * One palette, and it is the night one. There used to be two — a candy-sky
+ * "day" and this indigo "night", behind an attribute on `<html>` and a media query
+ * duplicated so the first frame was right — and the day one was dropped on
+ * purpose: the game is played in rendered rooms over a near-black table and
+ * is built to be captured, and a pale canvas around that read as a website
+ * with a game embedded in it. Every contrast in this file is now measured
+ * once, on one canvas, and nothing anywhere keys on a theme attribute
+ * (`noLightTheme.test.ts` is the guard). The card faces and the rooms never
+ * followed a theme in the first place: a card is an object, a room is a
+ * place.
+ *
  * Card-face suit colours live in components/cards/cardTheme.ts — they encode
  * gameplay semantics, not brand, and are shared with the animation layer.
  */
 
 :root {
+  /* The browser's own widgets — scrollbars, form controls, the list a
+     `<select>` opens — are drawn for a dark page. */
+  color-scheme: dark;
+
   /* ── Device safe areas ─────────────────────────────────────────────────────
      The page runs `viewport-fit=cover` (see layouts/Base.astro), so it owns the notch
      and the home-indicator band and the room's picture reaches every edge of
@@ -24,10 +39,10 @@
      piece of chrome anchored to an edge offsets itself by these, and the board's
      coordinate space stops short of them (layout.ts: boardSpace). Zero on any
      device without a notch, which is why the offsets are plain `calc()` rather
-     than a media query. Theme-independent: a notch is hardware. */
+     than a media query. */
   /* The dark a room sits in: behind the map's picture, and under every band the
-     page does not own once a match is up. Theme-independent, like the felt and
-     the cards: a room is a place, not a surface that follows the UI. */
+     page does not own once a match is up. Like the felt and the cards: a room
+     is a place, not a surface. */
   --room-void: #07060f;
 
   --safe-top: env(safe-area-inset-top, 0px);
@@ -44,11 +59,10 @@
   --color-tertiary: #6c5cff;         /* electric indigo — info, direction */
   --color-mint: #12c48f;             /* confirmations, playable glow */
   /* A link inside a paragraph is body text and has to measure like body text.
-     The brand indigo does not: `--color-tertiary` lands near 3.8:1 on the light
-     canvas and 3.6:1 on the dark one, and the content pages are the only place
-     in the product with prose long enough to hold links. Same hue, moved far
-     enough in each theme to clear AA. */
-  --color-link: #4a35c9;
+     The brand indigo does not: `--color-tertiary` lands near 3.6:1 on this
+     canvas, and the content pages are the only place in the product with prose
+     long enough to hold links. Same hue, lifted until it clears AA. */
+  --color-link: #b3a6ff;
 
   /* ── Button gradients ───────────────────────────────────────────────────
      Every pressable object in the game is the same vertical gradient: a lighter
@@ -69,48 +83,65 @@
   /* ── Ink outline & solid shadow (the "sticker" look) ───────────────────── */
   --stroke: 3px;
   --stroke-thin: 2px;
-  --color-stroke: #241546;
-  --color-stroke-soft: rgba(36, 21, 70, 0.22);
+  --color-stroke: #0b0618;
+  --color-stroke-soft: rgba(6, 3, 16, 0.55);
   --shadow-hard: 0 4px 0 var(--color-stroke-soft);
   --shadow-hard-lg: 0 6px 0 var(--color-stroke-soft);
   /* Raised panel: solid ledge + soft ambient drop. */
   --shadow-pop:
     0 6px 0 var(--color-stroke-soft),
-    0 14px 30px rgba(28, 14, 56, 0.22);
+    0 16px 34px rgba(0, 0, 0, 0.5);
 
-  /* ── Surfaces (light / "day") ──────────────────────────────────────────── */
-  --color-canvas: #f4ecff;
-  --color-surface-soft: #faf6ff;
-  --color-surface-card: #ffffff;
-  --color-surface-strong: #ece2ff;
-  /* Page backdrop: candy sky. Decorative blobs are layered on top in app.css. */
+  /* ── Surfaces ──────────────────────────────────────────────────────────
+     A deep indigo den lit by the felt: the canvas, then two tiers raised on
+     it, then the one tier sunk into it. */
+  --color-canvas: #150c2e;
+  --color-surface-soft: #1e1440;
+  --color-surface-card: #271a4f;
+  --color-surface-strong: #33235f;
+  /* The one surface that is *below* the card rather than on it: the slot a dead
+     control is printed into. Every live object in this UI is raised — ink
+     outline, hard ledge, a fill that carries more colour than the panel under
+     it — so a disabled button has to be the opposite of all three, and the fill
+     is the half that reads at a glance. Deliberately desaturated as well as
+     darker: `--color-surface-strong` is a live Pass, and the two sat on the
+     same fill with only the ledge between them. */
+  --color-surface-sunken: #1a1134;
+  /* Page backdrop: the den's own sky. Three soft colour orbs are layered on
+     top of it on `body` below. */
   --bg-gradient:
-    radial-gradient(120% 90% at 12% 0%, #ffe6f1 0%, rgba(255, 230, 241, 0) 55%),
-    radial-gradient(110% 80% at 92% 8%, #dff1ff 0%, rgba(223, 241, 255, 0) 50%),
-    linear-gradient(168deg, #f7edff 0%, #ece3ff 48%, #e3ecff 100%);
+    radial-gradient(120% 90% at 12% 0%, #3a1f6b 0%, rgba(58, 31, 107, 0) 55%),
+    radial-gradient(110% 80% at 92% 6%, #16365e 0%, rgba(22, 54, 94, 0) 52%),
+    linear-gradient(168deg, #1b1038 0%, #150c2e 52%, #100a24 100%);
 
   /* ── Play table (felt) ─────────────────────────────────────────────────── */
   /* Near-black, faintly cool. The deck is saturated gradient on black, and the
      old green felt fought it — a #00ff6d card on a #1fbf8f table loses its edge,
      which is the one thing a card must never do. Dark also makes the table the
-     stage and the cards the only bright objects on it. Same in both themes: a
-     table is an object, like the cards, not a surface that follows the UI. */
+     stage and the cards the only bright objects on it. A table is an object,
+     like the cards, and these are the lobby's felt: a room hands the same
+     object its own materials (maps.ts). */
   --table-felt-1: #262b3a;
   --table-felt-2: #12151f;
   /* The rim must read as a distinct object edge, not a darker shade of felt —
      keep it several steps darker than --table-felt-2. */
-  --table-rim: #0a0c14;
+  --table-rim: #06080e;
   --table-rim-light: #5b6480;
 
   /* ── Hairlines & borders ───────────────────────────────────────────────── */
-  --color-hairline: #ded2f5;
-  --color-border-strong: #b7a6dd;
+  --color-hairline: #3d2b6e;
+  --color-border-strong: #5b449b;
 
   /* ── Text ──────────────────────────────────────────────────────────────── */
-  --color-ink: #241546;
-  --color-body: #4a3a75;
-  --color-muted: #6f5f95;
-  --color-muted-soft: #9587b6;
+  --color-ink: #f6f1ff;
+  --color-body: #ded4f5;
+  --color-muted: #ab9dd2;
+  --color-muted-soft: #8577ad;
+  /* The label of a control that has gone dead, on `--color-surface-sunken`:
+     6.1:1. Quiet is a hue here as everywhere else — the state is said by the
+     sunken fill and the missing ledge, not by fading a label a spectator still
+     has to read at 720p. */
+  --color-disabled-ink: #9d8fc6;
   --color-on-primary: #ffffff;
   /* White is only ever legible on the saturated fills, never on the yellow: at
      this saturation `#fff` on `--color-secondary` measures ~1.7:1, which is why
@@ -120,16 +151,41 @@
   --color-on-dark: #ffffff;
   --color-on-secondary: #4a2c00;
   --color-on-mint: #05301f;
+  /* The yellow's two quieter voices. A winner's row on the round summary is
+     `--gradient-secondary`, and it carried a placement in `#7a4a00` and a delta
+     in `#1f6b3c` typed at the call site — a brown and a green nothing kept in
+     step with the brown above. The green is pushed one step past the old
+     literal, which measured 4.25:1 on the flat yellow; this one clears 4.5:1
+     on both stops. */
+  --color-on-secondary-muted: #7a4a00;
+  --color-on-secondary-mint: #175c33;
+  /* Mint as *text on a panel*, the way `--color-link` is the indigo as text in
+     a paragraph. `--color-mint` is a fill; on this canvas the brand mint itself
+     measures 6:1 as text, so the two land on one value. Kept as its own token
+     because the round summary's "+30" is written in it, and a fill and a piece
+     of text are two decisions even when they share a number. */
+  --color-mint-text: #12c48f;
 
   /* ── Semantic ──────────────────────────────────────────────────────────── */
   --color-error: #e5304b;
-  --color-scrim: rgba(28, 14, 56, 0.55);
+  /* The step between the yellow and the red. The ping scale is four ordered
+     tiers and the brand carries three hues for them, so this one is the
+     scale's own; it was written into `ScoreTable` as a literal beside a copy
+     of `--color-error`, which is what a token exists to prevent. */
+  --color-amber: #ff9f1a;
+  --color-scrim: rgba(8, 4, 20, 0.68);
+  /* The scrim for a panel that stays up while the board underneath keeps
+     playing — the round summary, the standings, the reconnect curtain. Dense
+     rather than blurred: a `backdrop-filter: blur()` held over a live board is
+     re-rasterised on every frame anything behind it moves, for the whole of
+     the next round's deal, under the summary. */
+  --color-scrim-heavy: rgba(8, 4, 20, 0.84);
 
   /* ── Card back ─────────────────────────────────────────────────────────── */
   /* Same near-black as a wild card face: the deck and the wilds are one family,
      and the four-colour mark on the back only reads against something neutral. */
-  --card-back-bg: #141414;
-  --card-back-bg-top: #1e1e1e;
+  --card-back-bg: #0e0e0e;
+  --card-back-bg-top: #191919;
 
   /* ── Type ──────────────────────────────────────────────────────────────── */
   --font-display: 'Fredoka Variable', 'Fredoka', 'Baloo 2', system-ui, -apple-system, sans-serif;
@@ -172,107 +228,6 @@
   /* ── Motion ────────────────────────────────────────────────────────────── */
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  /* How long day↔night takes to cross. The same number lives in `theme.ts` as
-     `THEME_FADE_MS`, which is what holds the attribute below on: the rule and
-     the attribute have to come off together or the fade stops halfway. */
-  --theme-fade: 260ms;
-}
-
-/*
- * Dark theme — "night". Deep indigo table room lit by the felt. Same brand
- * voltage, same chunky rules; only the room changes.
- */
-[data-theme='dark'] {
-  --color-canvas: #150c2e;
-  --color-surface-soft: #1e1440;
-  --color-surface-card: #271a4f;
-  --color-surface-strong: #33235f;
-
-  --bg-gradient:
-    radial-gradient(120% 90% at 12% 0%, #3a1f6b 0%, rgba(58, 31, 107, 0) 55%),
-    radial-gradient(110% 80% at 92% 6%, #16365e 0%, rgba(22, 54, 94, 0) 52%),
-    linear-gradient(168deg, #1b1038 0%, #150c2e 52%, #100a24 100%);
-
-  --table-felt-1: #262b3a;
-  --table-felt-2: #12151f;
-  --table-rim: #06080e;
-  --table-rim-light: #5b6480;
-
-  --color-stroke: #0b0618;
-  --color-stroke-soft: rgba(6, 3, 16, 0.55);
-  --shadow-pop:
-    0 6px 0 var(--color-stroke-soft),
-    0 16px 34px rgba(0, 0, 0, 0.5);
-
-  --color-hairline: #3d2b6e;
-  --color-border-strong: #5b449b;
-
-  --color-ink: #f6f1ff;
-  --color-body: #ded4f5;
-  --color-muted: #ab9dd2;
-  --color-muted-soft: #8577ad;
-  --color-on-dark: #ffffff;
-  --color-link: #b3a6ff;
-
-  --color-scrim: rgba(8, 4, 20, 0.68);
-
-  --card-back-bg: #0e0e0e;
-  --card-back-bg-top: #191919;
-}
-
-/*
- * The same palette, before anything has run.
- *
- * `[data-theme]` is written by a script, and a script cannot paint the first
- * frame: a content page is a stylesheet and a deferred module, so a player whose
- * system is dark got one white flash on every navigation between pages. This
- * block is what the browser already knows at parse time. `:not([data-theme=
- * 'light'])` is what keeps the choice above the system: once the script has
- * written an explicit `light`, the media query stops applying.
- *
- * It is a duplicate of the block above and that is deliberate — CSS has no way
- * to add a selector to a rule conditionally, and `light-dark()` would rewrite
- * every token in this file against a two-year-old baseline. `themeFlash.test.ts`
- * fails the moment the two stop declaring exactly the same thing.
- */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --color-canvas: #150c2e;
-    --color-surface-soft: #1e1440;
-    --color-surface-card: #271a4f;
-    --color-surface-strong: #33235f;
-
-    --bg-gradient:
-      radial-gradient(120% 90% at 12% 0%, #3a1f6b 0%, rgba(58, 31, 107, 0) 55%),
-      radial-gradient(110% 80% at 92% 6%, #16365e 0%, rgba(22, 54, 94, 0) 52%),
-      linear-gradient(168deg, #1b1038 0%, #150c2e 52%, #100a24 100%);
-
-    --table-felt-1: #262b3a;
-    --table-felt-2: #12151f;
-    --table-rim: #06080e;
-    --table-rim-light: #5b6480;
-
-    --color-stroke: #0b0618;
-    --color-stroke-soft: rgba(6, 3, 16, 0.55);
-    --shadow-pop:
-      0 6px 0 var(--color-stroke-soft),
-      0 16px 34px rgba(0, 0, 0, 0.5);
-
-    --color-hairline: #3d2b6e;
-    --color-border-strong: #5b449b;
-
-    --color-ink: #f6f1ff;
-    --color-body: #ded4f5;
-    --color-muted: #ab9dd2;
-    --color-muted-soft: #8577ad;
-    --color-on-dark: #ffffff;
-    --color-link: #b3a6ff;
-
-    --color-scrim: rgba(8, 4, 20, 0.68);
-
-    --card-back-bg: #0e0e0e;
-    --card-back-bg-top: #191919;
-  }
 }
 
 html,
@@ -287,8 +242,8 @@ body,
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* The room every screen sits in: candy gradient plus three soft colour orbs.
-   Screen containers stay transparent so this is painted exactly once. */
+/* The room every screen sits in: the den's gradient plus three soft colour
+   orbs. Screen containers stay transparent so this is painted exactly once. */
 body {
   background:
     radial-gradient(22% 30% at 8% 18%, rgba(255, 201, 60, 0.2) 0%, rgba(255, 201, 60, 0) 70%),
@@ -297,7 +252,7 @@ body {
     var(--bg-gradient);
 }
 
-/* A match played in a map: the root drops the candy gradient for the room's own
+/* A match played in a map: the root drops the den's gradient for the room's own
    near-black. Nothing of the page changes (the board paints over all of it) —
    what changes is every band the page does not own, which the browser fills
    with the root's colour: an iOS safe area, the strip a floating browser bar
@@ -309,43 +264,6 @@ html[data-room] body {
   background: var(--room-void);
 }
 
-/* ── Day ↔ night ─────────────────────────────────────────────────────────
-   The theme crosses instead of cutting.
-
-   `body` carries a `transition: background-color` of its own above, and on a
-   content page that was the whole effect: the page is one flat colour, so one
-   property covered it. In the game `#root` paints the canvas over that body and
-   every panel, outline, label and shadow on top of it comes from a token — so
-   the same press swapped a whole screen in a single frame while the pages it
-   links to faded. This is the other half.
-
-   It is a blanket rule and that is why it is temporary: `data-theme-anim` is
-   written by `setTheme` for exactly `--theme-fade` and removed again. Left on,
-   it would put a quarter of a second of lag on every colour a live match moves —
-   the active-colour ring, a catch button arming, a seat taking its turn.
-
-   Colour only. A transform or an opacity here would run over card flights and
-   every open panel for the length of the fade.
-
-   `!important`, so a component's own `transition: color 0.15s` does not leave
-   its background cutting while everything around it fades. It stays under the
-   reduced-motion rule further down all the same: that one is `!important` too
-   and (0,2,0) against this one's (0,1,1), so a player who asked for less motion
-   gets the instant swap back without a media query or a branch in the script. */
-html[data-theme-anim],
-html[data-theme-anim] *,
-html[data-theme-anim] *::before,
-html[data-theme-anim] *::after {
-  transition:
-    background-color var(--theme-fade) ease,
-    border-color var(--theme-fade) ease,
-    outline-color var(--theme-fade) ease,
-    box-shadow var(--theme-fade) ease,
-    color var(--theme-fade) ease,
-    fill var(--theme-fade) ease,
-    stroke var(--theme-fade) ease !important;
-}
-
 /* ── Hit target ──────────────────────────────────────────────────────────
    A control that is drawn smaller than --touch-target gets its target back
    here rather than by growing. The pseudo-element is centred on the control
@@ -353,9 +271,9 @@ html[data-theme-anim] *::after {
    it: the picture stays a 40px chip and the thumb gets 44px. The control needs
    `position: relative`, which every one of them already has.
 
-   Applied through `className` in TSX, so it is deliberately a plain global
-   class and not a CSS-module one — the alternative is repeating five lines in
-   every module that owns a small chip. */
+   Applied by class name from the markup, so it is deliberately a plain global
+   class — the alternative is repeating five lines in every component that
+   owns a small chip. */
 .hit-target::after {
   content: '';
   position: absolute;
@@ -372,7 +290,7 @@ html[data-theme-anim] *::after {
    In the accessibility tree and in the served HTML, off the screen. The home
    page is the only thing that needs it and it needs it badly: `/` is a game,
    its visible title is a *drawing* of the word LOCO, and until this class
-   existed the document had no <h1> at all until React had mounted one. A
+   existed the document had no <h1> at all until the app had mounted one. A
    crawler does not wait for that, and an audit reports the page as headingless.
 
    Clipped rather than `display: none` or `visibility: hidden`, both of which
@@ -416,7 +334,7 @@ html[data-theme-anim] *::after {
 ::-webkit-scrollbar-thumb:hover { background-color: var(--color-muted-soft); }
 ::-webkit-scrollbar-corner { background: transparent; }
 
-/* Keyboard focus stays visible on every surface, light or dark. */
+/* Keyboard focus stays visible on every surface. */
 :where(button, a, input, select, [tabindex]):focus-visible {
   outline: 3px solid var(--color-tertiary);
   outline-offset: 2px;
@@ -429,20 +347,34 @@ html[data-theme-anim] *::after {
    `<style>` block, which Svelte would scope out of the hook's reach; `--drain-ms` / `--drain-delay` are written on the
    element by the hook (the delay is negative: the part already elapsed).
 
+   Two ways to drain. `loco-drain` squeezes the fill (scaleX), which squashes
+   whatever cap it has into a sliver as it empties. `loco-slide` moves the whole
+   fill out of the left of its track instead (translateX), so a rounded leading
+   edge stays round and a highlight drawn on it rides along: the bar reads as an
+   object being drawn back rather than a rectangle being flattened. Both are one
+   compositor-side transform; the track clips.
+
    Add `loco-heat` for a bar that should also change colour: it runs on the same
-   clock, so the colour becomes a second readout of the same number: blue while
-   there is time, amber past halfway, red in the last quarter. It is keyed off
-   elapsed time, hence the reversed thresholds. The short catch window opts out
-   and keeps its own paint: five seconds is not long enough to report a trend. */
+   clock, so the colour becomes a second readout of the same number: indigo while
+   there is time, amber past halfway, LOCO Red in the last quarter — the palette's
+   own three, in the roles the palette gives them (orient, warn, act), never a hex
+   written here. It is keyed off elapsed time, hence the reversed thresholds. The
+   short catch window opts out and keeps its own paint: five seconds is not long
+   enough to report a trend. */
 @keyframes loco-drain {
   from { transform: scaleX(1); }
   to   { transform: scaleX(0); }
 }
 
+@keyframes loco-slide {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
 @keyframes loco-drain-heat {
-  0%,     50%  { background: #4d96ff; }
-  50.01%, 75%  { background: #ffa502; }
-  75.01%, 100% { background: #ff4757; }
+  0%,     50%  { background-color: var(--color-tertiary); }
+  50.01%, 75%  { background-color: var(--color-amber); }
+  75.01%, 100% { background-color: var(--color-primary); }
 }
 
 .loco-draining {
@@ -451,9 +383,19 @@ html[data-theme-anim] *::after {
   animation: loco-drain var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
 }
 
+.loco-draining.loco-slide {
+  animation: loco-slide var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
+}
+
 .loco-draining.loco-heat {
   animation:
     loco-drain      var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards,
+    loco-drain-heat var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
+}
+
+.loco-draining.loco-slide.loco-heat {
+  animation:
+    loco-slide      var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards,
     loco-drain-heat var(--drain-ms, 0ms) linear var(--drain-delay, 0ms) forwards;
 }
 

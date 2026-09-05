@@ -73,6 +73,10 @@ const OUTSIDE_THE_REPO = new Set([
   // client command deletes it on every boot.
   '.astro/dev.json',
   'xx.ts', // the placeholder in "add a language: create xx.ts"
+  // The CC0 kits `make models` packs from. Git ignores the whole directory: it
+  // is an input the maintainer unpacks by hand, and the docs name it in order
+  // to say where to put them.
+  '.assets-in/unpacked',
 ])
 
 /**

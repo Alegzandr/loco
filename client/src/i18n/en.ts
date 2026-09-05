@@ -1,4 +1,6 @@
-﻿import type { CardKind, Emote } from '../types/protocol'
+﻿import type { MapId, TimeOfDay, Weather } from '../components/cards/maps'
+import type { CardKind, Emote } from '../types/protocol'
+import type { GraphicsPref } from '../hooks/graphicsPref'
 
 export interface RulesSection {
   heading: string
@@ -150,9 +152,11 @@ export interface Translations {
   /** The ✕ on the phone's sheet, where the gear that opened it is not on screen. */
   prefsClose: string
   prefsLanguage: string
-  prefsTheme: string
-  prefsThemeLight: string
-  prefsThemeDark: string
+  prefsGraphics: string
+  prefsGraphicsTier: Record<GraphicsPref, string>
+  /** `%tier` is the tier `auto` landed on for this device. */
+  prefsGraphicsAutoHint: string
+  prefsGraphicsHint: string
   prefsStreamer: string
   prefsColorAssist: string
   prefsColorAssistHint: string
@@ -259,6 +263,13 @@ export interface Translations {
   fxReverse: string
   /** Colour names, announced over the pile when a wild names a new colour. */
   fxColors: Record<'red' | 'yellow' | 'green' | 'blue', string>
+  /**
+   * The suit names as words, for what is read aloud: a card's accessible name
+   * and the colour picker's swatches. Lower case, because they are spoken in
+   * the middle of a sentence, and never the wire identifiers — "wild
+   * wild_draw_four" was what a screen reader got for a +4.
+   */
+  colorNames: Record<'red' | 'yellow' | 'green' | 'blue' | 'wild', string>
   directionCw: string
   directionCcw: string
   drawPile: string
@@ -356,7 +367,11 @@ export interface Translations {
   mapLoadingReady: string           // status once we are in and only others remain
   mapLoadingCount: string           // contains %ready and %total
   /** One entry per map id in components/cards/maps.ts: display name + one line. */
-  maps: Record<'neon' | 'rune' | 'velvet' | 'orbit', { name: string; tagline: string }>
+  maps: Record<MapId, { name: string; tagline: string }>
+  /** The hour a match is dealt at, as the loading screen names it. */
+  mapTimes: Record<TimeOfDay, string>
+  /** The sky it is dealt under, same place. Read beside the hour: "Night · Rain". */
+  mapWeathers: Record<Weather, string>
   round: string
   of: string
   complete: string
@@ -370,6 +385,16 @@ export interface Translations {
    */
   decisiveRound: string
   decisiveRoundWhy: string
+  /**
+   * The chip's spellings under 480px, where the chrome row leaves the corner
+   * ~110px: `M%n` is the score table's own column head, so it is a name the
+   * player has already read, and the decisive round keeps one word.
+   */
+  roundShort: string
+  decisiveRoundShort: string
+  /** The vibration switch, shown only on a device with a motor. */
+  prefsHaptics: string
+  prefsHapticsHint: string
   player: string
   placementLabel: string
   ptsLabel: string
@@ -419,6 +444,15 @@ export interface Translations {
   recapTitle: string
   recapMatchCol: string   // per-match column header, %n = match number
   recapWonCol: string     // matches taken, the total column
+  // How long the match was played, one quiet line under the heading. The
+  // server measures it from the moment the turn clock started; the client only
+  // words it, to the second. The three shapes are a duration's three
+  // magnitudes, and the sentence is neutral on purpose: it sits under a win, a
+  // loss and a forfeit.
+  matchDuration: (duration: string) => string  // "12 min 34 s of play"
+  durationSeconds: (seconds: number) => string  // "42 s", below a minute
+  durationMinutes: (minutes: number, seconds: number) => string  // "12 min 34 s"
+  durationHours: (hours: number, minutes: number, seconds: number) => string  // "1 h 05 min 12 s"
   rematch: string             // ask for another match; every seat has to
   leaveRoom: string           // secondary button: abandon the room entirely
   // Walking out of a match in progress, which every table allows. The chip is
@@ -530,9 +564,10 @@ export const en: Translations = {
   fullscreenExitBtn: 'Leave full screen',
   prefsClose: 'Close',
   prefsLanguage: 'Language',
-  prefsTheme: 'Theme',
-  prefsThemeLight: 'Light',
-  prefsThemeDark: 'Dark',
+  prefsGraphics: 'Graphics',
+  prefsGraphicsTier: { auto: 'Auto', high: 'High', medium: 'Medium', light: 'Light' },
+  prefsGraphicsAutoHint: 'Picked for this device: %tier. The room is drawn once per match, so this only changes how long the table takes to open.',
+  prefsGraphicsHint: 'The room is drawn once per match, so this only changes how long the table takes to open and how much weather sits over it.',
   prefsStreamer: 'Streamer mode',
   prefsColorAssist: 'Colour shapes',
   // Named after what appears, not after a condition: nobody should have to
@@ -612,6 +647,7 @@ export const en: Translations = {
   fxSkip: 'SKIP!',
   fxReverse: 'REVERSE!',
   fxColors: { red: 'RED!', yellow: 'YELLOW!', green: 'GREEN!', blue: 'BLUE!' },
+  colorNames: { red: 'red', yellow: 'yellow', green: 'green', blue: 'blue', wild: 'wild' },
   directionCw: 'Play order: clockwise',
   directionCcw: 'Play order: counter-clockwise',
   drawPile: 'Draw pile',
@@ -690,27 +726,41 @@ export const en: Translations = {
   maps: {
     neon: {
       name: 'Neon',
-      tagline: 'A rooftop club above the skyline. Black marble, and a ring of light.',
+      tagline: 'A rooftop terrace above a city of neon. Black glass, a tube of light around the rim.',
     },
     rune: {
       name: 'Rune',
-      tagline: 'The back room of an arcane tavern. Carved oak, gemstones, candlelight.',
+      tagline: 'The square of a village with a wizard in it. Carved oak, and four stones that glow.',
     },
     velvet: {
       name: 'Velvet',
-      tagline: 'An art-deco lounge. Brass, burgundy baize, and lamps turned low.',
+      tagline: 'The square in front of a grand art-deco hotel. Brass, burgundy baize, a marquee.',
     },
     orbit: {
       name: 'Orbit',
-      tagline: 'A starship hangar in high orbit. Brushed alloy over a holo table.',
+      tagline: 'A base on an airless moon. Brushed alloy over a holo surface, cyan landing lights.',
+    },
+    sakura: {
+      name: 'Sakura',
+      tagline: 'A hot-spring village under cherry trees. Red lacquer, moss-green felt, paper lanterns.',
+    },
+    marina: {
+      name: 'Marina',
+      tagline: 'A harbour front at the water\u2019s edge. Weathered teak, navy felt, a lighthouse.',
     },
   },
+  mapTimes: { dawn: 'Dawn', day: 'Midday', dusk: 'Dusk', night: 'Night' },
+  mapWeathers: { clear: 'Clear', cloudy: 'Overcast', rain: 'Rain', storm: 'Storm', snow: 'Snow', fog: 'Fog' },
   round: 'Round',
   of: 'of',
   complete: 'down',
   winsRound: 'takes the round!',
   decisiveRound: 'Decisive round',
   decisiveRoundWhy: 'Nothing separates the table. One more round.',
+  roundShort: 'M%n',
+  decisiveRoundShort: 'Decisive',
+  prefsHaptics: 'Vibrations',
+  prefsHapticsHint: 'A pulse under your thumb on every card, call and catch.',
   player: 'Player',
   // The rank column is 40px wide and its cells already read "1st", "2nd": any
   // word here spills into the player column, in every language. A leaderboard
@@ -757,6 +807,11 @@ export const en: Translations = {
   recapTitle: 'Tonight',
   recapMatchCol: 'M%n',
   recapWonCol: 'Won',
+  matchDuration: (duration) => `${duration} of play`,
+  durationSeconds: (seconds) => `${seconds} s`,
+  durationMinutes: (minutes, seconds) => `${minutes} min ${String(seconds).padStart(2, '0')} s`,
+  durationHours: (hours, minutes, seconds) =>
+    `${hours} h ${String(minutes).padStart(2, '0')} min ${String(seconds).padStart(2, '0')} s`,
   rematch: 'Rematch',
   leaveRoom: 'Leave the table',
   leaveMatchBtn: 'Leave the match',

@@ -250,7 +250,11 @@ func (h *Hub) scheduleBotMove(t *table, playerID int) {
 
 // maybeScheduleBot checks whether the current turn belongs to a bot and schedules its move.
 func (h *Hub) maybeScheduleBot(t *table) {
-	if t.room.Status != game.StatusPlaying {
+	// A shut table has no turns: openTable arms the first bot itself once every
+	// human is in. A retirement or a departure during the gate used to reach
+	// this and start a bot playing against players who were still watching a
+	// loading bar — the head start the gate exists to refuse.
+	if t.room.Status != game.StatusPlaying || t.isLoading() {
 		return
 	}
 	if turn := t.room.State.CurrentTurn; t.isBot(turn) {
@@ -406,6 +410,12 @@ func (h *Hub) scheduleBotCatch(t *table, target int) {
 	// already holding, instead of adding a second, later attempt at the end of
 	// the window where it would cost the bot a card.
 	fireAt := windowAt.Add(delay)
+	// Never inside the seat's head start, whatever the tunables say: a bot
+	// pressing there would be the spammer the head start was written against,
+	// and the domain would only hold the press anyway (game.ErrCatchTooEarly).
+	if headStartEnd := state.CatchHeadStartEnd(target); fireAt.Before(headStartEnd) {
+		fireAt = headStartEnd
+	}
 	if !fireAt.Before(state.CatchWindowEnd(target)) {
 		return // scheduled past the deadline: a call nobody could win
 	}
@@ -575,11 +585,14 @@ func (h *Hub) handleBotCatch(t *table, cm botCatchMsg) {
 	}
 	catcherID := eligible[mrand.Intn(len(eligible))]
 	priorSize := len(state.Hands[cm.targetPlayer].Cards)
-	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, time.Now()); err != nil {
+	now := time.Now()
+	if err := room.CatchUndeclared(catcherID, cm.targetPlayer, now); err != nil {
 		// Window may have expired or state changed — normal race condition, and
-		// the bot pays for it exactly like a human who mistimed the button.
+		// the bot pays for it exactly like a human who mistimed the button. A
+		// bot inside the head start (BotCatchDelay is well past it) simply does
+		// not press: nothing here chose the moment.
 		if game.IsMissedCatch(err) {
-			h.penalizeFailedCatch(t, catcherID)
+			h.penalizeFailedCatch(t, catcherID, now)
 		}
 		return
 	}
@@ -601,6 +614,13 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 	if room.State.CurrentTurn != bm.playerID {
 		// Turn advanced (e.g. human played or another scheduled move already fired).
 		// Very common during normal play — log only at debug level (omitted in prod).
+		return
+	}
+	// A move armed in the last match can land in the next one's loading gate: the
+	// table went finished, then lobby, then playing again, and this seat is a bot
+	// whose turn it happens to be. The gate refuses every human message until the
+	// last table is decoded, so it refuses the bots too; openTable re-arms them.
+	if t.isLoading() {
 		return
 	}
 	if !t.isBot(bm.playerID) {
@@ -631,10 +651,20 @@ func (h *Hub) executeBotMove(t *table, bm botMoveMsg) {
 func (h *Hub) botPlay(t *table, playerID int, action game.BotAction) {
 	room := t.room
 	h.botDeclareBeforeFinish(t, playerID)
-	if err := room.PlayCard(playerID, action.Card, action.ChosenColor, action.ChosenPlayer); err != nil {
+	var err error
+	if len(action.Cards) > 1 {
+		err = room.PlayCards(playerID, action.Cards, action.ChosenColor, -1, action.DeclareLoco)
+	} else {
+		err = room.PlayCard(playerID, action.Card, action.ChosenColor, action.ChosenPlayer)
+	}
+	if err != nil {
 		log.Printf("bot play error: %v", err)
+		h.botRecover(t, playerID)
 		return
 	}
+	// A finishing batch carries its call, and the table hears it before the
+	// cards, exactly as it does for a human's (announceFinishingLoco).
+	h.announceFinishingLoco(t, playerID, action.Cards)
 	h.broadcastCardPlayed(t, playerID, action.ChosenPlayer)
 	if action.Card.Kind == game.Swap || action.Card.Kind == game.GlobalSwitch {
 		h.broadcastPersonalizedGameState(t)
@@ -649,6 +679,7 @@ func (h *Hub) botCounter(t *table, playerID int, action game.BotAction) {
 	h.botDeclareBeforeFinish(t, playerID)
 	if err := room.CounterDraw(playerID, action.Card, action.ChosenColor); err != nil {
 		log.Printf("bot counter error: %v", err)
+		h.botRecover(t, playerID)
 		return
 	}
 	h.broadcastCardPlayed(t, playerID, -1)
@@ -668,12 +699,13 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	}
 	state := room.State
 	h.broadcastToRoomAll(t, protocol.ServerMsg{
-		Type:        protocol.SMsgCardDrawn,
-		PlayerIndex: intPtr(playerID),
-		DrawnCount:  len(state.Hands[playerID].Cards) - priorSize,
-		Turn:        state.CurrentTurn,
-		PendingDraw: intPtr(state.PendingDraw),
-		HasDrawn:    boolPtr(state.HasDrawn),
+		Type:          protocol.SMsgCardDrawn,
+		PlayerIndex:   intPtr(playerID),
+		DrawnCount:    len(state.Hands[playerID].Cards) - priorSize,
+		Turn:          state.CurrentTurn,
+		PendingDraw:   intPtr(state.PendingDraw),
+		HasDrawn:      boolPtr(state.HasDrawn),
+		InterruptOpen: interruptOpenPtr(state),
 	})
 	// A forced draw does not cost the turn (rules.md §14.5), so the seat is
 	// still ours: play the drawn card or pass. The branch that used to handle a
@@ -687,9 +719,10 @@ func (h *Hub) botDraw(t *table, playerID int) (rescheduled bool) {
 	if err := room.PassTurn(playerID); err == nil {
 		h.scheduleTurnTimer(t)
 		h.broadcastToRoomAll(t, protocol.ServerMsg{
-			Type:         protocol.SMsgTurnChanged,
-			Turn:         room.State.CurrentTurn,
-			TurnDeadline: turnDeadlineMs(t),
+			Type:          protocol.SMsgTurnChanged,
+			Turn:          room.State.CurrentTurn,
+			TurnDeadline:  turnDeadlineMs(t),
+			InterruptOpen: interruptOpenPtr(room.State),
 		})
 	}
 	return false
@@ -733,14 +766,48 @@ func (h *Hub) maybeScheduleBotReactions(t *table) {
 	}
 }
 
-// botCanPlayDrawn reports whether the bot can play any card in its hand against
-// the current top discard / active color.
+// botCanPlayDrawn reports whether the bot *will* play something now that it has
+// drawn. It asks BotThink rather than CanPlay, because the two can disagree: a
+// legal Swap the bot declines (`botSwapPays`) is playable and will not be
+// played, and answering "yes" here scheduled a move that asked to draw again,
+// was refused, fell through to the scheduler, and came back every two seconds
+// for the rest of the match with the turn never leaving the bot's seat.
 func botCanPlayDrawn(state *game.GameState, playerID int) bool {
-	topCard := state.Discard[len(state.Discard)-1]
-	for _, c := range state.Hands[playerID].Cards {
-		if game.CanPlay(c, topCard, state.ActiveColor) {
-			return true
+	return game.BotThink(state, playerID).Kind != game.BotDraw
+}
+
+// botRecover is what a bot does when the domain refused the move it chose: it
+// gives the turn up rather than the table. Bots are exempt from the turn clock,
+// so a refused play with no fallback was not a lost turn but a dead table —
+// nothing armed to move the turn, nobody able to take it. It draws if it has
+// not (a draw never fails, and the drawn card may be the answer), and passes
+// otherwise; the pass is the floor, because a second refusal after the draw is
+// the same refusal and must not loop.
+func (h *Hub) botRecover(t *table, playerID int) {
+	room := t.room
+	if room.Status != game.StatusPlaying || room.State == nil || room.State.CurrentTurn != playerID {
+		return
+	}
+	if !room.State.HasDrawn {
+		if h.botDraw(t, playerID) {
+			return
+		}
+		// botDraw either passed for us or failed to draw: only the latter
+		// leaves the turn here.
+		if room.State.CurrentTurn != playerID {
+			return
 		}
 	}
-	return false
+	if err := room.PassTurn(playerID); err != nil {
+		log.Printf("bot recover pass error code=%s player=%d err=%v", t.code, playerID, err)
+		return
+	}
+	h.scheduleTurnTimer(t)
+	h.broadcastToRoomAll(t, protocol.ServerMsg{
+		Type:          protocol.SMsgTurnChanged,
+		Turn:          room.State.CurrentTurn,
+		TurnDeadline:  turnDeadlineMs(t),
+		InterruptOpen: interruptOpenPtr(room.State),
+	})
+	h.maybeScheduleBot(t)
 }

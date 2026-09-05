@@ -5,6 +5,8 @@
   import { colorAssistPref } from '../hooks/colorAssist'
   import { watchPref } from '../hooks/prefs.svelte'
   import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { dialogFocus } from './dialogFocus'
+  import { i18n } from '../i18n/i18n.svelte'
 
   const WILD_COLORS: CardColor[] = ['red', 'yellow', 'green', 'blue']
 
@@ -19,6 +21,7 @@
   let { label, cancelLabel, onChoose, onCancel }: Props = $props()
 
   const assist = watchPref(colorAssistPref)
+  const t = $derived(i18n.t)
 
   // The same way out as the scrim and the ✕: cancelling puts the card back in
   // the hand, so there is nothing here Escape could cost.
@@ -37,9 +40,20 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="overlay" onclick={onCancel}>
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="colorPicker" onclick={(e) => e.stopPropagation()}>
+  <!-- A dialog with a click handler needs no ignore: the role is the answer. -->
+  <!-- `tabindex="-1"` because a dialog is a focus container: it takes focus
+       programmatically when the panel it labels has nothing focusable left,
+       and it stays out of the tab order, so `dialogFocus`'s own cycle (which
+       looks for buttons and `tabindex="0"`) is untouched. -->
+  <div
+    class="colorPicker"
+    role="dialog"
+    tabindex="-1"
+    aria-modal="true"
+    aria-label={label}
+    use:dialogFocus
+    onclick={(e) => e.stopPropagation()}
+  >
     <p>{label}</p>
     <!-- Swatches carry the suit's whole gradient, not a flat sample of it — the
          button and the card it produces are literally the same paint. `color`
@@ -48,7 +62,7 @@
       {#each WILD_COLORS as col (col)}
         <button
           class="colorBtn"
-          aria-label={col}
+          aria-label={t.colorNames[col]}
           style="background: linear-gradient({SUIT_ANGLE_DEG}deg, {SUIT_PAINT[col].from}, {SUIT_PAINT[col].to}); color: {SUIT_PAINT[col].from}"
           onclick={() => onChoose(col)}
         >

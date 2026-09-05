@@ -144,19 +144,33 @@
      underneath, and the board underneath is exactly what the player has stopped
      looking at.
 
-     48 is therefore above the whole transient band (notices 14, toast 30, both
-     banners 45, the chrome row and the leave question 46, the catch capsule 47)
-     and below the three things that outrank a read: the reconnect curtain (50),
-     which says the table is not there at all; the two pickers (100), which are a
-     decision the player owes the table; and the rules modal (1000) and the map
-     gate (900), which own the screen outright.
+     48 is therefore above the whole transient band (notices 14, toast 30, the
+     three shouts — interception slam, catch stamp, LOCO! banner — 45, the
+     chrome row and the leave question 46, the catch capsule and the round
+     summary 47) and below the three things that outrank a read: the reconnect
+     curtain (50), which says the table is not there at all; the two pickers
+     (100), which are a decision the player owes the table; and the rules modal
+     (1000) and the map gate (900), which own the screen outright.
+
+     The capsule and the summary share 47 because they are never up together:
+     `applyRoundEnd` empties every catch window, so the capsule is unmounted by
+     the message that raises the summary, and nobody is on one card in the
+     eight seconds after a deal. The capsule cannot go lower — the chrome row is
+     rendered after it, so at 46 the row would cover it again — and the summary
+     cannot go higher without crossing this panel.
 
      The chip row going under it is the deliberate half. It carries the button
      that pinned the panel, and that button used to be kept clickable at 46 for
      it — but a pinned table has had its own ✕ in the header since, and its scrim
      dismisses on a press anywhere outside the card, so the way out is on the
      panel rather than behind it. Held with TAB there was never anything to
-     press. */
+     press.
+
+     The heavy scrim, and no blur: a `backdrop-filter` is re-rasterised on every
+     frame anything under it moves, and this is held open over a board that
+     keeps playing — turn clock draining, ring chasing, opponents' cards flying —
+     for as long as TAB is down. The pickers and the rules modal keep theirs;
+     they are up for a decision, not a read. */
   .overlay {
     position: absolute;
     inset: 0;
@@ -165,8 +179,7 @@
     justify-content: center;
     padding: calc(var(--space-base) + var(--safe-top)) calc(var(--space-base) + var(--safe-right))
       calc(var(--space-base) + var(--safe-bottom)) calc(var(--space-base) + var(--safe-left));
-    background: var(--color-scrim);
-    backdrop-filter: blur(5px);
+    background: var(--color-scrim-heavy);
     z-index: 48;
     animation: scoreFade 0.14s var(--ease-out) both;
   }
@@ -348,8 +361,20 @@
     color: var(--color-stroke);
   }
 
+  /* A seat that is gone is quiet, and quiet is a hue. At `opacity: 0.55` the
+     row's nickname was under 3:1 on the card, which is the seat a spectator is
+     most likely to be asking about. The row's fill drops back to the panel's
+     own and its outline softens; the ink goes to `--color-muted`, which clears
+     4.5:1 on the panel in both themes. */
   .rowOffline td {
-    opacity: 0.55;
+    background: var(--color-surface-card);
+    border-color: var(--color-border-strong);
+    color: var(--color-muted);
+  }
+
+  .rowOffline .tdRound,
+  .rowOffline .colTotal {
+    color: var(--color-muted);
   }
 
   .playerCell {
@@ -412,10 +437,11 @@
 
   /* Colour AND position carry the meaning here: the tiers are ordered, so a
      colourblind viewer still reads the number next to them. */
-  /* The first two are the palette's own and were written out by hand here, which
-     is a copy of a token that nothing keeps in step with it. The last two are
-     this scale's alone: four tiers need a step between "ok" and "bad" that the
-     brand does not carry. */
+  /* Every tier is a token. The first two were written out by hand here once,
+     which is a copy of a token that nothing keeps in step with it; then the
+     last two were, and "bad" turned out to be `--color-error` retyped. The
+     amber is the one step this scale needs that the brand does not carry, and
+     it lives in tokens.css beside the red for that reason. */
   .ping[data-tier='good'] {
     background: var(--color-mint);
   }
@@ -423,10 +449,10 @@
     background: var(--color-secondary);
   }
   .ping[data-tier='poor'] {
-    background: #ff9f1a;
+    background: var(--color-amber);
   }
   .ping[data-tier='bad'] {
-    background: #e5304b;
+    background: var(--color-error);
     color: var(--color-on-dark);
   }
   .ping[data-tier='unknown'] {

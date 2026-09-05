@@ -154,6 +154,46 @@ func TestSnapshot_StreamerModeSurvivesARestart(t *testing.T) {
 	}
 }
 
+// The match is timed from the moment it opened, and a deploy in the middle of it
+// must not restart that clock: the record written on the far side of the
+// restart still measures from the real open. A snapshot that dropped the stamp
+// would record the match as one the server cannot time at all.
+func TestSnapshot_MatchDurationSurvivesARestart(t *testing.T) {
+	t.Setenv("LOCO_E2E", "1")
+	path := snapshotPath(t)
+
+	h1, srv1, stop1 := newHubOn(t)
+	conn1, conn2, code, tokens, _, _ := setupGameKeepingState(t, srv1)
+
+	if err := h1.SaveSnapshot(path); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	conn1.Close()
+	conn2.Close()
+	stop1()
+
+	h2, srv2, stop2 := newHubOn(t)
+	defer stop2()
+	if err := h2.LoadSnapshot(path); err != nil {
+		t.Fatalf("LoadSnapshot: %v", err)
+	}
+
+	back1 := reconnectAs(t, srv2, code, "Alice", tokens[0])
+	defer back1.Close()
+	readMsgOfType(t, back1, protocol.SMsgPlayerReconnected)
+	back2 := reconnectAs(t, srv2, code, "Bob", tokens[1])
+	defer back2.Close()
+	readMsgOfType(t, back2, protocol.SMsgPlayerReconnected)
+
+	end := winMatchReturningEnd(t, back1, back2)
+	if len(end.MatchHistory) != 1 {
+		t.Fatalf("match_history = %d rows, want 1", len(end.MatchHistory))
+	}
+	if got := end.MatchHistory[0].DurationMs; got < 1 {
+		t.Errorf("duration_ms after a restart = %d, want at least 1: the open stamp did not travel", got)
+	}
+}
+
 func TestSnapshot_RestoredSeatKeepsPlaying(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1")
 	path := snapshotPath(t)
@@ -364,6 +404,9 @@ func assertSameState(t *testing.T, who string, want, got *protocol.GameStateDTO)
 	// two players in different rooms.
 	if got.MapID != want.MapID {
 		t.Errorf("%s: map_id = %q, want %q", who, got.MapID, want.MapID)
+	}
+	if got.TimeOfDay != want.TimeOfDay || got.Weather != want.Weather {
+		t.Errorf("%s: scene = %q/%q, want %q/%q", who, got.TimeOfDay, got.Weather, want.TimeOfDay, want.Weather)
 	}
 	if got.MatchFormat != want.MatchFormat {
 		t.Errorf("%s: match_format = %q, want %q", who, got.MatchFormat, want.MatchFormat)

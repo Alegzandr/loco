@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import type { CardColor, ClientMsg } from '../types/protocol'
-  import { UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
+  import { gameStore, UNO_CATCH_WINDOW_MS } from '../hooks/gameStore'
   import { game } from '../hooks/gameStore.svelte'
   import { drainBar, URGENT_AT } from '../hooks/drainBar.svelte'
   import {
@@ -29,7 +30,9 @@
   import FullscreenButton from './FullscreenButton.svelte'
   import AudioSettings from './AudioSettings.svelte'
   import GameBoard, { type GameBoardHandle } from './cards/GameBoard.svelte'
-  import { resolveMap } from './cards/maps'
+  import { resolveScene } from './cards/maps'
+  import { feltInViewport } from './cards/layout'
+  import { viewportSize, safeAreaInsets } from '../hooks/boardMetrics.svelte'
   import MapLoadingScreen from './MapLoadingScreen.svelte'
   import OpponentAway from './OpponentAway.svelte'
   import ServerUpdating from './ServerUpdating.svelte'
@@ -77,6 +80,16 @@
     initialConfirmLeave = false,
   }: Props = $props()
 
+  /**
+   * The one way this screen hands the socket to a hook.
+   *
+   * A prop is reactive, so handing `onSend` itself over captures the function
+   * this component was mounted with and a later one would never be seen. Every
+   * field beside it in `cardPlay` is already a getter; this is the same thing
+   * said as a closure.
+   */
+  const send = (msg: ClientMsg) => onSend(msg)
+
   const ROUND_SUMMARY_AUTO_DISMISS_MS = 8000
   const SWAP_NOTICE_MS = 3500
   const CATCH_FAIL_NOTICE_MS = 2800
@@ -108,7 +121,7 @@
   let showRules = $state(false)
   // The walk-out question, held here and not in a modal: it takes the chip's
   // place under the row it was pressed from, so the board does not move.
-  let confirmLeave = $state(initialConfirmLeave)
+  let confirmLeave = $state(untrack(() => initialConfirmLeave))
 
   /**
    * What leaving costs the people who are still holding cards.
@@ -182,7 +195,8 @@
     currentTurn: () => g.currentTurn,
     myIndex: () => g.myIndex,
     pendingDraw: () => g.pendingDraw,
-    onSend,
+    interruptOpen: () => g.interruptOpen,
+    onSend: send,
     lastPlayAt: () => g.lastPlay?.at,
   })
 
@@ -253,11 +267,33 @@
     const end = catchWindowEnd
     if (end === null) return
     const remaining = end - Date.now()
+    // The action is read off the store, never off `g`: the snapshot is replaced
+    // on every message, and reading it here re-armed this timer several times a
+    // second for a deadline that had not moved.
+    const prune = gameStore.getState().pruneCatchWindows
     if (remaining <= 0) {
-      g.pruneCatchWindows()
+      prune()
       return
     }
-    const id = setTimeout(g.pruneCatchWindows, remaining)
+    const id = setTimeout(prune, remaining)
+    return () => clearTimeout(id)
+  })
+
+  // The centre button runs on a clock as well as on the roster: a seat on its
+  // last card is offered until its window runs out, and then the button goes
+  // dark whether or not the seat spoke. Nothing arrives at that instant, so the
+  // store is asked to read again. One timer, to an absolute deadline, and the
+  // action read off the store for the reason the prune above gives.
+  $effect(() => {
+    const until = g.catchLiveUntil
+    if (until === null) return
+    const remaining = until - Date.now()
+    const reread = gameStore.getState().rereadCatchLive
+    if (remaining <= 0) {
+      reread()
+      return
+    }
+    const id = setTimeout(reread, remaining)
     return () => clearTimeout(id)
   })
 
@@ -283,9 +319,9 @@
     () => g.dismissRoundSummary(),
   )
 
-  // The room this match is played in. null = the built-in felt (a map id we have
-  // no art for).
-  const map = $derived(resolveMap(g.mapId))
+  // The room this match is played in, at its hour, under its sky. null = the
+  // built-in felt (a map id we have no scene for).
+  const scene = $derived(resolveScene(g.mapId, g.mapTime, g.mapWeather))
 
   // Whether the gate is open at all, narrowed to a boolean before the effect
   // sees it: `g.mapLoading` gets a new identity on every arrival, so reading it
@@ -293,9 +329,18 @@
   // question whose answer has not changed.
   const gateOpen = $derived(g.mapLoading !== null)
 
-  // Preload the room's art while the table is shut, and tell the server the
-  // moment we are in. See hooks/gamePlay.svelte.ts.
-  const preload = mapGate(() => map, () => gateOpen, onSend)
+  // Where the felt lands on screen, solved from the viewport and the roster the
+  // way the board solves it: the room is rendered with the table's podium under
+  // exactly this ellipse, before the board has measured anything.
+  const viewport = viewportSize()
+  const insets = safeAreaInsets()
+  const anchor = $derived(
+    feltInViewport(viewport.current.width, viewport.current.height, Math.max(0, g.players.length - 1), insets.current),
+  )
+
+  // Render the room while the table is shut, and tell the server the moment we
+  // are in. See hooks/gamePlay.svelte.ts.
+  const preload = mapGate(() => scene, () => gateOpen, send, () => anchor)
 
   // Past the format: the server's tiebreak chain separated nobody, so it dealt
   // one more round. The chip says which round it is, and there is no honest
@@ -312,9 +357,12 @@
     playerTurnSuffix: t.playerTurnSuffix,
   })
 
-  // Hold TAB for the standings. Disabled while a dialog owns the screen: inside
-  // the rules modal or a picker, TAB still belongs to the dialog's own focus
-  // order, and the summary already shows the same numbers.
+  // Hold TAB for the standings, the way every other game's scoreboard works:
+  // the key is ours from the press, it moves no focus, and letting go puts the
+  // panel away. Disabled while a dialog owns the screen — inside the rules
+  // modal or a picker TAB belongs to the dialog's own focus order, and the
+  // summary already shows the same numbers. Shift+TAB is never taken, at the
+  // table or anywhere else: that is the keyboard's way around the board.
   const scoresHeld = heldKey(
     'Tab',
     () => !showRules && !play.colorPicker && !play.playerPicker && !g.showRoundSummary,
@@ -330,6 +378,7 @@
        that addresses controls by name. -->
   <GameBoard
     myHand={g.myHand}
+    roundNumber={g.roundNumber}
     discard={g.discard}
     activeColor={g.activeColor}
     players={g.players}
@@ -349,7 +398,8 @@
     catchFlash={g.catchFlash}
     lastPlay={g.lastPlay}
     isReconnecting={g.isReconnecting || reconnect.current}
-    {map}
+    {scene}
+    {anchor}
     canDraw={play.isMyTurn && (g.pendingDraw > 0 || !g.hasDrawn)}
     onDraw={handleDraw}
     drawLabel={g.pendingDraw > 0 ? `${t.drawPile} +${g.pendingDraw}` : t.drawPile}
@@ -359,7 +409,7 @@
        emptying and the colour are driven by drainBar, which never re-renders. -->
   {#if g.turnDeadline !== null}
     <div class="turnTimerBar" class:turnTimerUrgent={turnUrgent}>
-      <div bind:this={turnFill} class="turnTimerFill loco-heat"></div>
+      <div bind:this={turnFill} class="turnTimerFill loco-slide loco-heat"></div>
     </div>
   {/if}
 
@@ -694,7 +744,16 @@
 
   {#if g.matchFormat !== 'BO1' || decisiveRound}
     <div class="roundIndicator" class:roundIndicatorDecisive={decisiveRound}>
-      {#if decisiveRound}{t.decisiveRound}{:else}{t.round} {g.roundNumber} · {g.matchFormat}{/if}
+      <!-- Two spellings of one chip. Under 480px the chrome row on the right is
+           five chips wide and leaves the left corner about 110px: "Round 2 · BO3"
+           ran under the scores chip. The short form is the score table's own
+           `M%n` convention, so it is a name the player has already read. -->
+      <span class="roundFull">
+        {#if decisiveRound}{t.decisiveRound}{:else}{t.round} {g.roundNumber} · {g.matchFormat}{/if}
+      </span>
+      <span class="roundShort" aria-hidden="true">
+        {#if decisiveRound}{t.decisiveRoundShort}{:else}{t.roundShort.replace('%n', String(g.roundNumber))} · {g.matchFormat}{/if}
+      </span>
     </div>
   {/if}
 
@@ -706,9 +765,10 @@
        screen instead of it: the board spends this time laying itself out and
        warming the images, so what the player sees when this lifts is a table that
        is already finished. -->
-  {#if g.mapLoading && map}
+  {#if g.mapLoading && scene}
     <MapLoadingScreen
-      {map}
+      {scene}
+      {anchor}
       ready={g.mapLoading.ready}
       players={g.players}
       myIndex={g.myIndex}
@@ -728,12 +788,14 @@
     color: var(--color-ink);
   }
 
-  /* Reconnect / transport-down overlay */
+  /* Reconnect / transport-down overlay. The heavy scrim and no blur: a
+     `backdrop-filter` held over a board is re-rasterised on every frame anything
+     under it moves, and this curtain stays up for as long as the socket is down
+     over a table that keeps animating — the seats, the ring, the turn clock. */
   .reconnectOverlay {
     position: absolute;
     inset: 0;
-    background: var(--color-scrim);
-    backdrop-filter: blur(5px);
+    background: var(--color-scrim-heavy);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -811,8 +873,22 @@
     /* Sits above the pile rather than over it — the play that triggered the shout
        must stay visible while the banner is up. */
     top: 24%;
-    left: 50%;
-    font: 700 clamp(30px, 5.6vw, 56px) / 1 var(--font-display);
+    /* Centred by `inset-inline: 0` + `margin-inline: auto`, never `left: 50%` —
+       the rule the notice pills below carry, and the same bug: anchored at the
+       midpoint the box is shrink-to-fit against the right half of the screen,
+       and with `nowrap` on top of that a 20-character nickname ran the sticker
+       off both edges of a 360px phone. `fit-content` inside a max-width keeps
+       it a sticker at desktop width and lets it wrap on a phone; `anywhere`
+       is for the nickname, which may be one 20-character word. */
+    inset-inline: 0;
+    margin-inline: auto;
+    width: fit-content;
+    max-width: calc(100% - 2 * var(--space-base));
+    box-sizing: border-box;
+    text-align: center;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+    font: 700 clamp(26px, 5.6vw, 56px) / 1.05 var(--font-display);
     letter-spacing: -1px;
     color: var(--color-on-dark);
     background: var(--gradient-primary);
@@ -823,24 +899,34 @@
       0 8px 0 var(--color-stroke-soft),
       0 0 60px rgba(255, 61, 104, 0.6);
     text-shadow: 0 4px 0 rgba(120, 10, 40, 0.5);
-    white-space: nowrap;
     pointer-events: none;
     animation: unoPunch 0.45s var(--ease-bounce) forwards;
-    z-index: 10;
+    /* 45: the third of the three moments allowed to shout, on the layer the
+       interception slam and the catch stamp already hold. At 10 it sat under
+       the notice pills (14), and on a phone a Swap landing on the same beat
+       printed its line across the shout. The whole ledger is in
+       `ScoreTable.svelte`. */
+    z-index: 45;
   }
 
   @keyframes unoPunch {
     0% {
       opacity: 0;
-      transform: translate(-50%, -50%) scale(0.3) rotate(-14deg);
+      transform: translateY(-50%) scale(0.3) rotate(-14deg);
     }
     55% {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1.12) rotate(-3deg);
+      transform: translateY(-50%) scale(1.12) rotate(-3deg);
     }
     100% {
       opacity: 1;
-      transform: translate(-50%, -50%) scale(1) rotate(-4deg);
+      transform: translateY(-50%) scale(1) rotate(-4deg);
+    }
+  }
+
+  @media (max-width: 480px) {
+    .unoBanner {
+      padding: 10px 22px;
     }
   }
 
@@ -960,6 +1046,13 @@
   }
 
   /* Per-turn countdown bar */
+  /* The turn clock: a slot cut along the top edge of the screen, and a bar of
+     the palette's colour drawn back out of it. Full width and flush with the
+     safe edge, because it is read from across the room and from the seat
+     opposite alike; the chip row and the round badge start 12px lower, so the
+     two never meet. The slot is sunken the way a dead action-bar button is
+     (fill below the chrome, hard shadow inside its top edge, hairline under it)
+     so the bar sits *in* something rather than floating on the room. */
   .turnTimerBar {
     position: absolute;
     /* Under the notch, not behind it: this bar is the only place the remaining
@@ -967,26 +1060,50 @@
     top: var(--safe-top);
     left: var(--safe-left);
     right: var(--safe-right);
-    height: 6px;
-    background: rgba(36, 21, 70, 0.18);
+    height: 8px;
+    background: var(--color-surface-sunken);
+    border-bottom: 1px solid var(--color-hairline);
+    box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.35);
+    overflow: hidden;
     z-index: 5;
     pointer-events: none;
   }
 
-  /* Full width and drained by scaleX (see .loco-draining in tokens.css). Width was
-     the obvious property and the wrong one: it lays out the page on every frame,
-     where a transform is composited. The fill's colour comes from the drain
-     animation too, so nothing here sets a background. */
+  /* Full width and drained by translateX (`loco-slide` in tokens.css), so the
+     rounded leading edge and the gloss on it ride out with the bar instead of
+     being squashed flat. Width was the obvious property and the wrong one: it
+     lays out the page on every frame, where a transform is composited. The
+     fill's colour comes from the drain animation (`loco-heat`), so nothing
+     here sets a background colour. */
   .turnTimerFill {
+    position: relative;
     height: 100%;
-    border-bottom-right-radius: 3px;
-    border-top-right-radius: 3px;
-    background: var(--color-primary);
-    box-shadow: 0 0 12px currentColor;
+    border-radius: 0 var(--radius-full) var(--radius-full) 0;
+    background-color: var(--color-tertiary);
+    /* A gloss along the top and a shade along the bottom: the bar is a raised
+       object like everything else here, at a size where an outline would be
+       half of it. */
+    box-shadow:
+      inset 0 2px 0 rgba(255, 255, 255, 0.32),
+      inset 0 -2px 0 rgba(0, 0, 0, 0.22);
+  }
+
+  /* The leading edge: a bright cap the eye can follow, glowing in the bar's
+     own colour so the heat reads on the tip too. */
+  .turnTimerFill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 18px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55));
   }
 
   /* Urgency pulse sits on the track, not on the fill: the fill's transform and
-     animation already belong to the drain, and one node never has two owners. */
+     animation already belong to the drain, and one node never has two owners.
+     The track is what dims, so the bar inside it beats against its slot. */
   .turnTimerUrgent {
     animation: timerPulse 0.6s ease-in-out infinite alternate;
   }
@@ -1213,6 +1330,19 @@
     text-transform: uppercase;
     pointer-events: none;
     z-index: 15;
+  }
+
+  .roundShort {
+    display: none;
+  }
+
+  @media (max-width: 480px) {
+    .roundFull {
+      display: none;
+    }
+    .roundShort {
+      display: inline;
+    }
   }
 
   /* Gold, the hue the scoreboard already wins in, and dark ink on it: white on

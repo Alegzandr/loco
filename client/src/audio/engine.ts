@@ -24,6 +24,8 @@ export interface AudioSettings {
 }
 
 const STORAGE_KEY = 'loco_audio'
+/** How long after the last settings change the write to storage waits. */
+const PERSIST_DEBOUNCE_MS = 250
 
 export const DEFAULT_SETTINGS: AudioSettings = {
   muted: false,
@@ -33,9 +35,10 @@ export const DEFAULT_SETTINGS: AudioSettings = {
   // talking over the game must stay louder than the soundtrack.
   music: 0.32,
   // Deliberately a bare string rather than an import from `audio/tracks`: the
-  // engine is the bottom of the audio stack and must not depend on the track
-  // registry, which depends on it. `getTrack` falls back on an unknown id.
-  track: 'ressac',
+  // engine is the bottom of the audio stack and must not depend on the loop
+  // registry, which depends on it. `getLoop` falls back on an unknown id, which
+  // is also what carries a stored id from a previous registry across an update.
+  track: 'intermission',
 }
 
 function clamp01(n: number): number {
@@ -74,6 +77,16 @@ export class AudioEngine {
   /** Guards against scheduling storms: at most this many voices start per frame. */
   private voicesThisFrame = 0
   private frameStamp = 0
+  /** A pending write of the settings to storage; see setSettings. */
+  private persistTimer: ReturnType<typeof setTimeout> | null = null
+
+  constructor() {
+    // A write still pending when the page goes must land: the drag that ended
+    // a moment before the tab closed is the level the player chose.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', () => this.persistNow())
+    }
+  }
 
   getSettings(): AudioSettings {
     return this.settings
@@ -241,13 +254,27 @@ export class AudioEngine {
       music: patch.music === undefined ? this.settings.music : clamp01(patch.music),
       track: patch.track ?? this.settings.track,
     }
+    // The gains move now; the write waits. A slider fires `input` dozens of
+    // times a second down one drag, and `localStorage.setItem` is synchronous:
+    // one write per step was sixty blocking writes a second on the main thread,
+    // over a live board, to record a value the next step replaced.
+    if (this.persistTimer !== null) clearTimeout(this.persistTimer)
+    this.persistTimer = setTimeout(() => this.persistNow(), PERSIST_DEBOUNCE_MS)
+    this.applyGains(0.08)
+    this.emit()
+  }
+
+  /** Writes the settings to storage now, cancelling a pending debounced write. */
+  persistNow(): void {
+    if (this.persistTimer !== null) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = null
+    }
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings))
     } catch {
       // Private-mode storage failures are not worth surfacing.
     }
-    this.applyGains(0.08)
-    this.emit()
   }
 
   toggleMute(): void {

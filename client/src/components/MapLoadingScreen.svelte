@@ -1,23 +1,28 @@
 <script lang="ts">
   import type { PlayerDTO } from '../types/protocol'
   import type { Translations } from '../i18n/en'
-  import type { MapDef } from './cards/maps'
+  import type { SceneSpec } from './cards/maps'
+  import type { FeltAnchor } from './cards/layout'
   import { seatColor } from './playerColors'
+  import SceneBackdrop from './scene/SceneBackdrop.svelte'
 
   type Props = {
-    map: MapDef
-    /** Seats whose client has the map decoded, straight from the server. */
+    scene: SceneSpec
+    /** Where the felt will be, so the render behind this screen carries the podium. */
+    anchor: FeltAnchor
+    /** Seats whose client has the room rendered, straight from the server. */
     ready: number[]
     players: PlayerDTO[]
     myIndex: number
-    /** 0–1 across our own two files. Ours only; the roster shows everyone else's. */
+    /** 0–1 across our own render. Ours only; the roster shows everyone else's. */
     progress: number
     t: Translations
   }
 
-  let { map, ready, players, myIndex, progress, t }: Props = $props()
+  let { scene, anchor, ready, players, myIndex, progress, t }: Props = $props()
 
-  const copy = $derived(t.maps[map.id])
+  const copy = $derived(t.maps[scene.map.id])
+  const moment = $derived(`${t.mapTimes[scene.time]} · ${t.mapWeathers[scene.weather]}`)
   const readySet = $derived(new Set(ready))
   const meReady = $derived(readySet.has(myIndex))
   const ordered = $derived([...players].sort((a, b) => a.index - b.index))
@@ -26,35 +31,42 @@
 <!--
   The moment between "hands dealt" and "clock running".
 
-  It exists because the wait is real (a map is roughly a megabyte of backdrop and
-  table) and the honest place to spend it is here rather than in the first turn.
-  Since the wait has to happen anyway, it may as well introduce the room: the name
-  and one line about it are what turn a progress bar into a reveal.
+  It exists because the wait is real (the engine's chunk, then a build and a
+  draw of a few thousand blocks) and the honest place to spend it is here rather
+  than in the first turn. Since the wait has to happen anyway, it may as well
+  introduce the room: the name, the hour and the sky, and one line about it are
+  what turn a progress bar into a reveal.
 
   The roster is the other half. A player staring at a bar cannot tell a slow
-  download from a hung game, and "we are waiting on Kiwi" is the difference
-  between patience and a reload. It is also where the map's own art earns its
-  keep: the backdrop is already on screen, so by the time the screen lifts the
-  table underneath is fully painted.
+  machine from a hung game, and "we are waiting on Kiwi" is the difference
+  between patience and a reload. It is also where the room earns its keep: the
+  scene is on screen, sharp, as soon as it is rendered, so by the time the screen
+  lifts the table underneath is fully painted.
 -->
 <div
   class="screen"
-  style="background-image: url({map.room}); --map-accent: {map.accent}"
+  style="--map-accent: {scene.map.accent}"
   role="status"
   aria-live="polite"
   data-testid="map-loading"
-  data-map={map.id}
+  data-map={scene.map.id}
+  data-scene-time={scene.time}
+  data-scene-weather={scene.weather}
 >
-  <div class="scrim"></div>
+  <div class="room">
+    <SceneBackdrop {scene} {anchor} />
+    <div class="scrim"></div>
+  </div>
 
   <div class="body">
     <div class="kicker">{t.mapLoadingTitle}</div>
     <!-- An h2, like every screen in the game: the page's own top-level heading is
          the one GamePage.astro serves. -->
     <h2 class="name">{copy.name}</h2>
+    <div class="moment" data-testid="map-moment">{moment}</div>
     <p class="tagline">{copy.tagline}</p>
 
-    <!-- Our own two files. Deliberately separate from the roster below: this bar
+    <!-- Our own render. Deliberately separate from the roster below: this bar
          is the only thing on screen the player's own machine controls. -->
     <div class="track">
       <div class="fill" style="transform: scaleX({progress})"></div>
@@ -93,17 +105,26 @@
     display: grid;
     place-items: center;
     /* The reveal is full-bleed, its copy is not: the roster is the part that
-       answers "is this a slow download or a hung game", so it may not slide under
+       answers "is this a slow machine or a hung game", so it may not slide under
        the home indicator. */
     padding: calc(var(--safe-top)) calc(var(--safe-right)) calc(var(--safe-bottom))
       calc(var(--safe-left));
+    /* Opaque from its very first frame, and that is the whole job of this
+       screen: the board is mounted behind it, already laying out its felt and
+       its seats. Fading the screen itself in — which is what it used to do —
+       faded the void off the table it exists to hide, so every match opened on
+       half a second of the room and the cards showing through the reveal. The
+       fade belongs to what is *inside* the curtain, never to the curtain. */
     background-color: var(--room-void);
-    /* `cover`, and centred: the art is 3:2 and this is full-viewport, so
-       letterboxing it would frame the reveal in two black bands. */
-    background-size: cover;
-    background-position: center;
-    /* The room fades up as it decodes, so the download shows itself finishing
-       rather than snapping in at the end. */
+    text-align: center;
+  }
+
+  /* The room comes up out of the void as it renders, so the wait shows itself
+     finishing rather than snapping in at the end. The void stays painted behind
+     it, so none of the board underneath is ever let through. */
+  .room {
+    position: absolute;
+    inset: 0;
     animation: mapRoomIn 0.6s var(--ease-out) both;
   }
 
@@ -116,7 +137,7 @@
     }
   }
 
-  /* The backdrop is a photograph and the copy is type, so the name needs
+  /* The backdrop is a picture and the copy is type, so the name needs
      something to sit on. Deliberately light: this screen exists to *show* the
      room, and a scrim heavy enough to make type effortless turns the reveal back
      into the plain loading bar it replaced. The name carries its own ink outline
@@ -167,7 +188,7 @@
     font: 700 clamp(44px, 9vw, 76px) / 1 var(--font-display);
     letter-spacing: -1px;
     /* Ink outline, like every other raised object in this UI. The name sits on a
-       photograph, so it cannot rely on the background staying dark behind it.
+       picture, so it cannot rely on the background staying dark behind it.
        Two hard offsets plus a wide soft halo: the halo alone disappears against a
        lantern, and the offsets alone disappear against a shadow. */
     -webkit-text-stroke: 3px rgba(4, 3, 12, 0.75);
@@ -178,15 +199,32 @@
       0 0 34px color-mix(in srgb, var(--map-accent, #ffffff) 55%, transparent);
   }
 
+  /* The hour and the sky, as a plate under the name: it is the one line on this
+     screen that changes from match to match in the same room, so it is set
+     apart from the tagline rather than folded into it. */
+  .moment {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 5px 14px;
+    border-radius: var(--radius-full);
+    border: 2px solid rgba(255, 255, 255, 0.22);
+    background: rgba(10, 8, 22, 0.55);
+    font: 700 13px/1.2 var(--font-display);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--color-on-dark);
+    text-shadow: 0 2px 10px rgba(4, 3, 12, 0.95);
+  }
+
   .tagline {
     margin: 12px auto 0;
-    max-width: 42ch;
+    max-width: 44ch;
     font: 500 16px/1.5 var(--font-body);
     color: rgba(255, 255, 255, 0.88);
     text-shadow: 0 2px 12px rgba(4, 3, 12, 0.95);
   }
 
-  /* Our own two files. A real measurement, not a fake timer: it is the one number
+  /* Our own render. A real measurement, not a fake timer: it is the one number
      on this screen the player's own machine is responsible for. */
   .track {
     margin: 30px auto 0;
@@ -214,7 +252,7 @@
   }
 
   /* Who the table is still waiting on. Without it a player cannot tell a slow
-     download from a hung game, which is the difference between waiting and
+     machine from a hung game, which is the difference between waiting and
      reloading. */
   .roster {
     display: flex;
@@ -235,7 +273,12 @@
     border: 2px solid rgba(255, 255, 255, 0.14);
     background: rgba(10, 8, 22, 0.55);
     font: 600 14px/1 var(--font-display);
-    color: rgba(255, 255, 255, 0.5);
+    /* 0.72, not 0.5: the plate is translucent over a picture, and at half
+       white a name still loading sat under 3:1 on any bright patch of the room.
+       Same shadow as `.status` for the same reason — nothing on this screen may
+       rely on the picture staying dark behind it. */
+    color: rgba(255, 255, 255, 0.72);
+    text-shadow: 0 2px 10px rgba(4, 3, 12, 0.95);
     transition:
       color 0.3s ease,
       border-color 0.3s ease,

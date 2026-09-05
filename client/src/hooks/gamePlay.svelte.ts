@@ -1,9 +1,13 @@
 import type { CardDTO, CardColor, ClientMsg } from '../types/protocol'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
-import { type MapDef, mapAssets } from '../components/cards/maps'
-import { MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
+import { type SceneSpec, sceneKey } from '../components/cards/maps'
+import { prepareScene, renderSizeFor } from '../components/scene/sceneCache'
+import { nextPaint } from '../components/scene/nextPaint'
+import type { FeltAnchor } from '../components/cards/layout'
+import { MAP_BAR_FULL_MS, MAP_PRELOAD_TIMEOUT_MS, type MapPreloadState } from './mapPreload'
 import { prefersReducedMotion } from './motionPref'
 import { live } from './live.svelte'
+import { untrack } from 'svelte'
 
 /** A card waiting on a colour. `copies` carries a batch slam through the prompt. */
 export interface ColorPick {
@@ -71,6 +75,8 @@ interface PlayParams {
   currentTurn: () => number
   myIndex: () => number
   pendingDraw: () => number
+  /** The server's word on whether the pile can still be slammed. */
+  interruptOpen: () => boolean
   onSend: (msg: ClientMsg) => void
   /** When the last card landed, whoever played it. Closes an open prompt. */
   lastPlayAt: () => number | undefined
@@ -102,7 +108,7 @@ export function cardPlay(params: PlayParams) {
     // exact match of the top discard, send interrupt_play_card (the server
     // enforces the time window and ordering). Otherwise ignore the tap.
     if (params.currentTurn() !== params.myIndex()) {
-      if (!clientMayInterrupt(card, discard, pendingDraw)) return false
+      if (!clientMayInterrupt(card, discard, pendingDraw, params.interruptOpen())) return false
       // Auto-batch: if the player holds multiple identical copies, send them all
       // in a single interrupt — the rule allows playing any number of identical
       // matching cards together. Swap and global_switch never batch.
@@ -204,6 +210,7 @@ export function cardPlay(params: PlayParams) {
     const discard = params.discard()
     const pendingDraw = params.pendingDraw()
     const activeColor = params.activeColor()
+    const windowOpen = params.interruptOpen()
     const mine = params.currentTurn() === params.myIndex()
     if (!pendingPick) return
     const { card, interrupt } = pendingPick
@@ -213,7 +220,7 @@ export function cardPlay(params: PlayParams) {
     const stillLegal =
       stillHeld &&
       (interrupt
-        ? clientMayInterrupt(card, discard, pendingDraw)
+        ? clientMayInterrupt(card, discard, pendingDraw, windowOpen)
         : mine && clientMayPlay(card, discard, activeColor, pendingDraw))
     if (stillLegal) return
     colorPicker = null
@@ -226,10 +233,10 @@ export function cardPlay(params: PlayParams) {
   const isPlayable = (card: CardDTO): boolean =>
     isMyTurn
       ? clientMayPlay(card, params.discard(), params.activeColor(), params.pendingDraw())
-      : clientMayInterrupt(card, params.discard(), params.pendingDraw())
+      : clientMayInterrupt(card, params.discard(), params.pendingDraw(), params.interruptOpen())
 
   const isInteractive = (card: CardDTO): boolean =>
-    isMyTurn || clientMayInterrupt(card, params.discard(), params.pendingDraw())
+    isMyTurn || clientMayInterrupt(card, params.discard(), params.pendingDraw(), params.interruptOpen())
 
   // True when the player has at least one card they can legally play right now.
   // Used to de-emphasise the Draw button so it doesn't look like the required
@@ -341,73 +348,92 @@ export function boardShake(
 }
 
 /**
- * Downloads and decodes a map's images, reporting progress.
+ * Renders the room while the table is shut, reporting progress.
  *
- * `decode()` rather than the `load` event: `load` fires when the bytes have
- * arrived, not when the browser can paint them. **A failure counts as done** — an
- * image that 404s must never leave a player stranded; the board falls back to the
- * built-in felt, which is a worse-looking match, not a broken one.
+ * What used to be two image downloads is a build and a draw now: the engine's
+ * chunk is fetched (the first third of the bar), then the scene is built and
+ * rendered once at the viewport's size (the rest). `prepareScene` caches the
+ * frame, so the board and the loading screen draw the render this waited for.
+ * **A failure counts as done**: a browser with no WebGL must never leave a
+ * player stranded; the board falls back to the sky the rig describes, which is
+ * a worse-looking match, not a broken one.
  */
 function mapPreload(
-  map: () => MapDef | null,
+  scene: () => SceneSpec | null,
   enabled: () => boolean,
+  anchor: () => FeltAnchor,
 ): { readonly current: MapPreloadState } {
   let state = $state<MapPreloadState>({ progress: 0, done: false })
-  // Keyed on the map id, not the object, so an update with an equal-but-new
-  // definition does not restart a load that is already half done.
+  // Keyed on the scene's key, not the object, so an update with an equal-but-new
+  // definition does not restart a render that is already half done.
   let startedFor: string | null = null
-  // Abandoning a download is keyed on the same id, deliberately, and is *not*
+  // Abandoning a render is keyed on the same key, deliberately, and is *not*
   // the effect's cleanup. The two were the same thing once, and a re-run — one
   // arrives every time another seat answers the gate — cancelled a load in
   // flight that the guard above then refused to restart: `done` never came, so
   // map_ready never went out and the table opened on the server's 20s backstop
   // with this player still watching a bar. Cancel when the load is genuinely
-  // over (the gate shut, or a different map), never because an effect ran twice.
+  // over (the gate shut, or a different scene), never because an effect ran twice.
   let abandon: (() => void) | null = null
 
   $effect(() => {
-    const m = map()
-    if (!enabled() || !m) {
+    const spec = scene()
+    if (!enabled() || !spec) {
       abandon?.()
       abandon = null
       startedFor = null
       return
     }
-    if (startedFor === m.id) return
+    const key = sceneKey(spec)
+    if (startedFor === key) return
     abandon?.()
-    startedFor = m.id
+    startedFor = key
 
-    const files = mapAssets(m)
-    let settled = 0
-    let cancelled = false
+    let settled = false
+    let abandoned = false
+    let timer = 0
+    let full = 0
 
-    const bump = () => {
-      if (cancelled) return
-      settled++
-      state = { progress: settled / files.length, done: settled >= files.length }
+    // A load ends full. The bar is put at one and `done` — the thing that sends
+    // map_ready and so lifts this screen — waits for it to have been painted
+    // and travelled there. Nothing under the bar ever reported one: the render
+    // stops at its last batch of sprites and the curtain came down on a bar
+    // somewhere near nine tenths, which reads as a room given up on rather than
+    // finished. The wait is paid once per match, behind a curtain that is
+    // already up. The preload timeout below ends the same way for the same
+    // reason, and 12s + this still lands well under the server's own backstop.
+    const settle = () => {
+      if (settled || abandoned) return
+      settled = true
+      window.clearTimeout(timer)
+      state = { progress: 1, done: false }
+      void nextPaint().then(() => {
+        if (abandoned) return
+        full = window.setTimeout(
+          () => {
+            if (!abandoned) state = { progress: 1, done: true }
+          },
+          prefersReducedMotion() ? 0 : MAP_BAR_FULL_MS,
+        )
+      })
     }
 
-    const timer = window.setTimeout(() => {
-      if (cancelled) return
-      cancelled = true
-      state = { progress: 1, done: true }
-    }, MAP_PRELOAD_TIMEOUT_MS)
+    timer = window.setTimeout(settle, MAP_PRELOAD_TIMEOUT_MS)
 
     state = { progress: 0, done: false }
-    for (const src of files) {
-      const img = new Image()
-      img.src = src
-      const settle = () => bump()
-      if (typeof img.decode === 'function') img.decode().then(settle, settle)
-      else {
-        img.onload = settle
-        img.onerror = settle
-      }
-    }
+    const size = renderSizeFor(window.innerWidth, window.innerHeight)
+    // Read once, untracked: a felt that moves mid-render (a seat arriving) is
+    // the backdrop's to re-render, not a reason to restart the gate.
+    const felt = untrack(anchor)
+    prepareScene(spec, size, felt, (p) => {
+      if (!settled && !abandoned && p < 1) state = { progress: p, done: false }
+    }).then(settle, settle)
 
     abandon = () => {
-      cancelled = true
+      abandoned = true
+      settled = true
       window.clearTimeout(timer)
+      window.clearTimeout(full)
     }
   })
 
@@ -430,17 +456,18 @@ function mapPreload(
  * the gate cannot survive.
  */
 export function mapGate(
-  map: () => MapDef | null,
+  scene: () => SceneSpec | null,
   gateOpen: () => boolean,
   onSend: (msg: ClientMsg) => void,
+  anchor: () => FeltAnchor,
 ): { readonly current: MapPreloadState } {
-  const preload = mapPreload(map, gateOpen)
+  const preload = mapPreload(scene, gateOpen, anchor)
   let sentReady = false
 
   $effect(() => {
     const open = gateOpen()
     const done = preload.current.done
-    const nothingToLoad = map() === null
+    const nothingToLoad = scene() === null
     if (!open) {
       sentReady = false
       return

@@ -25,6 +25,7 @@
   import GameOver from './components/GameOver.svelte'
   import Reconnecting from './components/Reconnecting.svelte'
   import type { ClientMsg } from './types/protocol'
+  import { screenIn } from './hooks/screenIn'
 
   const t = $derived(i18n.t)
   const g = $derived(game.current)
@@ -74,9 +75,13 @@
   // depending on how the connection was lost. See sessionPersistence.ts.
   const socket = webSocket(handleMessage, () => reconnectMessageFor(gameStore.getState()))
 
+  // The packet goes out before anything else moves. Clearing the toast is a
+  // store write, and a store write notifies every subscriber — the sounds, the
+  // session record, every derived value the board reads — so cleared first it
+  // put all of that between the tap and the wire.
   function handleSend(msg: ClientMsg) {
-    gameStore.getState().clearError()
     socket.send(msg)
+    gameStore.getState().clearError()
   }
 
   // The handles Playwright drives the app through, dev builds only. See
@@ -156,8 +161,9 @@
   // out is cancelling the search rather than pressing anything here. Ordinary
   // tables are left alone: there is a room, a code and a lobby to reopen, and
   // nobody there queued for a stranger in the first place.
+  const isMatchmade = $derived(g.isMatchmade)
   $effect(() => {
-    if (screen !== 'gameover' || !g.isMatchmade || hasTablemates) return
+    if (screen !== 'gameover' || !isMatchmade || hasTablemates) return
     findMatch(myNickname)
   })
 
@@ -202,12 +208,15 @@
 </script>
 
 {#if g.screen === 'restoring'}
+  <div class="screen" in:screenIn>
   <Reconnecting
     roomCode={g.roomCode}
     target={g.restoreTarget ?? 'game'}
     onCancel={() => gameStore.getState().abortRestore('reconnect cancelled')}
   />
+  </div>
 {:else if g.screen === 'lobby'}
+  <div class="screen" in:screenIn>
   <!-- Keyed on the entry point alone. The invite must not be part of it: spending
        it would change the key, remount the lobby and take the prefilled code back
        out from under the player. -->
@@ -224,7 +233,9 @@
       onClearError={() => gameStore.getState().clearError()}
     />
   {/key}
+  </div>
 {:else if g.screen === 'searching'}
+  <div class="screen" in:screenIn>
   <Searching
     startedAt={g.searchStartedAt ?? Date.now()}
     nickname={myNickname}
@@ -232,7 +243,9 @@
     onCreateTable={createTableInstead}
     playersOnline={g.playersOnline}
   />
+  </div>
 {:else if g.screen === 'matchfound' && g.matchFound}
+  <div class="screen" in:screenIn>
   <MatchFound
     myNickname={myNickname}
     opponentNickname={g.matchFound.opponentNickname}
@@ -240,7 +253,9 @@
     startsAt={g.matchFound.startsAt}
     format={g.matchFormat}
   />
+  </div>
 {:else if g.screen === 'waiting'}
+  <div class="screen" in:screenIn>
   <WaitingRoom
     roomCode={g.roomCode}
     players={g.players}
@@ -250,14 +265,18 @@
     onSend={handleSend}
     onLeave={leaveRoom}
   />
+  </div>
 {:else if g.screen === 'game'}
+  <div class="screen" in:screenIn>
   <GameView
     onSend={handleSend}
     wsStatus={socket.wsStatus}
     onRetryConnection={socket.reconnectNow}
     onLeave={leaveRoom}
   />
+  </div>
 {:else if g.screen === 'gameover'}
+  <div class="screen" in:screenIn>
   <GameOver
     winner={g.matchWinner}
     myNickname={myNickname}
@@ -279,4 +298,13 @@
     onFindMatch={() => findMatch(myNickname)}
     onLeave={leaveRoom}
   />
+  </div>
 {/if}
+
+<style>
+  /* Every screen sizes itself to this box exactly as it sized itself to #root:
+     the wrapper exists for the arrival transition and owns nothing else. */
+  .screen {
+    height: 100%;
+  }
+</style>

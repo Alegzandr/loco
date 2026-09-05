@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { i18n } from '../i18n/i18n.svelte'
   import { playSfx } from '../audio/sfx'
   import { streamerModePref, setStreamerMode } from '../hooks/streamerMode'
   import { colorAssistPref, setColorAssist } from '../hooks/colorAssist'
+  import { hapticsOffPref, hapticsSupported, setHaptics } from '../hooks/haptics'
   import { setMotionPref } from '../hooks/motionPref'
   import { watchPref } from '../hooks/prefs.svelte'
-  import { themePref, reducedMotion } from '../hooks/uiPrefs.svelte'
-  import type { Theme } from '../theme'
+  import { graphicsPref, reducedMotion } from '../hooks/uiPrefs.svelte'
+  import { GRAPHICS_PREFS, type GraphicsPref } from '../hooks/graphicsPref'
   import LanguageSwitcher from './LanguageSwitcher.svelte'
 
   type Props = {
@@ -38,18 +40,25 @@
   const t = $derived(i18n.t)
   const streamer = watchPref(streamerModePref)
   const colorAssist = watchPref(colorAssistPref)
+  const hapticsOff = watchPref(hapticsOffPref)
+  // Offered only where it can do anything: a switch for a motor the device
+  // does not have is a promise the panel cannot keep.
+  const canBuzz = hapticsSupported()
 
-  let open = $state(defaultOpen)
+  // Read once: the prop seeds the panel, the player owns it afterwards.
+  let open = $state(untrack(() => defaultOpen))
   let wrap = $state<HTMLDivElement | null>(null)
   // Where the focus goes on the way out. The gear normally, but the panel can be
   // opened from the home page's drawer, whose button is not in this tree and is
   // not on screen either by the time we render.
   let opener: HTMLElement | null = null
 
-  const themeOptions: [Theme, string][] = $derived([
-    ['light', t.prefsThemeLight],
-    ['dark', t.prefsThemeDark],
-  ])
+  // The four rungs of the render ladder, labelled. `auto` is first because it
+  // is the answer for nearly everybody; the hint under the row says which tier
+  // it landed on, so choosing an explicit one is a correction, never a guess.
+  const graphicsOptions: [GraphicsPref, string][] = $derived(
+    GRAPHICS_PREFS.map((p) => [p, t.prefsGraphicsTier[p]]),
+  )
 
   // The drawer in `layouts/GamePage.astro` is markup Astro rendered, outside
   // `#root`, so it asks for this panel by event rather than by calling into it.
@@ -169,24 +178,30 @@
             <LanguageSwitcher defaultOpen={defaultLangOpen} />
           </div>
 
-          <!-- The theme was a bare chip in the top bar, which is right for one
-               preference and wrong for four. Two options, applied on the press:
-               a segmented control is exactly that, which is also why the
-               language above it stopped being one. -->
+          <!-- How much the room is allowed to cost. Four options, applied on
+               the press: a segmented control is exactly that, which is also why
+               the language above it stopped being one. The hint says what
+               `auto` resolved to on this device, so the row never asks a player
+               to guess what their phone can take. -->
           <div class="group">
-            <span class="label">{t.prefsTheme}</span>
-            <div class="seg" role="group" aria-label={t.prefsTheme}>
-              {#each themeOptions as [value, label] (value)}
+            <span class="label">{t.prefsGraphics}</span>
+            <div class="seg segFour" role="group" aria-label={t.prefsGraphics}>
+              {#each graphicsOptions as [value, label] (value)}
                 <button
                   class="segBtn"
-                  class:segBtnActive={themePref.current === value}
-                  onclick={() => themePref.set(value)}
-                  aria-pressed={themePref.current === value}
+                  class:segBtnActive={graphicsPref.current === value}
+                  onclick={() => graphicsPref.set(value)}
+                  aria-pressed={graphicsPref.current === value}
                 >
                   {label}
                 </button>
               {/each}
             </div>
+            <p class="hint">
+              {graphicsPref.current === 'auto'
+                ? t.prefsGraphicsAutoHint.replace('%tier', t.prefsGraphicsTier[graphicsPref.tier])
+                : t.prefsGraphicsHint}
+            </p>
           </div>
 
           <!-- The one preference that changes what is drawn on another screen.
@@ -223,6 +238,23 @@
             </button>
             <p class="hint">{t.prefsColorAssistHint}</p>
           </div>
+
+          {#if canBuzz}
+            <div class="group">
+              <button
+                class="switchRow"
+                onclick={() => toggle(hapticsOff.current, setHaptics)}
+                role="switch"
+                aria-checked={!hapticsOff.current}
+              >
+                <span class="label">{t.prefsHaptics}</span>
+                <span class="track" class:trackOn={!hapticsOff.current} aria-hidden="true">
+                  <span class="knob"></span>
+                </span>
+              </button>
+              <p class="hint">{t.prefsHapticsHint}</p>
+            </div>
+          {/if}
 
           <!-- Reachable in-game on purpose: the players who need this are not
                always the ones who thought to look for it before the deal. -->
@@ -406,6 +438,19 @@
 
   .segBtn:hover {
     color: var(--color-ink);
+  }
+
+  /* Four rungs in the same pill: the options share the width instead of each
+     taking its own, and the label's side padding comes in so "Moyens" and
+     "Légers" fit a 292px dropdown beside "Auto" and "Élevés". Same height. */
+  .segFour {
+    width: 100%;
+  }
+
+  .segFour .segBtn {
+    flex: 1 1 0;
+    padding-inline: 6px;
+    white-space: nowrap;
   }
 
   .segBtnActive {

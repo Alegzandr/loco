@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { untrack } from 'svelte'
   import { createSubscriber } from 'svelte/reactivity'
   import { audio } from '../audio/engine'
-  import { getTrack, music } from '../audio/music'
+  import { getLoop, music } from '../audio/music'
+  import { sceneFor } from '../audio/gameSounds'
+  import { gameStore } from '../hooks/gameStore'
   import { playSfx, playVolumeAudition } from '../audio/sfx'
   import { i18n } from '../i18n/i18n.svelte'
 
@@ -16,7 +19,7 @@
 
   const t = $derived(i18n.t)
   const lang = $derived(i18n.lang)
-  const current = $derived(getTrack(settings.track))
+  const current = $derived(getLoop(settings.track))
 
   type Props = {
     /**
@@ -28,7 +31,9 @@
 
   let { defaultOpen = false }: Props = $props()
 
-  let open = $state(defaultOpen)
+  // Read once: the panel is the player's from then on, so the prop opens it
+  // and never reopens it.
+  let open = $state(untrack(() => defaultOpen))
   let wrap = $state<HTMLDivElement | null>(null)
 
   const BUSES: ['master' | 'sfx' | 'music', () => string][] = [
@@ -203,8 +208,17 @@
           <button
             class="muteBtn"
             onclick={() => {
-              void audio.unlock()
+              // Unmuting is the gesture that opens the context; muting opens
+              // nothing, so a player who muted before the first tap never gets
+              // a context, a playback session or a scheduler in service of
+              // silence. The bed is started here rather than left to the next
+              // store change, which on a quiet screen may be a while.
               audio.toggleMute()
+              if (audio.getSettings().muted) return
+              void audio.unlock().then(() => {
+                const scene = sceneFor(gameStore.getState())
+                if (scene !== 'off') music.start(scene)
+              })
             }}
           >
             {settings.muted ? t.audioUnmute : t.audioMute}

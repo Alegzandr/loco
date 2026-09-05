@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { clientMayInterrupt, clientMayPlay, isCounterCard } from '../components/interruptHelpers'
 import type { CardDTO } from '../types/protocol'
@@ -129,5 +131,48 @@ describe('isCounterCard', () => {
 
   it('rejects when there is no top discard yet', () => {
     expect(isCounterCard(redD2, null, 2)).toBe(false)
+  })
+})
+
+describe('the interception slam lands where the words are', () => {
+  const source = readFileSync(join(process.cwd(), 'src', 'components/InterruptBanner.svelte'), 'utf8')
+
+  it('tilts the band about the centre and sweeps it from the left', () => {
+    // `skewY` moves a point vertically by its distance from the transform
+    // origin. Skewed about its own left edge — a fifth of a screen off the left
+    // of the frame — the band arrived at the middle of the screen a hundred and
+    // forty pixels above where it was drawn, and on a wide monitor the words
+    // came down on empty board with the band floating over them. Two elements:
+    // the tilt pivots about the centre, the sweep still starts at the left.
+    const tilt = source.match(/\n {2}\.slashTilt \{[\s\S]*?\n {2}\}/)
+    const slash = source.match(/\n {2}\.slash \{[\s\S]*?\n {2}\}/)
+    expect(tilt, '.slashTilt rule not found').not.toBeNull()
+    expect(slash, '.slash rule not found').not.toBeNull()
+    expect(tilt![0]).toMatch(/transform:\s*skewY\(-?\d+deg\)/)
+    expect(tilt![0]).toMatch(/transform-origin:\s*center center/)
+    expect(slash![0]).not.toMatch(/skewY/)
+    expect(slash![0]).toMatch(/transform-origin:\s*left center/)
+    // And the sweep's own keyframes carry no skew either, or the tilt is
+    // applied twice on the element that is not centred.
+    const sweep = source.match(/@keyframes slashSweep \{[\s\S]*?\n {2}\}/)
+    expect(sweep![0]).not.toMatch(/skewY/)
+  })
+
+  it('takes the whole band away under reduced motion', () => {
+    expect(source).toMatch(/:root\[data-motion="reduce"\] \.slashTilt \{[^}]*display:\s*none/)
+  })
+})
+
+describe('the interrupt window', () => {
+  const red5: CardDTO = { color: 'red', kind: 'number', value: 5 }
+
+  // The card on top says nothing about whether it may still be slammed: a
+  // draw or a pass by the seat at turn shuts the window, and the server is
+  // the one that knows. Offered without that answer, the twin stayed tappable
+  // after somebody had drawn and the press came back "somebody was faster" on
+  // a table where nobody had been.
+  it('is the server\'s word, and a shut window offers nothing', () => {
+    expect(clientMayInterrupt(red5, red5, 0, true)).toBe(true)
+    expect(clientMayInterrupt(red5, red5, 0, false)).toBe(false)
   })
 })

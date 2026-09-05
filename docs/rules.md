@@ -153,12 +153,14 @@ One card, one call: the declaration covers the single card it was made on, so it
 cannot be repeated while that card is held. A rearranging play that hands you a
 *different* last card is a new obligation, and the call comes back.
 
-**Calling "Contre-LOCO!" is a wager** (§14.6). The button is live as soon as
-anybody else is down to 2 cards or fewer, so you press it on a read rather than
-on a cue. It only lands inside the 5 s window opened by the seat you are calling
-on; if nobody owed the call — or that seat's own "LOCO!" got there first, or its
+**Calling "Contre-LOCO!" is a wager** (§14.6). The button is live while anybody
+else is down to exactly 2 cards, or to 1 inside the 5 s window that card opened,
+so you press it on a read rather than on a cue. It only lands inside that window,
+and never in its first 1.5 s: the seat that owes the call always gets the opening
+stretch of its own window, and a call pressed inside it waits for the stretch to
+end. If nobody owed the call — or that seat's own "LOCO!" got there first, or its
 hand grew, or the window had just closed — the call misses and *you* draw **1
-card** for it. Once per card played, however many times you press.
+card** for it. Once per offer, however many times you press.
 
 **You cannot forget the call and still take the round** (§14.7). The play that
 empties your hand is refused until the call has been made, whichever of the four
@@ -283,10 +285,20 @@ downside — an unfounded or late call is simply ignored.
 lands only while the target's 5 s window is open and unanswered; it misses when
 the target's own call arrives first, when the target's hand has grown, when the
 window has expired — and when no seat owed the table a call at all.
-The button does not wait for the server's permission: it is pressable as soon as
-**any other player is down to 2 cards or fewer**, i.e. one ordinary play before
-anybody is catchable. Pressing it is therefore a read of the table, and a wrong
-read is paid for like a lost race.
+The button does not wait for the server's permission: it is pressable while
+**any other player is down to exactly 2 cards**, i.e. one ordinary play before
+anybody is catchable, **or down to 1 inside the 5 s window** that card opened.
+Pressing it is therefore a read of the table, and a wrong read is paid for like a
+lost race. Past the window, and past two cards, the button is dark: nothing about
+that seat can be caught, so a press there is not a wager, and the server answers
+it with nothing rather than with a card.
+**The seat that owes the call gets the first 1.5 s of its own window.** No
+Contre-LOCO! lands inside that stretch, whoever pressed it and however early: a
+call pressed inside it is held and resolved the moment the stretch ends, landing
+if the seat is still silent and missing if the seat spoke. Holding the button
+down is one press, not a hundred. Without this, a thumb that never let go landed
+on the millisecond the card touched the pile, before the "LOCO!" it was racing
+could have crossed the wire — which made spamming the way to deny every call.
 **It stops one card short of that on purpose.** From three cards out only an
 interject of two identical cards reaches the window, so arming the button there
 would leave it live through a long stretch of the round where pressing it can
@@ -294,10 +306,16 @@ only miss — and a miss a player can schedule is a card drawn deliberately, whi
 a Swap or a Global Switch turns from a penalty into a hand handed to somebody
 else. Missing a Contre-LOCO! is meant to be the thumb that had already committed
 when the target drew instead of playing, not a move.
-**One misread, one card.** The price is charged at most once per card played: the
-second, third and tenth press against a board that has not moved cost nothing,
-change nothing and are announced to nobody. Somebody plays, and the button is a
-fresh wager again.
+**One misread, one card.** The price is charged at most once per *offer* — the
+picture of who is near the finish: the seat on two cards, or the seat on its last
+card and the window it opened. The second, third and tenth press against the same
+picture cost nothing, change nothing and are announced to nobody, and so does a
+press after your own play, because your play changed nothing about that seat.
+The near seat plays down to one, or draws out of reach, or another seat comes
+within two, and the button is a fresh wager again. Charged per card played, a
+press before and a press after one's own play bought two cards a turn off one
+opponent sitting on two — faster than the voluntary draw, and every card of it
+was stocking a hand for a Swap to hand on.
 **Rationale**: without a price, mashing the button at every seat holding one card
 is free and therefore always correct, which turns a reaction into a reflex nobody
 has to aim. One card is small enough that a genuine race stays worth entering and

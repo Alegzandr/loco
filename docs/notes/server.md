@@ -520,15 +520,25 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     And the free-once-the-piles-are-dry half survived `catchGrace` on its own, *inside* a live
     window: `penalizeFailedCatch` answers an empty draw to its caller alone, so a penalty nobody paid
     is not a table-wide send either.
-  - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is now live
-    from two cards out, so "no client was drawing that button" is no longer true of a press with
-    no window behind it — that press is the mechanic, and `ErrNoCatchWindow` costs its caller a card
-    like every other miss (`docs/rules.md` §14.6). What replaces the free-refusal as the amplifica-
-    tion guard is `GameState.PlayEpoch`: **a seat is charged at most once per card played**, and
-    every press after that draws nothing, broadcasts nothing and answers nobody. Ten messages a
-    second still buy exactly one `catch_failed`. What stays refused-and-counted is a `target_index`
-    the table does not have: no client of ours composes it, so it is a forged message rather than a
-    wager, and `noteRejection` still counts it toward `suspected_cheats`.
+  - **That last part was rewritten when the button stopped being a cue.** Contre-LOCO! is live
+    while some other seat is on two cards or on a last card inside its window, so a press with no
+    window behind it can be the mechanic — and `ErrNoCatchWindow` costs its caller a card like every
+    other miss *while something is offered* (`docs/rules.md` §14.6, `Room.CatchOffered`). What
+    replaces the free-refusal as the amplification guard is the offer key (`catchOfferKey`,
+    `CatchPaidFor`): **a seat is charged at most once per offer**, and every press after that draws
+    nothing, broadcasts nothing and answers nobody. Ten messages a second still buy exactly one
+    `catch_failed`. A press against a table where nothing is offered — eight-card hands all round, or
+    the seat drew a round trip before the press landed — is the same silence: not charged (charged,
+    it was a card farm for anybody forging the message), not answered (a toast there scolds a player
+    whose button was live a moment ago), not counted. What stays refused-and-counted is a
+    `target_index` the table does not have: no client of ours composes it, so it is a forged message
+    rather than a wager, and `noteRejection` still counts it toward `suspected_cheats`.
+  - **And a press inside the target's head start is held, not answered** (`game.CatchHeadStart`,
+    `hub.holdCatch`, `table.heldCatches`): one `time.AfterFunc` per catcher per window, posted back
+    to the table like every other reaction timer, resolved through the same `resolveCatch` a live
+    press takes. The seat that owes the call gets the first 1.5s of its window whatever anybody is
+    pressing; a spammer buys one held press, resolved once. Lossy on a full box like every other
+    reaction timer — the press is the one thing a player can simply make again.
   - **`rematch` republished an ask that was already in the set.** Membership is idempotent, the
     broadcast was not: one socket at the rate limit became ten `rematch_offered` frames a second to
     every seat. Answered the way `map_ready` answers its own duplicate — not an error, simply
@@ -693,6 +703,20 @@ ordinary room's on purpose.
   second `AfterFunc` at the same handler. It is safe for the same reason every deferred callback here
   re-checks: the second run finds a room that is no longer a lobby and returns. It costs one timer per
   pairing, and `matchmaking_test.go` pins the property it rests on — two attempts, one deal.
+- **A seat is held through the versus reveal, and reclaimed the same way as a match seat.** A
+  matchmade table is a lobby for the two and a half seconds between the pairing and the deal, and
+  the client keeps its seat across a reload there (`matchfound` persists as `game`, and the rejoin
+  reclaims with the token). `disconnectAtTable` used to take the lobby branch: the seat left the
+  roster with every column it had in the recap, and the reclaim came back as a fresh `Join` under a
+  fresh seat — after a rematch the recap had no columns at all, which serialised as `null` and was
+  refused by the client's schema. Held now, like a match seat: `handleJoinRoom` reclaims at a
+  matchmade lobby (a matchmade table is never joinable by code, so it takes the reclaim branch at
+  every status), `handleMatchmakingStart` deals with a held seat counted present and the seat's own
+  15 s clock, armed when it dropped, forfeits the match if nobody reclaims it; nobody connected at
+  all is a pairing with nobody to deal to and is torn down as before. A seat held through the
+  reveal and never reclaimed requeues the survivor from the expiry, which is reachable only if the
+  deal itself was refused. `matchHistoryDTO` never serialises a column set as `null` either way.
+  `TestMatchmaking_ReloadDuringTheRevealKeepsTheSeat` and `…RematchRevealKeepsTheRecap` pin it.
 - **A matchmade room has no host**, so `handleAddBot`, `handleStartGame`, `handleSetMatchFormat`,
   `handleSetMaxPlayers`, `handleKickPlayer` and `handleTransferHost` all begin with
   `refuseInMatchmade`. The format is fixed
@@ -1013,14 +1037,28 @@ strangers will not, and the player who is still at the table did nothing wrong.
   has a quit button for host and guest alike, `releaseSeat` frees the seat on the spot and the rest
   of the table gets `player_left`. That is the whole point of sending it rather than closing the tab,
   which would hold the slot instead.
-- **A table nobody can come back to is closed rather than forfeited.** The other seat's socket goes,
-  its hold expires, and from then on nothing at that seat will ever act again — the clock auto-draws
-  and auto-passes for it every 30 s until the round runs out. `table.abandonedBy` is the question:
-  every other seat a human, with no socket **and no hold left**. Away is not gone — while the hold is
-  running the seat is somebody who may return, so leaving in front of it is the ordinary 1v1 ending
-  and the match is theirs to come back to. Once it is gone, no forfeit is issued at all, because
-  `remainingSeat` would award the match to the seat that is not there: the seat is swept and the
-  table is closed.
+- **A hold running out at an ordinary table is settled where it runs out** (`settleExpiredSeat`,
+  called by `handleExpireReconnect` after the `player_left` that names the seat). It is `leaveAtTable`'s
+  answer given to the same departure: above `WalkOutFloor` the seat is retired (`retireAbsentSeat`,
+  the domain's `RetireSeat` plus the bookkeeping `retireSeat` does for a walk-out, minus the socket
+  and minus a second `player_left`), at or below it the match is forfeited to the seat that stayed,
+  and a table with no socket and no hold left is left to `closeAbandonedMatch`. It used to be settled
+  nowhere: the seat kept its cards and its place in the turn order, the clock auto-drew and
+  auto-passed for it every 30 s, and the AFK threshold never reached it because `kickIfAFK` acts on
+  a socket and there was none. At a table of four that was one dead half-minute per lap for three
+  people still playing, for every round left in the match. The client already handled both outcomes:
+  a `player_left` naming a seat followed by a personalised `game_state`, exactly what a walk-out
+  sends, or a `match_end` with `forfeit`. `remainingSeat` prefers a connected human, then a held
+  one, and never a retired seat — a forfeit awarded to a chair is not a forfeit.
+- **A table nobody can come back to is closed rather than forfeited.** `table.abandonedBy` is the
+  question: every other seat a human, with no socket **and no hold left**. Away is not gone — while
+  the hold is running the seat is somebody who may return, so leaving in front of it is the ordinary
+  1v1 ending and the match is theirs to come back to. Once it is gone, no forfeit is issued at all,
+  because `remainingSeat` would award the match to a bot: the seat is swept and the table is closed.
+  With the settle above, the state this question describes is reached almost only by a solo game or
+  a snapshot restore nobody came back from; it is kept because it is the correct answer whenever it
+  is asked. `closeAbandonedMatch` closes a *finished* ordinary table on the same terms, since
+  `joinAtTable` accepts nothing there but a token reclaim and a reclaim needs a hold.
 - `forfeit_deadline` rides `player_disconnected` in a matchmade room only. Without a number on
   screen, 15s of a frozen board is indistinguishable from a broken game, which is the difference
   between waiting and reloading.
@@ -1050,6 +1088,18 @@ a nil one would hand the client an empty board and put it back at the table — 
 (`RemoveLobbyPlayer` + `dropSeat`): a phantom at a finished table is worse than a stale flag,
 because the next match would deal a hand to nobody.
 
+**Two holds at one finished table is where the seat-keyed maps have to move together.** `dropSeat`
+and `dropClient` re-based the members, the bots, the tokens, `gone` and the recap, and not `awayAt`
+or `afk`. So Bob (seat 1) and Carol (seat 2) both dropping on the game-over screen, Bob's hold running
+out first, left Carol at seat 1 with her hold still keyed 2: `playerList` read seat 1 as connected,
+`findHeldSeat` found her hold at 2 and checked her token against seat 2's — gone with Bob's — so her
+reclaim was refused with `game already in progress`, and her expiry either removed whoever had slid
+into seat 2 or nobody, leaving a phantom for the next deal. `table.shiftSeatKeys` is now the one list
+every removal goes through, `awayAt` and `afk` included. The timer is the other half: it was armed
+with a seat number, so `handleExpireReconnect` matches on the instant the hold began instead
+(`heldSeatAt`, the seat number kept as the tie-break for the snapshot restore, which stamps every
+seat with one clock and never drops one mid-match). `expiry_settle_test.go` runs both holds.
+
 **Matchmade tables are deliberately excluded from that hold.** Two strangers are done with each
 other, the survivor's client requeues the moment the roster says it is alone, and holding a seat
 would make it wait out the hold first for a rematch `handleRematch` refuses anyway.
@@ -1061,9 +1111,32 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   "A refused message must never be cheaper than an accepted one" above, which is the whole reason
   the reset moved from before the handler to after it.
 - Kick: send `{type:"error", error:"afk_kicked"}`, close. Standard reconnect window applies.
+- **A kick answers the socket, never the turn.** `kickIfAFK` returns true only for the matchmade
+  forfeit, which ends the match and with it the turn; an ordinary kick closes the socket and returns
+  false, and `handleTurnTimeout` goes on to draw and pass for the seat exactly as it does for any
+  empty chair. It used to return early, and nothing re-armed anything: `CurrentTurn` stayed on the
+  kicked player, `turnStartedAt` still named the timer that had just fired, and a table of three
+  humans was refused `not your turn` for the rest of the match with no way out but the tab.
+  `TestAFK_KickStillMovesTheTurn` watches the turn move from a second seat.
+- **A reclaim clears the counter** (`handleReconnect`): the timeouts that stacked up belonged to a
+  connection that died, and a player back at the table was one clock from a forfeit on their first
+  turn back.
+- **The auto-draw re-arms before it broadcasts** (`autoDrawOnTimeout`): `sendHandGrowth` reads the
+  deadline off the table, and the one on it was the clock that had just run out, so every client
+  drained its bar to nothing for the frames before `turn_changed`.
 - Tests override threshold (e.g. `1<<30`).
 
 ## Bots
+
+- **A refused bot move gives the turn up, never the table** (`botRecover`). Bots are exempt from the
+  turn clock, so a `PlayCard` or `CounterDraw` the domain refused used to log, return and arm
+  nothing: not a lost turn but a dead table, with the turn on a seat nothing could move. It now
+  draws if it has not (a draw never fails, and the card may be the answer) and passes otherwise; the
+  pass is the floor, so a second refusal after the draw cannot loop.
+- **`botCanPlayDrawn` asks `BotThink`, not `CanPlay`.** The two disagree on a legal Swap the bot
+  declines (`botSwapPays`), and "yes, playable" there scheduled a move that asked to draw again, was
+  refused (`ErrAlreadyDrawn`), fell through to the scheduler and came back every two seconds for the
+  rest of the match.
 - Host adds via `add_bot`. Named by `nextBotName(room)` — lowest free `Bot1`, `Bot2`, … (scans, does not count seats).
 - **A bot never sits in seat 0** (`Hub.keepHostHuman`). The host is seat 0 and nothing else: five
   controls are gated on `c.playerID() != 0`, the roster badge is `p.index === 0`, and a kick is
@@ -1190,6 +1263,28 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
   proven recorded before the second play asserts it gone.
 - Tracked in `table.bots`, a set of seat numbers.
 
+## What a snapshot carries, and what is built once
+
+- **`GameStateDTO` carries `catch_seats` and `declared_seats`.** A tab that reloaded two seconds
+  into a five-second catch window rebuilt a board on which nobody was catchable and lost the three
+  seconds it could still have won; a seat whose call was spent got its LOCO! button back and was
+  refused `player already declared` on the tap. Both lists are the same answers `card_played` and
+  the domain give (`CatchableTargets`, `LastCardDeclared`), sent with every snapshot.
+  `TestReconnect_SnapshotCarriesCatchState` reloads inside a window, and after a call.
+- **What is the same for every recipient is built once per broadcast** (`sharedGameState`, handed
+  to `playerGameStateWith`): the scoreboard, the recap and the catch lists. `playerGameStateUsing`
+  already hoisted the roster; the scoreboard and `matchHistoryDTO` were still rebuilt per seat, so a
+  GlobalSwitch at a ten-seat table on its sixth match was ten scoreboard builds and a hundred slice
+  copies on the hot path.
+- **`restoreRoom` fills the table in before it runs and arms through its box.** `awayAt` is written
+  before `t.start`; the turn clock, the bot and the cleanup — all of which write the table's own
+  stamps — are posted as the table's first job rather than run from the hub after the goroutine is
+  up. Nothing could post before the listener was up, which is why it never failed; it is now not a
+  race by construction rather than by luck.
+- **A named seat below zero on `catch_uno` is refused and counted**, like a seat past the end: it is
+  the same forged message with the sign flipped, and charging it as a wager was the one place a
+  forged target cost its sender a card instead of telling the operator anything.
+
 ## Session tokens
 - 32 hex chars (128-bit `crypto/rand`).
 - Issued in `room_created`/`room_joined`. Client must include `session_token` in reconnect `join_room`.
@@ -1224,7 +1319,8 @@ would make it wait out the hold first for a rematch `handleRematch` refuses anyw
 The table stays **shut** between "hands dealt" and "clock running" while every client downloads the
 map. `hub/maploading.go`.
 
-- **Why it is not cosmetic**: a map is ~600 kB of backdrop and table. Dealt straight into a match,
+- **Why it is not cosmetic**: a map is the engine's chunk, then a build and a render of a few
+  thousand blocks on the client's own GPU. Dealt straight into a match,
   the first player's 30 seconds start ticking while somebody else's table is still a grey rectangle,
   and in a game decided by arrival order that is a head start, not a slow paint.
 - Flow: `handleStartGame` broadcasts `game_started` (with **no** turn deadline) then
@@ -1232,6 +1328,13 @@ map. `hub/maploading.go`.
   → `match_loading` again per arrival → once nobody is left, `openTable` arms the turn timer,
   broadcasts `match_ready { turn, turn_deadline }` and schedules the bots. **The clock starts at
   `match_ready`, not at `game_started`** (`TestTurnTimer_StartsAtMatchReadyNotGameStarted`).
+- **Nothing arms a clock or a bot behind the gate either.** `scheduleTurnTimer` and
+  `maybeScheduleBot` return while `t.isLoading()`, and `executeBotMove` returns if the move it was
+  armed for lands inside a gate — a match ends, a rematch reopens the table and deals, and a bot move
+  armed at the end of the last match can fire into the next one's loading screen with the right seat
+  number. A departure during the gate used to reach both through `retireSeat`, and the first turn's
+  thirty seconds ran against a grey rectangle: the head start the gate exists to refuse, from the
+  server's own timer. `openTable` arms both once the last human is in.
 - **Every gameplay message is refused while the gate is open** (`isGameplayMsg` + `isMapLoading` in
   `dispatch`, "waiting for every player to load the table"). Trusting the client's own loading screen
   would leave a client that skipped it as the only one able to act.
@@ -1310,6 +1413,12 @@ round ended.
 
 ## Room lifecycle cleanup
 - `hub.EmptyRoomTimeout` (var, default 5min) — empty room retention.
+- `hub.TurnTimeoutGrace` (var, default 400ms): how long past the advertised deadline the auto-action
+  waits. `turn_deadline` still says `TurnTimeout`, so the bar is honest and only the server's
+  patience is longer: a play sent on the last frame of the bar has a round trip to cross, and a
+  server that acted on the very millisecond answered it "not your turn" after the player had beaten
+  their own clock — the one refusal in the game that reads as the clock lying. Every timer-armed
+  test that shortens `TurnTimeout` inherits the grace; shorten it too where the arithmetic matters.
 - `hub.ReconnectTimeout` (var, default 60s): disconnected-in-game slot hold. `MatchmakingReconnectTimeout` (15s) replaces it in a matchmade room, and its expiry forfeits the match rather than merely freeing the seat.
 - Both vars exported for test override; restore via `t.Cleanup`.
 - Empty room (last lobby/finished member leaves, or all in-game slots nil) → `scheduleRoomCleanup(t)`.

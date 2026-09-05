@@ -133,8 +133,10 @@ func (h *Hub) joinAtTable(t *table, c *Client, msg protocol.ClientMsg) {
 	// The check is "not a lobby" rather than "playing" because a finished
 	// ordinary table holds its seats too, for the length of the rematch: see
 	// disconnectAtTable. A stranger gets the same one string at either, which is
-	// the point of it.
-	if room.Status != game.StatusLobby {
+	// the point of it. A matchmade table is never joinable by code at all — its
+	// lobby is the versus reveal, whose seats are held for a reload and are
+	// reclaimed the same way — so it takes this branch at every status.
+	if room.Status != game.StatusLobby || t.isMatchmade() {
 		if playerID, found := t.findHeldSeat(msg.Nickname); found &&
 			t.validateToken(playerID, msg.SessionToken) {
 			h.handleReconnect(c, t, playerID, msg.Nickname)
@@ -221,13 +223,14 @@ func (h *Hub) dealMatch(t *table) {
 	// Send each player their personalized game state. Build the shared player
 	// list once and reuse it across all recipients.
 	pl := h.playerList(t)
+	shared := h.sharedGameState(t)
 	for seat, member := range t.members {
 		if member == nil {
 			continue
 		}
 		member.Send(protocol.ServerMsg{
 			Type:  protocol.SMsgGameStarted,
-			State: h.playerGameStateUsing(t, seat, pl),
+			State: h.playerGameStateWith(t, seat, pl, shared),
 		})
 	}
 
@@ -523,7 +526,14 @@ func (h *Hub) handleCleanup(t *table, cm cleanupMsg) {
 // left to wait for and no information left to protect: the cleanup's job, done
 // the moment it is certain instead of on a timer.
 func (h *Hub) closeAbandonedMatch(t *table) bool {
-	if t.room.Status != game.StatusPlaying {
+	// A lobby is left to the empty-room cleanup: its code is live and anybody
+	// can still type it. A match has nobody to wait for once every hold is gone,
+	// and so has a finished ordinary table — joinAtTable accepts nothing there
+	// but a token reclaim, and a reclaim needs a hold. Closing the second on the
+	// spot rather than on the five-minute timer matters now that an expiry can
+	// end a match: two seats that both drop and both run out leave a finished
+	// table behind, and it would otherwise sit in memory for the whole timeout.
+	if t.room.Status == game.StatusLobby {
 		return false
 	}
 	if len(t.awayAt) > 0 || !t.allSeatsEmpty() {

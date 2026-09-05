@@ -114,6 +114,33 @@ func (h *Hub) disconnectAtTable(t *table, c *Client) {
 		return
 	}
 
+	// The versus reveal. A matchmade table is a lobby for the two and a half
+	// seconds between the pairing and the deal, and the client keeps its seat
+	// across a reload there (`matchfound` persists as a game, and the rejoin
+	// reclaims with the token). Treated as a lobby departure, the reload took
+	// the seat out of the roster and every column it had in the recap, and the
+	// reclaim came back as a fresh Join under a fresh seat — a rematch's recap
+	// then had no columns at all. Held instead, exactly like a match seat: the
+	// reveal deals with a held seat counted present (handleMatchmakingStart),
+	// and the same 15 s clock a matchmade match runs on decides whether the
+	// pairing survives. Nothing here is a departure until that clock says so.
+	if room.Status == game.StatusLobby && t.isMatchmade() {
+		disconnectTime := time.Now()
+		t.hold(c.playerID(), disconnectTime)
+		h.broadcastToRoomAll(t, protocol.ServerMsg{
+			Type:            protocol.SMsgPlayerDisconnected,
+			PlayerIndex:     intPtr(c.playerID()),
+			Nickname:        nickname,
+			Players:         h.playerList(t),
+			ForfeitDeadline: forfeitDeadlineMs(t, disconnectTime),
+		})
+		h.scheduleReconnectExpiry(t, c.playerID(), disconnectTime)
+		if t.allSeatsEmpty() {
+			h.scheduleRoomCleanup(t)
+		}
+		return
+	}
+
 	// Lobby, or a matchmade table that is over: treat it exactly like a lobby.
 	// The room can be reopened by a rematch, so the roster and every
 	// playerID-keyed structure must stay consistent — leaving a phantom player
@@ -177,27 +204,26 @@ func (h *Hub) reindexLobbyDisconnect(c *Client, t *table) (hasHuman bool) {
 
 // handleExpireReconnect fires when a disconnected player's reconnect window closes.
 func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
-	at, ok := t.awayAt[em.playerID]
+	// Matched on the instant the hold began, not on the seat number the timer
+	// was armed with: a finished table drops seats as their holds run out, and
+	// every hold above a dropped seat moves down a key. See heldSeatAt. A hold
+	// that answers to neither was cleared (the player came back, or the seat
+	// went another way) or superseded by a newer disconnect, whose own timer
+	// handles it.
+	seat, ok := t.heldSeatAt(em.playerID, em.disconnectedAt)
 	if !ok {
-		// Player's slot was already cleared (reconnected or room deleted).
-		log.Printf("reconnect expiry skipped, slot cleared code=%s player=%d", em.roomCode, em.playerID)
-		return
-	}
-	// If the recorded time differs, the player disconnected again more recently;
-	// a newer timer will handle that disconnect.
-	if at != em.disconnectedAt {
-		log.Printf("reconnect expiry skipped, superseded by newer disconnect code=%s player=%d", em.roomCode, em.playerID)
+		log.Printf("reconnect expiry skipped, hold cleared or superseded code=%s player=%d", em.roomCode, em.playerID)
 		return
 	}
 	h.metrics.reconnectExpirations.Add(1)
-	log.Printf("reconnect window expired code=%s player=%d", em.roomCode, em.playerID)
+	log.Printf("reconnect window expired code=%s player=%d", em.roomCode, seat)
 
-	delete(t.awayAt, em.playerID)
+	delete(t.awayAt, seat)
 
 	room := t.room
 	nickname := ""
-	if em.playerID < len(room.Players) {
-		nickname = room.Players[em.playerID].Nickname
+	if seat < len(room.Players) {
+		nickname = room.Players[seat].Nickname
 	}
 
 	// The entry that made this seat absent has just been deleted, and `connected`
@@ -205,17 +231,17 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 	// departure and carry a roster saying that player is present. A running match
 	// cannot simply drop the seat: hands, scores and turn order are indexed by it
 	// until the round ends. See table.gone.
-	t.gone[em.playerID] = struct{}{}
+	t.gone[seat] = struct{}{}
 
 	// A room that is not playing has no such constraint, and a phantom seat there
 	// is worse than a stale flag: the next match would deal a hand to nobody. So
 	// the seat goes for real, exactly as a lobby departure removes one.
 	removed := false
 	if room.Status != game.StatusPlaying {
-		if _, err := room.RemoveLobbyPlayer(em.playerID); err != nil {
-			log.Printf("WARN expiry remove failed code=%s player=%d err=%v", em.roomCode, em.playerID, err)
+		if _, err := room.RemoveLobbyPlayer(seat); err != nil {
+			log.Printf("WARN expiry remove failed code=%s player=%d err=%v", em.roomCode, seat, err)
 		} else {
-			t.dropSeat(em.playerID)
+			t.dropSeat(seat)
 			removed = true
 		}
 	}
@@ -232,19 +258,35 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 		Players:  h.playerList(t),
 	}
 	if !removed {
-		left.PlayerIndex = intPtr(em.playerID)
+		left.PlayerIndex = intPtr(seat)
 	} else {
 		// The seat went for real, so everything keyed on it moved down a column,
 		// the recap included. Only sent on the branch that re-bases: the other one
-		// leaves every index exactly where the game-over screen found it.
+		// leaves every index exactly where the game-over screen found it. The
+		// scoreboard and the round history travel for the same reason — a
+		// finished table's standings are still on screen, and the client cannot
+		// re-base them itself.
 		left.MatchHistory = matchHistoryDTO(t)
+		if len(room.Scores) > 0 {
+			left.Scoreboard = h.buildScoreboard(room)
+			left.RoundHistory = room.RoundHistory
+		}
 	}
 	h.broadcastToRoomAll(t, left)
 
 	// Whoever is left at a finished table may have been waiting on exactly this
 	// player. Their asks have just been re-based with the seat.
 	if removed && room.Status == game.StatusFinished {
-		h.releaseRematchOffer(t, em.playerID)
+		h.releaseRematchOffer(t, seat)
+	}
+
+	// A seat held through the reveal and never reclaimed: the pairing fell
+	// apart before it dealt, and whoever is left goes back to searching rather
+	// than sitting in a two-seat room that can never start. Reachable only if
+	// the deal itself was refused, since the hold outlasts the reveal.
+	if removed && room.Status == game.StatusLobby && t.isMatchmade() {
+		h.requeueSurvivor(t)
+		return
 	}
 
 	// In a matchmade room the hold is the whole wait: nobody here agreed to sit
@@ -252,7 +294,14 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 	// whoever is still at the table instead of grinding on with a seat that
 	// auto-passes every turn until the round runs out.
 	if room.Status == game.StatusPlaying && t.isMatchmade() {
-		h.forfeitMatch(t, em.playerID)
+		h.forfeitMatch(t, seat)
+	}
+
+	// An ordinary match answers the same event the way it answers leave_room:
+	// the seat is taken out of the round where the table can spare it, and the
+	// match ends where it cannot. See settleExpiredSeat.
+	if room.Status == game.StatusPlaying && !t.isMatchmade() {
+		h.settleExpiredSeat(t, seat)
 	}
 
 	// The seat that just expired may have been the last one anybody could have
@@ -262,6 +311,43 @@ func (h *Hub) handleExpireReconnect(t *table, em expireMsg) {
 
 	// Otherwise no connected members remain and the room cleanup timer handles
 	// deletion (already scheduled when the last player disconnected).
+}
+
+// settleExpiredSeat decides what a hold running out does to an ordinary match
+// that is still being played, and it is leave_room's answer given to the same
+// departure: the two are one absence arrived at two ways, and the table used to
+// treat them differently in the one way that mattered to everybody else.
+//
+// The seat used to stay in the round. It held its cards, it kept its place in
+// the turn order, and the clock auto-drew and auto-passed for it every thirty
+// seconds — for the rest of the round, and then for every round of the match,
+// because the AFK threshold only ever acts on a seat with a socket to close.
+// At a table of four that is one dead half-minute per lap for three people who
+// are still playing, for as long as a best-of-seven lasts. Nobody waits for
+// somebody who is not there is the rule the matchmade timings were written to,
+// and it holds here too: the hold *was* the wait, and it is over.
+//
+// So, in leaveAtTable's order and with its floor: above WalkOutFloor the seat
+// is retired — the hand goes back to the deck, the turn steps over it, the
+// scoreboard is left as it stood — and at or below it the match is given to the
+// seat that stayed, announced as the forfeit it is. A table with nobody left at
+// all, no socket and no hold, is not this function's: closeAbandonedMatch runs
+// right after it and closes the room instead of awarding a match to a bot.
+func (h *Hub) settleExpiredSeat(t *table, seat int) {
+	room := t.room
+	if room.Status != game.StatusPlaying || t.isMatchmade() || room.IsRetired(seat) {
+		return
+	}
+	if t.connected() == 0 && len(t.awayAt) == 0 {
+		return
+	}
+	// The expired seat is already out of playableSeats: it is neither held nor
+	// seated, so the count is what is left without it.
+	if t.playableSeats() >= WalkOutFloor {
+		h.retireAbsentSeat(t, seat)
+		return
+	}
+	h.forfeitMatch(t, seat)
 }
 
 // findHeldSeat returns the seat held for a disconnected player of that
@@ -280,6 +366,10 @@ func (h *Hub) handleReconnect(c *Client, t *table, playerID int, nickname string
 	code := t.code
 	h.seatClient(t, c, playerID)
 	delete(t.awayAt, playerID)
+	// The counter measured a connection that died. A reclaim is somebody
+	// there, and the timeouts that stacked up while they were not must not
+	// leave them one clock from a forfeit on their first turn back.
+	delete(t.afk, playerID)
 
 	log.Printf("player reconnected code=%s nickname=%s playerID=%d", code, nickname, playerID)
 

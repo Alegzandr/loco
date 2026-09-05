@@ -26,6 +26,15 @@ var ReconnectTimeout = 60 * time.Second
 // Exported so tests can override it.
 var TurnTimeout = 30 * time.Second
 
+// TurnTimeoutGrace is how long past the advertised deadline the auto-action
+// waits before it fires. The client draws TurnTimeout and stops offering the
+// board at zero; a play sent on the last frame of the bar still has a network
+// to cross, and a server that acted on the very millisecond refused it with
+// "not your turn" after the player had beaten their own clock. The grace is
+// not on the wire: the bar is honest, and only the server's patience is longer.
+// Exported so tests can shorten it.
+var TurnTimeoutGrace = 400 * time.Millisecond
+
 // AFKKickThreshold is the number of consecutive turn-timeouts (without any voluntary
 // action) after which a human player is kicked from the game. Default 4 ≈ two full
 // rounds in a 2-player game. Exported so tests can override it.
@@ -251,8 +260,8 @@ type MetricsStats struct {
 	// MatchesSolo counts the 1v1s against the server. Beside the queue's own
 	// number because the two answer one operator question together: whether an
 	// empty-feeling queue is sending people to the bot or sending them away.
-	MatchesSolo int32 `json:"matches_solo"`
-	DebugModeActive  bool  `json:"debug_mode_active"`
+	MatchesSolo     int32 `json:"matches_solo"`
+	DebugModeActive bool  `json:"debug_mode_active"`
 	// Draining, plus MatchesInFlight, is what an operator watches during a
 	// deploy: the second is the number the shutdown is waiting to reach zero.
 	// It is only maintained while draining and reads 0 before that, because
@@ -290,10 +299,10 @@ type MetricsStats struct {
 // New creates and returns a Hub.
 func New() *Hub {
 	return &Hub{
-		tables:         make(map[string]*table),
-		clients:        make(map[*Client]struct{}),
-		connsPerNet:    make(map[string]int),
-		joinBudgets:    make(map[string]*joinBudget),
+		tables:       make(map[string]*table),
+		clients:      make(map[*Client]struct{}),
+		connsPerNet:  make(map[string]int),
+		joinBudgets:  make(map[string]*joinBudget),
 		register:     make(chan *Client, 16),
 		unregister:   make(chan *Client, 16),
 		inbound:      make(chan inboundMsg, 256),

@@ -1,181 +1,186 @@
+import { existsSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  LAYERS,
-  nextFormIndex,
-  noteLength,
-  partById,
-  PASSES_PER_TRACK,
+  barSeconds,
+  CROSSFADE_S,
+  fadeFor,
+  FALL_FADE_S,
+  FAMILIES,
+  HANDOVER_LOOKAHEAD_S,
+  HANDOVER_TAIL_S,
+  LAPS_PER_LOOP,
+  MIN_LEAD_S,
+  nextFamily,
+  resumeOffset,
+  RISE_FADE_S,
+  SECTION_RELEASE_MS,
+  sectionHoldMs,
+  PREFETCH_MAX,
+  CACHE_BUDGET_BYTES,
+  loopsFor,
+  nextLoopId,
   SECTION_AT,
+  SECTION_HOLD_MS,
+  SECTIONS,
   sectionFor,
   shuffledOrder,
+  SLEW_PER_SEC,
+  STOP_FADE_S,
+  untilNextBar,
+  untilNextWrap,
   type Section,
 } from '../audio/music'
-import { TRACKS } from '../audio/tracks'
-import { ressac } from '../audio/tracks/ressac'
-import type { PartDef, TrackDef } from '../audio/tracks/types'
+import { LOOPS } from '../audio/tracks'
 
-const SECTIONS: Section[] = ['breakdown', 'buildup', 'groove', 'drop']
+/** Where the encoded loops live, relative to the client package root. */
+const MUSIC_DIR = join(process.cwd(), 'public', 'music')
+
+/** Deterministic stand-in for the engine's xorshift. */
+const seeded = (seed: number) => {
+  let s = seed
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0
+    return s / 0x100000000
+  }
+}
 
 /**
- * Tracks are data, so they are testable — and this is the layer where a mistake
- * is *silent*. A row one slot short does not throw, it just drifts the melody
- * against the harmony a little further on every pass; an unreachable part id
- * plays nothing and looks like a design choice.
+ * The registry is data, so it is testable — and this is the layer where a
+ * mistake is *silent*. A file that is not there fetches a 404 and the bed keeps
+ * whatever was already sounding, which on the first loop of a match is silence
+ * that looks like a design choice; a wrong `seconds` puts the loop point in the
+ * middle of a bar and every turn of it drifts a little further.
  */
-describe('tracks — structural integrity', () => {
-  it('registers at least three, with unique ids', () => {
-    expect(TRACKS.length).toBeGreaterThanOrEqual(3)
-    const ids = TRACKS.map((t) => t.id)
+describe('the loop registry', () => {
+  it('registers loops with unique ids', () => {
+    expect(LOOPS.length).toBeGreaterThanOrEqual(4)
+    const ids = LOOPS.map((l) => l.id)
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  for (const track of TRACKS) {
-    describe(track.title, () => {
-      const parts = new Map(track.parts.map((p) => [p.id, p]))
-
-      it('has a tempo and a pump shape', () => {
-        expect(track.bpm).toBeGreaterThan(90)
-        expect(track.bpm).toBeLessThan(200)
-        expect(track.pump.length).toBeGreaterThan(0)
+  for (const loop of LOOPS) {
+    describe(loop.title, () => {
+      it('has a file behind it', () => {
+        const file = join(MUSIC_DIR, `${loop.id}.mp3`)
+        expect(existsSync(file), `${loop.id}.mp3 is missing from public/music/`).toBe(true)
+        // A file that exists and is empty is the same silence with a different
+        // cause, and an encode that failed leaves exactly that behind.
+        expect(statSync(file).size).toBeGreaterThan(50_000)
       })
 
-      it('names only parts that exist in its form', () => {
-        for (const id of track.form) expect(parts.has(id), id).toBe(true)
+      it('carries a turn long enough not to read as a loop', () => {
+        expect(loop.seconds, loop.id).toBeGreaterThan(30)
+        expect(loop.seconds, loop.id).toBeLessThan(180)
       })
 
-      it('is long enough that a part does not come round every few seconds', () => {
-        // The whole complaint that produced this design was "it's just a chorus
-        // on repeat". Four bars at 138 BPM is 7s; a form has to be minutes.
-        const bars = track.form.reduce((n, id) => n + (parts.get(id)?.bars.length ?? 0), 0)
-        const seconds = (bars * 4 * 60) / track.bpm
-        expect(seconds).toBeGreaterThan(45)
+      it('declares at least one real section', () => {
+        expect(loop.sections.length).toBeGreaterThan(0)
+        for (const s of loop.sections) expect(SECTIONS).toContain(s)
       })
 
-      it('offers every role the arrangement can ask for', () => {
-        // `nextFormIndex` falls through when a role is missing, so this is a
-        // quality bar rather than a crash: without a break part, a round summary
-        // gets a chorus played quietly instead of an actual breakdown.
-        const roles = new Set(track.form.map((id) => parts.get(id)?.role))
-        for (const role of ['intro', 'verse', 'chorus', 'break'] as const) {
-          expect(roles.has(role), role).toBe(true)
-        }
+      it('is a whole number of bars at the tempo written for it', () => {
+        // The bar grid a change lands on is counted from the loop's own start,
+        // and it only survives the wrap because the loop is a whole number of
+        // bars. A loop that is not one at this tempo has the wrong tempo
+        // written here: the composer cut every one of these on a bar line.
+        expect(loop.bpm, loop.id).toBeGreaterThanOrEqual(60)
+        expect(loop.bpm, loop.id).toBeLessThanOrEqual(190)
+        const bars = (loop.seconds * loop.bpm) / 240
+        expect(Math.abs(bars - Math.round(bars)), `${loop.id}: ${bars} bars`).toBeLessThan(0.02)
+        expect(barSeconds(loop)).toBeCloseTo(240 / loop.bpm, 9)
       })
 
-      it('fills every melodic row exactly, so lines never drift against harmony', () => {
-        for (const part of track.parts) {
-          for (const [name, rows] of [['lead', part.lead], ['counter', part.counter]] as const) {
-            if (!rows) continue
-            expect(rows.length, `${part.id}.${name} bars`).toBe(part.bars.length)
-            for (const row of rows) {
-              expect(row.length, `${part.id}.${name} row`).toBe(part.div)
-            }
-          }
-          expect(part.bass.length, `${part.id}.bass`).toBe(16)
-        }
+      it('belongs to one of the families', () => {
+        expect(FAMILIES).toContain(loop.family)
       })
 
-      it('never opens a row with a tie', () => {
-        // A leading `-1` extends a note that does not exist; it would silently
-        // swallow the first slot of the bar.
-        for (const part of track.parts) {
-          for (const rows of [part.lead, part.counter]) {
-            for (const row of rows ?? []) expect(row[0], part.id).not.toBe(-1)
-          }
-        }
-      })
-
-      it('keeps every melodic note in a register that reads over the game', () => {
-        for (const part of track.parts) {
-          for (const row of part.lead ?? []) {
-            for (const midi of row) {
-              if (midi <= 0) continue
-              expect(midi, `${part.id}`).toBeGreaterThanOrEqual(60) // C4
-              expect(midi, `${part.id}`).toBeLessThanOrEqual(88) // E6
-            }
-          }
-        }
-      })
-
-      it('keeps the counter-line under the lead so the tune stays on top', () => {
-        for (const part of track.parts) {
-          if (!part.counter || !part.lead) continue
-          const top = (rows: number[][]) => Math.max(...rows.flat())
-          expect(top(part.counter), part.id).toBeLessThan(top(part.lead))
-        }
-      })
-
-      it('builds arp figures from the chord of their own bar', () => {
-        for (const part of track.parts) {
-          for (const bar of part.bars) {
-            const tones = new Set(bar.chord.map((m) => m % 12))
-            for (const midi of bar.arp) expect(tones.has(midi % 12)).toBe(true)
-          }
-        }
-      })
-
-      it('places stabs off the beat, where a stab belongs', () => {
-        for (const part of track.parts) {
-          for (const step of part.stabs ?? []) expect(step % 4).not.toBe(0)
-        }
-      })
-
-      it('moves harmonically instead of circling one chord', () => {
-        const roots = new Set(track.parts.flatMap((p) => p.bars.map((b) => b.root)))
-        expect(roots.size).toBeGreaterThanOrEqual(5)
+      it('is named once, in English, and described in both languages', () => {
+        // A title is a name and a blurb is copy: only the second is translated.
+        // A piece whose name changes with the interface language is two pieces
+        // to anybody who switches, and neither is the one the composer put out.
+        expect(loop.title.trim().length).toBeGreaterThan(0)
+        expect(loop.title, loop.id).toMatch(/^[A-Za-z0-9 '-]+$/)
+        expect(loop.blurb.fr.trim().length).toBeGreaterThan(0)
+        expect(loop.blurb.en.trim().length).toBeGreaterThan(0)
+        // A title names the writing. The source files arrive as
+        // `Sketchbook 2024-05-29`, which says nothing about this piece that it
+        // would not say about the two hundred others in the pack.
+        expect(loop.title, loop.id).not.toMatch(/sketchbook|\d{4}-\d{2}/i)
       })
     })
   }
-})
 
-describe('ressac: the hook is the user\'s own', () => {
-  it('keeps the sketch lead note for note', () => {
-    // Transcribed from `F:\dev\strudel-test\neon-horizon.strudel`:
-    //   [e5 ~ c5 e5 ~ a4 ~ c5] [~ e5 ~ a5 g5 ~ e5 ~]
-    //   [f5 ~ c5 f5 ~ a4 ~ c5] [~ f5 ~ a5 g5 ~ e5 ~]
-    const chorus = partById(ressac, 'chorus') as PartDef
-    expect(chorus.lead).toEqual([
-      [76, 0, 72, 76, 0, 69, 0, 72],
-      [0, 76, 0, 81, 79, 0, 76, 0],
-      [77, 0, 72, 77, 0, 69, 0, 72],
-      [0, 77, 0, 81, 79, 0, 76, 0],
-    ])
+  it('offers the groove enough loops to hold a long match', () => {
+    // Where a match actually lives. Two was the floor everywhere and it was not
+    // enough here: the first table to run on the recorded bed came back with
+    // "it repeats", and an ordinary turn is where it was heard.
+    expect(loopsFor('groove').length).toBeGreaterThanOrEqual(5)
   })
 
-  it('keeps the sketch tempo, arp figures and voicings', () => {
-    expect(ressac.bpm).toBe(138) // setcpm(138/4)
-    const verse = partById(ressac, 'verse') as PartDef
-    expect(verse.bars.map((b) => b.arp)).toEqual([
-      [57, 60, 64, 69, 72, 69, 64, 60], // a3 c4 e4 a4 c5 a4 e4 c4
-      [53, 57, 60, 65, 69, 65, 60, 57],
-      [60, 64, 67, 72, 76, 72, 67, 64],
-      [55, 59, 62, 67, 71, 67, 62, 59],
-    ])
-    expect(verse.bars.map((b) => b.chord)).toEqual([
-      [57, 60, 64, 69], // [a3,c4,e4,a4]
-      [53, 57, 60, 65],
-      [60, 64, 67, 72],
-      [55, 59, 62, 67],
-    ])
+  it('keeps the warm set smaller than the library it is drawn from', () => {
+    // The bound only means something while there is something to leave out. If
+    // the registry ever shrinks to the budget, the sort in `prefetch` is doing
+    // nothing and the comment above it is a lie.
+    expect(PREFETCH_MAX).toBeLessThan(LOOPS.length)
+    expect(PREFETCH_MAX).toBeGreaterThanOrEqual(2)
   })
 
-  it('keeps the bass off the downbeat, as the sketch does', () => {
-    // `struct("[~ x x x]*4")` — which is also why it never collides with a kick.
-    const chorus = partById(ressac, 'chorus') as PartDef
-    for (const beat of [0, 4, 8, 12]) expect(chorus.bass[beat]).toBeNull()
+  it('can hold everything it warms, so the warm-up never feeds the eviction', () => {
+    // An AudioBuffer is deinterleaved float32 at the context rate, so a loop
+    // costs about `seconds x 44100 x 2 x 4` bytes — a 102s piece is 37 MB, which
+    // is 24 times its own MP3. If the budget could not hold `PREFETCH_MAX` of
+    // the longest, warming would evict what warming had just decoded: three
+    // fetches and three decodes spent to end up holding three buffers anyway.
+    const longest = [...LOOPS].sort((a, b) => b.seconds - a.seconds).slice(0, PREFETCH_MAX)
+    const worst = longest.reduce((n, l) => n + l.seconds * 44100 * 2 * 4, 0)
+    expect(worst).toBeLessThanOrEqual(CACHE_BUDGET_BYTES * 1.6)
+    // And the budget must not quietly become "hold everything", which is the
+    // state this whole mechanism was added to get out of: 18 loops decoded at
+    // once was measured at 418 MB.
+    const all = LOOPS.reduce((n, l) => n + l.seconds * 44100 * 2 * 4, 0)
+    expect(CACHE_BUDGET_BYTES).toBeLessThan(all / 3)
   })
-})
 
-describe('noteLength', () => {
-  it('counts ties', () => {
-    expect(noteLength([72, -1, -1, 0], 0)).toBe(3)
-    expect(noteLength([72, 0, 74, -1], 0)).toBe(1)
-    expect(noteLength([72, 0, 74, -1], 2)).toBe(2)
+  it('lets every family carry a whole match', () => {
+    // A match is played inside one family, so a family missing a section would
+    // send that section to another palette — the genre change the families
+    // exist to remove — through `loopsFor`'s fallback. And the groove is where
+    // a match lives: with one loop there the lap handover has nothing to hand
+    // over to, and with two it alternates, which is the "chorus on repeat" the
+    // registry-wide floor of five was raised for.
+    for (const family of FAMILIES) {
+      for (const section of SECTIONS) {
+        const own = loopsFor(section, family).filter((l) => l.family === family)
+        expect(own.length, `${family} has nothing for ${section}`).toBeGreaterThanOrEqual(1)
+      }
+      const groove = loopsFor('groove', family).filter((l) => l.family === family)
+      expect(groove.length, `${family} groove`).toBeGreaterThanOrEqual(2)
+      // The wait and the endgame are the two other places a table sits: the
+      // home screen holds the build-up for as long as somebody reads it, and
+      // an endgame holds the drop for as long as somebody stays on one card.
+      // With one loop each the lap handover had nothing to hand over to, so
+      // the lounge's endgame was one 44-second funk loop on repeat and its
+      // waiting room one piece of jazz for the whole evening. The breakdown
+      // is exempt: it plays under the round summary and the recap, both of
+      // which are left in under a minute.
+      for (const section of ['buildup', 'drop'] as const) {
+        const own = loopsFor(section, family).filter((l) => l.family === family)
+        expect(own.length, `${family} ${section}`).toBeGreaterThanOrEqual(2)
+      }
+    }
   })
 
-  it('stops at the end of the row rather than running off it', () => {
-    expect(noteLength([72, -1, -1, -1], 0)).toBe(4)
-    expect(noteLength([0, 0, 0, 72], 3)).toBe(1)
+  it('offers every section at least two loops', () => {
+    // The whole anti-repetition argument rests on this. One loop for a section
+    // means a table that sits in that section hears one piece of music for as
+    // long as it sits there, which is the failure the old part/form design was
+    // built to escape and this design has to keep escaping.
+    for (const section of SECTIONS) {
+      expect(loopsFor(section).length, section).toBeGreaterThanOrEqual(2)
+    }
   })
+
 })
 
 describe('the arrangement ladder', () => {
@@ -188,46 +193,165 @@ describe('the arrangement ladder', () => {
     expect(sectionFor(1)).toBe('drop')
   })
 
-  it('orders the thresholds so stacks build and never swap', () => {
+  it('orders the thresholds so sections build and never swap', () => {
     for (let n = 1; n < SECTIONS.length; n++) {
       expect(SECTION_AT[SECTIONS[n]]).toBeGreaterThan(SECTION_AT[SECTIONS[n - 1]])
     }
   })
 
-  it('puts the lobby in a build-up: the tune, without the drums', () => {
+  it('puts the lobby in a build-up whatever the intensity says', () => {
     expect(sectionFor(1, true)).toBe('buildup')
-    expect(LAYERS.buildup.lead).toBe(true)
-    expect(LAYERS.buildup.kick).toBe(false)
+    expect(sectionFor(0, true)).toBe('buildup')
   })
 
-  it('never drops the tune as the table gets tense', () => {
-    // The mistake a previous bed made: a theme gated above where the game
-    // actually lives is a theme nobody hears.
-    for (const section of SECTIONS) expect(LAYERS[section].lead, section).toBe(true)
+  it('answers a change in about a bar, not instantly and not eventually', () => {
+    // Game events move the intensity in jumps. The slew is what turns a jump
+    // into an answer; the hold is what stops a value parked on a threshold from
+    // chattering the bed between two loops.
+    const fullSwing = 1 / SLEW_PER_SEC
+    expect(fullSwing).toBeGreaterThan(1)
+    expect(fullSwing).toBeLessThan(4)
+    expect(SECTION_HOLD_MS).toBeGreaterThan(0)
+    expect(SECTION_HOLD_MS).toBeLessThan(3000)
   })
 
-  it('stacks rhythm layers monotonically across the ladder', () => {
-    const count = (s: Section) => {
-      const l = LAYERS[s]
-      return [l.kick, l.hats, l.ride, l.bass, l.stabs, l.counter].filter(Boolean).length
+  it('answers a rise in a bar and believes a fall only after it has held', () => {
+    // An endgame hand goes 1 → 3 → 2 → 1 every few turns. Each dip under the
+    // drop's threshold was a crossfade out and one back in, so a tense table
+    // heard a different piece every ten seconds. A rise is still the moment the
+    // drop exists for; a fall has to hold long enough to be the table calming
+    // down rather than one seat drawing.
+    expect(sectionHoldMs('groove', 'drop')).toBe(SECTION_HOLD_MS)
+    expect(sectionHoldMs('breakdown', 'groove')).toBe(SECTION_HOLD_MS)
+    expect(sectionHoldMs('drop', 'groove')).toBe(SECTION_RELEASE_MS)
+    expect(sectionHoldMs('groove', 'buildup')).toBe(SECTION_RELEASE_MS)
+    expect(sectionHoldMs('drop', 'buildup')).toBe(SECTION_RELEASE_MS)
+    expect(SECTION_RELEASE_MS).toBeGreaterThanOrEqual(8000)
+    expect(SECTION_RELEASE_MS).toBeLessThan(30_000)
+    // The breakdown is the round summary — a stop, not a dip — and the one
+    // section the ending is meant to sound like.
+    expect(sectionHoldMs('drop', 'breakdown')).toBe(SECTION_HOLD_MS)
+    expect(sectionHoldMs('groove', 'breakdown')).toBe(SECTION_HOLD_MS)
+  })
+})
+
+describe('where a change lands', () => {
+  it('puts a change on the next bar line, never inside the scheduling latency', () => {
+    // Half a bar in: half a bar to go.
+    expect(untilNextBar(1, 2)).toBeCloseTo(1, 9)
+    // On the line already, or a hair after it: this bar is too close, take the next.
+    expect(untilNextBar(2, 2)).toBeCloseTo(2, 9)
+    expect(untilNextBar(2 - MIN_LEAD_S / 2, 2)).toBeCloseTo(2 + MIN_LEAD_S / 2, 9)
+    expect(untilNextBar(2 - MIN_LEAD_S, 2)).toBeCloseTo(MIN_LEAD_S, 9)
+    // The grid is the loop's, so a run of several laps still lands on it.
+    expect(untilNextBar(45.5, 2)).toBeCloseTo(0.5, 9)
+    // Scheduled ahead (a landing not yet started): counted from its start.
+    expect(untilNextBar(-0.5, 2)).toBeCloseTo(0.5, 9)
+    expect(untilNextBar(3, 0)).toBe(0)
+    expect(untilNextBar(Number.NaN, 2)).toBe(0)
+  })
+
+  it('names the wrap that completes each lap', () => {
+    expect(untilNextWrap(0, 40)).toEqual({ wait: 40, laps: 1 })
+    expect(untilNextWrap(39.9, 40).laps).toBe(1)
+    expect(untilNextWrap(39.9, 40).wait).toBeCloseTo(0.1, 9)
+    expect(untilNextWrap(40, 40)).toEqual({ wait: 40, laps: 2 })
+    expect(untilNextWrap(77, 40)).toEqual({ wait: 3, laps: 2 })
+    // A voice scheduled ahead has not started its first lap.
+    expect(untilNextWrap(-2, 40)).toEqual({ wait: 40, laps: 1 })
+    expect(untilNextWrap(5, 0)).toEqual({ wait: 0, laps: 0 })
+  })
+
+  it('fades quickly upward and slowly downward', () => {
+    expect(fadeFor('groove', 'drop')).toBe(RISE_FADE_S)
+    expect(fadeFor('breakdown', 'groove')).toBe(RISE_FADE_S)
+    expect(fadeFor('drop', 'groove')).toBe(FALL_FADE_S)
+    expect(fadeFor('groove', 'breakdown')).toBe(FALL_FADE_S)
+    expect(RISE_FADE_S).toBeLessThan(CROSSFADE_S)
+    expect(CROSSFADE_S).toBeLessThan(FALL_FADE_S)
+    expect(RISE_FADE_S).toBeGreaterThanOrEqual(1)
+    expect(FALL_FADE_S).toBeLessThanOrEqual(6)
+    expect(STOP_FADE_S).toBeGreaterThan(0)
+    expect(STOP_FADE_S).toBeLessThan(CROSSFADE_S)
+  })
+
+  it('decides a handover early enough to load and late enough to be one', () => {
+    // The tail must fit inside the lookahead, or the fade would have to start
+    // before the file is known to be ready; and both must fit inside the
+    // shortest loop, or a handover would be decided before the lap it ends.
+    expect(HANDOVER_TAIL_S).toBeLessThan(HANDOVER_LOOKAHEAD_S)
+    const shortest = Math.min(...LOOPS.map((l) => l.seconds))
+    expect(HANDOVER_LOOKAHEAD_S).toBeLessThan(shortest / 4)
+    // A bar of the slowest loop is still shorter than the wait for a fall to
+    // be believed, so aligning to it never doubles that wait.
+    const slowestBar = Math.max(...LOOPS.map((l) => barSeconds(l)))
+    expect(slowestBar * 1000).toBeLessThan(SECTION_RELEASE_MS / 2)
+    expect(MIN_LEAD_S).toBeGreaterThan(0)
+    expect(MIN_LEAD_S).toBeLessThan(0.5)
+  })
+})
+
+describe('a hidden tab', () => {
+  it('resumes the loop where it was, on the same lap', () => {
+    // Every alt-tab used to draw another loop: the return went through
+    // `start()`, which reshuffles. The pause is a pause, so the position is
+    // kept — modulo the loop, since the seconds parked include whole laps.
+    expect(resumeOffset(10, 60)).toBe(10)
+    expect(resumeOffset(70, 60)).toBeCloseTo(10)
+    expect(resumeOffset(0, 60)).toBe(0)
+    expect(resumeOffset(-5, 60)).toBe(0)
+    expect(resumeOffset(30, 0)).toBe(0)
+  })
+})
+
+describe('the families', () => {
+  const rand = seeded(5)
+
+  it('keeps a match inside the palette it opened on', () => {
+    for (const family of FAMILIES) {
+      for (const section of SECTIONS) {
+        let bag: string[] = []
+        let current: string | null = null
+        for (let n = 0; n < 30; n++) {
+          const pick = nextLoopId(section, current, bag, rand, family)
+          bag = pick.bag
+          current = pick.id
+          expect(LOOPS.find((l) => l.id === pick.id)?.family, `${family}/${section}`).toBe(family)
+        }
+      }
     }
-    for (let n = 1; n < SECTIONS.length; n++) {
-      expect(count(SECTIONS[n])).toBeGreaterThanOrEqual(count(SECTIONS[n - 1]))
+  })
+
+  it("tours a family's groove rather than alternating two of its loops", () => {
+    for (const family of FAMILIES) {
+      const all = loopsFor('groove', family).map((l) => l.id)
+      let bag: string[] = []
+      let current: string | null = null
+      const seen = new Set<string>()
+      for (let n = 0; n < all.length * 4; n++) {
+        const pick = nextLoopId('groove', current, bag, rand, family)
+        bag = pick.bag
+        current = pick.id
+        seen.add(pick.id)
+      }
+      expect(seen.size, family).toBe(all.length)
     }
+  })
+
+  it('moves to another palette when the scene moves', () => {
+    for (const family of FAMILIES) {
+      for (let n = 0; n < 20; n++) {
+        const next = nextFamily(family, rand)
+        expect(FAMILIES).toContain(next)
+        expect(next).not.toBe(family)
+      }
+    }
+    expect(FAMILIES).toContain(nextFamily(null, rand))
   })
 })
 
 describe('shuffled playback', () => {
-  /** Deterministic stand-in for the engine's xorshift. */
-  const seeded = (seed: number) => {
-    let s = seed
-    return () => {
-      s = (s * 1664525 + 1013904223) >>> 0
-      return s / 0x100000000
-    }
-  }
-
-  it('deals every track exactly once per bag', () => {
+  it('deals every id exactly once per bag', () => {
     const ids = ['a', 'b', 'c', 'd', 'e']
     for (let seed = 1; seed < 60; seed++) {
       const bag = shuffledOrder(ids, null, seeded(seed))
@@ -236,9 +360,10 @@ describe('shuffled playback', () => {
     }
   })
 
-  it('never opens on the track that just played', () => {
-    // The point of a bag over `Math.random()`: pure random would repeat roughly
-    // one handover in three, which people hear as broken rather than as random.
+  it('never opens on the loop that just played', () => {
+    // The point of a bag over `Math.random()`: with two loops carrying a
+    // section, pure random replays the outgoing one half the time, which people
+    // hear as broken rather than as random.
     const ids = ['a', 'b', 'c']
     for (let seed = 1; seed < 200; seed++) {
       for (const avoid of ids) {
@@ -247,7 +372,7 @@ describe('shuffled playback', () => {
     }
   })
 
-  it('terminates on a one-track bag instead of hunting for a different head', () => {
+  it('terminates on a one-id bag instead of hunting for a different head', () => {
     expect(shuffledOrder(['solo'], 'solo', seeded(7))).toEqual(['solo'])
   })
 
@@ -258,72 +383,74 @@ describe('shuffled playback', () => {
     expect(orders.size).toBeGreaterThan(5)
   })
 
-  it('gives every track a song-length turn before handing over', () => {
-    // Two passes of a form. One pass is about a minute, which is short for
-    // something presented as a song and makes the handover feel like a carousel.
-    expect(PASSES_PER_TRACK).toBeGreaterThanOrEqual(2)
-    for (const track of TRACKS) {
-      const bars = track.form.reduce(
-        (n, id) => n + (partById(track, id)?.bars.length ?? 0), 0,
-      ) * PASSES_PER_TRACK
-      const seconds = (bars * 4 * 60) / track.bpm
-      expect(seconds, track.id).toBeGreaterThan(100)
-      expect(seconds, track.id).toBeLessThan(240)
-    }
+  it('gives a loop a turn long enough to be a piece and short enough not to nag', () => {
+    // Both ends are the repetition complaint. Under two, a piece is heard once
+    // and the bed reads as a shuffle; over about two minutes the same loop is
+    // still playing long after the ear has finished with it, which is what
+    // three laps of a 44s loop did.
+    expect(LAPS_PER_LOOP).toBeGreaterThanOrEqual(2)
+    const shortest = Math.min(...LOOPS.map((l) => l.seconds))
+    const longest = Math.max(...LOOPS.map((l) => l.seconds))
+    expect(shortest * LAPS_PER_LOOP).toBeGreaterThan(60)
+    expect(longest * LAPS_PER_LOOP).toBeLessThan(220)
+    expect(CROSSFADE_S).toBeGreaterThan(0)
+    expect(CROSSFADE_S).toBeLessThan(6)
   })
 })
 
-describe('the song form', () => {
-  const roleAt = (track: TrackDef, index: number) => partById(track, track.form[index])?.role
+describe('choosing the next loop', () => {
+  const rand = seeded(11)
 
-  it('always moves — it can never return the index it was given', () => {
-    // A form that stalls is the loop this whole design exists to escape.
-    for (const track of TRACKS) {
-      for (const section of SECTIONS) {
-        for (let i = 0; i < track.form.length; i++) {
-          expect(nextFormIndex(track, i, section), `${track.id} ${section} ${i}`).not.toBe(i)
-        }
+  it('stays inside the section it was asked for', () => {
+    for (const section of SECTIONS) {
+      let bag: string[] = []
+      let current: string | null = null
+      for (let n = 0; n < 40; n++) {
+        const pick = nextLoopId(section, current, bag, rand)
+        bag = pick.bag
+        current = pick.id
+        expect(loopsFor(section).map((l) => l.id), section).toContain(pick.id)
       }
     }
   })
 
-  it('stays inside the form', () => {
-    for (const track of TRACKS) {
-      for (const section of SECTIONS) {
-        for (let i = 0; i < track.form.length; i++) {
-          const next = nextFormIndex(track, i, section)
-          expect(next).toBeGreaterThanOrEqual(0)
-          expect(next).toBeLessThan(track.form.length)
-        }
+  it('never hands back the loop already playing', () => {
+    // Both reasons for changing loop go through here. Returning `current` would
+    // make a handover restart the piece from the top and a section change an
+    // audible seam in service of nothing.
+    for (const section of SECTIONS) {
+      let bag: string[] = []
+      let current = loopsFor(section)[0].id
+      for (let n = 0; n < 40; n++) {
+        const pick = nextLoopId(section, current, bag, rand)
+        expect(pick.id, `${section} after ${current}`).not.toBe(current)
+        bag = pick.bag
+        current = pick.id
       }
     }
   })
 
-  it('never answers a drop with a break, or a round summary with a chorus', () => {
-    for (const track of TRACKS) {
-      for (let i = 0; i < track.form.length; i++) {
-        expect(['chorus', 'bridge'], track.id)
-          .toContain(roleAt(track, nextFormIndex(track, i, 'drop')))
-        expect(['break', 'intro'], track.id)
-          .toContain(roleAt(track, nextFormIndex(track, i, 'breakdown')))
-      }
+  it('tours a section rather than alternating two of its loops', () => {
+    const section: Section = 'groove'
+    const all = loopsFor(section).map((l) => l.id)
+    let bag: string[] = []
+    let current: string | null = null
+    const seen = new Set<string>()
+    for (let n = 0; n < all.length * 4; n++) {
+      const pick = nextLoopId(section, current, bag, rand)
+      bag = pick.bag
+      current = pick.id
+      seen.add(pick.id)
     }
+    expect(seen.size).toBe(all.length)
   })
 
-  it('tours the track when the section holds still', () => {
-    // Sitting in one section for a whole match must still walk the form. This is
-    // the test that caught the first implementation ping-ponging between two
-    // verses forever — technically "moving", musically still a loop.
-    for (const track of TRACKS) {
-      for (const section of ['groove', 'drop'] as const) {
-        const seen = new Set<number>()
-        let i = 0
-        for (let n = 0; n < track.form.length * 3; n++) {
-          i = nextFormIndex(track, i, section)
-          seen.add(i)
-        }
-        expect(seen.size, `${track.id} ${section}`).toBeGreaterThanOrEqual(4)
-      }
-    }
+  it('answers a section carried by one loop instead of going silent', () => {
+    // Not reachable through the registry — the guard above forbids it — but the
+    // engine calls this on every tick and must not be able to return undefined.
+    const only = LOOPS[0].id
+    const pick = nextLoopId(LOOPS[0].sections[0], only, [only], rand)
+    expect(typeof pick.id).toBe('string')
+    expect(pick.id.length).toBeGreaterThan(0)
   })
 })

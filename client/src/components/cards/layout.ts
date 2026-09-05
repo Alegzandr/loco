@@ -23,6 +23,46 @@ export interface SafeAreaInsets {
 
 export const NO_INSETS: SafeAreaInsets = { top: 0, right: 0, bottom: 0, left: 0 }
 
+// ─── A phone on its side ────────────────────────────────────────────────────
+// Portrait stacks the table: seats, felt, hand, action bar, one above the
+// other, and the two chrome bands are a constant 198 pixels of that stack. A
+// phone held sideways is ~340 pixels tall with the browser's bar showing, so
+// the stack cannot be scaled into it — at the scale that fits, a card is 25
+// pixels wide. Landscape is therefore a different *composition*, not a smaller
+// one: the seats stand in a column down the left, the action bar becomes a
+// stack up the right edge (real chrome, outside the coordinate space like the
+// bottom band is in portrait), the felt takes the middle, and the hand runs
+// along the bottom edge under it. The mode is decided once, from the element's
+// pixel size, and handed to every layout function: the virtual space cannot
+// re-derive it, because a short window at scale 0.78 is taller in virtual
+// units than a desktop window at scale 1.
+
+/** Below this viewport height, a viewport wider than it is tall is a phone on its side. */
+export const LANDSCAPE_MAX_H = 560
+/** True for a viewport that gets the landscape composition. Pixels, not virtual units. */
+export function isLandscape(width: number, height: number): boolean {
+  return width > height && height < LANDSCAPE_MAX_H
+}
+/**
+ * The action stack's band up the right edge, in pixels: the stack's width, its
+ * margin from the safe edge, and a gap to the felt. Real chrome, so it does not
+ * scale — mirrored by `ActionBar.svelte`'s landscape block, and pinned to it by
+ * `landscape.test.ts`.
+ */
+export const SIDE_RESERVE = 160
+/** What sits above the felt in landscape: the round chip and the turn clock. */
+export const TOP_CHROME_LANDSCAPE = 44
+/** The hand's margin from the bottom of the coordinate space in landscape. */
+export const HAND_MARGIN_LANDSCAPE = 8
+/**
+ * What the chip row reaches into the space in landscape, in virtual units: it
+ * is 244 pixels wide from the safe edge against a 160-pixel band, and the
+ * space is never scaled below `MIN_BOARD_SCALE`.
+ */
+const CHIP_ROW_CLEAR = 110
+/** The seat column's band down the left edge, in virtual units: a compact pill and its margins. */
+export const SEAT_BAND_LANDSCAPE = SEAT_DIMS.compact.w + 2 * 12
+
 // ─── Board scale ────────────────────────────────────────────────────────────
 // The whole board is laid out in a fixed coordinate space and then scaled to
 // the viewport, exactly like a game canvas. Everything — cards, seats, felt,
@@ -56,8 +96,14 @@ export const MIN_BOARD_SCALE = 0.78
  * short window has no vertical room to spend, and scaling on width alone would
  * push the hand under the action bar.
  */
-export function boardScale(width: number, height: number): number {
+export function boardScale(width: number, height: number, landscape = false): number {
   if (width <= 0 || height <= 0) return 1
+  if (landscape) {
+    // The phone reference turned on its side: the same cards, the same seats,
+    // fitted against the screen's short axis. Never above 1 — this is a phone.
+    const fit = Math.min(width / PHONE_H, height / PHONE_W)
+    return Math.min(1, Math.max(MIN_BOARD_SCALE, fit))
+  }
   if (width < PHONE_MAX_W) {
     const fit = Math.min(width / PHONE_W, height / PHONE_H)
     return Math.min(1, Math.max(MIN_BOARD_SCALE, fit))
@@ -93,7 +139,20 @@ export function boardSpace(
   pxHeight: number,
   scale: number,
   insets: SafeAreaInsets = NO_INSETS,
+  landscape = false,
 ): { width: number; height: number; offsetX: number; offsetY: number } {
+  if (landscape) {
+    // The chrome that does not scale is up the right edge here (the action
+    // stack, `SIDE_RESERVE`) and along the top (the round chip), and nothing
+    // is under the hand: it runs along the bottom safe edge itself.
+    const offsetY = insets.top + TOP_CHROME_LANDSCAPE * (1 - scale)
+    return {
+      width: (pxWidth - insets.left - insets.right - SIDE_RESERVE) / scale,
+      height: (pxHeight - insets.bottom - offsetY) / scale,
+      offsetX: insets.left,
+      offsetY,
+    }
+  }
   const offsetY = insets.top + TOP_CHROME * (1 - scale)
   return {
     width: (pxWidth - insets.left - insets.right) / scale,
@@ -130,13 +189,19 @@ export interface SeatLayout {
  * Strategy: take the largest pill size that fits the whole table on one row;
  * if none does, drop to mini pills and wrap onto as many rows as needed.
  */
-export function seatLayout(opponentCount: number, width: number, height: number): SeatLayout {
+export function seatLayout(
+  opponentCount: number,
+  width: number,
+  height: number,
+  landscape = false,
+): SeatLayout {
   const order: SeatSize[] = ['full', 'compact', 'mini']
 
   if (opponentCount <= 0) {
     const d = SEAT_DIMS.full
     return { positions: [], size: 'full', pillW: d.w, pillH: d.h, blockHeight: 0 }
   }
+  if (landscape) return seatColumn(opponentCount, width, height)
 
   const fits = (size: SeatSize): number => {
     const { w } = SEAT_DIMS[size]
@@ -198,6 +263,54 @@ export function seatLayout(opponentCount: number, width: number, height: number)
   }
 }
 
+/**
+ * The seats in landscape: a column down the left band, centred on the felt.
+ *
+ * Order is still the ring's. `clockwiseOpponents` puts the next player first
+ * and play runs clockwise on screen — 6 o'clock → 9 → 12 → 3 — so the first
+ * seat is the **bottom** of the column and the rest climb from it. A column
+ * that does not fit continues along the top of the felt, left to right, which
+ * is the same ring carried on; the felt is dropped under that row by
+ * `blockHeight`, exactly as a portrait row is. Compact pills while the column
+ * holds them, mini when it needs the room.
+ */
+function seatColumn(n: number, width: number, height: number): SeatLayout {
+  const edge = 12
+  const felt = tableRect(width, height, 0, true)
+  const columnTop = TOP_CHROME_LANDSCAPE + 4
+  const columnBottom = felt.top + felt.height
+  const perColumn = (size: SeatSize) =>
+    Math.max(1, Math.floor((columnBottom - columnTop + ROW_GAP) / (SEAT_DIMS[size].h + ROW_GAP)))
+  const size: SeatSize = n <= perColumn('compact') ? 'compact' : 'mini'
+  const { w: pillW, h: pillH } = SEAT_DIMS[size]
+  const inColumn = Math.min(n, perColumn(size))
+  const overflow = n - inColumn
+  // A top row pushes the felt down, and the column is centred on the felt it ends up beside.
+  const blockHeight = overflow > 0 ? TOP_CHROME_LANDSCAPE + pillH + ROW_GAP : 0
+  const table = tableRect(width, height, blockHeight, true)
+  const columnH = inColumn * pillH + (inColumn - 1) * ROW_GAP
+  const centreY = table.top + table.height / 2
+  const top = Math.max(blockHeight + 4 + pillH / 2, centreY - columnH / 2 + pillH / 2)
+  const x = edge + pillW / 2
+  const positions: OpponentBubblePosition[] = []
+  for (let i = 0; i < inColumn; i++) {
+    positions.push({ x, y: top + (inColumn - 1 - i) * (pillH + ROW_GAP) })
+  }
+  if (overflow > 0) {
+    const rowY = TOP_CHROME_LANDSCAPE + pillH / 2
+    const left = table.left + pillW / 2
+    // The chip row (five 40px chips at the top right, real pixels) reaches
+    // past the action stack's band into the space: the row stops short of it.
+    const right = Math.min(table.left + table.width, width - CHIP_ROW_CLEAR) - pillW / 2
+    const span = Math.max(0, right - left)
+    for (let i = 0; i < overflow; i++) {
+      const t = overflow > 1 ? i / (overflow - 1) : 0.5
+      positions.push({ x: left + t * span, y: rowY })
+    }
+  }
+  return { positions, size, pillW, pillH, blockHeight }
+}
+
 export interface HandSlot {
   x: number
   y: number
@@ -233,15 +346,21 @@ export function opponentBubblePositions(
   opponentCount: number,
   width: number,
   height: number,
+  landscape = false,
 ): OpponentBubblePosition[] {
-  return seatLayout(opponentCount, width, height).positions
+  return seatLayout(opponentCount, width, height, landscape).positions
+}
+
+/** What the hand keeps clear beneath it: the action bar in portrait, a margin in landscape. */
+export function handReserve(landscape: boolean): number {
+  return landscape ? HAND_MARGIN_LANDSCAPE : BOTTOM_RESERVE
 }
 
 // Fan layout for the local hand. (n - 1) cards spaced by `cardSpacing`,
 // centred horizontally, with a slight arc and per-card rotation.
-export function calcHandSlots(n: number, width: number, height: number): HandSlot[] {
+export function calcHandSlots(n: number, width: number, height: number, landscape = false): HandSlot[] {
   if (n === 0) return []
-  const baseY = height - CARD_H - BOTTOM_RESERVE
+  const baseY = height - CARD_H - handReserve(landscape)
   const maxSpacing = CARD_W + 8
   const minSpacing = 20
   // Margin, not padding: the playable glow and ink outline extend past a card's
@@ -276,6 +395,52 @@ export function handCardKeys(hand: { color: string; kind: string; value?: number
   })
 }
 
+/** How far under the felt's top rim the piles stand in landscape. */
+const PILE_INSET_LANDSCAPE = 10
+/** The turn pill's height, `TurnIndicator.svelte`'s `.indicator` at its type size. */
+export const TURN_PILL_H = 38
+
+/**
+ * Where the turn pill sits, as its top edge and its centre line.
+ *
+ * Portrait: clear above the hand — clear of a *hovered* card, not only a
+ * resting one. The reserve used to be 58px, which covered the pill plus the
+ * 9px a playable card lifts at rest and nothing else; the hover in
+ * `Hand.svelte` is `scale(1.08) translateY(-14px)` about the card's centre,
+ * which carries the top edge a further 14 × 1.08 + 0.04 × CARD_H ≈ 19.4px up,
+ * so a card under the pointer put its top ~20px into the pill. The numbers
+ * below are that transform written out, so the reserve moves with it.
+ *
+ * Landscape: the felt ends a hair above the hand, so the pill stands inside
+ * the felt, in the band under the piles (`pileTop` raises them for it),
+ * centred on the felt rather than on the space.
+ */
+export function turnPillPlace(
+  width: number,
+  height: number,
+  topReserve = 0,
+  landscape = false,
+): { top: number; centreX: number } {
+  if (landscape) {
+    const t = tableRect(width, height, topReserve, landscape)
+    // A felt squeezed under a top row of seats is shorter than the piles and
+    // the pill together: the pill then rides the bottom rim rather than the
+    // piles, and stops a hair short of the hand's top edge.
+    const pilesBottom = pileTop(width, height, topReserve, landscape) + CARD_H + 2
+    return {
+      top: Math.max(t.top + t.height - FELT_RIM - TURN_PILL_H - 4, pilesBottom),
+      centreX: t.left + t.width / 2,
+    }
+  }
+  const REST_LIFT = 9
+  const HOVER_LIFT = 14 * 1.08 + 0.04 * CARD_H
+  const CLEARANCE = 8
+  return {
+    top: height - CARD_H - BOTTOM_RESERVE - Math.ceil(TURN_PILL_H + REST_LIFT + HOVER_LIFT + CLEARANCE),
+    centreX: width / 2,
+  }
+}
+
 // Horizontal gap between the deck stack and the discard pile. Wide enough for
 // the discard's active-colour ring (11px) and the pending-draw badge to breathe
 // without touching the deck.
@@ -286,25 +451,52 @@ const PILE_GAP = 58
 // pair sits in the middle of the table at every size: the table is pushed down
 // by the seat block and up by the hand, and a container-centred pair drifted
 // into the upper third of the oval on a large screen.
-function pileTop(width: number, height: number, topReserve: number): number {
-  const t = tableRect(width, height, topReserve)
+function pileTop(width: number, height: number, topReserve: number, landscape: boolean): number {
+  const t = tableRect(width, height, topReserve, landscape)
+  // In landscape the felt is only a card and a half tall, and the turn pill has
+  // nowhere to go between it and the hand: the pair stands in the upper part of
+  // the felt and the pill takes the band under it, inside the rim. A felt
+  // squeezed under a top row of seats gives up the inset first, so the pair
+  // stands flush under the rim before the pill has to ride over the bottom one.
+  if (landscape) {
+    const room = t.height - (2 * FELT_RIM + CARD_H + 2 + TURN_PILL_H + 4)
+    return t.top + FELT_RIM + Math.max(0, Math.min(PILE_INSET_LANDSCAPE, room))
+  }
   return t.top + t.height / 2 - CARD_H / 2
+}
+
+// The pair is centred on the felt, not on the space: in landscape the felt is
+// pushed right of the seat column, and a pair centred on the space would sit
+// on the felt's left rim.
+function pileCentreX(width: number, height: number, topReserve: number, landscape: boolean): number {
+  const t = tableRect(width, height, topReserve, landscape)
+  return t.left + t.width / 2
 }
 
 // Centre of the discard pile, in container coordinates.
 // Deck and discard are laid out as one centred pair: deck | gap | discard.
-export function discardPosition(width: number, height: number, topReserve = 0): { x: number; y: number } {
+export function discardPosition(
+  width: number,
+  height: number,
+  topReserve = 0,
+  landscape = false,
+): { x: number; y: number } {
   return {
-    x: width / 2 + PILE_GAP / 2,
-    y: pileTop(width, height, topReserve),
+    x: pileCentreX(width, height, topReserve, landscape) + PILE_GAP / 2,
+    y: pileTop(width, height, topReserve, landscape),
   }
 }
 
 // Centre of the deck stack (left of discard).
-export function deckPosition(width: number, height: number, topReserve = 0): { x: number; y: number } {
+export function deckPosition(
+  width: number,
+  height: number,
+  topReserve = 0,
+  landscape = false,
+): { x: number; y: number } {
   return {
-    x: width / 2 - PILE_GAP / 2 - CARD_W,
-    y: pileTop(width, height, topReserve),
+    x: pileCentreX(width, height, topReserve, landscape) - PILE_GAP / 2 - CARD_W,
+    y: pileTop(width, height, topReserve, landscape),
   }
 }
 
@@ -316,7 +508,20 @@ export function tableRect(
   height: number,
   /** Vertical space already claimed by the opponent seats (seatLayout.blockHeight). */
   topReserve = 0,
+  landscape = false,
 ): { left: number; top: number; width: number; height: number } {
+  if (landscape) {
+    // The felt takes the whole band between the top chrome and the hand, and
+    // the whole width right of the seat column. Flatter than portrait's oval
+    // and never taller than the band: the deck and the discard have to stand
+    // inside it, and there is no dead space to bias against.
+    const top = Math.max(topReserve, TOP_CHROME_LANDSCAPE) + 8
+    const bottom = height - CARD_H - HAND_MARGIN_LANDSCAPE - 8
+    const h = Math.min(Math.max(bottom - top, 150), 440)
+    const avail = Math.max(240, width - SEAT_BAND_LANDSCAPE - 12)
+    const w = Math.min(avail, 720, Math.max(h * 2.6, 420))
+    return { left: SEAT_BAND_LANDSCAPE + (avail - w) / 2, top, width: w, height: h }
+  }
   const playable = Math.max(200, height - BOTTOM_RESERVE)
   // Never wider than the viewport: on a phone an unclamped 520px minimum ran
   // the felt off both edges.
@@ -341,38 +546,48 @@ export function tableRect(
   }
 }
 
-// ─── Map table placement ────────────────────────────────────────────────────
+// ─── The felt, in viewport pixels ───────────────────────────────────────────
+
+export interface FeltAnchor {
+  /** Centre of the felt's ellipse, in CSS pixels of the viewport. */
+  cx: number
+  cy: number
+  /** Its semi-axes. */
+  rx: number
+  ry: number
+}
 
 /**
- * Where to draw a map's `table.webp` so that its playing surface lands exactly
- * on `tableRect()`.
+ * Where the felt lands on the screen, for a viewport of `pxWidth × pxHeight`
+ * with `opponentCount` seats above the table.
  *
- * `tableRect()` stays the single authority on the board's geometry: the piles
- * sit at its centre, the direction ring is inset from its rim, the seats are
- * placed above it. A map does not move any of that; it only replaces how the
- * felt is *painted*. So the picture is scaled and offset around the ellipse
- * rather than the other way round: the image's playfield sub-box (see
- * `maps.ts`) is mapped onto the felt, and the rest of the table (rim, base,
- * cast shadow, glow) falls where it falls, outside the box.
- *
- * That is why the result is routinely larger than the felt and starts above and
- * to the left of it. Cropping it to the felt would cut off the rim, which is
- * most of what makes each table look like a different object.
+ * The same four functions the board runs, in the same order, so the answer is
+ * the board's to the pixel: the scene engine draws the podium the table stands
+ * on under exactly this ellipse (`scene/maps/common.ts: podium`), and the
+ * loading gate renders the room before the board has measured anything, from
+ * the viewport and the roster alone. A podium a few pixels off is a table
+ * floating beside its base, which is the one thing the podium exists to stop.
  */
-export function tableImageRect(
-  felt: { left: number; top: number; width: number; height: number },
-  playfield: { x: number; y: number; w: number; h: number },
-): { left: number; top: number; width: number; height: number } {
-  // A degenerate playfield would divide by zero and take the whole board with
-  // it; fall back to painting the picture across the felt itself.
-  if (!(playfield.w > 0) || !(playfield.h > 0)) return { ...felt }
-  const width = felt.width / playfield.w
-  const height = felt.height / playfield.h
+export function feltInViewport(
+  pxWidth: number,
+  pxHeight: number,
+  opponentCount: number,
+  insets: SafeAreaInsets = NO_INSETS,
+): FeltAnchor {
+  const landscape = isLandscape(pxWidth, pxHeight)
+  const scale = boardScale(
+    pxWidth - insets.left - insets.right,
+    pxHeight - insets.top - insets.bottom,
+    landscape,
+  )
+  const space = boardSpace(pxWidth, pxHeight, scale, insets, landscape)
+  const seats = seatLayout(opponentCount, space.width, space.height, landscape)
+  const felt = tableRect(space.width, space.height, seats.blockHeight, landscape)
   return {
-    left: felt.left - playfield.x * width,
-    top: felt.top - playfield.y * height,
-    width,
-    height,
+    cx: space.offsetX + (felt.left + felt.width / 2) * scale,
+    cy: space.offsetY + (felt.top + felt.height / 2) * scale,
+    rx: (felt.width / 2) * scale,
+    ry: (felt.height / 2) * scale,
   }
 }
 
@@ -501,12 +716,13 @@ export function seatPosition<T extends PlayerLike>(
   myIndex: number,
   width: number,
   height: number,
+  landscape = false,
 ): { x: number; y: number } {
   if (playerIndex === myIndex) {
-    return { x: width / 2, y: height - CARD_H / 2 - 20 }
+    return { x: width / 2, y: height - CARD_H / 2 - (landscape ? HAND_MARGIN_LANDSCAPE : 20) }
   }
   const others = clockwiseOpponents(players, myIndex)
-  const positions = seatLayout(others.length, width, height).positions
+  const positions = seatLayout(others.length, width, height, landscape).positions
   const i = others.findIndex((p) => p.index === playerIndex)
   if (i < 0) return { x: width / 2, y: height / 2 }
   return positions[i]

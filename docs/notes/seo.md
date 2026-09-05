@@ -174,10 +174,9 @@ tag.
   404 naming a canonical is claiming to be a real page. It is also the one page somebody reaches by
   accident, so it is drawn like the game and not like an error console: the mark as a way home, a
   hand of four `<CardBack />`s nobody was dealt, the code painted the way a card glyph is painted
-  (off-white over ink, theme-independent, carried by the outline on the pale canvas as well as the
-  dark one), and two ledged controls — a table, and the other language. Both components are
+  (off-white over ink, carried by the outline), and two ledged controls — a table, and the other language. Both components are
   rendered without a `client:` directive, so the page still ships **no JavaScript at all**: no
-  `theme-boot.ts` either, which means the system's theme rather than a stored choice. That is on
+  `page-boot.ts` either. That is on
   purpose — this page is served when something is already broken, so it depends on nothing the
   build might not have emitted.
 - `gzip` on text, JS, JSON, XML and SVG only. webp and woff2 are already compressed, so a second
@@ -368,13 +367,13 @@ reason. Held apart it read as a second navigation of one item, and the gap the c
 it and the five gave the row two centres, so on `/` it closes the same list the other five are in,
 which is how both drawers had always carried it. That row is a plain centred flex again: the three
 grid columns existed only to keep the five centred against an item pushed right, and there is
-nothing to push. The content pages' bar keeps it in `.footerEnd`, beside the theme switch and the
+nothing to push. The content pages' bar keeps it in `.footerEnd`, beside the
 globe, where the far end of the bar is settings rather than empty space.
 
 **And a way back up.** These pages are long and their navigation is pinned to the *bottom*, so the
 return trip was a full scroll or a key a phone does not have. `.toTop` appears once the reader is
 about a screenful down, above the bar and out of the column. It is `hidden` in the markup and
-revealed by `theme-boot.ts` for the same reason the theme switch is: without a script it could
+revealed by `page-boot.ts`: without a script it could
 neither know it was wanted nor animate the return, and that reader still has the browser's own way
 home. The `href="#top"` is real, so the control works even if the handler does not; the handler only
 adds the smooth scroll (skipped when the system asks for reduced motion — there is no `data-motion`
@@ -391,7 +390,7 @@ keyboard reader still lands at the top of the document.
 contents and the privacy page's jump list moved the reader several screens with nothing to say the
 page had not been replaced under them. `scroll-behavior: smooth` on the scrolling element covers
 every route at once — a fragment link, the skip link, `#top`, and the handler's own `scrollTo`. It
-hangs off `html[data-scroll="smooth"]`, written by `theme-boot.ts` from the system preference,
+hangs off `html[data-scroll="smooth"]`, written by `page-boot.ts` from the system preference,
 because a reduced-motion reader has to keep the instant jump and neither answer is available to this
 stylesheet: `@media` on that preference is refused across the whole client by
 `reducedMotionCss.test.ts`, and `data-motion` is written by the game's `initMotion()`, which these
@@ -416,11 +415,11 @@ So under 46rem the bar goes entirely and everything it held moves into a **drawe
 top left**. The same control, in the same corner, on the content pages and on `/`:
 
 - **Content pages**: the burger sits in the header, the drawer carries `Play`, every page in the
-  bar, privacy, the theme switch and the globe — the whole bar, in order, as rows of 2.75rem.
+  bar, privacy and the globe — the whole bar, in order, as rows of 2.75rem.
 - **The game page**: the burger is fixed over the board at the offsets `Lobby.svelte`'s `<style>`
   gives `.topBar`, so it lands on the line the gear, the speaker and the "?" already sit on. The drawer
-  carries the same pages and privacy. **No `Play`** — this is where playing happens — and no theme or
-  language, which are behind the lobby's own gear. The footer row costs the board no height at all at
+  carries the same pages and privacy. **No `Play`** — this is where playing happens — and no
+  language, which is behind the lobby's own gear. The footer row costs the board no height at all at
   that width.
 
 **Both open on the wordmark, and both carry exactly one action.** The head used to read "Menu",
@@ -439,10 +438,10 @@ colour in it, one without. Each has one now, at opposite ends because they mean 
 `Play` is where you are going, `Preferences` is what you came into the menu to change. The scoping
 matters — `.navPop .navPopCta`, not `.navPopCta`, because `.navPopLinks a` is a class *and* a type
 and beats a bare class on specificity whatever the order. It went unnoticed while the only CTA was
-white against an ink colour that is also near white in the dark theme.
+white against an ink colour that is also near white.
 
 `#navPrefs` is the seam between the two halves of `/`. It ships `hidden` and `homeSheet.ts` reveals
-it, for the reason the content pages' theme switch does: the panel it opens belongs to the game's
+it, for the reason the content pages' back-to-top does: the panel it opens belongs to the game's
 bundle, and a
 scriptless page is better off without a button than with one that does nothing. It closes the popover
 and dispatches `loco:preferences`; `<Preferences />` listens. An event rather than a shared module —
@@ -485,7 +484,7 @@ them fail silently:
   tablet on its side, and the drawer stands over a page whose own bar is already showing underneath,
   with the button that closes it no longer on screen. `content/navMenu.ts` is the exception to these
   pages running no behaviour — one `matchMedia` listener calling `hidePopover()`, imported by
-  `theme-boot.ts` for the content pages and by `homeSheet.ts` for `/`. It holds a **second copy of the
+  `page-boot.ts` for the content pages and by `homeSheet.ts` for `/`. It holds a **second copy of the
   46rem breakpoint**, which `contentPages.test.ts` asserts against the one in `content.css`.
 
 Both renderings of the navigation are built from `NAV` and `LEGAL`, so the bar and the drawer cannot
@@ -498,27 +497,32 @@ are all `content.css`, which is what makes the two menus one design rather than 
 each other; a rule for `.navPop*` in that file is a divergence by definition, and the prose block that
 used to justify one is gone.
 
-### The white flash, and the switch
+### One palette, and the game's own canvas
 
-`tokens.css` used to key its dark palette on `[data-theme='dark']` and on nothing else. That
-attribute is written by a script; a content page is a render-blocking stylesheet and a deferred
-module, so the browser painted the light palette first and the module flipped it a frame later. On a
-dark system, every step between two pages was a white flash.
+The content pages used to carry a theme switch beside the globe, and `tokens.css` declared the dark
+palette twice so the first frame of a page was right before the script that wrote `[data-theme]` had
+run. The site has one palette now (see `visual.md`, "One palette"): nothing here keys on a theme,
+`page-boot.ts` boots no theme, and `noLightTheme.test.ts` fails on any of it coming back.
 
-The fix is CSS: the same palette, a second time, behind `@media (prefers-color-scheme: dark)` scoped
-to `:root:not([data-theme='light'])`. The browser knows both at parse time, so the first frame is
-already right, and the `:not()` is what keeps a stored choice above the system — once the script has
-written an explicit `light`, the media query stops matching. Duplicating a palette inside the file
-that calls itself the single source of truth is not free, and it is deliberate: CSS cannot add a
-selector to a rule conditionally, and `light-dark()` would mean rewriting every token in the file
-against a baseline two years old. `themeFlash.test.ts` compares the two blocks declaration by
-declaration, so they cannot drift apart in silence.
-
-What is left for the script is the stored choice and the switch itself — one button in the footer
-bar, beside the globe. It is `hidden` in the markup and `theme-boot.ts` reveals it: with no
-JavaScript it could neither persist a choice nor repaint, and a dead control is worse than none now
-that the media query gives that reader the right theme anyway. It writes `loco_theme`, the key
-`src/theme.ts` reads, so a choice made on the rules page is the one the game opens with.
+What the pages paint instead is the flat canvas, `--color-canvas` on `body.doc` and nothing else.
+The den's gradient and its three colour orbs were tried twice here — pinned to the viewport, then
+anchored to the first screenful so the top of every page was the home page's sky — and both times the
+verdict was the same: a landing is a page to read, and a coloured glow behind prose is ambience
+competing with it. The decision is now explicit and it is the same one `/` (`#root`) and the 404
+(`.page`) already took: **the landings are flat, no glow, no orb**. The header band and the footer
+bar are frosted glass over that flat canvas (92% of the canvas over a 14px blur), which costs nothing
+on a solid ground and keeps them the same object as the game's. **And the prose sits on the game's panels**:
+every top-level `<section>`, FAQ entry and room is the card every screen of the game puts its
+content on — `--color-surface-card`, the ink outline, `--shadow-pop`, `--radius-xl` — which is
+what makes the text legible over the gradient and what stopped the pages reading as a documentation
+site that happened to share a font. Things a panel holds that were raised themselves (the deck
+tables, the steps on the live page, the card entries) drop to the sunken treatment the game gives a
+slot cut into a bar, so a ledge never stands on a ledge; the steps on the friends page, which open
+the page rather than sit in a chapter, keep their own panels. The header's `Play` and the live
+page's way to the Twitch category are `Lobby.svelte`'s primary button to the declaration
+(`.cta`, `.btnPrimary`): gradient, ledge, the label's own shadow, the press travelling into the
+ledge — that link was a line of underlined words under the list, which is a footnote, and it is the
+one thing on the page somebody came to press.
 
 ### The language chooser is a popover
 
@@ -530,7 +534,7 @@ reason: an emoji is a different object on every platform.
 
 In the bar the globe stands **alone**: the language name that used to sit beside it named the
 language the reader was already reading, so it restated the page and added a third run of 12px text
-next to the theme switch and the privacy link. The names belong on the two links inside the panel,
+next to the privacy link. The names belong on the two links inside the panel,
 where the choice is actually made. The button keeps its `aria-label`, which is what a control with
 no text owes a screen reader. The drawer's copy of the button keeps its label, because there it is a
 row in a list of rows and an unlabelled icon in that column would be the only one.
@@ -594,68 +598,39 @@ duplicated: copies and points still come from `DECK` and are still checked again
 
 ### The tables page
 
-Names and taglines from `t.maps`, art from `MAPS` — the same copy the loading screen shows and the
-same registry the board paints from. The room and the table are composited exactly as the board
-stacks them, and the room's own `accent` is the frame's inner outline, so the border belongs to the
-picture rather than to the page. All but the first pair are `loading="lazy"`: the page is eight large
-photographs and one of them is on screen when it opens.
+Names and taglines from `t.maps`, the table's materials and the room's accent from `MAPS`, the hours
+and the skies from the same lists the server draws from — the same copy the loading screen shows and
+the same registry the board paints from. Nothing here describes a room a second time.
 
-**Stacked is not placed, and this page has to do both.** `table.webp` is a cut-out whose bounding box
-is the rim, the base and the cast shadow, so it is neither centred in its own file nor the file's
-shape — the four ship at aspects from 1.28 to 2.44. Laid over the room edge to edge, each one lands
-somewhere the board never draws it, and at a different wrong place each: that is what shipped, a
-full-width table anchored to the top of the frame, `.roomArt img` outweighing `.roomTable`'s
-`object-fit: contain` by one class. So the page asks `tableImageRect()` the same question the board
-asks, against a felt stated in fractions of the frame instead of in board pixels. The box comes out
-inline, per room, and **nothing in `content.css` may state a width, a height or an `object-fit` for
-it**.
+**The room is a photograph of the render, with the board's table over it.** A content page ships
+no script, so it cannot render the diorama; `make rooms` (`tools/rooms/shoot.mjs`) opens the
+`room-still-<id>` showcase scene for each room — the room alone at its signature hour, 16:9, the
+podium built under exactly the ellipse the page's CSS table draws — and writes
+`src/assets/rooms/<id>.webp`, committed like `og.png` because CI has no browser. The page serves
+each through `<Image />` (three widths, lazy, with the hour's sky gradient behind it while it
+loads) and lays `.roomTable` / `.roomGlow` over it — a transcription of `GameBoard.svelte`'s
+table, no plinth since the render carries the podium — and tells the rest: the hours and skies the
+room can be dealt under. `roomsPage.test.ts` pins the hour written on the page to the
+hour the scene is shot at and fails on a room with no still; the E2E counts six.
 
-**That felt was measured, not chosen**, and the first attempt at choosing it is why: `tableRect()`'s
-proportions read off the source put the table at two thirds of the width, floating above the spot the
-art paints for it — every room is composed around a table that fills it, and the felt's own numbers
-are board pixels under a stage transform, not fractions of a room. So the four scenes were read back
-at 1920×1080 and each drawn box mapped through the room's `background-size: cover` crop (a 3:2 room
-over a 16:9 board is scaled to the width and loses 100px top and bottom) into the room's own frame.
-All four solve to one rectangle — `left 0.1582, top 0.2887, w 0.6836, h 0.4182` — which is the check
-that it is the board's geometry and not an eyeballed one. Re-measure it if `tableRect()` moves.
+**Those are two named rows, and they are values rather than chips.** A definition list: the label
+in the first column, its plates in the second, and under 46rem the label above its own row. One
+flat run of ten words made the reader do the sorting the lede had already promised — a room, *an
+hour*, *a sky* — and the four hours were told from the six skies by a border colour alone, which a
+screen reader does not read and a wrap on a phone destroys: a line could open on "Ciel dégagé"
+with nothing saying the subject had changed. Nothing in the row is pressable, so nothing in it
+wears the ink outline and the hard ledge `.chipRow a` wears two hundred lines up in the same
+file — the plates are filled instead, which is also what retired a 2px hairline that measured
+1.57:1 on the canvas, the ghost outline that file had already been fixed for once. The labels are
+the page's own words (`tablesHours` / `tablesSkies` in `content/ui.ts`); the values stay the
+game's. `roomsPage.test.ts` fails on a plate that grows a border or a ledge, and on a label
+written into the markup instead of taken from the copy.
 
-**The placement is the board's; the size is this page's.** The board is a table somebody is sitting
-at, framed as such, and a page whose subject is the room has to step back far enough for the room to
-be in the picture — the club's floor, the taverne's shelves, the fumoir's lamps are what these four
-paragraphs are actually about. `ROOM_STEP_BACK` (0.72) shrinks the felt around its own centre, so
-every table is pulled back by the same amount and nothing else in the composition moves. It is the
-one number here to reach for when every table looks wrong in the column; the rectangle above is not.
-
-What the step back then exposes is where the four stop being interchangeable, and `NUDGE` is the two
-axes of that. On `y`, each room puts its horizon somewhere else: `rune` is shot with a deep
-foreground — the cloth, the candles, the cauldron — so a table centred on the felt's own centre
-stands *above* its floor rather than on it, and it comes down 7% of the frame. On `x`, the felt is
-centred but the *picture* is not: `neon`'s playfield sits off-centre in its own file (4.5% of margin
-on the left against 10% on the right), which hangs that much more table to one side of a room whose
-floor is painted symmetrically, so its felt goes 2% left. Nudge the felt, never the picture — moving
-the picture takes the playing surface off the mark the whole solve exists to hit.
-
-Both live on this page and not in `MAPS` for the same reason as everything else here: the board
-frames the table so closely that neither band is on screen, so these are consequences of the step
-back, not corrections to the geometry.
-
-Two things follow. The picture keeps the distortion `object-fit: fill` gives it on the board — velvet
-drawn 1.67× taller than it was rendered, orbit undistorted — because preserving each file's aspect
-here would show four tables the game does not have. And each table is asked for at a fraction of the
-column's widths rather than the whole of it, since it is now drawn at 68–87% of the frame.
-
-The pictures themselves do **not** come off `MAPS`, and that is the one place this page departs from
-the registry. `MAPS` gives a URL under `/maps/`, which is what the board needs — it is handed a room
-at runtime and can know nothing about it at build time. This page knows all four up front, so
-`TablesArticle.astro` imports the same files through `import.meta.glob` and renders them with
-`<Image />`: sharp then emits each one at 400, 752 and 1128 wide and writes the `srcset`. The
-originals in `public/` are untouched and are still what the game loads.
-
-That was worth doing because the page was handing a phone eight 1280×720 photographs for a 752px
-column — 1.4 MB of pixels it would never display — and the first of them was the LCP at **9.1 s**.
-The 400-wide room is 11 kB against 147 kB. The top pair also loads eagerly at `fetchpriority="high"`,
-including the table: a lazy image inside the first viewport is a request the browser starts late for
-no reason. Measured after: LCP 2.6 s, performance 74 → 97.
+It replaced a CSS table under a bare sky gradient, which was honest about what a scriptless page can
+draw and told a reader nothing about the place — and before that, eight photographs composited by
+`tableImageRect()` against a felt measured off the running board. The stills are the photographs
+back, with the difference that they are photographs *of the render*: there is no art to drift from,
+only a tool to re-run.
 
 ### The FAQ is data first
 
@@ -755,14 +730,11 @@ mid-match is a bug, and now so is a lobby that can. `appSubscription.test.ts` ow
 turns it into static markup at build time and ships none of the runtime: the mark on the page is the
 mark in the game rather than a redrawn copy, and it costs nothing to load.
 
-The exception is `src/content/theme-boot.ts`. `tokens.css` keys its dark palette on
-`[data-theme='dark']` and on nothing else, which is written by JS — so without it a player who chose
-the dark theme and then tapped "Rules" landed on a bright white page. It imports `src/theme.ts`,
-which was split out of the game's theme hook precisely so this does not drag a framework onto a page
-that mounts nothing. The hook is gone and that module is now the single definition of what the theme
-is, for the app and for a content page alike.
+The exception is `src/content/page-boot.ts`, one deferred module that imports nothing with a
+framework in it (`src/lang.ts`, `content/navMenu.ts`, `content/liveList.ts`). It was named for the
+theme it used to boot; the site has one palette now and it boots none.
 
-That file also wires the back-to-top button, calls `closeMenuWhenWidened()` and fills the live list
+That file wires the back-to-top button, calls `closeMenuWhenWidened()` and fills the live list
 on `/live/`, and it is the same file on purpose: there is only ever **one** script on these pages, so
 a second behaviour is a few more lines rather than a second request and a second thing to remember
 when counting what a content page loads. `content/navMenu.ts` and `content/liveList.ts` are modules
@@ -790,7 +762,7 @@ reach nobody writing a rule for the deck table is thinking about.
 table's and the game-over screen's evening recap's. The visible cost was `thead th { background:
 var(--color-stroke) }`: an ink band behind both of those grids' column heads, whose labels are
 `--color-muted` because their authors correctly believed they were sitting on their own panel. Muted
-violet on ink is 2.2:1, in both themes, on two surfaces nobody had thought to check because the rule
+violet on ink is 2.2:1, on two surfaces nobody had thought to check because the rule
 was written for a third. The 2px hairline under every cell and the `0.75rem 1rem` padding rode along
 with it, silently overridden in some places and not others.
 
@@ -886,8 +858,8 @@ failure against the tool. Both are answered:
 The `role="img"` does **not** silence the check on its own, and neither does `aria-hidden`: the rule
 is about pixels, not about the accessibility tree. Only the colours move the number.
 
-Declared twice, as `tokens.css` declares the dark palette twice — `[data-theme='dark']` for the
-choice, the media query for the first frame — and the test asserts both blocks repaint the outline.
+Declared once, on `.word::before`, and the test asserts the outline is repainted there and that the
+word itself carries no stroke.
 
 ### White on LOCO Red, at 16.8px
 
@@ -990,6 +962,5 @@ CHROME_PATH=<a chromium> npx lighthouse@12 http://localhost:4399/rules/ --output
 ```
 
 For accessibility alone, axe against the built pages is faster and covers more than one viewport at a
-time — Lighthouse audits one width and one theme per run, and two of the four failures above only
-appear in one of the two themes. Check both, at 412 and 1440, and use the `wcag2a`/`wcag2aa` tags:
+time — Lighthouse audits one width per run. Check both 412 and 1440, and use the `wcag2a`/`wcag2aa` tags:
 axe's own best-practice rules (`region`, `landmark-one-main`) are not what Lighthouse scores.

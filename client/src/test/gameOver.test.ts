@@ -98,10 +98,11 @@ describe('GameOver rematch', () => {
     expect(screen.getByText(en.leaveRoom)).toBeInTheDocument()
   })
 
-  it('still shows the final scoreboard', () => {
+  it('still shows the final scoreboard', async () => {
     renderGameOver()
     expect(screen.getByText(en.finalScores)).toBeInTheDocument()
-    expect(screen.getByText('42 pts')).toBeInTheDocument()
+    // The points are counted up, so the final figure is a frame or two away.
+    expect(await screen.findByText('42 pts')).toBeInTheDocument()
   })
 })
 

@@ -6,7 +6,9 @@
   import ServerUpdating from './ServerUpdating.svelte'
   import { game } from '../hooks/gameStore.svelte'
   import { buildMatchRecap, hasEveningToShow } from './matchRecapModel'
+  import { formatMatchDuration, lastMatchDurationMs } from './matchDuration'
   import { EMOTE_ORDER } from './emotes'
+  import { countUp } from './countUp'
 
   type Props = {
     winner: string
@@ -116,6 +118,10 @@
   )
   const recap = $derived(buildMatchRecap(players, matchHistory))
   const showRecap = $derived(hasEveningToShow(matchHistory))
+  // How long the match took, in the server's measurement: the last record of
+  // the recap is the match that just ended. Null when the server could not
+  // time it, and then the line is simply not there.
+  const duration = $derived(formatMatchDuration(lastMatchDurationMs(matchHistory), t))
   // Read through a $derived rather than out of the snapshot inside the markup:
   // `game.current` is replaced whole on every message. See hooks/live.svelte.ts.
   const serverUpdating = $derived(game.current.serverUpdating)
@@ -165,19 +171,31 @@
     {:else if !isWinner}
       <p class="sub">{winner} {matchOver ? t.winsMatch : t.winsGame}</p>
     {/if}
+    <!-- The one number about the match that is not a score. Quiet on purpose:
+         it is a fact for the screenshot, not a result, and it sits under a win,
+         a loss and a forfeit alike without changing what any of them says. -->
+    {#if duration}
+      <p class="duration">{duration}</p>
+    {/if}
 
     {#if scoreboard && scoreboard.length > 0}
       <div class="scoreboard">
         <h3 class="scoreboardTitle">{t.finalScores}</h3>
-        {#each ranked as entry (entry.player_index)}
-          <div class="scoreRow" class:scoreRowWinner={entry.nickname === winner}>
+        {#each ranked as entry, idx (entry.player_index)}
+          <div
+            class="scoreRow"
+            class:scoreRowWinner={entry.nickname === winner}
+            style="--row-i: {idx}"
+          >
             <span class="scoreName">{entry.nickname}</span>
             <!-- Rounds lead, points follow. The match was decided by the first
                  and measured by the second, and a card that shouted the points
-                 was explaining the result with the wrong number. -->
+                 was explaining the result with the wrong number. The points are
+                 counted up rather than printed: this is the number the evening
+                 ends on. -->
             <span class="scoreDetails">
               <span class="scoreVal">{t.roundsWonCount(entry.rounds_won)}</span>
-              <span class="scoreGap">{entry.score} pts</span>
+              <span class="scoreGap" use:countUp={{ value: entry.score, format: (n) => `${n} pts` }}></span>
             </span>
           </div>
         {/each}
@@ -395,6 +413,20 @@
     text-align: center;
   }
 
+  /* The duration is a footnote to the heading, so it is pulled up against
+     whatever it follows — the heading itself or the sentence under it — and
+     set in the same micro-caps the panel titles wear: a fact about the match,
+     drawn in the register of a label rather than of a result. Quiet is a hue
+     (--color-muted), never an opacity. */
+  .duration {
+    margin-top: calc(-1 * var(--space-sm));
+    font: 700 12px/1.2 var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--color-muted);
+    text-align: center;
+  }
+
   /* The seam between the numbers and the first thing that can be pressed: the
      one place on the card where a step of air is worth more than compactness. */
   .scoreboard + .btn,
@@ -458,9 +490,10 @@
     font-weight: 700;
   }
 
-  /* The gap, not the result. Quiet is a hue here like everywhere else. */
+  /* The gap, not the result. Quiet is a hue here like everywhere else. 12px is
+     the floor for anything on a screen a spectator reads; this was 11. */
   .scoreGap {
-    font: 700 11px/1.2 var(--font-display);
+    font: 700 12px/1.2 var(--font-display);
     color: var(--color-muted);
   }
 
@@ -504,10 +537,10 @@
 
   .recapTh,
   .recapThName {
-    /* 11px, which is the floor — the Label step included. These name the columns
-       somebody reads the evening out of, and the score table's heads were pulled
-       back off 10px for exactly this reason. */
-    font: 700 11px/1.15 var(--font-display);
+    /* 12px, which is the floor for a spectator's screen — they were 11, and the
+       score table's heads were pulled back off 10px before that for the same
+       reason. These name the columns somebody reads the evening out of. */
+    font: 700 12px/1.15 var(--font-display);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--color-muted);
@@ -857,5 +890,55 @@
   :root[data-motion="reduce"] .emoteBtn:hover,
   :root[data-motion="reduce"] .emoteBtn:active {
     transform: none;
+  }
+
+  /* The heading wraps as a phrase, never as a word left alone on its own line. */
+  .heading {
+    text-wrap: balance;
+  }
+
+  /* Standings arrive top place first, and the winner's row catches the light
+     once — the same two touches the round summary has, at the same pace. */
+  .scoreRow {
+    animation: rowIn 0.34s var(--ease-out) both;
+    animation-delay: calc(0.25s + var(--row-i, 0) * 0.06s);
+  }
+
+  @keyframes rowIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .scoreRowWinner {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .scoreRowWinner::after {
+    content: '';
+    position: absolute;
+    inset: -40% 0;
+    width: 40%;
+    background: linear-gradient(105deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+    transform: translateX(-160%) skewX(-18deg);
+    pointer-events: none;
+    animation: rowShine 0.9s ease-in-out 0.9s 1 both;
+  }
+
+  @keyframes rowShine {
+    to {
+      transform: translateX(340%) skewX(-18deg);
+    }
+  }
+
+  :root[data-motion='reduce'] .scoreRow,
+  :root[data-motion='reduce'] .scoreRowWinner::after {
+    animation: none;
   }
 </style>

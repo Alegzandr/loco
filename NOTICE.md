@@ -20,11 +20,11 @@ bug, not a decision.
 The source code in this repository is released under the MIT licence
 (see [`LICENSE`](LICENSE)).
 
-That covers the code, and only the code. The map images under
-`client/public/maps/` are AI-generated: no third party holds rights in them, and
-they are deliberately **not** offered under the MIT licence, because an image
-produced from a prompt very likely carries no copyright to licence in the first
-place. See [`docs/notes/legal.md`](docs/notes/legal.md).
+That covers everything in the repository that is authored here, the rooms
+included: a room is a scene builder under `client/src/components/scene/maps/`,
+rendered in the browser by [three.js](https://threejs.org) (MIT). The rooms used
+to be generated images, kept outside the licence for the reason
+[`docs/notes/legal.md`](docs/notes/legal.md) still records; they are code now.
 
 ## Third-party services
 
@@ -43,6 +43,8 @@ Shipped inside the built client:
 
 | Component | Licence |
 | --- | --- |
+| Kenney game assets — City Kit (Suburban, Commercial, Roads), Nature Kit, Car Kit, Mini Characters, Pirate Kit, Fantasy Town Kit, Space Kit, Holiday Kit (`client/public/models/`, packed by `make models`; [kenney.nl](https://kenney.nl)) | CC0 1.0 |
+| Quaternius — Temple, Torii Gate (`client/public/models/quaternius/`, via [poly.pizza](https://poly.pizza)) | CC0 1.0 |
 | Svelte | MIT |
 | Valibot | MIT |
 | Fredoka Variable (`@fontsource-variable/fredoka`) | SIL Open Font License 1.1 |
@@ -67,6 +69,20 @@ requires the attribution, which is this entry, and permits the redistribution,
 which is the vendoring. Nothing about them reaches the client: they are never
 sent on the wire and they are not in the browser bundle.
 
-No audio file ships with the client: every sound and every note is synthesised
-at runtime by `client/src/audio/`, so there is no sample library to credit and
-no music licence to hold.
+Every sound effect is synthesised at runtime by `client/src/audio/sfx.ts`: there
+is no sample library to credit for any of them.
+
+The music is not. The bed is nineteen loops from Abstraction (Tallbeard Studios),
+*Music Loop Bundle*, released under **CC0 1.0** — copyright waived, no
+attribution required, commercial use and modification permitted. This entry is
+therefore a credit and not an obligation, and it is here because the work
+deserves one:
+
+| Work | Author | Licence |
+| --- | --- | --- |
+| [Music Loop Bundle](https://tallbeard.itch.io/music-loop-bundle) (`client/public/music/`) | [Abstraction](https://abstractionmusic.com/) | CC0 1.0 |
+
+Nineteen loops of it are vendored, normalised to −18 LUFS and re-encoded to MP3; they
+are served from this origin like every other asset, never from a CDN. The
+authors ask that their work not be used for NFTs, for training machine-learning
+models, or resold unmodified, and none of those happens here.

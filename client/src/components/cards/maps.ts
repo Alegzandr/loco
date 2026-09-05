@@ -1,60 +1,47 @@
 /**
  * Map registry: the room a match is played in.
  *
- * A map is three things: a backdrop, a table, and an accent colour. It touches
- * no rule and no card. The *choice* is the server's (see server/game/maps.go),
- * so every seat at one table plays in one room; this file only says what each
- * id looks like.
+ * A map is a scene, a table and an accent colour. It touches no rule and no
+ * card. The *choice* is the server's (see server/game/maps.go), so every seat at
+ * one table plays in one room; this file only says what each id looks like.
+ *
+ * Nothing here is a picture. The scene is rendered in the browser by the
+ * isometric engine in `components/scene/` from the three ids the server deals
+ * (`map_id`, `time_of_day`, `weather`), and the table is drawn in CSS by
+ * `GameBoard.svelte` from the materials named below. A map used to be two
+ * photographs and a rectangle measured off them; what replaced that is a place
+ * that has an hour and a sky, and a table whose felt and rim belong to it.
  *
  * Deliberately not themed. The room does not follow light/dark like the rest of
  * the UI, for the same reason a card face does not: it is a place, not a
  * surface, and the same place in two colour schemes is two places.
  */
+import { TIMES, WEATHERS, isTime, isWeather, type TimeOfDay, type Weather } from '../scene/sky'
 
-export type MapId = 'neon' | 'rune' | 'velvet' | 'orbit'
+export type MapId = 'neon' | 'rune' | 'velvet' | 'orbit' | 'sakura' | 'marina'
 
 /**
- * Where the table's *playing surface* sits inside `table.webp`, as fractions of
- * the file.
+ * What the CSS table is made of, per room. Every value is a CSS colour.
  *
- * The board's whole geometry (the pile positions, the direction ring, the
- * felt's centre) is expressed against `tableRect()`, an axis-aligned ellipse in
- * board space. A map's table is a photograph of an object seen at an angle, and
- * its playing surface is neither centred in the file nor the same shape as the
- * file. This rectangle is the bridge: it names the sub-box of the image that the
- * board's ellipse has to land on, so `tableImageRect()` can solve for where to
- * draw the picture. Four numbers per map, measured off the art once.
- *
- * Get these wrong and nothing crashes: the cards simply stop sitting on the
- * table, and the direction chevrons drift off the felt onto the rim.
- *
- * The box is *not* always the painted surface's outline. `tableRect()` is a
- * fixed 2.18:1 ellipse on a desktop and the image is drawn with `object-fit:
- * fill`, so a box whose own aspect is not 2.18 distorts the whole table — and a
- * disc photographed from above, squashed to a wide ellipse, stops reading as an
- * object and reads as a decal on the floor. So the rectangle is chosen at that
- * aspect where the art asks for it (`orbit`), which trades a felt that hugs the
- * painted surface for a table drawn in the proportions it was rendered in. See
- * `docs/notes/visual.md`.
+ * `felt` and `feltDeep` are the playing surface's gradient, `rim` the material
+ * of the edge, `rimLight` the sheen it catches, `base` the plinth under it,
+ * `inlay` the thin line set into the rim (a neon tube, a brass bead, a rune
+ * groove). The hour tints the sheen (`--scene-tint`) and dims the whole object
+ * (`--scene-dark`); the materials themselves never change with it, because a
+ * table is a physical thing and night does not repaint it.
  */
-export interface Playfield {
-  /** Left edge of the playing surface, 0–1 of the image width. */
-  x: number
-  /** Top edge, 0–1 of the image height. */
-  y: number
-  /** Width of the playing surface, 0–1 of the image width. */
-  w: number
-  /** Height, 0–1 of the image height. */
-  h: number
+export interface TableMaterials {
+  felt: string
+  feltDeep: string
+  rim: string
+  rimLight: string
+  base: string
+  inlay: string
 }
 
 export interface MapDef {
   id: MapId
-  /** The room behind the table. Fills the board, cropped to cover. */
-  room: string
-  /** The table itself, cut out against transparency. */
-  table: string
-  playfield: Playfield
+  table: TableMaterials
   /**
    * The map's colour, used for the light the room casts on the board: the glow
    * pooled under the table, the ambient wash at the edges, and the direction
@@ -63,45 +50,109 @@ export interface MapDef {
    * It deliberately does NOT reach the brand: the "your turn" pill, the active
    * seat's gold and the card faces are the same in every room. Those are what a
    * viewer reads the game state off, and a state cue that changes colour with
-   * the scenery is a cue that has to be re-learned four times.
+   * the scenery is a cue that has to be re-learned six times.
    */
   accent: string
   /** A dimmer companion to `accent`, for the wide low-opacity washes. */
   accentDeep: string
+  /**
+   * Nothing falls from this sky: a storm here is light and dust, never rain.
+   * The overlay reads it; the server's weather list is unchanged by it.
+   */
+  dry?: boolean
+  /**
+   * The skies this room can be dealt under. A mirror of `game.MapWeathers`,
+   * pinned to it by `maps.test.ts`: the server draws from its list, and this one
+   * says which the client can draw, so the two must agree.
+   */
+  weathers: readonly Weather[]
 }
 
 export const MAPS: Record<MapId, MapDef> = {
   neon: {
     id: 'neon',
-    room: '/maps/neon/room.webp',
-    table: '/maps/neon/table.webp',
-    playfield: { x: 0.045, y: 0.252, w: 0.855, h: 0.442 },
+    table: {
+      felt: '#1a1530',
+      feltDeep: '#0a0816',
+      rim: '#15121f',
+      rimLight: '#6b4fb8',
+      base: '#0b0912',
+      inlay: '#c56bff',
+    },
     accent: '#c56bff',
     accentDeep: '#5a1e9c',
+    weathers: ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'],
   },
   rune: {
     id: 'rune',
-    room: '/maps/rune/room.webp',
-    table: '/maps/rune/table.webp',
-    playfield: { x: 0.146, y: 0.142, w: 0.711, h: 0.609 },
+    table: {
+      felt: '#2b3a2e',
+      feltDeep: '#121b15',
+      rim: '#4a2e17',
+      rimLight: '#a8713a',
+      base: '#2c1a0c',
+      inlay: '#ffab52',
+    },
     accent: '#ffab52',
     accentDeep: '#6d3410',
+    weathers: ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'],
   },
   velvet: {
     id: 'velvet',
-    room: '/maps/velvet/room.webp',
-    table: '/maps/velvet/table.webp',
-    playfield: { x: 0.085, y: 0.11, w: 0.83, h: 0.555 },
+    table: {
+      felt: '#5a1424',
+      feltDeep: '#2a0810',
+      rim: '#3a2410',
+      rimLight: '#e0b45a',
+      base: '#1f1408',
+      inlay: '#f0c46a',
+    },
     accent: '#f0c46a',
     accentDeep: '#5e3a12',
+    weathers: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
   },
   orbit: {
     id: 'orbit',
-    room: '/maps/orbit/room.webp',
-    table: '/maps/orbit/table.webp',
-    playfield: { x: 0.114, y: 0.129, w: 0.787, h: 0.557 },
+    table: {
+      felt: '#0e2a3a',
+      feltDeep: '#061420',
+      rim: '#5c6672',
+      rimLight: '#c9d3dd',
+      base: '#2b3239',
+      inlay: '#4fd6ff',
+    },
     accent: '#4fd6ff',
     accentDeep: '#123a63',
+    dry: true,
+    weathers: ['clear', 'fog', 'storm'],
+  },
+  sakura: {
+    id: 'sakura',
+    table: {
+      felt: '#1f3a2a',
+      feltDeep: '#0d1c14',
+      rim: '#7a1f1f',
+      rimLight: '#d94c4c',
+      base: '#3a0e0e',
+      inlay: '#ffb7d0',
+    },
+    accent: '#ff8fb8',
+    accentDeep: '#7a2a4a',
+    weathers: ['clear', 'cloudy', 'rain', 'snow', 'fog'],
+  },
+  marina: {
+    id: 'marina',
+    table: {
+      felt: '#12304a',
+      feltDeep: '#081726',
+      rim: '#6e5232',
+      rimLight: '#c9a06a',
+      base: '#3a2a18',
+      inlay: '#ffd166',
+    },
+    accent: '#5fc8ff',
+    accentDeep: '#153f5e',
+    weathers: ['clear', 'cloudy', 'rain', 'storm', 'fog'],
   },
 }
 
@@ -111,20 +162,44 @@ export const MAP_IDS = Object.keys(MAPS) as MapId[]
  * Resolves a wire `map_id` to its definition, or null.
  *
  * Null is a first-class answer, not a failure: a lobby has no map yet, and a
- * server that ships a new one before the client has its art must degrade to the
- * built-in felt rather than to a blank table.
+ * server that ships a new one before the client has its scene must degrade to
+ * the built-in felt rather than to a blank table.
  */
 export function resolveMap(id: string | null | undefined): MapDef | null {
   if (!id) return null
   return MAPS[id as MapId] ?? null
 }
 
-/**
- * The two files a map needs before its table can be shown.
- *
- * Ordered table-first: it is the object the cards land on, and the one whose
- * absence would be read as a bug rather than as a plain background.
- */
-export function mapAssets(map: MapDef): string[] {
-  return [map.table, map.room]
+/** A room at an hour under a sky: everything the renderer is handed. */
+export interface SceneSpec {
+  map: MapDef
+  time: TimeOfDay
+  weather: Weather
 }
+
+/**
+ * The three wire ids as one scene, or null for a map this client has no scene
+ * for. The hour and the sky degrade one at a time rather than taking the scene
+ * with them: a weather this build does not know, or one the map does not list,
+ * is dealt clear, and an unknown hour is dealt in daylight. A reload must never
+ * lose the room over a word.
+ */
+export function resolveScene(
+  mapId: string | null | undefined,
+  time: string | null | undefined,
+  weather: string | null | undefined,
+): SceneSpec | null {
+  const map = resolveMap(mapId)
+  if (!map) return null
+  const t: TimeOfDay = isTime(time) ? time : 'day'
+  const w: Weather = isWeather(weather) && map.weathers.includes(weather) ? weather : 'clear'
+  return { map, time: t, weather: w }
+}
+
+/** One string per distinct scene: the render cache's key and the builders' seed. */
+export function sceneKey(spec: SceneSpec): string {
+  return `${spec.map.id}:${spec.time}:${spec.weather}`
+}
+
+export { TIMES, WEATHERS }
+export type { TimeOfDay, Weather }

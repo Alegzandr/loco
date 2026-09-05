@@ -86,6 +86,9 @@ describe('double-tap guard is per control', () => {
         { seat: 1, endsAt: now + 5000 },
         { seat: 2, endsAt: now + 6000 },
       ],
+      // The clock the centre button runs on, which card_played would have
+      // written from the same list.
+      onHookUntil: { 1: now + 5000, 2: now + 6000 },
       // catchTarget / unoTimerEnd are derived from catchWindows by the store's
       // own actions; seeding state directly has to seed the derivation too.
       catchTarget: 1,
@@ -118,6 +121,7 @@ describe('double-tap guard is per control', () => {
     gameStore.setState({
       players: [seat(0, 'Alice', 3), seat(1, 'Bob', 1)],
       catchWindows: [{ seat: 1, endsAt: now + 5000 }],
+      onHookUntil: { 1: now + 5000 },
       catchTarget: 1,
       unoTimerEnd: now + 5000,
     })
@@ -132,8 +136,8 @@ describe('double-tap guard is per control', () => {
   // The other half of the same rule. The button is live from two cards, so a
   // press can still be made on a read rather than on a window — and that read
   // costs a card when it is wrong. Leaning on the button must cost one card,
-  // not one per press, which is what the server's "once per card played" says
-  // and what this stops us from testing the server's patience about.
+  // not one per press, which is what the server's "once per offer" says and
+  // what this stops us from testing the server's patience about.
   it('sends one blind catch per board, and names no seat when doing it', () => {
     gameStore.setState({
       players: [seat(0, 'Alice', 5), seat(1, 'Bob', 2)],
@@ -168,7 +172,7 @@ describe('the board animates only a committed play', () => {
   // hand, and a cancelled prompt must leave the fan exactly as it was.
   it('does not fly a wild until its colour is named', () => {
     const { container } = renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild wild' }))
+    fireEvent.click(screen.getByRole('button', { name: 'wild' }))
     expect(container.querySelector('[data-flier-face="face"]')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'green' }))
@@ -241,7 +245,7 @@ describe('the board animates only a committed play', () => {
   // retires it is losing the turn rather than the colour in play changing.
   it('closes the colour prompt when the turn moves under it', () => {
     renderGame()
-    fireEvent.click(screen.getByRole('button', { name: 'wild wild' }))
+    fireEvent.click(screen.getByRole('button', { name: 'wild' }))
     expect(screen.getByRole('button', { name: 'green' })).toBeInTheDocument()
 
     act(() => gameStore.setState({ currentTurn: 1 }))
@@ -258,7 +262,8 @@ describe('the board animates only a committed play', () => {
       act(() =>
         gameStore.setState({ myHand: [blueSwap], discard: blue7, activeColor: 'blue' }),
       )
-      fireEvent.click(screen.getByRole('button', { name: 'blue swap' }))
+      // The card's accessible name is in the player's language too.
+      fireEvent.click(screen.getByRole('button', { name: 'bleu échange' }))
       expect(screen.getByRole('button', { name: /Bob/ })).toHaveTextContent('3 cartes')
     } finally {
       localStorage.removeItem('loco_lang')
