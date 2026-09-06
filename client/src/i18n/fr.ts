@@ -391,7 +391,7 @@ export const fr: Translations = {
         'Une carte est posée sur la pile. Tu as exactement la même, couleur et valeur\u00a0? Claque-la, même si ce n\'est pas ton tour.',
         'Aucun délai\u00a0: la fenêtre reste ouverte jusqu\'à ce que quelqu\'un joue, pioche ou passe.',
         'Personne n\'est écarté\u00a0: celui qui vient de jouer peut reprendre la main dans la foulée, et celui dont c\'était le tour aussi.',
-        'Plusieurs copies partent d\'un seul geste, effets compris.',
+        'Une carte par interception. Tu en as une deuxième\u00a0? C\'est une deuxième interception, et une fenêtre de plus que quelqu\'un peut te souffler.',
         'Toutes les cartes interceptent, Changement de couleur et Rotation compris\u00a0: un Changement de couleur se pose sur un Changement de couleur, un +4 prolonge un +4. Seule règle\u00a0: être identique.',
       ],
     },
@@ -465,6 +465,7 @@ export const fr: Translations = {
     interruptClosed: 'Quelqu\'un a été plus rapide.',
     interruptDrawChain: 'Seule une carte de pioche identique s\'intercale ici.',
     interruptMismatch: 'Il faut une carte identique à celle du dessus.',
+    interjectSingle: 'Une carte par interception. Claque la suivante.',
     batchNotAllowed: 'Échange et Rotation se jouent une par une.',
     batchMismatch: 'Les cartes jouées ensemble doivent être identiques.',
 

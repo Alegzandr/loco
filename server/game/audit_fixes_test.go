@@ -116,7 +116,7 @@ func TestInterruptPlayCards_SingleCardFinishLogsOneDeclaration(t *testing.T) {
 			before++
 		}
 	}
-	if err := r.InterruptPlayCards(1, []Card{top}, Red, -1, false); err != nil {
+	if err := r.InterruptPlayCards(1, []Card{top}, Red, -1); err != nil {
 		t.Fatal(err)
 	}
 	after := 0

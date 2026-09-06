@@ -15,21 +15,22 @@ func interruptState(top Card, active Color, botHand []Card) *GameState {
 	}
 }
 
-func TestBotInterrupt_SlamsEveryIdenticalCopy(t *testing.T) {
+// A bot gets no move a human does not: an interject is one card, however many
+// copies the hand holds, and the copies left are presses the bot has to win
+// again.
+func TestBotInterrupt_SlamsOneCopy(t *testing.T) {
 	top := Card{Color: Red, Kind: Number, Value: 5}
 	s := interruptState(top, Red, []Card{top, {Color: Blue, Kind: Number, Value: 9}, top})
 
 	action := BotInterrupt(s, 1)
 	if action == nil {
-		t.Fatal("BotInterrupt = nil, want both copies")
+		t.Fatal("BotInterrupt = nil, want one copy")
 	}
-	if len(action.Cards) != 2 {
-		t.Errorf("slammed %d cards, want 2 — an interject takes every copy", len(action.Cards))
+	if len(action.Cards) != 1 {
+		t.Errorf("slammed %d cards, want 1 — an interject is one card", len(action.Cards))
 	}
-	for _, c := range action.Cards {
-		if c != top {
-			t.Errorf("slammed %v, want %v", c, top)
-		}
+	if action.Cards[0] != top {
+		t.Errorf("slammed %v, want %v", action.Cards[0], top)
 	}
 }
 
@@ -171,9 +172,9 @@ func TestBotInterrupt_OutOfRangeSeat(t *testing.T) {
 	}
 }
 
-// A batch is worth its copies only for the kinds stackBatchEffects has a case
-// for. A plain Wild is on none of them — N of them name one colour — so every
-// copy past the first leaves the hand for nothing.
+// Same for every kind, and the two that used to be exceptions are the ones
+// worth naming: a plain Wild (N of them name one colour) and a +4 (each copy
+// used to raise the stack, which is precisely how one press became three).
 func TestBotInterrupt_PlainWildSpendsOneCopy(t *testing.T) {
 	top := Card{Color: Wild, Kind: WildCard}
 	hand := []Card{top, top, {Color: Green, Kind: Number, Value: 2}}
@@ -187,30 +188,31 @@ func TestBotInterrupt_PlainWildSpendsOneCopy(t *testing.T) {
 	}
 }
 
-// ...and the one batch it is worth: the copies are the whole hand, so the slam
-// takes the round.
-func TestBotInterrupt_PlainWildBatchesToWin(t *testing.T) {
+// Not even the hand that used to take the round in one slam: two identical
+// cards go down one at a time, and the seat sits catchable on one card in
+// between, exactly as a human does.
+func TestBotInterrupt_TwoCopiesAreNotOneWin(t *testing.T) {
 	top := Card{Color: Wild, Kind: WildCard}
 
 	action := BotInterrupt(interruptState(top, Red, []Card{top, top}), 1)
 	if action == nil {
-		t.Fatal("BotInterrupt = nil, want the whole hand")
+		t.Fatal("BotInterrupt = nil, want one copy")
 	}
-	if len(action.Cards) != 2 {
-		t.Errorf("slammed %d wilds, want 2 — that batch ends the round", len(action.Cards))
+	if len(action.Cards) != 1 {
+		t.Errorf("slammed %d wilds, want 1 — no batch takes a round any more", len(action.Cards))
 	}
 }
 
-// A +4 is on the list: each copy raises the stack by four.
-func TestBotInterrupt_PlusFourStillBatches(t *testing.T) {
+// The +4 above all: three of them used to leave the hand on a single press.
+func TestBotInterrupt_PlusFourSpendsOneCopy(t *testing.T) {
 	top := Card{Color: Wild, Kind: WildDrawFour}
-	hand := []Card{top, top, {Color: Green, Kind: Number, Value: 2}}
+	hand := []Card{top, top, top, {Color: Green, Kind: Number, Value: 2}}
 
 	action := BotInterrupt(interruptState(top, Red, hand), 1)
 	if action == nil {
-		t.Fatal("BotInterrupt = nil, want both copies")
+		t.Fatal("BotInterrupt = nil, want one copy")
 	}
-	if len(action.Cards) != 2 {
-		t.Errorf("slammed %d +4s, want 2 — each copy raises the stack", len(action.Cards))
+	if len(action.Cards) != 1 {
+		t.Errorf("slammed %d +4s, want 1 — the chain is emptied one press at a time", len(action.Cards))
 	}
 }

@@ -397,14 +397,19 @@ polish.
   somebody had drawn was refused and rendered as *"somebody was faster"* on a table where nobody
   had been; the highlight, the tap and the prompt-closing effect all read the flag now.
   `interruptWindow.test.ts`.
-- **A slam batches by itself, so it may only batch what a second copy buys** (`batchForSlam`).
-  An interject is a reaction, so nobody is asked how many copies to send — the client decides, and
-  the answer is per kind: a +2, a +4, a Skip, a Reverse and a Number each gain something real from
-  the second copy (more cards, more seats stepped over, a bigger swing), where **N plain wilds name
-  one colour between them** and the extra ones are simply cards handed away for nothing. So a wild
-  goes out alone, unless the batch empties the hand and takes the round, which is worth any number
-  of them. `game.BotInterrupt` mirrors the same table, because a bot that batched differently would
-  be visibly playing a different game.
+- **A slam is one card.** The tap used to group every identical copy, and nobody was asked how many
+  were going: an interject is a reaction, and a second press is a second reaction. The line was
+  drawn at what a second copy *buys* — a +2, a +4, a Skip, a Reverse and a Number each gained
+  something real, where N plain wilds name one colour between them — and **the line was in the wrong
+  place**. A seat holding three +4 played one, took the lead back off itself with the second, and
+  the third left on the same press: twelve cards on the next player for one reaction, and the read
+  the mechanic is made of never had to be made again. The +4 is also the one of those kinds that
+  stops to ask for a colour, so the batch was committed inside a prompt that never named it.
+  **Every copy past the first was a window somebody else could have won**, which is not the
+  presser's to spend. So `onCardClick` sends `card` alone out of turn, the colour prompt carries one
+  card, `game.BotInterrupt` sends one copy, and the server refuses a multi-card interject outright
+  (`game.ErrInterruptBatch`) so none of this is a client-side courtesy.
+  `interjectSingle.test.ts`, `locoFinish.test.ts`.
 - **Contre-LOCO! is pressable before the server has named anybody**
   (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`). A control that only unlocks on the
   server's cue can be *answered* and never *anticipated*, and the window it answers is five seconds:

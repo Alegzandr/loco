@@ -472,12 +472,14 @@ func (h *Hub) handleInterruptPlay(t *table, c *Client, msg protocol.ClientMsg) {
 		return
 	}
 
-	if err := room.InterruptPlayCards(c.playerID(), cards, chosenColor, chosenPlayer, msg.DeclareLoco); err != nil {
+	if err := room.InterruptPlayCards(c.playerID(), cards, chosenColor, chosenPlayer); err != nil {
 		h.refuseAction(c, t, err)
 		return
 	}
 
-	h.announceFinishingLoco(t, c.playerID(), cards)
+	// Nothing to announce: an interject is one card, and a single card off a
+	// one-card hand was declared before this message. Only a batch on your own
+	// turn can carry a call (announceFinishingLoco, handlePlayCard).
 	h.broadcastInterrupt(t, c.playerID(), cards, chosenPlayer)
 	h.maybeScheduleBotReactions(t)
 	h.maybeScheduleBotInterrupt(t)

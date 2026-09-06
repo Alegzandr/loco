@@ -1402,9 +1402,9 @@ to "has drawn" is what produced a seat that could neither draw (button disabled)
 `hooks/store/helpers.ts`, re-exported from `gameStore.ts`, called by `applyCardPlayed`) drops
 copies of the played card until the local hand
 matches the `hand_size` the server sent in the same message, because one `card_played` can represent
-several discards — a batch play or a batch interrupt slams *every* identical copy the player holds,
-and the client builds that batch by itself (`batchForSlam` in `hooks/gamePlay.svelte.ts`, which
-leaves a plain wild out of it unless the batch takes the round — see `notes/domain-rules.md`). Removing exactly one left the rest as phantom cards: they
+several discards — a turn batch (`Room.PlayCards`) puts down N identical copies at once. An
+interject no longer can: it is one card (`game.ErrInterruptBatch`, `notes/domain-rules.md`), which
+is where this used to bite hardest. Removing exactly one left the rest as phantom cards: they
 rendered, they could be tapped, and the server refused each tap with "card not in hand" until the
 round ended.
 - `card_played` always carries `Players`, so the authority is always there. With no `hand_size` to

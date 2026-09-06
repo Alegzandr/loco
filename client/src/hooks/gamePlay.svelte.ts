@@ -9,56 +9,12 @@ import { prefersReducedMotion } from './motionPref'
 import { live } from './live.svelte'
 import { untrack } from 'svelte'
 
-/** A card waiting on a colour. `copies` carries a batch slam through the prompt. */
+/** A card waiting on a colour. One card: an interject never batches. */
 export interface ColorPick {
   card: CardDTO
   idx: number
   interrupt?: boolean
   counter?: boolean
-  copies?: CardDTO[]
-  /** Set when `copies` is the whole hand — see `finishesTheHand`. */
-  declareLoco?: boolean
-}
-
-/**
- * Whether a batch puts down every card the player is holding.
- *
- * That is the one finish nobody could announce in advance: a hand of two
- * identical cards played at once never passes through a single card, so no catch
- * window ever opened on it and the LOCO! button was never offered. The server
- * refuses such a batch unless the message carries the call (`declare_loco`), so
- * the tap that takes the round *is* the call — there is no earlier moment to
- * make it in, and no second press to demand.
- *
- * Every other finish is gated on a declaration that already happened, and the
- * flag says nothing about it.
- */
-function finishesTheHand(batch: CardDTO[] | undefined, hand: CardDTO[]): boolean {
-  return batch !== undefined && batch.length >= hand.length
-}
-
-/**
- * Which copies a tap actually slams.
- *
- * The batch is automatic because an interject is a reaction and a second press
- * is a second reaction: nobody gets asked how many copies to send. That is only
- * fair while every extra copy *buys* something — a +2 or a +4 raises the stack,
- * a Skip steps another seat, a Reverse flips the ring again — which is exactly
- * the list `stackBatchEffects` has a case for on the server.
- *
- * A plain wild is not on that list. Two of them name one colour, so the second
- * copy does nothing at all beyond leaving the hand, and the hand it leaves is
- * the most flexible card in the game: a player who slammed one wild to take the
- * lead back found all three of theirs gone. So a wild batches for one reason
- * only — when the batch empties the hand and takes the round, which is worth
- * every wild it costs. Swap and GlobalSwitch the server refuses in batch
- * outright, so they never get here with more than one copy to send.
- */
-function batchForSlam(card: CardDTO, copies: CardDTO[], hand: CardDTO[]): CardDTO[] | undefined {
-  if (copies.length < 2) return undefined
-  if (card.kind === 'swap' || card.kind === 'global_switch') return undefined
-  if (card.kind === 'wild' && !finishesTheHand(copies, hand)) return undefined
-  return copies
 }
 
 /** A Swap waiting on a target. */
@@ -103,41 +59,30 @@ export function cardPlay(params: PlayParams) {
   function onCardClick(card: CardDTO, cardIdx: number): boolean {
     const discard = params.discard()
     const pendingDraw = params.pendingDraw()
-    const myHand = params.myHand()
     // Out-of-turn path: realtime "lead-taking" interrupt. If the tapped card is an
     // exact match of the top discard, send interrupt_play_card (the server
     // enforces the time window and ordering). Otherwise ignore the tap.
     if (params.currentTurn() !== params.myIndex()) {
       if (!clientMayInterrupt(card, discard, pendingDraw, params.interruptOpen())) return false
-      // Auto-batch: if the player holds multiple identical copies, send them all
-      // in a single interrupt — the rule allows playing any number of identical
-      // matching cards together. Swap and global_switch never batch.
-      const copies = myHand.filter(
-        (c) => c.color === card.color && c.kind === card.kind && c.value === card.value,
-      )
-      const batch = batchForSlam(card, copies, myHand)
+      // One card, whatever the hand holds. An interject is a reaction, and a tap
+      // that sent every copy charged three reactions to one press: a seat with
+      // three +4 emptied the chain onto the table without ever making the read
+      // again. The copies still go out — one press each, each one a window
+      // somebody else can win first. The server refuses a batch interject
+      // outright (`an interject is one card`), so this is the rule and not a
+      // preference about taps.
+      //
       // Wilds can take the lead too, and they still need their colour named —
       // global_switch included: it rotates the hands *and* sets the colour.
       if (card.kind === 'wild' || card.kind === 'wild_draw_four' || card.kind === 'global_switch') {
-        colorPicker = {
-          card,
-          idx: cardIdx,
-          interrupt: true,
-          copies: batch,
-          declareLoco: finishesTheHand(batch, myHand),
-        }
+        colorPicker = { card, idx: cardIdx, interrupt: true }
         return false
       }
       if (card.kind === 'swap') {
         playerPicker = { card, idx: cardIdx, interrupt: true }
         return false
       }
-      params.onSend({
-        type: 'interrupt_play_card',
-        card,
-        play_cards: batch,
-        declare_loco: finishesTheHand(batch, myHand),
-      })
+      params.onSend({ type: 'interrupt_play_card', card })
       return true
     }
     // Answering a pending +2/+4 stack is its own message. Any matching draw card

@@ -8,10 +8,11 @@ import type { PlayerDTO } from '../types/protocol'
  * only lights up once the window is open is one you can answer and never
  * anticipate, and five seconds is not long enough to find a button in. But the
  * anticipation has to be aimed at something that can actually happen on the
- * next card. A seat on two is one ordinary play from a window; a seat on three
- * needs an interrupt of two identical cards, which is rare enough that the
- * button would be live through a long stretch of the round where pressing it
- * can only miss.
+ * next card. A seat on two is one ordinary play from a window; nothing takes a
+ * seat from three cards to one in a single action, so arming the button there
+ * would keep it live through a long stretch of the round where pressing it can
+ * only miss. (One thing used to: an interject of two identical cards. An
+ * interject is one card now, so the threshold is exact.)
  *
  * That stretch is what the threshold is really about, because the miss costs a
  * card and a card is not always a punishment: a player holding a Swap or a

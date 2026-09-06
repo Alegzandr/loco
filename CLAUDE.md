@@ -229,8 +229,9 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 6. **Nobody forgets LOCO! and wins** (`requireLocoToFinish`, `ErrMustDeclareLoco`): every play that
    empties a hand is refused without the call. A seat already on one card must have declared
    **before** this message — a late call is always accepted, so forgetting costs a press and the
-   catch risk, never the round. **A batch that empties two or more carries the call**
-   (`declare_loco`), and the table hears `uno_declared` before `card_played`.
+   catch risk, never the round. **A turn batch that empties two or more carries the call**
+   (`declare_loco`), and the table hears `uno_declared` before `card_played`. **An interject cannot
+   reach that branch: it is one card**, so a finish out of turn comes off a hand that sat catchable.
 7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
    while one is on the table** (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, `CatchOffered`,
    rationed by `catchOfferKey` + `CatchPaidFor`). The offer is a seat on **exactly two** cards or a
@@ -282,10 +283,14 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
   `CatchableTargets` + `CatchWindowEnd`): the client renders that list and never re-derives it.
 
 **Interrupts**
-- **Interrupts have no deadline and exclude nobody.** Anyone may play N identical cards matching the
-  top discard, wilds included; the player who just played and the current player may both take the
-  lead back. Effects stack. **Removing those freedoms is what would make the mechanic turn-based: do
-  not reinstate them.**
+- **Interrupts have no deadline and exclude nobody.** Anyone may play a card matching the top
+  discard, wilds included; the player who just played and the current player may both take the lead
+  back. **Removing those freedoms is what would make the mechanic turn-based: do not reinstate
+  them.**
+- **An interject is one card** (`game.ErrInterruptBatch`, `docs/rules.md` §6.8). Holding a copy is a
+  second press into a window the table can win first, and the server refuses a multi-card interject
+  rather than trusting the tap. **Batch play is the turn's** (`Room.PlayCards`), where nothing is
+  being raced.
 - **Whether the pile may still be slammed is the server's word, and it rides every message that can
   open or shut the window** (`interrupt_open` on `card_played`, `card_drawn`, `turn_changed`,
   `match_ready` and every `GameStateDTO`; `store.interruptOpen`, `clientMayInterrupt`'s fourth
@@ -469,9 +474,9 @@ Detail: [`docs/notes/server.md`](docs/notes/server.md). The live strip: [`live.m
   Wild that would name the colour already active is held the same way** (`botWildIsIdle`) — it is
   only ever the colour it names, so it would move nothing; the +4 and the Rotation always pay and are
   never held. **A colour tie is broken towards the change and never bought**
-  (`botPreferredColor(hand, active)`). It batches its copies as a human's tap does; **a refused bot
-  move gives the turn up, never the table** (`botRecover`); `botCanPlayDrawn` asks `BotThink`, not
-  `CanPlay`.
+  (`botPreferredColor(hand, active)`). **It batches its copies on its own turn only** — its
+  interject is one card, like everybody's (`BotInterrupt`); **a refused bot move gives the turn up,
+  never the table** (`botRecover`); `botCanPlayDrawn` asks `BotThink`, not `CanPlay`.
 - **A bot's Contre-LOCO! is late, single and armed everywhere.** 3.2–4.4s of the 5s window, never
   past the deadline. **One attempt per window and one press, however many bots are at the table**
   (`botCatchAttempt`, derived from seat + `LastCardAt`). **Their lateness is theirs alone** —
@@ -571,9 +576,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   `use:pressToAct`): an interject is decided by arrival order. Keyboard clicks still act; a disabled
   control fires on neither path.
 - **The double-tap guard is per control** (`guardDoubleTap(key, fn)`, the catch key carrying its target).
-- **A slam batches by itself, so it may only batch what a copy buys** (`batchForSlam`): **a plain
-  wild gains nothing** and goes out alone unless the batch takes the round. `game.BotInterrupt`
-  mirrors it.
+- **A slam is one card, and holding a copy is a second press** — a reaction that puts three cards
+  down is three reactions charged to one, and each copy it swallowed was a window somebody else
+  could have won. The tap sends `card` alone, `game.BotInterrupt` sends one copy, and **the server
+  refuses the batch rather than trusting either** (`game.ErrInterruptBatch`). Batch play survives on
+  your **own turn** (`Room.PlayCards`), where nothing is being raced.
 - **Contre-LOCO! is pressable before the server has named anybody**
   (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`): any *other* seat on exactly two
   cards, or a window still running — the server's end plus `CATCH_LATE_GRACE_MS` (1s), deliberately
