@@ -2,12 +2,14 @@
  * Marina: a harbour front.
  *
  * The table stands on a deck at the water's edge. The quay runs across the
- * top of the frame, the sea beyond it: a pier out to the boats, a lighthouse
- * on its rocks, buoys, a ferry in the channel. Behind the quay, blocks of
- * narrow painted houses along canals, a fish market, a fair with its wheel on
- * the right, a beach with its umbrellas at the bottom left. The sea is what
+ * top of the frame, the sea beyond it: a pier out to a few boats, a
+ * lighthouse on its rocks, a ferry in the channel. Behind the quay, painted
+ * houses along canals with gardens between them, a fish stall, a wheel on
+ * the right, a beach with a few umbrellas at the bottom left. The sea is what
  * makes the weather here: a storm on the marina is the one that looks like
- * something.
+ * something. The sea and the sand are most of the frame on purpose — a
+ * harbour is water first, and the market that used to fill the band in front
+ * of the table was a fairground between the player and the felt.
  *
  * **Where the water starts is `shoreAt`, and nothing marine may be placed
  * against anything else.** The plaza the podium sits on is a wide oval of the
@@ -23,7 +25,7 @@ import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, at, screenOf, screenSpan, FLOOR } from './common'
 import { mix, scale, cssHex } from '../sky'
 import type { Actor, ScreenPt } from '../life'
-import { balloon, bird, boat as vessel, cloud, pacers, streetWalkers, strollers, traffic } from './actors'
+import { balloon, bird, boat as vessel, cloud, streetWalkers, traffic } from './actors'
 
 const SEA = 0x2c86c9
 const DECK = 0xc49a62
@@ -70,7 +72,7 @@ export const marina: Builder = (k) => {
   /** The world point `n` screen tiles out to sea from the shore at `px`. */
   const offshore = (px: number, n: number) => at(px, shoreAt(px) + n)
 
-  for (let i = 0; i < 320; i++) {
+  for (let i = 0; i < 160; i++) {
     const x = rng.range(-110, 110), z = rng.range(-110, 110)
     const [px, py] = screenOf(x, z)
     if (py < shoreAt(px) + 0.5) continue
@@ -82,15 +84,15 @@ export const marina: Builder = (k) => {
   // the two. Laid on a straight screen line they ran through the middle of the
   // sand on one side of the frame and into the sea on the other, because the
   // shore is a curve here and only the quay wall is straight.
-  for (let x = -60; x <= 60; x += 3.6) k.cyl(...at(x, shoreAt(x) - 0.7), 0, 0.24, 0.7, 0x2a2f3a, { seg: 8 })
+  for (let x = -60; x <= 60; x += 4.8) k.cyl(...at(x, shoreAt(x) - 0.7), 0, 0.24, 0.7, 0x2a2f3a, { seg: 8 })
   for (let x = -54; x <= 54; x += 12) k.cyl(...at(x, shoreAt(x) - 0.2), -0.3, 0.55, 0.25, 0xd94c4c, { axis: 'x', rot: Math.PI / 4, seg: 8 })
   for (let x = -48; x <= 48; x += 12) { if (Math.abs(x + 18) > 4) k.lamp(...at(x, shoreAt(x) - 2.2), { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a }) }
   for (let x = -42; x <= 42; x += 12) k.bench(...at(x + 6, shoreAt(x + 6) - 2.6), Math.PI / 4, 0x6b4a2b)
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 3; i++) {
     const px = rng.range(-44, 44)
     k.person(...at(px, shoreAt(px) - 1.2 - rng.range(0, 3.4)), rng.range(0, 6.3))
   }
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 2; i++) {
     const px = rng.range(-38, 38)
     const [x, z] = at(px, shoreAt(px) - 3.4)
     k.crate(x, z, 0.6, 0xbfe3f0)
@@ -133,7 +135,6 @@ export const marina: Builder = (k) => {
     k.crate(...at(PX + 0.1, BASE + 4.9), 0.55)
     k.barrel(...at(PX - 1.1, BASE + 7.6))
     k.person(...at(PX - 0.4, BASE + 12), Math.PI / 4 + Math.PI, { hat: 0xf4d35e })
-    k.person(...at(PX + 1, BASE + 8.4), Math.PI / 4 + Math.PI)
     // The head of the pier: a low platform across its whole width.
     const head = screenSpan(PX, BASE + LEN + 0.8, W + 1.4, 2)
     k.slab(head.x, head.z, head.w, head.d, 0x6b4a2b, { y: -0.16, h: 0.2, rot: head.rot, outline: true })
@@ -175,22 +176,15 @@ export const marina: Builder = (k) => {
     // left, rowing boats about the pier. The block boats below are the fleet
     // of a room with no pirate kit.
     k.model('pirate/ship-small', ...offshore(-45, 3.6), { rot: 2.2 })
-    k.model('pirate/boat-row-small', ...offshore(-13, 1.6), { rot: 0.4 })
     k.model('pirate/boat-row-large', ...offshore(-23, 1.8), { rot: 1.1 })
-    k.model('pirate/boat-row-small', ...offshore(8, 1.4), { rot: -0.7 })
     k.model('pirate/boat-row-large', ...offshore(31, 1.6), { rot: 0.2 })
-    k.model('pirate/boat-row-small', ...offshore(40, 1.5), { rot: 2.9 })
   } else {
   boat(-25, 2.0, 0.2, 0xd94c4c, { sail: true })
-  boat(-21.5, 1.2, 1.0, 0x2f8fbf, { cabin: true })
   boat(-13, 1.0, 2.2, 0xf0a34c, { cabin: true })
-  boat(-5, 0.9, 0.9, 0x2b2b2b, { cabin: true, len: 5.4 })
   boat(6, 0.9, 0.4, 0x62b58a, { cabin: true })
-  boat(14, 1.1, -1.1, 0xf5f0e6, { cabin: true })
   boat(23, 1.8, 0.3, 0x2f8fbf, { sail: true })
-  boat(30, 2.4, -0.6, 0xf4d35e, { sail: true })
   }
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 6; i++) {
     const px = rng.range(-50, 50)
     const [x, z] = offshore(px, 0.7 + rng.range(0, 1.8))
     k.sphere(x, -0.55, z, 0.45, i % 2 ? 0xd94c4c : 0xf5f0e6, { seg: 7 })
@@ -228,10 +222,9 @@ export const marina: Builder = (k) => {
     k.fence(lx + 1.6, lz - 1.6, lx + 1.6, lz + 1.6, 0x2a2f3a, 0.6)
     k.cyl(lx, 5.1, lz, 0.9, 1.15, on ? 0xfff0b0 : 0xbfe3f0, { seg: 10, glow: on })
     k.cone(lx, 6.25, lz, 1.2, 0.85, 0xd94c4c, { seg: 10 })
-    if (on) {
-      k.halo(lx, 5.7, lz, 3, 0xfff0b0, 0.45, false)
-      k.halo(lx, 5.7, lz, 6, 0xfff0b0, 0.2, false)
-    }
+    // The lamp's own glow, and no veil round the tower: two additive spheres
+    // three and six tiles across made the whole island look see-through.
+    if (on) k.halo(lx, 5.7, lz, 0.8, 0xfff0b0, 0.35, false)
     }
     // The keeper's house, on its own rock clear of the ring above: built at
     // 3.4 tiles out it stood inside the boulders, which is the one thing on
@@ -336,6 +329,13 @@ export const marina: Builder = (k) => {
   const beachSpot = { sx: sx - a - 8, sy: sy - b - 5 }
   const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
 
+  /** An unbuilt block: a lawn with a tree, a bed of flowers, a bench. */
+  const garden = (x: number, z: number, w: number) => {
+    k.tree(x + rng.range(-w / 4, w / 4), z + rng.range(-w / 4, w / 4), { kind: rng.chance(0.6) ? 'round' : 'palm', h: rng.range(1.6, 2.4), r: rng.range(1.0, 1.3), leaf: rng.pick([0x4bb35d, 0x3fa04f, 0x6cc46a]) })
+    if (rng.chance(0.5)) k.flowerbed(x + rng.range(-3, 3), z + rng.range(-3, 3), 2.2, 1.4, { kerb: 0xd9d2c2 })
+    if (rng.chance(0.4)) k.bench(x + rng.range(-3, 3), z + w / 3, 0, 0x6b4a2b)
+  }
+
   const plan = cityGrid(k, {
     block: 13,
     road: 3.2,
@@ -344,33 +344,27 @@ export const marina: Builder = (k) => {
     dashes: true,
     crossings: true,
     cars: CARS,
-    carDensity: 0.3,
+    carDensity: 0.15,
     lamp: { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a },
-    people: 0.5,
+    people: 0.15,
     maxHeight: 10,
     water: { line: 1, axis: 'x', color: sea, bank: 0x6b6660, bridge: 0x8a847a },
     plaza,
     land: (c) => !atSea(c.x, c.z) && c.sy < shoreAt(c.sx) - 7,
+    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.6 : 0.8),
+    open: (c) => {
+      if (near(c, wheelSpot, 14) || near(c, beachSpot, 8)) return
+      garden(c.x, c.z, c.w)
+    },
     fill: (c) => {
       // The fair keeps a wide clearing, and a deeper one in front of the wheel:
       // a terrace standing between the camera and it hid the whole frame.
       if (near(c, wheelSpot, 14) || near(c, beachSpot, 8)) return
       if (c.front) {
-        // The market: stalls, crates and umbrellas, nothing over a storey.
-        for (const l of lots(c, 2, 2, 1)) {
-          const r = rng.next()
-          if (r < 0.4) k.stall(l.x, l.z, rng.pick([0, Math.PI / 2, Math.PI]), 0x2f8fbf, 0xf5f0e6)
-          else if (r < 0.7) {
-            k.crate(l.x, l.z, 0.7, 0xbfe3f0)
-            k.crate(l.x + 1, l.z + 0.6, 0.55, 0xbfe3f0)
-            k.barrel(l.x - 1, l.z + 0.8)
-          } else {
-            k.cyl(l.x, 0.05, l.z, 0.05, 2.2, 0xf5f0e6, { seg: 4, cap: false, outline: false })
-            k.cone(l.x, 1.9, l.z, 1.2, 0.55, rng.pick([0xd94c4c, 0x2f8fbf, 0xf4d35e]), { seg: 8, cap: false })
-            // Clear of the parasol's own 1.2-tile reach, or the bench is under it.
-            k.bench(l.x + 2.3, l.z, 0, 0x6b4a2b)
-          }
-        }
+        // Lawn between the player and the felt: a palm, a bench, and air.
+        const [l] = lots(c, 1, 1, 0)
+        k.tree(l.x + rng.range(-2, 2), l.z + rng.range(-2, 2), { kind: 'palm', h: rng.range(2.2, 2.8) })
+        if (rng.chance(0.5)) k.bench(l.x + 3, l.z - 2, 0, 0x6b4a2b)
         return
       }
       // Row houses shoulder to shoulder along the block's camera-facing sides.
@@ -394,8 +388,8 @@ export const marina: Builder = (k) => {
 
   // ─── The fish market, the fair, the beach ──────────────────────────────
   const [cx, cz] = at(sx, sy)
-  for (const [dsx, dsy] of [[-a - 5, 4], [-a - 8, -1]] as const) {
-    const [x, z] = at(sx + dsx, sy + dsy)
+  {
+    const [x, z] = at(sx - a - 5, sy + 4)
     k.stall(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x2f8fbf, 0xf5f0e6)
   }
   k.crate(...at(sx - a - 6, sy + 1), 0.6, 0xbfe3f0)
@@ -424,18 +418,9 @@ export const marina: Builder = (k) => {
       k.sphere(wx + Math.cos(t) * (r + 0.55) * Math.SQRT1_2, 7 + Math.sin(t) * (r + 0.55), wz - Math.cos(t) * (r + 0.55) * Math.SQRT1_2, 0.11, on ? 0xfff0c0 : 0x9aa3b5, { glow: on, seg: 4, outline: false })
     }
     if (on) k.halo(wx + 0.5, 7, wz + 0.5, r + 1.2, 0xffd23c, 0.2, false)
+    // The wheel alone: a carousel beside it was a second fairground.
     k.box(...at(wheelSpot.sx, wheelSpot.sy - 4), 0, 2.4, 1.3, 1.3, 0xf4d35e, { rot: Math.PI / 4 })
     k.person(...at(wheelSpot.sx + 1.5, wheelSpot.sy - 4), -Math.PI / 4, { hat: 0xd94c4c })
-    const [mx, mz] = at(wheelSpot.sx - 8, wheelSpot.sy - 3)
-    k.cyl(mx, 0, mz, 4, 0.5, 0xf5f0e6, { seg: 14 })
-    k.cyl(mx, 0.5, mz, 0.3, 3, 0xd94c4c, { seg: 6, cap: false })
-    k.cone(mx, 3.5, mz, 4.6, 1.6, 0xd94c4c, { seg: 14 })
-    for (let i = 0; i < 8; i++) {
-      const t = (i / 8) * Math.PI * 2
-      k.cyl(mx + Math.cos(t) * 2.8, 0.5, mz + Math.sin(t) * 2.8, 0.06, 3, 0xe0b45a, { seg: 4, cap: false, outline: false })
-      k.box(mx + Math.cos(t) * 2.8, 1.2, mz + Math.sin(t) * 2.8, 0.9, 0.7, 0.5, rng.pick(paints), { cap: false })
-    }
-    if (on) k.halo(mx, 0.55, mz, 5, 0xffe2a8, 0.25)
   }
   {
     // An oval of paler sand, not a rotated box: a box at 45° draws a perfectly
@@ -449,7 +434,7 @@ export const marina: Builder = (k) => {
       spots.push([px, py])
       return true
     }
-    for (let i = 0; i < 14 && spots.length < 8; i++) {
+    for (let i = 0; i < 14 && spots.length < 4; i++) {
       const px = beachSpot.sx - 7 + rng.range(0, 14)
       const py = beachSpot.sy + 2 - rng.range(0, 6)
       if (!clear(px, py, 2.6)) continue
@@ -467,10 +452,10 @@ export const marina: Builder = (k) => {
     k.person(lx, lz - 0.1, Math.PI, { shirt: 0xd94c4c, hat: 0xf5f0e6 })
     k.tree(...at(beachSpot.sx + 2, beachSpot.sy + 5), { kind: 'palm', h: 2.6 })
     k.tree(...at(beachSpot.sx - 7, beachSpot.sy + 3), { kind: 'palm', h: 3 })
-    for (let i = 0; i < 5; i++) k.person(...at(beachSpot.sx - 6 + rng.range(0, 12), beachSpot.sy + 1 - rng.range(0, 5)), rng.range(0, 6.3))
+    for (let i = 0; i < 2; i++) k.person(...at(beachSpot.sx - 6 + rng.range(0, 12), beachSpot.sy + 1 - rng.range(0, 5)), rng.range(0, 6.3))
   }
-  for (let i = 0; i < 10; i++) {
-    const t = (i / 10) * Math.PI * 2
+  for (let i = 0; i < 6; i++) {
+    const t = (i / 6) * Math.PI * 2 + 0.3
     const px = sx + Math.cos(t) * (a + 7)
     const py = sy + Math.sin(t) * (b + 4.5)
     if (py > shoreAt(px) - 3) continue
@@ -478,7 +463,7 @@ export const marina: Builder = (k) => {
     if (i % 2) k.lamp(x, z, { h: 2.6, color: 0xffe1a1, post: 0x2a2f3a })
     else k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x6b4a2b)
   }
-  crowd(k, 10)
+  crowd(k, 3)
 
   // ─── What moves: the harbour is the room with the most to move ─────────
   const life: Actor[] = []
@@ -493,8 +478,8 @@ export const marina: Builder = (k) => {
     return pts
   }
   life.push(vessel(k, 'ferry', { path: shoreline(4.2, -12, 52), hull: 0x2a3550, len: 9, duration: 60_000, every: 140_000, fade: true }))
-  // Gulls, three of them, on wide arcs over the water.
-  for (let i = 0; i < 3; i++) {
+  // Gulls, two of them, on wide arcs over the water.
+  for (let i = 0; i < 2; i++) {
     const y0 = QUAY + 4 + i * 1.3
     life.push(bird(k, `gull-${i}`, { path: [[-50, y0], [-20, y0 + 2], [10, y0 - 1], [50, y0 + 1.5]], duration: 30_000 + i * 6000, delay: i * 9000 }))
   }
@@ -504,8 +489,6 @@ export const marina: Builder = (k) => {
     life.push(cloud(k, 'cloud-0', { sy: 19, size: 1.2, duration: 170_000 }))
     life.push(cloud(k, 'cloud-1', { sy: 16, size: 0.8, duration: 210_000, delay: 70_000, from: 50, to: -50 }))
   }
-  life.push(...pacers(k, 4, (t) => [-40 + 80 * t, shoreAt(-40 + 80 * t) - 1.5]))
-  life.push(...strollers(k, 3))
-  life.push(...streetWalkers(k, plan, 3), ...traffic(k, plan, CARS, 2))
+  life.push(...streetWalkers(k, plan, 2), ...traffic(k, plan, CARS, 1))
   return life
 }

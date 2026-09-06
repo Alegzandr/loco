@@ -13,7 +13,7 @@
 import { describe, it, expect } from 'vitest'
 import { lightRig } from '../components/scene/sky'
 import { convexHull, lightingFor, shadowHull, shadowRun, sunDirection, warmth, MAX_SHADOW_RUN } from '../components/scene/shade'
-import { LOOK, applyLookPatch, bumpLook, lookVersion, subscribeLook } from '../components/scene/look'
+import { LOOK, WINDOWS_LIT_MAX, applyLookPatch, bumpLook, lookVersion, subscribeLook } from '../components/scene/look'
 
 const HOURS = ['dawn', 'day', 'dusk', 'night'] as const
 
@@ -82,6 +82,16 @@ describe('the sun and the sky', () => {
     expect(l.rim!.direction[0] * l.sun.direction[0] + l.rim!.direction[2] * l.sun.direction[2]).toBeLessThan(0)
     expect(l.rim!.intensity).toBeLessThan(l.sun.intensity * 0.5)
     expect(warmth(l.rim!.color)).toBeLessThan(warmth(l.sun.color))
+  })
+})
+
+describe('the windows after dark', () => {
+  it('are mostly dark, at every hour: a district four fifths lit is a wall of light', () => {
+    // What made the lit ones read, and what let the eye rest between them.
+    expect(WINDOWS_LIT_MAX).toBeLessThanOrEqual(0.5)
+    for (const t of HOURS) expect(LOOK.hours[t].windowsLit, t).toBeLessThanOrEqual(WINDOWS_LIT_MAX)
+    // Still lit at all after dark, or the rule is free.
+    expect(LOOK.hours.night.windowsLit).toBeGreaterThan(0)
   })
 })
 

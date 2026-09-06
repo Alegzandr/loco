@@ -1,18 +1,25 @@
 /**
  * Neon: a square in a city of neon.
  *
- * The table stands on a podium in the middle of a night district: blocks of
- * towers with their windows lit, neon tubes on every edge, billboards, signs,
- * a bar with its stools, cars with their headlights on, string lights over the
- * square. At night it is the map this game was named for; at noon it is a
- * city under a hard sun with the tubes off, in lighter stone.
+ * The table stands on a podium in the middle of a night district: a few
+ * towers with some of their windows lit, a neon edge on one in five, one
+ * billboard, a bar with its stools, a food truck, cars with their headlights
+ * on. At night it is the map this game was named for; at noon it is a city
+ * under a hard sun with the tubes off, in lighter stone.
+ *
+ * **It used to be all of that at once, everywhere**: a tube on every other
+ * tower, a sign on every third, a beacon on every fourth, four windows in
+ * five lit, string lights round the square, a dance floor, a crowd of
+ * twenty-two — and the room was a wall of light a spectator could not rest
+ * their eyes on. The pocket parks between the towers and the dark windows
+ * are what make the lit ones read.
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, neonText, stringLights, at, along, screenOf, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, neonText, at, along, screenOf, FLOOR } from './common'
 import { mix, cssHex } from '../sky'
 import type { Actor } from '../life'
-import { cloud, mote, plane, puff, streetWalkers, strollers, traffic } from './actors'
+import { cloud, plane, puff, streetWalkers, traffic } from './actors'
 
 /** The cars, parked along the streets and driving them. */
 const CARS = [0xff3d68, 0x3d9bff, 0xffd23c, 0xf5f0e6, 0x2b2b2b, 0xc56bff] as const
@@ -55,24 +62,25 @@ export const neon: Builder = (k) => {
     const c = rng.pick(shopGlow)
     k.box(x, 0.3, z + d / 2 + 0.05, w * 0.8, 1.6, 0.08, on ? c : 0x2a3346, { glow: on, outline: false, cap: false })
     k.awning(x, z + d / 2, 0, w * 0.8, mix(c, 0x111111, on ? 0.2 : 0.6), { y: 2.1, depth: 0.95 })
-    if (rng.chance(0.6)) {
+    // One tower in five wears a neon edge, one in eight a sign, one in eight
+    // a beacon, and no halo lies on a roof: a pool of light hanging in the air
+    // over a tower was the first thing that made the towers look see-through.
+    if (rng.chance(0.2)) {
       const nc = rng.pick(neonColors)
       k.box(x + w / 2 + 0.06, h - 0.3, z, 0.1, 0.25, d, on ? nc : 0x3a3f52, { glow: on, outline: false, cap: false })
       k.box(x, h - 0.3, z + d / 2 + 0.06, w, 0.25, 0.1, on ? nc : 0x3a3f52, { glow: on, outline: false, cap: false })
-      if (on) k.halo(x, h + 0.2, z, Math.max(w, d) * 0.7, nc, 0.18)
     }
-    if (rng.chance(0.35)) {
+    if (rng.chance(0.12)) {
       const nc = rng.pick(neonColors)
       k.box(x, h, z, w * 0.7, 0.12, 0.12, 0x2a2a35, { cap: false })
       k.box(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, on ? nc : mix(nc, 0x222222, 0.7), { glow: on, cap: false })
     }
-    if (rng.chance(0.3)) {
+    if (rng.chance(0.12)) {
       const mh = rng.range(2, 5)
       k.cyl(x, h, z, 0.12, mh, 0x8a8fa0, { seg: 5, cap: false })
       k.sphere(x, h + mh + 0.15, z, 0.2, 0xff3b3b, { glow: true, seg: 6, outline: false })
-      k.halo(x, h + mh + 0.15, z, 0.5, 0xff3b3b, 0.4, false)
     }
-    if (rng.chance(0.4)) {
+    if (rng.chance(0.3)) {
       k.box(x - w / 2 + 1, h, z - d / 2 + 1, 1.4, 0.9, 1.2, 0x8d94a3)
       k.cyl(x + w / 2 - 1.2, h, z + d / 2 - 1.2, 0.7, 1.4, 0x6b5039, { seg: 8 })
     }
@@ -84,6 +92,15 @@ export const neon: Builder = (k) => {
     k.box(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, on ? nc : mix(nc, 0x222222, 0.6), { glow: on, outline: false, cap: false })
   }
 
+  /** A pocket park on an unbuilt block: a lawn, a few trees, a bench. */
+  const park = (x: number, z: number, w: number) => {
+    k.slab(x, z, w - 1, w - 1, k.ground(on ? 0x1f3a33 : 0x7fb86f), { h: 0.05 })
+    const n = rng.int(2, 4)
+    for (let i = 0; i < n; i++) k.tree(x + rng.range(-w / 3, w / 3), z + rng.range(-w / 3, w / 3), { kind: 'round', h: rng.range(1.2, 1.8), r: rng.range(0.7, 1.0), leaf: 0x2fbf7a })
+    if (rng.chance(0.6)) k.bench(x + rng.range(-1, 1), z + w / 3, 0, 0x4a4f66)
+    if (rng.chance(0.5)) k.lamp(x - w / 3, z - w / 3, { h: 3, style: 'box', color: 0xffe1a1, post: 0x2a2f3a })
+  }
+
   const plan = cityGrid(k, {
     block: 11,
     road: 3.6,
@@ -92,33 +109,30 @@ export const neon: Builder = (k) => {
     dashes: true,
     crossings: true,
     cars: CARS,
-    carDensity: 0.55,
+    carDensity: 0.2,
     lamp: { h: 3, style: 'box', color: 0xffe1a1, post: 0x2a2f3a },
-    people: 2,
+    people: 0.3,
     maxHeight: 24,
+    // Half the blocks beside the square are parks; the skyline is at the edge.
+    density: (c) => (c.front ? 1 : c.dist < 42 ? 0.65 : 0.85),
+    open: (c) => park(c.x, c.z, c.w),
     fill: (c) => {
       if (c.front) {
         // A pocket park: nothing here may rise into the table.
         for (const l of lots(c, 2, 2, 1)) {
           const r = rng.next()
           if (r < 0.5) k.tree(l.x, l.z, { kind: 'round', h: 1.2, r: 0.8, leaf: 0x2fbf7a })
-          else if (r < 0.75) k.bench(l.x, l.z, rng.pick([0, Math.PI / 2]), 0x4a4f66)
-          else {
-            k.box(l.x, 0, l.z, 2.2, 2.0, 1.6, NIGHT, { rot: rng.pick([0, Math.PI / 2]) })
-            k.box(l.x, 0.4, l.z + 0.83, 1.6, 1.0, 0.06, on ? rng.pick(shopGlow) : 0x2a3346, { glow: on, outline: false, cap: false })
-          }
+          else if (r < 0.65) k.bench(l.x, l.z, rng.pick([0, Math.PI / 2]), 0x4a4f66)
         }
         return
       }
-      // Big towers away from the square, smaller ones beside it.
+      // One building a block: low beside the square, a tower at the edge.
       const near = c.dist < 42
-      const split = near ? 2 : rng.chance(0.5) ? 2 : 1
-      for (const l of lots(c, split, split, 1.2)) {
-        const h = near ? rng.range(4, 10) : rng.range(8, 24)
-        tower(l.x, l.z, l.w - rng.range(0, 1.5), l.d - rng.range(0, 1.5), h)
-      }
-      if (rng.chance(0.5)) signpost(c.x + c.w / 2 - 0.2, c.z + c.d / 2 - 0.2, rng.range(3, 6))
-      if (rng.chance(0.4)) k.tree(c.x - c.w / 2 - 0.9, c.z + c.d / 2 + 0.9, { kind: 'round', h: 1.2, r: 0.7, leaf: 0x2fbf7a })
+      const [l] = lots(c, 1, 1, 0)
+      const h = near ? rng.range(4, 8) : rng.range(8, 20)
+      tower(l.x, l.z, l.w - rng.range(1, 3), l.d - rng.range(1, 3), h)
+      if (rng.chance(0.15)) signpost(c.x + c.w / 2 - 0.2, c.z + c.d / 2 - 0.2, rng.range(3, 6))
+      if (rng.chance(0.5)) k.tree(c.x - c.w / 2 - 0.9, c.z + c.d / 2 + 0.9, { kind: 'round', h: 1.2, r: 0.7, leaf: 0x2fbf7a })
     },
   })
 
@@ -138,24 +152,20 @@ export const neon: Builder = (k) => {
     const rot = Math.PI / 4
     const [bx, bz] = at(sx - a - 6, sy + 1)
     k.box(bx, 0, bz, 7, 1.1, 1.3, NIGHT, { rot })
-    k.box(bx, 1.1, bz, 7.2, 0.12, 1.5, 0xc56bff, { rot, glow: on, outline: !on, cap: false })
+    // The counter's top: a dark note of the accent, lit like everything else.
+    // Glowing, and then merely painted in the accent, it was a seven-tile bar
+    // of light lying at the edge of the frame.
+    k.box(bx, 1.1, bz, 7.2, 0.12, 1.5, mix(0xc56bff, NIGHT_DEEP, 0.6), { rot, cap: false })
     const [wx, wz] = at(sx - a - 9, sy + 1)
     k.box(wx, 0, wz, 7, 2.8, 0.5, NIGHT_DEEP, { rot })
-    along(wx - 2.4, wz - 2.4, wx + 2.4, wz + 2.4, 9, (x, z) => k.box(x, 1.6, z, 0.24, 0.6, 0.24, rng.pick(neonColors), { glow: on, outline: false, cap: false }))
+    along(wx - 2.0, wz - 2.0, wx + 2.0, wz + 2.0, 3, (x, z) => k.box(x, 1.6, z, 0.24, 0.6, 0.24, rng.pick(neonColors), { glow: on, outline: false, cap: false }))
     const [tx, tz] = at(sx - a - 3.5, sy + 1)
     along(tx - 2, tz - 2, tx + 2, tz + 2, 5, (x, z) => {
       k.cyl(x, 0, z, 0.13, 0.7, 0x8a8fa0, { seg: 6, cap: false })
       k.cyl(x, 0.7, z, 0.32, 0.14, 0xff3d68, { seg: 8, cap: false })
     })
     k.person(...at(sx - a - 7.5, sy + 1.2), rot + Math.PI, { shirt: 0xffffff, pants: 0x1c1c1c })
-    if (on) k.halo(bx, 0, bz, 5, 0xc56bff, 0.2)
-    for (let i = 0; i < 5; i++) {
-      for (let j = 0; j < 4; j++) {
-        const [fx, fz] = at(sx - a - 8 + i * 1.1, sy - 5 - j * 1.2)
-        k.slab(fx, fz, 1.2, 1.2, on ? rng.pick(neonColors) : 0x3a3f52, { y: 0.12, h: 0.06, outline: false, rot })
-      }
-    }
-    for (let i = 0; i < 6; i++) k.person(...at(sx - a - 8 + rng.range(0, 5), sy - 5 - rng.range(0, 4)), rng.range(0, 6.3))
+    if (on) k.halo(bx, 0, bz, 4, 0xc56bff, 0.16)
   }
   // A food truck and a queue on the right.
   const truckSpot: [number, number] = [sx + a + 6, sy - 1]
@@ -166,49 +176,31 @@ export const neon: Builder = (k) => {
     k.box(fx, 2.75, fz, 5.2, 0.2, 2.4, 0x2a2a35, { rot })
     k.box(fx - 1.5 * Math.sin(rot) * 0 - 1.2 * Math.sin(rot), 1.4, fz - 1.2 * Math.cos(rot), 3, 0.9, 0.08, on ? 0xfff0c0 : 0x2a3346, { rot, glow: on, outline: false, cap: false })
     for (const s of [-1.6, 1.6]) k.cyl(fx + s * Math.cos(rot), 0.35, fz - s * Math.sin(rot), 0.35, 0.3, 0x1c1c1c, { axis: 'z', rot, seg: 8 })
-    for (let i = 0; i < 4; i++) k.person(...at(sx + a + 3.5 - i * 1.1, sy - 1 - i * 0.9), rot + Math.PI)
-    if (on) k.halo(fx, 0, fz, 3.4, 0xfff0c0, 0.22)
+    for (let i = 0; i < 2; i++) k.person(...at(sx + a + 3.5 - i * 1.1, sy - 1 - i * 0.9), rot + Math.PI)
+    if (on) k.halo(fx, 0, fz, 3.4, 0xfff0c0, 0.18)
   }
-  // String lights round the square, on a ring of posts.
-  stringLights(k, {
-    padX: 3,
-    padY: 5,
-    height: 3.8,
-    postR: 0.1,
-    post: 0x8a8fa0,
-    cord: 0x3a3f52,
-    sag: 0.8,
-    spacing: 1.1,
-    hang: (x, y, z) => {
-      k.sphere(x, y - 0.1, z, 0.13, on ? rng.pick([0xffe1a1, 0xff8fb8, 0x9fe8ff]) : 0x9aa3b5, { glow: on, seg: 5, outline: false })
-    },
-  })
-  for (let i = 0; i < 8; i++) {
-    const t = (i / 8) * Math.PI * 2
+  // Six planters round the paving, and nothing strung over it.
+  for (let i = 0; i < 6; i++) {
+    const t = (i / 6) * Math.PI * 2 + 0.4
     const [x, z] = at(sx + Math.cos(t) * (a + 9), sy + Math.sin(t) * (b + 6))
     if (screenOf(x, z)[1] > sy + b + 7) continue
     k.box(x, 0, z, 1.2, 0.7, 1.2, 0x3a3e52)
     k.bush(x, z, 0.55, 0x2fbf7a)
   }
-  crowd(k, 22)
+  crowd(k, 6)
   void cx
   void cz
 
-  // ─── What moves: traffic round the square, steam off the truck, the floor ──
+  // ─── What moves: a car now and then, steam off the truck, the sky ────────
   const life: Actor[] = []
-  life.push(...traffic(k, plan, CARS, 3))
+  life.push(...traffic(k, plan, CARS, 1))
   life.push(puff(k, 'steam', { at: [truckSpot[0] - 1.5, truckSpot[1] + 2.4], rise: 2, duration: 3200, size: 0.7 }))
   life.push(puff(k, 'steam-2', { at: [truckSpot[0] - 0.8, truckSpot[1] + 2.4], rise: 1.8, duration: 4100, delay: 1500, size: 0.55 }))
-  for (let i = 0; i < 3; i++) {
-    const m = mote(k, `spark-${i}`, { at: [sx - a - 5.5 + i * 1.3, sy - 5], color: neonColors[i * 2], r: 1.4 + i * 0.3, duration: 7000 + i * 1300, delay: i * 2100 })
-    if (m) life.push(m)
-  }
   if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
     life.push(cloud(k, 'cloud-0', { sy: 18, size: 1.1, duration: 190_000 }))
     life.push(cloud(k, 'cloud-1', { sy: 20.5, size: 0.7, duration: 240_000, delay: 90_000, from: 50, to: -50 }))
     life.push(plane(k, 'plane', { sy: 17, every: 110_000, color: 0xf5f0e6 }))
   }
-  life.push(...strollers(k, 4))
-  life.push(...streetWalkers(k, plan, 4))
+  life.push(...streetWalkers(k, plan, 2))
   return life
 }

@@ -29,7 +29,7 @@ import type { Actor, ScreenPt } from '../life'
 import { CAR_BODY, PERSON_BODY } from '../life'
 import type { Hex } from '../sky'
 import { mix, scale } from '../sky'
-import { at, screenOf, PROMENADE, WALK_LINE, type StreetPlan } from './common'
+import { at, screenOf, WALK_LINE, type StreetPlan } from './common'
 
 /** Ground tiles per second. A person here is a tile and a half tall. */
 export const WALK_SPEED = 0.75
@@ -40,19 +40,6 @@ const PITCH_COS = Math.cos((32 * Math.PI) / 180)
 /** Where a point `y` tiles above the ground point `(sx, sy)` lands on screen. */
 export function lift(pt: ScreenPt, y: number): ScreenPt {
   return [pt[0], pt[1] + y * PITCH_COS]
-}
-
-/** A point `n` tiles from the anchor's ellipse, at angle `t` (screen radians). */
-export function rim(k: Kit, t: number, n: number): ScreenPt {
-  const { sx, sy, a, b } = k.anchor
-  return [sx + Math.cos(t) * (a + n), sy + Math.sin(t) * (b + n * 0.53)]
-}
-
-/** The whole ring, counter-clockwise on screen, closed. */
-export function ringPath(k: Kit, n: number, steps = 16): ScreenPt[] {
-  const out: ScreenPt[] = []
-  for (let i = 0; i <= steps; i++) out.push(rim(k, (i / steps) * Math.PI * 2, n))
-  return out
 }
 
 // ─── The sky ─────────────────────────────────────────────────────────────────
@@ -245,37 +232,6 @@ export function walker(_k: Kit, id: string, o: { path: ScreenPt[]; speed?: numbe
       kk.person(0, 0, personRot(o.heading ?? SCREEN_RIGHT), { ...o.look, stride: 1 })
     },
   }
-}
-
-/**
- * A few people strolling the promenade round the table, each at their own
- * pace. The whole ring is the candidate; what survives is the arc the crowd,
- * the props and the podium leave clear, and each walks their own stretch of
- * it there and back.
- */
-export function strollers(k: Kit, n: number, o: { n?: number; look?: Parameters<Kit['person']>[3]; slow?: number } = {}): Actor[] {
-  const out: Actor[] = []
-  const ring = ringPath(k, o.n ?? PROMENADE, 18)
-  const slow = o.slow ?? 1
-  for (let i = 0; i < n; i++) {
-    const start = Math.floor((i / n) * ring.length)
-    const path = [...ring.slice(start), ...ring.slice(1, start + 1)]
-    const part: [number, number] = [k.rng.range(0, 0.4), k.rng.range(0.6, 1)]
-    // Under ten tiles a stroll is somebody pacing between the seat pills.
-    out.push(walker(k, `stroll-${i}`, { path, motion: 'loop', speed: (WALK_SPEED * k.rng.range(0.85, 1.15)) / slow, delay: k.rng.range(0, 40_000), look: o.look, part, minLen: 10, bob: slow > 1 ? { amp: 0.12, period: 1400 } : undefined }))
-  }
-  return out
-}
-
-/** People walking a stretch of open ground there and back. */
-export function pacers(k: Kit, n: number, line: (t: number) => ScreenPt, o: { look?: Parameters<Kit['person']>[3] } = {}): Actor[] {
-  const out: Actor[] = []
-  for (let i = 0; i < n; i++) {
-    const a = k.rng.range(0, 0.45)
-    const b = k.rng.range(0.55, 1)
-    out.push(walker(k, `pace-${i}`, { path: [line(a), line(b)], speed: WALK_SPEED * k.rng.range(0.8, 1.1), delay: k.rng.range(0, 20_000), look: o.look, part: [k.rng.range(0, 0.3), k.rng.range(0.7, 1)], minLen: 6 }))
-  }
-  return out
 }
 
 /** True when any of the run, in screen tiles, lies within `pad` tiles of the frame. */

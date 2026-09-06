@@ -39,7 +39,13 @@ export interface HourLook {
   ambient: { sky: Hex; ground: Hex; intensity: number }
   /** Street lamps, signs and lanterns are lit. */
   lampsOn: boolean
-  /** Share of windows lit, 0–1. */
+  /**
+   * Share of windows lit, 0–1. **Under a half at every hour** (`WINDOWS_LIT_MAX`,
+   * `sceneLighting.test.ts`): a district where four windows in five are lit
+   * after dark is a wall of light, and a card table in front of a wall of
+   * light is a table nobody rests their eyes at. A city at night is mostly
+   * dark windows with a few lit, which is also what makes the lit ones read.
+   */
   windowsLit: number
   /** How dark the hour is overall, 0 at noon to 1 at midnight. The CSS table dims by it, the bloom grows with it. */
   dark: number
@@ -148,6 +154,9 @@ export interface Look {
   debug: DebugView
 }
 
+/** The most windows any hour may light, as a share. */
+export const WINDOWS_LIT_MAX = 0.5
+
 export const LOOK: Look = {
   hours: {
     dawn: {
@@ -155,7 +164,7 @@ export const LOOK: Look = {
       sun: { color: 0xffc48f, intensity: 3.0, elevation: 26, azimuth: 135 },
       ambient: { sky: 0x8fa3e6, ground: 0x7a6068, intensity: 1.1 },
       lampsOn: true,
-      windowsLit: 0.3,
+      windowsLit: 0.15,
       dark: 0.3,
     },
     day: {
@@ -171,7 +180,7 @@ export const LOOK: Look = {
       sun: { color: 0xffa050, intensity: 3.0, elevation: 26, azimuth: -60 },
       ambient: { sky: 0x8a7cc4, ground: 0x7a5a50, intensity: 1.5 },
       lampsOn: true,
-      windowsLit: 0.7,
+      windowsLit: 0.35,
       dark: 0.45,
     },
     night: {
@@ -179,14 +188,14 @@ export const LOOK: Look = {
       sun: { color: 0xa8bfff, intensity: 2.2, elevation: 44, azimuth: -40 },
       ambient: { sky: 0x3e55a8, ground: 0x1a2140, intensity: 1.6 },
       lampsOn: true,
-      windowsLit: 0.85,
+      windowsLit: 0.45,
       dark: 1,
     },
   },
   sun: { intensity: 1, elevationOffset: 0 },
   ambient: { intensity: 1, rim: 0.35 },
   shadow: { type: 'vsm', radius: 6, blurSamples: 12, bias: 0, normalBias: 0.3, spriteOpacity: 0.4 },
-  material: { roughness: 0.94, metalness: 0, glowIntensity: 2.4, haloIntensity: 0.6, footShade: 0.1 },
+  material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1 },
   outline: { px: 1.4, darken: 0.42, inkMix: 0.3 },
   ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4 },
   tone: {
@@ -200,12 +209,12 @@ export const LOOK: Look = {
     splitStrength: 0.09,
   },
   post: {
-    bloomThreshold: 0.75,
-    bloomStrength: 0.1,
-    bloomDark: 0.45,
+    bloomThreshold: 0.8,
+    bloomStrength: 0.06,
+    bloomDark: 0.22,
     dofBand: 2.0,
     dofEase: 0.34,
-    dofMax: 0.6,
+    dofMax: 0.45,
     grain: 0.028,
     aberration: 1.6,
   },

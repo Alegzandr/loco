@@ -127,6 +127,8 @@ export function inkFor(c: Hex): Hex {
   return mix(scale(c, LOOK.outline.darken), INK, LOOK.outline.inkMix)
 }
 const SNOW = 0xf4f7fb
+/** The largest round halo the kit will draw, in tiles: a lamp head's, not a landmark's. */
+export const HALO_SPHERE_MAX = 0.8
 const WINDOW_DARK = 0x1a2233
 const WINDOW_GLOW = 0xffd98a
 
@@ -473,10 +475,18 @@ export class Kit {
   /**
    * A pool of light: an additive translucent disc, drawn flat on the ground or
    * as a sprite-ish sphere around a lamp head. Only when the lamps are on.
+   *
+   * **A sphere of light is a lamp head's, never a building's.** The radius
+   * of a round halo is clamped to `HALO_SPHERE_MAX`: an additive sphere six
+   * tiles across round a lighthouse, or a tile and a half round a hotel's
+   * finial, is a pale veil laid over the tower and the rocks under it, and
+   * what the eye reads is a building it can see through. The glow of a thing
+   * that big is the bloom's to draw, off the glowing block itself.
    */
   halo(x: number, y: number, z: number, r: number, color: Hex, alpha = 0.35, flat = true) {
     if (!this.rig.lampsOn) return
-    const g = flat ? new CylinderGeometry(r, r, 0.02, 16) : new SphereGeometry(r, 10, 8)
+    const rr = flat ? r : Math.min(r, HALO_SPHERE_MAX)
+    const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 10, 8)
     this.push(this.place(g, x, flat ? y + 0.03 : y, z), color, 'halo')
     this.haloAlphas.push(alpha)
   }

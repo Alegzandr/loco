@@ -1,19 +1,21 @@
 /**
  * Orbit: a base on an airless moon.
  *
- * Regolith and craters, a landing pad the table stands on, blocks of habitat
- * modules, domes and tanks joined by tubes, paths lit in cyan between them, a
- * rocket on its gantry at the top, solar fields, a rover that has been out too
- * long. The only colours are the ones the base brought with it: orange
- * stripes, cyan light, and the white of everything else. Dust and a solar
- * storm are its weathers; it does not rain here.
+ * Regolith and craters, a landing pad the table stands on, a few habitats —
+ * domes and modules joined by tubes — with open ground and craters between
+ * them, a rocket on its gantry to the right, a solar field or two, a rover
+ * that has been out too long. The only colours are the ones the base brought
+ * with it: orange stripes, cyan light, and the white of everything else.
+ * Dust and a solar storm are its weathers; it does not rain here. The moon is
+ * mostly moon: the emptiness round the base is the room's whole mood, and it
+ * was a solar farm to the frame's edge before it was left empty.
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, at, ring, along, FLOOR } from './common'
 import { mix, scale, cssHex } from '../sky'
 import type { Actor } from '../life'
-import { over, streetWalkers, strollers } from './actors'
+import { over, streetWalkers } from './actors'
 
 const HULL = 0xe6e9ee
 const STRIPE = 0xff8a3c
@@ -28,19 +30,20 @@ export const orbit: Builder = (k) => {
 
   k.floor(REGOLITH, FLOOR)
   podium(k, { stone: 0x3a3f4a, step: 0x6f737d, floor: 0x5f636d, floor2: 0x555960, accent: CYAN, top: cssHex(MAPS.orbit.table.felt) })
-  // The pad's yellow ring and its landing lights, on the plaza's rim.
-  for (let i = 0; i < 28; i++) {
-    const t = (i / 28) * Math.PI * 2
+  // The pad's landing lights, on the plaza's rim: sixteen, each a lit block
+  // and nothing more — a halo on every one was a ring of pale blobs.
+  for (let i = 0; i < 16; i++) {
+    const t = (i / 16) * Math.PI * 2
     const [x, z] = at(sx + Math.cos(t) * (a + 8.5), sy + Math.sin(t) * (b + 5))
     k.box(x, 0.1, z, 0.4, 0.24, 0.4, on ? CYAN : 0x3a4a55, { glow: on, outline: false, cap: false })
-    if (on) k.halo(x, 0.2, z, 1.0, CYAN, 0.3, false)
   }
 
+  // A dome is lit like everything else: a glowing sphere with a pool of light
+  // under it was a translucent blob, and the base looked made of soap bubbles.
   const dome = (x: number, z: number, r: number) => {
     k.cyl(x, 0, z, r + 0.4, 0.6, 0x9aa3b5, { seg: 16 })
-    k.sphere(x, 0.6, z, r, on ? mix(0xbfe3f0, 0xffe2a8, 0.35) : 0xbfe3f0, { seg: 12, glow: on })
+    k.sphere(x, 0.6, z, r, on ? mix(0xbfe3f0, 0xffe2a8, 0.25) : 0xbfe3f0, { seg: 12 })
     k.cyl(x, 0.55, z, r + 0.2, 0.12, on ? CYAN : 0x6f737d, { seg: 16, glow: on, outline: false, cap: false })
-    if (on) k.halo(x, 0, z, r * 1.6, 0xffe2a8, 0.16)
   }
   const tube = (x1: number, z1: number, x2: number, z2: number) => {
     const len = Math.hypot(x2 - x1, z2 - z1)
@@ -57,10 +60,17 @@ export const orbit: Builder = (k) => {
       const lit = on && rng.chance(0.8)
       k.box(x + t * Math.cos(rot), 1.3, z - t * Math.sin(rot) + (d / 2 + 0.03), 0.9, 0.6, 0.06, lit ? 0xffe2a8 : 0x1a2233, { rot, glow: lit, outline: false, cap: false })
     }
-    if (rng.chance(0.5)) {
+    if (rng.chance(0.2)) {
       k.cyl(x, 2.9, z, 0.15, 1.2, 0x9aa3b5, { seg: 5, cap: false })
       k.sphere(x, 4.2, z, 0.18, 0xff3b3b, { glow: true, seg: 5, outline: false })
     }
+  }
+  /** A crater and the rocks around it: what an unbuilt block of moon is. */
+  const crater = (c: { x: number; z: number }) => {
+    const cr = rng.range(2, 4)
+    k.disc(c.x, 0, c.z, cr, k.ground(scale(REGOLITH, 0.78)), { seg: 18 })
+    ring(k, Math.round(cr * 3), cr, (rx, rz) => k.rock(c.x + rx, c.z + rz, rng.range(0.2, 0.55), k.ground(mix(REGOLITH, 0xffffff, 0.12))), 0.15)
+    for (let i = 0; i < 3; i++) k.rock(c.x + rng.range(-5, 5), c.z + rng.range(-5, 5), rng.range(0.3, 1), k.ground(scale(REGOLITH, rng.range(0.8, 1.1))))
   }
   const tank = (x: number, z: number) => {
     k.cyl(x, 0, z, 1.1, 3.2, HULL, { seg: 10 })
@@ -84,11 +94,18 @@ export const orbit: Builder = (k) => {
     roadColor: 0x6f737d,
     dashes: false,
     lamp: { h: 2.2, style: 'box', color: CYAN, post: 0x9aa3b5 },
-    people: 0.6,
+    people: 0.15,
     maxHeight: 5,
+    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.45 : 0.65),
+    open: (c) => {
+      if (near(c, rocketSpot, 9)) return
+      if (rng.chance(0.6)) crater(c)
+    },
     fill: (c) => {
       if (near(c, rocketSpot, 9)) return
-      const kind = c.front ? 0.7 : rng.next()
+      // In front of the table, a crater: a solar field there was a floor of
+      // blue tiles between the player and the felt.
+      const kind = c.front ? 0.9 : rng.next()
       if (kind < 0.4) {
         // A habitat: a dome and two modules, tubed together.
         const [d, m1, m2] = lots(c, 2, 2, 1.5)
@@ -106,15 +123,11 @@ export const orbit: Builder = (k) => {
         dome(ls[3].x, ls[3].z, 2.2)
         k.crate(ls[2].x, ls[2].z, 0.8, STRIPE)
         k.crate(ls[2].x + 1.2, ls[2].z + 0.6, 0.6, HULL)
-      } else if (kind < 0.85) {
-        // A solar field.
-        for (const l of lots(c, 3, 3, 0.8)) solar(l.x, l.z)
+      } else if (kind < 0.8) {
+        // A solar field: four panels, not nine.
+        for (const l of lots(c, 2, 2, 1.2)) solar(l.x, l.z)
       } else {
-        // A crater and the rocks around it.
-        const cr = rng.range(2, 4)
-        k.disc(c.x, 0, c.z, cr, k.ground(scale(REGOLITH, 0.78)), { seg: 18 })
-        ring(k, Math.round(cr * 3), cr, (rx, rz) => k.rock(c.x + rx, c.z + rz, rng.range(0.2, 0.55), k.ground(mix(REGOLITH, 0xffffff, 0.12))), 0.15)
-        for (let i = 0; i < 4; i++) k.rock(c.x + rng.range(-5, 5), c.z + rng.range(-5, 5), rng.range(0.3, 1), k.ground(scale(REGOLITH, rng.range(0.8, 1.1))))
+        crater(c)
       }
     },
   })
@@ -171,11 +184,11 @@ export const orbit: Builder = (k) => {
     k.cyl(ax, 4.5, az, 0.4, 0.6, HULL, { seg: 12, rTop: 3, cap: false })
     k.cyl(ax, 5.1, az, 0.08, 1.6, 0x9aa3b5, { seg: 5, cap: false, outline: false })
     k.sphere(ax, 6.7, az, 0.16, 0xff3b3b, { glow: true, seg: 5, outline: false })
-    for (let i = 0; i < 6; i++) k.crate(...at(sx + a + 5 + rng.range(-1.5, 1.5), sy - 4 + rng.range(-1.5, 1.5)), rng.range(0.5, 0.9), HULL)
+    for (let i = 0; i < 3; i++) k.crate(...at(sx + a + 5 + rng.range(-1.5, 1.5), sy - 4 + rng.range(-1.5, 1.5)), rng.range(0.5, 0.9), HULL)
     k.flag(...at(sx - a - 4, sy + b + 3), 0x4fd6ff, 4)
     k.flag(...at(sx + a + 4, sy - b - 3), 0xff3d68, 4)
   }
-  crowd(k, 12, suit)
+  crowd(k, 3, suit)
 
   // ─── What moves: the rover, a satellite, the beacon, the crew ──────────
   // No clouds and no birds: nothing lives in this sky but what the base put
@@ -215,7 +228,6 @@ export const orbit: Builder = (k) => {
       kk.halo(0, 0, 0, 0.7, 0xff3b3b, 0.5, false)
     },
   })
-  life.push(...strollers(k, 3, { look: suit, slow: 1.6 }))
-  life.push(...streetWalkers(k, plan, 2, { look: suit }))
+  life.push(...streetWalkers(k, plan, 1, { look: suit }))
   return life
 }

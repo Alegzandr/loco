@@ -1,19 +1,20 @@
 /**
  * Velvet: a square in a district of art-deco hotels.
  *
- * Cream stone stepped back tier on tier, gold trim, blocks of hotels and
- * shopfronts with awnings, a grand hotel with its marquee on the right of the
- * square, palms on every sidewalk, cars with running boards, doormen. The
- * chequer under the table is set on the diagonal, which is how a lobby floor
- * is laid. At dusk the whole thing goes amber; at noon it is white and the
- * shadows are hard.
+ * Cream stone stepped back tier on tier, gold trim, one hotel to a block
+ * with palm gardens between them, a grand hotel with its marquee on the
+ * right of the square, a fountain at the top, doormen. The chequer under the
+ * table is set on the diagonal, which is how a lobby floor is laid. At dusk
+ * the whole thing goes amber; at noon it is white and the shadows are hard.
+ * It was four hotels to a block and a palm on every corner, and read as a
+ * cliff of lit windows; the gardens are what make it a boulevard.
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, neonText, at, along, FLOOR } from './common'
 import { mix, cssHex } from '../sky'
 import type { Actor } from '../life'
-import { cloud, over, plane, puff, streetWalkers, strollers, traffic } from './actors'
+import { cloud, over, plane, puff, streetWalkers, traffic } from './actors'
 
 const GOLD = 0xe0b45a
 const CREAM = 0xf0e6d2
@@ -34,11 +35,11 @@ export const velvet: Builder = (k) => {
     const c = rng.pick(facades)
     k.tower(x, z, w, h, d, c, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8, door: false })
     k.tower(x, z, w * 0.62, Math.max(1.5, h * 0.3), d * 0.62, mix(c, 0xffffff, 0.3), { y: h, floorH: 1.5, trim: GOLD, roof: 'flat' })
-    if (rng.chance(0.4)) {
+    if (rng.chance(0.2)) {
       k.cyl(x, h * 1.3, z, 0.18, 2.6, GOLD, { seg: 6, cap: false })
       k.sphere(x, h * 1.3 + 2.8, z, 0.3, on ? 0xfff0c0 : GOLD, { glow: on, seg: 6 })
     }
-    if (rng.chance(0.45)) {
+    if (rng.chance(0.15)) {
       const c2 = rng.pick([0xff8fb8, 0x9fe8ff, 0xffd23c])
       k.box(x + w / 2 + 0.3, 1.5, z + d / 2 - 0.6, 0.5, h * 0.5, 0.25, 0x2a1a20)
       k.box(x + w / 2 + 0.58, 1.9, z + d / 2 - 0.6, 0.1, h * 0.45, 0.3, on ? c2 : mix(c2, 0x222222, 0.6), { glow: on, outline: false, cap: false })
@@ -62,6 +63,14 @@ export const velvet: Builder = (k) => {
   const fountainSpot = { sx: sx - 8, sy: sy + b + 7 }
   const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
 
+  /** An unbuilt block: a lawn with two or three palms and a bench. */
+  const garden = (x: number, z: number, w: number) => {
+    k.slab(x, z, w - 1, w - 1, k.ground(0x8fbf6a), { h: 0.05 })
+    const n = rng.int(2, 3)
+    for (let i = 0; i < n; i++) k.tree(x + rng.range(-w / 3, w / 3), z + rng.range(-w / 3, w / 3), { kind: 'palm', h: rng.range(2.2, 3) })
+    if (rng.chance(0.5)) k.bench(x + rng.range(-1, 1), z + w / 3, 0, 0x5a3a20)
+  }
+
   const plan = cityGrid(k, {
     block: 11,
     road: 3.6,
@@ -70,33 +79,32 @@ export const velvet: Builder = (k) => {
     dashes: true,
     crossings: true,
     cars: CARS,
-    carDensity: 0.5,
+    carDensity: 0.2,
     lamp: { h: 3.2, heads: 2, color: 0xfff0c0, post: 0x2a2a35 },
-    people: 2,
+    people: 0.3,
     maxHeight: 18,
+    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.5 : 0.8),
+    open: (c) => {
+      if (near(c, hotelSpot, 9)) return
+      garden(c.x, c.z, c.w)
+    },
     fill: (c) => {
       if (near(c, hotelSpot, 9)) return
       if (c.front) {
         for (const l of lots(c, 2, 2, 1)) {
           const r = rng.next()
-          if (r < 0.5) k.tree(l.x, l.z, { kind: 'palm', h: 2.4 })
-          else if (r < 0.75) {
+          if (r < 0.45) k.tree(l.x, l.z, { kind: 'palm', h: 2.4 })
+          else if (r < 0.65) {
             k.box(l.x, 0, l.z, 1.1, 0.8, 1.1, 0x7a2b3a)
             k.bush(l.x, l.z, 0.5, 0x3f8f52)
-          } else k.bench(l.x, l.z, rng.pick([0, Math.PI / 2]), 0x5a3a20)
+          }
         }
         return
       }
-      const split = rng.chance(0.4) ? 1 : 2
-      for (const l of lots(c, split, split, 1.2)) {
-        if (split === 2 && rng.chance(0.2)) {
-          k.tree(l.x, l.z, { kind: 'palm', h: 2.6 })
-          k.bench(l.x + 1.5, l.z + 1.5, 0.4, 0x5a3a20)
-          continue
-        }
-        hotel(l.x, l.z, l.w - rng.range(0, 1), l.d - rng.range(0, 1), c.dist < 40 ? rng.range(4, 9) : rng.range(6, 18))
-      }
-      k.tree(c.x - c.w / 2 - 0.9, c.z - c.d / 2 - 0.9, { kind: 'palm', h: rng.range(2.2, 3) })
+      // One hotel to a block: low beside the square, taller at the edge.
+      const [l] = lots(c, 1, 1, 0)
+      hotel(l.x, l.z, l.w - rng.range(1.5, 3), l.d - rng.range(1.5, 3), c.dist < 40 ? rng.range(4, 7) : rng.range(6, 14))
+      if (rng.chance(0.5)) k.tree(c.x - c.w / 2 - 0.9, c.z - c.d / 2 - 0.9, { kind: 'palm', h: rng.range(2.2, 3) })
     },
   })
 
@@ -162,33 +170,28 @@ export const velvet: Builder = (k) => {
     }
     if (on) k.halo(fx, 0.62, fz, 3, 0x6fc3ff, 0.25)
   }
-  for (let i = 0; i < 10; i++) {
-    const t = (i / 10) * Math.PI * 2
+  for (let i = 0; i < 6; i++) {
+    const t = (i / 6) * Math.PI * 2 + 0.3
     const [x, z] = at(sx + Math.cos(t) * (a + 8), sy + Math.sin(t) * (b + 5.5))
     const [cx, cz] = at(sx, sy)
     if (Math.abs(Math.cos(t)) > 0.9 && Math.cos(t) > 0) continue
     k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x5a3a20)
     if (i % 2) k.lamp(x + 1.4, z - 1.4, { h: 3.0, heads: 2, color: 0xfff0c0, post: 0x2a2a35 })
-    else {
-      k.box(x - 1.4, 0, z + 1.4, 1.0, 0.8, 1.0, 0x7a2b3a)
-      k.bush(x - 1.4, z + 1.4, 0.45, 0x3f8f52)
-    }
   }
-  along(...at(sx - a - 6, sy + b + 4), ...at(sx - a - 6, sy - b - 4), 4, (x, z) => k.tree(x, z, { kind: 'palm', h: 2.6 }))
-  crowd(k, 24)
+  along(...at(sx - a - 6, sy + b + 4), ...at(sx - a - 6, sy - b - 4), 3, (x, z) => k.tree(x, z, { kind: 'palm', h: 2.6 }))
+  crowd(k, 6)
 
   // ─── What moves: the fountain, traffic round the square, a plane ───────
   const life: Actor[] = []
   for (let i = 0; i < 3; i++) {
     life.push(puff(k, `spray-${i}`, { at: over(fx, fz, 4.4), rise: 1.4, duration: 1500 + i * 250, delay: i * 500, size: 0.6, color: 0xdff4ff }))
   }
-  life.push(...traffic(k, plan, CARS, 2))
+  life.push(...traffic(k, plan, CARS, 1))
   if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
     life.push(cloud(k, 'cloud-0', { sy: 18.5, size: 1.2, duration: 175_000 }))
     life.push(cloud(k, 'cloud-1', { sy: 15.5, size: 0.8, duration: 220_000, delay: 80_000, from: 50, to: -50 }))
     life.push(plane(k, 'plane', { sy: 16.5, every: 120_000 }))
   }
-  life.push(...strollers(k, 4))
-  life.push(...streetWalkers(k, plan, 3))
+  life.push(...streetWalkers(k, plan, 2))
   return life
 }

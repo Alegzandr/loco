@@ -1064,7 +1064,20 @@ stated at the top of `styles/tokens.css`:
     every landmark beside the table are measured against that. Cut by the **frame** is ordinary; cut
     by the table is a bug.
   - **Lights round a square are strung on a ring of posts, never four** (`maps/common.ts:
-    stringLights`), each run hung by its own length **on screen**.
+    stringLights`), each run hung by its own length **on screen**. No room ships them since the
+    quiet pass; the helper stays the only way for one that does.
+  - **The room is quiet, and the mood is contemplation** (visual.md, "The room is quiet"). **A room
+    has ground between its buildings, and more of it near the table**: every builder hands
+    `cityGrid` a `density` per block and an `open` fill for the blocks left unbuilt; **a `crowd` is
+    at most 8 and `people` at most 0.5 a block** (`sceneGrid.test.ts`). One hero a side, never a
+    second fairground. **Nothing drives on the plaza**: the grid solves the paving's rim itself
+    (`plazaRim`) and a street segment it covers gets no parked car, no lamp, no crossing and never a
+    run for `traffic`. **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half,
+    `sceneLighting.test.ts`). **A round halo is a lamp head's, never a building's**
+    (`HALO_SPHERE_MAX`, `kitHalo.test.ts`): an additive sphere over a tower is a building the
+    player can see through. **Nobody on foot turns round**: a person on the move is a `pass` along
+    a pavement with a `heading`; `strollers` and `pacers` are gone and stay gone — a mirrored
+    diagonal sprite walked sideways up the frame and backwards at every turn.
   - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
     Go, and its scenes.

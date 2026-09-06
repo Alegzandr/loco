@@ -993,10 +993,9 @@ otherwise take stays closed.
   either a `duration` or, for a thing on the ground, a `speed`. `turn` flips the sprite on a leg
   that heads left; `bob`, `spin` and `puff` animate an inner element; `fade` softens the ends of a
   run; `flying` builds it without a ground shadow. The common ones — `cloud`, `bird`, `balloon`,
-  `plane`, `puff`, `walker`, `strollers` on the promenade round the plaza, `streetWalkers` on the
-  pavements, `traffic` in the lanes, `pacers`, `boat`, `mote` after dark — are `maps/actors.ts`;
-  the harbour's ferris wheel (spokes spinning about the hub, twelve cabins riding a circle upright)
-  and the moon's rover and satellite are their builders' own.
+  `plane`, `puff`, `walker` and the `streetWalkers` it is built for, `traffic` in the lanes,
+  `boat`, `mote` after dark — are `maps/actors.ts`; the moon's rover and satellite and the
+  village's cat are their builders' own.
 - **A `loop` either walks its closing leg or fades over it, and there is no third option**
   (`closesTheRing`, `sceneLife.test.ts`). A loop wraps to its start, and a wrap the player can *see*
   is a person teleporting home and setting off again — which is what every walker whose route
@@ -1029,8 +1028,8 @@ otherwise take stays closed.
   one tile at either end (that is where it would walk into something the plan has claimed, or off
   the frame — and a pass that survives whole gets those fade *points* too, because fading the two
   endpoints of a two-point route is a crossing that is transparent from end to end), and a run
-  shorter than `minLen` (four tiles; ten for a stroller, twelve for a car) is dropped. A `part`
-  then takes a stretch of what survives, so three strollers handed the same arc are three walks.
+  shorter than `minLen` (four tiles; twelve for a car) is dropped. A `part` takes a stretch of
+  what survives, so three walkers handed the same arc would be three walks.
   **A `pick` group is how a builder asks for a few without having seen the frame**: `streetWalkers`
   hands in both pavements of every run both ways, `traffic` the right-hand lane of every run both
   ways, and the `keep` worth most survive — worth being the length *seen*, inside the frame, not
@@ -1088,8 +1087,17 @@ otherwise take stays closed.
   the first it does not, so a car drives it end to end and a walker crosses the side streets. A car
   is built facing the way its lane goes (`carRot`, `personRot` — a mirror of a sprite facing one
   diagonal faces the *other* diagonal, not the way back, which is why a street walker is a `pass`
-  one way rather than a bounce with `turn`). Facing is answered per heading, and the walkers on
-  the promenade keep `turn` because that arc runs across the screen.
+  one way rather than a bounce with `turn`). Facing is answered per heading.
+- **Nobody on foot turns round.** The promenade round the table used to carry three strollers
+  (`strollers`), and the harbour front four pacers (`pacers`): a `loop` on a ring, or a `bounce`
+  along a line, with `turn` mirroring the sprite on a leg heading left. A sprite faces one
+  diagonal, and its mirror faces the *other* diagonal — so on the ring's vertical legs a stroller
+  slid sideways, and at every turn of a bounce the figure set off back the way it came, which a
+  player reported as "people walking backwards". No threshold fixes a sprite that cannot face up
+  the screen. Both are gone: a person on the move is a `pass` along a pavement with a `heading`,
+  built facing the way it goes, and gone at the end of its run (`sceneGrid.test.ts` fails on a
+  `walker` handed a `bounce`, and on the two factories coming back). The cat and the rover keep
+  their bounce: an animal turning round is what an animal does, and the rover is a box.
 - **Two things were tried and taken out before any of this existed**: the harbour's ferris wheel
   turned for an afternoon as sprites (spokes spinning about the hub, twelve cabins riding a circle),
   and the cabins rode across the roofs of the terrace standing in front of the fair as pale cubes
@@ -1113,6 +1121,45 @@ otherwise take stays closed.
 - **A sprite is keyed on the actor's id within the room**, and its seed is the room's key plus that
   id, so the balloon's colours and the walker's hat are the same for every seat and after a reload.
 
+### The room is quiet (the pass of 2026-09-06)
+The rooms had been built to be *full* — "many small buildings, roads between them, something on
+every corner", above — and full was measured and found to be the wrong brief. Neon at night was a
+wall of lit windows with a neon edge on every other tower, a sign on every third, a beacon on every
+fourth, string lights round the square, a dance floor and twenty-two people at the table; Velvet a
+cliff of four hotels to a block; Sakura a carpet of dark roofs; Orbit a solar farm to the frame's
+edge; Marina a fairground in the band between the player and the felt. The verdict was that it was
+stressful, and that the mood the game wants at a card table is **contemplation**: a place a
+spectator can rest their eyes on for twenty minutes, whose big moments are the cards'. What
+changed, and the rules it left:
+- **A room has ground between its buildings, and more of it near the table** (`GridSpec.density`,
+  per block, with `open` for what an unbuilt block gets — a pocket park, a meadow, a palm garden, a
+  crater — and the far edge denser than the ring beside the plaza, so the skyline stays and the
+  band round the table opens). Every builder declares one; `sceneGrid.test.ts` fails on a room that
+  fills every block, on a `crowd` past eight, on `people` past a half a block. The crowds went from
+  22–26 to 3–6, the passers-by from 2 a block to a third, the cars parked from every other segment
+  to one in five, and every room lost its second and third hero (the dance floor, the carousel, the
+  market in the front band, two of four stalls, the string lights in both rooms that had them).
+- **Nothing drives on the plaza** (`plazaRim`, `cityGrid`'s `buried`). The paving is an oval the
+  grid used to know about only when the builder passed `podium()`'s answer in, and three builders
+  did not: their roads ran under the flagstones, their cars were parked on them and their traffic
+  lanes crossed the crowd. The grid solves the rim itself now, and a segment the paving covers (any
+  of its two ends or its middle) is laid and forgotten — no parked car, no lamp at its corner, no
+  crossing, and never a run handed to `traffic`.
+- **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half; night went from 85% lit to
+  45%, dusk from 70% to 35%). A wall of light was the whole of the neon room's noise, and a city
+  where most windows are dark is also the one where the lit ones read. `sceneLighting.test.ts`.
+- **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, 0.8 tiles,
+  `kitHalo.test.ts`). The lighthouse wore two additive spheres, three and six tiles across, the
+  hotel's finial one of a tile and a half, the wizard's tower one of 1.3, every dome on the moon a
+  pool of light under a glowing sphere, every neon edge a pool of light lying on its roof — and an
+  additive sphere over a tower is a pale veil laid over it, which is what "transparent buildings"
+  was. The kit clamps the sphere; the rooftop pools are gone; the bloom that draws a big light's
+  glow off the glowing block itself is turned down with them (`bloomStrength` 0.1 → 0.06,
+  `bloomDark` 0.45 → 0.22, `glowIntensity` 2.4 → 1.8, `haloIntensity` 0.6 → 0.45) and the
+  tilt-shift eased (`dofMax` 0.6 → 0.45), so a far tower is a soft tower and not a ghost.
+- **Nobody on foot turns round** — above, under what moves.
+- **The stills were re-shot** (`make rooms`), since the rooms page shows the render of the day.
+
 ### Props that were the same mistake in every room (`scene/kit.ts`)
 Five of them, and each was one line of geometry standing in for something with a shape:
 - **`awning`** — a canopy that starts *at* the wall and carries a valance. Every shopfront in the
@@ -1121,8 +1168,9 @@ Five of them, and each was one line of geometry standing in for something with a
 - **`festoon`** — the cord, and the lights on it. The square and the boulevard both placed their
   bulbs on a sine and drew nothing between them: a curved line of lanterns floating in the air with
   two posts standing some way off. **And a ring of posts, never four** (`stringLights`, in
-  `maps/common.ts`, the only way a room strings them now — `sceneGeometry.test.ts` fails on a builder
-  that festoons its own): four posts round an oval table is a rectangle laid over an ellipse, with
+  `maps/common.ts`, the only way a room strings them — `sceneGeometry.test.ts` fails on a builder
+  that festoons its own; no room ships one since the quiet pass below, and the helper stays for
+  one that wants them): four posts round an oval table is a rectangle laid over an ellipse, with
   corners nothing else in the room has and two runs going straight up the frame, and what it read as
   was a stray wireframe rather than bunting. Nine posts on the paving's own ring, and **each run hung
   by its own length on screen** — a run going up the frame is drawn shorter than one going across it,
