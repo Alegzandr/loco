@@ -68,7 +68,13 @@ for (const r of wanted) if (!rooms.includes(r)) throw new Error(`unknown room: $
 const dev = await startDevServer(PORT)
 try {
   await fs.mkdir(OUT_DIR, { recursive: true })
-  const browser = await chromium.launch({ executablePath: process.env.LOCO_CHROMIUM || undefined })
+  // The GPU when the machine has one: the full tier is a shadow map, an
+  // occlusion pass and a supersampled frame per room, which is minutes on
+  // SwiftShader and seconds on any card. The flags are harmless without one.
+  const browser = await chromium.launch({
+    executablePath: process.env.LOCO_CHROMIUM || undefined,
+    args: ['--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=d3d11'],
+  })
   const ctx = await browser.newContext({
     viewport: { width: W, height: H },
     deviceScaleFactor: 1,

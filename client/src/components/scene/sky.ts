@@ -13,7 +13,12 @@
  * (an overlay for what falls, a tint for what the light does, a flag for what
  * settles on a roof). `game/maps.go` lists which of the six each map allows,
  * and `maps.test.ts` pins this file's lists to that one.
+ *
+ * The numbers behind the four hours live in `look.ts` (`LOOK.hours`), beside every
+ * other visual number, so the dev panel can move a sun; this file is the
+ * arithmetic that turns them into one rig per hour and sky.
  */
+import { LOOK, type HourLook } from './look'
 
 export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const
 export type TimeOfDay = (typeof TIMES)[number]
@@ -59,55 +64,6 @@ export interface LightRig {
   dark: number
   /** The light's own colour as CSS, for the highlight the table catches. */
   tintCss: string
-}
-
-interface Base {
-  sky: { top: Hex; horizon: Hex }
-  sun: { color: Hex; intensity: number; elevation: number; azimuth: number }
-  ambient: { sky: Hex; ground: Hex; intensity: number }
-  lampsOn: boolean
-  windowsLit: number
-  dark: number
-}
-
-/**
- * The hour on its own. Azimuths are chosen so the shadows fall towards the
- * camera or across the plaza, never straight away from it: a shadow the viewer
- * cannot see is a light that reads as flat.
- */
-const HOURS: Record<TimeOfDay, Base> = {
-  dawn: {
-    sky: { top: 0x5a6ec0, horizon: 0xf7a97b },
-    sun: { color: 0xffb07a, intensity: 1.55, elevation: 16, azimuth: 120 },
-    ambient: { sky: 0x93a3de, ground: 0x6d5860, intensity: 0.95 },
-    lampsOn: true,
-    windowsLit: 0.3,
-    dark: 0.3,
-  },
-  day: {
-    sky: { top: 0x63b3ff, horizon: 0xd2ecff },
-    sun: { color: 0xfff5dc, intensity: 2.3, elevation: 56, azimuth: 60 },
-    ambient: { sky: 0xbfe1ff, ground: 0x8f927c, intensity: 0.85 },
-    lampsOn: false,
-    windowsLit: 0,
-    dark: 0,
-  },
-  dusk: {
-    sky: { top: 0x3b3d8f, horizon: 0xff9752 },
-    sun: { color: 0xff8b3d, intensity: 1.5, elevation: 11, azimuth: -110 },
-    ambient: { sky: 0x7c5fae, ground: 0x5d4048, intensity: 0.8 },
-    lampsOn: true,
-    windowsLit: 0.7,
-    dark: 0.45,
-  },
-  night: {
-    sky: { top: 0x060a26, horizon: 0x1b2a60 },
-    sun: { color: 0x9fb6ff, intensity: 0.55, elevation: 48, azimuth: -40 },
-    ambient: { sky: 0x2b3c80, ground: 0x0f1428, intensity: 0.55 },
-    lampsOn: true,
-    windowsLit: 0.85,
-    dark: 1,
-  },
 }
 
 // ─── Colour arithmetic, on plain numbers ────────────────────────────────────
@@ -158,15 +114,16 @@ export function hexCss(c: Hex): string {
  * moon, and both are wet.
  */
 export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
-  const h = HOURS[time]
+  const h: HourLook = LOOK.hours[time]
   let skyTop = h.sky.top
   let skyHorizon = h.sky.horizon
   let sunColor = h.sun.color
-  let sunIntensity = h.sun.intensity
+  // The hour's own numbers, through the look's two global knobs.
+  let sunIntensity = h.sun.intensity * LOOK.sun.intensity
   let shadow = 1
   let ambientSky = h.ambient.sky
   let ambientGround = h.ambient.ground
-  let ambientIntensity = h.ambient.intensity
+  let ambientIntensity = h.ambient.intensity * LOOK.ambient.intensity
   let lampsOn = h.lampsOn
   let windowsLit = h.windowsLit
   let dark = h.dark
@@ -252,7 +209,7 @@ export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
     time,
     weather,
     sky: { top: skyTop, horizon: skyHorizon },
-    sun: { ...h.sun, color: sunColor, intensity: sunIntensity, shadow },
+    sun: { ...h.sun, color: sunColor, intensity: sunIntensity, shadow, elevation: Math.max(6, Math.min(85, h.sun.elevation + LOOK.sun.elevationOffset)) },
     ambient: { sky: ambientSky, ground: ambientGround, intensity: ambientIntensity },
     fog,
     lampsOn,

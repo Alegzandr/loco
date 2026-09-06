@@ -1,41 +1,52 @@
 /**
  * The finishing passes over one rendered room.
  *
- * The room is drawn flat on purpose — three tones, an ink line, a hard shadow
- * — and what these passes add is the *camera* that photographed the drawing:
- * the light off a lamp spilling a little past its glass (bloom), the focus
- * held on the table's band and easing off towards the top and bottom of the
- * frame (a tilt-shift, which is how a diorama is photographed), the corners a
- * touch darker and a touch fringed (vignette, chromatic aberration), a fine
- * grain so a wall is a surface, and a last pass of edge anti-aliasing over
- * the supersampling. Every one is a full-screen shader over a texture the
- * scene was rendered into, and every one runs exactly once per match: the
- * result is copied out and the targets are released with the context.
+ * The room is lit in the scene — a sun, a sky, one shadow map — and what
+ * these passes add is the rest of the renderer a low-poly diorama is judged
+ * against: the occlusion in the creases the shadow map cannot see (SSAO from
+ * the frame's own depth), the light off a lamp spilling past its glass
+ * (bloom), a filmic tone curve over the linear frame, a grade that keeps the
+ * shade cool and the light warm, the focus held on the table's band and
+ * easing off towards the top and bottom of the frame (a tilt-shift, which is
+ * how a diorama is photographed), the corners a touch darker and a touch
+ * fringed, a fine grain, and a last pass of edge anti-aliasing over the
+ * supersampling. Every one is a full-screen shader over a texture the scene
+ * was rendered into, every number in them is the look's (`look.ts`), and
+ * every one runs exactly once per match: the result is copied out and the
+ * targets are released with the context.
  *
  * The pipeline, at the supersampled size unless said otherwise:
  *
- *   scene ──▶ sceneRT (half-float, so a night's darks do not band)
- *     ├─▶ bright pass ¼ ──▶ blur H ──▶ blur V ──▶ blur H ──▶ blur V ──▶ bloomRT
- *     ├─▶ copy ½ ──▶ blur H ──▶ blur V ──▶ blurRT          (the out-of-focus copy)
- *     └─▶ composite (FXAA · focus · bloom · grade · vignette · fringe · grain) ──▶ canvas
+ *   scene ──▶ sceneRT (half-float linear, with a depth texture)
+ *     ├─▶ occlusion ½ (depth → normals → hemisphere samples) ──▶ blur H ──▶ blur V ──▶ aoRT
+ *     └─▶ lit = scene × occlusion ──▶ litRT
+ *           ├─▶ bright pass ¼ ──▶ blur ×2 ──▶ bloomRT
+ *           ├─▶ copy ½ ──▶ blur ──▶ blurRT                     (the out-of-focus copy)
+ *           └─▶ composite (FXAA · fringe · focus · bloom · tone · grade · vignette · grain) ──▶ canvas
  *
  * Colour: the scene renders into the target in linear light, the passes work
- * in linear, and the composite ends on `colorspace_fragment`, which is the
- * same sRGB encoding the plain path gets from `outputColorSpace` — so a room
- * with every pass off comes out the colour it came out before there were
- * passes. Everything a pass may throw is left to the caller: a GPU that
- * refuses a half-float target gets the plain render, never no room.
+ * in linear, the tone curve is applied in the composite exactly as the plain
+ * path applies it (`renderer.toneMapping`, same functions from three's own
+ * chunk), and the composite ends on `colorspace_fragment`, the same sRGB
+ * encoding `outputColorSpace` gives the direct render — so a room with every
+ * pass off comes out the colour the plain frame does. Everything a pass may
+ * throw is left to the caller: a GPU that refuses a target gets the plain
+ * render, never no room.
  */
 import {
+  DepthTexture,
+  FloatType,
   HalfFloatType,
   LinearFilter,
   Mesh,
+  NearestFilter,
   OrthographicCamera,
   PlaneGeometry,
   Scene,
   ShaderMaterial,
   UnsignedByteType,
   Vector2,
+  Vector3,
   WebGLRenderer,
   WebGLRenderTarget,
   type Camera,
@@ -43,6 +54,8 @@ import {
 } from 'three'
 import type { LightRig } from './sky'
 import type { PostOptions } from './quality'
+import { DEBUG_VIEWS, LOOK, type ToneMapping } from './look'
+import { channels, lightingFor } from './shade'
 
 /** The felt's ellipse in the render's own pixels: where the focus is held. */
 export interface FocusBand {
@@ -68,15 +81,147 @@ const COPY_FRAG = /* glsl */ `
   }
 `
 
+/**
+ * Ambient occlusion from the depth of an orthographic frame.
+ *
+ * Under an orthographic camera the depth buffer is linear in view depth and
+ * a pixel's view-space x/y are its uv across the camera's frame, so a
+ * position is reconstructed exactly and a sample point projects back to a
+ * uv with a divide by nothing. The normal is taken from the depth's own
+ * differences, the smaller of each pair so an edge does not smear it. Two
+ * radii: a wide one for the foot of a wall and the well of a courtyard, a
+ * tight one for the crease between two blocks. The per-pixel rotation is a
+ * hash, and the blur that follows takes the noise out.
+ */
+const AO_FRAG = /* glsl */ `
+  uniform sampler2D tDepth;
+  uniform vec2 uRes;
+  uniform vec4 uFrame;   // left, right, bottom, top
+  uniform vec2 uRange;   // near, far
+  uniform float uRadius;
+  uniform float uRadiusSmall;
+  uniform float uPower;
+  uniform float uSeed;
+  varying vec2 vUv;
+
+  float viewZ(vec2 uv) {
+    float d = texture2D(tDepth, uv).x;
+    return -(uRange.x + d * (uRange.y - uRange.x));
+  }
+  vec3 viewPos(vec2 uv) {
+    return vec3(uFrame.x + uv.x * (uFrame.y - uFrame.x), uFrame.z + uv.y * (uFrame.w - uFrame.z), viewZ(uv));
+  }
+  vec2 uvOf(vec3 p) {
+    return vec2((p.x - uFrame.x) / (uFrame.y - uFrame.x), (p.y - uFrame.z) / (uFrame.w - uFrame.z));
+  }
+  // Interleaved gradient noise: no diagonal streaks, unlike the sine hash.
+  float hash(vec2 p) {
+    p += uSeed;
+    return fract(52.9829189 * fract(0.06711056 * p.x + 0.00583715 * p.y));
+  }
+
+  void main() {
+    vec2 px = 1.0 / uRes;
+    vec3 P = viewPos(vUv);
+    // The normal: the smaller difference on each axis, so a pixel on an edge
+    // takes the surface it is on and not the one behind it.
+    vec3 dxA = viewPos(vUv + vec2(px.x, 0.0)) - P;
+    vec3 dxB = P - viewPos(vUv - vec2(px.x, 0.0));
+    vec3 dyA = viewPos(vUv + vec2(0.0, px.y)) - P;
+    vec3 dyB = P - viewPos(vUv - vec2(0.0, px.y));
+    vec3 dx = abs(dxA.z) < abs(dxB.z) ? dxA : dxB;
+    vec3 dy = abs(dyA.z) < abs(dyB.z) ? dyA : dyB;
+    vec3 N = normalize(cross(dx, dy));
+
+    // A tangent frame around N, rotated per pixel.
+    float a = hash(gl_FragCoord.xy) * 6.2831853;
+    vec3 rnd = vec3(cos(a), sin(a), hash(gl_FragCoord.yx + 3.7));
+    vec3 T = normalize(rnd - N * dot(rnd, N));
+    vec3 B = cross(N, T);
+
+    float occ = 0.0;
+    float total = 0.0;
+    for (int i = 0; i < AO_SAMPLES; i++) {
+      float fi = float(i);
+      // A uniform hemisphere, spread over the sequence: the grazing directions
+      // are the ones that find a wall beside a paving stone, and a cosine
+      // weighting spends most of its samples looking up at nothing.
+      float u = (fi + 0.5) / float(AO_SAMPLES);
+      float v = fract(u * 7.0 + hash(gl_FragCoord.xy + fi));
+      float phi = v * 6.2831853;
+      float ct = mix(0.08, 1.0, u);
+      float st = sqrt(1.0 - ct * ct);
+      vec3 dir = T * (cos(phi) * st) + B * (sin(phi) * st) + N * ct;
+      // The distance along it, on its own sequence: nearer more often.
+      float q = fract(u * 3.0 + hash(gl_FragCoord.yx + fi * 1.7));
+      float scale = mix(0.15, 1.0, q);
+      for (int r = 0; r < 2; r++) {
+        float radius = r == 0 ? uRadius : uRadiusSmall;
+        vec3 S = P + dir * radius * scale;
+        vec2 suv = uvOf(S);
+        if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) { total += 1.0; continue; }
+        float sceneZ = viewZ(suv);
+        // Occluded when the surface there is nearer the camera than the sample
+        // point by more than a hair — and by less than the radius or so: a
+        // tree top four tiles over a paving stone is not a crease, and
+        // counting it draws a dark halo round every silhouette.
+        float dz = sceneZ - S.z;
+        occ += dz > 0.02 ? 1.0 - smoothstep(radius * 0.7, radius * 1.6, dz) : 0.0;
+        total += 1.0;
+      }
+    }
+    float ao = 1.0 - occ / max(1.0, total);
+    ao = pow(clamp(ao, 0.0, 1.0), uPower);
+    gl_FragColor = vec4(vec3(ao), 1.0);
+  }
+`
+
+/** A depth-aware box blur of the occlusion, one direction; run twice. */
+const AO_BLUR_FRAG = /* glsl */ `
+  uniform sampler2D tAo;
+  uniform sampler2D tDepth;
+  uniform vec2 uDir;
+  uniform float uDepthScale;
+  varying vec2 vUv;
+  void main() {
+    float d0 = texture2D(tDepth, vUv).x;
+    float sum = 0.0;
+    float wsum = 0.0;
+    for (int i = -AO_BLUR; i <= AO_BLUR; i++) {
+      vec2 uv = vUv + uDir * float(i);
+      float d = texture2D(tDepth, uv).x;
+      float w = exp(-abs(d - d0) * uDepthScale);
+      sum += texture2D(tAo, uv).x * w;
+      wsum += w;
+    }
+    gl_FragColor = vec4(vec3(sum / max(1e-4, wsum)), 1.0);
+  }
+`
+
+/** The scene with its occlusion multiplied in. */
+const LIT_FRAG = /* glsl */ `
+  uniform sampler2D tScene;
+  uniform sampler2D tAo;
+  uniform float uIntensity;
+  varying vec2 vUv;
+  void main() {
+    vec4 c = texture2D(tScene, vUv);
+    float ao = texture2D(tAo, vUv).x;
+    c.rgb *= mix(1.0, ao, uIntensity);
+    gl_FragColor = c;
+  }
+`
+
 /** What is bright enough to bleed: the lamps, the neon, the lit windows, a low sun on glass. */
 const BRIGHT_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform float uThreshold;
+  uniform float uExposure;
   varying vec2 vUv;
   void main() {
-    vec3 c = texture2D(tDiffuse, vUv).rgb;
+    vec3 c = texture2D(tDiffuse, vUv).rgb * uExposure;
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    float k = smoothstep(uThreshold, uThreshold + 0.4, l);
+    float k = smoothstep(uThreshold, uThreshold + 0.5, l);
     gl_FragColor = vec4(c * k, 1.0);
   }
 `
@@ -104,9 +249,18 @@ const BLUR_FRAG = /* glsl */ `
 /**
  * The composite. FXAA is the compact form of 3.11 — five taps to find the
  * edge's direction, four along it — which on a frame already supersampled is
- * the last quarter-pixel of stair a diagonal ink line still shows.
+ * the last quarter-pixel of stair a diagonal ink line still shows. The tone
+ * curve is three's own (`tonemapping_pars_fragment`), picked by `uTone`
+ * (`TONE_INDEX`), so the plain path and this one agree.
  */
 const COMPOSITE_FRAG = /* glsl */ `
+  // Rendering to the canvas, three prefixes its own tone-mapping functions
+  // (and defines TONE_MAPPING) whenever the renderer's curve is on; the
+  // include is for the one case it is not.
+  #ifndef TONE_MAPPING
+  #include <tonemapping_pars_fragment>
+  #endif
+  uniform float uExposure;
   uniform sampler2D tScene;
   uniform sampler2D tBlur;
   uniform sampler2D tBloom;
@@ -121,6 +275,15 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform float uGrain;
   uniform float uAberration;
   uniform float uSeed;
+  uniform int uTone;
+  uniform float uContrast;
+  uniform float uSaturation;
+  uniform vec3 uShadowTint;
+  uniform vec3 uHighlightTint;
+  uniform float uSplit;
+  uniform int uDebug;
+  uniform sampler2D tAo;
+  uniform sampler2D tDepth;
   varying vec2 vUv;
 
   #define FXAA_REDUCE_MIN (1.0 / 128.0)
@@ -158,11 +321,20 @@ const COMPOSITE_FRAG = /* glsl */ `
     return fract(sin(dot(p, vec2(12.9898, 78.233)) + uSeed) * 43758.5453);
   }
 
+  vec3 tone(vec3 c) {
+    if (uTone == 1) return ACESFilmicToneMapping(c);
+    if (uTone == 2) return AgXToneMapping(c);
+    if (uTone == 3) return NeutralToneMapping(c);
+    return saturate(c * uExposure);
+  }
+
   void main() {
     vec2 px = 1.0 / uRes;
     vec2 uv = vUv;
     vec2 fromC = uv - 0.5;
     float r2 = dot(fromC, fromC);
+    if (uDebug == 1) { gl_FragColor = vec4(vec3(texture2D(tAo, uv).x), 1.0); return; }
+    if (uDebug == 3) { float d = texture2D(tDepth, uv).x; gl_FragColor = vec4(vec3(fract(d * 40.0)), 1.0); return; }
 
     vec3 sharp = uFxaa > 0.5 ? fxaa(tScene, uv, px) : texture2D(tScene, uv).rgb;
 
@@ -183,12 +355,18 @@ const COMPOSITE_FRAG = /* glsl */ `
 
     col += texture2D(tBloom, uv).rgb * uBloom;
 
-    // The grade: a touch more saturation, a touch more contrast about
-    // mid-grey, in linear light. Small, because the tones were chosen by
-    // hand and this is a photograph of them, not a repaint.
+    // The tone curve, with the exposure, in linear light: the same function
+    // the plain path applies through the renderer.
+    col = tone(col);
+    if (uDebug == 2) { gl_FragColor = vec4(col, 1.0); return; }
+
+    // The grade, on the display range: the shade pulled towards a cool note,
+    // the light towards a warm one, a touch of saturation and of contrast
+    // about mid-grey.
     float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col = mix(vec3(l), col, 1.08);
-    col = max((col - 0.18) * 1.05 + 0.18, 0.0);
+    col += ((uShadowTint - 0.5) * (1.0 - l) + (uHighlightTint - 0.5) * l) * uSplit;
+    col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, uSaturation);
+    col = max((col - 0.18) * uContrast + 0.18, 0.0);
 
     // The vignette, elliptical with the frame.
     float v = smoothstep(0.42, 1.15, length(fromC * vec2(1.0, 1.15)) * 1.41);
@@ -201,26 +379,35 @@ const COMPOSITE_FRAG = /* glsl */ `
   }
 `
 
+/** `uTone` in the composite: 0 is exposure alone, the rest are three's curves. */
+const TONE_INDEX: Record<ToneMapping, number> = { none: 0, aces: 1, agx: 2, neutral: 3 }
+
 function quadCamera(): Camera {
   return new OrthographicCamera(-1, 1, 1, -1, 0, 1)
 }
 
-function target(w: number, h: number, o: { half?: boolean; depth?: boolean; samples?: number } = {}): WebGLRenderTarget {
+function target(w: number, h: number, o: { half?: boolean; depth?: boolean; depthTexture?: DepthTexture; nearest?: boolean } = {}): WebGLRenderTarget {
   return new WebGLRenderTarget(Math.max(1, w), Math.max(1, h), {
     type: o.half ? HalfFloatType : UnsignedByteType,
-    minFilter: LinearFilter,
-    magFilter: LinearFilter,
+    minFilter: o.nearest ? NearestFilter : LinearFilter,
+    magFilter: o.nearest ? NearestFilter : LinearFilter,
     depthBuffer: !!o.depth,
-    stencilBuffer: !!o.depth,
-    samples: o.samples ?? 0,
+    stencilBuffer: false,
     generateMipmaps: false,
+    ...(o.depthTexture ? { depthTexture: o.depthTexture } : {}),
   })
+}
+
+function rgb(hex: number): Vector3 {
+  const [r, g, b] = channels(hex)
+  return new Vector3(r, g, b)
 }
 
 /**
  * Renders `scene` through the passes `opts` asks for and leaves the result
  * on the renderer's canvas, at its current size. `focus` is in the canvas's
- * own pixels, y down.
+ * own pixels, y down. The camera has to be orthographic: the occlusion pass
+ * reconstructs positions from its frame.
  *
  * Throws on a GPU that cannot hold a target this size; the caller falls back
  * to the plain render.
@@ -228,7 +415,7 @@ function target(w: number, h: number, o: { half?: boolean; depth?: boolean; samp
 export function renderWithPost(
   renderer: WebGLRenderer,
   scene: Scene,
-  camera: Camera,
+  camera: OrthographicCamera,
   width: number,
   height: number,
   rig: LightRig,
@@ -248,8 +435,8 @@ export function renderWithPost(
     targets.push(t)
     return t
   }
-  const shader = (frag: string, uniforms: Record<string, { value: unknown }>): ShaderMaterial => {
-    const m = new ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: frag, uniforms, depthTest: false, depthWrite: false })
+  const shader = (frag: string, uniforms: Record<string, { value: unknown }>, defines: Record<string, number> = {}): ShaderMaterial => {
+    const m = new ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: frag, uniforms, defines, depthTest: false, depthWrite: false })
     materials.push(m)
     return m
   }
@@ -258,18 +445,21 @@ export function renderWithPost(
     renderer.setRenderTarget(into)
     renderer.render(quadScene, cam)
   }
+  const exposure = lightingFor(rig).exposure
 
   try {
     // ─── The scene, into a texture ─────────────────────────────────────────
     // Half-float first: eight bits of linear light band in the darks of a
-    // night room. A GPU that will not render to it gets bytes.
-    let sceneRT = keep(target(width, height, { half: true, depth: true }))
+    // night room. A GPU that will not render to it gets bytes. The depth
+    // rides along as a texture for the occlusion pass.
+    const depthTexture = new DepthTexture(width, height, FloatType)
+    let sceneRT = keep(target(width, height, { half: true, depth: true, depthTexture }))
     renderer.setRenderTarget(sceneRT)
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
       renderer.setRenderTarget(null)
       sceneRT.dispose()
       targets.pop()
-      sceneRT = keep(target(width, height, { half: false, depth: true }))
+      sceneRT = keep(target(width, height, { half: false, depth: true, depthTexture }))
       renderer.setRenderTarget(sceneRT)
     }
     renderer.render(scene, camera)
@@ -282,13 +472,62 @@ export function renderWithPost(
       pass(blur, into)
     }
 
+    // ─── The occlusion, at a half ──────────────────────────────────────────
+    const aw = Math.ceil(width / 2)
+    const ah = Math.ceil(height / 2)
+    const aoA = keep(target(aw, ah, { half: false }))
+    if (opts.ao && LOOK.ao.intensity > 0) {
+      const aoB = keep(target(aw, ah, { half: false }))
+      const ao = shader(
+        AO_FRAG,
+        {
+          tDepth: { value: depthTexture },
+          uRes: { value: new Vector2(aw, ah) },
+          uFrame: { value: [camera.left, camera.right, camera.bottom, camera.top] },
+          uRange: { value: new Vector2(camera.near, camera.far) },
+          uRadius: { value: LOOK.ao.radius },
+          uRadiusSmall: { value: LOOK.ao.radiusSmall },
+          uPower: { value: LOOK.ao.power },
+          uSeed: { value: seed },
+        },
+        { AO_SAMPLES: Math.max(4, Math.round(LOOK.ao.samples)) },
+      )
+      pass(ao, aoA)
+      const aoBlur = shader(
+        AO_BLUR_FRAG,
+        {
+          tAo: { value: null },
+          tDepth: { value: depthTexture },
+          uDir: { value: new Vector2() },
+          // A difference of a tile of depth halves the weight.
+          uDepthScale: { value: (camera.far - camera.near) * 0.7 },
+        },
+        { AO_BLUR: Math.max(1, Math.round(LOOK.ao.blur)) },
+      )
+      aoBlur.uniforms.tAo.value = aoA.texture
+      aoBlur.uniforms.uDir.value.set(1 / aw, 0)
+      pass(aoBlur, aoB)
+      aoBlur.uniforms.tAo.value = aoB.texture
+      aoBlur.uniforms.uDir.value.set(0, 1 / ah)
+      pass(aoBlur, aoA)
+    } else {
+      renderer.setRenderTarget(aoA)
+      renderer.setClearColor(0xffffff, 1)
+      renderer.clear()
+    }
+
+    // ─── The lit frame: scene × occlusion ──────────────────────────────────
+    const litRT = keep(target(width, height, { half: sceneRT.texture.type === HalfFloatType }))
+    const lit = shader(LIT_FRAG, { tScene: { value: sceneRT.texture }, tAo: { value: aoA.texture }, uIntensity: { value: opts.ao ? LOOK.ao.intensity : 0 } })
+    pass(lit, litRT)
+
     // ─── Bloom, at a quarter ───────────────────────────────────────────────
     const bw = Math.ceil(width / 4)
     const bh = Math.ceil(height / 4)
     const bloomA = keep(target(bw, bh, { half: true }))
     const bloomB = keep(target(bw, bh, { half: true }))
     if (opts.bloom) {
-      const bright = shader(BRIGHT_FRAG, { tDiffuse: { value: sceneRT.texture }, uThreshold: { value: 0.55 } })
+      const bright = shader(BRIGHT_FRAG, { tDiffuse: { value: litRT.texture }, uThreshold: { value: LOOK.post.bloomThreshold }, uExposure: { value: exposure } })
       pass(bright, bloomA)
       for (let i = 0; i < 2; i++) {
         blurPass(bloomA.texture, bloomB, 1 / bw, 0)
@@ -306,7 +545,7 @@ export function renderWithPost(
     const blurA = keep(target(hw, hh, { half: true }))
     if (opts.dof) {
       const blurB = keep(target(hw, hh, { half: true }))
-      copy.uniforms.tDiffuse.value = sceneRT.texture
+      copy.uniforms.tDiffuse.value = litRT.texture
       pass(copy, blurA)
       blurPass(blurA.texture, blurB, 1.4 / hw, 0)
       blurPass(blurB.texture, blurA, 0, 1.4 / hh)
@@ -316,24 +555,34 @@ export function renderWithPost(
     // A darker room blooms more: at noon the lamps are off and what is bright
     // is the sky and the snow, which must not glow; at midnight the lamps are
     // the light.
-    const bloomStrength = opts.bloom ? 0.12 + rig.dark * 0.5 : 0
+    const bloomStrength = opts.bloom ? LOOK.post.bloomStrength + rig.dark * LOOK.post.bloomDark : 0
     const focusY = 1 - focus.cy / height
-    const dofFrom = (focus.ry / height) * 1.6
+    const dofFrom = (focus.ry / height) * LOOK.post.dofBand
     const composite = shader(COMPOSITE_FRAG, {
-      tScene: { value: sceneRT.texture },
+      tScene: { value: litRT.texture },
       tBlur: { value: blurA.texture },
       tBloom: { value: bloomA.texture },
       uRes: { value: new Vector2(width, height) },
       uFxaa: { value: opts.fxaa ? 1 : 0 },
       uFocusY: { value: focusY },
       uDofFrom: { value: dofFrom },
-      uDofTo: { value: dofFrom + 0.34 },
-      uDofMax: { value: opts.dof ? 0.85 : 0 },
+      uDofTo: { value: dofFrom + LOOK.post.dofEase },
+      uDofMax: { value: opts.dof ? LOOK.post.dofMax : 0 },
       uBloom: { value: bloomStrength },
       uVignette: { value: opts.vignette },
-      uGrain: { value: opts.grain ? 0.028 : 0 },
-      uAberration: { value: opts.aberration ? 1.6 : 0 },
+      uGrain: { value: opts.grain ? LOOK.post.grain : 0 },
+      uAberration: { value: opts.aberration ? LOOK.post.aberration : 0 },
       uSeed: { value: seed },
+      uTone: { value: TONE_INDEX[LOOK.tone.mapping] },
+      uExposure: { value: exposure },
+      uContrast: { value: LOOK.tone.contrast },
+      uSaturation: { value: LOOK.tone.saturation },
+      uShadowTint: { value: rgb(LOOK.tone.shadowTint) },
+      uHighlightTint: { value: rgb(LOOK.tone.highlightTint) },
+      uSplit: { value: LOOK.tone.splitStrength },
+      uDebug: { value: import.meta.env.DEV ? DEBUG_VIEWS.indexOf(LOOK.debug) : 0 },
+      tAo: { value: aoA.texture },
+      tDepth: { value: depthTexture },
     })
     pass(composite, null)
   } finally {

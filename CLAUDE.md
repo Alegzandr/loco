@@ -142,9 +142,13 @@ needs jsdom and the `browser` resolve condition.
   `CardArt.svelte` + `cardArtSpace.ts` + `locoMark.ts` the face; `CardGlyph.svelte` + `cardGlyphs.ts`
   the drawn rule glyphs; `SuitMark.svelte`; `maps.ts` (the registry: materials, accent, allowed
   skies, `resolveScene`); `cardTheme.ts`
-- `src/components/scene/` the room: `sky.ts` (the hours, the skies, the light rig, framework-free),
+- `src/components/scene/` the room: `look.ts` (**every visual number the render reads**: the hours,
+  the lights, the shadow, the materials, the outline, the occlusion, the tone, the passes —
+  framework-free and three-free), `sky.ts` (the hours into a rig, the skies, framework-free),
   `rng.ts`, `kit.ts` (the prop kit, the only file that turns a block into triangles), `shade.ts`
-  (the tones and the shadow polygons, pure), `placer.ts` (the ground plan, pure), `life.ts` +
+  (the light as numbers: the sun's direction, the sky, the shadow's run, pure), `lighting.ts` (the
+  rig into three.js lights and one shadow map fitted to the frame), `placer.ts` (the ground plan,
+  pure), `life.ts` +
   `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the allowlist of packed kits, `lib.ts`
   the GLB loader and baker, `bake.ts` the pure half), `maps/<id>.ts` one builder per room +
   `maps/common.ts` + `maps/actors.ts`, `render.ts` (one frame, then the context is released),
@@ -154,8 +158,8 @@ needs jsdom and the `browser` resolve condition.
 - `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
   the sounds and plays none of them
 - `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` +
-  `e2eBridge.svelte.ts` (the whole `window.__LOCO_E2E__` surface in one file), all behind
-  `import.meta.env.DEV`
+  `e2eBridge.svelte.ts` (the whole `window.__LOCO_E2E__` surface in one file) + `lookPanel.ts` (the
+  lil-gui panel over `scene/look.ts`, mounted by `?look=1`), all behind `import.meta.env.DEV`
 - `src/hooks/` splits in two, and the split is the point. **`.svelte.ts` is anything that owns
   reactive state or an effect** — a rune is only compiled in a `.svelte` or `.svelte.ts` file, so the
   extension is the declaration: `webSocket`, `gameStore` (the snapshot every component reads),
@@ -1001,15 +1005,30 @@ stated at the top of `styles/tokens.css`:
 - **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
   `maps.ts`): a diorama of coloured blocks rendered in the browser from the three ids the server
   deals; the table is CSS on `tableRect()` from the room's own materials.
-  - **The room is drawn, not lit** (`scene/shade.ts`): no light object, no shadow map — tone
-    multiplied into vertex colour, one hard shadow polygon per block through the stencil. **In the
-    room the outline is a darker note of the block's own colour** (`inkFor`), never `INK` — the one
-    place the ink rule bends. The frame is supersampled and scaled down.
-  - **And then it is photographed** (`scene/post.ts`, once, before the copy): FXAA, bloom, tilt-shift,
-    vignette, colour fringe, grain — half-float target in linear light, composite ending on
-    `colorspace_fragment`, so a room with every pass off is the colour it always was. A GPU that
-    refuses a target gets the plain frame, **never no room** (`sceneQuality.test.ts`). **The tier is
-    the player's** (`hooks/graphicsPref.ts`) and **is part of the cache key**.
+  - **The room is lit, and it is lit once** (`scene/lighting.ts`, `scene/shade.ts`): a warm sun
+    low over the diorama, a cool sky in the shade, a dim rim from behind, **one VSM shadow map
+    fitted to exactly what the frame shows** (`fitShadow(frameBox(…))`), a rough matte
+    `MeshStandardMaterial` with the colour in the vertices. Nothing about the light is baked into
+    a colour any more; the one thing still written into a vertex is the foot of a wall darkening
+    (`LOOK.material.footShade`). **A sun that lights neither face the camera sees is a silhouette,
+    and a shadow that runs straight up the frame is no light** — `sceneLighting.test.ts` pins
+    both, per hour. **In the room the outline is a darker note of the block's own colour**
+    (`inkFor`), never `INK` — the one place the ink rule bends. The frame is supersampled and
+    scaled down.
+  - **Every visual number is in `scene/look.ts` and nowhere else** — the hours, the lights, the
+    shadow, the materials, the outline, the occlusion, the tone curve, the passes. The dev panel
+    (`?look=1`, lil-gui, `src/dev/lookPanel.ts`) edits it live and `bumpLook()` renders the room
+    again: **`lookVersion()` is part of the cache key**. A constant written at a call site in the
+    render is the bug. `LOOK.debug` ships `off`.
+  - **And then it is photographed** (`scene/post.ts`, once, before the copy): the occlusion from
+    the frame's own depth (SSAO on the orthographic frame, two radii, multiplied in **before** the
+    bloom and the focus copies), FXAA, bloom, the tone curve (**the same function the plain path
+    gets from `renderer.toneMapping`, applied once, in the composite, after the bloom and before
+    the grade**), a warm/cool split-tone grade, tilt-shift, vignette, colour fringe, grain —
+    half-float target in linear light with a float depth texture, composite ending on
+    `colorspace_fragment`. A GPU that refuses a target gets the plain frame, **never no room**
+    (`sceneQuality.test.ts`). **The tier is the player's** (`hooks/graphicsPref.ts`), it says how
+    large the shadow map is and which passes run, and **is part of the cache key**.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**
@@ -1019,7 +1038,7 @@ stated at the top of `styles/tokens.css`:
     by the length *seen*, and a survivor under its `minLen` is dropped. **Things on the ground move
     at a speed** (`WALK_SPEED`, `DRIVE_SPEED`), never for a duration. **People walk the pavements and
     cars drive the lanes** of `cityGrid`'s `StreetPlan`. Reduced motion holds the first frame.
-    `sceneShade.test.ts`, `sceneLife.test.ts`.
+    `sceneLighting.test.ts`, `sceneLife.test.ts`.
   - **A `loop` either walks its closing leg or fades over it, and there is no third option**
     (`life.ts: closesTheRing`): a visible wrap is somebody teleporting home.
   - **The props are drawn models, and the kit is the only importer** (`scene/models/`, CC0 kits
@@ -1049,9 +1068,10 @@ stated at the top of `styles/tokens.css`:
   - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
     Go, and its scenes.
-- **The three tones are the whole of the lighting, so the step between them is not a taste setting**
-  (`scene/shade.ts`, 1 / 0.74 / 0.47, pinned by `sceneShade.test.ts`). The cast shadow is a **shape**,
-  not a tint, for the same reason.
+- **The warm/cool split is the whole of the mood, so it is not a taste setting**: at every daylight
+  hour the sun is warmer than the sky light and the sky light is cool (`sceneLighting.test.ts`).
+  A sprite still carries its shadow on its own bitmap, on a catcher of its own, sized by
+  `shadowHull` — the one polygon left.
 - **The weather is drawn tiles, and every sheet travels exactly one tile per cycle**
   (`scene/weatherTiles.ts`, `sceneWeather.test.ts`). `tiled()` writes the tile as the background
   **and** as `--tile-w` / `--tile-h`, and the keyframes travel by those, never by a literal. **The
