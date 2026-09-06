@@ -33,6 +33,10 @@ describe('the ladder is a ladder', () => {
     expect(medium.supersample).toBeGreaterThan(light.supersample)
     expect(high.glPixels).toBeGreaterThan(medium.glPixels)
     expect(medium.glPixels).toBeGreaterThan(light.glPixels)
+    // The shadow map: every tier has one, the higher the larger.
+    expect(high.shadowMap).toBeGreaterThan(medium.shadowMap)
+    expect(medium.shadowMap).toBeGreaterThan(light.shadowMap)
+    expect(light.shadowMap).toBeGreaterThanOrEqual(1024)
     // The plain frame is a real tier, not a broken one: it multisamples where
     // the others supersample.
     expect(light.post).toBeNull()
@@ -40,7 +44,7 @@ describe('the ladder is a ladder', () => {
     expect(medium.post).not.toBeNull()
     expect(high.post).not.toBeNull()
     // Nothing the middle rung does is off on the top one.
-    for (const key of ['fxaa', 'bloom', 'dof', 'grain', 'aberration'] as const) {
+    for (const key of ['ao', 'fxaa', 'bloom', 'dof', 'grain', 'aberration'] as const) {
       if (medium.post![key]) expect(high.post![key], key).toBe(true)
     }
     expect(high.post!.vignette).toBeGreaterThanOrEqual(medium.post!.vignette)
@@ -106,6 +110,40 @@ describe('the finishing passes', () => {
     expect(post).toMatch(/gl_FragColor = vec4\(col, 1\.0\);\s*#include <colorspace_fragment>/)
   })
 
+  it('apply the same tone curve the plain frame gets, and apply it once', () => {
+    // A render target gets no tone mapping from the renderer, so the
+    // composite applies the curve itself, with three's own functions; the
+    // plain path has it from `renderer.toneMapping`. Both read `look.ts`.
+    expect(post).toMatch(/ACESFilmicToneMapping\(c\)/)
+    expect(post).toMatch(/AgXToneMapping\(c\)/)
+    expect(render).toMatch(/renderer\.toneMapping = toneMappingFor\(LOOK\.tone\.mapping\)/)
+    expect(render).toMatch(/renderer\.toneMappingExposure = lightingFor\(rig\)\.exposure/)
+    // The curve is applied once, in the composite, and the grade comes after it.
+    expect(post.indexOf('col = tone(col)')).toBeGreaterThan(post.indexOf('col += texture2D(tBloom, uv).rgb * uBloom'))
+    expect(post.indexOf('col = tone(col)')).toBeLessThan(post.indexOf('uSaturation)'))
+  })
+
+  it('read the depth of the frame for the occlusion, and multiply it in before the bloom and the focus', () => {
+    expect(post).toMatch(/new DepthTexture\(width, height, FloatType\)/)
+    const lit = post.indexOf("pass(lit, litRT)")
+    expect(lit).toBeGreaterThan(post.indexOf('pass(ao, aoA)'))
+    expect(lit).toBeLessThan(post.indexOf('pass(bright, bloomA)'))
+    expect(post).toMatch(/tDiffuse: \{ value: litRT\.texture \}/)
+  })
+
+  it('light the room in the scene and render its shadow map once per frame', () => {
+    expect(render).toMatch(/makeLights\(rig, q\)/)
+    expect(render).toMatch(/lights\.fitShadow\(frameBox\(/)
+    expect(render).toMatch(/renderer\.shadowMap\.needsUpdate = true/)
+    expect(read('components/scene/lighting.ts')).toMatch(/renderer\.shadowMap\.autoUpdate = false/)
+    // Every bucket that is a thing is lit and shadowed; what glows, the ink
+    // and the halos are unlit and cast nothing.
+    const kit = read('components/scene/kit.ts')
+    expect(kit).toMatch(/new MeshStandardMaterial\(\{ vertexColors: true, roughness: LOOK\.material\.roughness/)
+    expect(kit).toMatch(/m\.castShadow = true[\s\S]{1,12}m\.receiveShadow = true/)
+    expect(kit).not.toMatch(/shadowHull|stencil/i)
+  })
+
   it('fall back to the plain frame rather than to no room', () => {
     expect(render).toMatch(/try \{[\s\S]*renderWithPost\([\s\S]*\} catch/)
     expect(render).toMatch(/if \(!photographed\) renderer\.render\(scene, camera\)/)
@@ -119,7 +157,7 @@ describe('the finishing passes', () => {
     // Moving the preference mid-match has to render the room again: a frame
     // rendered at `light` answering a `high` request is a preference that
     // does nothing until the next match.
-    expect(cache).toMatch(/@\$\{tier\}`/)
+    expect(cache).toMatch(/@\$\{tier\}@look\$\{lookVersion\(\)\}`/)
     expect(read('components/scene/SceneBackdrop.svelte')).toMatch(/have\.tier === tier/)
   })
 })

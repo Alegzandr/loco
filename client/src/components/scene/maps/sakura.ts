@@ -1,20 +1,23 @@
 /**
  * Sakura: a hot-spring village under cherry trees.
  *
- * Raked gravel around the table, blocks of wooden houses with tiled roofs and
- * their gardens, a bathhouse with steam coming off its pool on the right, a
- * pagoda at the top, a torii at the bottom left, stone lanterns and strings of
- * paper ones, a stream through the village under red bridges. The trees are
- * in blossom in every season the server deals, because a village that is only
+ * Raked gravel around the table, wooden houses with tiled roofs standing in
+ * gardens, with more garden than house — a cherry tree, a pond, a bed of
+ * flowers where a house is not — a bathhouse with steam coming off its pool
+ * on the right, a pagoda at the top, a torii at the bottom left, stone
+ * lanterns, a stream through the village under red bridges. The trees are in
+ * blossom in every season the server deals, because a village that is only
  * pink in April is a village nobody is dealt into in October. Snow here is
- * the postcard.
+ * the postcard. It was three houses to a block and paper lanterns strung
+ * over the square, and read as a carpet of dark roofs; the gardens are the
+ * village.
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, stringLights, at, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, at, FLOOR } from './common'
 import { mix, cssHex } from '../sky'
 import type { Actor } from '../life'
-import { bird, cloud, over, puff, streetWalkers, strollers } from './actors'
+import { bird, cloud, over, puff, streetWalkers } from './actors'
 
 const RED = 0xd23b3b
 const WOOD = 0x4a3323
@@ -63,20 +66,42 @@ export const sakura: Builder = (k) => {
   const toriiSpot = { sx: sx - a - 4, sy: sy - b - 5 }
   const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
 
+  /** An unbuilt block: a cherry tree or two, a pond now and then, a stone lantern. */
+  const garden = (x: number, z: number, w: number) => {
+    k.tree(x + rng.range(-w / 4, w / 4), z + rng.range(-w / 4, w / 4), { kind: 'sakura', h: rng.range(1.6, 2.2), r: rng.range(1.1, 1.5), trunk: 0x3d2a1e })
+    const g = rng.next()
+    if (g < 0.35) {
+      const px = x + rng.range(-2, 2), pz = z + rng.range(-2, 2)
+      k.disc(px, 0, pz, 1.8, 0x7fd1e8, { seg: 12 })
+      k.rock(px + 1.6, pz - 1, 0.5)
+      k.rock(px - 1.4, pz + 1.2, 0.4)
+    } else if (g < 0.6) {
+      k.tree(x + rng.range(-w / 3, w / 3), z + rng.range(-w / 3, w / 3), { kind: 'sakura', h: rng.range(1.4, 2), r: rng.range(1.0, 1.3), trunk: 0x3d2a1e })
+    } else if (g < 0.8) {
+      stoneLantern(x + rng.range(-3, 3), z + rng.range(-3, 3))
+    }
+  }
+
   const plan = cityGrid(k, {
     block: 12,
     road: 2.8,
     roadColor: 0x9a9488,
     dashes: false,
     lamp: undefined,
-    people: 1.2,
+    people: 0.2,
     maxHeight: 5.5,
     water: { line: 2, axis: 'x', color: k.rig.snow ? 0xb8dcee : 0x6fbfe8, bank: 0x8a8f99, bridge: RED },
     plaza,
+    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.45 : 0.7),
+    open: (c) => {
+      if (near(c, bathSpot, 9) || near(c, pagodaSpot, 8)) return
+      garden(c.x, c.z, c.w)
+    },
     fill: (c) => {
       if (near(c, bathSpot, 9) || near(c, pagodaSpot, 8)) return
       const ls = lots(c, 2, 2, 1.4)
-      const houses = c.front ? 0 : rng.int(1, 3)
+      // One house near the square, one or two at the edge, none in front.
+      const houses = c.front ? 0 : c.dist < 40 ? 1 : rng.int(1, 2)
       ls.forEach((l, i) => {
         if (i < houses) {
           woodHouse(l.x, l.z, Math.min(l.w, rng.range(3.5, 5)), Math.min(l.d, rng.range(3, 4.5)), rng.pick([0, Math.PI / 2]))
@@ -94,11 +119,11 @@ export const sakura: Builder = (k) => {
             k.rock(l.x + 1.6, l.z - 1, 0.5)
             k.rock(l.x - 1.4, l.z + 1.2, 0.4)
           } else {
-            for (let i = 0; i < 12; i++) k.cyl(l.x + rng.range(-1.6, 1.6), 0, l.z + rng.range(-1.6, 1.6), 0.09, rng.range(2.5, 4.5), 0x7bbf5a, { seg: 5, cap: false, outline: false })
+            for (let i = 0; i < 8; i++) k.cyl(l.x + rng.range(-1.6, 1.6), 0, l.z + rng.range(-1.6, 1.6), 0.09, rng.range(2.5, 4.5), 0x7bbf5a, { seg: 5, cap: false, outline: false })
           }
         }
       })
-      k.fence(c.x - c.w / 2, c.z + c.d / 2, c.x + c.w / 2, c.z + c.d / 2, WOOD, 0.8)
+      if (rng.chance(0.5)) k.fence(c.x - c.w / 2, c.z + c.d / 2, c.x + c.w / 2, c.z + c.d / 2, WOOD, 0.8)
     },
   })
 
@@ -179,35 +204,24 @@ export const sakura: Builder = (k) => {
     k.tree(...at(toriiSpot.sx - 4, toriiSpot.sy + 2), { kind: 'sakura', h: 2, r: 1.4, trunk: 0x3d2a1e })
   }
 
-  // ─── Lanterns around the square ────────────────────────────────────────
-  for (let i = 0; i < 12; i++) {
-    const t = (i / 12) * Math.PI * 2
+  // ─── Lanterns around the square, and nothing strung over it ────────────
+  for (let i = 0; i < 6; i++) {
+    const t = (i / 6) * Math.PI * 2 + 0.5
     const [x, z] = at(sx + Math.cos(t) * (a + 7), sy + Math.sin(t) * (b + 4.5))
     if (Math.cos(t) > 0.85) continue
     stoneLantern(x, z)
   }
-  stringLights(k, {
-    padX: 3,
-    padY: 4,
-    height: 4,
-    postR: 0.12,
-    post: WOOD,
-    cord: WOOD,
-    sag: 0.7,
-    spacing: 1.6,
-    hang: (x, y, z) => k.lantern(x, y - 0.4, z, rng.chance(0.7) ? 0xff5a3c : 0xffffff, 0.24),
-  })
   const [cx, cz] = at(sx, sy)
-  for (const [dsx, dsy] of [[-a - 6, -3], [-a + 5, -b - 6], [a - 4, b + 6]] as const) {
-    const [x, z] = at(sx + dsx, sy + dsy)
-    k.stall(x, z, Math.atan2(cx - x, cz - z) + Math.PI, rng.chance(0.5) ? RED : 0x2f4a8a, PAPER)
+  {
+    const [x, z] = at(sx - a - 6, sy - 3)
+    k.stall(x, z, Math.atan2(cx - x, cz - z) + Math.PI, RED, PAPER)
   }
-  for (let i = 0; i < 6; i++) {
-    const t = (i / 6) * Math.PI * 2 + 0.3
+  for (let i = 0; i < 4; i++) {
+    const t = (i / 4) * Math.PI * 2 + 0.6
     const [x, z] = at(sx + Math.cos(t) * (a + 4), sy + Math.sin(t) * (b + 3))
     k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, WOOD)
   }
-  crowd(k, 22, { shirt: undefined })
+  crowd(k, 5, { shirt: undefined })
 
   // ─── What moves: steam off the pool, petals, a cat on the rim ──────────
   const life: Actor[] = []
@@ -218,7 +232,7 @@ export const sakura: Builder = (k) => {
   if (!k.rig.snow && k.rig.weather !== 'rain') {
     // Petals drifting down the side bands, each a small pink plate on the
     // wind, fading in at the top of its fall and out where it lands.
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) {
       const side = i % 2 ? 1 : -1
       const px = sx + side * (a + rng.range(2, 12))
       life.push({
@@ -252,7 +266,6 @@ export const sakura: Builder = (k) => {
     life.push(cloud(k, 'cloud-1', { sy: 16, size: 0.7, duration: 250_000, delay: 120_000, from: 50, to: -50 }))
     life.push(bird(k, 'bird-0', { path: [[-50, 16], [-15, 19], [25, 15], [50, 18]], duration: 36_000, color: 0x2a2a2a }))
   }
-  life.push(...strollers(k, 3))
-  life.push(...streetWalkers(k, plan, 3))
+  life.push(...streetWalkers(k, plan, 2))
   return life
 }

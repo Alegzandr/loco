@@ -156,7 +156,22 @@ export function podium(k: Kit, s: PodiumStyle): {
   // **not** where a builder's own screen line says the ground stops. The
   // harbour's quay sat 4 tiles inside this, so every boat moored "just past the
   // quay" was moored on the paving.
-  return { cx: fx, cz: fz, r: R, sa: R + 4, sb: (along(b + 5) + 6) * PITCH_SIN }
+  return { cx: fx, cz: fz, r: R, ...plazaRim(k) }
+}
+
+/**
+ * Where the podium's paving ends on screen, semi-axes in screen tiles around
+ * the anchor: the same oval `podium()` lays, solved from the anchor alone so
+ * the grid can ask without the builder handing it over. A builder that forgot
+ * to pass `podium()`'s answer to `cityGrid` got a street grid that knew
+ * nothing about the paving: its roads ran under the plaza, its cars were
+ * parked on the flagstones round the table and its traffic drove through the
+ * crowd — in three of the six rooms.
+ */
+export function plazaRim(k: Kit): { sa: number; sb: number } {
+  const { a, b } = k.anchor
+  const R = Math.max(a, b) + 14
+  return { sa: R + 4, sb: ((b + 5) / PITCH_SIN + 6) * PITCH_SIN }
 }
 
 // ─── The street grid ────────────────────────────────────────────────────────
@@ -206,16 +221,35 @@ export interface GridSpec {
   carDensity?: number
   /** A lamp at every intersection's corner. */
   lamp?: Parameters<Kit['lamp']>[2]
+  /** The share of corners that get one. Half by default. */
+  lampChance?: number
   /** People per block, on average, on the sidewalks. */
   people?: number
+  /**
+   * The share of blocks that are built at all, 0–1, per block or as one
+   * number: the rest are handed to `open` and left as ground — a lawn, a
+   * garden, a crater. **This is what makes a room breathe.** Every block
+   * filled to the frame's edge is a wall of façades, and a wall of façades
+   * round a card table is a room that shouts; a place a spectator can rest
+   * their eyes on has ground between its buildings, and more of it near the
+   * table than far from it. Everything is built when absent.
+   */
+  density?: number | ((cell: Cell) => number)
+  /** What an unbuilt block gets instead of `fill`. Nothing, when absent. */
+  open?: (cell: Cell) => void
   /** One road line is water instead, with a bridge at every crossing. */
   water?: { line: number; axis: 'x' | 'z'; color: Hex; bank: Hex; bridge: Hex }
   /**
-   * The podium's paving, from `podium()`. The channel is laid at ground level
-   * and the paving a few centimetres above it, so a canal crossing the plaza is
-   * buried — while its bridges, which stand a tile high, are not. What that put
-   * on screen was a red bridge with people on it in the middle of a dry square.
-   * Given this, neither is drawn there.
+   * The podium's paving, from `podium()`; `plazaRim(k)` when absent, which is
+   * the same oval. The channel is laid at ground level and the paving a few
+   * centimetres above it, so a canal crossing the plaza is buried — while its
+   * bridges, which stand a tile high, are not. What that put on screen was a
+   * red bridge with people on it in the middle of a dry square. Given this,
+   * neither is drawn there, **and neither is anything that drives**: a road
+   * under the paving is buried too, but a car parked on it stands on the
+   * flagstones and a lane along it is traffic through the crowd round the
+   * table. A segment the paving covers is laid and forgotten — no car, no
+   * lamp, no crossing, and never a run for `traffic`.
    */
   plaza?: { sa: number; sb: number }
   /** The tallest thing `fill` builds, in tiles: what decides the `front` band. */
@@ -320,13 +354,26 @@ export function cityGrid(k: Kit, spec: GridSpec): StreetPlan {
   // Six tiles from the table's edge, not nine: the paving reaches four, and the
   // band between the paving and the first row of houses was lawn and nothing.
   const isLand = (c: Cell) => (spec.land ? spec.land(c) : true) && !underTable(k, c.x, c.z, 6)
+  const plaza = spec.plaza ?? plazaRim(k)
   const paved = (x: number, z: number) => {
-    if (!spec.plaza) return false
     const [px, py] = screenOf(x, z)
-    const dx = (px - ax) / spec.plaza.sa
-    const dy = (py - ay) / spec.plaza.sb
+    const dx = (px - ax) / plaza.sa
+    const dy = (py - ay) / plaza.sb
     return dx * dx + dy * dy < 1
   }
+  /**
+   * A segment of street the paving covers, in whole or in part: buried under
+   * the plaza, so nothing may stand on it or drive it. Tested at both ends
+   * and the middle, since a segment a block long can start on the lawn and
+   * end under the flagstones.
+   */
+  const buried = (x: number, z: number, len: number, rot: number) => {
+    const c = Math.cos(rot)
+    const s = Math.sin(rot)
+    for (const t of [-len / 2, 0, len / 2]) if (paved(x + t * c, z - t * s) || underTable(k, x + t * c, z - t * s, 4)) return true
+    return false
+  }
+  const density = (c: Cell) => (typeof spec.density === 'function' ? spec.density(c) : (spec.density ?? 1))
   const isWater = (axis: 'x' | 'z', line: number) => spec.water && spec.water.axis === axis && spec.water.line === line
 
   // Roads, one segment per block side so the sea and the plaza can cut them.
@@ -347,13 +394,16 @@ export function cityGrid(k: Kit, spec: GridSpec): StreetPlan {
       // The segment along x on this block's -z side, and along z on its -x side.
       const rx = c.x, rz = c.z - half
       const ex = c.x - half, ez = c.z
+      // Under the paving a segment is laid and forgotten: no run, no car.
+      const openX = alongX && !isWater('x', j) && !buried(rx, rz, pitch, 0)
+      const openZ = alongZ && !isWater('z', i) && !buried(ex, ez, pitch, Math.PI / 2)
       if (!alongX) {
         // nothing here: the block on the other side is water or off the map
       } else if (isWater('x', j)) {
         water(k, rx, rz, pitch, spec.road, 0, spec.water!)
       } else {
         k.road(rx, rz, pitch, spec.road, { color: spec.roadColor, sidewalk: spec.sidewalk, sidewalkWidth: SIDEWALK, dashes: spec.dashes ?? true })
-        laid.push({ axis: 'x', line: rz, at: rx, len: pitch })
+        if (openX) laid.push({ axis: 'x', line: rz, at: rx, len: pitch })
       }
       if (!alongZ) {
         // as above
@@ -361,7 +411,7 @@ export function cityGrid(k: Kit, spec: GridSpec): StreetPlan {
         water(k, ex, ez, pitch, spec.road, Math.PI / 2, spec.water!)
       } else {
         k.road(ex, ez, pitch, spec.road, { rot: Math.PI / 2, color: spec.roadColor, sidewalk: spec.sidewalk, sidewalkWidth: SIDEWALK, dashes: spec.dashes ?? true })
-        laid.push({ axis: 'z', line: ex, at: ez, len: pitch })
+        if (openZ) laid.push({ axis: 'z', line: ex, at: ez, len: pitch })
       }
       // The intersection at the block's -x -z corner: a bridge over water, or
       // a crossing and a lamp.
@@ -369,6 +419,8 @@ export function cityGrid(k: Kit, spec: GridSpec): StreetPlan {
       const crossesWater = (alongX && isWater('x', j)) || (alongZ && isWater('z', i))
       if (!alongX && !alongZ) {
         // no streets meet here
+      } else if (paved(ix, iz) || underTable(k, ix, iz, 4)) {
+        // buried under the plaza: a lamp on the flagstones would stand in the crowd
       } else if (crossesWater) {
         // Only where the channel was laid. Tested on `isWater` alone, a corner
         // whose water segment had been culled still got its bridge, and a red
@@ -384,31 +436,38 @@ export function cityGrid(k: Kit, spec: GridSpec): StreetPlan {
             }
           }
         }
-        // At the kerb, off the line people walk along.
-        if (spec.lamp && k.rng.chance(0.7)) k.lamp(ix + spec.road / 2 + KERB_LINE, iz + spec.road / 2 + KERB_LINE, spec.lamp)
+        // At the kerb, off the line people walk along — and off the paving,
+        // which the corner two tiles away may already be under.
+        const lx = ix + spec.road / 2 + KERB_LINE
+        const lz = iz + spec.road / 2 + KERB_LINE
+        if (spec.lamp && !paved(lx, lz) && k.rng.chance(spec.lampChance ?? 0.5)) k.lamp(lx, lz, spec.lamp)
       }
-      // Cars on this block's two road segments.
+      // Cars on this block's two road segments — the ones a car can stand on.
       if (spec.cars && (spec.carDensity ?? 0.5) > 0) {
-        const density = spec.carDensity ?? 0.5
-        if (alongX && k.rng.chance(density) && !isWater('x', j)) {
+        const cars = spec.carDensity ?? 0.5
+        if (openX && k.rng.chance(cars)) {
           const side = k.rng.chance(0.5) ? 1 : -1
           const cx = rx + k.rng.range(-half + 2, half - 2)
-          if (!underTable(k, cx, rz, 3)) k.car(cx, rz + side * (spec.road / 4), side > 0 ? 0 : Math.PI, k.rng.pick(spec.cars))
+          if (!paved(cx, rz)) k.car(cx, rz + side * (spec.road / 4), side > 0 ? 0 : Math.PI, k.rng.pick(spec.cars))
         }
-        if (alongZ && k.rng.chance(density) && !isWater('z', i)) {
+        if (openZ && k.rng.chance(cars)) {
           const side = k.rng.chance(0.5) ? 1 : -1
           const cz = ez + k.rng.range(-half + 2, half - 2)
-          if (!underTable(k, ex, cz, 3)) k.car(ex + side * (spec.road / 4), cz, side > 0 ? Math.PI / 2 : -Math.PI / 2, k.rng.pick(spec.cars))
+          if (!paved(ex, cz)) k.car(ex + side * (spec.road / 4), cz, side > 0 ? Math.PI / 2 : -Math.PI / 2, k.rng.pick(spec.cars))
         }
       }
     }
   }
 
-  // Blocks.
+  // Blocks: built, or left open, by the density the builder asked for.
   for (let i = -n; i <= n; i++) {
     for (let j = -n; j <= n; j++) {
       const c = cellAt(i, j)
       if (!isLand(c)) continue
+      if (!k.rng.chance(density(c))) {
+        spec.open?.(c)
+        continue
+      }
       spec.fill(c)
       // The lot is taken, whatever the builder put on it: a house is blocks,
       // and blocks do not claim, so a route through the middle of one would

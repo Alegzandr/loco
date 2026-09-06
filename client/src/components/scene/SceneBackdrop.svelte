@@ -7,6 +7,7 @@
   import { peekScene, prepareScene, renderSizeFor, sameFelt, sizeCloseEnough, type PreparedScene } from './sceneCache'
   import { elementSize } from '../../hooks/boardMetrics.svelte'
   import { graphicsPref } from '../../hooks/uiPrefs.svelte'
+  import { lookVersion, subscribeLook } from './look'
   import WeatherLayer from './WeatherLayer.svelte'
   import LifeLayer from './LifeLayer.svelte'
 
@@ -56,7 +57,14 @@
   let canvasB = $state<HTMLCanvasElement | null>(null)
   const size = elementSize(() => host)
 
-  const rig = $derived(lightRig(scene.time, scene.weather))
+  /** The look's edition: moved by the dev panel and by nothing else, and a move is a re-render. */
+  let look = $state(lookVersion())
+  $effect(() => subscribeLook(() => (look = lookVersion())))
+  // Re-read on a look edition too: the panel moves the hours' skies.
+  const rig = $derived.by(() => {
+    void look
+    return lightRig(scene.time, scene.weather)
+  })
   const key = $derived(sceneKey(scene))
 
   /** Which of the two canvases is on top — the one the room is read off. */
@@ -125,6 +133,8 @@
     // preference mid-match gets the room again at the new one, faded in over
     // the old like any other re-render.
     const tier = graphicsPref.tier
+    // Read for the dependency: the cache key carries the edition itself.
+    void look
     if (w <= 0 || h <= 0) return
 
     const target = renderSizeFor(w, h)
@@ -141,7 +151,7 @@
     // value through the cache key rather than by identity here, because the
     // anchor is a derived object and a new one with the same numbers is the
     // same podium.
-    if (have && have.canvas && have.tier === tier && sizeCloseEnough(have.size, target) && sameFelt(have.felt, felt)) return
+    if (have && have.canvas && have.tier === tier && sizeCloseEnough(have.size, target) && sameFelt(have.felt, felt) && have.look === look) return
 
     let live = true
     // `prepareScene` never rejects by contract; the catch is for a stub or a

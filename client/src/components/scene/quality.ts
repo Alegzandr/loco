@@ -5,9 +5,12 @@
  * loading gate and memory on the GPU for the length of one frame — never a
  * frame budget. The ladder is therefore about how far the one render may go:
  * how many times larger than the screen the frame is drawn before it is
- * scaled down (the edges), and which of the finishing passes run over it
- * (`post.ts`: anti-aliasing, bloom, the tilt-shift focus, grain, the colour
- * fringe at the corners, the vignette).
+ * scaled down (the edges), how large the sun's shadow map is (the softness
+ * and the reach of the shadows), and which of the finishing passes run over
+ * it (`post.ts`: the ambient occlusion, anti-aliasing, bloom, the tilt-shift
+ * focus, grain, the colour fringe at the corners, the vignette). The
+ * *numbers* inside each pass are the look's (`look.ts`); a tier only says
+ * which run.
  *
  * Framework-free and pure: `sceneQuality.test.ts` reads the ladder and
  * asserts it is a ladder.
@@ -15,6 +18,8 @@
 import type { GraphicsTier } from '../../hooks/graphicsPref'
 
 export interface PostOptions {
+  /** Ambient occlusion in the creases, from the depth of the frame. */
+  ao: boolean
   /** Edge anti-aliasing in the finishing pass, on top of the supersampling. */
   fxaa: boolean
   /** Light spilling from the lamps, the neon and the windows after dark. */
@@ -35,6 +40,8 @@ export interface RenderQuality {
   supersample: number
   /** The pixels one render may ask the GPU for. Past this the factor shrinks. */
   glPixels: number
+  /** The side of the sun's shadow map, texels. */
+  shadowMap: number
   /** The finishing passes, or null for the plain frame. */
   post: PostOptions | null
   /** Multisampling on the plain path. Off once supersampling covers it. */
@@ -46,20 +53,23 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     tier: 'high',
     supersample: 3,
     glPixels: 12_000_000,
-    post: { fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22 },
+    shadowMap: 4096,
+    post: { ao: true, fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22 },
     msaa: false,
   },
   medium: {
     tier: 'medium',
     supersample: 2,
     glPixels: 7_000_000,
-    post: { fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18 },
+    shadowMap: 2048,
+    post: { ao: true, fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18 },
     msaa: false,
   },
   light: {
     tier: 'light',
     supersample: 1,
     glPixels: 4_000_000,
+    shadowMap: 1024,
     post: null,
     msaa: true,
   },

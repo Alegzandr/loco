@@ -175,7 +175,7 @@ the shutdown snapshot on its `/data` mount.
 
 Full grouped list: [`docs/features.md`](docs/features.md) — the lobby and the 1v1 queue, the whole
 112-card deck and every rule on it, the interrupt and catch windows, bots that play the entire game,
-the six rooms rendered in the browser at a random hour under a random sky and the synchronised load into them, an adaptive music bed of nineteen loops that answers the table,
+the six rooms rendered in the browser at a random hour under a random sky — lit, shadowed and photographed once per match, every number of it in one config file — and the synchronised load into them, an adaptive music bed of nineteen loops that answers the table,
 and the server surfaces underneath all of it.
 
 ### Known Limitations
@@ -201,6 +201,11 @@ and the server surfaces underneath all of it.
 - Sound effects are synthesised, not recorded: the result is deliberately arcade-like rather than
   orchestral. The music is recorded, and it is nineteen loops rather than written pieces — the bed
   varies by choosing between them, not within one
+- The room's look is one config file, `client/src/components/scene/look.ts`, and `?look=1` on any
+  page of the dev server opens a lil-gui panel over it (the showcase's `?showcase=room-still-<id>`
+  is the room alone). A change re-renders the room live; "Copy JSON" hands the numbers back to
+  paste into the file. `?lookPatch=<json>` on a showcase URL applies a partial look before the
+  first render, for shooting a room under numbers not committed yet.
 - The visual showcase and its screenshot harness are development tooling, excluded from production
   builds
 

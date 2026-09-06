@@ -1,18 +1,21 @@
 /**
  * Rune: the square of a village that has a wizard in it.
  *
- * Cobbles, blocks of half-timbered houses with their gardens, a tavern with a
- * lantern over its door, a tower whose windows are the wrong colour, four
- * standing stones around the square with something carved into them that
- * glows after dark. Market day: stalls, barrels, a cart, chickens' worth of
- * people. A stream runs through the village under stone bridges.
+ * Cobbles, a few half-timbered houses standing in their gardens with meadow
+ * between them, a tavern with a lantern over its door, a tower whose windows
+ * are the wrong colour, four standing stones around the square with
+ * something carved into them that glows after dark. A quiet market: two
+ * stalls, a cart, a handful of people. A stream runs through the village
+ * under stone bridges. Half the blocks near the square are meadow — a
+ * village is houses *and* the ground between them, and the ground is what
+ * lets the eye rest.
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
 import { cityGrid, lots, podium, crowd, at, ring, FLOOR } from './common'
 import { mix, scale, cssHex } from '../sky'
 import type { Actor } from '../life'
-import { bird, cloud, mote, over, puff, streetWalkers, strollers } from './actors'
+import { bird, cloud, mote, over, puff, streetWalkers } from './actors'
 
 export const rune: Builder = (k) => {
   const rng = k.rng
@@ -76,6 +79,15 @@ export const rune: Builder = (k) => {
   const towerCell = { sx: sx - a - 4, sy: sy + 2 }
   const nearest = (c: { sx: number; sy: number }, p: { sx: number; sy: number }) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < 7.5
 
+  /** An unbuilt block: meadow, one tree, now and then a rock or a bed of flowers. */
+  const meadow = (x: number, z: number, w: number) => {
+    k.tree(x + rng.range(-w / 4, w / 4), z + rng.range(-w / 4, w / 4), { kind: rng.chance(0.35) ? 'pine' : 'round', h: rng.range(1.4, 2.2), r: rng.range(0.9, 1.3) })
+    const g = rng.next()
+    if (g < 0.25) k.rock(x + rng.range(-w / 3, w / 3), z + rng.range(-w / 3, w / 3), rng.range(0.4, 0.8), mix(0x8a8f99, 0x5fa653, 0.2))
+    else if (g < 0.45) k.flowerbed(x + rng.range(-2, 2), z + rng.range(-2, 2), 2.6, 1.8, { kerb: 0x8d857a })
+    else if (g < 0.6) k.bush(x + rng.range(-3, 3), z + rng.range(-3, 3), 0.5, 0x3f9e52, { berries: 0xff3d68 })
+  }
+
   const plan = cityGrid(k, {
     block: 12,
     road: 3,
@@ -83,18 +95,24 @@ export const rune: Builder = (k) => {
     dashes: false,
     cars: undefined,
     lamp: { h: 2.4, style: 'lantern', color: 0xffab52, post: 0x4a2e17 },
-    people: 1.5,
+    people: 0.25,
     maxHeight: 5,
     water: { line: -2, axis: 'z', color: k.rig.snow ? 0x9fd0e8 : 0x3f8fd6, bank: 0x6f6a62, bridge: 0x8a847a },
     plaza,
+    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.5 : 0.75),
+    open: (c) => {
+      if (nearest(c, tavernCell) || nearest(c, towerCell)) return
+      meadow(c.x, c.z, c.w)
+    },
     fill: (c) => {
       if (nearest(c, tavernCell) || nearest(c, towerCell)) return
-      // One or two houses, the rest garden; in front of the table, garden only.
-      const n = c.front ? 2 : rng.chance(0.4) ? 1 : 2
-      const ls = lots(c, n, n, 1.5)
+      // One house near the square, one or two at the edge, the rest garden;
+      // in front of the table, garden only.
+      const want = c.front ? 0 : c.dist < 40 ? 1 : rng.int(1, 2)
+      const ls = lots(c, 2, 2, 1.5)
       let built = 0
       for (const l of ls) {
-        if (!c.front && built < (n === 1 ? 1 : rng.int(2, 3)) && rng.chance(0.8)) {
+        if (built < want && rng.chance(0.85)) {
           const w = Math.min(l.w, rng.range(4, 6)), d = Math.min(l.d, rng.range(3.5, 5))
           house(l.x, l.z, w, rng.range(3, 4.4), d, rng.pick([0, Math.PI / 2]))
           built++
@@ -164,7 +182,7 @@ export const rune: Builder = (k) => {
       k.box(wx + 2.62, y, wz + 0.5 * (i % 2 ? 1 : -1), 0.1, 0.7, 0.45, on ? 0xc56bff : 0x2a3346, { glow: on, outline: false, cap: false })
       k.box(wx - 0.5 * (i % 2 ? 1 : -1), y, wz + 2.62, 0.45, 0.7, 0.1, on ? 0xc56bff : 0x2a3346, { glow: on, outline: false, cap: false })
     }
-    if (on) k.halo(wx, 20.4, wz, 1.3, 0xc56bff, 0.4, false)
+    if (on) k.halo(wx, 20.4, wz, 0.7, 0xc56bff, 0.4, false)
     k.tree(wx + 5, wz + 3, { kind: 'pine', h: 2.4, r: 1.2 })
     k.tree(wx - 4.8, wz - 1, { kind: 'pine', h: 2.0, r: 1.0 })
     k.cyl(wx + 2.4, 0, wz + 4, 0.5, 0.7, 0x1c1c1c, { seg: 8, rTop: 0.6 })
@@ -179,9 +197,7 @@ export const rune: Builder = (k) => {
     k.stall(x, z, Math.atan2(cx - x, cz - z) + Math.PI, c1, c2)
   }
   stallAt(-a - 5, -3, 0xff3d68, 0xfff5e6)
-  stallAt(-a - 7, 4, 0x3d9bff, 0xfff5e6)
   stallAt(-a + 4, -b - 6, 0x2fd18a, 0xfff5e6)
-  stallAt(a - 6, -b - 6.5, 0xffd23c, 0xfff5e6)
   {
     const [cx, cz] = at(sx + a + 4, sy - b - 4)
     k.box(cx, 0.5, cz, 2.6, 0.7, 1.4, 0x8a5a2f, { rot: 0.6 })
@@ -199,18 +215,18 @@ export const rune: Builder = (k) => {
     const ang = Math.atan2(cx - x, cz - z)
     k.box(x, 0, z, 1.1, 2.8, 0.8, 0x6f7a8a, { rot: ang })
     k.box(x, 0.8, z, 0.14, 1.3, 0.82, on ? 0x7cffd0 : 0x4a5a5a, { rot: ang, glow: on, outline: false, cap: false })
-    if (on) k.halo(x, 0, z, 2.6, 0x7cffd0, 0.3)
+    if (on) k.halo(x, 0, z, 1.8, 0x7cffd0, 0.2)
   }
   {
     const [cx, cz] = at(sx, sy)
-    ring(k, 8, 1, (x, z) => {
+    ring(k, 6, 1, (x, z) => {
       const t = Math.atan2(z - cz, x - cx)
       const [px, pz] = at(sx + Math.cos(t) * (a + 7), sy + Math.sin(t) * (b + 4.5))
       k.lamp(px, pz, { h: 2.4, style: 'lantern', color: 0xffab52, post: 0x4a2e17 })
       void x
     }, 0, cx, cz)
   }
-  crowd(k, 26)
+  crowd(k, 5)
   for (let i = 0; i < 5; i++) k.rock(rng.range(-90, 90), rng.range(-90, 90), rng.range(0.5, 1.0), mix(0x8a8f99, 0x5fa653, 0.2))
   k.rock(-40, 30, 1.0, scale(0x8a8f99, 0.9))
 
@@ -218,7 +234,7 @@ export const rune: Builder = (k) => {
   const life: Actor[] = []
   // Smoke from the chimneys in the side bands, where a roof is in view: a
   // chimney under the table smokes into the felt.
-  const smoking = chimneys.filter(([px, py]) => Math.abs(px - sx) > a + 2 && Math.abs(px) < 44 && Math.abs(py) < 20).slice(0, 6)
+  const smoking = chimneys.filter(([px, py]) => Math.abs(px - sx) > a + 2 && Math.abs(px) < 44 && Math.abs(py) < 20).slice(0, 4)
   smoking.forEach(([px, py], i) => life.push(puff(k, `smoke-${i}`, { at: [px, py], rise: 2.6, duration: 4200 + i * 500, delay: i * 1300, size: 0.8 })))
   {
     const [wx, wz] = at(towerCell.sx, towerCell.sy)
@@ -235,7 +251,6 @@ export const rune: Builder = (k) => {
     life.push(bird(k, 'bird-0', { path: [[-50, 17], [-10, 20], [30, 16], [50, 19]], duration: 34_000, color: 0x2a2a2a }))
     life.push(bird(k, 'bird-1', { path: [[50, 14], [15, 17], [-25, 15], [-50, 18]], duration: 40_000, delay: 12_000, color: 0x2a2a2a }))
   }
-  life.push(...strollers(k, 3))
-  life.push(...streetWalkers(k, plan, 3))
+  life.push(...streetWalkers(k, plan, 2))
   return life
 }

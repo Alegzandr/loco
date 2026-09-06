@@ -519,16 +519,52 @@ dictate the mood" asks for.
   coordinate are identical with or without one. There is no `playfield` and no `tableImageRect()`
   any more: the felt *is* the rectangle, and the CSS table is drawn on it directly.
 
+### The look (`scene/look.ts`, `src/dev/lookPanel.ts`)
+Every visual number the render reads, in one file: the four hours (sky, sun, sky light, lamps,
+windows lit, how dark), the two global knobs over the sun and the sky, the shadow (type, softness,
+biases, the sprite's own), the material (roughness, the glow's brightness, the halos', the foot
+shade), the outline, the occlusion (two radii, intensity, contrast, samples, blur), the tone curve
+(the mapping, exposure, contrast, saturation, the split tones), the finishing passes (bloom, the
+tilt-shift band, grain, fringe) and the fog. **Framework-free and three-free**, so `sky.ts` (which
+a content page imports) can read the hours out of it and a test can assert the whole thing. What
+it replaced was the same numbers written at their call sites — a shadow alpha in `shade.ts`, a
+bloom threshold in `post.ts`, a tone ratio in the kit — where finding the one that made a dusk
+read as night meant reading four files.
+
+The dev panel is lil-gui over exactly this object: `?look=1` on any page in dev mounts it
+(`entry.ts`, behind `import.meta.env.DEV`, so neither the panel nor lil-gui reaches a build), a
+move edits `LOOK` in place and calls `bumpLook()` after 180 ms of quiet, the backdrop hears it
+(`subscribeLook`) and asks for the room again — `lookVersion()` is part of the cache key
+(`sceneCache.entryKey`) and of the entry (`PreparedScene.look`), so a frame rendered with the old
+numbers never answers a request made with the new ones, and the new frame fades in over the old
+like any re-render. "Copy JSON" puts the whole look on the clipboard to paste back into the file;
+nothing is persisted, because the file is where the numbers live. `?lookPatch=<json>` on the
+showcase applies a partial look before the first render, which is how a room is shot under a
+number that is not committed yet (`tools/visual/shoot.mjs --gfx=…` for the tier, this for the
+rest). `LOOK.debug` shows one pass alone (`ao`, `lit`, `depth`) and ships `off`, which
+`sceneLighting.test.ts` pins.
+
 ### The light rig (`scene/sky.ts`)
 The hour and the sky, as numbers, with no framework and no three.js in the file, so a content page
-can read it and a test can assert it. `lightRig(time, weather)` returns the sky gradient, the sun
-(colour, intensity, elevation, azimuth, shadow strength), the hemisphere fill, distance fog or null,
-and five things the kit and the board build from: `lampsOn`, `windowsLit` (a share), `snow`, `wet`
-and `dark` (0 at noon, 1 on a stormy night). The weather is applied *over* the hour — a storm at
-noon is still lit from above — and the overcast grey is the hour's own horizon mixed down, which is
-what keeps twenty-four combinations from being six: a grey dusk is warm and a grey dawn is pink.
-`rigCssVars` is the same rig as four custom properties (`--sky-top`, `--sky-horizon`,
-`--scene-tint`, `--scene-dark`) for the board, the overlay and the rooms page.
+can read it and a test can assert it. `lightRig(time, weather)` takes the hour out of `LOOK.hours`
+and returns the sky gradient, the sun (colour, intensity, elevation, azimuth, shadow strength), the
+hemisphere fill, distance fog or null, and five things the kit and the board build from:
+`lampsOn`, `windowsLit` (a share), `snow`, `wet` and `dark` (0 at noon, 1 on a stormy night). The
+weather is applied *over* the hour — a storm at noon is still lit from above — and the overcast grey
+is the hour's own horizon mixed down, which is what keeps twenty-four combinations from being six:
+a grey dusk is warm and a grey dawn is pink. `rigCssVars` is the same rig as four custom properties
+(`--sky-top`, `--sky-horizon`, `--scene-tint`, `--scene-dark`) for the board, the overlay and the
+rooms page.
+
+**The azimuths are composition, not weather.** The camera stands at +x, +z and sees the +x and +z
+faces of every block, so a sun has to light at least one of them or the room is a silhouette with
+lit windows — which is what the first dusk was, at −125°, from behind the city: the plaza took the
+sun and every façade the camera looked at was a flat violet. And the shadow has to run somewhere
+the camera can see: the first noon, at 60°, threw every shadow straight up the frame, behind the
+thing throwing it, and read as no light at all. Day is at 150° (one face lit, the shadow falling
+long to the lower left, which is where the reference render puts it), dawn at 135°, dusk at −60°
+(the shadow to the right and a little towards the camera), night at −40°. `sceneLighting.test.ts`
+pins both rules per hour rather than the numbers.
 
 ### The kit and the builders (`scene/kit.ts`, `scene/maps/*.ts`)
 A builder never touches three.js. It calls `box`, `cyl`, `sphere`, `cone`, `prism`, `disc`, `halo`
@@ -549,38 +585,41 @@ and each is the kit's, not a builder's:
   share vertices and a per-vertex push leaves the corners open. **And a wall darkens towards its
   foot** (`GROUND_SHADE`, on the sides of anything over 0.6 tiles tall): what an illustrator does to
   sit a building on the ground, and what vertex interpolation gives for free.
-- **Colour is a vertex attribute, and so is the light** (`scene/shade.ts`, `sceneShade.test.ts`).
-  There is no light object in the scene: as a block is pushed, the tone of each face — the top in
-  the light, the side towards the sun a step down, the far side two steps down and leaning towards
-  the sky's ambient rather than the sun's colour — is multiplied into its vertex colour from its
-  normal, and anything in between snaps to the nearest of the three. **The size of the step is the
-  whole of the lighting, so it is not a taste setting**: at 1 / 0.84 / 0.66 there was a sixth of a
-  stop between a roof and the wall under it in full sun and a fifth between that wall and the one in
-  shade, and a street of cubes at that spacing comes out as one flat wash of its own colour —
-  "it looks like there is no lighting" is the correct reading of it, and it was the report. An
-  illustrated isometric puts the shaded side at about half the lit one; these are 1 / 0.74 / 0.47,
-  and `sceneShade.test.ts` pins the ratios rather than the numbers. A cylinder is three stripes,
-  a ball three crescents, never a gradient. Exposure follows `rig.dark` and the light's own colour
-  tints everything a little more the darker it is, so a dusk is amber and a night is blue rather
-  than merely dim. **What it replaced**: a `MeshToonMaterial` ramp under a real directional light
-  and a hemisphere fill, which banded on every cylinder and greyed every colour through the
-  ambient, plus a 3072² PCF shadow map, which put soft noise and acne on every façade. The
-  illustrated isometric city this room is modelled on has flat tones and hard shadows and nothing
-  else, and that is now exactly what is rendered.
-- **Every outlined block throws a shadow on the ground**, and it is a polygon, not a map: its
-  corners slid along the sun's ray to `SHADOW_PLANE_Y` (a tenth of a tile up, above the paving and
-  the roads and below anything that stands) and wrapped in a convex hull — exact for every convex
-  solid the kit builds, which is all of them. **A drawing's shadow is a shape, not a tint**: at 0.26
-  of a sky-blue it was a smudge nobody read as a shadow, which was the other half of the room
-  looking unlit, so it starts at 0.38 and still thins with the hour and with the sky.
-  The run is capped at 1.25× the height (`shadowRun`),
-  because a dawn sun eleven degrees up throws five times a block's height and a street of ten-tile
-  houses became a street of shadow. **Drawn once through the stencil** (`EqualStencilFunc` on 0,
-  `IncrementStencilOp` on pass): two shadows overlapping stay one tone rather than stacking their
-  alpha into a blot at every crowded corner. The renderer asks for `stencil: true`, which three.js
-  no longer gives by default. Whether a block throws one follows whether it is outlined — the two
-  together are what says "this is an object" rather than "this is a surface" — and a sprite of
-  something in the air is built with `shadows: false`.
+- **Colour is a vertex attribute, and the light is a light** (`scene/lighting.ts`,
+  `scene/shade.ts`, `sceneLighting.test.ts`). The kit writes a block's colour into its vertices and
+  nothing else about the light; the merged mesh is one rough, matte `MeshStandardMaterial`
+  (`LOOK.material`) that casts and receives, and the sun, the sky and the shadow reach it through
+  its normals like any rendered object. The one thing still written into a vertex is the foot of a
+  wall darkening towards the ground (`footShade`), which the occlusion pass then sharpens.
+  **What this replaced, and why**: the light was *baked* — three flat tones per face
+  (1 / 0.74 / 0.47), snapped from the normal, multiplied into the colour, with a hard polygon of
+  shadow beside every block through the stencil — and it was chosen against a `MeshToonMaterial`
+  ramp under a real light that banded on every cylinder. It was clean and it was flat: no
+  gradient across a wall, no occlusion in a doorway, one shadow tone for the whole room, a
+  palette that read as a fill. The target it was measured against is a low-poly diorama as a
+  renderer photographs it — a low warm sun, long soft shadows, ambient occlusion in the creases,
+  a cool sky in the shade — and no amount of tuning three constants gets there. The banding a
+  toon ramp gave is not a problem for a lit material: there is no ramp, and the frame is
+  supersampled. The acne a shadow map gave is a bias (below).
+- **Every block casts and receives one shadow map, fitted to the frame** (`lighting.ts:
+  fitShadow`, `frameBox`). A caster only shadows a receiver on its own ray, so the map's x/y in
+  light space is the receivers' region — the frame's four corners on the ground and the same rays
+  `ROOM_HEIGHT` up, a few tiles past the edge — and only its depth range has to reach every
+  caster, which is what keeps a 4096 map over eighty tiles at roughly fifty texels a tile. VSM
+  (`LOOK.shadow.type`), because it is the one shadow map three blurs *in the map*: a radius of six
+  texels, wider the lower the sun (`lightingFor`: a longer shadow is a softer one), gives the
+  penumbra a diorama photographed at arm's length has, and PCF's `radius` is a screen-space
+  filter that goes blocky under 2048. **`normalBias` is 0.3 tiles and it is not a detail**: at
+  0.05 the drum's own top shadowed itself in diagonal stripes across the whole felt on the small
+  maps, which a shadow map's acne looks like at a grazing angle on a large flat face. The map is
+  rendered on demand (`shadowMap.autoUpdate = false`, `needsUpdate` before each real render):
+  the depth pass and every sprite would otherwise draw the whole room into it again. What glows,
+  the ink hull and the halos cast nothing — a hull would throw a shadow larger than its block, a
+  lit window is a quad on a wall, and light is not a thing. A sprite of something on the ground
+  carries its own shadow on its own bitmap: a `ShadowMaterial` catcher under it, at the room's
+  shadow colour, sized by `shadowReach` — the block's box with its top corners slid down the sun to
+  the ground — which is what is left of `shadowHull`; a sprite of something in the air is built
+  with `shadows: false` and gets no catcher.
 - **The weather is answered in the kit, once**: `snow` caps every flat top and whitens the ground and
   the foliage, `wet` darkens the ground the builder asks for and lays puddles catching the sky,
   `lampsOn` decides whether a lamp's head, a window, a neon tube or a lantern goes into the unlit
@@ -676,9 +715,9 @@ and each is the kit's, not a builder's:
   and a person one, so what is left is three rows of houses and a crowd around it. At 32 it was one
   house. Resolution is the viewport at `devicePixelRatio` capped at `MAX_DPR` (2) and `MAX_SIDE`
   (2800) on the long side (`renderSizeFor`).
-- **The frame is supersampled** (`SUPERSAMPLE`, 2; `MAX_GL_PIXELS`, 7 M; `supersampleFor`). With
-  the light baked and the shadows flat, the one thing the GPU is asked for is edges: the frame is
-  rendered up to twice its size on each side, on top of multisampling, and scaled down with
+- **The frame is supersampled** (`SUPERSAMPLE`, 2; `MAX_GL_PIXELS`, 7 M; `supersampleFor`). The
+  lighting is a sun, a sky and one shadow map, and beyond that what the GPU is asked for is edges:
+  the frame is rendered up to twice its size on each side, on top of multisampling, and scaled down with
   `imageSmoothingQuality: 'high'`, so an ink line a tile long is one clean stroke at any angle
   rather than a stair. The budget is in pixels, so a phone gets the full factor and a 4K monitor
   at 2× gets what fits under seven million; the side is also held under 4096, which is the texture
@@ -686,23 +725,48 @@ and each is the kit's, not a builder's:
   bitmap kept for the match is still the viewport's size, only the render behind it is larger, and
   the context is released the moment it is copied.
 - **And then the frame is photographed** (`scene/post.ts`, `scene/quality.ts`, `sceneQuality.test.ts`).
-  The room is drawn flat on purpose, and what the finishing passes add is the *camera* that
-  photographed the drawing: a last FXAA pass over the supersampling (the compact form of 3.11, five
-  taps to find the edge's direction and four along it — the last quarter-pixel of stair a diagonal
-  ink line still shows at 2×), the lamps' bloom (a bright pass at a quarter of the frame, blurred
-  twice, added back scaled by `rig.dark` so at noon the snow does not glow and at midnight the lamps
-  are the light), a **tilt-shift** focus held on the felt's band and easing off towards the top and
-  bottom of the frame — which is how a diorama is photographed, and the one of these a viewer names
-  — a vignette elliptical with the frame, a colour fringe out in the corners only, and a fine static
-  grain so a wall is a surface rather than a fill. A slight grade in linear light: a touch of
-  saturation and of contrast about mid-grey, small because the tones were chosen by hand.
+  The room is lit in the scene, and what the finishing passes add is the rest of the renderer a
+  low-poly diorama is judged against, in this order: the **occlusion** (below), a last FXAA pass
+  over the supersampling (the compact form of 3.11, five taps to find the edge's direction and
+  four along it — the last quarter-pixel of stair a diagonal ink line still shows at 2×), the
+  lamps' bloom (a bright pass at a quarter of the frame over the occluded frame, blurred twice,
+  added back scaled by `rig.dark` so at noon the snow does not glow and at midnight the lamps are
+  the light), a **tilt-shift** focus held on the felt's band and easing off towards the top and
+  bottom of the frame — which is how a diorama is photographed, and the one of these a viewer
+  names — then the **tone curve** with the exposure (ACES by default, `LOOK.tone.mapping`), then
+  the grade on the display range — the shade pulled towards a cool note and the light towards a
+  warm one (`shadowTint`, `highlightTint`, `splitStrength`: the warm/cool split, kept through the
+  curve), a touch of saturation and of contrast about mid-grey — a vignette elliptical with the
+  frame, a colour fringe out in the corners only, and a fine static grain so a wall is a surface
+  rather than a fill. Every number is `LOOK`'s.
+  - **The occlusion is screen-space, from the frame's own depth, and it is what the shadow map
+    cannot see.** A doorway, the crease between two blocks, the foot of a wall on the side the sun
+    reaches: a shadow map lights them like open ground. The scene target carries a float depth
+    texture; under an orthographic camera depth is linear in view z and a pixel's view x/y are its
+    uv across the camera's frame, so a position is reconstructed exactly and a sample projects
+    back with a divide by nothing (`AO_FRAG`). The normal is the depth's own differences, the
+    smaller of each pair so an edge does not smear it. Samples on a **uniform** hemisphere, not a
+    cosine one — the grazing directions are the ones that find a wall beside a paving stone, and a
+    cosine weighting spends most of its samples looking up at nothing — over two radii (1.8 tiles
+    for the well of a courtyard and the foot of a wall, 0.45 for the crease), at a half of the
+    frame, blurred depth-aware, then **multiplied into the frame before the bloom and the focus
+    copies are taken from it** (`litRT`): taken from the unoccluded frame, the out-of-focus band
+    lost its occlusion and the top of every room went flat. **An occluder more than the radius or
+    so nearer than the sample is not a crease**: counted, a tree top four tiles over a paving
+    stone drew a dark halo round every silhouette and a diagonal moiré across the felt. The
+    per-pixel rotation is interleaved gradient noise — the sine hash streaked diagonally at frame
+    coordinates.
   - **Colour is the contract with the plain path.** The scene renders into a half-float target
     (eight bits of linear light band in the darks of a night room; a GPU that refuses the format
-    gets bytes) in linear, the passes work in linear, and the composite ends on
+    gets bytes) in linear, the passes work in linear, the tone curve is applied **once**, in the
+    composite, with three's own functions — a render target gets none from the renderer, and the
+    plain path gets exactly this one from `renderer.toneMapping` — and the composite ends on
     `colorspace_fragment`, which is the same sRGB encoding `outputColorSpace` gives the direct
-    render — so a room with every pass off comes out the colour it came out before there were
-    passes. Multisampling is off once supersampling covers it: a 4× MSAA half-float target at 4096²
-    is more memory than a phone will grant.
+    render. When the renderer's curve is on, three prefixes its tone-mapping chunk to every shader
+    drawn to the canvas and defines `TONE_MAPPING`; the composite includes the chunk only when it
+    is not (`#ifndef`), because including it twice is a redefinition and a black room.
+    Multisampling is off once supersampling covers it: a 4× MSAA half-float target at 4096² is
+    more memory than a phone will grant.
   - **It runs once, and everything it allocates is released with the context.** Every target is
     disposed in a `finally`, and a throw anywhere inside — a target the GPU will not hold — falls
     back to the plain render (`renderScene`: `photographed`), never to no room. A software GPU
@@ -710,8 +774,11 @@ and each is the kit's, not a builder's:
     (`setForceFullRender`, `?gfx=force`), which is how `make rooms` and a `--gfx=force` visual
     review get it.
   - **Which passes run is the graphics tier's** (`QUALITY`): `high` supersamples up to 3× under 12 M
-    pixels and runs all of them; `medium` 2× under 7 M with FXAA, bloom and the vignette; `light`
-    is the plain multisampled frame. The tier is the player's (`hooks/graphicsPref.ts`): `auto`
+    pixels with a 4096 shadow map and runs all of them; `medium` 2× under 7 M with a 2048 map,
+    the occlusion, FXAA, bloom and the vignette; `light` is the lit, shadowed (1024), multisampled
+    frame with nothing over it. **Every tier is lit and shadowed**: the room is rendered once per
+    match, so the light is never a frame budget, and a `light` room without its shadow would be
+    the flat room this replaced. The tier is the player's (`hooks/graphicsPref.ts`): `auto`
     reads memory, cores and pointer (`autoTier`: under 4 GiB is light, a coarse pointer or four
     cores is medium, else high — a browser that says nothing is a desktop until proven otherwise,
     because the cost of guessing high is a longer gate and not a slow match), and the three explicit
@@ -886,8 +953,8 @@ all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is
   kit's own animation clips (`idle`, `walk` mid-stride) through `SkinnedMesh.applyBoneTransform`.
   The three.js objects are disposed the moment the buffers are out.
 - **And then it is a block**: `k.model(id, x, z, {rot, y, scale})` transforms the buffers, multiplies
-  the tone of the hour and the ground shade into the colours (`pushBaked`), lays the shadow polygon
-  from its vertices, pushes the hull in each vertex's own darker note, and after dark sends the
+  the ground shade into the colours (`pushBaked`), pushes the hull in each vertex's own darker
+  note, and after dark sends the
   faces painted in the kit's glow colours to the unlit bucket in the warm window colour every
   block window wears (`splitGlow`) — so a Kenney house lights its windows at night and darkens its
   foot the way a box house does, and the room stays one merged mesh per bucket.
@@ -926,10 +993,9 @@ otherwise take stays closed.
   either a `duration` or, for a thing on the ground, a `speed`. `turn` flips the sprite on a leg
   that heads left; `bob`, `spin` and `puff` animate an inner element; `fade` softens the ends of a
   run; `flying` builds it without a ground shadow. The common ones — `cloud`, `bird`, `balloon`,
-  `plane`, `puff`, `walker`, `strollers` on the promenade round the plaza, `streetWalkers` on the
-  pavements, `traffic` in the lanes, `pacers`, `boat`, `mote` after dark — are `maps/actors.ts`;
-  the harbour's ferris wheel (spokes spinning about the hub, twelve cabins riding a circle upright)
-  and the moon's rover and satellite are their builders' own.
+  `plane`, `puff`, `walker` and the `streetWalkers` it is built for, `traffic` in the lanes,
+  `boat`, `mote` after dark — are `maps/actors.ts`; the moon's rover and satellite and the
+  village's cat are their builders' own.
 - **A `loop` either walks its closing leg or fades over it, and there is no third option**
   (`closesTheRing`, `sceneLife.test.ts`). A loop wraps to its start, and a wrap the player can *see*
   is a person teleporting home and setting off again — which is what every walker whose route
@@ -962,8 +1028,8 @@ otherwise take stays closed.
   one tile at either end (that is where it would walk into something the plan has claimed, or off
   the frame — and a pass that survives whole gets those fade *points* too, because fading the two
   endpoints of a two-point route is a crossing that is transparent from end to end), and a run
-  shorter than `minLen` (four tiles; ten for a stroller, twelve for a car) is dropped. A `part`
-  then takes a stretch of what survives, so three strollers handed the same arc are three walks.
+  shorter than `minLen` (four tiles; twelve for a car) is dropped. A `part` takes a stretch of
+  what survives, so three walkers handed the same arc would be three walks.
   **A `pick` group is how a builder asks for a few without having seen the frame**: `streetWalkers`
   hands in both pavements of every run both ways, `traffic` the right-hand lane of every run both
   ways, and the `keep` worth most survive — worth being the length *seen*, inside the frame, not
@@ -1021,8 +1087,17 @@ otherwise take stays closed.
   the first it does not, so a car drives it end to end and a walker crosses the side streets. A car
   is built facing the way its lane goes (`carRot`, `personRot` — a mirror of a sprite facing one
   diagonal faces the *other* diagonal, not the way back, which is why a street walker is a `pass`
-  one way rather than a bounce with `turn`). Facing is answered per heading, and the walkers on
-  the promenade keep `turn` because that arc runs across the screen.
+  one way rather than a bounce with `turn`). Facing is answered per heading.
+- **Nobody on foot turns round.** The promenade round the table used to carry three strollers
+  (`strollers`), and the harbour front four pacers (`pacers`): a `loop` on a ring, or a `bounce`
+  along a line, with `turn` mirroring the sprite on a leg heading left. A sprite faces one
+  diagonal, and its mirror faces the *other* diagonal — so on the ring's vertical legs a stroller
+  slid sideways, and at every turn of a bounce the figure set off back the way it came, which a
+  player reported as "people walking backwards". No threshold fixes a sprite that cannot face up
+  the screen. Both are gone: a person on the move is a `pass` along a pavement with a `heading`,
+  built facing the way it goes, and gone at the end of its run (`sceneGrid.test.ts` fails on a
+  `walker` handed a `bounce`, and on the two factories coming back). The cat and the rover keep
+  their bounce: an animal turning round is what an animal does, and the rover is a box.
 - **Two things were tried and taken out before any of this existed**: the harbour's ferris wheel
   turned for an afternoon as sprites (spokes spinning about the hub, twelve cabins riding a circle),
   and the cabins rode across the roofs of the terrace standing in front of the fair as pale cubes
@@ -1046,6 +1121,45 @@ otherwise take stays closed.
 - **A sprite is keyed on the actor's id within the room**, and its seed is the room's key plus that
   id, so the balloon's colours and the walker's hat are the same for every seat and after a reload.
 
+### The room is quiet (the pass of 2026-09-06)
+The rooms had been built to be *full* — "many small buildings, roads between them, something on
+every corner", above — and full was measured and found to be the wrong brief. Neon at night was a
+wall of lit windows with a neon edge on every other tower, a sign on every third, a beacon on every
+fourth, string lights round the square, a dance floor and twenty-two people at the table; Velvet a
+cliff of four hotels to a block; Sakura a carpet of dark roofs; Orbit a solar farm to the frame's
+edge; Marina a fairground in the band between the player and the felt. The verdict was that it was
+stressful, and that the mood the game wants at a card table is **contemplation**: a place a
+spectator can rest their eyes on for twenty minutes, whose big moments are the cards'. What
+changed, and the rules it left:
+- **A room has ground between its buildings, and more of it near the table** (`GridSpec.density`,
+  per block, with `open` for what an unbuilt block gets — a pocket park, a meadow, a palm garden, a
+  crater — and the far edge denser than the ring beside the plaza, so the skyline stays and the
+  band round the table opens). Every builder declares one; `sceneGrid.test.ts` fails on a room that
+  fills every block, on a `crowd` past eight, on `people` past a half a block. The crowds went from
+  22–26 to 3–6, the passers-by from 2 a block to a third, the cars parked from every other segment
+  to one in five, and every room lost its second and third hero (the dance floor, the carousel, the
+  market in the front band, two of four stalls, the string lights in both rooms that had them).
+- **Nothing drives on the plaza** (`plazaRim`, `cityGrid`'s `buried`). The paving is an oval the
+  grid used to know about only when the builder passed `podium()`'s answer in, and three builders
+  did not: their roads ran under the flagstones, their cars were parked on them and their traffic
+  lanes crossed the crowd. The grid solves the rim itself now, and a segment the paving covers (any
+  of its two ends or its middle) is laid and forgotten — no parked car, no lamp at its corner, no
+  crossing, and never a run handed to `traffic`.
+- **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half; night went from 85% lit to
+  45%, dusk from 70% to 35%). A wall of light was the whole of the neon room's noise, and a city
+  where most windows are dark is also the one where the lit ones read. `sceneLighting.test.ts`.
+- **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, 0.8 tiles,
+  `kitHalo.test.ts`). The lighthouse wore two additive spheres, three and six tiles across, the
+  hotel's finial one of a tile and a half, the wizard's tower one of 1.3, every dome on the moon a
+  pool of light under a glowing sphere, every neon edge a pool of light lying on its roof — and an
+  additive sphere over a tower is a pale veil laid over it, which is what "transparent buildings"
+  was. The kit clamps the sphere; the rooftop pools are gone; the bloom that draws a big light's
+  glow off the glowing block itself is turned down with them (`bloomStrength` 0.1 → 0.06,
+  `bloomDark` 0.45 → 0.22, `glowIntensity` 2.4 → 1.8, `haloIntensity` 0.6 → 0.45) and the
+  tilt-shift eased (`dofMax` 0.6 → 0.45), so a far tower is a soft tower and not a ghost.
+- **Nobody on foot turns round** — above, under what moves.
+- **The stills were re-shot** (`make rooms`), since the rooms page shows the render of the day.
+
 ### Props that were the same mistake in every room (`scene/kit.ts`)
 Five of them, and each was one line of geometry standing in for something with a shape:
 - **`awning`** — a canopy that starts *at* the wall and carries a valance. Every shopfront in the
@@ -1054,8 +1168,9 @@ Five of them, and each was one line of geometry standing in for something with a
 - **`festoon`** — the cord, and the lights on it. The square and the boulevard both placed their
   bulbs on a sine and drew nothing between them: a curved line of lanterns floating in the air with
   two posts standing some way off. **And a ring of posts, never four** (`stringLights`, in
-  `maps/common.ts`, the only way a room strings them now — `sceneGeometry.test.ts` fails on a builder
-  that festoons its own): four posts round an oval table is a rectangle laid over an ellipse, with
+  `maps/common.ts`, the only way a room strings them — `sceneGeometry.test.ts` fails on a builder
+  that festoons its own; no room ships one since the quiet pass below, and the helper stays for
+  one that wants them): four posts round an oval table is a rectangle laid over an ellipse, with
   corners nothing else in the room has and two runs going straight up the frame, and what it read as
   was a stray wireframe rather than bunting. Nine posts on the paving's own ring, and **each run hung
   by its own length on screen** — a run going up the frame is drawn shorter than one going across it,

@@ -12,22 +12,26 @@
  * replaced, and everything that moves — the rain, the snow, the boat, the
  * balloon — is a layer over it (`WeatherLayer.svelte`, `LifeLayer.svelte`).
  *
- * **The room is drawn, not lit.** There is no light in the scene and no shadow
- * map: every face's tone was multiplied into its vertex colour by the kit as
- * it was built (`shade.ts`), and every shadow is a flat polygon it laid on the
- * ground. So the frame is flat colour, ink and hard shadow, the way an
- * illustrated city is, and the one thing a GPU is asked for here is edges —
- * **supersampled**: the frame is rendered larger than the bitmap it lands in
- * and scaled down, on top of multisampling, so an ink line a tile long is one
- * clean stroke at any angle. The budget is in pixels (`MAX_GL_PIXELS`), so a
- * phone gets the full factor and a 4K monitor gets what fits.
+ * **The room is lit, and it is lit once.** A sun, a sky and a rim
+ * (`lighting.ts`, from the rig's numbers) light every block through its
+ * normals; the sun throws one shadow map fitted to the frame, soft and long,
+ * and the frame is **supersampled**: rendered larger than the bitmap it lands
+ * in and scaled down, so an ink line a tile long is one clean stroke at any
+ * angle. Because there is exactly one frame, the lighting is allowed what a
+ * live viewport on a phone could not afford — a 4096 shadow map, a screen-space
+ * occlusion pass, a half-float target — and the match still costs nothing
+ * per frame. The budget is in pixels (`MAX_GL_PIXELS`), so a phone gets the
+ * full factor and a 4K monitor gets what fits.
  *
- * **And then it is photographed** (`post.ts`): the flat frame goes through
- * the finishing passes the graphics tier allows — a last edge pass, the
- * lamps' bloom, a tilt-shift focus on the table's band, grain, a fringe in
+ * **And then it is photographed** (`post.ts`): the lit frame goes through
+ * the finishing passes the graphics tier allows — the occlusion in the
+ * creases, a last edge pass, the lamps' bloom, a filmic tone curve and a
+ * warm/cool grade, a tilt-shift focus on the table's band, grain, a fringe in
  * the corners, a vignette — once, before it is copied out. The tier is the
  * player's (`hooks/graphicsPref.ts`, `quality.ts`) and says how far the
- * supersampling goes and which passes run; `light` is the plain frame.
+ * supersampling goes, how large the shadow map is and which passes run;
+ * `light` is the lit frame with its shadow and nothing over it. Every number
+ * any of this reads is `look.ts`'s.
  *
  * Isometric, orthographic: the camera looks down from a corner at the angle a
  * Habbo room is drawn at, so a block's top and two faces are visible and every
@@ -35,19 +39,22 @@
  * in tiles rather than in pixels, so a phone and a monitor frame the same
  * plaza and the table (drawn in CSS over the centre) lands on the same paving.
  */
-import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, Scene, ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget, NoToneMapping } from 'three'
+import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget } from 'three'
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
 import type { FeltAnchor } from '../cards/layout'
-import { lightRig } from './sky'
+import { lightRig, mix } from './sky'
 import { seededRng } from './rng'
 import { Kit, type Anchor } from './kit'
 import { BUILDERS, KITS } from './maps'
-import { DEFAULT_BODY, TILES_ACROSS, lengthInside, occluded, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
+import { DEFAULT_BODY, PITCH_COS, PITCH_SIN, TILES_ACROSS, lengthInside, occluded, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
 import { at } from './maps/common'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
 import { renderWithPost } from './post'
+import { configureShadows, frameBox, makeLights, shadowReach, toneMappingFor } from './lighting'
+import { lightingFor } from './shade'
+import { LOOK } from './look'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
 import { nextPaint } from './nextPaint'
 
@@ -73,14 +80,13 @@ export { TILES_ACROSS }
 /** How deep the visible world runs, top of frame to bottom, in tiles, at the pitch below. */
 const DEPTH_SPAN = 120
 const CAMERA_YAW = Math.PI / 4
-const CAMERA_PITCH = (32 * Math.PI) / 180
+/** The pitch is structural — every composition helper (`maps/common.ts`, `life.ts`) is written to it — so it is theirs, not the look's. */
+const CAMERA_PITCH = Math.atan2(PITCH_SIN, PITCH_COS)
 const CAMERA_DIST = 180
 const CAMERA_NEAR = 1
 const CAMERA_FAR = 500
 /** Frame pixels per pixel of the depth map: a route is tested to the quarter tile, not the pixel. */
 const DEPTH_SCALE = 2
-/** Ink line weight, in CSS pixels. */
-const OUTLINE_PX = 1.8
 /**
  * Supersampling: the frame is rendered up to this many times larger on each
  * side and scaled down. This is the `medium` tier's factor; `quality.ts` has
@@ -148,8 +154,7 @@ function isoCamera(): OrthographicCamera {
  * houses being blocks the ground plan never claimed and the plaza's props
  * being wherever a builder put them: the render is asked rather than the
  * plan. One extra pass, one readback, and the target is released with the
- * context. The shadows and the halos are left out — a shadow is on the ground
- * and a halo is light, and neither stands in front of anything.
+ * context. The halos are left out — light stands in front of nothing.
  */
 function readDepth(renderer: WebGLRenderer, scene: Scene, group: Group, camera: OrthographicCamera, size: RenderSize, ppu: number): DepthMap {
   const w = Math.max(1, Math.ceil(size.width / DEPTH_SCALE))
@@ -292,17 +297,20 @@ export async function renderScene(
   const ppu = Math.max(size.width, size.height) / TILES_ACROSS
   const q = renderQuality(tier)
   const ssWanted = supersampleFor(size, q)
-  const outline = (OUTLINE_PX * size.pixelRatio) / ppu
+  const outline = (LOOK.outline.px * size.pixelRatio) / ppu
 
   const gl = document.createElement('canvas')
-  // `stencil` is off by default since r163 and the shadows draw through it;
   // `alpha` so the sprites come out on nothing. Multisampling only where the
   // supersampling does not already cover the edges: on the light tier.
-  const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: true, powerPreference: 'high-performance' })
+  const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: false, powerPreference: 'high-performance' })
   try {
     renderer.setPixelRatio(1)
     renderer.outputColorSpace = SRGBColorSpace
-    renderer.toneMapping = NoToneMapping
+    // The tone curve on the plain path; the composite applies the same one
+    // itself, since a render target gets none from the renderer.
+    renderer.toneMapping = toneMappingFor(LOOK.tone.mapping)
+    renderer.toneMappingExposure = lightingFor(rig).exposure
+    configureShadows(renderer)
     // A software GPU pays for every supersampled pixel on the CPU, and the one
     // place this runs on one is headless Chromium in CI, behind the
     // map-loading gate's clock. It gets the plain frame — unless tooling asked
@@ -317,12 +325,14 @@ export async function renderScene(
     renderer.setSize(gw, gh, false)
     renderer.setClearColor(new Color(rig.sky.horizon), 1)
     const scene = new Scene()
-    if (rig.fog) {
+    if (rig.fog && LOOK.fog.strength > 0) {
       // The camera sits CAMERA_DIST from the plaza and the visible world spans
       // DEPTH_SPAN units of view depth around it, the far half being the top of
-      // the screen. The rig's near/far are fractions of that span.
+      // the screen. The rig's near/far are fractions of that span; the look
+      // pushes both out to thin it.
       const from = CAMERA_DIST - DEPTH_SPAN / 2
-      scene.fog = new Fog(new Color(rig.fog.color), from + rig.fog.near * DEPTH_SPAN, from + rig.fog.far * DEPTH_SPAN)
+      const k = 1 / Math.max(0.05, LOOK.fog.strength)
+      scene.fog = new Fog(new Color(rig.fog.color), from + rig.fog.near * DEPTH_SPAN, from + rig.fog.near * DEPTH_SPAN + (rig.fog.far - rig.fog.near) * DEPTH_SPAN * k)
     }
     const t0 = performance.now()
     const vw = size.width / ppu
@@ -335,6 +345,12 @@ export async function renderScene(
     const t2 = performance.now()
     await report(RENDER_STEPS.merged)
     scene.add(group)
+
+    // The light: the sun's shadow map fitted to exactly what the frame shows.
+    const lights = makeLights(rig, q)
+    scene.add(lights.group)
+    lights.fitShadow(frameBox(vw, vh, CAMERA_PITCH, at))
+    renderer.shadowMap.needsUpdate = true
 
     const camera = isoCamera()
     camera.left = -vw / 2
@@ -355,6 +371,7 @@ export async function renderScene(
         if (import.meta.env.DEV) console.warn('post-processing failed, plain frame', err)
         renderer.setRenderTarget(null)
         renderer.setClearColor(new Color(rig.sky.horizon), 1)
+        renderer.shadowMap.needsUpdate = true
       }
     }
     if (!photographed) renderer.render(scene, camera)
@@ -396,17 +413,23 @@ export async function renderScene(
     const worth = (actor: Actor) => lengthInside(actor, (pt) => seen(pt) && (actor.flying === true || !occluded(depth, pt, actor.body ?? DEFAULT_BODY)))
     const actors = selectActors(candidates, standable, worth)
     dispose(group)
+    lights.dispose()
     await report(RENDER_STEPS.placed)
 
     // ─── The sprites ─────────────────────────────────────────────────────
     // Same kit, same light, same line weight, same camera: an actor is a
     // piece of the room that happens to be on its own bitmap. Its bounds are
     // measured in view space so the bitmap is exactly as big as it needs to
-    // be, and the origin — the ground point the path carries — is recorded.
+    // be — the shadow it throws on the ground included, which it carries on
+    // a catcher of its own — and the origin, the ground point the path
+    // carries, is recorded.
     const sprites: Sprite[] = []
     renderer.setClearColor(0x000000, 0)
     const spriteScene = new Scene()
     if (scene.fog) spriteScene.fog = scene.fog
+    const spriteLights = makeLights(rig, q)
+    spriteScene.add(spriteLights.group)
+    const catcherMaterial = new ShadowMaterial({ color: new Color(mix(0x10163a, rig.ambient.sky, 0.35)), opacity: LOOK.shadow.spriteOpacity * rig.sun.shadow, transparent: true, depthWrite: false })
     const corner = new Vector3()
     for (const [i, actor] of actors.entries()) {
       // A sprite is a build and a draw of its own, so a room full of them is
@@ -426,10 +449,26 @@ export async function renderScene(
         dispose(g)
         continue
       }
+      // Something on the ground throws its shadow on a catcher of its own: a
+      // plane under it that draws nothing but the shadow, at the room's own
+      // shadow colour, on the sprite's transparent background. The bitmap is
+      // sized to the reach of that shadow, not only to the thing.
+      let catcher: Mesh | null = null
+      const extent = k.shadows ? shadowReach(box, rig) : box
+      if (k.shadows) {
+        const cw = extent.max.x - extent.min.x + 1
+        const cd = extent.max.z - extent.min.z + 1
+        catcher = new Mesh(new PlaneGeometry(cw, cd), catcherMaterial)
+        catcher.rotation.x = -Math.PI / 2
+        catcher.position.set((extent.min.x + extent.max.x) / 2, 0.01, (extent.min.z + extent.max.z) / 2)
+        catcher.receiveShadow = true
+        spriteScene.add(catcher)
+      }
+      spriteLights.fitShadow(extent)
       // View-space extent of the world box: project its eight corners.
       const view = camera.matrixWorldInverse
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      for (const x of [extent.min.x, extent.max.x]) for (const y of [extent.min.y, extent.max.y]) for (const z of [extent.min.z, extent.max.z]) {
         corner.set(x, y, z).applyMatrix4(view)
         minX = Math.min(minX, corner.x)
         maxX = Math.max(maxX, corner.x)
@@ -450,8 +489,13 @@ export async function renderScene(
       camera.updateProjectionMatrix()
       renderer.setSize(Math.round(sw * ss), Math.round(sh * ss), false)
       spriteScene.add(g)
+      renderer.shadowMap.needsUpdate = true
       renderer.render(spriteScene, camera)
       spriteScene.remove(g)
+      if (catcher) {
+        spriteScene.remove(catcher)
+        catcher.geometry.dispose()
+      }
       const canvas = document.createElement('canvas')
       canvas.width = sw
       canvas.height = sh
@@ -466,6 +510,8 @@ export async function renderScene(
       sprites.push({ actor, canvas, ox: (corner.x - minX) * ppu, oy: (maxY - corner.y) * ppu, ...(mask ? { mask } : {}) })
       dispose(g)
     }
+    catcherMaterial.dispose()
+    spriteLights.dispose()
     if (import.meta.env.DEV) {
       // Where a room's second goes, for whoever is making it heavier.
       const t4 = performance.now()

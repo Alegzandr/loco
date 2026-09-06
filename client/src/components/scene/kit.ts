@@ -15,16 +15,15 @@
  *   rim that pokes past the block's silhouette is the line. Built per block
  *   rather than by pushing vertices along normals, because a box's faces do not
  *   share vertices and a per-vertex push leaves the corners open.
- * - **Colour is a vertex attribute, and so is the light.** One unlit material
- *   for every block, which is what lets the merge happen; the tone of each face
- *   (`shade.ts`: the top in the light, one side half-lit, the other in shade)
- *   is multiplied into the vertex colour as the block is pushed, from its
- *   normal. No light object, no shadow map: a gradient across a wall is a
- *   render, three flat tones are a drawing, and a toon ramp under a real light
- *   was a gradient cut into four.
- * - **Every outlined block throws a shadow on the ground**, a flat polygon in
- *   the `shadow` bucket (its corners slid along the sun and wrapped in a hull),
- *   drawn once through the stencil so two shadows overlapping stay one tone.
+ * - **Colour is a vertex attribute, and the light is a light.** One lit material
+ *   for every block (`MeshStandardMaterial`, rough and matte, colours from the
+ *   vertices), which is what lets the merge happen; the sun, the sky and the
+ *   shadows are the render's (`lighting.ts`, `render.ts`) and reach the block
+ *   through its normals like any rendered object. The one thing still written
+ *   into the colour is the foot of a wall darkening towards the ground
+ *   (`LOOK.material.footShade`), the contact the occlusion pass then sharpens.
+ * - **Every block casts and receives the sun's shadow**, from one shadow map
+ *   over the whole frame; what glows, the ink and the halos cast nothing.
  * - **The weather is answered here, not in every builder**: `snow` puts a cap on
  *   every flat top, `wet` darkens and puddles the ground the builder asks for,
  *   `lampsOn` decides whether a lamp's head goes into the unlit `glow` bucket or
@@ -41,15 +40,12 @@ import {
   Color,
   ConeGeometry,
   CylinderGeometry,
-  DoubleSide,
-  EqualStencilFunc,
   Float32BufferAttribute,
   Group,
-  IncrementStencilOp,
-  KeepStencilOp,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   SphereGeometry,
   BackSide,
   AdditiveBlending,
@@ -58,7 +54,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Hex, LightRig } from './sky'
 import { mix, scale } from './sky'
 import type { Rng } from './rng'
-import { shadeFor, shadowHull, shadowRun, SHADOW_PLANE_Y, type Shader } from './shade'
+import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { hullFor, splitGlow } from './models/bake'
@@ -103,7 +99,6 @@ export interface ModelOptions {
   collide?: boolean
   /** Grow the claimed footprint by this many tiles. */
   margin?: number
-  shadow?: boolean
   outline?: boolean
 }
 
@@ -118,13 +113,9 @@ export interface BlockOptions {
   outline?: boolean
   /** Take a snow cap when it snows. On by default for anything with a flat top. */
   cap?: boolean
-  /** Throw a shadow on the ground. On by default for every outlined, lit block. */
-  shadow?: boolean
 }
 
 export const INK = 0x120b24
-/** How much darker a wall is at its foot than at its top, 0–1. */
-const GROUND_SHADE = 0.16
 /**
  * A block's outline is a darker note of its own colour, never black. The
  * interface draws its ink in `INK` because a button is one object on a
@@ -133,13 +124,15 @@ const GROUND_SHADE = 0.16
  * separates its shapes with a deeper tone of each fill, and so does this.
  */
 export function inkFor(c: Hex): Hex {
-  return mix(scale(c, 0.42), INK, 0.3)
+  return mix(scale(c, LOOK.outline.darken), INK, LOOK.outline.inkMix)
 }
 const SNOW = 0xf4f7fb
+/** The largest round halo the kit will draw, in tiles: a lamp head's, not a landmark's. */
+export const HALO_SPHERE_MAX = 0.8
 const WINDOW_DARK = 0x1a2233
 const WINDOW_GLOW = 0xffd98a
 
-type Bucket = 'lit' | 'glow' | 'ink' | 'halo' | 'shadow'
+type Bucket = 'lit' | 'glow' | 'ink' | 'halo'
 
 const _color = new Color()
 const _m = new Matrix4()
@@ -159,13 +152,12 @@ export class Kit {
   readonly anchor: Anchor
   /** The frame in screen tiles, or a default wide enough for any builder to compose against. */
   readonly frame: { w: number; h: number }
-  readonly shader: Shader
   /** The ground plan: every model placed, every zone claimed (`placer.ts`). */
   readonly placer = new Placer(0.35)
+  /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
+  readonly shadows: boolean
   private readonly models: ModelLib | null
-  private readonly run: [number, number]
-  private readonly shadows: boolean
-  private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [], shadow: [] }
+  private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
   /** Every pane on every wall, two sheets (`quad`). */
   private sheets: Record<'lit' | 'glow', { pos: number[]; nrm: number[]; col: number[]; idx: number[] }> = {
@@ -179,8 +171,6 @@ export class Kit {
     this.outline = o.outline
     this.anchor = o.anchor
     this.frame = o.frame ?? { w: 80, h: 80 }
-    this.shader = shadeFor(o.rig)
-    this.run = shadowRun(o.rig)
     this.shadows = o.shadows ?? true
     this.models = o.models ?? null
   }
@@ -251,7 +241,6 @@ export class Kit {
     }
 
     const body = make(b.position, lit, b.color)
-    if (o.shadow !== false) this.shadowOf(body, { outline: o.outline })
     this.pushBaked(body, 'lit')
     if (glow && glow.length) {
       const g = make(b.position, glow)
@@ -268,8 +257,8 @@ export class Kit {
 
   /**
    * A geometry that carries its own base colours. In the lit bucket each is
-   * multiplied by the tone of its face and the ground shade like a block's
-   * single colour is; in the ink bucket each becomes its own darker note.
+   * multiplied by the ground shade like a block's single colour is; in the ink
+   * bucket each becomes its own darker note.
    */
   private pushBaked(geom: BufferGeometry, bucket: 'lit' | 'ink') {
     if (!geom.index) throw new Error('kit: every geometry must be indexed, or the bucket will not merge')
@@ -289,11 +278,10 @@ export class Kit {
       const span = hi - lo
       for (let i = 0; i < n; i++) {
         const ny = nrm.getY(i)
-        const t = this.shader.tone(nrm.getX(i), ny, nrm.getZ(i))
-        const k = span > 0.6 && Math.abs(ny) < 0.6 ? 1 - GROUND_SHADE * (1 - (pos.getY(i) - lo) / span) : 1
-        arr[i * 3] = col.getX(i) * t[0] * k
-        arr[i * 3 + 1] = col.getY(i) * t[1] * k
-        arr[i * 3 + 2] = col.getZ(i) * t[2] * k
+        const k = span > 0.6 && Math.abs(ny) < 0.6 ? 1 - LOOK.material.footShade * (1 - (pos.getY(i) - lo) / span) : 1
+        arr[i * 3] = col.getX(i) * k
+        arr[i * 3 + 1] = col.getY(i) * k
+        arr[i * 3 + 2] = col.getZ(i) * k
       }
     } else {
       for (let i = 0; i < n; i++) {
@@ -336,11 +324,10 @@ export class Kit {
     const arr = new Float32Array(n * 3)
     _color.setHex(color)
     if (bucket === 'lit') {
-      // The light, baked: each vertex's colour is the block's times the tone of
-      // the face it belongs to. Every primitive here has flat normals, so a
-      // face is one tone edge to edge — except that a wall darkens towards its
-      // foot (`GROUND_SHADE`), which is what an illustrator does to sit a
-      // building on the ground, and what vertex interpolation gives for free.
+      // The colour, and one thing about the light: a wall darkens towards its
+      // foot (`LOOK.material.footShade`), which is what an illustrator does to
+      // sit a building on the ground and what vertex interpolation gives for
+      // free. The rest of the light is the render's, through the normals.
       const nrm = geom.getAttribute('normal')
       const pos = geom.getAttribute('position')
       let lo = Infinity
@@ -353,12 +340,11 @@ export class Kit {
       const span = hi - lo
       for (let i = 0; i < n; i++) {
         const ny = nrm.getY(i)
-        const t = this.shader.tone(nrm.getX(i), ny, nrm.getZ(i))
         // Only the sides, only on something tall enough to have a foot.
-        const k = span > 0.6 && Math.abs(ny) < 0.6 ? 1 - GROUND_SHADE * (1 - (pos.getY(i) - lo) / span) : 1
-        arr[i * 3] = _color.r * t[0] * k
-        arr[i * 3 + 1] = _color.g * t[1] * k
-        arr[i * 3 + 2] = _color.b * t[2] * k
+        const k = span > 0.6 && Math.abs(ny) < 0.6 ? 1 - LOOK.material.footShade * (1 - (pos.getY(i) - lo) / span) : 1
+        arr[i * 3] = _color.r * k
+        arr[i * 3 + 1] = _color.g * k
+        arr[i * 3 + 2] = _color.b * k
       }
     } else {
       for (let i = 0; i < n; i++) {
@@ -384,39 +370,12 @@ export class Kit {
     return geom
   }
 
-  /**
-   * The shadow of a placed solid, on the ground beside it. Whether a block
-   * throws one follows whether it is outlined: the two together are what says
-   * "this is an object" rather than "this is a surface".
-   */
-  private shadowOf(geom: BufferGeometry, o: BlockOptions) {
-    if (!this.shadows || o.shadow === false || o.outline === false || o.glow) return
-    const pos = geom.getAttribute('position')
-    const pts: [number, number, number][] = []
-    for (let i = 0; i < pos.count; i++) pts.push([pos.getX(i), pos.getY(i), pos.getZ(i)])
-    const hull = shadowHull(pts, this.run)
-    if (!hull) return
-    const flat = new Float32Array(hull.length * 3)
-    for (let i = 0; i < hull.length; i++) {
-      flat[i * 3] = hull[i][0]
-      flat[i * 3 + 1] = SHADOW_PLANE_Y
-      flat[i * 3 + 2] = hull[i][1]
-    }
-    const g = new BufferGeometry()
-    g.setAttribute('position', new Float32BufferAttribute(flat, 3))
-    const idx: number[] = []
-    for (let i = 1; i + 1 < hull.length; i++) idx.push(0, i, i + 1)
-    g.setIndex(idx)
-    this.buckets.shadow.push(g)
-  }
-
   /** A block. `y` is its bottom, `x`/`z` its centre. */
   box(x: number, y: number, z: number, w: number, h: number, d: number, color: Hex, o: BlockOptions = {}) {
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     // A tilted block is placed by its centre, an upright one by its bottom.
     const cy = o.tilt ? y : y + h / 2
     const body = this.place(boxGeometry(w, h, d), x, cy, z, o.rot, o.tilt)
-    this.shadowOf(body, o)
     this.push(body, color, bucket)
     if (o.outline !== false) {
       const t = this.outline
@@ -441,7 +400,6 @@ export class Kit {
     }
     const cy = o.axis ? y : y + h / 2
     const body = this.place(make(rTop, r, h), x, cy, z, o.rot)
-    this.shadowOf(body, o)
     this.push(body, color, bucket)
     if (o.outline !== false) {
       const t = this.outline
@@ -466,7 +424,6 @@ export class Kit {
       return g
     }
     const body = this.place(make(a, b, h), x, y + h / 2, z, o.rot)
-    this.shadowOf(body, o)
     this.push(body, color, bucket)
     if (o.outline !== false) {
       const t = this.outline
@@ -481,7 +438,6 @@ export class Kit {
     const seg = o.seg ?? 4
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const body = this.place(coneGeometry(r, h, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4)
-    this.shadowOf(body, o)
     this.push(body, this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.6) : color, bucket)
     if (o.outline !== false) {
       const t = this.outline
@@ -493,7 +449,6 @@ export class Kit {
     const seg = o.seg ?? 8
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const body = this.place(sphereGeometry(r, seg), x, y, z)
-    this.shadowOf(body, o)
     this.push(body, color, bucket)
     if (o.outline !== false) {
       this.push(this.place(sphereGeometry(r + this.outline, seg), x, y, z), inkFor(color), 'ink')
@@ -505,7 +460,6 @@ export class Kit {
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const c = this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.75) : color
     const body = this.place(prismGeometry(w, h, d), x, y, z, o.rot)
-    this.shadowOf(body, o)
     this.push(body, c, bucket)
     if (o.outline !== false) {
       const t = this.outline
@@ -521,10 +475,18 @@ export class Kit {
   /**
    * A pool of light: an additive translucent disc, drawn flat on the ground or
    * as a sprite-ish sphere around a lamp head. Only when the lamps are on.
+   *
+   * **A sphere of light is a lamp head's, never a building's.** The radius
+   * of a round halo is clamped to `HALO_SPHERE_MAX`: an additive sphere six
+   * tiles across round a lighthouse, or a tile and a half round a hotel's
+   * finial, is a pale veil laid over the tower and the rocks under it, and
+   * what the eye reads is a building it can see through. The glow of a thing
+   * that big is the bloom's to draw, off the glowing block itself.
    */
   halo(x: number, y: number, z: number, r: number, color: Hex, alpha = 0.35, flat = true) {
     if (!this.rig.lampsOn) return
-    const g = flat ? new CylinderGeometry(r, r, 0.02, 16) : new SphereGeometry(r, 10, 8)
+    const rr = flat ? r : Math.min(r, HALO_SPHERE_MAX)
+    const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 10, 8)
     this.push(this.place(g, x, flat ? y + 0.03 : y, z), color, 'halo')
     this.haloAlphas.push(alpha)
   }
@@ -603,8 +565,7 @@ export class Kit {
       sheet.nrm.push(nx, 0, nz)
     }
     _color.setHex(color)
-    const t = glow ? [1, 1, 1] : this.shader.tone(nx, 0, nz)
-    for (let i = 0; i < 4; i++) sheet.col.push(_color.r * t[0], _color.g * t[1], _color.b * t[2])
+    for (let i = 0; i < 4; i++) sheet.col.push(_color.r, _color.g, _color.b)
     sheet.idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
   }
 
@@ -1130,46 +1091,39 @@ export class Kit {
 
   // ─── Build ────────────────────────────────────────────────────────────────
 
-  /** Merges every bucket into one mesh each and returns the group. */
+  /**
+   * Merges every bucket into one mesh each and returns the group.
+   *
+   * The lit bucket is the one lit material: rough, matte, colours from the
+   * vertices, casting and receiving the sun's shadow. What glows is unlit and
+   * brighter than white (`LOOK.material.glowIntensity`), which is what the
+   * bloom picks up after dark; the ink hull is unlit and back-face only; the
+   * halos are additive light on the ground. None of those three casts a
+   * shadow: a hull would throw a shadow larger than its block, a lit window
+   * is a quad on a wall, and light is not a thing.
+   */
   build(): Group {
     const g = new Group()
     this.flushSheets()
     const lit = merge(this.buckets.lit)
-    if (lit) g.add(new Mesh(lit, new MeshBasicMaterial({ vertexColors: true })))
-    const glow = merge(this.buckets.glow)
-    if (glow) g.add(new Mesh(glow, new MeshBasicMaterial({ vertexColors: true })))
-    const ink = merge(this.buckets.ink)
-    if (ink) g.add(new Mesh(ink, new MeshBasicMaterial({ vertexColors: true, side: BackSide })))
-    const shadow = merge(this.buckets.shadow)
-    if (shadow) {
-      // Drawn after every solid (so the depth test hides it behind whatever
-      // stands in front of it) and through the stencil: a pixel already in
-      // shadow refuses a second shadow, so overlapping polygons stay one tone
-      // rather than stacking their alpha into a dark blot at every crowded
-      // corner. The renderer is asked for a stencil buffer for exactly this.
-      const m = new Mesh(
-        shadow,
-        new MeshBasicMaterial({
-          color: this.shader.shadow.color,
-          transparent: true,
-          opacity: this.shader.shadow.alpha,
-          depthWrite: false,
-          side: DoubleSide,
-          stencilWrite: true,
-          stencilFunc: EqualStencilFunc,
-          stencilRef: 0,
-          stencilFail: KeepStencilOp,
-          stencilZFail: KeepStencilOp,
-          stencilZPass: IncrementStencilOp,
-        }),
-      )
-      m.renderOrder = 1
+    if (lit) {
+      const m = new Mesh(lit, new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness }))
+      m.castShadow = true
+      m.receiveShadow = true
       g.add(m)
     }
+    const glow = merge(this.buckets.glow)
+    if (glow) {
+      const k = LOOK.material.glowIntensity
+      g.add(new Mesh(glow, new MeshBasicMaterial({ vertexColors: true, color: new Color(k, k, k) })))
+    }
+    const ink = merge(this.buckets.ink)
+    if (ink) g.add(new Mesh(ink, new MeshBasicMaterial({ vertexColors: true, side: BackSide })))
     const halo = merge(this.buckets.halo)
     if (halo) {
       const alpha = this.haloAlphas.reduce((a, b) => a + b, 0) / Math.max(1, this.haloAlphas.length)
-      const m = new Mesh(halo, new MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: alpha, blending: AdditiveBlending, depthWrite: false }))
+      const h = LOOK.material.haloIntensity
+      const m = new Mesh(halo, new MeshBasicMaterial({ vertexColors: true, color: new Color(h, h, h), transparent: true, opacity: alpha, blending: AdditiveBlending, depthWrite: false }))
       m.renderOrder = 2
       g.add(m)
     }

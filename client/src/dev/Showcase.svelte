@@ -15,6 +15,7 @@
   import { setColorAssist } from '../hooks/colorAssist'
   import { setGraphicsPref } from '../hooks/graphicsPref'
   import { setForceFullRender } from '../components/scene/quality'
+  import { applyLookPatch, type LookPatch } from '../components/scene/look'
   import Lobby from '../components/Lobby.svelte'
   import Searching from '../components/Searching.svelte'
   import MatchFound from '../components/MatchFound.svelte'
@@ -53,6 +54,16 @@
     setForceFullRender(true)
   } else if (gfx === 'high' || gfx === 'medium' || gfx === 'light') {
     setGraphicsPref(gfx)
+  }
+  // A partial look over the default one, for shooting a room under numbers
+  // that are not committed yet: `?lookPatch={"ao":{"intensity":1}}`.
+  const lookPatch = params.get('lookPatch')
+  if (lookPatch) {
+    try {
+      applyLookPatch(JSON.parse(lookPatch) as LookPatch)
+    } catch (err) {
+      console.warn('lookPatch: not JSON', err)
+    }
   }
 
   /** Applies a scene's store patch. Relative timers become absolute at apply time. */

@@ -34,6 +34,15 @@ function isShowcase(): boolean {
   return import.meta.env.DEV && new URLSearchParams(window.location.search).has('showcase')
 }
 
+/**
+ * Dev-only look panel. `?look=1` on any page mounts the lil-gui panel over the
+ * app (`dev/lookPanel.ts`): every number the room's render reads, live. Same
+ * gate as the showcase, so neither the panel nor lil-gui reaches a build.
+ */
+function wantsLookPanel(): boolean {
+  return import.meta.env.DEV && new URLSearchParams(window.location.search).has('look')
+}
+
 async function resolveRoot(): Promise<Component<Record<string, never>>> {
   if (isShowcase()) {
     const { default: Showcase } = await import('./dev/Showcase.svelte')
@@ -157,6 +166,9 @@ function boot() {
   void resolveRoot().then((Root) => {
     mount(Root, { target: document.getElementById('root')! })
     markBooted()
+    // The constant is repeated here on purpose: folded to `false`, the whole
+    // branch goes, and with it the chunk the dynamic import would emit.
+    if (import.meta.env.DEV && wantsLookPanel()) void import('./dev/lookPanel').then((m) => m.mountLookPanel())
   })
 }
 

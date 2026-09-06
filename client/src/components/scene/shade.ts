@@ -1,39 +1,26 @@
 /**
- * How a block is coloured, and where its shadow falls: the whole of the
- * room's lighting, as arithmetic on plain numbers.
+ * The light of a room, as arithmetic on plain numbers.
  *
- * The room is a drawing, not a render. An illustrated isometric city gives
- * every block three flat tones — the top in the light, one side half-lit, the
- * other in shade — and a hard shadow lying on the ground beside it, and that is
- * all the light there is. So nothing here goes through a light object or a
- * shadow map: **the tone is baked into the vertex colour when the block is
- * built** (`Shader.tone`, called by the kit for every vertex from its normal),
- * and **the shadow is a flat polygon on the ground** (`shadowHull`), the
- * block's corners projected along the sun and wrapped in a convex hull. A
- * toon ramp under a real light banded on every cylinder and a PCF shadow map
- * put noise on every façade; a tone per face and a polygon per block put
- * neither anywhere, and both cost nothing to draw.
+ * The room is lit, not drawn: a warm sun low over the diorama, a cool sky
+ * filling the shade, a long soft shadow on the ground beside every block and
+ * occlusion in the creases — the way a low-poly scene comes out of a renderer,
+ * which is the look the rooms are judged against. The lights themselves are
+ * three.js objects (`lighting.ts`); what this file holds is everything about
+ * them that can be stated without three.js — the sun's direction and colour,
+ * the sky's, how soft the shadow is tonight, the run a shadow makes on the
+ * ground — so that a test can assert the warm/cool split at every hour and the
+ * sprite pass can size a bitmap around a shadow it has not drawn yet.
  *
  * No three.js in this file, so the arithmetic is testable in jsdom.
  */
 import type { Hex, LightRig } from './sky'
 import { mix } from './sky'
+import { LOOK } from './look'
 
 export type Rgb = [number, number, number]
 
 /** A world point, `y` up. */
 export type P3 = [number, number, number]
-
-/**
- * The plane every shadow is drawn on, in tiles above the ground.
- *
- * Above the paving, the roads, the crossings and the dashes (the highest is
- * 0.08) so a shadow crossing a street is drawn on it rather than under it, and
- * below anything that stands: the ground plane of a block starting at 0 is
- * cut a tenth of a tile up, where its own faces are in front of the plane
- * from this camera.
- */
-export const SHADOW_PLANE_Y = 0.12
 
 /** Unit vector *towards* the sun, from the rig's azimuth and elevation. */
 export function sunDirection(rig: LightRig): P3 {
@@ -42,82 +29,92 @@ export function sunDirection(rig: LightRig): P3 {
   return [Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)]
 }
 
+/** How far a shadow may run per unit of height, whatever the hour: past this a sprite's bitmap is mostly shadow. */
+export const MAX_SHADOW_RUN = 3.5
+
 /**
- * The direction a shadow runs along the ground, per unit of height, and
- * capped: a dawn sun eleven degrees up throws a shadow five times a block's
- * height, which on a street of ten-tile houses is a street of shadow.
+ * The direction a shadow runs along the ground, per unit of height: the true
+ * run of this sun, capped so a sprite's bitmap stays a bitmap of the thing.
  */
 export function shadowRun(rig: LightRig): [number, number] {
   const [sx, sy, sz] = sunDirection(rig)
-  const len = Math.min(1.25, Math.max(0.3, Math.hypot(sx, sz) / Math.max(0.05, sy)))
+  const len = Math.min(MAX_SHADOW_RUN, Math.hypot(sx, sz) / Math.max(0.05, sy))
   const h = Math.hypot(sx, sz) || 1
   return [(-sx / h) * len, (-sz / h) * len]
 }
 
-function channels(c: Hex): Rgb {
+export function channels(c: Hex): Rgb {
   return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255]
 }
 
-export interface Shader {
-  /** Multipliers for a face with this unit normal. */
-  tone(nx: number, ny: number, nz: number): Rgb
-  /** The shadow polygon's colour and alpha, tonight. */
-  shadow: { color: Hex; alpha: number }
+/** Red minus blue, 0–255 scale: positive is warm, negative is cool. */
+export function warmth(c: Hex): number {
+  return ((c >> 16) & 255) - (c & 255)
+}
+
+/** The key light, as numbers the renderer builds a `DirectionalLight` from. */
+export interface SunLight {
+  color: Hex
+  intensity: number
+  /** Towards the sun, unit. */
+  direction: P3
+}
+
+/** The fill, as numbers the renderer builds a `HemisphereLight` from. */
+export interface SkyLight {
+  sky: Hex
+  ground: Hex
+  intensity: number
 }
 
 /**
- * The three tones of the hour.
- *
- * Exposure follows `rig.dark` (noon 1, a stormy night about half) and the
- * light's own colour tints everything a little more the darker it is, so a
- * dusk is amber and a night is blue rather than merely dim. The lit side
- * takes a step down from the top and the far side two, and the far side leans
- * towards the sky's ambient rather than the sun's colour — a cool shadow
- * beside a warm light is what makes a flat drawing read as lit at all.
- * Anything in between is snapped to the nearest of the three: a cylinder is
- * three stripes, a ball three crescents, never a gradient.
+ * The lighting of the hour: the sun and the sky the rig describes, with the
+ * one thing the look adds — a second, cooler sun from behind (`rim`), which
+ * is the sky's bounce on the wall the sun does not reach. It is what keeps a
+ * far wall a colour rather than a silhouette, and it carries no shadow.
  */
-export function shadeFor(rig: LightRig): Shader {
-  const [sx, , sz] = sunDirection(rig)
-  const h = Math.hypot(sx, sz) || 1
-  const ux = sx / h
-  const uz = sz / h
-  const exposure = 1 - rig.dark * 0.55
-  const tintK = 0.22 + rig.dark * 0.3
-  const warm = channels(mix(0xffffff, rig.sun.color, tintK))
-  const cool = channels(mix(mix(0xffffff, rig.sun.color, tintK), rig.ambient.sky, 0.45 + rig.dark * 0.2))
-  // The steps between the three tones are what the eye reads as light, and
-  // they were 1 / 0.84 / 0.66: a sixth of a stop between the roof and the wall
-  // in the sun, and a fifth between that wall and the one in shade. At that
-  // spacing a street of cubes comes out as one flat wash of its own colour —
-  // "there is no lighting" is the correct reading of it. An illustrated
-  // isometric puts the shaded side at about half the lit one, so these do too.
-  const LIT = 0.74
-  const SHADE = 0.47
-  const UNDER = 0.32
-  const top: Rgb = [warm[0] * exposure, warm[1] * exposure, warm[2] * exposure]
-  const lit: Rgb = [warm[0] * exposure * LIT, warm[1] * exposure * LIT, warm[2] * exposure * LIT]
-  const shade: Rgb = [cool[0] * exposure * SHADE, cool[1] * exposure * SHADE, cool[2] * exposure * SHADE]
-  const under: Rgb = [cool[0] * exposure * UNDER, cool[1] * exposure * UNDER, cool[2] * exposure * UNDER]
+export interface Lighting {
+  sun: SunLight
+  sky: SkyLight
+  rim: SunLight | null
+  /** Blur radius of the shadow, in shadow-map texels. Softer the lower the sun. */
+  shadowRadius: number
+  /** How much of the sun the overcast leaves: 1 clear, towards 0 under a storm. */
+  shadowStrength: number
+  /** The tone curve's exposure tonight: the look's, lifted with the dark so a stormy night stays a room. */
+  exposure: number
+}
+
+export function lightingFor(rig: LightRig): Lighting {
+  const direction = sunDirection(rig)
+  const [dx, , dz] = direction
+  const el = rig.sun.elevation
+  // A low sun throws a longer shadow, and a longer shadow is a softer one:
+  // the penumbra grows with the distance between the caster and the ground.
+  const shadowRadius = LOOK.shadow.radius * (1 + Math.max(0, (35 - el) / 35) * 0.6)
+  const rimK = LOOK.ambient.rim
   return {
-    tone(nx, ny, nz) {
-      if (ny > 0.6) return top
-      if (ny < -0.6) return under
-      // How much this face looks towards the sun, on the ground plane.
-      const facing = nx * ux + nz * uz
-      return facing > 0 ? lit : shade
-    },
-    shadow: {
-      color: mix(0x10163a, rig.ambient.sky, 0.35),
-      // A drawing's shadow is a shape, not a tint: at 0.26 of a sky-blue it was
-      // a smudge nobody read as a shadow, which is the other half of the room
-      // looking unlit. It still thins with the hour and with the sky.
-      alpha: Math.max(0.12, (0.38 - rig.dark * 0.16) * rig.sun.shadow),
-    },
+    sun: { color: rig.sun.color, intensity: rig.sun.intensity, direction },
+    sky: { sky: rig.ambient.sky, ground: rig.ambient.ground, intensity: rig.ambient.intensity },
+    rim:
+      rimK > 0
+        ? {
+            // From opposite the sun and lower, in the sky's own colour.
+            color: mix(rig.ambient.sky, 0xffffff, 0.2),
+            intensity: rig.sun.intensity * rimK * 0.35,
+            direction: [-dx, 0.35, -dz],
+          }
+        : null,
+    shadowRadius,
+    shadowStrength: rig.sun.shadow,
+    exposure: LOOK.tone.exposure * (1 + rig.dark * LOOK.tone.nightLift),
   }
 }
 
-// ─── Shadows ────────────────────────────────────────────────────────────────
+// ─── Shadows, as shapes ─────────────────────────────────────────────────────
+// The room's shadows are a map now; what is still a polygon is the *extent*
+// of one, which the sprite pass needs before it has drawn anything: a
+// sprite's bitmap has to be wide enough to hold the shadow the thing throws.
 
 /** Andrew's monotone chain. Returns the hull counter-clockwise, no repeats. */
 export function convexHull(points: [number, number][]): [number, number][] {
@@ -142,15 +139,13 @@ export function convexHull(points: [number, number][]): [number, number][] {
 }
 
 /**
- * The shadow a solid throws on the plane, as a convex polygon in `x, z`.
- *
- * Every corner above the plane slides down the sun's ray until it lands;
- * every corner below it stays where it is (its footprint is part of the
- * shadow too, or a house would throw only the shape of its roof and float off
- * its own shade). A solid entirely under the plane throws nothing. Convex is
- * exact for every convex solid the kit builds, which is all of them.
+ * The shadow a solid throws on the plane `y = plane`, as a convex polygon in
+ * `x, z`: every corner above the plane slides down the sun's ray until it
+ * lands, every corner below stays where it is (its footprint is part of the
+ * shadow too). A solid entirely under the plane throws nothing. Exact for
+ * every convex solid the kit builds, which is all of them.
  */
-export function shadowHull(points: P3[], run: [number, number], plane = SHADOW_PLANE_Y): [number, number][] | null {
+export function shadowHull(points: P3[], run: [number, number], plane = 0): [number, number][] | null {
   if (!points.some(([, y]) => y > plane)) return null
   const flat: [number, number][] = points.map(([x, y, z]) => {
     const rise = Math.max(0, y - plane)

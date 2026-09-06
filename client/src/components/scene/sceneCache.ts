@@ -31,6 +31,7 @@ import type { FeltAnchor } from '../cards/layout'
 import type { Sprite } from './life'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
 import { nextPaint } from './nextPaint'
+import { lookVersion } from './look'
 
 export interface PreparedScene {
   key: string
@@ -38,6 +39,8 @@ export interface PreparedScene {
   felt: FeltAnchor
   /** The graphics tier the frame was rendered at: a different tier is a different frame. */
   tier: GraphicsTier
+  /** The look's edition it was rendered with (`lookVersion()`). */
+  look: number
   /** The frame, or null when it could not be rendered. */
   canvas: HTMLCanvasElement | null
   /** What moves in the room, one bitmap each. Empty when the frame is null. */
@@ -139,8 +142,13 @@ export function sameFelt(a: FeltAnchor, b: FeltAnchor): boolean {
   return feltKey(a) === feltKey(b)
 }
 
+/**
+ * The look's edition is part of the key too: it only ever moves in dev, from
+ * the panel, and a frame rendered with the old numbers must not answer a
+ * request made with the new ones.
+ */
 function entryKey(spec: SceneSpec, size: RenderSize, felt: FeltAnchor, tier: GraphicsTier): string {
-  return `${sceneKey(spec)}@${size.width}x${size.height}@${feltKey(felt)}@${tier}`
+  return `${sceneKey(spec)}@${size.width}x${size.height}@${feltKey(felt)}@${tier}@look${lookVersion()}`
 }
 
 /**
@@ -215,7 +223,7 @@ export function prepareScene(
         if (import.meta.env.DEV) console.warn('scene render failed', err)
       }
     }
-    const entry: PreparedScene = { key: sceneKey(spec), size, felt, tier, canvas, sprites, rig }
+    const entry: PreparedScene = { key: sceneKey(spec), size, felt, tier, look: lookVersion(), canvas, sprites, rig }
     remember(k, entry)
     inFlight.delete(k)
     onProgress?.(1)
