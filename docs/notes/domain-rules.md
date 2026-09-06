@@ -233,11 +233,26 @@ reason, as `IsMissedCatch` and `IsLostRace`: a refusal has a *kind*, and the hub
 a string it is free to reword.
 
 ## Interrupts & batch play
-- **Identical-card interrupt** (`Room.InterruptPlayCards(playerIndex, cards, chosenColor, chosenPlayer, declareLoco)`, alias `InterruptPlay`, which passes `false` because a single card can only empty a hand that was already down to one): **anyone** plays N identical cards exactly matching top discard. Effect applies from interrupter's seat; they become turn leader.
+- **Identical-card interrupt** (`Room.InterruptPlayCards(playerIndex, cards, chosenColor, chosenPlayer)`, alias `InterruptPlay`): **anyone** plays **one** card exactly matching top discard. Effect applies from interrupter's seat; they become turn leader.
 - **There is no deadline and no excluded player.** The player who just played may take the lead back with a second copy, and so may the current player. Everything is a race decided by arrival order. Removing those two restrictions is what makes the mechanic feel realtime instead of turn-based — do not reinstate them.
 - **Every kind can interrupt, wilds included**: Wild on Wild, WildDrawFour extends a +4 chain, GlobalSwitch rotates hands from the interjecter's seat. Wilds share `Color: Wild`, so plain equality still keeps a Wild off a WildDrawFour. **Every** wild interject must name a real colour (`chosenColor != Wild`), GlobalSwitch included.
-- **Batch interrupt**: send N copies via `play_cards: [...]`. Effects stack (N DrawTwo = `2*N` pending; N Skips skip N players; N Reverses parity-flip). Swap and GlobalSwitch can't batch (which target? how many rotations?).
-- **The batch is built client-side and nobody is asked how many copies to send** (`batchForSlam` in `client/src/hooks/gamePlay.svelte.ts`, mirrored by `game.BotInterrupt`), because an interject is a reaction and a second press is a second reaction. That is honest only while every extra copy *buys* something, which is exactly the list `stackBatchEffects` has a case for: DrawTwo, WildDrawFour, Skip, Reverse — plus a Number, which buys the shorter hand. **A plain Wild is on none of them**: N wilds name one colour, so the copies past the first leave the hand for nothing, and the hand they leave is the most flexible card in the game. A player who slammed one wild to take the lead back was charged all three of theirs for it. So a Wild batches for one reason only, **when the batch empties the hand and takes the round** — worth every wild it costs, and carrying the call like any other finishing batch. The domain still accepts a wild batch from any client: this is the tap's meaning, not a rule about legality.
+- **An interject is one card, and it is a rule rather than the tap's manners** (`ErrInterruptBatch`,
+  `docs/rules.md` §6.8). `play_cards` still reaches `InterruptPlayCards` from the network, so the
+  domain refuses anything past one entry rather than trusting the client to build one; the client's
+  tap sends `card` alone, and `game.BotInterrupt` sends one copy, so a bot has no move a human
+  lacks.
+  **What it replaced, and why it went.** The tap used to group every identical copy and nobody was
+  asked how many were going — an interject is a reaction and a second press is a second reaction —
+  and the line was drawn at what an extra copy *buys*: exactly the list `stackBatchEffects` has a
+  case for (DrawTwo, WildDrawFour, Skip, Reverse), with a plain Wild excluded because N wilds name
+  one colour. **The line was in the wrong place.** A seat holding three +4 played one, took the lead
+  back off itself with the second, and the third left on the same press: twelve cards on the next
+  player, one reaction, and the read the mechanic is made of never had to be made again. And the +4
+  is the one kind on that list which stops to ask for a colour, so the batch was committed inside a
+  prompt that said nothing about it — the player answered a question about hue and spent two 50-point
+  cards. **Every copy past the first was a window somebody else could have won.** That is what the
+  batch was really spending, and it is not the presser's to spend.
+  Batch play survives on the seat's **own turn** (`Room.PlayCards`), where nothing is being raced.
 - During a draw chain (`PendingDraw > 0`) only DrawTwo/WildDrawFour may interject — implied by identical-to-top in a consistent state, kept explicit as a guard.
 - Window state on `GameState`: `InterruptOpen` (the window), `LastPlayBy` (-1 = nobody played the card on top), `LastPlayAt` (informational). Armed by `armInterruptWindow(actor)` after `PlayCard`/`PlayCards`/`InterruptPlayCards`/`CounterDraw`, and by `dealRound`. Closed by `closeInterruptWindow()` on `DrawCard`/`PassTurn`/round-winning play/round end.
 - **The opening discard is interceptable, and that is why the window and its author are two fields.** They used to be one, and a dealt card has no author: a seat holding the twin of the card the round opened on was answered `interrupt window closed`, which the client renders as *"somebody was faster"* — on a table where nobody had played anything yet. `dealRound` now sets `InterruptOpen: true` with `LastPlayBy` still -1: the window is open and belongs to no seat, so every rule below (no deadline, nobody excluded, the current player included) applies to it unchanged. `TestRoom_InterruptPlay_OpeningDiscardIsInterceptable` reads it off a real deal rather than a fixture, because the bug was in what `dealRound` left behind.
@@ -254,7 +269,7 @@ a string it is free to reword.
   was refused `interrupt window closed` and rendered as *"somebody was faster"* on a table where
   nobody had been — the same lie the opening discard used to tell, from the other side.
   `interruptWindow.test.ts`, `TestInterruptOpen_RidesTheWire`.
-- Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards?, declare_loco? }` — `play_cards` non-empty takes precedence, and `declare_loco` is only read when the batch empties the hand (see the gate above). Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
+- Wire: `interrupt_play` (legacy) + `interrupt_play_card` both accepted. Body: `{ card?, play_cards? }` — `play_cards` non-empty takes precedence and is refused past one entry; `declare_loco` rides the same envelope but is read only by `play_card` (a turn batch), never here. Server emits `interrupt_success { player_index, cards[] }` immediately before `card_played` for distinct lead-taking visuals.
 - **Batch play** (`Room.PlayCards`): current player plays N identical via `play_cards` (precedence over `card`). Effects stack (DrawTwo `2*N`, WildDrawFour `4*N`, Skips skip N, Reverses parity). Swap/GlobalSwitch excluded.
 
 ## Forgetting LOCO! and winning anyway (the gate)
@@ -265,9 +280,11 @@ risk rather than an obligation: go down to one card, survive the window nobody w
 turn later having told the table nothing. And there was a second, louder version of the same hole —
 a hand of **two identical cards played as one batch**. That hand goes 2 → 0. It never passes through
 one card, so `updateLastCardState` never fires, no window ever opens, no `catch_seats` ever names
-the seat, and the LOCO! button is never even offered. Sent as an *interject*, it takes the round out
-of turn, instantly, off a hand nobody at the table saw drop to one. The game's loudest moment simply
-did not happen, and a game built to be watched cannot have its ending arrive unannounced.
+the seat, and the LOCO! button is never even offered. The game's loudest moment simply did not
+happen, and a game built to be watched cannot have its ending arrive unannounced. (It was louder
+still when sent as an *interject*, taking the round out of turn off a hand nobody saw drop to one.
+That half is gone with the batch interject: an interject is one card, so a finish out of turn now
+comes off a hand that has been sitting at one, catchable, with the button on screen.)
 
 **Two branches, and the difference is who had the opportunity.**
 - `playing == 1`: the seat has held that card since before this message, so the call was possible
@@ -299,18 +316,25 @@ answer a question nobody asked.
 **Bots.** A bot's declaration is deferred on purpose (`BotUnoDelay`) so humans can win the race,
 which leaves a window where a bot holds one undeclared card and its turn has already come round.
 `hub.botDeclareBeforeFinish` makes the call first on the ordinary turn, the counter and the
-single-card interject; a bot's finishing batch passes `declareLoco: true`. Without it the domain
+interject, which is always a single card; only a bot's finishing *turn* batch passes
+`declareLoco: true`. Without it the domain
 refuses, `botPlay` logs and returns **without rescheduling**, and the seat stops playing for the rest
 of the round — a bot that goes quiet does not fail, it just stops.
 
-**A bot plays its identical copies together when a copy buys something** (`BotAction.Cards`,
-`botBatchFor`), the way a human's tap does (`batchForSlam`) and the way it already did on an
-interject: two +2s are a +4, two Skips step two seats, and a bot's last two identical cards take the
-round with the call on the message (`DeclareLoco`, announced ahead of the cards by
-`announceFinishingLoco` exactly as a human's is). Swap and GlobalSwitch never batch and a plain Wild
-only when the batch empties the hand, for the reasons given under interrupts. Before this a bot
-stacked +2 where a person stacks +4 and handed the table a catch window on a hand it could have
-emptied, which is a visibly weaker game than the one it was sitting in.
+**A bot plays its identical copies together on its own turn when a copy buys something**
+(`BotAction.Cards`, `botBatchFor`): two +2s are a +4, two Skips step two seats, and a bot's last two
+identical cards take the round with the call on the message (`DeclareLoco`, announced ahead of the
+cards by `announceFinishingLoco`). Swap and GlobalSwitch never batch and a plain Wild only when the
+batch empties the hand. Before this a bot stacked +2 where a person stacks +4 and handed the table a
+catch window on a hand it could have emptied, which is a visibly weaker game than the one it was
+sitting in. **Its interject batches nothing** (`BotInterrupt`): an interject is one card for
+everybody, so a bot with three copies answers the pile three times, into three windows a human can
+win first.
+> The turn batch is the bot's alone today — no human tap sends `play_cards` on its own turn, so
+> `Room.PlayCards` is reachable only by a bot or a hand-written client. That predates the interject
+> rule and is a separate decision: either the tap grows a way to send a turn batch, or the bot stops
+> making a move nobody at the table can answer with. The rules modal's "Doubles go down together"
+> and `content/contrasts.ts` both promise the player the first of those.
 
 **A bot's Swap goes to the smallest hand, and only when it pays** (`botSwapTarget`, `botSwapPays`).
 A Swap exchanges the whole hand, so `BotThink` used to hand the bot the *fullest* hand at the table
@@ -395,10 +419,11 @@ won, and a one-card hand had made them finishes by accident.
     Swap likelier to be there in the first place, so the penalty finances its own profitability.
     - The fix is at the offer, not at the price. From **two** cards the window is one ordinary play
       away, so the miss is the thumb that had already committed when the seat drew instead of
-      playing — a spasm, which is what a missed reaction is supposed to be. From **three** it needs
-      an interject of two identical cards, which is rare, so the button would be live through a long
-      stretch of round where pressing it can only ever miss. A long stretch of guaranteed misses is
-      what turns the penalty into a menu item.
+      playing — a spasm, which is what a missed reaction is supposed to be. From **three** nothing
+      reaches the window in one action at all, so the button would be live through a long stretch of
+      round where pressing it can only ever miss. A long stretch of guaranteed misses is what turns
+      the penalty into a menu item. (One thing used to reach it: an interject of two identical
+      cards. An interject is one card now, so the threshold is exact rather than nearly exact.)
     - The criterion, if this is ever re-tuned: **a failed Contre-LOCO! must never be a faster source
       of cards than the voluntary draw**, and the wager must never be offered for longer than it can
       plausibly pay off.

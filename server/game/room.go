@@ -395,10 +395,13 @@ func (s *GameState) CatchWindowEnd(i int) time.Time {
 
 // catchNearHand is the biggest hand a Contre-LOCO! is offered against: one
 // ordinary play from owing the call. Mirrored by the client's
-// CATCH_LIVE_MAX_HAND, and the reasoning is the same on both sides: from three
-// cards out only an interject of two identical cards reaches a window, so the
-// button would be live through a long stretch of round where pressing it can
-// only ever miss — and a miss a player can schedule is a card drawn on purpose.
+// CATCH_LIVE_MAX_HAND, and the reasoning is the same on both sides: nothing
+// takes a seat from three cards to one in a single action, so from three cards
+// out the button would be live through a long stretch of round where pressing
+// it can only ever miss — and a miss a player can schedule is a card drawn on
+// purpose. It used to be reachable, by an interject of two identical cards;
+// an interject is one card now, so the threshold is exact rather than nearly
+// exact.
 const catchNearHand = 2
 
 // catchOffered reports whether seat i is what makes the Contre-LOCO! button
@@ -1733,18 +1736,31 @@ func (r *Room) PenalizeFailedCatch(catcherIndex int, now time.Time) ([]Card, boo
 	return drawn, true
 }
 
-// InterruptPlay is the single-card form of InterruptPlayCards. A single card can
-// only empty a hand that was already down to one, and that seat owed its call
-// before this message, so there is nothing for this form to carry.
+// ErrInterruptBatch is a multi-card interject. An interject is one card: see
+// InterruptPlayCards for why the rule is here and not in the client's tap.
+var ErrInterruptBatch = errors.New("an interject is one card")
+
+// InterruptPlay is the single-card form of InterruptPlayCards, which is the only
+// form there is. It survives as the name every caller that already holds one
+// card reads better with.
 func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chosenPlayer int) error {
-	return r.InterruptPlayCards(playerIndex, []Card{card}, chosenColor, chosenPlayer, false)
+	return r.InterruptPlayCards(playerIndex, []Card{card}, chosenColor, chosenPlayer)
 }
 
-// InterruptPlayCards allows ANY player to "take the lead" by playing one or more
-// identical cards (same color+kind+value) that match the top of the discard pile.
-// There is no reaction deadline and no restriction on who may slam: the player
-// who just played may take the lead back, and so may the player whose turn it
-// currently is. Whoever's message reaches the hub first wins.
+// InterruptPlayCards allows ANY player to "take the lead" by playing ONE card
+// (same color+kind+value) matching the top of the discard pile. There is no
+// reaction deadline and no restriction on who may slam: the player who just
+// played may take the lead back, and so may the player whose turn it currently
+// is. Whoever's message reaches the hub first wins.
+//
+// One card, and the wire shape is still a list because the rule has to be
+// refused rather than assumed: `play_cards` reaches this function from the
+// network. An interject is a reaction, and a press that puts three cards down is
+// three reactions charged to one — a seat holding three +4 emptied the whole
+// chain onto the table on a single tap and never had to make the read again.
+// Sending the copies one press at a time is what keeps each of them a reaction
+// somebody at the table could still beat. Batch play survives where it is a
+// choice rather than a reflex: PlayCards, on your own turn.
 //
 // The opening discard counts as a card on the pile, so the window is open from
 // the deal: a seat dealt the twin of the card the round opens on may slam it
@@ -1753,10 +1769,10 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chos
 //
 // Server-authoritative checks (in order):
 //   - game in progress
+//   - exactly one card
 //   - interrupt window still open (InterruptOpen — closed by draw / pass / round end)
-//   - cards are non-empty and all identical
-//   - caller has at least len(cards) copies
-//   - first card matches top exactly (color+kind+value)
+//   - caller holds the card
+//   - it matches top exactly (color+kind+value)
 //   - a wild names a real colour; a Swap names a valid target
 //
 // EVERY kind can interject, wilds included: a Wild slams onto a Wild, a
@@ -1769,29 +1785,27 @@ func (r *Room) InterruptPlay(playerIndex int, card Card, chosenColor Color, chos
 // closes/resets the window; later attempts are evaluated against post-mutation
 // state.
 //
-// On success, the cards are appended to discard, the interrupter becomes the
-// current turn, the played card's effect is applied (stacked for batch +2 /
-// Skip / Reverse), and the interrupt window is re-armed for the new top card.
+// On success, the card is appended to discard, the interrupter becomes the
+// current turn, the card's effect is applied, and the interrupt window is
+// re-armed for the new top card.
 //
-// A batch that empties the interjecter's hand must carry the LOCO! call
-// (declareLoco): taking the round out of turn, off a hand nobody at the table
-// ever saw drop to one card, is the fastest way there is to win having announced
-// nothing. See requireLocoToFinish.
+// There is no call for this play to carry. One card can only empty a hand that
+// was already down to one, and that seat owed the table its LOCO! before this
+// message — requireLocoToFinish says so, and it is the same gate as everywhere
+// else.
 //
 // On any rejection, no state is mutated.
-func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int, declareLoco bool) error {
+func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Color, chosenPlayer int) error {
 	if r.Status != StatusPlaying {
 		return errors.New("game not in progress")
 	}
 	if len(cards) == 0 {
 		return errors.New("no cards specified")
 	}
-	first := cards[0]
-	for i := 1; i < len(cards); i++ {
-		if cards[i] != first {
-			return errors.New("batch cards must be identical")
-		}
+	if len(cards) > 1 {
+		return ErrInterruptBatch
 	}
+	first := cards[0]
 	// The window is open from the moment a card lands on the pile — the opening
 	// discard included — until a draw / pass / round end resolves it. No
 	// deadline, no exclusion of the last actor or of the current player: any
@@ -1806,18 +1820,12 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	if r.State.PendingDraw > 0 && first.Kind != DrawTwo && first.Kind != WildDrawFour {
 		return ErrInterruptNotADrawCard
 	}
-	// Swap picks a target and GlobalSwitch rearranges every hand: stacking N of
-	// them raises questions (which target? how many rotations?) that the rules
-	// do not answer, so they stay single-card — same restriction as PlayCards.
-	if (first.Kind == Swap || first.Kind == GlobalSwitch) && len(cards) != 1 {
-		return errors.New("Swap and GlobalSwitch cannot be batch-interrupted")
-	}
 	// A wild carries no colour of its own; the interjecter must name the one
 	// that becomes active, exactly as on a normal wild play.
 	if first.IsWild() && chosenColor == Wild {
 		return errors.New("must choose a color for a wild card")
 	}
-	if r.State.countInHand(playerIndex, first) < len(cards) {
+	if !r.State.Hands[playerIndex].Contains(first) {
 		return ErrCardNotInHand
 	}
 
@@ -1840,32 +1848,20 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 		}
 	}
 
-	finishing := r.State.Hands[playerIndex].Size() == len(cards)
-	if err := r.State.requireLocoToFinish(playerIndex, len(cards), declareLoco); err != nil {
+	// A card off a single-card hand takes the round, and that seat has been
+	// catchable since before this message: the call is one it already had the
+	// window and the button to make.
+	if err := r.State.requireLocoToFinish(playerIndex, 1, false); err != nil {
 		return err
 	}
 
 	chosenColor = resolveChosenColor(first, chosenColor)
 
-	for i := 0; i < len(cards); i++ {
-		if err := r.State.Hands[playerIndex].Remove(first); err != nil {
-			return err
-		}
+	if err := r.State.Hands[playerIndex].Remove(first); err != nil {
+		return err
 	}
-	r.State.pushDiscard(cards...)
-
-	// A single card off a single-card hand was declared before this message —
-	// requireLocoToFinish just said so — and logging the call again here put
-	// the same LOCO! in the event log twice for a reconnecting client to
-	// replay. Only the batch finish carries its call.
-	if finishing && len(cards) > 1 {
-		r.State.declareForFinish(playerIndex)
-	}
-
-	for _, c := range cards {
-		cc := c
-		r.State.logEvent(EventCardPlayed, playerIndex, &cc, chosenColor)
-	}
+	r.State.pushDiscard(first)
+	r.State.logEvent(EventCardPlayed, playerIndex, &first, chosenColor)
 
 	// Per rules.md §13: a round-ending interject (actor empties their hand)
 	// aborts the Swap / GlobalSwitch effect — the actor wins before the hands move.
@@ -1900,7 +1896,6 @@ func (r *Room) InterruptPlayCards(playerIndex int, cards []Card, chosenColor Col
 	// played card's effect from their seat (advances turn / sets penalty / flips dir).
 	r.State.CurrentTurn = playerIndex
 	r.State.CurrentTurn = r.State.ApplyEffect(first, chosenColor)
-	r.State.stackBatchEffects(first, len(cards)-1)
 	r.State.HasDrawn = false
 	r.State.armInterruptWindow(playerIndex)
 	return nil

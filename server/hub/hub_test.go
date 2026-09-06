@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"loco/server/game"
 	"loco/server/hub"
 	"loco/server/protocol"
 )
@@ -1602,10 +1603,12 @@ func TestInterruptPlay_ValidMatch_AcceptedAndBroadcast(t *testing.T) {
 	}
 }
 
-// TestInterruptPlayCard_BatchAlias_Accepted verifies that interrupt_play_card
-// (alias message type) with a play_cards array delivers a batch identical-card
-// interrupt and emits an interrupt_success notification.
-func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
+// TestInterruptPlayCard_BatchAlias_Refused verifies both halves of the interject
+// rule on the wire: interrupt_play_card carrying a `play_cards` array of two is
+// refused (an interject is one card, and the server says so rather than trusting
+// the tap), and the same alias carrying one card still delivers the interject
+// and its interrupt_success notification.
+func TestInterruptPlayCard_BatchAlias_Refused(t *testing.T) {
 	t.Setenv("LOCO_E2E", "1") // enable debug_set_state
 
 	_, srv := newTestHub(t)
@@ -1659,18 +1662,29 @@ func TestInterruptPlayCard_BatchAlias_Accepted(t *testing.T) {
 	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)
 	readMsgOfType(t, conn3, protocol.SMsgCardPlayed)
 
-	// Interrupter (Carol) sends interrupt_play_card (alias) with 2 identical Red-3.
+	// Carol holds two Red-3 and asks for both. The refusal answers her and
+	// nobody else, and the pile does not move.
 	sendMsg(t, conn3, protocol.ClientMsg{
 		Type:      protocol.CMsgInterruptPlayCard,
 		PlayCards: []protocol.CardDTO{red3, red3},
+	})
+	errMsg := readMsgOfType(t, conn3, protocol.SMsgError)
+	if errMsg.Error != game.ErrInterruptBatch.Error() {
+		t.Errorf("batch interject refusal = %q, want %q", errMsg.Error, game.ErrInterruptBatch.Error())
+	}
+
+	// One card through the same alias, and the interject lands.
+	sendMsg(t, conn3, protocol.ClientMsg{
+		Type:      protocol.CMsgInterruptPlayCard,
+		PlayCards: []protocol.CardDTO{red3},
 	})
 
 	// All three clients must receive interrupt_success then card_played.
 	is1 := readMsgOfType(t, conn1, protocol.SMsgInterruptSuccess)
 	readMsgOfType(t, conn2, protocol.SMsgInterruptSuccess)
 	readMsgOfType(t, conn3, protocol.SMsgInterruptSuccess)
-	if len(is1.Cards) != 2 {
-		t.Errorf("interrupt_success cards count = %d, want 2", len(is1.Cards))
+	if len(is1.Cards) != 1 {
+		t.Errorf("interrupt_success cards count = %d, want 1", len(is1.Cards))
 	}
 	readMsgOfType(t, conn1, protocol.SMsgCardPlayed)
 	readMsgOfType(t, conn2, protocol.SMsgCardPlayed)

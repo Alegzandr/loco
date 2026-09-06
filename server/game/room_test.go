@@ -2329,8 +2329,9 @@ func TestRoom_InterruptPlay_FastestSerializedWins(t *testing.T) {
 	}
 }
 
-func TestRoom_InterruptPlayCards_BatchSucceeds(t *testing.T) {
-	// carol holds three Red-3 and interrupts with all three at once.
+func TestRoom_InterruptPlayCards_BatchIsRefused(t *testing.T) {
+	// carol holds three Red-3 and tries to slam all three at once. An interject
+	// is one card: the copies are three presses into three windows, not one.
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
 	r.State.ActiveColor = Red
@@ -2340,25 +2341,39 @@ func TestRoom_InterruptPlayCards_BatchSucceeds(t *testing.T) {
 
 	match := Card{Color: Red, Kind: Number, Value: 3}
 	r.State.Hands[2].Cards = []Card{match, match, match, {Color: Blue, Kind: Number, Value: 5}}
+	discardLen := len(r.State.Discard)
 
-	if err := r.InterruptPlayCards(2, []Card{match, match, match}, match.Color, -1, false); err != nil {
-		t.Fatalf("InterruptPlayCards: %v", err)
+	if err := r.InterruptPlayCards(2, []Card{match, match, match}, match.Color, -1); !errors.Is(err, ErrInterruptBatch) {
+		t.Fatalf("batch interject: err = %v, want ErrInterruptBatch", err)
 	}
-	// All three cards should be on top of discard (initial + 3 = 4 entries).
-	if len(r.State.Discard) != 4 {
-		t.Errorf("discard size = %d, want 4 (initial + 3 batch)", len(r.State.Discard))
+	if len(r.State.Discard) != discardLen {
+		t.Errorf("discard mutated after rejection: size = %d, want %d", len(r.State.Discard), discardLen)
 	}
-	// Carol's hand: 4 cards before, 3 played, 1 remains.
-	if r.State.Hands[2].Size() != 1 {
-		t.Errorf("carol hand size = %d, want 1", r.State.Hands[2].Size())
+	if r.State.Hands[2].Size() != 4 {
+		t.Errorf("carol hand size = %d, want 4", r.State.Hands[2].Size())
+	}
+	if r.State.CurrentTurn != 1 {
+		t.Errorf("turn moved on a refused interject: %d, want 1", r.State.CurrentTurn)
+	}
+
+	// One press, one card, and the lead is taken exactly as before.
+	if err := r.InterruptPlayCards(2, []Card{match}, match.Color, -1); err != nil {
+		t.Fatalf("single interject: %v", err)
+	}
+	if len(r.State.Discard) != discardLen+1 {
+		t.Errorf("discard size = %d, want %d (initial + 1)", len(r.State.Discard), discardLen+1)
+	}
+	if r.State.Hands[2].Size() != 3 {
+		t.Errorf("carol hand size = %d, want 3 (two copies left to press)", r.State.Hands[2].Size())
 	}
 	if r.State.LastPlayBy != 2 {
-		t.Errorf("LastPlayBy after batch interrupt = %d, want 2 (carol)", r.State.LastPlayBy)
+		t.Errorf("LastPlayBy after interrupt = %d, want 2 (carol)", r.State.LastPlayBy)
 	}
 }
 
 func TestRoom_InterruptPlayCards_NotInHand_DoesNotMutate(t *testing.T) {
-	// Player claims to play 2 copies but only holds 1. Reject and leave state untouched.
+	// Player slams a card matching the top that they do not hold. Reject and
+	// leave state untouched.
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
 	r.State.ActiveColor = Red
@@ -2367,13 +2382,13 @@ func TestRoom_InterruptPlayCards_NotInHand_DoesNotMutate(t *testing.T) {
 	armInterrupt(r, 0)
 
 	match := Card{Color: Red, Kind: Number, Value: 4}
-	r.State.Hands[2].Cards = []Card{match, {Color: Blue, Kind: Number, Value: 9}}
+	r.State.Hands[2].Cards = []Card{{Color: Blue, Kind: Number, Value: 9}}
 	discardLen := len(r.State.Discard)
 	handLen := r.State.Hands[2].Size()
 	turnBefore := r.State.CurrentTurn
 
-	if err := r.InterruptPlayCards(2, []Card{match, match}, match.Color, -1, false); err == nil {
-		t.Fatal("batch interrupt with insufficient copies must be rejected")
+	if err := r.InterruptPlayCards(2, []Card{match}, match.Color, -1); !errors.Is(err, ErrCardNotInHand) {
+		t.Fatalf("interject of a card not held: err = %v, want ErrCardNotInHand", err)
 	}
 	if len(r.State.Discard) != discardLen {
 		t.Errorf("discard mutated after rejection: size = %d, want %d", len(r.State.Discard), discardLen)
@@ -2383,21 +2398,6 @@ func TestRoom_InterruptPlayCards_NotInHand_DoesNotMutate(t *testing.T) {
 	}
 	if r.State.CurrentTurn != turnBefore {
 		t.Errorf("turn mutated after rejection: turn = %d, want %d", r.State.CurrentTurn, turnBefore)
-	}
-}
-
-func TestRoom_InterruptPlayCards_RejectsNonIdentical(t *testing.T) {
-	r := setupThreePlayerGame(t)
-	r.State.CurrentTurn = 1
-	r.State.ActiveColor = Red
-	r.State.Discard = []Card{{Color: Red, Kind: Number, Value: 5}}
-	armInterrupt(r, 0)
-
-	a := Card{Color: Red, Kind: Number, Value: 5}
-	b := Card{Color: Red, Kind: Number, Value: 6}
-	r.State.Hands[2].Cards = []Card{a, b}
-	if err := r.InterruptPlayCards(2, []Card{a, b}, Red, -1, false); err == nil {
-		t.Error("non-identical batch interrupt must be rejected")
 	}
 }
 

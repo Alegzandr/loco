@@ -32,10 +32,11 @@ describe('isCatchLive', () => {
 
   // And the threshold itself, in figures rather than through the constant: the
   // wager is offered exactly one ordinary play from the window it is aiming at.
-  // A seat on three needs an interrupt of two identical cards to get there, so
-  // arming the button that early opens a long stretch of round where pressing
-  // can only ever miss — and a miss that a player can schedule is a card they
-  // chose to draw, which is a Swap away from being a reward.
+  // Nothing takes a seat from three cards to one in a single action — an
+  // interject is one card — so arming the button that early opens a long
+  // stretch of round where pressing can only ever miss, and a miss that a
+  // player can schedule is a card they chose to draw, which is a Swap away from
+  // being a reward.
   it('is one card from the window, never two', () => {
     expect(isCatchLive([seat(0, 8), seat(1, 2)], 0, {}, UNLOCKED, NOW)).toBe(true)
     expect(isCatchLive([seat(0, 8), seat(1, 3)], 0, {}, UNLOCKED, NOW)).toBe(false)

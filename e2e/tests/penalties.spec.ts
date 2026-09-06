@@ -233,11 +233,11 @@ test.describe('error feedback, turn timer, and penalty flows', () => {
    * control that only unlocked once a window was already open could only ever
    * be answered, and the window it answers is five seconds long.
    *
-   * It stops one card short of that, and the stop is the calibration: from three
-   * cards out only an interrupt of two identical cards reaches the window, so
-   * the button would be live through a long stretch where pressing can only
-   * miss — and a miss the player can schedule is a card drawn on purpose, which
-   * a Swap turns into a hand handed to somebody else.
+   * It stops one card short of that, and the stop is the calibration: nothing
+   * takes a seat from three cards to one in a single action, so the button
+   * would be live through a long stretch where pressing can only miss — and a
+   * miss the player can schedule is a card drawn on purpose, which a Swap turns
+   * into a hand handed to somebody else.
    */
   test('Catch! is pressable from two cards out, and dead above that', async ({
     browser,

@@ -124,7 +124,7 @@ bot's row, and the line the removed player is left holding. Score table.
 Matchmaking: pairing, cancel, disconnect-out-of-queue, the host controls a matchmade room refuses,
 the requeue an opponent's departure triggers, and every forfeit path (quit, disconnect, AFK).
 Link-preview tags against the committed `og.png`. The map, hour and sky draw, the client's lists
-pinned to the server's, the light rig, the loading gate. Batch play and batch interrupt, unit **and** E2E. A draw against exhausted piles.
+pinned to the server's, the light rig, the loading gate. Batch play and the interject's refusal of one, unit **and** E2E. A draw against exhausted piles.
 `Origin` checking. The legal disclosures and the truncation of every logged address. Bots
 interjecting.
 

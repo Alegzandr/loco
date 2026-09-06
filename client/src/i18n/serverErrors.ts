@@ -67,6 +67,10 @@ const RULES: ReadonlyArray<readonly [RegExp, keyof ErrorCopy]> = [
   [/interrupt window closed/i, 'interruptClosed'],
   [/cannot interrupt active draw chain/i, 'interruptDrawChain'],
   [/interrupt card must exactly match/i, 'interruptMismatch'],
+  // An interject is one card, and the server refuses the batch rather than
+  // trusting the tap not to build one. No client in this repository can
+  // produce it; the line exists because a player must never read wire prose.
+  [/an interject is one card/i, 'interjectSingle'],
   [/cannot be batch-(played|interrupted)/i, 'batchNotAllowed'],
   [/batch cards must be identical/i, 'batchMismatch'],
 

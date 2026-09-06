@@ -641,8 +641,6 @@
           type: pick.interrupt ? 'interrupt_play_card' : pick.counter ? 'counter_draw' : 'play_card',
           card: pick.card,
           chosen_color: col,
-          play_cards: pick.copies,
-          declare_loco: pick.declareLoco,
         })
         // Send first, animate second: the table is waiting on the message, not on
         // our card leaving our own fan.

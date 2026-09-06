@@ -100,9 +100,12 @@ func TestPlayCards_NonFinishingBatchIgnoresTheFlag(t *testing.T) {
 	}
 }
 
-// --- The batch that empties a hand out of turn: the case that opened this ---
+// --- Emptying a hand out of turn, one card at a time ---
 
-func TestInterruptPlayCards_FinishingBatchWithoutTheCallIsRefused(t *testing.T) {
+// The batch interject is gone: a press puts down one card, and the domain says
+// so rather than trusting the tap. This is the hand that used to take the round
+// in a single slam.
+func TestInterruptPlayCards_BatchIsRefused(t *testing.T) {
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1 // bob's turn; carol interjects
 	r.State.ActiveColor = Red
@@ -113,9 +116,9 @@ func TestInterruptPlayCards_FinishingBatchWithoutTheCallIsRefused(t *testing.T) 
 	pair := Card{Color: Red, Kind: Number, Value: 6}
 	r.State.Hands[2].Cards = []Card{pair, pair}
 
-	err := r.InterruptPlayCards(2, []Card{pair, pair}, Red, -1, false)
-	if !errors.Is(err, ErrMustDeclareLoco) {
-		t.Fatalf("finishing interject without the call: err = %v, want ErrMustDeclareLoco", err)
+	err := r.InterruptPlayCards(2, []Card{pair, pair}, Red, -1)
+	if !errors.Is(err, ErrInterruptBatch) {
+		t.Fatalf("batch interject: err = %v, want ErrInterruptBatch", err)
 	}
 	if r.State.Hands[2].Size() != 2 {
 		t.Errorf("hand size after refusal = %d, want 2", r.State.Hands[2].Size())
@@ -128,7 +131,11 @@ func TestInterruptPlayCards_FinishingBatchWithoutTheCallIsRefused(t *testing.T) 
 	}
 }
 
-func TestInterruptPlayCards_FinishingBatchCarryingTheCallWins(t *testing.T) {
+// And the round is still there to be taken, in two presses instead of one. The
+// first lands the seat on a single card, where it owes the table a call and can
+// be caught for it; the second takes the round once the call is made. That is
+// the whole trade the batch used to skip.
+func TestInterruptPlayCards_TwoCopiesTakeTwoPresses(t *testing.T) {
 	r := setupThreePlayerGame(t)
 	r.State.CurrentTurn = 1
 	r.State.ActiveColor = Red
@@ -139,8 +146,34 @@ func TestInterruptPlayCards_FinishingBatchCarryingTheCallWins(t *testing.T) {
 	pair := Card{Color: Red, Kind: Number, Value: 6}
 	r.State.Hands[2].Cards = []Card{pair, pair}
 
-	if err := r.InterruptPlayCards(2, []Card{pair, pair}, Red, -1, true); err != nil {
-		t.Fatalf("finishing interject carrying the call: %v", err)
+	if err := r.InterruptPlayCards(2, []Card{pair}, Red, -1); err != nil {
+		t.Fatalf("first interject: %v", err)
+	}
+	if r.State.Hands[2].Size() != 1 {
+		t.Fatalf("hand size after the first press = %d, want 1", r.State.Hands[2].Size())
+	}
+	if r.RoundEnded {
+		t.Fatal("one card of two ended the round")
+	}
+	// The seat is on the hook exactly as it would be after any other play down
+	// to one card: nothing declared on its behalf, and a window open on it.
+	if r.State.LastCardDeclared[2] {
+		t.Error("an interject declared on the seat's behalf")
+	}
+	if r.State.LastCardAt[2].IsZero() {
+		t.Error("no catch window opened on a seat left holding one card")
+	}
+
+	// Second press, and the round is refused until the call is made.
+	err := r.InterruptPlayCards(2, []Card{pair}, Red, -1)
+	if !errors.Is(err, ErrMustDeclareLoco) {
+		t.Fatalf("the winning interject without the call: err = %v, want ErrMustDeclareLoco", err)
+	}
+	if err := r.DeclareLastCard(2); err != nil {
+		t.Fatalf("a late call must still be accepted: %v", err)
+	}
+	if err := r.InterruptPlayCards(2, []Card{pair}, Red, -1); err != nil {
+		t.Fatalf("the winning interject after the call: %v", err)
 	}
 	if !r.RoundEnded {
 		t.Fatal("an interject that empties the hand must end the round")

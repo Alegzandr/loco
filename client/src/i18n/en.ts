@@ -50,6 +50,7 @@ export interface ErrorCopy {
   interruptClosed: string
   interruptDrawChain: string
   interruptMismatch: string
+  interjectSingle: string
   batchNotAllowed: string
   batchMismatch: string
 
@@ -928,7 +929,7 @@ export const en: Translations = {
         'A card is sitting on the pile. Hold one exactly like it, same color and same value? Slam it down, even out of turn.',
         'There is no deadline. The window stays open until somebody plays, draws or passes.',
         'Nobody is shut out: the player who just played can cut straight back in, and so can the player whose turn it was.',
-        'Several copies go down in the same tap, effects and all.',
+        'One card per cut-in. Holding a second copy? That is a second slam, and a second window somebody can take off you.',
         'Every card can interrupt, wilds and Global Switch included. A Wild lands on a Wild, a +4 extends a +4. Identical is the only rule.',
       ],
     },
@@ -1002,6 +1003,7 @@ export const en: Translations = {
     interruptClosed: 'Someone beat you to it.',
     interruptDrawChain: 'Only a matching draw card cuts in here.',
     interruptMismatch: 'It has to be identical to the top card.',
+    interjectSingle: 'One card per cut-in. Slam the next one.',
     batchNotAllowed: 'Swap and Global Switch go down one at a time.',
     batchMismatch: 'Cards played together must be identical.',
 

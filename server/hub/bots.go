@@ -493,8 +493,9 @@ func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 	// The seat holding the turn is deliberately NOT excluded. In a two-player
 	// game the bot is always the next player, so excluding it would mean the
 	// mechanic stays one-way in the single most common setup. It is also not
-	// redundant with its ordinary turn: an interject slams *every* identical
-	// copy at once, where BotThink plays one.
+	// redundant with its ordinary turn: an interject answers the pile the
+	// instant a card lands on it, where BotThink waits for the seat to come
+	// round.
 	type candidate struct {
 		seat   int
 		action *game.BotInterruptAction
@@ -513,16 +514,11 @@ func (h *Hub) handleBotInterrupt(t *table, bim botInterruptMsg) {
 	}
 	picked := candidates[mrand.Intn(len(candidates))]
 	botID, action := picked.seat, picked.action
-	// Same net as the ordinary bot turn: a single-card interject off a one-card
-	// hand takes the round, and the domain asks for the call first.
-	if len(action.Cards) == 1 {
-		h.botDeclareBeforeFinish(t, botID)
-	}
-	// A bot interjects with the call already made: a batch that empties its hand
-	// is the one finish no window ever opened on, so there is nobody the flag
-	// takes a chance away from, and a bot that withheld it would simply refuse
-	// to take a round it had won.
-	if err := room.InterruptPlayCards(botID, action.Cards, action.ChosenColor, action.ChosenPlayer, true); err != nil {
+	// Same net as the ordinary bot turn: an interject is one card, so an
+	// interject off a one-card hand takes the round and the domain asks for the
+	// call first.
+	h.botDeclareBeforeFinish(t, botID)
+	if err := room.InterruptPlayCards(botID, action.Cards, action.ChosenColor, action.ChosenPlayer); err != nil {
 		// Lost the race to a human or to the state moving on. Nothing to do:
 		// the bot simply did not get there, exactly like a mistimed click.
 		log.Printf("bot interrupt refused code=%s player=%d err=%v", bim.roomCode, botID, err)

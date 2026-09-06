@@ -167,15 +167,23 @@ export const clientMsgSchema = v.object({
   // CMsgPlayCard batch: when the player plays multiple identical cards at once.
   // All cards must be exactly equal; if PlayCards is non-empty it takes precedence
   // over the singular Card field. Swap and GlobalSwitch cannot be batch-played.
-  play_cards: v.optional(v.array(cardSchema)),
-  // CMsgPlayCard / CMsgInterruptPlay batch: the LOCO! call the play carries.
   //
-  // Only read when the batch empties the hand, which is the one finish the
-  // player had no chance to announce beforehand: a hand of two identical cards
-  // put down at once never passes through one card, so no catch window ever
-  // opened on it and no declaration was ever possible. The server refuses such
-  // a batch without this flag (game.ErrMustDeclareLoco). Every other finish is
-  // gated on a declaration that already happened, and ignores this field.
+  // CMsgInterruptPlay accepts the same field and refuses anything past one
+  // entry: an interject is one card (game.ErrInterruptBatch). The field is read
+  // there so the rule can be refused rather than assumed of the client.
+  play_cards: v.optional(v.array(cardSchema)),
+  // CMsgPlayCard batch: the LOCO! call the play carries.
+  //
+  // Only read when a turn batch empties the hand, which is the one finish the
+  // player had no chance to announce beforehand: identical cards put down at
+  // once never pass through one card, so no catch window ever opened on the
+  // hand and no declaration was ever possible. The server refuses such a batch
+  // without this flag (game.ErrMustDeclareLoco). Every other finish is gated on
+  // a declaration that already happened, and ignores this field.
+  //
+  // CMsgInterruptPlay never reads it: an interject is one card
+  // (game.ErrInterruptBatch), so a finish out of turn comes off a hand that has
+  // been sitting at one card, catchable, with the button on screen.
   declare_loco: v.optional(v.boolean()),
   // CMsgCatchUno: which seat is being caught. Several players can owe a
   // declaration at once (Swap / GlobalSwitch hand a single card to more than

@@ -148,8 +148,11 @@ func BotThink(state *GameState, playerIdx int) BotAction {
 }
 
 // botBatchFor is every copy of `card` the bot holds when playing them together
-// is worth it, nil otherwise. Mirrors the client's batchForSlam: Swap and
-// GlobalSwitch never batch, a plain Wild only when the batch empties the hand.
+// is worth it, nil otherwise. This is the bot's own *turn*, where a batch is a
+// choice and not a reflex — the interject never batches at all, for either side
+// (see BotInterrupt). Swap and GlobalSwitch never batch, a plain Wild only when
+// the batch empties the hand: N of them name one colour, so every copy past the
+// first is the game's most flexible card thrown away for nothing.
 func botBatchFor(card Card, hand Hand) []Card {
 	if card.Kind == Swap || card.Kind == GlobalSwitch {
 		return nil
@@ -180,8 +183,10 @@ func withoutKind(cards []Card, kind Kind) []Card {
 	return out
 }
 
-// BotInterruptAction is an interject a bot could make into an open window:
-// every identical copy it holds of the current top discard.
+// BotInterruptAction is an interject a bot could make into an open window: one
+// copy of the current top discard. `Cards` stays a slice because the domain
+// entry point takes one, and because a bot holding three copies still gets one
+// press per copy, exactly like a human.
 type BotInterruptAction struct {
 	Cards        []Card
 	ChosenColor  Color
@@ -220,29 +225,15 @@ func BotInterrupt(state *GameState, playerIdx int) *BotInterruptAction {
 		return nil
 	}
 
-	var copies []Card
-	for _, c := range state.Hands[playerIdx].Cards {
-		if c == top {
-			copies = append(copies, c)
-		}
-	}
-	if len(copies) == 0 {
+	if !state.Hands[playerIdx].Contains(top) {
 		return nil
 	}
 
-	action := &BotInterruptAction{Cards: copies, ChosenColor: state.ActiveColor, ChosenPlayer: -1}
-	// Swap and GlobalSwitch cannot be batch-interjected.
-	if top.Kind == Swap || top.Kind == GlobalSwitch {
-		action.Cards = copies[:1]
-	}
-	// A batch buys something only for the kinds stackBatchEffects has a case
-	// for: +2 and +4 raise the stack, Skip steps another seat, Reverse flips the
-	// ring again. A plain Wild is on none of them — N of them name one colour —
-	// so every copy past the first is the game's most flexible card thrown away
-	// for nothing. The one batch worth it is the one that empties the hand.
-	if top.Kind == WildCard && len(copies) < state.Hands[playerIdx].Size() {
-		action.Cards = copies[:1]
-	}
+	// One card, however many copies the bot holds: an interject is a reaction,
+	// and the domain refuses a batch one (ErrInterruptBatch). A bot with three
+	// +4 answers the pile three times, the same as the player across the table,
+	// and every one of those presses is a window somebody else can win first.
+	action := &BotInterruptAction{Cards: []Card{top}, ChosenColor: state.ActiveColor, ChosenPlayer: -1}
 	// Every wild names a colour, GlobalSwitch included.
 	if top.IsWild() {
 		action.ChosenColor = botPreferredColor(state.Hands[playerIdx], state.ActiveColor)

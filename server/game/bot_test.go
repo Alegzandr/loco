@@ -315,9 +315,9 @@ func TestBotThink_BreaksAColourTieTowardsAChange(t *testing.T) {
 	}
 }
 
-// A bot plays its identical copies together when a copy buys something, the
-// way a human's tap does: two +2s are a +4, and two identical last cards take
-// the round with the call on the message.
+// A bot plays its identical copies together on its own turn when a copy buys
+// something: two +2s are a +4, and two identical last cards take the round with
+// the call on the message. Its interject never batches — see BotInterrupt.
 func TestBotThink_BatchesCopiesThatBuySomething(t *testing.T) {
 	plus2 := Card{Color: Red, Kind: DrawTwo}
 	state := &GameState{

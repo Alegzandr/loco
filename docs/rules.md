@@ -65,6 +65,8 @@ This is a **core mechanic** of LOCO.
 1. The card is **exactly identical** to the top of the discard pile (see 6.2).
 2. The interject window is open — it opens on the deal and on every play, and
    closes on a draw, a pass, or the end of the round. **There is no time limit.**
+3. **It is one card.** However many copies you hold, an interject puts down one
+   of them (see 6.8).
 
 The **card the round opens on counts**: a player dealt its twin may interject
 before the first turn is taken. It is a card on the pile like any other, and the
@@ -115,11 +117,37 @@ A player may interject with an identical Take 2 (or an identical Take 4) during 
 
 The LOCO! rule (Section 8) applies to interjections. Going from 2 → 1 card via interject still requires calling "LOCO!" with the same penalty for forgetting.
 
-Interjecting **every** card you hold — two identical cards played at once, taking the round out of turn — carries the call in the play itself (§14.7). That hand never passes through a single card, so no 5 s window ever opens on it and there is no earlier moment to announce it in: the tap that takes the round is the call.
+Taking the round out of turn is no exception, and it needs no special case: an
+interject is one card, so the hand it empties was already down to one and had a
+whole window in which to call. Two identical cards take the round in two
+interjects, and the seat sits catchable between them.
 
 ### 6.7 Simultaneous Interjects
 
 If multiple players could interject: **the first message the server dequeues wins.** The hub's single-goroutine event loop serialises them, so later attempts are evaluated against post-mutation state — usually still valid, since the same card is on top, and they simply take the lead in turn. Seat priority is deliberately not used: it would reward position over reaction, and this is a speed game.
+
+### 6.8 One Card Per Interject
+
+An interject puts down **one** card. Holding a second copy is a second interject:
+a second press, into a window the rest of the table can win first.
+
+It used to batch — every identical copy in your hand went down on one press, and
+the effects stacked. It read as generous and it was the opposite. A player
+holding three Take 4 played one, took the lead back off themselves with the
+second, and the third left with it: one press, twelve cards on the next player,
+and the read this mechanic is made of never had to be made a second time. Worse,
+the Take 4 is the one card that stops to ask for a colour, so the batch was
+committed inside a prompt that never said how many cards it held.
+
+An interject is a **reaction**. A press that puts three cards down is three
+reactions charged to one, and each of the two it swallowed was a window somebody
+else could have taken. The copies still go down — a press each.
+
+Batch play survives where it is a choice and not a reflex: on **your own turn**
+(§7), where nobody is racing you for the pile.
+
+The server refuses a multi-card interject rather than trusting the client to
+send one card (`an interject is one card`).
 
 ## 7. Action Cards — Effects
 
@@ -228,7 +256,8 @@ Remaining players sum the point values of cards still in hand:
 - [ ] Swap Cards: full hand swap with chosen opponent
 - [ ] Change Cards All Round: simultaneous hand rotation
 - [ ] LOCO! call at 2→1 cards; penalty = draw 2 if forgotten
-- [ ] A hand-emptying play is refused without the call (§14.7); a finishing batch carries it
+- [ ] A hand-emptying play is refused without the call (§14.7); a finishing turn batch carries it
+- [ ] An interject is one card, whatever the hand holds (§6.8)
 - [ ] Contre-LOCO!: only inside the 5 s window; a missed call costs the caller 1 card and locks
       their button for 2 s (§14.6), re-armed by every press made while it runs
 - [ ] Round ends on last card played
@@ -316,9 +345,8 @@ four, a Contre-LOCO! lands on it, its window simply runs out — and the button
 stays live a moment longer: pressing there is a call that came too late, and it
 costs the card that a call which came too early costs. Both halves of a wager
 have to be losable, or it is not one.
-**It stops one card short of that on purpose.** From three cards out only an
-interject of two identical cards reaches the window, so arming the button there
-would leave it live through a long stretch of the round where pressing it can
+**It stops one card short of that on purpose.** Nothing takes a seat from three
+cards to one in a single action, so arming the button there would leave it live through a long stretch of the round where pressing it can
 only miss — and a miss a player can schedule is a card drawn deliberately, which
 a Swap or a Global Switch turns from a penalty into a hand handed to somebody
 else. Missing a Contre-LOCO! is meant to be the thumb that had already committed
@@ -345,8 +373,8 @@ who calls too early risks 1. Bots pay it on the same terms as humans.
 ### 14.7 You Cannot Forget LOCO! and Win
 **SOLO rule**: the announcement is enforced only by the other players catching
 it. Survive the moment nobody noticed and the obligation evaporates — and a hand
-of two identical cards played together never creates the moment at all, because
-it goes from two cards to none without ever holding one.
+of two identical cards played together on one turn never creates the moment at
+all, because it goes from two cards to none without ever holding one.
 **LOCO rule**: the play that empties your hand is **refused** unless the call has
 been made. Two shapes, because they differ in who had the opportunity:
 - **Down to one card already** — you have held that card since before this play,
@@ -354,11 +382,13 @@ been made. Two shapes, because they differ in who had the opportunity:
   declaration that already happened counts. Forgetting is not fatal: the call can
   still be made, late, and the round taken immediately after. It costs the risk
   of being caught and one press, never the game.
-- **Emptying two or more at once** — the hand never passed through a single card,
-  so no window opened and no declaration was ever possible. The play carries the
-  call itself, and the table hears "LOCO!" before it sees the round end.
+- **Emptying two or more at once** — a batch on your own turn (§7). The hand
+  never passed through a single card, so no window opened and no declaration was
+  ever possible. The play carries the call itself, and the table hears "LOCO!"
+  before it sees the round end. An interject cannot reach this branch: it is one
+  card (§6.8).
 **Rationale**: the announcement is the game's loudest moment and the table's only
 warning that somebody is one card away. Enforced by the catch alone it was a 5 s
-risk rather than an obligation, and the batch finish skipped even that — taking
-the round out of turn, off a hand nobody saw drop to one, in total silence. A
-game built to be watched cannot have its ending arrive unannounced.
+risk rather than an obligation, and the batch finish skipped even that — a hand
+nobody saw drop to one, taken in total silence. A game built to be watched
+cannot have its ending arrive unannounced.

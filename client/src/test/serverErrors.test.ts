@@ -34,7 +34,8 @@ describe('resolveServerError', () => {
       'cannot interrupt active draw chain except with an identical draw card',
       'interrupt card must exactly match the top discard card',
       'Swap and GlobalSwitch cannot be batch-played',
-      'Swap and GlobalSwitch cannot be batch-interrupted',
+      // An interject is one card; the server refuses a batch one outright.
+      'an interject is one card',
       'batch cards must be identical',
       'can only declare with exactly 1 card in hand',
       'player already declared',
