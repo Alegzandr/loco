@@ -98,10 +98,10 @@ const (
 	// only ever let you press when pressing was safe. An interface that cannot
 	// be got wrong is not measuring anything.
 	//
-	// **The client offers that late press for less than this** (1s,
+	// **The client offers that late press for less than this** (2s,
 	// CATCH_LATE_GRACE_MS, and serverMirrors.test.ts pins the inequality): the
-	// difference is the wire. The player is given one second to be late in, and
-	// the second second is the round trip that press still has to make — a call
+	// difference is the wire. The player is given two seconds to be late in, and
+	// the third second is the round trip that press still has to make — a call
 	// the player was allowed to send and this server then dropped in silence
 	// would be the same failure as the dark button, arriving from the other
 	// side.
@@ -113,7 +113,7 @@ const (
 	// table, at whatever rate the limiter allows, and free the moment the piles
 	// run dry and the penalty draw comes back empty. Outside this grace the call
 	// is refused to its sender alone.
-	catchGrace = 2 * time.Second
+	catchGrace = 3 * time.Second
 )
 
 // Player holds per-player metadata.

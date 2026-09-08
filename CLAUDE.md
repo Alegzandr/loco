@@ -239,7 +239,7 @@ Detail: [`docs/notes/domain-rules.md`](docs/notes/domain-rules.md). Spec: `docs/
 7. **A Contre-LOCO! that finds nobody costs the caller 1 card, at most once per offer, and only
    while one is on the table** (`failedCatchPenalty`, `Room.PenalizeFailedCatch`, `CatchOffered`,
    rationed by `catchOfferKey` + `CatchPaidFor`). The offer is a seat on **exactly two** cards or a
-   seat with a **window still running** (5s plus `catchGrace`, 2s), so the press is a **read of the
+   seat with a **window still running** (5s plus `catchGrace`, 3s), so the press is a **read of the
    table** and not an answer to a cue. **The offer is the window, not the hand** — a seat can leave
    the near-finish picture with no card played. **Two, not three**, because a window a player can
    miss on purpose is a Swap away from being ammunition. **The ration is the offer, never the card
@@ -587,8 +587,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   your **own turn** (`Room.PlayCards`), where nothing is being raced.
 - **Contre-LOCO! is pressable before the server has named anybody**
   (`components/catchAvailability.ts`, `CATCH_LIVE_MAX_HAND = 2`): any *other* seat on exactly two
-  cards, or a window still running — the server's end plus `CATCH_LATE_GRACE_MS` (1s), deliberately
-  under the server's `catchGrace` (2s) by the width of the wire. `serverMirrors.test.ts` pins the
+  cards, or a window still running — the server's end plus `CATCH_LATE_GRACE_MS` (2s), deliberately
+  under the server's `catchGrace` (3s) by the width of the wire. `serverMirrors.test.ts` pins the
   inequality, not a number. **Hand sizes, our own seat and the clock decide it, and nothing else
   may** — `isCatchLive` does not take `declaredSeats`, because going dead on a declaration would
   report it. The clock is `store.onHookUntil`, kept past the declaration and past the hand growing back.

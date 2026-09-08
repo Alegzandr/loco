@@ -434,8 +434,8 @@ polish.
 
   That is what makes the *late* press possible at all, and the server charges for exactly the same
   stretch (`catchOffered`): a control that greys out under a committed thumb is sparing the player a
-  mistake the server would have billed them for either way. **`CATCH_LATE_GRACE_MS` (1s) is
-  deliberately shorter than the server's `catchGrace` (2s), and the difference is the wire** — a
+  mistake the server would have billed them for either way. **`CATCH_LATE_GRACE_MS` (2s) is
+  deliberately shorter than the server's `catchGrace` (3s), and the difference is the wire** — a
   press made on the last frame the button is live has a whole second to arrive and still be charged.
   Longer would be a live button over a wager the server answers with silence; equal would drop the
   last late press by exactly one network hop. `serverMirrors.test.ts` pins the inequality rather than

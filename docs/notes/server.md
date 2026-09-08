@@ -513,7 +513,7 @@ Posture: validate every message, reject illegal/out-of-turn, server-side hidden 
     mechanic is built on and exactly wrong for a call on somebody holding eight cards: the caller
     had nothing to lose the race to. So it was a broadcast to every seat, at whatever the token
     bucket allows, and **free** the moment the piles ran dry and the penalty draw came back empty
-    (`PenalizeFailedCatch` returns nothing and the broadcast went out anyway). `catchGrace` (2s past
+    (`PenalizeFailedCatch` returns nothing and the broadcast went out anyway). `catchGrace` (3s past
     `catchWindow`) is the line: inside it the window was live when the button was drawn and the
     message lost the trip, which is a wager; outside it no client was drawing that button at all, so
     `ErrNoCatchWindow` was refused to its sender, charged nothing and told to nobody.
