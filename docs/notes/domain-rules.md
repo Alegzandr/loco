@@ -528,8 +528,8 @@ won, and a one-card hand had made them finishes by accident.
     favour, which is the same failure as announcing the call. So the offer is the **window**
     (`catchOffered` asks `catchRaceRecent` before it asks the hand, `catchOfferKey` is keyed on
     `LastCardAt` so the ration survives the hand moving underneath it), and the client offers the
-    late press for **less** than the server charges for it: `CATCH_LATE_GRACE_MS` is 1s against
-    `catchGrace`'s 2s, and the difference is the round trip. Live *longer* than the server charges
+    late press for **less** than the server charges for it: `CATCH_LATE_GRACE_MS` is 2s against
+    `catchGrace`'s 3s, and the difference is the round trip. Live *longer* than the server charges
     is a button that does nothing when pressed; live for *exactly* as long puts a press made on the
     final live frame outside the server's window by one network hop, which is the dark button's
     failure arriving from the other side. `serverMirrors.test.ts` pins the inequality rather than
@@ -542,7 +542,7 @@ won, and a one-card hand had made them finishes by accident.
     than by the rule.
   - `catchRaceRecent` still separates the two kinds of failure, and it still matters even though
     both now cost the same card: the target's window must have opened inside
-    `catchWindow + catchGrace` (5s + 2s) for the call to count as a lost race, and outside that it
+    `catchWindow + catchGrace` (5s + 3s) for the call to count as a lost race, and outside that it
     is `ErrNoCatchWindow`. The grace is a network round trip plus the frame the button was drawn in.
     `server/game/catch_window_test.go` owns both sides of the line.
   - **A seat number the table does not have is still refused rather than charged**
@@ -562,7 +562,7 @@ won, and a one-card hand had made them finishes by accident.
   - **A penalty that drew nothing is told to its caller and to nobody else.** `catchGrace` closed the
     call from *outside* a window; this is the one from inside it. Once both piles are dry the draw
     comes back empty, so the call costs nothing — and announcing it anyway made it the one gameplay
-    message that was free to send *and* free to fan out, at ten a second for the whole seven seconds
+    message that was free to send *and* free to fan out, at ten a second for the whole eight seconds
     a target's window is open. There is also nothing to announce: the table would be rendering a
     penalty nobody paid. The caller still gets the frame, because their button did do something.
 - **The client spends the wager on press, not on the reply** (`noteCatchAttempt` sets
