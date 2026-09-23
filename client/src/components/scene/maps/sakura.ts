@@ -64,7 +64,7 @@ export const sakura: Builder = (k) => {
   const bathSpot = { sx: sx + a + 12.5, sy: sy + 2 }
   // In the left band, opposite the bathhouse: sixteen tiles tall in the band
   // above the table, its roofs ran off the top of every frame.
-  const pagodaSpot = { sx: sx - a - 12.5, sy: sy + 3 }
+  const pagodaSpot = { sx: sx - a - 9, sy: sy + 3 }
   const toriiSpot = { sx: sx - a - 4, sy: sy - b - 5 }
   const near = nearSpot
 
