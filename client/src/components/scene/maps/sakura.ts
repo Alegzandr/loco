@@ -149,7 +149,7 @@ export const sakura: Builder = (k) => {
     k.lantern(...at(bathSpot.sx - 4.6, bathSpot.sy - 2.2), 2.6, 0xff5a3c, 0.32)
     const [px, pz] = poolSpot
     k.disc(px, 0, pz, 4.6, 0x8a8f99, { seg: 18 })
-    k.disc(px, 0.12, pz, 4, 0x7fd1e8, { seg: 18 })
+    k.disc(px, 0.12, pz, 4, 0x7fd1e8, { seg: 18, water: true })
     for (let i = 0; i < 14; i++) {
       const t = (i / 14) * Math.PI * 2
       k.rock(px + Math.cos(t) * 4.3, pz + Math.sin(t) * 4.3, rng.range(0.35, 0.65), 0x8a8f99)

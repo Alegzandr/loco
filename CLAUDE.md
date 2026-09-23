@@ -1039,6 +1039,11 @@ stated at the top of `styles/tokens.css`:
     irradiance is dropped and its radiance weighted by the gloss — so gloss 0 renders pixel for pixel
     as before. Glass, paint, and every slab under rain (`Kit.wetGloss()`). **A wet street is a
     sheen, not a mirror of the sky**. `sceneGloss.test.ts`.
+  - **The water and a wet street mirror the room** (`scene/mirror.ts`): the room rendered once more
+    flipped, read at each fragment's `gl_FragCoord` shifted by its own height. **The sky only tints
+    the water**; in that pass **up-facing faces are discarded and halos are hidden**; a wet street
+    and a puddle take the reflection **smeared and jittered**, never sharp. Not on `light`, and only
+    where `Kit.reflective`. A builder marks water with `BlockOptions.water`.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**

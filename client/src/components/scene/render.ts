@@ -52,6 +52,7 @@ import { at } from './maps/common'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
 import { floatTargets, makeSpriteGrader, renderWithPost, type SpriteGrader } from './post'
+import { makeMirror, renderReflection } from './mirror'
 import { configureShadows, frameBox, makeLights, shadowReach, skyEnvironment, toneMappingFor } from './lighting'
 import { lightingFor } from './shade'
 import { LOOK } from './look'
@@ -318,6 +319,7 @@ export async function renderScene(
   // supersampling does not already cover the edges: on the light tier.
   const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: false, powerPreference: 'high-performance' })
   let env: Texture | null = null
+  let reflection: WebGLRenderTarget | null = null
   try {
     renderer.setPixelRatio(1)
     renderer.outputColorSpace = SRGBColorSpace
@@ -365,7 +367,8 @@ export async function renderScene(
     const candidates: Actor[] = BUILDERS[spec.map.id](kit) ?? []
     const t1 = performance.now()
     await report(RENDER_STEPS.built)
-    const group = kit.build(env)
+    const mirror = makeMirror(rig, { h: vh }, PITCH_COS)
+    const group = kit.build(env, mirror)
     const t2 = performance.now()
     await report(RENDER_STEPS.merged)
     scene.add(group)
@@ -388,6 +391,18 @@ export async function renderScene(
     camera.top = vh / 2
     camera.bottom = -vh / 2
     camera.updateProjectionMatrix()
+    // The reflection: the room mirrored in its water and its wet streets, one
+    // more render of it before the real one, which reads it (`mirror.ts`). A
+    // GPU that refuses the target keeps the sky in its water and nothing else.
+    if (kit.reflective && q.reflections && !software) {
+      try {
+        reflection = renderReflection(renderer, scene, camera, mirror, kit.waterLevel, gw, gh, floatOk)
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('reflection failed, sky only', err)
+        mirror.uniforms.uReflectOn.value = 0
+      }
+    }
+    mirror.uniforms.uRes.value.set(gw, gh)
     // The photograph. The focus band is the felt, in the render's own pixels;
     // a GPU that refuses a target this size throws inside, and the plain frame
     // is the answer rather than no room.
@@ -588,6 +603,7 @@ export async function renderScene(
     return { frame, sprites }
   } finally {
     env?.dispose()
+    reflection?.dispose()
     renderer.dispose()
     renderer.forceContextLoss()
   }

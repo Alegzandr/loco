@@ -46,6 +46,8 @@ export interface RenderQuality {
   post: PostOptions | null
   /** Multisampling on the plain path. Off once supersampling covers it. */
   msaa: boolean
+  /** The room mirrored in its water and its wet streets (`mirror.ts`): one more render of the room. */
+  reflections: boolean
 }
 
 export const QUALITY: Record<GraphicsTier, RenderQuality> = {
@@ -56,6 +58,7 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     shadowMap: 4096,
     post: { ao: true, fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22 },
     msaa: false,
+    reflections: true,
   },
   medium: {
     tier: 'medium',
@@ -64,6 +67,7 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     shadowMap: 2048,
     post: { ao: true, fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18 },
     msaa: false,
+    reflections: true,
   },
   light: {
     tier: 'light',
@@ -72,6 +76,7 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     shadowMap: 1024,
     post: null,
     msaa: true,
+    reflections: false,
   },
 }
 

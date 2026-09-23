@@ -60,6 +60,7 @@ import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, splitGlow } from './models/bake'
+import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_PARS, makeMirror, type Mirror } from './mirror'
 
 /** three's own image-based-light chunk, which the lit material edits rather than includes. */
 const THREE_CHUNK_LIGHTS_MAPS = ShaderChunk.lights_fragment_maps
@@ -124,6 +125,12 @@ export interface BlockOptions {
    * glossy surface mirrors the sky; a matte one reflects nothing.
    */
   gloss?: number
+  /**
+   * The top of this block is water: it takes the swell, the sky and the
+   * mirrored room (`mirror.ts`). Its height is recorded as the room's water
+   * level, under which the mirror pass draws nothing.
+   */
+  water?: boolean
 }
 
 export const INK = 0x120b24
@@ -195,6 +202,10 @@ export class Kit {
   private readonly models: ModelLib | null
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
+  /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
+  reflective = false
+  /** The lowest water surface built, tiles; 0 when there is none, which is the ground's own plane. */
+  waterLevel = 0
   /** Every pane on every wall, two sheets (`quad`). */
   private sheets: Record<'lit' | 'glow', Sheet> = { lit: emptySheet(), glow: emptySheet() }
 
@@ -363,7 +374,7 @@ export class Kit {
 
   // ─── Primitives ───────────────────────────────────────────────────────────
 
-  private push(geom: BufferGeometry, color: Hex, bucket: Bucket, gloss = 0) {
+  private push(geom: BufferGeometry, color: Hex, bucket: Bucket, gloss = 0, water = false) {
     geom.deleteAttribute('uv')
     if (!geom.index) throw new Error('kit: every geometry must be indexed, or the bucket will not merge')
     const n = geom.getAttribute('position').count
@@ -392,7 +403,7 @@ export class Kit {
         arr[i * 3 + 1] = _color.g * k
         arr[i * 3 + 2] = _color.b * k
       }
-      setGloss(geom, gloss)
+      setGloss(geom, gloss, water)
     } else {
       for (let i = 0; i < n; i++) {
         arr[i * 3] = _color.r
@@ -423,7 +434,8 @@ export class Kit {
     // A tilted block is placed by its centre, an upright one by its bottom.
     const cy = o.tilt ? y : y + h / 2
     const body = this.place(boxGeometry(w, h, d), x, cy, z, o.rot, o.tilt)
-    this.push(body, color, bucket, o.gloss)
+    if (o.water) this.waterAt(y + h)
+    this.push(body, color, bucket, o.water ? 1 : o.gloss, o.water)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(boxGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, cy, z, o.rot, o.tilt), inkFor(color), 'ink')
@@ -515,8 +527,9 @@ export class Kit {
   }
 
   /** A flat disc on the ground (a rug, a pad marking, a puddle). Never outlined. */
-  disc(x: number, y: number, z: number, r: number, color: Hex, o: { glow?: boolean; seg?: number; gloss?: number } = {}) {
-    this.push(this.place(new CylinderGeometry(r, r, 0.04, o.seg ?? 16), x, y + 0.02, z), color, o.glow ? 'glow' : 'lit', o.gloss)
+  disc(x: number, y: number, z: number, r: number, color: Hex, o: { glow?: boolean; seg?: number; gloss?: number; water?: boolean } = {}) {
+    if (o.water) this.waterAt(y + 0.04)
+    this.push(this.place(new CylinderGeometry(r, r, 0.04, o.seg ?? 16), x, y + 0.02, z), color, o.glow ? 'glow' : 'lit', o.water ? 1 : o.gloss, o.water)
   }
 
   /**
@@ -541,13 +554,21 @@ export class Kit {
   // ─── Props ────────────────────────────────────────────────────────────────
 
   /** A flat slab: paving, a road, a deck. Receives shadows, casts none. */
-  slab(x: number, z: number, w: number, d: number, color: Hex, o: { y?: number; h?: number; outline?: boolean; rot?: number; gloss?: number } = {}) {
-    this.box(x, o.y ?? 0, z, w, o.h ?? 0.08, d, color, { outline: o.outline ?? false, cap: false, rot: o.rot, gloss: o.gloss ?? this.wetGloss() })
+  slab(x: number, z: number, w: number, d: number, color: Hex, o: { y?: number; h?: number; outline?: boolean; rot?: number; gloss?: number; water?: boolean } = {}) {
+    this.box(x, o.y ?? 0, z, w, o.h ?? 0.08, d, color, { outline: o.outline ?? false, cap: false, rot: o.rot, gloss: o.gloss ?? this.wetGloss(), water: o.water })
+  }
+
+  /** Records a water surface at height `y`: the mirror pass draws nothing under the lowest one. */
+  private waterAt(y: number) {
+    this.waterLevel = Math.min(this.waterLevel, y)
+    this.reflective = true
   }
 
   /** The gloss of open ground tonight: a street that has taken rain, or none. */
   wetGloss(): number {
-    return this.rig.wet ? LOOK.material.wetGloss : 0
+    if (!this.rig.wet) return 0
+    this.reflective = true
+    return LOOK.material.wetGloss
   }
 
   /** The ground under everything, sized to run past every edge of the view. */
@@ -565,8 +586,12 @@ export class Kit {
       const px = x + Math.cos(a) * rr
       const pz = z + Math.sin(a) * rr
       const r = this.rng.range(0.4, 1.1)
-      this.push(this.place(new CylinderGeometry(r, r * 0.8, 0.02, 12), px, 0.05, pz), mix(this.rig.sky.horizon, 0xffffff, 0.1), 'halo')
-      this.haloAlphas.push(0.28)
+      // A puddle is the wettest of the wet street: fully glossy, taking the
+      // sky and the room's lights smeared the way the street does. Mirrored
+      // sharply like the river, it showed shards of lit windows lying on the
+      // paving.
+      this.push(this.place(new CylinderGeometry(r, r * 0.8, 0.02, 12), px, 0.1, pz), mix(this.ground(0x3a4254), 0x1a2233, 0.4), 'lit', 1)
+      this.reflective = true
     }
   }
 
@@ -632,7 +657,10 @@ export class Kit {
       g.setAttribute('position', new Float32BufferAttribute(s.pos, 3))
       g.setAttribute('normal', new Float32BufferAttribute(s.nrm, 3))
       g.setAttribute('color', new Float32BufferAttribute(s.col, 3))
-      if (bucket === 'lit') g.setAttribute('gloss', new Float32BufferAttribute(s.gloss, 1))
+      if (bucket === 'lit') {
+        g.setAttribute('gloss', new Float32BufferAttribute(s.gloss, 1))
+        g.setAttribute('water', new Float32BufferAttribute(new Float32Array(s.gloss.length), 1))
+      }
       g.setIndex(s.idx)
       this.buckets[bucket].push(g)
       this.sheets[bucket] = emptySheet()
@@ -1171,12 +1199,12 @@ export class Kit {
    * `env` is the sky as an environment (`lighting.ts: skyEnvironment`), which
    * the glossy surfaces mirror; without one they are only shinier under the sun.
    */
-  build(env: Texture | null = null): Group {
+  build(env: Texture | null = null, mirror: Mirror | null = null): Group {
     const g = new Group()
     this.flushSheets()
     const lit = merge(this.buckets.lit)
     if (lit) {
-      const m = new Mesh(lit, litMaterial(env))
+      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig)))
       m.castShadow = true
       m.receiveShadow = true
       g.add(m)
@@ -1210,7 +1238,7 @@ export class Kit {
  * its radiance is weighted by the gloss — a matte block comes out exactly as
  * it did before there was an environment at all.
  */
-function litMaterial(env: Texture | null): MeshStandardMaterial {
+function litMaterial(env: Texture | null, mirror: Mirror): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness })
   if (env) {
     m.envMap = env
@@ -1218,20 +1246,23 @@ function litMaterial(env: Texture | null): MeshStandardMaterial {
   }
   const glossRoughness = LOOK.material.glossRoughness
   m.onBeforeCompile = (shader) => {
-    shader.uniforms.uGlossRoughness = { value: glossRoughness }
+    Object.assign(shader.uniforms, mirror.uniforms, { uGlossRoughness: { value: glossRoughness } })
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float gloss;\nvarying float vGloss;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGloss = gloss;')
+      .replace('#include <common>', `#include <common>\n${MIRROR_VERT_PARS}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${MIRROR_VERT}`)
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vGloss;\nuniform float uGlossRoughness;')
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, uGlossRoughness, vGloss);')
+      .replace('#include <common>', `#include <common>\n${MIRROR_FRAG_PARS}`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(mix(roughnessFactor, uGlossRoughness, vGloss), uWaterRoughness, vWater);')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${MIRROR_NORMAL}`)
       .replace(
         '#include <lights_fragment_maps>',
         THREE_CHUNK_LIGHTS_MAPS.replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '').replace(
           'radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
-          'radiance += vGloss * getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+          // Water takes its sky explicitly (`MIRROR_OUT`), over its own colour.
+          'radiance += vGloss * (1.0 - vWater) * getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
         ),
       )
+      .replace('#include <opaque_fragment>', `${MIRROR_OUT}\n#include <opaque_fragment>`)
   }
   m.customProgramCacheKey = () => `loco-gloss-${glossRoughness}`
   return m
@@ -1249,10 +1280,11 @@ function emptySheet(): Sheet {
   return { pos: [], nrm: [], col: [], gloss: [], idx: [] }
 }
 
-/** Every geometry in the lit bucket carries a gloss per vertex, or the bucket will not merge. */
-function setGloss(geom: BufferGeometry, gloss: number) {
+/** Every geometry in the lit bucket carries a gloss and a water flag per vertex, or the bucket will not merge. */
+function setGloss(geom: BufferGeometry, gloss: number, water = false) {
   const n = geom.getAttribute('position').count
   geom.setAttribute('gloss', new Float32BufferAttribute(new Float32Array(n).fill(Math.max(0, Math.min(1, gloss))), 1))
+  geom.setAttribute('water', new Float32BufferAttribute(new Float32Array(n).fill(water ? 1 : 0), 1))
 }
 
 function merge(list: BufferGeometry[]): BufferGeometry | null {

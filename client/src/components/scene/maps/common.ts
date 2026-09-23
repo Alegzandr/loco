@@ -14,6 +14,7 @@
  * corner behind them. On a phone the sides are the table's edge and the top
  * and bottom bands are deep.
  */
+import { seededRng } from '../rng'
 import type { Kit, Anchor } from '../kit'
 import type { Hex } from '../sky'
 import { PITCH_SIN, type Actor } from '../life'
@@ -129,7 +130,7 @@ export function podium(k: Kit, s: PodiumStyle): {
   // The plaza floor: a wide oval of paving around the steps.
   const [fx, fz] = at(sx, sy)
   const R = Math.max(a, b) + 14
-  k.oval(fx, 0.02, fz, R + 4, along(b + 5) + 6, 0.08, k.ground(s.floor), { rot, outline: false, cap: false })
+  k.oval(fx, 0.02, fz, R + 4, along(b + 5) + 6, 0.08, k.ground(s.floor), { rot, outline: false, cap: false, gloss: k.wetGloss() })
   for (let i = 0; i < 3; i++) {
     const ra = a + 5 + i * 3
     const rb = along(b + 2.5) + i * 3 * 0.9
@@ -499,12 +500,31 @@ export function cityGrid(k: Kit, spec: GridSpec): StreetPlan {
 }
 
 function water(k: Kit, x: number, z: number, len: number, w: number, rot: number, s: NonNullable<GridSpec['water']>) {
-  k.slab(x, z, len, w + 1.4, s.color, { rot, y: -0.06, h: 0.06, outline: false })
+  const width = w + 1.4
+  k.slab(x, z, len, width, s.color, { rot, y: -0.06, h: 0.06, outline: false, water: true })
   k.slab(x, z, len, w + 2.2, s.bank, { rot, y: -0.1, h: 0.02, outline: false })
   for (let i = 0; i < 6; i++) {
     const t = k.rng.range(-len / 2, len / 2)
     const off = k.rng.range(-w / 3, w / 3)
-    k.slab(x + t * Math.cos(rot) + off * Math.sin(rot), z - t * Math.sin(rot) + off * Math.cos(rot), k.rng.range(0.4, 1), 0.14, mix(s.color, 0xffffff, 0.5), { rot, y: 0.01, h: 0.02, outline: false })
+    k.slab(x + t * Math.cos(rot) + off * Math.sin(rot), z - t * Math.sin(rot) + off * Math.cos(rot), k.rng.range(0.4, 1), 0.14, mix(s.color, 0xffffff, 0.5), { rot, y: 0.01, h: 0.02, outline: false, gloss: 0 })
+  }
+  // Where the water meets the bank, a broken line of foam: the one mark that
+  // says the edge is water lapping at stone and not a blue slab laid on it.
+  // Under snow the river is still, and has none.
+  if (k.rig.snow) return
+  // Its own sequence, seeded where the water lies: the room's is left exactly
+  // where it was, so no house moves because the river gained a foam line.
+  const rng = seededRng(`foam:${x.toFixed(2)}:${z.toFixed(2)}`)
+  const foam = mix(s.color, 0xffffff, 0.62)
+  for (const side of [-1, 1]) {
+    let t = -len / 2 + rng.range(0, 0.6)
+    while (t < len / 2 - 0.3) {
+      const run = Math.min(len / 2 - t, rng.range(0.5, 1.6))
+      const mid = t + run / 2
+      const off = side * (width / 2 - rng.range(0.1, 0.22))
+      k.slab(x + mid * Math.cos(rot) + off * Math.sin(rot), z - mid * Math.sin(rot) + off * Math.cos(rot), run, rng.range(0.1, 0.18), foam, { rot, y: 0.0, h: 0.015, outline: false, gloss: 0 })
+      t += run + rng.range(0.2, 0.9)
+    }
   }
 }
 

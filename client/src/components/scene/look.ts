@@ -194,6 +194,26 @@ export interface Look {
     vignetteSquash: number
     vignetteScale: number
   }
+  water: {
+    /** How much of the mirrored room a water surface shows over its own colour, 0–1. */
+    reflect: number
+    /** How much of the sky tints it, 0–1: little, or the sea goes pale. */
+    sky: number
+    /** How much of the mirrored room a wet street takes on top of its sheen: the lamps in it after dark. */
+    wetMirror: number
+    /** How far the swell moves the reflection, in frame uv per unit of slope. */
+    ripple: number
+    /** The swell's slope: the glints and the break in the reflection. */
+    waveAmp: number
+    /** The swell's frequency, per tile. */
+    waveScale: number
+    /** How far down the frame a wet street smears a reflection, per tap, in frame uv. */
+    streak: number
+    /** The mirror pass's size, as a share of the frame's. */
+    scale: number
+    /** The water's own roughness under the sun: what makes the glints small or broad. */
+    roughness: number
+  }
   fog: {
     /** How much of the rig's distance fog reaches the render. */
     strength: number
@@ -274,6 +294,7 @@ export const LOOK: Look = {
     vignetteSquash: 1.15,
     vignetteScale: 1.41,
   },
+  water: { reflect: 0.5, sky: 0.12, wetMirror: 0.7, ripple: 0.006, waveAmp: 0.22, waveScale: 1.1, streak: 0.007, scale: 0.5, roughness: 0.3 },
   fog: { strength: 1 },
   debug: 'off',
 }

@@ -1365,6 +1365,34 @@ room already obeyed, extended to something that used to be flat.
   way. At 1.0 and 0.55 the paving keeps its colours under a cool glaze; what makes a wet street read
   as wet after dark is the lights in it, below. A GPU with no float target gets no environment
   (`floatOk`), and its glossy surfaces are only shinier under the sun.
+- **The water mirrors the room, and so does a wet street** (`scene/mirror.ts`, `BlockOptions.water`,
+  `sceneGloss.test.ts`). Under an orthographic camera a planar reflection is exact: the room rendered
+  once more with the world flipped (`scene.scale.y = -1`) from the same camera *is* its reflection in
+  the plane `y = 0`, pixel for pixel, and a surface reads it at its own `gl_FragCoord`. A surface at
+  another height reads it shifted by `2 · p · cos(pitch)` of the frame (`uLevelUv` times the
+  fragment's own height), which is what lets the harbour's sea, seven tenths of a tile under the
+  quay, and a puddle on the paving share one pass. Everything under the lowest water
+  (`Kit.waterLevel`) is clipped out of it. The pass runs at half the frame, only where the tier
+  says (`QUALITY[tier].reflections`: not on `light`) and only where the room has water or a wet
+  street (`Kit.reflective`), and a GPU that refuses its target keeps the sky in its water. Four
+  things went wrong on the way and each is now a rule:
+  - **The sky only tints the water** (`LOOK.water.sky`, 0.12), **the room stands in it at the
+    weight of a reflection** (`reflect`). Mixed at the weight of a mirror, a noon sky turned the
+    harbour into a pale grey sheet; the sea is blue because it is the sea's colour first.
+  - **In the mirror pass a face turned up is discarded** (`uMirrorPass`): flipped, it is a face that
+    looked at the ground, the underside of a slab, which no reflection shows.
+  - **The halos sit the mirror pass out**: flat discs of light whose undersides, flipped, laid a
+    pale band over every wet plaza. What glows stays in, so a lamp is a lamp in the water.
+  - **What is wet is the whole ground, not the tiles on it**: the podium's floor oval and the
+    harbour's lawn take `Kit.wetGloss()` too, or the reflection of the podium's lit ring came out
+    cut into the paving's diamonds and read as shards of glass.
+  A wet street's reflection is **smeared down the frame and a little across, jittered per pixel**
+  (`streak`), so a row of lit windows is a glow of their colour and not a second row of windows;
+  **a puddle is the wettest of the wet street** (gloss 1, not water) for the same reason. The water
+  itself takes a swell (`waveSlope`, a few crossed cosines): its normal is tilted, which gives the
+  sun's glints and breaks the reflection (`ripple`). A river's bank has a broken line of foam,
+  drawn **from its own seeded sequence** (`foam:x:z`) so that no house in the room moved when the
+  river gained it. Sprites reflect nothing: a boat's reflection would be a second sprite.
 
 ### Reviewing a room
 Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the
