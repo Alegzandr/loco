@@ -60,6 +60,7 @@ import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, splitGlow } from './models/bake'
+import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms } from './pools'
 import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_PARS, makeMirror, type Mirror } from './mirror'
 
 /** three's own image-based-light chunk, which the lit material edits rather than includes. */
@@ -92,6 +93,13 @@ export interface KitOptions {
   shadows?: boolean
   /** The loaded models this room may place (`k.model`). None for a sprite kit that needs none. */
   models?: ModelLib
+  /**
+   * Light the ground with a map of pools (`pools.ts`) rather than an additive
+   * disc under each lamp. On for a room (a kit with a `frame`); a sprite has
+   * no ground of its own to light and keeps its disc, so a car's headlights
+   * still lie in front of it as it drives.
+   */
+  lightPools?: boolean
 }
 
 export interface ModelOptions {
@@ -200,6 +208,9 @@ export class Kit {
   /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
   readonly shadows: boolean
   private readonly models: ModelLib | null
+  private readonly lightPools: boolean
+  /** The light lying on the ground tonight (`pools.ts`). */
+  readonly pools: Pool[] = []
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
   /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
@@ -217,6 +228,7 @@ export class Kit {
     this.frame = o.frame ?? { w: 80, h: 80 }
     this.shadows = o.shadows ?? true
     this.models = o.models ?? null
+    this.lightPools = (o.lightPools ?? o.frame !== undefined) && LOOK.pools.strength > 0
   }
 
   // ─── Ground plan ──────────────────────────────────────────────────────────
@@ -295,6 +307,8 @@ export class Kit {
       return g
     }
 
+    // A lit house lights the ground round it, a little.
+    if (windows && glow && glow.length) this.pool(x, z, Math.max(b.w, b.d) * s * 0.85, WINDOW_GLOW, 0.06 * LOOK.pools.windowSpill)
     const body = make(b.position, lit, b.color)
     this.pushBaked(body, 'lit', GLOSSY_KITS.has(id.split('/')[0]) ? LOOK.material.paintGloss : 0)
     if (glow && glow.length) {
@@ -545,10 +559,24 @@ export class Kit {
    */
   halo(x: number, y: number, z: number, r: number, color: Hex, alpha = 0.35, flat = true) {
     if (!this.rig.lampsOn) return
+    // A lamp's pool is light on the ground. A halo the size of the plaza is
+    // not a lamp: it is the room's colour washed over the paving round the
+    // table (neon's purple ring), and as light it either lit the square like a
+    // stage or, weakened, vanished — so it stays the wash it always was.
+    if (flat && this.lightPools && r <= LOOK.pools.washFrom) {
+      this.pool(x, z, r * LOOK.pools.reach, color, alpha)
+      return
+    }
     const rr = flat ? r : Math.min(r, HALO_SPHERE_MAX)
     const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 10, 8)
     this.push(this.place(g, x, flat ? y + 0.03 : y, z), color, 'halo')
     this.haloAlphas.push(alpha)
+  }
+
+  /** Light lying on the ground at `(x, z)`, `r` tiles across: the ground's colour lit, not painted over (`pools.ts`). */
+  pool(x: number, z: number, r: number, color: Hex, k: number) {
+    if (!this.lightPools || !this.rig.lampsOn) return
+    this.pools.push({ x, z, r, color, k })
   }
 
   // ─── Props ────────────────────────────────────────────────────────────────
@@ -612,6 +640,12 @@ export class Kit {
     // bucket (`quad`, flushed by `build`).
     this.quad(x, y + h / 2, z, fw, fh, facing, o.rot ?? 0, frame, false, 0.01)
     this.quad(x, y + h / 2, z, w, h, facing, o.rot ?? 0, pane, lit, 0.03, lit ? 0 : LOOK.material.glassGloss)
+    // A lit window at street level spills onto the pavement in front of it.
+    if (lit && y < 2.2 && LOOK.pools.windowSpill > 0) {
+      const rot = o.rot ?? 0
+      const [nx, nz] = facing === 'z' ? [Math.sin(rot), Math.cos(rot)] : [Math.cos(rot), -Math.sin(rot)]
+      this.pool(x + nx * 1.1, z + nz * 1.1, 1.5, color, 0.1 * LOOK.pools.windowSpill)
+    }
     if (o.sill !== false) {
       if (facing === 'x') this.box(x + 0.05, y - 0.12, z, 0.14, 0.07, fw + 0.1, scale(frame, 0.9), { rot: o.rot, outline: false, cap: false })
       else this.box(x, y - 0.12, z + 0.05, fw + 0.1, 0.07, 0.14, scale(frame, 0.9), { rot: o.rot, outline: false, cap: false })
@@ -1204,7 +1238,7 @@ export class Kit {
     this.flushSheets()
     const lit = merge(this.buckets.lit)
     if (lit) {
-      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig)))
+      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig), poolUniforms(splatPools(this.pools))))
       m.castShadow = true
       m.receiveShadow = true
       g.add(m)
@@ -1238,7 +1272,7 @@ export class Kit {
  * its radiance is weighted by the gloss — a matte block comes out exactly as
  * it did before there was an environment at all.
  */
-function litMaterial(env: Texture | null, mirror: Mirror): MeshStandardMaterial {
+function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): MeshStandardMaterial {
   const m = new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness })
   if (env) {
     m.envMap = env
@@ -1246,12 +1280,12 @@ function litMaterial(env: Texture | null, mirror: Mirror): MeshStandardMaterial 
   }
   const glossRoughness = LOOK.material.glossRoughness
   m.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, mirror.uniforms, { uGlossRoughness: { value: glossRoughness } })
+    Object.assign(shader.uniforms, mirror.uniforms, pools, { uGlossRoughness: { value: glossRoughness }, uPoolLift: { value: LOOK.pools.lift } })
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\n${MIRROR_VERT_PARS}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\n${MIRROR_VERT}`)
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\n${MIRROR_FRAG_PARS}`)
+      .replace('#include <common>', `#include <common>\n${MIRROR_FRAG_PARS}\n${POOLS_FRAG_PARS}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(mix(roughnessFactor, uGlossRoughness, vGloss), uWaterRoughness, vWater);')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${MIRROR_NORMAL}`)
       .replace(
@@ -1262,7 +1296,7 @@ function litMaterial(env: Texture | null, mirror: Mirror): MeshStandardMaterial 
           'radiance += vGloss * (1.0 - vWater) * getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
         ),
       )
-      .replace('#include <opaque_fragment>', `${MIRROR_OUT}\n#include <opaque_fragment>`)
+      .replace('#include <opaque_fragment>', `${POOLS_OUT}\n${MIRROR_OUT}\n#include <opaque_fragment>`)
   }
   m.customProgramCacheKey = () => `loco-gloss-${glossRoughness}`
   return m

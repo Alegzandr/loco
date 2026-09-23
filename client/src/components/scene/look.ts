@@ -214,6 +214,21 @@ export interface Look {
     /** The water's own roughness under the sun: what makes the glints small or broad. */
     roughness: number
   }
+  pools: {
+    /** How strongly a lamp lights the ground under it, per unit of the alpha the kit's halo asked for. */
+    strength: number
+    /** How far past the old disc's radius the light reaches, as a multiple: a falloff needs room. */
+    reach: number
+    /** Up to this height a surface takes the whole pool; above it the light fades, tile by tile. */
+    lift: number
+    /** A halo wider than this, tiles, is not a lamp's but the room's colour over the plaza, and stays an additive wash. */
+    washFrom: number
+    /** How strongly a lit ground-floor window spills onto the pavement in front of it. */
+    windowSpill: number
+    /** The map's resolution, texels per tile, and its largest side. */
+    texelsPerTile: number
+    maxSide: number
+  }
   fog: {
     /** How much of the rig's distance fog reaches the render. */
     strength: number
@@ -295,6 +310,7 @@ export const LOOK: Look = {
     vignetteScale: 1.41,
   },
   water: { reflect: 0.5, sky: 0.12, wetMirror: 0.7, ripple: 0.006, waveAmp: 0.22, waveScale: 1.1, streak: 0.007, scale: 0.5, roughness: 0.3 },
+  pools: { strength: 6, reach: 1.6, washFrom: 8, lift: 0.7, windowSpill: 0.5, texelsPerTile: 8, maxSide: 1024 },
   fog: { strength: 1 },
   debug: 'off',
 }

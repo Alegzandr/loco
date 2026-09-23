@@ -81,6 +81,22 @@ export function mountLookPanel(): GUI {
   material.add(LOOK.material, 'wetGloss', 0, 1, 0.01).name('wet ground')
   material.add(LOOK.material, 'paintGloss', 0, 1, 0.01).name('paint')
 
+  const water = gui.addFolder('Water')
+  water.add(LOOK.water, 'reflect', 0, 1, 0.01).name('room in water')
+  water.add(LOOK.water, 'sky', 0, 1, 0.01).name('sky in water')
+  water.add(LOOK.water, 'wetMirror', 0, 3, 0.05).name('lights in wet street')
+  water.add(LOOK.water, 'waveAmp', 0, 1, 0.01).name('swell')
+  water.add(LOOK.water, 'waveScale', 0.2, 6, 0.1).name('swell frequency')
+  water.add(LOOK.water, 'ripple', 0, 0.03, 0.001)
+  water.add(LOOK.water, 'streak', 0, 0.03, 0.001).name('wet smear')
+  water.add(LOOK.water, 'roughness', 0, 1, 0.01).name('glint roughness')
+
+  const pools = gui.addFolder('Lamp pools')
+  pools.add(LOOK.pools, 'strength', 0, 20, 0.5).name('strength (0 = discs)')
+  pools.add(LOOK.pools, 'reach', 0.5, 4, 0.1)
+  pools.add(LOOK.pools, 'lift', 0, 3, 0.1).name('lit up to')
+  pools.add(LOOK.pools, 'windowSpill', 0, 3, 0.1).name('window spill')
+
   const outline = gui.addFolder('Outline')
   outline.add(LOOK.outline, 'px', 0, 4, 0.1).name('weight (CSS px)')
   outline.add(LOOK.outline, 'darken', 0, 1, 0.01)

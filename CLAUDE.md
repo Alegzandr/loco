@@ -1045,6 +1045,10 @@ stated at the top of `styles/tokens.css`:
     the water**; in that pass **up-facing faces are discarded and halos are hidden**; a wet street
     and a puddle take the reflection **smeared and jittered**, never sharp. Not on `light`, and only
     where `Kit.reflective`. A builder marks water with `BlockOptions.water`.
+  - **A lamp lights the ground's own colour, never paints a disc on it** (`scene/pools.ts`): a
+    lamp-sized flat halo is a pool in one ground light map the lit material multiplies in, fading
+    above `LOOK.pools.lift`. **A halo past `washFrom` stays the room's wash** (neon's ring), and a
+    sprite keeps its disc. `scenePools.test.ts`.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**

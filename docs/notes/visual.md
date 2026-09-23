@@ -1393,6 +1393,20 @@ room already obeyed, extended to something that used to be flat.
   sun's glints and breaks the reflection (`ripple`). A river's bank has a broken line of foam,
   drawn **from its own seeded sequence** (`foam:x:z`) so that no house in the room moved when the
   river gained it. Sprites reflect nothing: a boat's reflection would be a second sprite.
+- **A lamp lights the ground; it does not paint a disc on it** (`scene/pools.ts`, `Kit.pool`,
+  `scenePools.test.ts`). A lamp-sized halo on the ground (`Kit.halo`, flat, radius up to
+  `LOOK.pools.washFrom`) is a pool now: every pool is splatted once, on the CPU, into a map of the
+  ground seen from above (`splatPools`, `(1 − d²/r²)²`, bytes over `POOL_RANGE`), and the lit
+  material reads it at the fragment's world `x, z` and **multiplies it into the fragment's own
+  colour** (`POOLS_OUT`), full up to `lift` above the ground and fading above it — so the flagstones
+  come up warm under a lamp, a wall catches it at its foot, and a roof never does. A lit window at
+  street level spills a small pool on the pavement in front of it, and a lit model house one round
+  itself (`windowSpill`). Hundreds of point lights would do the same and cost a forward renderer its
+  life. Two things stay discs, on purpose: **a halo the size of the plaza is the room's colour
+  washed over the paving, not a lamp** (neon's purple ring): as light it either lit the square
+  like a stage or, weakened, vanished — and **a sprite keeps its disc** (`lightPools` is a room
+  kit's only), since a car carries its headlights on its own bitmap. `strength: 0` is the old
+  discs, for comparing.
 
 ### Reviewing a room
 Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the
