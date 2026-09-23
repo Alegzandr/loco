@@ -57,7 +57,7 @@ import type { Rng } from './rng'
 import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
-import { hullFor, splitGlow } from './models/bake'
+import { compact, hullFor, splitGlow } from './models/bake'
 
 /**
  * Where the table is, in screen tiles: the centre of the felt's ellipse and its
@@ -129,6 +129,23 @@ export function inkFor(c: Hex): Hex {
 const SNOW = 0xf4f7fb
 /** The largest round halo the kit will draw, in tiles: a lamp head's, not a landmark's. */
 export const HALO_SPHERE_MAX = 0.8
+/**
+ * The turn that brings a drawn person round to the kit's own facing. Every
+ * block person faces +z at rot 0 and `personRot` is written for that; the
+ * Kenney townsfolk and astronauts face -z, so without this half turn every
+ * passer-by walked the pavement backwards and the crowd stood with its back
+ * to the table.
+ */
+export const PERSON_MODEL_YAW = Math.PI
+/** The kits whose glow colours are windows, lit per building by the hour's share. */
+const WINDOW_KITS = new Set(['city', 'suburb'])
+/** A number in [0, 1) fixed by a ground point: a draw that costs the room's sequence nothing. */
+export function spotChance(x: number, z: number): number {
+  const v = Math.sin(x * 127.1 + z * 311.7) * 43758.5453
+  return v - Math.floor(v)
+}
+/** The tallest a landmark may stand in the band above the table, in tiles. */
+export const LANDMARK_TOP_MAX = 7
 const WINDOW_DARK = 0x1a2233
 const WINDOW_GLOW = 0xffd98a
 
@@ -154,6 +171,13 @@ export class Kit {
   readonly frame: { w: number; h: number }
   /** The ground plan: every model placed, every zone claimed (`placer.ts`). */
   readonly placer = new Placer(0.35)
+  /**
+   * The room's landmarks, where they stand on screen and how tall they are.
+   * Declared by the builders so the composition rules can be checked: one
+   * over `LANDMARK_TOP_MAX` tiles tall stands in a side band, never in the top
+   * one, where the frame's top edge cuts it (`sceneGeometry.test.ts`).
+   */
+  readonly landmarks: { name: string; sx: number; sy: number; h: number }[] = []
   /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
   readonly shadows: boolean
   private readonly models: ModelLib | null
@@ -176,6 +200,11 @@ export class Kit {
   }
 
   // ─── Ground plan ──────────────────────────────────────────────────────────
+
+  /** Declares a landmark at a screen point, `h` tiles tall. Builds nothing. */
+  landmark(name: string, sx: number, sy: number, h: number) {
+    this.landmarks.push({ name, sx, sy, h })
+  }
 
   /** Claims ground nothing may be built on: the plaza, the water, a road. */
   claim(x: number, z: number, w: number, d: number, rot = 0) {
@@ -224,13 +253,19 @@ export class Kit {
     const s = o.scale ?? 1
     const y = o.y ?? 0
     const rot = o.rot ?? 0
-    const on = this.rig.lampsOn
+    // A building's windows are lit with the hour's share, one building at a
+    // time, like the block towers' are one window at a time: lit whenever the
+    // lamps were, every model house on the marina had every window lit. The
+    // draw is a hash of where it stands, so it takes nothing from the room's
+    // random sequence. Lamps and signs in the other kits light with the lamps.
+    const windows = WINDOW_KITS.has(id.split('/')[0])
+    const on = this.rig.lampsOn && (!windows || spotChance(x, z) < this.rig.windowsLit)
     const { lit, glow } = on ? splitGlow(b) : { lit: b.index, glow: null }
 
-    const make = (position: Float32Array, index: Uint32Array | null, color?: Float32Array) => {
+    const make = (position: Float32Array, index: Uint32Array | null, color?: Float32Array, normal: Float32Array = b.normal) => {
       const g = new BufferGeometry()
       g.setAttribute('position', new Float32BufferAttribute(position, 3))
-      g.setAttribute('normal', new Float32BufferAttribute(b.normal, 3))
+      g.setAttribute('normal', new Float32BufferAttribute(normal, 3))
       if (color) g.setAttribute('color', new Float32BufferAttribute(color, 3))
       g.setIndex(new BufferAttribute(index ?? b.index, 1))
       _m.makeTranslation(x, y, z)
@@ -243,7 +278,8 @@ export class Kit {
     const body = make(b.position, lit, b.color)
     this.pushBaked(body, 'lit')
     if (glow && glow.length) {
-      const g = make(b.position, glow)
+      const sub = compact(b.position, b.normal, glow)
+      const g = make(sub.position, sub.index, undefined, sub.normal)
       this.push(g, WINDOW_GLOW, 'glow')
     }
     if (o.outline !== false) {
@@ -685,10 +721,10 @@ export class Kit {
     // A drawn street light where the room has one; the pool of light is ours.
     if (this.models?.has('roads/light-curved') && o.style !== 'lantern') {
       const id = o.heads === 2 ? 'roads/light-curved-double' : 'roads/light-curved'
-      if (this.model(id, x, z, { rot: this.rng.range(0, Math.PI * 2), margin: 0.1 })) {
-        if (this.rig.lampsOn) this.halo(x, 0, z, 1.8, o.color ?? 0xffe1a1, 0.22)
-        return
-      }
+      // Refused is refused: a block lamp in the same spot would stand inside
+      // whatever took it.
+      if (this.model(id, x, z, { rot: this.rng.range(0, Math.PI * 2), margin: 0.1 }) && this.rig.lampsOn) this.halo(x, 0, z, 1.8, o.color ?? 0xffe1a1, 0.22)
+      return
     }
     const h = o.h ?? 2.6
     const post = o.post ?? 0x2a2f3a
@@ -728,7 +764,8 @@ export class Kit {
             ? ['nature/tree_palm', 'nature/tree_palmBend', 'nature/tree_palmDetailedTall', 'nature/tree_palmDetailedShort']
             : ['nature/tree_default', 'nature/tree_oak', 'nature/tree_fat', 'nature/tree_detailed', 'nature/tree_tall', 'nature/tree_simple', 'nature/tree_plateau']
       const scale = ((o.h ?? 1.6) / 1.6) * (o.r ? o.r / 0.9 : 1) * 0.55 + 0.45
-      if (this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale, margin: -0.4 })) return
+      this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale, margin: -0.4 })
+      return
     }
     const kind = o.kind ?? 'round'
     const trunk = o.trunk ?? 0x6b4a2b
@@ -776,17 +813,19 @@ export class Kit {
     if (this.rig.snow) this.sphere(x, h + r * 1.2, z, r * 0.7, SNOW, { seg: 7, outline: false })
   }
 
-  bush(x: number, z: number, r = 0.5, color = 0x3f9e52, o: { berries?: Hex } = {}) {
+  bush(x: number, z: number, r = 0.5, color = 0x3f9e52, o: { berries?: Hex; collide?: boolean; y?: number } = {}) {
+    const y0 = o.y ?? 0
     if (this.models?.has('nature/plant_bush')) {
       const pool = ['nature/plant_bush', 'nature/plant_bushDetailed', 'nature/plant_bushLarge', 'nature/plant_bushSmall']
-      if (this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale: 0.6 + r, margin: -0.3 })) return
+      this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale: 0.6 + r, margin: -0.3, collide: o.collide, y: y0 })
+      return
     }
     const c = this.leaf(color)
-    this.sphere(x, r * 0.7, z, r, c, { seg: 7 })
-    this.sphere(x + r * 0.6, r * 0.5, z + r * 0.2, r * 0.7, scale(c, 1.1), { seg: 6 })
-    this.sphere(x - r * 0.5, r * 0.55, z - r * 0.3, r * 0.55, scale(c, 0.95), { seg: 6 })
+    this.sphere(x, y0 + r * 0.7, z, r, c, { seg: 7 })
+    this.sphere(x + r * 0.6, y0 + r * 0.5, z + r * 0.2, r * 0.7, scale(c, 1.1), { seg: 6 })
+    this.sphere(x - r * 0.5, y0 + r * 0.55, z - r * 0.3, r * 0.55, scale(c, 0.95), { seg: 6 })
     if (o.berries !== undefined && !this.rig.snow) {
-      for (let i = 0; i < 4; i++) this.sphere(x + this.rng.range(-r, r) * 0.8, r * 0.7 + this.rng.range(0, r * 0.6), z + this.rng.range(-r, r) * 0.8, 0.08, o.berries, { seg: 4, outline: false })
+      for (let i = 0; i < 4; i++) this.sphere(x + this.rng.range(-r, r) * 0.8, y0 + r * 0.7 + this.rng.range(0, r * 0.6), z + this.rng.range(-r, r) * 0.8, 0.08, o.berries, { seg: 4, outline: false })
     }
   }
 
@@ -816,13 +855,15 @@ export class Kit {
   planter(x: number, z: number, o: { pot?: Hex; leaf?: Hex; r?: number } = {}) {
     const r = o.r ?? 0.32
     this.cyl(x, 0, z, r, r * 1.1, o.pot ?? 0xc0623a, { seg: 8, rTop: r * 1.1, cap: false })
-    this.bush(x, z, r * 0.9, o.leaf ?? 0x3f9e52)
+    // The pot is the footprint; what grows in it is inside it on purpose.
+    this.bush(x, z, r * 0.9, o.leaf ?? 0x3f9e52, { collide: false, y: r * 0.6 })
   }
 
   rock(x: number, z: number, r = 0.5, color = 0x8a8f99) {
     if (this.models?.has('nature/rock_smallA')) {
       const pool = r > 0.8 ? ['nature/rock_largeA', 'nature/rock_largeB', 'nature/rock_tallA'] : ['nature/rock_smallA', 'nature/rock_smallB', 'nature/stone_smallA']
-      if (this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale: 0.5 + r, margin: -0.3 })) return
+      this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale: 0.5 + r, margin: -0.3 })
+      return
     }
     this.sphere(x, r * 0.45, z, r, color, { seg: 6 })
     this.sphere(x + r * 0.7, r * 0.3, z - r * 0.3, r * 0.6, scale(color, 0.9), { seg: 5 })
@@ -830,7 +871,8 @@ export class Kit {
 
   crate(x: number, z: number, s = 0.6, color = 0xb98a4d, y = 0, rot = 0) {
     if (this.models?.has('pirate/crate')) {
-      if (this.model(this.rng.chance(0.7) ? 'pirate/crate' : 'pirate/crate-bottles', x, z, { rot, y, scale: s / 0.7, margin: -0.2 })) return
+      this.model(this.rng.chance(0.7) ? 'pirate/crate' : 'pirate/crate-bottles', x, z, { rot, y, scale: s / 0.7, margin: -0.2 })
+      return
     }
     this.box(x, y, z, s, s, s, color, { rot })
     this.box(x, y + s * 0.42, z, s + 0.04, s * 0.14, s + 0.04, scale(color, 0.78), { rot, outline: false, cap: false })
@@ -838,7 +880,8 @@ export class Kit {
 
   barrel(x: number, z: number, color = 0x8a5a2f, y = 0) {
     if (this.models?.has('pirate/barrel')) {
-      if (this.model('pirate/barrel', x, z, { y, scale: 0.65, margin: -0.2 })) return
+      this.model('pirate/barrel', x, z, { y, scale: 0.65, margin: -0.2 })
+      return
     }
     this.cyl(x, y, z, 0.32, 0.8, color, { seg: 8 })
     this.cyl(x, y + 0.14, z, 0.34, 0.08, 0x3a3a3a, { seg: 8, outline: false, cap: false })
@@ -864,11 +907,13 @@ export class Kit {
     // colours are the kit's; what a builder asked for in `o` styled the block
     // person and is not carried over.
     if (this.models?.has('space/astronautA')) {
-      if (this.model(this.rng.chance(0.5) ? 'space/astronautA' : 'space/astronautB', x, z, { rot, scale: 0.8, margin: -0.2 })) return
+      this.model(this.rng.chance(0.5) ? 'space/astronautA' : 'space/astronautB', x, z, { rot: rot + PERSON_MODEL_YAW, scale: 0.8, margin: -0.2 })
+      return
     } else if (this.models?.has('people/character-male-a#idle')) {
       const who = this.rng.pick(['female-a', 'female-b', 'female-c', 'female-d', 'female-e', 'female-f', 'male-a', 'male-b', 'male-c', 'male-d', 'male-e', 'male-f'])
       const id = `people/character-${who}#${(o.stride ?? 0) > 0 ? 'walk' : 'idle'}`
-      if (this.model(id, x, z, { rot, margin: -0.15 })) return
+      this.model(id, x, z, { rot: rot + PERSON_MODEL_YAW, margin: -0.15 })
+      return
     }
     const shirt = o.shirt ?? this.rng.pick([0xff3d68, 0x3d9bff, 0xffc93c, 0x2fd18a, 0xc56bff, 0xff8a3c, 0xffffff, 0x5ad1e6])
     const pants = o.pants ?? this.rng.pick([0x2a2f45, 0x4a5a80, 0x3d2c25, 0x6b7280, 0x8a4a5a])

@@ -16,7 +16,7 @@
  */
 import type { Kit, Anchor } from '../kit'
 import type { Hex } from '../sky'
-import type { Actor } from '../life'
+import { PITCH_SIN, type Actor } from '../life'
 import { mix } from '../sky'
 
 /** Builds the room, and says what moves in it (`life.ts`), or nothing does. */
@@ -24,7 +24,6 @@ export type Builder = (k: Kit) => Actor[] | void
 
 /** The ground's side, enough to run past every corner of every frame. */
 export const FLOOR = 240
-const PITCH_SIN = Math.sin((32 * Math.PI) / 180)
 
 /** The ground point that lands at screen `(sx, sy)`, in tiles, `sy` up. */
 export function at(sx: number, sy: number): [number, number] {
@@ -34,6 +33,14 @@ export function at(sx: number, sy: number): [number, number] {
 }
 
 /** Where a ground point lands on screen. */
+/**
+ * True when a screen point lies within `r` ground tiles of another: the
+ * clearing a builder keeps round a landmark, measured on the ground.
+ */
+export function nearSpot(c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number): boolean {
+  return Math.hypot(c.sx - p.sx, (c.sy - p.sy) / PITCH_SIN) < r
+}
+
 export function screenOf(x: number, z: number): [number, number] {
   return [(x - z) / Math.SQRT2, (-(x + z) / Math.SQRT2) * PITCH_SIN]
 }
@@ -530,13 +537,12 @@ export function ring(k: Kit, n: number, r: number, fn: (x: number, z: number, an
   }
 }
 
-/** The ring the strollers walk, in tiles out from the felt: past the crowd, short of the first block. */
+/** How far out from the felt the crowd may stand, in tiles: past the drum, short of the first block. */
 export const PROMENADE = 7.5
 
 /**
- * People standing around the table's podium, facing it, on the plaza's rim —
- * inside the promenade, so the strollers walking it pass behind them rather
- * than through them.
+ * People standing around the table's podium, facing it, on the plaza's rim,
+ * inside the promenade ring.
  */
 export function crowd(k: Kit, n: number, opts?: Parameters<Kit['person']>[3]) {
   const { sx, sy, a, b } = k.anchor
@@ -640,7 +646,9 @@ export function neonText(k: Kit, text: string, x: number, y: number, z: number, 
         if (g[r][c] !== '#') continue
         const lx = (cx + c + 0.5) * cell
         const ly = y + (4 - r + 0.5) * cell
-        k.box(x + lx * Math.cos(rot), ly - cell / 2, z - lx * Math.sin(rot), cell * 0.92, cell * 0.92, cell * 0.4, on ? color : 0x6a6f7a, { rot, glow: on, outline: !on, cap: false })
+        // Unlit, the letters keep their colour a shade down: grey, the brand's
+        // own sign was the one thing on the square nobody could read by day.
+        k.box(x + lx * Math.cos(rot), ly - cell / 2, z - lx * Math.sin(rot), cell * 0.92, cell * 0.92, cell * 0.4, on ? color : mix(color, 0x2a2a35, 0.3), { rot, glow: on, outline: !on, cap: false })
       }
     }
     cx += g[0].length + 1

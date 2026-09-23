@@ -12,7 +12,7 @@
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, ring, along, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, at, ring, along, FLOOR, nearSpot } from './common'
 import { mix, scale, cssHex } from '../sky'
 import type { Actor } from '../life'
 import { over, streetWalkers } from './actors'
@@ -86,7 +86,8 @@ export const orbit: Builder = (k) => {
   // pad set high on the frame is a rocket nobody sees the top of. See the same
   // move in `rune.ts`.
   const rocketSpot = { sx: sx + a + 8, sy: sy + 2 }
-  const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
+  k.landmark('rocket', rocketSpot.sx, rocketSpot.sy, 14)
+  const near = nearSpot
 
   const plan = cityGrid(k, {
     block: 12,
@@ -132,7 +133,7 @@ export const orbit: Builder = (k) => {
     },
   })
 
-  // ─── The rocket and its gantry, at the top ─────────────────────────────
+  // ─── The rocket and its gantry, in the right band ──────────────────────
   {
     const [rx, rz] = at(rocketSpot.sx, rocketSpot.sy)
     k.disc(rx, 0, rz, 5, k.ground(0x4a4e58), { seg: 20 })
@@ -196,7 +197,9 @@ export const orbit: Builder = (k) => {
   const life: Actor[] = []
   life.push({
     id: 'rover',
-    path: [[sx - a - 11, sy - 2], [sx - a - 4, sy - 6]],
+    // Level across the frame: the rover is drawn side-on, heading screen-right,
+    // and mirrored on the way back, so a diagonal run slid it along crabwise.
+    path: [[sx - a - 11, sy - 4], [sx - a - 4, sy - 4]],
     duration: 34_000,
     motion: 'bounce',
     turn: true,

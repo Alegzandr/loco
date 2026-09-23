@@ -296,9 +296,12 @@ export function boardShake(
  * Renders the room while the table is shut, reporting progress.
  *
  * What used to be two image downloads is a build and a draw now: the engine's
- * chunk is fetched (the first third of the bar), then the scene is built and
- * rendered once at the viewport's size (the rest). `prepareScene` caches the
- * frame, so the board and the loading screen draw the render this waited for.
+ * chunk is fetched (the first tenth of the bar), then the room's models (to
+ * `PROGRESS.models`), then the scene is built and rendered once at the
+ * viewport's size (the rest). `prepareScene` caches the frame, and the board
+ * and the loading screen draw the render this waited for — asking while it is
+ * still in flight, at their own element's size, they join it rather than
+ * start a second one (`sizeCloseEnough`).
  * **A failure counts as done**: a browser with no WebGL must never leave a
  * player stranded; the board falls back to the sky the rig describes, which is
  * a worse-looking match, not a broken one.
@@ -366,6 +369,9 @@ function mapPreload(
     timer = window.setTimeout(settle, MAP_PRELOAD_TIMEOUT_MS)
 
     state = { progress: 0, done: false }
+    // The window, read now: the two backdrops measure their own element, which
+    // can be a scrollbar or a browser bar off this, and a request within
+    // `sizeCloseEnough` of this one joins this render instead of starting its own.
     const size = renderSizeFor(window.innerWidth, window.innerHeight)
     // Read once, untracked: a felt that moves mid-render (a seat arriving) is
     // the backdrop's to re-render, not a reason to restart the gate.

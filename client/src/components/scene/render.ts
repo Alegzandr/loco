@@ -20,7 +20,7 @@
  * angle. Because there is exactly one frame, the lighting is allowed what a
  * live viewport on a phone could not afford — a 4096 shadow map, a screen-space
  * occlusion pass, a half-float target — and the match still costs nothing
- * per frame. The budget is in pixels (`MAX_GL_PIXELS`), so a phone gets the
+ * per frame. The budget is in pixels (the tier's `glPixels`), so a phone gets the
  * full factor and a 4K monitor gets what fits.
  *
  * **And then it is photographed** (`post.ts`): the lit frame goes through
@@ -39,19 +39,19 @@
  * in tiles rather than in pixels, so a phone and a monitor frame the same
  * plaza and the table (drawn in CSS over the centre) lands on the same paving.
  */
-import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget } from 'three'
+import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PCFShadowMap, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget } from 'three'
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
 import type { FeltAnchor } from '../cards/layout'
 import { lightRig, mix } from './sky'
 import { seededRng } from './rng'
 import { Kit, type Anchor } from './kit'
-import { BUILDERS, KITS } from './maps'
+import { BUILDERS, KITS, PLACED } from './maps'
 import { DEFAULT_BODY, PITCH_COS, PITCH_SIN, TILES_ACROSS, lengthInside, occluded, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
 import { at } from './maps/common'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
-import { renderWithPost } from './post'
+import { floatTargets, makeSpriteGrader, renderWithPost, type SpriteGrader } from './post'
 import { configureShadows, frameBox, makeLights, shadowReach, toneMappingFor } from './lighting'
 import { lightingFor } from './shade'
 import { LOOK } from './look'
@@ -60,7 +60,7 @@ import { nextPaint } from './nextPaint'
 
 /** Loads the kits `spec`'s room is built from. Fetched once per tab. */
 export function prepareModels(spec: SceneSpec, onProgress?: (p: number) => void): Promise<ModelLib> {
-  return loadModelLib(KITS[spec.map.id], onProgress)
+  return loadModelLib(KITS[spec.map.id], onProgress, PLACED)
 }
 
 export interface RenderSize {
@@ -87,15 +87,6 @@ const CAMERA_NEAR = 1
 const CAMERA_FAR = 500
 /** Frame pixels per pixel of the depth map: a route is tested to the quarter tile, not the pixel. */
 const DEPTH_SCALE = 2
-/**
- * Supersampling: the frame is rendered up to this many times larger on each
- * side and scaled down. This is the `medium` tier's factor; `quality.ts` has
- * the ladder, and the high tier goes one further with the finishing passes
- * over it.
- */
-export const SUPERSAMPLE = renderQuality('medium').supersample
-/** The pixels one render may ask the GPU for on `medium`. Past this the factor shrinks. */
-export const MAX_GL_PIXELS = renderQuality('medium').glPixels
 /** A texture side no mobile GPU refuses. */
 const MAX_GL_SIDE = 4096
 
@@ -131,6 +122,29 @@ function softwareGl(renderer: WebGLRenderer): boolean {
     return /swiftshader|llvmpipe|softpipe|software/i.test(name)
   } catch {
     return false
+  }
+}
+
+/**
+ * Throws when the context can no longer be trusted to hold what was drawn.
+ *
+ * A context lost mid-render (a GPU reset, the browser reclaiming the oldest of
+ * too many contexts, a tab put to sleep) raises nothing: every call after it is
+ * a no-op and the canvas reads back empty, so the frame copied out of it is a
+ * black or transparent rectangle cached as the room for the whole match. So the
+ * context is asked before a bitmap is accepted, and an out-of-memory flag —
+ * the other way a draw fails in silence — counts the same. Any other error flag
+ * is left alone: three probes enums a driver may not know, and those are not a
+ * broken frame. The throw is the ordinary failure path: no scene, sky gradient.
+ */
+function assertAlive(renderer: WebGLRenderer): void {
+  const gl = renderer.getContext()
+  if (gl.isContextLost()) throw new Error('webgl context lost')
+  // `getError` returns one flag per call; a handful drains them.
+  for (let i = 0; i < 8; i++) {
+    const err = gl.getError()
+    if (err === gl.NO_ERROR) return
+    if (err === gl.OUT_OF_MEMORY || err === gl.CONTEXT_LOST_WEBGL) throw new Error(`webgl error 0x${err.toString(16)}`)
   }
 }
 
@@ -311,13 +325,18 @@ export async function renderScene(
     renderer.toneMapping = toneMappingFor(LOOK.tone.mapping)
     renderer.toneMappingExposure = lightingFor(rig).exposure
     configureShadows(renderer)
+    // A GPU that cannot render into a float target draws the VSM shadow map
+    // and every target of the finishing passes as nothing at all, without an
+    // error: it gets a PCF shadow (a depth map, bytes) and the plain frame.
+    const floatOk = floatTargets(renderer)
+    if (!floatOk) renderer.shadowMap.type = PCFShadowMap
     // A software GPU pays for every supersampled pixel on the CPU, and the one
     // place this runs on one is headless Chromium in CI, behind the
     // map-loading gate's clock. It gets the plain frame — unless tooling asked
     // for the full one, which is `make rooms` with all evening to spend.
     const software = softwareGl(renderer) && !forceFullRender()
     const ss = software ? 1 : ssWanted
-    const post = software ? null : q.post
+    const post = software || !floatOk ? null : q.post
     const gw = Math.round(size.width * ss)
     const gh = Math.round(size.height * ss)
 
@@ -351,6 +370,12 @@ export async function renderScene(
     scene.add(lights.group)
     lights.fitShadow(frameBox(vw, vh, CAMERA_PITCH, at))
     renderer.shadowMap.needsUpdate = true
+    // The room's penumbra, in texels and in texels a tile: a sprite's own map
+    // is a different size over a different box, and its shadow has to come out
+    // exactly as soft on the ground as the room's.
+    const roomShadow = lights.sun.shadow
+    const roomRadius = roomShadow.radius
+    const roomTexelsPerTile = q.shadowMap / Math.max(1e-3, roomShadow.camera.right - roomShadow.camera.left)
 
     const camera = isoCamera()
     camera.left = -vw / 2
@@ -375,9 +400,12 @@ export async function renderScene(
       }
     }
     if (!photographed) renderer.render(scene, camera)
-    const t3 = performance.now()
-    await report(RENDER_STEPS.drawn)
 
+    // Copied out *before* the paint the report waits for: the context keeps no
+    // drawing buffer (`preserveDrawingBuffer` is off, and should be), so once
+    // the browser has composited a frame the canvas may read back cleared. And
+    // the frame is only accepted from a context that is still there.
+    assertAlive(renderer)
     const frame = document.createElement('canvas')
     frame.width = size.width
     frame.height = size.height
@@ -386,6 +414,9 @@ export async function renderScene(
     ctx.imageSmoothingEnabled = true
     ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(gl, 0, 0, gw, gh, 0, 0, size.width, size.height)
+    assertAlive(renderer)
+    const t3 = performance.now()
+    await report(RENDER_STEPS.drawn)
 
     // ─── Where a thing on the ground may go ──────────────────────────────
     // Every route the builder handed in is a candidate: it is kept where the
@@ -427,9 +458,16 @@ export async function renderScene(
     renderer.setClearColor(0x000000, 0)
     const spriteScene = new Scene()
     if (scene.fog) spriteScene.fog = scene.fog
-    const spriteLights = makeLights(rig, q)
+    // A sprite's shadow map is its own and small (`LOOK.shadow.spriteMap`),
+    // fitted to the sprite: the room's 4096 map rendered again per walker was
+    // most of what the sprites cost.
+    const spriteLights = makeLights(rig, { ...q, shadowMap: LOOK.shadow.spriteMap })
     spriteScene.add(spriteLights.group)
-    const catcherMaterial = new ShadowMaterial({ color: new Color(mix(0x10163a, rig.ambient.sky, 0.35)), opacity: LOOK.shadow.spriteOpacity * rig.sun.shadow, transparent: true, depthWrite: false })
+    // The room's grade, when the room had one: a sprite rendered straight to
+    // the canvas gets the tone curve and nothing else, and read as a sticker on
+    // a ground that went through the whole photograph.
+    let grader: SpriteGrader | null = photographed ? makeSpriteGrader(renderer, rig) : null
+    const catcherMaterial = new ShadowMaterial({ color: new Color(mix(LOOK.shadow.spriteTint, rig.ambient.sky, LOOK.shadow.spriteTintMix)), opacity: LOOK.shadow.spriteOpacity * rig.sun.shadow, transparent: true, depthWrite: false })
     const corner = new Vector3()
     for (const [i, actor] of actors.entries()) {
       // A sprite is a build and a draw of its own, so a room full of them is
@@ -465,6 +503,8 @@ export async function renderScene(
         spriteScene.add(catcher)
       }
       spriteLights.fitShadow(extent)
+      const sc = spriteLights.sun.shadow.camera
+      spriteLights.sun.shadow.radius = roomRadius * (LOOK.shadow.spriteMap / Math.max(1e-3, sc.right - sc.left) / roomTexelsPerTile)
       // View-space extent of the world box: project its eight corners.
       const view = camera.matrixWorldInverse
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
@@ -487,14 +527,34 @@ export async function renderScene(
       camera.top = maxY
       camera.bottom = maxY - sh / ppu
       camera.updateProjectionMatrix()
-      renderer.setSize(Math.round(sw * ss), Math.round(sh * ss), false)
+      const pw = Math.round(sw * ss)
+      const ph = Math.round(sh * ss)
+      renderer.setSize(pw, ph, false)
       spriteScene.add(g)
       renderer.shadowMap.needsUpdate = true
-      renderer.render(spriteScene, camera)
+      if (grader) {
+        try {
+          grader.render(spriteScene, camera, pw, ph)
+        } catch (err) {
+          // The same fallback as the room's: the plain sprite, never none.
+          if (import.meta.env.DEV) console.warn('sprite grade failed, plain sprites', err)
+          grader.dispose()
+          grader = null
+          renderer.setClearColor(0x000000, 0)
+          renderer.shadowMap.needsUpdate = true
+        }
+      }
+      if (!grader) renderer.render(spriteScene, camera)
       spriteScene.remove(g)
       if (catcher) {
         spriteScene.remove(catcher)
         catcher.geometry.dispose()
+      }
+      // A context lost now takes the sprites and not the room: the frame is
+      // already out, and a sprite copied from a dead canvas is a hole.
+      if (renderer.getContext().isContextLost()) {
+        dispose(g)
+        break
       }
       const canvas = document.createElement('canvas')
       canvas.width = sw
@@ -503,7 +563,7 @@ export async function renderScene(
       if (sctx) {
         sctx.imageSmoothingEnabled = true
         sctx.imageSmoothingQuality = 'high'
-        sctx.drawImage(gl, 0, 0, Math.round(sw * ss), Math.round(sh * ss), 0, 0, sw, sh)
+        sctx.drawImage(gl, 0, 0, pw, ph, 0, 0, sw, sh)
       }
       corner.set(0, 0, 0).applyMatrix4(view)
       const mask = veilImage(occlusionVeil(depth, actor))
@@ -512,6 +572,7 @@ export async function renderScene(
     }
     catcherMaterial.dispose()
     spriteLights.dispose()
+    grader?.dispose()
     if (import.meta.env.DEV) {
       // Where a room's second goes, for whoever is making it heavier.
       const t4 = performance.now()

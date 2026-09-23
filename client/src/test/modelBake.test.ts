@@ -2,7 +2,7 @@
  * What turns a loaded model into a thing the kit can place, on buffers alone.
  */
 import { describe, it, expect } from 'vitest'
-import { bounds, hullFor, matchesKey, smoothNormals, splitGlow, type Baked } from '../components/scene/models/bake'
+import { bounds, compact, hullFor, matchesKey, smoothNormals, splitGlow, type Baked } from '../components/scene/models/bake'
 
 /** A unit cube as unshared triangles, the way a flat-shaded model arrives. */
 function cube(): { position: Float32Array; index: Uint32Array } {
@@ -75,5 +75,19 @@ describe('glow', () => {
     const s = splitGlow(b)
     expect(s.glow.length).toBe(6)
     expect(s.lit.length).toBe(index.length - 6)
+  })
+})
+
+describe('compact', () => {
+  it('keeps only the vertices a subset index uses, renumbered, so a glowing subset does not carry the whole model', () => {
+    const { position, index } = cube()
+    // One face of six: four vertices out of twenty-four.
+    const sub = index.slice(0, 6)
+    const c = compact(position, position, sub)
+    expect(c.position.length).toBe(4 * 3)
+    expect(c.normal.length).toBe(4 * 3)
+    expect(Math.max(...c.index)).toBe(3)
+    // The triangles are the same triangles.
+    for (let i = 0; i < sub.length; i++) for (let k = 0; k < 3; k++) expect(c.position[c.index[i] * 3 + k]).toBe(position[sub[i] * 3 + k])
   })
 })

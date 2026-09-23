@@ -93,6 +93,105 @@ export const SWAY: Partial<Record<TileKind, { px: number; s: number }>> = {
   snowFar: { px: 8, s: 5.7 },
 }
 
+/**
+ * How far the wind leans the rain, in degrees: `.wind` is a `skewX` of minus
+ * this around the frame's bottom edge, so its top slides right by
+ * `H × tan(lean)` — which is what the sheet's left overhang has to cover.
+ */
+export const LEAN_DEG = { rain: 9, storm: 15 } as const
+
+// ─── Where a sheet stands ───────────────────────────────────────────────────
+
+/**
+ * A length as a sum of the things it may depend on: the frame's width and
+ * height, the tile's, and a constant in CSS px. One form, two readings: `css`
+ * writes it as a `calc()` for the stylesheet and `evalLen` as a number for the
+ * test, so the geometry the test proves is the geometry the page gets.
+ */
+export interface Len {
+  /** × the frame's width. */
+  fw?: number
+  /** × the frame's height. */
+  fh?: number
+  /** × the tile's width (`--tile-w`). */
+  tw?: number
+  /** × the tile's height (`--tile-h`). */
+  th?: number
+  px?: number
+}
+
+export interface SheetBox {
+  left: Len
+  top: Len
+  width: Len
+  height: Len
+}
+
+/** A tangent rounded *up*, so the overhang written into the CSS is never short of the skew. */
+const tanUp = (deg: number) => Math.ceil(Math.tan((deg * Math.PI) / 180) * 1e4) / 1e4
+
+/**
+ * The box a sheet is laid out in, relative to the frame, before its animation
+ * moves it. The smallest box that keeps the frame covered for the whole
+ * travel, at any width and any height — never a percentage of the frame for
+ * the overhang, because the travel is a tile and a tile is not a percentage:
+ *
+ * - **A drift** travels `0 → −tile-w` (either way round: `driftBack` plays the
+ *   same range reversed), so it starts at the frame's left edge and is one
+ *   tile wider than the frame. It was 300% of the frame: on a phone narrower
+ *   than the tile the cloud sheet left the frame for half of every cycle.
+ * - **A fall** travels `0 → +tile-h`, so it starts one tile above the frame
+ *   and is one tile taller. It was 200%: in landscape on a phone the top band
+ *   went bare once a cycle.
+ * - **The lean** slides the top of a fall right by `H × tan(lean)`, so the
+ *   left overhang is that, in the frame's height (`cqh`). It was 25% of the
+ *   width, which a portrait phone's height outruns.
+ * - **The sway** moves a snow sheet `±px` sideways, so it overhangs by that
+ *   on both sides.
+ */
+export function sheetBox(kind: TileKind, leanDeg = 0): SheetBox {
+  if (FALL_S[kind] === undefined) {
+    return { left: {}, top: {}, width: { fw: 1, tw: 1 }, height: { fh: 1 } }
+  }
+  const t = leanDeg > 0 ? tanUp(leanDeg) : 0
+  const sway = SWAY[kind]?.px ?? 0
+  return {
+    left: { fh: -t, px: -sway },
+    top: { th: -1 },
+    width: { fw: 1, fh: t, px: 2 * sway },
+    height: { fh: 1, th: 1 },
+  }
+}
+
+/** A `Len` as a number, for a frame and tile of this size. */
+export function evalLen(l: Len, frame: { w: number; h: number }, tile: { w: number; h: number }): number {
+  return (l.fw ?? 0) * frame.w + (l.fh ?? 0) * frame.h + (l.tw ?? 0) * tile.w + (l.th ?? 0) * tile.h + (l.px ?? 0)
+}
+
+/**
+ * A `Len` as CSS. `axis` is the property's: a percentage on `left`/`width`
+ * is of the width and on `top`/`height` of the height, and the other side of
+ * the frame is read off the container (`.weather` is a size container).
+ */
+export function cssLen(l: Len, axis: 'x' | 'y'): string {
+  const terms: string[] = []
+  const add = (k: number | undefined, unit: string) => {
+    if (k) terms.push(`${k} * ${unit}`)
+  }
+  add(l.fw, axis === 'x' ? '100%' : '100cqw')
+  add(l.fh, axis === 'y' ? '100%' : '100cqh')
+  add(l.tw, 'var(--tile-w)')
+  add(l.th, 'var(--tile-h)')
+  if (l.px) terms.push(`${l.px}px`)
+  return terms.length ? `calc(${terms.join(' + ')})` : '0px'
+}
+
+/** The inline declarations that lay a sheet out: `sheetBox`, written as CSS. */
+export function sheetStyle(kind: TileKind, leanDeg = 0): string {
+  const b = sheetBox(kind, leanDeg)
+  return `left: ${cssLen(b.left, 'x')}; top: ${cssLen(b.top, 'y')}; width: ${cssLen(b.width, 'x')}; height: ${cssLen(b.height, 'y')}`
+}
+
 // ─── What to draw ───────────────────────────────────────────────────────────
 
 export interface Drop {

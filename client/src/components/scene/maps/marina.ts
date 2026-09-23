@@ -4,7 +4,7 @@
  * The table stands on a deck at the water's edge. The quay runs across the
  * top of the frame, the sea beyond it: a pier out to a few boats, a
  * lighthouse on its rocks, a ferry in the channel. Behind the quay, painted
- * houses along canals with gardens between them, a fish stall, a wheel on
+ * houses along canals with gardens between them, a fish stall, gardens on
  * the right, a beach with a few umbrellas at the bottom left. The sea is what
  * makes the weather here: a storm on the marina is the one that looks like
  * something. The sea and the sand are most of the frame on purpose — a
@@ -22,7 +22,7 @@
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, screenOf, screenSpan, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, at, screenOf, screenSpan, FLOOR, nearSpot } from './common'
 import { mix, scale, cssHex } from '../sky'
 import type { Actor, ScreenPt } from '../life'
 import { balloon, bird, boat as vessel, cloud, streetWalkers, traffic } from './actors'
@@ -198,8 +198,9 @@ export const marina: Builder = (k) => {
   // It stands out to the left for two reasons — the top right corner is the
   // chip row, and the plaza's rim has dropped back towards the quay wall by
   // here, so the water is at its deepest. On a phone the frame is barely 18
-  // tiles wide and this is outside it, like the fair and the beach opposite:
+  // tiles wide and this is outside it, like the beach opposite:
   // that band is where a monitor's landmarks live.
+  k.landmark('lighthouse', -31, shoreAt(-31) + 1, 9.5)
   {
     const [lx, lz] = offshore(-31, 1)
     // The island is the kit's rocks; the lighthouse itself is ours, because
@@ -321,13 +322,13 @@ export const marina: Builder = (k) => {
       k.awning(ax, az, rot, w - 0.3, rng.pick([0xd94c4c, 0x2f8fbf, 0xf5f0e6]), { y: 2.3 })
     }
   }
-  // Out in the front corner, clear of the terraces: a wheel twelve tiles
-  // across standing behind a row of houses is a row of houses with cabins
-  // floating over their roofs, which is what a correct render of that looks
-  // like. Nothing is built within fourteen tiles of it.
-  const wheelSpot = { sx: sx + a + 12, sy: sy - b - 7 }
+  // The front corner used to hold a ferris wheel twelve tiles across. Its
+  // hub stood on the frame's right edge at 16:9 and off it on every narrower
+  // screen, so what a player saw was its cabins: coloured cubes floating on
+  // the grass. There is no side band beside the table wide enough for it on a
+  // phone, so the corner is gardens like the rest of the shore.
   const beachSpot = { sx: sx - a - 8, sy: sy - b - 5 }
-  const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
+  const near = nearSpot
 
   /** An unbuilt block: a lawn with a tree, a bed of flowers, a bench. */
   const garden = (x: number, z: number, w: number) => {
@@ -353,13 +354,12 @@ export const marina: Builder = (k) => {
     land: (c) => !atSea(c.x, c.z) && c.sy < shoreAt(c.sx) - 7,
     density: (c) => (c.front ? 1 : c.dist < 40 ? 0.6 : 0.8),
     open: (c) => {
-      if (near(c, wheelSpot, 14) || near(c, beachSpot, 8)) return
+      if (near(c, beachSpot, 8)) return
       garden(c.x, c.z, c.w)
     },
     fill: (c) => {
-      // The fair keeps a wide clearing, and a deeper one in front of the wheel:
-      // a terrace standing between the camera and it hid the whole frame.
-      if (near(c, wheelSpot, 14) || near(c, beachSpot, 8)) return
+      // The beach keeps its clearing.
+      if (near(c, beachSpot, 8)) return
       if (c.front) {
         // Lawn between the player and the felt: a palm, a bench, and air.
         const [l] = lots(c, 1, 1, 0)
@@ -394,34 +394,6 @@ export const marina: Builder = (k) => {
   }
   k.crate(...at(sx - a - 6, sy + 1), 0.6, 0xbfe3f0)
   k.crate(...at(sx - a - 5.4, sy + 1.6), 0.5, 0xbfe3f0)
-  // The wheel stands still, whole, in the render. It turned for an afternoon:
-  // its spokes and cabins were sprites spinning about the hub, and a sprite
-  // is drawn over everything — so the twelve cabins rode their circle across
-  // the roofs of the terrace standing in front of the fair, as pale cubes
-  // floating on the houses. What moves has to move where nothing stands
-  // between it and the camera, and a wheel twelve tiles across in a street
-  // of houses is not that.
-  {
-    const [wx, wz] = at(wheelSpot.sx, wheelSpot.sy), r = 6
-    k.box(wx - 2.6, 0, wz, 0.45, 7.2, 0.45, 0x2a2f3a, { tilt: 0.36, rot: Math.PI / 4 })
-    k.box(wx + 2.6, 0, wz, 0.45, 7.2, 0.45, 0x2a2f3a, { tilt: -0.36, rot: Math.PI / 4 })
-    k.cyl(wx, 7, wz, 0.55, 1.1, 0xd94c4c, { axis: 'z', rot: Math.PI / 4, seg: 10 })
-    for (let i = 0; i < 12; i++) {
-      const t = (i / 12) * Math.PI * 2
-      k.box(wx, 7, wz, r, 0.18, 0.18, 0x9aa3b5, { tilt: t, rot: Math.PI / 4, outline: false, cap: false })
-      const px = wx + Math.cos(t) * r * Math.SQRT1_2, pz = wz - Math.cos(t) * r * Math.SQRT1_2, py = 7 + Math.sin(t) * r
-      k.box(px, py - 0.4, pz, 0.8, 0.8, 0.8, rng.pick(paints), { cap: false })
-      if (on) k.sphere(px, py + 0.2, pz, 0.11, rng.pick([0xffd23c, 0xff3d68, 0x4fd6ff]), { glow: true, seg: 4, outline: false })
-    }
-    for (let i = 0; i < 28; i++) {
-      const t = (i / 28) * Math.PI * 2
-      k.sphere(wx + Math.cos(t) * (r + 0.55) * Math.SQRT1_2, 7 + Math.sin(t) * (r + 0.55), wz - Math.cos(t) * (r + 0.55) * Math.SQRT1_2, 0.11, on ? 0xfff0c0 : 0x9aa3b5, { glow: on, seg: 4, outline: false })
-    }
-    if (on) k.halo(wx + 0.5, 7, wz + 0.5, r + 1.2, 0xffd23c, 0.2, false)
-    // The wheel alone: a carousel beside it was a second fairground.
-    k.box(...at(wheelSpot.sx, wheelSpot.sy - 4), 0, 2.4, 1.3, 1.3, 0xf4d35e, { rot: Math.PI / 4 })
-    k.person(...at(wheelSpot.sx + 1.5, wheelSpot.sy - 4), -Math.PI / 4, { hat: 0xd94c4c })
-  }
   {
     // An oval of paler sand, not a rotated box: a box at 45° draws a perfectly
     // horizontal ink line across the frame, and a beach whose top edge lands a

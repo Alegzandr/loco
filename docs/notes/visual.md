@@ -552,7 +552,13 @@ hemisphere fill, distance fog or null, and five things the kit and the board bui
 `lampsOn`, `windowsLit` (a share), `snow`, `wet` and `dark` (0 at noon, 1 on a stormy night). The
 weather is applied *over* the hour — a storm at noon is still lit from above — and the overcast grey
 is the hour's own horizon mixed down, which is what keeps twenty-four combinations from being six:
-a grey dusk is warm and a grey dawn is pink. `rigCssVars` is the same rig as four custom properties
+a grey dusk is warm and a grey dawn is pink. **The hour has to survive the weather**
+(`sceneLighting.test.ts`): a storm added 0.4 to `dark` and a storm at noon read as dusk (orbit's
+storm by day was its night), so it adds 0.25 now and keeps 40% of the sun; snow mixed the sky and
+the ground light towards white by the same amount at every hour, so a snowy midnight read as a
+winter afternoon, and it now mixes by the hour's own light, taking the night's blue after dark; fog
+starts further off and never quite closes, so the near half of the frame keeps its colour.
+`rigCssVars` is the same rig as four custom properties
 (`--sky-top`, `--sky-horizon`, `--scene-tint`, `--scene-dark`) for the board, the overlay and the
 rooms page.
 
@@ -619,7 +625,23 @@ and each is the kit's, not a builder's:
   carries its own shadow on its own bitmap: a `ShadowMaterial` catcher under it, at the room's
   shadow colour, sized by `shadowReach` — the block's box with its top corners slid down the sun to
   the ground — which is what is left of `shadowHull`; a sprite of something in the air is built
-  with `shadows: false` and gets no catcher.
+  with `shadows: false` and gets no catcher. **A sprite's shadow map is its own, and small**
+  (`LOOK.shadow.spriteMap`, 512, fitted to the sprite's box): each sprite used to render a map the
+  size of the room's — 4096 on `high` — for a car, which was most of what the sprites cost, and
+  fitted to a few tiles it made their shadows far sharper than the room's. Its VSM radius is set
+  per sprite from the texel density of the two maps, so the penumbra is the same width on the
+  ground either side of a sprite's edge. The catcher's colour is `LOOK.shadow.spriteTint` mixed
+  towards the hour's sky light by `spriteTintMix`.
+- **A sprite comes out of the same photograph as the room** (`post.ts: makeSpriteGrader`,
+  `GRADE_PARS`). Drawn straight to the canvas it got the renderer's tone curve and nothing else,
+  while the plaza under it went through the grade — the contrast, the saturation, the warm/cool
+  split — so every car and walker was a touch flatter and greyer than the ground it crossed, which
+  is what a sticker looks like. When the room was photographed, a sprite is rendered into a linear
+  target and brought onto the canvas through the same two GLSL functions the composite calls
+  (`tone`, `grade`), un-premultiplied before them and premultiplied after the encoding. **Never
+  the vignette, the grain, the fringe or the focus band**: those belong to the frame, and the
+  sprite is not where the frame's corners are. On the plain path (`light`, a software GPU, a chain
+  that fell back) the sprite stays plain too, like the ground.
 - **The weather is answered in the kit, once**: `snow` caps every flat top and whitens the ground and
   the foliage, `wet` darkens the ground the builder asks for and lays puddles catching the sky,
   `lampsOn` decides whether a lamp's head, a window, a neon tube or a lantern goes into the unlit
@@ -643,8 +665,8 @@ and each is the kit's, not a builder's:
   board's own chain at three viewports, and the anchor is part of the cache key, so a resize that
   moves the table re-renders the podium under it.
 - **Composition is done in screen space** (`at()`, `screenOf()`, `underTable()`): a builder places
-  its heroes relative to `k.anchor` (the tavern to the right of the table, the pagoda above it, the
-  torii bottom-left) rather than at world coordinates, so the same builder frames a monitor and a
+  its heroes relative to `k.anchor` (the tavern to the right of the table, the pagoda in the left
+  band, the torii bottom-left) rather than at world coordinates, so the same builder frames a monitor and a
   phone. What the table hides is an ellipse around the anchor; the hand covers the bottom middle and
   the seat pills the top; what is meant to be seen stands in the side bands and the top band, and
   the grid fills every corner behind them.
@@ -669,6 +691,23 @@ and each is the kit's, not a builder's:
   inside the felt and the table cut the ground floor off a building in front of it. Every landmark
   beside the table sits at least its own half-width plus two clear of `a`. Being cut by the **frame**
   is fine and ordinary; being cut by the table is not.
+- **A tall landmark stands beside the table, never above it, and says so** (`k.landmark(name, sx,
+  sy, h)`, `LANDMARK_TOP_MAX` = 7, `sceneLandmarks.test.ts`). The band above the table is a few
+  tiles deep before the frame's top edge: sakura's pagoda, nearly seventeen tiles tall, stood there
+  and ran its roofs off the top of every frame, the way the rune tower once did. It stands in the
+  left band now, opposite the bathhouse. A builder declares each landmark and the test reads them
+  back, because nothing else can tell a landmark from a tall block of the grid.
+- **What no frame can hold whole is left out, not cut.** The marina's ferris wheel was twelve tiles
+  across with its hub on the right edge of a 16:9 frame and off every narrower one: what a player saw
+  was its cabins, coloured cubes floating on the grass. There is no side band beside the table wide
+  enough for it on a phone, so that corner is gardens.
+- **A sign faces the camera or it is not a sign.** The velvet hotel's marquee and its LOCO! were
+  laid on the diagonal against a tower that is square to the world, which put both inside the
+  tower's corner: the sign read "L(". The entrance is on the tower's +z face now, the one turned
+  towards the square, and the sign stands on the marquee's front edge. Neon's food truck stood
+  end-on the same way and showed nothing but a dark roof; it is broadside now. **Unlit, a neon tube
+  or a neon letter keeps its colour a shade down** (`neonText`, neon's `unlit`), never grey: by day
+  the grey version turned the neon district into any city and the brand's own sign into a blank.
 
 ### The render (`scene/render.ts`, `scene/sceneCache.ts`)
 - **One frame, then the context is released.** A match is a hand of cards animating over the scene
@@ -702,11 +741,21 @@ and each is the kit's, not a builder's:
   untouched. The snow sways on an outer element and falls on an inner one, two transforms on two
   layers. Nearer is faster and brighter (`FALL_S`, `DRIFT_S`, `SWAY` beside `TILES`, so a speed is
   a number somebody can read), and none of it faster than about 550 px/s, past which a spectator
-  reads static. How many sheets is the graphics tier's: three of rain and of snow on `high`, two on
-  `medium`, one on `light`. Lightning is a sheet flash plus the glow of the bolt off one top corner,
+  reads static. **A sheet covers the frame for the whole of its travel, at any size** (`sheetBox`,
+  written inline by `tiled()` as `calc()`s of the frame, the tile and px): a drift starts at the
+  frame's left edge and is one tile wider, a fall starts one tile above and is one tile taller, the
+  rain's left overhang is `H × tan(lean)` (in `cqh` — `.weather` is a size container) and the
+  snow's is its sway either side. The boxes were percentages of the frame (a drift 300% wide, a fall
+  200% tall, the lean 25% of the width), and a tile is not a percentage: on a 390px phone the
+  1600px cloud sheet was off the frame half of every cycle, a landscape phone's top band went bare
+  under a 480px rain tile, and a portrait phone's height outran the 25% and left a dry triangle at
+  the top-left. `sceneWeather.test.ts` reads the CSS `sheetStyle` writes and proves coverage from
+  320 to 3840 wide, 320 to 2160 tall, across the cycle, the lean and the sway. Under reduced motion
+  a sheet also drops its `will-change`. How many sheets is the graphics tier's: three of rain and of
+  snow on `high`, two on `medium`, one on `light`; fog two, two and one. Lightning is a sheet flash plus the glow of the bolt off one top corner,
   two flashes close together and a lone one every seventeen seconds, the sheet never past a third.
   A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a drift of dust, because
-  nothing falls on an airless moon and the server's weather list says `storm`, not `rain`.`storm`, not `rain`.
+  nothing falls on an airless moon and the server's weather list says `storm`, not `rain`.
 - **Isometric, orthographic, framed in tiles.** The camera looks down from a corner at 32°, the
   Habbo angle, so a block's top and two faces are visible and every block reads at the same scale
   wherever it stands. The visible extent is `TILES_ACROSS` (80) tiles on the longer side rather than
@@ -715,9 +764,11 @@ and each is the kit's, not a builder's:
   and a person one, so what is left is three rows of houses and a crowd around it. At 32 it was one
   house. Resolution is the viewport at `devicePixelRatio` capped at `MAX_DPR` (2) and `MAX_SIDE`
   (2800) on the long side (`renderSizeFor`).
-- **The frame is supersampled** (`SUPERSAMPLE`, 2; `MAX_GL_PIXELS`, 7 M; `supersampleFor`). The
+- **The frame is supersampled** (`QUALITY[tier].supersample` and `.glPixels` — 2× under 7 M on
+  `medium` — through `supersampleFor`). The
   lighting is a sun, a sky and one shadow map, and beyond that what the GPU is asked for is edges:
-  the frame is rendered up to twice its size on each side, on top of multisampling, and scaled down with
+  the frame is rendered up to twice its size on each side (three times on `high`; `light` does not
+  supersample and multisamples instead — no tier does both), and scaled down with
   `imageSmoothingQuality: 'high'`, so an ink line a tile long is one clean stroke at any angle
   rather than a stair. The budget is in pixels, so a phone gets the full factor and a 4K monitor
   at 2× gets what fits under seven million; the side is also held under 4096, which is the texture
@@ -768,8 +819,17 @@ and each is the kit's, not a builder's:
     Multisampling is off once supersampling covers it: a 4× MSAA half-float target at 4096² is
     more memory than a phone will grant.
   - **It runs once, and everything it allocates is released with the context.** Every target is
-    disposed in a `finally`, and a throw anywhere inside — a target the GPU will not hold — falls
-    back to the plain render (`renderScene`: `photographed`), never to no room. A software GPU
+    disposed in a `finally`, and a throw anywhere inside falls back to the plain render
+    (`renderScene`: `photographed`), never to no room. **That sentence was only half true while
+    nothing threw**: three allocates a target lazily on `setRenderTarget` and never asks the driver,
+    so a target the GPU would not hold was a pass that drew nothing and a frame that came out black
+    or half-drawn — cached as the room for the match. So every target is checked before anything is
+    drawn into it (`assertComplete`, which throws on an incomplete framebuffer; the scene's own one
+    still tries bytes before it gives up), and the one thing that makes every target of the chain
+    fail at once is asked up front: WebGL2 renders into a float texture only with
+    `EXT_color_buffer_float` (or the half-float one), and a GPU without it (`floatTargets`) never
+    starts the chain — the plain frame — and gets a PCF shadow instead of VSM, whose map is a float
+    target too. A software GPU
     (headless Chromium) is handed the plain frame as before, unless tooling asked for the full one
     (`setForceFullRender`, `?gfx=force`), which is how `make rooms` and a `--gfx=force` visual
     review get it.
@@ -836,8 +896,13 @@ and each is the kit's, not a builder's:
     window. A scrollbar, a browser bar on its way out, a `dvh` that is not `innerHeight`: any of them
     made the board's request a different cache key. The felt is compared by value, because the anchor
     is a `$derived` object and an unchanged viewport still hands out a new one on every re-run.
+  - **And a render in flight is joined, not repeated** (`prepareScene`, `sceneCache.test.ts`). The
+    stretch above only answers once a frame exists; while the gate's render was still running, the
+    loading screen and the board asked at their own sizes, found nothing cached, and each started a
+    full render of its own. A request that finds a render of the same scene, felt, tier and look in
+    flight at a size `sizeCloseEnough` to its own now waits on that one, and its bar is fed by it.
 
-  `sceneLoadingGate.test.ts` owns all three.
+  `sceneLoadingGate.test.ts` owns the first three, `sceneCache.test.ts` the fourth.
 - **`make visual` waits for the room.** The showcase's ready flag fires when the screen mounts,
   and the frame lands a build later — seconds, on headless Chromium's software GPU. Captured
   before it, the room is the sky gradient with the frame mid-fade over it, which reads as a blue
@@ -877,10 +942,27 @@ and each is the kit's, not a builder's:
   `map_ready` goes out, and that the hold outlasts the transition it is paying for, read off
   `MapLoadingScreen.svelte` rather than typed twice.
 - **A render that fails is a scene, not an error.** No WebGL, a lost context, a builder that
-  throws: the cache keeps the entry with a null bitmap, `<SceneBackdrop />` shows the rig's sky
-  gradient (which is on screen from the first frame anyway, under the bitmap), and the gate is
-  answered. A client that never sends `map_ready` is the one outcome the gate cannot survive, and it
-  is the reason `prepareScene` never rejects.
+  throws, models that never arrive: the request resolves with a null bitmap, `<SceneBackdrop />`
+  shows the rig's sky gradient (which is on screen from the first frame anyway, under the bitmap),
+  and the gate is answered. A client that never sends `map_ready` is the one outcome the gate
+  cannot survive, and it is the reason `prepareScene` never rejects.
+  - **A failure is remembered for `FAILED_TTL_MS` (10s), never for the tab**, and apart from the
+    frames, so it never evicts one (`sceneCache.test.ts`). It used to be cached like a frame, for
+    good: most failures are transient — a context limit, a context lost to a GPU reset or a tab put
+    to sleep — and one of them made the plain sky the room for every match after it. Ten seconds is
+    so a window being dragged does not retry a dead GPU on every pixel. `peekScene` prefers any
+    frame of the scene over a failure.
+  - **A lost context is a failure, not a black room.** It raises nothing: every call after it is a
+    no-op and the canvas reads back empty. `renderScene` asks `isContextLost()` (and drains
+    `getError()` for `OUT_OF_MEMORY` — other flags are three probing enums, not a broken frame)
+    before and after the copy, and a sprite copied from a dead context is dropped with the rest.
+  - **The frame is copied out before the report's paint.** The context keeps no drawing buffer
+    (`preserveDrawingBuffer` off, as it should be), so once the browser has composited, the canvas
+    may read back cleared — and the report after the draw waits for exactly that paint.
+  - **The models are given `MODELS_TIMEOUT_MS` (20s).** The loader keeps no clock, and a fetch
+    that stalled held the render in flight — and everything that joined it — for the tab. Past
+    the gate's own 12s on purpose: the gate has let the player in by then; this only frees the
+    next request to try.
 - **Nothing pale is shown while the room is still being built** (`.scene.bare`). Until a frame
   lands, the sky gradient *is* the room — and at noon that is a full screen of near-white under the
   loading screen's white type, on a game whose every other surface is dark: the reveal read as a page
@@ -901,8 +983,9 @@ and each is the kit's, not a builder's:
   table and the room were two pictures. With the podium under the felt they are one object, and a
   blur between them would be the seam, so `<SceneBackdrop />` has no blur at all. What keeps a card
   edge winning at 720p is the vignette and the cards' own ink line, not a softened room. The cache
-  holds three entries (a match, its rematch, a resize), keyed on the scene, the device size **and
-  the anchor**.
+  holds three frames (a match, its rematch, a resize), keyed on the scene, the device size **and
+  the anchor**, and throws out the one **used** least recently — a hit moves to the young end, so
+  the frame on screen is never the one evicted.
 - **The backdrop isolates its own stack** (`.scene { isolation: isolate }`, `sceneBackdrop.test.ts`).
   It holds two canvases that swap places and the weather above both, so it declares `z-index` three
   times — and `position: absolute` does not contain a z-index. Without the isolation those three
@@ -931,7 +1014,8 @@ and each is the kit's, not a builder's:
 ### The models (`scene/models/`, `scene/placer.ts`, `tools/models/pack.mjs`)
 The blocks were the limit. A house of ten boxes is a box, and the reference the rooms are judged
 against is drawn by artists; so the props are drawn models now — Kenney's city, suburban, roads,
-nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces for the shrine,
+nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces (a temple and
+a torii, packed but not placed today: sakura's shrine and gate are still blocks),
 all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is what imports them.
 - **The manifest is the allowlist** (`models/manifest.json`): per kit, the unpacked archive it
   comes from, the folder holding its GLBs, the scale that turns its units into tiles (a Kenney
@@ -950,30 +1034,45 @@ all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is
   normals of every face meeting at a position averaged, one weight per face direction, which is
   what the outline hull is pushed along, because a flat-shaded model's faces share no vertices and
   a push along each face's own normal opens every corner. A person is baked in two poses off the
-  kit's own animation clips (`idle`, `walk` mid-stride) through `SkinnedMesh.applyBoneTransform`.
+  kit's own animation clips (`idle`, `walk` mid-stride) through `SkinnedMesh.applyBoneTransform`,
+  **from one download**: each pose used to be a request of its own, and both went out together.
   The three.js objects are disposed the moment the buffers are out.
 - **And then it is a block**: `k.model(id, x, z, {rot, y, scale})` transforms the buffers, multiplies
   the ground shade into the colours (`pushBaked`), pushes the hull in each vertex's own darker
   note, and after dark sends the
   faces painted in the kit's glow colours to the unlit bucket in the warm window colour every
   block window wears (`splitGlow`) — so a Kenney house lights its windows at night and darkens its
-  foot the way a box house does, and the room stays one merged mesh per bucket.
+  foot the way a box house does, and the room stays one merged mesh per bucket. **The window kits
+  (city, suburban) light per house, by the hour's share** (`spotChance`, a hash of where the model
+  stands, so the room's random sequence is untouched and the same house is lit on every render):
+  lit whenever the lamps were, every model house on the marina had every window lit at night and
+  in every rain, over `WINDOWS_LIT_MAX` by a factor of two.
 - **The kit's props take the model when the room has one.** `k.person` (a spacesuit where the room
-  has the space kit, one of twelve townsfolk otherwise, mid-stride when walking), `k.car` (Kenney's
+  has the space kit, one of twelve townsfolk otherwise, mid-stride when walking, **turned a half
+  turn by `PERSON_MODEL_YAW`**: both kits face -z where the block person faces +z, and `personRot`
+  is written for the block. Without it every passer-by walked the pavement backwards, the crowd
+  stood with its back to the table and the doormen faced the wall; the route and the sprite were
+  each right and nothing tested the two together until `kitModels.test.ts`), `k.car` (Kenney's
   drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; the cherry stays a
   block, no kit has a pink crown), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
   never names three.js, a file or a format; the same builder builds a room of blocks when the kits
   are not loaded, which is what a model that failed to fetch degrades to.
 - **Nothing stands inside anything else** (`placer.ts`, `placer.test.ts`). Every `k.model` claims
   its footprint — an oriented rectangle, the kit's rotation convention, grown by a margin — and is
-  refused when the claim overlaps one already made; the answer is the builder's to move on from. A
+  refused when the claim overlaps one already made; the answer is the builder's to move on from,
+  **and the kit's props leave the spot empty**: they used to draw their block version there
+  instead, which claims nothing and so stood inside whatever had taken the ground. A pot's bush is
+  the one exception, grown with `collide: false` because it is inside the pot on purpose. A
   builder claims its zones first: the podium's steps and drum, the water, a road. The test is the
   separating-axis test on two rectangles, and the claims are filed in a coarse grid so a room of a
   thousand claims does not test each against every other.
 - **The kits per room are declared beside the builders** (`maps/index.ts: KITS`) and loaded by
   `sceneCache.prepareScene` before the builder runs, as the middle half of the loading bar on a
-  first visit and nothing on a rematch. A packed room's models are one to two megabytes gzipped,
-  under the engine chunk.
+  first visit and nothing on a rematch. **A room names what it places and nothing else**: a whole
+  kit, or single models as `kit/name` where it takes two pieces of a kit (the marina's parasols out
+  of the city kit). Every room used to load whole kits it never placed — 17.5 MB and 205 requests
+  for the marina, of which 7.9 MB was placed; orbit loaded the townsfolk and could only ever draw
+  astronauts. nginx serves `/models/` gzipped and cached for a week.
 
 ### What moves (`scene/life.ts`, `scene/LifeLayer.svelte`, `maps/actors.ts`)
 The room is rendered once and released, so nothing in it can move — and a room where nothing moves
@@ -982,9 +1081,16 @@ smoke, built with the same kit under the same light and the same line weight, re
 little bitmap **in the same pass as the room** (`render.ts`, after the frame: one more scene per
 actor, cleared transparent, sized to the actor's projected bounds, the ground point recorded), and
 carried along a route by one Web Animations transform (`LifeLayer.svelte`). The board's compositing
-budget still belongs to the cards: an actor is one composited layer under one animation, exactly
-what a rain layer is, so a ferry costs the board what a raindrop does, and the render loop it would
-otherwise take stays closed.
+budget still belongs to the cards: an actor is one composited layer (`.actor`) under its route
+animation, plus, only when it bobs, spins or puffs, an inner element under an animation of its own
+— the bob on `.body`, the spin or the puff on `.face`, **one transform animation per element**,
+because two on one element do not add up (the later wins, and a spinning thing that bobbed did not
+bob) — and the render loop it would otherwise take stays closed. A thing that stays put (one point)
+still bobs and turns where it stands. Reduced motion holds every actor on its route's first point
+with nothing running, and **is followed live** (`reducedMotion`, a parameter of the action): the
+switch in Preferences stops and restarts the room without a render. A `pass`'s period is never
+shorter than its crossing (`passEvery`), since a `speed` can resolve a duration past the `every` a
+builder wrote.
 - **A builder returns its actors beside the room** (`Builder = (k) => Actor[] | void`). An actor is a
   `build` that draws the thing at the origin standing on `y = 0` heading +x, a `path` in the same
   screen tiles everything else is composed in (`sceneLife.test.ts` pins that frame to the render's
@@ -1097,15 +1203,22 @@ otherwise take stays closed.
   the screen. Both are gone: a person on the move is a `pass` along a pavement with a `heading`,
   built facing the way it goes, and gone at the end of its run (`sceneGrid.test.ts` fails on a
   `walker` handed a `bounce`, and on the two factories coming back). The cat and the rover keep
-  their bounce: an animal turning round is what an animal does, and the rover is a box.
+  their bounce: an animal turning round is what an animal does, and the rover is a box. **But a
+  mirrored sprite runs level** (`sceneFacing.test.ts`, 30° on the ground at most, which the ferry
+  following the shore stays inside): it is drawn side-on facing screen-right, and sent up a
+  diagonal the rover slid along it crabwise, facing thirty degrees off the way it went.
+- **And "walking backwards" came back from the models, not the routes.** Every street walker was a
+  `pass` with a correct `heading`, built facing it, and still walked backwards: `personRot` is
+  written for the block person, who faces +z, and the Kenney townsfolk face -z. The fix is in the
+  kit (`PERSON_MODEL_YAW`), so every person — walker, crowd, doorman — is turned once, and
+  `kitModels.test.ts` places a model whose face is on -z and checks it ends up in front.
 - **Two things were tried and taken out before any of this existed**: the harbour's ferris wheel
   turned for an afternoon as sprites (spokes spinning about the hub, twelve cabins riding a circle),
   and the cabins rode across the roofs of the terrace standing in front of the fair as pale cubes
   floating on the houses; and the ferry sailed the whole width of the frame, which took it through
-  the lighthouse island and over the pier head. The wheel stands still in the render now, and the
-  ferry runs east of the pier only, fading in there. Both would be trimmed correctly today; neither
-  is worth putting back, because a wheel that only turns where nothing is in front of it is a
-  wheel that stops.
+  the lighthouse island and over the pier head. The wheel stood still in the render after that, and
+  is gone now (see "What no frame can hold whole"); the ferry runs east of the pier only, fading in
+  there.
 - **A pass writes its opacity on every frame.** A keyframe without a property interpolates towards
   the next one that has it, so a route whose hidden tail alone said `opacity: 0` faded out across
   its whole crossing, and the ferry came through as a grey ghost. `routeKeyframes` writes `1` on
@@ -1148,6 +1261,12 @@ changed, and the rules it left:
 - **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half; night went from 85% lit to
   45%, dusk from 70% to 35%). A wall of light was the whole of the neon room's noise, and a city
   where most windows are dark is also the one where the lit ones read. `sceneLighting.test.ts`.
+  **The cap holds under every weather too**: a storm lit three in four until the rig clamped its
+  answer, and only the hours were checked. The model houses answer the same share one house at a
+  time (`spotChance`).
+- **Neon at night is a notch above black** (the towers, the road, the pavement, the paving): under
+  rain on a phone at 720p the darker set left nothing of the city but lit windows. One tower in four
+  wears a neon edge now and one in six a sign.
 - **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, 0.8 tiles,
   `kitHalo.test.ts`). The lighthouse wore two additive spheres, three and six tiles across, the
   hotel's finial one of a tile and a half, the wizard's tower one of 1.3, every dome on the moon a
