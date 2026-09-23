@@ -1034,6 +1034,11 @@ stated at the top of `styles/tokens.css`:
     small shadow map of its own fitted to it (`LOOK.shadow.spriteMap`), as soft on the ground as
     the room's. **The tier is the player's** (`hooks/graphicsPref.ts`), it says how
     large the shadow map is and which passes run, and **is part of the cache key**.
+  - **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`, a vertex
+    attribute; `kit.ts: litMaterial`). The sky is an environment for **reflection only** — its
+    irradiance is dropped and its radiance weighted by the gloss — so gloss 0 renders pixel for pixel
+    as before. Glass, paint, and every slab under rain (`Kit.wetGloss()`). **A wet street is a
+    sheen, not a mirror of the sky**. `sceneGloss.test.ts`.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**

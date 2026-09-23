@@ -102,6 +102,24 @@ export interface Look {
     haloIntensity: number
     /** How much darker a wall is at its foot than at its top, 0–1: the contact the occlusion pass sharpens. */
     footShade: number
+    /**
+     * The roughness of a surface at full gloss. A block carries a gloss of 0
+     * to 1 in its vertices (`BlockOptions.gloss`): 0 is the matte above, 1 is
+     * this. Glass, a wet street, water, a car's paint.
+     */
+    glossRoughness: number
+    /**
+     * How strongly a glossy surface mirrors the sky (the environment the rig
+     * paints, `lighting.ts: skyEnvironment`). Only the reflection: the sky's
+     * diffuse light is the hemisphere's, and a matte block reflects nothing.
+     */
+    envIntensity: number
+    /** Window glass, 0–1. */
+    glassGloss: number
+    /** The ground under rain: a street that has taken water. 0–1. */
+    wetGloss: number
+    /** A car's paint, a spacesuit's visor and hull: the drawn kits that are not matte, 0–1. */
+    paintGloss: number
   }
   outline: {
     /** Ink line weight in CSS pixels. */
@@ -225,7 +243,7 @@ export const LOOK: Look = {
   sun: { intensity: 1, elevationOffset: 0 },
   ambient: { intensity: 1, rim: 0.35 },
   shadow: { type: 'vsm', radius: 6, blurSamples: 12, bias: 0, normalBias: 0.3, spriteOpacity: 0.4, spriteMap: 512, spriteTint: 0x10163a, spriteTintMix: 0.35 },
-  material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1 },
+  material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1, glossRoughness: 0.14, envIntensity: 1.0, glassGloss: 0.9, wetGloss: 0.55, paintGloss: 0.45 },
   outline: { px: 1.4, darken: 0.42, inkMix: 0.3 },
   ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4, blurDepthFalloff: 0.7 },
   tone: {

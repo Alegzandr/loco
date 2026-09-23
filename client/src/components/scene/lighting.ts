@@ -25,14 +25,21 @@ import {
   HemisphereLight,
   NeutralToneMapping,
   NoToneMapping,
+  BackSide,
+  Mesh,
   PCFShadowMap,
+  PMREMGenerator,
+  Scene,
+  ShaderMaterial,
+  SphereGeometry,
   VSMShadowMap,
   Vector3,
+  type Texture,
   type ToneMapping as ThreeToneMapping,
   type WebGLRenderer,
 } from 'three'
 import type { LightRig } from './sky'
-import { lightingFor, shadowRun, type Lighting } from './shade'
+import { lightingFor, shadowRun, skyDome, type Lighting } from './shade'
 import { LOOK, type ToneMapping } from './look'
 import type { RenderQuality } from './quality'
 
@@ -185,4 +192,57 @@ export function shadowReach(box: Box3, rig: LightRig): Box3 {
   const h = Math.max(0, box.max.y)
   for (const x of [box.min.x, box.max.x]) for (const z of [box.min.z, box.max.z]) out.expandByPoint(_p.set(x + rx * h, 0, z + rz * h))
   return out
+}
+
+/**
+ * The sky as an environment, for what is glossy to mirror: the rig's gradient
+ * from the horizon up to the zenith, the ground's own bounce below it, filtered
+ * once (`PMREMGenerator`) so a rough surface sees a soft sky and a smooth one a
+ * sharp one. Only the reflection is taken from it (`kit.ts: litMaterial`) — the
+ * diffuse sky is the hemisphere's.
+ *
+ * Null where it cannot be had (a GPU with no float targets filters it into
+ * nothing): the glossy surfaces are then only shinier under the sun, which is
+ * a room, not a failure. The caller disposes of it with the context.
+ */
+export function skyEnvironment(renderer: WebGLRenderer, rig: LightRig): Texture | null {
+  const dome = skyDome(rig)
+  const scene = new Scene()
+  const material = new ShaderMaterial({
+    side: BackSide,
+    depthWrite: false,
+    uniforms: {
+      uTop: { value: new Color(dome.top) },
+      uHorizon: { value: new Color(dome.horizon) },
+      uGround: { value: new Color(dome.ground) },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uTop;
+      uniform vec3 uHorizon;
+      uniform vec3 uGround;
+      varying vec3 vDir;
+      void main() {
+        float y = vDir.y;
+        vec3 c = y >= 0.0 ? mix(uHorizon, uTop, pow(y, 0.55)) : mix(uHorizon, uGround, smoothstep(0.0, 0.25, -y));
+        gl_FragColor = vec4(c, 1.0);
+      }`,
+  })
+  const sphere = new Mesh(new SphereGeometry(10, 32, 16), material)
+  scene.add(sphere)
+  const pmrem = new PMREMGenerator(renderer)
+  try {
+    return pmrem.fromScene(scene, 0).texture
+  } catch {
+    return null
+  } finally {
+    pmrem.dispose()
+    sphere.geometry.dispose()
+    material.dispose()
+  }
 }

@@ -75,6 +75,11 @@ export function mountLookPanel(): GUI {
   material.add(LOOK.material, 'glowIntensity', 0, 6, 0.1).name('glow')
   material.add(LOOK.material, 'haloIntensity', 0, 2, 0.05).name('halos')
   material.add(LOOK.material, 'footShade', 0, 0.5, 0.01).name('foot shade')
+  material.add(LOOK.material, 'glossRoughness', 0, 1, 0.01).name('gloss roughness')
+  material.add(LOOK.material, 'envIntensity', 0, 6, 0.1).name('sky reflection')
+  material.add(LOOK.material, 'glassGloss', 0, 1, 0.01).name('glass')
+  material.add(LOOK.material, 'wetGloss', 0, 1, 0.01).name('wet ground')
+  material.add(LOOK.material, 'paintGloss', 0, 1, 0.01).name('paint')
 
   const outline = gui.addFolder('Outline')
   outline.add(LOOK.outline, 'px', 0, 4, 0.1).name('weight (CSS px)')

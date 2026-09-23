@@ -39,7 +39,7 @@
  * in tiles rather than in pixels, so a phone and a monitor frame the same
  * plaza and the table (drawn in CSS over the centre) lands on the same paving.
  */
-import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PCFShadowMap, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget } from 'three'
+import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PCFShadowMap, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget, type Texture } from 'three'
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
 import type { FeltAnchor } from '../cards/layout'
@@ -52,7 +52,7 @@ import { at } from './maps/common'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
 import { floatTargets, makeSpriteGrader, renderWithPost, type SpriteGrader } from './post'
-import { configureShadows, frameBox, makeLights, shadowReach, toneMappingFor } from './lighting'
+import { configureShadows, frameBox, makeLights, shadowReach, skyEnvironment, toneMappingFor } from './lighting'
 import { lightingFor } from './shade'
 import { LOOK } from './look'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
@@ -317,6 +317,7 @@ export async function renderScene(
   // `alpha` so the sprites come out on nothing. Multisampling only where the
   // supersampling does not already cover the edges: on the light tier.
   const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: false, powerPreference: 'high-performance' })
+  let env: Texture | null = null
   try {
     renderer.setPixelRatio(1)
     renderer.outputColorSpace = SRGBColorSpace
@@ -356,11 +357,15 @@ export async function renderScene(
     const t0 = performance.now()
     const vw = size.width / ppu
     const vh = size.height / ppu
+    // The sky, for what is glossy to mirror (glass, paint, a wet street). A
+    // GPU that cannot filter it into a float target gets none, and its glossy
+    // surfaces are only shinier under the sun.
+    env = floatOk ? skyEnvironment(renderer, rig) : null
     const kit = new Kit({ rig, rng: seededRng(key), outline, anchor: anchorFor(felt, size), frame: { w: vw, h: vh }, models })
     const candidates: Actor[] = BUILDERS[spec.map.id](kit) ?? []
     const t1 = performance.now()
     await report(RENDER_STEPS.built)
-    const group = kit.build()
+    const group = kit.build(env)
     const t2 = performance.now()
     await report(RENDER_STEPS.merged)
     scene.add(group)
@@ -475,7 +480,7 @@ export async function renderScene(
       if (i > 0 && i % SPRITES_PER_PAINT === 0) await report(RENDER_STEPS.placed + (1 - RENDER_STEPS.placed) * (i / actors.length))
       const k = new Kit({ rig, rng: seededRng(`${key}:${actor.id}`), outline, anchor: { sx: 0, sy: 0, a: 0, b: 0 }, shadows: !actor.flying, models })
       actor.build(k)
-      const g = k.build()
+      const g = k.build(env)
       const box = new Box3()
       g.traverse((obj) => {
         const mesh = obj as Mesh
@@ -582,6 +587,7 @@ export async function renderScene(
     }
     return { frame, sprites }
   } finally {
+    env?.dispose()
     renderer.dispose()
     renderer.forceContextLoss()
   }

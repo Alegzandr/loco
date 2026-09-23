@@ -111,6 +111,16 @@ export function lightingFor(rig: LightRig): Lighting {
   }
 }
 
+/**
+ * The sky a glossy surface mirrors, as three colours: the zenith, the horizon
+ * and the ground seen below it. The rig's own gradient — the one painted in
+ * CSS behind the render — so a wet street at dusk holds the dusk, and the
+ * ground's bounce, so what a reflection finds under the horizon is not black.
+ */
+export function skyDome(rig: LightRig): { top: Hex; horizon: Hex; ground: Hex } {
+  return { top: rig.sky.top, horizon: rig.sky.horizon, ground: mix(rig.ambient.ground, rig.sky.horizon, 0.25) }
+}
+
 // ─── Shadows, as shapes ─────────────────────────────────────────────────────
 // The room's shadows are a map now; what is still a polygon is the *extent*
 // of one, which the sprite pass needs before it has drawn anything: a

@@ -1346,6 +1346,26 @@ the tokens' near-black table, which is what a lobby's felt and an unknown map id
   to its sky and fails the test rather than the build. Re-shoot after touching a builder, the kit,
   the rig or the passes: nothing checks that the stills still match the render.
 
+### What shines and what reflects (the pass of 2026-09-23)
+The quiet pass took things out; this one gives what is left a surface. Every rule below is one the
+room already obeyed, extended to something that used to be flat.
+- **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`, a vertex
+  attribute like the colour; `kit.ts: litMaterial`; `sceneGloss.test.ts`). The room is still one lit
+  material: its roughness is mixed from `LOOK.material.roughness` towards `glossRoughness` by the
+  vertex's gloss, and it mirrors the sky (`lighting.ts: skyEnvironment`, the rig's own gradient over
+  the ground's bounce, filtered once by `PMREMGenerator`). **Only the reflection is taken from that
+  sky**: its irradiance is dropped (the hemisphere already is the sky's light) and its radiance is
+  weighted by the gloss, by editing three's `lights_fragment_maps` — so a block at gloss 0 comes out
+  pixel for pixel as it did, and the test pins the two lines of three it edits. Glossy: dark window
+  glass (`glassGloss`), a car's paint and the space kit's hulls (`paintGloss`, per kit:
+  `GLOSSY_KITS`), and **every slab under rain** (`wetGloss`, through `Kit.wetGloss()`). **The wet
+  street is a sheen, not a mirror**: at `envIntensity` 2.4 and a wet gloss of 0.72 the whole plaza
+  took the sky's grey and lost the colour of its paving, which is what a uniform reflection of a
+  bright sky does to an orthographic frame where every square of ground faces the camera the same
+  way. At 1.0 and 0.55 the paving keeps its colours under a cool glaze; what makes a wet street read
+  as wet after dark is the lights in it, below. A GPU with no float target gets no environment
+  (`floatOk`), and its glossy surfaces are only shinier under the sun.
+
 ### Reviewing a room
 Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the
 hour or the sky that changes the room the most) and `game-map-loading`. **These are the only place a

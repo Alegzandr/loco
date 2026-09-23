@@ -49,6 +49,8 @@ import {
   SphereGeometry,
   BackSide,
   AdditiveBlending,
+  ShaderChunk,
+  type Texture,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Hex, LightRig } from './sky'
@@ -58,6 +60,9 @@ import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, splitGlow } from './models/bake'
+
+/** three's own image-based-light chunk, which the lit material edits rather than includes. */
+const THREE_CHUNK_LIGHTS_MAPS = ShaderChunk.lights_fragment_maps
 
 /**
  * Where the table is, in screen tiles: the centre of the felt's ellipse and its
@@ -113,6 +118,12 @@ export interface BlockOptions {
   outline?: boolean
   /** Take a snow cap when it snows. On by default for anything with a flat top. */
   cap?: boolean
+  /**
+   * How glossy the surface is, 0 (the room's matte, the default) to 1
+   * (`LOOK.material.glossRoughness`): glass, paint, a wet street, water. A
+   * glossy surface mirrors the sky; a matte one reflects nothing.
+   */
+  gloss?: number
 }
 
 export const INK = 0x120b24
@@ -146,6 +157,8 @@ export const ASTRONAUT_MODEL_YAW = Math.PI
 /** The tallest a landmark may stand in the band above the table, in tiles. */
 export const LANDMARK_TOP_MAX = 7
 const WINDOW_DARK = 0x1a2233
+/** The drawn kits whose surfaces are paint and metal rather than wood and plaster. */
+const GLOSSY_KITS = new Set(['cars', 'space'])
 const WINDOW_GLOW = 0xffd98a
 
 type Bucket = 'lit' | 'glow' | 'ink' | 'halo'
@@ -183,10 +196,7 @@ export class Kit {
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
   /** Every pane on every wall, two sheets (`quad`). */
-  private sheets: Record<'lit' | 'glow', { pos: number[]; nrm: number[]; col: number[]; idx: number[] }> = {
-    lit: { pos: [], nrm: [], col: [], idx: [] },
-    glow: { pos: [], nrm: [], col: [], idx: [] },
-  }
+  private sheets: Record<'lit' | 'glow', Sheet> = { lit: emptySheet(), glow: emptySheet() }
 
   constructor(o: KitOptions) {
     this.rig = o.rig
@@ -275,7 +285,7 @@ export class Kit {
     }
 
     const body = make(b.position, lit, b.color)
-    this.pushBaked(body, 'lit')
+    this.pushBaked(body, 'lit', GLOSSY_KITS.has(id.split('/')[0]) ? LOOK.material.paintGloss : 0)
     if (glow && glow.length) {
       const sub = compact(b.position, b.normal, glow)
       const g = make(sub.position, sub.index, undefined, sub.normal)
@@ -295,7 +305,7 @@ export class Kit {
    * multiplied by the ground shade like a block's single colour is; in the ink
    * bucket each becomes its own darker note.
    */
-  private pushBaked(geom: BufferGeometry, bucket: 'lit' | 'ink') {
+  private pushBaked(geom: BufferGeometry, bucket: 'lit' | 'ink', gloss = 0) {
     if (!geom.index) throw new Error('kit: every geometry must be indexed, or the bucket will not merge')
     const col = geom.getAttribute('color')
     const n = col.count
@@ -318,6 +328,7 @@ export class Kit {
         arr[i * 3 + 1] = col.getY(i) * k
         arr[i * 3 + 2] = col.getZ(i) * k
       }
+      setGloss(geom, gloss)
     } else {
       for (let i = 0; i < n; i++) {
         _color.setRGB(col.getX(i), col.getY(i), col.getZ(i))
@@ -352,7 +363,7 @@ export class Kit {
 
   // ─── Primitives ───────────────────────────────────────────────────────────
 
-  private push(geom: BufferGeometry, color: Hex, bucket: Bucket) {
+  private push(geom: BufferGeometry, color: Hex, bucket: Bucket, gloss = 0) {
     geom.deleteAttribute('uv')
     if (!geom.index) throw new Error('kit: every geometry must be indexed, or the bucket will not merge')
     const n = geom.getAttribute('position').count
@@ -381,6 +392,7 @@ export class Kit {
         arr[i * 3 + 1] = _color.g * k
         arr[i * 3 + 2] = _color.b * k
       }
+      setGloss(geom, gloss)
     } else {
       for (let i = 0; i < n; i++) {
         arr[i * 3] = _color.r
@@ -411,7 +423,7 @@ export class Kit {
     // A tilted block is placed by its centre, an upright one by its bottom.
     const cy = o.tilt ? y : y + h / 2
     const body = this.place(boxGeometry(w, h, d), x, cy, z, o.rot, o.tilt)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(boxGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, cy, z, o.rot, o.tilt), inkFor(color), 'ink')
@@ -435,7 +447,7 @@ export class Kit {
     }
     const cy = o.axis ? y : y + h / 2
     const body = this.place(make(rTop, r, h), x, cy, z, o.rot)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(make(rTop + t, r + t, h + 2 * t), x, cy, z, o.rot), inkFor(color), 'ink')
@@ -459,7 +471,7 @@ export class Kit {
       return g
     }
     const body = this.place(make(a, b, h), x, y + h / 2, z, o.rot)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(make(a + t, b + t, h + 2 * t), x, y + h / 2, z, o.rot), inkFor(color), 'ink')
@@ -473,7 +485,7 @@ export class Kit {
     const seg = o.seg ?? 4
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const body = this.place(coneGeometry(r, h, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4)
-    this.push(body, this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.6) : color, bucket)
+    this.push(body, this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.6) : color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(coneGeometry(r + t, h + 2 * t, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4), inkFor(color), 'ink')
@@ -484,7 +496,7 @@ export class Kit {
     const seg = o.seg ?? 8
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const body = this.place(sphereGeometry(r, seg), x, y, z)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       this.push(this.place(sphereGeometry(r + this.outline, seg), x, y, z), inkFor(color), 'ink')
     }
@@ -495,7 +507,7 @@ export class Kit {
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const c = this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.75) : color
     const body = this.place(prismGeometry(w, h, d), x, y, z, o.rot)
-    this.push(body, c, bucket)
+    this.push(body, c, bucket, this.rig.snow && o.cap !== false ? 0 : o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(prismGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, y - t, z, o.rot), inkFor(color), 'ink')
@@ -503,8 +515,8 @@ export class Kit {
   }
 
   /** A flat disc on the ground (a rug, a pad marking, a puddle). Never outlined. */
-  disc(x: number, y: number, z: number, r: number, color: Hex, o: { glow?: boolean; seg?: number } = {}) {
-    this.push(this.place(new CylinderGeometry(r, r, 0.04, o.seg ?? 16), x, y + 0.02, z), color, o.glow ? 'glow' : 'lit')
+  disc(x: number, y: number, z: number, r: number, color: Hex, o: { glow?: boolean; seg?: number; gloss?: number } = {}) {
+    this.push(this.place(new CylinderGeometry(r, r, 0.04, o.seg ?? 16), x, y + 0.02, z), color, o.glow ? 'glow' : 'lit', o.gloss)
   }
 
   /**
@@ -529,13 +541,18 @@ export class Kit {
   // ─── Props ────────────────────────────────────────────────────────────────
 
   /** A flat slab: paving, a road, a deck. Receives shadows, casts none. */
-  slab(x: number, z: number, w: number, d: number, color: Hex, o: { y?: number; h?: number; outline?: boolean; rot?: number } = {}) {
-    this.box(x, o.y ?? 0, z, w, o.h ?? 0.08, d, color, { outline: o.outline ?? false, cap: false, rot: o.rot })
+  slab(x: number, z: number, w: number, d: number, color: Hex, o: { y?: number; h?: number; outline?: boolean; rot?: number; gloss?: number } = {}) {
+    this.box(x, o.y ?? 0, z, w, o.h ?? 0.08, d, color, { outline: o.outline ?? false, cap: false, rot: o.rot, gloss: o.gloss ?? this.wetGloss() })
+  }
+
+  /** The gloss of open ground tonight: a street that has taken rain, or none. */
+  wetGloss(): number {
+    return this.rig.wet ? LOOK.material.wetGloss : 0
   }
 
   /** The ground under everything, sized to run past every edge of the view. */
   floor(color: Hex, size = 96, y = -1) {
-    this.box(0, y, 0, size, 1, size, this.ground(color), { outline: false, cap: false })
+    this.box(0, y, 0, size, 1, size, this.ground(color), { outline: false, cap: false, gloss: this.wetGloss() })
     if (this.rig.snow) this.box(0, 0, 0, size, 0.02, size, SNOW, { outline: false, cap: false })
   }
 
@@ -569,7 +586,7 @@ export class Kit {
     // has ten thousand of, and every one of them goes into a single sheet per
     // bucket (`quad`, flushed by `build`).
     this.quad(x, y + h / 2, z, fw, fh, facing, o.rot ?? 0, frame, false, 0.01)
-    this.quad(x, y + h / 2, z, w, h, facing, o.rot ?? 0, pane, lit, 0.03)
+    this.quad(x, y + h / 2, z, w, h, facing, o.rot ?? 0, pane, lit, 0.03, lit ? 0 : LOOK.material.glassGloss)
     if (o.sill !== false) {
       if (facing === 'x') this.box(x + 0.05, y - 0.12, z, 0.14, 0.07, fw + 0.1, scale(frame, 0.9), { rot: o.rot, outline: false, cap: false })
       else this.box(x, y - 0.12, z + 0.05, fw + 0.1, 0.07, 0.14, scale(frame, 0.9), { rot: o.rot, outline: false, cap: false })
@@ -583,7 +600,7 @@ export class Kit {
    * so a city's worth of panes is two draw calls' worth of triangles rather
    * than twenty thousand boxes' worth of allocations.
    */
-  private quad(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', rot: number, color: Hex, glow: boolean, out: number) {
+  private quad(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', rot: number, color: Hex, glow: boolean, out: number, gloss = 0) {
     const sheet = glow ? this.sheets.glow : this.sheets.lit
     const c = Math.cos(rot)
     const s = Math.sin(rot)
@@ -600,7 +617,10 @@ export class Kit {
       sheet.nrm.push(nx, 0, nz)
     }
     _color.setHex(color)
-    for (let i = 0; i < 4; i++) sheet.col.push(_color.r, _color.g, _color.b)
+    for (let i = 0; i < 4; i++) {
+      sheet.col.push(_color.r, _color.g, _color.b)
+      sheet.gloss.push(gloss)
+    }
     sheet.idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
   }
 
@@ -612,9 +632,10 @@ export class Kit {
       g.setAttribute('position', new Float32BufferAttribute(s.pos, 3))
       g.setAttribute('normal', new Float32BufferAttribute(s.nrm, 3))
       g.setAttribute('color', new Float32BufferAttribute(s.col, 3))
+      if (bucket === 'lit') g.setAttribute('gloss', new Float32BufferAttribute(s.gloss, 1))
       g.setIndex(s.idx)
       this.buckets[bucket].push(g)
-      this.sheets[bucket] = { pos: [], nrm: [], col: [], idx: [] }
+      this.sheets[bucket] = emptySheet()
     }
   }
 
@@ -969,11 +990,12 @@ export class Kit {
     const s = Math.sin(rot)
     const c = Math.cos(rot)
     const at = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c]
-    this.box(x, 0.28, z, 2.1, 0.5, 1.0, color, { rot })
+    const paint = LOOK.material.paintGloss
+    this.box(x, 0.28, z, 2.1, 0.5, 1.0, color, { rot, gloss: paint })
     this.box(x, 0.78, z, 2.15, 0.05, 1.04, mix(color, 0xffffff, 0.35), { rot, outline: false, cap: false })
-    this.box(x - 0.15 * c, 0.8, z + 0.15 * s, 1.15, 0.44, 0.9, color, { rot, cap: true })
+    this.box(x - 0.15 * c, 0.8, z + 0.15 * s, 1.15, 0.44, 0.9, color, { rot, cap: true, gloss: paint })
     // Glass: a band around the cabin, slightly proud of it.
-    this.box(x - 0.15 * c, 0.9, z + 0.15 * s, 1.19, 0.26, 0.94, 0x9fd8ff, { rot, outline: false, cap: false })
+    this.box(x - 0.15 * c, 0.9, z + 0.15 * s, 1.19, 0.26, 0.94, 0x9fd8ff, { rot, outline: false, cap: false, gloss: LOOK.material.glassGloss })
     for (const [dx, dz] of [[-0.68, 0.52], [0.68, 0.52], [-0.68, -0.52], [0.68, -0.52]]) {
       const [wx, wz] = at(dx, dz)
       this.cyl(wx, 0.26, wz, 0.24, 0.2, 0x1c1c1c, { axis: 'z', rot, seg: 8 })
@@ -1145,13 +1167,16 @@ export class Kit {
    * halos are additive light on the ground. None of those three casts a
    * shadow: a hull would throw a shadow larger than its block, a lit window
    * is a quad on a wall, and light is not a thing.
+   *
+   * `env` is the sky as an environment (`lighting.ts: skyEnvironment`), which
+   * the glossy surfaces mirror; without one they are only shinier under the sun.
    */
-  build(): Group {
+  build(env: Texture | null = null): Group {
     const g = new Group()
     this.flushSheets()
     const lit = merge(this.buckets.lit)
     if (lit) {
-      const m = new Mesh(lit, new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness }))
+      const m = new Mesh(lit, litMaterial(env))
       m.castShadow = true
       m.receiveShadow = true
       g.add(m)
@@ -1173,6 +1198,61 @@ export class Kit {
     }
     return g
   }
+}
+
+/**
+ * The one lit material, with a gloss per vertex.
+ *
+ * A `MeshStandardMaterial` whose roughness is mixed from the room's matte
+ * towards `LOOK.material.glossRoughness` by the vertex's gloss, and whose
+ * environment is taken for its **reflection only**: the sky's diffuse light is
+ * already the hemisphere's, so the environment's irradiance is dropped, and
+ * its radiance is weighted by the gloss — a matte block comes out exactly as
+ * it did before there was an environment at all.
+ */
+function litMaterial(env: Texture | null): MeshStandardMaterial {
+  const m = new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness })
+  if (env) {
+    m.envMap = env
+    m.envMapIntensity = LOOK.material.envIntensity
+  }
+  const glossRoughness = LOOK.material.glossRoughness
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uGlossRoughness = { value: glossRoughness }
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float gloss;\nvarying float vGloss;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGloss = gloss;')
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vGloss;\nuniform float uGlossRoughness;')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, uGlossRoughness, vGloss);')
+      .replace(
+        '#include <lights_fragment_maps>',
+        THREE_CHUNK_LIGHTS_MAPS.replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '').replace(
+          'radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+          'radiance += vGloss * getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+        ),
+      )
+  }
+  m.customProgramCacheKey = () => `loco-gloss-${glossRoughness}`
+  return m
+}
+
+interface Sheet {
+  pos: number[]
+  nrm: number[]
+  col: number[]
+  gloss: number[]
+  idx: number[]
+}
+
+function emptySheet(): Sheet {
+  return { pos: [], nrm: [], col: [], gloss: [], idx: [] }
+}
+
+/** Every geometry in the lit bucket carries a gloss per vertex, or the bucket will not merge. */
+function setGloss(geom: BufferGeometry, gloss: number) {
+  const n = geom.getAttribute('position').count
+  geom.setAttribute('gloss', new Float32BufferAttribute(new Float32Array(n).fill(Math.max(0, Math.min(1, gloss))), 1))
 }
 
 function merge(list: BufferGeometry[]): BufferGeometry | null {
