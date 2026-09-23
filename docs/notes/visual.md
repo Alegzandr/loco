@@ -1014,8 +1014,9 @@ and each is the kit's, not a builder's:
 ### The models (`scene/models/`, `scene/placer.ts`, `tools/models/pack.mjs`)
 The blocks were the limit. A house of ten boxes is a box, and the reference the rooms are judged
 against is drawn by artists; so the props are drawn models now — Kenney's city, suburban, roads,
-nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces (a temple and
-a torii, packed but not placed today: sakura's shrine and gate are still blocks),
+nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces (a torii,
+sakura's gate since the pass of 2026-09-23, and a temple, packed but not placed: the pagoda the
+village is built around is still blocks, and fetched by no room),
 all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is what imports them.
 - **The manifest is the allowlist** (`models/manifest.json`): per kit, the unpacked archive it
   comes from, the folder holding its GLBs, the scale that turns its units into tiles (a Kenney
@@ -1055,8 +1056,9 @@ all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is
   on the moon walked backwards. An audit once read a 1× sprite of a townsperson the wrong way round
   and turned them all, which sent every street walking backwards; a render at four times the
   density settled it. `kitModels.test.ts` pins both conventions), `k.car` (Kenney's
-  drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; the cherry stays a
-  block, no kit has a pink crown), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
+  drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; **the cherry is a drawn tree in blossom**:
+  its green turned to one of three pinks by `blossom`, through `ModelOptions.recolor`, the trunk
+  left alone and each leaf's shading kept), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
   never names three.js, a file or a format; the same builder builds a room of blocks when the kits
   are not loaded, which is what a model that failed to fetch degrades to.
 - **Nothing stands inside anything else** (`placer.ts`, `placer.test.ts`). Every `k.model` claims

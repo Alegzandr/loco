@@ -114,6 +114,12 @@ export interface ModelOptions {
   /** Grow the claimed footprint by this many tiles. */
   margin?: number
   outline?: boolean
+  /**
+   * Repaints the model's baked colours, vertex by vertex, in linear light:
+   * return the new colour, or null to keep it. The cherry is a drawn tree
+   * whose green is turned to blossom.
+   */
+  recolor?: (r: number, g: number, b: number) => [number, number, number] | null
 }
 
 export interface BlockOptions {
@@ -309,7 +315,8 @@ export class Kit {
 
     // A lit house lights the ground round it, a little.
     if (windows && glow && glow.length) this.pool(x, z, Math.max(b.w, b.d) * s * 0.85, WINDOW_GLOW, 0.06 * LOOK.pools.windowSpill)
-    const body = make(b.position, lit, b.color)
+    const colors = o.recolor ? recolored(b.color, o.recolor) : b.color
+    const body = make(b.position, lit, colors)
     this.pushBaked(body, 'lit', GLOSSY_KITS.has(id.split('/')[0]) ? LOOK.material.paintGloss : 0)
     if (glow && glow.length) {
       const sub = compact(b.position, b.normal, glow)
@@ -319,7 +326,7 @@ export class Kit {
     if (o.outline !== false) {
       // The hull is the model pushed along its smoothed normals, in model
       // units: the outline is world units, so divide by the scale it will get.
-      const hull = make(hullFor(b, this.outline / s), null, b.color)
+      const hull = make(hullFor(b, this.outline / s), null, colors)
       this.pushBaked(hull, 'ink')
     }
     return true
@@ -840,6 +847,16 @@ export class Kit {
     // A drawn tree where the room has one. The cherry stays ours: no kit here
     // has a pink crown, and it is what the village is.
     const kindId = o.kind ?? 'round'
+    if (kindId === 'sakura' && this.models?.has('nature/tree_default')) {
+      // A drawn tree in blossom: its green turned to the cherry's pink, one of
+      // three pinks so an orchard is not one colour, the trunk left alone.
+      // Under snow the crown takes the frost the block cherry does.
+      const pool = ['nature/tree_default', 'nature/tree_fat', 'nature/tree_detailed', 'nature/tree_oak']
+      const pink = this.leaf(this.rng.pick([0xf7a1c4, 0xffb3cf, 0xf28bb5]))
+      const scale = ((o.h ?? 1.6) / 1.6) * (o.r ? o.r / 0.9 : 1) * 0.55 + 0.45
+      this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale, margin: -0.4, recolor: blossom(pink) })
+      return
+    }
     if (kindId !== 'sakura' && this.models?.has('nature/tree_default')) {
       const pool =
         kindId === 'pine'
@@ -1302,6 +1319,35 @@ function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): 
   }
   m.customProgramCacheKey = () => `loco-gloss-${glossRoughness}`
   return m
+}
+
+/**
+ * A crown's green turned to `pink`, keeping how light or dark each face was:
+ * the kit's leaves come in two or three greens, and the blossom keeps the
+ * same shading between them. Anything not green (the trunk) is left alone.
+ */
+export function blossom(pink: Hex): (r: number, g: number, b: number) => [number, number, number] | null {
+  const target = new Color(pink)
+  const lum = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b
+  const t = lum(target.r, target.g, target.b)
+  return (r, g, b) => {
+    if (!(g > r * 1.15 && g > b * 1.1)) return null
+    const k = Math.min(1.3, Math.max(0.6, (lum(r, g, b) / Math.max(1e-4, t)) * 1.9))
+    return [target.r * k, target.g * k, target.b * k]
+  }
+}
+
+function recolored(src: Float32Array, fn: (r: number, g: number, b: number) => [number, number, number] | null): Float32Array {
+  const out = new Float32Array(src)
+  for (let i = 0; i < out.length; i += 3) {
+    const c = fn(out[i], out[i + 1], out[i + 2])
+    if (c) {
+      out[i] = c[0]
+      out[i + 1] = c[1]
+      out[i + 2] = c[2]
+    }
+  }
+  return out
 }
 
 interface Sheet {

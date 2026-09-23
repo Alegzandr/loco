@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Mesh, MeshStandardMaterial, ShaderChunk, type BufferGeometry } from 'three'
-import { Kit } from '../components/scene/kit'
+import { Kit, blossom } from '../components/scene/kit'
 import { lightRig, type Weather } from '../components/scene/sky'
 import { seededRng } from '../components/scene/rng'
 import { skyDome } from '../components/scene/shade'
@@ -152,5 +152,22 @@ describe('the mirror', () => {
 
   it('discards, in the mirror pass, a face turned up: the underside of every slab', () => {
     expect(MIRROR_NORMAL).toMatch(/uMirrorPass > 0\.5 && vUp > 0\.5\) discard/)
+  })
+})
+
+describe('the cherry', () => {
+  it('turns a green crown to blossom and leaves the trunk alone', () => {
+    const fn = blossom(0xf7a1c4)
+    expect(fn(0.2, 0.5, 0.15)).not.toBeNull()
+    const [r, g] = fn(0.2, 0.5, 0.15)!
+    expect(r).toBeGreaterThan(g)
+    // A brown trunk and a grey stone are not leaves.
+    expect(fn(0.35, 0.22, 0.12)).toBeNull()
+    expect(fn(0.4, 0.4, 0.4)).toBeNull()
+  })
+
+  it('keeps the shading between the greens: a darker leaf stays a darker blossom', () => {
+    const fn = blossom(0xf7a1c4)
+    expect(fn(0.1, 0.3, 0.08)![0]).toBeLessThan(fn(0.2, 0.55, 0.15)![0])
   })
 })
