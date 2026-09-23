@@ -136,3 +136,31 @@ export function bounds(position: Float32Array): { min: [number, number, number];
   }
   return { min, max }
 }
+
+/**
+ * The vertices an index actually uses, renumbered: what a subset of a model
+ * (its glowing faces) carries into a bucket. Handed the whole vertex array
+ * with a subset index, every glowing model went into the merged mesh a third
+ * time over, lit faces and all.
+ */
+export function compact(position: Float32Array, normal: Float32Array, index: Uint32Array): { position: Float32Array; normal: Float32Array; index: Uint32Array } {
+  const map = new Map<number, number>()
+  const out = new Uint32Array(index.length)
+  for (let i = 0; i < index.length; i++) {
+    let n = map.get(index[i])
+    if (n === undefined) {
+      n = map.size
+      map.set(index[i], n)
+    }
+    out[i] = n
+  }
+  const p = new Float32Array(map.size * 3)
+  const nr = new Float32Array(map.size * 3)
+  for (const [from, to] of map) {
+    for (let c = 0; c < 3; c++) {
+      p[to * 3 + c] = position[from * 3 + c]
+      nr[to * 3 + c] = normal[from * 3 + c]
+    }
+  }
+  return { position: p, normal: nr, index: out }
+}

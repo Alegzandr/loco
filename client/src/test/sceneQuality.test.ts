@@ -12,8 +12,10 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { QUALITY, renderQuality } from '../components/scene/quality'
+import { LOOK } from '../components/scene/look'
+import { assertComplete, floatTargets } from '../components/scene/post'
 import {
   GRAPHICS_PREFS,
   GRAPHICS_STORAGE_KEY,
@@ -120,7 +122,50 @@ describe('the finishing passes', () => {
     expect(render).toMatch(/renderer\.toneMappingExposure = lightingFor\(rig\)\.exposure/)
     // The curve is applied once, in the composite, and the grade comes after it.
     expect(post.indexOf('col = tone(col)')).toBeGreaterThan(post.indexOf('col += texture2D(tBloom, uv).rgb * uBloom'))
-    expect(post.indexOf('col = tone(col)')).toBeLessThan(post.indexOf('uSaturation)'))
+    expect(post.indexOf('col = grade(col)')).toBeGreaterThan(post.indexOf('col = tone(col)'))
+    // The grade is one function, and the saturation and contrast are in it.
+    const grade = post.match(/vec3 grade\(vec3 col\) \{[\s\S]*?\n {2}\}/)
+    expect(grade, 'grade() not found').not.toBeNull()
+    expect(grade![0]).toMatch(/uSaturation\)/)
+    expect(grade![0]).toMatch(/uContrast/)
+    expect(grade![0]).toMatch(/uSplit/)
+  })
+
+  it('grade the sprites exactly as the room, and nothing the frame owns', () => {
+    // A car drawn straight to the canvas got the tone curve and not the
+    // grade, and crossed the plaza a touch greyer and flatter than the plaza.
+    const sprite = post.match(/const SPRITE_GRADE_FRAG = \/\* glsl \*\/ `([\s\S]*?)`/)
+    expect(sprite, 'SPRITE_GRADE_FRAG not found').not.toBeNull()
+    expect(sprite![1]).toMatch(/\$\{GRADE_PARS\}/)
+    expect(sprite![1]).toMatch(/grade\(tone\(col\)\)/)
+    expect(sprite![1]).toMatch(/#include <colorspace_fragment>/)
+    // No vignette, no grain, no fringe, no focus, no occlusion.
+    expect(sprite![1]).not.toMatch(/uVignette|uGrain|uAberration|tBlur|tAo|tBloom/)
+    const composite = post.match(/const COMPOSITE_FRAG = \/\* glsl \*\/ `([\s\S]*?)\n`/)
+    expect(composite![1]).toMatch(/\$\{GRADE_PARS\}/)
+    // Graded exactly when the room was photographed, and only then.
+    expect(render).toMatch(/photographed \? makeSpriteGrader\(renderer, rig\) : null/)
+    expect(render).toMatch(/grader\.render\(spriteScene, camera, pw, ph\)/)
+  })
+
+  it('give the sprites a small shadow map of their own, as soft on the ground as the room', () => {
+    expect(render).toMatch(/makeLights\(rig, \{ \.\.\.q, shadowMap: LOOK\.shadow\.spriteMap \}\)/)
+    expect(LOOK.shadow.spriteMap).toBeLessThanOrEqual(1024)
+    expect(render).toMatch(/spriteLights\.sun\.shadow\.radius = roomRadius \*/)
+  })
+
+  it('carry no visual number of their own: every one is the look\'s', () => {
+    // The literals that used to sit at call sites. A number moved back into
+    // the render is a number the dev panel and the cache key cannot see.
+    for (const lit of ['0x10163a', '0.42, 1.15', '* 1.41', 'smoothstep(0.09, 0.5', '1.4 / hw', '1.4 / hh', '* 0.7 }', 'uThreshold + 0.5']) {
+      expect(post.includes(lit) || render.includes(lit), lit).toBe(false)
+    }
+    expect(post).toMatch(/LOOK\.post\.vignetteFrom/)
+    expect(post).toMatch(/LOOK\.post\.aberrationFrom/)
+    expect(post).toMatch(/LOOK\.post\.dofSpread/)
+    expect(post).toMatch(/LOOK\.post\.bloomKnee/)
+    expect(post).toMatch(/LOOK\.ao\.blurDepthFalloff/)
+    expect(render).toMatch(/LOOK\.shadow\.spriteTint/)
   })
 
   it('read the depth of the frame for the occlusion, and multiply it in before the bloom and the focus', () => {
@@ -149,6 +194,33 @@ describe('the finishing passes', () => {
     expect(render).toMatch(/if \(!photographed\) renderer\.render\(scene, camera\)/)
   })
 
+  it('check every target before drawing into it, so a refused one is the throw the fallback needs', () => {
+    // three allocates a target lazily and never asks the driver: a target it
+    // will not hold is a pass that draws nothing, and a frame that is garbage
+    // rather than an exception.
+    // Only the scene's own target (checked after its byte fallback) and
+    // `make`, which checks, may create one.
+    const raw = [...post.matchAll(/keep\(target\(([^)]*)\)\)/g)].map((m) => m[1])
+    expect(raw.filter((a) => !/^width, height, \{ half: (true|false), depth: true, depthTexture \}$/.test(a) && a !== 'w, h, o')).toEqual([])
+    expect(post).toMatch(/const t = keep\(target\(w, h, o\)\)\s*assertComplete\(renderer, t\)/)
+    expect(post).toMatch(/assertComplete\(renderer, sceneRT\)/)
+    expect((post.match(/= make\(/g) ?? []).length).toBeGreaterThanOrEqual(6)
+    // And a GPU with no float render targets at all never starts the chain,
+    // nor a VSM shadow map, which is a float target too.
+    expect(render).toMatch(/const post = software \|\| !floatOk \? null : q\.post/)
+    expect(render).toMatch(/if \(!floatOk\) renderer\.shadowMap\.type = PCFShadowMap/)
+  })
+
+  it('copy the frame out of a live context, before the paint that may clear it', () => {
+    // No `preserveDrawingBuffer`: once the browser composites, the drawing
+    // buffer may read back empty, and the report awaits exactly that paint.
+    const copy = render.indexOf('ctx.drawImage(gl, 0, 0, gw, gh, 0, 0, size.width, size.height)')
+    expect(copy).toBeGreaterThan(0)
+    expect(copy).toBeLessThan(render.indexOf('await report(RENDER_STEPS.drawn)'))
+    expect(render.lastIndexOf('assertAlive(renderer)', copy)).toBeGreaterThan(render.indexOf('if (!photographed) renderer.render(scene, camera)'))
+    expect(render).toMatch(/isContextLost\(\)/)
+  })
+
   it('release every target with the context', () => {
     expect(post).toMatch(/finally \{[\s\S]*for \(const t of targets\) t\.dispose\(\)/)
   })
@@ -159,5 +231,27 @@ describe('the finishing passes', () => {
     // does nothing until the next match.
     expect(cache).toMatch(/@\$\{tier\}@look\$\{lookVersion\(\)\}`/)
     expect(read('components/scene/SceneBackdrop.svelte')).toMatch(/have\.tier === tier/)
+  })
+})
+
+describe('a GPU that will not hold a target', () => {
+  const FB = { FRAMEBUFFER: 0x8d40, FRAMEBUFFER_COMPLETE: 0x8cd5 }
+  const renderer = (status: number, extensions: string[] = []) =>
+    ({
+      getContext: () => ({ ...FB, checkFramebufferStatus: () => status }),
+      setRenderTarget: vi.fn(),
+      extensions: { has: (name: string) => extensions.includes(name) },
+    }) as unknown as Parameters<typeof assertComplete>[0]
+  const rt = { width: 64, height: 32 } as unknown as Parameters<typeof assertComplete>[1]
+
+  it('throws on an incomplete framebuffer, which is what sends the room to the plain frame', () => {
+    expect(() => assertComplete(renderer(0x8cd6), rt)).toThrow(/incomplete/)
+    expect(() => assertComplete(renderer(FB.FRAMEBUFFER_COMPLETE), rt)).not.toThrow()
+  })
+
+  it('renders into float only with the extension that allows it', () => {
+    expect(floatTargets(renderer(0))).toBe(false)
+    expect(floatTargets(renderer(0, ['EXT_color_buffer_float']))).toBe(true)
+    expect(floatTargets(renderer(0, ['EXT_color_buffer_half_float']))).toBe(true)
   })
 })

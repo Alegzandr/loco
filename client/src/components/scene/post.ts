@@ -47,6 +47,8 @@ import {
   UnsignedByteType,
   Vector2,
   Vector3,
+  Vector4,
+  NoBlending,
   WebGLRenderer,
   WebGLRenderTarget,
   type Camera,
@@ -216,12 +218,13 @@ const LIT_FRAG = /* glsl */ `
 const BRIGHT_FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform float uThreshold;
+  uniform float uKnee;
   uniform float uExposure;
   varying vec2 vUv;
   void main() {
     vec3 c = texture2D(tDiffuse, vUv).rgb * uExposure;
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    float k = smoothstep(uThreshold, uThreshold + 0.5, l);
+    float k = smoothstep(uThreshold, uThreshold + uKnee, l);
     gl_FragColor = vec4(c * k, 1.0);
   }
 `
@@ -247,13 +250,13 @@ const BLUR_FRAG = /* glsl */ `
 `
 
 /**
- * The composite. FXAA is the compact form of 3.11 — five taps to find the
- * edge's direction, four along it — which on a frame already supersampled is
- * the last quarter-pixel of stair a diagonal ink line still shows. The tone
- * curve is three's own (`tonemapping_pars_fragment`), picked by `uTone`
- * (`TONE_INDEX`), so the plain path and this one agree.
+ * The tone curve and the grade, shared by the composite and the sprites
+ * (`makeSpriteGrader`): a car driving over the plaza has to come out of the
+ * same photograph as the plaza, or it reads as a sticker on it. Three's own
+ * curves (`tonemapping_pars_fragment`), picked by `uTone` (`TONE_INDEX`), so
+ * the plain path and this one agree.
  */
-const COMPOSITE_FRAG = /* glsl */ `
+const GRADE_PARS = /* glsl */ `
   // Rendering to the canvas, three prefixes its own tone-mapping functions
   // (and defines TONE_MAPPING) whenever the renderer's curve is on; the
   // include is for the one case it is not.
@@ -261,6 +264,39 @@ const COMPOSITE_FRAG = /* glsl */ `
   #include <tonemapping_pars_fragment>
   #endif
   uniform float uExposure;
+  uniform int uTone;
+  uniform float uContrast;
+  uniform float uSaturation;
+  uniform vec3 uShadowTint;
+  uniform vec3 uHighlightTint;
+  uniform float uSplit;
+
+  vec3 tone(vec3 c) {
+    if (uTone == 1) return ACESFilmicToneMapping(c);
+    if (uTone == 2) return AgXToneMapping(c);
+    if (uTone == 3) return NeutralToneMapping(c);
+    return saturate(c * uExposure);
+  }
+
+  // The grade, on the display range: the shade pulled towards a cool note,
+  // the light towards a warm one, a touch of saturation and of contrast
+  // about mid-grey.
+  vec3 grade(vec3 col) {
+    float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    col += ((uShadowTint - 0.5) * (1.0 - l) + (uHighlightTint - 0.5) * l) * uSplit;
+    col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, uSaturation);
+    return max((col - 0.18) * uContrast + 0.18, 0.0);
+  }
+`
+
+/**
+ * The composite. FXAA is the compact form of 3.11 — five taps to find the
+ * edge's direction, four along it — which on a frame already supersampled is
+ * the last quarter-pixel of stair a diagonal ink line still shows. The tone
+ * curve and the grade are `GRADE_PARS`.
+ */
+const COMPOSITE_FRAG = /* glsl */ `
+  ${GRADE_PARS}
   uniform sampler2D tScene;
   uniform sampler2D tBlur;
   uniform sampler2D tBloom;
@@ -272,15 +308,11 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform float uDofMax;
   uniform float uBloom;
   uniform float uVignette;
+  uniform vec4 uVignetteShape;   // from, to, squash, scale
   uniform float uGrain;
   uniform float uAberration;
+  uniform vec2 uAberrationRange;
   uniform float uSeed;
-  uniform int uTone;
-  uniform float uContrast;
-  uniform float uSaturation;
-  uniform vec3 uShadowTint;
-  uniform vec3 uHighlightTint;
-  uniform float uSplit;
   uniform int uDebug;
   uniform sampler2D tAo;
   uniform sampler2D tDepth;
@@ -321,13 +353,6 @@ const COMPOSITE_FRAG = /* glsl */ `
     return fract(sin(dot(p, vec2(12.9898, 78.233)) + uSeed) * 43758.5453);
   }
 
-  vec3 tone(vec3 c) {
-    if (uTone == 1) return ACESFilmicToneMapping(c);
-    if (uTone == 2) return AgXToneMapping(c);
-    if (uTone == 3) return NeutralToneMapping(c);
-    return saturate(c * uExposure);
-  }
-
   void main() {
     vec2 px = 1.0 / uRes;
     vec2 uv = vUv;
@@ -340,7 +365,7 @@ const COMPOSITE_FRAG = /* glsl */ `
 
     // The fringe: red and blue pulled apart along the radius, only out in the
     // corners where a lens does it, and never across the table.
-    float ab = smoothstep(0.09, 0.5, r2) * uAberration;
+    float ab = smoothstep(uAberrationRange.x, uAberrationRange.y, r2) * uAberration;
     if (ab > 0.0) {
       vec2 off = normalize(fromC) * ab * px;
       sharp.r = texture2D(tScene, uv + off).r;
@@ -360,16 +385,11 @@ const COMPOSITE_FRAG = /* glsl */ `
     col = tone(col);
     if (uDebug == 2) { gl_FragColor = vec4(col, 1.0); return; }
 
-    // The grade, on the display range: the shade pulled towards a cool note,
-    // the light towards a warm one, a touch of saturation and of contrast
-    // about mid-grey.
-    float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    col += ((uShadowTint - 0.5) * (1.0 - l) + (uHighlightTint - 0.5) * l) * uSplit;
-    col = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, uSaturation);
-    col = max((col - 0.18) * uContrast + 0.18, 0.0);
+    // The grade, on the display range (GRADE_PARS).
+    col = grade(col);
 
     // The vignette, elliptical with the frame.
-    float v = smoothstep(0.42, 1.15, length(fromC * vec2(1.0, 1.15)) * 1.41);
+    float v = smoothstep(uVignetteShape.x, uVignetteShape.y, length(fromC * vec2(1.0, uVignetteShape.z)) * uVignetteShape.w);
     col *= 1.0 - v * uVignette;
 
     col += (hash(gl_FragCoord.xy) - 0.5) * uGrain;
@@ -379,11 +399,80 @@ const COMPOSITE_FRAG = /* glsl */ `
   }
 `
 
+/**
+ * A sprite, graded: the same tone curve and the same grade as the room it
+ * stands in, and nothing that belongs to the frame rather than to the light —
+ * no vignette, no grain, no fringe, no focus band (a walker is small enough to
+ * be all in one band, and the frame's corners are not where the sprite will
+ * be), and no occlusion (there is no room around it to occlude). The sprite's
+ * target is premultiplied (a transparent clear, blended into); the colour is
+ * taken back out of the alpha before the curve and put back into it after the
+ * encoding, which is what the canvas the direct path drew into held.
+ */
+const SPRITE_GRADE_FRAG = /* glsl */ `
+  ${GRADE_PARS}
+  uniform sampler2D tScene;
+  varying vec2 vUv;
+  void main() {
+    vec4 s = texture2D(tScene, vUv);
+    vec3 col = s.a > 0.0 ? s.rgb / s.a : vec3(0.0);
+    col = grade(tone(col));
+    gl_FragColor = vec4(col, 1.0);
+    #include <colorspace_fragment>
+    gl_FragColor = vec4(gl_FragColor.rgb * s.a, s.a);
+  }
+`
+
 /** `uTone` in the composite: 0 is exposure alone, the rest are three's curves. */
 const TONE_INDEX: Record<ToneMapping, number> = { none: 0, aces: 1, agx: 2, neutral: 3 }
 
 function quadCamera(): Camera {
   return new OrthographicCamera(-1, 1, 1, -1, 0, 1)
+}
+
+/**
+ * Whether this GPU can render into a float target at all. WebGL2 samples
+ * half-float textures everywhere but renders into one only with
+ * `EXT_color_buffer_float` (or the half-float one): without it the post chain's
+ * targets and the VSM shadow map are framebuffers that silently draw nothing.
+ * Asked once, up front, so such a GPU takes the plain frame and a PCF shadow
+ * rather than a garbage one.
+ */
+export function floatTargets(renderer: WebGLRenderer): boolean {
+  try {
+    return renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Binds `t` and throws unless the GPU will actually render into it. three
+ * allocates a target lazily on `setRenderTarget` and never asks: an incomplete
+ * framebuffer is a pass that draws nothing and a frame that comes out black or
+ * half-drawn, so it is turned into the throw the caller falls back on.
+ */
+export function assertComplete(renderer: WebGLRenderer, t: WebGLRenderTarget): void {
+  const gl = renderer.getContext()
+  renderer.setRenderTarget(t)
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
+  if (status !== gl.FRAMEBUFFER_COMPLETE) {
+    renderer.setRenderTarget(null)
+    throw new Error(`render target ${t.width}×${t.height} incomplete (0x${status.toString(16)})`)
+  }
+}
+
+/** The uniforms `GRADE_PARS` reads, every value from the look. */
+function gradeUniforms(rig: LightRig): Record<string, { value: unknown }> {
+  return {
+    uTone: { value: TONE_INDEX[LOOK.tone.mapping] },
+    uExposure: { value: lightingFor(rig).exposure },
+    uContrast: { value: LOOK.tone.contrast },
+    uSaturation: { value: LOOK.tone.saturation },
+    uShadowTint: { value: rgb(LOOK.tone.shadowTint) },
+    uHighlightTint: { value: rgb(LOOK.tone.highlightTint) },
+    uSplit: { value: LOOK.tone.splitStrength },
+  }
 }
 
 function target(w: number, h: number, o: { half?: boolean; depth?: boolean; depthTexture?: DepthTexture; nearest?: boolean } = {}): WebGLRenderTarget {
@@ -435,6 +524,12 @@ export function renderWithPost(
     targets.push(t)
     return t
   }
+  /** A target of the pipeline's own, checked before anything is drawn into it. */
+  const make = (w: number, h: number, o: { half?: boolean } = {}): WebGLRenderTarget => {
+    const t = keep(target(w, h, o))
+    assertComplete(renderer, t)
+    return t
+  }
   const shader = (frag: string, uniforms: Record<string, { value: unknown }>, defines: Record<string, number> = {}): ShaderMaterial => {
     const m = new ShaderMaterial({ vertexShader: QUAD_VERT, fragmentShader: frag, uniforms, defines, depthTest: false, depthWrite: false })
     materials.push(m)
@@ -460,9 +555,13 @@ export function renderWithPost(
       sceneRT.dispose()
       targets.pop()
       sceneRT = keep(target(width, height, { half: false, depth: true, depthTexture }))
-      renderer.setRenderTarget(sceneRT)
     }
+    // And bytes that will not hold either is the plain frame: a throw.
+    assertComplete(renderer, sceneRT)
     renderer.render(scene, camera)
+    // Every target after this one is the same kind the scene's took, and each
+    // is checked before it is drawn into (`assertComplete`, in `make`).
+    const half = sceneRT.texture.type === HalfFloatType
 
     const copy = shader(COPY_FRAG, { tDiffuse: { value: null } })
     const blur = shader(BLUR_FRAG, { tDiffuse: { value: null }, uDir: { value: new Vector2() } })
@@ -475,9 +574,9 @@ export function renderWithPost(
     // ─── The occlusion, at a half ──────────────────────────────────────────
     const aw = Math.ceil(width / 2)
     const ah = Math.ceil(height / 2)
-    const aoA = keep(target(aw, ah, { half: false }))
+    const aoA = make(aw, ah)
     if (opts.ao && LOOK.ao.intensity > 0) {
-      const aoB = keep(target(aw, ah, { half: false }))
+      const aoB = make(aw, ah)
       const ao = shader(
         AO_FRAG,
         {
@@ -499,8 +598,8 @@ export function renderWithPost(
           tAo: { value: null },
           tDepth: { value: depthTexture },
           uDir: { value: new Vector2() },
-          // A difference of a tile of depth halves the weight.
-          uDepthScale: { value: (camera.far - camera.near) * 0.7 },
+          // A difference of a tile of depth roughly halves the weight.
+          uDepthScale: { value: (camera.far - camera.near) * LOOK.ao.blurDepthFalloff },
         },
         { AO_BLUR: Math.max(1, Math.round(LOOK.ao.blur)) },
       )
@@ -517,17 +616,17 @@ export function renderWithPost(
     }
 
     // ─── The lit frame: scene × occlusion ──────────────────────────────────
-    const litRT = keep(target(width, height, { half: sceneRT.texture.type === HalfFloatType }))
+    const litRT = make(width, height, { half })
     const lit = shader(LIT_FRAG, { tScene: { value: sceneRT.texture }, tAo: { value: aoA.texture }, uIntensity: { value: opts.ao ? LOOK.ao.intensity : 0 } })
     pass(lit, litRT)
 
     // ─── Bloom, at a quarter ───────────────────────────────────────────────
     const bw = Math.ceil(width / 4)
     const bh = Math.ceil(height / 4)
-    const bloomA = keep(target(bw, bh, { half: true }))
-    const bloomB = keep(target(bw, bh, { half: true }))
+    const bloomA = make(bw, bh, { half })
+    const bloomB = make(bw, bh, { half })
     if (opts.bloom) {
-      const bright = shader(BRIGHT_FRAG, { tDiffuse: { value: litRT.texture }, uThreshold: { value: LOOK.post.bloomThreshold }, uExposure: { value: exposure } })
+      const bright = shader(BRIGHT_FRAG, { tDiffuse: { value: litRT.texture }, uThreshold: { value: LOOK.post.bloomThreshold }, uKnee: { value: LOOK.post.bloomKnee }, uExposure: { value: exposure } })
       pass(bright, bloomA)
       for (let i = 0; i < 2; i++) {
         blurPass(bloomA.texture, bloomB, 1 / bw, 0)
@@ -542,13 +641,13 @@ export function renderWithPost(
     // ─── The out-of-focus copy, at a half ──────────────────────────────────
     const hw = Math.ceil(width / 2)
     const hh = Math.ceil(height / 2)
-    const blurA = keep(target(hw, hh, { half: true }))
+    const blurA = make(hw, hh, { half })
     if (opts.dof) {
-      const blurB = keep(target(hw, hh, { half: true }))
+      const blurB = make(hw, hh, { half })
       copy.uniforms.tDiffuse.value = litRT.texture
       pass(copy, blurA)
-      blurPass(blurA.texture, blurB, 1.4 / hw, 0)
-      blurPass(blurB.texture, blurA, 0, 1.4 / hh)
+      blurPass(blurA.texture, blurB, LOOK.post.dofSpread / hw, 0)
+      blurPass(blurB.texture, blurA, 0, LOOK.post.dofSpread / hh)
     }
 
     // ─── The composite, onto the canvas ────────────────────────────────────
@@ -570,16 +669,12 @@ export function renderWithPost(
       uDofMax: { value: opts.dof ? LOOK.post.dofMax : 0 },
       uBloom: { value: bloomStrength },
       uVignette: { value: opts.vignette },
+      uVignetteShape: { value: new Vector4(LOOK.post.vignetteFrom, LOOK.post.vignetteTo, LOOK.post.vignetteSquash, LOOK.post.vignetteScale) },
       uGrain: { value: opts.grain ? LOOK.post.grain : 0 },
       uAberration: { value: opts.aberration ? LOOK.post.aberration : 0 },
+      uAberrationRange: { value: new Vector2(LOOK.post.aberrationFrom, LOOK.post.aberrationTo) },
       uSeed: { value: seed },
-      uTone: { value: TONE_INDEX[LOOK.tone.mapping] },
-      uExposure: { value: exposure },
-      uContrast: { value: LOOK.tone.contrast },
-      uSaturation: { value: LOOK.tone.saturation },
-      uShadowTint: { value: rgb(LOOK.tone.shadowTint) },
-      uHighlightTint: { value: rgb(LOOK.tone.highlightTint) },
-      uSplit: { value: LOOK.tone.splitStrength },
+      ...gradeUniforms(rig),
       uDebug: { value: import.meta.env.DEV ? DEBUG_VIEWS.indexOf(LOOK.debug) : 0 },
       tAo: { value: aoA.texture },
       tDepth: { value: depthTexture },
@@ -590,5 +685,66 @@ export function renderWithPost(
     for (const t of targets) t.dispose()
     for (const m of materials) m.dispose()
     quad.geometry.dispose()
+  }
+}
+
+export interface SpriteGrader {
+  /** Renders `scene` through the room's tone curve and grade onto the canvas, at `width × height`. Throws where the GPU refuses the target. */
+  render(scene: Scene, camera: Camera, width: number, height: number): void
+  dispose(): void
+}
+
+/**
+ * The grade the room's composite applies, for the sprites rendered after it.
+ *
+ * A sprite drawn straight to the canvas gets the renderer's tone curve and
+ * nothing else, while the ground under it went through the whole grade — so
+ * every car and every walker came out a touch flatter, greyer and more neutral
+ * than the plaza they cross, which is what a sticker looks like. Here the sprite
+ * is rendered into a linear target (half-float where the room's was) and
+ * brought onto the canvas through `GRADE_PARS`, the same functions the
+ * composite calls. One target and one material for all of a room's sprites.
+ */
+export function makeSpriteGrader(renderer: WebGLRenderer, rig: LightRig): SpriteGrader {
+  const half = floatTargets(renderer)
+  let rt: WebGLRenderTarget | null = null
+  const quad = new Mesh(new PlaneGeometry(2, 2))
+  const quadScene = new Scene()
+  quadScene.add(quad)
+  const cam = quadCamera()
+  const material = new ShaderMaterial({
+    vertexShader: QUAD_VERT,
+    fragmentShader: SPRITE_GRADE_FRAG,
+    uniforms: { tScene: { value: null }, ...gradeUniforms(rig) },
+    depthTest: false,
+    depthWrite: false,
+    blending: NoBlending,
+  })
+  quad.material = material
+  return {
+    render(scene, camera, width, height) {
+      const w = Math.max(1, width)
+      const h = Math.max(1, height)
+      if (!rt || rt.width !== w || rt.height !== h) {
+        rt?.dispose()
+        rt = target(w, h, { half, depth: true })
+      }
+      try {
+        assertComplete(renderer, rt)
+        renderer.clear()
+        renderer.render(scene, camera)
+        material.uniforms.tScene.value = rt.texture
+        renderer.setRenderTarget(null)
+        renderer.clear()
+        renderer.render(quadScene, cam)
+      } finally {
+        renderer.setRenderTarget(null)
+      }
+    },
+    dispose() {
+      rt?.dispose()
+      material.dispose()
+      quad.geometry.dispose()
+    },
   }
 }

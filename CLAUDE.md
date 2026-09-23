@@ -1026,8 +1026,13 @@ stated at the top of `styles/tokens.css`:
     gets from `renderer.toneMapping`, applied once, in the composite, after the bloom and before
     the grade**), a warm/cool split-tone grade, tilt-shift, vignette, colour fringe, grain —
     half-float target in linear light with a float depth texture, composite ending on
-    `colorspace_fragment`. A GPU that refuses a target gets the plain frame, **never no room**
-    (`sceneQuality.test.ts`). **The tier is the player's** (`hooks/graphicsPref.ts`), it says how
+    `colorspace_fragment`. A GPU that refuses a target gets the plain frame, **never no room**:
+    **every target is checked before it is drawn into** (`assertComplete` throws), and a GPU with
+    no float render target (`floatTargets`) never starts the chain and gets a PCF shadow instead of
+    VSM (`sceneQuality.test.ts`). **The sprites go through the same tone curve and grade**
+    (`makeSpriteGrader`, `GRADE_PARS`) — never the vignette, grain, fringe or focus — each on a
+    small shadow map of its own fitted to it (`LOOK.shadow.spriteMap`), as soft on the ground as
+    the room's. **The tier is the player's** (`hooks/graphicsPref.ts`), it says how
     large the shadow map is and which passes run, and **is part of the cache key**.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
@@ -1037,7 +1042,9 @@ stated at the top of `styles/tokens.css`:
     a veil over the sprite, never a cut in the route** (`occlusionVeil`, `readDepth`); a `pick` ranks
     by the length *seen*, and a survivor under its `minLen` is dropped. **Things on the ground move
     at a speed** (`WALK_SPEED`, `DRIVE_SPEED`), never for a duration. **People walk the pavements and
-    cars drive the lanes** of `cityGrid`'s `StreetPlan`. Reduced motion holds the first frame.
+    cars drive the lanes** of `cityGrid`'s `StreetPlan`. Reduced motion holds the first frame, and
+    is **followed live**. **One transform animation per element**: the route on `.actor`, a bob on
+    `.body`, a spin or puff on `.face`.
     `sceneLighting.test.ts`, `sceneLife.test.ts`.
   - **A `loop` either walks its closing leg or fades over it, and there is no third option**
     (`life.ts: closesTheRing`): a visible wrap is somebody teleporting home.
@@ -1046,18 +1053,29 @@ stated at the top of `styles/tokens.css`:
     **baked into vertex colours** (`bake.ts`) so a model goes through exactly the pipeline a block
     does; `k.person`, `k.car`, `k.tree`… place the model or the block, so a builder never names
     three.js or a file. **Nothing stands inside anything else**: every `k.model` goes through
-    `placer.ts` and is refused when its footprint is taken. `placer.test.ts`, `modelBake.test.ts`.
+    `placer.ts` and is refused when its footprint is taken, **and a refused model leaves the spot
+    empty** — the block version drawn in its place stood inside whatever took it. A pot's bush is
+    the one thing inside something on purpose (`collide: false`). **A drawn person faces the way a
+    block person does**: the townsfolk already face +z, the astronauts face -z and take
+    `ASTRONAUT_MODEL_YAW`, or the passer-by on the moon walks backwards. **Judge a facing at 4×
+    density or from the file, never from a 1× sprite**: an audit read one backwards once. **A model house lights its windows with the hour's
+    share, one house at a time** (`spotChance`, a hash of where it stands). **Each room loads the
+    kits it places and no others** (`maps/index.ts: KITS`), and a person is fetched once for both
+    poses. `placer.test.ts`, `modelBake.test.ts`, `kitModels.test.ts`.
   - **A resize is a stretch, and then one render** (`RESIZE_SETTLE_MS`, 240ms), **faded in over** the
     old frame on the second canvas. The engine is a lazy chunk behind `sceneCache.prepareScene`, the
     only importer of `render.ts`; **nothing else may import three.js**. **A render that fails is a
-    scene, not an error.** The hour and sky reach the table as `--scene-tint` / `--scene-dark`, never
+    scene, not an error**, and it is remembered for `FAILED_TTL_MS`, never for the tab; a models
+    load past `MODELS_TIMEOUT_MS` is one. **A lost context is a failed render**, and the frame is
+    copied out **before** the report's paint (no `preserveDrawingBuffer`). The cache is LRU. The hour and sky reach the table as `--scene-tint` / `--scene-dark`, never
     as a repaint of `--tbl-*`; a `dry` room gets dust and a flash, never rain; every placement is
     seeded on the scene's key.
   - **The table stands on a podium the render carries under exactly the felt** (`feltInViewport`,
     `podium()`, the anchor part of the cache key). **The band in front of the table is kept low**
     (`Cell.front`). **Composition against a screen line goes through `screenSpan`**, never a
     world-space `w` and `d`. **A landmark over seven tiles tall stands in a side band, never in the
-    top one.** **`renderSizeFor` reports the ratio the size was solved at**, because `anchorFor`
+    top one**, and a builder declares it (`k.landmark`, `LANDMARK_TOP_MAX`, `sceneLandmarks.test.ts`).
+    **A landmark that no frame can hold whole is left out**, not cut: the marina's wheel was. **`renderSizeFor` reports the ratio the size was solved at**, because `anchorFor`
     divides by it. **`SceneBackdrop` isolates its own stacking context.** `sceneGeometry.test.ts`,
     `sceneBackdrop.test.ts`.
   - **What a block reaches is `(w + d) / 2 / √2` across the frame**, and both the `front` band and
@@ -1077,29 +1095,39 @@ stated at the top of `styles/tokens.css`:
     (`HALO_SPHERE_MAX`, `kitHalo.test.ts`): an additive sphere over a tower is a building the
     player can see through. **Nobody on foot turns round**: a person on the move is a `pass` along
     a pavement with a `heading`; `strollers` and `pacers` are gone and stay gone — a mirrored
-    diagonal sprite walked sideways up the frame and backwards at every turn.
+    diagonal sprite walked sideways up the frame and backwards at every turn. **A mirrored sprite
+    (`turn`) runs level across the frame** (`sceneFacing.test.ts`): it is drawn side-on, and sent up
+    a diagonal the rover slid along it crabwise. **A lone actor has ground to stand on in a 16:9
+    frame** (`sceneFacing.test.ts`): sakura's cat was sent three times across a block the grid had
+    claimed, the render dropped it every time, and nobody ever saw it.
   - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
     Go, and its scenes.
 - **The warm/cool split is the whole of the mood, so it is not a taste setting**: at every daylight
   hour the sun is warmer than the sky light and the sky light is cool (`sceneLighting.test.ts`).
+  **The hour survives the weather**: a storm at noon is not a storm at midnight, snow after dark
+  takes the night's blue, and no weather lights more windows than `WINDOWS_LIT_MAX`.
   A sprite still carries its shadow on its own bitmap, on a catcher of its own, sized by
   `shadowHull` — the one polygon left.
 - **The weather is drawn tiles, and every sheet travels exactly one tile per cycle**
   (`scene/weatherTiles.ts`, `sceneWeather.test.ts`). `tiled()` writes the tile as the background
   **and** as `--tile-w` / `--tile-h`, and the keyframes travel by those, never by a literal. **The
-  wind is a skew, never a diagonal travel.** Three sheets on `high`, two on `medium`, one on `light`.
+  wind is a skew, never a diagonal travel.** **A sheet covers the frame for its whole travel at any
+  size** (`sheetBox`): one tile of overhang the way it travels, the lean's reach in the frame's
+  height, never a percentage of the frame. Rain and snow three sheets on `high`, two on `medium`,
+  one on `light`; fog two, two and one.
 - **The rooms page shows a photograph of the render, and the board's own table over it**
   (`TablesArticle.astro`, `RoomStill.svelte`, `tools/rooms/shoot.mjs`, `roomsPage.test.ts`). `make
   rooms` shoots each room at its signature hour at `?gfx=force`, into `src/assets/rooms/`. The hour
   is written twice and the test pins the two; a missing still fails the test rather than the build.
 
 **The loading gate**
-- **The room is built exactly once per match, and three things guarantee it**: `viewportSize()` and
-  `safeAreaInsets()` both read synchronously, and a frame within 4% of the size asked for is
-  stretched rather than re-rendered (`sizeCloseEnough`, `sameFelt`). Each missing one cost a second
-  full render at the moment the gate lifted — the freeze the gate exists to hide.
-  `sceneLoadingGate.test.ts`.
+- **The room is built exactly once per match, and four things guarantee it**: `viewportSize()` and
+  `safeAreaInsets()` both read synchronously, a frame within 4% of the size asked for is
+  stretched rather than re-rendered (`sizeCloseEnough`, `sameFelt`), and **a request that finds a
+  render of the same room, felt, tier and look in flight within that 4% joins it**
+  (`prepareScene`). Each missing one cost a second full render at the moment the gate lifted — the
+  freeze the gate exists to hide. `sceneLoadingGate.test.ts`, `sceneCache.test.ts`.
 - **The loading bar moves because the render yields to a paint between its phases** (`RENDER_STEPS`,
   `scene/nextPaint.ts`). A `setTimeout(0)` is not a paint. **Anything new and heavy inside the render
   goes between two reports, never inside one.** `sceneProgress.test.ts`.
@@ -1283,6 +1311,10 @@ is a decision somebody takes on purpose — serves the SPA, and sends CSP / `nos
 `Strict-Transport-Security` on every response. **HSTS carries neither `includeSubDomains` nor
 `preload`**: both are promises about names this repository does not serve and cannot withdraw once a
 browser has cached them.
+
+**`/models/` is a static block like `/music/`**: a week of `Cache-Control` (the names are not
+hashed), the security-headers include, and `model/gltf-binary` on top of the stock `mime.types`,
+which has no `.glb` — and is in `gzip_types`. `csp.test.ts`.
 
 **The socket has a second hostname**, `ws.*`, DNS-only and outside the CDN, answered by the same
 nginx with `ws-proxy.conf` and a 404 for everything else. Why, and what it costs operationally, is in

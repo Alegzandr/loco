@@ -18,7 +18,7 @@
  * other visual number, so the dev panel can move a sun; this file is the
  * arithmetic that turns them into one rig per hour and sky.
  */
-import { LOOK, type HourLook } from './look'
+import { LOOK, WINDOWS_LIT_MAX, type HourLook } from './look'
 
 export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const
 export type TimeOfDay = (typeof TIMES)[number]
@@ -166,30 +166,37 @@ export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
       skyTop = mix(skyTop, 0x1c2130, 0.8)
       skyHorizon = mix(skyHorizon, 0x3a4256, 0.8)
       sunColor = mix(desaturate(sunColor, 0.7), 0x8593b3, 0.6)
-      sunIntensity *= 0.32
-      shadow = 0.2
+      // Dark, but not so dark that a storm at noon is a storm at midnight: the
+      // hour has to survive the weather, or twenty-four combinations are six.
+      sunIntensity *= 0.4
+      shadow = 0.25
       ambientSky = mix(ambientSky, 0x5a6684, 0.55)
       ambientGround = scale(ambientGround, 0.7)
       wet = true
       lampsOn = true
-      windowsLit = Math.max(windowsLit, 0.75)
-      dark = Math.min(1, dark + 0.4)
+      windowsLit = Math.max(windowsLit, WINDOWS_LIT_MAX)
+      dark = Math.min(1, dark + 0.25)
       break
-    case 'snow':
-      skyTop = mix(skyTop, 0xc6cfdc, 0.6)
-      skyHorizon = mix(skyHorizon, 0xe8edf4, 0.65)
+    case 'snow': {
+      // Snow brightens a day and must not brighten a night: mixed towards
+      // white by the same amount at every hour, a snowy midnight read as a
+      // winter afternoon. After dark the snow takes the night's blue.
+      const lit = 1 - h.dark
+      skyTop = mix(skyTop, 0xc6cfdc, 0.6 * lit + 0.1)
+      skyHorizon = mix(skyHorizon, mix(0x55618f, 0xe8edf4, lit), 0.65)
       sunColor = mix(desaturate(sunColor, 0.4), 0xdfe9ff, 0.4)
       sunIntensity *= 0.75
       shadow = 0.5
-      ambientSky = mix(ambientSky, 0xdfe6f2, 0.5)
-      ambientGround = mix(ambientGround, 0xb8c2d2, 0.6)
-      ambientIntensity *= 1.2
+      ambientSky = mix(ambientSky, mix(0x6a7aae, 0xdfe6f2, lit), 0.5)
+      ambientGround = mix(ambientGround, mix(0x2e3860, 0xb8c2d2, lit), 0.6)
+      ambientIntensity *= 1 + 0.2 * lit
       snow = true
       windowsLit = Math.max(windowsLit, 0.4)
-      dark = Math.max(0, dark - 0.1)
+      dark = Math.max(0, dark - 0.1 * lit)
       break
+    }
     case 'fog': {
-      const veil = mix(overcast, 0xdde3ea, time === 'night' ? 0.1 : 0.45)
+      const veil = mix(overcast, 0xdde3ea, time === 'night' ? 0.1 : 0.35)
       skyTop = mix(skyTop, veil, 0.7)
       skyHorizon = mix(skyHorizon, veil, 0.85)
       sunColor = desaturate(sunColor, 0.6)
@@ -197,7 +204,9 @@ export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
       shadow = 0.35
       ambientSky = mix(ambientSky, veil, 0.5)
       ambientIntensity *= 1.1
-      fog = { color: skyHorizon, near: 0.3, far: 0.95 }
+      // Starting further off and never quite closing: the near half of the
+      // frame keeps its colour and the depth reads as depth, not a flat veil.
+      fog = { color: skyHorizon, near: 0.4, far: 1.15 }
       lampsOn = true
       windowsLit = Math.max(windowsLit, 0.5)
       dark = Math.min(1, dark + 0.15)
@@ -213,7 +222,7 @@ export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
     ambient: { sky: ambientSky, ground: ambientGround, intensity: ambientIntensity },
     fog,
     lampsOn,
-    windowsLit,
+    windowsLit: Math.min(WINDOWS_LIT_MAX, windowsLit),
     snow,
     wet,
     dark,
