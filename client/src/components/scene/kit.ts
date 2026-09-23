@@ -129,14 +129,6 @@ export function inkFor(c: Hex): Hex {
 const SNOW = 0xf4f7fb
 /** The largest round halo the kit will draw, in tiles: a lamp head's, not a landmark's. */
 export const HALO_SPHERE_MAX = 0.8
-/**
- * The turn that brings a drawn person round to the kit's own facing. Every
- * block person faces +z at rot 0 and `personRot` is written for that; the
- * Kenney townsfolk and astronauts face -z, so without this half turn every
- * passer-by walked the pavement backwards and the crowd stood with its back
- * to the table.
- */
-export const PERSON_MODEL_YAW = Math.PI
 /** The kits whose glow colours are windows, lit per building by the hour's share. */
 const WINDOW_KITS = new Set(['city', 'suburb'])
 /** A number in [0, 1) fixed by a ground point: a draw that costs the room's sequence nothing. */
@@ -144,6 +136,13 @@ export function spotChance(x: number, z: number): number {
   const v = Math.sin(x * 127.1 + z * 311.7) * 43758.5453
   return v - Math.floor(v)
 }
+/**
+ * The half turn that brings the space kit's astronauts round to the kit's own
+ * facing. The block person and the Kenney townsfolk face +z at rot 0, and
+ * `personRot` is written for that; the astronauts face -z (their pack is on
+ * +z), so on the moon the one passer-by walked backwards.
+ */
+export const ASTRONAUT_MODEL_YAW = Math.PI
 /** The tallest a landmark may stand in the band above the table, in tiles. */
 export const LANDMARK_TOP_MAX = 7
 const WINDOW_DARK = 0x1a2233
@@ -907,12 +906,12 @@ export class Kit {
     // colours are the kit's; what a builder asked for in `o` styled the block
     // person and is not carried over.
     if (this.models?.has('space/astronautA')) {
-      this.model(this.rng.chance(0.5) ? 'space/astronautA' : 'space/astronautB', x, z, { rot: rot + PERSON_MODEL_YAW, scale: 0.8, margin: -0.2 })
+      this.model(this.rng.chance(0.5) ? 'space/astronautA' : 'space/astronautB', x, z, { rot: rot + ASTRONAUT_MODEL_YAW, scale: 0.8, margin: -0.2 })
       return
     } else if (this.models?.has('people/character-male-a#idle')) {
       const who = this.rng.pick(['female-a', 'female-b', 'female-c', 'female-d', 'female-e', 'female-f', 'male-a', 'male-b', 'male-c', 'male-d', 'male-e', 'male-f'])
       const id = `people/character-${who}#${(o.stride ?? 0) > 0 ? 'walk' : 'idle'}`
-      this.model(id, x, z, { rot: rot + PERSON_MODEL_YAW, margin: -0.15 })
+      this.model(id, x, z, { rot, margin: -0.15 })
       return
     }
     const shirt = o.shirt ?? this.rng.pick([0xff3d68, 0x3d9bff, 0xffc93c, 0x2fd18a, 0xc56bff, 0xff8a3c, 0xffffff, 0x5ad1e6])

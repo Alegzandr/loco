@@ -199,7 +199,7 @@ export const orbit: Builder = (k) => {
     id: 'rover',
     // Level across the frame: the rover is drawn side-on, heading screen-right,
     // and mirrored on the way back, so a diagonal run slid it along crabwise.
-    path: [[sx - a - 11, sy - 4], [sx - a - 4, sy - 4]],
+    path: [[sx - a - 12, sy - 2], [sx - a - 4, sy - 2]],
     duration: 34_000,
     motion: 'bounce',
     turn: true,

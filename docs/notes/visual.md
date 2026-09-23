@@ -1048,11 +1048,13 @@ all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is
   lit whenever the lamps were, every model house on the marina had every window lit at night and
   in every rain, over `WINDOWS_LIT_MAX` by a factor of two.
 - **The kit's props take the model when the room has one.** `k.person` (a spacesuit where the room
-  has the space kit, one of twelve townsfolk otherwise, mid-stride when walking, **turned a half
-  turn by `PERSON_MODEL_YAW`**: both kits face -z where the block person faces +z, and `personRot`
-  is written for the block. Without it every passer-by walked the pavement backwards, the crowd
-  stood with its back to the table and the doormen faced the wall; the route and the sprite were
-  each right and nothing tested the two together until `kitModels.test.ts`), `k.car` (Kenney's
+  has the space kit, one of twelve townsfolk otherwise, mid-stride when walking. `personRot` is
+  written for the block person, who faces +z; **the townsfolk face +z too** (their `leg-left` bone
+  stands at +x), **the astronauts face -z** — they are not skinned, so the file says it plainly:
+  the visor is on -z — and take `ASTRONAUT_MODEL_YAW`, a half turn, without which the one passer-by
+  on the moon walked backwards. An audit once read a 1× sprite of a townsperson the wrong way round
+  and turned them all, which sent every street walking backwards; a render at four times the
+  density settled it. `kitModels.test.ts` pins both conventions), `k.car` (Kenney's
   drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; the cherry stays a
   block, no kit has a pink crown), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
   never names three.js, a file or a format; the same builder builds a room of blocks when the kits
@@ -1207,11 +1209,10 @@ builder wrote.
   mirrored sprite runs level** (`sceneFacing.test.ts`, 30° on the ground at most, which the ferry
   following the shore stays inside): it is drawn side-on facing screen-right, and sent up a
   diagonal the rover slid along it crabwise, facing thirty degrees off the way it went.
-- **And "walking backwards" came back from the models, not the routes.** Every street walker was a
-  `pass` with a correct `heading`, built facing it, and still walked backwards: `personRot` is
-  written for the block person, who faces +z, and the Kenney townsfolk face -z. The fix is in the
-  kit (`PERSON_MODEL_YAW`), so every person — walker, crowd, doorman — is turned once, and
-  `kitModels.test.ts` places a model whose face is on -z and checks it ends up in front.
+- **And "walking backwards" came back once from a model, not a route**: the astronauts face -z
+  where every other person faces +z, so orbit's passer-by walked backwards on a correct `heading`.
+  The half turn is in the kit (`ASTRONAUT_MODEL_YAW`), not in the builder, and `kitModels.test.ts`
+  places a model of each convention and checks its face ends up in front.
 - **Two things were tried and taken out before any of this existed**: the harbour's ferris wheel
   turned for an afternoon as sprites (spokes spinning about the hub, twelve cabins riding a circle),
   and the cabins rode across the roofs of the terrace standing in front of the fair as pale cubes

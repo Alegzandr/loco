@@ -2,31 +2,33 @@
  * What the kit does with a drawn model: which way it faces, and what it does
  * when the placer refuses one.
  *
- * Every passer-by walked backwards once. `personRot` is written for the block
- * person, who faces +z at rot 0; the Kenney townsfolk and astronauts face -z,
- * and the kit placed them at the same angle. The route and the sprite were
- * both right, and the walker was a half turn off. The fake model below has
- * its face on -z, the way the shipped ones do.
+ * `personRot` is written for the block person, who faces +z at rot 0, and the
+ * Kenney townsfolk face +z too (their `leg-left` bone stands at +x). An audit
+ * once read a low-resolution sprite the wrong way round and turned every
+ * drawn person a half turn, which sent them all walking backwards; a render
+ * at four times the density settled it. The astronauts are the other way
+ * round, and the one passer-by on the moon did walk backwards until
+ * `ASTRONAUT_MODEL_YAW`. This pins both conventions.
  */
 import { describe, it, expect } from 'vitest'
 import { BackSide, Box3, Mesh, MeshBasicMaterial, Vector3 } from 'three'
-import { Kit, PERSON_MODEL_YAW, spotChance } from '../components/scene/kit'
+import { Kit, ASTRONAUT_MODEL_YAW, spotChance } from '../components/scene/kit'
 import { personRot } from '../components/scene/maps/actors'
 import { lightRig } from '../components/scene/sky'
 import { seededRng } from '../components/scene/rng'
 import type { Baked } from '../components/scene/models/bake'
 import type { ModelLib } from '../components/scene/models/lib'
 
-/** A thin slab standing entirely in front of its origin, on -z: a face and nothing else. */
-function faceOnly(): Baked {
-  const position = Float32Array.from([-0.05, 0, -0.6, 0.05, 0, -0.6, 0, 1, -0.4, 0, 1, -0.6])
+/** A thin slab standing entirely in front of its origin, on +z (or -z): a face and nothing else. */
+function faceOnly(side = 1): Baked {
+  const position = Float32Array.from([-0.05, 0, 0.6 * side, 0.05, 0, 0.6 * side, 0, 1, 0.4 * side, 0, 1, 0.6 * side])
   const index = Uint32Array.from([0, 1, 2, 0, 2, 3])
-  const normal = Float32Array.from([0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1])
+  const normal = Float32Array.from([0, 0, side, 0, 0, side, 0, 0, side, 0, 0, side])
   return { position, normal, color: new Float32Array(12).fill(0.5), glow: new Uint8Array(4), index, smooth: normal, w: 0.1, h: 1, d: 0.2 }
 }
 
-function lib(ids: string[]): ModelLib {
-  const b = faceOnly()
+function lib(ids: string[], side = 1): ModelLib {
+  const b = faceOnly(side)
   return { get: (id) => (ids.includes(id) ? b : undefined), has: (id) => ids.includes(id) }
 }
 
@@ -52,9 +54,11 @@ const TOWNSFOLK = ['female-a', 'female-b', 'female-c', 'female-d', 'female-e', '
 
 describe('a drawn person', () => {
   it('faces the way it walks, whichever kit drew it', () => {
-    for (const ids of [TOWNSFOLK, ['space/astronautA', 'space/astronautB']]) {
+    // The townsfolk face +z like the block person; the astronauts (not
+    // skinned, so their file says it plainly: the visor is on -z) face -z.
+    for (const [ids, side] of [[TOWNSFOLK, 1], [['space/astronautA', 'space/astronautB'], -1]] as [string[], number][]) {
       for (const heading of [[1, 0], [0, 1], [-1, 0], [0, -1]] as [number, number][]) {
-        const k = kit(lib(ids))
+        const k = kit(lib(ids, side))
         k.person(0, 0, personRot(heading), { stride: 1 })
         const c = box(k).getCenter(new Vector3())
         // The face is half a tile out in front of the feet, along the heading.
@@ -63,9 +67,11 @@ describe('a drawn person', () => {
       }
     }
   })
+})
 
-  it('is turned by a half turn, and nothing else', () => {
-    expect(PERSON_MODEL_YAW).toBeCloseTo(Math.PI, 10)
+describe('the astronaut', () => {
+  it('alone takes a half turn', () => {
+    expect(ASTRONAUT_MODEL_YAW).toBeCloseTo(Math.PI, 10)
   })
 })
 

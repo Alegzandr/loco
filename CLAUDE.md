@@ -1056,8 +1056,9 @@ stated at the top of `styles/tokens.css`:
     `placer.ts` and is refused when its footprint is taken, **and a refused model leaves the spot
     empty** — the block version drawn in its place stood inside whatever took it. A pot's bush is
     the one thing inside something on purpose (`collide: false`). **A drawn person faces the way a
-    block person does** (`PERSON_MODEL_YAW`, a half turn: the Kenney townsfolk and astronauts face
-    -z), or every passer-by walks backwards. **A model house lights its windows with the hour's
+    block person does**: the townsfolk already face +z, the astronauts face -z and take
+    `ASTRONAUT_MODEL_YAW`, or the passer-by on the moon walks backwards. **Judge a facing at 4×
+    density or from the file, never from a 1× sprite**: an audit read one backwards once. **A model house lights its windows with the hour's
     share, one house at a time** (`spotChance`, a hash of where it stands). **Each room loads the
     kits it places and no others** (`maps/index.ts: KITS`), and a person is fetched once for both
     poses. `placer.test.ts`, `modelBake.test.ts`, `kitModels.test.ts`.
