@@ -261,6 +261,19 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
 - `--slot-w-mid` (172px) is therefore sized for the **French** label; the columns must not resize
   when a player switches language mid-match.
 
+### The turn pill draws when it says "Draw" (`TurnIndicator.svelte`)
+
+The pill above the hand is a label in every state but one. On our turn with a stack pending it
+reads "Draw 2" (or "Draw 4", or "... or counter!"), in an orange gradient, with the ink outline and
+the hard shadow every raised object wears, pulsing: by the game's own conventions — a button is the
+verb about to happen, a raised object is a control — it *is* a button. A player pressed it and
+nothing happened, which is the one lie a board cannot afford. So in that state it is rendered as a
+`<button>` wired to the same `onDraw` as the action bar's penalty draw, acting on the press
+(`pressToAct`), with `.hit-target` for the 44px floor; its pressed state flattens the shadow and
+never touches the transform, which the fly transition owns. The alternative — take the outline and
+shadow off so it reads as text — was rejected: it is the most urgent thing on the board for its
+duration and has to stay the loudest object there. `turnIndicator.test.ts`.
+
 ## Mobile
 - Seats resize and wrap automatically (see "Seat layout"); nothing about the table is hard-coded to
   desktop. Verify with `make visual ARGS="--viewports=mobile"`.

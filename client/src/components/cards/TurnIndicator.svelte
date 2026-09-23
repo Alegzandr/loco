@@ -3,6 +3,7 @@
   import { cubicOut } from 'svelte/easing'
   import { turnPillPlace } from './layout'
   import { reducedMotion } from '../../hooks/uiPrefs.svelte'
+  import { pressToAct } from '../press'
 
   export type TurnTexts = {
     yourTurn: string
@@ -30,6 +31,13 @@
     /** A phone on its side: the pill stands inside the felt, under the piles (`layout.ts`). */
     landscape?: boolean
     texts: TurnTexts
+    /**
+     * Draws the stack. The penalty pill is an orange, outlined, pulsing verb —
+     * "Draw 2" — and a player read it as the button it looks like and pressed
+     * it, and nothing happened. So in that one state it *is* one, doing exactly
+     * what the action bar's penalty draw does. Every other state stays a label.
+     */
+    onDraw?: () => void
   }
 
   let {
@@ -43,6 +51,7 @@
     topReserve = 0,
     landscape = false,
     texts,
+    onDraw,
   }: Props = $props()
 
   const msg = $derived.by(() => {
@@ -74,16 +83,28 @@
        mid-glance. The wrapper holds the centering transform, so the pill inside is
        free to animate its own. -->
   {#key msg}
-    <div
-      class="indicator"
-      class:mine={isMyTurn}
-      class:theirs={!isMyTurn}
-      class:penalty={isPenalty}
-      in:fly={{ y: 6, duration: dur, easing: cubicOut }}
-      out:fly={{ y: -6, duration: dur, easing: cubicOut }}
-    >
-      {msg}
-    </div>
+    {#if isPenalty && onDraw}
+      <button
+        type="button"
+        class="indicator mine penalty pressable hit-target"
+        use:pressToAct={onDraw}
+        in:fly={{ y: 6, duration: dur, easing: cubicOut }}
+        out:fly={{ y: -6, duration: dur, easing: cubicOut }}
+      >
+        {msg}
+      </button>
+    {:else}
+      <div
+        class="indicator"
+        class:mine={isMyTurn}
+        class:theirs={!isMyTurn}
+        class:penalty={isPenalty}
+        in:fly={{ y: 6, duration: dur, easing: cubicOut }}
+        out:fly={{ y: -6, duration: dur, easing: cubicOut }}
+      >
+        {msg}
+      </div>
+    {/if}
   {/key}
 </div>
 
@@ -191,6 +212,26 @@
     50% {
       opacity: 0.18;
     }
+  }
+
+  /* The penalty pill is the one state that is a control: it takes the
+     pointer back from the anchor, and it reads as pressed on the press. */
+  .pressable {
+    pointer-events: auto;
+    cursor: pointer;
+    font-size: 20px;
+    line-height: inherit;
+  }
+
+  /* Pressed flattens the shadow and nothing else: the fly transition owns
+     this node's transform. */
+  .pressable:active {
+    box-shadow: none;
+  }
+
+  .pressable:focus-visible {
+    outline: 3px solid var(--color-tertiary);
+    outline-offset: 3px;
   }
 
   /* Someone else's turn: present but quiet. */

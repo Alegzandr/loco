@@ -990,7 +990,9 @@ stated at the top of `styles/tokens.css`:
 - **The action bar never reflows, and it never empties either.** Fixed three-column grid, **Catch
   mounted in the centre column all match and nothing else ever in it**. **All three columns hold
   their button the whole match and go dead rather than away.** The penalty draw is the one recolour
-  left, and it is ours only. Four states: dead, pressable, armed, and **locked** for the two seconds
+  left, and it is ours only. **The turn pill's penalty state ("Draw 2", "Draw 4") is a button that
+  draws too** (`TurnIndicator`'s `onDraw`): an orange, outlined, pulsing verb was pressed by a player
+  and did nothing. Every other state of the pill stays a label. Four states: dead, pressable, armed, and **locked** for the two seconds
   after a call of ours found nobody. **Dead also once our own wager is spent** (`GameView`'s
   `catchSpent`). A control that is live and inert is the one lie a reaction bar cannot afford.
   **Locked is the one dead state that explains itself** — the sunken slot, a drawn padlock and a

@@ -1501,6 +1501,8 @@ class MusicBed {
     // order", which would hand every session the same order forever.
     this.seed = (Date.now() & 0x7fffffff) | 1
     this.parked = null
+    // A bed opening from silence has no loop before this one to avoid.
+    this.previous = null
     this.family = nextFamily(null, () => this.rand())
     // A bed opening from silence has nothing to slew from: what the screen it
     // opens on asks for is true right away. Left slewing, a game opened after a
@@ -1549,6 +1551,7 @@ class MusicBed {
     this.parked = null
     this.restUntil = 0
     this.reenter = false
+    this.previous = null
     this.scene = 'off'
   }
 

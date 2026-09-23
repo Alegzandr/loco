@@ -776,6 +776,7 @@
             players={p.players}
             {height}
             texts={p.turnTexts}
+            onDraw={p.onDraw}
           />
           {#each others as o, i (o.index)}
             <PlayerSlot

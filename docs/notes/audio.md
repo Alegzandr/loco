@@ -423,7 +423,9 @@ source and its gain; a context that cannot make a filter plays the same changes 
   blend with each other end one bag and open the next, and a ranking that prefers blends picks the
   other one every time. The bag covered everything and the unit tests were green; the ear would
   have heard a chorus on repeat. `nextLoopId` now takes `previous` and never returns it while the
-  bag holds anything else.
+  bag holds anything else. `previous` dies with the bed (`start()` from silence, `stop()`): a new
+  match remembering the last one's loop kept its opening loop from its best partner, which the suite
+  caught as a test that failed only when run after the others.
 - **The muffle measured as barely there, and was not.** A 900 Hz low-pass took the bed's RMS down
   only 17%, because a mixed loop's energy is in its bass. The check now reads the power above 2 kHz,
   which falls by 24 dB.

@@ -400,6 +400,24 @@ describe('how a change sounds', () => {
     expect(music.getLoopId()).toBe(id)
   }
 
+  it('forgets the loop before once it has stopped, so a fresh start ranks the whole bag', async () => {
+    // Left over from a previous match, `previous` would keep a new one from
+    // the best partner for its opening loop.
+    await open('neck-and-neck', 0.4)
+    await advance(1)
+    music.setLoop('clockwork')
+    await settle()
+    music.stop()
+    await open('clockwork', 0.4)
+    await advance(2)
+    music.setIntensity(0.95)
+    await advance(3)
+    await settle()
+    const at = beds().at(-1)?.startedAt ?? -1
+    await advance(at - ctx.currentTime + 0.1)
+    expect(music.getLoopId()).toBe('neck-and-neck')
+  })
+
   it('blends two loops that agree, handing the bass over on a beat and lifting into the drop', async () => {
     // Clockwork is G minor at 85. The night's drop offers Neck and Neck (F
     // minor, 85: two steps, same tempo) and Runaway (C minor, 90: one step,
