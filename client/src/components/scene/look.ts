@@ -214,6 +214,18 @@ export interface Look {
     /** The water's own roughness under the sun: what makes the glints small or broad. */
     roughness: number
   }
+  mist: {
+    /** How thick the mist lies at a clear dawn, and in a fog at any hour. 0 for none. */
+    dawn: number
+    fog: number
+    /** The height over which it thins by e, tiles. */
+    height: number
+    /** The size of its banks: the noise's frequency, per tile. */
+    scale: number
+    /** How far its colour is lifted from the horizon towards white, and how bright it is in linear light. */
+    lift: number
+    brightness: number
+  }
   pools: {
     /** How strongly a lamp lights the ground under it, per unit of the alpha the kit's halo asked for. */
     strength: number
@@ -338,6 +350,7 @@ export const LOOK: Look = {
     vignetteScale: 1.41,
   },
   water: { reflect: 0.5, sky: 0.12, wetMirror: 0.7, ripple: 0.006, waveAmp: 0.22, waveScale: 1.1, streak: 0.007, scale: 0.5, roughness: 0.3 },
+  mist: { dawn: 0.6, fog: 0.4, height: 0.9, scale: 0.07, lift: 0.35, brightness: 0.75 },
   pools: { strength: 6, reach: 1.6, washFrom: 8, lift: 0.7, windowSpill: 0.5, texelsPerTile: 8, maxSide: 1024 },
   fog: { strength: 1 },
   rooms: {

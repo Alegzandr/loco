@@ -32,6 +32,8 @@ export interface PostOptions {
   aberration: boolean
   /** Darkening towards the edges, 0 for none. */
   vignette: number
+  /** Mist lying in the low ground at dawn and in the fog (`post.ts: mistFor`). */
+  mist: boolean
 }
 
 export interface RenderQuality {
@@ -56,7 +58,7 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     supersample: 3,
     glPixels: 12_000_000,
     shadowMap: 4096,
-    post: { ao: true, fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22 },
+    post: { ao: true, fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22, mist: true },
     msaa: false,
     reflections: true,
   },
@@ -65,7 +67,7 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     supersample: 2,
     glPixels: 7_000_000,
     shadowMap: 2048,
-    post: { ao: true, fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18 },
+    post: { ao: true, fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18, mist: true },
     msaa: false,
     reflections: true,
   },

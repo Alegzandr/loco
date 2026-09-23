@@ -1049,6 +1049,8 @@ stated at the top of `styles/tokens.css`:
     lamp-sized flat halo is a pool in one ground light map the lit material multiplies in, fading
     above `LOOK.pools.lift`. **A halo past `washFrom` stays the room's wash** (neon's ring), and a
     sprite keeps its disc. `scenePools.test.ts`.
+  - **Mist lies low at a dawn and in a fog, never at a clear noon** (`post.ts: mistFor`), laid by
+    each pixel's world height, rebuilt from the frame's linear depth. A finishing pass.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**

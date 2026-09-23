@@ -1408,6 +1408,14 @@ room already obeyed, extended to something that used to be flat.
   kit's only), since a car carries its headlights on its own bitmap. `strength: 0` is the old
   discs, for comparing. A pool is weighed by the hour's `dark` (a third at noon's end of it): a lamp
   at dawn is a warmth on the paving, not the spotlight it is at midnight.
+- **Mist lies in the low ground at a dawn and in a fog** (`post.ts: mistFor`, the composite's
+  `worldAt`, `LOOK.mist`, `sceneMist.test.ts`). Under an orthographic camera the depth is linear,
+  so the composite rebuilds each pixel's world position exactly and lays the mist by its height
+  (`exp(−y / height)`), broken into banks by a noise on the ground and thicker towards the top of the
+  frame, which is the far streets: the podium and the houses stand out of it, the paving sinks into
+  it. Its colour is the hour's horizon lifted a little. A clear dawn has it, a cloudy dawn a little,
+  a fog at every hour; a clear noon never, where it would be haze over a room that has a vignette
+  and a focus band already. It is a finishing pass, so `light` has none.
 - **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`,
   `rig.grade`, `rig.shadowSoftness`). On top of the hour and the sky a room may pull the sun and the
   sky light towards its own colours, scale the sky light, harden the shadow and set its own split
