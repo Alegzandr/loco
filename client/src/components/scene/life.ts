@@ -7,8 +7,9 @@
  * smoke — rendered to its own little bitmap in the same pass as the room, then
  * carried along a path by a transform animation (`LifeLayer.svelte`). The
  * board's compositing budget still belongs to the cards: an actor is one
- * layer moving under one animation, exactly what the weather already is, and
- * the render loop it would otherwise take stays closed.
+ * layer carried by one route animation, with at most two more on elements
+ * inside it when it bobs, spins or puffs, and the render loop it would
+ * otherwise take stays closed.
  *
  * A builder returns its actors beside the room it built (`maps/*.ts`), with
  * paths in the same screen tiles it composes everything else in. This file is
@@ -78,7 +79,7 @@ export interface Actor {
   minLen?: number
   /**
    * The fraction of the surviving route this one walks, `[from, to]` of its
-   * length: three strollers handed the same arc take three stretches of it
+   * length: three walkers handed the same arc take three stretches of it
    * rather than the same walk three times.
    */
   part?: [number, number]
@@ -88,7 +89,11 @@ export interface Actor {
    * next time (a plane, a ferry).
    */
   motion?: 'loop' | 'bounce' | 'pass'
-  /** For `pass`: how often, in ms. Defaults to three times the duration. */
+  /**
+   * For `pass`: how often, in ms. Defaults to three times the duration, and is
+   * never shorter than it (`passEvery`): a speed can resolve a duration longer
+   * than the period a builder wrote by hand.
+   */
   every?: number
   /** Start offset into the cycle, in ms, so a row of actors is not a chorus line. */
   delay?: number
@@ -246,7 +251,7 @@ export function routeKeyframes(actor: Actor, w: number, h: number, ppu: number):
   }
   if (total === 0) total = 1
   // `pass` compresses the crossing into the head of the cycle.
-  const every = motion === 'pass' ? (actor.every ?? actor.duration * 3) : actor.duration
+  const every = motion === 'pass' ? passEvery(actor) : actor.duration
   const share = motion === 'pass' ? actor.duration / every : 1
   const frames: Keyframe[] = []
   let acc = 0
@@ -285,9 +290,18 @@ export function routeKeyframes(actor: Actor, w: number, h: number, ppu: number):
   return frames
 }
 
+/**
+ * A pass's period: as written, three durations when not, and never shorter
+ * than the crossing itself — a period under the duration put every keyframe
+ * past offset 1, which Web Animations refuses.
+ */
+export function passEvery(actor: Actor): number {
+  return Math.max(actor.every ?? actor.duration * 3, actor.duration)
+}
+
 /** The cycle's length: the route's duration, or the pass's period. */
 export function cycleMs(actor: Actor): number {
-  return (actor.motion ?? 'loop') === 'pass' ? (actor.every ?? actor.duration * 3) : actor.duration
+  return (actor.motion ?? 'loop') === 'pass' ? passEvery(actor) : actor.duration
 }
 
 // ─── What the render answers about a route ──────────────────────────────────

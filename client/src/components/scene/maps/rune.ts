@@ -12,7 +12,7 @@
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, ring, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, at, ring, FLOOR, nearSpot } from './common'
 import { mix, scale, cssHex } from '../sky'
 import type { Actor } from '../life'
 import { bird, cloud, mote, over, puff, streetWalkers } from './actors'
@@ -77,7 +77,8 @@ export const rune: Builder = (k) => {
   // was ever on screen was the grey stub of its base with the rest above the
   // top edge. Beside the table there are twenty-eight.
   const towerCell = { sx: sx - a - 4, sy: sy + 2 }
-  const nearest = (c: { sx: number; sy: number }, p: { sx: number; sy: number }) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < 7.5
+  k.landmark('tower', towerCell.sx, towerCell.sy, 20)
+  const nearest = (c: { sx: number; sy: number }, p: { sx: number; sy: number }) => nearSpot(c, p, 7.5)
 
   /** An unbuilt block: meadow, one tree, now and then a rock or a bed of flowers. */
   const meadow = (x: number, z: number, w: number) => {
@@ -169,7 +170,7 @@ export const rune: Builder = (k) => {
     k.person(ex + 0.6, ez + 0.6, rot + Math.PI)
   }
 
-  // ─── The wizard's tower, top left ──────────────────────────────────────
+  // ─── The wizard's tower, in the left band ──────────────────────────────
   {
     const [wx, wz] = at(towerCell.sx, towerCell.sy)
     k.cyl(wx, 0, wz, 3.2, 1.2, 0x6f6a62, { seg: 12 })

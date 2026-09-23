@@ -32,26 +32,30 @@ export const neon: Builder = (k) => {
   // By day the stone is warm and the palette spreads: the light is flat now,
   // so the room's contrast has to be in the paint, and seven blue-greys under
   // a flat sun came out as one pale wash.
+  // At night the towers are a notch above black: under rain on a phone at
+  // 720p the darker set left nothing of the city but the lit windows.
   const palette = on
-    ? [0x1c2140, 0x2a1f4d, 0x141a33, 0x22284a, 0x1a2a3f, 0x2b2540, 0x2f2a55]
-    : [0x8a7fa8, 0xa88fb4, 0x6f7fa6, 0xc4b4c8, 0x7fa0aa, 0xb59aa8, 0x9aa4c4]
+    ? [0x2c3466, 0x3e2f70, 0x252d58, 0x343c6e, 0x2a3f5e, 0x40375e, 0x46407c]
+    : [0x8a7fd0, 0xc27fb8, 0x6f9fd6, 0xd6a0c8, 0x7fc0c4, 0xd08fa8, 0x9a8fe0]
   const neonColors = [0xff3dd0, 0x4fd6ff, 0xffd23c, 0x7cff6b, 0xc56bff, 0xff3d68]
   // The square's own furniture takes the same day/night split the towers do.
   // Painted 0x2f2540 whatever the hour, the bar, its back wall and the kiosks
   // came out at noon as black shapes on pale stone: the counter disappeared
   // into its own shadow and what was left was the lit top of it, a magenta
   // plate hanging in the air with three stools under it.
-  const NIGHT = on ? 0x2f2540 : 0x6f6690
+  const NIGHT = on ? 0x3d3158 : 0x6f6690
   const NIGHT_DEEP = on ? 0x1e1830 : 0x5a5480
   const shopGlow = [0xff3dd0, 0x4fd6ff, 0xffd23c, 0xff8a3c]
+  /** A tube with the power off: its own colour, a shade down, never grey. */
+  const unlit = (c: number) => mix(c, 0x2a2a35, 0.3)
 
-  k.floor(on ? 0x14162a : 0xb9b0a4, FLOOR)
+  k.floor(on ? 0x1d2140 : 0xb9b0a4, FLOOR)
 
   const { cx, cz } = podium(k, {
     stone: on ? 0x15121f : 0x3a3550,
     step: on ? 0x22203a : 0x8a8298,
-    floor: on ? 0x33374a : 0xd2c9bd,
-    floor2: on ? 0x2b2f40 : 0xbfb5aa,
+    floor: on ? 0x3d4260 : 0xd2c9bd,
+    floor2: on ? 0x343850 : 0xbfb5aa,
     accent: 0xc56bff, top: cssHex(MAPS.neon.table.felt),
   })
 
@@ -60,20 +64,22 @@ export const neon: Builder = (k) => {
     k.tower(x, z, w, h, d, color, { floorH: 1.6, windowColor: rng.chance(0.3) ? 0x9fe8ff : 0xffd98a, roof: 'flat', roofColor: mix(color, 0x000000, 0.3) })
     // Shopfront on the ground floor, facing the camera.
     const c = rng.pick(shopGlow)
-    k.box(x, 0.3, z + d / 2 + 0.05, w * 0.8, 1.6, 0.08, on ? c : 0x2a3346, { glow: on, outline: false, cap: false })
+    k.box(x, 0.3, z + d / 2 + 0.05, w * 0.8, 1.6, 0.08, on ? c : unlit(c), { glow: on, outline: false, cap: false })
     k.awning(x, z + d / 2, 0, w * 0.8, mix(c, 0x111111, on ? 0.2 : 0.6), { y: 2.1, depth: 0.95 })
-    // One tower in five wears a neon edge, one in eight a sign, one in eight
+    // One tower in four wears a neon edge, one in six a sign, one in eight
     // a beacon, and no halo lies on a roof: a pool of light hanging in the air
     // over a tower was the first thing that made the towers look see-through.
-    if (rng.chance(0.2)) {
+    // By day the tubes are off but still their colour: painted grey, a neon
+    // district at noon was any grey city.
+    if (rng.chance(0.25)) {
       const nc = rng.pick(neonColors)
-      k.box(x + w / 2 + 0.06, h - 0.3, z, 0.1, 0.25, d, on ? nc : 0x3a3f52, { glow: on, outline: false, cap: false })
-      k.box(x, h - 0.3, z + d / 2 + 0.06, w, 0.25, 0.1, on ? nc : 0x3a3f52, { glow: on, outline: false, cap: false })
+      k.box(x + w / 2 + 0.06, h - 0.3, z, 0.1, 0.25, d, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
+      k.box(x, h - 0.3, z + d / 2 + 0.06, w, 0.25, 0.1, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
     }
-    if (rng.chance(0.12)) {
+    if (rng.chance(0.16)) {
       const nc = rng.pick(neonColors)
       k.box(x, h, z, w * 0.7, 0.12, 0.12, 0x2a2a35, { cap: false })
-      k.box(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, on ? nc : mix(nc, 0x222222, 0.7), { glow: on, cap: false })
+      k.box(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, on ? nc : unlit(nc), { glow: on, cap: false })
     }
     if (rng.chance(0.12)) {
       const mh = rng.range(2, 5)
@@ -89,7 +95,7 @@ export const neon: Builder = (k) => {
   const signpost = (x: number, z: number, h: number) => {
     const nc = rng.pick(neonColors)
     k.box(x, 1.5, z, 0.5, h, 0.3, NIGHT_DEEP)
-    k.box(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, on ? nc : mix(nc, 0x222222, 0.6), { glow: on, outline: false, cap: false })
+    k.box(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
   }
 
   /** A pocket park on an unbuilt block: a lawn, a few trees, a bench. */
@@ -104,8 +110,8 @@ export const neon: Builder = (k) => {
   const plan = cityGrid(k, {
     block: 11,
     road: 3.6,
-    roadColor: on ? 0x1a1d2e : 0x4a4e5c,
-    sidewalk: on ? 0x2a2d3f : 0xcfc6ba,
+    roadColor: on ? 0x22263d : 0x4a4e5c,
+    sidewalk: on ? 0x363a55 : 0xcfc6ba,
     dashes: true,
     crossings: true,
     cars: CARS,
@@ -167,16 +173,22 @@ export const neon: Builder = (k) => {
     k.person(...at(sx - a - 7.5, sy + 1.2), rot + Math.PI, { shirt: 0xffffff, pants: 0x1c1c1c })
     if (on) k.halo(bx, 0, bz, 4, 0xc56bff, 0.16)
   }
-  // A food truck and a queue on the right.
+  // A food truck and a queue on the right, broadside to the camera. It stood
+  // end-on once, which showed nothing but its black roof over a strip of
+  // yellow: a dark block nobody could name.
   const truckSpot: [number, number] = [sx + a + 6, sy - 1]
   {
-    const rot = -Math.PI / 4
+    const rot = Math.PI / 4
+    const c = Math.cos(rot)
+    const sn = Math.sin(rot)
     const [fx, fz] = at(...truckSpot)
     k.box(fx, 0.35, fz, 5, 2.4, 2.2, 0xffd23c, { rot })
-    k.box(fx, 2.75, fz, 5.2, 0.2, 2.4, 0x2a2a35, { rot })
-    k.box(fx - 1.5 * Math.sin(rot) * 0 - 1.2 * Math.sin(rot), 1.4, fz - 1.2 * Math.cos(rot), 3, 0.9, 0.08, on ? 0xfff0c0 : 0x2a3346, { rot, glow: on, outline: false, cap: false })
-    for (const s of [-1.6, 1.6]) k.cyl(fx + s * Math.cos(rot), 0.35, fz - s * Math.sin(rot), 0.35, 0.3, 0x1c1c1c, { axis: 'z', rot, seg: 8 })
-    for (let i = 0; i < 2; i++) k.person(...at(sx + a + 3.5 - i * 1.1, sy - 1 - i * 0.9), rot + Math.PI)
+    k.box(fx, 2.75, fz, 5.2, 0.2, 2.4, 0xf5f0e6, { rot })
+    // The serving hatch, on the side facing the square, under a striped awning.
+    k.box(fx + 1.12 * sn, 1.4, fz + 1.12 * c, 3, 0.9, 0.08, on ? 0xfff0c0 : 0x2a3346, { rot, glow: on, outline: false, cap: false })
+    k.box(fx + 1.6 * sn, 2.15, fz + 1.6 * c, 3.4, 0.12, 1, 0xff3d68, { rot, tilt: 0.25, cap: false })
+    for (const s of [-1.6, 1.6]) for (const side of [-1, 1]) k.cyl(fx + s * c + side * 1.1 * sn, 0.35, fz - s * sn + side * 1.1 * c, 0.35, 0.3, 0x1c1c1c, { axis: 'z', rot, seg: 8 })
+    for (let i = 0; i < 2; i++) k.person(...at(truckSpot[0] - 0.8 + i * 1.5, truckSpot[1] - 1.7 - i * 0.4), rot + Math.PI)
     if (on) k.halo(fx, 0, fz, 3.4, 0xfff0c0, 0.18)
   }
   // Six planters round the paving, and nothing strung over it.
@@ -185,7 +197,9 @@ export const neon: Builder = (k) => {
     const [x, z] = at(sx + Math.cos(t) * (a + 9), sy + Math.sin(t) * (b + 6))
     if (screenOf(x, z)[1] > sy + b + 7) continue
     k.box(x, 0, z, 1.2, 0.7, 1.2, 0x3a3e52)
-    k.bush(x, z, 0.55, 0x2fbf7a)
+    // In the planter, not under it: planted at the ground, a drawn bush is
+    // lower than the box and the planter was an empty black cube.
+    k.bush(x, z, 0.55, 0x2fbf7a, { collide: false, y: 0.7 })
   }
   crowd(k, 6)
   void cx

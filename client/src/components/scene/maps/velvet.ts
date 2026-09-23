@@ -11,7 +11,7 @@
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, neonText, at, along, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, neonText, at, along, FLOOR, nearSpot } from './common'
 import { mix, cssHex } from '../sky'
 import type { Actor } from '../life'
 import { cloud, over, plane, puff, streetWalkers, traffic } from './actors'
@@ -28,7 +28,7 @@ export const velvet: Builder = (k) => {
   const { sx, sy, a, b } = k.anchor
 
   k.floor(0xb9a58c, FLOOR)
-  podium(k, { stone: 0x3a2410, step: 0xd9cdb5, floor: 0xf1e7d4, floor2: 0x7a2b3a, accent: GOLD, top: cssHex(MAPS.velvet.table.felt) })
+  podium(k, { stone: 0x3a2410, step: 0xd9cdb5, floor: 0xf1e7d4, floor2: mix(0x7a2b3a, 0xf1e7d4, 0.55), accent: GOLD, top: cssHex(MAPS.velvet.table.felt) })
 
   const facades = [0xd7c6a8, 0xc9b8d8, 0x9fc3c6, 0xe8c9b0, 0xf0e6d2, 0xb8c8d8, 0xe6d3c0]
   const hotel = (x: number, z: number, w: number, d: number, h: number) => {
@@ -60,8 +60,9 @@ export const velvet: Builder = (k) => {
   // a half inside the felt — and the table, being drawn over the render, cut
   // the ground floor off a building in front of it.
   const hotelSpot = { sx: sx + a + 13, sy: sy + 1 }
+  k.landmark('hotel', hotelSpot.sx, hotelSpot.sy, 31)
   const fountainSpot = { sx: sx - 8, sy: sy + b + 7 }
-  const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
+  const near = nearSpot
 
   /** An unbuilt block: a lawn with two or three palms and a bench. */
   const garden = (x: number, z: number, w: number) => {
@@ -111,7 +112,6 @@ export const velvet: Builder = (k) => {
   // ─── The grand hotel, on the right ─────────────────────────────────────
   {
     const [hx, hz] = at(hotelSpot.sx, hotelSpot.sy)
-    const rot = Math.PI / 4
     k.tower(hx, hz, 15, 12, 15, CREAM, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8 })
     k.tower(hx, hz, 11, 5, 11, mix(CREAM, 0xffffff, 0.3), { y: 12, floorH: 1.5, trim: GOLD, roof: 'none' })
     k.tower(hx, hz, 7, 4, 7, mix(CREAM, 0xffffff, 0.5), { y: 17, floorH: 1.5, trim: GOLD, roof: 'none' })
@@ -119,39 +119,38 @@ export const velvet: Builder = (k) => {
     k.cyl(hx, 24, hz, 0.3, 6, GOLD, { seg: 6, cap: false })
     k.sphere(hx, 30.3, hz, 0.45, on ? 0xfff0c0 : GOLD, { glow: on, seg: 8 })
     if (on) k.halo(hx, 30.3, hz, 1.4, 0xfff0c0, 0.4, false)
+    // Pilasters on the two faces the camera sees, +z and +x.
     for (let i = -3; i <= 3; i++) {
       k.box(hx + i * 2.2, 0.7, hz + 8.1, 0.3, 11, 0.25, GOLD, { outline: false, cap: false })
-      k.box(hx - 8.1, 0.7, hz + i * 2.2, 0.25, 11, 0.3, GOLD, { outline: false, cap: false })
+      k.box(hx + 8.1, 0.7, hz + i * 2.2, 0.25, 11, 0.3, GOLD, { outline: false, cap: false })
     }
-    const M = hotelSpot.sx - 8
-    const [mx, mz] = at(M, hotelSpot.sy)
-    k.box(mx, 3.4, mz, 4.5, 0.5, 9, 0x7a2b3a, { rot })
-    k.box(mx, 3.9, mz, 4.1, 0.12, 8.6, GOLD, { rot, outline: false, cap: false })
-    for (let i = 0; i < 13; i++) {
-      const [x, z] = at(M - 1.55, hotelSpot.sy + (-4.3 + i * 0.72) * 0.375)
-      k.sphere(x, 3.65, z, 0.14, on ? 0xfff0c0 : 0xd9c9a3, { glow: on, seg: 5, outline: false })
-    }
-    if (on) k.halo(mx, 0, mz, 6, 0xffe2a8, 0.28)
-    const [px, pz] = at(M - 1.45, hotelSpot.sy)
-    k.box(px, 4.0, pz, 0.35, 1.8, 7, 0x2a1a20, { rot })
-    const [nx, nz] = at(M - 1.7, hotelSpot.sy)
-    neonText(k, 'LOCO!', nx, 4.3, nz, 0.3, GOLD, rot)
-    const [dx, dz] = at(M + 0.5, hotelSpot.sy)
-    k.box(dx, 0, dz, 0.3, 3, 4, on ? 0xffe2a8 : 0x3a2a30, { rot, glow: on, outline: !on })
-    k.person(...at(M - 1.8, hotelSpot.sy + 2.2), rot + Math.PI, { shirt: 0x7a2b3a, pants: 0x2a1a20, hat: 0x7a2b3a })
-    k.person(...at(M - 1.8, hotelSpot.sy - 2.2), rot + Math.PI, { shirt: 0x7a2b3a, pants: 0x2a1a20, hat: 0x7a2b3a })
-    k.tree(...at(M - 1, hotelSpot.sy + 5.5), { kind: 'palm', h: 2.8 })
-    k.tree(...at(M - 1, hotelSpot.sy - 3.5), { kind: 'palm', h: 2.6 })
-    const [cx, cz] = at(M - 5, hotelSpot.sy)
-    k.slab(cx, cz, 7, 3, k.ground(0x9a1e34), { y: 0.1, h: 0.05, rot })
+    // The entrance is on the +z face, the one turned towards the square. It
+    // used to be laid on the diagonal, which put the marquee and its LOCO!
+    // inside the tower's corner: all a player saw of the sign was "L(".
+    const ex = hx - 2
+    const ez = hz + 7.5
+    k.box(ex, 3.4, ez + 1.5, 7, 0.5, 3, 0x7a2b3a)
+    k.box(ex, 3.9, ez + 1.5, 6.6, 0.12, 2.6, GOLD, { outline: false, cap: false })
+    for (let i = 0; i < 13; i++) k.sphere(ex - 3.2 + i * 0.533, 3.65, ez + 3.05, 0.14, on ? 0xfff0c0 : 0xd9c9a3, { glow: on, seg: 5, outline: false })
+    if (on) k.halo(ex, 0, ez + 2.5, 5, 0xffe2a8, 0.28)
+    // The sign stands on the marquee's front edge, square to the square.
+    k.box(ex, 3.9, ez + 2.75, 6, 1.9, 0.25, 0x2a1a20)
+    neonText(k, 'LOCO!', ex, 4.05, ez + 2.95, 0.3, GOLD)
+    k.box(ex, 0, ez + 0.1, 3, 3, 0.3, on ? 0xffe2a8 : 0x3a2a30, { glow: on, outline: !on })
+    k.person(ex - 2.2, ez + 3.8, 0, { shirt: 0x7a2b3a, pants: 0x2a1a20, hat: 0x7a2b3a })
+    k.person(ex + 2.2, ez + 3.8, 0, { shirt: 0x7a2b3a, pants: 0x2a1a20, hat: 0x7a2b3a })
+    k.tree(ex - 5, ez + 3, { kind: 'palm', h: 2.8 })
+    k.tree(ex + 5, ez + 3, { kind: 'palm', h: 2.6 })
+    k.slab(ex, ez + 6, 3, 6, k.ground(0x9a1e34), { y: 0.1, h: 0.05 })
     for (let i = 0; i < 5; i++) {
-      for (const s of [-1, 1]) {
-        const [x, z] = at(M - 7.5 + i * 1.3, hotelSpot.sy + s * 1.1)
+      for (const side of [-1, 1]) {
+        const x = ex + side * 1.9
+        const z = ez + 4 + i * 1.3
         k.cyl(x, 0, z, 0.06, 0.9, GOLD, { seg: 6, cap: false, outline: false })
         k.sphere(x, 0.95, z, 0.1, GOLD, { seg: 5, outline: false })
       }
     }
-    k.car(...at(M + 0.5, hotelSpot.sy - 7), rot + Math.PI, 0x2b2b2b)
+    k.car(ex + 6, ez + 8, Math.PI, 0x2b2b2b)
   }
 
   // ─── The fountain at the top, the benches, the guests ──────────────────

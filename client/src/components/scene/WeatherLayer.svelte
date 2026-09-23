@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Weather } from './sky'
   import { graphicsPref } from '../../hooks/uiPrefs.svelte'
-  import { DRIFT_S, FALL_S, SWAY, TILES, tileUrl, type TileKind } from './weatherTiles'
+  import { DRIFT_S, FALL_S, LEAN_DEG, SWAY, TILES, sheetStyle, tileUrl, type TileKind } from './weatherTiles'
 
   /**
    * What falls, drifts or flashes over a rendered room. Every layer is one
@@ -26,8 +26,14 @@
    * instead maps a vertical travel inside it onto the lean outside it, and
    * the tile keeps wrapping vertically as before.
    *
-   * How many sheets there are is the graphics tier's to say: three on `high`,
-   * two on `medium`, one on `light`. Under reduced motion every layer holds
+   * **A sheet covers the frame for the whole of its travel, at any size.** Its
+   * box is `sheetBox` (`weatherTiles.ts`), written inline by `tiled()`: one
+   * tile of overhang in the direction it travels, the lean's reach in the
+   * frame's *height* on the left of the rain, the sway's either side of the
+   * snow. A percentage of the frame is never enough, because a tile is not one.
+   *
+   * How many sheets there are is the graphics tier's to say: rain and snow
+   * three on `high`, two on `medium`, one on `light`; fog two, two and one. Under reduced motion every layer holds
    * its first frame: the rain is still rain, drawn as streaks that do not
    * move, which is the readable static state motion is required to degrade
    * to.
@@ -54,7 +60,7 @@
    * The inline style of a tiled layer: its tile as the background and as the
    * distance one cycle travels, and the seconds the cycle takes.
    */
-  function tiled(kind: TileKind): string {
+  function tiled(kind: TileKind, leanDeg = 0): string {
     const t = TILES[kind]
     const cycle = FALL_S[kind] ?? DRIFT_S[kind] ?? 1
     const sway = SWAY[kind]
@@ -63,6 +69,7 @@
       `--tile-w: ${t.w}px`,
       `--tile-h: ${t.h}px`,
       `--cycle: ${cycle}s`,
+      sheetStyle(kind, leanDeg),
       sway ? `--sway-px: ${sway.px}px; --sway-s: ${sway.s}s` : '',
     ]
       .filter(Boolean)
@@ -71,14 +78,16 @@
 
   /** The far layers start part-way through their cycle, so three sheets never line up. */
   const phase = (i: number) => `animation-delay: ${(-0.37 * (i + 1)).toFixed(2)}s`
+
+  const lean = $derived(weather === 'storm' ? LEAN_DEG.storm : LEAN_DEG.rain)
 </script>
 
 <div class="weather" data-weather={weather} data-tier={tier} aria-hidden="true">
   {#if weather === 'rain' || (weather === 'storm' && !dry)}
     <!-- The sheets lean into the wind together, a little more in a storm. -->
-    <div class="wind" class:windStorm={weather === 'storm'}>
+    <div class="wind" style="--lean: {lean}deg">
       {#each rainKinds as kind, i (kind)}
-        <div class="sheet fall {kind}" style="{tiled(kind)}; {phase(i)}"></div>
+        <div class="sheet fall {kind}" style="{tiled(kind, lean)}; {phase(i)}"></div>
       {/each}
     </div>
     <!-- Rain in the air: a faint haze thickening towards the ground, where the
@@ -125,17 +134,18 @@
        render can be brought up over the one it replaces, and above the life
        layer at 3: the rain falls on the boat, not under it. */
     z-index: 4;
+    /* The frame's size is what a sheet's overhang is measured in (`cqh` in
+       `sheetBox`): the lean's reach is a share of the height, whatever the
+       width. */
+    container-type: size;
   }
 
-  /* A sheet is drawn taller and wider than the frame and slid so its travel —
-     one tile down or one tile across — never shows an edge. `will-change` pins
-     it to its own compositor layer, which is the whole point. */
+  /* A sheet is laid out by `sheetBox`, written inline by `tiled()`: larger
+     than the frame by exactly what its travel, its lean and its sway need, so
+     no edge ever shows at any size. `will-change` pins it to its own
+     compositor layer, which is the whole point while it moves. */
   .sheet {
     position: absolute;
-    left: -25%;
-    top: -100%;
-    width: 150%;
-    height: 200%;
     background-repeat: repeat;
     /* The tile, as written by `tiled()`: the one size the keyframes travel. */
     background-size: var(--tile-w) var(--tile-h);
@@ -147,10 +157,6 @@
   }
 
   .drift {
-    left: -100%;
-    top: -10%;
-    width: 300%;
-    height: 120%;
     animation: drift var(--cycle) linear infinite;
   }
 
@@ -178,17 +184,14 @@
 
   /* ─── Rain ─────────────────────────────────────────────────────────────── */
 
-  /* The lean. Wider than the frame by the skew's reach so the top corners are
-     still under rain. */
+  /* The lean, around the bottom edge: the top slides right by H × tan(lean),
+     and each sheet's left overhang (`sheetBox`) is that much, so the top-left
+     corner is still under rain on a portrait phone. `--lean` is `LEAN_DEG`. */
   .wind {
     position: absolute;
     inset: 0;
-    transform: skewX(-9deg);
+    transform: skewX(calc(-1 * var(--lean)));
     transform-origin: 50% 100%;
-  }
-
-  .windStorm {
-    transform: skewX(-15deg);
   }
 
   .rainNear {
@@ -332,6 +335,8 @@
   :root[data-motion="reduce"] .sheet,
   :root[data-motion="reduce"] .sway {
     animation: none;
+    /* A layer that never moves is a layer the compositor keeps for nothing. */
+    will-change: auto;
   }
 
   /* No flash at all under reduced motion: a full-frame flicker is the one

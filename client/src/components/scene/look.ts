@@ -81,6 +81,17 @@ export interface Look {
     normalBias: number
     /** The ground shadow a sprite carries on its own bitmap, 0–1. */
     spriteOpacity: number
+    /**
+     * The side of a sprite's own shadow map, texels. It is fitted to the
+     * sprite's box — a car, a walker, a few tiles — so a small map already
+     * holds more texels a tile than the room's does, and a room's worth of
+     * sprites no longer renders the room-sized map once each.
+     */
+    spriteMap: number
+    /** The colour of a sprite's ground shadow: this note… */
+    spriteTint: Hex
+    /** …mixed this far towards the hour's sky light. */
+    spriteTintMix: number
   }
   material: {
     roughness: number
@@ -113,6 +124,8 @@ export interface Look {
     samples: number
     /** Blur taps each way, in occlusion-map pixels. */
     blur: number
+    /** How fast the blur's weight falls with depth, per tile of depth over the camera's range: at 0.7 a tile's difference roughly halves it. */
+    blurDepthFalloff: number
   }
   tone: {
     mapping: ToneMapping
@@ -132,6 +145,8 @@ export interface Look {
   post: {
     /** Luminance above which a pixel blooms, in linear light after exposure. */
     bloomThreshold: number
+    /** How far past the threshold the bloom takes to reach full weight: the knee. */
+    bloomKnee: number
     /** Bloom at noon… */
     bloomStrength: number
     /** …plus this much at midnight. */
@@ -141,10 +156,25 @@ export interface Look {
     dofEase: number
     /** How far out of focus the top and bottom of the frame go, 0–1. */
     dofMax: number
+    /** The out-of-focus copy's blur step, in half-frame texels per tap. */
+    dofSpread: number
     /** Film grain amplitude, 0 for none. */
     grain: number
     /** Colour fringe in the corners, in frame pixels at the supersampled size. */
     aberration: number
+    /** Where the fringe starts and where it is full, as squared distance from the centre (0.25 is an edge's midpoint). */
+    aberrationFrom: number
+    aberrationTo: number
+    /**
+     * The vignette's shape (its strength is the tier's): the distance from the
+     * centre, squashed vertically by `vignetteSquash` and scaled by
+     * `vignetteScale` so a corner is about 1, darkens from `vignetteFrom` to
+     * `vignetteTo`.
+     */
+    vignetteFrom: number
+    vignetteTo: number
+    vignetteSquash: number
+    vignetteScale: number
   }
   fog: {
     /** How much of the rig's distance fog reaches the render. */
@@ -194,10 +224,10 @@ export const LOOK: Look = {
   },
   sun: { intensity: 1, elevationOffset: 0 },
   ambient: { intensity: 1, rim: 0.35 },
-  shadow: { type: 'vsm', radius: 6, blurSamples: 12, bias: 0, normalBias: 0.3, spriteOpacity: 0.4 },
+  shadow: { type: 'vsm', radius: 6, blurSamples: 12, bias: 0, normalBias: 0.3, spriteOpacity: 0.4, spriteMap: 512, spriteTint: 0x10163a, spriteTintMix: 0.35 },
   material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1 },
   outline: { px: 1.4, darken: 0.42, inkMix: 0.3 },
-  ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4 },
+  ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4, blurDepthFalloff: 0.7 },
   tone: {
     mapping: 'aces',
     exposure: 1.05,
@@ -210,13 +240,21 @@ export const LOOK: Look = {
   },
   post: {
     bloomThreshold: 0.8,
+    bloomKnee: 0.5,
     bloomStrength: 0.06,
     bloomDark: 0.22,
     dofBand: 2.0,
     dofEase: 0.34,
     dofMax: 0.45,
+    dofSpread: 1.4,
     grain: 0.028,
     aberration: 1.6,
+    aberrationFrom: 0.09,
+    aberrationTo: 0.5,
+    vignetteFrom: 0.42,
+    vignetteTo: 1.15,
+    vignetteSquash: 1.15,
+    vignetteScale: 1.41,
   },
   fog: { strength: 1 },
   debug: 'off',

@@ -93,6 +93,30 @@ describe('the windows after dark', () => {
     // Still lit at all after dark, or the rule is free.
     expect(LOOK.hours.night.windowsLit).toBeGreaterThan(0)
   })
+
+  it('stay under the cap whatever the weather does to the hour', () => {
+    // A storm used to light three windows in four; the hours alone were checked.
+    for (const t of HOURS) for (const w of ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'] as const) expect(lightRig(t, w).windowsLit, `${t}/${w}`).toBeLessThanOrEqual(WINDOWS_LIT_MAX)
+  })
+})
+
+describe('the hour under the weather', () => {
+  it('still reads: a storm at noon is lighter than a storm at midnight', () => {
+    // At +0.4 a storm made noon read as dusk and orbit's day as its night.
+    for (const w of ['storm', 'rain', 'fog'] as const) {
+      expect(lightRig('day', w).dark, w).toBeLessThanOrEqual(0.3)
+      expect(lightRig('day', w).dark, w).toBeLessThan(lightRig('night', w).dark - 0.5)
+    }
+  })
+
+  it('a snowy night stays a night: its sky and its ground light stay dark', () => {
+    const lum = (c: number) => 0.2126 * ((c >> 16) & 255) + 0.7152 * ((c >> 8) & 255) + 0.0722 * (c & 255)
+    const night = lightRig('night', 'snow')
+    const day = lightRig('day', 'snow')
+    expect(night.dark).toBeGreaterThan(0.8)
+    expect(lum(night.sky.horizon)).toBeLessThan(lum(day.sky.horizon) * 0.6)
+    expect(lum(night.ambient.ground)).toBeLessThan(lum(day.ambient.ground) * 0.6)
+  })
 })
 
 describe('the shadow on the ground', () => {

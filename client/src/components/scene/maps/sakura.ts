@@ -14,7 +14,7 @@
  */
 import type { Builder } from './common'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, FLOOR } from './common'
+import { cityGrid, lots, podium, crowd, at, FLOOR, nearSpot } from './common'
 import { mix, cssHex } from '../sky'
 import type { Actor } from '../life'
 import { bird, cloud, over, puff, streetWalkers } from './actors'
@@ -62,9 +62,11 @@ export const sakura: Builder = (k) => {
   // is nine and a half across the frame, and at ten its near wall was on the
   // felt's rim — where the table cuts it.
   const bathSpot = { sx: sx + a + 12.5, sy: sy + 2 }
-  const pagodaSpot = { sx: sx - 18, sy: sy + b + 8 }
+  // In the left band, opposite the bathhouse: sixteen tiles tall in the band
+  // above the table, its roofs ran off the top of every frame.
+  const pagodaSpot = { sx: sx - a - 9, sy: sy + 3 }
   const toriiSpot = { sx: sx - a - 4, sy: sy - b - 5 }
-  const near = (c: { sx: number; sy: number }, p: { sx: number; sy: number }, r: number) => Math.hypot(c.sx - p.sx, (c.sy - p.sy) / 0.53) < r
+  const near = nearSpot
 
   /** An unbuilt block: a cherry tree or two, a pond now and then, a stone lantern. */
   const garden = (x: number, z: number, w: number) => {
@@ -164,7 +166,9 @@ export const sakura: Builder = (k) => {
     k.lamp(...at(bathSpot.sx - 10, bathSpot.sy - 12), { h: 1.6, style: 'lantern', color: 0xffd98a, post: 0x8a8f99 })
   }
 
-  // ─── The pagoda at the top ─────────────────────────────────────────────
+  // ─── The pagoda, in the left band ──────────────────────────────────────
+  k.landmark('pagoda', pagodaSpot.sx, pagodaSpot.sy, 16.7)
+  k.landmark('bathhouse', bathSpot.sx, bathSpot.sy, 6)
   {
     const [px, pz] = at(pagodaSpot.sx, pagodaSpot.sy)
     k.box(px, 0, pz, 9, 0.8, 9, 0x8a847a)
@@ -250,7 +254,8 @@ export const sakura: Builder = (k) => {
   }
   life.push({
     id: 'cat',
-    path: [[sx + a + 4, sy + 7], [sx + a + 9, sy + 4]],
+    // Level across the frame, like the rover: drawn side-on, mirrored back.
+    path: [[sx + a - 3, sy + 10], [sx + a + 7, sy + 10]],
     duration: 22_000,
     motion: 'bounce',
     turn: true,

@@ -10,7 +10,7 @@
  * Only `render.ts` imports this file: it pulls the GLTF loader and three.js
  * with it, and the engine is a lazy chunk.
  */
-import { AnimationMixer, Mesh, SkinnedMesh, Vector3, type Material, type Object3D, type Texture } from 'three'
+import { AnimationMixer, Mesh, SkinnedMesh, Vector3, type AnimationClip, type Material, type Object3D, type Texture } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import manifest from './manifest.json'
 import { bounds, matchesKey, smoothNormals, type Baked } from './bake'
@@ -139,13 +139,28 @@ function linearToSrgb(c: number): number {
   return c < 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055
 }
 
-async function bakeOne(kit: KitName, name: string, poseName: string | null): Promise<void> {
-  const spec = manifest.kits[kit]
+/**
+ * Loads one file and bakes it once per pose: a person is fetched once and
+ * baked standing and mid-stride from the same download. It used to be asked
+ * for twice, once per pose, and both requests went out together.
+ */
+async function bakeFile(kit: KitName, name: string, poseNames: (string | null)[]): Promise<void> {
   const gltf = await loader.loadAsync(`/models/${kit}/${name}.glb`)
-  const root = gltf.scene
+  for (const poseName of poseNames) bakeOne(kit, name, poseName, gltf.scene, gltf.animations)
+  // Free what the loader built; the buffers baked are all that is kept.
+  gltf.scene.traverse((o) => {
+    const m = o as Mesh
+    m.geometry?.dispose()
+    const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : []
+    for (const mat of mats) mat.dispose()
+  })
+}
+
+function bakeOne(kit: KitName, name: string, poseName: string | null, root: Object3D, animations: AnimationClip[]): void {
+  const spec = manifest.kits[kit]
   const pose = poseName ? POSES[poseName] : null
   if (pose) {
-    const clip = gltf.animations.find((a) => a.name === pose.clip)
+    const clip = animations.find((a) => a.name === pose.clip)
     if (clip) {
       const mixer = new AnimationMixer(root)
       mixer.clipAction(clip).play()
@@ -186,40 +201,39 @@ async function bakeOne(kit: KitName, name: string, poseName: string | null): Pro
     d: (max[2] - min[2]) * s,
   }
   baked.set(poseName ? `${kit}/${name}#${poseName}` : `${kit}/${name}`, b)
-  // Free what the loader built; the buffers above are all that is kept.
-  root.traverse((o) => {
-    const m = o as Mesh
-    m.geometry?.dispose()
-    const mats = Array.isArray(m.material) ? m.material : m.material ? [m.material] : []
-    for (const mat of mats) mat.dispose()
-  })
+}
+
+/** The poses a kit's models are baked in: a person in both, anything else as it stands. */
+function posesOf(kit: KitName): (string | null)[] {
+  return kit === 'people' ? Object.keys(POSES) : [null]
 }
 
 function load(id: string): Promise<void> {
   if (baked.has(id)) return Promise.resolve()
-  const hit = pending.get(id)
+  const [path] = id.split('#')
+  const hit = pending.get(path)
   if (hit) return hit
-  const [path, poseName] = id.split('#')
   const [kit, name] = path.split('/') as [KitName, string]
-  const p = bakeOne(kit, name, poseName ?? null)
+  const p = bakeFile(kit, name, posesOf(kit))
     .catch((err) => {
       // A model that will not load is a model the room does without.
-      if (import.meta.env.DEV) console.warn(`model ${id} failed`, err)
+      if (import.meta.env.DEV) console.warn(`model ${path} failed`, err)
     })
-    .finally(() => pending.delete(id))
-  pending.set(id, p)
+    .finally(() => pending.delete(path))
+  pending.set(path, p)
   return p
 }
 
 /**
- * Loads every model of the named kits, people in both poses, reporting
- * progress in [0, 1]. Resolves with the library; a model that failed is
+ * Loads every model of the named kits (or only those `only` names), people in
+ * both poses, reporting progress in [0, 1]. Resolves with the library; a model that failed is
  * simply absent from it.
  */
-export async function loadModelLib(kits: readonly KitName[], onProgress?: (p: number) => void): Promise<ModelLib> {
+export async function loadModelLib(kits: readonly KitName[], onProgress?: (p: number) => void, only?: ReadonlySet<string>): Promise<ModelLib> {
   const ids: string[] = []
   for (const kit of kits) {
     for (const name of manifest.kits[kit].models) {
+      if (only && !only.has(`${kit}/${name}`)) continue
       if (kit === 'people') ids.push(`${kit}/${name}#idle`, `${kit}/${name}#walk`)
       else ids.push(`${kit}/${name}`)
     }

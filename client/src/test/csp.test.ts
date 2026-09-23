@@ -467,3 +467,42 @@ describe('what nginx forwards to the server', () => {
     expect(conf).not.toMatch(/location[^{]*\/metrics/)
   })
 })
+
+// The rooms' models are the largest thing the map-loading gate waits on, and
+// the one static asset whose type nginx does not know: its stock mime.types has
+// no `.glb`, so they went out as application/octet-stream, uncompressed (gzip
+// matches on the type) and with no cache beyond the server block's default.
+describe('the rooms\' models (location /models/)', () => {
+  const block = (() => {
+    const m = /location\s+\/models\/\s*\{/.exec(conf)
+    if (!m) return null
+    let depth = 1
+    let i = m.index + m[0].length
+    for (; i < conf.length && depth > 0; i++) {
+      if (conf[i] === '{') depth++
+      else if (conf[i] === '}') depth--
+    }
+    return conf.slice(m.index + m[0].length, i - 1)
+  })()
+
+  it('is served from its own block, cached, and still carries the security headers', () => {
+    expect(block, 'no location /models/ block').not.toBeNull()
+    expect(block!).toMatch(/add_header Cache-Control "public, max-age=\d+" always;/)
+    // Not content-addressed: `make models` rewrites a kit under the same names.
+    expect(block!).not.toMatch(/immutable/)
+    expect(block!).toContain('include /etc/nginx/security-headers.conf;')
+  })
+
+  it('names the GLB type, on top of the stock map rather than instead of it', () => {
+    // A `types` block replaces the inherited map for its location: without the
+    // include, the palette PNGs beside the models would lose their type.
+    expect(block!).toMatch(/include \/etc\/nginx\/mime\.types;[\s\S]*types \{\s*model\/gltf-binary glb;\s*\}/)
+    const gzip = conf.match(/gzip_types([^;]*);/)
+    expect(gzip?.[1]).toMatch(/model\/gltf-binary/)
+  })
+
+  it('is a file, never a proxy', () => {
+    expect(block!).not.toMatch(/proxy_pass/)
+    expect(block!).toMatch(/try_files \$uri =404;/)
+  })
+})
