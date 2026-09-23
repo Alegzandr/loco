@@ -25,6 +25,7 @@
  * would mean an ordinary turn — where a match spends most of its time — hearing
  * one piece of music forever, which is the failure this design exists to avoid.
  */
+import type { KeyName } from '../harmony'
 import type { Family, Section } from '../music'
 
 export interface LoopDef {
@@ -101,4 +102,35 @@ export interface LoopDef {
    * tempo written here, because the composer cut it on one.
    */
   bpm: number
+  /**
+   * The key the loop is in, as `harmony.ts` spells it.
+   *
+   * Measured, not tagged: the pack carries no key. Each file's harmonic part
+   * was scored against three key profiles (Krumhansl-Kessler, Temperley,
+   * Albrecht-Shanahan) with its bass line as a tie-break, and the majority
+   * written here. Where the major and minor readings of one tonic split the
+   * vote — bluesy material that plays both thirds — the minor is written,
+   * which is what the bass and two profiles out of three said every time.
+   *
+   * It decides two things. The order: the next loop is the nearest key left in
+   * the bag (`nextLoopId`, `followCost`), so a match is heard as a progression.
+   * And the handover: two loops more than two steps apart on the circle of
+   * fifths are never overlapped (`handoverFor`). If one sounds wrong at a
+   * change, this field is the fix.
+   */
+  key: KeyName
+  /**
+   * The bar a **rise** enters this loop on, when its opening phrase is its
+   * quietest. Omitted is bar 0.
+   *
+   * A drop arrives because somebody reached their last card, and a loop that
+   * opens on a four-bar intro answered that moment with its softest bar:
+   * Runaway's first phrase measured at 65% of its body, Sleight's at 60%. The
+   * entry is the start of the first phrase that plays at the loop's full
+   * weight, measured per four bars on level and onset density, and it is
+   * always a multiple of four so it is a phrase line. Only a rise uses it; a
+   * lap handover, a fall and a skip start from the top, where the composer
+   * started.
+   */
+  entryBar?: number
 }

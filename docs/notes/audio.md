@@ -309,6 +309,131 @@ screen **Intermission**'s blurb describes — was silent. It is the **match's** 
 summary's intensity: the palette stays, the drop falls into the breakdown under the recap through
 the 4 s fade, and a rematch or a requeue is the scene move it always was. Only `restoring` is off.
 
+### Keys, and what two loops may do next to each other
+
+Bar alignment put every change on the one, and the changes still did not hang together. The report
+was "the titles are fine, the transitions are incoherent", and the measurement explained it: the bed
+chose the next loop from a shuffle bag and crossfaded into it for 1.5 to 4 seconds, and the registry
+spans **A major to C minor, seven steps apart on the circle of fifths** — the lounge held both ends,
+so an ordinary handover could put Fanned Out (A) on top of On the Run (C minor) for four seconds.
+The downbeats agreed; the notes did not. The tempos did not either: the lounge ran from 70 to 130
+BPM, and two drum parts a few percent apart drift audibly across a four-second fade.
+
+**The key is data on the loop** (`LoopDef.key`), because the pack carries none. Each file's harmonic
+part (HPSS) was scored against three key profiles — Krumhansl-Kessler, Temperley, Albrecht-Shanahan —
+with the bass line as a tie-break, and the majority is what is written. The registry falls into two
+regions: almost everything sits on the flat side around **C minor** (G minor, F minor, E flat, B
+flat, all one or two steps away), and three loops plus Uproar sit around **A major**. Where the
+major and minor readings of one tonic split the vote — Mirage and Sidetrack are bluesy and play both
+thirds — the minor is written, which is what the bass and two profiles of three said. The first
+reading of those two, on one profile, called them C major and suggested moving them out of the night;
+the vote says they belong there, and they stayed. **Only Full Table moved**: at 130 BPM it was the
+lounge's outlier by 45 BPM and sits in C minor like Rowdy and Bad Manners, so it is party now, and
+the lounge still carries every section at the floors.
+
+**Two measurements, two decisions** (`harmony.ts`):
+
+- **Whether two loops may overlap** (`handoverFor`): two steps on the key wheel at most
+  (`BLEND_MAX_KEY_STEPS`, still one shared chord) **and** a tempo gap of 3% at most
+  (`BLEND_MAX_TEMPO_GAP`, a tempo and its double counting as one pulse). Three percent drifts a tenth
+  of a beat over the longest table crossfade; the next pair up is Rowdy against Bad Manners at 4.3%,
+  and at four seconds that is a flam. The measured consequence is blunt: in this pack **most pairs do
+  not blend** — the lounge has none, the night has three (Clockwork with Patience and with Neck and
+  Neck, Mirage with Sidetrack), the party none at 3%. That is why the cut had to be good rather than
+  rare.
+- **Which loop comes next** (`followCost`, used by `nextLoopId`): a pair that can be overlapped
+  first, then the nearer key, then the nearer tempo. The bag still deals every id once per tour, so
+  ranking changes the order and never the coverage, and ties keep the shuffle's order.
+
+**A blend** is the equal-power crossfade it always was, plus the one thing a DJ does that a
+crossfade does not: **the bass is handed over** (`BASS_SWAP_HZ`, 240 Hz). The incoming loop arrives
+with its low end cut, and on its beat nearest the middle of the fade the two swap in 80 ms. Below
+that line live the kick and the bass line, which is where two pieces clash first; above it two
+compatible loops share the fade without a fight.
+
+**A cut is never a crossfade.** The outgoing loop closes down under a low-pass over its last two
+beats (`cutTailFor`, half a bar bounded to 0.6-1.5 s) as its gain falls, a breath of air rises into
+the downbeat (`scheduleSwell`, the fourth material doing what it already does before a slam, with
+no pitch of its own so it sits under any key) and the next loop lands whole on the one. It is what a
+band does between two numbers. **Only a press may overlap a disagreeing pair**: a scene move or a ⏭
+is answered on the spot, so it gets `SPOT_CUT_S` (0.6 s) with the outgoing loop darkened, instead of
+two seconds of two keys. A landing that misses its moment (a cold fetch) falls back to exactly that.
+
+**The swell goes into every cut and every blend into the drop**, and never into a fall. Somebody
+reaching their last card is the one change the table should hear coming; the table settling should
+not be announced. The lead a change is decided at (`planSectionChange`'s `lead`) is what makes room
+for the tail and the swell before the bar line: a rise still lands on the next bar line, just the
+next one far enough away for its air.
+
+**Phrases, not only bars.** Measured per four bars on level and onset density, every loop moves on
+four-bar lines (`PHRASE_BARS`). Two consequences:
+
+- **A rise enters its loop on its first full phrase** (`LoopDef.entryBar`). Runaway's opening phrase
+  measured 65% of its body and Sleight's 60%, so the drop — the moment somebody reached one card —
+  used to arrive on the quietest bar of the loop. Six loops have an entry (Sleight 4, Rowdy 12,
+  Sidetrack 8, Mirage 4, Uproar 4, Runaway 8); only a rise uses it, because a lap handover, a fall
+  and a skip are not answering anything and the composer's top is the right place to start.
+- **A fall lands on a phrase line** when one is within `PHRASE_WAIT_MAX_S` (8 s), the bar line
+  otherwise (`untilFallLands`). A fall has already waited twelve seconds and nothing about it is
+  urgent; a phrase of the slowest loop is 13.7 s, which is where the bound comes from. Four loops are
+  not a whole number of phrases (On the Run is 14 bars), so the wrap counts as a phrase line: it is
+  where the composer's phrase ends. A rise stays on the bar: a rise is an answer.
+
+**The effects are struck in the bed's key** (`cueShiftFor`). The cues are written around C — the
+match fanfare is a plagal cadence onto C — and over an A major bed that was a chromatic clash under
+the one moment people clip. The whole vocabulary moves together, so each cue keeps its own chord, and
+C lands on the bed's home chord or one next to it on the circle (IV or V), whichever is the smallest
+move: three candidates a fourth and a fifth apart cover the octave in steps of at most five, so no
+key moves a cue more than **three semitones** and every cue is still the sound a player has learnt.
+A minor bed is read through its relative major, so a major cue lands on a chord that bed contains.
+Only what has a pitch moves; the card handling and the thuds are paper and felt. The effects read
+the key through `setTonalitySource` at the moment a cue plays, a wire pointing one way — `sfx.ts`
+never imports the bed — and `getTonality()` answers through `getLoopId()`, so a handover scheduled
+a bar ahead does not move the cues before the new piece is heard.
+
+**The bed answers a moment, not only a section** (`bedCueFor`, one answer, the strongest):
+
+- **The match's fanfare brakes it** (`brake()`). The duck left a loop running at a fifth of its level
+  under the clip people keep, in whatever key it was in. Now the loop slows like a record under a
+  hand (`BRAKE_RATE` over `BRAKE_S`, its low-pass closing), the room is quiet for `BRAKE_REST_MS` —
+  longer than the match fanfare's 1.7 s — and the recap's piece rises over `REENTER_FADE_S`. The
+  section follows the table under the silence without a hold, since nothing is sounding to hold on
+  to. The cues are played **before** the brake, so the fanfare is struck in the key it was earned in.
+  A change whose file was still loading when the brake landed is dropped on arrival (`brakes`, a
+  count): it was asked for by a table that has since stopped, and would have started a loop under
+  the very fanfare the silence was made for. A press made during the rest is answered, and ends it.
+- **A round's fanfare ducks it**, as before: the round summary is a breakdown, not an ending.
+- **A LOCO! or a Contre-LOCO! dips it** (`dip()`): the bed's own low-pass shuts to 520 Hz for 0.7 s
+  and opens again. The duck makes room by level; this makes room by colour, so the shout owns the
+  top of the spectrum and the groove underneath never stops.
+- **Something read over the table muffles it** (`setMuffled`, `hooks/bedMuffle.svelte.ts`): the
+  rules and the preferences put the bed behind a door (900 Hz) until they close, counted so two
+  panels open at once do not reopen it early. **Not the audio panel**: somebody setting the music's
+  volume is listening to it.
+
+The low-pass behind the muffle and the dip (`tone`) sits after the duck and before the trim, so it
+is the bed's like the duck and never the player's volume, and it never touches `out.gain`. The
+voices' own filters (a high-pass the bass swap moves, a low-pass a cut closes) sit between each
+source and its gain; a context that cannot make a filter plays the same changes without them.
+
+**Two calibrations came from the harness, not from a test.**
+
+- **The ranking alternated.** `make audio-verify`'s ⏭ run came back as
+  `neck-and-neck → clockwork → neck-and-neck → clockwork`: the two loops of the night's groove that
+  blend with each other end one bag and open the next, and a ranking that prefers blends picks the
+  other one every time. The bag covered everything and the unit tests were green; the ear would
+  have heard a chorus on repeat. `nextLoopId` now takes `previous` and never returns it while the
+  bag holds anything else.
+- **The muffle measured as barely there, and was not.** A 900 Hz low-pass took the bed's RMS down
+  only 17%, because a mixed loop's energy is in its bass. The check now reads the power above 2 kHz,
+  which falls by 24 dB.
+
+**Rejected on purpose:** re-pitching a loop with `playbackRate` to bring its key into line. A semitone
+is a 6% tempo change and a timbre change on recorded material, heard as a detuned record, and it
+would have moved the bar grid every alignment above depends on. Regrouping the families by key
+alone: it would have put Uproar's funk in with the lounge's jazz, which is the genre change the
+families exist to prevent; the ranking and the cut do the key's work inside the families as they are.
+
 ### Loading, and why none of it is audible
 
 The bed starts on the **entry screen**, not at the deal: `sceneFor` maps `lobby`, `waiting` and the
@@ -404,9 +529,10 @@ Three defects came out of writing that down, all of them invisible from the outs
   about the two hundred others in the bundle. `Intermission` is what plays while the table counts up;
   `Sleight` is somebody setting something up; `Bad Manners` is the table that has stopped being
   polite.
-- **`music.duck(ms)`** pulls the bed under the win/lose fanfares through the bed's own output stage,
+- **`music.duck(ms)`** pulls the bed under a round's fanfare through the bed's own output stage,
   so it never touches the user's music volume. Two pieces of music fighting for the same moment makes
-  both of them mush, and the fanfare is the one people clip.
+  both of them mush. The match's fanfare, the one people clip, gets `brake()` instead (see *Keys,
+  and what two loops may do next to each other*).
 
 ### Licence
 

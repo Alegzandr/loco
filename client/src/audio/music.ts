@@ -40,6 +40,18 @@
  * "does it get there on the beat" — is a claim about behaviour and not about
  * sound.
  *
+ * ## What the next piece is, and how the bed gets to it
+ *
+ * Every loop carries its key (`LoopDef.key`), and `harmony.ts` decides two
+ * things from it. Which loop comes next: the nearest key left in the bag
+ * (`nextLoopId`). And whether the two may be heard together: a pair that
+ * agrees in key and tempo is **blended**, the bass handed over on a beat; any
+ * other pair is **cut** between — the outgoing loop closed under a low-pass
+ * over its last beats, air rising into the downbeat, the next landing whole.
+ * `planSectionChange` decides a scheduled change before it is scheduled: its
+ * shape, its air, where the incoming loop is entered (a rise skips an intro),
+ * and whether it lands on a bar line or, for a fall, a phrase line.
+ *
  * ## Why the intensity is slewed and the section is held
  *
  * Game events move the intensity in jumps. Applied raw, a Contre-LOCO! that
@@ -52,6 +64,8 @@
  * twitching.
  */
 import { audio } from './engine'
+import { followCost, handoverFor, type Handover, type KeyName } from './harmony'
+import { scheduleSwell, setTonalitySource } from './sfx'
 import { DEFAULT_LOOP_ID, getLoop, LOOPS, MUSIC_BASE } from './tracks'
 import type { LoopDef } from './tracks/types'
 
@@ -287,6 +301,166 @@ export function fadeFor(from: Section, to: Section): number {
 }
 
 /**
+ * Bars in a phrase. Every loop in the pack is built in fours: its level and
+ * its onsets move on four-bar lines (measured), so a change that lands on one
+ * lands where the piece itself would have turned a corner.
+ */
+export const PHRASE_BARS = 4
+
+/**
+ * The longest a fall waits for a phrase line past the bar line it would
+ * otherwise take. A fall has already held `SECTION_RELEASE_MS` and nothing
+ * about it is urgent, so it can afford to finish the phrase; a phrase of the
+ * slowest loop is 13.7 s, and past this bound the bar line is the better
+ * answer than making the table wait twice.
+ */
+export const PHRASE_WAIT_MAX_S = 8
+
+/**
+ * Seconds from `elapsed` to the next phrase line of a `lap`-second loop, or to
+ * its wrap if that comes first — the wrap is where the composer's phrase ends
+ * even in a loop that is not a whole number of phrases (four of them are not:
+ * On the Run is 14 bars). Never closer than `minLead`. Pure.
+ */
+export function untilNextPhrase(elapsed: number, bar: number, lap: number, minLead = MIN_LEAD_S): number {
+  if (!(bar > 0) || !(lap > 0) || !Number.isFinite(elapsed)) return 0
+  const phrase = bar * PHRASE_BARS
+  // A voice scheduled ahead has not started: its start is its first line.
+  if (elapsed < 0) return -elapsed >= minLead ? -elapsed : -elapsed + phrase
+  const inLap = elapsed % lap
+  let line = Math.ceil((inLap + minLead - 1e-9) / phrase) * phrase
+  if (line > lap - 1e-6) line = lap
+  let wait = line - inLap
+  if (wait < minLead) wait += Math.min(phrase, lap)
+  return wait
+}
+
+/**
+ * The wait a fall is landed on: the next phrase line when it is near enough,
+ * the next bar line otherwise. Pure, so the bound is pinned by a test.
+ */
+export function untilFallLands(elapsed: number, bar: number, lap: number, minLead = MIN_LEAD_S): number {
+  const phrase = untilNextPhrase(elapsed, bar, lap, minLead)
+  return phrase <= PHRASE_WAIT_MAX_S ? phrase : untilNextBar(elapsed, bar, minLead)
+}
+
+/** Seconds into its run a rise enters `loop` at: its `entryBar`, or the top. */
+export function entryOffset(loop: LoopDef): number {
+  return (loop.entryBar ?? 0) * barSeconds(loop)
+}
+
+/**
+ * How long the outgoing loop takes to close down on a cut: half a bar of it,
+ * the last two beats before the downbeat the next piece lands on, bounded so a
+ * fast loop still has time to be heard going and a slow one is not a wait.
+ */
+export const CUT_TAIL_MIN_S = 0.6
+export const CUT_TAIL_MAX_S = 1.5
+export function cutTailFor(loop: LoopDef): number {
+  return Math.min(CUT_TAIL_MAX_S, Math.max(CUT_TAIL_MIN_S, barSeconds(loop) / 2))
+}
+
+/**
+ * The crossfade a change *the player made* gets between two loops that cannot
+ * be overlapped: short, and with the outgoing one darkened under a low-pass as
+ * it goes. A press is still answered on the spot; the clash lasts as long as
+ * a breath instead of two seconds.
+ */
+export const SPOT_CUT_S = 0.6
+
+/**
+ * How long the air swells before a downbeat it leads into: over the tail of a
+ * cut, and ahead of every blend into the drop — the moment somebody reached
+ * their last card, and the one change the table should hear coming.
+ */
+export const SWELL_S = 0.9
+
+/**
+ * Where the bass is handed over in a blend, in Hz. Below it lives the kick and
+ * the bass line, which is where two pieces clash first and loudest; above it,
+ * two compatible loops sit together for the length of a crossfade without
+ * fighting. The incoming loop arrives with its low end cut here, and on the
+ * beat nearest the middle of the fade the two swap.
+ */
+export const BASS_SWAP_HZ = 240
+
+/** Where a cut closes the outgoing loop's low-pass to, in Hz: muffled, as if a door shut on it. */
+export const CUT_CLOSE_HZ = 320
+
+/** How long the bass swap takes either side of its beat: a hand on two faders, not a switch. */
+const BASS_GLIDE_S = 0.04
+
+/** A filter left open: well under anything audible for the high-pass, over it for the low-pass. */
+const HP_OPEN_HZ = 10
+const LP_OPEN_HZ = 20_000
+
+/**
+ * What a scheduled section change looks like, decided before it is scheduled.
+ *
+ * Pure and exported: the engine only turns this into nodes and a context
+ * time. `lead` is how far ahead of the downbeat the change must be decided so
+ * that the tail and the swell fit before it; `align` is which grid the
+ * downbeat is taken from.
+ */
+export interface ChangePlan {
+  handover: Handover
+  /** Blend only: the crossfade, by reason (`fadeFor`). */
+  fade: number
+  /** Cut only: how long the outgoing loop takes to close down. */
+  tail: number
+  /** Seconds of air ending on the downbeat, 0 for none. */
+  swell: number
+  /** Where in its run the incoming loop starts. */
+  offset: number
+  lead: number
+  align: 'bar' | 'phrase'
+}
+
+export function planSectionChange(from: LoopDef, to: LoopDef, fromSection: Section, toSection: Section): ChangePlan {
+  const rising = SECTIONS.indexOf(toSection) > SECTIONS.indexOf(fromSection)
+  const handover = handoverFor(from, to)
+  const tail = handover === 'cut' ? cutTailFor(from) : 0
+  // Every cut carries the air across it; a blend only into the drop, where
+  // the table should hear the change coming.
+  const swell = handover === 'cut' ? Math.max(tail, SWELL_S) : rising && toSection === 'drop' ? SWELL_S : 0
+  return {
+    handover,
+    fade: fadeFor(fromSection, toSection),
+    tail,
+    swell,
+    offset: rising ? entryOffset(to) : 0,
+    lead: Math.max(MIN_LEAD_S, tail, swell),
+    // A fall has waited twelve seconds already and may finish its phrase. A
+    // rise is an answer and takes the next bar; the breakdown is the round
+    // ending, which is a stop rather than a dip, and is answered as fast.
+    align: !rising && toSection !== 'breakdown' ? 'phrase' : 'bar',
+  }
+}
+
+/**
+ * How the bed takes a match to a stop: the loop is slowed like a record
+ * braked under a hand, and the room is left quiet for the fanfare.
+ *
+ * `BRAKE_S` is the slow-down, `BRAKE_RATE` where the playback rate ends up
+ * (an octave and a half down, at the bottom of the fade), `BRAKE_REST_MS` how
+ * long nothing plays after it — the longest fanfare, the match's, is 1.7 s —
+ * and `REENTER_FADE_S` how the recap's piece comes up out of that silence.
+ */
+export const BRAKE_S = 0.6
+export const BRAKE_RATE = 0.3
+export const BRAKE_REST_MS = 2600
+export const REENTER_FADE_S = 2.5
+
+/**
+ * Where the bed's low-pass sits while something is being read over it (the
+ * rules, the preferences), in Hz: the music moves to the next room rather than
+ * stopping, and comes back through the door when the panel shuts.
+ */
+export const MUFFLE_HZ = 900
+/** Where a momentary dip takes it — a Contre-LOCO! landing, a LOCO! called. */
+export const DIP_HZ = 520
+
+/**
  * How many loops the bed warms ahead of needing them.
  *
  * Three, and it is small on purpose, because **a cold change is already
@@ -355,14 +529,39 @@ export function nextLoopId(
   bag: string[],
   rand: () => number,
   family?: Family,
+  previous: string | null = null,
 ): { id: string; bag: string[] } {
   const ids = loopsFor(section, family).map((l) => l.id)
   if (ids.length === 0) return { id: current ?? DEFAULT_LOOP_ID, bag }
   let rest = bag.filter((id) => ids.includes(id))
   if (rest.length === 0) rest = shuffledOrder(ids, current, rand)
-  if (rest.length > 1 && rest[0] === current) rest = rest.slice(1).concat(rest[0])
-  const [id, ...tail] = rest
-  return { id, bag: tail }
+  // The nearest piece left in the bag, not merely the next one: a match is
+  // heard as a progression when each loop is a neighbour of the last, and as a
+  // radio being retuned when an A major piece follows a C minor one. The bag
+  // still deals every id once, so ranking changes the order of a tour and
+  // never what it visits; ties keep the shuffle's order, which is the only
+  // randomness left once the harmony has spoken.
+  //
+  // `previous` is the loop before `current`, and it is never next while the
+  // bag holds anything else. Without that the ranking alternates: the two
+  // loops of a family that blend best end one bag and open the next, and a
+  // pair that can be overlapped is exactly the pair it would rather play —
+  // A, B, A, B across the refill, which is the "chorus on repeat" again.
+  const from = current ? LOOPS.find((l) => l.id === current) : undefined
+  const fresh = rest.some((id) => id !== current && id !== previous)
+  let pick = 0
+  let best = Infinity
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === current && rest.length > 1) continue
+    if (rest[i] === previous && fresh) continue
+    const cost = from ? followCost(from, getLoop(rest[i])) : 0
+    if (cost < best) {
+      best = cost
+      pick = i
+    }
+  }
+  const id = rest[pick]
+  return { id, bag: rest.filter((_, i) => i !== pick) }
 }
 
 /**
@@ -386,23 +585,59 @@ interface Voice {
   /** Seconds into the loop it was started at. */
   offset: number
   seconds: number
+  /**
+   * The voice's own filters, between the source and its gain: a high-pass the
+   * bass swap moves and a low-pass a cut closes. Absent where the context
+   * cannot make one, which costs the handover its polish and nothing else.
+   */
+  hp: BiquadFilterNode | null
+  lp: BiquadFilterNode | null
 }
+
+/**
+ * How a change gets from the sounding loop to the next one.
+ *
+ * - `blend`: an equal-power crossfade of `fade` seconds from `at`, the bass
+ *   handed over on the beat nearest its middle. Two loops that agree.
+ * - `cut`: the same shape, short, the outgoing loop darkened as it goes. What
+ *   a change the player made gets between two loops that do not agree.
+ * - `land`: the outgoing loop closes down over `tail` seconds *ending* at `at`,
+ *   and the incoming one starts whole there. A lap handover, and every
+ *   scheduled change between two loops that do not agree (`darken` then shuts
+ *   a low-pass over the tail as well as the gain).
+ * - `resume`: a parked loop coming back mid-bar under a short fade.
+ * - `enter`: a loop coming up out of silence over `fade` seconds — the recap
+ *   after the brake.
+ */
+type SwapStyle = 'blend' | 'cut' | 'land' | 'resume' | 'enter'
 
 /**
  * A change the bed has been asked for: what to play, how to get there, when.
  *
- * `at` is a context time or null for "now"; `land` is a lap handover — the
- * outgoing loop fades out *ending* at `at` and the incoming one starts whole
- * there — where anything else is an equal-power crossfade of `fade` seconds
- * starting at `at`. `offset` is how far into its run the incoming loop starts,
- * which is only non-zero for a resume.
+ * `at` is a context time or null for "now". `offset` is how far into its run
+ * the incoming loop starts: non-zero for a resume, and for a rise into a loop
+ * whose opening phrase is its quietest (`entryOffset`). `swell` is seconds of
+ * air ending on `at`, scheduled only when the change is on time.
  */
 interface SwapRequest {
   loop: LoopDef
+  style: SwapStyle
   fade: number
   offset: number
   at: number | null
-  land: boolean
+  tail?: number
+  darken?: boolean
+  swell?: number
+}
+
+/**
+ * The change the player makes by pressing something — a skip, a scene move —
+ * from `from` to `to`: on the spot either way, and a cut rather than a blend
+ * when the two do not agree.
+ */
+function spotChange(from: LoopDef | null, to: LoopDef): SwapRequest {
+  const cut = from !== null && handoverFor(from, to) === 'cut'
+  return { loop: to, style: cut ? 'cut' : 'blend', fade: cut ? SPOT_CUT_S : CROSSFADE_S, offset: 0, at: null }
 }
 
 /** A decoded file plus the loop points measured on it. */
@@ -499,6 +734,26 @@ class MusicBed {
   private useClock = 0
   /** Harness-only shortening of a lap. See `setLapSeconds`. */
   private lapOverride: number | null = null
+  /**
+   * The bed's own low-pass, after the duck: what the muffle and the dip move.
+   * Null where the context cannot make a filter.
+   */
+  private tone: BiquadFilterNode | null = null
+  /** How many things are open over the table asking for the music to step back. */
+  private muffles = 0
+  /** Wall-clock until which nothing may start after a brake (ms epoch). */
+  private restUntil = 0
+  /** The silence the bed is coming out of is a brake's, so it fades in. */
+  private reenter = false
+  /** The loop that played before the one sounding now, so the next pick never goes back to it. */
+  private previous: string | null = null
+  /**
+   * Counts brakes. A change whose file was still loading when the bed was
+   * braked finds a different count when it arrives and is dropped: it was
+   * asked for by a table that has since stopped, and it would otherwise start
+   * a loop under the fanfare the brake made the silence for.
+   */
+  private brakes = 0
 
   private rand(): number {
     // xorshift — cheap, dependency-free, and repeatable enough to debug.
@@ -573,6 +828,16 @@ class MusicBed {
     this.lapOverride = seconds
   }
 
+  /**
+   * The key of the music a player hears right now, or null when there is none.
+   * Read by the effects (`sfx.ts: setTonalitySource`) at the moment a cue
+   * plays, so a chord struck over the bed is struck in its key.
+   */
+  getTonality(): KeyName | null {
+    if (!this.isPlaying() || !this.voice) return null
+    return getLoop(this.getLoopId()).key
+  }
+
   setIntensity(value: number): void {
     this.target = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0))
   }
@@ -586,7 +851,7 @@ class MusicBed {
    * on in one tap.
    */
   nextTrack(): void {
-    const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand(), this.family)
+    const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand(), this.family, this.previous)
     this.bag = bag
     this.setLoop(id)
   }
@@ -606,7 +871,7 @@ class MusicBed {
       audio.setSettings({ track: next.id })
       return
     }
-    this.request({ loop: next, fade: CROSSFADE_S, offset: 0, at: null, land: false })
+    this.request(spotChange(this.voice ? getLoop(this.voice.id) : null, next))
   }
 
   /**
@@ -625,13 +890,27 @@ class MusicBed {
    * sounding. A voice already scheduled ahead (a handover on its way to a wrap)
    * is not cut before it has started: the earliest answer is its own start.
    */
-  private nextBarAt(): number | null {
+  private nextBarAt(minLead = MIN_LEAD_S): number | null {
     const v = this.voice
     const ctx = audio.context()
     if (!v || !ctx) return null
     const now = ctx.currentTime
     const elapsed = now - v.startedAt + v.offset
-    const at = now + untilNextBar(elapsed, barSeconds(getLoop(v.id)))
+    const at = now + untilNextBar(elapsed, barSeconds(getLoop(v.id)), minLead)
+    return Math.max(at, v.startedAt)
+  }
+
+  /**
+   * Context time a fall lands on: the sounding loop's next phrase line if it
+   * is near enough (`untilFallLands`), its next bar line otherwise.
+   */
+  private nextFallAt(minLead = MIN_LEAD_S): number | null {
+    const v = this.voice
+    const ctx = audio.context()
+    if (!v || !ctx) return null
+    const now = ctx.currentTime
+    const elapsed = now - v.startedAt + v.offset
+    const at = now + untilFallLands(elapsed, barSeconds(getLoop(v.id)), v.seconds, minLead)
     return Math.max(at, v.startedAt)
   }
 
@@ -674,7 +953,18 @@ class MusicBed {
       // them rather than a correction of the material.
       const trim = ctx.createGain()
       trim.gain.value = 0.55
-      this.out.connect(trim)
+      // The muffle's low-pass sits after the duck and before the trim: it is
+      // the bed's, like the duck, and never the player's volume.
+      if (typeof ctx.createBiquadFilter === 'function') {
+        this.tone = ctx.createBiquadFilter()
+        this.tone.type = 'lowpass'
+        this.tone.Q.value = 0.7
+        this.tone.frequency.value = this.muffles > 0 ? MUFFLE_HZ : LP_OPEN_HZ
+        this.out.connect(this.tone)
+        this.tone.connect(trim)
+      } else {
+        this.out.connect(trim)
+      }
       trim.connect(bus)
     }
     return this.out
@@ -808,31 +1098,41 @@ class MusicBed {
    *
    * The load comes first, so a loop that is not cached costs a later change
    * and never a gap. If the moment asked for has passed by the time the file
-   * is ready, the change is made now with an ordinary crossfade — a cold fetch
-   * lands a beat late rather than a bar late.
+   * is ready, the change is made now — a landing becomes the crossfade or the
+   * short cut its two loops call for — so a cold fetch lands a beat late
+   * rather than a bar late.
    *
-   * Two ways of landing. A **crossfade** starts both curves at `at`: the
-   * incoming downbeat on the outgoing bar line, equal-power across `fade`. A
-   * **landing** (`req.land`, the lap handover) fades the outgoing loop out
-   * *ending* at `at` — over its own last bar, `HANDOVER_TAIL_S` — and starts
-   * the incoming one whole there, because at `at` the old loop would have
-   * restarted its top, and two tops a second apart is the seam.
+   * See `SwapStyle` for the shapes. The one rule all of them keep: two loops
+   * that do not agree (`handoverFor`) are never heard on top of each other for
+   * longer than `SPOT_CUT_S`, and only when a press asked for it now.
    */
   private async swapTo(req: SwapRequest): Promise<void> {
     const ctx = audio.context()
     const out = this.output()
     if (!ctx || !out) return
     const def = req.loop
+    const brakes = this.brakes
     const decoded = await this.load(def.id)
     // Nothing to swap to: keep what is playing rather than going silent. The
     // panel is unaffected either way, since `this.loop` only moves on commit.
-    if (!decoded || !this.isPlaying()) return
+    if (!decoded || !this.isPlaying() || brakes !== this.brakes) return
 
     const now = ctx.currentTime
     // The moment asked for, if it is still ahead; otherwise now.
     const onTime = req.at !== null && req.at >= now + MIN_LEAD_S
     const at = onTime && req.at !== null ? req.at : now
-    const land = req.land && onTime
+    let style = req.style
+    let fade = req.fade
+    if (style === 'land' && !onTime) {
+      // Late: the landing is gone, so it becomes the change a press would have
+      // made between these two loops.
+      const spot = spotChange(this.voice ? getLoop(this.voice.id) : null, def)
+      style = spot.style
+      fade = spot.fade
+    }
+    const outgoing = this.voice
+    const crossing = outgoing !== null && (style === 'blend' || style === 'cut') && fade > 0
+
     const src = ctx.createBufferSource()
     src.buffer = decoded.buffer
     src.loop = true
@@ -841,36 +1141,80 @@ class MusicBed {
     const gain = ctx.createGain()
     const seconds = decoded.loopEnd - decoded.loopStart
     const into = resumeOffset(req.offset, seconds)
-    const cross = this.voice !== null && req.fade > 0 && !land
-    // A crossfade over the outgoing voice, or a short fade when a parked loop
-    // comes back mid-bar: a hard cut into the middle of a phrase is the one
-    // thing a resume must not sound like. A landing arrives whole, on the one,
-    // under a ramp too short to hear and long enough not to click.
-    const fadeIn = cross ? req.fade : into > 0 ? RESUME_FADE_S : land ? LAND_RAMP_S : 0
-    gain.gain.value = fadeIn > 0 ? 0 : 1
-    if (fadeIn > 0) {
-      if (land) {
-        gain.gain.setValueAtTime(0, at)
-        gain.gain.linearRampToValueAtTime(1, at + fadeIn)
-      } else {
-        gain.gain.setValueCurveAtTime(fadeCurve(true), at, fadeIn)
-      }
+    const filters = typeof ctx.createBiquadFilter === 'function'
+    const hp = filters ? ctx.createBiquadFilter() : null
+    const lp = filters ? ctx.createBiquadFilter() : null
+    if (hp && lp) {
+      hp.type = 'highpass'
+      hp.Q.value = 0.7
+      hp.frequency.value = HP_OPEN_HZ
+      lp.type = 'lowpass'
+      lp.Q.value = 0.7
+      lp.frequency.value = LP_OPEN_HZ
+      src.connect(hp)
+      hp.connect(lp)
+      lp.connect(gain)
+    } else {
+      src.connect(gain)
     }
-    src.connect(gain)
     gain.connect(out)
+
+    // The incoming gain, by shape. A landing arrives whole, on the one, under
+    // a ramp too short to hear and long enough not to click; a resume comes
+    // back mid-bar under a short fade, because a hard cut into the middle of a
+    // phrase is the one thing a pause must not sound like.
+    if (crossing) {
+      gain.gain.value = 0
+      gain.gain.setValueCurveAtTime(fadeCurve(true), at, fade)
+    } else if (style === 'land' && outgoing) {
+      gain.gain.value = 0
+      gain.gain.setValueAtTime(0, at)
+      gain.gain.linearRampToValueAtTime(1, at + LAND_RAMP_S)
+    } else if (style === 'enter' && fade > 0) {
+      gain.gain.value = 0
+      gain.gain.setValueCurveAtTime(fadeCurve(true), at, fade)
+    } else if (style === 'resume' && into > 0) {
+      gain.gain.value = 0
+      gain.gain.setValueCurveAtTime(fadeCurve(true), at, RESUME_FADE_S)
+    } else {
+      gain.gain.value = 1
+    }
+
+    // The bass is handed over on the incoming loop's beat nearest the middle
+    // of a blend: until then its low end is cut, and from then the outgoing
+    // one's is. Two compatible loops share everything above it for the length
+    // of the fade; below it they would share a kick drum a few milliseconds
+    // apart, which is the part of a crossfade anybody hears as a mistake.
+    let swapAt: number | null = null
+    if (crossing && style === 'blend' && hp && outgoing?.hp) {
+      const beat = 60 / def.bpm
+      swapAt = at + Math.min(fade - beat / 4, Math.max(beat / 4, Math.round(fade / 2 / beat) * beat))
+      hp.frequency.value = BASS_SWAP_HZ
+      hp.frequency.setValueAtTime(BASS_SWAP_HZ, swapAt - BASS_GLIDE_S)
+      hp.frequency.exponentialRampToValueAtTime(HP_OPEN_HZ, swapAt + BASS_GLIDE_S)
+    }
+
     src.start(at, decoded.loopStart + into)
 
-    if (this.voice) {
-      if (land) {
+    if (outgoing) {
+      if (style === 'land') {
         // Gone on the one: the fade ends exactly where the new piece starts,
-        // and runs over the last bar — or what is left of it, if the file
-        // arrived late.
-        const from = Math.max(now, at - HANDOVER_TAIL_S)
-        this.retire(this.voice, from, at - from)
+        // and runs over its tail — or what is left of it, if the file arrived
+        // late.
+        const tail = req.tail ?? HANDOVER_TAIL_S
+        const from = Math.max(now, at - tail)
+        this.retire(outgoing, from, at - from, { darken: req.darken === true })
       } else {
-        this.retire(this.voice, at, req.fade)
+        this.retire(outgoing, at, fade > 0 ? fade : CROSSFADE_S, {
+          darken: style === 'cut',
+          bassAt: swapAt,
+        })
       }
     }
+    // The air, when the change is on time: it leads into a downbeat that has
+    // to still be ahead for it to lead anywhere.
+    if (onTime && (req.swell ?? 0) > 0 && at > now) scheduleSwell(out, at, req.swell ?? 0)
+
     this.voice = {
       id: def.id,
       src,
@@ -878,27 +1222,49 @@ class MusicBed {
       startedAt: at,
       offset: req.offset,
       seconds,
+      hp,
+      lp,
     }
     // The commit. Everything a player can see or hear moves here and nowhere
     // earlier: the piece is sounding — or scheduled to, on a bar line the
     // panel reads through `getLoopId()` — so the panel and the stored
     // preference are now telling the truth.
+    if (outgoing && outgoing.id !== def.id) this.previous = outgoing.id
     this.loop = def
     audio.setSettings({ track: def.id })
+    // Something is sounding again, so no silence is being kept any more: a
+    // press during a brake's rest is answered, and ends the rest with it.
+    this.restUntil = 0
+    this.reenter = false
   }
 
   /**
    * Fades a voice out and stops it.
+   *
+   * `darken` closes its low-pass over the same span, so a loop being cut away
+   * from goes out as if a door shut on it rather than simply getting quieter;
+   * `bassAt` is the other half of a blend's bass swap — its low end goes at
+   * the instant the incoming loop's arrives.
    *
    * Note what this does *not* touch: `out.gain`, which belongs to `duck()`. The
    * synthesised bed covered a track change with a dip on that node, and a change
    * landing under a fanfare cancelled the duck's own return with it. A crossfade
    * between two source gains cannot have that argument.
    */
-  private retire(v: Voice, at: number, fade: number): void {
+  private retire(v: Voice, at: number, fade: number, how: { darken?: boolean; bassAt?: number | null } = {}): void {
     v.gain.gain.cancelScheduledValues(at)
     if (fade > 0) v.gain.gain.setValueCurveAtTime(fadeCurve(false), at, fade)
     else v.gain.gain.setValueAtTime(0, at)
+    if (how.darken && v.lp && fade > 0) {
+      v.lp.frequency.cancelScheduledValues(at)
+      v.lp.frequency.setValueAtTime(LP_OPEN_HZ, at)
+      v.lp.frequency.exponentialRampToValueAtTime(CUT_CLOSE_HZ, at + fade)
+    }
+    if (how.bassAt != null && v.hp) {
+      v.hp.frequency.cancelScheduledValues(at)
+      v.hp.frequency.setValueAtTime(HP_OPEN_HZ, how.bassAt - BASS_GLIDE_S)
+      v.hp.frequency.exponentialRampToValueAtTime(BASS_SWAP_HZ, how.bassAt + BASS_GLIDE_S)
+    }
     try {
       v.src.stop(at + fade + 0.05)
     } catch {
@@ -960,6 +1326,74 @@ class MusicBed {
   }
 
   /**
+   * Stops the bed the way a record stops under a hand: the loop slows and
+   * sinks over `BRAKE_S`, then the room is quiet for `BRAKE_REST_MS`, then the
+   * section the table is in comes up out of the silence over `REENTER_FADE_S`.
+   *
+   * For the end of a match. The duck pulled the bed under the fanfare and left
+   * it playing, so the one moment of the evening people clip had a loop
+   * running under it at a fifth of its level, in whatever key it was in. A
+   * stop is the most musical thing a band does before the last chord, and the
+   * silence is what makes the fanfare land; the recap's piece then arrives
+   * the way the next number does. The playback rate is the only thing here
+   * that bends a pitch, and it does so on a loop that is on its way out.
+   */
+  brake(): void {
+    const ctx = audio.context()
+    const v = this.voice
+    if (!ctx || !v || !this.isPlaying()) return
+    const t = ctx.currentTime
+    const rate = (v.src as Partial<AudioBufferSourceNode>).playbackRate
+    if (rate) {
+      rate.cancelScheduledValues(t)
+      rate.setValueAtTime(1, t)
+      rate.linearRampToValueAtTime(BRAKE_RATE, t + BRAKE_S)
+    }
+    this.retire(v, t, BRAKE_S, { darken: true })
+    this.voice = null
+    this.desired = null
+    this.brakes++
+    this.restUntil = Date.now() + BRAKE_REST_MS
+    this.reenter = true
+  }
+
+  /**
+   * Something is being read over the table (the rules, the preferences): the
+   * bed goes behind a door until it is closed. Counted, so two panels open at
+   * once do not open the door when the first one shuts.
+   */
+  setMuffled(on: boolean): void {
+    this.muffles = Math.max(0, this.muffles + (on ? 1 : -1))
+    const ctx = audio.context()
+    const tone = this.tone
+    if (!ctx || !tone) return
+    tone.frequency.cancelScheduledValues(ctx.currentTime)
+    tone.frequency.setTargetAtTime(this.muffles > 0 ? MUFFLE_HZ : LP_OPEN_HZ, ctx.currentTime, on ? 0.08 : 0.2)
+  }
+
+  /**
+   * Shuts the door on the bed for `ms` and opens it again: a Contre-LOCO!
+   * landing, a LOCO! called. The duck makes room by level and is for the
+   * fanfares; this makes room by colour, so the shout owns the top of the
+   * spectrum for a moment and the groove underneath never stops.
+   */
+  dip(ms = 700): void {
+    const ctx = audio.context()
+    const tone = this.tone
+    if (!ctx || !tone || !this.isPlaying()) return
+    const t = ctx.currentTime
+    const home = this.muffles > 0 ? MUFFLE_HZ : LP_OPEN_HZ
+    tone.frequency.cancelScheduledValues(t)
+    tone.frequency.setTargetAtTime(Math.min(DIP_HZ, home), t, 0.03)
+    tone.frequency.setTargetAtTime(home, t + ms / 1000, 0.25)
+  }
+
+  /** Where the bed's own low-pass sits, in Hz. Harness and tests only. */
+  getToneHz(): number | null {
+    return this.tone ? this.tone.frequency.value : null
+  }
+
+  /**
    * Tells the bed whether the tab is hidden. Hidden stops the sources and keeps
    * the scene; visible again **resumes the same loop from the same bar**.
    *
@@ -1006,7 +1440,7 @@ class MusicBed {
     if (!audio.isReady() || audio.getSettings().muted || this.timer) return
     this.lastSlewAt = Date.now()
     this.timer = setInterval(() => this.tick(), TICK_MS)
-    this.desired = { loop: getLoop(parked.id), fade: 0, offset: parked.elapsed, at: null, land: false }
+    this.desired = { loop: getLoop(parked.id), style: 'resume', fade: 0, offset: parked.elapsed, at: null }
     void this.runSwaps().then(() => this.prefetch())
   }
 
@@ -1039,6 +1473,9 @@ class MusicBed {
     // tense the round is, so it is answered immediately and the slew is
     // snapped with it.
     if (moved && this.timer) {
+      // A brake's silence belongs to the screen it was made for.
+      this.restUntil = 0
+      this.reenter = false
       this.family = nextFamily(this.family, () => this.rand())
       this.bag = []
       this.currentIntensity = this.target
@@ -1079,7 +1516,7 @@ class MusicBed {
     let id = this.chosen
     this.chosen = null
     if (!id || !getLoop(id).sections.includes(this.section)) {
-      const pick = nextLoopId(this.section, null, this.bag, () => this.rand(), this.family)
+      const pick = nextLoopId(this.section, null, this.bag, () => this.rand(), this.family, this.previous)
       this.bag = pick.bag
       id = pick.id
     } else {
@@ -1088,7 +1525,9 @@ class MusicBed {
     }
     // Through the same door as every other change, so the tick that fires 250ms
     // from now cannot start a second voice on top of this one's load.
-    this.desired = { loop: getLoop(id), fade: CROSSFADE_S, offset: 0, at: null, land: false }
+    this.restUntil = 0
+    this.reenter = false
+    this.desired = { loop: getLoop(id), style: 'blend', fade: CROSSFADE_S, offset: 0, at: null }
     void this.runSwaps().then(() => this.prefetch())
   }
 
@@ -1108,6 +1547,8 @@ class MusicBed {
     }
     this.desired = null
     this.parked = null
+    this.restUntil = 0
+    this.reenter = false
     this.scene = 'off'
   }
 
@@ -1134,6 +1575,17 @@ class MusicBed {
     this.currentIntensity += Math.abs(delta) <= step ? delta : Math.sign(delta) * step
 
     const wanted = sectionFor(this.currentIntensity, this.scene === 'lobby')
+
+    // After a brake the room is quiet on purpose. The table goes on moving
+    // under the silence, so the section follows it without a hold — there is
+    // nothing sounding to hold on to — and nothing starts until the rest is
+    // over.
+    if (now < this.restUntil) {
+      this.section = wanted
+      this.pendingSection = null
+      return
+    }
+
     if (wanted === this.section) {
       this.pendingSection = null
     } else if (this.pendingSection !== wanted) {
@@ -1143,26 +1595,47 @@ class MusicBed {
       this.pendingSection = null
       const from = this.section
       this.section = wanted
-      const { id, bag } = nextLoopId(wanted, this.loop.id, this.bag, () => this.rand(), this.family)
+      const { id, bag } = nextLoopId(wanted, this.loop.id, this.bag, () => this.rand(), this.family, this.previous)
       this.bag = bag
-      // On the outgoing loop's next bar line, short upward and long downward:
-      // the new section's downbeat lands on a downbeat, and the length of the
-      // fade says whether the table tensed or settled.
-      this.request({ loop: getLoop(id), fade: fadeFor(from, wanted), offset: 0, at: this.nextBarAt(), land: false })
+      const next = getLoop(id)
+      // Decided before it is scheduled (`planSectionChange`): overlapped or
+      // cut between, entered at the top or on its first full phrase, with the
+      // air in front of it or not, and landed on the outgoing loop's next bar
+      // line — or, for a fall, its next phrase line.
+      const plan = planSectionChange(this.loop, next, from, wanted)
+      const at = plan.align === 'phrase' ? this.nextFallAt(plan.lead) : this.nextBarAt(plan.lead)
+      this.request(
+        plan.handover === 'blend'
+          ? { loop: next, style: 'blend', fade: plan.fade, offset: plan.offset, at, swell: plan.swell }
+          : {
+              loop: next,
+              style: 'land',
+              fade: plan.fade,
+              tail: plan.tail,
+              darken: true,
+              offset: plan.offset,
+              at,
+              swell: plan.swell,
+            },
+      )
       // The working set follows the table. Cheap and idempotent: everything it
       // already holds is a cache hit, and the sort now starts from here.
       void this.prefetch()
       return
     }
 
-    // Nothing is sounding and nothing is on its way: the opening load failed, or
-    // the decode did. Ask again rather than leaving the table silent until the
-    // next section change, which on a long round is minutes away and on a solo
-    // game may never come.
+    // Nothing is sounding and nothing is on its way: the opening load failed,
+    // the decode did, or a brake's rest has just ended. Ask again rather than
+    // leaving the table silent until the next section change, which on a long
+    // round is minutes away and on a solo game may never come.
     if (!this.voice && !this.desired && !this.swapping) {
-      const { id, bag } = nextLoopId(this.section, null, this.bag, () => this.rand(), this.family)
+      const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand(), this.family, this.previous)
       this.bag = bag
-      this.desired = { loop: getLoop(id), fade: CROSSFADE_S, offset: 0, at: null, land: false }
+      const enter = this.reenter
+      this.reenter = false
+      this.desired = enter
+        ? { loop: getLoop(id), style: 'enter', fade: REENTER_FADE_S, offset: 0, at: null }
+        : { loop: getLoop(id), style: 'blend', fade: CROSSFADE_S, offset: 0, at: null }
       void this.runSwaps()
       return
     }
@@ -1171,21 +1644,38 @@ class MusicBed {
     // round enough times — the only thing that does, on a table whose tension
     // holds still for ten minutes. Decided a few seconds *before* the wrap
     // that completes the last lap and landed exactly on it, so the old piece
-    // goes out on its own last bar and the new one opens on the one. A voice
-    // scheduled ahead has a negative elapsed and asks for nothing.
+    // goes out on its own last bar and the new one opens on the one. Between
+    // two loops that do not agree the tail is darkened as it goes and the air
+    // rises into the new downbeat. A voice scheduled ahead has a negative
+    // elapsed and asks for nothing.
     const v = this.voice
     if (v && !this.desired && !this.swapping && loopsFor(this.section, this.family).length > 1) {
       const lap = this.lapOverride ?? v.seconds
       const elapsed = ctx.currentTime - v.startedAt + v.offset
       const { wait, laps } = untilNextWrap(elapsed, lap)
       if (elapsed >= 0 && laps >= LAPS_PER_LOOP && wait <= HANDOVER_LOOKAHEAD_S) {
-        const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand(), this.family)
+        const { id, bag } = nextLoopId(this.section, this.loop.id, this.bag, () => this.rand(), this.family, this.previous)
         this.bag = bag
-        this.request({ loop: getLoop(id), fade: CROSSFADE_S, offset: 0, at: ctx.currentTime + wait, land: true })
+        const next = getLoop(id)
+        const cut = handoverFor(this.loop, next) === 'cut'
+        this.request({
+          loop: next,
+          style: 'land',
+          fade: CROSSFADE_S,
+          tail: HANDOVER_TAIL_S,
+          darken: cut,
+          offset: 0,
+          at: ctx.currentTime + wait,
+          swell: cut ? HANDOVER_TAIL_S : 0,
+        })
       }
     }
   }
 }
 
 export const music = new MusicBed()
+
+// The effects ask the bed what key it is in at the moment a cue plays. One
+// wire, pointing one way: `sfx.ts` never imports the bed.
+setTonalitySource(() => music.getTonality())
 export { LOOPS, getLoop, DEFAULT_LOOP_ID, MUSIC_BASE }

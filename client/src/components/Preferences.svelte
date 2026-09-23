@@ -9,6 +9,7 @@
   import { watchPref } from '../hooks/prefs.svelte'
   import { graphicsPref, reducedMotion } from '../hooks/uiPrefs.svelte'
   import { GRAPHICS_PREFS, type GraphicsPref } from '../hooks/graphicsPref'
+  import { muffleBedWhile } from '../hooks/bedMuffle.svelte'
   import LanguageSwitcher from './LanguageSwitcher.svelte'
 
   type Props = {
@@ -47,6 +48,7 @@
 
   // Read once: the prop seeds the panel, the player owns it afterwards.
   let open = $state(untrack(() => defaultOpen))
+  muffleBedWhile(() => open)
   let wrap = $state<HTMLDivElement | null>(null)
   // Where the focus goes on the way out. The gear normally, but the panel can be
   // opened from the home page's drawer, whose button is not in this tree and is

@@ -155,8 +155,9 @@ needs jsdom and the `browser` resolve condition.
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame), `quality.ts`
   (what each graphics tier buys) + `post.ts` (the finishing passes), `SceneBackdrop.svelte` +
   `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
-- `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, and `gameSounds.ts`, which **decides**
-  the sounds and plays none of them
+- `src/audio/` `engine.ts`, `sfx.ts`, `music.ts`, `tracks/`, `harmony.ts` (keys, and whether two
+  loops may be overlapped — pure), and `gameSounds.ts`, which **decides** the sounds and plays none of
+  them
 - `src/dev/` `scenes.ts` + `Showcase.svelte` + `CardSheet.svelte` + `OgCard.svelte` +
   `e2eBridge.svelte.ts` (the whole `window.__LOCO_E2E__` surface in one file) + `lookPanel.ts` (the
   lil-gui panel over `scene/look.ts`, mounted by `?look=1`), all behind `import.meta.env.DEV`
@@ -166,7 +167,7 @@ needs jsdom and the `browser` resolve condition.
   `appEffects` (audio, session persistence, the host's streamer mode going out on the wire, the
   restore timeout), `viewEffects` (`heldKey`, `reconnectAnimation`, `turnCountdownSfx`, countdowns),
   `gamePlay` (card play, the WAAPI shakes, map preloading), `boardMetrics` (element size, safe-area
-  insets), `drainBar`, `escapeKey`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one
+  insets), `drainBar`, `escapeKey`, `bedMuffle`, `tabAlert`, `tabLock`, `prefs`, `uiPrefs`, and `live` (the one
   narrowing every effect above watches its own field through). **Everything else is framework-free on
   purpose** — the plain `.ts` files hold the store itself (`gameStore.ts` + `store/`:
   `createStore.ts`, `types.ts`, `initialState.ts`, `helpers.ts`, `deriveCatchMiddleware.ts`, and one
@@ -1185,6 +1186,11 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   `unlock()` resumes any state that is not `running`, it is `async` and callers must await it, and
   `visibilitychange`/`focus` reclaim the context. `navigator.audioSession.type = 'playback'` at
   creation.
+- **A cue is struck in the bed's key** (`harmony.ts: cueShiftFor`, `sfx.ts: setTonalitySource`,
+  read at the moment the cue plays). The whole vocabulary moves together, C onto the bed's home
+  chord or its IV or V, **never more than three semitones**, so every cue is still itself. Only what
+  has a pitch moves (`mallet`, `bell`, `stab`, the reverse); paper and felt have no key.
+  `sfxKey.test.ts`.
 - **`make audio-verify` has a floor and a ceiling, and the ceiling is the newer half.** Anything
   above 0.8 fails — headroom below hard clip, not a mixing opinion: two cues overlap here and the bus
   carries no limiter.
@@ -1207,6 +1213,19 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   wrap, the old piece fading over its last bar; a scene move and ⏭ are answered on the spot. **Every
   loop is a whole number of bars at the tempo written for it**, and `music.test.ts` fails on one that
   is not; where a tempo and its double both fit, the **slower** is written.
+- **Every loop carries its key, measured on the file** (`LoopDef.key`, three key profiles plus the
+  bass line, majority written). **Two loops are overlapped only when they agree in key (two steps
+  on the wheel) and in tempo (3%)** (`harmony.ts: handoverFor`); a blend hands the bass over on a
+  beat (`BASS_SWAP_HZ`). Otherwise it is a **cut, and a cut is never a crossfade**: the outgoing
+  loop closes under a low-pass over its last two beats (`cutTailFor`), air rises into the downbeat
+  (`scheduleSwell`) and the next lands whole on it. Only a press may overlap a disagreeing pair,
+  for `SPOT_CUT_S`. `musicHandover.test.ts`.
+- **The next loop is the nearest one left in the bag** (`followCost`: a blendable pair first, then
+  the key, then the tempo), **and never the one just left while the bag holds another**
+  (`previous`) — ranking alone alternates the two loops of a family that blend best.
+- **A rise enters its loop on the first full phrase** (`LoopDef.entryBar`, a multiple of four,
+  measured) **and a fall lands on a phrase line** when one is within `PHRASE_WAIT_MAX_S`
+  (`untilFallLands`). `planSectionChange` decides all of it before anything is scheduled.
 - **The fade's length is the reason for it** (`fadeFor`): a rise `RISE_FADE_S` (1.5s), a fall
   `FALL_FADE_S` (4s), a change the player made `CROSSFADE_S` (2s), the scene going off `STOP_FADE_S`
   (1.2s). **Only a hidden tab and an unmount cut.**
@@ -1236,7 +1255,15 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   arriving during a swap is recorded in `desired`, never dropped.**
 - **A bed with nothing sounding and nothing on its way asks again on the next tick.**
 - **A loop change is a crossfade between two source gains, equal-power, and never touches `out.gain`**
-  — which belongs to `duck()` alone.
+  — which belongs to `duck()` alone. The voice's filters are its own; the bed's one low-pass
+  (`tone`, after the duck) belongs to `setMuffled` and `dip`.
+- **The bed answers a moment by `bedCueFor`, one answer, the strongest**: the match's fanfare
+  **brakes** it (`brake()`: slowed like a record, quiet for `BRAKE_REST_MS`, the recap's piece
+  rising over `REENTER_FADE_S`), a round's **ducks** it, a LOCO! or a Contre-LOCO! **dips** its top
+  end. The cues are played first, so a fanfare is struck in the key it was earned in.
+- **Something read over the table muffles the bed and never stops it** (`hooks/bedMuffle.svelte.ts`,
+  counted): the rules and the preferences. **Not the audio panel** — somebody setting the music's
+  volume is listening to it.
 - **A loop's title is a name and its blurb is copy, and only one of the two is translated.** The
   title is **one string, in English**; `music.test.ts` fails on a character outside `[A-Za-z0-9 '-]`.
   **A title names the writing, never the genre and never the source file's date.**

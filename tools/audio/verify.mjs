@@ -49,7 +49,7 @@ try {
   const results = await page.evaluate(async () => {
     const { audio } = await import('/src/audio/engine.ts')
     const sfx = await import('/src/audio/sfx.ts')
-    const { music, LOOPS, SECTION_AT } = await import('/src/audio/music.ts')
+    const { music, LOOPS, SECTION_AT, BRAKE_REST_MS, REENTER_FADE_S } = await import('/src/audio/music.ts')
 
     audio.unlock()
     audio.setSettings({ muted: false, master: 1, sfx: 1, music: 1 })
@@ -167,6 +167,34 @@ try {
     }
 
     const settle = (ms) => new Promise((r) => setTimeout(r, ms))
+
+    /**
+     * Mean power above `fromHz` on `bus` over `ms`, in dB. What a low-pass
+     * takes is the top of the spectrum; a mixed loop's energy is in its bass,
+     * so a plain RMS barely moves when the door shuts on it.
+     */
+    const topDb = async (bus, ms, fromHz = 2000) => {
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 4096
+      bus.connect(analyser)
+      const buf = new Float32Array(analyser.frequencyBinCount)
+      const first = Math.ceil((fromHz * analyser.fftSize) / ctx.sampleRate)
+      let sum = 0
+      let n = 0
+      const until = performance.now() + ms
+      while (performance.now() < until) {
+        await new Promise((r) => requestAnimationFrame(() => r(null)))
+        analyser.getFloatFrequencyData(buf)
+        for (let i = first; i < buf.length; i++) {
+          if (Number.isFinite(buf[i])) {
+            sum += Math.pow(10, buf[i] / 10)
+            n++
+          }
+        }
+      }
+      bus.disconnect(analyser)
+      return n ? 10 * Math.log10(sum / n) : -Infinity
+    }
 
     // Every registered loop must actually make sound. A missing file fetches a
     // 404 and the bed keeps whatever was already sounding, so the failure is
@@ -319,7 +347,39 @@ try {
     await settle(400)
     const duckedRms = await rms(audio.musicDestination(), 4000)
 
+    /**
+     * The three things the bed does for a moment rather than for a section.
+     *
+     * Each is a node the unit tests can see scheduled and cannot hear: a
+     * low-pass wired after the trim instead of before it, a swell connected to
+     * nothing, a brake whose rest never ends — all silence, or no change, and
+     * no error. So each is measured coming out of the bus.
+     */
+    // The muffle: behind a door while something is read over the table. Wait
+    // for the duck above to come back first, or both windows are ducked.
+    await settle(5500)
+    const openTop = await topDb(audio.musicDestination(), 3000)
+    music.setMuffled(true)
+    await settle(500)
+    const muffledTop = await topDb(audio.musicDestination(), 3000)
+    music.setMuffled(false)
+    await settle(800)
+
+    // The brake: the loop sinks, the room is quiet under the fanfare, and the
+    // next piece comes up out of the silence on its own.
+    music.brake()
+    await settle(900)
+    const brakedRms = await rms(audio.musicDestination(), 1000)
+    await settle(BRAKE_REST_MS - 1900 + REENTER_FADE_S * 1000 + 800)
+    const backRms = await rms(audio.musicDestination(), 2000)
+
+    // The swell, alone on the bus: air rising into a downbeat 0.9 s away.
     music.stop()
+    await settle(1500)
+    const swellPeak = await measure(audio.musicDestination(), 1400, () =>
+      sfx.scheduleSwell(audio.musicDestination(), ctx.currentTime + 0.9, 0.9),
+    )
+
     await settle(1200)
     const idleFrames = await frameStats(3000)
 
@@ -337,6 +397,7 @@ try {
       lengths, musicPeak, mutedPeak, calmRms, tenseRms, calmIntensity, tenseIntensity,
       calmSection, tenseSection, beforeDuck, duckedRms, dropFrames, idleFrames,
       loopPeaks, ladder, skipped, autoPlayed, grooveLoops, auditionLowHz, auditionHighHz,
+      openTop, muffledTop, brakedRms, backRms, swellPeak,
     }
   })
 
@@ -473,6 +534,29 @@ try {
       `${duckOk ? '✓' : '✗'} ${'duck'.padEnd(12)} before=${results.beforeDuck.toFixed(4)} ` +
         `during=${results.duckedRms.toFixed(4)}`,
     )
+
+    // A low-pass at 900 Hz, two octaves under the 2 kHz this reads from,
+    // takes that band down by well over 12 dB even at 12 dB an octave. Less
+    // than that and the filter is not in the path.
+    const muffleDrop = results.openTop - results.muffledTop
+    const muffleOk = muffleDrop > 12
+    if (!muffleOk) failures++
+    console.log(
+      `${muffleOk ? '✓' : '✗'} ${'muffle'.padEnd(12)} above 2kHz open=${results.openTop.toFixed(1)}dB ` +
+        `behind the door=${results.muffledTop.toFixed(1)}dB (−${muffleDrop.toFixed(1)}dB, want >12)`,
+    )
+
+    // Quiet under the fanfare, and back afterwards without anybody asking.
+    const brakeOk = results.brakedRms < results.backRms * 0.1 && results.backRms > FLOOR
+    if (!brakeOk) failures++
+    console.log(
+      `${brakeOk ? '✓' : '✗'} ${'brake'.padEnd(12)} resting=${results.brakedRms.toFixed(4)} ` +
+        `back=${results.backRms.toFixed(4)}`,
+    )
+
+    const swellOk = results.swellPeak > FLOOR && results.swellPeak < CEILING
+    if (!swellOk) failures++
+    console.log(`${swellOk ? '✓' : '✗'} ${'swell'.padEnd(12)} peak=${results.swellPeak.toFixed(4)}`)
 
     // Frame cost of the drop. 25ms mean is ~40fps: a loose floor, because a
     // headless browser's rAF is noisy — it is here to catch the bed becoming

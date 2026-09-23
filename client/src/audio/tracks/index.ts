@@ -36,6 +36,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['breakdown'],
     seconds: 101.647074829932,
     bpm: 85,
+    key: 'Em',
   },
   {
     id: 'small-talk',
@@ -48,6 +49,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['breakdown', 'buildup'],
     seconds: 60,
     bpm: 80,
+    key: 'Fm',
   },
   {
     id: 'rowdy',
@@ -60,6 +62,8 @@ export const LOOPS: LoopDef[] = [
     sections: ['buildup', 'groove'],
     seconds: 72,
     bpm: 120,
+    key: 'Cm',
+    entryBar: 12,
   },
   {
     id: 'sleight',
@@ -72,6 +76,8 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove', 'drop'],
     seconds: 56.470589569161,
     bpm: 85,
+    key: 'Gm',
+    entryBar: 4,
   },
   {
     id: 'on-the-run',
@@ -84,6 +90,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove', 'drop'],
     seconds: 43.8260997732426,
     bpm: 76.67,
+    key: 'Cm',
   },
   {
     id: 'bad-manners',
@@ -96,6 +103,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['drop'],
     seconds: 50.0869614512472,
     bpm: 115,
+    key: 'Cm',
   },
   {
     id: 'nightcap',
@@ -108,6 +116,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['breakdown', 'buildup'],
     seconds: 40.421065759637,
     bpm: 95,
+    key: 'Eb',
   },
   {
     id: 'sidetrack',
@@ -120,6 +129,8 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove'],
     seconds: 51,
     bpm: 80,
+    key: 'Cm',
+    entryBar: 8,
   },
   {
     id: 'mirage',
@@ -132,6 +143,8 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove'],
     seconds: 61.5384807256236,
     bpm: 78,
+    key: 'Cm',
+    entryBar: 4,
   },
   {
     id: 'pile-up',
@@ -144,6 +157,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove', 'drop'],
     seconds: 38.4,
     bpm: 100,
+    key: 'Cm',
   },
   {
     id: 'uproar',
@@ -156,6 +170,8 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove', 'drop'],
     seconds: 43.6363718820862,
     bpm: 110,
+    key: 'A',
+    entryBar: 4,
   },
   {
     id: 'idle-hands',
@@ -168,6 +184,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['breakdown', 'buildup'],
     seconds: 101.684218,
     bpm: 94.41,
+    key: 'A',
   },
   {
     id: 'fanned-out',
@@ -180,6 +197,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['breakdown', 'buildup'],
     seconds: 87.272744,
     bpm: 88,
+    key: 'A',
   },
   {
     id: 'late-arrivals',
@@ -192,6 +210,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['buildup'],
     seconds: 54.857143,
     bpm: 70,
+    key: 'Gm',
   },
   {
     id: 'patience',
@@ -204,6 +223,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['buildup'],
     seconds: 90.352948,
     bpm: 85,
+    key: 'Bb',
   },
   {
     id: 'full-table',
@@ -212,10 +232,11 @@ export const LOOPS: LoopDef[] = [
       fr: 'Le tour de chacun, sans que rien de grave arrive.',
       en: 'Everybody’s turn, and nothing much at stake.',
     },
-    family: 'lounge',
+    family: 'party',
     sections: ['groove'],
     seconds: 60.923084,
     bpm: 130,
+    key: 'Cm',
   },
   {
     id: 'clockwork',
@@ -228,6 +249,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove'],
     seconds: 67.764717,
     bpm: 85,
+    key: 'Gm',
   },
   {
     id: 'neck-and-neck',
@@ -240,6 +262,7 @@ export const LOOPS: LoopDef[] = [
     sections: ['groove', 'drop'],
     seconds: 56.470590,
     bpm: 85,
+    key: 'Fm',
   },
   {
     id: 'runaway',
@@ -252,6 +275,8 @@ export const LOOPS: LoopDef[] = [
     sections: ['drop'],
     seconds: 58.666667,
     bpm: 90,
+    key: 'Cm',
+    entryBar: 8,
   },
 ]
 

@@ -1,14 +1,19 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from './render'
 import { gameStore } from '../hooks/gameStore'
-import { dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
+import { bedCueFor, dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
 import { sectionFor } from '../audio/music'
 import { audio, DEFAULT_SETTINGS } from '../audio/engine'
 import { playVolumeAudition } from '../audio/sfx'
 import AudioSettings from '../components/AudioSettings.svelte'
 import { en } from '../i18n/en'
 
-vi.mock('../audio/sfx', () => ({ playSfx: vi.fn(), playVolumeAudition: vi.fn() }))
+vi.mock('../audio/sfx', () => ({
+  playSfx: vi.fn(),
+  playVolumeAudition: vi.fn(),
+  scheduleSwell: vi.fn(),
+  setTonalitySource: vi.fn(),
+}))
 
 type State = ReturnType<typeof gameStore.getState>
 
@@ -236,6 +241,25 @@ describe('which scene a screen plays', () => {
 
   it('is off only where there is nothing to play for', () => {
     expect(sceneFor(state({ screen: 'restoring' }))).toBe('off')
+  })
+})
+
+describe('what the bed does under a moment', () => {
+  it('stops for the match, ducks for a round, dips for a shout, and ignores the rest', () => {
+    expect(bedCueFor(['matchWin'])).toBe('brake')
+    expect(bedCueFor(['matchLose'])).toBe('brake')
+    expect(bedCueFor(['roundWin'])).toBe('duck')
+    expect(bedCueFor(['roundLose'])).toBe('duck')
+    expect(bedCueFor(['unoDeclare'])).toBe('dip')
+    expect(bedCueFor(['unoCaught'])).toBe('dip')
+    expect(bedCueFor(['cardPlay', 'interrupt'])).toBeNull()
+    expect(bedCueFor([])).toBeNull()
+  })
+
+  it('answers the strongest moment when several land at once', () => {
+    // A match ending on a caught call is a match ending.
+    expect(bedCueFor(['unoCaught', 'matchWin'])).toBe('brake')
+    expect(bedCueFor(['unoDeclare', 'roundWin'])).toBe('duck')
   })
 })
 
