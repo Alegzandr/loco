@@ -1119,7 +1119,9 @@ stated at the top of `styles/tokens.css`:
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
     Go, and its scenes.
 - **The warm/cool split is the whole of the mood, so it is not a taste setting**: at every daylight
-  hour the sun is warmer than the sky light and the sky light is cool (`sceneLighting.test.ts`).
+  hour **and in every room** the sun is warmer than the sky light and the sky light is cool
+  (`sceneLighting.test.ts`). **A room's own light** (`LOOK.rooms`, `lightRig`'s third argument)
+  moves the hour and the grade and never undoes that; every caller that has a map passes it.
   **The hour survives the weather**: a storm at noon is not a storm at midnight, snow after dark
   takes the night's blue, and no weather lights more windows than `WINDOWS_LIT_MAX`.
   A sprite still carries its shadow on its own bitmap, on a catcher of its own, sized by

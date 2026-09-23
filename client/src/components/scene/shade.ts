@@ -91,7 +91,7 @@ export function lightingFor(rig: LightRig): Lighting {
   const el = rig.sun.elevation
   // A low sun throws a longer shadow, and a longer shadow is a softer one:
   // the penumbra grows with the distance between the caster and the ground.
-  const shadowRadius = LOOK.shadow.radius * (1 + Math.max(0, (35 - el) / 35) * 0.6)
+  const shadowRadius = LOOK.shadow.radius * (1 + Math.max(0, (35 - el) / 35) * 0.6) * rig.shadowSoftness
   const rimK = LOOK.ambient.rim
   return {
     sun: { color: rig.sun.color, intensity: rig.sun.intensity, direction },

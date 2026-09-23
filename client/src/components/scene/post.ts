@@ -468,10 +468,11 @@ function gradeUniforms(rig: LightRig): Record<string, { value: unknown }> {
     uTone: { value: TONE_INDEX[LOOK.tone.mapping] },
     uExposure: { value: lightingFor(rig).exposure },
     uContrast: { value: LOOK.tone.contrast },
-    uSaturation: { value: LOOK.tone.saturation },
-    uShadowTint: { value: rgb(LOOK.tone.shadowTint) },
-    uHighlightTint: { value: rgb(LOOK.tone.highlightTint) },
-    uSplit: { value: LOOK.tone.splitStrength },
+    // The split and the saturation are the room's (`rig.grade`, from `LOOK.rooms` over `LOOK.tone`).
+    uSaturation: { value: rig.grade.saturation },
+    uShadowTint: { value: rgb(rig.grade.shadowTint) },
+    uHighlightTint: { value: rgb(rig.grade.highlightTint) },
+    uSplit: { value: rig.grade.splitStrength },
   }
 }
 

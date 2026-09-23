@@ -576,7 +576,9 @@ export class Kit {
   /** Light lying on the ground at `(x, z)`, `r` tiles across: the ground's colour lit, not painted over (`pools.ts`). */
   pool(x: number, z: number, r: number, color: Hex, k: number) {
     if (!this.lightPools || !this.rig.lampsOn) return
-    this.pools.push({ x, z, r, color, k })
+    // A lamp at dawn is lit against a sky that is already day: its pool is a
+    // warmth on the paving, not the spotlight it is at midnight.
+    this.pools.push({ x, z, r, color, k: k * (0.35 + 0.65 * Math.min(1, this.rig.dark)) })
   }
 
   // ─── Props ────────────────────────────────────────────────────────────────

@@ -233,8 +233,36 @@ export interface Look {
     /** How much of the rig's distance fog reaches the render. */
     strength: number
   }
+  /** Each room's own light (`RoomLook`), by map id. */
+  rooms: Record<string, RoomLook>
   /** Dev only: the composite shows one pass alone. Always `off` in a build. */
   debug: DebugView
+}
+
+/**
+ * What makes one room's light its own, on top of the hour and the sky
+ * (`sky.ts: lightRig`, its third argument). Every field is optional and
+ * moves a number the hour already set; none of them may undo the warm/cool
+ * split (`sceneLighting.test.ts` runs the split per room too).
+ */
+export interface RoomLook {
+  /** The sun pulled towards this colour… */
+  sunTint?: Hex
+  /** …by this much. */
+  sunTintMix?: number
+  /** The sky's light pulled towards this colour… */
+  skyTint?: Hex
+  /** …by this much. */
+  skyTintMix?: number
+  /** Multiplies the sky's light: under 1 is a place with little sky (the moon). */
+  ambient?: number
+  /** Multiplies the shadow's softness: under 1 is a harder shadow. */
+  shadowSoftness?: number
+  /** The grade's split tones and saturation, in place of the look's own. */
+  shadowTint?: Hex
+  highlightTint?: Hex
+  splitStrength?: number
+  saturation?: number
 }
 
 /** The most windows any hour may light, as a share. */
@@ -312,6 +340,22 @@ export const LOOK: Look = {
   water: { reflect: 0.5, sky: 0.12, wetMirror: 0.7, ripple: 0.006, waveAmp: 0.22, waveScale: 1.1, streak: 0.007, scale: 0.5, roughness: 0.3 },
   pools: { strength: 6, reach: 1.6, washFrom: 8, lift: 0.7, windowSpill: 0.5, texelsPerTile: 8, maxSide: 1024 },
   fog: { strength: 1 },
+  rooms: {
+    // The city under its signs: a violet sky light, the highlights pushed
+    // towards pink and the shade towards indigo.
+    neon: { skyTint: 0x6a4cff, skyTintMix: 0.2, shadowTint: 0x3b2f9a, highlightTint: 0xff9ad5, splitStrength: 0.12, saturation: 1.1 },
+    // The village: a gold that is a little older than the day's.
+    rune: { sunTint: 0xffc27a, sunTintMix: 0.12, highlightTint: 0xffd08a, splitStrength: 0.1 },
+    // The hotel: brass in the light, a deep blue in the shade.
+    velvet: { sunTint: 0xffc58a, sunTintMix: 0.15, shadowTint: 0x2c3f86, highlightTint: 0xffc070, splitStrength: 0.12, saturation: 1.04 },
+    // No air: little sky light, a hard shadow, a sun that is white, and the
+    // shade lit by the Earth's blue.
+    orbit: { sunTint: 0xffffff, sunTintMix: 0.35, skyTint: 0x7aa0ff, skyTintMix: 0.45, ambient: 0.6, shadowSoftness: 0.4, saturation: 0.92, splitStrength: 0.07 },
+    // The cherry trees: a pink in the highlights.
+    sakura: { highlightTint: 0xffc6d8, shadowTint: 0x4a5aa8, saturation: 1.05 },
+    // The harbour: teal in the shade, a sunlit sand in the light.
+    marina: { shadowTint: 0x2f6f8f, highlightTint: 0xffd9a0, splitStrength: 0.1, saturation: 1.08 },
+  },
   debug: 'off',
 }
 

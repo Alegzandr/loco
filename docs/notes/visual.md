@@ -1406,7 +1406,17 @@ room already obeyed, extended to something that used to be flat.
   washed over the paving, not a lamp** (neon's purple ring): as light it either lit the square
   like a stage or, weakened, vanished — and **a sprite keeps its disc** (`lightPools` is a room
   kit's only), since a car carries its headlights on its own bitmap. `strength: 0` is the old
-  discs, for comparing.
+  discs, for comparing. A pool is weighed by the hour's `dark` (a third at noon's end of it): a lamp
+  at dawn is a warmth on the paving, not the spotlight it is at midnight.
+- **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`,
+  `rig.grade`, `rig.shadowSoftness`). On top of the hour and the sky a room may pull the sun and the
+  sky light towards its own colours, scale the sky light, harden the shadow and set its own split
+  tones and saturation: the moon has little sky light, a hard shadow, a white sun and the Earth's
+  blue in the shade; neon's shade is indigo and its light pink; the hotel is brass; the harbour is
+  teal in the shade and sand in the light; the village a gold a little older than the day's; the
+  cherry trees push a pink into the highlights. **None of it may undo the warm/cool split**, which
+  `sceneLighting.test.ts` now runs per room as well as per hour. The CSS table and the rooms page
+  read the same rig, so the table's sheen takes the room's light too.
 
 ### Reviewing a room
 Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the

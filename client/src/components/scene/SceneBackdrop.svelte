@@ -63,7 +63,7 @@
   // Re-read on a look edition too: the panel moves the hours' skies.
   const rig = $derived.by(() => {
     void look
-    return lightRig(scene.time, scene.weather)
+    return lightRig(scene.time, scene.weather, scene.map.id)
   })
   const key = $derived(sceneKey(scene))
 

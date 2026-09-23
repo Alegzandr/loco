@@ -61,7 +61,7 @@ const stillOf = (id: MapId): ImageMetadata | undefined => stills[`../assets/room
 {MAP_IDS.map((id) => {
   const map = MAPS[id]
   const copy = t.maps[id]
-  const rig = lightRig(SIGNATURE[id], 'clear')
+  const rig = lightRig(SIGNATURE[id], 'clear', id)
   const still = stillOf(id)
   const vars = [
     `--accent: ${map.accent}`,

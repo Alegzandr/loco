@@ -307,7 +307,7 @@ export async function renderScene(
     onProgress?.(p)
     await nextPaint()
   }
-  const rig = lightRig(spec.time, spec.weather)
+  const rig = lightRig(spec.time, spec.weather, spec.map.id)
   const key = sceneKey(spec)
   const ppu = Math.max(size.width, size.height) / TILES_ACROSS
   const q = renderQuality(tier)
