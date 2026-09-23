@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Weather } from './sky'
   import { graphicsPref } from '../../hooks/uiPrefs.svelte'
-  import { DRIFT_S, FALL_S, LEAN_DEG, SWAY, TILES, sheetStyle, tileUrl, type TileKind } from './weatherTiles'
+  import { DRIFT_S, FALL_S, LEAN_DEG, SPLASH_S, SWAY, TILES, sheetStyle, tileUrl, type TileKind } from './weatherTiles'
 
   /**
    * What falls, drifts or flashes over a rendered room. Every layer is one
@@ -55,6 +55,8 @@
     tier === 'high' ? ['snowFar', 'snowMid', 'snowNear'] : tier === 'medium' ? ['snowFar', 'snowMid'] : ['snowMid'],
   )
   const fogKinds = $derived<TileKind[]>(tier === 'light' ? ['fogA'] : ['fogB', 'fogA'])
+  /** Where the drops land: two sheets of rings on `high`, one on `medium`, none on `light`. */
+  const splashKinds = $derived<TileKind[]>(tier === 'high' ? ['splashA', 'splashB'] : tier === 'medium' ? ['splashA'] : [])
 
   /**
    * The inline style of a tiled layer: its tile as the background and as the
@@ -62,7 +64,7 @@
    */
   function tiled(kind: TileKind, leanDeg = 0): string {
     const t = TILES[kind]
-    const cycle = FALL_S[kind] ?? DRIFT_S[kind] ?? 1
+    const cycle = FALL_S[kind] ?? DRIFT_S[kind] ?? SPLASH_S[kind] ?? 1
     const sway = SWAY[kind]
     return [
       `background-image: url("${tileUrl(kind, dpr)}")`,
@@ -93,6 +95,11 @@
     <!-- Rain in the air: a faint haze thickening towards the ground, where the
          streaks bounce. Static, so it costs one layer and no animation. -->
     <div class="mist"></div>
+    <!-- Where the drops land: rings on the ground, coming and going in place.
+         They rest at nothing, so reduced motion keeps the rain and loses them. -->
+    {#each splashKinds as kind, i (kind)}
+      <div class="sheet splash {kind}" style="{tiled(kind)}; {phase(i)}"></div>
+    {/each}
   {/if}
   {#if weather === 'storm' && dry}
     <div class="sheet drift dust" style={tiled('dust')}></div>
@@ -170,6 +177,25 @@
     }
     to {
       transform: translate3d(0, var(--tile-h), 0);
+    }
+  }
+
+  .splash {
+    opacity: 0;
+    will-change: opacity;
+    animation: splash var(--cycle) linear infinite;
+  }
+
+  @keyframes splash {
+    0% {
+      opacity: 0;
+    }
+    12% {
+      opacity: 0.9;
+    }
+    55%,
+    100% {
+      opacity: 0;
     }
   }
 

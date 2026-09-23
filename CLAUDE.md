@@ -1057,6 +1057,10 @@ stated at the top of `styles/tokens.css`:
     (`Actor.blink`, `blinkActors`): at most 4 and 2, only what the depth map says the camera sees,
     seeded on the room, an opacity on `.face`. **A blink rests at nothing**, so reduced motion is
     the room as rendered.
+  - **Snow banks against walls and keeps ruts and footprints** (`Kit.box` drifts,
+    `Kit.snowTracks`), from their own seeded sequence: **a mark the weather leaves never moves a
+    house**, the same rule the river's foam obeys. **Rain lands in rings** (`splashRings`): sheets
+    that stay put and come and go, resting at nothing.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**

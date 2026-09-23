@@ -37,6 +37,8 @@ export type TileKind =
   | 'fogB'
   | 'cloud'
   | 'dust'
+  | 'splashA'
+  | 'splashB'
 
 export interface TileSpec {
   /** CSS px. The layer travels exactly this far per cycle. */
@@ -61,6 +63,18 @@ export const TILES: Record<TileKind, TileSpec> = {
   fogB: { w: 1500, h: 720, res: 0.3 },
   cloud: { w: 1600, h: 900, res: 0.25 },
   dust: { w: 360, h: 360, res: 1 },
+  splashA: { w: 300, h: 220, res: 1 },
+  splashB: { w: 260, h: 240, res: 1 },
+}
+
+/**
+ * The splashes don't travel: a sheet of rings that comes and goes, once per
+ * this many seconds, the two sheets on different periods so no spot beats in
+ * time with its neighbour.
+ */
+export const SPLASH_S: Partial<Record<TileKind, number>> = {
+  splashA: 0.83,
+  splashB: 1.13,
 }
 
 /**
@@ -303,6 +317,23 @@ export function fogBlobs(kind: 'fogA' | 'fogB' | 'cloud'): Blob[] {
 }
 
 /** Specks on the wind, for a storm on a world with nothing to rain. */
+/** A drop landing: a ring on the ground, flattened by the camera's pitch. */
+export interface Ring {
+  x: number
+  y: number
+  r: number
+  alpha: number
+}
+
+/** The rings of one splash sheet, seeded: small, flat, a few to a tile. */
+export function splashRings(kind: 'splashA' | 'splashB'): Ring[] {
+  const { w, h } = TILES[kind]
+  const rng = seededRng(`weather:${kind}`)
+  const out: Ring[] = []
+  for (let i = 0; i < 16; i++) out.push({ x: rng.range(0, w), y: rng.range(0, h), r: rng.range(1.6, 4.2), alpha: rng.range(0.22, 0.45) })
+  return out
+}
+
 export function dustSpecks(): Flake[] {
   const { w, h } = TILES.dust
   const rng = seededRng('weather:dust')
@@ -394,6 +425,24 @@ function drawBlobs(ctx: CanvasRenderingContext2D, w: number, h: number, blobs: B
   }
 }
 
+function drawRings(ctx: CanvasRenderingContext2D, w: number, h: number, rings: Ring[]) {
+  for (const r of rings) {
+    for (const [ox, oy] of WRAP) {
+      const x = r.x + ox * w
+      const y = r.y + oy * h
+      if (x + r.r < 0 || x - r.r > w || y + r.r < 0 || y - r.r > h) continue
+      // Flattened by the pitch the ground is seen at: sin(32°).
+      ctx.strokeStyle = `rgba(225, 236, 255, ${r.alpha.toFixed(3)})`
+      ctx.lineWidth = 0.9
+      ctx.beginPath()
+      ctx.ellipse(x, y, r.r, r.r * 0.53, 0, 0, Math.PI * 2)
+      ctx.stroke()
+      ctx.fillStyle = `rgba(225, 236, 255, ${(r.alpha * 0.6).toFixed(3)})`
+      ctx.fillRect(x - 0.5, y - r.r * 0.9, 1, r.r * 0.7)
+    }
+  }
+}
+
 function paint(kind: TileKind, ctx: CanvasRenderingContext2D, w: number, h: number) {
   switch (kind) {
     case 'rainNear':
@@ -415,6 +464,10 @@ function paint(kind: TileKind, ctx: CanvasRenderingContext2D, w: number, h: numb
       return
     case 'dust':
       drawFlakes(ctx, w, h, dustSpecks(), '226, 208, 176')
+      return
+    case 'splashA':
+    case 'splashB':
+      drawRings(ctx, w, h, splashRings(kind))
       return
   }
 }

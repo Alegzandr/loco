@@ -1445,6 +1445,15 @@ room already obeyed, extended to something that used to be flat.
   The sprite pane is **toned down and warmed** (`0.42` of a warm mix): at the glow's full strength
   it went through the sprite's tone curve with no bloom round it and came out white beside its warm
   neighbours. Four windows at most is noise against `WINDOWS_LIT_MAX`.
+- **The weather leaves marks** (`sceneWeatherMarks.test.ts`). **Rain lands in rings**: two drawn
+  tiles of small rings flattened by the pitch (`splashRings`, `SPLASH_S`), sheets that do not
+  travel but come and go in place on two different periods, two on `high`, one on `medium`, none
+  on `light`. They rest at nothing, so reduced motion keeps the rain and loses them. **Snow banks
+  against the foot of every wall** on the two faces the camera sees (`DRIFT_H`, `DRIFT_D`, in
+  `Kit.box`), and **a road keeps two ruts a lane and, now and then, a trail of footprints along a
+  pavement** (`Kit.snowTracks`), drawn from a sequence of their own seeded where the road lies —
+  a snowy room is the same room as a dry one, and the test checks the room's sequence is where it
+  was.
 - **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`,
   `rig.grade`, `rig.shadowSoftness`). On top of the hour and the sky a room may pull the sun and the
   sky light towards its own colours, scale the sky light, harden the shadow and set its own split

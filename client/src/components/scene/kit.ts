@@ -56,6 +56,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Hex, LightRig } from './sky'
 import { mix, scale } from './sky'
 import type { Rng } from './rng'
+import { seededRng } from './rng'
 import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
@@ -159,6 +160,11 @@ export function inkFor(c: Hex): Hex {
   return mix(scale(c, LOOK.outline.darken), INK, LOOK.outline.inkMix)
 }
 const SNOW = 0xf4f7fb
+/** A drift against a wall: how high it banks and how far it reaches from the wall, tiles. */
+const DRIFT_H = 0.16
+const DRIFT_D = 0.34
+/** Where a wheel or a boot has pressed the snow: its own shade, bluer than the snow round it. */
+const SNOW_TRACK = 0xbcc7d9
 /** The largest round halo the kit will draw, in tiles: a lamp head's, not a landmark's. */
 export const HALO_SPHERE_MAX = 0.8
 /** The kits whose glow colours are windows, lit per building by the hour's share. */
@@ -470,6 +476,16 @@ export class Kit {
     if (this.rig.snow && o.cap !== false && !o.glow && !o.tilt && h > 0.12 && w > 0.25 && d > 0.25) {
       const capH = Math.min(0.16, 0.06 + Math.min(w, d) * 0.04)
       this.push(this.place(boxGeometry(w * 0.98, capH, d * 0.98), x, y + h + capH / 2 - 0.01, z, o.rot), SNOW, 'lit')
+    }
+    // Snow banked against the foot of a wall, on the two faces the camera
+    // sees: what makes a snowfall read as one that has been falling a while.
+    if (this.rig.snow && y === 0 && !o.glow && !o.tilt && o.cap !== false && h >= 1.2 && w >= 1 && d >= 1) {
+      const rot = o.rot ?? 0
+      const c = Math.cos(rot)
+      const sn = Math.sin(rot)
+      const put = (lx: number, lz: number, dw: number, dd: number) => this.push(this.place(boxGeometry(dw, DRIFT_H, dd), x + lx * c + lz * sn, DRIFT_H / 2, z - lx * sn + lz * c, rot), SNOW, 'lit')
+      put(DRIFT_D / 2, d / 2 + DRIFT_D / 2, w + DRIFT_D, DRIFT_D)
+      put(w / 2 + DRIFT_D / 2, 0, DRIFT_D, d)
     }
   }
 
@@ -1131,11 +1147,41 @@ export class Kit {
       const sw = this.ground(o.sidewalk)
       this.slab(x, z, w, d + 2 * (o.sidewalkWidth ?? 0.6), sw, { rot, h: 0.04, y: -0.02 })
     }
+    if (this.rig.snow) this.snowTracks(x, z, w, d, rot, o.sidewalk !== undefined ? (o.sidewalkWidth ?? 0.6) : 0)
     if (o.dashes !== false && !this.rig.snow) {
       const n = Math.floor(w / 1.6)
       for (let i = 0; i < n; i++) {
         const t = -w / 2 + (i + 0.5) * (w / n)
         this.slab(x + t * Math.cos(rot), z - t * Math.sin(rot), 0.8, 0.12, 0xf2e6b5, { rot, h: 0.02, y: 0.06 })
+      }
+    }
+  }
+
+  /**
+   * The marks a snowfall keeps along a road: two ruts in each lane where the
+   * wheels have been, and now and then a trail of footprints along a
+   * pavement. From a sequence of their own, seeded where the road lies, so the
+   * room's is untouched and a snowy room is the same room as a dry one.
+   */
+  private snowTracks(x: number, z: number, w: number, d: number, rot: number, sidewalk: number) {
+    const rng = seededRng(`snow:${x.toFixed(2)}:${z.toFixed(2)}:${rot.toFixed(2)}`)
+    const c = Math.cos(rot)
+    const sn = Math.sin(rot)
+    const along = (t: number, off: number): [number, number] => [x + t * c + off * sn, z - t * sn + off * c]
+    for (const lane of [-d / 4, d / 4]) {
+      for (const wheel of [-0.42, 0.42]) {
+        const [px, pz] = along(0, lane + wheel)
+        this.box(px, 0.06, pz, w, 0.006, 0.16, SNOW_TRACK, { rot, outline: false, cap: false })
+      }
+    }
+    if (sidewalk <= 0) return
+    for (const side of [-1, 1]) {
+      if (!rng.chance(0.45)) continue
+      const off = side * (d / 2 + sidewalk / 2) + rng.range(-0.2, 0.2)
+      let step = 0
+      for (let t = -w / 2 + 0.3; t < w / 2 - 0.3; t += 0.42) {
+        const [px, pz] = along(t, off + (step++ % 2 ? 0.1 : -0.1))
+        this.box(px, 0.022, pz, 0.17, 0.004, 0.1, SNOW_TRACK, { rot, outline: false, cap: false })
       }
     }
   }
