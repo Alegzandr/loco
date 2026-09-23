@@ -1053,6 +1053,10 @@ stated at the top of `styles/tokens.css`:
     sprite keeps its disc. `scenePools.test.ts`.
   - **Mist lies low at a dawn and in a fog, never at a clear noon** (`post.ts: mistFor`), laid by
     each pixel's world height, rebuilt from the frame's linear depth. A finishing pass.
+  - **A few dark windows light up and go out, and a neon tube stutters, during a match**
+    (`Actor.blink`, `blinkActors`): at most 4 and 2, only what the depth map says the camera sees,
+    seeded on the room, an opacity on `.face`. **A blink rests at nothing**, so reduced motion is
+    the room as rendered.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**

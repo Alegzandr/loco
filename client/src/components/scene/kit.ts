@@ -217,6 +217,12 @@ export class Kit {
   private readonly lightPools: boolean
   /** The light lying on the ground tonight (`pools.ts`). */
   readonly pools: Pool[] = []
+  /**
+   * Things that may come and go during the match (`life.ts: Actor.blink`):
+   * dark windows that someone may light, and neon that may catch. Recorded as
+   * they are built; the render picks a few it can see (`render.ts`).
+   */
+  readonly blinkers: Blinker[] = []
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
   /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
@@ -580,6 +586,14 @@ export class Kit {
     this.haloAlphas.push(alpha)
   }
 
+  /**
+   * A lit neon tube that may catch and stutter during the match: the builder
+   * says where it hangs (a box, bottom at `y`), the render may pick it.
+   */
+  flicker(x: number, y: number, z: number, w: number, h: number, d: number, dark: Hex) {
+    if (this.lightPools && this.rig.lampsOn) this.blinkers.push({ kind: 'neon', x, y, z, w, h, d, color: dark })
+  }
+
   /** Light lying on the ground at `(x, z)`, `r` tiles across: the ground's colour lit, not painted over (`pools.ts`). */
   pool(x: number, z: number, r: number, color: Hex, k: number) {
     if (!this.lightPools || !this.rig.lampsOn) return
@@ -640,6 +654,8 @@ export class Kit {
    */
   window(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', color = WINDOW_GLOW, o: { frame?: Hex; sill?: boolean; rot?: number } = {}) {
     const lit = this.rng.chance(this.rig.windowsLit)
+    // A dark window after dark is one somebody may come home to.
+    if (!lit && this.lightPools && this.rig.lampsOn) this.blinkers.push({ kind: 'window', x, y, z, w, h, facing, rot: o.rot ?? 0, color })
     const frame = o.frame ?? 0xf4efe6
     const pane = lit ? color : WINDOW_DARK
     const fw = w + 0.16
@@ -1349,6 +1365,11 @@ function recolored(src: Float32Array, fn: (r: number, g: number, b: number) => [
   }
   return out
 }
+
+/** A thing that may come and go (`Kit.blinkers`). */
+export type Blinker =
+  | { kind: 'window'; x: number; y: number; z: number; w: number; h: number; facing: 'x' | 'z'; rot: number; color: Hex }
+  | { kind: 'neon'; x: number; y: number; z: number; w: number; h: number; d: number; color: Hex }
 
 interface Sheet {
   pos: number[]

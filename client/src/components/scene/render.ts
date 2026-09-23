@@ -47,8 +47,9 @@ import { lightRig, mix } from './sky'
 import { seededRng } from './rng'
 import { Kit, type Anchor } from './kit'
 import { BUILDERS, KITS, PLACED } from './maps'
-import { DEFAULT_BODY, PITCH_COS, PITCH_SIN, TILES_ACROSS, lengthInside, occluded, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
+import { DEFAULT_BODY, PITCH_COS, PITCH_SIN, TILES_ACROSS, lengthInside, occluded, pointHidden, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
 import { at } from './maps/common'
+import { blinkActors } from './maps/actors'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
 import { floatTargets, makeSpriteGrader, renderWithPost, type SpriteGrader } from './post'
@@ -463,6 +464,9 @@ export async function renderScene(
     const seen = (pt: ScreenPt) => Math.abs(pt[0]) < vw / 2 && Math.abs(pt[1]) < vh / 2 && !(Math.abs(pt[0] - ax) < a * 0.55 && pt[1] < ay - b + 1)
     const worth = (actor: Actor) => lengthInside(actor, (pt) => seen(pt) && (actor.flying === true || !occluded(depth, pt, actor.body ?? DEFAULT_BODY)))
     const actors = selectActors(candidates, standable, worth)
+    // And what comes and goes: a few dark windows lit for a while, a neon tube
+    // catching — only where the camera can see the thing itself.
+    actors.push(...blinkActors(kit, (pt, up, w) => seen(pt) && !pointHidden(depth, pt, up, w), seededRng(`${key}:blink`)))
     dispose(group)
     lights.dispose()
     await report(RENDER_STEPS.placed)

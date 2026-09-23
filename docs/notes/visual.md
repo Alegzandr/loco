@@ -1431,6 +1431,20 @@ room already obeyed, extended to something that used to be flat.
   it. Its colour is the hour's horizon lifted a little. A clear dawn has it, a cloudy dawn a little,
   a fog at every hour; a clear noon never, where it would be haze over a room that has a vignette
   and a focus band already. It is a finishing pass, so `light` has none.
+- **The evening goes on behind the table** (`Actor.blink`, `maps/actors.ts: blinkActors`,
+  `Kit.blinkers`, `Kit.flicker`, `life.ts: pointHidden`, `sceneBlink.test.ts`). After dark the kit
+  records every dark window it builds, and a builder may name a neon tube that can catch
+  (`k.flicker`, neon's signs); the render then picks at most `BLINK_WINDOWS` (4) windows and
+  `BLINK_NEON` (2) tubes **the camera can actually see** — outside the hand and the table, and not
+  behind anything nearer (`pointHidden` reads the same depth map the routes do) — seeded on the room
+  so every seat has the same street. Each is a sprite that stays put and **blinks**: one opacity
+  animation on `.face`, a window lit for a third to a half of a cycle of 45 to 110 seconds with a
+  fade either side, a tube going dark for a second or three with a stutter, every 18 to 40 seconds.
+  Slow on purpose: nobody watching the cards sees it happen, they only find the street is not the
+  one it was. **A blink rests at nothing**, so reduced motion shows the room as it was rendered.
+  The sprite pane is **toned down and warmed** (`0.42` of a warm mix): at the glow's full strength
+  it went through the sprite's tone curve with no bloom round it and came out white beside its warm
+  neighbours. Four windows at most is noise against `WINDOWS_LIT_MAX`.
 - **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`,
   `rig.grade`, `rig.shadowSoftness`). On top of the hour and the sky a room may pull the sun and the
   sky light towards its own colours, scale the sky light, harden the shadow and set its own split

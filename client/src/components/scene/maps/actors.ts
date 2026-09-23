@@ -24,7 +24,8 @@
  * route decides how long that takes. Sprites written with a duration crossed
  * the plaza at a run.
  */
-import type { Kit } from '../kit'
+import type { Blinker, Kit } from '../kit'
+import type { Rng } from '../rng'
 import type { Actor, ScreenPt } from '../life'
 import { CAR_BODY, PERSON_BODY } from '../life'
 import type { Hex } from '../sky'
@@ -383,3 +384,74 @@ export function over(x: number, z: number, y: number): ScreenPt {
 }
 
 export { at }
+
+// ─── What comes and goes ─────────────────────────────────────────────────────
+
+/** How many dark windows are lit and put out during a match, and how many neon tubes catch. */
+export const BLINK_WINDOWS = 4
+export const BLINK_NEON = 2
+
+/**
+ * A few of the room's dark windows lit for a while and put out again, and a
+ * neon tube or two stuttering off and back on: the evening going on behind the
+ * table, slowly enough that nobody watching the cards notices it happen, only
+ * that the street is not the one it was ten minutes ago. Chosen from what the
+ * kit recorded (`Kit.blinkers`) among what the camera can actually see
+ * (`visible`, from the render's depth), seeded on the room so every seat has
+ * the same street. Each is a sprite that stays put and blinks
+ * (`Actor.blink`); under reduced motion none is shown, which is the room as
+ * it was rendered.
+ */
+export function blinkActors(k: Kit, visible: (pt: ScreenPt, up: number, w: number) => boolean, rng: Rng): Actor[] {
+  const out: Actor[] = []
+  const windows = k.blinkers.filter((b) => b.kind === 'window')
+  const neon = k.blinkers.filter((b) => b.kind === 'neon')
+  const take = <T extends Blinker>(list: T[], n: number, ok: (b: T) => boolean): T[] => {
+    const pool = [...list]
+    const picked: T[] = []
+    while (pool.length && picked.length < n) {
+      const b = pool.splice(rng.int(0, pool.length - 1), 1)[0]
+      if (ok(b)) picked.push(b)
+    }
+    return picked
+  }
+  for (const [i, b] of take(windows, BLINK_WINDOWS, (b) => visible(screenOf(b.x, b.z), b.y + b.h / 2, b.w)).entries()) {
+    if (b.kind !== 'window') continue
+    const period = rng.range(45_000, 110_000)
+    const from = rng.range(0, 0.5)
+    out.push({
+      id: `blink-window-${i}`,
+      flying: true,
+      minLen: 0,
+      path: [screenOf(b.x, b.z)],
+      duration: period,
+      delay: rng.range(0, period),
+      blink: { period, on: [from, Math.min(0.97, from + rng.range(0.3, 0.5))], fade: 900 },
+      build: (kk) => {
+        const [nx, nz] = b.facing === 'z' ? [Math.sin(b.rot), Math.cos(b.rot)] : [Math.cos(b.rot), -Math.sin(b.rot)]
+        const [w, d] = b.facing === 'z' ? [b.w, 0.04] : [0.04, b.w]
+        // Toned down: the room's lit windows take the bloom, a sprite does not,
+        // and at the glow's full strength this pane clipped to white beside
+        // its warm neighbours.
+        kk.box(nx * 0.05, b.y, nz * 0.05, w, b.h, d, scale(mix(b.color, 0xffa640, 0.55), 0.42), { rot: b.rot, glow: true, outline: false, cap: false })
+      },
+    })
+  }
+  for (const [i, b] of take(neon, BLINK_NEON, (b) => visible(screenOf(b.x, b.z), b.y + b.h / 2, 0.3)).entries()) {
+    if (b.kind !== 'neon') continue
+    const period = rng.range(18_000, 40_000)
+    const from = rng.range(0.2, 0.8)
+    out.push({
+      id: `blink-neon-${i}`,
+      flying: true,
+      minLen: 0,
+      path: [screenOf(b.x, b.z)],
+      duration: period,
+      delay: rng.range(0, period),
+      // The layer is the tube *out*: it shows the dark tube over the lit one.
+      blink: { period, on: [from, Math.min(0.98, from + rng.range(1200, 3200) / period)], flicker: true },
+      build: (kk) => kk.box(0, b.y - 0.02, 0, b.w + 0.06, b.h + 0.04, b.d + 0.06, b.color, { outline: false, cap: false }),
+    })
+  }
+  return out
+}

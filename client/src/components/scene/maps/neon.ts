@@ -80,6 +80,7 @@ export const neon: Builder = (k) => {
       const nc = rng.pick(neonColors)
       k.box(x, h, z, w * 0.7, 0.12, 0.12, 0x2a2a35, { cap: false })
       k.box(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, on ? nc : unlit(nc), { glow: on, cap: false })
+      k.flicker(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, unlit(nc))
     }
     if (rng.chance(0.12)) {
       const mh = rng.range(2, 5)
@@ -96,6 +97,7 @@ export const neon: Builder = (k) => {
     const nc = rng.pick(neonColors)
     k.box(x, 1.5, z, 0.5, h, 0.3, NIGHT_DEEP)
     k.box(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
+    k.flicker(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, unlit(nc))
   }
 
   /** A pocket park on an unbuilt block: a lawn, a few trees, a bench. */
