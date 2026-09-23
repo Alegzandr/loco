@@ -1209,6 +1209,12 @@ builder wrote.
   mirrored sprite runs level** (`sceneFacing.test.ts`, 30° on the ground at most, which the ferry
   following the shore stays inside): it is drawn side-on facing screen-right, and sent up a
   diagonal the rover slid along it crabwise, facing thirty degrees off the way it went.
+- **A route the render always drops is dead code, and it fails a test now** (`sceneFacing.test.ts`,
+  "a lone actor"). Sakura's cat was never on screen: every route it was given crossed a block
+  `cityGrid` had claimed, so `trimRoute` found nothing standable and the candidate was dropped
+  without a word. The test builds each room against a 1920×1080 board's anchor and frame and
+  requires every actor outside a `pick` group to keep some of its route; the cat walks the paving
+  above the table now, where the ground is free and nothing stands in front of it.
 - **And "walking backwards" came back once from a model, not a route**: the astronauts face -z
   where every other person faces +z, so orbit's passer-by walked backwards on a correct `heading`.
   The half turn is in the kit (`ASTRONAUT_MODEL_YAW`), not in the builder, and `kitModels.test.ts`

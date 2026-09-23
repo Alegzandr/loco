@@ -255,7 +255,7 @@ export const sakura: Builder = (k) => {
   life.push({
     id: 'cat',
     // Level across the frame, like the rover: drawn side-on, mirrored back.
-    path: [[sx + a + 1, sy - 4.5], [sx + a + 11, sy - 4.5]],
+    path: [[sx + a - 3, sy + 10], [sx + a + 7, sy + 10]],
     duration: 22_000,
     motion: 'bounce',
     turn: true,

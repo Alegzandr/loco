@@ -1097,7 +1097,9 @@ stated at the top of `styles/tokens.css`:
     a pavement with a `heading`; `strollers` and `pacers` are gone and stay gone — a mirrored
     diagonal sprite walked sideways up the frame and backwards at every turn. **A mirrored sprite
     (`turn`) runs level across the frame** (`sceneFacing.test.ts`): it is drawn side-on, and sent up
-    a diagonal the rover slid along it crabwise.
+    a diagonal the rover slid along it crabwise. **A lone actor has ground to stand on in a 16:9
+    frame** (`sceneFacing.test.ts`): sakura's cat was sent three times across a block the grid had
+    claimed, the render dropped it every time, and nobody ever saw it.
   - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
     Go, and its scenes.
