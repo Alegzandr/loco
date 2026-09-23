@@ -26,7 +26,12 @@ function stubOsMotion(reduce: boolean) {
   })
 }
 
-vi.mock('../audio/sfx', () => ({ playSfx: vi.fn(), playVolumeAudition: vi.fn() }))
+vi.mock('../audio/sfx', () => ({
+  playSfx: vi.fn(),
+  playVolumeAudition: vi.fn(),
+  scheduleSwell: vi.fn(),
+  setTonalitySource: vi.fn(),
+}))
 
 function player(index: number, nickname: string): PlayerDTO {
   return { index, nickname, hand_size: 0, connected: true }

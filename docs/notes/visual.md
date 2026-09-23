@@ -261,6 +261,19 @@ slide the felt under the seats). When they disagreed, trails flew to empty space
 - `--slot-w-mid` (172px) is therefore sized for the **French** label; the columns must not resize
   when a player switches language mid-match.
 
+### The turn pill draws when it says "Draw" (`TurnIndicator.svelte`)
+
+The pill above the hand is a label in every state but one. On our turn with a stack pending it
+reads "Draw 2" (or "Draw 4", or "... or counter!"), in an orange gradient, with the ink outline and
+the hard shadow every raised object wears, pulsing: by the game's own conventions — a button is the
+verb about to happen, a raised object is a control — it *is* a button. A player pressed it and
+nothing happened, which is the one lie a board cannot afford. So in that state it is rendered as a
+`<button>` wired to the same `onDraw` as the action bar's penalty draw, acting on the press
+(`pressToAct`), with `.hit-target` for the 44px floor; its pressed state flattens the shadow and
+never touches the transform, which the fly transition owns. The alternative — take the outline and
+shadow off so it reads as text — was rejected: it is the most urgent thing on the board for its
+duration and has to stay the loudest object there. `turnIndicator.test.ts`.
+
 ## Mobile
 - Seats resize and wrap automatically (see "Seat layout"); nothing about the table is hard-coded to
   desktop. Verify with `make visual ARGS="--viewports=mobile"`.
@@ -1014,8 +1027,9 @@ and each is the kit's, not a builder's:
 ### The models (`scene/models/`, `scene/placer.ts`, `tools/models/pack.mjs`)
 The blocks were the limit. A house of ten boxes is a box, and the reference the rooms are judged
 against is drawn by artists; so the props are drawn models now — Kenney's city, suburban, roads,
-nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces (a temple and
-a torii, packed but not placed today: sakura's shrine and gate are still blocks),
+nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces (a torii,
+sakura's gate since the pass of 2026-09-23, and a temple, packed but not placed: the pagoda the
+village is built around is still blocks, and fetched by no room),
 all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is what imports them.
 - **The manifest is the allowlist** (`models/manifest.json`): per kit, the unpacked archive it
   comes from, the folder holding its GLBs, the scale that turns its units into tiles (a Kenney
@@ -1055,8 +1069,9 @@ all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is
   on the moon walked backwards. An audit once read a 1× sprite of a townsperson the wrong way round
   and turned them all, which sent every street walking backwards; a render at four times the
   density settled it. `kitModels.test.ts` pins both conventions), `k.car` (Kenney's
-  drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; the cherry stays a
-  block, no kit has a pink crown), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
+  drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; **the cherry is a drawn tree in blossom**:
+  its green turned to one of three pinks by `blossom`, through `ModelOptions.recolor`, the trunk
+  left alone and each leaf's shading kept), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
   never names three.js, a file or a format; the same builder builds a room of blocks when the kits
   are not loaded, which is what a model that failed to fetch degrades to.
 - **Nothing stands inside anything else** (`placer.ts`, `placer.test.ts`). Every `k.model` claims
@@ -1345,6 +1360,109 @@ the tokens' near-black table, which is what a lobby's felt and an unknown map id
   page, the scene list in `scenes.ts` — and the test pins the two; a room with no still falls back
   to its sky and fails the test rather than the build. Re-shoot after touching a builder, the kit,
   the rig or the passes: nothing checks that the stills still match the render.
+
+### What shines and what reflects (the pass of 2026-09-23)
+The quiet pass took things out; this one gives what is left a surface. Every rule below is one the
+room already obeyed, extended to something that used to be flat.
+- **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`, a vertex
+  attribute like the colour; `kit.ts: litMaterial`; `sceneGloss.test.ts`). The room is still one lit
+  material: its roughness is mixed from `LOOK.material.roughness` towards `glossRoughness` by the
+  vertex's gloss, and it mirrors the sky (`lighting.ts: skyEnvironment`, the rig's own gradient over
+  the ground's bounce, filtered once by `PMREMGenerator`). **Only the reflection is taken from that
+  sky**: its irradiance is dropped (the hemisphere already is the sky's light) and its radiance is
+  weighted by the gloss, by editing three's `lights_fragment_maps` — so a block at gloss 0 comes out
+  pixel for pixel as it did, and the test pins the two lines of three it edits. Glossy: dark window
+  glass (`glassGloss`), a car's paint and the space kit's hulls (`paintGloss`, per kit:
+  `GLOSSY_KITS`), and **every slab under rain** (`wetGloss`, through `Kit.wetGloss()`). **The wet
+  street is a sheen, not a mirror**: at `envIntensity` 2.4 and a wet gloss of 0.72 the whole plaza
+  took the sky's grey and lost the colour of its paving, which is what a uniform reflection of a
+  bright sky does to an orthographic frame where every square of ground faces the camera the same
+  way. At 1.0 and 0.55 the paving keeps its colours under a cool glaze; what makes a wet street read
+  as wet after dark is the lights in it, below. A GPU with no float target gets no environment
+  (`floatOk`), and its glossy surfaces are only shinier under the sun.
+- **The water mirrors the room, and so does a wet street** (`scene/mirror.ts`, `BlockOptions.water`,
+  `sceneGloss.test.ts`). Under an orthographic camera a planar reflection is exact: the room rendered
+  once more with the world flipped (`scene.scale.y = -1`) from the same camera *is* its reflection in
+  the plane `y = 0`, pixel for pixel, and a surface reads it at its own `gl_FragCoord`. A surface at
+  another height reads it shifted by `2 · p · cos(pitch)` of the frame (`uLevelUv` times the
+  fragment's own height), which is what lets the harbour's sea, seven tenths of a tile under the
+  quay, and a puddle on the paving share one pass. Everything under the lowest water
+  (`Kit.waterLevel`) is clipped out of it. The pass runs at half the frame, only where the tier
+  says (`QUALITY[tier].reflections`: not on `light`) and only where the room has water or a wet
+  street (`Kit.reflective`), and a GPU that refuses its target keeps the sky in its water. Four
+  things went wrong on the way and each is now a rule:
+  - **The sky only tints the water** (`LOOK.water.sky`, 0.12), **the room stands in it at the
+    weight of a reflection** (`reflect`). Mixed at the weight of a mirror, a noon sky turned the
+    harbour into a pale grey sheet; the sea is blue because it is the sea's colour first.
+  - **In the mirror pass a face turned up is discarded** (`uMirrorPass`): flipped, it is a face that
+    looked at the ground, the underside of a slab, which no reflection shows.
+  - **The halos sit the mirror pass out**: flat discs of light whose undersides, flipped, laid a
+    pale band over every wet plaza. What glows stays in, so a lamp is a lamp in the water.
+  - **What is wet is the whole ground, not the tiles on it**: the podium's floor oval and the
+    harbour's lawn take `Kit.wetGloss()` too, or the reflection of the podium's lit ring came out
+    cut into the paving's diamonds and read as shards of glass.
+  A wet street's reflection is **smeared down the frame and a little across, jittered per pixel**
+  (`streak`), so a row of lit windows is a glow of their colour and not a second row of windows;
+  **a puddle is the wettest of the wet street** (gloss 1, not water) for the same reason. The water
+  itself takes a swell (`waveSlope`, a few crossed cosines): its normal is tilted, which gives the
+  sun's glints and breaks the reflection (`ripple`). A river's bank has a broken line of foam,
+  drawn **from its own seeded sequence** (`foam:x:z`) so that no house in the room moved when the
+  river gained it. Sprites reflect nothing: a boat's reflection would be a second sprite.
+- **A lamp lights the ground; it does not paint a disc on it** (`scene/pools.ts`, `Kit.pool`,
+  `scenePools.test.ts`). A lamp-sized halo on the ground (`Kit.halo`, flat, radius up to
+  `LOOK.pools.washFrom`) is a pool now: every pool is splatted once, on the CPU, into a map of the
+  ground seen from above (`splatPools`, `(1 − d²/r²)²`, bytes over `POOL_RANGE`), and the lit
+  material reads it at the fragment's world `x, z` and **multiplies it into the fragment's own
+  colour** (`POOLS_OUT`), full up to `lift` above the ground and fading above it — so the flagstones
+  come up warm under a lamp, a wall catches it at its foot, and a roof never does. A lit window at
+  street level spills a small pool on the pavement in front of it, and a lit model house one round
+  itself (`windowSpill`). Hundreds of point lights would do the same and cost a forward renderer its
+  life. Two things stay discs, on purpose: **a halo the size of the plaza is the room's colour
+  washed over the paving, not a lamp** (neon's purple ring): as light it either lit the square
+  like a stage or, weakened, vanished — and **a sprite keeps its disc** (`lightPools` is a room
+  kit's only), since a car carries its headlights on its own bitmap. `strength: 0` is the old
+  discs, for comparing. A pool is weighed by the hour's `dark` (a third at noon's end of it): a lamp
+  at dawn is a warmth on the paving, not the spotlight it is at midnight.
+- **Mist lies in the low ground at a dawn and in a fog** (`post.ts: mistFor`, the composite's
+  `worldAt`, `LOOK.mist`, `sceneMist.test.ts`). Under an orthographic camera the depth is linear,
+  so the composite rebuilds each pixel's world position exactly and lays the mist by its height
+  (`exp(−y / height)`), broken into banks by a noise on the ground and thicker towards the top of the
+  frame, which is the far streets: the podium and the houses stand out of it, the paving sinks into
+  it. Its colour is the hour's horizon lifted a little. A clear dawn has it, a cloudy dawn a little,
+  a fog at every hour; a clear noon never, where it would be haze over a room that has a vignette
+  and a focus band already. It is a finishing pass, so `light` has none.
+- **The evening goes on behind the table** (`Actor.blink`, `maps/actors.ts: blinkActors`,
+  `Kit.blinkers`, `Kit.flicker`, `life.ts: pointHidden`, `sceneBlink.test.ts`). After dark the kit
+  records every dark window it builds, and a builder may name a neon tube that can catch
+  (`k.flicker`, neon's signs); the render then picks at most `BLINK_WINDOWS` (4) windows and
+  `BLINK_NEON` (2) tubes **the camera can actually see** — outside the hand and the table, and not
+  behind anything nearer (`pointHidden` reads the same depth map the routes do) — seeded on the room
+  so every seat has the same street. Each is a sprite that stays put and **blinks**: one opacity
+  animation on `.face`, a window lit for a third to a half of a cycle of 45 to 110 seconds with a
+  fade either side, a tube going dark for a second or three with a stutter, every 18 to 40 seconds.
+  Slow on purpose: nobody watching the cards sees it happen, they only find the street is not the
+  one it was. **A blink rests at nothing**, so reduced motion shows the room as it was rendered.
+  The sprite pane is **toned down and warmed** (`0.42` of a warm mix): at the glow's full strength
+  it went through the sprite's tone curve with no bloom round it and came out white beside its warm
+  neighbours. Four windows at most is noise against `WINDOWS_LIT_MAX`.
+- **The weather leaves marks** (`sceneWeatherMarks.test.ts`). **Rain lands in rings**: two drawn
+  tiles of small rings flattened by the pitch (`splashRings`, `SPLASH_S`), sheets that do not
+  travel but come and go in place on two different periods, two on `high`, one on `medium`, none
+  on `light`. They rest at nothing, so reduced motion keeps the rain and loses them. **Snow banks
+  against the foot of every wall** on the two faces the camera sees (`DRIFT_H`, `DRIFT_D`, in
+  `Kit.box`), and **a road keeps two ruts a lane and, now and then, a trail of footprints along a
+  pavement** (`Kit.snowTracks`), drawn from a sequence of their own seeded where the road lies —
+  a snowy room is the same room as a dry one, and the test checks the room's sequence is where it
+  was.
+- **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`,
+  `rig.grade`, `rig.shadowSoftness`). On top of the hour and the sky a room may pull the sun and the
+  sky light towards its own colours, scale the sky light, harden the shadow and set its own split
+  tones and saturation: the moon has little sky light, a hard shadow, a white sun and the Earth's
+  blue in the shade; neon's shade is indigo and its light pink; the hotel is brass; the harbour is
+  teal in the shade and sand in the light; the village a gold a little older than the day's; the
+  cherry trees push a pink into the highlights. **None of it may undo the warm/cool split**, which
+  `sceneLighting.test.ts` now runs per room as well as per hour. The CSS table and the rooms page
+  read the same rig, so the table's sheen takes the room's light too.
 
 ### Reviewing a room
 Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the

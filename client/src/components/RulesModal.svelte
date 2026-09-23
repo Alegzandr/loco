@@ -1,6 +1,7 @@
 <script lang="ts">
   import { i18n } from '../i18n/i18n.svelte'
   import { escapeKey } from '../hooks/escapeKey.svelte'
+  import { muffleBedWhile } from '../hooks/bedMuffle.svelte'
   import Card from './cards/Card.svelte'
   import { CARD_CATALOGUE } from './cardCatalogue'
 
@@ -49,6 +50,8 @@
   }
 
   escapeKey(() => true, () => onClose())
+  // Mounted only while open: the music goes to the next room for the reading.
+  muffleBedWhile(() => true)
 
   // The board behind this is a fixed coordinate space and the modal has its own
   // scroller; letting the document scroll under it moves the table out from

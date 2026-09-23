@@ -28,7 +28,7 @@ export const KITS: Record<MapId, readonly KitName[]> = {
   neon: ['roads', 'cars', 'people', 'nature'],
   velvet: ['roads', 'cars', 'people', 'nature'],
   rune: ['nature', 'people'],
-  sakura: ['nature', 'people'],
+  sakura: ['nature', 'people', 'quaternius'],
   orbit: ['space'],
 }
 
@@ -44,6 +44,7 @@ export const PLACED: ReadonlySet<string> = new Set([
   ...TOWNSFOLK.map((w) => `people/character-${w}`),
   ...HOUSES.map((c) => `suburb/building-type-${c}`),
   'space/astronautA', 'space/astronautB',
+  'quaternius/torii',
   'city/detail-parasol-a', 'city/detail-parasol-b',
   'roads/light-curved', 'roads/light-curved-double',
   'cars/sedan', 'cars/sedan-sports', 'cars/hatchback-sports', 'cars/suv', 'cars/suv-luxury', 'cars/van', 'cars/taxi', 'cars/delivery', 'cars/truck',

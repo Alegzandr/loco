@@ -42,13 +42,13 @@ export const marina: Builder = (k) => {
   const QUAY = sy + b + 4
 
   const sea = k.rig.wet ? mix(SEA, 0x1a3550, 0.4) : SEA
-  k.box(0, -1.7, 0, FLOOR, 1, FLOOR, sea, { outline: false, cap: false })
+  k.box(0, -1.7, 0, FLOOR, 1, FLOOR, sea, { outline: false, cap: false, water: true })
   {
     const L = 170
     const [cx, cz] = at(0, QUAY - (L / 2) * 0.53)
     k.box(cx, -0.7, cz, L, 0.7, L, 0x6b6660, { rot: Math.PI / 4, outline: true, cap: false })
     // Grass, not stone: the town stands on lawns, and the paving is the plaza's.
-    k.box(cx, 0, cz, L, 0.06, L, k.ground(0x7cc36a), { rot: Math.PI / 4, outline: false, cap: false })
+    k.box(cx, 0, cz, L, 0.06, L, k.ground(0x7cc36a), { rot: Math.PI / 4, outline: false, cap: false, gloss: k.wetGloss() })
   }
   const plaza = podium(k, { stone: 0x6e5232, step: DECK2, floor: DECK, floor2: DECK2, accent: 0xffd166, top: cssHex(MAPS.marina.table.felt) })
   // The steps and the drum are ground nothing is placed on; the paving round

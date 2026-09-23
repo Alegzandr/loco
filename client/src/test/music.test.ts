@@ -1,9 +1,20 @@
 import { existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { handoverFor, KEY_NAMES } from '../audio/harmony'
 import {
   barSeconds,
   CROSSFADE_S,
+  CUT_TAIL_MAX_S,
+  CUT_TAIL_MIN_S,
+  cutTailFor,
+  entryOffset,
+  PHRASE_BARS,
+  PHRASE_WAIT_MAX_S,
+  planSectionChange,
+  SWELL_S,
+  untilFallLands,
+  untilNextPhrase,
   fadeFor,
   FALL_FADE_S,
   FAMILIES,
@@ -89,6 +100,23 @@ describe('the loop registry', () => {
         const bars = (loop.seconds * loop.bpm) / 240
         expect(Math.abs(bars - Math.round(bars)), `${loop.id}: ${bars} bars`).toBeLessThan(0.02)
         expect(barSeconds(loop)).toBeCloseTo(240 / loop.bpm, 9)
+      })
+
+      it('is in a key the harmony can read', () => {
+        expect(KEY_NAMES, loop.id).toContain(loop.key)
+      })
+
+      it('enters a rise on a phrase line inside the loop', () => {
+        // A rise that entered past the end would start on silence after the
+        // wrap; one off the phrase grid would enter mid-phrase, which is the
+        // defect the entry exists to remove.
+        const bars = Math.round((loop.seconds * loop.bpm) / 240)
+        const entry = loop.entryBar ?? 0
+        expect(Number.isInteger(entry), loop.id).toBe(true)
+        expect(entry % PHRASE_BARS, loop.id).toBe(0)
+        expect(entry, loop.id).toBeGreaterThanOrEqual(0)
+        expect(entry, loop.id).toBeLessThan(bars)
+        expect(entryOffset(loop)).toBeCloseTo(entry * barSeconds(loop), 9)
       })
 
       it('belongs to one of the families', () => {
@@ -291,6 +319,71 @@ describe('where a change lands', () => {
   })
 })
 
+describe('phrases, entries and the shape of a change', () => {
+  it('lands on the next phrase line, or the wrap when that comes first', () => {
+    // 2 s bars, 8 s phrases, a 14-bar (28 s) loop like On the Run.
+    expect(untilNextPhrase(1, 2, 28)).toBeCloseTo(7, 9)
+    expect(untilNextPhrase(9, 2, 28)).toBeCloseTo(7, 9)
+    // Past the last whole phrase, the wrap is the line.
+    expect(untilNextPhrase(25, 2, 28)).toBeCloseTo(3, 9)
+    // The grid is the lap's, so a second lap starts it again.
+    expect(untilNextPhrase(29, 2, 28)).toBeCloseTo(7, 9)
+    // Never inside the lead.
+    expect(untilNextPhrase(8 - 0.05, 2, 28, 0.5)).toBeCloseTo(8.05, 9)
+    // A voice scheduled ahead: its own start is its first line.
+    expect(untilNextPhrase(-1, 2, 28)).toBeCloseTo(1, 9)
+    expect(untilNextPhrase(3, 0, 28)).toBe(0)
+  })
+
+  it('lets a fall finish its phrase only when the phrase is near', () => {
+    // Near: the phrase line.
+    expect(untilFallLands(5, 2, 28)).toBeCloseTo(3, 9)
+    // Far (a slow loop, early in a phrase): the bar line instead.
+    const bar = 240 / 70
+    const wait = untilFallLands(0.5, bar, bar * 16)
+    expect(wait).toBeLessThanOrEqual(bar)
+    expect(PHRASE_WAIT_MAX_S).toBeLessThan(SECTION_RELEASE_MS / 1000)
+  })
+
+  it('closes a cut over the last two beats, bounded both ways', () => {
+    for (const loop of LOOPS) {
+      const tail = cutTailFor(loop)
+      expect(tail).toBeGreaterThanOrEqual(CUT_TAIL_MIN_S)
+      expect(tail).toBeLessThanOrEqual(CUT_TAIL_MAX_S)
+    }
+    expect(CUT_TAIL_MAX_S).toBeLessThanOrEqual(HANDOVER_LOOKAHEAD_S)
+  })
+
+  it('plans a rise, a fall and a cut the way each of them is meant to sound', () => {
+    const get = (id: string) => LOOPS.find((l) => l.id === id)!
+    // A blend into the drop: on the bar, air in front, entered on its phrase.
+    const rise = planSectionChange(get('clockwork'), get('neck-and-neck'), 'groove', 'drop')
+    expect(rise.handover).toBe('blend')
+    expect(rise.align).toBe('bar')
+    expect(rise.swell).toBe(SWELL_S)
+    expect(rise.fade).toBe(RISE_FADE_S)
+    expect(rise.lead).toBeGreaterThanOrEqual(SWELL_S)
+    expect(rise.offset).toBe(entryOffset(get('neck-and-neck')))
+    // A cut into the drop: the tail and the air both fit before the downbeat,
+    // and Runaway is entered past its four-bar intro.
+    const cut = planSectionChange(get('clockwork'), get('runaway'), 'groove', 'drop')
+    expect(cut.handover).toBe('cut')
+    expect(cut.tail).toBe(cutTailFor(get('clockwork')))
+    expect(cut.lead).toBeGreaterThanOrEqual(cut.tail)
+    expect(cut.lead).toBeGreaterThanOrEqual(cut.swell)
+    expect(cut.offset).toBeGreaterThan(0)
+    // A fall waits for the phrase, starts at the top and carries no air
+    // unless it is a cut.
+    const fall = planSectionChange(get('neck-and-neck'), get('clockwork'), 'drop', 'groove')
+    expect(fall.align).toBe('phrase')
+    expect(fall.offset).toBe(0)
+    expect(fall.swell).toBe(0)
+    expect(fall.fade).toBe(FALL_FADE_S)
+    // The breakdown is the round ending: a stop, answered on the bar.
+    expect(planSectionChange(get('neck-and-neck'), get('nightcap'), 'drop', 'breakdown').align).toBe('bar')
+  })
+})
+
 describe('a hidden tab', () => {
   it('resumes the loop where it was, on the same lap', () => {
     // Every alt-tab used to draw another loop: the return went through
@@ -443,6 +536,51 @@ describe('choosing the next loop', () => {
       seen.add(pick.id)
     }
     expect(seen.size).toBe(all.length)
+  })
+
+  it('takes the nearest piece left in the bag, and one it can blend with before any other', () => {
+    // From Clockwork (G minor, 85) the night's drop holds Neck and Neck (F
+    // minor, 85) and Runaway (C minor, 90). Runaway is the nearer key but six
+    // percent off; Neck and Neck can be overlapped, so it comes first.
+    for (let seed = 1; seed < 30; seed++) {
+      const pick = nextLoopId('drop', 'clockwork', [], seeded(seed), 'night')
+      expect(pick.id, `seed ${seed}`).toBe('neck-and-neck')
+      expect(pick.bag).toEqual(['runaway'])
+    }
+  })
+
+  it('never goes back to the loop it just left while the bag holds another', () => {
+    // Clockwork and Neck and Neck blend with each other and with nothing else
+    // in the night's groove, so ranking alone alternates them across every
+    // refill of the bag. The one before the current loop is skipped instead.
+    for (let seed = 1; seed < 30; seed++) {
+      const bag = shuffledOrder(['sidetrack', 'mirage', 'clockwork', 'neck-and-neck'], 'neck-and-neck', seeded(seed))
+      const pick = nextLoopId('groove', 'neck-and-neck', bag, seeded(seed), 'night', 'clockwork')
+      expect(pick.id, `seed ${seed}`).not.toBe('clockwork')
+      expect(pick.bag).toContain('clockwork')
+    }
+    // With nothing else left, going back beats going silent.
+    expect(nextLoopId('groove', 'neck-and-neck', ['clockwork'], seeded(3), 'night', 'clockwork').id).toBe('clockwork')
+  })
+
+  it('never ranks a loop that must be cut to before one in the bag it could blend with', () => {
+    for (const family of FAMILIES) {
+      for (const section of SECTIONS) {
+        const ids = loopsFor(section, family).map((l) => l.id)
+        for (const current of ids) {
+          const from = LOOPS.find((l) => l.id === current)!
+          for (let seed = 1; seed < 6; seed++) {
+            const bag = shuffledOrder(ids, current, seeded(seed))
+            const pick = nextLoopId(section, current, bag, seeded(seed), family)
+            const to = LOOPS.find((l) => l.id === pick.id)!
+            const couldBlend = bag.some(
+              (id) => id !== current && handoverFor(from, LOOPS.find((l) => l.id === id)!) === 'blend',
+            )
+            if (couldBlend) expect(handoverFor(from, to), `${current} -> ${pick.id}`).toBe('blend')
+          }
+        }
+      }
+    }
   })
 
   it('answers a section carried by one loop instead of going silent', () => {

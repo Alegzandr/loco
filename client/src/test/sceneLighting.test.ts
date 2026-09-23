@@ -27,6 +27,28 @@ describe('the sun and the sky', () => {
     }
   })
 
+  it("keep the warm/cool split in every room too: a room's own light moves the hour, never undoes it", () => {
+    for (const room of Object.keys(LOOK.rooms)) {
+      for (const time of ['dawn', 'day', 'dusk'] as const) {
+        const l = lightingFor(lightRig(time, 'clear', room))
+        expect(warmth(l.sun.color), `${room} ${time}`).toBeGreaterThan(warmth(l.sky.sky))
+        expect(warmth(l.sky.sky), `${room} ${time}`).toBeLessThan(0)
+      }
+      // And the grade still pulls the shade cool and the light warm.
+      const g = lightRig('day', 'clear', room).grade
+      expect(warmth(g.highlightTint), room).toBeGreaterThan(warmth(g.shadowTint))
+    }
+  })
+
+  it("give every room a light of its own, and leave a room with none the look's", () => {
+    const plain = lightRig('day', 'clear')
+    expect(plain.grade.splitStrength).toBe(LOOK.tone.splitStrength)
+    expect(plain.shadowSoftness).toBe(1)
+    const moon = lightRig('day', 'clear', 'orbit')
+    expect(moon.shadowSoftness).toBeLessThan(1)
+    expect(moon.ambient.intensity).toBeLessThan(plain.ambient.intensity)
+  })
+
   it('sit low at dawn and dusk and higher at noon, and never so low the shadow is a street', () => {
     const el = (t: (typeof HOURS)[number]) => lightRig(t, 'clear').sun.elevation
     expect(el('dawn')).toBeLessThan(el('day'))

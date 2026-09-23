@@ -7,7 +7,12 @@ import ScoreTable from '../components/ScoreTable.svelte'
 import AudioSettings from '../components/AudioSettings.svelte'
 import type { LatencyEntryDTO, PlayerDTO, ScoreboardEntryDTO } from '../types/protocol'
 
-vi.mock('../audio/sfx', () => ({ playSfx: vi.fn(), playVolumeAudition: vi.fn() }))
+vi.mock('../audio/sfx', () => ({
+  playSfx: vi.fn(),
+  playVolumeAudition: vi.fn(),
+  scheduleSwell: vi.fn(),
+  setTonalitySource: vi.fn(),
+}))
 
 /**
  * Escape backs out of everything that opened over the board.

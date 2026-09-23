@@ -39,7 +39,7 @@
  * in tiles rather than in pixels, so a phone and a monitor frame the same
  * plaza and the table (drawn in CSS over the centre) lands on the same paving.
  */
-import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PCFShadowMap, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget } from 'three'
+import { Box3, Color, DoubleSide, Fog, Group, Mesh, OrthographicCamera, PCFShadowMap, PlaneGeometry, Scene, ShaderMaterial, ShadowMaterial, SRGBColorSpace, Vector3, WebGLRenderer, WebGLRenderTarget, type Texture } from 'three'
 import type { SceneSpec } from '../cards/maps'
 import { sceneKey } from '../cards/maps'
 import type { FeltAnchor } from '../cards/layout'
@@ -47,12 +47,14 @@ import { lightRig, mix } from './sky'
 import { seededRng } from './rng'
 import { Kit, type Anchor } from './kit'
 import { BUILDERS, KITS, PLACED } from './maps'
-import { DEFAULT_BODY, PITCH_COS, PITCH_SIN, TILES_ACROSS, lengthInside, occluded, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
+import { DEFAULT_BODY, PITCH_COS, PITCH_SIN, TILES_ACROSS, lengthInside, occluded, pointHidden, occlusionVeil, selectActors, type Actor, type DepthMap, type ScreenPt, type Sprite, type Veil } from './life'
 import { at } from './maps/common'
+import { blinkActors } from './maps/actors'
 import { loadModelLib, type ModelLib } from './models/lib'
 import { forceFullRender, renderQuality, type RenderQuality } from './quality'
 import { floatTargets, makeSpriteGrader, renderWithPost, type SpriteGrader } from './post'
-import { configureShadows, frameBox, makeLights, shadowReach, toneMappingFor } from './lighting'
+import { makeMirror, renderReflection } from './mirror'
+import { configureShadows, frameBox, makeLights, shadowReach, skyEnvironment, toneMappingFor } from './lighting'
 import { lightingFor } from './shade'
 import { LOOK } from './look'
 import { resolveGraphics, type GraphicsTier } from '../../hooks/graphicsPref'
@@ -306,7 +308,7 @@ export async function renderScene(
     onProgress?.(p)
     await nextPaint()
   }
-  const rig = lightRig(spec.time, spec.weather)
+  const rig = lightRig(spec.time, spec.weather, spec.map.id)
   const key = sceneKey(spec)
   const ppu = Math.max(size.width, size.height) / TILES_ACROSS
   const q = renderQuality(tier)
@@ -317,6 +319,8 @@ export async function renderScene(
   // `alpha` so the sprites come out on nothing. Multisampling only where the
   // supersampling does not already cover the edges: on the light tier.
   const renderer = new WebGLRenderer({ canvas: gl, antialias: q.msaa, alpha: true, stencil: false, powerPreference: 'high-performance' })
+  let env: Texture | null = null
+  let reflection: WebGLRenderTarget | null = null
   try {
     renderer.setPixelRatio(1)
     renderer.outputColorSpace = SRGBColorSpace
@@ -356,11 +360,16 @@ export async function renderScene(
     const t0 = performance.now()
     const vw = size.width / ppu
     const vh = size.height / ppu
+    // The sky, for what is glossy to mirror (glass, paint, a wet street). A
+    // GPU that cannot filter it into a float target gets none, and its glossy
+    // surfaces are only shinier under the sun.
+    env = floatOk ? skyEnvironment(renderer, rig) : null
     const kit = new Kit({ rig, rng: seededRng(key), outline, anchor: anchorFor(felt, size), frame: { w: vw, h: vh }, models })
     const candidates: Actor[] = BUILDERS[spec.map.id](kit) ?? []
     const t1 = performance.now()
     await report(RENDER_STEPS.built)
-    const group = kit.build()
+    const mirror = makeMirror(rig, { h: vh }, PITCH_COS)
+    const group = kit.build(env, mirror)
     const t2 = performance.now()
     await report(RENDER_STEPS.merged)
     scene.add(group)
@@ -383,6 +392,18 @@ export async function renderScene(
     camera.top = vh / 2
     camera.bottom = -vh / 2
     camera.updateProjectionMatrix()
+    // The reflection: the room mirrored in its water and its wet streets, one
+    // more render of it before the real one, which reads it (`mirror.ts`). A
+    // GPU that refuses the target keeps the sky in its water and nothing else.
+    if (kit.reflective && q.reflections && !software) {
+      try {
+        reflection = renderReflection(renderer, scene, camera, mirror, kit.waterLevel, gw, gh, floatOk)
+      } catch (err) {
+        if (import.meta.env.DEV) console.warn('reflection failed, sky only', err)
+        mirror.uniforms.uReflectOn.value = 0
+      }
+    }
+    mirror.uniforms.uRes.value.set(gw, gh)
     // The photograph. The focus band is the felt, in the render's own pixels;
     // a GPU that refuses a target this size throws inside, and the plain frame
     // is the answer rather than no room.
@@ -443,6 +464,9 @@ export async function renderScene(
     const seen = (pt: ScreenPt) => Math.abs(pt[0]) < vw / 2 && Math.abs(pt[1]) < vh / 2 && !(Math.abs(pt[0] - ax) < a * 0.55 && pt[1] < ay - b + 1)
     const worth = (actor: Actor) => lengthInside(actor, (pt) => seen(pt) && (actor.flying === true || !occluded(depth, pt, actor.body ?? DEFAULT_BODY)))
     const actors = selectActors(candidates, standable, worth)
+    // And what comes and goes: a few dark windows lit for a while, a neon tube
+    // catching — only where the camera can see the thing itself.
+    actors.push(...blinkActors(kit, (pt, up, w) => seen(pt) && !pointHidden(depth, pt, up, w), seededRng(`${key}:blink`)))
     dispose(group)
     lights.dispose()
     await report(RENDER_STEPS.placed)
@@ -475,7 +499,7 @@ export async function renderScene(
       if (i > 0 && i % SPRITES_PER_PAINT === 0) await report(RENDER_STEPS.placed + (1 - RENDER_STEPS.placed) * (i / actors.length))
       const k = new Kit({ rig, rng: seededRng(`${key}:${actor.id}`), outline, anchor: { sx: 0, sy: 0, a: 0, b: 0 }, shadows: !actor.flying, models })
       actor.build(k)
-      const g = k.build()
+      const g = k.build(env)
       const box = new Box3()
       g.traverse((obj) => {
         const mesh = obj as Mesh
@@ -582,6 +606,8 @@ export async function renderScene(
     }
     return { frame, sprites }
   } finally {
+    env?.dispose()
+    reflection?.dispose()
     renderer.dispose()
     renderer.forceContextLoss()
   }

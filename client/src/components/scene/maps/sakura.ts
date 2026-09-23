@@ -24,6 +24,10 @@ const WOOD = 0x4a3323
 const PAPER = 0xf6efe0
 const TILE = 0x334a66
 
+/** The Quaternius gate's own turn and size, against the block one it replaces. */
+const TORII_MODEL_YAW = 0
+const TORII_MODEL_SCALE = 1
+
 export const sakura: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
@@ -149,7 +153,7 @@ export const sakura: Builder = (k) => {
     k.lantern(...at(bathSpot.sx - 4.6, bathSpot.sy - 2.2), 2.6, 0xff5a3c, 0.32)
     const [px, pz] = poolSpot
     k.disc(px, 0, pz, 4.6, 0x8a8f99, { seg: 18 })
-    k.disc(px, 0.12, pz, 4, 0x7fd1e8, { seg: 18 })
+    k.disc(px, 0.12, pz, 4, 0x7fd1e8, { seg: 18, water: true })
     for (let i = 0; i < 14; i++) {
       const t = (i / 14) * Math.PI * 2
       k.rock(px + Math.cos(t) * 4.3, pz + Math.sin(t) * 4.3, rng.range(0.35, 0.65), 0x8a8f99)
@@ -196,15 +200,18 @@ export const sakura: Builder = (k) => {
   {
     const [tx, tz] = at(toriiSpot.sx, toriiSpot.sy)
     const rot = Math.PI / 4
-    for (const s of [-2.4, 2.4]) {
-      const x = tx + s * Math.cos(rot), z = tz - s * Math.sin(rot)
-      k.cyl(x, 0, z, 0.32, 5.6, RED, { seg: 8, cap: false })
-      k.cyl(x, 0, z, 0.38, 0.5, 0x2a2a2a, { seg: 8 })
+    // The drawn gate where the room has it, the blocks where it does not.
+    if (!k.model('quaternius/torii', tx, tz, { rot: rot + TORII_MODEL_YAW, scale: TORII_MODEL_SCALE })) {
+      for (const s of [-2.4, 2.4]) {
+        const x = tx + s * Math.cos(rot), z = tz - s * Math.sin(rot)
+        k.cyl(x, 0, z, 0.32, 5.6, RED, { seg: 8, cap: false })
+        k.cyl(x, 0, z, 0.38, 0.5, 0x2a2a2a, { seg: 8 })
+      }
+      k.box(tx, 4.5, tz, 5.8, 0.35, 0.35, RED, { rot })
+      k.box(tx, 5.4, tz, 7, 0.5, 0.5, RED, { rot })
+      k.box(tx, 5.9, tz, 7.2, 0.18, 0.7, 0x2a2a2a, { rot, outline: false, cap: false })
+      k.box(tx, 4.85, tz, 0.9, 0.55, 0.2, 0x2a2a2a, { rot, outline: false, cap: false })
     }
-    k.box(tx, 4.5, tz, 5.8, 0.35, 0.35, RED, { rot })
-    k.box(tx, 5.4, tz, 7, 0.5, 0.5, RED, { rot })
-    k.box(tx, 5.9, tz, 7.2, 0.18, 0.7, 0x2a2a2a, { rot, outline: false, cap: false })
-    k.box(tx, 4.85, tz, 0.9, 0.55, 0.2, 0x2a2a2a, { rot, outline: false, cap: false })
     k.tree(...at(toriiSpot.sx - 4, toriiSpot.sy + 2), { kind: 'sakura', h: 2, r: 1.4, trunk: 0x3d2a1e })
   }
 

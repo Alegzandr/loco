@@ -109,6 +109,14 @@ export interface Actor {
   puff?: boolean
   /** No shadow on the ground under it: something in the air. */
   flying?: boolean
+  /**
+   * Comes and goes where it stands: an opacity on the inner layer, once per
+   * `period` ms. `on` is the stretch of the cycle it shows, `[from, to]`, with
+   * `fade` ms of fade either side (a window lit and put out); `flicker` is a
+   * stutter at `from` instead (a neon tube catching). Under reduced motion it
+   * is not shown at all, which leaves the room as it was rendered.
+   */
+  blink?: { period: number; on: [number, number]; fade?: number; flicker?: boolean }
 }
 
 export interface Body {
@@ -337,6 +345,56 @@ export interface DepthMap {
  */
 export function depthAt(map: DepthMap, sy: number, up: number): number {
   return map.origin + (sy / PITCH_TAN) * map.perTile - up * PITCH_TAN * map.perTile
+}
+
+/**
+ * True when something the render drew stands in front of a point `up` tiles
+ * above the ground at `pt`, anywhere across `w` tiles of it: what a lit window
+ * on a far tower is when a nearer one stands between it and the camera. Off the
+ * map nothing is known, and a point nobody can see counts as hidden.
+ */
+export function pointHidden(map: DepthMap, pt: ScreenPt, up: number, w = 0.5): boolean {
+  const [px, py] = toPx(pt, map.fw, map.fh, map.ppu)
+  const slack = OCCLUSION_SLACK * PITCH_COS * map.perTile
+  const y = Math.round((py - up * PITCH_COS * map.ppu) / map.scale)
+  if (y < 0 || y >= map.h) return true
+  for (const u of [-w / 2, 0, w / 2]) {
+    const x = Math.round((px + u * map.ppu) / map.scale)
+    if (x < 0 || x >= map.w) return true
+    if (map.data[y * map.w + x] < depthAt(map, pt[1], up) - slack) return true
+  }
+  return false
+}
+
+/** The keyframes of a blink, as offsets and opacities (`Actor.blink`). */
+export function blinkKeyframes(b: NonNullable<Actor['blink']>): { offset: number; opacity: number }[] {
+  const [from, to] = b.on
+  if (b.flicker) {
+    // A stutter over half a second, then the tube holds.
+    const t = 500 / b.period
+    const f = (k: number) => Math.min(1, from + t * k)
+    return [
+      { offset: 0, opacity: 0 },
+      { offset: from, opacity: 0 },
+      { offset: f(0.15), opacity: 1 },
+      { offset: f(0.3), opacity: 0.1 },
+      { offset: f(0.5), opacity: 1 },
+      { offset: f(0.62), opacity: 0.35 },
+      { offset: f(1), opacity: 1 },
+      { offset: Math.max(f(1), to), opacity: 1 },
+      { offset: Math.min(1, Math.max(f(1), to) + t * 0.1), opacity: 0 },
+      { offset: 1, opacity: 0 },
+    ]
+  }
+  const fade = (b.fade ?? 600) / b.period
+  return [
+    { offset: 0, opacity: 0 },
+    { offset: from, opacity: 0 },
+    { offset: Math.min(1, from + fade), opacity: 1 },
+    { offset: Math.max(from + fade, to - fade), opacity: 1 },
+    { offset: Math.max(from + fade, to), opacity: 0 },
+    { offset: 1, opacity: 0 },
+  ]
 }
 
 /** How much nearer, in tiles toward the camera, something has to stand to count as in front. */

@@ -91,7 +91,7 @@ export function lightingFor(rig: LightRig): Lighting {
   const el = rig.sun.elevation
   // A low sun throws a longer shadow, and a longer shadow is a softer one:
   // the penumbra grows with the distance between the caster and the ground.
-  const shadowRadius = LOOK.shadow.radius * (1 + Math.max(0, (35 - el) / 35) * 0.6)
+  const shadowRadius = LOOK.shadow.radius * (1 + Math.max(0, (35 - el) / 35) * 0.6) * rig.shadowSoftness
   const rimK = LOOK.ambient.rim
   return {
     sun: { color: rig.sun.color, intensity: rig.sun.intensity, direction },
@@ -109,6 +109,16 @@ export function lightingFor(rig: LightRig): Lighting {
     shadowStrength: rig.sun.shadow,
     exposure: LOOK.tone.exposure * (1 + rig.dark * LOOK.tone.nightLift),
   }
+}
+
+/**
+ * The sky a glossy surface mirrors, as three colours: the zenith, the horizon
+ * and the ground seen below it. The rig's own gradient — the one painted in
+ * CSS behind the render — so a wet street at dusk holds the dusk, and the
+ * ground's bounce, so what a reflection finds under the horizon is not black.
+ */
+export function skyDome(rig: LightRig): { top: Hex; horizon: Hex; ground: Hex } {
+  return { top: rig.sky.top, horizon: rig.sky.horizon, ground: mix(rig.ambient.ground, rig.sky.horizon, 0.25) }
 }
 
 // ─── Shadows, as shapes ─────────────────────────────────────────────────────

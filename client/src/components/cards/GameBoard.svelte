@@ -224,7 +224,7 @@
   // the root is pinned to the scene's own horizon and a band we never get to
   // draw in still looks like the sky.
   const mapId = $derived(p.scene?.map.id ?? '')
-  const rig = $derived(p.scene ? lightRig(p.scene.time, p.scene.weather) : null)
+  const rig = $derived(p.scene ? lightRig(p.scene.time, p.scene.weather, p.scene.map.id) : null)
   // The horizon, taken well down towards the void. A noon sky is a near-white,
   // and a band of it across the top of a phone in dark mode is the brightest
   // thing on the screen — the opposite of what this property is for. Mixed
@@ -776,6 +776,7 @@
             players={p.players}
             {height}
             texts={p.turnTexts}
+            onDraw={p.onDraw}
           />
           {#each others as o, i (o.index)}
             <PlayerSlot

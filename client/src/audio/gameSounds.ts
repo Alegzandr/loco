@@ -25,6 +25,29 @@ export const FANFARES: ReadonlySet<SfxName> = new Set<SfxName>([
   'matchLose',
 ])
 
+/**
+ * What the bed does under the sounds a change of state owes, if anything.
+ *
+ * - `brake`: the match is over. The loop is stopped like a record under a
+ *   hand and the room is left quiet for the fanfare (`music.brake`), because
+ *   the one moment people clip should not have a loop running under it.
+ * - `duck`: a round's fanfare. The bed is pulled down and goes on: the round
+ *   summary is a breakdown, not an ending.
+ * - `dip`: a shout — LOCO! called, a Contre-LOCO! landing. The bed's top end
+ *   is shut for a moment so the shout owns it, and the groove never stops.
+ *
+ * One answer per change, the strongest: a match ending on a caught call is a
+ * match ending. Pure, so the choice is a unit test.
+ */
+export type BedCue = 'brake' | 'duck' | 'dip'
+
+export function bedCueFor(sounds: readonly SfxName[]): BedCue | null {
+  if (sounds.includes('matchWin') || sounds.includes('matchLose')) return 'brake'
+  if (sounds.some((n) => FANFARES.has(n))) return 'duck'
+  if (sounds.includes('unoDeclare') || sounds.includes('unoCaught')) return 'dip'
+  return null
+}
+
 /** Extra sting layered on top of the generic card-play swish. */
 function stingFor(card: CardDTO): SfxName | null {
   switch (card.kind) {

@@ -32,6 +32,7 @@ function probe(seed = 'grid') {
     oval: () => {},
     halo: () => {},
     ground: (c: number) => c,
+    wetGloss: () => 0,
     claim: () => {},
     person: () => {},
     lamp: (x: number, z: number) => lamps.push([x, z]),

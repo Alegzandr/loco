@@ -102,6 +102,24 @@ export interface Look {
     haloIntensity: number
     /** How much darker a wall is at its foot than at its top, 0–1: the contact the occlusion pass sharpens. */
     footShade: number
+    /**
+     * The roughness of a surface at full gloss. A block carries a gloss of 0
+     * to 1 in its vertices (`BlockOptions.gloss`): 0 is the matte above, 1 is
+     * this. Glass, a wet street, water, a car's paint.
+     */
+    glossRoughness: number
+    /**
+     * How strongly a glossy surface mirrors the sky (the environment the rig
+     * paints, `lighting.ts: skyEnvironment`). Only the reflection: the sky's
+     * diffuse light is the hemisphere's, and a matte block reflects nothing.
+     */
+    envIntensity: number
+    /** Window glass, 0–1. */
+    glassGloss: number
+    /** The ground under rain: a street that has taken water. 0–1. */
+    wetGloss: number
+    /** A car's paint, a spacesuit's visor and hull: the drawn kits that are not matte, 0–1. */
+    paintGloss: number
   }
   outline: {
     /** Ink line weight in CSS pixels. */
@@ -176,12 +194,87 @@ export interface Look {
     vignetteSquash: number
     vignetteScale: number
   }
+  water: {
+    /** How much of the mirrored room a water surface shows over its own colour, 0–1. */
+    reflect: number
+    /** How much of the sky tints it, 0–1: little, or the sea goes pale. */
+    sky: number
+    /** How much of the mirrored room a wet street takes on top of its sheen: the lamps in it after dark. */
+    wetMirror: number
+    /** How far the swell moves the reflection, in frame uv per unit of slope. */
+    ripple: number
+    /** The swell's slope: the glints and the break in the reflection. */
+    waveAmp: number
+    /** The swell's frequency, per tile. */
+    waveScale: number
+    /** How far down the frame a wet street smears a reflection, per tap, in frame uv. */
+    streak: number
+    /** The mirror pass's size, as a share of the frame's. */
+    scale: number
+    /** The water's own roughness under the sun: what makes the glints small or broad. */
+    roughness: number
+  }
+  mist: {
+    /** How thick the mist lies at a clear dawn, and in a fog at any hour. 0 for none. */
+    dawn: number
+    fog: number
+    /** The height over which it thins by e, tiles. */
+    height: number
+    /** The size of its banks: the noise's frequency, per tile. */
+    scale: number
+    /** How far its colour is lifted from the horizon towards white, and how bright it is in linear light. */
+    lift: number
+    brightness: number
+  }
+  pools: {
+    /** How strongly a lamp lights the ground under it, per unit of the alpha the kit's halo asked for. */
+    strength: number
+    /** How far past the old disc's radius the light reaches, as a multiple: a falloff needs room. */
+    reach: number
+    /** Up to this height a surface takes the whole pool; above it the light fades, tile by tile. */
+    lift: number
+    /** A halo wider than this, tiles, is not a lamp's but the room's colour over the plaza, and stays an additive wash. */
+    washFrom: number
+    /** How strongly a lit ground-floor window spills onto the pavement in front of it. */
+    windowSpill: number
+    /** The map's resolution, texels per tile, and its largest side. */
+    texelsPerTile: number
+    maxSide: number
+  }
   fog: {
     /** How much of the rig's distance fog reaches the render. */
     strength: number
   }
+  /** Each room's own light (`RoomLook`), by map id. */
+  rooms: Record<string, RoomLook>
   /** Dev only: the composite shows one pass alone. Always `off` in a build. */
   debug: DebugView
+}
+
+/**
+ * What makes one room's light its own, on top of the hour and the sky
+ * (`sky.ts: lightRig`, its third argument). Every field is optional and
+ * moves a number the hour already set; none of them may undo the warm/cool
+ * split (`sceneLighting.test.ts` runs the split per room too).
+ */
+export interface RoomLook {
+  /** The sun pulled towards this colour… */
+  sunTint?: Hex
+  /** …by this much. */
+  sunTintMix?: number
+  /** The sky's light pulled towards this colour… */
+  skyTint?: Hex
+  /** …by this much. */
+  skyTintMix?: number
+  /** Multiplies the sky's light: under 1 is a place with little sky (the moon). */
+  ambient?: number
+  /** Multiplies the shadow's softness: under 1 is a harder shadow. */
+  shadowSoftness?: number
+  /** The grade's split tones and saturation, in place of the look's own. */
+  shadowTint?: Hex
+  highlightTint?: Hex
+  splitStrength?: number
+  saturation?: number
 }
 
 /** The most windows any hour may light, as a share. */
@@ -225,7 +318,7 @@ export const LOOK: Look = {
   sun: { intensity: 1, elevationOffset: 0 },
   ambient: { intensity: 1, rim: 0.35 },
   shadow: { type: 'vsm', radius: 6, blurSamples: 12, bias: 0, normalBias: 0.3, spriteOpacity: 0.4, spriteMap: 512, spriteTint: 0x10163a, spriteTintMix: 0.35 },
-  material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1 },
+  material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1, glossRoughness: 0.14, envIntensity: 1.0, glassGloss: 0.9, wetGloss: 0.55, paintGloss: 0.45 },
   outline: { px: 1.4, darken: 0.42, inkMix: 0.3 },
   ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4, blurDepthFalloff: 0.7 },
   tone: {
@@ -256,7 +349,26 @@ export const LOOK: Look = {
     vignetteSquash: 1.15,
     vignetteScale: 1.41,
   },
+  water: { reflect: 0.5, sky: 0.12, wetMirror: 0.7, ripple: 0.006, waveAmp: 0.22, waveScale: 1.1, streak: 0.007, scale: 0.5, roughness: 0.3 },
+  mist: { dawn: 0.6, fog: 0.4, height: 0.9, scale: 0.07, lift: 0.35, brightness: 0.75 },
+  pools: { strength: 6, reach: 1.6, washFrom: 8, lift: 0.7, windowSpill: 0.5, texelsPerTile: 8, maxSide: 1024 },
   fog: { strength: 1 },
+  rooms: {
+    // The city under its signs: a violet sky light, the highlights pushed
+    // towards pink and the shade towards indigo.
+    neon: { skyTint: 0x6a4cff, skyTintMix: 0.2, shadowTint: 0x3b2f9a, highlightTint: 0xff9ad5, splitStrength: 0.12, saturation: 1.1 },
+    // The village: a gold that is a little older than the day's.
+    rune: { sunTint: 0xffc27a, sunTintMix: 0.12, highlightTint: 0xffd08a, splitStrength: 0.1 },
+    // The hotel: brass in the light, a deep blue in the shade.
+    velvet: { sunTint: 0xffc58a, sunTintMix: 0.15, shadowTint: 0x2c3f86, highlightTint: 0xffc070, splitStrength: 0.12, saturation: 1.04 },
+    // No air: little sky light, a hard shadow, a sun that is white, and the
+    // shade lit by the Earth's blue.
+    orbit: { sunTint: 0xffffff, sunTintMix: 0.35, skyTint: 0x7aa0ff, skyTintMix: 0.45, ambient: 0.6, shadowSoftness: 0.4, saturation: 0.92, splitStrength: 0.07 },
+    // The cherry trees: a pink in the highlights.
+    sakura: { highlightTint: 0xffc6d8, shadowTint: 0x4a5aa8, saturation: 1.05 },
+    // The harbour: teal in the shade, a sunlit sand in the light.
+    marina: { shadowTint: 0x2f6f8f, highlightTint: 0xffd9a0, splitStrength: 0.1, saturation: 1.08 },
+  },
   debug: 'off',
 }
 

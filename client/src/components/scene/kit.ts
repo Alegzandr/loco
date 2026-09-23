@@ -49,15 +49,23 @@ import {
   SphereGeometry,
   BackSide,
   AdditiveBlending,
+  ShaderChunk,
+  type Texture,
 } from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Hex, LightRig } from './sky'
 import { mix, scale } from './sky'
 import type { Rng } from './rng'
+import { seededRng } from './rng'
 import { LOOK } from './look'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, splitGlow } from './models/bake'
+import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms } from './pools'
+import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_PARS, makeMirror, type Mirror } from './mirror'
+
+/** three's own image-based-light chunk, which the lit material edits rather than includes. */
+const THREE_CHUNK_LIGHTS_MAPS = ShaderChunk.lights_fragment_maps
 
 /**
  * Where the table is, in screen tiles: the centre of the felt's ellipse and its
@@ -86,6 +94,13 @@ export interface KitOptions {
   shadows?: boolean
   /** The loaded models this room may place (`k.model`). None for a sprite kit that needs none. */
   models?: ModelLib
+  /**
+   * Light the ground with a map of pools (`pools.ts`) rather than an additive
+   * disc under each lamp. On for a room (a kit with a `frame`); a sprite has
+   * no ground of its own to light and keeps its disc, so a car's headlights
+   * still lie in front of it as it drives.
+   */
+  lightPools?: boolean
 }
 
 export interface ModelOptions {
@@ -100,6 +115,12 @@ export interface ModelOptions {
   /** Grow the claimed footprint by this many tiles. */
   margin?: number
   outline?: boolean
+  /**
+   * Repaints the model's baked colours, vertex by vertex, in linear light:
+   * return the new colour, or null to keep it. The cherry is a drawn tree
+   * whose green is turned to blossom.
+   */
+  recolor?: (r: number, g: number, b: number) => [number, number, number] | null
 }
 
 export interface BlockOptions {
@@ -113,6 +134,18 @@ export interface BlockOptions {
   outline?: boolean
   /** Take a snow cap when it snows. On by default for anything with a flat top. */
   cap?: boolean
+  /**
+   * How glossy the surface is, 0 (the room's matte, the default) to 1
+   * (`LOOK.material.glossRoughness`): glass, paint, a wet street, water. A
+   * glossy surface mirrors the sky; a matte one reflects nothing.
+   */
+  gloss?: number
+  /**
+   * The top of this block is water: it takes the swell, the sky and the
+   * mirrored room (`mirror.ts`). Its height is recorded as the room's water
+   * level, under which the mirror pass draws nothing.
+   */
+  water?: boolean
 }
 
 export const INK = 0x120b24
@@ -127,6 +160,11 @@ export function inkFor(c: Hex): Hex {
   return mix(scale(c, LOOK.outline.darken), INK, LOOK.outline.inkMix)
 }
 const SNOW = 0xf4f7fb
+/** A drift against a wall: how high it banks and how far it reaches from the wall, tiles. */
+const DRIFT_H = 0.16
+const DRIFT_D = 0.34
+/** Where a wheel or a boot has pressed the snow: its own shade, bluer than the snow round it. */
+const SNOW_TRACK = 0xbcc7d9
 /** The largest round halo the kit will draw, in tiles: a lamp head's, not a landmark's. */
 export const HALO_SPHERE_MAX = 0.8
 /** The kits whose glow colours are windows, lit per building by the hour's share. */
@@ -146,6 +184,8 @@ export const ASTRONAUT_MODEL_YAW = Math.PI
 /** The tallest a landmark may stand in the band above the table, in tiles. */
 export const LANDMARK_TOP_MAX = 7
 const WINDOW_DARK = 0x1a2233
+/** The drawn kits whose surfaces are paint and metal rather than wood and plaster. */
+const GLOSSY_KITS = new Set(['cars', 'space'])
 const WINDOW_GLOW = 0xffd98a
 
 type Bucket = 'lit' | 'glow' | 'ink' | 'halo'
@@ -180,13 +220,23 @@ export class Kit {
   /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
   readonly shadows: boolean
   private readonly models: ModelLib | null
+  private readonly lightPools: boolean
+  /** The light lying on the ground tonight (`pools.ts`). */
+  readonly pools: Pool[] = []
+  /**
+   * Things that may come and go during the match (`life.ts: Actor.blink`):
+   * dark windows that someone may light, and neon that may catch. Recorded as
+   * they are built; the render picks a few it can see (`render.ts`).
+   */
+  readonly blinkers: Blinker[] = []
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
+  /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
+  reflective = false
+  /** The lowest water surface built, tiles; 0 when there is none, which is the ground's own plane. */
+  waterLevel = 0
   /** Every pane on every wall, two sheets (`quad`). */
-  private sheets: Record<'lit' | 'glow', { pos: number[]; nrm: number[]; col: number[]; idx: number[] }> = {
-    lit: { pos: [], nrm: [], col: [], idx: [] },
-    glow: { pos: [], nrm: [], col: [], idx: [] },
-  }
+  private sheets: Record<'lit' | 'glow', Sheet> = { lit: emptySheet(), glow: emptySheet() }
 
   constructor(o: KitOptions) {
     this.rig = o.rig
@@ -196,6 +246,7 @@ export class Kit {
     this.frame = o.frame ?? { w: 80, h: 80 }
     this.shadows = o.shadows ?? true
     this.models = o.models ?? null
+    this.lightPools = (o.lightPools ?? o.frame !== undefined) && LOOK.pools.strength > 0
   }
 
   // ─── Ground plan ──────────────────────────────────────────────────────────
@@ -274,8 +325,11 @@ export class Kit {
       return g
     }
 
-    const body = make(b.position, lit, b.color)
-    this.pushBaked(body, 'lit')
+    // A lit house lights the ground round it, a little.
+    if (windows && glow && glow.length) this.pool(x, z, Math.max(b.w, b.d) * s * 0.85, WINDOW_GLOW, 0.06 * LOOK.pools.windowSpill)
+    const colors = o.recolor ? recolored(b.color, o.recolor) : b.color
+    const body = make(b.position, lit, colors)
+    this.pushBaked(body, 'lit', GLOSSY_KITS.has(id.split('/')[0]) ? LOOK.material.paintGloss : 0)
     if (glow && glow.length) {
       const sub = compact(b.position, b.normal, glow)
       const g = make(sub.position, sub.index, undefined, sub.normal)
@@ -284,7 +338,7 @@ export class Kit {
     if (o.outline !== false) {
       // The hull is the model pushed along its smoothed normals, in model
       // units: the outline is world units, so divide by the scale it will get.
-      const hull = make(hullFor(b, this.outline / s), null, b.color)
+      const hull = make(hullFor(b, this.outline / s), null, colors)
       this.pushBaked(hull, 'ink')
     }
     return true
@@ -295,7 +349,7 @@ export class Kit {
    * multiplied by the ground shade like a block's single colour is; in the ink
    * bucket each becomes its own darker note.
    */
-  private pushBaked(geom: BufferGeometry, bucket: 'lit' | 'ink') {
+  private pushBaked(geom: BufferGeometry, bucket: 'lit' | 'ink', gloss = 0) {
     if (!geom.index) throw new Error('kit: every geometry must be indexed, or the bucket will not merge')
     const col = geom.getAttribute('color')
     const n = col.count
@@ -318,6 +372,7 @@ export class Kit {
         arr[i * 3 + 1] = col.getY(i) * k
         arr[i * 3 + 2] = col.getZ(i) * k
       }
+      setGloss(geom, gloss)
     } else {
       for (let i = 0; i < n; i++) {
         _color.setRGB(col.getX(i), col.getY(i), col.getZ(i))
@@ -352,7 +407,7 @@ export class Kit {
 
   // ─── Primitives ───────────────────────────────────────────────────────────
 
-  private push(geom: BufferGeometry, color: Hex, bucket: Bucket) {
+  private push(geom: BufferGeometry, color: Hex, bucket: Bucket, gloss = 0, water = false) {
     geom.deleteAttribute('uv')
     if (!geom.index) throw new Error('kit: every geometry must be indexed, or the bucket will not merge')
     const n = geom.getAttribute('position').count
@@ -381,6 +436,7 @@ export class Kit {
         arr[i * 3 + 1] = _color.g * k
         arr[i * 3 + 2] = _color.b * k
       }
+      setGloss(geom, gloss, water)
     } else {
       for (let i = 0; i < n; i++) {
         arr[i * 3] = _color.r
@@ -411,7 +467,8 @@ export class Kit {
     // A tilted block is placed by its centre, an upright one by its bottom.
     const cy = o.tilt ? y : y + h / 2
     const body = this.place(boxGeometry(w, h, d), x, cy, z, o.rot, o.tilt)
-    this.push(body, color, bucket)
+    if (o.water) this.waterAt(y + h)
+    this.push(body, color, bucket, o.water ? 1 : o.gloss, o.water)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(boxGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, cy, z, o.rot, o.tilt), inkFor(color), 'ink')
@@ -419,6 +476,16 @@ export class Kit {
     if (this.rig.snow && o.cap !== false && !o.glow && !o.tilt && h > 0.12 && w > 0.25 && d > 0.25) {
       const capH = Math.min(0.16, 0.06 + Math.min(w, d) * 0.04)
       this.push(this.place(boxGeometry(w * 0.98, capH, d * 0.98), x, y + h + capH / 2 - 0.01, z, o.rot), SNOW, 'lit')
+    }
+    // Snow banked against the foot of a wall, on the two faces the camera
+    // sees: what makes a snowfall read as one that has been falling a while.
+    if (this.rig.snow && y === 0 && !o.glow && !o.tilt && o.cap !== false && h >= 1.2 && w >= 1 && d >= 1) {
+      const rot = o.rot ?? 0
+      const c = Math.cos(rot)
+      const sn = Math.sin(rot)
+      const put = (lx: number, lz: number, dw: number, dd: number) => this.push(this.place(boxGeometry(dw, DRIFT_H, dd), x + lx * c + lz * sn, DRIFT_H / 2, z - lx * sn + lz * c, rot), SNOW, 'lit')
+      put(DRIFT_D / 2, d / 2 + DRIFT_D / 2, w + DRIFT_D, DRIFT_D)
+      put(w / 2 + DRIFT_D / 2, 0, DRIFT_D, d)
     }
   }
 
@@ -435,7 +502,7 @@ export class Kit {
     }
     const cy = o.axis ? y : y + h / 2
     const body = this.place(make(rTop, r, h), x, cy, z, o.rot)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(make(rTop + t, r + t, h + 2 * t), x, cy, z, o.rot), inkFor(color), 'ink')
@@ -459,7 +526,7 @@ export class Kit {
       return g
     }
     const body = this.place(make(a, b, h), x, y + h / 2, z, o.rot)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(make(a + t, b + t, h + 2 * t), x, y + h / 2, z, o.rot), inkFor(color), 'ink')
@@ -473,7 +540,7 @@ export class Kit {
     const seg = o.seg ?? 4
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const body = this.place(coneGeometry(r, h, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4)
-    this.push(body, this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.6) : color, bucket)
+    this.push(body, this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.6) : color, bucket, o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(coneGeometry(r + t, h + 2 * t, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4), inkFor(color), 'ink')
@@ -484,7 +551,7 @@ export class Kit {
     const seg = o.seg ?? 8
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const body = this.place(sphereGeometry(r, seg), x, y, z)
-    this.push(body, color, bucket)
+    this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
       this.push(this.place(sphereGeometry(r + this.outline, seg), x, y, z), inkFor(color), 'ink')
     }
@@ -495,7 +562,7 @@ export class Kit {
     const bucket: Bucket = o.glow ? 'glow' : 'lit'
     const c = this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.75) : color
     const body = this.place(prismGeometry(w, h, d), x, y, z, o.rot)
-    this.push(body, c, bucket)
+    this.push(body, c, bucket, this.rig.snow && o.cap !== false ? 0 : o.gloss)
     if (o.outline !== false) {
       const t = this.outline
       this.push(this.place(prismGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, y - t, z, o.rot), inkFor(color), 'ink')
@@ -503,8 +570,9 @@ export class Kit {
   }
 
   /** A flat disc on the ground (a rug, a pad marking, a puddle). Never outlined. */
-  disc(x: number, y: number, z: number, r: number, color: Hex, o: { glow?: boolean; seg?: number } = {}) {
-    this.push(this.place(new CylinderGeometry(r, r, 0.04, o.seg ?? 16), x, y + 0.02, z), color, o.glow ? 'glow' : 'lit')
+  disc(x: number, y: number, z: number, r: number, color: Hex, o: { glow?: boolean; seg?: number; gloss?: number; water?: boolean } = {}) {
+    if (o.water) this.waterAt(y + 0.04)
+    this.push(this.place(new CylinderGeometry(r, r, 0.04, o.seg ?? 16), x, y + 0.02, z), color, o.glow ? 'glow' : 'lit', o.water ? 1 : o.gloss, o.water)
   }
 
   /**
@@ -520,22 +588,59 @@ export class Kit {
    */
   halo(x: number, y: number, z: number, r: number, color: Hex, alpha = 0.35, flat = true) {
     if (!this.rig.lampsOn) return
+    // A lamp's pool is light on the ground. A halo the size of the plaza is
+    // not a lamp: it is the room's colour washed over the paving round the
+    // table (neon's purple ring), and as light it either lit the square like a
+    // stage or, weakened, vanished — so it stays the wash it always was.
+    if (flat && this.lightPools && r <= LOOK.pools.washFrom) {
+      this.pool(x, z, r * LOOK.pools.reach, color, alpha)
+      return
+    }
     const rr = flat ? r : Math.min(r, HALO_SPHERE_MAX)
     const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 10, 8)
     this.push(this.place(g, x, flat ? y + 0.03 : y, z), color, 'halo')
     this.haloAlphas.push(alpha)
   }
 
+  /**
+   * A lit neon tube that may catch and stutter during the match: the builder
+   * says where it hangs (a box, bottom at `y`), the render may pick it.
+   */
+  flicker(x: number, y: number, z: number, w: number, h: number, d: number, dark: Hex) {
+    if (this.lightPools && this.rig.lampsOn) this.blinkers.push({ kind: 'neon', x, y, z, w, h, d, color: dark })
+  }
+
+  /** Light lying on the ground at `(x, z)`, `r` tiles across: the ground's colour lit, not painted over (`pools.ts`). */
+  pool(x: number, z: number, r: number, color: Hex, k: number) {
+    if (!this.lightPools || !this.rig.lampsOn) return
+    // A lamp at dawn is lit against a sky that is already day: its pool is a
+    // warmth on the paving, not the spotlight it is at midnight.
+    this.pools.push({ x, z, r, color, k: k * (0.35 + 0.65 * Math.min(1, this.rig.dark)) })
+  }
+
   // ─── Props ────────────────────────────────────────────────────────────────
 
   /** A flat slab: paving, a road, a deck. Receives shadows, casts none. */
-  slab(x: number, z: number, w: number, d: number, color: Hex, o: { y?: number; h?: number; outline?: boolean; rot?: number } = {}) {
-    this.box(x, o.y ?? 0, z, w, o.h ?? 0.08, d, color, { outline: o.outline ?? false, cap: false, rot: o.rot })
+  slab(x: number, z: number, w: number, d: number, color: Hex, o: { y?: number; h?: number; outline?: boolean; rot?: number; gloss?: number; water?: boolean } = {}) {
+    this.box(x, o.y ?? 0, z, w, o.h ?? 0.08, d, color, { outline: o.outline ?? false, cap: false, rot: o.rot, gloss: o.gloss ?? this.wetGloss(), water: o.water })
+  }
+
+  /** Records a water surface at height `y`: the mirror pass draws nothing under the lowest one. */
+  private waterAt(y: number) {
+    this.waterLevel = Math.min(this.waterLevel, y)
+    this.reflective = true
+  }
+
+  /** The gloss of open ground tonight: a street that has taken rain, or none. */
+  wetGloss(): number {
+    if (!this.rig.wet) return 0
+    this.reflective = true
+    return LOOK.material.wetGloss
   }
 
   /** The ground under everything, sized to run past every edge of the view. */
   floor(color: Hex, size = 96, y = -1) {
-    this.box(0, y, 0, size, 1, size, this.ground(color), { outline: false, cap: false })
+    this.box(0, y, 0, size, 1, size, this.ground(color), { outline: false, cap: false, gloss: this.wetGloss() })
     if (this.rig.snow) this.box(0, 0, 0, size, 0.02, size, SNOW, { outline: false, cap: false })
   }
 
@@ -548,8 +653,12 @@ export class Kit {
       const px = x + Math.cos(a) * rr
       const pz = z + Math.sin(a) * rr
       const r = this.rng.range(0.4, 1.1)
-      this.push(this.place(new CylinderGeometry(r, r * 0.8, 0.02, 12), px, 0.05, pz), mix(this.rig.sky.horizon, 0xffffff, 0.1), 'halo')
-      this.haloAlphas.push(0.28)
+      // A puddle is the wettest of the wet street: fully glossy, taking the
+      // sky and the room's lights smeared the way the street does. Mirrored
+      // sharply like the river, it showed shards of lit windows lying on the
+      // paving.
+      this.push(this.place(new CylinderGeometry(r, r * 0.8, 0.02, 12), px, 0.1, pz), mix(this.ground(0x3a4254), 0x1a2233, 0.4), 'lit', 1)
+      this.reflective = true
     }
   }
 
@@ -561,6 +670,8 @@ export class Kit {
    */
   window(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', color = WINDOW_GLOW, o: { frame?: Hex; sill?: boolean; rot?: number } = {}) {
     const lit = this.rng.chance(this.rig.windowsLit)
+    // A dark window after dark is one somebody may come home to.
+    if (!lit && this.lightPools && this.rig.lampsOn) this.blinkers.push({ kind: 'window', x, y, z, w, h, facing, rot: o.rot ?? 0, color })
     const frame = o.frame ?? 0xf4efe6
     const pane = lit ? color : WINDOW_DARK
     const fw = w + 0.16
@@ -569,7 +680,13 @@ export class Kit {
     // has ten thousand of, and every one of them goes into a single sheet per
     // bucket (`quad`, flushed by `build`).
     this.quad(x, y + h / 2, z, fw, fh, facing, o.rot ?? 0, frame, false, 0.01)
-    this.quad(x, y + h / 2, z, w, h, facing, o.rot ?? 0, pane, lit, 0.03)
+    this.quad(x, y + h / 2, z, w, h, facing, o.rot ?? 0, pane, lit, 0.03, lit ? 0 : LOOK.material.glassGloss)
+    // A lit window at street level spills onto the pavement in front of it.
+    if (lit && y < 2.2 && LOOK.pools.windowSpill > 0) {
+      const rot = o.rot ?? 0
+      const [nx, nz] = facing === 'z' ? [Math.sin(rot), Math.cos(rot)] : [Math.cos(rot), -Math.sin(rot)]
+      this.pool(x + nx * 1.1, z + nz * 1.1, 1.5, color, 0.1 * LOOK.pools.windowSpill)
+    }
     if (o.sill !== false) {
       if (facing === 'x') this.box(x + 0.05, y - 0.12, z, 0.14, 0.07, fw + 0.1, scale(frame, 0.9), { rot: o.rot, outline: false, cap: false })
       else this.box(x, y - 0.12, z + 0.05, fw + 0.1, 0.07, 0.14, scale(frame, 0.9), { rot: o.rot, outline: false, cap: false })
@@ -583,7 +700,7 @@ export class Kit {
    * so a city's worth of panes is two draw calls' worth of triangles rather
    * than twenty thousand boxes' worth of allocations.
    */
-  private quad(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', rot: number, color: Hex, glow: boolean, out: number) {
+  private quad(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', rot: number, color: Hex, glow: boolean, out: number, gloss = 0) {
     const sheet = glow ? this.sheets.glow : this.sheets.lit
     const c = Math.cos(rot)
     const s = Math.sin(rot)
@@ -600,7 +717,10 @@ export class Kit {
       sheet.nrm.push(nx, 0, nz)
     }
     _color.setHex(color)
-    for (let i = 0; i < 4; i++) sheet.col.push(_color.r, _color.g, _color.b)
+    for (let i = 0; i < 4; i++) {
+      sheet.col.push(_color.r, _color.g, _color.b)
+      sheet.gloss.push(gloss)
+    }
     sheet.idx.push(base, base + 1, base + 2, base, base + 2, base + 3)
   }
 
@@ -612,9 +732,13 @@ export class Kit {
       g.setAttribute('position', new Float32BufferAttribute(s.pos, 3))
       g.setAttribute('normal', new Float32BufferAttribute(s.nrm, 3))
       g.setAttribute('color', new Float32BufferAttribute(s.col, 3))
+      if (bucket === 'lit') {
+        g.setAttribute('gloss', new Float32BufferAttribute(s.gloss, 1))
+        g.setAttribute('water', new Float32BufferAttribute(new Float32Array(s.gloss.length), 1))
+      }
       g.setIndex(s.idx)
       this.buckets[bucket].push(g)
-      this.sheets[bucket] = { pos: [], nrm: [], col: [], idx: [] }
+      this.sheets[bucket] = emptySheet()
     }
   }
 
@@ -755,6 +879,16 @@ export class Kit {
     // A drawn tree where the room has one. The cherry stays ours: no kit here
     // has a pink crown, and it is what the village is.
     const kindId = o.kind ?? 'round'
+    if (kindId === 'sakura' && this.models?.has('nature/tree_default')) {
+      // A drawn tree in blossom: its green turned to the cherry's pink, one of
+      // three pinks so an orchard is not one colour, the trunk left alone.
+      // Under snow the crown takes the frost the block cherry does.
+      const pool = ['nature/tree_default', 'nature/tree_fat', 'nature/tree_detailed', 'nature/tree_oak']
+      const pink = this.leaf(this.rng.pick([0xf7a1c4, 0xffb3cf, 0xf28bb5]))
+      const scale = ((o.h ?? 1.6) / 1.6) * (o.r ? o.r / 0.9 : 1) * 0.55 + 0.45
+      this.model(this.rng.pick(pool), x, z, { rot: this.rng.range(0, Math.PI * 2), scale, margin: -0.4, recolor: blossom(pink) })
+      return
+    }
     if (kindId !== 'sakura' && this.models?.has('nature/tree_default')) {
       const pool =
         kindId === 'pine'
@@ -969,11 +1103,12 @@ export class Kit {
     const s = Math.sin(rot)
     const c = Math.cos(rot)
     const at = (lx: number, lz: number): [number, number] => [x + lx * c + lz * s, z - lx * s + lz * c]
-    this.box(x, 0.28, z, 2.1, 0.5, 1.0, color, { rot })
+    const paint = LOOK.material.paintGloss
+    this.box(x, 0.28, z, 2.1, 0.5, 1.0, color, { rot, gloss: paint })
     this.box(x, 0.78, z, 2.15, 0.05, 1.04, mix(color, 0xffffff, 0.35), { rot, outline: false, cap: false })
-    this.box(x - 0.15 * c, 0.8, z + 0.15 * s, 1.15, 0.44, 0.9, color, { rot, cap: true })
+    this.box(x - 0.15 * c, 0.8, z + 0.15 * s, 1.15, 0.44, 0.9, color, { rot, cap: true, gloss: paint })
     // Glass: a band around the cabin, slightly proud of it.
-    this.box(x - 0.15 * c, 0.9, z + 0.15 * s, 1.19, 0.26, 0.94, 0x9fd8ff, { rot, outline: false, cap: false })
+    this.box(x - 0.15 * c, 0.9, z + 0.15 * s, 1.19, 0.26, 0.94, 0x9fd8ff, { rot, outline: false, cap: false, gloss: LOOK.material.glassGloss })
     for (const [dx, dz] of [[-0.68, 0.52], [0.68, 0.52], [-0.68, -0.52], [0.68, -0.52]]) {
       const [wx, wz] = at(dx, dz)
       this.cyl(wx, 0.26, wz, 0.24, 0.2, 0x1c1c1c, { axis: 'z', rot, seg: 8 })
@@ -1012,11 +1147,41 @@ export class Kit {
       const sw = this.ground(o.sidewalk)
       this.slab(x, z, w, d + 2 * (o.sidewalkWidth ?? 0.6), sw, { rot, h: 0.04, y: -0.02 })
     }
+    if (this.rig.snow) this.snowTracks(x, z, w, d, rot, o.sidewalk !== undefined ? (o.sidewalkWidth ?? 0.6) : 0)
     if (o.dashes !== false && !this.rig.snow) {
       const n = Math.floor(w / 1.6)
       for (let i = 0; i < n; i++) {
         const t = -w / 2 + (i + 0.5) * (w / n)
         this.slab(x + t * Math.cos(rot), z - t * Math.sin(rot), 0.8, 0.12, 0xf2e6b5, { rot, h: 0.02, y: 0.06 })
+      }
+    }
+  }
+
+  /**
+   * The marks a snowfall keeps along a road: two ruts in each lane where the
+   * wheels have been, and now and then a trail of footprints along a
+   * pavement. From a sequence of their own, seeded where the road lies, so the
+   * room's is untouched and a snowy room is the same room as a dry one.
+   */
+  private snowTracks(x: number, z: number, w: number, d: number, rot: number, sidewalk: number) {
+    const rng = seededRng(`snow:${x.toFixed(2)}:${z.toFixed(2)}:${rot.toFixed(2)}`)
+    const c = Math.cos(rot)
+    const sn = Math.sin(rot)
+    const along = (t: number, off: number): [number, number] => [x + t * c + off * sn, z - t * sn + off * c]
+    for (const lane of [-d / 4, d / 4]) {
+      for (const wheel of [-0.42, 0.42]) {
+        const [px, pz] = along(0, lane + wheel)
+        this.box(px, 0.06, pz, w, 0.006, 0.16, SNOW_TRACK, { rot, outline: false, cap: false })
+      }
+    }
+    if (sidewalk <= 0) return
+    for (const side of [-1, 1]) {
+      if (!rng.chance(0.45)) continue
+      const off = side * (d / 2 + sidewalk / 2) + rng.range(-0.2, 0.2)
+      let step = 0
+      for (let t = -w / 2 + 0.3; t < w / 2 - 0.3; t += 0.42) {
+        const [px, pz] = along(t, off + (step++ % 2 ? 0.1 : -0.1))
+        this.box(px, 0.022, pz, 0.17, 0.004, 0.1, SNOW_TRACK, { rot, outline: false, cap: false })
       }
     }
   }
@@ -1145,13 +1310,16 @@ export class Kit {
    * halos are additive light on the ground. None of those three casts a
    * shadow: a hull would throw a shadow larger than its block, a lit window
    * is a quad on a wall, and light is not a thing.
+   *
+   * `env` is the sky as an environment (`lighting.ts: skyEnvironment`), which
+   * the glossy surfaces mirror; without one they are only shinier under the sun.
    */
-  build(): Group {
+  build(env: Texture | null = null, mirror: Mirror | null = null): Group {
     const g = new Group()
     this.flushSheets()
     const lit = merge(this.buckets.lit)
     if (lit) {
-      const m = new Mesh(lit, new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness }))
+      const m = new Mesh(lit, litMaterial(env, mirror ?? makeMirror(this.rig), poolUniforms(splatPools(this.pools))))
       m.castShadow = true
       m.receiveShadow = true
       g.add(m)
@@ -1173,6 +1341,99 @@ export class Kit {
     }
     return g
   }
+}
+
+/**
+ * The one lit material, with a gloss per vertex.
+ *
+ * A `MeshStandardMaterial` whose roughness is mixed from the room's matte
+ * towards `LOOK.material.glossRoughness` by the vertex's gloss, and whose
+ * environment is taken for its **reflection only**: the sky's diffuse light is
+ * already the hemisphere's, so the environment's irradiance is dropped, and
+ * its radiance is weighted by the gloss — a matte block comes out exactly as
+ * it did before there was an environment at all.
+ */
+function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): MeshStandardMaterial {
+  const m = new MeshStandardMaterial({ vertexColors: true, roughness: LOOK.material.roughness, metalness: LOOK.material.metalness })
+  if (env) {
+    m.envMap = env
+    m.envMapIntensity = LOOK.material.envIntensity
+  }
+  const glossRoughness = LOOK.material.glossRoughness
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, mirror.uniforms, pools, { uGlossRoughness: { value: glossRoughness }, uPoolLift: { value: LOOK.pools.lift } })
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n${MIRROR_VERT_PARS}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\n${MIRROR_VERT}`)
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\n${MIRROR_FRAG_PARS}\n${POOLS_FRAG_PARS}`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(mix(roughnessFactor, uGlossRoughness, vGloss), uWaterRoughness, vWater);')
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${MIRROR_NORMAL}`)
+      .replace(
+        '#include <lights_fragment_maps>',
+        THREE_CHUNK_LIGHTS_MAPS.replace('iblIrradiance += getIBLIrradiance( geometryNormal );', '').replace(
+          'radiance += getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+          // Water takes its sky explicitly (`MIRROR_OUT`), over its own colour.
+          'radiance += vGloss * (1.0 - vWater) * getIBLRadiance( geometryViewDir, geometryNormal, material.roughness );',
+        ),
+      )
+      .replace('#include <opaque_fragment>', `${POOLS_OUT}\n${MIRROR_OUT}\n#include <opaque_fragment>`)
+  }
+  m.customProgramCacheKey = () => `loco-gloss-${glossRoughness}`
+  return m
+}
+
+/**
+ * A crown's green turned to `pink`, keeping how light or dark each face was:
+ * the kit's leaves come in two or three greens, and the blossom keeps the
+ * same shading between them. Anything not green (the trunk) is left alone.
+ */
+export function blossom(pink: Hex): (r: number, g: number, b: number) => [number, number, number] | null {
+  const target = new Color(pink)
+  const lum = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b
+  const t = lum(target.r, target.g, target.b)
+  return (r, g, b) => {
+    if (!(g > r * 1.15 && g > b * 1.1)) return null
+    const k = Math.min(1.3, Math.max(0.6, (lum(r, g, b) / Math.max(1e-4, t)) * 1.9))
+    return [target.r * k, target.g * k, target.b * k]
+  }
+}
+
+function recolored(src: Float32Array, fn: (r: number, g: number, b: number) => [number, number, number] | null): Float32Array {
+  const out = new Float32Array(src)
+  for (let i = 0; i < out.length; i += 3) {
+    const c = fn(out[i], out[i + 1], out[i + 2])
+    if (c) {
+      out[i] = c[0]
+      out[i + 1] = c[1]
+      out[i + 2] = c[2]
+    }
+  }
+  return out
+}
+
+/** A thing that may come and go (`Kit.blinkers`). */
+export type Blinker =
+  | { kind: 'window'; x: number; y: number; z: number; w: number; h: number; facing: 'x' | 'z'; rot: number; color: Hex }
+  | { kind: 'neon'; x: number; y: number; z: number; w: number; h: number; d: number; color: Hex }
+
+interface Sheet {
+  pos: number[]
+  nrm: number[]
+  col: number[]
+  gloss: number[]
+  idx: number[]
+}
+
+function emptySheet(): Sheet {
+  return { pos: [], nrm: [], col: [], gloss: [], idx: [] }
+}
+
+/** Every geometry in the lit bucket carries a gloss and a water flag per vertex, or the bucket will not merge. */
+function setGloss(geom: BufferGeometry, gloss: number, water = false) {
+  const n = geom.getAttribute('position').count
+  geom.setAttribute('gloss', new Float32BufferAttribute(new Float32Array(n).fill(Math.max(0, Math.min(1, gloss))), 1))
+  geom.setAttribute('water', new Float32BufferAttribute(new Float32Array(n).fill(water ? 1 : 0), 1))
 }
 
 function merge(list: BufferGeometry[]): BufferGeometry | null {

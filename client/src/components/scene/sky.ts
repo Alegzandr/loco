@@ -64,6 +64,10 @@ export interface LightRig {
   dark: number
   /** The light's own colour as CSS, for the highlight the table catches. */
   tintCss: string
+  /** The room's own grade (`LOOK.rooms`, over `LOOK.tone`). */
+  grade: { shadowTint: Hex; highlightTint: Hex; splitStrength: number; saturation: number }
+  /** Multiplies the shadow's softness: the room's. */
+  shadowSoftness: number
 }
 
 // ─── Colour arithmetic, on plain numbers ────────────────────────────────────
@@ -113,8 +117,9 @@ export function hexCss(c: Hex): string {
  * storm at noon is still lit from above, a storm at night is a night with less
  * moon, and both are wet.
  */
-export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
+export function lightRig(time: TimeOfDay, weather: Weather, room?: string): LightRig {
   const h: HourLook = LOOK.hours[time]
+  const r = (room ? LOOK.rooms[room] : undefined) ?? {}
   let skyTop = h.sky.top
   let skyHorizon = h.sky.horizon
   let sunColor = h.sun.color
@@ -214,9 +219,21 @@ export function lightRig(time: TimeOfDay, weather: Weather): LightRig {
     }
   }
 
+  // The room's own light, over the hour and the sky.
+  if (r.sunTint !== undefined) sunColor = mix(sunColor, r.sunTint, r.sunTintMix ?? 0)
+  if (r.skyTint !== undefined) ambientSky = mix(ambientSky, r.skyTint, r.skyTintMix ?? 0)
+  ambientIntensity *= r.ambient ?? 1
+
   return {
     time,
     weather,
+    grade: {
+      shadowTint: r.shadowTint ?? LOOK.tone.shadowTint,
+      highlightTint: r.highlightTint ?? LOOK.tone.highlightTint,
+      splitStrength: r.splitStrength ?? LOOK.tone.splitStrength,
+      saturation: r.saturation ?? LOOK.tone.saturation,
+    },
+    shadowSoftness: r.shadowSoftness ?? 1,
     sky: { top: skyTop, horizon: skyHorizon },
     sun: { ...h.sun, color: sunColor, intensity: sunIntensity, shadow, elevation: Math.max(6, Math.min(85, h.sun.elevation + LOOK.sun.elevationOffset)) },
     ambient: { sky: ambientSky, ground: ambientGround, intensity: ambientIntensity },

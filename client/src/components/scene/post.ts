@@ -34,6 +34,7 @@
  * render, never no room.
  */
 import {
+  Color,
   DepthTexture,
   FloatType,
   HalfFloatType,
@@ -55,6 +56,7 @@ import {
   type Texture,
 } from 'three'
 import type { LightRig } from './sky'
+import { mix } from './sky'
 import type { PostOptions } from './quality'
 import { DEBUG_VIEWS, LOOK, type ToneMapping } from './look'
 import { channels, lightingFor } from './shade'
@@ -316,7 +318,30 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform int uDebug;
   uniform sampler2D tAo;
   uniform sampler2D tDepth;
+  uniform float uMist;
+  uniform vec3 uMistColor;
+  uniform float uMistHeight;
+  uniform float uMistScale;
+  uniform vec4 uFrame;       // left, right, bottom, top
+  uniform vec2 uRange;       // near, far
+  uniform mat4 uCameraWorld;
   varying vec2 vUv;
+
+  // Where the pixel stands in the world: under an orthographic camera the
+  // depth is linear, so it is exact.
+  vec3 worldAt(vec2 uv) {
+    float d = texture2D(tDepth, uv).x;
+    vec3 view = vec3(uFrame.x + uv.x * (uFrame.y - uFrame.x), uFrame.z + uv.y * (uFrame.w - uFrame.z), -(uRange.x + d * (uRange.y - uRange.x)));
+    return (uCameraWorld * vec4(view, 1.0)).xyz;
+  }
+
+  float mistNoise(vec2 p) {
+    p *= uMistScale;
+    float n = sin(p.x * 1.3 + sin(p.y * 0.7) * 1.7) * 0.5 + 0.5;
+    n *= sin(p.y * 1.1 + sin(p.x * 0.9 + 1.3) * 1.5) * 0.5 + 0.5;
+    n += 0.35 * (sin(p.x * 3.1 - p.y * 2.3 + 0.7) * 0.5 + 0.5);
+    return clamp(n, 0.0, 1.0);
+  }
 
   #define FXAA_REDUCE_MIN (1.0 / 128.0)
   #define FXAA_REDUCE_MUL (1.0 / 8.0)
@@ -380,6 +405,18 @@ const COMPOSITE_FRAG = /* glsl */ `
 
     col += texture2D(tBloom, uv).rgb * uBloom;
 
+    // The mist: lying in the low ground at dawn and in the fog, thinning with
+    // the height and broken into banks, so the table's podium stands out of
+    // it and the far streets sink into it.
+    if (uMist > 0.0) {
+      vec3 wp = worldAt(uv);
+      float low = exp(-max(0.0, wp.y) / uMistHeight);
+      float bank = mix(0.12, 1.0, smoothstep(0.3, 0.85, mistNoise(wp.xz)));
+      // Farther is thicker: the top of the frame is the far streets.
+      float far = mix(0.65, 1.25, uv.y);
+      col = mix(col, uMistColor, clamp(uMist * low * bank * far, 0.0, 0.85));
+    }
+
     // The tone curve, with the exposure, in linear light: the same function
     // the plain path applies through the renderer.
     col = tone(col);
@@ -422,6 +459,27 @@ const SPRITE_GRADE_FRAG = /* glsl */ `
     gl_FragColor = vec4(gl_FragColor.rgb * s.a, s.a);
   }
 `
+
+/**
+ * How thick the ground mist is tonight, 0 for none: a clear dawn has its
+ * banks lying in the low ground, a fog has them at every hour, and a cloudy
+ * dawn a little. Nothing else: mist at noon under a clear sky is haze, and
+ * the room has one of those already (the vignette and the focus).
+ */
+export function mistFor(rig: LightRig): number {
+  const m = LOOK.mist
+  if (rig.weather === 'fog') return m.fog
+  if (rig.time !== 'dawn') return 0
+  if (rig.weather === 'clear') return m.dawn
+  if (rig.weather === 'cloudy') return m.dawn * 0.6
+  return 0
+}
+
+/** The mist's colour, in linear light: the hour's horizon, lifted a little, which is what low mist catches. */
+function mistColor(rig: LightRig): Vector3 {
+  const c = new Color(mix(rig.sky.horizon, 0xffffff, LOOK.mist.lift))
+  return new Vector3(c.r, c.g, c.b).multiplyScalar(LOOK.mist.brightness)
+}
 
 /** `uTone` in the composite: 0 is exposure alone, the rest are three's curves. */
 const TONE_INDEX: Record<ToneMapping, number> = { none: 0, aces: 1, agx: 2, neutral: 3 }
@@ -468,10 +526,11 @@ function gradeUniforms(rig: LightRig): Record<string, { value: unknown }> {
     uTone: { value: TONE_INDEX[LOOK.tone.mapping] },
     uExposure: { value: lightingFor(rig).exposure },
     uContrast: { value: LOOK.tone.contrast },
-    uSaturation: { value: LOOK.tone.saturation },
-    uShadowTint: { value: rgb(LOOK.tone.shadowTint) },
-    uHighlightTint: { value: rgb(LOOK.tone.highlightTint) },
-    uSplit: { value: LOOK.tone.splitStrength },
+    // The split and the saturation are the room's (`rig.grade`, from `LOOK.rooms` over `LOOK.tone`).
+    uSaturation: { value: rig.grade.saturation },
+    uShadowTint: { value: rgb(rig.grade.shadowTint) },
+    uHighlightTint: { value: rgb(rig.grade.highlightTint) },
+    uSplit: { value: rig.grade.splitStrength },
   }
 }
 
@@ -678,6 +737,13 @@ export function renderWithPost(
       uDebug: { value: import.meta.env.DEV ? DEBUG_VIEWS.indexOf(LOOK.debug) : 0 },
       tAo: { value: aoA.texture },
       tDepth: { value: depthTexture },
+      uMist: { value: opts.mist ? mistFor(rig) : 0 },
+      uMistColor: { value: mistColor(rig) },
+      uMistHeight: { value: LOOK.mist.height },
+      uMistScale: { value: LOOK.mist.scale },
+      uFrame: { value: new Vector4(camera.left, camera.right, camera.bottom, camera.top) },
+      uRange: { value: new Vector2(camera.near, camera.far) },
+      uCameraWorld: { value: camera.matrixWorld.clone() },
     })
     pass(composite, null)
   } finally {

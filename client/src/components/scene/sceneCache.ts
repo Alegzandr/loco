@@ -288,7 +288,7 @@ export function prepareScene(
     return f.promise
   }
 
-  const rig = lightRig(spec.time, spec.weather)
+  const rig = lightRig(spec.time, spec.weather, spec.map.id)
   const listeners = new Set<(p: number) => void>()
   if (onProgress) listeners.add(onProgress)
   const flight: Flight = { group, size, promise: Promise.resolve(null as unknown as PreparedScene), listeners, progress: 0 }

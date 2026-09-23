@@ -209,4 +209,9 @@ it('leaves the preference in localStorage where every other screen reads it', ()
   expect(localStorage.getItem('loco_streamer_mode')).toBe('1')
 })
 
-vi.mock('../audio/sfx', () => ({ playSfx: vi.fn(), playVolumeAudition: vi.fn() }))
+vi.mock('../audio/sfx', () => ({
+  playSfx: vi.fn(),
+  playVolumeAudition: vi.fn(),
+  scheduleSwell: vi.fn(),
+  setTonalitySource: vi.fn(),
+}))

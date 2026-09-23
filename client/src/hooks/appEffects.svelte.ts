@@ -2,7 +2,7 @@ import { gameStore } from './gameStore'
 import { audio } from '../audio/engine'
 import { music } from '../audio/music'
 import { playSfx, playDeal } from '../audio/sfx'
-import { FANFARES, dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
+import { bedCueFor, dealFor, intensityOf, sceneFor, soundsForTransition } from '../audio/gameSounds'
 import { clearSession, touchSession, writeSession } from './sessionPersistence'
 import type { RestoreTarget } from './sessionPersistence'
 import { RESTORE_TIMEOUT_MS } from './sessionRestore'
@@ -82,10 +82,15 @@ export function gameAudio(): void {
       // cue's pattern. See hooks/haptics.ts.
       vibrate(hapticsFor(sounds))
 
-      // Pull the bed down under the long fanfares. Two pieces of music competing
-      // for the same moment makes both of them mush, and the fanfare is the one
-      // people clip.
-      if (sounds.some((n) => FANFARES.has(n))) music.duck(2400)
+      // Make room for the moments. Two pieces of music competing for the same
+      // moment makes both of them mush: the match's fanfare gets the bed
+      // stopped under it, a round's gets it pulled down, a shout gets its top
+      // end for a beat. After the cues above, so a fanfare is struck in the key
+      // the bed was in when it was earned.
+      const cue = bedCueFor(sounds)
+      if (cue === 'brake') music.brake()
+      else if (cue === 'duck') music.duck(2400)
+      else if (cue === 'dip') music.dip()
 
       // A fresh hand is a flourish of its own rather than one draw sound, on
       // the first round and on every round after it.

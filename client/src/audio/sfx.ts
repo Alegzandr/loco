@@ -26,6 +26,7 @@
  * faster than its sounds decay if you let it.
  */
 import { audio } from './engine'
+import { cueShiftFor, type KeyName } from './harmony'
 
 // ─── Primitives ─────────────────────────────────────────────────────────────
 
@@ -95,6 +96,34 @@ const HUMANISED: ReadonlySet<string> = new Set([
 /** Equal-tempered frequency for a MIDI note number. */
 function mtof(midi: number): number {
   return 440 * Math.pow(2, (midi - 69) / 12)
+}
+
+/**
+ * Semitones every pitched note of the cue being played is moved by, so it
+ * lands in the bed's key (`harmony.ts: cueShiftFor`). Set by `playSfx` for the
+ * length of one cue and 0 otherwise, the same way `variation` is.
+ *
+ * Only what has a pitch moves — the mallets, the bells, the chords, the
+ * reverse's swell. The card handling and the thuds are paper and felt and
+ * have no key to be in.
+ */
+let keyShift = 0
+
+/** Where the bed's current key is read from. The bed registers it; null is "no bed". */
+let tonality: () => KeyName | null = () => null
+
+/**
+ * Hands the effects a way to ask what key the music is in. `music.ts` calls
+ * it once, at load: the effects never import the bed, so this is the one
+ * wire between them and it points one way.
+ */
+export function setTonalitySource(source: () => KeyName | null): void {
+  tonality = source
+}
+
+/** Where a cue written in C is moved to right now. Exposed for the harness. */
+export function currentCueShift(): number {
+  return cueShiftFor(tonality())
 }
 
 /**
@@ -320,7 +349,7 @@ function mallet(o: MalletOpts): void {
   if (!ctx || !dest) return
   const dur = o.dur ?? 0.22
   const t0 = ctx.currentTime + (o.delay ?? 0)
-  const f = mtof(o.midi) * variation.pitch
+  const f = mtof(o.midi + keyShift) * variation.pitch
   const peak = (o.gain ?? 0.16) * variation.gain
   const g = out(ctx, dest, (o.pan ?? 0) + variation.pan, o.reverb ?? 0)
   g.gain.setValueAtTime(0.0001, t0)
@@ -373,7 +402,7 @@ function bell(o: BellOpts): void {
   if (!ctx || !dest) return
   const dur = o.dur ?? 0.5
   const t0 = ctx.currentTime + (o.delay ?? 0)
-  const f = mtof(o.midi) * variation.pitch
+  const f = mtof(o.midi + keyShift) * variation.pitch
   const peak = (o.gain ?? 0.14) * variation.gain
 
   const carrier = ctx.createOscillator()
@@ -491,7 +520,7 @@ function stab(o: StabOpts): void {
     for (let u = 0; u < unison; u++) {
       const osc = ctx.createOscillator()
       osc.type = o.type ?? 'sawtooth'
-      osc.frequency.setValueAtTime(mtof(midi), t0)
+      osc.frequency.setValueAtTime(mtof(midi + keyShift), t0)
       osc.detune.setValueAtTime(unison === 1 ? 0 : -detune / 2 + (detune * u) / (unison - 1), t0)
       osc.connect(lp)
       osc.start(t0)
@@ -594,8 +623,8 @@ const VOICES: Record<SfxName, () => void> = {
     const t0 = ctx.currentTime
     const osc = ctx.createOscillator()
     osc.type = 'sawtooth'
-    osc.frequency.setValueAtTime(mtof(67) * variation.pitch, t0)
-    osc.frequency.exponentialRampToValueAtTime(mtof(74) * variation.pitch, t0 + 0.16)
+    osc.frequency.setValueAtTime(mtof(67 + keyShift) * variation.pitch, t0)
+    osc.frequency.exponentialRampToValueAtTime(mtof(74 + keyShift) * variation.pitch, t0 + 0.16)
     const lp = ctx.createBiquadFilter()
     lp.type = 'lowpass'
     lp.frequency.setValueAtTime(600, t0)
@@ -769,10 +798,12 @@ export function playSfx(name: SfxName): void {
   if (audio.getSettings().muted) return
   if (!audio.budgetVoice()) return
   variation = HUMANISED.has(name) ? humanVariation() : NEUTRAL
+  keyShift = currentCueShift()
   try {
     VOICES[name]()
   } finally {
     variation = NEUTRAL
+    keyShift = 0
   }
 }
 
@@ -840,3 +871,50 @@ export function playDeal(cardCount: number): void {
 
 /** Seconds between two cards of the deal flourish: DEAL_STAGGER_MS, in seconds. */
 const DEAL_TICK_S = 0.055
+
+/**
+ * A breath of air rising into a downbeat, on the bed's own output.
+ *
+ * What the music plays across a change of piece it cannot overlap
+ * (`harmony.ts: handoverFor`), and into every drop: band-passed noise that
+ * climbs and swells for `dur` seconds and stops dead on `at`, where the next
+ * loop lands. It is the fourth material — air — doing what it already does
+ * before a slam: saying that something is about to arrive without a note of
+ * its own, so it can sit under any key.
+ *
+ * It is scheduled on the context's clock rather than played now, because the
+ * downbeat it leads into is a bar line computed ahead, and it goes to the
+ * node it is handed — the bed's output — so the music slider, the duck and the
+ * muffle all apply to it. Not a `SfxName`: nothing in the game asks for it.
+ */
+export function scheduleSwell(dest: AudioNode, at: number, dur: number, gain = SWELL_GAIN): void {
+  const ctx = audio.context()
+  if (!ctx || !(dur > 0) || typeof ctx.createBiquadFilter !== 'function') return
+  const t0 = Math.max(ctx.currentTime, at - dur)
+  const span = at - t0
+  if (span < 0.05) return
+  const src = ctx.createBufferSource()
+  src.buffer = getNoise(ctx)
+  src.loop = true
+  const bp = ctx.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.Q.value = 0.9
+  bp.frequency.setValueAtTime(280, t0)
+  bp.frequency.exponentialRampToValueAtTime(4200, at)
+  const g = ctx.createGain()
+  g.gain.setValueAtTime(0.0001, t0)
+  g.gain.exponentialRampToValueAtTime(gain, at - 0.01)
+  g.gain.linearRampToValueAtTime(0, at + 0.02)
+  src.connect(bp)
+  bp.connect(g)
+  g.connect(dest)
+  src.start(t0, Math.random() * 0.3)
+  src.stop(at + 0.05)
+}
+
+/**
+ * Peak level of the swell against a bed trimmed to 0.55: present enough to be
+ * heard as a lift, under the loop's own drums so it never reads as an effect
+ * of the game.
+ */
+export const SWELL_GAIN = 0.16

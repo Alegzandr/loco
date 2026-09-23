@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { PreparedScene } from './sceneCache'
-  import { routeKeyframes, cycleMs, tilePx, type Sprite } from './life'
+  import { blinkKeyframes, routeKeyframes, cycleMs, tilePx, type Sprite } from './life'
   import { reducedMotion } from '../../hooks/uiPrefs.svelte'
 
   /**
@@ -84,8 +84,11 @@
       if (still) {
         node.style.transform = frames[0].transform
         node.style.opacity = '1'
+        // A blink holds its rest, which is not being there: the room as rendered.
+        if (face) face.style.opacity = actor.blink ? '0' : ''
         return
       }
+      if (face) face.style.opacity = ''
       const seed = actor.delay ?? 0
       // A thing that stays put still bobs, turns or puffs where it stands.
       if (frames.length === 1) {
@@ -122,6 +125,9 @@
             ]
           : [{ transform: 'rotate(0deg)' }, { transform: 'rotate(360deg)' }]
         anims.push(face.animate(keyframes, { duration: actor.duration, iterations: Infinity, easing: actor.puff ? 'ease-out' : 'linear', delay: -seed }))
+      } else if (face && actor.blink) {
+        // An opacity, not a transform: the one animation on `.face`.
+        anims.push(face.animate(blinkKeyframes(actor.blink), { duration: actor.blink.period, iterations: Infinity, easing: 'linear', delay: -seed }))
       }
     }
     apply(p)

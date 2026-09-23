@@ -32,6 +32,8 @@ export interface PostOptions {
   aberration: boolean
   /** Darkening towards the edges, 0 for none. */
   vignette: number
+  /** Mist lying in the low ground at dawn and in the fog (`post.ts: mistFor`). */
+  mist: boolean
 }
 
 export interface RenderQuality {
@@ -46,6 +48,8 @@ export interface RenderQuality {
   post: PostOptions | null
   /** Multisampling on the plain path. Off once supersampling covers it. */
   msaa: boolean
+  /** The room mirrored in its water and its wet streets (`mirror.ts`): one more render of the room. */
+  reflections: boolean
 }
 
 export const QUALITY: Record<GraphicsTier, RenderQuality> = {
@@ -54,16 +58,18 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     supersample: 3,
     glPixels: 12_000_000,
     shadowMap: 4096,
-    post: { ao: true, fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22 },
+    post: { ao: true, fxaa: true, bloom: true, dof: true, grain: true, aberration: true, vignette: 0.22, mist: true },
     msaa: false,
+    reflections: true,
   },
   medium: {
     tier: 'medium',
     supersample: 2,
     glPixels: 7_000_000,
     shadowMap: 2048,
-    post: { ao: true, fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18 },
+    post: { ao: true, fxaa: true, bloom: true, dof: false, grain: false, aberration: false, vignette: 0.18, mist: true },
     msaa: false,
+    reflections: true,
   },
   light: {
     tier: 'light',
@@ -72,6 +78,7 @@ export const QUALITY: Record<GraphicsTier, RenderQuality> = {
     shadowMap: 1024,
     post: null,
     msaa: true,
+    reflections: false,
   },
 }
 
