@@ -657,6 +657,8 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
   (`Base.astro`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
   on the control** or the target silently stays 40px. Segmented options keep their own height.
+  **Its `::after` is its own**: a component paint on it keeps the global `translate(-50%, -50%)` and
+  lands half a control up and to the left. Paint on `::before` or an element. `hitTarget.test.ts`.
 
 **Panels, preferences and chrome**
 - **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language,
