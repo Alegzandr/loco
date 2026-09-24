@@ -91,6 +91,7 @@
         in:fly={{ y: 6, duration: dur, easing: cubicOut }}
         out:fly={{ y: -6, duration: dur, easing: cubicOut }}
       >
+        <span class="wash" aria-hidden="true"></span>
         {msg}
       </button>
     {:else}
@@ -102,6 +103,7 @@
         in:fly={{ y: 6, duration: dur, easing: cubicOut }}
         out:fly={{ y: -6, duration: dur, easing: cubicOut }}
       >
+        {#if isPenalty}<span class="wash" aria-hidden="true"></span>{/if}
         {msg}
       </div>
     {/if}
@@ -179,21 +181,26 @@
 
   /* Your turn *and* a stack is pending — the decision is now a dilemma.
 
-     The throb is a white wash on a pseudo-element, animated on opacity, and not
-     a `filter: brightness()` keyframe on the pill: a filter is re-rasterised on
-     every frame it changes, and this one ran for as long as the stack stood,
+     The throb is a white wash on an element of its own, animated on opacity, and
+     not a `filter: brightness()` keyframe on the pill: a filter is re-rasterised
+     on every frame it changes, and this one ran for as long as the stack stood,
      over a board that was already flying the penalty cards. `isolation` makes
      the pill a stacking context so the wash can sit at `z-index: -1` — above
      the pill's own fill, under its text — and the pill's transform (the fly
-     transition) stays the only transform on it. */
+     transition) stays the only transform on it.
+
+     An element, and not a pseudo-element: `::before` is the turn's burst, and
+     `::after` is `.hit-target`'s on the button, whose global rule centres it
+     with `translate(-50%, -50%)`. The wash was that `::after`, its `inset: 0`
+     undid the centring but not the translation, and it throbbed half a pill up
+     and to the left of the pill. */
   .penalty {
     background: linear-gradient(180deg, #ffb648 0%, #f2760c 100%);
     text-shadow: 0 2px 0 rgba(120, 55, 0, 0.45);
     isolation: isolate;
   }
 
-  .penalty::after {
-    content: '';
+  .wash {
     position: absolute;
     inset: 0;
     z-index: -1;
@@ -242,7 +249,7 @@
     background: var(--color-surface-card);
   }
 
-  :root[data-motion="reduce"] .penalty::after {
+  :root[data-motion="reduce"] .wash {
     animation: none;
   }
 </style>

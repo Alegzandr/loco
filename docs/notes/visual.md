@@ -274,6 +274,13 @@ never touches the transform, which the fly transition owns. The alternative — 
 shadow off so it reads as text — was rejected: it is the most urgent thing on the board for its
 duration and has to stay the loudest object there. `turnIndicator.test.ts`.
 
+Its throb is a `<span class="wash">` and not a pseudo-element, and both of those are taken. `::before`
+is the turn's arrival burst; `::after`, once the pill became a button, is `.hit-target`'s, whose
+global rule centres it with `top/left: 50%` and `translate(-50%, -50%)`. The wash used to be that
+`::after`: its `inset: 0` overrode the placement and kept the translation, so the white pulse beat
+half a pill up and to the left of "Draw 4", on the felt beside it. `hitTarget.test.ts` fails on any
+component rule painting the `::after` of an element that wears `.hit-target`.
+
 ## Mobile
 - Seats resize and wrap automatically (see "Seat layout"); nothing about the table is hard-coded to
   desktop. Verify with `make visual ARGS="--viewports=mobile"`.
