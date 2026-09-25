@@ -181,6 +181,29 @@ export function sameFelt(a: FeltAnchor, b: FeltAnchor): boolean {
 }
 
 /**
+ * Whether the table in a frame lies under the felt on screen now: the frame is
+ * stretched to the element (`cssWidth` × `cssHeight`), so its felt moves with
+ * it, and the render's table is the one the board shows only while that
+ * stretched felt is within `tolerance` of the board's own (a share of the
+ * felt's width). Past it — a drag the felt did not follow in proportion, a
+ * seat gone and the felt moved — the CSS table stands in until the next
+ * render lands (`GameBoard`'s `.tableRendered`).
+ */
+export function tableFits(entry: PreparedScene | null, cssWidth: number, cssHeight: number, felt: FeltAnchor, tolerance = 0.012): boolean {
+  if (!entry || !entry.canvas || cssWidth <= 0 || cssHeight <= 0) return false
+  const sx = cssWidth / (entry.size.width / entry.size.pixelRatio)
+  const sy = cssHeight / (entry.size.height / entry.size.pixelRatio)
+  const slack = Math.max(2, felt.rx * 2 * tolerance)
+  const f = entry.felt
+  return (
+    Math.abs(f.cx * sx - felt.cx) <= slack &&
+    Math.abs(f.cy * sy - felt.cy) <= slack &&
+    Math.abs(f.rx * sx - felt.rx) <= slack &&
+    Math.abs(f.ry * sy - felt.ry) <= slack
+  )
+}
+
+/**
  * The look's edition is part of the key too: it only ever moves in dev, from
  * the panel, and a frame rendered with the old numbers must not answer a
  * request made with the new ones.

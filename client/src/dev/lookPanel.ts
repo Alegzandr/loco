@@ -16,7 +16,7 @@
  * `import.meta.env.DEV`, so neither this module nor lil-gui reaches a build.
  */
 import GUI from 'lil-gui'
-import { DEBUG_VIEWS, LOOK, SHADOW_TYPES, TONE_MAPPINGS, applyLookPatch, bumpLook, type Look, type LookPatch } from '../components/scene/look'
+import { DEBUG_VIEWS, LOOK, TONE_MAPPINGS, applyLookPatch, bumpLook, type Look, type LookPatch } from '../components/scene/look'
 
 /** How long the last move has to hold before the room is rendered again. */
 const SETTLE_MS = 180
@@ -62,12 +62,9 @@ export function mountLookPanel(): GUI {
   ambient.add(LOOK.ambient, 'rim', 0, 1, 0.05).name('rim from behind')
 
   const shadow = gui.addFolder('Shadow')
-  shadow.add(LOOK.shadow, 'type', SHADOW_TYPES)
   shadow.add(LOOK.shadow, 'radius', 0, 20, 0.5).name('softness')
-  shadow.add(LOOK.shadow, 'blurSamples', 2, 32, 1).name('VSM taps')
   shadow.add(LOOK.shadow, 'bias', -0.005, 0.005, 0.0001)
-  shadow.add(LOOK.shadow, 'normalBias', 0, 0.5, 0.01).name('normal bias')
-  shadow.add(LOOK.shadow, 'spriteOpacity', 0, 1, 0.05).name('sprite shadow')
+  shadow.add(LOOK.shadow, 'normalBias', 0, 0.3, 0.005).name('normal bias')
 
   const material = gui.addFolder('Material')
   material.add(LOOK.material, 'roughness', 0, 1, 0.01)
@@ -124,12 +121,31 @@ export function mountLookPanel(): GUI {
   post.add(LOOK.post, 'bloomThreshold', 0, 2, 0.05).name('bloom threshold')
   post.add(LOOK.post, 'bloomStrength', 0, 1.5, 0.05).name('bloom (noon)')
   post.add(LOOK.post, 'bloomDark', 0, 1.5, 0.05).name('bloom (+ at night)')
-  post.add(LOOK.post, 'dofBand', 0.5, 4, 0.1).name('focus band')
-  post.add(LOOK.post, 'dofEase', 0.05, 1, 0.01).name('focus ease')
-  post.add(LOOK.post, 'dofMax', 0, 1, 0.05).name('blur max')
-  post.add(LOOK.post, 'grain', 0, 0.1, 0.002)
   post.add(LOOK.post, 'aberration', 0, 6, 0.1).name('fringe')
-  post.add(LOOK.fog, 'strength', 0, 2, 0.05).name('fog')
+
+  const view = gui.addFolder('View')
+  view.add(LOOK.vista.camera, 'horizon', 0, 0.3, 0.005).name('horizon (share)')
+  view.add(LOOK.vista.camera, 'aspect', 0.8, 2.5, 0.05).name('table depth / width')
+  view.add(LOOK.vista.camera, 'tilt', 0, 1, 0.05).name('tilt to the table')
+  view.add(LOOK.vista, 'dof', 0, 1, 0.05).name('far blur')
+  view.add(LOOK.vista, 'bloom', 0, 1, 0.02).name('+ bloom')
+  view.add(LOOK.vista, 'inkFar', 0, 1, 0.05).name('ink far off')
+
+  const air = gui.addFolder('Air')
+  air.add(LOOK.vista.haze, 'distance', 50, 3000, 10).name('a third at (tiles)')
+  air.add(LOOK.vista.haze, 'max', 0, 1, 0.01)
+  air.add(LOOK.vista.haze, 'sunGlow', 0, 3, 0.05).name('glow to the sun')
+  air.add(LOOK.vista.haze, 'sunGlowPower', 1, 32, 1).name('glow width')
+  air.add(LOOK.vista.haze, 'desaturate', 0, 1, 0.01)
+
+  const sky = gui.addFolder('Sky')
+  sky.add(LOOK.vista.sky, 'curve', 0.1, 1.5, 0.01).name('gradient climb')
+  sky.add(LOOK.vista.sky, 'halo', 0, 4, 0.05)
+  sky.add(LOOK.vista.sky, 'haloSize', 0.5, 12, 0.1).name('halo (deg)')
+  sky.add(LOOK.vista.sky, 'aureole', 0, 3, 0.05)
+  sky.add(LOOK.vista.sky, 'bodyGlow', 0, 30, 0.5).name('body brightness')
+  sky.add(LOOK.vista.sky, 'clouds', 0, 1, 0.01)
+  sky.add(LOOK.vista.sky, 'cloudScale', 0.01, 0.3, 0.005).name('cloud size')
 
   gui.add(LOOK, 'debug', DEBUG_VIEWS).name('show')
 

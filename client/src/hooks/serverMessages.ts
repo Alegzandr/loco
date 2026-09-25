@@ -439,7 +439,7 @@ export function createServerMessageHandler(unoTimer: UnoBannerTimer) {
           msg.player_id ?? 0,
           msg.players ?? [],
           msg.match_format ?? 'BO1',
-          msg.max_players ?? 10,
+          msg.max_players ?? 7,
         )
         break
 

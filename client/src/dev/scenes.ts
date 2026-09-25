@@ -35,15 +35,15 @@ const PLAYERS_4: PlayerDTO[] = [
   player(3, 'Pixel', 1),
 ]
 
-const PLAYERS_8: PlayerDTO[] = [
+// A full table: seven is the server's cap (`serverMaxPlayers`, game/room.go).
+const PLAYERS_7: PlayerDTO[] = [
   player(0, 'Nova', 6),
   player(1, 'Kiwi', 3),
   player(2, 'Bot1', 9),
   player(3, 'Pixel', 1),
   player(4, 'Momo', 5),
   player(5, 'Yuzu', 12),
-  player(6, 'Bot2', 2),
-  player(7, 'Zed', 7, false),
+  player(6, 'Zed', 7, false),
 ]
 
 const HAND_7: CardDTO[] = [
@@ -194,7 +194,7 @@ const gameBase = {
   hasDrawn: false,
   roundNumber: 2,
   matchFormat: 'BO3' as const,
-  maxPlayers: 10,
+  maxPlayers: 7,
   scoreboard: SCOREBOARD,
   roomCode: 'KX7QP2',
 }
@@ -462,7 +462,7 @@ export const SCENES: Scene[] = [
       players: PLAYERS_4,
       myIndex: 2,
       matchFormat: 'BO1',
-      maxPlayers: 10,
+      maxPlayers: 7,
     },
   },
   {
@@ -507,7 +507,7 @@ export const SCENES: Scene[] = [
       players: PLAYERS_4,
       myIndex: 2,
       matchFormat: 'BO1',
-      maxPlayers: 10,
+      maxPlayers: 7,
     },
   },
   {
@@ -534,7 +534,7 @@ export const SCENES: Scene[] = [
       players: [player(0, 'Nova', 0)],
       myIndex: 0,
       matchFormat: 'BO1',
-      maxPlayers: 10,
+      maxPlayers: 7,
     },
   },
   {
@@ -994,6 +994,22 @@ export const SCENES: Scene[] = [
     deadlineIn: 19,
   },
   {
+    // The moon's road across the bay: the one hour the lighthouse is the
+    // brightest thing on the far shore.
+    id: 'game-map-marina-night',
+    title: 'Map · Marina · nuit claire',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'marina', mapTime: 'night', mapWeather: 'clear', discard: num('green', 3), activeColor: 'green' },
+    deadlineIn: 19,
+  },
+  {
+    id: 'game-map-marina-dusk',
+    title: 'Map · Marina · crépuscule',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'marina', mapTime: 'dusk', mapWeather: 'cloudy', discard: num('red', 8), activeColor: 'red' },
+    deadlineIn: 19,
+  },
+  {
     // The reveal. Two seats in, one still rendering: the state the roster
     // exists for, since a bar alone cannot tell a slow player from a hung game.
     id: 'game-map-loading',
@@ -1009,10 +1025,10 @@ export const SCENES: Scene[] = [
     },
   },
   {
-    id: 'game-eight-players',
-    title: 'Partie · 8 joueurs',
+    id: 'game-seven-players',
+    title: 'Partie · 7 joueurs',
     screen: 'game',
-    state: { ...gameBase, players: PLAYERS_8, discard: card('yellow', 'reverse'), activeColor: 'yellow', direction: -1 },
+    state: { ...gameBase, players: PLAYERS_7, discard: card('yellow', 'reverse'), activeColor: 'yellow', direction: -1 },
     deadlineIn: 12,
   },
   {
@@ -1433,6 +1449,47 @@ export const SCENES: Scene[] = [
       players: PLAYERS_4,
       myIndex: 0,
       serverUpdating: true,
+    },
+  },
+  {
+    // The hands face down round the felt, at the three shapes a table takes:
+    // two opponents either side of it with nobody above, a full ring with a
+    // seat on one card and one whose hand runs past what a fan draws, and a
+    // full seven-seat table on a phone.
+    id: 'game-hands-pair',
+    title: 'Table · deux adversaires de part et d’autre du tapis',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: [player(0, 'Nova', 7), player(1, 'Kiwi', 5), player(2, 'Pixel', 11)],
+      currentTurn: 1,
+    },
+  },
+  {
+    id: 'game-hands-ring',
+    title: 'Table · les mains autour du tapis',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: [
+        player(0, 'Nova', 7),
+        player(1, 'Kiwi', 4),
+        player(2, 'Bot1', 22),
+        player(3, 'Pixel', 1),
+        player(4, 'Momo', 8),
+        player(5, 'Yuzu', 3, false),
+      ],
+      currentTurn: 2,
+    },
+  },
+  {
+    id: 'game-hands-crowded',
+    title: 'Table · sept places',
+    screen: 'game',
+    state: {
+      ...gameBase,
+      players: [...PLAYERS_7.slice(0, 5), player(5, 'Lumen', 4), player(6, 'Cassis', 10)],
+      currentTurn: 5,
     },
   },
 ]

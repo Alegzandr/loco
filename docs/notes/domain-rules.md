@@ -759,7 +759,7 @@ is never refused. This is what the domain does when the round carries on without
 
 ## Lobby config
 - Host messages: `set_match_format`, `set_max_players` (lobby only).
-- Max players: `serverMinPlayers`(2) ≤ n ≤ `serverMaxPlayers`(10); cannot drop below current count.
+- Max players: `serverMinPlayers`(2) ≤ n ≤ `serverMaxPlayers`(7); cannot drop below current count.
 - Any change → broadcast `lobby_config_changed` (match_format, max_players).
 - `room_created`/`room_joined` include `match_format` + `max_players`.
 - Defaults: BO1, 10 max.

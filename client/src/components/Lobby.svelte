@@ -514,6 +514,10 @@
     border: var(--stroke-thin) solid var(--color-stroke);
     border-radius: var(--radius-full);
     box-shadow: 0 3px 0 var(--color-stroke-soft);
+    /* Centred under the centred mark, and balanced when a phone breaks it:
+       ragged left, it left one word alone on a second line of the pill. */
+    text-align: center;
+    text-wrap: balance;
   }
 
   .form {
@@ -779,15 +783,12 @@
     }
 
     /* Two short lines under the mark rather than one long one beside nothing,
-       set centred like the mark above them — a left-ragged pill under a
-       centred logo read as two objects. */
+       centred and balanced like everywhere else. */
     .tagline {
       margin-top: -4px;
       padding: 8px 14px;
       font-size: 12px;
       line-height: 1.4;
-      text-align: center;
-      text-wrap: balance;
     }
 
     .panel {

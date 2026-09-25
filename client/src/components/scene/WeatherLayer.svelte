@@ -42,8 +42,14 @@
     weather: Weather
     /** No precipitation: a storm is the flash and a drift of dust. */
     dry?: boolean
+    /**
+     * Where the drops do not land: a CSS mask over the splash rings, the felt
+     * cut out of it (`SceneBackdrop`). The rings are the ground's; laid over
+     * the table they read as a pattern printed on the cloth.
+     */
+    clear?: string
   }
-  let { weather, dry = false }: Props = $props()
+  let { weather, dry = false, clear = '' }: Props = $props()
 
   const tier = $derived(graphicsPref.tier)
   const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? Math.min(2, devicePixelRatio) : 1
@@ -98,7 +104,7 @@
     <!-- Where the drops land: rings on the ground, coming and going in place.
          They rest at nothing, so reduced motion keeps the rain and loses them. -->
     {#each splashKinds as kind, i (kind)}
-      <div class="sheet splash {kind}" style="{tiled(kind)}; {phase(i)}"></div>
+      <div class="sheet splash {kind}" style="{tiled(kind)}; {phase(i)}{clear ? `; mask-image: ${clear}; -webkit-mask-image: ${clear}` : ''}"></div>
     {/each}
   {/if}
   {#if weather === 'storm' && dry}

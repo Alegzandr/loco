@@ -20,29 +20,49 @@
   import Deck from './Deck.svelte'
   import DiscardPile from './DiscardPile.svelte'
   import Hand from './Hand.svelte'
-  import PlayerSlot from './PlayerSlot.svelte'
+  import PlayerSlot, { type FanHold, type FanJolt } from './PlayerSlot.svelte'
   import TurnIndicator, { type TurnTexts } from './TurnIndicator.svelte'
   import DirectionRing from './DirectionRing.svelte'
+  import TableTrack from './TableTrack.svelte'
+  import { rimSurface, tableCssVars } from './tableSurface'
   import AnimationLayer, { type Flier, type EffectText, type Impact } from './AnimationLayer.svelte'
   import {
     clockwiseOpponents,
     calcHandSlots,
     discardPosition,
     deckPosition,
+    PILE_SQUASH,
     seatPosition,
+    handSpots,
+    fanExtent,
     tableRect,
     seatLayout,
+    type CardSpot,
     boardScale,
     boardSpace,
     isLandscape,
+    feltSquash,
+    pileCentre,
+    shoutLine,
   } from './layout'
   import type { SceneSpec } from './maps'
   import type { FeltAnchor } from './layout'
   import { lightRig, rigCssVars, hexCss, mix } from '../scene/sky'
   import SceneBackdrop from '../scene/SceneBackdrop.svelte'
-  import { ACTIVE_RING, CARD_W, CARD_H, DEAL_FLIGHT_MS, DEAL_STAGGER_MS, flightFor } from './cardTheme'
+  import {
+    ACTIVE_RING,
+    CARD_W,
+    CARD_H,
+    CARD_RADIUS,
+    handCard,
+    handScale,
+    DEAL_FLIGHT_MS,
+    SEAT_SPECS,
+    dealStagger,
+    flightFor,
+  } from './cardTheme'
   import { LOCO_MARK_PATH, LOCO_MARK_VIEWBOX } from './locoMark'
-  import type { SwapNotice, LastPlay, CatchFlash } from '../../hooks/gameStore'
+  import type { SwapNotice, LastPlay, LastDraw, CatchFlash } from '../../hooks/gameStore'
   import { CATCH_PENALTY_CARDS } from '../../hooks/gameStore'
   import { untrack } from 'svelte'
   import { prefersReducedMotion } from '../../hooks/motionPref'
@@ -102,6 +122,8 @@
     catchFlash: CatchFlash | null
     /** Last play from the store; drives the opponent seat→discard card flight. */
     lastPlay: LastPlay | null
+    /** Last hand that grew; drives the deck→hand flights, into the exact places. */
+    lastDraw: LastDraw | null
     /** True while reconnect overlay is visible; board fades back in afterwards. */
     isReconnecting: boolean
     /**
@@ -123,17 +145,25 @@
 
   let p: Props = $props()
 
-  const SWAP_TRAIL_W = 28
-  const SWAP_TRAIL_H = 40
-  const SWAP_TRAIL_R = 4
+  // A hand passed across the table (a Swap, a GlobalSwitch): how many of its
+  // backs are seen travelling at most, and how long each takes. Enough that it
+  // reads as the hand going over, few enough that ten seats passing at once
+  // stay a picture and not a blizzard.
+  const PASS_CARDS_MAX = 12
+  const PASS_MS = 620
+  const PASS_STAGGER_MS = 22
+  // How far a passed hand bows off the straight line, px. The same sign on
+  // both hands of a Swap is what makes them pass on opposite sides: each bows
+  // to its own right.
+  const PASS_CURVE = 90
 
-  // Penalty cards flown to a caught seat. Bigger than a swap trail — this one is
-  // the point of the moment rather than a hint that hands moved — and still well
-  // short of a full card, which would bury the seat pill it is landing on.
-  const CATCH_CARD_W = 42
-  const CATCH_CARD_H = 60
-  const CATCH_CARD_R = 6
-  const CATCH_CARD_MS = 440
+  // One card drawn off the deck into a hand.
+  const DRAW_MS = 340
+  const DRAW_STAGGER_MS = 90
+
+  // Penalty cards flown to a caught seat: higher, slower and further apart
+  // than a draw, because this one is the point of the moment.
+  const CATCH_CARD_MS = 460
   const CATCH_CARD_STAGGER_MS = 130
 
   // A wild's face names no colour, so the board has to say it out loud once. The
@@ -254,15 +284,22 @@
     return [
       `--map-accent: ${m.accent}`,
       `--map-accent-deep: ${m.accentDeep}`,
-      `--tbl-felt: ${m.table.felt}`,
-      `--tbl-felt-deep: ${m.table.feltDeep}`,
-      `--tbl-rim: ${m.table.rim}`,
-      `--tbl-rim-light: ${m.table.rimLight}`,
-      `--tbl-base: ${m.table.base}`,
-      `--tbl-inlay: ${m.table.inlay}`,
+      ...tableCssVars(m.table),
       rigCssVars(rig),
     ].join('; ')
   })
+
+  // The rim's wood again, for the racetrack the play direction is inlaid in:
+  // the same image the rim is drawn with, so the two are one piece of wood.
+  const trackWood = $derived(p.scene ? rimSurface(p.scene.map.table) : null)
+  /**
+   * Whether the room's frame carries the table under the felt as it stands now
+   * (`SceneBackdrop`'s `tableDrawn`). While it does, the render is the table —
+   * cloth, racetrack and rail in the room's own light, the rail's shadow on the
+   * cloth — and the CSS draws none of it; until then, and whenever the frame is
+   * out of step with the felt, the CSS table stands in.
+   */
+  let tableRendered = $state(false)
 
   /**
    * Append without subscribing to what is already there.
@@ -339,10 +376,81 @@
   // otherwise the deck, the discard and the fliers drift apart from the table.
   const topReserve = $derived(seats.blockHeight)
 
+  // Where the three shouts land (LOCO!, the interception, the catch stamp), in
+  // screen pixels, for the overlays in `GameView` that cannot see the board's
+  // space: the free band either side of the piles (`shoutLine`). A fixed height
+  // above the piles sat on the hand of whoever faces us.
+  const shoutY = $derived(
+    ready ? space.offsetY + shoutLine(width, height, seats.seats, topReserve, landscape) * scale : 0,
+  )
+  $effect(() => {
+    const root = document.documentElement
+    if (!shoutY) return
+    root.style.setProperty('--shout-y', `${Math.round(shoutY)}px`)
+    return () => root.style.removeProperty('--shout-y')
+  })
+
+  // ─── Hands, and the holds that keep a card out of one until it lands ─────
+  // Every hand at the table is drawn card for card, so a card on its way to a
+  // hand must not already be sitting in it: the board launches the fliers and,
+  // in the same breath, tells the seat which of its backs to keep hidden and
+  // for how long (`FanHold`). Written without reading, like the fliers.
+  let holds = $state<Record<number, FanHold>>({})
+  let jolts = $state<Record<number, FanJolt>>({})
+  function holdSeat(seat: number, delays: Record<number, number>, at: number) {
+    holds = { ...untrack(() => holds), [seat]: { at, delays } }
+  }
+  function joltSeat(seat: number, delay: number) {
+    jolts = { ...untrack(() => jolts), [seat]: { at: Date.now(), delay } }
+  }
+
+  /** How big the hand of `seat` is right now, ours included. */
+  function sizeOf(seat: number): number {
+    if (seat === p.myIndex) return p.myHand.length
+    return p.players.find((q) => q.index === seat)?.hand_size ?? 0
+  }
+
+  /** The places of a hand of `size` at `seat`, in board coordinates. */
+  function spotsOf(seat: number, size: number): CardSpot[] {
+    return handSpots(seat, size, p.players, p.myIndex, width, height, landscape)
+  }
+
+  /** The deck's top card, as a spot. */
+  function deckSpot(): CardSpot {
+    const d = deckPosition(width, height, topReserve, landscape)
+    return { x: d.x + CARD_W / 2, y: d.y + CARD_H / 2, rotation: 0, w: CARD_W, h: CARD_H, squash: PILE_SQUASH }
+  }
+
+  /**
+   * A back flown from one spot to another, arriving at the size the target
+   * holds it and leaving at the size the source did — a hand card shrinking
+   * into an opponent's fan, a back swelling into ours.
+   */
+  function backFlight(
+    from: CardSpot,
+    to: CardSpot,
+    o: { duration: number; delayMs: number; arcHeight: number; startAlpha?: number },
+  ): Flier {
+    return {
+      id: newId(),
+      kind: 'back',
+      from: { x: from.x - to.w / 2, y: from.y - to.h / 2, rotation: from.rotation, squash: from.squash },
+      to: { x: to.x - to.w / 2, y: to.y - to.h / 2, rotation: to.rotation, squash: to.squash },
+      size: { w: to.w, h: to.h, r: to.w >= CARD_W ? CARD_RADIUS : 3 },
+      startScale: from.w / to.w,
+      startAlpha: o.startAlpha ?? 1,
+      duration: o.duration,
+      delayMs: o.delayMs,
+      arcHeight: o.arcHeight,
+    }
+  }
+
   // ─── Animation effect: an opponent played a card ─────────────────────────
-  // Flies the card from the opponent's seat to the discard pile so the play is
-  // legible without watching the pile. Declared before the discard-change effect
-  // so it can claim the update and suppress the generic pile flier.
+  // The card comes out of their hand: it leaves the middle of the fan face
+  // down, at the size the fan holds it, and turns over on its way to the pile,
+  // so the play is legible without watching the pile and the hand is seen to
+  // give it up. Declared before the discard-change effect so it can claim the
+  // update and suppress the generic pile flier.
   let lastPlayAt = untrack(() => p.lastPlay?.at ?? 0)
   $effect(() => {
     // Keyed on the play timestamp: one flight per play, never a replay on resize.
@@ -352,7 +460,16 @@
     lastPlayAt = lp.at
     // Own plays already fly out of the hand via handleCardClick.
     if (lp.actorIndex === p.myIndex) return
-    const from = seatPosition(lp.actorIndex, p.players, p.myIndex, width, height, landscape)
+    // The fan as it stood with the card still in it.
+    const before = untrack(() => spotsOf(lp.actorIndex, sizeOf(lp.actorIndex) + 1))
+    const seat = seatPosition(lp.actorIndex, p.players, p.myIndex, width, height, landscape)
+    const src: CardSpot = before[Math.floor(before.length / 2)] ?? {
+      x: seat.x,
+      y: seat.y,
+      rotation: 0,
+      w: CARD_W * 0.4,
+      h: CARD_H * 0.4,
+    }
     const dest = discardPosition(width, height, topReserve, landscape)
     const flight = flightFor(lp.card)
     addFliers(
@@ -360,18 +477,18 @@
         id: newId(),
         kind: 'face',
         card: lp.card,
-        // seatPosition returns a centre point; fliers are positioned by corner.
-        from: { x: from.x - CARD_W / 2, y: from.y - CARD_H / 2, rotation: -0.18 },
-        to: { x: dest.x, y: dest.y, rotation: 0 },
-        startAlpha: 0.35,
-        startScale: 0.72,
-        duration: flight.duration,
-        arcHeight: flight.arcHeight + 4,
+        flip: true,
+        // Spots are centres; fliers are positioned by corner.
+        from: { x: src.x - CARD_W / 2, y: src.y - CARD_H / 2, rotation: src.rotation, squash: src.squash },
+        to: { x: dest.x, y: dest.y, rotation: 0, squash: PILE_SQUASH },
+        startScale: src.w / CARD_W,
+        duration: flight.duration + 80,
+        arcHeight: flight.arcHeight + 26,
         spin: flight.spin,
-        swell: flight.swell,
+        swell: Math.max(flight.swell, 1.12),
       },
     )
-    landCard(lp.card, dest, flight.duration)
+    landCard(lp.card, dest, flight.duration + 80)
     suppressNextDiscardFx = true
   })
 
@@ -410,7 +527,7 @@
           kind: 'face',
           card,
           from: { x: target.x, y: target.y + CARD_H / 2 },
-          to: { x: target.x, y: target.y },
+          to: { x: target.x, y: target.y, squash: PILE_SQUASH },
           startAlpha: 0.1,
           startScale: 0.6,
           duration: flight.duration,
@@ -462,12 +579,14 @@
   })
 
   // ─── Animation effect: the deal ─────────────────────────────────────────
-  // Eight cards fading into a fan is a screen being drawn; eight cards flying
-  // off the deck one after another, each landing where the fan will hold it,
-  // is a hand being dealt. Keyed on the round so a reload mid-round rebuilds
-  // the fan quietly (the Hand's own stagger) and only a fresh deal flies.
+  // The whole table is dealt, the way a table is: one card to each seat in
+  // turn, starting with the next player and ending with us, round after round,
+  // every card landing where its hand will hold it. Keyed on the round so a
+  // reload mid-round rebuilds the hands quietly and only a fresh deal flies.
   let dealtFor = untrack(() => p.roundNumber ?? -1)
   let dealtOnce = untrack(() => p.myHand.length > 0)
+  /** The pace our own Hand reveals its cards at, matched to the fliers below. */
+  let dealPace = $state({ step: 0, offset: 0 })
   $effect(() => {
     const n = p.myHand.length
     const round = p.roundNumber ?? -1
@@ -478,108 +597,220 @@
     dealtFor = round
     dealtOnce = true
     if (prefersReducedMotion()) return
-    const slots = calcHandSlots(n, width, height, landscape)
-    const start = deckPosition(width, height, topReserve, landscape)
-    addFliers(
-      ...slots.map((slot, i) => ({
-        id: newId(),
-        kind: 'back' as const,
-        from: { x: start.x, y: start.y, rotation: 0 },
-        to: { x: slot.x, y: slot.y, rotation: slot.rotation },
-        startAlpha: 0.85,
-        startScale: 0.92,
-        duration: DEAL_FLIGHT_MS,
-        delayMs: i * DEAL_STAGGER_MS,
-        arcHeight: 14,
-      })),
-    )
+    untrack(() => {
+      const order = [...others.map((o) => o.index), p.myIndex]
+      const sizes = order.map(sizeOf)
+      const stagger = dealStagger(sizes.reduce((a, b) => a + b, 0))
+      const ring = order.length
+      dealPace = { step: stagger * ring, offset: stagger * (ring - 1) }
+      const deck = deckSpot()
+      const now = Date.now()
+      const flights: Flier[] = []
+      order.forEach((seat, j) => {
+        const spots = spotsOf(seat, sizes[j])
+        const delays: Record<number, number> = {}
+        spots.forEach((to, k) => {
+          const delayMs = (k * ring + j) * stagger
+          const f = backFlight(deck, to, { duration: DEAL_FLIGHT_MS, delayMs, arcHeight: 14, startAlpha: 0.85 })
+          // Ours turn face up on the way and land face up.
+          const card = seat === p.myIndex ? p.myHand[k] : undefined
+          flights.push(card ? { ...f, kind: 'face', card, flip: true } : f)
+          delays[k] = delayMs + DEAL_FLIGHT_MS
+        })
+        if (seat !== p.myIndex) holdSeat(seat, delays, now)
+      })
+      addFliers(...flights)
+    })
   })
 
-  // ─── Animation effect: my hand grew by one (drew a card) ─────────────────
-  let prevHandSize = untrack(() => p.myHand.length)
+  // ─── Animation effect: a hand grew ──────────────────────────────────────
+  // Every card drawn is seen leaving the deck and landing in its place in the
+  // hand that drew it — ours, or the exact backs of an opponent's fan, which
+  // stay hidden until their card arrives. Ours turn over on the way, since we
+  // are allowed to see them. The cards a Contre-LOCO! charged fly higher and
+  // slower, and the hand takes the knock when they land.
+  let lastDrawAt = untrack(() => p.lastDraw?.at ?? 0)
   $effect(() => {
-    const curr = p.myHand.length
-    if (!ready) return
-    const prev = prevHandSize
-    prevHandSize = curr
-    if (curr !== prev + 1) return // only single-card draws (penalty draws batch differently)
-    const slots = calcHandSlots(curr, width, height, landscape)
-    const target = slots[curr - 1]
-    const start = deckPosition(width, height, topReserve, landscape)
-    addFliers(
-      {
-        id: newId(),
-        kind: 'back',
-        from: { x: start.x, y: start.y },
-        to: { x: target.x, y: target.y, rotation: target.rotation },
-        startAlpha: 0.1,
-        startScale: 0.7,
-        duration: 300,
-      },
-    )
+    p.lastDraw?.at
+    const d = p.lastDraw
+    if (!ready || !d || d.at === lastDrawAt) return
+    lastDrawAt = d.at
+    if (prefersReducedMotion()) return
+    untrack(() => {
+      const size = sizeOf(d.seat)
+      const spots = spotsOf(d.seat, size)
+      // The newest cards are the last places of the fan. A fan already drawn in
+      // full takes them into its last places all the same: the hand is seen to
+      // take them, and the count on the plate says how many it holds.
+      const targets = spots.slice(Math.max(0, spots.length - d.count))
+      const first = spots.length - targets.length
+      const ms = d.penalty ? CATCH_CARD_MS : DRAW_MS
+      const gap = d.penalty ? CATCH_CARD_STAGGER_MS : DRAW_STAGGER_MS
+      const deck = deckSpot()
+      const now = Date.now()
+      const mine = d.seat === p.myIndex
+      const delays: Record<number, number> = {}
+      const flights = targets.map((to, i): Flier => {
+        delays[first + i] = i * gap + ms
+        const back = backFlight(deck, to, {
+          duration: ms,
+          delayMs: i * gap,
+          arcHeight: d.penalty ? 56 : 22,
+          startAlpha: 0.4,
+        })
+        if (!mine) return back
+        const card = p.myHand[first + i]
+        return card
+          ? { ...back, kind: 'face', card, flip: true }
+          : back
+      })
+      addFliers(...flights)
+      if (!mine) holdSeat(d.seat, delays, now)
+      if (d.penalty) joltSeat(d.seat, ms + (targets.length - 1) * gap)
+    })
   })
-
-  function spawnSwapTrail(
-    from: { x: number; y: number },
-    to: { x: number; y: number },
-    delayMs: number,
-  ) {
-    addFliers(
-      {
-        id: newId(),
-        kind: 'back',
-        from: { x: from.x - SWAP_TRAIL_W / 2, y: from.y - SWAP_TRAIL_H / 2, rotation: 0 },
-        to: { x: to.x - SWAP_TRAIL_W / 2, y: to.y - SWAP_TRAIL_H / 2, rotation: Math.PI * 0.5 },
-        size: { w: SWAP_TRAIL_W, h: SWAP_TRAIL_H, r: SWAP_TRAIL_R },
-        startAlpha: 0,
-        startScale: 0.7,
-        duration: 480,
-        delayMs,
-        fadeOut: true,
-      },
-    )
-  }
 
   // ─── Animation effect: swap / global_switch notice ──────────────────────
-  // Guarded on the timestamp like the three effects above, and for a reason that
+  // A hand passed is a hand seen crossing the table. Every card of it leaves
+  // the place it held in the giver's hand, the hand travels as one packet, and
+  // it fans out into the receiver's places. The two hands of a Swap bow to
+  // opposite sides so they are seen to pass each other rather than fly down
+  // the same line through each other; a GlobalSwitch sends every hand one seat
+  // along the ring. Between two other seats a hand travels face down. **Our
+  // own cards are face up in our hand and nowhere else**: ours going out turn
+  // face down on the way, and the cards coming to us turn face up on the way
+  // and land face up — landing as backs and then turning into faces read as
+  // the hand being dealt a second time. The hands that receive are held empty
+  // until their cards land, ours included.
+  //
+  // The counts are the server's roster, never `myHand`: the notice rides
+  // `card_played`, and the snapshot carrying our new hand is a message behind
+  // it, so at this instant `myHand` is still the hand we are giving away.
+  //
+  // Guarded on the timestamp like the effects above, and for a reason that
   // is not stylistic: the notice stays in the store for the 3.5s it is on screen,
   // and reading a prop is not a dependency on that prop's *value* — any of the
   // dozen props this board takes moving re-runs this. So every message that
   // arrived while a Swap was announced drew the trails again, and a resize drew
   // them once per frame.
+  // Our own hand's hold, card by card like an opponent's (`FanHold`).
+  let myHold = $state<FanHold | null>(null)
+  // Cards on their way to us whose faces the server has not named yet: the
+  // snapshot with our new hand is a message behind the play. They take off
+  // the moment it lands (the effect below), or as backs if it never does.
+  type Incoming = { flights: { f: Flier; k: number }[]; at: number; given: CardDTO[] }
+  let incoming: Incoming | null = null
+  const INCOMING_WAIT_MS = 400
+  function launchIncoming(hand: CardDTO[] | null) {
+    const pend = incoming
+    if (!pend) return
+    incoming = null
+    const flights = pend.flights.map(({ f, k }): Flier => {
+      const card = hand?.[k]
+      return card ? { ...f, kind: 'face', card, flip: true } : f
+    })
+    addFliers(...flights)
+    // Each card comes up as its own flier lands; one nobody flew to (a hand
+    // larger than the packet) with the last of them.
+    const delays: Record<number, number> = {}
+    const last = Math.max(...flights.map((f) => (f.delayMs ?? 0) + (f.duration ?? 0)))
+    const size = Math.max(hand?.length ?? 0, ...pend.flights.map(({ k }) => k + 1))
+    for (let k = 0; k < size; k++) delays[k] = last
+    pend.flights.forEach(({ f, k }) => (delays[k] = (f.delayMs ?? 0) + (f.duration ?? 0)))
+    // A fresh stamp even inside the same millisecond: the stamp is what re-arms it.
+    myHold = { at: Math.max(Date.now(), (untrack(() => myHold)?.at ?? 0) + 1), delays }
+  }
+  $effect(() => {
+    const hand = p.myHand
+    if (!incoming || hand === incoming.given) return
+    untrack(() => launchIncoming(hand))
+  })
+  $effect(() => () => {
+    incoming = null
+  })
+
   let lastSwapAt = untrack(() => p.swapNotice?.at ?? 0)
   $effect(() => {
     p.swapNotice?.at
     const sn = p.swapNotice
     if (!ready || !sn || sn.at === lastSwapAt) return
     lastSwapAt = sn.at
-    if (sn.kind === 'swap' && sn.targetIndex >= 0) {
-      const a = seatPosition(sn.actorIndex, p.players, p.myIndex, width, height, landscape)
-      const b = seatPosition(sn.targetIndex, p.players, p.myIndex, width, height, landscape)
-      spawnSwapTrail(a, b, 0)
-      spawnSwapTrail(b, a, 90)
-    } else if (sn.kind === 'global_switch') {
-      const ordered = [...p.players].sort((q, r) => q.index - r.index)
-      const step = sn.direction >= 0 ? 1 : ordered.length - 1
-      for (let i = 0; i < ordered.length; i++) {
-        const fromIdx = ordered[i].index
-        const toIdx = ordered[(i + step) % ordered.length].index
-        if (fromIdx === toIdx) continue
-        const a = seatPosition(fromIdx, p.players, p.myIndex, width, height, landscape)
-        const b = seatPosition(toIdx, p.players, p.myIndex, width, height, landscape)
-        spawnSwapTrail(a, b, i * 60)
+    if (prefersReducedMotion()) return
+    untrack(() => {
+      const now = Date.now()
+      const flights: Flier[] = []
+      const given = sn.givenHand ?? p.myHand
+      // Already here if the snapshot landed in the same frame as the play.
+      const received = p.myHand !== given ? p.myHand : null
+      const toMe: { f: Flier; k: number }[] = []
+      const count = (seat: number) => p.players.find((q) => q.index === seat)?.hand_size ?? 0
+      // The hand of `from` goes to `to`: it has as many cards as `to` holds now.
+      const pass = (from: number, to: number, curve: number, delay0: number, most: number) => {
+        const n = count(to)
+        const src = from === p.myIndex ? spotsOf(from, given.length) : spotsOf(from, n)
+        const dst = spotsOf(to, n)
+        const m = Math.min(src.length, dst.length)
+        if (m === 0) return
+        const picks = m <= most ? [...Array(m).keys()] : [...Array(most).keys()].map((k) => Math.round((k * (m - 1)) / (most - 1)))
+        const land = delay0 + (picks.length - 1) * PASS_STAGGER_MS + PASS_MS
+        const delays: Record<number, number> = {}
+        for (let k = 0; k < dst.length; k++) delays[k] = land
+        picks.forEach((k, i) => {
+          const delayMs = delay0 + i * PASS_STAGGER_MS
+          const f = backFlight(src[k], dst[k], { duration: PASS_MS, delayMs, arcHeight: 0 })
+          f.curve = curve
+          f.swell = 1.12
+          delays[k] = delayMs + PASS_MS
+          // Ours leave face up and turn face down on the way.
+          if (from === p.myIndex && given[k]) {
+            f.card = given[k]
+            f.flip = true
+          }
+          if (to === p.myIndex) toMe.push({ f, k })
+          else flights.push(f)
+        })
+        if (to === p.myIndex) {
+          // Nothing flies to us before the snapshot names the cards, so until
+          // then the whole hand is held; `launchIncoming` re-arms it card by card.
+          for (let k = 0; k < Math.max(given.length, dst.length); k++) delays[k] = land
+          myHold = { at: now, delays }
+        } else holdSeat(to, delays, now)
       }
-    }
+      if (sn.kind === 'swap' && sn.targetIndex >= 0) {
+        pass(sn.actorIndex, sn.targetIndex, PASS_CURVE, 0, PASS_CARDS_MAX)
+        pass(sn.targetIndex, sn.actorIndex, PASS_CURVE, 0, PASS_CARDS_MAX)
+      } else if (sn.kind === 'global_switch') {
+        const ordered = [...p.players].sort((q, r) => q.index - r.index)
+        const step = sn.direction >= 0 ? 1 : ordered.length - 1
+        const most = ordered.length > 6 ? 4 : 6
+        for (let i = 0; i < ordered.length; i++) {
+          const fromIdx = ordered[i].index
+          const toIdx = ordered[(i + step) % ordered.length].index
+          if (fromIdx === toIdx) continue
+          // Every hand bows the same way round, so the ring is seen turning.
+          pass(fromIdx, toIdx, PASS_CURVE * 0.6, 0, most)
+        }
+      }
+      addFliers(...flights)
+      if (toMe.length > 0) {
+        incoming = { flights: toMe, at: now, given }
+        if (received) launchIncoming(received)
+        else
+          window.setTimeout(() => {
+            if (incoming?.at === now) launchIncoming(null)
+          }, INCOMING_WAIT_MS)
+      }
+    })
   })
 
   // ─── Animation effect: a Contre-LOCO! landed ────────────────────────────
-  // The penalty cards leave the deck for the caught seat, and a red +N lands on
-  // it. Without this the whole mechanic is invisible: the caught hand grows the way
-  // it grows on any ordinary draw, and the player who won the race sees nothing at
-  // all happen.
-  // Same guard as the swap trails, same reason: the flash outlives the message
-  // that carried it, so without it the penalty cards left the deck again on every
-  // update for as long as the banner was up.
+  // The penalty cards themselves arrive through the ordinary card_drawn, and
+  // the draw effect above flies them — as a penalty, because the store marks
+  // a hand that grew straight after its catch. What is left here is the news:
+  // a red +N over the caught seat, announcing the cards' landing rather than
+  // the message that carried it. Without it the whole mechanic is invisible:
+  // the caught hand grows the way it grows on any ordinary draw.
+  // Same guard as the swap, same reason: the flash outlives the message.
   let lastCatchAt = untrack(() => p.catchFlash?.at ?? 0)
   $effect(() => {
     p.catchFlash?.at
@@ -587,41 +818,20 @@
     if (!ready || !cf || cf.at === lastCatchAt) return
     lastCatchAt = cf.at
     const seat = seatPosition(cf.seat, p.players, p.myIndex, width, height, landscape)
-    const deck = deckPosition(width, height, topReserve, landscape)
-    const from = {
-      x: deck.x + CARD_W / 2 - CATCH_CARD_W / 2,
-      y: deck.y + CARD_H / 2 - CATCH_CARD_H / 2,
-    }
-    const to = { x: seat.x - CATCH_CARD_W / 2, y: seat.y - CATCH_CARD_H / 2 }
-    addFliers(
-      ...Array.from({ length: CATCH_PENALTY_CARDS }, (_, i) => ({
-        id: newId(),
-        kind: 'back' as const,
-        from: { ...from, rotation: 0 },
-        // Fanned apart on arrival so two cards read as two, not as one card
-        // landing twice.
-        to: { ...to, rotation: (i - (CATCH_PENALTY_CARDS - 1) / 2) * 0.34 },
-        size: { w: CATCH_CARD_W, h: CATCH_CARD_H, r: CATCH_CARD_R },
-        startAlpha: 0.2,
-        startScale: 0.6,
-        duration: CATCH_CARD_MS,
-        delayMs: i * CATCH_CARD_STAGGER_MS,
-        arcHeight: 46,
-        fadeOut: true,
-      })),
-    )
+    // Just above the hand, not across its plate: the callout drifts upward as
+    // it plays, and a seat whose name is covered by its own penalty is a seat
+    // nobody can identify at the moment it matters most.
+    const place = untrack(() => others.findIndex((o) => o.index === cf.seat))
+    const s = place >= 0 ? seats.seats[place] : null
+    const fan = s ? fanExtent(s.size, Math.max(1, untrack(() => sizeOf(cf.seat))), s.lay) : null
+    const y = s ? Math.min(s.y + (fan?.top ?? 0), s.y + s.plate.y - SEAT_SPECS[s.size].plateH / 2) - 8 : seat.y - CARD_H / 2
     addEffects(
       {
         id: newId(),
         text: `+${CATCH_PENALTY_CARDS}`,
         color: '#e63946',
         x: seat.x,
-        // Just above the pill, not across it: the callout drifts upward as it
-        // plays, and a seat whose name is covered by its own penalty is a seat
-        // nobody can identify at the moment it matters most.
-        y: seat.y - CATCH_CARD_H / 2,
-        // Announces the cards landing, not the message that carried them — same
-        // rule the SKIP / REVERSE / +N callouts follow.
+        y,
         delayMs: CATCH_CARD_MS + (CATCH_PENALTY_CARDS - 1) * CATCH_CARD_STAGGER_MS,
       },
     )
@@ -655,8 +865,15 @@
         id: newId(),
         kind: 'face',
         card,
-        from: { x: slot.x, y: liftedY, rotation: slot.rotation },
-        to: { x: dest.x, y: dest.y, rotation: 0 },
+        // The slot is the card as our hand draws it, larger than the pile's:
+        // the flier leaves from its centre at that size and shrinks onto it.
+        from: {
+          x: slot.x + handCard(landscape).w / 2 - CARD_W / 2,
+          y: liftedY + handCard(landscape).h / 2 - CARD_H / 2,
+          rotation: slot.rotation,
+        },
+        to: { x: dest.x, y: dest.y, rotation: 0, squash: PILE_SQUASH },
+        startScale: handScale(landscape),
         startAlpha: 0.9,
         duration: flight.duration,
         arcHeight: flight.arcHeight,
@@ -689,6 +906,9 @@
 
   // Felt table — geometry lives in layout.ts so tests and animations share it.
   const table = $derived(tableRect(width, height, topReserve, landscape))
+  // The table's depth as the chair sees it: every width measured on the table
+  // is drawn in its plane and squashed by this (`feltSquash`).
+  const feltK = $derived(feltSquash(table.width, table.height))
 </script>
 
 <div
@@ -696,6 +916,7 @@
   class="board"
   data-testid="game-board"
   data-map={mapId}
+  class:inRoom={!!p.scene}
   data-scene-time={p.scene?.time ?? ''}
   data-scene-weather={p.scene?.weather ?? ''}
   style={boardStyle}
@@ -703,7 +924,7 @@
   {#if p.scene}
     <!-- The room, rendered once, sharp: its podium is under the felt to the
          pixel, so the table stands in it rather than in front of it. -->
-    <SceneBackdrop scene={p.scene} anchor={p.anchor} />
+    <SceneBackdrop scene={p.scene} anchor={p.anchor} bind:tableDrawn={tableRendered} />
     <div class="vignette"></div>
   {/if}
   <div
@@ -734,17 +955,26 @@
           {/if}
           <div
             class="tableOval"
+            class:rendered={tableRendered && !!p.scene}
             data-testid="table"
-            style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px"
+            style="left: {table.left}px; top: {table.top}px; width: {table.width}px; height: {table.height}px; --felt-k: {feltK}"
           >
             <svg class="tableMark" viewBox={LOCO_MARK_VIEWBOX} aria-hidden="true" focusable="false">
               <path d={LOCO_MARK_PATH} fill-rule="evenodd" fill="#ffffff" />
             </svg>
           </div>
+          <!-- The racetrack round the inside of the rim: part of the table. -->
+          {#if !(tableRendered && p.scene)}
+            <TableTrack rect={table} wood={trackWood} />
+          {/if}
           <!-- Keyed on the direction so a Reverse remounts the ring and replays its
-               flip: the change of heading is the event. -->
+               turn: the change of heading is the event. -->
           {#key p.direction >= 0 ? 'cw' : 'ccw'}
-            <DirectionRing rect={table} direction={p.direction} label={p.directionLabel} />
+            <DirectionRing
+              centre={pileCentre(width, height, topReserve, landscape)}
+              direction={p.direction}
+              label={p.directionLabel}
+            />
           {/key}
           <Deck
             {landscape}
@@ -779,15 +1009,17 @@
             onDraw={p.onDraw}
           />
           {#each others as o, i (o.index)}
-            <PlayerSlot
-              nickname={o.nickname}
-              handSize={o.hand_size}
-              isActiveTurn={o.index === p.currentTurn}
-              isDisconnected={o.connected === false}
-              x={seats.positions[i].x}
-              y={seats.positions[i].y}
-              size={seats.size}
-            />
+            {#if seats.seats[i]}
+              <PlayerSlot
+                nickname={o.nickname}
+                handSize={o.hand_size}
+                isActiveTurn={o.index === p.currentTurn}
+                isDisconnected={o.connected === false}
+                seat={seats.seats[i]}
+                hold={holds[o.index] ?? null}
+                jolt={jolts[o.index] ?? null}
+              />
+            {/if}
           {/each}
           <Hand
             {landscape}
@@ -798,6 +1030,9 @@
             isPlayable={p.isPlayable}
             isInteractive={p.isInteractive}
             onCardClick={handleCardClick}
+            dealStep={dealPace.step || undefined}
+            dealOffset={dealPace.offset}
+            hold={myHold}
           />
         </div>
       {/key}
@@ -936,42 +1171,98 @@
   }
 
   /* ─── The table ───────────────────────────────────────────────────────────
-     A felt inside a rim, standing on a plinth. Every room hands the same object
-     its own materials (`--tbl-*`, from `maps.ts`), and the hour hands it a tint
-     for the sheen and a dimming for the whole; without a scene the tokens'
-     near-black table is what the variables fall back to.
+     A felt inside a rim, both of a room's own materials (`--tbl-*`, from
+     `maps.ts` through `tableSurface.ts`), and the hour hands it a tint for the
+     sheen and a dimming for the whole; without a scene the tokens' near-black
+     table is what the variables fall back to.
 
-     It obeys the three rules every raised object here obeys: an ink outline on
-     both sides of the rim, a hard bottom edge (the `0 16px 0` shadow is the
-     rim's thickness, seen from above and in front), and a soft shadow that is
-     ambience, never structure. The inlay is the one line of the room's accent
-     set into the rim: a neon tube, a brass bead, a rune groove. */
+     One element, two surfaces: the felt is every layer clipped to the padding
+     box, the rim every layer clipped to the border box (the transparent
+     border is the rim). Each is lit the same way, back to front: its colour,
+     the rim's grain (a seeded noise image of the material, `--tbl-rim-tex`;
+     the felt has none, by choice), the hour's dimming, then the light — a broad sheen
+     and, on a glossy rim, the room's lights caught in the finish
+     (`--tbl-rim-gloss`).
+
+     The edge is a darker note of the rim's own colour, never the interface's
+     ink: the table stands in a rendered room, and there the outline rule
+     bends the way it bends for every block (`kit.ts: inkFor`). */
   .tableOval {
     position: absolute;
     border-radius: 50%;
+    --rim-dim: rgba(0, 0, 0, calc(var(--scene-dark, 1) * 0.18));
     --felt-1: color-mix(in srgb, var(--tbl-felt, var(--table-felt-1)), #000 calc(var(--scene-dark, 1) * 22%));
     --felt-2: color-mix(in srgb, var(--tbl-felt-deep, var(--table-felt-2)), #000 calc(var(--scene-dark, 1) * 22%));
+    --rim-color: var(--tbl-rim, var(--table-rim));
+    /* The rim is 11px all the way round: its inner edge is the felt's ellipse
+       taken in by the same amount on both axes, the kind of oval every line
+       round the table is (`tableTrackEllipse`). */
+    border: 11px solid transparent;
     background:
-      radial-gradient(60% 58% at 50% 28%, color-mix(in srgb, var(--scene-tint, #ffffff) 16%, transparent) 0%, rgba(0, 0, 0, 0) 68%),
-      radial-gradient(58% 58% at 50% 34%, color-mix(in srgb, var(--tbl-rim-light, var(--table-rim-light)) 14%, transparent) 0%, rgba(0, 0, 0, 0) 62%),
-      linear-gradient(170deg, var(--felt-1) 0%, var(--felt-2) 68%);
-    border: 11px solid color-mix(in srgb, var(--tbl-rim, var(--table-rim)), #000 calc(var(--scene-dark, 1) * 18%));
+      /* the felt: the light, the cloth (no texture: its colour is the cloth) */
+      radial-gradient(60% 58% at 50% 28%, color-mix(in srgb, var(--scene-tint, #ffffff) 16%, transparent) 0%, rgba(0, 0, 0, 0) 68%) padding-box,
+      radial-gradient(58% 58% at 50% 34%, color-mix(in srgb, var(--tbl-rim-light, var(--table-rim-light)) 10%, transparent) 0%, rgba(0, 0, 0, 0) 62%) padding-box,
+      linear-gradient(170deg, var(--felt-1) 0%, var(--felt-2) 68%) padding-box,
+      /* the rim: its reflections, the hour, the grain, the material */
+      var(--tbl-rim-gloss, none),
+      linear-gradient(var(--rim-dim), var(--rim-dim)) border-box,
+      var(--tbl-rim-tex, none) center / 540px 180px repeat border-box,
+      linear-gradient(var(--rim-color), var(--rim-color)) border-box;
     box-shadow:
-      /* the inlay, then the ink line inside the rim */
-      inset 0 0 0 2px color-mix(in srgb, var(--tbl-inlay, var(--table-rim-light)) 70%, transparent),
-      inset 0 0 0 4px rgba(6, 3, 16, 0.4),
+      /* the rim's lip shading the felt, and the light falling off towards the
+         near side (the metal bead at the cloth's edge is the racetrack's filet) */
+      inset calc(var(--sun-dx, 0) * -3px) calc(var(--sun-dy, 0.7) * -3px + 3px) 6px rgba(0, 0, 0, 0.45),
       inset 0 8px 24px color-mix(in srgb, var(--scene-tint, #ffffff) 10%, transparent),
       inset 0 -20px 36px rgba(0, 0, 0, 0.36),
-      /* ink outline outside, the sheen on the rim's top edge, the rim's thickness, the ink under that */
-      0 0 0 2px rgba(6, 3, 16, 0.55),
-      0 -2px 0 2px color-mix(in srgb, var(--tbl-rim-light, var(--table-rim-light)) 45%, transparent),
-      0 16px 0 var(--tbl-base, var(--table-rim)),
-      0 16px 0 2px rgba(6, 3, 16, 0.55),
-      /* the cast shadow lies the way the room's sun lays every other one */
-      calc(var(--sun-dx, 0) * 22px) calc(16px + var(--sun-dy, 0.7) * 24px) 44px
-        rgba(6, 3, 16, calc(0.35 + var(--scene-dark, 1) * 0.15));
+      /* the rim's outer edge, in its own darker note */
+      0 0 0 1.5px color-mix(in srgb, var(--rim-color), #000 65%);
     pointer-events: none;
-    overflow: hidden;
+  }
+
+  /* The rim's section: a rounded edge rolling away from the light. The far
+     side's outer lip catches it, the near side turns down into its own shade.
+     Inset shadows on a box the size of the rim's outer edge, kept inside the
+     rim's width so none of it lands on the cloth. */
+  .tableOval::before {
+    content: '';
+    position: absolute;
+    inset: -11px;
+    border-radius: 50%;
+    box-shadow:
+      inset 0 2px 1px -1px color-mix(in srgb, var(--scene-tint, #ffffff) 55%, transparent),
+      inset 0 -3px 3px -1px rgba(0, 0, 0, 0.5),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+    pointer-events: none;
+  }
+
+  /* Without a room the CSS carries the whole object: the rim's thickness as a
+     hard edge under it, the ink under that, and a soft shadow on the floor.
+     In a room the render carries the edge (`vistaTable`: a profile swept
+     round the felt, in the rim's material) and its real shadow, and a flat
+     band drawn over it would hide the one thing the render adds. */
+  .board:not(.inRoom) .tableOval {
+    box-shadow:
+      inset 0 0 0 1.5px var(--table-rim-light),
+      inset 0 0 0 4px rgba(6, 3, 16, 0.4),
+      inset 0 8px 24px rgba(255, 255, 255, 0.1),
+      inset 0 -20px 36px rgba(0, 0, 0, 0.36),
+      0 0 0 2px rgba(6, 3, 16, 0.55),
+      0 -2px 0 2px color-mix(in srgb, var(--table-rim-light) 45%, transparent),
+      0 16px 0 var(--table-rim),
+      0 16px 0 2px rgba(6, 3, 16, 0.55),
+      0 30px 44px rgba(6, 3, 16, 0.4);
+  }
+
+  /* The render carries the table: nothing of the CSS one is drawn but the
+     mark branded into the cloth. */
+  .board.inRoom .tableOval.rendered {
+    border-color: transparent;
+    background: none;
+    box-shadow: none;
+  }
+
+  .board.inRoom .tableOval.rendered::before {
+    content: none;
   }
 
   /* The plinth: what the table stands on, drawn under it. Its top is hidden by
@@ -1010,31 +1301,16 @@
        only ~28% of the width and sits comfortably inside the curve. Driving it off
        the width put the mark half outside the ellipse and sliced it into
        fragments. */
-    height: 58%;
-    width: auto;
+    /* It lies on the cloth, so it is foreshortened with it (`--felt-k`): sized
+       on the table, a third of its width, then squashed like the rim. */
+    width: 34%;
+    height: auto;
     /* Belt and braces: an absolutely-positioned <svg> with one axis auto does not
        reliably take its intrinsic ratio, and a mark stretched to the felt is the
        bug this whole file exists to avoid. */
     aspect-ratio: 712 / 576;
-    transform: translate(-50%, -50%);
+    transform: translate(-50%, -50%) scaleY(var(--felt-k, 1));
     opacity: 0.07;
-    pointer-events: none;
-  }
-
-  /* Woven felt texture — very low contrast, only there to kill the flat plastic
-     look at large sizes. */
-  .tableOval::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background:
-      repeating-linear-gradient(
-        45deg,
-        rgba(255, 255, 255, 0.035) 0 2px,
-        rgba(0, 0, 0, 0) 2px 4px
-      ),
-      repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.03) 0 2px, rgba(0, 0, 0, 0) 2px 4px);
     pointer-events: none;
   }
 </style>

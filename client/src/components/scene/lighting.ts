@@ -29,17 +29,17 @@ import {
   Mesh,
   PCFShadowMap,
   PMREMGenerator,
+  SpotLight,
   Scene,
   ShaderMaterial,
   SphereGeometry,
-  VSMShadowMap,
   Vector3,
   type Texture,
   type ToneMapping as ThreeToneMapping,
   type WebGLRenderer,
 } from 'three'
 import type { LightRig } from './sky'
-import { lightingFor, shadowRun, skyDome, type Lighting } from './shade'
+import { lightingFor, skyDome, type Lighting } from './shade'
 import { LOOK, type ToneMapping } from './look'
 import type { RenderQuality } from './quality'
 
@@ -83,7 +83,7 @@ export function toneMappingFor(mapping: ToneMapping): ThreeToneMapping {
  */
 export function configureShadows(renderer: WebGLRenderer): void {
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = LOOK.shadow.type === 'vsm' ? VSMShadowMap : PCFShadowMap
+  renderer.shadowMap.type = PCFShadowMap
   renderer.shadowMap.autoUpdate = false
 }
 
@@ -103,7 +103,6 @@ export function makeLights(rig: LightRig, q: RenderQuality): Lights {
   sun.castShadow = true
   sun.shadow.mapSize.set(q.shadowMap, q.shadowMap)
   sun.shadow.radius = lighting.shadowRadius * (q.shadowMap / 4096)
-  sun.shadow.blurSamples = LOOK.shadow.blurSamples
   sun.shadow.bias = LOOK.shadow.bias
   sun.shadow.normalBias = LOOK.shadow.normalBias
   // Under an overcast the sun is dimmer already (the rig scales it); what is
@@ -165,33 +164,18 @@ export function makeLights(rig: LightRig, q: RenderQuality): Lights {
 }
 
 /**
- * The world-space box of everything on screen: the frame's four corners on
- * the ground and the same rays `ROOM_HEIGHT` up, from screen tiles through
- * the ground plan's own projection (`at`). A few tiles past the frame, since
- * what stands just outside it still throws into it.
+ * The lamp over the table (`LOOK.table.lamp`): a warm cone straight down onto
+ * the cloth from above its middle, the one light in the room that is the
+ * table's. No shadow — the sun's is the one map — and the corner where the
+ * rail meets the cloth is the occlusion's.
  */
-export function frameBox(vw: number, vh: number, pitch: number, at: (sx: number, sy: number) => [number, number], margin = 4): Box3 {
-  const box = new Box3()
-  const cos = Math.cos(pitch)
-  for (const sx of [-vw / 2 - margin, vw / 2 + margin]) for (const sy of [-vh / 2 - margin, vh / 2 + margin]) for (const y of [-1, ROOM_HEIGHT]) {
-    // A point at height `y` on the ray through (sx, sy) stands over the ground
-    // point that appears `y · cos(pitch)` lower on screen.
-    const [gx, gz] = at(sx, sy - y * cos)
-    box.expandByPoint(_p.set(gx, y, gz))
-  }
-  return box
-}
-
-/**
- * The box a sprite's shadow reaches on the ground, from the thing's own box:
- * every top corner slid down the sun's ray to `y = 0`.
- */
-export function shadowReach(box: Box3, rig: LightRig): Box3 {
-  const out = box.clone()
-  const [rx, rz] = shadowRun(rig)
-  const h = Math.max(0, box.max.y)
-  for (const x of [box.min.x, box.max.x]) for (const z of [box.min.z, box.max.z]) out.expandByPoint(_p.set(x + rx * h, 0, z + rz * h))
-  return out
+export function makeTableLamp(rig: LightRig, centre: [number, number, number]): SpotLight {
+  const l = LOOK.table.lamp
+  const lamp = new SpotLight(new Color(l.color), l.day + (l.night - l.day) * rig.dark, 0, (l.angle * Math.PI) / 180, l.penumbra, 0)
+  lamp.position.set(centre[0], centre[1] + l.height, centre[2])
+  lamp.target.position.set(centre[0], centre[1], centre[2])
+  lamp.castShadow = false
+  return lamp
 }
 
 /**

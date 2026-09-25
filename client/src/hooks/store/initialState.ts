@@ -31,6 +31,7 @@ export const initialState: GameState = {
   mapLoading: null,
   swapNotice: null,
   lastPlay: null,
+  lastDraw: null,
   interruptFlash: null,
   latencies: [],
 
@@ -53,7 +54,7 @@ export const initialState: GameState = {
   catchPending: false,
 
   matchFormat: 'BO1',
-  maxPlayers: 10,
+  maxPlayers: 7,
   roundNumber: 1,
   scoreboard: [],
   roundWinner: '',

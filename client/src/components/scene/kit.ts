@@ -42,10 +42,20 @@ import {
   CylinderGeometry,
   Float32BufferAttribute,
   Group,
+  DataTexture,
+  DoubleSide,
+  LatheGeometry,
+  LinearFilter,
+  LinearMipmapLinearFilter,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
+  RepeatWrapping,
+  RGBAFormat,
+  SRGBColorSpace,
+  Vector2,
   SphereGeometry,
   BackSide,
   AdditiveBlending,
@@ -58,6 +68,8 @@ import { mix, scale } from './sky'
 import type { Rng } from './rng'
 import { seededRng } from './rng'
 import { LOOK } from './look'
+import { grainPixels, type GrainKind } from './grain'
+import type { V3, View } from './view'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
 import { compact, hullFor, splitGlow } from './models/bake'
@@ -67,38 +79,27 @@ import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_P
 /** three's own image-based-light chunk, which the lit material edits rather than includes. */
 const THREE_CHUNK_LIGHTS_MAPS = ShaderChunk.lights_fragment_maps
 
-/**
- * Where the table is, in screen tiles: the centre of the felt's ellipse and its
- * semi-axes, `sy` up. `render.ts` solves it from the felt's place in the
- * viewport, and the podium is built under it.
- */
-export interface Anchor {
-  sx: number
-  sy: number
-  a: number
-  b: number
-}
-
 export interface KitOptions {
   rig: LightRig
   rng: Rng
   /** Outline thickness in world units (solved from the render's pixel density). */
   outline: number
-  anchor: Anchor
   /**
-   * The frame, in screen tiles across and up, for a builder composing against
-   * its edges (a route that starts off it). Absent for a sprite kit.
+   * The thickness where a block stands, when it is not the same everywhere:
+   * under a perspective camera a line of one pixel is a longer run of world
+   * the farther away it is (`view.ts`). Absent, `outline` everywhere.
    */
-  frame?: { w: number; h: number }
+  outlineAt?: (x: number, y: number, z: number) => number
+  /** The camera, when the room is seen from the table (`view.ts`); absent for the isometric rooms and the sprites. */
+  view?: View
   /** Lay shadows on the ground. Off for a sprite of something in the air. */
   shadows?: boolean
   /** The loaded models this room may place (`k.model`). None for a sprite kit that needs none. */
   models?: ModelLib
   /**
    * Light the ground with a map of pools (`pools.ts`) rather than an additive
-   * disc under each lamp. On for a room (a kit with a `frame`); a sprite has
-   * no ground of its own to light and keeps its disc, so a car's headlights
-   * still lie in front of it as it drives.
+   * disc under each lamp. On for a room (`render.ts` asks for it); a sprite
+   * has no ground of its own to light and keeps its disc.
    */
   lightPools?: boolean
 }
@@ -148,6 +149,28 @@ export interface BlockOptions {
   water?: boolean
 }
 
+/**
+ * What a piece of the table is made of (`docs/notes/visual.md`, "The table").
+ * The room is blocks in one matte material with the colour in the vertices;
+ * the table is the one object that is not, because it is the nearest thing to
+ * the camera and made of what a matte block cannot say. A finish is a
+ * physically based material (`LOOK.table[kind]`) with, where the material has
+ * one, its grain as a texture (`grain.ts`).
+ */
+export type FinishKind = 'wood' | 'lacquer' | 'metal' | 'brushed' | 'marble' | 'cloth'
+
+export interface Finish {
+  kind: FinishKind
+  color: Hex
+  /** The grain drawn over the colour, and its second colour. Without one the piece is its colour. */
+  grain?: GrainKind
+  grainColor?: Hex
+  /** Metal sown in the finish. */
+  fleck?: Hex
+  /** The varnish over it, 0-1, when it is not the kind's own (`LOOK.table`). */
+  coat?: number
+}
+
 export const INK = 0x120b24
 /**
  * A block's outline is a darker note of its own colour, never black. The
@@ -181,8 +204,6 @@ export function spotChance(x: number, z: number): number {
  * +z), so on the moon the one passer-by walked backwards.
  */
 export const ASTRONAUT_MODEL_YAW = Math.PI
-/** The tallest a landmark may stand in the band above the table, in tiles. */
-export const LANDMARK_TOP_MAX = 7
 const WINDOW_DARK = 0x1a2233
 /** The drawn kits whose surfaces are paint and metal rather than wood and plaster. */
 const GLOSSY_KITS = new Set(['cars', 'space'])
@@ -205,32 +226,21 @@ export class Kit {
   readonly rig: LightRig
   readonly rng: Rng
   readonly outline: number
-  readonly anchor: Anchor
-  /** The frame in screen tiles, or a default wide enough for any builder to compose against. */
-  readonly frame: { w: number; h: number }
+  private readonly outlineAt: ((x: number, y: number, z: number) => number) | null
+  /** The camera, for a room seen from the table (`view.ts`). */
+  readonly view: View | null
   /** The ground plan: every model placed, every zone claimed (`placer.ts`). */
   readonly placer = new Placer(0.35)
-  /**
-   * The room's landmarks, where they stand on screen and how tall they are.
-   * Declared by the builders so the composition rules can be checked: one
-   * over `LANDMARK_TOP_MAX` tiles tall stands in a side band, never in the top
-   * one, where the frame's top edge cuts it (`sceneGeometry.test.ts`).
-   */
-  readonly landmarks: { name: string; sx: number; sy: number; h: number }[] = []
   /** Whether what is built here stands on the ground and throws a shadow on it: off for a sprite of something in the air. */
   readonly shadows: boolean
   private readonly models: ModelLib | null
   private readonly lightPools: boolean
   /** The light lying on the ground tonight (`pools.ts`). */
   readonly pools: Pool[] = []
-  /**
-   * Things that may come and go during the match (`life.ts: Actor.blink`):
-   * dark windows that someone may light, and neon that may catch. Recorded as
-   * they are built; the render picks a few it can see (`render.ts`).
-   */
-  readonly blinkers: Blinker[] = []
   private buckets: Record<Bucket, BufferGeometry[]> = { lit: [], glow: [], ink: [], halo: [] }
   private haloAlphas: number[] = []
+  /** The table's pieces, by finish: one mesh and one material each. */
+  private finishes = new Map<string, { finish: Finish; geoms: BufferGeometry[] }>()
   /** Something here is glossy or water: the room is worth a mirror pass (`mirror.ts`). */
   reflective = false
   /** The lowest water surface built, tiles; 0 when there is none, which is the ground's own plane. */
@@ -242,19 +252,19 @@ export class Kit {
     this.rig = o.rig
     this.rng = o.rng
     this.outline = o.outline
-    this.anchor = o.anchor
-    this.frame = o.frame ?? { w: 80, h: 80 }
+    this.outlineAt = o.outlineAt ?? null
+    this.view = o.view ?? null
     this.shadows = o.shadows ?? true
     this.models = o.models ?? null
-    this.lightPools = (o.lightPools ?? o.frame !== undefined) && LOOK.pools.strength > 0
+    this.lightPools = (o.lightPools ?? false) && LOOK.pools.strength > 0
+  }
+
+  /** The ink's thickness at a point: the same everywhere, unless the camera says otherwise. */
+  ink(x: number, y: number, z: number): number {
+    return this.outlineAt ? this.outlineAt(x, y, z) : this.outline
   }
 
   // ─── Ground plan ──────────────────────────────────────────────────────────
-
-  /** Declares a landmark at a screen point, `h` tiles tall. Builds nothing. */
-  landmark(name: string, sx: number, sy: number, h: number) {
-    this.landmarks.push({ name, sx, sy, h })
-  }
 
   /** Claims ground nothing may be built on: the plaza, the water, a road. */
   claim(x: number, z: number, w: number, d: number, rot = 0) {
@@ -338,7 +348,7 @@ export class Kit {
     if (o.outline !== false) {
       // The hull is the model pushed along its smoothed normals, in model
       // units: the outline is world units, so divide by the scale it will get.
-      const hull = make(hullFor(b, this.outline / s), null, colors)
+      const hull = make(hullFor(b, this.ink(x, y, z) / s), null, colors)
       this.pushBaked(hull, 'ink')
     }
     return true
@@ -470,7 +480,7 @@ export class Kit {
     if (o.water) this.waterAt(y + h)
     this.push(body, color, bucket, o.water ? 1 : o.gloss, o.water)
     if (o.outline !== false) {
-      const t = this.outline
+      const t = this.ink(x, y, z)
       this.push(this.place(boxGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, cy, z, o.rot, o.tilt), inkFor(color), 'ink')
     }
     if (this.rig.snow && o.cap !== false && !o.glow && !o.tilt && h > 0.12 && w > 0.25 && d > 0.25) {
@@ -504,7 +514,7 @@ export class Kit {
     const body = this.place(make(rTop, r, h), x, cy, z, o.rot)
     this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
-      const t = this.outline
+      const t = this.ink(x, y, z)
       this.push(this.place(make(rTop + t, r + t, h + 2 * t), x, cy, z, o.rot), inkFor(color), 'ink')
     }
     if (this.rig.snow && o.cap !== false && !o.glow && !o.axis && rTop > 0.2) {
@@ -528,12 +538,91 @@ export class Kit {
     const body = this.place(make(a, b, h), x, y + h / 2, z, o.rot)
     this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
-      const t = this.outline
+      const t = this.ink(x, y, z)
       this.push(this.place(make(a + t, b + t, h + 2 * t), x, y + h / 2, z, o.rot), inkFor(color), 'ink')
     }
     if (this.rig.snow && o.cap !== false && !o.glow) {
       this.push(this.place(make(a * 0.98, b * 0.98, 0.1), x, y + h + 0.04, z, o.rot), SNOW, 'lit')
     }
+  }
+
+  /**
+   * A slab whose plan is any convex outline, `y` its bottom, `h` tall: the
+   * table top built on the felt cast back onto its plane (`view.ts`), and the
+   * rims and steps offset from it (`offsetOutline`). The sides are smooth, the
+   * top and bottom flat. Its ink is the outline grown by the line's width.
+   */
+  plate(outline: readonly [number, number][], y: number, h: number, color: Hex, o: BlockOptions = {}) {
+    if (outline.length < 3) return
+    const bucket: Bucket = o.glow ? 'glow' : 'lit'
+    this.push(plateGeometry(outline, y, h), color, bucket, o.water ? 1 : o.gloss, o.water)
+    if (o.water) this.waterAt(y + h)
+    if (o.outline !== false) {
+      let cx = 0
+      let cz = 0
+      for (const [px, pz] of outline) {
+        cx += px
+        cz += pz
+      }
+      const t = this.ink(cx / outline.length, y + h, cz / outline.length)
+      this.push(plateGeometry(offsetOutline(outline, t), y - t, h + 2 * t), inkFor(color), 'ink')
+    }
+    if (this.rig.snow && o.cap !== false && !o.glow) this.push(plateGeometry(offsetOutline(outline, -0.03), y + h - 0.01, 0.1), SNOW, 'lit')
+  }
+
+  // ─── The table's pieces ───────────────────────────────────────────────────
+  // Finished rather than blocked: no ink hull, no snow cap, a material of their
+  // own (`Finish`). What the table under the felt is made of (`vistaTable`).
+
+  /**
+   * A section swept round a closed outline: the table's edge. `profile` is the
+   * section, `[out, up]` pairs from the top down, `out` along the outline's
+   * outward normal (never above zero: nothing wider than the felt), `up`
+   * from `y`.
+   */
+  sweep(outline: readonly [number, number][], y: number, profile: readonly [number, number][], finish: Finish) {
+    this.pushFinish(sweepGeometry(outline, y, profile), finish)
+  }
+
+  /**
+   * A turned piece: `profile` is `[radius, height]` pairs from the bottom up,
+   * turned round a vertical axis at `(x, z)` from `y`. `seg` 4 turns a square
+   * leg; `tilt` leans it (radians about z, then `rot` about y).
+   */
+  lathe(x: number, y: number, z: number, profile: readonly [number, number][], finish: Finish, o: { seg?: number; rot?: number; tilt?: number } = {}) {
+    const g = new LatheGeometry(profile.map(([r, h]) => new Vector2(Math.max(0, r), h)), o.seg ?? 40, o.seg === 4 ? Math.PI / 4 : 0)
+    this.pushFinish(this.place(g, x, y, z, o.rot ?? 0, o.tilt ?? 0), finish)
+  }
+
+  /**
+   * A surface lofted through rings of points, world: the rail round the felt,
+   * the racetrack, the cloth itself. Every ring has as many points as the
+   * others and point `i` of each is at the same place round the table
+   * (`View.tableOutline`), so the rings can be screen ellipses concentric with
+   * the felt cast onto the table and still be one surface. Rings run from the
+   * inside out, the way `sweep`'s profile runs from the top down: the surface
+   * faces the side the section turns to, up over a crown and out down a face.
+   */
+  loft(rings: readonly (readonly V3[])[], finish: Finish) {
+    this.pushFinish(loftGeometry(rings), finish)
+  }
+
+  /** A finished block: a stretcher, a plinth. `y` is its bottom. */
+  finishBox(x: number, y: number, z: number, w: number, h: number, d: number, finish: Finish, o: { rot?: number } = {}) {
+    this.pushFinish(this.place(new BoxGeometry(w, h, d), x, y + h / 2, z, o.rot ?? 0), finish)
+  }
+
+  private pushFinish(g: BufferGeometry, finish: Finish) {
+    for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name)
+    if (!g.getAttribute('uv')) throw new Error('kit: a finished piece needs its uv')
+    if (!g.index) throw new Error('kit: every geometry must be indexed, or the finish will not merge')
+    const key = JSON.stringify(finish)
+    let entry = this.finishes.get(key)
+    if (!entry) {
+      entry = { finish, geoms: [] }
+      this.finishes.set(key, entry)
+    }
+    entry.geoms.push(g)
   }
 
   cone(x: number, y: number, z: number, r: number, h: number, color: Hex, o: BlockOptions & { seg?: number } = {}) {
@@ -542,7 +631,7 @@ export class Kit {
     const body = this.place(coneGeometry(r, h, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4)
     this.push(body, this.rig.snow && o.cap !== false ? mix(color, SNOW, 0.6) : color, bucket, o.gloss)
     if (o.outline !== false) {
-      const t = this.outline
+      const t = this.ink(x, y, z)
       this.push(this.place(coneGeometry(r + t, h + 2 * t, seg), x, y + h / 2, z, o.rot ?? Math.PI / 4), inkFor(color), 'ink')
     }
   }
@@ -553,7 +642,7 @@ export class Kit {
     const body = this.place(sphereGeometry(r, seg), x, y, z)
     this.push(body, color, bucket, o.gloss)
     if (o.outline !== false) {
-      this.push(this.place(sphereGeometry(r + this.outline, seg), x, y, z), inkFor(color), 'ink')
+      this.push(this.place(sphereGeometry(r + this.ink(x, y, z), seg), x, y, z), inkFor(color), 'ink')
     }
   }
 
@@ -564,7 +653,7 @@ export class Kit {
     const body = this.place(prismGeometry(w, h, d), x, y, z, o.rot)
     this.push(body, c, bucket, this.rig.snow && o.cap !== false ? 0 : o.gloss)
     if (o.outline !== false) {
-      const t = this.outline
+      const t = this.ink(x, y, z)
       this.push(this.place(prismGeometry(w + 2 * t, h + 2 * t, d + 2 * t), x, y - t, z, o.rot), inkFor(color), 'ink')
     }
   }
@@ -600,14 +689,6 @@ export class Kit {
     const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 10, 8)
     this.push(this.place(g, x, flat ? y + 0.03 : y, z), color, 'halo')
     this.haloAlphas.push(alpha)
-  }
-
-  /**
-   * A lit neon tube that may catch and stutter during the match: the builder
-   * says where it hangs (a box, bottom at `y`), the render may pick it.
-   */
-  flicker(x: number, y: number, z: number, w: number, h: number, d: number, dark: Hex) {
-    if (this.lightPools && this.rig.lampsOn) this.blinkers.push({ kind: 'neon', x, y, z, w, h, d, color: dark })
   }
 
   /** Light lying on the ground at `(x, z)`, `r` tiles across: the ground's colour lit, not painted over (`pools.ts`). */
@@ -671,7 +752,6 @@ export class Kit {
   window(x: number, y: number, z: number, w: number, h: number, facing: 'x' | 'z', color = WINDOW_GLOW, o: { frame?: Hex; sill?: boolean; rot?: number } = {}) {
     const lit = this.rng.chance(this.rig.windowsLit)
     // A dark window after dark is one somebody may come home to.
-    if (!lit && this.lightPools && this.rig.lampsOn) this.blinkers.push({ kind: 'window', x, y, z, w, h, facing, rot: o.rot ?? 0, color })
     const frame = o.frame ?? 0xf4efe6
     const pane = lit ? color : WINDOW_DARK
     const fw = w + 0.16
@@ -1324,6 +1404,14 @@ export class Kit {
       m.receiveShadow = true
       g.add(m)
     }
+    for (const { finish, geoms } of this.finishes.values()) {
+      const merged = merge(geoms)
+      if (!merged) continue
+      const m = new Mesh(merged, finishMaterial(finish, env))
+      m.castShadow = this.shadows
+      m.receiveShadow = true
+      g.add(m)
+    }
     const glow = merge(this.buckets.glow)
     if (glow) {
       const k = LOOK.material.glowIntensity
@@ -1383,6 +1471,268 @@ function litMaterial(env: Texture | null, mirror: Mirror, pools: PoolUniforms): 
   return m
 }
 
+const grainTextures = new Map<string, DataTexture>()
+let grainAnisotropy = 4
+
+/**
+ * How many taps the grain's filtering takes along a grazing look: the tier's
+ * figure, capped by the device (`render.ts`). The textures outlive a render
+ * and each render is a new context, so they are uploaded again anyway.
+ */
+export function setGrainAnisotropy(n: number): void {
+  grainAnisotropy = Math.max(1, Math.round(n))
+  for (const t of grainTextures.values()) {
+    if (t.anisotropy === grainAnisotropy) continue
+    t.anisotropy = grainAnisotropy
+    t.needsUpdate = true
+  }
+}
+
+/** A finish's grain as a texture, built once per tab: the pixels are `grain.ts`'s. */
+function grainTexture(f: Finish): DataTexture | null {
+  if (!f.grain) return null
+  const key = `${f.grain}:${f.color}:${f.grainColor ?? ''}:${f.fleck ?? ''}`
+  let t = grainTextures.get(key)
+  if (!t) {
+    const size = 256
+    t = new DataTexture(grainPixels({ kind: f.grain, base: f.color, grain: f.grainColor ?? scale(f.color, 0.6), fleck: f.fleck }, size), size, size, RGBAFormat)
+    t.colorSpace = SRGBColorSpace
+    t.wrapS = RepeatWrapping
+    t.wrapT = RepeatWrapping
+    t.magFilter = LinearFilter
+    t.minFilter = LinearMipmapLinearFilter
+    t.generateMipmaps = true
+    t.anisotropy = grainAnisotropy
+    t.needsUpdate = true
+    grainTextures.set(key, t)
+  }
+  return t
+}
+
+/**
+ * A finish as a material: physically based, its numbers from `LOOK.table`,
+ * its grain as its colour map, the sky for what it mirrors. Both faces: a
+ * swept or turned piece is only ever seen from outside, and this spares the
+ * winding of every profile a builder writes.
+ */
+function finishMaterial(f: Finish, env: Texture | null): MeshPhysicalMaterial {
+  const look = LOOK.table[f.kind]
+  const map = grainTexture(f)
+  const m = new MeshPhysicalMaterial({
+    color: map ? 0xffffff : f.color,
+    map,
+    roughness: look.roughness,
+    metalness: look.metalness,
+    clearcoat: f.coat ?? look.clearcoat,
+    clearcoatRoughness: look.clearcoatRoughness,
+    side: DoubleSide,
+  })
+  if (look.sheen) {
+    m.sheen = look.sheen
+    m.sheenRoughness = look.sheenRoughness ?? 0.5
+    m.sheenColor = new Color(mix(f.color, 0xffffff, look.sheenLift ?? 0.3))
+  }
+  if (env) {
+    m.envMap = env
+    m.envMapIntensity = LOOK.table.envIntensity
+  }
+  return m
+}
+
+/**
+ * A section swept round a closed outline (`Kit.sweep`): one ring of vertices
+ * per outline point and one more to close the seam, so the grain's `u` runs
+ * the whole way round without a jump. Normals are the section's, turned out
+ * along the outline's; `u` is metres along the outline and `v` metres down
+ * the section, both over `LOOK.table.grainSpan`.
+ */
+export function sweepGeometry(outline: readonly [number, number][], y: number, profile: readonly [number, number][]): BufferGeometry {
+  const n = outline.length
+  const m = profile.length
+  let cx = 0
+  let cz = 0
+  for (const [px, pz] of outline) {
+    cx += px
+    cz += pz
+  }
+  cx /= n
+  cz /= n
+  // The outward normal at each point: the edge's perpendicular, turned away from the middle.
+  const normals = outline.map(([px, pz], i) => {
+    const [ax, az] = outline[(i + n - 1) % n]
+    const [bx, bz] = outline[(i + 1) % n]
+    let nx = bz - az
+    let nz = -(bx - ax)
+    const l = Math.hypot(nx, nz) || 1
+    nx /= l
+    nz /= l
+    if (nx * (px - cx) + nz * (pz - cz) < 0) {
+      nx = -nx
+      nz = -nz
+    }
+    return [nx, nz] as const
+  })
+  const along = [0]
+  for (let i = 1; i <= n; i++) {
+    const [ax, az] = outline[i - 1]
+    const [bx, bz] = outline[i % n]
+    along.push(along[i - 1] + Math.hypot(bx - ax, bz - az))
+  }
+  const down = [0]
+  for (let j = 1; j < m; j++) down.push(down[j - 1] + Math.hypot(profile[j][0] - profile[j - 1][0], profile[j][1] - profile[j - 1][1]))
+  // The section's own normal at each of its points, in (out, up): the tangent turned a quarter outwards.
+  const sectionNormals = profile.map((_, j) => {
+    const [a0, a1] = profile[Math.max(0, j - 1)]
+    const [b0, b1] = profile[Math.min(m - 1, j + 1)]
+    const tOut = b0 - a0
+    const tUp = b1 - a1
+    const l = Math.hypot(tOut, tUp) || 1
+    return [-tUp / l, tOut / l] as const
+  })
+  const [spanU, spanV] = LOOK.table.grainSpan
+  const pos: number[] = []
+  const nor: number[] = []
+  const uv: number[] = []
+  for (let i = 0; i <= n; i++) {
+    const [px, pz] = outline[i % n]
+    const [nx, nz] = normals[i % n]
+    for (let j = 0; j < m; j++) {
+      const [out, up] = profile[j]
+      const [so, su] = sectionNormals[j]
+      pos.push(px + nx * out, y + up, pz + nz * out)
+      nor.push(nx * so, su, nz * so)
+      uv.push(along[i] / spanU, down[j] / spanV)
+    }
+  }
+  const idx: number[] = []
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m - 1; j++) {
+      const a = i * m + j
+      const b = (i + 1) * m + j
+      idx.push(a, a + 1, b, b, a + 1, b + 1)
+    }
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new Float32BufferAttribute(nor, 3))
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  return g
+}
+
+/**
+ * Rings lofted into one surface (`Kit.loft`), closed round the table. Normals
+ * are the section's, as `sweepGeometry` makes them: the tangent across the
+ * rings turned a quarter towards the outside of the table, so a section
+ * running from the inside out faces up over its crown and outwards down its
+ * face. `u` is metres round each ring, `v` metres across the rings.
+ */
+export function loftGeometry(rings: readonly (readonly V3[])[]): BufferGeometry {
+  const m = rings.length
+  const n = Math.min(...rings.map((r) => r.length))
+  const [spanU, spanV] = LOOK.table.grainSpan
+  // Round the table outwards, per point, from the outermost ring: every ring
+  // shares its centre closely enough for the direction.
+  const outer = rings[m - 1]
+  let cx = 0
+  let cz = 0
+  for (let i = 0; i < n; i++) {
+    cx += outer[i][0]
+    cz += outer[i][2]
+  }
+  cx /= n
+  cz /= n
+  const pos: number[] = []
+  const nor: number[] = []
+  const uv: number[] = []
+  const across = Array.from({ length: n }, () => [0])
+  for (let i = 0; i < n; i++) {
+    for (let j = 1; j < m; j++) {
+      const a = rings[j - 1][i]
+      const b = rings[j][i]
+      across[i].push(across[i][j - 1] + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]))
+    }
+  }
+  const along = rings.map((r) => {
+    const d = [0]
+    for (let i = 1; i <= n; i++) {
+      const a = r[i - 1]
+      const b = r[i % n]
+      d.push(d[i - 1] + Math.hypot(b[0] - a[0], b[2] - a[2]))
+    }
+    return d
+  })
+  for (let i = 0; i <= n; i++) {
+    const k = i % n
+    for (let j = 0; j < m; j++) {
+      const p = rings[j][k]
+      // The outward direction here, level: the ring's own normal in plan.
+      const prev = rings[j][(k + n - 1) % n]
+      const next = rings[j][(k + 1) % n]
+      let ox = next[2] - prev[2]
+      let oz = -(next[0] - prev[0])
+      const ol = Math.hypot(ox, oz)
+      // A ring drawn in to a point (the cloth's middle) has no round: its
+      // outward is the way out from the centre, which the level cloth never
+      // uses, and a zero here would be a zero normal and a black spot.
+      if (ol < 1e-9) {
+        ox = 1
+        oz = 0
+      } else {
+        ox /= ol
+        oz /= ol
+      }
+      if (ox * (p[0] - cx) + oz * (p[2] - cz) < 0) {
+        ox = -ox
+        oz = -oz
+      }
+      // The tangent across the rings, in (out, up).
+      const a = rings[Math.max(0, j - 1)][k]
+      const b = rings[Math.min(m - 1, j + 1)][k]
+      // Measured along the section's own outward way at this point, so a
+      // ring drawn to a point takes the next ring's.
+      if (ol < 1e-9) {
+        const dl = Math.hypot(b[0] - p[0], b[2] - p[2]) || 1
+        ox = (b[0] - p[0]) / dl
+        oz = (b[2] - p[2]) / dl
+      }
+      const dx = b[0] - a[0]
+      const dz = b[2] - a[2]
+      const tOut = dx * ox + dz * oz
+      const tUp = b[1] - a[1]
+      const tl = Math.hypot(tOut, tUp) || 1
+      const so = -tUp / tl
+      const su = tOut / tl
+      pos.push(p[0], p[1], p[2])
+      nor.push(ox * so, su, oz * so)
+      uv.push(along[j][i] / spanU, across[k][j] / spanV)
+    }
+  }
+  const idx: number[] = []
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < m - 1; j++) {
+      const a = i * m + j
+      const b = (i + 1) * m + j
+      // Wound the way the normals face, whichever way round the rings run:
+      // a two-sided material lights a face wound against its normals from
+      // behind, and a cloth wound that way is black under the lamp.
+      for (const [p, q, r] of [[a, b, a + 1], [b, b + 1, a + 1]]) {
+        const ux = pos[q * 3] - pos[p * 3], uy = pos[q * 3 + 1] - pos[p * 3 + 1], uz = pos[q * 3 + 2] - pos[p * 3 + 2]
+        const vx = pos[r * 3] - pos[p * 3], vy = pos[r * 3 + 1] - pos[p * 3 + 1], vz = pos[r * 3 + 2] - pos[p * 3 + 2]
+        const facing = (uy * vz - uz * vy) * (nor[p * 3] + nor[q * 3] + nor[r * 3]) + (uz * vx - ux * vz) * (nor[p * 3 + 1] + nor[q * 3 + 1] + nor[r * 3 + 1]) + (ux * vy - uy * vx) * (nor[p * 3 + 2] + nor[q * 3 + 2] + nor[r * 3 + 2])
+        if (facing >= 0) idx.push(p, q, r)
+        else idx.push(p, r, q)
+      }
+    }
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new Float32BufferAttribute(nor, 3))
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2))
+  g.setIndex(idx)
+  return g
+}
+
 /**
  * A crown's green turned to `pink`, keeping how light or dark each face was:
  * the kit's leaves come in two or three greens, and the blossom keeps the
@@ -1411,11 +1761,6 @@ function recolored(src: Float32Array, fn: (r: number, g: number, b: number) => [
   }
   return out
 }
-
-/** A thing that may come and go (`Kit.blinkers`). */
-export type Blinker =
-  | { kind: 'window'; x: number; y: number; z: number; w: number; h: number; facing: 'x' | 'z'; rot: number; color: Hex }
-  | { kind: 'neon'; x: number; y: number; z: number; w: number; h: number; d: number; color: Hex }
 
 interface Sheet {
   pos: number[]
@@ -1522,4 +1867,96 @@ function prismGeometry(w: number, h: number, d: number): BufferGeometry {
   geom.setIndex([...Array(pos.length / 3).keys()])
   geom.computeVertexNormals()
   return geom
+}
+
+/**
+ * A convex outline grown outwards by `d` (inwards when negative), each vertex
+ * moved along the mean of its two edges' outward normals.
+ */
+export function offsetOutline(pts: readonly [number, number][], d: number): [number, number][] {
+  const n = pts.length
+  // The winding decides which side is out.
+  let area = 0
+  for (let i = 0; i < n; i++) {
+    const [ax, az] = pts[i]
+    const [bx, bz] = pts[(i + 1) % n]
+    area += ax * bz - bx * az
+  }
+  const sgn = area > 0 ? 1 : -1
+  const out: [number, number][] = []
+  for (let i = 0; i < n; i++) {
+    const [px, pz] = pts[(i + n - 1) % n]
+    const [cx, cz] = pts[i]
+    const [nx, nz] = pts[(i + 1) % n]
+    const e1 = [cx - px, cz - pz]
+    const e2 = [nx - cx, nz - cz]
+    const l1 = Math.hypot(e1[0], e1[1]) || 1
+    const l2 = Math.hypot(e2[0], e2[1]) || 1
+    let mx = (e1[1] / l1 + e2[1] / l2) * sgn
+    let mz = (-e1[0] / l1 - e2[0] / l2) * sgn
+    const ml = Math.hypot(mx, mz) || 1
+    mx /= ml
+    mz /= ml
+    out.push([cx + mx * d, cz + mz * d])
+  }
+  return out
+}
+
+/** A convex outline extruded from `y` to `y + h`: flat top and bottom, smooth sides, indexed. */
+function plateGeometry(pts: readonly [number, number][], y: number, h: number): BufferGeometry {
+  const n = pts.length
+  let area = 0
+  for (let i = 0; i < n; i++) area += pts[i][0] * pts[(i + 1) % n][1] - pts[(i + 1) % n][0] * pts[i][1]
+  // Seen from above (+y), a counter-clockwise loop in (x, z) is clockwise in
+  // (x, -z): the top's triangles are wound to face up either way.
+  const ccw = area < 0
+  let cx = 0
+  let cz = 0
+  for (const [px, pz] of pts) {
+    cx += px
+    cz += pz
+  }
+  cx /= n
+  cz /= n
+  const pos: number[] = []
+  const nor: number[] = []
+  const idx: number[] = []
+  const v = (x: number, yy: number, z: number, nx: number, ny: number, nz: number) => {
+    pos.push(x, yy, z)
+    nor.push(nx, ny, nz)
+    return pos.length / 3 - 1
+  }
+  // Top and bottom: a fan round the centre.
+  for (const [top, ny] of [[y + h, 1], [y, -1]] as const) {
+    const c = v(cx, top, cz, 0, ny, 0)
+    const ring = pts.map(([px, pz]) => v(px, top, pz, 0, ny, 0))
+    for (let i = 0; i < n; i++) {
+      const a = ring[i]
+      const b = ring[(i + 1) % n]
+      const up = ny > 0 === ccw
+      if (up) idx.push(c, b, a)
+      else idx.push(c, a, b)
+    }
+  }
+  // Sides: one ring of vertices at each height, normals outward and smooth.
+  const off = offsetOutline(pts, 1)
+  const bottom: number[] = []
+  const topRing: number[] = []
+  for (let i = 0; i < n; i++) {
+    const [px, pz] = pts[i]
+    const nx = off[i][0] - px
+    const nz = off[i][1] - pz
+    bottom.push(v(px, y, pz, nx, 0, nz))
+    topRing.push(v(px, y + h, pz, nx, 0, nz))
+  }
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n
+    if (ccw) idx.push(bottom[i], topRing[i], topRing[j], bottom[i], topRing[j], bottom[j])
+    else idx.push(bottom[i], topRing[j], topRing[i], bottom[i], bottom[j], topRing[j])
+  }
+  const g = new BufferGeometry()
+  g.setAttribute('position', new Float32BufferAttribute(pos, 3))
+  g.setAttribute('normal', new Float32BufferAttribute(nor, 3))
+  g.setIndex(idx)
+  return g
 }

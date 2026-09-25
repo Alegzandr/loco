@@ -1492,7 +1492,7 @@ the board. It holds the language chooser (`LanguageSwitcher`, a child), the grap
 switches: streamer mode, colour shapes, reduced motion.
 
 Each on/off preference is a `createBooleanPref` module store over `localStorage`, and vibrations
-are the same shape where the device has a motor (`hooks/haptics.ts`, one pattern per moment and
+are the same shape on a touch screen that can vibrate (`hooks/haptics.ts`, one pattern per moment and
 never a chain, decided beside the sounds so the two cannot disagree about what happened). The
 icons are drawn SVG, never a font character, like every other glyph a player sees.
 
@@ -1989,6 +1989,27 @@ A finger gets `.slot:active` instead, which is press feedback rather than hover 
 exactly as long as the contact does. The platform's grey tap wash is off the card, because a card
 is a physical object and the wash is a web control's. Same rule and the same reason as the deck's
 `@media (hover: hover)`. `handTouch.test.ts`.
+
+**And the mouse's lift outlives its `pointerleave` by `HOVER_GRACE_MS` (140 ms).** A fan leaves
+wedges of felt between its tilted cards, so a sweep across the hand crosses one between every pair;
+dropping the lift on the leave made the whole fan flicker down and up under a moving mouse. The next
+card's `pointerenter` cancels the drop, and only a pointer that has really left the hand puts the
+card back. Same test file.
+
+**Which card is under the mouse is read off the pointer's x against the fan at rest, never off the
+element the browser hit-tests** (`cardAt`). A lifted card is drawn over its neighbour and
+straightens, so a hover decided by `pointerenter` held a card for a whole card width in one direction
+and let go a card early in the other, and every straightening moved the target under the pointer:
+the sweep stuttered. **The card under the pointer goes all the way up at once and its neighbours
+step aside, each on a stiff spring** (`LIFT_HZ` 8, `LIFT_DAMPING` 0.72: ~40 ms to 90 %, ~3 % past),
+the neighbours lifting `NEIGHBOUR_LIFT` of the way. A continuous wave eased towards the pointer
+(τ 55 ms) was tried first and read as mush: smooth, and a beat late on every card — a game's hand
+answers the mouse on the frame. Written straight onto `.lift` in a frame loop, because nothing
+continuous goes through reactive state; only the index (`hoveredIdx`, the z-order) is. At full lift
+it is exactly the old `scale(1.08) translateY(-14px)`, so `turnPillPlace`'s reserve holds.
+`.lift` carries `will-change: transform`, or every frame repaints each moving card's face, masks
+and shadow. The hand's box is read once per visit (`handBox`), never per `pointermove`, which would
+force a style recalc after every frame's writes. Reduced motion lifts the one card and snaps. Same test file.
 
 ## Every panel closes twice
 

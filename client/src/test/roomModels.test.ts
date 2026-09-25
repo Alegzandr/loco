@@ -6,6 +6,9 @@
  * a person there is always an astronaut. `KITS` says which kits a room draws
  * from and `PLACED` which of their models the code can name at all.
  */
+import { solveView } from '../components/scene/view'
+import { feltInViewport } from '../components/cards/layout'
+import { LOOK } from '../components/scene/look'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -45,8 +48,7 @@ describe('the models a room fetches', () => {
   })
 
   it('come from kits the room actually places from', () => {
-    // Orbit's people are astronauts: the townsfolk were fetched for nothing.
-    expect(KITS.orbit).not.toContain('people')
+    const view = solveView(1600, 900, feltInViewport(1600, 900, 3), LOOK.vista.camera)
     for (const id of Object.keys(BUILDERS) as (keyof typeof BUILDERS)[]) {
       const ids = new Set<string>()
       for (const kit of KITS[id]) {
@@ -59,7 +61,7 @@ describe('the models a room fetches', () => {
       const used = new Set<string>()
       for (const t of ['day', 'night'] as const) {
         const lib = { has: (x: string) => ids.has(x), get: (x: string) => (ids.has(x) ? (used.add(x.split('/')[0]), fake) : undefined) }
-        BUILDERS[id](new Kit({ rig: lightRig(t, 'clear'), rng: seededRng(`models-${id}-${t}`), outline: 0.02, anchor: { sx: 0, sy: -2, a: 27, b: 10 }, frame: { w: 96, h: 54 }, models: lib }))
+        BUILDERS[id](new Kit({ rig: lightRig(t, 'clear', id), rng: seededRng(`models-${id}-${t}`), outline: 0.02, view, lightPools: true, models: lib }))
       }
       for (const kit of KITS[id]) expect(used.has(kit), `${id} loads ${kit} and places none of it`).toBe(true)
     }

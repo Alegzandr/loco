@@ -1,236 +1,147 @@
 /**
- * Orbit: a base on an airless moon.
+ * Orbit, seen from the table: a landing pad on an airless moon, the Earth in
+ * a black sky.
  *
- * Regolith and craters, a landing pad the table stands on, a few habitats —
- * domes and modules joined by tubes — with open ground and craters between
- * them, a rocket on its gantry to the right, a solar field or two, a rover
- * that has been out too long. The only colours are the ones the base brought
- * with it: orange stripes, cyan light, and the white of everything else.
- * Dust and a solar storm are its weathers; it does not rain here. The moon is
- * mostly moon: the emptiness round the base is the room's whole mood, and it
- * was a solar farm to the frame's edge before it was left empty.
+ * - **Near**: the pad's metal plates with their hazard edge, a mast with its
+ *   floodlight and antenna on the left, cargo on the right and the rover
+ *   that has been out too long.
+ * - **Middle**: the base — white domes half sunk in the regolith with a ring
+ *   of lit windows, the tubes between them, a dish on the left, the rocket
+ *   on its gantry on the right.
+ * - **Far**: crater rims and the grey mountains of the highlands, with no
+ *   air to soften them (`LOOK.rooms.orbit.haze`): here the far is as sharp
+ *   as the near, which is what a place with no air looks like.
+ *
+ * The only colours are the ones the base brought: orange stripes, cyan light
+ * and the white of everything else, under the blue of the Earth.
  */
-import type { Builder } from './common'
+import type { Builder } from './vista'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, ring, along, FLOOR, nearSpot } from './common'
-import { mix, scale, cssHex } from '../sky'
-import type { Actor } from '../life'
-import { over, streetWalkers } from './actors'
+import { mix, scale } from '../sky'
+import { hills, vistaTable } from './vista'
+import { shuttle } from './vistaLife'
 
-const HULL = 0xe6e9ee
-const STRIPE = 0xff8a3c
+const REGOLITH = 0x8a8c93
+const REGOLITH2 = 0x7a7c84
+const PLATE = 0x6f7884
+const PLATE2 = 0x646c78
+const WHITE = 0xe9edf2
+const ORANGE = 0xf28c28
 const CYAN = 0x4fd6ff
-const REGOLITH = 0x8d8f97
+const STEEL = 0x55606c
 
 export const orbit: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
-  const suit = { shirt: 0xf2f4f8, pants: 0xf2f4f8, skin: 0x9fd8ff, hair: 0xf2f4f8 }
-  const { sx, sy, a, b } = k.anchor
+  const view = k.view
+  if (!view) return
+  vistaTable(k, MAPS.orbit.table)
 
-  k.floor(REGOLITH, FLOOR)
-  podium(k, { stone: 0x3a3f4a, step: 0x6f737d, floor: 0x5f636d, floor2: 0x555960, accent: CYAN, top: cssHex(MAPS.orbit.table.felt) })
-  // The pad's landing lights, on the plaza's rim: sixteen, each a lit block
-  // and nothing more — a halo on every one was a ring of pale blobs.
-  for (let i = 0; i < 16; i++) {
-    const t = (i / 16) * Math.PI * 2
-    const [x, z] = at(sx + Math.cos(t) * (a + 8.5), sy + Math.sin(t) * (b + 5))
-    k.box(x, 0.1, z, 0.4, 0.24, 0.4, on ? CYAN : 0x3a4a55, { glow: on, outline: false, cap: false })
+  // ─── The ground, to the horizon ─────────────────────────────────────────
+  k.box(0, -0.4, -2600, 9000, 0.4, 5300, REGOLITH, { outline: false, cap: false })
+  // Craters: a darker floor inside a raised rim, flattened by the distance.
+  for (let i = 0; i < 40; i++) {
+    const x = rng.range(-500, 500)
+    const z = rng.range(-30, -700)
+    if (Math.abs(x) < 20 && z > -60) continue
+    const r = rng.range(3, 16) * (1 + -z / 400)
+    k.cyl(x, -0.1, z, r * 1.15, 0.35, REGOLITH2, { seg: 20, rTop: r, outline: false, cap: false })
+    k.cyl(x, -0.02, z, r * 0.9, 0.1, scale(REGOLITH2, 0.85), { seg: 20, outline: false, cap: false })
+  }
+  for (let i = 0; i < 80; i++) {
+    const x = rng.range(-60, 60)
+    const z = rng.range(-9, -80)
+    k.sphere(x, 0, z, rng.range(0.15, 0.6), mix(REGOLITH, 0x6a6c74, rng.range(0, 1)), { seg: 5, outline: false })
   }
 
-  // A dome is lit like everything else: a glowing sphere with a pool of light
-  // under it was a translucent blob, and the base looked made of soap bubbles.
+  // ─── Near: the pad ──────────────────────────────────────────────────────
+  const EDGE = -8
+  for (let z = EDGE; z < view.eye[2] + 2; z += 1.6) {
+    for (let x = -14; x < 14; x += 1.6) {
+      k.box(x + 0.8, 0, z + 0.8, 1.56, 0.12, 1.56, (Math.round(x / 1.6) + Math.round(z / 1.6)) % 2 ? PLATE : PLATE2, { outline: false, cap: false, gloss: 0.25 })
+    }
+  }
+  // The hazard edge along the pad's far side, and its lights.
+  for (let x = -14; x < 14; x += 1.2) k.box(x + 0.6, 0.12, EDGE + 0.2, 0.58, 0.04, 0.4, 0x22262c, { outline: false, cap: false })
+  for (let x = -13.4; x < 14; x += 1.2) k.box(x + 0.6, 0.12, EDGE + 0.2, 0.58, 0.045, 0.4, ORANGE, { rot: 0.5, outline: false, cap: false })
+  for (let x = -12; x <= 12; x += 4) k.cyl(x, 0.12, EDGE, 0.12, 0.14, on ? CYAN : 0x3a6a7a, { seg: 8, glow: on, outline: false })
+
+  // Left: the mast, a floodlight and an antenna.
+  k.box(-7.2, 0, -6.4, 0.9, 0.3, 0.9, STEEL)
+  k.cyl(-7.2, 0.3, -6.4, 0.14, 6.2, 0xc9ced6, { seg: 8 })
+  k.box(-6.8, 5.8, -6.4, 0.8, 0.5, 0.5, STEEL, { rot: 0.3 })
+  k.box(-6.4, 5.85, -6.2, 0.1, 0.4, 0.44, on ? 0xfff6dc : 0xdfe3e8, { rot: 0.3, glow: on, outline: false, cap: false })
+  k.cyl(-7.2, 6.5, -6.4, 0.03, 1.8, 0xc9ced6, { seg: 4, cap: false })
+  if (on) k.sphere(-7.2, 8.3, -6.4, 0.1, 0xff3b4f, { glow: true, seg: 6, outline: false })
+  // Right: cargo, white with its orange band, and the rover.
+  const crate = (x: number, z: number, s: number, y = 0, rot = 0) => {
+    k.box(x, y, z, s, s * 0.8, s, WHITE, { rot })
+    k.box(x, y + s * 0.3, z, s + 0.02, s * 0.14, s + 0.02, ORANGE, { rot, outline: false, cap: false })
+  }
+  crate(6.2, -6.8, 1.2, 0, 0.2)
+  crate(7.5, -6.2, 1.0, 0, -0.3)
+  crate(6.6, -6.6, 0.9, 0.96, 0.5)
+  const rx = 7.6
+  const rz = -2.6
+  k.box(rx, 0.5, rz, 2.6, 0.7, 1.6, WHITE, { rot: -0.4 })
+  k.box(rx - 0.3, 1.2, rz, 1.1, 0.6, 1.2, 0xc9d0da, { rot: -0.4 })
+  k.box(rx - 0.84, 1.3, rz - 0.38, 0.06, 0.36, 0.9, 0x243847, { rot: -0.4, gloss: 0.8, outline: false, cap: false })
+  for (const [dx, dz] of [[-1, -0.9], [1, -0.9], [-1, 0.9], [1, 0.9]]) {
+    const c = Math.cos(-0.4)
+    const s = Math.sin(-0.4)
+    k.cyl(rx + dx * c + dz * s, 0.42, rz - dx * s + dz * c, 0.42, 0.34, 0x33383f, { axis: 'z', rot: -0.4, seg: 10 })
+  }
+  k.cyl(rx + 0.8, 1.2, rz - 0.3, 0.03, 1.6, 0xc9ced6, { seg: 4, cap: false })
+
+  // ─── Middle: the base ───────────────────────────────────────────────────
   const dome = (x: number, z: number, r: number) => {
-    k.cyl(x, 0, z, r + 0.4, 0.6, 0x9aa3b5, { seg: 16 })
-    k.sphere(x, 0.6, z, r, on ? mix(0xbfe3f0, 0xffe2a8, 0.25) : 0xbfe3f0, { seg: 12 })
-    k.cyl(x, 0.55, z, r + 0.2, 0.12, on ? CYAN : 0x6f737d, { seg: 16, glow: on, outline: false, cap: false })
-  }
-  const tube = (x1: number, z1: number, x2: number, z2: number) => {
-    const len = Math.hypot(x2 - x1, z2 - z1)
-    const rot = -Math.atan2(z2 - z1, x2 - x1)
-    k.cyl((x1 + x2) / 2, 1.1, (z1 + z2) / 2, 0.9, len, HULL, { axis: 'x', rot, seg: 10 })
-    along(x1, z1, x2, z2, Math.max(2, Math.round(len / 3)), (x, z) => k.cyl(x, 1.1, z, 1.0, 0.4, STRIPE, { axis: 'x', rot, seg: 10, outline: false }))
-  }
-  const module = (x: number, z: number, rot: number, len = 6, d = 3) => {
-    k.box(x, 0, z, len, 2.6, d, HULL, { rot })
-    k.box(x, 2.6, z, len + 0.2, 0.3, d + 0.2, 0x9aa3b5, { rot })
-    k.box(x, 0.5, z, len + 0.04, 0.5, d + 0.04, STRIPE, { rot, outline: false, cap: false })
-    for (let i = 0; i < 3; i++) {
-      const t = -len / 2 + (i + 0.5) * (len / 3)
-      const lit = on && rng.chance(0.8)
-      k.box(x + t * Math.cos(rot), 1.3, z - t * Math.sin(rot) + (d / 2 + 0.03), 0.9, 0.6, 0.06, lit ? 0xffe2a8 : 0x1a2233, { rot, glow: lit, outline: false, cap: false })
-    }
-    if (rng.chance(0.2)) {
-      k.cyl(x, 2.9, z, 0.15, 1.2, 0x9aa3b5, { seg: 5, cap: false })
-      k.sphere(x, 4.2, z, 0.18, 0xff3b3b, { glow: true, seg: 5, outline: false })
+    k.sphere(x, -r * 0.35, z, r, WHITE, { seg: 24 })
+    k.cyl(x, 0, z, r * 0.96, 0.6, 0xb9c0c9, { seg: 24, cap: false })
+    // A ring of windows, lit after dark.
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i - 4.5) * 0.22
+      const wx = x + Math.cos(a) * r * 0.9
+      const wz = z - Math.sin(a) * r * 0.9
+      const litHere = on && rng.chance(0.6)
+      k.box(wx, r * 0.25, wz, r * 0.07, r * 0.05, 0.2, litHere ? mix(CYAN, 0xffffff, 0.3) : 0x2a3a48, { rot: -a + Math.PI / 2, glow: litHere, outline: false, cap: false })
     }
   }
-  /** A crater and the rocks around it: what an unbuilt block of moon is. */
-  const crater = (c: { x: number; z: number }) => {
-    const cr = rng.range(2, 4)
-    k.disc(c.x, 0, c.z, cr, k.ground(scale(REGOLITH, 0.78)), { seg: 18 })
-    ring(k, Math.round(cr * 3), cr, (rx, rz) => k.rock(c.x + rx, c.z + rz, rng.range(0.2, 0.55), k.ground(mix(REGOLITH, 0xffffff, 0.12))), 0.15)
-    for (let i = 0; i < 3; i++) k.rock(c.x + rng.range(-5, 5), c.z + rng.range(-5, 5), rng.range(0.3, 1), k.ground(scale(REGOLITH, rng.range(0.8, 1.1))))
-  }
-  const tank = (x: number, z: number) => {
-    k.cyl(x, 0, z, 1.1, 3.2, HULL, { seg: 10 })
-    k.cyl(x, 1.0, z, 1.12, 0.4, STRIPE, { seg: 10, outline: false })
-  }
-  const solar = (x: number, z: number) => {
-    k.box(x, 0, z, 0.16, 1.1, 0.16, 0x9aa3b5, { cap: false })
-    k.box(x, 1.1, z, 2.8, 0.12, 2.2, 0x1d3a7a, { cap: false })
-    k.box(x, 1.22, z, 2.9, 0.04, 2.3, 0x9aa3b5, { outline: false, cap: false })
-  }
-
-  // In the right band rather than the top one: eighteen tiles of rocket over a
-  // pad set high on the frame is a rocket nobody sees the top of. See the same
-  // move in `rune.ts`.
-  const rocketSpot = { sx: sx + a + 8, sy: sy + 2 }
-  k.landmark('rocket', rocketSpot.sx, rocketSpot.sy, 14)
-  const near = nearSpot
-
-  const plan = cityGrid(k, {
-    block: 12,
-    road: 3,
-    roadColor: 0x6f737d,
-    dashes: false,
-    lamp: { h: 2.2, style: 'box', color: CYAN, post: 0x9aa3b5 },
-    people: 0.15,
-    maxHeight: 5,
-    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.45 : 0.65),
-    open: (c) => {
-      if (near(c, rocketSpot, 9)) return
-      if (rng.chance(0.6)) crater(c)
-    },
-    fill: (c) => {
-      if (near(c, rocketSpot, 9)) return
-      // In front of the table, a crater: a solar field there was a floor of
-      // blue tiles between the player and the felt.
-      const kind = c.front ? 0.9 : rng.next()
-      if (kind < 0.4) {
-        // A habitat: a dome and two modules, tubed together.
-        const [d, m1, m2] = lots(c, 2, 2, 1.5)
-        dome(d.x, d.z, Math.min(d.w, d.d) * 0.42)
-        module(m1.x, m1.z, 0, m1.w - 0.5, 2.8)
-        module(m2.x, m2.z, Math.PI / 2, m2.d - 0.5, 2.8)
-        tube(d.x, d.z, m1.x, m1.z)
-        tube(d.x, d.z, m2.x, m2.z)
-        k.crate(c.x + c.w / 2 - 1, c.z + c.d / 2 - 1, 0.7, HULL)
-      } else if (kind < 0.65) {
-        // Tanks and a small dome.
-        const ls = lots(c, 2, 2, 1)
-        tank(ls[0].x, ls[0].z)
-        tank(ls[1].x, ls[1].z)
-        dome(ls[3].x, ls[3].z, 2.2)
-        k.crate(ls[2].x, ls[2].z, 0.8, STRIPE)
-        k.crate(ls[2].x + 1.2, ls[2].z + 0.6, 0.6, HULL)
-      } else if (kind < 0.8) {
-        // A solar field: four panels, not nine.
-        for (const l of lots(c, 2, 2, 1.2)) solar(l.x, l.z)
-      } else {
-        crater(c)
-      }
-    },
-  })
-
-  // ─── The rocket and its gantry, in the right band ──────────────────────
-  {
-    const [rx, rz] = at(rocketSpot.sx, rocketSpot.sy)
-    k.disc(rx, 0, rz, 5, k.ground(0x4a4e58), { seg: 20 })
-    for (let i = 0; i < 4; i++) {
-      const t = (i / 4) * Math.PI * 2 + Math.PI / 4
-      k.box(rx + Math.cos(t) * 2.1, 0, rz + Math.sin(t) * 2.1, 0.55, 1.5, 0.55, 0x6f737d)
-    }
-    k.cyl(rx, 1.3, rz, 1.7, 13, HULL, { seg: 14 })
-    k.cyl(rx, 1.3, rz, 1.72, 1.1, STRIPE, { seg: 14, outline: false })
-    k.cyl(rx, 10.5, rz, 1.72, 0.9, STRIPE, { seg: 14, outline: false })
-    k.cone(rx, 14.3, rz, 1.7, 3.8, 0xd94c4c, { seg: 14 })
-    for (let i = 0; i < 3; i++) {
-      const t = (i / 3) * Math.PI * 2 + 0.3
-      k.box(rx + Math.cos(t) * 2.1, 1.3, rz + Math.sin(t) * 2.1, 1.6, 3, 0.25, 0xd94c4c, { rot: -t })
-    }
-    k.cyl(rx, 0.4, rz, 1.0, 1.0, 0x3a3f4a, { seg: 10, rTop: 0.8 })
-    if (on) k.halo(rx, 0.45, rz, 1.6, 0xff8a3c, 0.35, false)
-    const [gx, gz] = at(rocketSpot.sx + 4, rocketSpot.sy)
-    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) k.box(gx + dx, 0, gz + dz, 0.24, 16, 0.24, 0x9aa3b5, { cap: false })
-    for (let y = 2; y < 16; y += 2.6) k.box(gx, y, gz, 2.2, 0.2, 2.2, 0x9aa3b5, { outline: false, cap: false })
-    k.box(gx - 2.2, 12, gz + 0.5, 2.8, 0.3, 0.9, 0x9aa3b5, { rot: Math.PI / 4 })
-    k.sphere(gx, 16.3, gz, 0.22, 0xff3b3b, { glow: true, seg: 5, outline: false })
-    const [fx, fz] = at(rocketSpot.sx - 3, rocketSpot.sy - 6)
-    k.box(fx, 0.6, fz, 4, 1.2, 1.8, HULL, { rot: 0.3 })
-    k.cyl(fx, 1.8, fz, 0.8, 3, STRIPE, { axis: 'x', rot: 0.3, seg: 10 })
-    for (const dx of [-1.3, 1.3]) for (const dz of [-1, 1]) k.cyl(fx + dx * Math.cos(0.3) + dz * Math.sin(0.3), 0.45, fz - dx * Math.sin(0.3) + dz * Math.cos(0.3), 0.45, 0.4, 0x3a3f4a, { axis: 'z', rot: 0.3, seg: 8 })
-    k.person(...at(rocketSpot.sx - 2.5, rocketSpot.sy - 4), Math.PI / 4, suit)
+  dome(-34, -70, 9)
+  dome(-12, -96, 12)
+  dome(26, -84, 8)
+  // The tubes between them.
+  k.cyl(-23, 1.6, -82, 1.5, 22, 0xd9dee5, { axis: 'x', rot: 0.9, seg: 12 })
+  k.cyl(7, 1.6, -90, 1.5, 22, 0xd9dee5, { axis: 'x', rot: -0.25, seg: 12 })
+  if (on) for (const x of [-26, -20, 2, 12]) k.box(x, 2.2, x < 0 ? -80 : -88, 0.8, 0.4, 3.2, CYAN, { glow: true, outline: false, cap: false })
+  // The dish on the left.
+  k.cyl(-70, 0, -120, 1.6, 9, 0xc9ced6, { seg: 10 })
+  k.cone(-70, 16, -118, 9, 4, WHITE, { seg: 24 })
+  k.cyl(-70, 14, -118, 0.3, 6, STEEL, { seg: 6, cap: false })
+  // The rocket on its gantry, on the right.
+  const gx = 88
+  const gz = -190
+  k.cyl(gx, 0, gz, 5.5, 3, 0x6b7380, { seg: 16, cap: false })
+  k.cyl(gx, 3, gz, 3.2, 30, WHITE, { seg: 16 })
+  for (const y of [8, 20]) k.cyl(gx, 3 + y, gz, 3.25, 2.2, ORANGE, { seg: 16, outline: false, cap: false })
+  k.cone(gx, 33, gz, 3.2, 9, ORANGE, { seg: 16 })
+  for (const a of [0, 2.1, 4.2]) k.box(gx + Math.cos(a) * 3.6, 3, gz + Math.sin(a) * 3.6, 0.4, 7, 2.4, WHITE, { rot: -a })
+  // The gantry: a lattice tower beside it, lit at every level at night.
+  for (let y = 0; y < 38; y += 4) {
+    k.box(gx + 8, y, gz, 4, 0.3, 4, STEEL, { cap: false })
+    for (const [dx, dz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) k.box(gx + 8 + dx, y, gz + dz, 0.25, 4, 0.25, STEEL, { outline: false, cap: false })
+    if (on && y % 8 === 0) k.box(gx + 6, y + 0.4, gz + 2, 0.3, 0.3, 0.3, 0xff3b4f, { glow: true, outline: false, cap: false })
   }
 
-  // ─── The antenna and the crew around the pad; the rover is an actor ────
-  /** The rover, built at the origin heading screen-right. */
-  const rover = (kk: typeof k, vx: number, vz: number) => {
-    const rot = Math.PI / 4
-    kk.box(vx, 0.6, vz, 2.8, 0.7, 1.7, HULL, { rot })
-    kk.box(vx, 1.3, vz, 1.5, 0.7, 1.5, 0xbfe3f0, { rot })
-    for (const dx of [-1, 0, 1]) {
-      for (const dz of [-1, 1]) {
-        kk.cyl(vx + dx * Math.cos(rot) + dz * Math.sin(rot), 0.4, vz - dx * Math.sin(rot) + dz * Math.cos(rot), 0.42, 0.3, 0x3a3f4a, { axis: 'z', rot, seg: 8 })
-      }
-    }
-    kk.cyl(vx - Math.cos(rot), 1.3, vz + Math.sin(rot), 0.05, 1.8, 0x9aa3b5, { seg: 4, cap: false, outline: false })
-    kk.box(vx + 1.45 * Math.cos(rot), 0.6, vz - 1.45 * Math.sin(rot), 0.1, 0.3, 1.0, on ? 0xfff3c4 : 0xe8e8e8, { rot, glow: on, outline: false, cap: false })
+  // ─── Far: the rims and the highlands ────────────────────────────────────
+  hills(k, -1600, -300, -1100, 90, 0x80828a, 9, -1)
+  hills(k, 300, 1800, -1300, 120, 0x7a7c85, 9, -1)
+  hills(k, -3500, 3500, -3200, 120, 0x6f717a, 14, -1)
+  // A few peaks, sharp: nothing weathers them here.
+  for (let i = 0; i < 8; i++) {
+    const x = rng.range(-2500, 2500)
+    // Low enough to leave the Earth its sky.
+    k.cone(x, -1, rng.range(-2200, -2800), rng.range(120, 220), rng.range(60, 120), mix(0x75777f, 0x8a8c94, rng.range(0, 1)), { seg: 6, outline: false })
   }
-  const [ax, az] = at(sx + a + 7, sy + 3)
-  const antenna = over(ax, az, 6.7)
-  {
-    k.cyl(ax, 0, az, 1.0, 0.5, 0x9aa3b5, { seg: 10 })
-    k.cyl(ax, 0.5, az, 0.28, 4, HULL, { seg: 6, cap: false })
-    k.cyl(ax, 4.5, az, 0.4, 0.6, HULL, { seg: 12, rTop: 3, cap: false })
-    k.cyl(ax, 5.1, az, 0.08, 1.6, 0x9aa3b5, { seg: 5, cap: false, outline: false })
-    k.sphere(ax, 6.7, az, 0.16, 0xff3b3b, { glow: true, seg: 5, outline: false })
-    for (let i = 0; i < 3; i++) k.crate(...at(sx + a + 5 + rng.range(-1.5, 1.5), sy - 4 + rng.range(-1.5, 1.5)), rng.range(0.5, 0.9), HULL)
-    k.flag(...at(sx - a - 4, sy + b + 3), 0x4fd6ff, 4)
-    k.flag(...at(sx + a + 4, sy - b - 3), 0xff3d68, 4)
-  }
-  crowd(k, 3, suit)
-
-  // ─── What moves: the rover, a satellite, the beacon, the crew ──────────
-  // No clouds and no birds: nothing lives in this sky but what the base put
-  // there.
-  const life: Actor[] = []
-  life.push({
-    id: 'rover',
-    // Level across the frame: the rover is drawn side-on, heading screen-right,
-    // and mirrored on the way back, so a diagonal run slid it along crabwise.
-    path: [[sx - a - 12, sy - 2], [sx - a - 4, sy - 2]],
-    duration: 34_000,
-    motion: 'bounce',
-    turn: true,
-    build: (kk) => rover(kk, 0, 0),
-  })
-  life.push({
-    id: 'satellite',
-    flying: true,
-    path: [[-52, 12], [52, 21]],
-    duration: 40_000,
-    motion: 'pass',
-    every: 130_000,
-    build: (kk) => {
-      kk.box(0, 16, 0, 0.9, 0.7, 0.7, HULL)
-      kk.box(1.6, 16.3, 0, 2.2, 0.06, 0.9, 0x1d3a7a, { cap: false })
-      kk.box(-1.6, 16.3, 0, 2.2, 0.06, 0.9, 0x1d3a7a, { cap: false })
-      kk.cyl(0, 16.7, 0, 0.35, 0.3, 0x9aa3b5, { seg: 8, rTop: 0.1, cap: false })
-      kk.sphere(0, 15.8, 0, 0.08, 0xff3b3b, { glow: true, seg: 4, outline: false })
-    },
-  })
-  life.push({
-    id: 'beacon',
-    flying: true,
-    puff: true,
-    path: [antenna],
-    duration: 2200,
-    build: (kk) => {
-      kk.sphere(0, 0, 0, 0.22, 0xff3b3b, { glow: true, seg: 6, outline: false })
-      kk.halo(0, 0, 0, 0.7, 0xff3b3b, 0.5, false)
-    },
-  })
-  life.push(...streetWalkers(k, plan, 1, { look: suit }))
-  return life
+  // ─── What moves ─────────────────────────────────────────────────────────
+  return [shuttle('shuttle', [[-1400, 260, -1600], [1400, 360, -1600]], { duration: 60_000, every: 120_000, size: 8 })]
 }

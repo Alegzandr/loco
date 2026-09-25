@@ -45,6 +45,7 @@ export const fr: Translations = {
   prefsGraphics: 'Graphismes',
   prefsGraphicsTier: { auto: 'Auto', high: 'Élevés', medium: 'Moyens', light: 'Légers' },
   prefsGraphicsAutoHint: 'Choisi pour cet appareil : %tier. Le décor est dessiné une fois par partie, ça ne change que le temps que met la table à s’ouvrir.',
+  prefsFps: '%n img/s',
   prefsGraphicsHint: 'Le décor est dessiné une fois par partie : ça ne change que le temps que met la table à s’ouvrir, et la météo qui passe dessus.',
   prefsStreamer: 'Mode streamer',
   prefsColorAssist: 'Formes des couleurs',
@@ -148,7 +149,6 @@ export const fr: Translations = {
   bestOf5: 'Meilleur des 5',
   bestOf7: 'Meilleur des 7',
   matchLengthUnit: 'min',
-  maxPlayersHint: 'C’est entre 2 et 6 que ça respire le mieux.',
 
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Piocher',
@@ -233,7 +233,7 @@ export const fr: Translations = {
   roundShort: 'M%n',
   decisiveRoundShort: 'Décisive',
   prefsHaptics: 'Vibrations',
-  prefsHapticsHint: 'Une impulsion sous le pouce à chaque carte, appel et contre.',
+  prefsHapticsHint: 'Ton téléphone vibre brièvement quand ton tour arrive, à chaque carte jouée, et à chaque LOCO! ou Contre-LOCO!',
   decisiveRoundWhy: 'Rien ne sépare la table. On remet une manche.',
   player: 'Joueur',
   // Colonnes de 40px dans RoundSummary : « Position » et « Victoires »
@@ -350,7 +350,7 @@ export const fr: Translations = {
     {
       heading: 'La table',
       items: [
-        'De 2 à 10 joueurs. C\'est entre 2 et 6 que ça respire le mieux.',
+        'De 2 à 7 joueurs. C\'est entre 2 et 6 que ça respire le mieux.',
         'Huit cartes chacun, redistribuées à chaque manche.',
         'La pile s\'ouvre toujours sur une carte numérotée\u00a0: personne ne se prend un +4 avant d\'avoir joué.',
         'La manche 1 démarre sur une place tirée au sort. Ensuite, c\'est le dernier au score qui ouvre.',

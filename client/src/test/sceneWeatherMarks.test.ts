@@ -45,7 +45,7 @@ describe('the rain landing', () => {
 
 describe('the snow', () => {
   function kit(weather: Weather) {
-    return new Kit({ rig: lightRig('day', weather), rng: seededRng('marks'), outline: 0.02, anchor: { sx: 0, sy: 0, a: 10, b: 5 } })
+    return new Kit({ rig: lightRig('day', weather), rng: seededRng('marks'), outline: 0.02 })
   }
 
   it('keeps ruts and footprints from a sequence of its own: the room is the same room', () => {

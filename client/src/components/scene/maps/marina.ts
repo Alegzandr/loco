@@ -1,466 +1,166 @@
 /**
- * Marina: a harbour front.
+ * Marina, seen from the table: a card table on the end of a wooden quay, the
+ * bay opening in front of it out to the horizon.
  *
- * The table stands on a deck at the water's edge. The quay runs across the
- * top of the frame, the sea beyond it: a pier out to a few boats, a
- * lighthouse on its rocks, a ferry in the channel. Behind the quay, painted
- * houses along canals with gardens between them, a fish stall, gardens on
- * the right, a beach with a few umbrellas at the bottom left. The sea is what
- * makes the weather here: a storm on the marina is the one that looks like
- * something. The sea and the sand are most of the frame on purpose — a
- * harbour is water first, and the market that used to fill the band in front
- * of the table was a fairground between the player and the felt.
+ * Three grounds, the way a painter lays out a view (`docs/notes/visual.md`,
+ * "The view"):
  *
- * **Where the water starts is `shoreAt`, and nothing marine may be placed
- * against anything else.** The plaza the podium sits on is a wide oval of the
- * same sand, and it reaches four tiles past the straight quay in the middle of
- * the frame — so a boat moored "just past the quay" was moored on the paving,
- * with its hull buried in the beach. `shoreAt(sx)` is the higher of the two at
- * that point across the frame, which is the line the eye reads as the water's
- * edge, and the promenade, the bollards, the pier, the boats, the foam and the
- * buoys are all placed relative to it.
+ * - **Near** (the first ten metres): the table on its pedestal, the planks of
+ *   the quay, and what frames the picture at its two edges — a lamp post and
+ *   a bollard with its rope on the left, crates and a barrel on the right.
+ *   These are the only things drawn at full weight, and they are few.
+ * - **Middle** (ten metres to a few hundred): the bay itself, which is most of
+ *   the picture on purpose — a harbour is water first — with a jetty running
+ *   out on the right, a couple of boats at anchor and a breakwater with its
+ *   beacon.
+ * - **Far** (a kilometre and more): two headlands closing the bay, layered one
+ *   behind the other so the air greys each a step more (`LOOK.vista.haze`), a
+ *   white town at the foot of the left one, the lighthouse on the right one.
+ *   Above them, the sky of the hour and its sun, whose road lies across the
+ *   water between them.
+ *
+ * World axes as the kit's, the table's centre at the origin, a tile a metre.
+ * The camera stands at `+z` looking towards `-z` (`view.ts`).
  */
-import type { Builder } from './common'
+import type { Builder } from './vista'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, at, screenOf, screenSpan, FLOOR, nearSpot } from './common'
-import { mix, scale, cssHex } from '../sky'
-import type { Actor, ScreenPt } from '../life'
-import { balloon, bird, boat as vessel, cloud, streetWalkers, traffic } from './actors'
+import { mix, scale } from '../sky'
+import { deck, hills, sailboat, vistaTable } from './vista'
+import { driftingBoat, gull } from './vistaLife'
 
-const SEA = 0x2c86c9
-const DECK = 0xc49a62
-const DECK2 = 0xb88c58
+const SEA = 0x1f6f9c
+const PLANK = 0xa77a4c
+const PLANK2 = 0x946a40
+const IRON = 0x2d3b45
+const ROCK = 0x5d6470
+const HILL = 0x4f6a57
+const HILL_FAR = 0x5a6f7e
+const WHITE = 0xf1e9dc
 
-/** The cars, parked along the streets and driving them. */
-const CARS = [0xd94c4c, 0x2f8fbf, 0xf4d35e, 0xf5f0e6] as const
+/** Where the quay ends and the water starts, tiles in front of the table (towards -z). */
+const QUAY_EDGE = -7
+/** The water's surface, under the planks. */
+const SEA_LEVEL = -1.3
 
 export const marina: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
-  const { sx, sy, a, b } = k.anchor
-  /** The straight quay wall, across the whole frame: where the built land ends. */
-  const QUAY = sy + b + 4
+  const view = k.view
+  if (!view) return
+  vistaTable(k, MAPS.marina.table)
 
+  // ─── The quay ───────────────────────────────────────────────────────────
+  // Planks laid across, parallel to the water's edge.
+  const deckBack = QUAY_EDGE
+  deck(k, deckBack, view.eye[2] + 2, 48, PLANK, PLANK2)
+  // The quay's face towards the water, and its piles going down into it.
+  k.box(0, SEA_LEVEL - 0.6, deckBack - 0.2, 48, 0.6 + 0.6 - SEA_LEVEL - 0.12, 0.4, scale(PLANK2, 0.7), { cap: false })
+  for (let x = -22; x <= 22; x += 2.4) k.cyl(x, SEA_LEVEL - 0.8, deckBack - 0.3, 0.2, 0.8 - SEA_LEVEL - 0.1, scale(PLANK2, 0.6), { seg: 8, cap: false })
+
+  // ─── Near: what frames the picture ──────────────────────────────────────
+  // Left: a harbour lamp, a bollard and the rope going down to the water.
+  k.lamp(-7.2, -5.6, { h: 4.4, style: 'lantern', post: IRON, color: 0xffd28a })
+  k.cyl(-3.1, 0, deckBack + 0.7, 0.24, 0.55, IRON, { seg: 10, rTop: 0.2 })
+  k.sphere(-3.1, 0.6, deckBack + 0.7, 0.22, IRON, { seg: 10 })
+  k.cyl(-6.4, 0, deckBack + 0.7, 0.24, 0.55, IRON, { seg: 10, rTop: 0.2 })
+  k.sphere(-6.4, 0.6, deckBack + 0.7, 0.22, IRON, { seg: 10 })
+  // A chain between the two bollards, sagging.
+  for (let i = 0; i < 10; i++) {
+    const t = (i + 0.5) / 10
+    const x = -6.4 + 3.3 * t
+    const sag = 0.5 - 1.6 * t * (1 - t)
+    k.box(x, sag, deckBack + 0.7, 0.34, 0.05, 0.05, IRON, { outline: false, cap: false })
+  }
+  // Right: crates stacked by the water, a barrel, a coil of rope.
+  const crate = (x: number, z: number, s: number, y: number, rot: number, c: number) => {
+    k.box(x, y, z, s, s, s, c, { rot })
+    k.box(x, y + s * 0.42, z, s + 0.04, s * 0.14, s + 0.04, scale(c, 0.78), { rot, outline: false, cap: false })
+  }
+  crate(4.4, deckBack + 1.4, 0.8, 0, 0.2, 0x9a7446)
+  crate(5.3, deckBack + 1.1, 0.8, 0, -0.15, 0x8c6a40)
+  crate(4.8, deckBack + 1.3, 0.7, 0.8, 0.5, 0xa47c4c)
+  k.cyl(6.1, 0, deckBack + 2.3, 0.34, 0.85, 0x7a5030, { seg: 12 })
+  for (const y of [0.16, 0.62]) k.cyl(6.1, y, deckBack + 2.3, 0.36, 0.07, IRON, { seg: 12, outline: false, cap: false })
+  k.cyl(3.4, 0, deckBack + 2.6, 0.45, 0.12, 0xc9a86b, { seg: 16, rTop: 0.35 })
+  // The near corners: a planter and a folded chair's worth of shape.
+  k.cyl(-5.2, 0, 1.8, 0.45, 0.7, 0x6f7b88, { seg: 12, rTop: 0.55 })
+  k.bush(-5.2, 1.8, 0.62, k.leaf(0x4f8a5a), { y: 0.62 })
+  k.cyl(5.8, 0, 1.2, 0.45, 0.7, 0x6f7b88, { seg: 12, rTop: 0.55 })
+  k.bush(5.8, 1.2, 0.55, k.leaf(0x4f8a5a), { y: 0.62 })
+
+  // ─── Middle: the bay ────────────────────────────────────────────────────
   const sea = k.rig.wet ? mix(SEA, 0x1a3550, 0.4) : SEA
-  k.box(0, -1.7, 0, FLOOR, 1, FLOOR, sea, { outline: false, cap: false, water: true })
-  {
-    const L = 170
-    const [cx, cz] = at(0, QUAY - (L / 2) * 0.53)
-    k.box(cx, -0.7, cz, L, 0.7, L, 0x6b6660, { rot: Math.PI / 4, outline: true, cap: false })
-    // Grass, not stone: the town stands on lawns, and the paving is the plaza's.
-    k.box(cx, 0, cz, L, 0.06, L, k.ground(0x7cc36a), { rot: Math.PI / 4, outline: false, cap: false, gloss: k.wetGloss() })
-  }
-  const plaza = podium(k, { stone: 0x6e5232, step: DECK2, floor: DECK, floor2: DECK2, accent: 0xffd166, top: cssHex(MAPS.marina.table.felt) })
-  // The steps and the drum are ground nothing is placed on; the paving round
-  // them is where the crowd stands.
-  k.claim(...at(sx, sy), (a + 3.4) * 2, ((b + 1.8) / 0.53) * 2, Math.PI / 4)
+  k.box(0, SEA_LEVEL - 1, -2600, 8000, 1, 5200, sea, { outline: false, cap: false, water: true })
 
-  /**
-   * The water's edge, at this point across the frame: the quay wall, or the
-   * plaza's own rim where the paving bulges past it. Everything marine is
-   * placed from here rather than from `QUAY`.
-   */
-  const shoreAt = (px: number): number => {
-    const t = (px - sx) / plaza.sa
-    const rim = Math.abs(t) < 1 ? sy + plaza.sb * Math.sqrt(1 - t * t) : -Infinity
-    return Math.max(QUAY, rim)
+  // A jetty out on the right, on piles, with a boat against it.
+  const jx = 16
+  for (let z = deckBack; z > -70; z -= 3) {
+    k.box(jx, -0.35, z - 1.5, 2.4, 0.14, 3, k.ground(mix(PLANK, PLANK2, rng.range(0, 1))), { cap: true })
+    k.cyl(jx - 1.1, SEA_LEVEL - 0.5, z - 1.5, 0.14, 1.4, scale(PLANK2, 0.6), { seg: 6, cap: false })
+    k.cyl(jx + 1.1, SEA_LEVEL - 0.5, z - 1.5, 0.14, 1.4, scale(PLANK2, 0.6), { seg: 6, cap: false })
   }
-  const atSea = (x: number, z: number) => {
-    const [px, py] = screenOf(x, z)
-    return py > shoreAt(px)
-  }
-  /** The world point `n` screen tiles out to sea from the shore at `px`. */
-  const offshore = (px: number, n: number) => at(px, shoreAt(px) + n)
+  for (let z = deckBack - 6; z > -70; z -= 12) k.lamp(jx + 1.3, z, { h: 3.2, style: 'lantern', post: IRON, color: 0xffd28a })
+  k.model('pirate/boat-row-large', jx - 3, -30, { rot: Math.PI / 2, y: SEA_LEVEL - 0.1, scale: 1.1, collide: false })
 
-  for (let i = 0; i < 160; i++) {
-    const x = rng.range(-110, 110), z = rng.range(-110, 110)
-    const [px, py] = screenOf(x, z)
-    if (py < shoreAt(px) + 0.5) continue
-    k.slab(x, z, rng.range(0.6, 1.8), 0.16, mix(sea, 0xffffff, k.rig.weather === 'storm' ? 0.7 : 0.45), { y: -0.7, h: 0.03, rot: rng.range(-0.3, 0.3) })
-  }
+  // Boats at anchor, sails furled at this hour.
+  sailboat(k, -26, -95, 0.5, 1, 0xf2ece0, 0x2f5d7a, SEA_LEVEL)
+  sailboat(k, 34, -170, -0.3, 1.2, 0x2f5d7a, 0xf2ece0, SEA_LEVEL)
+  sailboat(k, -70, -260, 0.9, 1.3, 0xc8513f, 0xf2ece0, SEA_LEVEL)
 
-  // ─── The promenade: it follows the water, it does not cut across it ─────
-  // Bollards at the edge, lamps and benches a few tiles inland, people between
-  // the two. Laid on a straight screen line they ran through the middle of the
-  // sand on one side of the frame and into the sea on the other, because the
-  // shore is a curve here and only the quay wall is straight.
-  for (let x = -60; x <= 60; x += 4.8) k.cyl(...at(x, shoreAt(x) - 0.7), 0, 0.24, 0.7, 0x2a2f3a, { seg: 8 })
-  for (let x = -54; x <= 54; x += 12) k.cyl(...at(x, shoreAt(x) - 0.2), -0.3, 0.55, 0.25, 0xd94c4c, { axis: 'x', rot: Math.PI / 4, seg: 8 })
-  for (let x = -48; x <= 48; x += 12) { if (Math.abs(x + 18) > 4) k.lamp(...at(x, shoreAt(x) - 2.2), { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a }) }
-  for (let x = -42; x <= 42; x += 12) k.bench(...at(x + 6, shoreAt(x + 6) - 2.6), Math.PI / 4, 0x6b4a2b)
-  for (let i = 0; i < 3; i++) {
-    const px = rng.range(-44, 44)
-    k.person(...at(px, shoreAt(px) - 1.2 - rng.range(0, 3.4)), rng.range(0, 6.3))
+  // A breakwater across the left of the bay: a low wall of stone with its
+  // boulders heaped along the seaward foot, and the beacon at its end.
+  k.box(-95, SEA_LEVEL - 1, -330, 130, 3.2, 5, 0x8d8a84, { cap: true })
+  for (let i = 0; i < 40; i++) {
+    const x = -158 + (i / 39) * 126 + rng.range(-1.5, 1.5)
+    k.cone(x, SEA_LEVEL - 1.2, -334 + rng.range(-1, 1), rng.range(2.2, 3.4), rng.range(2, 3.4), mix(ROCK, 0x777d88, rng.range(0, 1)), { seg: 5, outline: false })
   }
-  for (let i = 0; i < 2; i++) {
-    const px = rng.range(-38, 38)
-    const [x, z] = at(px, shoreAt(px) - 3.4)
-    k.crate(x, z, 0.6, 0xbfe3f0)
-    k.barrel(x + 1.1, z + 0.4)
-  }
+  k.cyl(-28, SEA_LEVEL + 2, -330, 1.3, 6, 0xd8413a, { seg: 10 })
+  k.cyl(-28, SEA_LEVEL + 8, -330, 0.9, 1.4, on ? 0xffd28a : 0xf2efe8, { seg: 10, glow: on })
 
-  // ─── The pier ──────────────────────────────────────────────────────────
-  // Laid out in screen tiles through `screenSpan`, because everything standing
-  // on it is: the railing, the lamps and the cargo are placed at `PX ± W/2`,
-  // and a deck whose width came out as `d` — which runs up the frame, not
-  // across it — left all three of them floating in the water beside a plank
-  // one tile wide.
-  {
-    const PX = -18
-    /** The deck's width across the frame, in screen tiles. */
-    const W = 4.6
-    const BASE = shoreAt(PX) - 2
-    const LEN = 17
-    const deck = screenSpan(PX, BASE + LEN / 2, W, LEN)
-    // Top face at exactly y = 0, so anything standing on the deck stands the
-    // way it stands on the quay.
-    k.slab(deck.x, deck.z, deck.w, deck.d, DECK2, { y: -0.16, h: 0.16, rot: deck.rot, outline: true })
-    // Planks across it. Without them the deck is one brown rectangle running
-    // off the top of the frame, which reads as a wall lying down rather than as
-    // something anybody could walk on.
-    for (let t = 0.8; t < LEN; t += 1.5) {
-      const p = screenSpan(PX, BASE + t, W - 0.3, 0.12)
-      k.slab(p.x, p.z, p.w, p.d, scale(DECK2, 0.9), { y: 0, h: 0.02, rot: p.rot })
-    }
-    const rail = W / 2 - 0.3
-    for (let t = 1; t < LEN; t += 2.2) {
-      for (const side of [-1, 1]) {
-        // A mooring post at each pile, which is also what caps the pile.
-        k.cyl(...at(PX + side * rail, BASE + t), -1.7, 0.2, 2.4, 0x4a3323, { seg: 6, cap: false })
-        k.cyl(...at(PX + side * rail, BASE + t), 0.7, 0.26, 0.16, 0x2a2f3a, { seg: 6 })
-      }
-    }
-    for (let t = 3.5; t < LEN - 1; t += 5.5) k.lamp(...at(PX + rail - 0.6, BASE + t), { h: 2.6, color: 0xffe1a1, post: 0x2a2f3a })
-    k.crate(...at(PX - 0.7, BASE + 4), 0.7)
-    k.crate(...at(PX + 0.1, BASE + 4.9), 0.55)
-    k.barrel(...at(PX - 1.1, BASE + 7.6))
-    k.person(...at(PX - 0.4, BASE + 12), Math.PI / 4 + Math.PI, { hat: 0xf4d35e })
-    // The head of the pier: a low platform across its whole width.
-    const head = screenSpan(PX, BASE + LEN + 0.8, W + 1.4, 2)
-    k.slab(head.x, head.z, head.w, head.d, 0x6b4a2b, { y: -0.16, h: 0.2, rot: head.rot, outline: true })
-  }
+  // ─── Far: the headlands and the town ────────────────────────────────────
+  // Layered hills, each farther one a flatter, bluer silhouette; the air does
+  // the rest.
+  const hillsAt = (x0: number, x1: number, z: number, h: number, color: number, n: number) => hills(k, x0, x1, z, h, color, n, SEA_LEVEL - 2)
+  // The left headland, near and far.
+  hillsAt(-1700, -560, -1300, 80, HILL, 9)
+  hillsAt(-3000, -1100, -2700, 150, HILL_FAR, 8)
+  // The right headland, nearer, with the lighthouse.
+  hillsAt(430, 1500, -960, 55, mix(HILL, ROCK, 0.4), 8)
+  hillsAt(1100, 3200, -2400, 130, HILL_FAR, 8)
+  // The open sea between them, and a last faint line of coast across it.
+  hillsAt(-1200, 1200, -4600, 40, mix(HILL_FAR, 0x9fb3c8, 0.5), 10)
 
-  // ─── Boats ─────────────────────────────────────────────────────────────
-  const boat = (bsx: number, out: number, rot: number, hull: number, o: { sail?: boolean; cabin?: boolean; len?: number } = {}) => {
-    const [x, z] = offshore(bsx, out)
-    const len = o.len ?? 4.2
-    k.box(x, -0.55, z, len, 0.9, 1.8, hull, { rot })
-    k.box(x + (len / 2) * Math.cos(rot), -0.4, z - (len / 2) * Math.sin(rot), 1.0, 0.75, 1.2, hull, { rot: rot + Math.PI / 4 })
-    k.box(x, 0.35, z, len - 0.2, 0.12, 1.6, mix(hull, 0xffffff, 0.5), { rot, outline: false, cap: false })
-    if (o.cabin) {
-      k.box(x - 0.4 * Math.cos(rot), 0.45, z + 0.4 * Math.sin(rot), 1.6, 1.0, 1.3, 0xf5f0e6, { rot })
-      k.box(x - 0.4 * Math.cos(rot), 0.7, z + 0.4 * Math.sin(rot), 1.64, 0.4, 1.34, on ? 0xffe2a8 : 0x1a2233, { rot, glow: on, outline: false, cap: false })
-      k.cyl(x - 0.6 * Math.cos(rot), 1.45, z + 0.6 * Math.sin(rot), 0.1, 0.6, 0x2a2f3a, { seg: 5, cap: false })
-    }
-    if (o.sail) {
-      k.cyl(x, 0.4, z, 0.07, 3.6, 0x6b4a2b, { seg: 5, cap: false })
-      k.box(x + 0.85 * Math.sin(rot), 1.3, z + 0.85 * Math.cos(rot), 0.06, 2.4, 1.5, 0xfaf6ee, { rot, cap: false })
-      k.box(x - 0.6 * Math.sin(rot), 1.1, z - 0.6 * Math.cos(rot), 0.06, 1.8, 1.0, 0xff3d68, { rot, cap: false })
-    }
-    if (on) {
-      k.sphere(x + (len / 2 + 0.3) * Math.cos(rot), 0.55, z - (len / 2 + 0.3) * Math.sin(rot), 0.12, 0x7cff6b, { glow: true, seg: 5, outline: false })
-      k.halo(x, -0.68, z, len * 0.55, 0xffe2a8, 0.18)
-    }
-  }
-  // Moored clear of the pier (`PX ± 3` is deck) and inside the band of sea the
-  // frame shows. The shore runs high on the screen and the water above it is
-  // four to ten tiles deep depending on where the plaza's rim has got to, so a
-  // mast anchored fifteen tiles out is a mast nobody ever sees.
-  // **Masts only in the side bands.** The plaza's rim reaches highest in the
-  // middle of the frame, so the water there is about seventy pixels deep on a
-  // monitor and a rig is eighty: every sail moored in front of the table was
-  // cut off by the top edge. Past |sx| ≈ 27 the rim has dropped back to the
-  // quay wall and there is twice as much of it, which is where the fleet is.
-  if (k.model('pirate/ship-medium', ...offshore(36, 4.6), { rot: 0.5 })) {
-    // The drawn fleet: a tall ship out in the right band, a small one off the
-    // left, rowing boats about the pier. The block boats below are the fleet
-    // of a room with no pirate kit.
-    k.model('pirate/ship-small', ...offshore(-45, 3.6), { rot: 2.2 })
-    k.model('pirate/boat-row-large', ...offshore(-23, 1.8), { rot: 1.1 })
-    k.model('pirate/boat-row-large', ...offshore(31, 1.6), { rot: 0.2 })
-  } else {
-  boat(-25, 2.0, 0.2, 0xd94c4c, { sail: true })
-  boat(-13, 1.0, 2.2, 0xf0a34c, { cabin: true })
-  boat(6, 0.9, 0.4, 0x62b58a, { cabin: true })
-  boat(23, 1.8, 0.3, 0x2f8fbf, { sail: true })
-  }
-  for (let i = 0; i < 6; i++) {
-    const px = rng.range(-50, 50)
-    const [x, z] = offshore(px, 0.7 + rng.range(0, 1.8))
-    k.sphere(x, -0.55, z, 0.45, i % 2 ? 0xd94c4c : 0xf5f0e6, { seg: 7 })
-    k.sphere(x, 0.1, z, 0.13, on ? 0xffd23c : 0x8a8f99, { glow: on, seg: 4, outline: false })
-  }
+  // The lighthouse on the right headland's point.
+  const lx = 470
+  const lz = -900
+  k.cone(lx, SEA_LEVEL - 2, lz, 60, 28, ROCK, { seg: 8, outline: false })
+  k.cyl(lx, 24, lz, 4.2, 24, WHITE, { seg: 12, rTop: 3.4 })
+  for (const y of [30, 40]) k.cyl(lx, y, lz, 4.0, 3, 0xc8322f, { seg: 12, rTop: 3.8, outline: false })
+  k.cyl(lx, 48, lz, 3.6, 1, IRON, { seg: 12 })
+  k.cyl(lx, 49, lz, 2.6, 4, on ? 0xfff0c0 : 0xdfe8ec, { seg: 12, glow: on })
+  k.cone(lx, 53, lz, 3.4, 3, 0xc8322f, { seg: 12 })
+  if (on) k.halo(lx, 51, lz, 14, 0xffe2a0, 0.35, false)
 
-  // ─── The lighthouse, on its rocks, out in the left band ────────────────
-  // Sixteen tiles tall it was a ring of boulders with the whole tower above the
-  // frame: the shore sits high on the screen and anything standing in the water
-  // has only the few tiles between it and the top edge. Nine and a half fits.
-  // It stands out to the left for two reasons — the top right corner is the
-  // chip row, and the plaza's rim has dropped back towards the quay wall by
-  // here, so the water is at its deepest. On a phone the frame is barely 18
-  // tiles wide and this is outside it, like the beach opposite:
-  // that band is where a monitor's landmarks live.
-  k.landmark('lighthouse', -31, shoreAt(-31) + 1, 9.5)
-  {
-    const [lx, lz] = offshore(-31, 1)
-    // The island is the kit's rocks; the lighthouse itself is ours, because
-    // the pirate kit's towers are castle keeps and a harbour has a lighthouse.
-    const drawnRocks = k.model('pirate/rocks-a', lx, lz, { y: -0.9, scale: 1.7, collide: false })
-    if (drawnRocks) {
-      k.model('pirate/rocks-b', lx + 3.4, lz - 2.6, { y: -0.7, scale: 0.9, collide: false })
-      k.model('pirate/rocks-c', lx - 3.6, lz + 2.0, { y: -0.7, scale: 0.9, collide: false })
-      k.model('pirate/palm-bend', lx + 3.0, lz + 2.4, { y: 0.6, rot: 1.0, scale: 0.8, collide: false })
-    } else
-    for (let i = 0; i < 11; i++) {
-      const t = (i / 11) * Math.PI * 2
-      k.rock(lx + Math.cos(t) * 3.6, lz + Math.sin(t) * 3.6, rng.range(0.7, 1.4), 0x6f6a62)
-    }
-    {
-    if (!drawnRocks) k.cyl(lx, -0.7, lz, 3, 1.8, 0x6f6a62, { seg: 12 })
-    for (let i = 0; i < 3; i++) k.cyl(lx, 1.1 + i * 1.25, lz, 1.55 - i * 0.12, 1.25, i % 2 ? 0xd94c4c : 0xf5f0e6, { seg: 12, cap: false })
-    k.cyl(lx, 4.85, lz, 1.55, 0.25, 0x2a2f3a, { seg: 12 })
-    k.fence(lx - 1.6, lz - 1.6, lx + 1.6, lz - 1.6, 0x2a2f3a, 0.6)
-    k.fence(lx + 1.6, lz - 1.6, lx + 1.6, lz + 1.6, 0x2a2f3a, 0.6)
-    k.cyl(lx, 5.1, lz, 0.9, 1.15, on ? 0xfff0b0 : 0xbfe3f0, { seg: 10, glow: on })
-    k.cone(lx, 6.25, lz, 1.2, 0.85, 0xd94c4c, { seg: 10 })
-    // The lamp's own glow, and no veil round the tower: two additive spheres
-    // three and six tiles across made the whole island look see-through.
-    if (on) k.halo(lx, 5.7, lz, 0.8, 0xfff0b0, 0.35, false)
-    }
-    // The keeper's house, on its own rock clear of the ring above: built at
-    // 3.4 tiles out it stood inside the boulders, which is the one thing on
-    // this island that is meant to look built.
-    const [hx, hz] = offshore(-37.5, 1.2)
-    k.cyl(hx, -0.7, hz, 2.4, 1.5, 0x6f6a62, { seg: 10 })
-    if (!k.model('suburb/building-type-h', hx, hz, { y: 0.8, rot: 0.3, scale: 0.85, collide: false })) {
-      k.box(hx, 0.8, hz, 3, 2.2, 2.6, 0xf5f0e6, { rot: 0.3 })
-      k.prism(hx, 3.0, hz, 3.6, 1.2, 3.2, 0xd94c4c, { rot: 0.3 })
-    }
+  // The white town on the left headland's shore, stepping up the slope
+  // behind its harbour wall.
+  for (let i = 0; i < 90; i++) {
+    const x = rng.range(-1250, -700)
+    const z = rng.range(-1260, -1150)
+    const hh = rng.range(8, 14)
+    const up = Math.max(0, (-700 - x) / 550) * 28 + rng.range(0, 6)
+    const w = rng.range(9, 16)
+    const color = rng.chance(0.2) ? 0xe9c9a3 : rng.chance(0.2) ? 0xd9e4ea : WHITE
+    k.box(x, SEA_LEVEL - 2 + up, z, w, hh, rng.range(8, 14), color, { cap: true, outline: false })
+    k.prism(x, SEA_LEVEL - 2 + up + hh, z, w + 1, 4, rng.range(8, 14), 0xc2573f, { outline: false })
+    if (on && rng.chance(k.rig.windowsLit * 1.4)) k.box(x, SEA_LEVEL - 2 + up + hh * 0.5, z + 7.2, 2.4, 2.2, 0.4, 0xffd08a, { glow: true, outline: false, cap: false })
   }
-
-  // ─── The town behind the quay: blocks of painted houses along canals ───
-  const paints = [0xf0a34c, 0x5aa0d8, 0xe85c5c, 0xf4d35e, 0x62b58a, 0xd9a4c8, 0xf5f0e6]
-  /**
-   * One house of a terrace. Every detail is solved from `w` and `d`: written as
-   * fixed offsets they were sized for a house half again as wide, so the
-   * windows sat on the corners, the door hung off the end of the façade and the
-   * awning overhung its own shop by half a tile at each end. The roof took the
-   * same treatment — a prism's `w` is its ridge, so adding `π/2` to the
-   * rotation without swapping `w` and `d` put a roof across the house it
-   * belonged to.
-   */
-  const HOUSES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u'].map((c) => `suburb/building-type-${c}`)
-  const rowHouse = (x: number, z: number, w: number, d: number, rot: number) => {
-    // A drawn house, facing the street the block house faced, on the same lot;
-    // the placer says whether it fits beside its neighbours.
-    if (k.has(HOUSES[0])) {
-      const [fx, fz] = [x + (d / 2 - 2.0) * Math.sin(rot), z + (d / 2 - 2.0) * Math.cos(rot)]
-      k.model(rng.pick(HOUSES), fx, fz, { rot, scale: 0.9, margin: 0 })
-      return
-    }
-    const h = rng.range(4.5, 8)
-    const c = rng.pick(paints)
-    k.box(x, 0, z, w, h, d, c, { rot })
-    const face = (t: number, out: number): [number, number] => [
-      x + t * Math.cos(rot) + out * Math.sin(rot),
-      z - t * Math.sin(rot) + out * Math.cos(rot),
-    ]
-    const cols = Math.max(1, Math.round(w / 1.4))
-    const doorCol = 0
-    const shutter = rng.pick([0x2f8fbf, 0x2fa07a, 0xf5f0e6, 0x3f4a5c, 0xd94c4c])
-    const rows = Math.floor((h - 0.7) / 1.7)
-    for (let r = 0; r < rows; r++) {
-      for (let i = 0; i < cols; i++) {
-        if (r === 0 && i === doorCol) continue
-        const t = -w / 2 + (i + 0.5) * (w / cols)
-        const ww = Math.min(0.55, w / cols - 0.5)
-        const wy = 0.55 + r * 1.7
-        const [wx, wz] = face(t, d / 2 + 0.03)
-        k.window(wx, wy, wz, ww, 0.66, 'z', 0xffe2a8, { rot, frame: 0xf5f0e6 })
-        // Shutters either side of every upstairs window, in the house's own
-        // second colour: the one detail that makes a painted terrace read as
-        // a harbour town rather than as a row of boxes with holes in them.
-        if (r > 0) {
-          for (const side of [-1, 1]) {
-            const [sx2, sz2] = face(t + side * (ww / 2 + 0.2), d / 2 + 0.06)
-            k.box(sx2, wy - 0.02, sz2, 0.22, 0.7, 0.05, shutter, { rot, outline: false, cap: false })
-          }
-        }
-      }
-      // A balcony along the first floor, with a railing.
-      if (r === 1 && rng.chance(0.55)) {
-        const [bx, bz] = face(0, d / 2 + 0.35)
-        k.box(bx, 0.55 + r * 1.7 - 0.22, bz, w - 0.4, 0.14, 0.7, scale(c, 0.8), { rot, cap: false })
-        for (let i = 0; i <= 5; i++) {
-          const [px2, pz2] = face(-w / 2 + 0.3 + (i / 5) * (w - 0.6), d / 2 + 0.65)
-          k.box(px2, 0.55 + r * 1.7 - 0.08, pz2, 0.06, 0.55, 0.06, 0x2a2f3a, { rot, outline: false, cap: false })
-        }
-        const [rx2, rz2] = face(0, d / 2 + 0.65)
-        k.box(rx2, 0.55 + r * 1.7 + 0.42, rz2, w - 0.4, 0.06, 0.06, 0x2a2f3a, { rot, outline: false, cap: false })
-      }
-    }
-    // A band at every floor, the way a painted terrace is drawn.
-    for (let r = 1; r < Math.floor((h - 0.7) / 1.7); r++) {
-      k.box(x, 0.2 + r * 1.7, z, w + 0.06, 0.06, d + 0.06, scale(c, 0.85), { rot, outline: false, cap: false })
-    }
-    // The ridge runs across the façade, so `w` and `d` swap with the extra π/2.
-    k.prism(x, h, z, d + 0.3, 2, w + 0.3, rng.pick([0x8b3a2a, 0x3f4a5c, 0x6b4a2b]), { rot: rot + Math.PI / 2 })
-    // A chimney on the ridge, and a dormer in the front slope now and then.
-    if (rng.chance(0.6)) k.box(x + (w * 0.3) * Math.cos(rot), h + 1.2, z - (w * 0.3) * Math.sin(rot), 0.4, 1.4, 0.4, 0x6f6a62, { rot })
-    if (rng.chance(0.45) && w > 3) {
-      const [mx2, mz2] = face(-w * 0.15, d / 2 - 0.5)
-      k.box(mx2, h + 0.3, mz2, 1.0, 0.9, 0.9, c, { rot })
-      const [dwx, dwz] = face(-w * 0.15, d / 2 - 0.02)
-      k.window(dwx, h + 0.45, dwz, 0.4, 0.5, 'z', 0xffe2a8, { rot, frame: 0xf5f0e6, sill: false })
-      k.prism(mx2, h + 1.2, mz2, 1.2, 0.5, 1.1, rng.pick([0x8b3a2a, 0x3f4a5c, 0x6b4a2b]), { rot })
-    }
-    const [dx2, dz2] = face(-w / 2 + (0.5 * w) / cols, d / 2 + 0.05)
-    k.door(dx2, 0, dz2, Math.min(0.8, w * 0.36), 1.7, scale(c, 0.5), { rot, frame: 0xf5f0e6 })
-    if (rng.chance(0.4)) k.planter(dx2 + 0.7 * Math.cos(rot) + 0.5 * Math.sin(rot), dz2 - 0.7 * Math.sin(rot) + 0.5 * Math.cos(rot), { r: 0.26 })
-    if (rng.chance(0.5)) {
-      const [ax, az] = face(0, d / 2)
-      k.awning(ax, az, rot, w - 0.3, rng.pick([0xd94c4c, 0x2f8fbf, 0xf5f0e6]), { y: 2.3 })
-    }
-  }
-  // The front corner used to hold a ferris wheel twelve tiles across. Its
-  // hub stood on the frame's right edge at 16:9 and off it on every narrower
-  // screen, so what a player saw was its cabins: coloured cubes floating on
-  // the grass. There is no side band beside the table wide enough for it on a
-  // phone, so the corner is gardens like the rest of the shore.
-  const beachSpot = { sx: sx - a - 8, sy: sy - b - 5 }
-  const near = nearSpot
-
-  /** An unbuilt block: a lawn with a tree, a bed of flowers, a bench. */
-  const garden = (x: number, z: number, w: number) => {
-    k.tree(x + rng.range(-w / 4, w / 4), z + rng.range(-w / 4, w / 4), { kind: rng.chance(0.6) ? 'round' : 'palm', h: rng.range(1.6, 2.4), r: rng.range(1.0, 1.3), leaf: rng.pick([0x4bb35d, 0x3fa04f, 0x6cc46a]) })
-    if (rng.chance(0.5)) k.flowerbed(x + rng.range(-3, 3), z + rng.range(-3, 3), 2.2, 1.4, { kerb: 0xd9d2c2 })
-    if (rng.chance(0.4)) k.bench(x + rng.range(-3, 3), z + w / 3, 0, 0x6b4a2b)
-  }
-
-  const plan = cityGrid(k, {
-    block: 13,
-    road: 3.2,
-    roadColor: 0x5c6070,
-    sidewalk: 0xd9d2c2,
-    dashes: true,
-    crossings: true,
-    cars: CARS,
-    carDensity: 0.15,
-    lamp: { h: 2.8, color: 0xffe1a1, post: 0x2a2f3a },
-    people: 0.15,
-    maxHeight: 10,
-    water: { line: 1, axis: 'x', color: sea, bank: 0x6b6660, bridge: 0x8a847a },
-    plaza,
-    land: (c) => !atSea(c.x, c.z) && c.sy < shoreAt(c.sx) - 7,
-    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.6 : 0.8),
-    open: (c) => {
-      if (near(c, beachSpot, 8)) return
-      garden(c.x, c.z, c.w)
-    },
-    fill: (c) => {
-      // The beach keeps its clearing.
-      if (near(c, beachSpot, 8)) return
-      if (c.front) {
-        // Lawn between the player and the felt: a palm, a bench, and air.
-        const [l] = lots(c, 1, 1, 0)
-        k.tree(l.x + rng.range(-2, 2), l.z + rng.range(-2, 2), { kind: 'palm', h: rng.range(2.2, 2.8) })
-        if (rng.chance(0.5)) k.bench(l.x + 3, l.z - 2, 0, 0x6b4a2b)
-        return
-      }
-      // Row houses shoulder to shoulder along the block's camera-facing sides.
-      // The side row stops one short: its last house and the front row's last
-      // house are the same corner of the block, and built by both they stood
-      // inside one another — two roofs crossing at right angles, which is what
-      // the whole top-left of the harbour was made of.
-      const n = 3
-      for (let i = 0; i < n; i++) {
-        const t = -c.w / 2 + (i + 0.5) * (c.w / n)
-        rowHouse(c.x + t, c.z + c.d / 2 - 2.2, c.w / n - 0.3, 4.4, 0)
-        if (i < n - 1) rowHouse(c.x + c.w / 2 - 2.2, c.z - c.d / 2 + (i + 0.5) * (c.d / n), 4.4, c.d / n - 0.3, Math.PI / 2)
-      }
-      // The block's back corner is a garden: a tree, a bed of flowers, a bench.
-      const [g] = lots(c, 2, 2, 0)
-      k.tree(g.x - 0.8, g.z - 0.8, { kind: rng.chance(0.6) ? 'round' : 'palm', h: rng.range(1.6, 2.4), r: rng.range(1.0, 1.3), leaf: rng.pick([0x4bb35d, 0x3fa04f, 0x6cc46a]) })
-      if (rng.chance(0.7)) k.flowerbed(g.x + 1.6, g.z + 0.4, 2.2, 1.4, { kerb: 0xd9d2c2 })
-      if (rng.chance(0.4)) k.bench(g.x - 0.6, g.z + 1.8, 0, 0x6b4a2b)
-    },
-  })
-
-  // ─── The fish market, the fair, the beach ──────────────────────────────
-  const [cx, cz] = at(sx, sy)
-  {
-    const [x, z] = at(sx - a - 5, sy + 4)
-    k.stall(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x2f8fbf, 0xf5f0e6)
-  }
-  k.crate(...at(sx - a - 6, sy + 1), 0.6, 0xbfe3f0)
-  k.crate(...at(sx - a - 5.4, sy + 1.6), 0.5, 0xbfe3f0)
-  {
-    // An oval of paler sand, not a rotated box: a box at 45° draws a perfectly
-    // horizontal ink line across the frame, and a beach whose top edge lands a
-    // few centimetres above the paving showed nothing of itself but that line.
-    const [bx, bz] = at(beachSpot.sx, beachSpot.sy)
-    k.oval(bx, -0.04, bz, 13, 15, 0.1, k.ground(0xe8d6a8), { rot: Math.PI / 4, outline: false, cap: false })
-    const spots: [number, number][] = []
-    const clear = (px: number, py: number, r: number) => {
-      if (spots.some(([qx, qy]) => Math.hypot(qx - px, (qy - py) / 0.53) < r)) return false
-      spots.push([px, py])
-      return true
-    }
-    for (let i = 0; i < 14 && spots.length < 4; i++) {
-      const px = beachSpot.sx - 7 + rng.range(0, 14)
-      const py = beachSpot.sy + 2 - rng.range(0, 6)
-      if (!clear(px, py, 2.6)) continue
-      const [x, z] = at(px, py)
-      if (!k.model(rng.chance(0.5) ? 'city/detail-parasol-a' : 'city/detail-parasol-b', x, z, { rot: rng.range(0, 6.3), scale: 1.3, margin: 0.4 })) {
-        k.cyl(x, 0.05, z, 0.05, 2.2, 0xf5f0e6, { seg: 4, cap: false, outline: false })
-        k.cone(x, 1.9, z, 1.2, 0.55, rng.pick([0xd94c4c, 0x2f8fbf, 0xf4d35e, 0xff3d68]), { seg: 8, cap: false })
-      }
-      k.slab(x + 0.9, z + 0.7, 1.7, 0.9, rng.pick(paints), { y: 0.06, h: 0.03, rot: rng.range(-0.4, 0.4) })
-    }
-    const [lx, lz] = at(beachSpot.sx + 4, beachSpot.sy + 3)
-    k.box(lx - 0.5, 0, lz, 0.2, 2.8, 0.2, 0xf5f0e6, { cap: false })
-    k.box(lx + 0.5, 0, lz, 0.2, 2.8, 0.2, 0xf5f0e6, { cap: false })
-    k.box(lx, 2.6, lz, 1.5, 0.5, 1.3, 0xd94c4c)
-    k.person(lx, lz - 0.1, Math.PI, { shirt: 0xd94c4c, hat: 0xf5f0e6 })
-    k.tree(...at(beachSpot.sx + 2, beachSpot.sy + 5), { kind: 'palm', h: 2.6 })
-    k.tree(...at(beachSpot.sx - 7, beachSpot.sy + 3), { kind: 'palm', h: 3 })
-    for (let i = 0; i < 2; i++) k.person(...at(beachSpot.sx - 6 + rng.range(0, 12), beachSpot.sy + 1 - rng.range(0, 5)), rng.range(0, 6.3))
-  }
-  for (let i = 0; i < 6; i++) {
-    const t = (i / 6) * Math.PI * 2 + 0.3
-    const px = sx + Math.cos(t) * (a + 7)
-    const py = sy + Math.sin(t) * (b + 4.5)
-    if (py > shoreAt(px) - 3) continue
-    const [x, z] = at(px, py)
-    if (i % 2) k.lamp(x, z, { h: 2.6, color: 0xffe1a1, post: 0x2a2f3a })
-    else k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x6b4a2b)
-  }
-  crowd(k, 3)
-
-  // ─── What moves: the harbour is the room with the most to move ─────────
-  const life: Actor[] = []
-  // The ferry follows the shore, so it clears the plaza's bulge in the middle
-  // of the frame, and comes through every couple of minutes — **east of the
-  // pier only**. A sprite passes in front of everything, so a ferry sailing
-  // the whole width sailed through the lighthouse island and over the pier
-  // head; from the pier eastward the water is open, and it fades in there.
-  const shoreline = (n: number, from: number, to: number, step = 8): ScreenPt[] => {
-    const pts: ScreenPt[] = []
-    for (let x = from; x <= to; x += step) pts.push([x, shoreAt(x) + n])
-    return pts
-  }
-  life.push(vessel(k, 'ferry', { path: shoreline(4.2, -12, 52), hull: 0x2a3550, len: 9, duration: 60_000, every: 140_000, fade: true }))
-  // Gulls, two of them, on wide arcs over the water.
-  for (let i = 0; i < 2; i++) {
-    const y0 = QUAY + 4 + i * 1.3
-    life.push(bird(k, `gull-${i}`, { path: [[-50, y0], [-20, y0 + 2], [10, y0 - 1], [50, y0 + 1.5]], duration: 30_000 + i * 6000, delay: i * 9000 }))
-  }
-  // Over the water, where nothing stands under it.
-  life.push(balloon(k, 'balloon', { at: [10, shoreAt(10) + 1.5], colors: [0xd94c4c, 0xf5f0e6], y: 6 }))
-  if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
-    life.push(cloud(k, 'cloud-0', { sy: 19, size: 1.2, duration: 170_000 }))
-    life.push(cloud(k, 'cloud-1', { sy: 16, size: 0.8, duration: 210_000, delay: 70_000, from: 50, to: -50 }))
-  }
-  life.push(...streetWalkers(k, plan, 2), ...traffic(k, plan, CARS, 1))
-  return life
+  // ─── What moves ─────────────────────────────────────────────────────────
+  const W = SEA_LEVEL
+  return [
+    gull('gull-a', [[-46, 11, -40], [-14, 14, -58], [22, 12, -48], [44, 9, -30]], { duration: 26_000 }),
+    gull('gull-b', [[50, 16, -90], [10, 19, -110], [-36, 17, -95], [-60, 13, -70]], { duration: 34_000, delay: 9000, size: 1.1 }),
+    gull('gull-c', [[-30, 22, -160], [20, 26, -170], [70, 22, -150]], { duration: 40_000, delay: 20_000 }),
+    driftingBoat('boat-far', [[-120, W, -230], [-40, W, -236]], { duration: 260_000, hull: 0xf2ece0, trim: 0xc8513f, size: 1.2 }),
+    driftingBoat('boat-near', [[40, W, -130], [70, W, -126]], { duration: 180_000, delay: 40_000, hull: 0x2f5d7a, trim: 0xf2ece0 }),
+  ]
 }

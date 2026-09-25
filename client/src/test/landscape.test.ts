@@ -20,7 +20,7 @@ import {
   TOP_CHROME_LANDSCAPE,
   HAND_MARGIN_LANDSCAPE,
 } from '../components/cards/layout'
-import { CARD_H, CARD_W } from '../components/cards/cardTheme'
+import { CARD_H, CARD_W, handCard } from '../components/cards/cardTheme'
 
 const read = (...p: string[]) => readFileSync(path.resolve(__dirname, '..', ...p), 'utf8')
 
@@ -78,38 +78,39 @@ describe('a phone on its side', () => {
     const { space, seats, table } = lay(PHONE.w, PHONE.h, PHONE.insets, 3)
     expect(seats.blockHeight).toBe(0)
     expect(seats.size).not.toBe('full')
-    const xs = seats.positions.map((p) => p.x)
+    const boxes = seats.seats.map((s) => s.box)
     // One column, left of the felt.
-    expect(new Set(xs).size).toBe(1)
-    expect(xs[0] + seats.pillW / 2).toBeLessThan(table.left)
-    expect(xs[0] - seats.pillW / 2).toBeGreaterThanOrEqual(0)
+    expect(new Set(boxes.map((b) => b.left)).size).toBe(1)
+    expect(boxes[0].left + boxes[0].width).toBeLessThan(table.left)
+    expect(boxes[0].left).toBeGreaterThanOrEqual(0)
     // Play runs clockwise on screen (6 → 9 → 12), so the first opponent is the
-    // lowest pill and the rest climb from it.
-    const ys = seats.positions.map((p) => p.y)
+    // lowest seat and the rest climb from it.
+    const ys = boxes.map((b) => b.top + b.height / 2)
     for (let i = 1; i < ys.length; i++) expect(ys[i]).toBeLessThan(ys[i - 1])
     // Centred on the felt, clear of the top chrome and of the hand.
     const mid = (ys[0] + ys[ys.length - 1]) / 2
     expect(mid).toBeCloseTo(table.top + table.height / 2, 0)
-    expect(ys[ys.length - 1] - seats.pillH / 2).toBeGreaterThanOrEqual(TOP_CHROME_LANDSCAPE)
-    expect(ys[0] + seats.pillH / 2).toBeLessThan(space.height - CARD_H - HAND_MARGIN_LANDSCAPE)
+    expect(boxes[boxes.length - 1].top).toBeGreaterThanOrEqual(TOP_CHROME_LANDSCAPE)
+    expect(boxes[0].top + boxes[0].height).toBeLessThan(space.height - CARD_H - HAND_MARGIN_LANDSCAPE)
   })
 
   it('carries a full table on along the top of the felt, and drops the felt under it', () => {
     const seven = lay(PHONE.w, PHONE.h, PHONE.insets, 7)
-    expect(seven.seats.positions).toHaveLength(7)
-    const column = seven.seats.positions.filter((p) => p.x === seven.seats.positions[0].x)
-    const row = seven.seats.positions.slice(column.length)
+    const all = seven.seats.seats.map((s) => s.box)
+    expect(all).toHaveLength(7)
+    const column = all.filter((b) => b.left === all[0].left)
+    const row = all.slice(column.length)
     expect(row.length).toBeGreaterThan(0)
     expect(seven.seats.blockHeight).toBeGreaterThan(0)
-    for (const p of row) {
-      expect(p.y + seven.seats.pillH / 2).toBeLessThanOrEqual(seven.table.top)
-      expect(p.x - seven.seats.pillW / 2).toBeGreaterThanOrEqual(seven.table.left - 1)
-      expect(p.x + seven.seats.pillW / 2).toBeLessThanOrEqual(seven.table.left + seven.table.width + 1)
+    for (const b of row) {
+      expect(b.top + b.height).toBeLessThanOrEqual(seven.table.top)
+      expect(b.left).toBeGreaterThanOrEqual(seven.table.left - 1)
+      expect(b.left + b.width).toBeLessThanOrEqual(seven.table.left + seven.table.width + 1)
     }
-    // Every pill still inside the space.
-    for (const p of seven.seats.positions) {
-      expect(p.y - seven.seats.pillH / 2).toBeGreaterThanOrEqual(0)
-      expect(p.x + seven.seats.pillW / 2).toBeLessThanOrEqual(seven.space.width)
+    // Every seat still inside the space.
+    for (const b of all) {
+      expect(b.top).toBeGreaterThanOrEqual(0)
+      expect(b.left + b.width).toBeLessThanOrEqual(seven.space.width)
     }
   })
 
@@ -165,10 +166,11 @@ describe('a phone on its side', () => {
 
   it('keeps the top row of a full table out from under the chip row', () => {
     const { space, seats } = lay(PHONE.w, PHONE.h, PHONE.insets, 7)
-    const row = seats.positions.filter((p) => p.x !== seats.positions[0].x)
+    const boxes = seats.seats.map((s) => s.box)
+    const row = boxes.filter((b) => b.left !== boxes[0].left)
     // The five chips reach 244px in from the safe edge; the band is 160px.
     const chipRow = space.width - (244 - 160) / boardScale(750, 319, true)
-    for (const p of row) expect(p.x + seats.pillW / 2).toBeLessThanOrEqual(chipRow)
+    for (const b of row) expect(b.left + b.width).toBeLessThanOrEqual(chipRow)
   })
 
   it('anchors the local seat on the hand it draws, in both compositions', () => {
@@ -179,9 +181,10 @@ describe('a phone on its side', () => {
     const { space } = lay(PHONE.w, PHONE.h, PHONE.insets)
     const me = seatPosition(0, players, 0, space.width, space.height, true)
     const hand = calcHandSlots(1, space.width, space.height, true)[0]
-    expect(me.y).toBeCloseTo(hand.y + CARD_H / 2, 5)
+    expect(me.y).toBeCloseTo(hand.y + handCard(true).h / 2, 5)
     const them = seatPosition(1, players, 0, space.width, space.height, true)
-    expect(them).toEqual(seatLayout(1, space.width, space.height, true).positions[0])
+    const seat = seatLayout(1, space.width, space.height, true).seats[0]
+    expect(them).toEqual({ x: seat.x, y: seat.y })
   })
 
   it('solves the felt the room is rendered under from the same chain', () => {

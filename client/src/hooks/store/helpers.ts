@@ -139,7 +139,7 @@ export function gameStateSliceFromDTO(state: GameStateDTO) {
     mapTime: state.time_of_day ?? '',
     mapWeather: state.weather ?? '',
     matchFormat: state.match_format ?? 'BO1',
-    maxPlayers: state.max_players ?? 10,
+    maxPlayers: state.max_players ?? 7,
     scoreboard: state.scoreboard ?? [],
     roundHistory: state.round_history ?? [],
     matchHistory: state.match_history ?? [],

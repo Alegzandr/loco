@@ -1,18 +1,17 @@
 /**
- * The room is lit, not drawn: a warm sun low over the diorama, a cool sky in
- * the shade, a long soft shadow beside every block. What these pin is the
- * shape of that light as numbers (`scene/shade.ts`, `scene/look.ts`) — the
- * sun warmer than the sky at every daylight hour, low enough at dawn and dusk
- * to throw a long shadow and never so low the shadow is a street, lighting at
- * least one of the two faces the camera sees, the shadow running away from
- * it — because a rig that drifts still renders a room, only a flat or a
- * silhouetted one, and nothing errors. Two of the failures below were seen:
- * a dusk sun from behind the city that lit nothing the camera looked at, and
- * a noon sun whose shadows fell away from the camera and read as no light.
+ * The room is lit, not drawn: a warm sun, a cool sky in the shade, a long soft
+ * shadow beside every block. What these pin is the shape of that light as
+ * numbers (`scene/shade.ts`, `scene/look.ts`) — the sun warmer than the sky at
+ * every daylight hour, and placed for a camera standing at the table looking
+ * out (`view.ts`): at the two ends of the day low and ahead of it, so the
+ * room is lit from behind and the long shadows come towards the table; at
+ * noon high and to the side, out of the frame. A rig that
+ * drifts still renders a room, only a flat or a silhouetted one, and nothing
+ * errors.
  */
 import { describe, it, expect } from 'vitest'
 import { lightRig } from '../components/scene/sky'
-import { convexHull, lightingFor, shadowHull, shadowRun, sunDirection, warmth, MAX_SHADOW_RUN } from '../components/scene/shade'
+import { lightingFor, sunDirection, warmth } from '../components/scene/shade'
 import { LOOK, WINDOWS_LIT_MAX, applyLookPatch, bumpLook, lookVersion, subscribeLook } from '../components/scene/look'
 
 const HOURS = ['dawn', 'day', 'dusk', 'night'] as const
@@ -49,35 +48,33 @@ describe('the sun and the sky', () => {
     expect(moon.ambient.intensity).toBeLessThan(plain.ambient.intensity)
   })
 
-  it('sit low at dawn and dusk and higher at noon, and never so low the shadow is a street', () => {
+  it('sit low at dawn and dusk and higher at noon, and never under the horizon', () => {
     const el = (t: (typeof HOURS)[number]) => lightRig(t, 'clear').sun.elevation
     expect(el('dawn')).toBeLessThan(el('day'))
     expect(el('dusk')).toBeLessThan(el('day'))
     for (const t of HOURS) {
-      expect(el(t), t).toBeGreaterThanOrEqual(18)
+      expect(el(t), t).toBeGreaterThanOrEqual(3)
       expect(el(t), t).toBeLessThanOrEqual(60)
     }
   })
 
-  it('light at least one of the two faces the camera sees, at every hour', () => {
-    // The camera stands at +x, +z: it sees the +x and the +z faces of a block.
-    // A sun from behind the city lights neither and the room is a silhouette.
-    for (const t of HOURS) {
-      const [dx, , dz] = sunDirection(lightRig(t, 'clear'))
-      expect(Math.max(dx, dz), t).toBeGreaterThan(0.35)
+  it('light the room from behind at the two ends of the day, so the long shadows come towards the table', () => {
+    // The camera looks towards -z. A sun ahead of it (dz < 0) casts every
+    // shadow towards the viewer, which is what a low sun in the frame does.
+    for (const t of ['dawn', 'dusk'] as const) {
+      const [, , dz] = sunDirection(lightRig(t, 'clear'))
+      expect(dz, t).toBeLessThan(-0.5)
     }
   })
 
-  it('throw the shadow where the camera can see it: never straight away up the frame', () => {
-    // Screen x is the (1, -1) diagonal, screen up is the -(1, 1) diagonal. A
-    // shadow running straight up the frame, away from the camera, hides
-    // behind the thing that throws it.
-    for (const t of HOURS) {
-      const [rx, rz] = shadowRun(lightRig(t, 'clear'))
-      const up = -(rx + rz) / Math.SQRT2
-      const across = Math.abs(rx - rz) / Math.SQRT2
-      expect(up, t).toBeLessThan(across + 0.2)
-    }
+  it('light the room from the side at noon, high, its sun out of the frame', () => {
+    // From the side, not from behind the camera: a noon lit from the front is
+    // a room with no shadow anybody can see.
+    const rig = lightRig('day', 'clear')
+    const [dx] = sunDirection(rig)
+    expect(Math.abs(dx)).toBeGreaterThan(0.4)
+    expect(rig.sun.elevation).toBeGreaterThan(30)
+    expect(rig.body).toBeNull()
   })
 
   it('dim under an overcast and keep the sun the brighter light', () => {
@@ -138,60 +135,6 @@ describe('the hour under the weather', () => {
     expect(night.dark).toBeGreaterThan(0.8)
     expect(lum(night.sky.horizon)).toBeLessThan(lum(day.sky.horizon) * 0.6)
     expect(lum(night.ambient.ground)).toBeLessThan(lum(day.ambient.ground) * 0.6)
-  })
-})
-
-describe('the shadow on the ground', () => {
-  const box = (x: number, y: number, z: number, w: number, h: number, d: number): [number, number, number][] => {
-    const out: [number, number, number][] = []
-    for (const dx of [-w / 2, w / 2]) for (const dy of [0, h]) for (const dz of [-d / 2, d / 2]) out.push([x + dx, y + dy, z + dz])
-    return out
-  }
-
-  it('runs away from the sun, longer the lower it is, and no longer than the cap', () => {
-    for (const t of HOURS) {
-      const rig = lightRig(t, 'clear')
-      const [sx, , sz] = sunDirection(rig)
-      const [rx, rz] = shadowRun(rig)
-      expect(rx * sx + rz * sz, t).toBeLessThan(0)
-      expect(Math.hypot(rx, rz), t).toBeLessThanOrEqual(MAX_SHADOW_RUN)
-    }
-    expect(Math.hypot(...shadowRun(lightRig('dusk', 'clear')))).toBeGreaterThan(Math.hypot(...shadowRun(lightRig('day', 'clear'))))
-  })
-
-  it('reaches from the block’s own foot to where its top lands', () => {
-    // The sprite pass sizes a bitmap by this before the shadow map has drawn
-    // anything: a bitmap cut short is a shadow cut off at its edge.
-    const rig = lightRig('day', 'clear')
-    const run = shadowRun(rig)
-    const hull = shadowHull(box(0, 0, 0, 2, 4, 2), run)!
-    expect(hull).not.toBeNull()
-    expect(hull.length).toBeGreaterThanOrEqual(4)
-    const inside = (px: number, pz: number) => {
-      let sign = 0
-      for (let i = 0; i < hull.length; i++) {
-        const [ax, az] = hull[i]
-        const [bx, bz] = hull[(i + 1) % hull.length]
-        const c = (bx - ax) * (pz - az) - (bz - az) * (px - ax)
-        if (Math.abs(c) < 1e-9) continue
-        if (sign === 0) sign = Math.sign(c)
-        else if (Math.sign(c) !== sign) return false
-      }
-      return true
-    }
-    for (const [x, , z] of box(0, 0, 0, 2, 4, 2).filter(([, y]) => y === 0)) expect(inside(x, z)).toBe(true)
-    const reach = Math.max(...hull.map(([x, z]) => x * run[0] + z * run[1])) / Math.hypot(...run)
-    expect(reach).toBeGreaterThan(1 + 4 * Math.hypot(...run) * 0.9)
-  })
-
-  it('is nothing for a slab lying on the plane', () => {
-    expect(shadowHull(box(0, 0, 0, 10, 0, 10), shadowRun(lightRig('day', 'clear')))).toBeNull()
-  })
-
-  it('wraps a convex hull without repeating the first point', () => {
-    const hull = convexHull([[0, 0], [1, 0], [1, 1], [0, 1], [0.5, 0.5], [0.2, 0.8]])
-    expect(hull.length).toBe(4)
-    expect(new Set(hull.map((p) => p.join(','))).size).toBe(4)
   })
 })
 

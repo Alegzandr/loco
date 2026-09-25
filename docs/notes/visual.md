@@ -128,26 +128,162 @@ notch and the home indicator (see "Safe areas"). Asserted in `layout.test.ts`.
 - Deck and discard derive their centre from `tableRect` (`pileTop`), so the pair sits in the middle
   of the felt. Both take `topReserve` and `<GameBoard />` passes `seats.blockHeight` to the piles,
   the fliers and `tableRect` from one variable — mismatched reserves drift the fliers off the pile.
+- **The pair sits close in around the middle** (`PILE_GAP`, 32): at 58 each pile stood off to one side
+  and the middle of the felt was left empty. The floor is the colour chip, which reaches
+  `PILE_CHIP_REACH` out of the discard towards the deck and must still clear it (`layout.test.ts`).
+- **The piles lie on the felt, they do not stand facing us** (`layout.ts: pileTransform`, `onPile`,
+  `PILE_SQUASH`). Each is tipped back `PILE_TILT_DEG` (32°, a hair less flat than the hands on the felt around it, never flatter) about its own card's centre and seen
+  from `PILE_PERSPECTIVE` (600px), so its far edge is narrower than its near one, and its thickness
+  is a band of card edges under the top card (layers offset straight down in the pile's own plane,
+  which the tilt turns into the block's near side). What lies on the felt is laid with it — the
+  deck's layers and glow, the discard's pool, ring and edges — on a node of its own (`.laid`), since
+  the deck's own transform is the hover lift's. **The active-colour chip and the +N badge stay
+  upright**: they are tokens read across the room, pinned to where `onPile` sees the card's
+  corners. Every flier that lands on a pile, or leaves the deck, does so at `PILE_SQUASH`, the laid
+  card's seen height over its real one. `onPile` is the CSS written as numbers, and
+  `layout.test.ts` checks it against the spec's matrices: if the two disagree the chip floats off
+  the card and a landing jumps.
 
 ## Seat layout (`layout.ts: seatLayout`)
 One function owns opponent seating because three callers must agree exactly: `<GameBoard />`
-(renders the pills), `seatPosition` (anchors swap/steal animations), and `tableRect` (must not
+(draws the seats), the fliers (`handSpots`, which land cards in them) and `tableRect` (must not
 slide the felt under the seats). When they disagreed, trails flew to empty space.
 
-- Picks the largest pill size that fits the whole table on one row: `full` (172×66, desktop only) →
-  `compact` (124×56) → `mini` (82×46, name + count, no card fan). Sizes in `cardTheme.ts:SEAT_DIMS`.
-- Wraps to extra rows when even mini pills don't fit one row (nine opponents on a phone).
-- X is spread **linearly**, not by `cos(angle)`: evenly-spaced angles bunch their projections at the
-  extremes and outer pills overlapped from six players up.
-- Non-mini pills keep `SEAT_EDGE` (28px) clear of both screen edges, mini pills only `SEAT_GAP`
-  (10px). A row of full pills that technically fits but runs edge to edge reads as a toolbar, not as
-  players around a table; mini pills only appear when the table is crowded and every pixel counts.
-- Reports `blockHeight`; `tableRect(width, height, topReserve)` places the felt underneath it,
-  clamps to `width - 20`, and keeps an oval aspect (rounder on phones, where a wide oval leaves dead
-  bands above and below). The felt takes 74% of the band it is given (capped 440) — at 62%/400 a
-  third of the play area was bare background.
+### An opponent is a hand, face down, at a place on the table
+A seat used to be a pill with a thumbnail fan of 17px backs in it: it said "few or many" and
+nothing a spectator could follow, and a card drawn or played happened to the pill's centre. A seat is
+now **the hand itself**, the real number of backs, and wherever the table can seat everybody
+**it lies on the felt at that player's place on the rim**, tips towards the middle — put down, the
+way a hand is left on a table — with their name plate on the table's edge where they sit.
+
+How it got here, because every step was a real reading of the screen:
+1. **Seen from above, tips at the felt** (turned by π), in rows above the table: every seat across
+   read as a hand held upside down.
+2. **Held up, facing us**, and the ones beside the felt leant in, then turned in 3D: right for the
+   player across, wrong beside — a column of cards, then a stack sliding off the seat — and the
+   whole composition changed shape with the number of players ("selon le nombre de joueurs ça fait
+   bizarre").
+3. **Laid on the felt, round the rim.** Tips at the middle is right after all once the cards are
+   *on the table* (the player put them down), and a place on the rim is the same arithmetic for one
+   opponent and for nine. Card games that seat many players do the same (the reference was a duel
+   game's shared board, avatars at the edge, cards on the table in front of them).
+
+- **One geometry, drawn and flown to** (`seatFan` under a `FanLay`, `seatBox`, `handSpots`).
+  `<PlayerSlot />` draws each back at the seat's anchor plus `seatFan`; the board flies every card to
+  `handSpots`, the same function in board coordinates. `seatLayout.test.ts` pins that the two agree,
+  squash included: a draw that lands beside the hand it went into is the failure this replaces.
+- **A `FanLay` is how a hand lies**: its tilt in the plane (`rotation`), the table's perspective
+  (`squash`, a vertical flattening in screen space applied after the tilt — CSS
+  `scale(1, k) rotate(r)`, and the fliers' keyframes do the same, so a card in the air is square to
+  us and takes the felt's perspective as it comes down), and how wide it may spread (`span`). A hand
+  held up is `facingUs(size)`.
+- **The tips point at the centre of the table as it is, not as it is drawn**: the tilt is judged
+  before the flattening (`atan2(dx, −dy / squash)`), so once flattened the hand still points at the
+  middle. `squash` is the felt's own proportion, never under `MIN_SQUASH` (0.82) — flatter read as a
+  smear.
+- **Three sizes** (`cardTheme.ts: SEAT_SPECS`): `full` (backs 44×66, desktop — at 34×51 a hand read
+  as a thumbnail), `compact` (32×48, never under 26px, `CardBack`'s `ART_MIN_W`, below which a back is
+  painted flat), `mini` (the plate alone: a crowded phone, in rows). A fan draws at most `maxVisible`
+  backs and never spreads wider than its lay's `span`; the count on the plate carries the rest. **The
+  count is a size up from the name** (30px, 16px type; 24px and 13px on the smaller seats): it is the
+  number a spectator follows the race by. **`SEAT_DIMS` is `seatBox` of a hand held up, rounded
+  up**, and `seatLayout.test.ts` fails when the two part.
+- **A card on its way is not yet in the hand** (`PlayerSlot`'s `FanHold`). The board launches the
+  fliers and, in the same breath, tells the seat which backs to keep hidden and until when; the back
+  is held by an opacity animation filled backwards, keyed on the hold's stamp so an unrelated
+  re-render never hides a card that already landed.
+- **Whose turn it is: the place lights up on the felt** (`.placeGlow`, a gold pool laid and flattened
+  like the hand, breathing on its opacity), and the marker rides the plate. A hand held up in a row
+  breathes instead (`scale`, 2.5% over 2.6s — at 7% every 1.6s it pulsed louder than the moments
+  allowed to shout) and wears the marker over its top. The fan's `translate` is the knock of a
+  Contre-LOCO! landing in it; each back's `transform` is its place (a transition, so the fan
+  re-spreads); the last card's red burn is on an inner layer. Reduced motion stops the breath and the
+  glow's pulse and holds the burn at full.
+
+### Our own hand is the biggest thing on the board
+`HAND_SCALE` (1.1) scales our hand's cards over the pile's: it is the one hand we read, aim at and
+press all match. A scale on the slot, never a bigger `CARD_W`, which is the pile's, the deck's and
+every flier's. **Everything that reserves room for the hand measures it with `handCard()`**
+(`calcHandSlots`, `turnPillPlace` — the hover lift is drawn inside the scale and grows with it —
+`seatPosition`, `handSpots`), and `Hand` offsets each slot by half the growth so
+the scaled card lands on the box it was given. **Not on a phone on its side** (`handScale(true)` is
+1): that screen is ~340px tall and a bigger hand pushed the turn pill into it.
+
+### Where the seats go
+- **A place on the rim** (`rimLayout`), tried first at `full` (≥ 720 wide) then `compact`. The places
+  go over the top of the table from our left to our right — the next player first, since play runs
+  clockwise on screen from our seat at the bottom — **spaced evenly along the rim, never by angle**
+  (on a flat oval evenly spaced angles bunch at the ends). One opponent sits across, two at the
+  shoulders. **The first place is where it would be if everybody at the table, us included, sat the
+  same distance apart** (`firstRimAngle` from `evenFirstAngle`: the whole rim split in n + 1 from our
+  place at the bottom), the last its mirror, and the rest evenly between. The arc used to stop where
+  a hand would reach the piles *vertically*, which on a wide felt kept six opponents bunched over the
+  top with an empty stretch of rim either side of us. Now it comes down towards our end as far as the
+  place's whole box (plate and fullest fan) stays clear of the piles and the arrows round them, the
+  turn pill, the screen's edges and **the line of our hand with a playable card standing up at rest**
+  — our hand can run the whole width, so that line holds at every x. A card under the pointer rises
+  over it; that is a moment, not a place. Where nothing below the old arc is clear, the old `reach`
+  rule is the fallback, so a round phone felt still keeps its places on the upper arc. The plate sits on the table's edge, mostly outside the felt, clamped to the screen;
+  the hand lies `inset` in from the rim, far enough that the plate never sits on it. **A hand spreads
+  no wider than 55% of the gap to its neighbour**, which is what keeps two neighbours' cards from
+  touching — `seatLayout.test.ts` checks it card against card as drawn (separating axes), because a
+  tilted hand's bounding box is mostly air. Tried at a size, **abandoned when two plates would
+  touch**: then the next size, then the rows.
+- **Rows above the felt** (`rowLayout`): a crowded phone (six opponents and up on a 405-wide
+  screen). `compact` wrapping onto up to `MAX_FAN_ROWS` (3) rows of hands held up while the felt keeps
+  `MIN_FELT_BAND` (300) for the piles, then `mini`. X spread **linearly**, not by `cos(angle)`, and
+  non-mini seats keep `SEAT_EDGE` (28px) clear of the screen edges.
+- **A column down the left** in landscape (`seatColumn`, below).
+
+- **The felt is where everybody sits, so it is big** (`tableRect`): 78% of the width (capped 1100,
+  never more than 94% — a share, not a margin in board units, or a notch that scales the board down
+  would make it *bigger*), and the whole band under the top reserve (capped 560), running on behind
+  our own hand like the near edge of a real table. It took 62%/400, then 74%/440 of the band, and the
+  places round its rim did not fit; 86%/1200/620 then read as too big, table and hand alike
+  (2026-09-25). **The top reserve on the rim is only the plate across the top**
+  (`TOP_CHROME + plateH / 2 + 4`); rows report their whole block, as before.
 - Seats clear `TOP_CHROME` (58px) so they never sit under the round badge / theme / audio / rules
   cluster.
+
+### What moves between the hands
+Every card the table moves is seen moving, from the place it leaves to the place it lands.
+
+- **The deal goes round the table** (`GameBoard`'s deal effect, `dealStagger`): one card to each seat
+  in turn, the next player first and us last, round after round, never longer than
+  `DEAL_TABLE_MAX_MS` whatever the table's size. Our `Hand` reveals its cards on the same pace
+  (`dealStep` / `dealOffset`), the others' fans hold theirs.
+- **A draw flies into the last places of the fan** (`store.lastDraw`, set by `applyCardDrawn` for
+  any seat). Ours turn over on the way (`Flier.flip`). Cards a Contre-LOCO! charged are marked
+  `penalty` — `uno_caught` arrives first, so the store knows — and fly higher and slower, and the hand
+  takes the knock; the `+N` callout is the catch effect's, over the plate.
+- **A card played leaves the middle of the hand**, face down at the fan's size, and turns over on the
+  way to the pile.
+- **A hand passed crosses the table as a packet**, card for card from the place it held in the
+  giver's hand to its place in the receiver's, at most `PASS_CARDS_MAX` (12) seen per hand, 22ms
+  apart. Every path **bows sideways** (`Flier.curve`, perpendicular to the path) and both hands of a
+  Swap bow to their own right, so they pass on opposite sides: `arcHeight` only lifts a card, which on
+  a path running up or down the screen is a change of speed and not a curve, and the first version's
+  two hands flew down one line through each other. A GlobalSwitch bows every hand the same way round,
+  so the ring is seen turning. Between two other seats a hand travels face down. **Our own cards are
+  face up in our hand and nowhere else**: ours going out turn face down on the way (a back flier
+  carrying a `card`, with `flip`), and the cards coming to us turn face up on the way and land face
+  up. Landing as backs and turning into faces once down read as the hand being dealt a second time.
+  Their faces are the snapshot's, a message behind the play: the flight waits for it
+  (`launchIncoming`, keyed on `myHand` changing from `givenHand`) and flies backs if it has not come
+  in `INCOMING_WAIT_MS`. The deal lands our cards face up the same way.
+- **Every hand that receives is held empty until its cards land — ours included, and card by card**
+  (`Hand`'s `hold`, the same `FanHold` an opponent's fan takes). The server names our new hand in the
+  snapshot right behind the play, so it was drawn in full while its cards were still in the air.
+  **Each card comes up under its own flier, over the flight's last 90ms**: one deadline for the whole
+  hand held every card until the *last* flier landed, so the first ones blinked out as their fliers
+  retired and the hand popped back a beat later, which read as the hand loading. **The counts are the roster's, never `myHand`**, and
+  **the hand we give away rides the notice** (`SwapNotice.givenHand`, taken by `applyCardPlayed`):
+  that snapshot can land in the same frame as the play, and by the time the board animated, `myHand`
+  was already the hand we had received — so the first version flew four backs where nine were coming,
+  out of places our hand did not have.
+- **A flier waiting out its delay is at its start, not at the layer's origin** (`fill: 'both'` in
+  `AnimationLayer`'s `play`): the last cards of a ten-seat deal wait over a second, and filled forwards
+  only they sat in the board's top-left corner until then.
 
 ## Action bar (`<ActionBar />`)
 - **Fixed three-column grid, never a content-sized flex row**: draw left, the reaction button centre,
@@ -315,8 +451,8 @@ Landscape is therefore **another composition, not a smaller one**, and the whole
   and along the top, `TOP_CHROME_LANDSCAPE` = 44 for the round chip and the turn clock. Nothing is
   under the hand: it runs along the bottom safe edge itself, `HAND_MARGIN_LANDSCAPE` above it.
 - `seatLayout` → `seatColumn`: the seats stand in a column down the left band
-  (`SEAT_BAND_LANDSCAPE`, a compact pill and its margins), centred on the felt, **next player at the
-  bottom** — play runs clockwise on screen, 6 → 9 → 12 → 3, so the ring is unchanged. Compact pills
+  (`SEAT_BAND_LANDSCAPE`, a compact seat and its margins), centred on the felt, **next player at the
+  bottom** — play runs clockwise on screen, 6 → 9 → 12 → 3, so the ring is unchanged. Compact seats
   while the column holds them, mini when it needs the room; what the column cannot hold continues
   **along the top of the felt, left to right**, stopping short of the chip row (`CHIP_ROW_CLEAR`),
   and the felt drops under that row by `blockHeight` exactly as it does under a portrait row.
@@ -337,7 +473,7 @@ Landscape is therefore **another composition, not a smaller one**, and the whole
 `landscape.test.ts` runs the board's whole chain at 844×340 with the notch on one flank, and pins
 the stack's CSS to `SIDE_RESERVE` and `LANDSCAPE_MAX_H`, since a stylesheet cannot import a constant.
 Review with `make visual ARGS="--viewports=landscape"`, the only viewport the composition is visible
-in; `game-eight-players` is the one with a top row.
+in; `game-seven-players` is the full table.
 
 ### The entry screen on its side (`Lobby.svelte`'s landscape block)
 The board is not the only screen a phone can be held sideways at, and the entry screen was the one
@@ -504,19 +640,21 @@ branches.
 
 ## Maps (the room a match is played in)
 A map is **a scene, a table and an accent colour**. It changes no rule, no card and no timing. Six
-ship: **Neon** (a rooftop terrace above a neon city), **Rune** (a village square with a wizard's
-tower), **Velvet** (the square in front of an art-deco hotel), **Orbit** (a base on an airless moon),
-**Sakura** (a hot-spring village under cherry trees) and **Marina** (a harbour front). Each is dealt
-at one of **four hours** (dawn, day, dusk, night) under one of **six skies** (clear, cloudy, rain,
-storm, snow, fog), and the room says which skies it allows: it does not snow on the moon.
+ship: **Neon** (a rooftop terrace above a neon city), **Rune** (a village street with a wizard's
+tower on its hill), **Velvet** (the terrace of an art-deco hotel on its boulevard), **Orbit** (a
+landing pad on an airless moon, the Earth in its sky), **Sakura** (the veranda of a hot-spring inn
+under cherry trees) and **Marina** (a card table at the end of a quay, the bay in front of it). Each
+is dealt at one of **four hours** (dawn, day, dusk, night) under one of **six skies** (clear,
+cloudy, rain, storm, snow, fog), and the room says which skies it allows: it does not snow on the
+moon.
 
-**Nothing about a map is a picture any more.** The first four were photographs — a generated room
-and a generated table, cropped, placed by a rectangle measured off the art — and a photograph is one
-hour under one sky forever. What replaced them is a place that is *built*: the scene is a diorama of
-a few thousand coloured blocks rendered in the browser by an isometric engine
-(`components/scene/`, three.js), and the table is CSS drawn from the room's own materials. A match at
-midnight in the rain and one at noon in the same room are now two rooms, which is what "the maps
-dictate the mood" asks for.
+**Nothing about a map is a picture.** The first four were photographs — a generated room and a
+generated table, cropped, placed by a rectangle measured off the art — and a photograph is one hour
+under one sky forever. What replaced them is a place that is *built*: the room is a scene of
+coloured blocks and a few drawn models rendered in the browser (`components/scene/`, three.js),
+seen from the table, and the table is CSS drawn from the room's own materials. A match at midnight
+in the rain and one at noon in the same room are two rooms, which is what "the maps dictate the
+mood" asks for.
 
 - **The draw is server-side and per match, and it is three ids.** `game/maps.go` (`MapID`,
   `TimeOfDay`, `Weather`, `MapWeathers`; `Room.pickMap` / `pickTime` / `pickWeather`); `Room.Start()`
@@ -536,19 +674,69 @@ dictate the mood" asks for.
     client cannot draw, and it fails as a plain felt, silently.
 - **`tableRect()` remains the single authority on the board's geometry.** A scene replaces how the
   felt is *painted*, never where anything is: piles, seats, direction ring and every animation
-  coordinate are identical with or without one. There is no `playfield` and no `tableImageRect()`
-  any more: the felt *is* the rectangle, and the CSS table is drawn on it directly.
+  coordinate are identical with or without one. The felt *is* the rectangle, the CSS table is drawn
+  on it directly, and the render is solved to it (below), never the other way round.
+
+### The view (`scene/view.ts`, the pass of 2026-09-25)
+**A room is seen from the table.** For its first year the room was photographed from above,
+orthographic, at the angle a Habbo room is drawn at: every block the same size wherever it stood,
+no sky, no horizon — and so no depth. Put beside the living worlds of the sister project Reverie,
+it read as a board game's map laid round the table, not as a place the table stood in. What gives a
+picture depth was named then and is now the brief for every room:
+
+1. **Three grounds and a horizon.** A near that frames the picture at its two edges and is the only
+   thing drawn at full weight; a middle that is most of what shows between the seat pills; a far of
+   silhouettes laid one behind the other; the horizon, and the sky above it.
+2. **The air between them** (aerial perspective): the farther a thing, the more it takes the colour
+   of the sky low down, and the less of its own saturation it keeps (`post.ts: AirOptions`,
+   `LOOK.vista.haze`).
+3. **A light the viewer sees.** At dawn, dusk and night the sun or the moon is *in the frame*,
+   low, with its halo, and it is what lights the room — from behind, so the long shadows come
+   towards the table — and its road lies across the water (`dome.ts`, `mirror.ts`).
+4. **A palette held.** Each room's light pulls the hour towards its own colours (`LOOK.rooms`), and
+   each room draws with few, related colours rather than every colour its props came in.
+5. **Air round the subject.** A few things, and ground between them: the quiet rule below still
+   holds.
+
+The camera is a perspective camera at eye height (a tile is a metre here: a person is 1.6), looking
+towards `-z`, the table's centre at the world's origin. **The felt is fixed and the camera is solved
+to it** (`solveView`, `sceneView.test.ts`). The board draws the table in CSS (`layout.ts:
+feltInViewport`), a screen ellipse the render has no say over, and under a perspective camera a
+table top is the ground-plane image of that ellipse through the lens — itself an ellipse, not
+centred where the screen one is. So the top is the felt's own outline **cast back onto the table's
+plane** (`View.tableOutline`) and extruded (`Kit.plate`), and the CSS table lands on it to the pixel
+whatever the camera. What is left to choose is the camera, and two things decide it:
+
+- **Where the horizon sits** (`LOOK.vista.camera.horizon`, 13% of the frame from the top): above
+  the felt, so the sky and the far shore show between the seat pills and in the top corners.
+- **What shape the table is on the ground** (`aspect`, 1.5 deep for 1 wide). The nearer the horizon
+  comes down to the felt's top edge, the farther away that edge is on the ground: a horizon just
+  over the felt is a table fifteen metres deep. So the shape is held, and the focal length is what
+  gives — solved by bisection inside a range a lens can honestly have (`fov`, 58–84° across). Where
+  the range cannot hold both (a phone on its side, where the felt is nearly the whole height) the
+  lens takes its widest and the horizon goes where it must, the table deepening up to `aspectMax`
+  to keep a strip of sky (`horizonMin`).
+
+The principal point is put on the felt's centre across (a lens shift, invisible) and at the horizon
+up, the camera turned down by a share of the angle to the table (`tilt`, 0.3) so verticals stay
+nearly vertical: a skyline whose towers lean out is a wide-angle lens, not a view. `render.ts`
+builds the three.js camera from the numbers (`cameraSpec`, `setViewOffset`), and a sprite is shot
+by the same camera cropped to it. Measured on a 16:9 monitor, what shows round the felt is: the sky
+and the far ground in the top band and the top corners, the middle ground along the top of the felt,
+the near ground and the framing props in the two side bands, the floor in the bottom corners.
+Composition is written for those bands (`maps/vista.ts`, each builder's header).
 
 ### The look (`scene/look.ts`, `src/dev/lookPanel.ts`)
-Every visual number the render reads, in one file: the four hours (sky, sun, sky light, lamps,
-windows lit, how dark), the two global knobs over the sun and the sky, the shadow (type, softness,
-biases, the sprite's own), the material (roughness, the glow's brightness, the halos', the foot
-shade), the outline, the occlusion (two radii, intensity, contrast, samples, blur), the tone curve
-(the mapping, exposure, contrast, saturation, the split tones), the finishing passes (bloom, the
-tilt-shift band, grain, fringe) and the fog. **Framework-free and three-free**, so `sky.ts` (which
-a content page imports) can read the hours out of it and a test can assert the whole thing. What
-it replaced was the same numbers written at their call sites — a shadow alpha in `shade.ts`, a
-bloom threshold in `post.ts`, a tone ratio in the kit — where finding the one that made a dusk
+Every visual number the render reads, in one file: the four hours (the sky, the sun and where it
+stands, the body in the sky, the stars, the sky light, lamps, windows lit, how dark), the two global
+knobs over the sun and the sky, the shadow (softness, biases), the material (roughness, the glow's
+brightness, the halos', the foot shade), the outline, the occlusion (two radii, intensity, contrast,
+samples, blur), the tone curve (the mapping, exposure, contrast, saturation, the split tones), the
+finishing passes (bloom, fringe, vignette), the water, the mist, the lamps' pools, the view
+(`LOOK.vista`: the camera, the air, the drawn sky, the ink's falloff with distance, the far blur)
+and each room's own light (`LOOK.rooms`). **Framework-free and three-free**, so `sky.ts` (which a
+content page imports) can read the hours out of it and a test can assert the whole thing. What it
+replaced was the same numbers written at their call sites, where finding the one that made a dusk
 read as night meant reading four files.
 
 The dev panel is lil-gui over exactly this object: `?look=1` on any page in dev mounts it
@@ -562,931 +750,537 @@ nothing is persisted, because the file is where the numbers live. `?lookPatch=<j
 showcase applies a partial look before the first render, which is how a room is shot under a
 number that is not committed yet (`tools/visual/shoot.mjs --gfx=…` for the tier, this for the
 rest). `LOOK.debug` shows one pass alone (`ao`, `lit`, `depth`) and ships `off`, which
-`sceneLighting.test.ts` pins.
+`sceneLighting.test.ts` pins. **`lit` is the one to reach for when something in the frame has no
+geometry behind it**: the pale vertical bars that stood above the horizon in the first Marina were
+the clouds of the dome, found that way in one shot (below).
 
 ### The light rig (`scene/sky.ts`)
 The hour and the sky, as numbers, with no framework and no three.js in the file, so a content page
-can read it and a test can assert it. `lightRig(time, weather)` takes the hour out of `LOOK.hours`
-and returns the sky gradient, the sun (colour, intensity, elevation, azimuth, shadow strength), the
-hemisphere fill, distance fog or null, and five things the kit and the board build from:
-`lampsOn`, `windowsLit` (a share), `snow`, `wet` and `dark` (0 at noon, 1 on a stormy night). The
-weather is applied *over* the hour — a storm at noon is still lit from above — and the overcast grey
-is the hour's own horizon mixed down, which is what keeps twenty-four combinations from being six:
-a grey dusk is warm and a grey dawn is pink. **The hour has to survive the weather**
-(`sceneLighting.test.ts`): a storm added 0.4 to `dark` and a storm at noon read as dusk (orbit's
-storm by day was its night), so it adds 0.25 now and keeps 40% of the sun; snow mixed the sky and
-the ground light towards white by the same amount at every hour, so a snowy midnight read as a
-winter afternoon, and it now mixes by the hour's own light, taking the night's blue after dark; fog
-starts further off and never quite closes, so the near half of the frame keeps its colour.
-`rigCssVars` is the same rig as four custom properties
-(`--sky-top`, `--sky-horizon`, `--scene-tint`, `--scene-dark`) for the board, the overlay and the
-rooms page.
+can read it and a test can assert it. `lightRig(time, weather, room)` takes the hour out of
+`LOOK.hours`, lays the room's own light over it (`LOOK.rooms[id]`: its sky, its sun, its body, its
+tints, its air) and returns the sky gradient, the sun (colour, intensity, elevation, azimuth, shadow
+strength), the body in the sky with how much of it the weather leaves (`visibility`), the stars,
+the cloud, the air's thickness (`haze`, the room's times the weather's), a planet for a room in
+space, the hemisphere fill, and five things the kit and the board build from: `lampsOn`,
+`windowsLit` (a share), `snow`, `wet` and `dark` (0 at noon, 1 on a stormy night). The weather is
+applied *over* the hour — a storm at noon is still lit from above — and the overcast grey is the
+hour's own horizon mixed down, which is what keeps twenty-four combinations from being six: a grey
+dusk is warm and a grey dawn is pink. **The hour has to survive the weather**
+(`sceneLighting.test.ts`): a storm keeps 40% of the sun and adds a quarter to `dark`; snow mixes the
+sky and the ground light towards white by the hour's own light, taking the night's blue after dark.
+**A fog closes the air** (`LOOK.vista.haze.weather`: 4.5 times a clear day's), rain and snow thicken
+it, and a cloudy sky veils the body and takes the rain's and the storm's away. `rigCssVars` is the
+same rig as custom properties (`--sky-top`, `--sky-horizon`, `--scene-tint`, `--scene-dark`,
+`--sun-dx`, `--sun-dy`) for the board, the overlay and the rooms page.
 
-**The azimuths are composition, not weather.** The camera stands at +x, +z and sees the +x and +z
-faces of every block, so a sun has to light at least one of them or the room is a silhouette with
-lit windows — which is what the first dusk was, at −125°, from behind the city: the plaza took the
-sun and every façade the camera looked at was a flat violet. And the shadow has to run somewhere
-the camera can see: the first noon, at 60°, threw every shadow straight up the frame, behind the
-thing throwing it, and read as no light at all. Day is at 150° (one face lit, the shadow falling
-long to the lower left, which is where the reference render puts it), dawn at 135°, dusk at −60°
-(the shadow to the right and a little towards the camera), night at −40°. `sceneLighting.test.ts`
-pins both rules per hour rather than the numbers.
+**The sun's place is composition, not weather.** Azimuth 0 is `+z`, behind the camera; 180 is
+straight ahead. At dawn (205°) and dusk (158°) the sun is low and ahead, a few degrees over the
+horizon and inside the frame, and it lights the room from behind: the near props are rimmed and
+their fronts in their own shade, and the shadows run long towards the table. At noon it is high and
+to the side (130°, 48°), out of the frame: a noon lit from over the shoulder is a room with no
+shadow anybody can see. At night the key light is the moon, high enough to throw a shadow (24°),
+while its disc is drawn low in the frame. A room moves these for its own composition
+(`LOOK.rooms[id].sun` / `.body`: orbit lights every hour low and white, and takes the moon out of the
+moon's sky; neon's moon rises over the left of the city). `sceneLighting.test.ts` pins the rules
+(ahead at the two ends of the day, to the side at noon, never under the horizon);
+`sceneVista.test.ts` pins that **every body up in a clear sky lands in the frame between its top
+edge and the horizon**, per room and hour, at 16:9 — neon's moon was above the edge when it was
+written.
 
-### The kit and the builders (`scene/kit.ts`, `scene/maps/*.ts`)
-A builder never touches three.js. It calls `box`, `cyl`, `sphere`, `cone`, `prism`, `disc`, `halo`
-and the props composed from them (`tower` with its window grid, its door, its floor bands and
-something on its roof, `window` in a frame with a sill, `door`, `lamp`, `tree` in four kinds,
-`person` with legs, arms, a hat or a bag now and then, `car` with glass and hubcaps, `flowerbed`,
-`planter`, `bush` with berries, `stall`, `bench`, `fence`, `road`, `lantern`, `flag`…), and
-`build()` merges every block into five meshes — lit, glow, ink, shadow, halo — so a whole city is a
-handful of draw calls. Four decisions make it look like the rest of the UI rather than a tech demo,
-and each is the kit's, not a builder's:
+### The sky (`scene/dome.ts`)
+A dome round the camera, drawn by one shader, in the scene. **A mesh rather than a pass**, because
+the water has to reflect it — the sun's road across the bay is the dome, mirrored — and the bloom
+has to see the sun's disc to spill it. It writes no depth and is drawn first, so the finishing
+passes read the sky as "nothing here" (a depth of 1) and leave it out of the occlusion and the air.
+What it draws, in order: the gradient (pale at the horizon, the hour's colour overhead, `curve`
+setting how fast it climbs — a sky seen head-on needs a faster climb than one that was only ever a
+wash of light behind a board, so the hours carry **the sky that is seen**, deeper and more
+saturated than the old ones); the aureole on the light's side, widest at the horizon; the body's
+halo, tight (`haloSize`, 2.5°) — a wide one washed the whole visible band of sky white; the stars,
+thinned towards the horizon; the clouds, a layer overhead seen in perspective, lit on the side the
+light is on with a bright edge towards it; and the body over the cloud's thin edge (a sun at
+`bodyGlow` in linear light, a moon with a few seas and no glare). **The clouds' projection is
+softened towards the horizon** (`d.xz / (up + 0.05)`): a hard floor on the divisor left the noise
+varying with the azimuth alone in the last two degrees, and drew pale vertical bars standing on the
+far hills. A room in space (`LOOK.rooms.orbit.space`) has a black sky with stars at every hour, no
+cloud, and a planet: oceans, land and weather by noise, lit by **its own sun** (`planet.lit`) — lit
+by the room's key light, the Earth showed its night side — with the blue of its air round the rim.
+
+### The kit and the builders (`scene/kit.ts`, `scene/maps/*.ts`, `maps/vista.ts`)
+A builder never touches three.js. It calls `box`, `cyl`, `sphere`, `cone`, `prism`, `disc`, `halo`,
+`plate` (any convex outline, extruded) and the props composed from them (`window`, `door`, `lamp`,
+`lantern`, `tree`, `bush`, `rock`, `stall`, `bench`, `fence`…), and `build()` merges every block into
+five meshes — lit, glow, ink, shadow, halo — so a whole room is a handful of draw calls. What the
+rooms share is `maps/vista.ts`: `vistaTable` (the table under the felt), `hills` (low wide mounds,
+never peaks, one layer of the far ground), `skyline` (towers with a band of glass a floor and the
+hour's share of panes lit, a neon edge on some, a few spires), `sailboat`, `deck`, `neonText`.
+Each builder's header names its three grounds.
 - **Every block carries an outline, in a darker note of its own colour** (`inkFor`), the rule every
-  raised object in `tokens.css` obeys with one deliberate difference: the interface draws its ink
-  in `INK` because a button is one object on a plain ground, and a city is ten thousand objects —
-  ten thousand black rims on it read as wire, not as drawing, and the reference illustration
-  separates its shapes with a deeper tone of each fill. An inverted hull per block, drawn back-face
-  only, sized from the render's pixel density so the line is ~2 CSS px on a phone and on a monitor
-  alike. Per block rather than by pushing vertices along normals, because a box's faces do not
-  share vertices and a per-vertex push leaves the corners open. **And a wall darkens towards its
-  foot** (`GROUND_SHADE`, on the sides of anything over 0.6 tiles tall): what an illustrator does to
-  sit a building on the ground, and what vertex interpolation gives for free.
-- **Colour is a vertex attribute, and the light is a light** (`scene/lighting.ts`,
-  `scene/shade.ts`, `sceneLighting.test.ts`). The kit writes a block's colour into its vertices and
-  nothing else about the light; the merged mesh is one rough, matte `MeshStandardMaterial`
-  (`LOOK.material`) that casts and receives, and the sun, the sky and the shadow reach it through
-  its normals like any rendered object. The one thing still written into a vertex is the foot of a
-  wall darkening towards the ground (`footShade`), which the occlusion pass then sharpens.
-  **What this replaced, and why**: the light was *baked* — three flat tones per face
-  (1 / 0.74 / 0.47), snapped from the normal, multiplied into the colour, with a hard polygon of
-  shadow beside every block through the stencil — and it was chosen against a `MeshToonMaterial`
-  ramp under a real light that banded on every cylinder. It was clean and it was flat: no
-  gradient across a wall, no occlusion in a doorway, one shadow tone for the whole room, a
-  palette that read as a fill. The target it was measured against is a low-poly diorama as a
-  renderer photographs it — a low warm sun, long soft shadows, ambient occlusion in the creases,
-  a cool sky in the shade — and no amount of tuning three constants gets there. The banding a
-  toon ramp gave is not a problem for a lit material: there is no ramp, and the frame is
-  supersampled. The acne a shadow map gave is a bias (below).
-- **Every block casts and receives one shadow map, fitted to the frame** (`lighting.ts:
-  fitShadow`, `frameBox`). A caster only shadows a receiver on its own ray, so the map's x/y in
-  light space is the receivers' region — the frame's four corners on the ground and the same rays
-  `ROOM_HEIGHT` up, a few tiles past the edge — and only its depth range has to reach every
-  caster, which is what keeps a 4096 map over eighty tiles at roughly fifty texels a tile. VSM
-  (`LOOK.shadow.type`), because it is the one shadow map three blurs *in the map*: a radius of six
-  texels, wider the lower the sun (`lightingFor`: a longer shadow is a softer one), gives the
-  penumbra a diorama photographed at arm's length has, and PCF's `radius` is a screen-space
-  filter that goes blocky under 2048. **`normalBias` is 0.3 tiles and it is not a detail**: at
-  0.05 the drum's own top shadowed itself in diagonal stripes across the whole felt on the small
-  maps, which a shadow map's acne looks like at a grazing angle on a large flat face. The map is
-  rendered on demand (`shadowMap.autoUpdate = false`, `needsUpdate` before each real render):
-  the depth pass and every sprite would otherwise draw the whole room into it again. What glows,
-  the ink hull and the halos cast nothing — a hull would throw a shadow larger than its block, a
-  lit window is a quad on a wall, and light is not a thing. A sprite of something on the ground
-  carries its own shadow on its own bitmap: a `ShadowMaterial` catcher under it, at the room's
-  shadow colour, sized by `shadowReach` — the block's box with its top corners slid down the sun to
-  the ground — which is what is left of `shadowHull`; a sprite of something in the air is built
-  with `shadows: false` and gets no catcher. **A sprite's shadow map is its own, and small**
-  (`LOOK.shadow.spriteMap`, 512, fitted to the sprite's box): each sprite used to render a map the
-  size of the room's — 4096 on `high` — for a car, which was most of what the sprites cost, and
-  fitted to a few tiles it made their shadows far sharper than the room's. Its VSM radius is set
-  per sprite from the texel density of the two maps, so the penumbra is the same width on the
-  ground either side of a sprite's edge. The catcher's colour is `LOOK.shadow.spriteTint` mixed
-  towards the hour's sky light by `spriteTintMix`.
-- **A sprite comes out of the same photograph as the room** (`post.ts: makeSpriteGrader`,
-  `GRADE_PARS`). Drawn straight to the canvas it got the renderer's tone curve and nothing else,
-  while the plaza under it went through the grade — the contrast, the saturation, the warm/cool
-  split — so every car and walker was a touch flatter and greyer than the ground it crossed, which
-  is what a sticker looks like. When the room was photographed, a sprite is rendered into a linear
-  target and brought onto the canvas through the same two GLSL functions the composite calls
-  (`tone`, `grade`), un-premultiplied before them and premultiplied after the encoding. **Never
-  the vignette, the grain, the fringe or the focus band**: those belong to the frame, and the
-  sprite is not where the frame's corners are. On the plain path (`light`, a software GPU, a chain
-  that fell back) the sprite stays plain too, like the ground.
+  raised object in `tokens.css` obeys, with the one deliberate difference that a room of ten
+  thousand objects is inked in each fill's own darker tone rather than in `INK`. An inverted hull
+  per block, drawn back-face only. **Its thickness is a number of pixels where the block stands**
+  (`KitOptions.outlineAt`, from `view.tileAt`): under a perspective camera a line of one pixel is a
+  longer run of world the farther away it is, so the hull grows with the distance, and **thins to
+  `inkFar` of itself by `inkFade` tiles** — ten thousand full-weight lines on the far shore read as a
+  scribble, and the air draws that edge anyway. **And a wall darkens towards its foot**
+  (`LOOK.material.footShade`), what an illustrator does to sit a building on the ground.
+- **Colour is a vertex attribute, and the light is a light** (`scene/lighting.ts`, `scene/shade.ts`).
+  The kit writes a block's colour into its vertices; the merged mesh is one rough, matte
+  `MeshStandardMaterial` that casts and receives, and the sun, the sky and the shadow reach it
+  through its normals like any rendered object.
+- **The sun throws one PCF shadow map over the near ground** (`VISTA_SHADOW_REACH`: 16 tiles either
+  side, 42 back, 12 up, fitted in light space). The near ground is where a shadow can be seen, and
+  a map over the whole bay was three centimetres a texel on planks the camera stands a metre from.
+  **PCF, not VSM**: three keeps the VSM moments in half floats, and over the depth a sun at
+  `SUN_DIST` sees, the mean quantises in steps of a hand's width — a staircase along every shadow
+  edge on the deck, which no blur radius touched. PCF compares against a 24-bit depth and softens
+  by the same radius (`LOOK.shadow.radius`). **`normalBias` is 0.03**: a tile is a metre and a texel a
+  centimetre or two, and the 0.3 the old view needed shifted a shadow a hand's width off its caster.
 - **The weather is answered in the kit, once**: `snow` caps every flat top and whitens the ground and
-  the foliage, `wet` darkens the ground the builder asks for and lays puddles catching the sky,
-  `lampsOn` decides whether a lamp's head, a window, a neon tube or a lantern goes into the unlit
-  `glow` bucket (with a halo) or the lit one. A builder says "this is a lamp"; the kit says what a
-  lamp looks like tonight. Which is why one builder per room is enough for twenty-four moods.
+  the foliage, `wet` darkens the ground the builder asks for, `lampsOn` decides whether a lamp's
+  head, a window, a neon tube or a lantern goes into the unlit `glow` bucket or the lit one. A
+  builder says "this is a lamp"; the kit says what a lamp looks like tonight.
 - **Every decision is seeded** (`scene/rng.ts`, mulberry32 on the scene's key): which windows are
-  lit, where a crate stands, how tall the third tower is. A place that rearranges itself on refresh
+  lit, where a hill swells, how tall the third tower is. A place that rearranges itself on refresh
   is not a place, and every seat at the table has to see the same one.
-- **The table stands on a podium the render carries under exactly the felt** (`maps/common.ts:
-  podium`, `layout.ts: feltInViewport`). The board's geometry is reproduced in viewport pixels
-  (`boardScale` → `boardSpace` → `seatLayout` → `tableRect`, the same chain `GameBoard` lays the
-  table out with) and handed to the render as the felt's screen ellipse (`FeltAnchor`, then
-  `k.anchor` in tiles). A screen ellipse is a ground ellipse with semi-axes `a` across and
-  `b / sin(pitch)` along, and a drum of height `h` shows its top `h · cos(pitch)` higher on screen
-  than its base, so the drum is placed that far below the anchor and its top face lands under the
-  CSS felt to the pixel, with two steps, a paved plaza and a ring of the room's light around it.
-  **This join is what let the blur go**: the felt is CSS and the podium is a bitmap, but they are one
-  object, and the seam between a sharp table and a blurred room was the thing that said "painted
-  over a photograph". The drum's top is the room's felt colour, so the loading screen (which draws no
-  table) shows an empty table where the match will be dealt. `maps.test.ts` pins the anchor to the
-  board's own chain at three viewports, and the anchor is part of the cache key, so a resize that
-  moves the table re-renders the podium under it.
-- **Composition is done in screen space** (`at()`, `screenOf()`, `underTable()`): a builder places
-  its heroes relative to `k.anchor` (the tavern to the right of the table, the pagoda in the left
-  band, the torii bottom-left) rather than at world coordinates, so the same builder frames a monitor and a
-  phone. What the table hides is an ellipse around the anchor; the hand covers the bottom middle and
-  the seat pills the top; what is meant to be seen stands in the side bands and the top band, and
-  the grid fills every corner behind them.
-- **The rest of the room is a street grid** (`cityGrid`): blocks and roads over the whole floor, with
-  dashes, sidewalks, crossings, a lamp at the corners, cars along the segments, people on the
-  sidewalks, and optionally one road line that is water with a bridge at every crossing. Each
-  builder hands it a `fill` for a block (`lots()` subdivides one into houses) and a `land` predicate
-  (the sea, the plaza). This is what the example the rooms are modelled on is made of — many small
-  simple buildings, roads between them, something on every corner — and a builder that draws heroes
-  and nothing else comes out as a monument in a field.
-- **The band in front of the table is kept low** (`Cell.front`, from `GridSpec.maxHeight`). The
-  table is drawn over the render, so a building standing between the camera and the felt is cut by
-  an object farther from the camera than it is, which reads as a table floating over a rooftop. A
-  cell whose full-height building would rise into the felt is flagged, and every builder answers the
-  flag with a low fill (a kiosk, a parked car, a garden, a tank farm) rather than a tower.
-  **The band is measured against what a block *reaches*, not against its centre.** A block is a
-  square in the world, and at `rot = π/4` both of its sides run diagonally, so it covers
-  `(w + d) / 2 / √2` across the frame — the band stopped a whole half-block short of that, and the
-  first row either side of the table put its awnings and its upper floors under the felt. A
-  **landmark** is the same arithmetic done by hand: the grand hotel is fifteen tiles square, which
-  is ten and a half across the frame, so at `sx + a + 10` its near corner stood a tile and a half
-  inside the felt and the table cut the ground floor off a building in front of it. Every landmark
-  beside the table sits at least its own half-width plus two clear of `a`. Being cut by the **frame**
-  is fine and ordinary; being cut by the table is not.
-- **A tall landmark stands beside the table, never above it, and says so** (`k.landmark(name, sx,
-  sy, h)`, `LANDMARK_TOP_MAX` = 7, `sceneLandmarks.test.ts`). The band above the table is a few
-  tiles deep before the frame's top edge: sakura's pagoda, nearly seventeen tiles tall, stood there
-  and ran its roofs off the top of every frame, the way the rune tower once did. It stands in the
-  left band now, opposite the bathhouse. A builder declares each landmark and the test reads them
-  back, because nothing else can tell a landmark from a tall block of the grid.
-- **What no frame can hold whole is left out, not cut.** The marina's ferris wheel was twelve tiles
-  across with its hub on the right edge of a 16:9 frame and off every narrower one: what a player saw
-  was its cabins, coloured cubes floating on the grass. There is no side band beside the table wide
-  enough for it on a phone, so that corner is gardens.
-- **A sign faces the camera or it is not a sign.** The velvet hotel's marquee and its LOCO! were
-  laid on the diagonal against a tower that is square to the world, which put both inside the
-  tower's corner: the sign read "L(". The entrance is on the tower's +z face now, the one turned
-  towards the square, and the sign stands on the marquee's front edge. Neon's food truck stood
-  end-on the same way and showed nothing but a dark roof; it is broadside now. **Unlit, a neon tube
-  or a neon letter keeps its colour a shade down** (`neonText`, neon's `unlit`), never grey: by day
-  the grey version turned the neon district into any city and the brand's own sign into a blank.
+- **The table is the felt cast down, and nothing wider** (`vistaTable`). In a room the render
+  draws all of it ("The table", below): the cloth, the racetrack and the rail on top, the edge
+  going down **swept in a profile** round the outline and never past it (a rim a hand wider made a
+  dark drum round the table), a metal band round its face, a skirt set back under it, and a
+  pedestal of the room's own. So the loading screen already shows the table the match will be
+  dealt on.
+- **The near ground frames; it does not fill.** Two things at most per side band, at the table's
+  depth or a little behind it (a lamp post and a bollard, a stack of crates; a fluted column and a
+  palm in its urn; the tavern's corner and a market stall), tall enough to cut the top of the frame
+  where that frames the view — the eaves over Sakura's veranda, the cherry branches in its top
+  corners. **Floors are laid across the frame** (`deck`): planks or cobbles running out towards the
+  horizon fanned round the table on a wide lens and read as a whirlpool.
+- **The far ground is layered, and nothing in the middle may hide it.** Hills are flat cones in
+  runs (`hills`), each layer farther, lower and bluer; the air does the rest. Rune's meadow hills
+  were forty metres high at five hundred and hid the woods and the tower behind them; they are
+  eighteen now. **A landmark stands where the frame can hold it**: the wizard's tower is placed so
+  its light, forty metres up, sits under the frame's top edge in the gap the street opens; neon's
+  broadcast tower has its deck in the sky band on the right; the Earth hangs between the round
+  badge and the seat pill. A seat pill covers the top centre of every frame, so nothing that matters
+  is put there alone.
+- **Unlit, a neon tube or a neon letter keeps its colour a shade down** (`neonText`), never grey: by
+  day the grey version turned the neon district into any city and the brand's own sign into a blank.
 
 ### The render (`scene/render.ts`, `scene/sceneCache.ts`)
 - **One frame, then the context is released.** A match is a hand of cards animating over the scene
   for twenty minutes, and the board's compositing budget belongs to the cards (`cardArtSpace` was
   bought at 3 → 10 fps on a full hand; a live viewport under it would spend that again). So the
-  diorama is rendered **once**, the pixels are copied into a 2D canvas, the geometries and the
-  WebGL context are disposed, and what the board draws from then on is a static bitmap, exactly as
-  cheap as the photograph it replaced. Everything that moves — rain, snow, the fog's drift, the
-  storm's flash, the cloud shadow — is a CSS transform animation on a **drawn tile**
-  (`weatherTiles.ts`, `WeatherLayer.svelte`), one compositor layer each, and holds its first frame
-  under reduced motion (the flash and the bolt are the one thing that goes away entirely: a
-  full-frame flicker is what the preference exists to refuse). The tiles used to be CSS gradients —
-  a `repeating-linear-gradient` of one-pixel lines for rain, six radial dots for snow — and looked
-  like it: every streak the same length and the same white, every flake the same dot, a pattern the
-  eye picked out in a second. A tile is a seeded bitmap now, drawn once per tab into a canvas and
+  room is rendered **once**, the pixels are copied into a 2D canvas, the geometries and the WebGL
+  context are disposed, and what the board draws from then on is a static bitmap, exactly as cheap
+  as the photograph it replaced. Everything that moves — rain, snow, the fog's drift, the storm's
+  flash, the cloud shadow — is a CSS transform animation on a **drawn tile** (`weatherTiles.ts`,
+  `WeatherLayer.svelte`), one compositor layer each, and holds its first frame under reduced motion
+  (the flash and the bolt are the one thing that goes away entirely: a full-frame flicker is what
+  the preference exists to refuse). A tile is a seeded bitmap, drawn once per tab into a canvas and
   handed to the sheet as a data URL (`img-src` allows `data:`): sixty streaks of different lengths,
-  weights and fades, soft flakes with a few big blurred ones close to the lens, haze and cloud shadow
-  made of overlapping blobs. Every shape near an edge is drawn again one tile over, in both axes, so
-  the tile wraps; the shapes are pure and seeded (`rainDrops`, `snowFlakes`, `fogBlobs`,
-  `dustSpecks`) and are what `sceneWeather.test.ts` asserts, since jsdom has no canvas — a
-  browser with none gets an empty URL and a dry room, never a throw.
+  weights and fades, soft flakes with a few big blurred ones close to the lens, haze and cloud
+  shadow made of overlapping blobs. Every shape near an edge is drawn again one tile over, in both
+  axes, so the tile wraps; the shapes are pure and seeded (`rainDrops`, `snowFlakes`, `fogBlobs`,
+  `dustSpecks`) and are what `sceneWeather.test.ts` asserts, since jsdom has no canvas — a browser
+  with none gets an empty URL and a dry room, never a throw.
   **Every sheet travels exactly one tile per cycle, and never a percentage of the frame**: the sheet
   wraps back to its start at the end of the cycle, so unless the distance it travelled is a whole
-  tile the pattern lands somewhere else than it left — the rain stepped sideways once a cycle on
-  every screen whose height was not a multiple of 240. `tiled()` writes the tile as the sheet's
+  tile the pattern lands somewhere else than it left. `tiled()` writes the tile as the sheet's
   background **and** as `--tile-w` / `--tile-h`, and the two keyframes (`fall`, `drift`) travel by
-  those variables and by no literal, so the two cannot disagree. **The wind is a skew, never a
-  diagonal travel**: a streak leaning ten degrees has to fall along its lean or it reads as a drawn
-  line sliding down the screen, but a diagonal translation only wraps when both legs are whole
-  tiles, which pins the angle to the tile's shape; `.wind` skews the sheets and the vertical wrap is
-  untouched. The snow sways on an outer element and falls on an inner one, two transforms on two
-  layers. Nearer is faster and brighter (`FALL_S`, `DRIFT_S`, `SWAY` beside `TILES`, so a speed is
-  a number somebody can read), and none of it faster than about 550 px/s, past which a spectator
-  reads static. **A sheet covers the frame for the whole of its travel, at any size** (`sheetBox`,
-  written inline by `tiled()` as `calc()`s of the frame, the tile and px): a drift starts at the
-  frame's left edge and is one tile wider, a fall starts one tile above and is one tile taller, the
-  rain's left overhang is `H × tan(lean)` (in `cqh` — `.weather` is a size container) and the
-  snow's is its sway either side. The boxes were percentages of the frame (a drift 300% wide, a fall
-  200% tall, the lean 25% of the width), and a tile is not a percentage: on a 390px phone the
-  1600px cloud sheet was off the frame half of every cycle, a landscape phone's top band went bare
-  under a 480px rain tile, and a portrait phone's height outran the 25% and left a dry triangle at
-  the top-left. `sceneWeather.test.ts` reads the CSS `sheetStyle` writes and proves coverage from
-  320 to 3840 wide, 320 to 2160 tall, across the cycle, the lean and the sway. Under reduced motion
-  a sheet also drops its `will-change`. How many sheets is the graphics tier's: three of rain and of
-  snow on `high`, two on `medium`, one on `light`; fog two, two and one. Lightning is a sheet flash plus the glow of the bolt off one top corner,
-  two flashes close together and a lone one every seventeen seconds, the sheet never past a third.
-  A room that declares `dry` (Orbit) gets no rain in a storm: the flash and a drift of dust, because
-  nothing falls on an airless moon and the server's weather list says `storm`, not `rain`.
-- **Isometric, orthographic, framed in tiles.** The camera looks down from a corner at 32°, the
-  Habbo angle, so a block's top and two faces are visible and every block reads at the same scale
-  wherever it stands. The visible extent is `TILES_ACROSS` (80) tiles on the longer side rather than
-  a number of pixels, so a phone and a monitor frame the same density. The number is the density:
-  the table hides roughly ±27 by ±12 tiles around its anchor on a monitor, a house is five tiles
-  and a person one, so what is left is three rows of houses and a crowd around it. At 32 it was one
-  house. Resolution is the viewport at `devicePixelRatio` capped at `MAX_DPR` (2) and `MAX_SIDE`
-  (2800) on the long side (`renderSizeFor`).
-- **The frame is supersampled** (`QUALITY[tier].supersample` and `.glPixels` — 2× under 7 M on
-  `medium` — through `supersampleFor`). The
-  lighting is a sun, a sky and one shadow map, and beyond that what the GPU is asked for is edges:
-  the frame is rendered up to twice its size on each side (three times on `high`; `light` does not
-  supersample and multisamples instead — no tier does both), and scaled down with
-  `imageSmoothingQuality: 'high'`, so an ink line a tile long is one clean stroke at any angle
-  rather than a stair. The budget is in pixels, so a phone gets the full factor and a 4K monitor
-  at 2× gets what fits under seven million; the side is also held under 4096, which is the texture
-  a mobile GPU still accepts. This is what made the cap on `MAX_DPR` safe to raise from 1.5: the
-  bitmap kept for the match is still the viewport's size, only the render behind it is larger, and
-  the context is released the moment it is copied.
+  those variables and by no literal. **The wind is a skew, never a diagonal travel**: a diagonal
+  translation only wraps when both legs are whole tiles, which pins the angle to the tile's shape;
+  `.wind` skews the sheets and the vertical wrap is untouched. The snow sways on an outer element and
+  falls on an inner one. Nearer is faster and brighter (`FALL_S`, `DRIFT_S`, `SWAY`), and none of it
+  faster than about 550 px/s, past which a spectator reads static. **A sheet covers the frame for
+  the whole of its travel, at any size** (`sheetBox`): one tile of overhang the way it travels, the
+  lean's reach in the frame's height (in `cqh`), never a percentage of the frame.
+  `sceneWeather.test.ts` proves coverage from 320 to 3840 wide, 320 to 2160 tall. How many sheets
+  is the graphics tier's: three of rain and of snow on `high`, two on `medium`, one on `light`; fog
+  two, two and one. Lightning is a sheet flash plus the glow of the bolt off one top corner. A room
+  that declares `dry` (Orbit) gets no rain in a storm: the flash and a drift of dust.
+- **The frame is supersampled** (`QUALITY[tier].supersample` and `.glPixels` through
+  `supersampleFor`): rendered up to twice its size on each side (three times on `high`; `light` does
+  not supersample and multisamples instead — no tier does both), and **brought down in linear
+  light** (`post.ts: RESOLVE_FRAG`): the composite is kept in a float target, unencoded, and every
+  bitmap pixel gathers the texels under it through a Mitchell–Netravali kernel (B = C = ⅓, two
+  bitmap pixels wide), the sRGB encoding applied once, after. So an ink line is one clean stroke at
+  any angle rather than a stair. **It used to be `drawImage` at `imageSmoothingQuality: 'high'`**,
+  which averaged encoded bytes — every lit window, neon tube and thread of sky between two roofs
+  came out darker than it was rendered — with a filter each engine chose for itself. The plain
+  path (`light`, a GPU with no float target, a failed chain) still takes `drawImage`. The budget is
+  in pixels, so a phone gets the full factor and a large monitor gets what fits; the side is held
+  under the tier's `maxSide` **and** the device's own limits (`MAX_TEXTURE_SIZE`,
+  `MAX_RENDERBUFFER_SIZE`, `MAX_VIEWPORT_DIMS`, asked of the context). **`high` goes to 8192 and
+  16 Mpx**: behind the old 4096 side it reached ×2.13 at 1080p and ×1.6 at 1440p, below what the
+  rung promised; it now reaches ×2.78 and ×2.08. `medium` and `light` stay at 4096, the texture a
+  mobile GPU still accepts. The table's grain is filtered anisotropically at the tier's figure
+  (16, 8, 4, `setGrainAnisotropy`), capped by the device — it is the one texture seen at a grazing
+  look; everything else is vertex colour. Resolution is
+  the viewport at `devicePixelRatio` capped at `MAX_DPR` (2) and `MAX_SIDE` (2800) on the long side
+  (`renderSizeFor`), and **`renderSizeFor` reports the ratio the size was solved at**, because the
+  felt is converted to device pixels by it before the camera is solved: handing back the ratio the
+  *screen* asked for after cutting the size down built the table a fifth too large and eight
+  percent to the side, on any display denser than 1× wider than 1600 CSS px, and never in CI.
 - **And then the frame is photographed** (`scene/post.ts`, `scene/quality.ts`, `sceneQuality.test.ts`).
-  The room is lit in the scene, and what the finishing passes add is the rest of the renderer a
-  low-poly diorama is judged against, in this order: the **occlusion** (below), a last FXAA pass
-  over the supersampling (the compact form of 3.11, five taps to find the edge's direction and
-  four along it — the last quarter-pixel of stair a diagonal ink line still shows at 2×), the
-  lamps' bloom (a bright pass at a quarter of the frame over the occluded frame, blurred twice,
-  added back scaled by `rig.dark` so at noon the snow does not glow and at midnight the lamps are
-  the light), a **tilt-shift** focus held on the felt's band and easing off towards the top and
-  bottom of the frame — which is how a diorama is photographed, and the one of these a viewer
-  names — then the **tone curve** with the exposure (ACES by default, `LOOK.tone.mapping`), then
-  the grade on the display range — the shade pulled towards a cool note and the light towards a
-  warm one (`shadowTint`, `highlightTint`, `splitStrength`: the warm/cool split, kept through the
-  curve), a touch of saturation and of contrast about mid-grey — a vignette elliptical with the
-  frame, a colour fringe out in the corners only, and a fine static grain so a wall is a surface
-  rather than a fill. Every number is `LOOK`'s.
+  The room is lit in the scene, and what the finishing passes add is, in this order: the
+  **occlusion** (below), a last FXAA pass over the supersampling, the bloom (a bright pass at a
+  quarter of the frame over the occluded frame, blurred twice, added back scaled by `rig.dark` and
+  by `LOOK.vista.bloom` — a sun in the frame spills), a **lens focused on the table** (the far goes
+  soft slowly, from twice the table's distance to forty times it, `LOOK.vista.dof`), the **mist**
+  and the **air** (below), then the **tone curve** with the exposure (ACES by default), then the
+  grade on the display range — the shade pulled towards a cool note and the light towards a warm
+  one (the warm/cool split, kept through the curve), a touch of saturation and of contrast about
+  mid-grey — a vignette elliptical with the frame, and a colour fringe out in the corners only.
+  **No grain.** There was a fine static grain over the whole frame, and the player refused it on
+  2026-09-25 along with every other fine noise on a surface of the game (the felt's nap went the
+  same day): the pass, its `LOOK.post.grain` and its tier switch are gone, and
+  `sceneQuality.test.ts` fails on a composite that noises the frame again. Every number is `LOOK`'s.
   - **The occlusion is screen-space, from the frame's own depth, and it is what the shadow map
-    cannot see.** A doorway, the crease between two blocks, the foot of a wall on the side the sun
-    reaches: a shadow map lights them like open ground. The scene target carries a float depth
-    texture; under an orthographic camera depth is linear in view z and a pixel's view x/y are its
-    uv across the camera's frame, so a position is reconstructed exactly and a sample projects
-    back with a divide by nothing (`AO_FRAG`). The normal is the depth's own differences, the
-    smaller of each pair so an edge does not smear it. Samples on a **uniform** hemisphere, not a
-    cosine one — the grazing directions are the ones that find a wall beside a paving stone, and a
-    cosine weighting spends most of its samples looking up at nothing — over two radii (1.8 tiles
-    for the well of a courtyard and the foot of a wall, 0.45 for the crease), at a half of the
-    frame, blurred depth-aware, then **multiplied into the frame before the bloom and the focus
-    copies are taken from it** (`litRT`): taken from the unoccluded frame, the out-of-focus band
-    lost its occlusion and the top of every room went flat. **An occluder more than the radius or
-    so nearer than the sample is not a crease**: counted, a tree top four tiles over a paving
-    stone drew a dark halo round every silhouette and a diagonal moiré across the felt. The
-    per-pixel rotation is interleaved gradient noise — the sine hash streaked diagonally at frame
-    coordinates.
-  - **Colour is the contract with the plain path.** The scene renders into a half-float target
-    (eight bits of linear light band in the darks of a night room; a GPU that refuses the format
-    gets bytes) in linear, the passes work in linear, the tone curve is applied **once**, in the
-    composite, with three's own functions — a render target gets none from the renderer, and the
-    plain path gets exactly this one from `renderer.toneMapping` — and the composite ends on
-    `colorspace_fragment`, which is the same sRGB encoding `outputColorSpace` gives the direct
-    render. When the renderer's curve is on, three prefixes its tone-mapping chunk to every shader
-    drawn to the canvas and defines `TONE_MAPPING`; the composite includes the chunk only when it
-    is not (`#ifndef`), because including it twice is a redefinition and a black room.
-    Multisampling is off once supersampling covers it: a 4× MSAA half-float target at 4096² is
-    more memory than a phone will grant.
+    cannot see.** A doorway, the crease between two blocks, the foot of a wall. The scene target
+    carries a float depth texture, and **a position is rebuilt through the camera's inverse
+    projection** (`VIEW_PARS`: `uProjInv`, and back to a uv through `uProj`), which is exact under
+    any camera; the sky (a depth of 1) is left unoccluded. The normal is the depth's own
+    differences, the smaller of each pair so an edge does not smear it. Samples on a **uniform**
+    hemisphere over two radii (1.8 tiles and 0.45), at a half of the frame, blurred depth-aware in
+    linear depth — a tile of depth roughly halves the weight near the lens, a share of the distance
+    far off, where a tile is less than a pixel — then **multiplied into the frame before the bloom
+    and the focus copies are taken from it** (`litRT`). **An occluder more than the radius or so
+    nearer than the sample is not a crease**: counted, a tree top over a paving stone drew a dark
+    halo round every silhouette. The per-pixel rotation is interleaved gradient noise — the sine
+    hash streaked diagonally at frame coordinates.
+  - **The air** (`AirOptions`, `LOOK.vista.haze`): every pixel that is not sky takes, by its distance
+    from the lens, up to `max` of the colour of the sky low down (`1 − exp(−d / distance)`), loses up
+    to `desaturate` of its own saturation on the way, and **glows towards the light** (the light's
+    colour by a power of the cosine to it, weighted by what the weather left of the body). The room's
+    `haze` and the weather's scale it: the moon has almost none, so its far is as sharp as its near,
+    which is what a place with no air looks like.
+  - **Colour is the contract with the plain path.** The scene renders into a half-float target in
+    linear, the passes work in linear, the tone curve is applied **once**, in the composite, with
+    three's own functions, and the composite ends on `colorspace_fragment`, the same sRGB encoding
+    `outputColorSpace` gives the direct render. When the renderer's curve is on, three prefixes its
+    tone-mapping chunk to every shader drawn to the canvas; the composite includes the chunk only
+    when it is not (`#ifndef`), because including it twice is a redefinition and a black room. The
+    plain path (no finishing pass) gets three's own `Fog` in the air's colour instead of the air.
   - **It runs once, and everything it allocates is released with the context.** Every target is
     disposed in a `finally`, and a throw anywhere inside falls back to the plain render
-    (`renderScene`: `photographed`), never to no room. **That sentence was only half true while
-    nothing threw**: three allocates a target lazily on `setRenderTarget` and never asks the driver,
-    so a target the GPU would not hold was a pass that drew nothing and a frame that came out black
-    or half-drawn — cached as the room for the match. So every target is checked before anything is
-    drawn into it (`assertComplete`, which throws on an incomplete framebuffer; the scene's own one
-    still tries bytes before it gives up), and the one thing that makes every target of the chain
-    fail at once is asked up front: WebGL2 renders into a float texture only with
-    `EXT_color_buffer_float` (or the half-float one), and a GPU without it (`floatTargets`) never
-    starts the chain — the plain frame — and gets a PCF shadow instead of VSM, whose map is a float
-    target too. A software GPU
-    (headless Chromium) is handed the plain frame as before, unless tooling asked for the full one
-    (`setForceFullRender`, `?gfx=force`), which is how `make rooms` and a `--gfx=force` visual
-    review get it.
-  - **Which passes run is the graphics tier's** (`QUALITY`): `high` supersamples up to 3× under 12 M
-    pixels with a 4096 shadow map and runs all of them; `medium` 2× under 7 M with a 2048 map,
-    the occlusion, FXAA, bloom and the vignette; `light` is the lit, shadowed (1024), multisampled
-    frame with nothing over it. **Every tier is lit and shadowed**: the room is rendered once per
-    match, so the light is never a frame budget, and a `light` room without its shadow would be
-    the flat room this replaced. The tier is the player's (`hooks/graphicsPref.ts`): `auto`
-    reads memory, cores and pointer (`autoTier`: under 4 GiB is light, a coarse pointer or four
-    cores is medium, else high — a browser that says nothing is a desktop until proven otherwise,
-    because the cost of guessing high is a longer gate and not a slow match), and the three explicit
-    tiers win over it both ways. It is a segmented row in the preferences panel with the hint naming
-    what `auto` landed on, and **it is part of the cache key** (`sceneCache`, `PreparedScene.tier`)
-    so moving it mid-match renders the room again, faded in over the old like any re-render.
-- **The anchor is the same room whatever the screen is made of** (`renderSizeFor`, `anchorFor`,
-  `sceneGeometry.test.ts`). `renderSizeFor` caps the bitmap's long side at `MAX_SIDE` device pixels and
-  `anchorFor` divides CSS pixels by the ratio it reports, so the two have to agree: handing back the
-  ratio the *screen* asked for after cutting the size down put the anchor **eight tiles right of the
-  table and a fifth too large**, and the podium the whole room is composed around was built somewhere
-  the table is not. It bit on any display denser than 1× wider than 1600 CSS px — most laptops and
-  every phone in landscape — and never in CI, because `make visual` shoots at 1×. A room a few tiles
-  out is still a room: nothing errors, nothing looks broken, and the harbour's boats are simply
-  moored on the beach.
-- **Composition against a screen line goes through `screenSpan`** (`maps/common.ts`). `box(w, h, d)`
-  is world-space, and at `rot = π/4` its `w` runs across the frame one tile for one while its `d`
-  runs up it at `sin(pitch)` — so the harbour's pier, written as "4.4 across by 1.2 along", came out
-  **1.2 tiles wide on screen**, and its railing, its lamps and its cargo, all placed in screen tiles
-  either side of it, stood in the water beside a plank. Anything laid against a screen line takes the
-  helper, and its furniture is then placed at `at(sx ± sw/2)` and lands on it.
-- **A landmark taller than seven tiles belongs in a side band, not the top one.** `sy + b + 8` is
-  about a sixth of the way down a monitor's frame, which leaves seven tiles of headroom: the wizard's
-  tower is twenty and the rocket eighteen, so both were a base with everything above the top edge.
-  Beside the table (`sx ± (a + 8), sy + 2`) there are twenty-eight. The tavern and the bathhouse were
-  always there; the two that were not have moved. **On a phone the frame is barely eighteen tiles
-  wide and a side band is outside it** — which is already true of the fair, the beach and the torii,
-  and is what that band is for.
+    (`photographed`), never to no room. Every target is checked before anything is drawn into it
+    (`assertComplete`, which throws on an incomplete framebuffer), and a GPU with no float render
+    target (`floatTargets`) never starts the chain. A software GPU (headless Chromium) is handed
+    the plain frame, unless tooling asked for the full one (`?gfx=force`), which is how `make rooms`
+    and a `--gfx=force` visual review get it.
+  - **Which passes run is the graphics tier's** (`QUALITY`): `high` supersamples up to 3× with a
+    4096 shadow map and runs all of them; `medium` 2× with a 2048 map, the occlusion, FXAA, bloom,
+    the mist and the vignette; `light` is the lit, shadowed (1024), multisampled frame with nothing
+    over it. **Every tier is lit and shadowed**: the room is rendered once per match, so the light is
+    never a frame budget. The tier is the player's (`hooks/graphicsPref.ts`, `autoTier` when it is
+    `auto`), and **it is part of the cache key** so moving it mid-match renders the room again.
 - **A room is built once per match, and it is built on the main thread, so what it costs is
-  measured** (`render.ts` logs `build / merge / draw / sprites` in DEV). The neon city is about a
-  half-second of build on a laptop. Three things keep it there rather than at the two seconds it
-  reached — **a window is two quads on a sheet, never two blocks** (`Kit.quad`, flushed by
-  `build` into one geometry per bucket: the neon city has ten thousand windows, and as boxes they
-  were a hundred thousand geometries against seven thousand for everything else), `place()`
-  composes one matrix and applies it once (three passes with a normal-matrix update each), and a
-  tower's windows are spaced 1.15 tiles with no sill (the frame is the whole drawing at that
-  size). The primitives are cloned from cached unit shapes, which turned out to buy little: the
-  cost was the count, not the constructor. **And it is built exactly once**, which took three
-  separate guarantees and each of them was missing at some point:
-  - **`viewportSize()` reads the window synchronously.** The preload asked for the felt's anchor
-    before any effect had measured anything, solved it from 0 × 0 to a felt with no size, and
-    rendered a whole room around a point that the real size then threw away — every match paid for
-    its room twice, and the second one landed *after* the gate opened, as a stall on the first turn.
-    `<SceneBackdrop />` refuses a felt with no size for the same reason.
-  - **`safeAreaInsets()` reads them synchronously too**, and this was the same bug's other half. The
-    anchor is solved from the viewport *and* the insets; seeded at zero and filled in by an effect,
-    the room was built around a table twenty pixels up the screen from the one the board settles on,
-    thrown away, and built again — on a notched phone, twice a match, on the devices least able to
-    afford it. Measured with the probe in `hooks/safeAreaInsets.ts`, which is safe to call during
-    setup (no `document.body`, no insets).
+  measured** (`render.ts` logs the view it solved and what the frame took, in DEV). A room is
+  under a second of build and draw on a laptop; a skyline is what costs, which is why a far band
+  draws fewer of its panes (`SkylineOptions.windows`) and none of its floors' glass (`ribbons`). **And
+  it is built exactly once**, which took four separate guarantees:
+  - **`viewportSize()` reads the window synchronously.** Solved from 0 × 0, the preload built a
+    whole room round a felt with no size, which the real size then threw away — every match paid
+    for its room twice, the second after the gate opened. `<SceneBackdrop />` refuses a felt with no
+    size for the same reason.
+  - **`safeAreaInsets()` reads them synchronously too**: the felt is solved from the viewport *and*
+    the insets, and an inset filled in by an effect was a second render on every notched phone.
   - **A frame within four per cent of the size asked for is stretched, not re-rendered**
-    (`sizeCloseEnough`, `sameFelt`). Three things ask for the same room while a match opens — the
-    gate, off the viewport; the screen it puts up and the board behind it, each off its own element —
-    and they agree to the pixel only when nothing sits between the element and the edge of the
-    window. A scrollbar, a browser bar on its way out, a `dvh` that is not `innerHeight`: any of them
-    made the board's request a different cache key. The felt is compared by value, because the anchor
-    is a `$derived` object and an unchanged viewport still hands out a new one on every re-run.
-  - **And a render in flight is joined, not repeated** (`prepareScene`, `sceneCache.test.ts`). The
-    stretch above only answers once a frame exists; while the gate's render was still running, the
-    loading screen and the board asked at their own sizes, found nothing cached, and each started a
-    full render of its own. A request that finds a render of the same scene, felt, tier and look in
-    flight at a size `sizeCloseEnough` to its own now waits on that one, and its bar is fed by it.
+    (`sizeCloseEnough`, `sameFelt`). The gate, the screen it puts up and the board behind it each ask
+    off their own element, and they agree to the pixel only when nothing sits between the element
+    and the edge of the window.
+  - **And a render in flight is joined, not repeated** (`prepareScene`, `sceneCache.test.ts`).
 
   `sceneLoadingGate.test.ts` owns the first three, `sceneCache.test.ts` the fourth.
-- **`make visual` waits for the room.** The showcase's ready flag fires when the screen mounts,
-  and the frame lands a build later — seconds, on headless Chromium's software GPU. Captured
-  before it, the room is the sky gradient with the frame mid-fade over it, which reads as a blue
-  veil over the whole city and is nothing but timing; `tools/visual/shoot.mjs` waits for
-  `.scene:not(.bare)` on any scene that has one.
+- **`make visual` waits for the room.** The showcase's ready flag fires when the screen mounts, and
+  the frame lands a build later; `tools/visual/shoot.mjs` waits for `.scene:not(.bare)`.
 - **The engine is a lazy chunk.** `sceneCache.prepareScene` is the only importer of `render.ts`,
   through a dynamic `import()`, so three.js never reaches the home page, a waiting room or a content
-  page; the map-loading gate is what absorbs the fetch (`sceneCache.PROGRESS`: the chunk is the
-  first 10% of the bar, the kits the next 25%, the render's own phases the rest). The chunk comes
-  off this origin like every other, so the CSP is untouched and `csp.test.ts` still passes on
-  `'self'`.
+  page; the map-loading gate is what absorbs the fetch (`sceneCache.PROGRESS`).
 - **The loading bar is painted between the phases of the render, and that is what makes it a
-  bar.** The room is built and drawn on the main thread, and on a rematch — chunk and kits cached
-  per tab — that stretch is the whole wait. It used to run in one synchronous piece after a
-  `setTimeout(0)`, which was meant to let the screen paint first and did not: a macrotask fires a
-  few milliseconds later, inside the same frame, so the thread was taken with the bar drawn at zero
-  and the next paint anybody saw had it at one. The player's reading — "it goes from empty to
-  loaded, it looks stuck" — was exact. Two things fix it (`scene/nextPaint.ts`,
-  `sceneProgress.test.ts`): a report is followed by **two animation frames** (the first callback
-  runs before its frame is painted, the second after; a timer stands in for a hidden tab, where no
-  frame ever comes and the render still has to happen), and `renderScene` is asynchronous in
-  phases — build, merge, draw, depth, then the sprites a few at a time — reporting
-  `RENDER_STEPS` and yielding to a paint between each. The weights are a rough measure of where a
-  room's second goes, not a promise: the bar is honest about *moving*, which is the thing a player
-  can check, and only roughly about *how far*.
-- **And it ends full.** Nothing under that bar ever reports one: the render stops at its last
-  batch of sprites, `prepareScene`'s own `onProgress(1)` lands in the same tick as the resolution,
-  and the curtain used to lift on a bar somewhere around nine tenths — which reads as a room that
-  was given up on, not one that finished. So the settle is two steps now (`gamePlay.svelte.ts`'s
-  `mapPreload`): the bar is put at one, painted (`nextPaint`), and held for `MAP_BAR_FULL_MS`
-  (`hooks/mapPreload.ts`) — just above `.fill`'s own transition, so the fill has travelled the whole
-  track before anything moves — and only then is `done` published, which is what sends `map_ready`.
-  The 12s preload timeout ends through the same settle for the same reason, and 12s plus this is
-  still far under the server's 20s `MapLoadTimeout`. The wait is paid once per match behind a
-  curtain that is already up, and under reduced motion the hold is zero: the fill snaps, so there is
-  nothing to wait for. `mapLoading.test.ts` pins both halves — that the bar is full before
-  `map_ready` goes out, and that the hold outlasts the transition it is paying for, read off
-  `MapLoadingScreen.svelte` rather than typed twice.
+  bar** (`scene/nextPaint.ts`, `sceneProgress.test.ts`). A report is followed by two animation
+  frames, and `renderScene` is asynchronous in phases — build, merge, draw, then the sprites a few at
+  a time — reporting `RENDER_STEPS` and yielding to a paint between each. A `setTimeout(0)` is not a
+  paint: it fires inside the same frame, and the bar went from empty to full.
+- **And it ends full.** Nothing under that bar ever reports one, so the settle puts it at one,
+  paints it, holds it for `MAP_BAR_FULL_MS` past `.fill`'s own transition, and only then publishes
+  `done`, which is what sends `map_ready`. Zero hold under reduced motion; 12s plus the hold stays
+  far under the server's 20s `MapLoadTimeout`. `mapLoading.test.ts`.
 - **A render that fails is a scene, not an error.** No WebGL, a lost context, a builder that
   throws, models that never arrive: the request resolves with a null bitmap, `<SceneBackdrop />`
-  shows the rig's sky gradient (which is on screen from the first frame anyway, under the bitmap),
-  and the gate is answered. A client that never sends `map_ready` is the one outcome the gate
-  cannot survive, and it is the reason `prepareScene` never rejects.
-  - **A failure is remembered for `FAILED_TTL_MS` (10s), never for the tab**, and apart from the
-    frames, so it never evicts one (`sceneCache.test.ts`). It used to be cached like a frame, for
-    good: most failures are transient — a context limit, a context lost to a GPU reset or a tab put
-    to sleep — and one of them made the plain sky the room for every match after it. Ten seconds is
-    so a window being dragged does not retry a dead GPU on every pixel. `peekScene` prefers any
-    frame of the scene over a failure.
-  - **A lost context is a failure, not a black room.** It raises nothing: every call after it is a
-    no-op and the canvas reads back empty. `renderScene` asks `isContextLost()` (and drains
-    `getError()` for `OUT_OF_MEMORY` — other flags are three probing enums, not a broken frame)
-    before and after the copy, and a sprite copied from a dead context is dropped with the rest.
-  - **The frame is copied out before the report's paint.** The context keeps no drawing buffer
-    (`preserveDrawingBuffer` off, as it should be), so once the browser has composited, the canvas
-    may read back cleared — and the report after the draw waits for exactly that paint.
-  - **The models are given `MODELS_TIMEOUT_MS` (20s).** The loader keeps no clock, and a fetch
-    that stalled held the render in flight — and everything that joined it — for the tab. Past
-    the gate's own 12s on purpose: the gate has let the player in by then; this only frees the
-    next request to try.
-- **Nothing pale is shown while the room is still being built** (`.scene.bare`). Until a frame
-  lands, the sky gradient *is* the room — and at noon that is a full screen of near-white under the
-  loading screen's white type, on a game whose every other surface is dark: the reveal read as a page
-  that had failed to load rather than as a room about to open. `.bare` mixes both stops down to a
-  little over a third over the void, so it is still the hour's own sky (a dawn is pink, a dusk amber,
-  a night blue) and the type keeps its contrast. The frame is opaque, so this is only ever seen while
-  there is nothing to see — including the one case where there never will be, a render that failed.
-- **And nothing of the board is shown either: the curtain is opaque from its first frame.** The
-  loading screen is an overlay over a *mounted* board — that is the whole point of it, since the
-  board spends the wait laying itself out — so an entrance animation on `.screen` fades the void off
-  the table it exists to hide. It had one, `mapRoomIn` at 0.6s, and every match opened on half a
-  second of the felt and the seats showing through the reveal. The fade belongs to what is *inside*
-  the curtain: `.room` wraps the backdrop and the scrim and comes up out of the void, which is the
-  effect that was wanted, while `.screen` paints `--room-void` from the start and lets nothing
-  through. `sceneLoadingGate.test.ts` pins both halves.
-- **The board and the loading screen share the frame, and both draw it sharp.** The first cut
-  blurred the board's copy as depth of field, and the blur was doing a second job: hiding that the
-  table and the room were two pictures. With the podium under the felt they are one object, and a
-  blur between them would be the seam, so `<SceneBackdrop />` has no blur at all. What keeps a card
-  edge winning at 720p is the vignette and the cards' own ink line, not a softened room. The cache
-  holds three frames (a match, its rematch, a resize), keyed on the scene, the device size **and
-  the anchor**, and throws out the one **used** least recently — a hit moves to the young end, so
-  the frame on screen is never the one evicted.
-- **The backdrop isolates its own stack** (`.scene { isolation: isolate }`, `sceneBackdrop.test.ts`).
-  It holds two canvases that swap places and the weather above both, so it declares `z-index` three
-  times — and `position: absolute` does not contain a z-index. Without the isolation those three
-  climb into the board's stacking context, where they outrank `.stage`: the room is painted over the
-  cards and the match has no table, no hand and no deck. `.board` isolates one level up for exactly
-  the same reason.
-- **A resize is a stretch, and then one render** (`SceneBackdrop.svelte`: `RESIZE_SETTLE_MS`, 240 ms).
-  The street is composed in screen space around the felt, so two sizes are two different cities, and
-  a window being dragged is hundreds of sizes. Rendered per resize event — which is what the first
-  cut did, because the effect read the raw viewport and the 96 px step it declared gated nothing —
-  the room rebuilt itself under the table dozens of times a second: a frame of main thread each time
-  and a visibly different street each time, which is what "the background regenerating" was. The
-  frame already up is stretched for free while the drag lasts, and one render is asked for once the
-  viewport has held still. **Quantising the size instead would buy nothing**: the podium is built
-  under the felt, so a felt that has moved needs a render whatever the width did. The debounce is
-  skipped in the one case where there is nothing to stretch — a first mount, a new map, a render
-  that failed — because that is the path the map-loading gate waits on.
-- **And the render that lands is faded in over the one it replaces, never swapped for it.**
-  `<SceneBackdrop />` holds two stacked canvases: the outgoing frame is left at full opacity
-  underneath and only the incoming one is animated (`--scene-fade`, 260 ms). Cross-fading them —
-  one down while the other comes up — lets the sky through at half opacity in the middle, and on a
-  room that has barely changed that reads as a flash. The incoming canvas is held at `opacity: 0`
-  with `transition: none` for one flush and a forced layout read, or the two writes coalesce and
-  there is no transition left to run. Reduced motion drops the transition and keeps the swap.
+  shows the rig's sky gradient, and the gate is answered. A failure is remembered for
+  `FAILED_TTL_MS` (10s), never for the tab; a lost context is a failure, not a black room
+  (`isContextLost()` and `OUT_OF_MEMORY` asked before and after the copy); the frame is copied out
+  before the report's paint (no `preserveDrawingBuffer`); the models are given `MODELS_TIMEOUT_MS`.
+- **Nothing pale is shown while the room is still being built** (`.scene.bare` mixes the hour's
+  sky down over the void), **and nothing of the board is shown either: the curtain is opaque from
+  its first frame** — the fade belongs to `.room`, never to `MapLoadingScreen`'s `.screen`.
+  `sceneLoadingGate.test.ts`.
+- **The board and the loading screen share the frame, and both draw it sharp**: the table is the
+  render's table, and a blur between them would be the seam. The cache holds three frames, keyed on
+  the scene, the device size **and the felt**, least recently used out first.
+- **The backdrop isolates its own stack** (`.scene { isolation: isolate }`, `sceneBackdrop.test.ts`):
+  its three z-indices would otherwise climb over `.stage` and paint the room over the cards.
+- **A resize is a stretch, and then one render** (`RESIZE_SETTLE_MS`, 240 ms), **faded in over the
+  frame it replaces, never swapped for it** (two stacked canvases, only the incoming one animated,
+  `--scene-fade`). The camera is solved to the felt, so a felt that has moved needs a render whatever
+  the width did.
 
 ### The models (`scene/models/`, `scene/placer.ts`, `tools/models/pack.mjs`)
-The blocks were the limit. A house of ten boxes is a box, and the reference the rooms are judged
-against is drawn by artists; so the props are drawn models now — Kenney's city, suburban, roads,
-nature, car, pirate, fantasy-town, space and holiday kits, and two Quaternius pieces (a torii,
-sakura's gate since the pass of 2026-09-23, and a temple, packed but not placed: the pagoda the
-village is built around is still blocks, and fetched by no room),
-all **CC0** (`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is what imports them.
-- **The manifest is the allowlist** (`models/manifest.json`): per kit, the unpacked archive it
-  comes from, the folder holding its GLBs, the scale that turns its units into tiles (a Kenney
-  city house is 1.3 units and stands 4.4 tiles wide here; a pirate lighthouse is 10 and stands
-  10), the palette colours that glow after dark, and the models used by name. `make models` copies
-  exactly those out of `.assets-in/unpacked/` into `client/public/models/<kit>/`, with the kit's
-  palette texture at the relative path the GLB references, and writes the credits. The downloads
-  are ignored by git; what is packed is committed, because the site serves it and a room a player
-  is dealt into cannot depend on somebody's downloads folder. **Served from this origin, never a
-  CDN**: the CSP allows no other, by the legal position in `legal.md`.
-- **A model is baked into buffers, once per tab** (`models/lib.ts`, `bake.ts`). The loader
-  (`GLTFLoader`, three's) gives a mesh with a palette texture and UVs; the palette is sampled at
-  each vertex's UV into a vertex colour (in linear, like the material factor a texture-less model
-  carries), the model is scaled into tiles, centred on the ground under it and stood on `y = 0`,
-  and what is kept is positions, normals, colours, an index, and **smoothed normals** — the
-  normals of every face meeting at a position averaged, one weight per face direction, which is
-  what the outline hull is pushed along, because a flat-shaded model's faces share no vertices and
-  a push along each face's own normal opens every corner. A person is baked in two poses off the
-  kit's own animation clips (`idle`, `walk` mid-stride) through `SkinnedMesh.applyBoneTransform`,
-  **from one download**: each pose used to be a request of its own, and both went out together.
-  The three.js objects are disposed the moment the buffers are out.
-- **And then it is a block**: `k.model(id, x, z, {rot, y, scale})` transforms the buffers, multiplies
-  the ground shade into the colours (`pushBaked`), pushes the hull in each vertex's own darker
-  note, and after dark sends the
-  faces painted in the kit's glow colours to the unlit bucket in the warm window colour every
-  block window wears (`splitGlow`) — so a Kenney house lights its windows at night and darkens its
-  foot the way a box house does, and the room stays one merged mesh per bucket. **The window kits
-  (city, suburban) light per house, by the hour's share** (`spotChance`, a hash of where the model
-  stands, so the room's random sequence is untouched and the same house is lit on every render):
-  lit whenever the lamps were, every model house on the marina had every window lit at night and
-  in every rain, over `WINDOWS_LIT_MAX` by a factor of two.
-- **The kit's props take the model when the room has one.** `k.person` (a spacesuit where the room
-  has the space kit, one of twelve townsfolk otherwise, mid-stride when walking. `personRot` is
-  written for the block person, who faces +z; **the townsfolk face +z too** (their `leg-left` bone
-  stands at +x), **the astronauts face -z** — they are not skinned, so the file says it plainly:
-  the visor is on -z — and take `ASTRONAUT_MODEL_YAW`, a half turn, without which the one passer-by
-  on the moon walked backwards. An audit once read a 1× sprite of a townsperson the wrong way round
-  and turned them all, which sent every street walking backwards; a render at four times the
-  density settled it. `kitModels.test.ts` pins both conventions), `k.car` (Kenney's
-  drive along +z, ours face +x, a quarter turn goes on), `k.tree` (by kind; **the cherry is a drawn tree in blossom**:
-  its green turned to one of three pinks by `blossom`, through `ModelOptions.recolor`, the trunk
-  left alone and each leaf's shading kept), `k.lamp`, `k.bush`, `k.rock`, `k.crate`, `k.barrel`. A builder
-  never names three.js, a file or a format; the same builder builds a room of blocks when the kits
-  are not loaded, which is what a model that failed to fetch degrades to.
-- **Nothing stands inside anything else** (`placer.ts`, `placer.test.ts`). Every `k.model` claims
-  its footprint — an oriented rectangle, the kit's rotation convention, grown by a margin — and is
-  refused when the claim overlaps one already made; the answer is the builder's to move on from,
-  **and the kit's props leave the spot empty**: they used to draw their block version there
-  instead, which claims nothing and so stood inside whatever had taken the ground. A pot's bush is
-  the one exception, grown with `collide: false` because it is inside the pot on purpose. A
-  builder claims its zones first: the podium's steps and drum, the water, a road. The test is the
-  separating-axis test on two rectangles, and the claims are filed in a coarse grid so a room of a
-  thousand claims does not test each against every other.
-- **The kits per room are declared beside the builders** (`maps/index.ts: KITS`) and loaded by
-  `sceneCache.prepareScene` before the builder runs, as the middle half of the loading bar on a
-  first visit and nothing on a rematch. **A room names what it places and nothing else**: a whole
-  kit, or single models as `kit/name` where it takes two pieces of a kit (the marina's parasols out
-  of the city kit). Every room used to load whole kits it never placed — 17.5 MB and 205 requests
-  for the marina, of which 7.9 MB was placed; orbit loaded the townsfolk and could only ever draw
-  astronauts. nginx serves `/models/` gzipped and cached for a week.
+A few props are drawn models — Kenney's kits and two Quaternius pieces, all **CC0**
+(`client/public/models/CREDITS.txt`, `NOTICE.md`) — and the kit is what imports them. Seen from the
+table most of a room is blocks: the models left are the marina's dinghy and bushes, the palms and
+street lamps of the velvet boulevard, neon's planters (`maps/index.ts: KITS`).
+- **The manifest is the allowlist** (`models/manifest.json`): per kit, the archive it comes from,
+  the scale that turns its units into tiles, the palette colours that glow after dark, and the
+  models used by name. `make models` copies exactly those into `client/public/models/<kit>/`; what
+  is packed is committed. **Served from this origin, never a CDN**.
+- **A model is baked into buffers, once per tab** (`models/lib.ts`, `bake.ts`): the palette sampled
+  into vertex colours, the model scaled into tiles and stood on `y = 0`, smoothed normals kept for
+  the outline hull. **And then it is a block**: `k.model` transforms the buffers, shades the foot,
+  pushes the hull, and after dark sends the glow colours to the unlit bucket — a window kit per
+  house by the hour's share (`spotChance`). `kitModels.test.ts` pins which way a drawn person faces
+  (the townsfolk +z, the astronauts -z and `ASTRONAUT_MODEL_YAW`).
+- **Nothing stands inside anything else** (`placer.ts`, `placer.test.ts`): every `k.model` claims its
+  footprint and is refused when it is taken, **and a refused model leaves the spot empty**.
+- **A room loads the kits it places and no others** (`KITS`, `roomModels.test.ts`, which builds each
+  room through its camera and fails on a kit it loads and never places). Three rooms load none.
 
-### What moves (`scene/life.ts`, `scene/LifeLayer.svelte`, `maps/actors.ts`)
+### What moves (`scene/life.ts`, `scene/LifeLayer.svelte`, `maps/vistaLife.ts`)
 The room is rendered once and released, so nothing in it can move — and a room where nothing moves
-is a photograph again. What moves is **a sprite over it**: a boat, a balloon, a passer-by, a puff of
-smoke, built with the same kit under the same light and the same line weight, rendered to its own
-little bitmap **in the same pass as the room** (`render.ts`, after the frame: one more scene per
-actor, cleared transparent, sized to the actor's projected bounds, the ground point recorded), and
-carried along a route by one Web Animations transform (`LifeLayer.svelte`). The board's compositing
-budget still belongs to the cards: an actor is one composited layer (`.actor`) under its route
-animation, plus, only when it bobs, spins or puffs, an inner element under an animation of its own
-— the bob on `.body`, the spin or the puff on `.face`, **one transform animation per element**,
-because two on one element do not add up (the later wins, and a spinning thing that bobbed did not
-bob) — and the render loop it would otherwise take stays closed. A thing that stays put (one point)
-still bobs and turns where it stands. Reduced motion holds every actor on its route's first point
-with nothing running, and **is followed live** (`reducedMotion`, a parameter of the action): the
-switch in Preferences stops and restarts the room without a render. A `pass`'s period is never
-shorter than its crossing (`passEvery`), since a `speed` can resolve a duration past the `every` a
-builder wrote.
-- **A builder returns its actors beside the room** (`Builder = (k) => Actor[] | void`). An actor is a
-  `build` that draws the thing at the origin standing on `y = 0` heading +x, a `path` in the same
-  screen tiles everything else is composed in (`sceneLife.test.ts` pins that frame to the render's
-  own: `TILES_ACROSS` off the longer side, the origin at the centre, `sy` up), a `motion`: `loop`
-  (a circuit), `bounce` (there and back), `pass` (across once, then gone until `every`) — and
-  either a `duration` or, for a thing on the ground, a `speed`. `turn` flips the sprite on a leg
-  that heads left; `bob`, `spin` and `puff` animate an inner element; `fade` softens the ends of a
-  run; `flying` builds it without a ground shadow. The common ones — `cloud`, `bird`, `balloon`,
-  `plane`, `puff`, `walker` and the `streetWalkers` it is built for, `traffic` in the lanes,
-  `boat`, `mote` after dark — are `maps/actors.ts`; the moon's rover and satellite and the
-  village's cat are their builders' own.
+is a photograph again. What moves is **a sprite over it**: a gull, a boat drifting across the bay, a
+petal falling past the eaves, a puff of smoke from the tavern, an airship over the skyline, built
+with the same kit under the same light, rendered to its own little bitmap **in the same pass as the
+room**, and carried along a route by one Web Animations transform. The board's compositing budget
+still belongs to the cards: an actor is one composited layer (`.actor`) under its route animation,
+plus, only when it bobs, spins or puffs, an inner element under an animation of its own —
+**one transform animation per element**, because two on one element do not add up. Reduced motion
+holds every actor on its route's first point with nothing running, and **is followed live**.
+- **A route is in the world, and the render projects it** (`Actor.world`, `render.ts:
+  vistaSprites`). An actor is built standing at the world origin; the render builds it at the
+  route's first point, **photographs it with the room's own camera cropped to its bounds**
+  (`setViewOffset`), projects every point of the route into the frame (`Actor.path`, screen tiles)
+  and writes the scale the change of distance asks at each (`Actor.scales`: the first point's depth
+  over each point's). The keyframes carry the scale on the same transform as the translation
+  (`routeKeyframes`), so a gull coming round towards the table grows as it comes and it is still
+  one animation. A route that never enters the frame is dropped. The air is laid over a sprite as
+  fog (`FogExp2` in the air's colour, at the air's density), so a boat on the far side of the bay
+  is as grey as the water round it, and it goes through the room's tone curve and grade
+  (`makeSpriteGrader`). A sprite casts no shadow and has no shadow map: nothing of the room is under
+  it.
+- **Keep a route clear of the near props.** A sprite is drawn over the whole frame, so a boat routed
+  behind the lamp post passes in front of it. The routes are written in the sky and on open water,
+  and across the far side of the bay; nothing walks the near ground.
 - **A `loop` either walks its closing leg or fades over it, and there is no third option**
-  (`closesTheRing`, `sceneLife.test.ts`). A loop wraps to its start, and a wrap the player can *see*
-  is a person teleporting home and setting off again — which is what every walker whose route
-  survived trimming whole did, because the keyframes stopped at the last point and jumped back to
-  the first. Two honest ways to wrap: a cloud, a bird or a puff **fades** at both ends of its run, so
-  the jump happens while there is nothing on screen (that is what `fade` and `puff` are for); anything
-  else has to travel back, so the closing leg is walked and `routeLength` counts it. A path that
-  already ends where it started is a circuit and closes itself — `mote` is one.
-- **A thing on the ground moves at a speed, and distance is measured on the ground.** `WALK_SPEED`
-  is 0.75 tiles a second against a person a tile and a half tall, `DRIVE_SPEED` 3.2; the route
-  decides the duration (`durationFor`, there and back for a bounce), and every leg is weighted by
-  `groundDist` — a leg up the screen is `1 / sin(pitch)` longer than it looks. Written as
-  durations, the strollers did the plaza's ring in eighty seconds, which is two and a half tiles a
-  second, and a cloud drifting at one screen speed is the only thing here that should.
-- **A route on the ground is a candidate, and the render decides where it runs** (`life.ts:
-  trimRoute`, `selectActors`; `render.ts: readDepth`). A sprite is drawn over the whole frame, so
-  it passes in front of everything the render has, and a walker crossing a house at the wrong depth
-  is the illusion breaking — which is what every stroller did on the old ring, six and a half tiles
-  out from the felt, through the crowd, the market stalls and the first row of blocks, and what the
-  two cars lapping the paving did across the whole lower band. Now a builder says what a thing
-  takes up (`body`: width across the screen, height, footprint) and hands in every route it might
-  take, and every route is sampled at half a tile. A sample stands where (1) it is inside the frame
-  or three tiles off it and (2) the ground plan (`placer.ts`) is free of its footprint — `cityGrid`
-  claims every lot it fills, since a house is blocks and blocks never claimed — **asked with no
-  margin** (`Placer.free(f, margin)`, `kit.free(…, 0, 0)`). The placer's 0.3 keeps two things
-  *built* from touching; a thing passing through only has to not stand inside anything, and with
-  the margin on, a bystander standing at the kerb line refused the walk line 0.7 tiles behind him
-  and cut every pavement into stretches of three or four tiles. The longest run of good samples is
-  the route: a loop that is cut walks its longest clear arc there and back, a `pass` fades over
-  one tile at either end (that is where it would walk into something the plan has claimed, or off
-  the frame — and a pass that survives whole gets those fade *points* too, because fading the two
-  endpoints of a two-point route is a crossing that is transparent from end to end), and a run
-  shorter than `minLen` (four tiles; twelve for a car) is dropped. A `part` takes a stretch of
-  what survives, so three walkers handed the same arc would be three walks.
-  **A `pick` group is how a builder asks for a few without having seen the frame**: `streetWalkers`
-  hands in both pavements of every run both ways, `traffic` the right-hand lane of every run both
-  ways, and the `keep` worth most survive — worth being the length *seen*, inside the frame, not
-  under the hand, and not behind anything the room drew nearer (`lengthInside`, `occluded`); a
-  survivor worth less than its `minLen` is dropped whatever its length, since a route that runs
-  whole behind a terrace is a layer nobody sees. Which pavements survive depends on the viewport:
-  on a monitor it is the ones with the plaza or the low front band on their near side, on a phone
-  the deep top and bottom bands. `sceneLife.test.ts` pins the trimming, the selection, the depth
-  arithmetic, and that `render.ts` reads the depth back and selects before a single sprite is built.
-- **What stands in front of a route is a veil over the sprite, never a cut in the route**
-  (`life.ts: occlusionVeil`, `Sprite.mask`, `render.ts: veilImage`, `LifeLayer`'s `.veil`). After
-  the frame is drawn the room is rendered **once more, as depth** — the same scene under a
-  material that packs eye depth into RGBA, into a target at half the frame's resolution, read back
-  once and released with the context, the shadows and the halos left out. The first version of
-  this used that map to *cut* routes: a sample was refused wherever anything in the depth map was
-  nearer than the thing's own silhouette by more than `OCCLUSION_SLACK` (0.3 tiles), the silhouette
-  being the `body` stood on the sample and its depth written per row from the camera's pitch
-  (`depthAt`: a tile up the screen on the ground is `1 / tan(pitch)` farther, a tile up a thing
-  standing there is `tan(pitch)` nearer). The arithmetic was right and the consequence was wrong:
-  a pavement has a lamp every block, a bystander at the kerb and a parked car in the lane beside
-  it, and each one is *in front* of the walk line on the far side of the street, so every pavement
-  became a row of three-tile walks — a `pass` fading in beside one lamp and out at the next, a
-  stroller's ring cut into arcs walked there and back between two bystanders. Measured on the
-  boulevard at 1920×1080: eight walkers of 3 to 9 tiles, no car at all. That is what "the things
-  in the rooms walk backwards and fade away" was, and no threshold fixes it, because the test was
-  answering the right question about the wrong thing. Now the same test is made **once per pixel
-  and kept**: `occlusionVeil` walks the route in the depth map's own pixels, finds under each
-  column the ground point the route stands at there (the nearest one where it passes twice, the
-  silhouette's own width either side), and for the rows from its feet up its `body` — plus the
-  little the shadow spreads below — writes 0 where the room's depth is nearer than the thing's own
-  by more than the slack and 255 elsewhere. That byte map is the alpha of a frame-sized PNG
-  (`veilImage`, at the depth map's resolution: the browser stretches it, so the edge of a building
-  is soft by a frame pixel, which reads as the anti-aliasing the room already has), and the sprite's
-  layer wears it as a CSS `mask-image` on a **wrapper that does not move** — the actor is animated
-  inside it — so the walker goes *behind* the lamp post, the bystander and the parked car and comes
-  out the other side, and a car drives its whole run. A sprite with nothing in front of it wears
-  none and costs what it cost. Something in the air is never veiled. The mask is a `data:` URL, which
-  `img-src` already allows, so nothing off this origin is fetched for it. The depth map is still
-  what says what a route is *worth* (above): a route the veil would hide entirely is dropped
-  before a sprite is built for it. `sceneLife.test.ts` pins the veil's arithmetic (a wall in front
-  cuts the rows it covers in the columns the route reaches and nothing else; one behind cuts
-  nothing; the air is never veiled), that `render.ts` cuts on the plan and veils on the depth and
-  hands every sprite its veil, and that the layer wears the mask on the wrapper and not on the
-  actor. The residual: a sprite is one bitmap, so its own silhouette is masked by *anything*
-  nearer along the route's column, including a thing it is standing in front of at another moment
-  of a route that doubles back — the nearer of the two ground points wins, so a doubling route
-  ghosts over rather than vanishes behind.
-- **Pavements are the grid's, and a street is a run.** `SIDEWALK` (1.4 tiles) comes off each side
-  of a block before `fill` sees it, so the buildings stop at the building line; walkers keep to
-  `WALK_LINE` (0.45 in from that line), standers and lamps to `KERB_LINE` (0.25 in from the kerb),
-  and the 0.7 between them is what the placer's margin plus a person's claim needs
-  (`sceneGeometry.test.ts`). It was 0.6 wide, which is narrower than a person, and the people it
-  scattered "on the sidewalk" stood in the road. `cityGrid` returns a `StreetPlan`: every block-long
-  segment it laid, merged by `mergeRuns` into one run per street from the last block it borders to
-  the first it does not, so a car drives it end to end and a walker crosses the side streets. A car
-  is built facing the way its lane goes (`carRot`, `personRot` — a mirror of a sprite facing one
-  diagonal faces the *other* diagonal, not the way back, which is why a street walker is a `pass`
-  one way rather than a bounce with `turn`). Facing is answered per heading.
-- **Nobody on foot turns round.** The promenade round the table used to carry three strollers
-  (`strollers`), and the harbour front four pacers (`pacers`): a `loop` on a ring, or a `bounce`
-  along a line, with `turn` mirroring the sprite on a leg heading left. A sprite faces one
-  diagonal, and its mirror faces the *other* diagonal — so on the ring's vertical legs a stroller
-  slid sideways, and at every turn of a bounce the figure set off back the way it came, which a
-  player reported as "people walking backwards". No threshold fixes a sprite that cannot face up
-  the screen. Both are gone: a person on the move is a `pass` along a pavement with a `heading`,
-  built facing the way it goes, and gone at the end of its run (`sceneGrid.test.ts` fails on a
-  `walker` handed a `bounce`, and on the two factories coming back). The cat and the rover keep
-  their bounce: an animal turning round is what an animal does, and the rover is a box. **But a
-  mirrored sprite runs level** (`sceneFacing.test.ts`, 30° on the ground at most, which the ferry
-  following the shore stays inside): it is drawn side-on facing screen-right, and sent up a
-  diagonal the rover slid along it crabwise, facing thirty degrees off the way it went.
-- **A route the render always drops is dead code, and it fails a test now** (`sceneFacing.test.ts`,
-  "a lone actor"). Sakura's cat was never on screen: every route it was given crossed a block
-  `cityGrid` had claimed, so `trimRoute` found nothing standable and the candidate was dropped
-  without a word. The test builds each room against a 1920×1080 board's anchor and frame and
-  requires every actor outside a `pick` group to keep some of its route; the cat walks the paving
-  above the table now, where the ground is free and nothing stands in front of it.
-- **And "walking backwards" came back once from a model, not a route**: the astronauts face -z
-  where every other person faces +z, so orbit's passer-by walked backwards on a correct `heading`.
-  The half turn is in the kit (`ASTRONAUT_MODEL_YAW`), not in the builder, and `kitModels.test.ts`
-  places a model of each convention and checks its face ends up in front.
-- **Two things were tried and taken out before any of this existed**: the harbour's ferris wheel
-  turned for an afternoon as sprites (spokes spinning about the hub, twelve cabins riding a circle),
-  and the cabins rode across the roofs of the terrace standing in front of the fair as pale cubes
-  floating on the houses; and the ferry sailed the whole width of the frame, which took it through
-  the lighthouse island and over the pier head. The wheel stood still in the render after that, and
-  is gone now (see "What no frame can hold whole"); the ferry runs east of the pier only, fading in
-  there.
-- **A pass writes its opacity on every frame.** A keyframe without a property interpolates towards
-  the next one that has it, so a route whose hidden tail alone said `opacity: 0` faded out across
-  its whole crossing, and the ferry came through as a grey ghost. `routeKeyframes` writes `1` on
-  the crossing whenever any frame carries opacity (`sceneLife.test.ts`).
-- **Facing is a quarter turn.** Screen-right is the world (1, −1) diagonal, so a thing that faces +x
-  at rot 0 (a car, a boat's bow) is built at π/4 and a person, who faces +z, at 3π/4. The mirror of
-  that sprite faces the other diagonal, which is what `turn` relies on.
-- **The layer is laid out in the frame's CSS pixels and scaled to the element**, one transform, so a
-  window being dragged stretches the boat with the water until the next render lands with sprites
-  of its own. It sits at z-index 3, above both frames and under the weather (4): the rain falls on
-  the boat. **Reduced motion holds every actor on the first frame of its route** — the boat is
-  still a boat, moored — which is the readable static state motion is required to degrade to.
+  (`closesTheRing`, `sceneLife.test.ts`): a wrap the player can see is something teleporting home.
+- **A pass writes its opacity on every frame**, or it fades out across its whole crossing.
+- **The layer is laid out in the frame's CSS pixels and scaled to the element**, one transform, at
+  z-index 3, above both frames and under the weather (4): the rain falls on the boat.
 - **A sprite is keyed on the actor's id within the room**, and its seed is the room's key plus that
-  id, so the balloon's colours and the walker's hat are the same for every seat and after a reload.
+  id, so the boat is the same for every seat and after a reload.
 
-### The room is quiet (the pass of 2026-09-06)
-The rooms had been built to be *full* — "many small buildings, roads between them, something on
-every corner", above — and full was measured and found to be the wrong brief. Neon at night was a
-wall of lit windows with a neon edge on every other tower, a sign on every third, a beacon on every
-fourth, string lights round the square, a dance floor and twenty-two people at the table; Velvet a
-cliff of four hotels to a block; Sakura a carpet of dark roofs; Orbit a solar farm to the frame's
-edge; Marina a fairground in the band between the player and the felt. The verdict was that it was
-stressful, and that the mood the game wants at a card table is **contemplation**: a place a
-spectator can rest their eyes on for twenty minutes, whose big moments are the cards'. What
-changed, and the rules it left:
-- **A room has ground between its buildings, and more of it near the table** (`GridSpec.density`,
-  per block, with `open` for what an unbuilt block gets — a pocket park, a meadow, a palm garden, a
-  crater — and the far edge denser than the ring beside the plaza, so the skyline stays and the
-  band round the table opens). Every builder declares one; `sceneGrid.test.ts` fails on a room that
-  fills every block, on a `crowd` past eight, on `people` past a half a block. The crowds went from
-  22–26 to 3–6, the passers-by from 2 a block to a third, the cars parked from every other segment
-  to one in five, and every room lost its second and third hero (the dance floor, the carousel, the
-  market in the front band, two of four stalls, the string lights in both rooms that had them).
-- **Nothing drives on the plaza** (`plazaRim`, `cityGrid`'s `buried`). The paving is an oval the
-  grid used to know about only when the builder passed `podium()`'s answer in, and three builders
-  did not: their roads ran under the flagstones, their cars were parked on them and their traffic
-  lanes crossed the crowd. The grid solves the rim itself now, and a segment the paving covers (any
-  of its two ends or its middle) is laid and forgotten — no parked car, no lamp at its corner, no
-  crossing, and never a run handed to `traffic`.
-- **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half; night went from 85% lit to
-  45%, dusk from 70% to 35%). A wall of light was the whole of the neon room's noise, and a city
-  where most windows are dark is also the one where the lit ones read. `sceneLighting.test.ts`.
-  **The cap holds under every weather too**: a storm lit three in four until the rig clamped its
-  answer, and only the hours were checked. The model houses answer the same share one house at a
-  time (`spotChance`).
-- **Neon at night is a notch above black** (the towers, the road, the pavement, the paving): under
-  rain on a phone at 720p the darker set left nothing of the city but lit windows. One tower in four
-  wears a neon edge now and one in six a sign.
+### The room is quiet (the pass of 2026-09-06, kept)
+The rooms had been built to be *full*, and full was measured and found to be the wrong brief: the
+verdict was that it was stressful, and that the mood the game wants at a card table is
+**contemplation** — a place a spectator can rest their eyes on for twenty minutes, whose big moments
+are the cards'. The view from the table was built to the same brief, and it is what gave it room to
+breathe: a horizon and a sky are the quietest things a picture can hold.
+- **A few things, slow, at the edges and in the sky.** Two framing props a side, one landmark a
+  room, a couple of boats, two or three birds, never a crowd, and nothing crossing the table.
+- **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half, under every weather too), which
+  is also what makes the lit ones read. The model houses answer the same share one at a time.
 - **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, 0.8 tiles,
-  `kitHalo.test.ts`). The lighthouse wore two additive spheres, three and six tiles across, the
-  hotel's finial one of a tile and a half, the wizard's tower one of 1.3, every dome on the moon a
-  pool of light under a glowing sphere, every neon edge a pool of light lying on its roof — and an
-  additive sphere over a tower is a pale veil laid over it, which is what "transparent buildings"
-  was. The kit clamps the sphere; the rooftop pools are gone; the bloom that draws a big light's
-  glow off the glowing block itself is turned down with them (`bloomStrength` 0.1 → 0.06,
-  `bloomDark` 0.45 → 0.22, `glowIntensity` 2.4 → 1.8, `haloIntensity` 0.6 → 0.45) and the
-  tilt-shift eased (`dofMax` 0.6 → 0.45), so a far tower is a soft tower and not a ghost.
-- **Nobody on foot turns round** — above, under what moves.
-- **The stills were re-shot** (`make rooms`), since the rooms page shows the render of the day.
+  `kitHalo.test.ts`): an additive sphere over a tower is a pale veil laid over it.
 
 ### Props that were the same mistake in every room (`scene/kit.ts`)
-Five of them, and each was one line of geometry standing in for something with a shape:
-- **`awning`** — a canopy that starts *at* the wall and carries a valance. Every shopfront in the
-  boulevard and every row house in the harbour hung a bare plate half a tile off its façade and
-  wider than the façade it was on, which reads as a coloured card hovering in the air.
-- **`festoon`** — the cord, and the lights on it. The square and the boulevard both placed their
-  bulbs on a sine and drew nothing between them: a curved line of lanterns floating in the air with
-  two posts standing some way off. **And a ring of posts, never four** (`stringLights`, in
-  `maps/common.ts`, the only way a room strings them — `sceneGeometry.test.ts` fails on a builder
-  that festoons its own; no room ships one since the quiet pass below, and the helper stays for
-  one that wants them): four posts round an oval table is a rectangle laid over an ellipse, with
-  corners nothing else in the room has and two runs going straight up the frame, and what it read as
-  was a stray wireframe rather than bunting. Nine posts on the paving's own ring, and **each run hung
-  by its own length on screen** — a run going up the frame is drawn shorter than one going across it,
-  so the fixed count the two rooms guessed piled its lanterns on top of one another there and spaced
-  them out here.
-- **`stall`** — four legs, thick enough to be seen. Two posts a tenth of a tile wide on the centre
-  line are hidden by the canopy from this camera and by the counter from every other, so what was on
-  screen was a striped roof floating a tile above a box, in every market in the game.
-- **`tree({ kind: 'palm' })`** — a frond in two segments, out and then steeply down. Five flat
-  planks radiating from a trunk draw a five-pointed star, and a star is exactly what a 32° camera
-  sees of anything horizontal.
-- **A prism's `w` is its ridge**, so a roof rotated by `π/2` has to swap `w` and `d` with it. The
-  harbour's terraces did not, and every roof sat across the house it belonged to.
+Each was one line of geometry standing in for something with a shape:
+- **`awning`** — a canopy that starts *at* the wall and carries a valance, never a bare plate
+  hovering off the façade.
+- **`stall`** — four legs, thick enough to be seen, never a striped roof floating over a box.
+- **`tree({ kind: 'palm' })`** — a frond in two segments, out and then steeply down.
+- **A prism's `w` is its ridge**, so a roof rotated by `π/2` has to swap `w` and `d` with it.
+- **The kit's crates and barrels are the pirate kit's where it is loaded** (green bottles in a red
+  crate): a builder that wants a plain crate by the water draws its own boxes (Marina).
 
-### The table (`GameBoard.svelte`'s `.tableOval` / `.tablePlinth` / `.tableGlow`)
-A felt inside a rim, standing on a plinth, all CSS, on exactly `tableRect()`. Every room hands the
-same object its own materials (`MapDef.table` in `maps.ts`: `felt`, `feltDeep`, `rim`, `rimLight`,
-`base`, `inlay`), reaching the style block as `--tbl-*`; without a scene the variables fall back to
-the tokens' near-black table, which is what a lobby's felt and an unknown map id draw.
-- **The materials never follow the hour; the light does.** A table is a physical thing and night
-  does not repaint it, so `--tbl-*` are constants per room. What the rig hands the table is
-  `--scene-tint` (the sun's colour, on the sheen across the top of the felt and the rim's top edge)
-  and `--scene-dark` (a dimming of the felt, the rim, the vignette and the glow, through
-  `color-mix()` with a `calc()` percentage). Neon's black glass at noon and at midnight are the same
-  glass under two lights.
-- **It obeys the three rules every raised object obeys**: an ink line on both sides of the rim, a
-  hard bottom edge (the `0 16px 0` shadow *is* the rim's thickness, seen from above and in front),
-  and a soft shadow that is ambience, never structure. The **inlay** is the one line of the room's
-  accent set into the rim — a neon tube, a brass bead, a rune groove, a strip of lacquer — and it is
-  what makes six tables six objects rather than six recolours.
-- **In a room the render carries the plinth; without one the CSS does.** On a scene the table
-  stands on the rendered podium (above), and its own cast shadow falls on the top step in the
-  direction of the rig's sun (`--sun-dx` / `--sun-dy`), which is the cue that says "standing in the
-  room" rather than "painted on its floor". `.tablePlinth` is drawn only when there is no scene (a
-  lobby's felt, an unknown map id, the rooms page): a CSS column under a rendered drum would be two
-  bases for one table.
+### The table (`GameBoard.svelte`'s `.tableOval` / `.tablePlinth` / `.tableGlow`, `TableTrack.svelte`)
+A felt inside a rim, on exactly `tableRect()`, and **a table of its own in every room, made of a
+noble material** (the pass of 2026-09-25): Neon a piano-black lacquer banded in chrome on a chrome
+tulip foot, Rune quartersawn oak and bronze on two turned balusters, Velvet walnut burl and gold on
+a stepped black marble column, Orbit brushed titanium on a tripod, Sakura vermilion urushi flecked
+with gold on four lacquered legs, Marina varnished teak and brass on a capstan. `MapDef.table` in
+`maps.ts` holds the colours (`felt`, `feltDeep`, `rim`, `rimLight`, `grain`, `base`, `inlay`,
+`fleck`, `baseVein`) and names the rest (`rimKind`, `edge`, `pedestal`); `tableMaterials.test.ts`
+refuses two rooms with the same table. Without a scene the variables fall back to the tokens'
+near-black table.
+- **The rim is its material, drawn** (`cards/tableSurface.ts`): an SVG whose only content is a filter
+  — fractal noise shaped by a transfer curve into the material's own colours (growth rings, a
+  burl's eyes, brushing, a lacquer's depth and its gold dust) — served as a `data:` URI, which
+  `img-src 'self' data:` already allows. No canvas and no script, so the same string is the rim's
+  background on the board, the racetrack's `<pattern>` and the rooms page's rim at build time;
+  seeded, so every seat sees the same table. A glossy finish carries the room's lights in it
+  (`rimGloss`: a sheen on the far side and a few streaks, tinted by the hour, weighted by
+  `RIM_GLOSS`).
+- **The felt carries no texture at all**, by the player's choice: its cloth is its colour and the
+  light on it.
+- **In a room the render is the table, and the CSS one is the fallback** (the pass of 2026-09-25,
+  "the tables must be much more realistic"). The CSS table was a drawing laid over a lit room: its
+  felt ignored the room's light, its rim was a flat band with a painted sheen, and it cast nothing
+  on anything. The render now builds the top as well (`vistaTable`): the **cloth** (a
+  `MeshPhysicalMaterial` with a sheen and nothing drawn on it, `LOOK.table.cloth`), a **metal
+  filet** and a **racetrack** in the rail's material stained darker, and a **rail** with a rounded
+  section rising `LOOK.table.rail.height` over the cloth and rolling over into the edge's face.
+  The board then draws none of its own (`.tableOval.rendered`, no `TableTrack`), only the mark.
+  - **The lines are still the concentric ellipses the player chose.** Each ring of the top is the
+    felt's screen ellipse taken in by the same number of pixels on both axes and cast onto the
+    table (`View.tableOutline(n, inset)`), and the rings are lofted into one surface
+    (`Kit.loft`), point `i` of every ring at the same angle. Vertical faces stay vertical: a ring
+    is cast onto the table's plane and then lifted.
+  - **Widths are board pixels** (`FeltAnchor.unit`, carried into the view as frame pixels per
+    board pixel), and the rail plus the track is exactly `layout.ts: CLOTH_INSET`, the line the
+    opponents' hands are laid inside. The rooms page's still has no board, and takes a felt 1100
+    board pixels wide.
+  - **A table has a lamp over it** (`lighting.ts: makeTableLamp`, `LOOK.table.lamp`): a warm
+    spot straight down from 3.4 m, fading from the middle out over its whole cone, stronger as the
+    room darkens (`LightRig.dark`). Without it the cloth was **black** at dusk — lit only by a sun a
+    few degrees up and a violet sky — and so had the old cloth plate been, under the CSS felt that
+    hid it. No shadow: the sun's is the one map, and the corner where the rail meets the cloth is
+    the occlusion's.
+  - **A loft is wound the way its normals face, per triangle** (`loftGeometry`). A two-sided
+    material lights a face wound against its normals from behind: the first cloth came out black
+    under the lamp for exactly that. `tableMaterials.test.ts` checks every triangle. A ring drawn
+    in to a point (the cloth's middle) takes the next ring's outward way, or its normal is zero and
+    the middle of the table is a dark disc.
+  - **The render is the table only while it lies under the felt** (`sceneCache.tableFits`,
+    `SceneBackdrop`'s bindable `tableDrawn`): a frame stretched through a drag the felt follows in
+    proportion still is; one the felt has left (a seat gone, a drag past the caps) is not, and the
+    CSS table stands in until the next render lands. With no WebGL, or in the E2E suite, it is the
+    CSS table throughout.
+  - **Rain's rings do not land on the cloth** (`WeatherLayer`'s `clear`, a mask with the felt's
+    ellipse cut out): laid over the table they read as a pattern printed on it. The streaks still
+    fall in front of it.
+  - **The hands lie on the cloth, never across the rail** (`rimLayout`): a hand is set in from the
+    rim by `CLOTH_INSET` (unforeshortened, since the rail is as wide on every side) plus its own
+    reach, and then drawn in towards the middle until every corner of the fullest fan it can show
+    is inside the cloth's ellipse — a wide fan spreads along the rim while the rim curves away
+    under it. Neighbours' spread is measured where the hands lie, not between the plates.
+    `seatLayout.test.ts`.
+- **Every line round the table is an ellipse concentric with the felt**: the rim is a uniform 11px
+  border (its inner edge is the felt's ellipse taken in by 11px on both axes), and the racetrack
+  (`TableTrack.svelte`, `tableTrackEllipse`) is the same construction a rim further in — a band of
+  the rim's wood stained a shade darker between two metal filets, the way a card table carries one.
+  Two other constructions were tried the same day and both read as a table bent out of shape: an
+  **offset curve** (the same distance from the rim along the normal) is not an ellipse, and on a flat
+  oval its ends come to points; and bands **drawn in the table's plane and foreshortened** had a gap
+  between two lines that swelled at the sides and vanished at the near and far edges. What the
+  player judged right was the concentric one, the way the rooms page had always drawn its rim.
+  Foreshortening is kept for what lies *on* the cloth (the mark, `feltSquash`), which has no oval
+  to disagree with.
+- **The render's edge is swept, turned and finished, not blocked** (`scene/maps/vista.ts:
+  vistaTable`, `kit.ts: Kit.sweep` / `Kit.lathe` / `Finish`). The edge is a profile (`EDGES`: a
+  knife edge, a square slab, an ogee, a bullnose) swept round the outline, never past it; the
+  pedestal is turned (`LatheGeometry`); each piece is a `MeshPhysicalMaterial` — a varnish or a
+  lacquer as a clearcoat, metal as metal, marble polished — whose numbers are `LOOK.table` and whose
+  grain is `scene/grain.ts`'s periodic noise, the counterpart of the CSS rim's for faces the CSS
+  cannot reach. It is the one object in the room that is not a block in the matte vertex-coloured
+  material, because it is the nearest thing to the camera and made of what a matte block cannot say.
+  It takes no ink hull and no snow cap. **The reflections are held down** (`LOOK.table.envIntensity`
+  0.3, a wood's clearcoat at half its gloss, a lacquer's at 0.18): at 0.8 the dusk sky turned a
+  walnut edge into orange plastic, and a full clearcoat washed Sakura's vermilion urushi to grey.
+- **The materials never follow the hour; the light does.** `--tbl-*` are constants per room; the rig
+  hands the table `--scene-tint` (the sun's colour on the sheen) and `--scene-dark` (a dimming).
+- **In a room the outline rule bends for the table as it does for every block**: the rim's edge is a
+  darker note of its own material, never the interface's ink (`kit.ts: inkFor`). Without a room the
+  CSS carries the whole object and the three rules as before: the ink line, the hard `0 16px 0`
+  thickness, the soft shadow, and `.tablePlinth`.
+- **In a room the render carries what is under the felt**, including its real shadow, so the CSS
+  draws neither a thickness band nor a cast shadow over it: either hid the one thing the render
+  adds.
 - **The rooms page lays the same table over a photograph of the render** (`content/TablesArticle.astro`,
   `.roomTable` / `.roomGlow` in `content.css`, `src/dev/RoomStill.svelte`, `tools/rooms/shoot.mjs`,
-  `roomsPage.test.ts`). A content page ships no script, so it cannot render the diorama; `make rooms`
-  opens the `room-still-<id>` scene for each room — the room alone at its signature hour under a
-  clear sky, 16:9, at `?gfx=force` so headless Chromium's software GPU renders the full tier — with
-  the podium built under exactly the ellipse `.roomTable` draws (centred, 70% by 50%), and writes
-  `src/assets/rooms/<id>.webp`, served through `<Image />` at three widths. The page then draws the
-  board's own CSS table over it: same materials, same rim, same inlay, and no plinth, since the
-  render carries the podium there as on the board. The hour is written twice — `SIGNATURE` on the
-  page, the scene list in `scenes.ts` — and the test pins the two; a room with no still falls back
-  to its sky and fails the test rather than the build. Re-shoot after touching a builder, the kit,
-  the rig or the passes: nothing checks that the stills still match the render.
+  `roomsPage.test.ts`). `make rooms` opens the `room-still-<id>` scene for each room — the room alone
+  at its signature hour under a clear sky, 16:9, at `?gfx=force` — with the table built under
+  exactly the ellipse `.roomTable` draws (centred, 70% by 50%), and writes
+  `src/assets/rooms/<id>.webp`. The hour is written twice — `SIGNATURE` on the page, the scene list
+  in `scenes.ts` — and the test pins the two. Re-shoot after touching a builder, the kit, the rig or
+  the passes.
 
-### What shines and what reflects (the pass of 2026-09-23)
-The quiet pass took things out; this one gives what is left a surface. Every rule below is one the
-room already obeyed, extended to something that used to be flat.
-- **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`, a vertex
-  attribute like the colour; `kit.ts: litMaterial`; `sceneGloss.test.ts`). The room is still one lit
-  material: its roughness is mixed from `LOOK.material.roughness` towards `glossRoughness` by the
-  vertex's gloss, and it mirrors the sky (`lighting.ts: skyEnvironment`, the rig's own gradient over
-  the ground's bounce, filtered once by `PMREMGenerator`). **Only the reflection is taken from that
-  sky**: its irradiance is dropped (the hemisphere already is the sky's light) and its radiance is
-  weighted by the gloss, by editing three's `lights_fragment_maps` — so a block at gloss 0 comes out
-  pixel for pixel as it did, and the test pins the two lines of three it edits. Glossy: dark window
-  glass (`glassGloss`), a car's paint and the space kit's hulls (`paintGloss`, per kit:
-  `GLOSSY_KITS`), and **every slab under rain** (`wetGloss`, through `Kit.wetGloss()`). **The wet
-  street is a sheen, not a mirror**: at `envIntensity` 2.4 and a wet gloss of 0.72 the whole plaza
-  took the sky's grey and lost the colour of its paving, which is what a uniform reflection of a
-  bright sky does to an orthographic frame where every square of ground faces the camera the same
-  way. At 1.0 and 0.55 the paving keeps its colours under a cool glaze; what makes a wet street read
-  as wet after dark is the lights in it, below. A GPU with no float target gets no environment
-  (`floatOk`), and its glossy surfaces are only shinier under the sun.
+### What shines and what reflects
+- **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`;
+  `kit.ts: litMaterial`; `sceneGloss.test.ts`). The room's one lit material mixes its roughness
+  towards `glossRoughness` by the vertex's gloss and mirrors the sky (`skyEnvironment`) — **the
+  reflection only**, its irradiance dropped and its radiance weighted by the gloss, so a block at
+  gloss 0 comes out pixel for pixel as it did. Glass, paint, and every slab under rain.
 - **The water mirrors the room, and so does a wet street** (`scene/mirror.ts`, `BlockOptions.water`,
-  `sceneGloss.test.ts`). Under an orthographic camera a planar reflection is exact: the room rendered
-  once more with the world flipped (`scene.scale.y = -1`) from the same camera *is* its reflection in
-  the plane `y = 0`, pixel for pixel, and a surface reads it at its own `gl_FragCoord`. A surface at
-  another height reads it shifted by `2 · p · cos(pitch)` of the frame (`uLevelUv` times the
-  fragment's own height), which is what lets the harbour's sea, seven tenths of a tile under the
-  quay, and a puddle on the paving share one pass. Everything under the lowest water
-  (`Kit.waterLevel`) is clipped out of it. The pass runs at half the frame, only where the tier
-  says (`QUALITY[tier].reflections`: not on `light`) and only where the room has water or a wet
-  street (`Kit.reflective`), and a GPU that refuses its target keeps the sky in its water. Four
-  things went wrong on the way and each is now a rule:
-  - **The sky only tints the water** (`LOOK.water.sky`, 0.12), **the room stands in it at the
-    weight of a reflection** (`reflect`). Mixed at the weight of a mirror, a noon sky turned the
-    harbour into a pale grey sheet; the sea is blue because it is the sea's colour first.
-  - **In the mirror pass a face turned up is discarded** (`uMirrorPass`): flipped, it is a face that
-    looked at the ground, the underside of a slab, which no reflection shows.
-  - **The halos sit the mirror pass out**: flat discs of light whose undersides, flipped, laid a
-    pale band over every wet plaza. What glows stays in, so a lamp is a lamp in the water.
-  - **What is wet is the whole ground, not the tiles on it**: the podium's floor oval and the
-    harbour's lawn take `Kit.wetGloss()` too, or the reflection of the podium's lit ring came out
-    cut into the paving's diamonds and read as shards of glass.
+  `sceneGloss.test.ts`). The room rendered once more **flipped about the water's own level**
+  (`scene.scale.y = -1`, `scene.position.y = 2 · level`) from the same camera *is* its reflection in
+  that plane, pixel for pixel — the one plane a perspective reflection is exact for — and a surface
+  reads it at its own `gl_FragCoord`. What lies under the water is clipped out of that pass. **Looked
+  across, the water is a mirror at the horizon**: the reflection's weight climbs from `reflect`
+  (0.12, looked straight into, where the sea is its own colour) to one at a grazing look (Schlick's
+  Fresnel, `uFresnel`), and **the swell breaks a reflection into a column down the frame**
+  (`LOOK.water.stretch`), which is the road of light under a low sun or the moon. The pass runs at
+  half the frame, only where the tier says (not on `light`) and only where the room has water or a
+  wet street (`Kit.reflective`). **In the mirror pass a face turned up is discarded** (the underside
+  of a slab, flipped); **the halos sit it out**; the sky only tints the water (`LOOK.water.sky`).
   A wet street's reflection is **smeared down the frame and a little across, jittered per pixel**
-  (`streak`), so a row of lit windows is a glow of their colour and not a second row of windows;
-  **a puddle is the wettest of the wet street** (gloss 1, not water) for the same reason. The water
-  itself takes a swell (`waveSlope`, a few crossed cosines): its normal is tilted, which gives the
-  sun's glints and breaks the reflection (`ripple`). A river's bank has a broken line of foam,
-  drawn **from its own seeded sequence** (`foam:x:z`) so that no house in the room moved when the
-  river gained it. Sprites reflect nothing: a boat's reflection would be a second sprite.
+  (`streak`), so a row of lit windows is a glow of their colour and not a second row of windows.
 - **A lamp lights the ground; it does not paint a disc on it** (`scene/pools.ts`, `Kit.pool`,
-  `scenePools.test.ts`). A lamp-sized halo on the ground (`Kit.halo`, flat, radius up to
-  `LOOK.pools.washFrom`) is a pool now: every pool is splatted once, on the CPU, into a map of the
-  ground seen from above (`splatPools`, `(1 − d²/r²)²`, bytes over `POOL_RANGE`), and the lit
-  material reads it at the fragment's world `x, z` and **multiplies it into the fragment's own
-  colour** (`POOLS_OUT`), full up to `lift` above the ground and fading above it — so the flagstones
-  come up warm under a lamp, a wall catches it at its foot, and a roof never does. A lit window at
-  street level spills a small pool on the pavement in front of it, and a lit model house one round
-  itself (`windowSpill`). Hundreds of point lights would do the same and cost a forward renderer its
-  life. Two things stay discs, on purpose: **a halo the size of the plaza is the room's colour
-  washed over the paving, not a lamp** (neon's purple ring): as light it either lit the square
-  like a stage or, weakened, vanished — and **a sprite keeps its disc** (`lightPools` is a room
-  kit's only), since a car carries its headlights on its own bitmap. `strength: 0` is the old
-  discs, for comparing. A pool is weighed by the hour's `dark` (a third at noon's end of it): a lamp
-  at dawn is a warmth on the paving, not the spotlight it is at midnight.
-- **Mist lies in the low ground at a dawn and in a fog** (`post.ts: mistFor`, the composite's
-  `worldAt`, `LOOK.mist`, `sceneMist.test.ts`). Under an orthographic camera the depth is linear,
-  so the composite rebuilds each pixel's world position exactly and lays the mist by its height
-  (`exp(−y / height)`), broken into banks by a noise on the ground and thicker towards the top of the
-  frame, which is the far streets: the podium and the houses stand out of it, the paving sinks into
-  it. Its colour is the hour's horizon lifted a little. A clear dawn has it, a cloudy dawn a little,
-  a fog at every hour; a clear noon never, where it would be haze over a room that has a vignette
-  and a focus band already. It is a finishing pass, so `light` has none.
-- **The evening goes on behind the table** (`Actor.blink`, `maps/actors.ts: blinkActors`,
-  `Kit.blinkers`, `Kit.flicker`, `life.ts: pointHidden`, `sceneBlink.test.ts`). After dark the kit
-  records every dark window it builds, and a builder may name a neon tube that can catch
-  (`k.flicker`, neon's signs); the render then picks at most `BLINK_WINDOWS` (4) windows and
-  `BLINK_NEON` (2) tubes **the camera can actually see** — outside the hand and the table, and not
-  behind anything nearer (`pointHidden` reads the same depth map the routes do) — seeded on the room
-  so every seat has the same street. Each is a sprite that stays put and **blinks**: one opacity
-  animation on `.face`, a window lit for a third to a half of a cycle of 45 to 110 seconds with a
-  fade either side, a tube going dark for a second or three with a stutter, every 18 to 40 seconds.
-  Slow on purpose: nobody watching the cards sees it happen, they only find the street is not the
-  one it was. **A blink rests at nothing**, so reduced motion shows the room as it was rendered.
-  The sprite pane is **toned down and warmed** (`0.42` of a warm mix): at the glow's full strength
-  it went through the sprite's tone curve with no bloom round it and came out white beside its warm
-  neighbours. Four windows at most is noise against `WINDOWS_LIT_MAX`.
-- **The weather leaves marks** (`sceneWeatherMarks.test.ts`). **Rain lands in rings**: two drawn
-  tiles of small rings flattened by the pitch (`splashRings`, `SPLASH_S`), sheets that do not
-  travel but come and go in place on two different periods, two on `high`, one on `medium`, none
-  on `light`. They rest at nothing, so reduced motion keeps the rain and loses them. **Snow banks
-  against the foot of every wall** on the two faces the camera sees (`DRIFT_H`, `DRIFT_D`, in
-  `Kit.box`), and **a road keeps two ruts a lane and, now and then, a trail of footprints along a
-  pavement** (`Kit.snowTracks`), drawn from a sequence of their own seeded where the road lies —
-  a snowy room is the same room as a dry one, and the test checks the room's sequence is where it
-  was.
-- **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`,
-  `rig.grade`, `rig.shadowSoftness`). On top of the hour and the sky a room may pull the sun and the
-  sky light towards its own colours, scale the sky light, harden the shadow and set its own split
-  tones and saturation: the moon has little sky light, a hard shadow, a white sun and the Earth's
-  blue in the shade; neon's shade is indigo and its light pink; the hotel is brass; the harbour is
-  teal in the shade and sand in the light; the village a gold a little older than the day's; the
-  cherry trees push a pink into the highlights. **None of it may undo the warm/cool split**, which
-  `sceneLighting.test.ts` now runs per room as well as per hour. The CSS table and the rooms page
-  read the same rig, so the table's sheen takes the room's light too.
+  `scenePools.test.ts`). A lamp-sized flat halo is a pool splatted into a map of the ground seen from
+  above, which the lit material multiplies into the fragment's own colour, full up to `lift` above
+  the ground and fading above it. **A halo past `washFrom` stays the room's wash**, and a sprite
+  keeps its disc (`lightPools` is a room kit's only). A pool is weighed by the hour's `dark`.
+- **Mist lies out over the water and the fields at a dawn and in a fog, never on the lens**
+  (`post.ts: mistFor`, the composite's `worldAt`, `LOOK.mist`, `sceneMist.test.ts`). The composite
+  rebuilds each pixel's world position and lays the mist by its height over the ground
+  (`exp(−y / height)`, five metres) in banks, **starting `near` (22) tiles from the lens and full
+  four times as far**: the first cut laid it by the frame's height, as the old view's far streets
+  were, and at eye height it put a milky veil over the deck the table stands on. A clear dawn has
+  it, a cloudy dawn a little, a fog at every hour.
+- **The weather leaves marks** (`sceneWeatherMarks.test.ts`). **Rain lands in rings** (`splashRings`),
+  sheets that come and go in place, resting at nothing. **Snow banks against the foot of every
+  wall** and caps every flat top.
+- **Every room has a light of its own** (`LOOK.rooms`, `lightRig(time, weather, room)`): its sky,
+  its sun and its body where the room's composition asks, the sun and the sky light pulled towards
+  its own colours, the sky light scaled, the shadow hardened, its own split tones and saturation,
+  its air. The moon has almost no air, a hard white light and the Earth; neon's night is violet
+  with its own light low down; the hotel is brass; the harbour teal in the shade and sand in the
+  light; the village a gold a little older than the day's; the cherry trees a pink in the
+  highlights and a clear spring noon. **None of it may undo the warm/cool split**, which
+  `sceneLighting.test.ts` runs per room as well as per hour.
 
 ### Reviewing a room
-Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the
-hour or the sky that changes the room the most) and `game-map-loading`. **These are the only place a
-room is reviewable without a server dealing a match, and what `make visual` shoots is exactly what a
-match draws**: the diorama is built in the browser from the three ids, so there is no art to drift
-from and no rectangle to measure. Review a new builder at `--viewports=wide,mobile`: the tile
-density is the same but the table covers a different shape of the frame on a phone, and a hero placed
-just past the felt's edge on a monitor is under the hand on a phone. Check the podium's rim shows
-under the table's lower edge on both, and that nothing in the front band rises into the felt. The harness runs the real engine in
-headless Chromium (SwiftShader), so a render that takes a second on a laptop takes a few there.
+Scenes `game-map-<id>` (one per room at its signature hour) plus `game-map-<id>-<variant>` (the hour
+or the sky that changes the room the most) and `game-map-loading`. **These are the only place a room
+is reviewable without a server dealing a match, and what `make visual` shoots is exactly what a
+match draws.** Review at `--viewports=wide,small,landscape` and a portrait phone: the camera is
+solved per frame, so a phone is a different lens on the same room, and a phone on its side has the
+horizon at the top edge. Check that the body is in the sky band and clear of the seat pills, that the
+far ground is not hidden by the middle, and that nothing in the near ground crosses the felt. Judge
+on the real GPU (`channel: 'chrome'` with `--enable-gpu --ignore-gpu-blocklist --use-angle=d3d11`)
+or at `--gfx=force`: headless Chromium's software GPU is handed the plain frame otherwise. When
+something in the frame has no geometry behind it, `?lookPatch={"debug":"lit"}` or `"depth"` says
+which pass drew it.
 
 ## Card face (`CardArt.svelte`, `cardArtSpace.ts`, `locoMark.ts`, `cardTheme.ts`)
 Reproduced from the brand's own card art. Review any change to it with
 `make visual ARGS="--scenes=card-sheet"` — the whole deck on one screen, which no gameplay scene
 shows.
 
+- **The finish is the room's light on card stock, and it is the one thing on a face that moves with
+  the room** (`Card.svelte`'s and `CardBack.svelte`'s `::after`, the pass of 2026-09-25, asked for
+  as "the realistic look of a photographed card"). A gloss band struck across the face at the angle
+  the light comes from (`--sun-dx`), in the light's own colour (`--scene-tint`), plus the stock's
+  thickness as two hairlines — the top edge catching the light, the bottom one turned away. It
+  weakens as the room darkens (`--scene-dark`) and **never dims the face**: the face follows neither
+  the palette nor the hour, the light on it does. Off the board every variable falls back and the
+  card is lit by plain white. **No blend mode, no filter, no opacity** — a blend mode promotes every
+  card on the table to a layer of its own. `card.test.ts` reads the rule off both sources. Realism
+  stops there on purpose: a photographed card (texture, soft shadows as structure, a second
+  rendering of the face) is refused by the art direction, not by taste.
+- **The piles cast a contact shadow on the felt** (`Deck`'s `.laid::before`, `DiscardPile`'s
+  `.contact`), the way the room's sun casts the table's (`--sun-dx` / `--sun-dy`). Soft, and allowed
+  to be: it is ambience grounding the pile, while the structure is still the ink outline and the band
+  of edges.
 - **The face is CSS; the mark is a shared mask image; only the rule glyphs are still SVG.** Face,
   watermark and wild fan are all laid out in the same `1000x1500` space, expressed as percentages of
   the card box, and the two are both 2:3, so the mapping is uniform and a CSS rotation lands where the
@@ -1630,7 +1424,7 @@ real element.
   - **Discard top change (any source)**: `suppressNextDiscardFx` suppresses **only the generic pile flier**, never the SKIP/REVERSE/+N callout — playing your own Skip must announce itself too. Callout text from `effectFor(card, pendingDraw)`.
   - **Hand grew by 1**: deck→last-slot card-back flier (draws).
   - **Swap / GlobalSwitch**: trails spawned on `swapNotice.at` change.
-- Hover lift: CSS-only (`Hand.svelte`) — `.slot.hovered .card { transform: scale(1.08) translateY(-14px) }`.
+- Hover lift (`Hand.svelte`): a stiff spring per card on `.lift`, `scale(1.08) translateY(-14px)` under the pointer with the slot's tilt undone, the neighbours stepping aside (client.md, "The hand's hover").
   **The hover is a mouse's and nobody else's**: `.hovered` is set on `pointerenter` gated on
   `pointerType === 'mouse'`. It was `mouseenter`, which a touch screen synthesises on the tap and
   never follows with a `mouseleave` until the finger lands somewhere else, so a card tapped and
@@ -1654,7 +1448,7 @@ real element.
 - Shared motion constants in `cardTheme.ts`: `EASE_OUT_CARD` (card flights, as control points because that is what `element.animate` takes) and `DEAL_STAGGER_MS`. The fan's reflow curve lives in `Hand.svelte` beside the rule that uses it.
 - **Hand keys come from `handCardKeys(hand)`**, not the array index — occurrence-numbered card identity. Index keys make a keyed block reuse the wrong node when a card leaves the middle of the fan, so the survivors snap instead of sliding into the gap.
 - `Hand` staggers cards in only when the hand grows **from empty** (a deal). Any other growth is a draw, which already has its own deck→hand flier.
-- `DiscardPile`: 2 static neutral under-layers for pile thickness (deliberately untinted — the active-colour ring owns the colour there) + top card keyed on `cardKey(card)` so each new top card remounts and replays a spring settle at a deterministic `hashTilt`.
+- `DiscardPile`: 3 solid edge layers (the deck's depth) (`--card-edge`, the pile's near side once laid) + 2 static neutral under-layers for pile thickness (deliberately untinted — the active-colour ring owns the colour there) + top card keyed on `cardKey(card)` so each new top card remounts and replays a spring settle at a deterministic `hashTilt`.
 - `store.lastPlay { actorIndex, card, at }` is set by `applyCardPlayed` and exists **only** for animation. Never read it for rules decisions.
 
 ### The turn clock (`GameView`'s `.turnTimerBar`, `tokens.css`'s `loco-slide`)
@@ -1702,13 +1496,12 @@ of 2026-09 found five of them, every one on the surfaces a reaction is aimed at:
   fly transition's alone.
 - **The deck's glow** (`Deck.svelte`) was a transitioned `filter: drop-shadow()` on the pile, which
   re-rasterises four card backs per frame of the fade, twice a turn. A `::after` box shadow under the
-  pile (`isolation: isolate` on the deck, `z-index: -1` on the glow), faded on opacity. **Hover is
+  pile (on the laid node, whose transform makes the stacking context; `z-index: -1` on the glow), faded on opacity. **Hover is
   behind `@media (hover: hover)`**: a touch screen synthesises `:hover` on the tap and keeps it, so
   the pile stayed lifted and lit after the draw, a deck that looked pressable on a turn that was over.
-- **The direction ring** (`DirectionRing.svelte`) carried a `filter: drop-shadow()` on each of ten
-  chevrons under an infinite opacity chase — ten blurs a frame for the match. Each chevron is drawn
-  twice, a wider translucent `.halo` stroke first, exactly the card glyphs' ink pass; the chase
-  animates the group's opacity and nothing else.
+- **The direction arrows** (`DirectionRing.svelte`) once were ten chevrons each carrying a
+  `filter: drop-shadow()` under an infinite opacity chase — ten blurs a frame for the match. What
+  replaced them turns as one element's `transform`, composited: never a repaint.
 - **`will-change: transform` is kept where something moves every play and nowhere else.** The
   hand's slots keep it (they reflow on every card). `PlayerSlot` and `DiscardPile .top` lost it: a
   seat glides a handful of times a match and the top card settles once, and the browser promotes an
@@ -1834,6 +1627,35 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     on a wide monitor the words came down on empty board with their band floating over them. The
     tilt now pivots about the centre, where the banner is; the sweep still starts at the left,
     because that is the gesture.
+  - **The plate is a ribbon cut to the word, never a band across the frame.** It used to be a
+    gradient fading out at both ends behind a dark rounded card with a glow: players read it as a
+    dialog box, and it covered the very card that was slammed. A solid band across the whole frame
+    replaced it and read as a screen transition rather than an object, so it was cut down: a
+    ribbon a swallowtail wider than the title on each side, notched at both ends, in the actor's
+    colour, an ink layer under the face (a `clip-path` takes a border with it) and the hard shadow
+    as a `drop-shadow` on the pair. It lives **inside** `.banner`, so it takes the slam's tilt with
+    the word and unfurls from the middle on a transform of its own. `interruptHint.test.ts`.
+  - **Under reduced motion the ribbon stays** and only what travels goes (the unfurl, the speed
+    lines, the punch): it is what the word is printed on. `interruptHint.test.ts`.
+- **The three shouts share one relief and one tag, and differ by shape.** The word is white, a 5px
+  ink outline, a stepped ink extrusion (`text-shadow` in hard steps, never a blur): legible on any
+  seat's colour, since the interception's ribbon is in one. Who it is about rides a tag of the
+  board's own chrome hanging off the bottom edge, **the name alone, ink on the plate**: a
+  seat-colour dot beside it was tried and read as decoration. The shapes are the difference a
+  muted clip reads: a **ribbon** (interception), a square-cornered **stamp** with the white rule
+  inset inside its ink edge (Contre-LOCO!), a round-cornered **die-cut sticker** with a white
+  margin between the red and the ink (LOCO!). None of the three carries a soft glow any more.
+- **Where the three shouts land is computed, never a percentage** (`layout.ts: shoutLine`, published
+  by `GameBoard` as `--shout-y` in screen pixels, read by `InterruptBanner`'s `.anchor`,
+  `CatchBanner`'s `.anchor` and `GameView`'s `.unoBanner`). They sat at 24%, 30% and 50% of the
+  screen, and on a table sat round its rim the first two came down on the hand of whoever faces us.
+  The rule: from the seat block to the turn pill, the middle column (`SHOUT_HALF_W` either side of
+  the piles) is taken by the piles and by every seat box that reaches into it, and the shout is
+  centred in the **tallest gap left, the lower one on a tie**. On a rim table that is the band
+  between the piles and our hand; with the seats held up in rows (a phone) it is the band above the
+  piles. When no gap reaches `SHOUT_BAND_MIN` (a small screen, a phone on its side) the shout goes
+  **over the piles, as low as the room under them allows**, never over anybody's hand: ours is the
+  one an interception is answered from. `seatLayout.test.ts`.
 - **Contre-LOCO! verdict** (`<CatchBanner />`): driven by `uno_caught`, which the client used to
   consume for its window bookkeeping and nothing else. A landed catch was the **quietest** event in
   the game — the caught seat's hand grew by two, which on a board where hands grow all match long is
@@ -1849,9 +1671,9 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     shockwave, against an actor-tinted banner growing out of a horizontal wipe, and a single
     vertical thump against a sideways rattle (`shakeScreen`). The two loudest moments in the game
     have to be told apart in a muted clip. The caught seat's colour appears on their name only.
-  - The stamp sits at 30% height, above the piles: the penalty cards leave the deck while it is
-    still up, and a verdict covering the cards it is about explains nothing. Same reason the LOCO!
-    banner sits above the pile rather than over it.
+  - The stamp lands on the shout line (above), never over the piles while a gap exists: the
+    penalty cards leave the deck while it is still up, and a verdict covering the cards it is about
+    explains nothing.
   - **The catcher is not on the wire** — `uno_caught` carries the caught seat only — so the banner
     names the seat that pays, not the one that called. That is the table's news; the caller already
     knows, they pressed the button. Naming them would be a protocol change for a line of copy.
@@ -1859,8 +1681,9 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
     flight. Against fully exhausted piles the server hands over fewer (a draw never fails, it
     shrinks), so what is approximate there is the announcement, never the hand — which always comes
     from the server. Scene `game-catch-caught`; `src/test/catchBanner.test.ts`.
-- **UNO banner**: tilted sticker, punch-in, positioned *above* the pile so the play that triggered
-  it stays visible.
+- **UNO banner**: tilted sticker, punch-in, on the shout line so the play that triggered it stays
+  visible. The word is alone on it and the caller rides the tag (`.unoWho`): "Pixel: LOCO!" was one
+  line of mixed type in which the name took the size of the shout.
   - **Centred with `inset-inline: 0` + `margin-inline: auto` and `width: fit-content`, never
     `left: 50%`** — the notice pills' rule, and the same bug one size up: anchored at the midpoint
     the sticker was shrink-to-fit against the right half of the screen, and with `nowrap` on top of
@@ -1870,13 +1693,10 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   - **z-index 45, with the other two shouts.** It sat at 10 — under the notice pills at 14 — so on a
     phone a Swap landing on the same beat printed its line across the shout. The three moments
     allowed to shout share one layer; see the score table's ledger below.
-- **Contre-LOCO! verdict, the name line**: the caught seat's colour is a **swatch beside the name**
-  (`.seatDot`, ink-outlined), and the name itself is the stamp's white with the title's ink stroke.
-  It used to *be* the name's colour, so a viewer following "the orange player" would find them — and
-  on the red stamp the ten seat colours measured between 1.05:1 and 2.3:1, the rose seat invisible
-  outright. The dot keeps the seat findable; the name stays legible whichever seat it names. Same
-  device as the versus reveal's avatar initial (`MatchFound.svelte`), where white on six of the ten
-  seat fills failed 3:1 and the letter now carries the ink outline every card glyph carries.
+- **Contre-LOCO! verdict, the name line**: the name is ink on the tag hanging off the stamp and
+  carries no seat colour at all. It used to *be* the seat's colour, and on the red stamp the ten
+  seat colours measured between 1.05:1 and 2.3:1, the rose seat invisible outright; the coloured dot
+  that replaced it read as decoration and is gone too. The name alone says who.
 - **The interception banner takes the catch stamp's 480px block**: smaller padding, the ×N chip
   pulled in, and `.subtitle` allowed to wrap. It had no small-screen rule at all, and a subtitle that
   may not wrap took a 20-character nickname off both edges of a phone.
@@ -1884,22 +1704,27 @@ to escalate to when a wild drops, which is the whole reason the tiers exist.
   survive landing on felt, on a card, or on the background. Text is localised (`fxSkip`,
   `fxReverse`); `<GameBoard />` takes them as a memoised `fxTexts` prop — a fresh object literal
   would replay the callout on every render.
-- **Play direction ring** (`<DirectionRing />`, geometry in `layout.ts: directionMarkers`): chevrons
-  around the felt saying which way play is moving. A Reverse otherwise only announces itself for the
+- **Play direction** (`<DirectionRing />`, geometry in `layout.ts: directionArrows`, `pileCentre`):
+  two translucent arrows laid on the felt round the deck and the discard, one down the right of the
+  piles and one up the left for a clockwise table. A Reverse otherwise only announces itself for the
   length of one callout, after which nothing on screen answers "who plays after me" — the question
   the card was about.
-  - **`direction = +1` is clockwise *on screen*, and the ring must never contradict the seats.** The
-    arc puts the next player at the **left** end of the top row, so a table flows 6 o'clock → 9 → 12
-    → 3, which is clockwise. Same fact `clockwiseOpponents` is named after; an arrow pointing the
-    wrong way is worse than no arrow.
-  - The heading lives in the **geometry**, never in the motion: the chase is a second readout, so a
-    frozen ring (`prefers-reduced-motion`, a paused clip, a screenshot) still reads. Same principle
-    as `.armed` degrading to a static halo.
-  - `<GameBoard />` keys it on the direction, so a Reverse remounts it and replays the flip. Nothing
-    here goes through per-frame state — the chase is one CSS animation per chevron, staggered by
-    index (markers come out of `directionMarkers` in flow order, so index order *is* flow order).
-  - Drawn as a sibling of `.tableOval`, not a child: the felt clips its overflow and the chevrons'
-    glow extends past the ellipse.
+  - **Round the piles, not round the rim.** The ring of chevrons that ran round the felt, and then
+    the chevrons inlaid in the racetrack, were both judged not good enough: round the rim they are
+    far from where the eye is and half of them sit under a hand or a plate. The piles are where
+    every eye already is.
+  - **`direction = +1` is clockwise *on screen*, and the arrows must never contradict the seats.**
+    The arc puts the next player at the **left** end of the top row, so a table flows 6 o'clock → 9
+    → 12 → 3, which is clockwise. Same fact `clockwiseOpponents` is named after; an arrow pointing
+    the wrong way is worse than no arrow.
+  - **Laid down in perspective, with a thickness**: a flat SVG in a box tipped back
+    (`perspective(900px) rotateX(62deg)`, steeper than a pile: at the piles' own tilt a circle this
+    wide reached the seats and the pill), the same arrow a few pixels lower in shade under it.
+    Translucent near-white washed with the room's accent: a saturated arrow would read as a suit.
+  - The heading lives in the **arrowheads**, never in the motion: the slow turn with the play (60s a
+    lap) is a second readout, so a frozen ring (reduced motion, a paused clip, a screenshot) still
+    reads.
+  - `<GameBoard />` keys it on the direction, so a Reverse remounts it and replays the half turn.
   - Scenes `game-my-turn` (cw) and `game-reversed` (ccw) cover both headings in the showcase.
 - **The deck falls** on the victory screen only, and once (`CardFall.svelte`). Losing screens do not
   celebrate, and a walkover is not a victory. **What falls is the real components**, fourteen

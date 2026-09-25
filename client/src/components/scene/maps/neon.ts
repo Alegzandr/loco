@@ -1,222 +1,129 @@
 /**
- * Neon: a square in a city of neon.
+ * Neon, seen from the table: a rooftop terrace above a city of neon.
  *
- * The table stands on a podium in the middle of a night district: a few
- * towers with some of their windows lit, a neon edge on one in five, one
- * billboard, a bar with its stools, a food truck, cars with their headlights
- * on. At night it is the map this game was named for; at noon it is a city
- * under a hard sun with the tubes off, in lighter stone.
+ * - **Near**: the table on the roof's tiles, a glass balustrade along the
+ *   edge, a water tower on its legs on the left and the back of a sign on the
+ *   right, lit from behind by its own tubes. A couple of vents.
+ * - **Middle**: the roofs just across the street, a few storeys down, with
+ *   their neon on the faces towards us: the one sign that says the game's
+ *   name, a column of tubes, a billboard.
+ * - **Far**: the skyline in three bands, the nearest tall and lit, the last a
+ *   violet silhouette, and on the right the needle of the broadcast tower
+ *   with its lights. Over it, the sky of a city at night — never quite dark,
+ *   violet with its own light at the horizon.
  *
- * **It used to be all of that at once, everywhere**: a tube on every other
- * tower, a sign on every third, a beacon on every fourth, four windows in
- * five lit, string lights round the square, a dance floor, a crowd of
- * twenty-two — and the room was a wall of light a spectator could not rest
- * their eyes on. The pocket parks between the towers and the dark windows
- * are what make the lit ones read.
+ * At noon it is the same city under a hard sun with the tubes off; the neon
+ * keeps its colour a shade down (`neonText`), never grey.
  */
-import type { Builder } from './common'
+import type { Builder } from './vista'
+import { neonText } from './vista'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, neonText, at, along, screenOf, FLOOR } from './common'
-import { mix, cssHex } from '../sky'
-import type { Actor } from '../life'
-import { cloud, plane, puff, streetWalkers, traffic } from './actors'
+import { mix, scale } from '../sky'
+import { deck, hills, skyline, vistaTable } from './vista'
+import { aircraft, airship } from './vistaLife'
 
-/** The cars, parked along the streets and driving them. */
-const CARS = [0xff3d68, 0x3d9bff, 0xffd23c, 0xf5f0e6, 0x2b2b2b, 0xc56bff] as const
+const TILE = 0x2c2936
+const STEEL = 0x2b2a36
+const NEON = [0xff4fd8, 0x4fe3ff, 0xc56bff, 0xffc14f] as const
+/** How far below the roof the street is, tiles. */
+const STREET = -48
+/** Where the roof ends. */
+const EDGE = -7
 
 export const neon: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
-  // A city by day is not a night city with the lights off: the same towers
-  // stand in lighter stone under the sun.
-  // By day the stone is warm and the palette spreads: the light is flat now,
-  // so the room's contrast has to be in the paint, and seven blue-greys under
-  // a flat sun came out as one pale wash.
-  // At night the towers are a notch above black: under rain on a phone at
-  // 720p the darker set left nothing of the city but the lit windows.
-  const palette = on
-    ? [0x2c3466, 0x3e2f70, 0x252d58, 0x343c6e, 0x2a3f5e, 0x40375e, 0x46407c]
-    : [0x8a7fd0, 0xc27fb8, 0x6f9fd6, 0xd6a0c8, 0x7fc0c4, 0xd08fa8, 0x9a8fe0]
-  const neonColors = [0xff3dd0, 0x4fd6ff, 0xffd23c, 0x7cff6b, 0xc56bff, 0xff3d68]
-  // The square's own furniture takes the same day/night split the towers do.
-  // Painted 0x2f2540 whatever the hour, the bar, its back wall and the kiosks
-  // came out at noon as black shapes on pale stone: the counter disappeared
-  // into its own shadow and what was left was the lit top of it, a magenta
-  // plate hanging in the air with three stools under it.
-  const NIGHT = on ? 0x3d3158 : 0x6f6690
-  const NIGHT_DEEP = on ? 0x1e1830 : 0x5a5480
-  const shopGlow = [0xff3dd0, 0x4fd6ff, 0xffd23c, 0xff8a3c]
-  /** A tube with the power off: its own colour, a shade down, never grey. */
-  const unlit = (c: number) => mix(c, 0x2a2a35, 0.3)
+  const view = k.view
+  if (!view) return
+  vistaTable(k, MAPS.neon.table)
 
-  k.floor(on ? 0x1d2140 : 0xb9b0a4, FLOOR)
+  // ─── Near: the roof ─────────────────────────────────────────────────────
+  // A deck of dark wood: the one warm thing up here, under the violet.
+  deck(k, EDGE, view.eye[2] + 2, 52, 0x4a3328, 0x3d2a22, { plank: 0.36 })
+  // The parapet and a railing along the edge: two rails on posts, so the
+  // city shows through it.
+  k.box(0, -0.1, EDGE - 0.3, 52, 0.5, 0.5, scale(TILE, 0.9), { cap: true })
+  for (const y of [0.75, 1.1]) k.box(0, y, EDGE - 0.3, 52, 0.06, 0.06, STEEL, { cap: false })
+  for (let x = -24; x <= 24; x += 2) k.box(x, 0.4, EDGE - 0.3, 0.07, 0.76, 0.07, STEEL, { outline: false, cap: false })
+  // The roof's own neon: a tube along the parapet's foot.
+  if (on) k.box(0, 0.02, EDGE + 0.05, 52, 0.06, 0.06, NEON[2], { glow: true, outline: false, cap: false })
 
-  const { cx, cz } = podium(k, {
-    stone: on ? 0x15121f : 0x3a3550,
-    step: on ? 0x22203a : 0x8a8298,
-    floor: on ? 0x3d4260 : 0xd2c9bd,
-    floor2: on ? 0x343850 : 0xbfb5aa,
-    accent: 0xc56bff, top: cssHex(MAPS.neon.table.felt),
-  })
-
-  const tower = (x: number, z: number, w: number, d: number, h: number) => {
-    const color = rng.pick(palette)
-    k.tower(x, z, w, h, d, color, { floorH: 1.6, windowColor: rng.chance(0.3) ? 0x9fe8ff : 0xffd98a, roof: 'flat', roofColor: mix(color, 0x000000, 0.3) })
-    // Shopfront on the ground floor, facing the camera.
-    const c = rng.pick(shopGlow)
-    k.box(x, 0.3, z + d / 2 + 0.05, w * 0.8, 1.6, 0.08, on ? c : unlit(c), { glow: on, outline: false, cap: false })
-    k.awning(x, z + d / 2, 0, w * 0.8, mix(c, 0x111111, on ? 0.2 : 0.6), { y: 2.1, depth: 0.95 })
-    // One tower in four wears a neon edge, one in six a sign, one in eight
-    // a beacon, and no halo lies on a roof: a pool of light hanging in the air
-    // over a tower was the first thing that made the towers look see-through.
-    // By day the tubes are off but still their colour: painted grey, a neon
-    // district at noon was any grey city.
-    if (rng.chance(0.25)) {
-      const nc = rng.pick(neonColors)
-      k.box(x + w / 2 + 0.06, h - 0.3, z, 0.1, 0.25, d, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
-      k.box(x, h - 0.3, z + d / 2 + 0.06, w, 0.25, 0.1, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
-    }
-    if (rng.chance(0.16)) {
-      const nc = rng.pick(neonColors)
-      k.box(x, h, z, w * 0.7, 0.12, 0.12, 0x2a2a35, { cap: false })
-      k.box(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, on ? nc : unlit(nc), { glow: on, cap: false })
-      k.flicker(x, h, z + 0.1, w * 0.7, Math.min(3, w * 0.4), 0.2, unlit(nc))
-    }
-    if (rng.chance(0.12)) {
-      const mh = rng.range(2, 5)
-      k.cyl(x, h, z, 0.12, mh, 0x8a8fa0, { seg: 5, cap: false })
-      k.sphere(x, h + mh + 0.15, z, 0.2, 0xff3b3b, { glow: true, seg: 6, outline: false })
-    }
-    if (rng.chance(0.3)) {
-      k.box(x - w / 2 + 1, h, z - d / 2 + 1, 1.4, 0.9, 1.2, 0x8d94a3)
-      k.cyl(x + w / 2 - 1.2, h, z + d / 2 - 1.2, 0.7, 1.4, 0x6b5039, { seg: 8 })
-    }
+  // Left: planters of tall grass along the railing, and a bench.
+  for (const [x, z] of [[-5.6, -5.8], [-7.4, -4.2], [-8.2, -1.8]] as const) {
+    k.box(x, 0, z, 1.1, 0.8, 1.1, 0x3b3747, { cap: false })
+    k.bush(x, z, 0.62, k.leaf(mix(0x3f8f6a, 0x2b6b58, rng.range(0, 1))), { y: 0.8, collide: false })
   }
-  // A vertical neon sign hung off a corner.
-  const signpost = (x: number, z: number, h: number) => {
-    const nc = rng.pick(neonColors)
-    k.box(x, 1.5, z, 0.5, h, 0.3, NIGHT_DEEP)
-    k.box(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, on ? nc : unlit(nc), { glow: on, outline: false, cap: false })
-    k.flicker(x, 1.8, z + 0.2, 0.3, h - 0.6, 0.1, unlit(nc))
+  k.box(-5.4, 0.42, -2.6, 0.5, 0.08, 2.2, 0x6b4a3a, { cap: false })
+  for (const dz of [-0.9, 0.9]) k.box(-5.4, 0, -2.6 + dz, 0.4, 0.42, 0.1, STEEL, { outline: false, cap: false })
+  // Right: the rooftop bar, its counter lit from beneath, two stools.
+  const bx = 6.2
+  const bz = -4.6
+  k.box(bx, 0, bz, 1.0, 1.1, 4.4, 0x2a2536)
+  k.box(bx, 1.1, bz, 1.3, 0.08, 4.6, 0x6b4a3a, { cap: true })
+  if (on) k.box(bx - 0.52, 0.06, bz, 0.06, 0.06, 4.3, NEON[1], { glow: true, outline: false, cap: false })
+  for (const dz of [-1.2, 0.6]) {
+    k.cyl(bx - 1.0, 0, bz + dz, 0.05, 0.75, STEEL, { seg: 6, cap: false })
+    k.cyl(bx - 1.0, 0.75, bz + dz, 0.24, 0.08, NEON[0], { seg: 12, cap: false })
   }
+  // Bottles on a shelf behind it, catching the tubes.
+  for (let i = 0; i < 6; i++) k.cyl(bx + 0.2, 1.18, bz - 1.6 + i * 0.6, 0.06, 0.3, rng.pick([0x2f8f6a, 0x8a3a4a, 0xc9a86b]), { seg: 6, outline: false, cap: false, gloss: 0.8 })
 
-  /** A pocket park on an unbuilt block: a lawn, a few trees, a bench. */
-  const park = (x: number, z: number, w: number) => {
-    k.slab(x, z, w - 1, w - 1, k.ground(on ? 0x1f3a33 : 0x7fb86f), { h: 0.05 })
-    const n = rng.int(2, 4)
-    for (let i = 0; i < n; i++) k.tree(x + rng.range(-w / 3, w / 3), z + rng.range(-w / 3, w / 3), { kind: 'round', h: rng.range(1.2, 1.8), r: rng.range(0.7, 1.0), leaf: 0x2fbf7a })
-    if (rng.chance(0.6)) k.bench(x + rng.range(-1, 1), z + w / 3, 0, 0x4a4f66)
-    if (rng.chance(0.5)) k.lamp(x - w / 3, z - w / 3, { h: 3, style: 'box', color: 0xffe1a1, post: 0x2a2f3a })
-  }
-
-  const plan = cityGrid(k, {
-    block: 11,
-    road: 3.6,
-    roadColor: on ? 0x22263d : 0x4a4e5c,
-    sidewalk: on ? 0x363a55 : 0xcfc6ba,
-    dashes: true,
-    crossings: true,
-    cars: CARS,
-    carDensity: 0.2,
-    lamp: { h: 3, style: 'box', color: 0xffe1a1, post: 0x2a2f3a },
-    people: 0.3,
-    maxHeight: 24,
-    // Half the blocks beside the square are parks; the skyline is at the edge.
-    density: (c) => (c.front ? 1 : c.dist < 42 ? 0.65 : 0.85),
-    open: (c) => park(c.x, c.z, c.w),
-    fill: (c) => {
-      if (c.front) {
-        // A pocket park: nothing here may rise into the table.
-        for (const l of lots(c, 2, 2, 1)) {
-          const r = rng.next()
-          if (r < 0.5) k.tree(l.x, l.z, { kind: 'round', h: 1.2, r: 0.8, leaf: 0x2fbf7a })
-          else if (r < 0.65) k.bench(l.x, l.z, rng.pick([0, Math.PI / 2]), 0x4a4f66)
-        }
-        return
+  // ─── Middle: the roofs across the street ────────────────────────────────
+  const across = (x: number, z: number, w: number, h: number, d: number, c: number) => {
+    k.box(x, STREET, z, w, h - STREET, d, c, { cap: true })
+    // Rows of windows on the face towards us.
+    const floors = Math.floor((h - STREET) / 3.2)
+    for (let f = 0; f < floors; f++) {
+      for (let cx = x - w / 2 + 1.2; cx < x + w / 2 - 0.8; cx += 2.2) {
+        const litHere = on && rng.chance(k.rig.windowsLit)
+        k.box(cx, STREET + f * 3.2 + 1.0, z + d / 2 + 0.04, 1.3, 1.5, 0.08, litHere ? mix(0xffd89a, 0x9fe0ff, rng.range(0, 1)) : scale(c, 0.6), { glow: litHere, outline: false, cap: false })
       }
-      // One building a block: low beside the square, a tower at the edge.
-      const near = c.dist < 42
-      const [l] = lots(c, 1, 1, 0)
-      const h = near ? rng.range(4, 8) : rng.range(8, 20)
-      tower(l.x, l.z, l.w - rng.range(1, 3), l.d - rng.range(1, 3), h)
-      if (rng.chance(0.15)) signpost(c.x + c.w / 2 - 0.2, c.z + c.d / 2 - 0.2, rng.range(3, 6))
-      if (rng.chance(0.5)) k.tree(c.x - c.w / 2 - 0.9, c.z + c.d / 2 + 0.9, { kind: 'round', h: 1.2, r: 0.7, leaf: 0x2fbf7a })
-    },
-  })
+    }
+  }
+  // Lower than this roof, every one: the city is below the table, and only
+  // the far towers stand up into the sky.
+  across(-42, -60, 22, -18, 14, 0x3d3a52)
+  across(-14, -74, 18, -12, 14, 0x453f5c)
+  across(14, -66, 20, -22, 14, 0x3a3f58)
+  across(44, -58, 24, -9, 14, 0x413a55)
+  // The name, in tubes, on the roof across the street.
+  // Off to the left, where no seat covers it.
+  neonText(k, 'LOCO!', -40, -18 + 0.2, -60 + 7.3, 1.3, on ? NEON[0] : mix(NEON[0], 0x4a3a55, 0.3))
+  // A column of tubes down the corner of the building on the right.
+  for (let i = 0; i < 8; i++) {
+    const c = NEON[i % 2 === 0 ? 1 : 3]
+    k.box(31.5, -12 - i * 3.6, -58 + 7.1, 1.6, 2.6, 0.3, on ? c : mix(c, 0x3a3548, 0.4), { glow: on, outline: !on, cap: false })
+  }
+  // A billboard on the roof across the middle.
+  k.box(14, -22, -66, 0.3, 4, 0.3, STEEL)
+  k.box(14, -18, -66, 12, 5, 0.4, on ? mix(NEON[1], 0x10202a, 0.35) : 0x3a8fa8, { glow: on, cap: false })
 
-  // ─── The square around the podium ──────────────────────────────────────
-  const { a, b, sx, sy } = k.anchor
-  // The sign, the brand, on a billboard at the top of the square.
-  {
-    const [px, pz] = at(sx + 3, sy + b + 8.5)
-    const rot = Math.PI / 4
-    k.box(px - 7 * Math.cos(rot), 0, pz + 7 * Math.sin(rot), 0.3, 6.2, 0.3, 0x2a2a35, { cap: false })
-    k.box(px + 7 * Math.cos(rot), 0, pz - 7 * Math.sin(rot), 0.3, 6.2, 0.3, 0x2a2a35, { cap: false })
-    k.box(px, 3.2, pz, 15, 3.4, 0.35, 0x101322, { rot })
-    neonText(k, 'LOCO!', px + 0.25 * Math.sin(rot), 3.55, pz + 0.25 * Math.cos(rot), 0.5, 0xff3d68, rot)
-  }
-  // The bar on the left, its stools and its dance floor.
-  {
-    const rot = Math.PI / 4
-    const [bx, bz] = at(sx - a - 6, sy + 1)
-    k.box(bx, 0, bz, 7, 1.1, 1.3, NIGHT, { rot })
-    // The counter's top: a dark note of the accent, lit like everything else.
-    // Glowing, and then merely painted in the accent, it was a seven-tile bar
-    // of light lying at the edge of the frame.
-    k.box(bx, 1.1, bz, 7.2, 0.12, 1.5, mix(0xc56bff, NIGHT_DEEP, 0.6), { rot, cap: false })
-    const [wx, wz] = at(sx - a - 9, sy + 1)
-    k.box(wx, 0, wz, 7, 2.8, 0.5, NIGHT_DEEP, { rot })
-    along(wx - 2.0, wz - 2.0, wx + 2.0, wz + 2.0, 3, (x, z) => k.box(x, 1.6, z, 0.24, 0.6, 0.24, rng.pick(neonColors), { glow: on, outline: false, cap: false }))
-    const [tx, tz] = at(sx - a - 3.5, sy + 1)
-    along(tx - 2, tz - 2, tx + 2, tz + 2, 5, (x, z) => {
-      k.cyl(x, 0, z, 0.13, 0.7, 0x8a8fa0, { seg: 6, cap: false })
-      k.cyl(x, 0.7, z, 0.32, 0.14, 0xff3d68, { seg: 8, cap: false })
-    })
-    k.person(...at(sx - a - 7.5, sy + 1.2), rot + Math.PI, { shirt: 0xffffff, pants: 0x1c1c1c })
-    if (on) k.halo(bx, 0, bz, 4, 0xc56bff, 0.16)
-  }
-  // A food truck and a queue on the right, broadside to the camera. It stood
-  // end-on once, which showed nothing but its black roof over a strip of
-  // yellow: a dark block nobody could name.
-  const truckSpot: [number, number] = [sx + a + 6, sy - 1]
-  {
-    const rot = Math.PI / 4
-    const c = Math.cos(rot)
-    const sn = Math.sin(rot)
-    const [fx, fz] = at(...truckSpot)
-    k.box(fx, 0.35, fz, 5, 2.4, 2.2, 0xffd23c, { rot })
-    k.box(fx, 2.75, fz, 5.2, 0.2, 2.4, 0xf5f0e6, { rot })
-    // The serving hatch, on the side facing the square, under a striped awning.
-    k.box(fx + 1.12 * sn, 1.4, fz + 1.12 * c, 3, 0.9, 0.08, on ? 0xfff0c0 : 0x2a3346, { rot, glow: on, outline: false, cap: false })
-    k.box(fx + 1.6 * sn, 2.15, fz + 1.6 * c, 3.4, 0.12, 1, 0xff3d68, { rot, tilt: 0.25, cap: false })
-    for (const s of [-1.6, 1.6]) for (const side of [-1, 1]) k.cyl(fx + s * c + side * 1.1 * sn, 0.35, fz - s * sn + side * 1.1 * c, 0.35, 0.3, 0x1c1c1c, { axis: 'z', rot, seg: 8 })
-    for (let i = 0; i < 2; i++) k.person(...at(truckSpot[0] - 0.8 + i * 1.5, truckSpot[1] - 1.7 - i * 0.4), rot + Math.PI)
-    if (on) k.halo(fx, 0, fz, 3.4, 0xfff0c0, 0.18)
-  }
-  // Six planters round the paving, and nothing strung over it.
-  for (let i = 0; i < 6; i++) {
-    const t = (i / 6) * Math.PI * 2 + 0.4
-    const [x, z] = at(sx + Math.cos(t) * (a + 9), sy + Math.sin(t) * (b + 6))
-    if (screenOf(x, z)[1] > sy + b + 7) continue
-    k.box(x, 0, z, 1.2, 0.7, 1.2, 0x3a3e52)
-    // In the planter, not under it: planted at the ground, a drawn bush is
-    // lower than the box and the planter was an empty black cube.
-    k.bush(x, z, 0.55, 0x2fbf7a, { collide: false, y: 0.7 })
-  }
-  crowd(k, 6)
-  void cx
-  void cz
+  // ─── Far: the skyline ───────────────────────────────────────────────────
+  // Night towers are the violets the neon is laid on; by day they are stone
+  // and glass, and the city is a city.
+  const towers = on ? [0x2e2b45, 0x35314f, 0x2a2840, 0x3b3452] : [0x8d97a8, 0xb9a48c, 0x6f8fa6, 0xa99ab8, 0xc7b8a0]
+  // Most of the city stands below this roof; a few spires stand up into the
+  // sky, and the sky is what they are read against.
+  skyline(k, { x0: -420, x1: 420, z0: -170, z1: -340, h: [14, 44], w: [14, 26], count: 55, colors: towers, base: STREET, neon: { share: 0.25, colors: NEON }, window: 0xffd89a, windows: 0.5, spires: { count: 3, h: [70, 95] } })
+  skyline(k, { x0: -900, x1: 900, z0: -440, z1: -720, h: [25, 60], w: [20, 40], count: 60, colors: towers.map((c) => mix(c, 0x5a4a8a, 0.25)), base: STREET, neon: { share: 0.12, colors: NEON }, windows: 0.3, spires: { count: 4, h: [110, 170] } })
+  skyline(k, { x0: -1800, x1: 1800, z0: -900, z1: -1400, h: [40, 90], w: [30, 60], count: 60, colors: towers.map((c) => mix(c, 0x6a5a9a, 0.4)), base: STREET, windows: 0.06, ribbons: false, spires: { count: 5, h: [140, 220] } })
+  hills(k, -3500, 3500, -3000, 160, 0x3b3060, 12, STREET)
 
-  // ─── What moves: a car now and then, steam off the truck, the sky ────────
-  const life: Actor[] = []
-  life.push(...traffic(k, plan, CARS, 1))
-  life.push(puff(k, 'steam', { at: [truckSpot[0] - 1.5, truckSpot[1] + 2.4], rise: 2, duration: 3200, size: 0.7 }))
-  life.push(puff(k, 'steam-2', { at: [truckSpot[0] - 0.8, truckSpot[1] + 2.4], rise: 1.8, duration: 4100, delay: 1500, size: 0.55 }))
-  if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
-    life.push(cloud(k, 'cloud-0', { sy: 18, size: 1.1, duration: 190_000 }))
-    life.push(cloud(k, 'cloud-1', { sy: 20.5, size: 0.7, duration: 240_000, delay: 90_000, from: 50, to: -50 }))
-    life.push(plane(k, 'plane', { sy: 17, every: 110_000, color: 0xf5f0e6 }))
-  }
-  life.push(...streetWalkers(k, plan, 2))
-  return life
+  // The broadcast tower on the right: a needle with its deck and its lights.
+  // Its deck stands a little over the eye, so it reads in the band of sky
+  // on the right, clear of the seats.
+  const tx = 360
+  const tz = -650
+  const tc = on ? 0x4a4466 : 0xc9ccd6
+  k.cyl(tx, STREET, tz, 8, 40, tc, { seg: 8, rTop: 4 })
+  k.cyl(tx, STREET + 40, tz, 4, 44, scale(tc, 1.05), { seg: 8, rTop: 2 })
+  k.cyl(tx, STREET + 84, tz, 13, 8, scale(tc, 1.1), { seg: 16, rTop: 10 })
+  if (on) k.cyl(tx, STREET + 87, tz, 13.2, 1.4, NEON[1], { seg: 16, glow: true, outline: false, cap: false })
+  k.cyl(tx, STREET + 92, tz, 1.6, 40, scale(tc, 1.15), { seg: 6, rTop: 0.3 })
+  if (on) for (const y of [60, 92, 131]) k.sphere(tx, STREET + y, tz, 2.4, 0xff3b4f, { glow: true, seg: 8, outline: false })
+  // ─── What moves ─────────────────────────────────────────────────────────
+  return [
+    aircraft('plane', [[-1600, 190, -1900], [1600, 230, -1900]], { duration: 46_000, every: 110_000, size: 7 }),
+    airship('blimp', [[-420, 70, -760], [-180, 76, -760]], { duration: 320_000, hull: on ? 0x3a3450 : 0xd9d2c6, band: on ? NEON[0] : 0xc56bff, size: 9 }),
+  ]
 }

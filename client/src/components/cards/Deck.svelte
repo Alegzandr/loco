@@ -1,7 +1,7 @@
 <script lang="ts">
   import CardBack from './CardBack.svelte'
   import { pressToAct } from '../press'
-  import { deckPosition } from './layout'
+  import { deckPosition, pileTransform } from './layout'
   import { CARD_W, CARD_H } from './cardTheme'
 
   type Props = {
@@ -20,8 +20,9 @@
 
   let { width, height, topReserve = 0, landscape = false, canDraw = false, onDraw, drawLabel }: Props = $props()
 
-  // Depth of the visible stack. Deeper layers are drawn first and offset down-right
-  // so the pile reads as a physical block of cards seen from slightly above.
+  // Depth of the visible stack. Deeper layers are drawn first and offset straight
+  // down, in the plane of the pile: once it is laid on the felt that is the
+  // block's near side, a band of edges under the top card (`pileTransform`).
   const LAYERS = [3, 2, 1, 0]
   const LAYER_OFFSET = 3
 
@@ -50,8 +51,7 @@
 <div
   class="deck"
   class:interactive
-  style="left: {pos.x}px; top: {pos.y}px; width: {CARD_W +
-    LAYERS.length * LAYER_OFFSET}px; height: {CARD_H + LAYERS.length * LAYER_OFFSET}px"
+  style="left: {pos.x}px; top: {pos.y}px; width: {CARD_W}px; height: {CARD_H + LAYERS.length * LAYER_OFFSET}px"
   use:pressToAct={interactive ? onDraw : undefined}
   onkeydown={onKey}
   role={interactive ? 'button' : undefined}
@@ -59,11 +59,15 @@
   aria-label={interactive ? drawLabel : undefined}
   aria-hidden={interactive ? undefined : true}
 >
-  {#each LAYERS as i (i)}
-    <div class="layer" class:buried={i !== 0} style="left: {i * LAYER_OFFSET}px; top: {i * LAYER_OFFSET}px">
-      <CardBack />
-    </div>
-  {/each}
+  <!-- The pile lies on the felt: tipped back about the top card's centre. On a
+       node of its own because the deck's transform is the hover lift's. -->
+  <div class="laid" style="transform: {pileTransform()}; transform-origin: {CARD_W / 2}px {CARD_H / 2}px">
+    {#each LAYERS as i (i)}
+      <div class="layer" class:buried={i !== 0} style="top: {i * LAYER_OFFSET}px">
+        <CardBack />
+      </div>
+    {/each}
+  </div>
 </div>
 
 <style>
@@ -71,17 +75,16 @@
     position: absolute;
     pointer-events: none;
     transition: transform 0.15s var(--ease-bounce);
-    /* A stacking context of its own, so the glow below can sit at `z-index: -1`
-       behind the four layers of the pile and still be inside the deck. */
-    isolation: isolate;
   }
 
   /* The glow, as a pseudo-element under the pile animated on opacity. It was a
      `filter: drop-shadow()` transitioned on the deck itself, and a transitioned
      filter re-rasterises the whole pile — four card backs — on every frame of
      the fade, twice per turn. A box shadow on a rounded box the pile's size is
-     the same halo, painted once and faded on the compositor. */
-  .deck::after {
+     the same halo, painted once and faded on the compositor. It is drawn on
+     the laid node, so it lies on the felt with the pile; that node's transform
+     makes it a stacking context, which keeps `z-index: -1` inside it. */
+  .laid::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -100,7 +103,7 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  .interactive::after {
+  .interactive .laid::after {
     opacity: 1;
   }
 
@@ -112,7 +115,7 @@
       transform: translateY(-5px) scale(1.03);
     }
 
-    .interactive:hover::after {
+    .interactive:hover .laid::after {
       box-shadow: 0 0 22px 6px color-mix(in srgb, var(--color-secondary) 80%, transparent);
     }
   }
@@ -125,6 +128,27 @@
     outline: 3px solid var(--color-tertiary);
     outline-offset: 4px;
     border-radius: 12px;
+  }
+
+  .laid {
+    position: absolute;
+    inset: 0;
+  }
+
+  /* The pile's contact shadow on the felt, cast the way the room's sun casts
+     every block's (`--sun-dx` / `--sun-dy`, the table's own shadow). Soft, and
+     that is allowed here: it is ambience, grounding the pile in the room; the
+     structure is still the ink outline and the band of edges. */
+  .laid::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 8px;
+    pointer-events: none;
+    transform: translate(calc(var(--sun-dx, 0) * 7px), calc(var(--sun-dy, 0.7) * 7px + 4px));
+    box-shadow: 0 0 12px 3px rgba(0, 0, 0, calc(0.5 + var(--scene-dark, 0) * 0.2));
+    background: rgba(0, 0, 0, 0.35);
   }
 
   .layer {

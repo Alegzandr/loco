@@ -197,6 +197,7 @@ export const createMatchActions: StateCreator<GameStore, MatchActions> = (set, g
       turnDeadline: null,
       swapNotice: null,
       lastPlay: null,
+      lastDraw: null,
       interruptFlash: null,
       isReconnecting: false,
       errorMsg: '',

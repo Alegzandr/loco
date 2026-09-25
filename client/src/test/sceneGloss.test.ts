@@ -10,6 +10,8 @@
  * weighted to nothing and the sky's irradiance is never added), and the
  * surfaces meant to shine do.
  */
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { Mesh, MeshStandardMaterial, ShaderChunk, type BufferGeometry } from 'three'
 import { Kit, blossom } from '../components/scene/kit'
@@ -20,7 +22,7 @@ import { LOOK } from '../components/scene/look'
 import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, makeMirror } from '../components/scene/mirror'
 
 function kit(weather: Weather = 'clear', time: 'day' | 'night' = 'day') {
-  return new Kit({ rig: lightRig(time, weather), rng: seededRng('gloss'), outline: 0.02, anchor: { sx: 0, sy: 0, a: 10, b: 5 } })
+  return new Kit({ rig: lightRig(time, weather), rng: seededRng('gloss'), outline: 0.02 })
 }
 
 function litMesh(k: Kit): Mesh {
@@ -131,9 +133,20 @@ describe('the water', () => {
 })
 
 describe('the mirror', () => {
-  it('reads a surface p tiles up at 2 · p · cos(pitch) of the frame higher', () => {
-    const m = makeMirror(lightRig('day', 'clear'), { h: 45 }, Math.cos((32 * Math.PI) / 180))
-    expect(m.uniforms.uLevelUv.value).toBeCloseTo((2 * Math.cos((32 * Math.PI) / 180)) / 45, 6)
+  it('is looked across, not into: a mirror at the horizon, a column down the frame', () => {
+    // Seen from the table the water is a mirror near the horizon (Fresnel), and
+    // the swell breaks a reflection into a road of light, not a spot.
+    const m = makeMirror(lightRig('day', 'clear'))
+    expect(m.uniforms.uFresnel.value).toBe(1)
+    expect(m.uniforms.uRippleStretch.value).toBeGreaterThan(1)
+    expect(m.uniforms.uWaterReflect.value).toBeLessThan(0.5)
+  })
+
+  it('flips the room about the water itself, the one plane a perspective reflection is exact for', () => {
+    const src = readFileSync(resolve(__dirname, '../components/scene/mirror.ts'), 'utf8')
+    expect(src).toMatch(/scene\.scale\.y = -1/)
+    expect(src).toMatch(/scene\.position\.y = 2 \* level/)
+    expect(src).not.toMatch(/uLevelUv/)
   })
 
   it('puts the lamps in the street only when the street is wet', () => {

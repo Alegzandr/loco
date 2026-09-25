@@ -14,7 +14,7 @@ function bot(index: number, nickname: string): PlayerDTO {
   return { ...player(index, nickname), is_bot: true }
 }
 
-function renderWaiting(players: PlayerDTO[], maxPlayers = 10, onSend = vi.fn()) {
+function renderWaiting(players: PlayerDTO[], maxPlayers = 7, onSend = vi.fn()) {
   render(WaitingRoom, { roomCode: "ABC123", players: players, myIndex: 0, matchFormat: "BO1", maxPlayers: maxPlayers, onSend: onSend, onLeave: vi.fn() })
   return { onSend, input: screen.getByRole('spinbutton') as HTMLInputElement }
 }
@@ -51,7 +51,7 @@ describe('WaitingRoom max players', () => {
   it('never offers a cap below the two players a match needs', () => {
     const { input } = renderWaiting([player(0, 'Alice')])
     expect(input.min).toBe('2')
-    expect(input.max).toBe('10')
+    expect(input.max).toBe('7')
   })
 
   it('keeps the floor at the current roster once it exceeds two', () => {

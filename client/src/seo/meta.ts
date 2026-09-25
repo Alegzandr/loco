@@ -118,16 +118,16 @@ export const HOME: PageDef = {
     fr: 'LOCO! · Jeu de cartes multijoueur gratuit, sans inscription',
   },
   description: {
-    en: 'Free online card game for 2 to 10 players, no signup. Pick a name, share a code, sit down: nobody waits their turn.',
-    fr: 'Jeu de cartes en ligne gratuit, de 2 à 10 joueurs, sans inscription. Un pseudo, un code, une place : personne n’attend son tour.',
+    en: 'Free online card game for 2 to 7 players, no signup. Pick a name, share a code, sit down: nobody waits their turn.',
+    fr: 'Jeu de cartes en ligne gratuit, de 2 à 7 joueurs, sans inscription. Un pseudo, un code, une place : personne n’attend son tour.',
   },
   ogTitle: {
     en: 'LOCO! · The card game where nobody waits their turn',
     fr: 'LOCO! · Le jeu de cartes où personne n’attend son tour',
   },
   ogDescription: {
-    en: 'Free, no signup, 2 to 10 players. Pick a name, share a code, sit down.',
-    fr: 'Gratuit, sans inscription, de 2 à 10 joueurs. Un pseudo, un code, une place.',
+    en: 'Free, no signup, 2 to 7 players. Pick a name, share a code, sit down.',
+    fr: 'Gratuit, sans inscription, de 2 à 7 joueurs. Un pseudo, un code, une place.',
   },
 }
 
@@ -185,8 +185,8 @@ export const FRIENDS: PageDef = {
     fr: 'Jouer aux cartes entre amis · Gratuit, sans inscription',
   },
   description: {
-    en: 'Open a table, send the code, play. Two to ten friends in the same game in ten seconds, in any browser, with nothing to install.',
-    fr: 'Ouvre une table, envoie le code, jouez. De 2 à 10 amis dans la même partie en dix secondes, dans le navigateur, sans rien installer.',
+    en: 'Open a table, send the code, play. Two to seven friends in the same game in ten seconds, in any browser, with nothing to install.',
+    fr: 'Ouvre une table, envoie le code, jouez. De 2 à 7 amis dans la même partie en dix secondes, dans le navigateur, sans rien installer.',
   },
 }
 
@@ -195,8 +195,8 @@ export const FAQ_PAGE: PageDef = {
   path: { en: '/faq/', fr: '/fr/faq/' },
   navLabel: { en: 'FAQ', fr: 'FAQ' },
   title: {
-    en: 'LOCO! FAQ · Free, no account, 2 to 10 players',
-    fr: 'FAQ LOCO! · Gratuit, sans compte, de 2 à 10 joueurs',
+    en: 'LOCO! FAQ · Free, no account, 2 to 7 players',
+    fr: 'FAQ LOCO! · Gratuit, sans compte, de 2 à 7 joueurs',
   },
   description: {
     en: 'Is it free, does it need an account, how many can play, does it work on a phone, and what happens to your seat if you drop.',

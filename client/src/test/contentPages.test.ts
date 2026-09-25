@@ -84,6 +84,9 @@ describe('the content stylesheet', () => {
     const local = readdirSync(contentDir)
       .filter((f) => f.endsWith('.astro'))
       .map((f) => readFileSync(path.join(contentDir, f), 'utf8'))
+      // The table's materials are written by one module for the board and the
+      // rooms page alike (`tableCssVars`), so its declarations count too.
+      .concat(readFileSync(path.join(CLIENT, 'src', 'components', 'cards', 'tableSurface.ts'), 'utf8'))
       .join('\n')
 
     const used = [...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1])

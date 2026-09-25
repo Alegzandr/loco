@@ -46,6 +46,13 @@ export interface SwapNotice {
   targetIndex: number  // -1 for global_switch
   direction: number    // game direction at the time of the play (for global_switch arrow)
   at: number           // Date.now() — the key that makes a second notice a second banner
+  /**
+   * Our own hand as it stood when the play landed, i.e. the cards we are
+   * giving away. The snapshot carrying the hand we receive can arrive in the
+   * same frame, so by the time the board animates the exchange `myHand` may
+   * already be the new one: the board flies these, face up, out of our seat.
+   */
+  givenHand?: CardDTO[]
 }
 
 /**
@@ -84,6 +91,18 @@ export interface CatchWindow {
 export interface LastPlay {
   actorIndex: number
   card: CardDTO
+  at: number
+}
+
+// The most recent hand that grew, for the renderer to fly that many backs
+// from the deck into it — into the exact places the seat's fan holds them.
+// `penalty` marks the cards a Contre-LOCO! charged (the `uno_caught` it
+// answers arrives first), which land as a slam rather than a draw. `at` doubles
+// as the trigger key. Purely presentation, like `lastPlay`.
+export interface LastDraw {
+  seat: number
+  count: number
+  penalty: boolean
   at: number
 }
 
@@ -211,6 +230,8 @@ export interface GameState {
   swapNotice: SwapNotice | null
   // Last card play, purely for animation. Never used for rules decisions.
   lastPlay: LastPlay | null
+  // Last hand that grew, purely for animation. Never used for rules decisions.
+  lastDraw: LastDraw | null
   // Last successful out-of-turn interrupt, for its slam banner and sting.
   interruptFlash: InterruptFlash | null
   // Per-seat round trips, refreshed by the server's periodic `latency`

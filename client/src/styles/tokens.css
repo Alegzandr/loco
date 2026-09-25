@@ -186,6 +186,9 @@
      and the four-colour mark on the back only reads against something neutral. */
   --card-back-bg: #0e0e0e;
   --card-back-bg-top: #191919;
+  /* The edges of the cards under the discard, seen as the pile's near side
+     once it lies on the felt: card stock in its own shade. */
+  --card-edge: #cfc9bd;
 
   /* ── Type ──────────────────────────────────────────────────────────────── */
   --font-display: 'Fredoka Variable', 'Fredoka', 'Baloo 2', system-ui, -apple-system, sans-serif;

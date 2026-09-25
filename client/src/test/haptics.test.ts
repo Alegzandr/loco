@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hapticsFor } from '../hooks/haptics'
+import { hapticsFor, hapticsSupported } from '../hooks/haptics'
 import { humanVariation, HUMAN_CENTS, HUMAN_GAIN_FLOOR } from '../audio/sfx'
 
 // The phone answers the same list the speakers do: one pattern per moment, the
@@ -17,6 +17,25 @@ describe('hapticsFor', () => {
   it('lets the loudest moment win over the card under it', () => {
     expect(hapticsFor(['interrupt', 'cardPlay'])).toBe(45)
     expect(hapticsFor(['cardPlay', 'unoCaught'])).toEqual([40, 40, 70])
+  })
+})
+
+// Chrome on a desktop has `navigator.vibrate` and no motor: the switch is for a
+// touch screen, and the API alone is not enough to offer it.
+describe('hapticsSupported', () => {
+  const buzzing = { vibrate: () => true }
+
+  it('is offered on a touch screen that can vibrate', () => {
+    expect(hapticsSupported(buzzing, true)).toBe(true)
+  })
+
+  it('is not offered on a desktop that exposes the API', () => {
+    expect(hapticsSupported(buzzing, false)).toBe(false)
+  })
+
+  it('is not offered where the API is missing', () => {
+    expect(hapticsSupported({} as Pick<Navigator, 'vibrate'>, true)).toBe(false)
+    expect(hapticsSupported(undefined, true)).toBe(false)
   })
 })
 

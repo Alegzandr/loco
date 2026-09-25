@@ -138,20 +138,25 @@ needs jsdom and the `browser` resolve condition.
   `twitchLinks.ts`, the two server mirrors `nicknameRules.ts` + `tableCodeRules.ts`, and the queue's
   `Searching.svelte` + `searchStages.ts` / `MatchFound.svelte` / `OpponentAway.svelte`
 - `src/components/cards/` the renderer: GameBoard, Hand, Card, CardBack, Deck, DiscardPile,
-  PlayerSlot, TurnIndicator, DirectionRing, AnimationLayer; `layout.ts` pure pixel math;
+  PlayerSlot, TurnIndicator, DirectionRing, TableTrack, AnimationLayer; `layout.ts` pure pixel math;
+  `tableSurface.ts` (the rim's material as a seeded SVG noise image, for the board and the rooms page);
   `CardArt.svelte` + `cardArtSpace.ts` + `locoMark.ts` the face; `CardGlyph.svelte` + `cardGlyphs.ts`
   the drawn rule glyphs; `SuitMark.svelte`; `maps.ts` (the registry: materials, accent, allowed
   skies, `resolveScene`); `cardTheme.ts`
 - `src/components/scene/` the room: `look.ts` (**every visual number the render reads**: the hours,
-  the lights, the shadow, the materials, the outline, the occlusion, the tone, the passes —
-  framework-free and three-free), `sky.ts` (the hours into a rig, the skies, framework-free),
-  `rng.ts`, `kit.ts` (the prop kit, the only file that turns a block into triangles), `shade.ts`
-  (the light as numbers: the sun's direction, the sky, the shadow's run, pure), `lighting.ts` (the
-  rig into three.js lights and one shadow map fitted to the frame), `placer.ts` (the ground plan,
-  pure), `life.ts` +
-  `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the allowlist of packed kits, `lib.ts`
-  the GLB loader and baker, `bake.ts` the pure half), `maps/<id>.ts` one builder per room +
-  `maps/common.ts` + `maps/actors.ts`, `render.ts` (one frame, then the context is released),
+  the lights, the shadow, the materials, the outline, the occlusion, the tone, the passes, the view,
+  the air, the sky — framework-free and three-free), `sky.ts` (the hours into a rig, the skies,
+  framework-free), `view.ts` (the camera solved to the felt, the table cast back under it — pure),
+  `dome.ts` (the sky drawn round the camera), `rng.ts`, `kit.ts` (the prop kit, the only file that
+  turns a block into triangles, and the table's swept and turned pieces), `grain.ts` (the table's
+  grain as pixels — pure), `shade.ts` (the light as numbers: the sun's direction, the sky,
+  pure), `lighting.ts` (the rig into three.js lights and one shadow map over the near ground),
+  `placer.ts` (the ground plan, pure), `mirror.ts` (the water's reflection), `pools.ts` (the lamps'
+  light on the ground), `life.ts` + `LifeLayer.svelte` (what moves), `models/` (`manifest.json` the
+  allowlist of packed kits, `lib.ts` the GLB loader and baker, `bake.ts` the pure half),
+  `maps/<id>.ts` one builder per room + `maps/vista.ts` (the table, the hills, the skyline, the
+  pieces every room shares) + `maps/vistaLife.ts` (what moves in them), `render.ts` (one frame, then
+  the context is released),
   `sceneCache.ts` (the lazy import of the engine and the one way to ask for a frame), `quality.ts`
   (what each graphics tier buys) + `post.ts` (the finishing passes), `SceneBackdrop.svelte` +
   `WeatherLayer.svelte` + `weatherTiles.ts` (the drawn tiles the weather is made of)
@@ -652,7 +657,11 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 - **The browser's own menu stops at the seat** (`contextGuard.ts`, gated on `data-seated`, bubble
   phase). **The landings keep it.** `contextGuard.test.ts`.
 - **The hand's hover is a mouse's and nobody else's** (`Hand.svelte`, `pointerenter` gated on
-  `pointerType === 'mouse'`). `handTouch.test.ts`. Same rule as the deck's `@media (hover: hover)`.
+  `pointerType === 'mouse'`), **and it outlives its `pointerleave` by `HOVER_GRACE_MS`**, so a sweep
+  across the gaps of the fan never drops it. **The card is read off the pointer's x against the
+  resting fan, never off the hit element**, and the lift is a stiff spring per card on `.lift`: snappy, never a wave trailing the mouse.
+  `handTouch.test.ts`. Same rule as the deck's
+  `@media (hover: hover)`.
 - **At a seat, text selection is refused on every element, not inherited from the body**
   (`Base.astro`, `:root[data-seated] :not(input, textarea)`). `a11y.test.ts`.
 - **A control drawn under 44px gets its target from `.hit-target`, which needs `position: relative`
@@ -662,7 +671,7 @@ Detail: [`docs/notes/client.md`](docs/notes/client.md).
 
 **Panels, preferences and chrome**
 - **Player preferences live behind one gear** (`Preferences.svelte`), on every screen: language,
-  graphics, streamer mode, colour shapes, reduced motion, and vibrations where the device has a motor.
+  graphics, streamer mode, colour shapes, reduced motion, and vibrations on a touch screen that can vibrate.
   Each on/off one is a `createBooleanPref` module store. **Streamer mode is the one that also leaves
   the client**; every other one is local and must stay that way. Icons are drawn SVG, never a font
   character.
@@ -949,6 +958,26 @@ stated at the top of `styles/tokens.css`:
   every layout call). Seats in a column down the left, the action bar a **stack up the right edge**
   as `SIDE_RESERVE`, the felt between, the hand along the bottom safe edge, the turn pill under the
   piles (`turnPillPlace`). `landscape.test.ts`; review with `--viewports=landscape`.
+- **An opponent is their hand, face down, at their place on the table, and one geometry draws it
+  and lands cards in it** (`layout.ts: seatFan` under a `FanLay`, `seatBox`, `handSpots`,
+  `PlayerSlot.svelte`). Where the rim can seat everybody (`rimLayout`) the hand **lies on the cloth,
+  inside the rail and the racetrack** (`CLOTH_INSET`, every corner of the fullest fan checked, never
+  across the rail), tips at the middle, flattened by the table's perspective, the plate on the table's edge; places are
+  spaced along the rim **as if everybody, us included, sat the same distance apart**
+  (`firstRimAngle`), come down the shoulders only as far as the piles, the turn pill and our own hand
+  leave room, and never let two names or two cards touch. Otherwise
+  rows above the felt, hands held up. **The felt is big because everybody sits on it** (`tableRect`,
+  78% of the width, the whole band). **Our own hand is drawn larger** (`HAND_SCALE`, measured by
+  `handCard()`, not in landscape). **A card on its way is held out of the hand until it lands**
+  (`FanHold`, per card, `Hand`'s `hold` too), and every card the table moves flies from where it leaves to
+  where it lands — the deal round the table, `store.lastDraw`, a play out of the hand
+  (`Flier.flip`), a hand passed as a packet bowing sideways (`Flier.curve`); a card coming down on the
+  felt takes its perspective (`squash`). **The two piles lie on the felt too**, tipped back and seen
+  in perspective (`pileTransform`, mirrored in numbers by `onPile`, landed on at `PILE_SQUASH`); the
+  chip and the +N badge stay upright on the projected corners. **Our own cards are face up in our hand and nowhere else**:
+  ours leave turning face down, the ones coming to us turn face up in the air and land face up; our
+  given hand is read off `SwapNotice.givenHand`, never `myHand`. `SEAT_DIMS` is `seatBox` rounded up
+  (`seatLayout.test.ts`).
 - **Animate transforms, never `left`/`top`.** A node's transform has exactly one owner. Layout math
   is radians, CSS `rotate()` degrees (`radToDeg` at the render boundary and nowhere else). Hand keys
   come from `handCardKeys(hand)`, never the index.
@@ -963,6 +992,10 @@ stated at the top of `styles/tokens.css`:
   `::before` paints the outline over it**; `a11y.test.ts` fails on a stroke returning to it.
 - **The card face does not follow the theme.** A card is a physical object. `LOCO_MARK_PATH` comes
   straight from the designer's source file: do not redraw, retrace or tidy it.
+- **The light on a card follows the room, the face never does** (`Card`'s / `CardBack`'s `::after`):
+  a gloss band at the sun's angle in its colour, the stock's edge in two hairlines, weaker in the
+  dark and **never a dimming**. No blend mode, filter or opacity (`card.test.ts`). The piles cast a
+  soft contact shadow the way the table does — ambience, not structure. **Realism stops there.**
 - **On a card the mark is a mask, never a `<path>`** (`MARK_MASK_URL`, `MARK_MASK_BOLD_URL`), so the
   browser rasterises that geometry once for all ~50 faces. `card.test.ts` fails on a live path and on
   a second mask URL. **Same rule for any new card art: one cached image, not geometry per instance.**
@@ -977,6 +1010,11 @@ stated at the top of `styles/tokens.css`:
   three shouts 45, chip row and leave question 46, catch capsule and round summary 47 — and below the
   reconnect curtain (50), the pickers (100), the map gate (900) and the rules modal (1000). **The
   chip row going under it is deliberate.** `scoreTable.test.ts` asserts the floor **per file**.
+- **The three shouts land on a line the board computes, never a percentage of the screen**
+  (`layout.ts: shoutLine` → `--shout-y`): the tallest free gap in the middle column, else over the
+  piles, **never over anybody's hand**. A fixed height sat on the hand across the table.
+  `seatLayout.test.ts`. **The interception's plate is a ribbon cut to the word, never a band
+  across the frame**, and **no seat-colour dot beside a name**: both tried and refused.
 - **Motion must degrade to a readable static state**, not to nothing: `.armed` becomes a static halo,
   a countdown bar keeps draining under reduced motion.
 - **A countdown bar is drawn back out of a slot, never scaled flat** (`loco-slide` in `tokens.css`):
@@ -1008,138 +1046,152 @@ stated at the top of `styles/tokens.css`:
 
 **The room**
 - **A map is a scene, a table and an accent, and none of it is a picture** (`components/scene/`,
-  `maps.ts`): a diorama of coloured blocks rendered in the browser from the three ids the server
-  deals; the table is CSS on `tableRect()` from the room's own materials.
-  - **The room is lit, and it is lit once** (`scene/lighting.ts`, `scene/shade.ts`): a warm sun
-    low over the diorama, a cool sky in the shade, a dim rim from behind, **one VSM shadow map
-    fitted to exactly what the frame shows** (`fitShadow(frameBox(…))`), a rough matte
-    `MeshStandardMaterial` with the colour in the vertices. Nothing about the light is baked into
-    a colour any more; the one thing still written into a vertex is the foot of a wall darkening
-    (`LOOK.material.footShade`). **A sun that lights neither face the camera sees is a silhouette,
-    and a shadow that runs straight up the frame is no light** — `sceneLighting.test.ts` pins
-    both, per hour. **In the room the outline is a darker note of the block's own colour**
-    (`inkFor`), never `INK` — the one place the ink rule bends. The frame is supersampled and
-    scaled down.
+  `maps.ts`): a room of coloured blocks and a few drawn models rendered in the browser from the
+  three ids the server deals. **In a room the render is the table** (cloth, racetrack, rail, edge,
+  pedestal, lit by the room and by a lamp over it), built under exactly `tableRect()`; the CSS table
+  on `tableRect()` is the fallback and stands in whenever the frame on screen does not lie under the
+  felt as it is now (`sceneCache.tableFits`, `SceneBackdrop`'s `tableDrawn`, `.tableOval.rendered`).
+  - **Every room has its own table, in a noble material** (`MapDef.table`: `rimKind`, `edge`,
+    `pedestal`; `tableMaterials.test.ts` refuses two alike). The rim's grain is a seeded SVG
+    `data:` image (`cards/tableSurface.ts`), shared by the board, the racetrack and the rooms page;
+    the render sweeps the edge in its profile and turns the pedestal in physically based finishes
+    (`Kit.sweep` / `Kit.lathe` / `Finish`, `LOOK.table`, `scene/grain.ts`). **The felt carries no
+    texture.** **Every line round the table is an ellipse concentric with the felt** (the rim a
+    uniform border, the racetrack `tableTrackEllipse`, and in the render the same screen ellipses
+    cast onto the table, `View.tableOutline(n, inset)` + `Kit.loft`): an offset curve comes to
+    points at the ends of a flat oval, and bands foreshortened in the table's plane read as a bent
+    table. **The render's rail and track are `CLOTH_INSET` wide in board pixels** (`LOOK.table.rail`,
+    `FeltAnchor.unit`), the same line the hands are laid inside. **The table has a lamp over it**
+    (`lighting.ts: makeTableLamp`, `LOOK.table.lamp`, no shadow): without it a table at dusk is lit
+    by a sun a few degrees up and is black. **Rain's rings stay off the cloth** (`WeatherLayer`'s
+    `clear` mask).
+  - **The play direction is two translucent arrows laid round the piles** (`DirectionRing`,
+    `directionArrows`), never chevrons round the rim.
+  - **A room is seen from the table** (`scene/view.ts`, visual.md "The view"): a perspective camera
+    at eye height, a tile a metre, the horizon in the frame (13% from the top). **The felt is fixed
+    and the camera is solved to it** (`solveView`): the horizon and the table's shape on the ground
+    are held, the focal length gives, inside 58–84° across; where it cannot hold both (a phone on
+    its side) the horizon goes where it must. **The table top is the felt cast back onto its plane**
+    (`View.tableOutline`, `Kit.plate`, `vistaTable`), so the CSS table lands on it to the pixel —
+    and the render adds nothing wider than the felt. `sceneView.test.ts`.
+  - **Three grounds and a horizon, and every builder keeps to them** (`maps/vista.ts`, each
+    builder's header): a near that frames the picture at its two edges, two things a side at most;
+    a middle; a far laid in layers (`hills`, `skyline`) that **nothing in the middle may hide**.
+    **A landmark stands where the frame holds it**, and nothing that matters is put alone behind
+    the top seat pill. Floors are laid across the frame (`deck`), never fanned round the table.
+  - **The light the viewer sees is in the frame** (`scene/dome.ts`, `LOOK.hours[h].body`): at dawn,
+    dusk and night the sun or the moon is low in the sky band and it is the key light, **ahead of the
+    camera, so the room is lit from behind and the long shadows come towards the table**; at noon
+    the sun is high and to the side, out of the frame. **Every body up in a clear sky lands between
+    the frame's top edge and the horizon** (`sceneVista.test.ts`, per room and hour);
+    `sceneLighting.test.ts` pins where the sun stands. A room moves them for its composition
+    (`LOOK.rooms[id].sun` / `.body`, `null` to take one down: there is no moon over the moon).
+  - **The sky is a dome in the scene, not a pass** (`dome.ts`): the water has to mirror it and the
+    bloom has to see the sun. It writes no depth, so the passes read it as nothing. **Its clouds'
+    projection is softened at the horizon** (`d.xz / (up + 0.05)`): a hard floor drew vertical bars.
+    A room in space has a black sky, stars at every hour, no cloud, and a planet lit by **its own**
+    sun (`space.planet.lit`).
+  - **The air is what makes the far far** (`post.ts: AirOptions`, `LOOK.vista.haze`): the far takes
+    the colour of the sky low down, loses saturation, and glows towards the light; **the weather
+    thickens it** (`haze.weather`, a fog 4.5×) and a room scales it (`LOOK.rooms.orbit.haze`: almost
+    none on the moon).
+  - **The room is lit, and it is lit once** (`scene/lighting.ts`, `scene/shade.ts`): a warm sun, a
+    cool sky in the shade, a dim rim, a rough matte `MeshStandardMaterial` with the colour in the
+    vertices, **one PCF shadow map over the near ground** (`VISTA_SHADOW_REACH`). **Never VSM**:
+    three's half-float moments quantise a shadow edge into a staircase at a metre a tile. **Its
+    `normalBias` is sized for a metre a tile** (0.03). **In the room the outline is a darker note of
+    the block's own colour** (`inkFor`), never `INK` — the one place the ink rule bends — **a fixed
+    number of pixels where the block stands, thinning with distance** (`outlineAt`, `inkFar`). The
+    frame is supersampled and **brought down in linear light** (`post.ts: RESOLVE_FRAG`, a
+    Mitchell kernel, encoded once after), never by `drawImage` over sRGB bytes on the post path;
+    the side is capped by the tier's `maxSide` and by the device's own limits.
   - **Every visual number is in `scene/look.ts` and nowhere else** — the hours, the lights, the
-    shadow, the materials, the outline, the occlusion, the tone curve, the passes. The dev panel
-    (`?look=1`, lil-gui, `src/dev/lookPanel.ts`) edits it live and `bumpLook()` renders the room
-    again: **`lookVersion()` is part of the cache key**. A constant written at a call site in the
-    render is the bug. `LOOK.debug` ships `off`.
-  - **And then it is photographed** (`scene/post.ts`, once, before the copy): the occlusion from
-    the frame's own depth (SSAO on the orthographic frame, two radii, multiplied in **before** the
-    bloom and the focus copies), FXAA, bloom, the tone curve (**the same function the plain path
-    gets from `renderer.toneMapping`, applied once, in the composite, after the bloom and before
-    the grade**), a warm/cool split-tone grade, tilt-shift, vignette, colour fringe, grain —
+    shadow, the materials, the outline, the occlusion, the tone curve, the passes, the view, the air,
+    the sky. The dev panel (`?look=1`, lil-gui, `src/dev/lookPanel.ts`) edits it live and
+    `bumpLook()` renders the room again: **`lookVersion()` is part of the cache key**. A constant
+    written at a call site in the render is the bug. `LOOK.debug` ships `off`; `lit` and `depth` are
+    how a thing with no geometry behind it is found.
+  - **And then it is photographed** (`scene/post.ts`, once, before the copy): the occlusion
+    (**positions rebuilt through the inverse projection**, `VIEW_PARS`, two radii, multiplied in
+    **before** the bloom and the focus copies), FXAA, bloom, a lens focused on the table, the mist,
+    the air, the tone curve (**the same function the plain path gets from `renderer.toneMapping`,
+    applied once, in the composite**), a warm/cool split-tone grade, vignette, colour fringe — **no grain: the player refused fine noise
+    over any surface, the frame included** —
     half-float target in linear light with a float depth texture, composite ending on
     `colorspace_fragment`. A GPU that refuses a target gets the plain frame, **never no room**:
-    **every target is checked before it is drawn into** (`assertComplete` throws), and a GPU with
-    no float render target (`floatTargets`) never starts the chain and gets a PCF shadow instead of
-    VSM (`sceneQuality.test.ts`). **The sprites go through the same tone curve and grade**
-    (`makeSpriteGrader`, `GRADE_PARS`) — never the vignette, grain, fringe or focus — each on a
-    small shadow map of its own fitted to it (`LOOK.shadow.spriteMap`), as soft on the ground as
-    the room's. **The tier is the player's** (`hooks/graphicsPref.ts`), it says how
-    large the shadow map is and which passes run, and **is part of the cache key**.
+    **every target is checked before it is drawn into** (`assertComplete` throws), and a GPU with no
+    float render target (`floatTargets`) never starts the chain (`sceneQuality.test.ts`). **The
+    sprites go through the same tone curve and grade** (`makeSpriteGrader`) and the air as fog —
+    never the vignette, fringe or focus — and cast no shadow. **The tier is the player's**
+    (`hooks/graphicsPref.ts`), it says how large the shadow map is and which passes run, and **is
+    part of the cache key**.
   - **A surface has a gloss, and a matte one is exactly what it was** (`BlockOptions.gloss`, a vertex
-    attribute; `kit.ts: litMaterial`). The sky is an environment for **reflection only** — its
-    irradiance is dropped and its radiance weighted by the gloss — so gloss 0 renders pixel for pixel
-    as before. Glass, paint, and every slab under rain (`Kit.wetGloss()`). **A wet street is a
-    sheen, not a mirror of the sky**. `sceneGloss.test.ts`.
+    attribute; `kit.ts: litMaterial`). The sky is an environment for **reflection only**, so gloss 0
+    renders pixel for pixel as before. Glass, paint, and every slab under rain (`Kit.wetGloss()`).
+    `sceneGloss.test.ts`.
   - **The water and a wet street mirror the room** (`scene/mirror.ts`): the room rendered once more
-    flipped, read at each fragment's `gl_FragCoord` shifted by its own height. **The sky only tints
-    the water**; in that pass **up-facing faces are discarded and halos are hidden**; a wet street
-    and a puddle take the reflection **smeared and jittered**, never sharp. Not on `light`, and only
-    where `Kit.reflective`. A builder marks water with `BlockOptions.water`.
+    **flipped about the water's own level** — the one plane a perspective reflection is exact for —
+    read at each fragment's `gl_FragCoord`. **Looked across, the water is a mirror at the horizon**
+    (Fresnel, from `LOOK.water.reflect` looked into to one at a grazing look), and the swell breaks a
+    reflection into a column down the frame (`stretch`): the road of light. **The sky only tints the
+    water**; in that pass **up-facing faces are discarded and halos are hidden**; a wet street
+    takes the reflection **smeared and jittered**. Not on `light`, and only where `Kit.reflective`.
   - **A lamp lights the ground's own colour, never paints a disc on it** (`scene/pools.ts`): a
     lamp-sized flat halo is a pool in one ground light map the lit material multiplies in, fading
-    above `LOOK.pools.lift`. **A halo past `washFrom` stays the room's wash** (neon's ring), and a
-    sprite keeps its disc. `scenePools.test.ts`.
-  - **Mist lies low at a dawn and in a fog, never at a clear noon** (`post.ts: mistFor`), laid by
-    each pixel's world height, rebuilt from the frame's linear depth. A finishing pass.
-  - **A few dark windows light up and go out, and a neon tube stutters, during a match**
-    (`Actor.blink`, `blinkActors`): at most 4 and 2, only what the depth map says the camera sees,
-    seeded on the room, an opacity on `.face`. **A blink rests at nothing**, so reduced motion is
-    the room as rendered.
-  - **Snow banks against walls and keeps ruts and footprints** (`Kit.box` drifts,
-    `Kit.snowTracks`), from their own seeded sequence: **a mark the weather leaves never moves a
-    house**, the same rule the river's foam obeys. **Rain lands in rings** (`splashRings`): sheets
-    that stay put and come and go, resting at nothing.
+    above `LOOK.pools.lift`. **A halo past `washFrom` stays the room's wash**, and a sprite keeps its
+    disc. `scenePools.test.ts`.
+  - **Mist lies out over the water and the fields at a dawn and in a fog, never on the lens**
+    (`post.ts: mistFor`, `LOOK.mist.near`): laid by world height, starting 22 tiles out.
+  - **Snow banks against walls** (`Kit.box` drifts), from its own seeded sequence: **a mark the
+    weather leaves never moves a house**. **Rain lands in rings** (`splashRings`): sheets that stay
+    put and come and go, resting at nothing.
   - **Rendered once, then the WebGL context is released**: everything that moves is a CSS transform
     layer, because the compositing budget belongs to the cards.
   - **What moves is a sprite, built with the same kit under the same light in the same pass**
-    (`scene/life.ts`, `maps/actors.ts`). **A route on the ground is a candidate, and the render
-    decides where it runs** (`trimRoute`, asked with no margin). **What stands in front of a route is
-    a veil over the sprite, never a cut in the route** (`occlusionVeil`, `readDepth`); a `pick` ranks
-    by the length *seen*, and a survivor under its `minLen` is dropped. **Things on the ground move
-    at a speed** (`WALK_SPEED`, `DRIVE_SPEED`), never for a duration. **People walk the pavements and
-    cars drive the lanes** of `cityGrid`'s `StreetPlan`. Reduced motion holds the first frame, and
-    is **followed live**. **One transform animation per element**: the route on `.actor`, a bob on
-    `.body`, a spin or puff on `.face`.
-    `sceneLighting.test.ts`, `sceneLife.test.ts`.
+    (`scene/life.ts`, `maps/vistaLife.ts`). **Its route is in the world**: the render builds it at
+    the route's first point, **photographs it with the room's own camera cropped to it**, projects
+    the route and writes the scale at every point (`Actor.world`, `Actor.scales`), **carried on the
+    same transform as the translation** — still one animation. **Keep routes clear of the near
+    props**: a sprite is drawn over the whole frame. Reduced motion holds the first frame, and is
+    **followed live**. **One transform animation per element**: the route on `.actor`, a bob on
+    `.body`, a spin or puff on `.face`. `sceneLife.test.ts`.
   - **A `loop` either walks its closing leg or fades over it, and there is no third option**
-    (`life.ts: closesTheRing`): a visible wrap is somebody teleporting home.
-  - **The props are drawn models, and the kit is the only importer** (`scene/models/`, CC0 kits
-    packed by `make models` and served from this origin — never a CDN). Loaded once per tab, palette
-    **baked into vertex colours** (`bake.ts`) so a model goes through exactly the pipeline a block
-    does; `k.person`, `k.car`, `k.tree`… place the model or the block, so a builder never names
-    three.js or a file. **Nothing stands inside anything else**: every `k.model` goes through
-    `placer.ts` and is refused when its footprint is taken, **and a refused model leaves the spot
-    empty** — the block version drawn in its place stood inside whatever took it. A pot's bush is
-    the one thing inside something on purpose (`collide: false`). **A drawn person faces the way a
-    block person does**: the townsfolk already face +z, the astronauts face -z and take
-    `ASTRONAUT_MODEL_YAW`, or the passer-by on the moon walks backwards. **Judge a facing at 4×
-    density or from the file, never from a 1× sprite**: an audit read one backwards once. **A model house lights its windows with the hour's
-    share, one house at a time** (`spotChance`, a hash of where it stands). **Each room loads the
-    kits it places and no others** (`maps/index.ts: KITS`), and a person is fetched once for both
-    poses. `placer.test.ts`, `modelBake.test.ts`, `kitModels.test.ts`.
+    (`life.ts: closesTheRing`): a visible wrap is something teleporting home.
+  - **The props that are drawn models come through the kit, the only importer** (`scene/models/`,
+    CC0 kits packed by `make models` and served from this origin — never a CDN). Loaded once per tab,
+    palette **baked into vertex colours** (`bake.ts`). **Nothing stands inside anything else**: every
+    `k.model` goes through `placer.ts` and is refused when its footprint is taken, **and a refused
+    model leaves the spot empty**. **A drawn person faces +z**; the astronauts face -z and take
+    `ASTRONAUT_MODEL_YAW`. **A model house lights its windows with the hour's share, one house at a
+    time** (`spotChance`). **Each room loads the kits it places and no others** (`maps/index.ts:
+    KITS`; three rooms load none). `placer.test.ts`, `modelBake.test.ts`, `kitModels.test.ts`,
+    `roomModels.test.ts`.
   - **A resize is a stretch, and then one render** (`RESIZE_SETTLE_MS`, 240ms), **faded in over** the
     old frame on the second canvas. The engine is a lazy chunk behind `sceneCache.prepareScene`, the
     only importer of `render.ts`; **nothing else may import three.js**. **A render that fails is a
     scene, not an error**, and it is remembered for `FAILED_TTL_MS`, never for the tab; a models
     load past `MODELS_TIMEOUT_MS` is one. **A lost context is a failed render**, and the frame is
-    copied out **before** the report's paint (no `preserveDrawingBuffer`). The cache is LRU. The hour and sky reach the table as `--scene-tint` / `--scene-dark`, never
-    as a repaint of `--tbl-*`; a `dry` room gets dust and a flash, never rain; every placement is
-    seeded on the scene's key.
-  - **The table stands on a podium the render carries under exactly the felt** (`feltInViewport`,
-    `podium()`, the anchor part of the cache key). **The band in front of the table is kept low**
-    (`Cell.front`). **Composition against a screen line goes through `screenSpan`**, never a
-    world-space `w` and `d`. **A landmark over seven tiles tall stands in a side band, never in the
-    top one**, and a builder declares it (`k.landmark`, `LANDMARK_TOP_MAX`, `sceneLandmarks.test.ts`).
-    **A landmark that no frame can hold whole is left out**, not cut: the marina's wheel was. **`renderSizeFor` reports the ratio the size was solved at**, because `anchorFor`
-    divides by it. **`SceneBackdrop` isolates its own stacking context.** `sceneGeometry.test.ts`,
-    `sceneBackdrop.test.ts`.
-  - **What a block reaches is `(w + d) / 2 / √2` across the frame**, and both the `front` band and
-    every landmark beside the table are measured against that. Cut by the **frame** is ordinary; cut
-    by the table is a bug.
-  - **Lights round a square are strung on a ring of posts, never four** (`maps/common.ts:
-    stringLights`), each run hung by its own length **on screen**. No room ships them since the
-    quiet pass; the helper stays the only way for one that does.
-  - **The room is quiet, and the mood is contemplation** (visual.md, "The room is quiet"). **A room
-    has ground between its buildings, and more of it near the table**: every builder hands
-    `cityGrid` a `density` per block and an `open` fill for the blocks left unbuilt; **a `crowd` is
-    at most 8 and `people` at most 0.5 a block** (`sceneGrid.test.ts`). One hero a side, never a
-    second fairground. **Nothing drives on the plaza**: the grid solves the paving's rim itself
-    (`plazaRim`) and a street segment it covers gets no parked car, no lamp, no crossing and never a
-    run for `traffic`. **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half,
-    `sceneLighting.test.ts`). **A round halo is a lamp head's, never a building's**
-    (`HALO_SPHERE_MAX`, `kitHalo.test.ts`): an additive sphere over a tower is a building the
-    player can see through. **Nobody on foot turns round**: a person on the move is a `pass` along
-    a pavement with a `heading`; `strollers` and `pacers` are gone and stay gone — a mirrored
-    diagonal sprite walked sideways up the frame and backwards at every turn. **A mirrored sprite
-    (`turn`) runs level across the frame** (`sceneFacing.test.ts`): it is drawn side-on, and sent up
-    a diagonal the rover slid along it crabwise. **A lone actor has ground to stand on in a 16:9
-    frame** (`sceneFacing.test.ts`): sakura's cat was sent three times across a block the grid had
-    claimed, the render dropped it every time, and nobody ever saw it.
+    copied out **before** the report's paint (no `preserveDrawingBuffer`). The cache is LRU, keyed
+    on the felt too. **`renderSizeFor` reports the ratio the size was solved at**, because the felt
+    is converted to device pixels by it before the camera is solved. The hour and sky reach the table
+    as `--scene-tint` / `--scene-dark`, never as a repaint of `--tbl-*`; a `dry` room gets dust and a
+    flash, never rain; every placement is seeded on the scene's key. **`SceneBackdrop` isolates its
+    own stacking context** (`sceneBackdrop.test.ts`).
+  - **The room is quiet, and the mood is contemplation** (visual.md, "The room is quiet"): a few
+    things, slow, at the edges and in the sky, never a crowd and nothing crossing the table.
+    **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half, `sceneLighting.test.ts`).
+    **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, `kitHalo.test.ts`): an
+    additive sphere over a tower is a building the player can see through.
   - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
-    Go, and its scenes.
+    Go, its light in `LOOK.rooms`, and its scenes.
 - **The warm/cool split is the whole of the mood, so it is not a taste setting**: at every daylight
   hour **and in every room** the sun is warmer than the sky light and the sky light is cool
   (`sceneLighting.test.ts`). **A room's own light** (`LOOK.rooms`, `lightRig`'s third argument)
-  moves the hour and the grade and never undoes that; every caller that has a map passes it.
-  **The hour survives the weather**: a storm at noon is not a storm at midnight, snow after dark
-  takes the night's blue, and no weather lights more windows than `WINDOWS_LIT_MAX`.
-  A sprite still carries its shadow on its own bitmap, on a catcher of its own, sized by
-  `shadowHull` — the one polygon left.
+  moves the hour, the sky, the body, the air and the grade and never undoes that; every caller that
+  has a map passes it. **The hour survives the weather**: a storm at noon is not a storm at
+  midnight, snow after dark takes the night's blue, and no weather lights more windows than
+  `WINDOWS_LIT_MAX`.
 - **The weather is drawn tiles, and every sheet travels exactly one tile per cycle**
   (`scene/weatherTiles.ts`, `sceneWeather.test.ts`). `tiled()` writes the tile as the background
   **and** as `--tile-w` / `--tile-h`, and the keyframes travel by those, never by a literal. **The

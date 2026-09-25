@@ -27,11 +27,9 @@
    * on its route's first point, and turning it off sets them going again,
    * without a new render.
    *
-   * An actor with something in front of its route is wrapped in a **veil**: a
-   * frame-sized element wearing the mask the render cut for it
-   * (`Sprite.mask`, from the depth map), so the walker goes behind the lamp
-   * post and the parked car instead of over them. The veil does not move; the
-   * actor moves inside it. One that has nothing in front of it wears none.
+   * The scale an actor is drawn at along its route is in its keyframes
+   * (`Actor.scales`, `routeKeyframes`): a gull coming towards the table grows
+   * on the same transform that carries it, so it is still one animation.
    */
   type Props = {
     scene: PreparedScene | null
@@ -153,13 +151,7 @@
 <div class="life" aria-hidden="true" style="width: {frameW}px; height: {frameH}px; transform: {fit}">
   {#if scene}
     {#each scene.sprites as sprite (sprite.actor.id)}
-      {#if sprite.mask}
-        <div class="veil" style="width: {frameW}px; height: {frameH}px; --veil: url('{sprite.mask}')">
-          {@render actor(sprite, scene.size.pixelRatio)}
-        </div>
-      {:else}
-        {@render actor(sprite, scene.size.pixelRatio)}
-      {/if}
+      {@render actor(sprite, scene.size.pixelRatio)}
     {/each}
   {/if}
 </div>
@@ -175,21 +167,6 @@
     /* Above both of the backdrop's frames (1 and 2), under the weather (4):
        the rain falls on the boat. */
     z-index: 3;
-  }
-
-  /* The mask is the frame's size and stretched to it; the actor is laid out
-     at the same origin inside, so the two agree about where a pixel is. */
-  .veil {
-    position: absolute;
-    left: 0;
-    top: 0;
-    pointer-events: none;
-    -webkit-mask-image: var(--veil);
-    mask-image: var(--veil);
-    -webkit-mask-size: 100% 100%;
-    mask-size: 100% 100%;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
   }
 
   .actor {

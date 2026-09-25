@@ -29,20 +29,6 @@ export function sunDirection(rig: LightRig): P3 {
   return [Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el)]
 }
 
-/** How far a shadow may run per unit of height, whatever the hour: past this a sprite's bitmap is mostly shadow. */
-export const MAX_SHADOW_RUN = 3.5
-
-/**
- * The direction a shadow runs along the ground, per unit of height: the true
- * run of this sun, capped so a sprite's bitmap stays a bitmap of the thing.
- */
-export function shadowRun(rig: LightRig): [number, number] {
-  const [sx, sy, sz] = sunDirection(rig)
-  const len = Math.min(MAX_SHADOW_RUN, Math.hypot(sx, sz) / Math.max(0.05, sy))
-  const h = Math.hypot(sx, sz) || 1
-  return [(-sx / h) * len, (-sz / h) * len]
-}
-
 export function channels(c: Hex): Rgb {
   return [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255]
 }
@@ -126,41 +112,3 @@ export function skyDome(rig: LightRig): { top: Hex; horizon: Hex; ground: Hex } 
 // of one, which the sprite pass needs before it has drawn anything: a
 // sprite's bitmap has to be wide enough to hold the shadow the thing throws.
 
-/** Andrew's monotone chain. Returns the hull counter-clockwise, no repeats. */
-export function convexHull(points: [number, number][]): [number, number][] {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
-  if (pts.length < 3) return pts
-  const cross = (o: [number, number], a: [number, number], b: [number, number]) =>
-    (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-  const lower: [number, number][] = []
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop()
-    lower.push(p)
-  }
-  const upper: [number, number][] = []
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i]
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop()
-    upper.push(p)
-  }
-  lower.pop()
-  upper.pop()
-  return [...lower, ...upper]
-}
-
-/**
- * The shadow a solid throws on the plane `y = plane`, as a convex polygon in
- * `x, z`: every corner above the plane slides down the sun's ray until it
- * lands, every corner below stays where it is (its footprint is part of the
- * shadow too). A solid entirely under the plane throws nothing. Exact for
- * every convex solid the kit builds, which is all of them.
- */
-export function shadowHull(points: P3[], run: [number, number], plane = 0): [number, number][] | null {
-  if (!points.some(([, y]) => y > plane)) return null
-  const flat: [number, number][] = points.map(([x, y, z]) => {
-    const rise = Math.max(0, y - plane)
-    return [x + run[0] * rise, z + run[1] * rise]
-  })
-  const hull = convexHull(flat)
-  return hull.length >= 3 ? hull : null
-}

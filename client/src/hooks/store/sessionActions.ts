@@ -114,6 +114,7 @@ export const createSessionActions: StateCreator<GameStore, SessionActions> = (se
       catchPending: false,
       swapNotice: null,
       lastPlay: null,
+      lastDraw: null,
       interruptFlash: null,
       isReconnecting: false,
       errorMsg: '',

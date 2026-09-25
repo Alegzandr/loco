@@ -91,6 +91,17 @@ export const DEAL_STAGGER_MS = 45
  * flier lands and never before it.
  */
 export const DEAL_FLIGHT_MS = 260
+/**
+ * The whole table is dealt, one card to each seat in turn, and the deal never
+ * takes longer than this however many seats there are: a ten-seat table gets
+ * a quicker hand, not a longer wait.
+ */
+export const DEAL_TABLE_MAX_MS = 1500
+
+/** Between two cards leaving the deck, for a deal of `totalCards` across the table. */
+export function dealStagger(totalCards: number): number {
+  return totalCards > 0 ? Math.min(DEAL_STAGGER_MS, DEAL_TABLE_MAX_MS / totalCards) : DEAL_STAGGER_MS
+}
 
 // ─── Rarity & the throw ─────────────────────────────────────────────────────
 // Presentation only. `game/` never consults any of this: it is how a card
@@ -158,6 +169,28 @@ export const CARD_H = 108
 // reading as a rounded one; 5px is the same design at the size we actually
 // render, and still far from the pill the old face used.
 export const CARD_RADIUS = 5
+/**
+ * Our own hand is drawn larger than every other card on the board: it is the
+ * one we read, aim at and press, all match. A scale on the slot rather than a
+ * bigger `CARD_W`, which is the pile's, the deck's and every flier's too.
+ * Everything that reserves room for the hand measures it with `handCard`.
+ *
+ * Not on a phone on its side: that screen is ~340px tall, the hand runs along
+ * its bottom edge under a felt that is a card and a half high, and a bigger
+ * hand pushed the turn pill into it.
+ */
+export const HAND_SCALE = 1.1
+
+/** Our own hand's scale in this composition. */
+export function handScale(landscape = false): number {
+  return landscape ? 1 : HAND_SCALE
+}
+
+/** One card of our own hand as it is drawn, in board units. */
+export function handCard(landscape = false): { w: number; h: number } {
+  const s = handScale(landscape)
+  return { w: CARD_W * s, h: CARD_H * s }
+}
 // Reserved for the action bar so cards never overlap it.
 //
 // The bar itself ends 82px up (14px clearance + 8px padding + a 44px button + 8px
@@ -171,23 +204,81 @@ export const CARD_RADIUS = 5
 // chip needs and no further: every pixel here comes off the felt.
 export const BOTTOM_RESERVE = 140
 
-// Opponent pill dimensions. Mirrored by <PlayerSlot />'s own styles and consumed
-// by the seat layout, so they live here rather than in either of those places.
-export const PILL_W = 172
-export const PILL_H = 66
-export const PILL_W_COMPACT = 124
-export const PILL_H_COMPACT = 56
-// Mini seats drop the card fan entirely — name and count only. Reserved for a
-// crowded table on a phone, where a fan would be 4px of unreadable mush anyway.
-export const PILL_W_MINI = 82
-export const PILL_H_MINI = 46
+// ─── An opponent's seat ─────────────────────────────────────────────────────
+// A seat is a name plate and the hand itself, face down: the real number of
+// backs, fanned, held towards the felt. It used to be a pill with a thumbnail
+// fan of 17px cards in it, which said "few or many" and nothing a spectator
+// could follow; a hand is what the table is actually watching shrink.
+//
+// Mirrored by <PlayerSlot />'s own styles and consumed by the seat layout, so
+// the numbers live here rather than in either of those places.
 
 export type SeatSize = 'full' | 'compact' | 'mini'
 
+export interface SeatSpec {
+  /** The name plate, which carries the nickname, the count and the turn. */
+  plateW: number
+  plateH: number
+  /** One back of the fan, or null: a mini seat is the plate alone. */
+  card: { w: number; h: number; r: number } | null
+  /** Widest distance between two neighbouring backs. */
+  stride: number
+  /** Widest the fan may run, first card's centre to the last one's. */
+  maxSpan: number
+  /** Backs drawn at most; the count on the plate carries the rest. */
+  maxVisible: number
+  /** Between the plate and the nearest back. */
+  gap: number
+}
+
+export const SEAT_SPECS: Record<SeatSize, SeatSpec> = {
+  // Desktop. A back at 61% of a hand card: big enough that a draw is a card
+  // arriving and a hand reads as one from the back of a stream, small enough
+  // that nine of them stay a hand and not a wall. (47% read as a thumbnail.)
+  full: {
+    plateW: 150,
+    plateH: 32,
+    card: { w: 44, h: 66, r: 4 },
+    stride: 17,
+    maxSpan: 128,
+    maxVisible: 16,
+    gap: 2,
+  },
+  // A phone, or a desktop table too full for the big seats.
+  compact: {
+    plateW: 104,
+    plateH: 26,
+    // Never under 26px, the narrowest a back still carries its mark
+    // (`CardBack`'s ART_MIN_W); and three of these still stand in a row on a phone.
+    card: { w: 32, h: 48, r: 3 },
+    stride: 11,
+    maxSpan: 66,
+    maxVisible: 12,
+    gap: 2,
+  },
+  // A crowded table on a phone, where a fan would be 4px of mush: name and
+  // count only, exactly the pill this seat always was at that size.
+  mini: {
+    plateW: 82,
+    plateH: 46,
+    card: null,
+    stride: 0,
+    maxSpan: 0,
+    maxVisible: 0,
+    gap: 0,
+  },
+}
+
+/**
+ * The box a seat claims when its hand faces straight down the screen — the
+ * seat above the felt — holding as many backs as it will ever draw. What the
+ * row packing and the reserves are measured with; `seatBox` in `layout.ts` is
+ * the exact one for any other heading.
+ */
 export const SEAT_DIMS: Record<SeatSize, { w: number; h: number }> = {
-  full: { w: PILL_W, h: PILL_H },
-  compact: { w: PILL_W_COMPACT, h: PILL_H_COMPACT },
-  mini: { w: PILL_W_MINI, h: PILL_H_MINI },
+  full: { w: 187, h: 83 },
+  compact: { w: 109, h: 63 },
+  mini: { w: 82, h: 46 },
 }
 
 // Kinds drawn as an icon rather than typeset. ⊘ ⇄ ⇋ ↻ are the obvious

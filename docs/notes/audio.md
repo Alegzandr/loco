@@ -643,7 +643,9 @@ here. The files are served from this origin and never a CDN, which is what keeps
   `soundsForTransition` produced and picks one pattern per moment, the strongest cue's, never a
   chain; `gameAudio()` plays it right after the sounds. Presentation only, off by one switch in the
   preferences (stored inverted, `loco_haptics_off`, so a fresh install buzzes), and a no-op — with
-  no switch offered — wherever `navigator.vibrate` is absent.
+  no switch offered — anywhere but a touch screen (`pointer: coarse`) that has `navigator.vibrate`.
+  **The API alone is not enough**: Chrome and Edge on a desktop expose it with no motor behind it,
+  which offered a switch that did nothing. `haptics.test.ts`.
 - **Strudel was evaluated and rejected**: `@strudel/*` and `superdough` are AGPL-3.0-or-later, and
   bundling them into a network-served client triggers §13 for the whole app. Revisit only if LOCO
   itself becomes AGPL.

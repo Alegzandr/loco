@@ -4,7 +4,6 @@
   import type { CatchFlash } from '../hooks/gameStore'
   import { CATCH_PENALTY_CARDS } from '../hooks/gameStore'
   import type { Translations } from '../i18n/en'
-  import { seatColor } from './playerColors'
 
   type Props = {
     flash: CatchFlash | null
@@ -58,16 +57,15 @@
 {#if flash && visible}
   {#key flash.at}
     <div class="overlay" aria-live="assertive" data-testid="catch-banner">
-      <!-- Sits above the piles rather than over them, like the LOCO! banner: the
-           penalty cards leave the deck while this is still up, and a verdict
-           covering the cards it is about explains nothing. -->
+      <!-- On the shout line, off the piles while the table has room: the penalty
+           cards leave the deck while this is still up, and a verdict covering
+           the cards it is about explains nothing. -->
       <div class="anchor">
         <!-- Shockwave, delayed to the frame the stamp actually lands on. -->
         <div class="ring"></div>
-        <div class="stamp" style="--caught-color: {seatColor(flash.seat)}">
+        <div class="stamp">
           <span class="title">{t.catchBannerTitle}</span>
-          <!-- The seat's colour is the dot, never the name: see `.subtitle`. -->
-          <span class="subtitle"><span class="seatDot" aria-hidden="true"></span>{subtitle}</span>
+          <span class="subtitle">{subtitle}</span>
           <!-- What it cost. The whole point of the banner: a hand that grew is
                only news once the table knows it was a price. -->
           <span class="penalty">
@@ -92,12 +90,14 @@
     overflow: hidden;
   }
 
-  /* Above the deck and the discard, below the seat row. The stamp is up for
-     nearly two seconds and the penalty cards leave the deck inside that window,
-     so a centred verdict would hide the one thing it exists to explain. */
+  /* On the shout line (`--shout-y`, `layout.ts: shoutLine`): the tallest free
+     gap in the middle of the table. The stamp is up for nearly two seconds and
+     the penalty cards leave the deck inside that window, so a verdict over the
+     piles would hide the one thing it exists to explain, and a fixed height
+     above them sat on the hand of whoever faces us. */
   .anchor {
     position: absolute;
-    top: 30%;
+    top: var(--shout-y, 30%);
     left: 50%;
     transform: translate(-50%, -50%);
     display: flex;
@@ -111,8 +111,11 @@
     position: absolute;
     width: 44vmin;
     height: 44vmin;
-    border-radius: 50%;
-    border: 6px solid var(--color-error);
+    border-radius: var(--radius-full);
+    border: 8px solid var(--color-error);
+    box-shadow:
+      0 0 0 3px var(--color-stroke),
+      inset 0 0 0 3px var(--color-stroke);
     opacity: 0;
     transform: scale(0.2);
     animation: catchRing 0.55s var(--ease-out) 0.18s forwards;
@@ -129,19 +132,24 @@
     }
   }
 
+  /* A rubber stamp: squarer corners than any card on the board, and the white
+     rule inset inside the ink edge that every stamp is cut with. It used to be
+     a rounded red plate with a glow, which read as a dialog box. The name hangs
+     off the bottom edge on a tag (`.subtitle`), so the padding leaves it room. */
   .stamp {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
-    padding: 16px 44px;
-    background: var(--gradient-error);
+    padding: 20px 52px 34px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0 12%, rgba(255, 255, 255, 0) 12% 100%),
+      var(--gradient-error);
     border: 5px solid var(--color-stroke);
-    border-radius: var(--radius-lg);
-    box-shadow:
-      0 8px 0 var(--color-stroke-soft),
-      0 0 70px rgba(229, 72, 77, 0.7);
+    border-radius: var(--radius-sm);
+    outline: 3px solid rgba(255, 255, 255, 0.85);
+    outline-offset: -12px;
+    box-shadow: 0 10px 0 var(--color-stroke-soft);
     animation:
       catchStamp 0.36s var(--ease-bounce) forwards,
       catchOut 0.3s ease-in 1.55s forwards;
@@ -171,54 +179,58 @@
     }
   }
 
+  /* The relief all three shouts wear: white, the ink outline, a stepped ink
+     extrusion — hard, never blurred. */
   .title {
-    font: 700 clamp(28px, 6.2vw, 58px) / 1 var(--font-display);
+    font: 700 clamp(30px, 6.6vw, 66px) / 1 var(--font-display);
     letter-spacing: -1px;
     color: var(--color-on-dark);
-    -webkit-text-stroke: 4px var(--color-stroke);
+    -webkit-text-stroke: 5px var(--color-stroke);
     paint-order: stroke fill;
+    text-shadow:
+      0 2px 0 var(--color-stroke),
+      0 4px 0 var(--color-stroke),
+      0 6px 0 var(--color-stroke),
+      0 9px 0 var(--color-stroke-soft);
     white-space: nowrap;
   }
 
-  /* The name in the stamp's own white, outlined in ink like the title; the
-     caught seat's colour is a swatch beside it. It used to *be* the name's
-     colour, so that a viewer following "the orange player" would find them —
-     and on the red stamp the ten seat colours measured between 1.05:1 and
-     2.3:1, with the rose seat invisible outright. The dot keeps the seat
-     findable, with its own ink outline; the name stays legible whichever seat
-     it names. */
+  /* The name, ink on a tag of the board's own chrome hanging off the stamp's
+     bottom edge (the interception's device), so the verdict and the seat it
+     falls on are two objects, not one line of small type on the red. It used
+     to be the seat's colour, which measured 1.05:1 to 2.3:1 on the red; the
+     coloured dot that replaced it read as decoration and is gone too. */
   .subtitle {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font: 600 clamp(13px, 2.2vw, 18px) / 1.2 var(--font-display);
-    color: var(--color-on-dark);
-    -webkit-text-stroke: 3px var(--color-stroke);
-    paint-order: stroke fill;
-    white-space: nowrap;
-  }
-
-  .seatDot {
-    flex: none;
-    width: 0.8em;
-    height: 0.8em;
+    position: absolute;
+    bottom: -20px;
+    inset-inline: 0;
+    margin-inline: auto;
+    width: fit-content;
+    max-width: calc(100% + 24px);
+    box-sizing: border-box;
+    padding: 6px 16px;
+    font: 700 clamp(14px, 2.2vw, 19px) / 1.2 var(--font-display);
+    color: var(--color-ink);
+    background: var(--color-surface-strong);
+    border: var(--stroke) solid var(--color-stroke);
     border-radius: var(--radius-full);
-    background: var(--caught-color, var(--color-on-dark));
-    border: var(--stroke-thin) solid var(--color-stroke);
+    box-shadow: var(--shadow-hard);
+    white-space: nowrap;
   }
 
   /* The price. Same corner chip as the interception's ×N multiplier, so the two
      banners share one grammar even where they deliberately look different. */
   .penalty {
     position: absolute;
-    top: -18px;
-    right: -20px;
-    padding: 5px 13px;
-    font: 700 20px/1 var(--font-display);
+    top: -22px;
+    right: -30px;
+    padding: 6px 14px;
+    font: 700 22px/1 var(--font-display);
     color: var(--color-stroke);
     background: var(--gradient-secondary);
     border: var(--stroke) solid var(--color-stroke);
     border-radius: var(--radius-full);
+    box-shadow: var(--shadow-hard);
     white-space: nowrap;
     animation: catchPenaltyPop 0.4s var(--ease-bounce) 0.22s both;
   }
@@ -236,7 +248,11 @@
 
   @media (max-width: 480px) {
     .stamp {
-      padding: 13px 24px;
+      padding: 15px 28px 30px;
+      outline-offset: -10px;
+    }
+    .title {
+      -webkit-text-stroke-width: 4px;
     }
     .penalty {
       right: -10px;
@@ -245,6 +261,7 @@
     .subtitle {
       white-space: normal;
       text-align: center;
+      overflow-wrap: anywhere;
     }
   }
 

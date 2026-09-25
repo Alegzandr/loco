@@ -17,7 +17,7 @@ description of the wire that a program does not check: when it disagrees with th
 | `start_game`        | —                                                        |
 | `add_bot`           | — (host-only)                                            |
 | `set_match_format`  | `match_format` (`BO1`/`BO3`/`BO5`/`BO7`) (host-only)     |
-| `set_max_players`   | `max_players` (2–10) (host-only)                         |
+| `set_max_players`   | `max_players` (2–7) (host-only)                         |
 | `set_streamer_mode` | `streamer_mode` (hide this table's code on every screen; host-only, any status, a state and not a toggle) |
 | `kick_player`       | `target_index` (seat to free; host-only, lobby-only, never seat 0) |
 | `transfer_host`     | `target_index` (seat to hand the table to; host-only, lobby-only, never seat 0, never a bot) |

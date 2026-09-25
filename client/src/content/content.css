@@ -261,6 +261,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   line-height: 1.02;
   letter-spacing: -0.02em;
   margin-bottom: 0.75rem;
+  text-wrap: balance;
 }
 
 /* The one sentence under the title that says what the page is for. Held short
@@ -271,6 +272,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   line-height: 1.6;
   color: var(--color-body);
   margin-bottom: clamp(2.5rem, 6vw, 3.5rem);
+  text-wrap: pretty;
 }
 
 /* One way out of a page, drawn as an object rather than as a run of underlined
@@ -455,6 +457,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   line-height: 1.15;
   letter-spacing: -0.01em;
   margin: 2.6rem 0 1rem;
+  text-wrap: balance;
 }
 .content section > h2:first-child {
   margin-top: 0;
@@ -476,6 +479,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   font-family: var(--font-display);
   font-size: 1.2rem;
   margin: 1.8rem 0 0.6rem;
+  text-wrap: balance;
 }
 
 .content p {
@@ -484,6 +488,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   font-size: 1.05rem;
   line-height: 1.7;
   color: var(--color-body);
+  text-wrap: pretty;
 }
 
 .content ul {
@@ -500,6 +505,7 @@ html[data-scroll="smooth"]:has(body.doc) {
   font-size: 1.05rem;
   line-height: 1.65;
   color: var(--color-body);
+  text-wrap: pretty;
 }
 .content ul li::before {
   content: '';
@@ -672,8 +678,8 @@ html[data-scroll="smooth"]:has(body.doc) {
   counter-increment: step;
   display: grid;
   grid-template-columns: 2.8rem 1fr;
-  gap: 0.35rem 1.1rem;
-  align-items: baseline;
+  gap: 0.6rem 1.1rem;
+  align-items: center;
   padding: 1.2rem 1.4rem;
   border: var(--stroke) solid var(--color-stroke);
   border-radius: var(--radius-xl);
@@ -692,9 +698,11 @@ html[data-scroll="smooth"]:has(body.doc) {
   margin-bottom: 0;
 }
 
+/* The number is level with the heading beside it, not hung from the top of the
+   row: spanning both rows, it floated above a heading that sat on the body's
+   first line. */
 .steps > li::before {
   content: counter(step);
-  grid-row: 1 / span 2;
   display: grid;
   place-items: center;
   width: 2.8rem;
@@ -707,10 +715,13 @@ html[data-scroll="smooth"]:has(body.doc) {
   font-size: 1.2rem;
   font-weight: 800;
   box-shadow: var(--shadow-hard);
-  align-self: start;
 }
 
-.steps h2 {
+/* The friends page heads its steps at h2 and the live page, inside a chapter,
+   at h3: both are the step's title and take the same place. The h3 kept the
+   1.8rem a sub-heading gets and sat half a row under its own number. */
+.steps h2,
+.steps h3 {
   margin: 0;
   font-size: 1.3rem;
 }
@@ -720,14 +731,35 @@ html[data-scroll="smooth"]:has(body.doc) {
 }
 
 .steps p {
+  grid-column: 2;
   margin: 0;
 }
 
-/* ── Questions ─────────────────────────────────────────────────────────── */
+/* On a phone the number's column is width the prose cannot spare: the body
+   runs under the number as well as the heading, and a step inside a chapter
+   gives back some of the padding it stacks on the panel's. */
+@media (max-width: 46rem) {
+  .steps > li {
+    grid-template-columns: 2.4rem 1fr;
+    gap: 0.75rem 0.85rem;
+  }
 
-.qa {
-  margin-bottom: 2.2rem;
+  .steps > li::before {
+    width: 2.4rem;
+    height: 2.4rem;
+    font-size: 1.05rem;
+  }
+
+  .steps p {
+    grid-column: 1 / -1;
+  }
+
+  .content > section .steps > li {
+    padding: 1rem 1.05rem;
+  }
 }
+
+/* ── Questions ─────────────────────────────────────────────────────────── */
 
 .qa h2 {
   margin-top: 0;
@@ -841,21 +873,58 @@ html[data-scroll="smooth"]:has(body.doc) {
   border-radius: 50%;
   --felt-1: color-mix(in srgb, var(--tbl-felt), #000 calc(var(--scene-dark) * 22%));
   --felt-2: color-mix(in srgb, var(--tbl-felt-deep), #000 calc(var(--scene-dark) * 22%));
+  --rim-dim: rgba(0, 0, 0, calc(var(--scene-dark) * 0.18));
+  border: 7px solid transparent;
   background:
-    radial-gradient(60% 58% at 50% 28%, color-mix(in srgb, var(--scene-tint) 16%, transparent) 0%, rgba(0, 0, 0, 0) 68%),
-    radial-gradient(58% 58% at 50% 34%, color-mix(in srgb, var(--tbl-rim-light) 14%, transparent) 0%, rgba(0, 0, 0, 0) 62%),
-    linear-gradient(170deg, var(--felt-1) 0%, var(--felt-2) 68%);
-  border: 7px solid color-mix(in srgb, var(--tbl-rim), #000 calc(var(--scene-dark) * 18%));
+    radial-gradient(60% 58% at 50% 28%, color-mix(in srgb, var(--scene-tint) 16%, transparent) 0%, rgba(0, 0, 0, 0) 68%) padding-box,
+    radial-gradient(58% 58% at 50% 34%, color-mix(in srgb, var(--tbl-rim-light) 10%, transparent) 0%, rgba(0, 0, 0, 0) 62%) padding-box,
+    linear-gradient(170deg, var(--felt-1) 0%, var(--felt-2) 68%) padding-box,
+    var(--tbl-rim-gloss),
+    linear-gradient(var(--rim-dim), var(--rim-dim)) border-box,
+    var(--tbl-rim-tex) center / 360px 120px repeat border-box,
+    linear-gradient(var(--tbl-rim), var(--tbl-rim)) border-box;
   box-shadow:
-    inset 0 0 0 2px color-mix(in srgb, var(--tbl-inlay) 70%, transparent),
-    inset 0 0 0 3px rgba(6, 3, 16, 0.4),
+    inset 0 2px 4px rgba(0, 0, 0, 0.45),
     inset 0 6px 16px color-mix(in srgb, var(--scene-tint) 10%, transparent),
     inset 0 -14px 24px rgba(0, 0, 0, 0.36),
-    0 0 0 2px rgba(6, 3, 16, 0.55),
-    0 -2px 0 2px color-mix(in srgb, var(--tbl-rim-light) 45%, transparent),
-    0 10px 0 var(--tbl-base),
-    0 10px 0 2px rgba(6, 3, 16, 0.55),
-    0 20px 36px rgba(6, 3, 16, calc(0.35 + var(--scene-dark) * 0.15));
+    0 0 0 1px color-mix(in srgb, var(--tbl-rim), #000 65%);
+}
+
+/* The racetrack, as on the board (`TableTrack.svelte`): the rim's wood a
+   shade darker, set round the inside of the rim between two filets of the
+   table's metal, an ellipse concentric with the felt. A border that is the
+   band, its grain painted in and the middle masked out: no script here. */
+.roomTable::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 14px solid transparent;
+  background:
+    linear-gradient(rgba(8, 4, 2, calc(0.22 + var(--scene-dark) * 0.16)), rgba(8, 4, 2, calc(0.22 + var(--scene-dark) * 0.16))) border-box,
+    var(--tbl-rim-tex) center / 360px 120px repeat border-box,
+    linear-gradient(var(--tbl-rim), var(--tbl-rim)) border-box;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0) border-box;
+  mask-composite: exclude;
+}
+
+/* The track's two metal filets, outside the mask: its outer edge against the
+   rim and its inner edge against the cloth. */
+.roomTable::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid var(--tbl-inlay);
+  outline: 1px solid var(--tbl-inlay);
+  outline-offset: -15px;
+  z-index: 1;
 }
 
 /*

@@ -43,9 +43,9 @@ const (
 )
 
 const (
-	defaultMaxPlayers = 10
+	defaultMaxPlayers = 7
 	serverMinPlayers  = 2
-	serverMaxPlayers  = 10
+	serverMaxPlayers  = 7
 	initialHandSize   = 8
 	undeclaredPenalty = 2
 	// failedCatchPenalty is what a Contre-LOCO! costs when it arrives too late.

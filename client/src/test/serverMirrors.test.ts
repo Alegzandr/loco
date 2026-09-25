@@ -153,3 +153,27 @@ describe('the catch offer, against the server', () => {
     expect(CATCH_LATE_GRACE_MS).toBeLessThan(ms)
   })
 })
+
+// WaitingRoom.svelte's seat field refuses anything outside MIN_PLAYERS..MAX_PLAYERS
+// without asking. Read off the component's source, because the constants live
+// in a `<script>` block nothing can import.
+describe('the seat count, against the server', () => {
+  const room = read('game', 'room.go')
+  const waiting = readFileSync(path.join(REPO, 'client', 'src', 'components', 'WaitingRoom.svelte'), 'utf8')
+  const goConst = (name: string) => Number(room.match(new RegExp(`${name}\\s*=\\s*(\\d+)`))?.[1])
+  const svelteConst = (name: string) => Number(waiting.match(new RegExp(`const ${name} = (\\d+)`))?.[1])
+
+  it('offers exactly the range the server accepts', () => {
+    // NaN equals NaN under toBe, so a constant that moved is caught here first.
+    for (const n of [goConst('serverMinPlayers'), goConst('serverMaxPlayers')]) {
+      expect(Number.isInteger(n), 'constant not found in server/game/room.go').toBe(true)
+    }
+    expect(svelteConst('MIN_PLAYERS')).toBe(goConst('serverMinPlayers'))
+    expect(svelteConst('MAX_PLAYERS')).toBe(goConst('serverMaxPlayers'))
+  })
+
+  it('is seven at most, and a new table opens at the cap', () => {
+    expect(goConst('serverMaxPlayers')).toBe(7)
+    expect(goConst('defaultMaxPlayers')).toBe(7)
+  })
+})

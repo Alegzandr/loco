@@ -44,8 +44,10 @@ func TestRoom_Join_DuplicateNickname(t *testing.T) {
 
 func TestRoom_Join_Full(t *testing.T) {
 	r := NewRoom("TEST")
-	for i := 0; i < 10; i++ {
-		_ = r.Join(string(rune('a' + i)))
+	for i := 0; i < 7; i++ {
+		if err := r.Join(string(rune('a' + i))); err != nil {
+			t.Fatalf("seat %d of 7 refused: %v", i+1, err)
+		}
 	}
 	err := r.Join("overflow")
 	if err == nil {
@@ -818,9 +820,15 @@ func TestRoom_SetMaxPlayers(t *testing.T) {
 	if err := r.SetMaxPlayers(1); err == nil {
 		t.Error("SetMaxPlayers below current count should return error")
 	}
-	// Cannot exceed server max
-	if err := r.SetMaxPlayers(11); err == nil {
+	// Seven is the cap: it is accepted, and one more is refused.
+	if err := r.SetMaxPlayers(7); err != nil {
+		t.Errorf("SetMaxPlayers(7) error: %v", err)
+	}
+	if err := r.SetMaxPlayers(8); err == nil {
 		t.Error("SetMaxPlayers above server max should return error")
+	}
+	if fresh := NewRoom("NEW"); fresh.MaxPlayers != 7 {
+		t.Errorf("default MaxPlayers = %d, want 7", fresh.MaxPlayers)
 	}
 }
 

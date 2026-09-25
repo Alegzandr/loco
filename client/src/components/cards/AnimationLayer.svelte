@@ -7,8 +7,12 @@
     kind: 'face' | 'back'
     card?: CardDTO // required when kind === 'face'
     /** rotation is in radians, matching the layout helpers. */
-    from: { x: number; y: number; rotation?: number }
-    to: { x: number; y: number; rotation?: number }
+    /**
+     * `squash` flattens the card vertically in screen space, after its tilt:
+     * a card lying on the felt, seen in the table's perspective.
+     */
+    from: { x: number; y: number; rotation?: number; squash?: number }
+    to: { x: number; y: number; rotation?: number; squash?: number }
     /** width/height/radius — defaults to full card. Mini cards (swap trail) are smaller. */
     size?: { w: number; h: number; r: number }
     /** 0..1 starting opacity (ends at 1). */
@@ -30,6 +34,21 @@
      * a card being thrown from a sprite being moved.
      */
     swell?: number
+    /**
+     * A card that turns over on its way: a face flier leaves face down (an
+     * opponent's card coming out of their hand, our own draw coming off the
+     * deck); a back flier carrying a `card` leaves face up (our own card going
+     * over to somebody else in a Swap). The turn is a half flip about the
+     * card's long axis, done in the first half of the flight.
+     */
+    flip?: boolean
+    /**
+     * Sideways bow of the path at mid-flight, in px, perpendicular to it (the
+     * sign picks the side). `arcHeight` only lifts a card, which on a path that
+     * runs up or down the screen is a change of speed and not a curve: the two
+     * hands of a Swap flew down the same line through each other.
+     */
+    curve?: number
   }
 
   /** Shockwave ring left where a card landed. Rare and legendary plays only. */
@@ -61,7 +80,7 @@
 <script lang="ts">
   import Card from './Card.svelte'
   import CardBack from './CardBack.svelte'
-  import { CARD_W, CARD_H, EASE_OUT_CARD, radToDeg } from './cardTheme'
+  import { CARD_W, CARD_H, CARD_RADIUS, EASE_OUT_CARD, radToDeg } from './cardTheme'
   import { reducedMotion } from '../../hooks/uiPrefs.svelte'
 
   type Props = {
@@ -90,9 +109,12 @@
    * `animation.finished`, which is a promise the browser settles rather than a
    * callback a render loop fires.
    *
-   * `fill: 'forwards'` matters: every one of these ends somewhere other than
-   * where the element sits, and without it the card would snap back for the one
-   * frame before its owner removes it.
+   * `fill: 'both'` matters, at both ends. Every one of these ends somewhere
+   * other than where the element sits, and without the forwards half the card
+   * would snap back for the one frame before its owner removes it. And the
+   * element sits at the layer's origin: without the backwards half, a card
+   * waiting out its delay — the last cards of a ten-seat deal wait over a
+   * second — sat in the top-left corner of the board until its turn came.
    *
    * Under reduced motion a flight collapses to its destination: a zero-length
    * animation is the card already there, which is the right answer for a
@@ -123,13 +145,13 @@
           ? node.animate(s.still.frames, {
               duration: s.still.duration,
               delay: s.delay,
-              fill: 'forwards',
+              fill: 'both',
             })
           : node.animate(s.frames, {
               duration: reduced ? 0 : s.duration,
               delay: reduced ? 0 : s.delay,
               easing: EASE,
-              fill: 'forwards',
+              fill: 'both',
             })
       anim.finished.then(s.done).catch(() => {})
     }
@@ -156,26 +178,38 @@
     const endRot = toRot + (f.spin ?? 0) * 360
     const startAlpha = f.startAlpha ?? 1
 
-    const at = (x: number, y: number, rot: number, scale: number, opacity: number): Keyframe => ({
-      transform: `translate(${x}px, ${y}px) rotate(${rot}deg) scale(${scale})`,
+    const fromSq = f.from.squash ?? 1
+    const toSq = f.to.squash ?? 1
+    const at = (x: number, y: number, rot: number, scale: number, opacity: number, sq: number): Keyframe => ({
+      transform: `translate(${x}px, ${y}px) scale(1, ${sq}) rotate(${rot}deg) scale(${scale})`,
       opacity,
     })
 
     // A card thrown across the table reads better with a slight lift in the
     // middle of the flight, and with a moment nearer the camera. Either one adds
     // a middle keyframe; neither adds two.
-    if (arc > 0 || swell > 1) {
-      const midY = (f.from.y + f.to.y) / 2 - arc
-      const midX = (f.from.x + f.to.x) / 2
+    const curve = f.curve ?? 0
+    if (arc > 0 || swell > 1 || curve !== 0) {
+      // The perpendicular of the path, for the sideways bow.
+      const dx = f.to.x - f.from.x
+      const dy = f.to.y - f.from.y
+      const len = Math.hypot(dx, dy) || 1
+      const midY = (f.from.y + f.to.y) / 2 - arc + (dx / len) * curve
+      const midX = (f.from.x + f.to.x) / 2 - (dy / len) * curve
       const midRot = (fromRot + endRot) / 2
       const midScale = swell > 1 ? swell : (startScale + 1) / 2
+      // In the air a card is square to us; it takes the felt's perspective
+      // as it comes down on it.
       return [
-        { ...at(f.from.x, f.from.y, fromRot, startScale, startAlpha), offset: 0 },
-        { ...at(midX, midY, midRot, midScale, 1), offset: 0.5 },
-        { ...at(f.to.x, f.to.y, endRot, 1, 1), offset: 1 },
+        { ...at(f.from.x, f.from.y, fromRot, startScale, startAlpha, fromSq), offset: 0 },
+        { ...at(midX, midY, midRot, midScale, 1, 1), offset: 0.5 },
+        { ...at(f.to.x, f.to.y, endRot, 1, 1, toSq), offset: 1 },
       ]
     }
-    return [at(f.from.x, f.from.y, fromRot, startScale, startAlpha), at(f.to.x, f.to.y, endRot, 1, 1)]
+    return [
+      at(f.from.x, f.from.y, fromRot, startScale, startAlpha, fromSq),
+      at(f.to.x, f.to.y, endRot, 1, 1, toSq),
+    ]
   }
 
   // Punch in, hold, then drift up and fade. The overshoot on the way in is what
@@ -194,6 +228,23 @@
   const EFFECT_STILL_FRAMES: Keyframe[] = [
     { opacity: 1, transform: 'translateY(-16px) scale(1.1)' },
     { opacity: 1, transform: 'translateY(-16px) scale(1.1)' },
+  ]
+
+  // Face down to face up, over the first half of the flight, then held. The
+  // perspective is part of the frame so the card has depth as it turns.
+  const FLIP_FRAMES: Keyframe[] = [
+    { transform: 'perspective(520px) rotateY(180deg)', offset: 0 },
+    { transform: 'perspective(520px) rotateY(180deg)', offset: 0.12 },
+    { transform: 'perspective(520px) rotateY(0deg)', offset: 0.58 },
+    { transform: 'perspective(520px) rotateY(0deg)', offset: 1 },
+  ]
+
+  // The other way round: face up to face down, for a card we are giving away.
+  const FLIP_TO_BACK_FRAMES: Keyframe[] = [
+    { transform: 'perspective(520px) rotateY(0deg)', offset: 0 },
+    { transform: 'perspective(520px) rotateY(0deg)', offset: 0.12 },
+    { transform: 'perspective(520px) rotateY(180deg)', offset: 0.58 },
+    { transform: 'perspective(520px) rotateY(180deg)', offset: 1 },
   ]
 
   const IMPACT_FRAMES: Keyframe[] = [
@@ -224,7 +275,35 @@
         done: () => onFlierDone(f.id),
       }}
     >
-      {#if f.kind === 'back'}
+      {#if f.card && f.flip}
+        <!-- The outer node owns the flight, this one the turn: one transform
+             animation per element. -->
+        <div
+          class="flip"
+          style="width: {f.size?.w ?? CARD_W}px; height: {f.size?.h ?? CARD_H}px"
+          use:play={{
+            frames: f.kind === 'back' ? FLIP_TO_BACK_FRAMES : FLIP_FRAMES,
+            duration: f.duration ?? 300,
+            delay: f.delayMs ?? 0,
+            done: () => {},
+          }}
+        >
+          <!-- The face is drawn at hand size and scaled onto a smaller flier. -->
+          <div
+            class="side"
+            style="transform-origin: 0 0; transform: scale({(f.size?.w ?? CARD_W) / CARD_W})"
+          >
+            <Card card={f.card} />
+          </div>
+          <div class="side sideBack">
+            <CardBack
+              width={f.size?.w ?? CARD_W}
+              height={f.size?.h ?? CARD_H}
+              radius={f.size?.r ?? CARD_RADIUS}
+            />
+          </div>
+        </div>
+      {:else if f.kind === 'back'}
         <CardBack width={f.size?.w ?? CARD_W} height={f.size?.h ?? CARD_H} radius={f.size?.r ?? 10} />
       {:else if f.card}
         <Card card={f.card} />
@@ -288,6 +367,24 @@
     top: 0;
     pointer-events: none;
     will-change: transform, opacity;
+  }
+
+  /* A card turning over in flight: two sides back to back, each hiding the
+     moment it faces away. */
+  .flip {
+    position: relative;
+    transform-style: preserve-3d;
+  }
+
+  .side {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .sideBack {
+    transform: rotateY(180deg);
   }
 
   /* Positions the effect text and owns the centering transform, leaving the inner

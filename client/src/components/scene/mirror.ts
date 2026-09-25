@@ -1,19 +1,21 @@
 /**
  * What the water and a wet street reflect: the room itself, mirrored.
  *
- * Under an orthographic camera a planar reflection is exact and cheap. The
- * reflection of a point `(x, y, z)` in the plane `y = 0` is `(x, −y, z)`, and
- * the camera sees it along the same ray that meets the plane where the eye
- * would see the reflection — so the room rendered once more with its world
- * flipped upside down (`scene.scale.y = −1`), from the same camera, is the
- * reflection, pixel for pixel, of everything standing on the plane. A surface
- * reads it at its own screen position (`gl_FragCoord`). A surface that is not
- * at `y = 0` — the harbour's sea is seven tenths of a tile under the quay —
- * reads it shifted: its plane's reflection of a point lies `2 · p · cos(pitch)`
- * tiles higher up the frame than the plane `0`'s does, and the shift is one
- * uniform (`uLevelUv`) times the fragment's own height. Everything under the
- * lowest water is clipped out of that pass, or the ground would reflect the
- * floor it stands on.
+ * A planar reflection is exact and cheap for one plane. The reflection of a
+ * point in the plane `y = L` is the point flipped about it, and the camera
+ * sees that flipped point along the same ray that meets the water where the
+ * eye would see the reflection — so the room rendered once more with its world
+ * flipped about the water's level, from the same camera, is the reflection,
+ * pixel for pixel, of everything standing above it, and a surface reads it at
+ * its own screen position (`gl_FragCoord`). The level is the room's lowest
+ * water (`Kit.waterLevel`); what lies under it is clipped out of that pass, or
+ * the ground would reflect the floor it stands on. The dome is in the room, so
+ * the sun's road across the bay is this pass too (`dome.ts`).
+ *
+ * Seen from the table the water is looked across rather than into, and near
+ * the horizon it is a mirror: the reflection's weight climbs with the
+ * grazing angle (Schlick's Fresnel, `LOOK.water`), and the swell breaks
+ * a reflection into a column down the frame rather than a spot.
  *
  * The mirror pass lights the flipped room with the flipped sun, so a lit roof
  * is a lit roof in the water; its shadow map is rendered again for it and
@@ -36,8 +38,6 @@ export interface MirrorUniforms {
   uReflectOn: { value: number }
   /** The size of the target being rendered into, pixels: `gl_FragCoord` over this is the frame's uv. */
   uRes: { value: Vector2 }
-  /** How far up the frame, in uv, a surface one tile high reads the reflection: `2 · cos(pitch) / frame height in tiles`. */
-  uLevelUv: { value: number }
   uSkyTop: { value: Color }
   uSkyHorizon: { value: Color }
   uWaterReflect: { value: number }
@@ -48,6 +48,14 @@ export interface MirrorUniforms {
   uStreak: { value: number }
   uWaterRoughness: { value: number }
   uWaterSky: { value: number }
+  /**
+   * How much the reflection strengthens at a grazing look, 0–1. Seen from
+   * above the water is looked into; seen from the table it is looked across,
+   * and near the horizon it is a mirror.
+   */
+  uFresnel: { value: number }
+  /** The swell's break of the reflection, stretched down the frame by this: the road of light towards a low sun. */
+  uRippleStretch: { value: number }
   /** 1 while the mirrored room is being drawn. */
   uMirrorPass: { value: number }
 }
@@ -56,19 +64,14 @@ export interface Mirror {
   uniforms: MirrorUniforms
 }
 
-/**
- * The uniforms, for a room (`frame` in screen tiles, `pitchCos` the camera's)
- * or, with neither, for a sprite, which reflects nothing and still shades its
- * water the same way.
- */
-export function makeMirror(rig: LightRig, frame?: { h: number }, pitchCos = 0): Mirror {
+/** The uniforms, for a room, or for a sprite, which reflects nothing and still shades its water the same way. */
+export function makeMirror(rig: LightRig): Mirror {
   const dome = skyDome(rig)
   return {
     uniforms: {
       tReflect: { value: null },
       uReflectOn: { value: 0 },
       uRes: { value: new Vector2(1, 1) },
-      uLevelUv: { value: frame ? (2 * pitchCos) / frame.h : 0 },
       // `Color` takes sRGB hex into the linear working space, which is what the
       // lit material's output is in.
       uSkyTop: { value: new Color(dome.top) },
@@ -81,6 +84,8 @@ export function makeMirror(rig: LightRig, frame?: { h: number }, pitchCos = 0): 
       uStreak: { value: LOOK.water.streak },
       uWaterRoughness: { value: LOOK.water.roughness },
       uWaterSky: { value: LOOK.water.sky },
+      uFresnel: { value: 1 },
+      uRippleStretch: { value: LOOK.water.stretch },
       uMirrorPass: { value: 0 },
     },
   }
@@ -113,7 +118,6 @@ export const MIRROR_FRAG_PARS = /* glsl */ `
   uniform sampler2D tReflect;
   uniform float uReflectOn;
   uniform vec2 uRes;
-  uniform float uLevelUv;
   uniform vec3 uSkyTop;
   uniform vec3 uSkyHorizon;
   uniform float uWaterReflect;
@@ -124,6 +128,8 @@ export const MIRROR_FRAG_PARS = /* glsl */ `
   uniform float uStreak;
   uniform float uWaterRoughness;
   uniform float uWaterSky;
+  uniform float uFresnel;
+  uniform float uRippleStretch;
   uniform float uMirrorPass;
 
   // The water's surface, as the slope of a few crossed swells: enough that the
@@ -146,10 +152,9 @@ export const MIRROR_FRAG_PARS = /* glsl */ `
     return mix(uSkyHorizon, uSkyTop, pow(y, 0.3)) * 0.85;
   }
 
-  // The mirrored room at this fragment, read at the height of its own plane.
+  // The mirrored room at this fragment.
   vec4 mirrored(vec2 offset) {
     vec2 uv = gl_FragCoord.xy / uRes + offset;
-    uv.y -= vMirrorWorld.y * uLevelUv;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return vec4(0.0);
     return texture2D(tReflect, uv);
   }
@@ -180,12 +185,15 @@ export const MIRROR_OUT = /* glsl */ `
     vec3 nw = normalize(vec3(-sl.x, 1.0, -sl.y));
     vec3 V = normalize(cameraPosition - vMirrorWorld);
     vec3 sky = skyAlong(reflect(-V, nw));
-    vec4 room = uReflectOn > 0.5 ? mirrored(sl * uRipple) : vec4(0.0);
+    vec4 room = uReflectOn > 0.5 ? mirrored(sl * vec2(1.0, uRippleStretch) * uRipple) : vec4(0.0);
+    // Looked across rather than into, the water is a mirror (Schlick).
+    float grazing = pow(1.0 - clamp(dot(V, nw), 0.0, 1.0), 5.0);
+    float reflectW = mix(uWaterReflect, 1.0, grazing * uFresnel);
     // The sky only tints the water — a bright sky mixed in at the weight of a
     // mirror turned the harbour into a pale grey sheet — and the room stands
     // in it at the weight of a reflection.
     outgoingLight = mix(outgoingLight, sky, uWaterSky * flatness);
-    outgoingLight = mix(outgoingLight, room.rgb / max(room.a, 1e-3), uWaterReflect * clamp(room.a, 0.0, 1.0) * flatness);
+    outgoingLight = mix(outgoingLight, room.rgb / max(room.a, 1e-3), reflectW * clamp(room.a, 0.0, 1.0) * flatness);
   } else if (uReflectOn > 0.5 && uWetMirror > 0.0 && vGloss > 0.0) {
     // A lamp in a wet street is a streak towards the viewer, not a spot: the
     // reflection is averaged down the frame from where it would be sharp.
@@ -233,6 +241,7 @@ export function renderReflection(
   mirror.uniforms.uMirrorPass.value = 1
   mirror.uniforms.uRes.value.set(w, h)
   scene.scale.y = -1
+  scene.position.y = 2 * level
   scene.updateMatrixWorld(true)
   // The halos sit this pass out: they are light lying on the ground, flat
   // discs whose undersides, flipped, lay a pale band over every wet plaza.
@@ -247,9 +256,9 @@ export function renderReflection(
     }
   })
   try {
-    // Only what stands above the water: flipped, that is what lies below
-    // `−level`.
-    renderer.clippingPlanes = [new Plane(new Vector3(0, -1, 0), -(level + 0.02))]
+    // Only what stands above the water: flipped about it, that is what now
+    // lies below it.
+    renderer.clippingPlanes = [new Plane(new Vector3(0, -1, 0), level - 0.02)]
     renderer.shadowMap.needsUpdate = true
     renderer.setRenderTarget(target)
     const gl = renderer.getContext()
@@ -267,6 +276,7 @@ export function renderReflection(
     mirror.uniforms.uMirrorPass.value = 0
     for (const m of hidden) m.visible = true
     scene.scale.y = 1
+    scene.position.y = 0
     scene.updateMatrixWorld(true)
     renderer.shadowMap.needsUpdate = true
   }
