@@ -177,7 +177,10 @@ describe('seatLayout: a place on the rim', () => {
   it('sits two opponents at the shoulders of the table, never at its far ends', () => {
     const l = seatLayout(2, DESIGN.w, DESIGN.h)
     const felt = tableRect(DESIGN.w, DESIGN.h, l.blockHeight)
-    for (const s of l.seats) expect(s.y).toBeLessThan(felt.top + felt.height * 0.4)
+    // The far ends are the felt's centre line; a shoulder is well up from it.
+    // Measured against the felt's height, which `FELT_TOP_MIN` trims on a
+    // monitor while the plates keep their size.
+    for (const s of l.seats) expect(s.y).toBeLessThan(felt.top + felt.height * 0.44)
   })
 
   it('never lets two names or two hands touch, at any size of table', () => {

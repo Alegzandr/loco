@@ -967,7 +967,8 @@ stated at the top of `styles/tokens.css`:
   (`firstRimAngle`), come down the shoulders only as far as the piles, the turn pill and our own hand
   leave room, and never let two names or two cards touch. Otherwise
   rows above the felt, hands held up. **The felt is big because everybody sits on it** (`tableRect`,
-  78% of the width, the whole band). **Our own hand is drawn larger** (`HAND_SCALE`, measured by
+  78% of the width, the whole band) — **but never above `FELT_TOP_MIN` on a monitor**, which is the
+  room's sky: a felt higher than that leaves the horizon nowhere to stand. **Our own hand is drawn larger** (`HAND_SCALE`, measured by
   `handCard()`, not in landscape). **A card on its way is held out of the hand until it lands**
   (`FanHold`, per card, `Hand`'s `hold` too), and every card the table moves flies from where it leaves to
   where it lands — the deal round the table, `store.lastDraw`, a play out of the hand

@@ -989,6 +989,14 @@ export function onPile(x: number, y: number): { x: number; y: number } {
 }
 
 /**
+ * The highest the felt may start, as a share of the board's height (portrait):
+ * what leaves the room's horizon room at `LOOK.vista.camera.horizon` above it
+ * inside the lens range, on a board 560 wide or more. `sceneView.test.ts` pins
+ * that it does, on monitors.
+ */
+export const FELT_TOP_MIN = 0.245
+
+/**
  * How flat a card lying on a pile looks: its seen height over its real one.
  * A flier coming down on a pile lands at this `squash`.
  */
@@ -1059,15 +1067,20 @@ export function tableRect(
   // The felt claims the whole band it is given. It took 62% capped at 400px,
   // then 74% capped at 440, and the places round its rim did not fit either.
   const h = Math.min(Math.max(band, 200), 560, w * aspect)
-  return {
-    left: (width - w) / 2,
-    // Biased above centre inside the space left under the seats: the hand and
-    // the action bar crowd from below, so an optically centred table has to sit
-    // higher than a mathematically centred one.
-    top: topReserve + 8 + (band - h) * 0.34,
-    width: w,
-    height: h,
-  }
+  // Biased above centre inside the space left under the seats: the hand and
+  // the action bar crowd from below, so an optically centred table has to sit
+  // higher than a mathematically centred one.
+  const top = topReserve + 8 + (band - h) * 0.34
+  // The room's horizon has to stand above the felt (`scene/view.ts`), with the
+  // sky between the seat pills. With the seats on the rim nothing held the
+  // felt down, and on a monitor it climbed to 11% of the height: the camera
+  // could not put the horizon above it and the room lost its sky. So the felt
+  // starts no higher than `FELT_TOP_MIN` and gives up height from its top,
+  // never its near edge. A phone upright needs none: its narrow lens already
+  // leaves the horizon room over a rounder table.
+  const floor = width < 560 ? 0 : Math.min(height * FELT_TOP_MIN, top + h - 200)
+  if (top >= floor) return { left: (width - w) / 2, top, width: w, height: h }
+  return { left: (width - w) / 2, top: floor, width: w, height: top + h - floor }
 }
 
 // ─── The felt, in viewport pixels ───────────────────────────────────────────

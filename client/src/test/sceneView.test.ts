@@ -62,6 +62,19 @@ describe('the view from the table', () => {
   })
 })
 
+test('on a monitor the felt leaves the horizon where it was asked, at every size of table', () => {
+  // With the seats on the rim nothing held the felt down, it climbed to 11% of
+  // the height, and the room lost its sky: the horizon went to `horizonMin`
+  // behind the chip row. `FELT_TOP_MIN` is what keeps it at `horizon`.
+  for (const [w, h] of [[1600, 900], [1920, 1080], [1280, 800], [1366, 768], [1440, 900]] as const) {
+    for (let opponents = 1; opponents <= 6; opponents++) {
+      const felt = feltInViewport(w, h, opponents, NO_INSETS)
+      const v = solveView(w, h, felt, PARAMS)
+      expect(v.horizonY / h, `${w}x${h}, ${opponents} opponents`).toBeCloseTo(PARAMS.horizon, 2)
+    }
+  }
+})
+
 test('a phone on its side keeps a strip of sky by deepening the table', () => {
   const felt = feltInViewport(844, 390, 3, NO_INSETS)
   const v = solveView(844, 390, felt, PARAMS)
