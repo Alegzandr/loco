@@ -22,6 +22,7 @@ import { Image } from 'astro:assets'
 import type { ImageMetadata } from 'astro'
 import { MAPS, MAP_IDS, TIMES, type MapId, type TimeOfDay } from '../components/cards/maps'
 import { lightRig, hexCss } from '../components/scene/sky'
+import { tableCssVars } from '../components/cards/tableSurface'
 import { ui } from './ui'
 import { en } from '../i18n/en'
 import { fr } from '../i18n/fr'
@@ -69,12 +70,7 @@ const stillOf = (id: MapId): ImageMetadata | undefined => stills[`../assets/room
     `--sky-horizon: ${hexCss(rig.sky.horizon)}`,
     `--scene-tint: ${rig.tintCss}`,
     `--scene-dark: ${rig.dark.toFixed(2)}`,
-    `--tbl-felt: ${map.table.felt}`,
-    `--tbl-felt-deep: ${map.table.feltDeep}`,
-    `--tbl-rim: ${map.table.rim}`,
-    `--tbl-rim-light: ${map.table.rimLight}`,
-    `--tbl-base: ${map.table.base}`,
-    `--tbl-inlay: ${map.table.inlay}`,
+    ...tableCssVars(map.table),
   ].join('; ')
   return (
     <article class="room">

@@ -13,9 +13,11 @@ import type { SfxName } from '../audio/sfx'
  *
  * Presentation only, never on the wire, and off by one switch: the preference
  * is stored inverted (`loco_haptics_off`) so a fresh install buzzes without
- * anybody having to find the setting. Absent `navigator.vibrate` — every
- * desktop browser, Safari on iOS — it is a no-op, and the panel does not offer
- * the switch at all.
+ * anybody having to find the setting. It needs `navigator.vibrate` **and** a
+ * touch screen (`pointer: coarse`): Chrome and Edge on a desktop expose the
+ * function with no motor behind it, so the API alone offered a switch that did
+ * nothing. Anywhere else — a desktop, Safari on iOS — it is a no-op, and the
+ * panel does not offer the switch at all.
  */
 export const hapticsOffPref = createBooleanPref('loco_haptics_off')
 
@@ -23,8 +25,11 @@ export function setHaptics(on: boolean): void {
   hapticsOffPref.set(!on)
 }
 
-export function hapticsSupported(): boolean {
-  return typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function'
+export function hapticsSupported(
+  nav: Pick<Navigator, 'vibrate'> | undefined = typeof navigator !== 'undefined' ? navigator : undefined,
+  coarse: boolean = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches,
+): boolean {
+  return !!nav && typeof nav.vibrate === 'function' && coarse
 }
 
 /** Milliseconds, or an on/off pattern, per cue. Short: a pulse, never a buzz. */

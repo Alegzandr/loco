@@ -50,10 +50,10 @@ export const FAQ: readonly QA[] = [
     q: { en: 'How many people can play?', fr: 'On peut jouer à combien ?' },
     a: {
       en: [
-        'From 2 to 10 at one table. It breathes best between 2 and 6: past that the wait between your turns starts to be felt, even though anyone can cut in at any moment.',
+        'From 2 to 7 at one table. It breathes best between 2 and 6: past that the wait between your turns starts to be felt, even though anyone can cut in at any moment.',
       ],
       fr: [
-        'De 2 à 10 à une même table. C’est entre 2 et 6 que ça respire le mieux : au-delà, l’attente entre tes tours commence à se sentir, même si n’importe qui peut intercepter à tout instant.',
+        'De 2 à 7 à une même table. C’est entre 2 et 6 que ça respire le mieux : au-delà, l’attente entre tes tours commence à se sentir, même si n’importe qui peut intercepter à tout instant.',
       ],
     },
   },

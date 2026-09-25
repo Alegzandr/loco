@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render } from './render'
 import AnimationLayer, { type Flier, type Impact } from '../components/cards/AnimationLayer.svelte'
 import { CardDTO } from '../types/protocol'
@@ -26,13 +26,45 @@ describe('<AnimationLayer /> spinning fliers', () => {
   })
 
   it('shows one side only, whichever side the flier is', () => {
-    // A drawn card is a back for the whole flight, a played card a face — a
-    // flier never carries both, so nothing can flip mid-air.
+    // A back stays a back for the whole flight, a face a face. The one flier
+    // that carries both is asked for by name (`flip`), and turns over once.
     const { container } = render(
       AnimationLayer, { fliers: [flier({ kind: 'back', spin: 1 })], effectTexts: [], onFlierDone: noop, onEffectDone: noop },
     )
     expect(container.querySelector('[data-flier-face="back"]')).toBeInTheDocument()
     expect(container.querySelector('[data-flier-face="face"]')).toBeNull()
+  })
+})
+
+describe('<AnimationLayer /> turning a card over', () => {
+  it('draws both sides of a flipping card, and only of a flipping one', () => {
+    const { container } = render(
+      AnimationLayer, { fliers: [flier({ flip: true })], effectTexts: [], onFlierDone: noop, onEffectDone: noop },
+    )
+    expect(container.querySelectorAll('.flip .side')).toHaveLength(2)
+  })
+})
+
+describe('<AnimationLayer /> waiting cards', () => {
+  it('holds a delayed flier at its start, never at the corner of the board', () => {
+    // A flier sits at the layer's origin and is placed by its animation. The
+    // last cards of a ten-seat deal wait over a second before they leave, and
+    // an animation filled forwards only left them in the top-left corner until
+    // then.
+    const spy = vi.spyOn(Element.prototype, 'animate')
+    try {
+      render(AnimationLayer, {
+        fliers: [flier({ delayMs: 900 })],
+        effectTexts: [],
+        onFlierDone: noop,
+        onEffectDone: noop,
+      })
+      const opts = spy.mock.calls.map((c) => c[1] as KeyframeAnimationOptions)
+      expect(opts.length).toBeGreaterThan(0)
+      for (const o of opts) expect(o.fill).toBe('both')
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
 

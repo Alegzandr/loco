@@ -247,7 +247,11 @@ describe('map on the board', () => {
     expect(board).toHaveAttribute('data-scene-time', 'night')
     expect(board).toHaveAttribute('data-scene-weather', 'rain')
     expect(board.querySelector('[data-scene="neon:night:rain"]')).not.toBeNull()
-    expect(board.style.getPropertyValue('--tbl-felt').trim()).toBe('#1a1530')
+    expect(board.style.getPropertyValue('--tbl-felt').trim()).toBe('#2a2046')
+    // The rim's material reaches the board as an image of its grain, and the
+    // racetrack is drawn in the same one.
+    expect(board.style.getPropertyValue('--tbl-rim-tex')).toMatch(/^url\("data:image\/svg\+xml,/)
+    expect(screen.getByTestId('table-track')).toBeInTheDocument()
     expect(board.style.getPropertyValue('--map-accent').trim()).toBe('#c56bff')
     // The hour reaches the table as a tint and a dimming, never as a repaint.
     expect(board.style.getPropertyValue('--scene-dark').trim()).not.toBe('')

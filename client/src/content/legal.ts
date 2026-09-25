@@ -67,7 +67,7 @@ const EN: readonly LegalDoc[] = [
       {
         heading: 'What stays in your browser',
         items: [
-          'The name you last played under, your language, your theme, your sound settings and whether streamer mode is on.',
+          'The name you last played under, your language, your display and sound settings, and whether streamer mode is on.',
           'A seat token, so reloading the page puts you back in your chair instead of at the door.',
           'All of it lives in your own browser storage. Only the seat token ever goes back to the server, and only to prove the seat is yours.',
           'Clearing this site’s data in your browser erases every bit of it, immediately and for good.',
@@ -233,7 +233,7 @@ const FR: readonly LegalDoc[] = [
       {
         heading: 'Ce qui reste dans ton navigateur',
         items: [
-          'Le dernier nom sous lequel tu as joué, ta langue, ton thème, tes réglages de son et l\'état du mode streamer.',
+          'Le dernier nom sous lequel tu as joué, ta langue, tes réglages d\'affichage et de son, et l\'état du mode streamer.',
           'Un jeton de place, pour qu\'un rechargement de page te remette sur ta chaise et pas à la porte.',
           'Tout ça vit dans le stockage de ton propre navigateur. Seul le jeton de place repart vers le serveur, et uniquement pour prouver que la place est la tienne.',
           'Effacer les données de ce site dans ton navigateur supprime l\'ensemble, tout de suite et définitivement.',

@@ -16,6 +16,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { QUALITY, renderQuality } from '../components/scene/quality'
 import { LOOK } from '../components/scene/look'
 import { assertComplete, floatTargets } from '../components/scene/post'
+import { supersampleFor } from '../components/scene/render'
 import {
   GRAPHICS_PREFS,
   GRAPHICS_STORAGE_KEY,
@@ -46,10 +47,30 @@ describe('the ladder is a ladder', () => {
     expect(medium.post).not.toBeNull()
     expect(high.post).not.toBeNull()
     // Nothing the middle rung does is off on the top one.
-    for (const key of ['ao', 'fxaa', 'bloom', 'dof', 'grain', 'aberration'] as const) {
+    for (const key of ['ao', 'fxaa', 'bloom', 'dof', 'aberration'] as const) {
       if (medium.post![key]) expect(high.post![key], key).toBe(true)
     }
     expect(high.post!.vignette).toBeGreaterThanOrEqual(medium.post!.vignette)
+    // The side the frame may reach and the grain's filtering, never less on a higher rung.
+    expect(high.maxSide).toBeGreaterThanOrEqual(medium.maxSide)
+    expect(medium.maxSide).toBeGreaterThanOrEqual(light.maxSide)
+    expect(high.anisotropy).toBeGreaterThan(medium.anisotropy)
+    expect(medium.anisotropy).toBeGreaterThan(light.anisotropy)
+  })
+
+  it('lets the top rung supersample a desktop screen further than the middle one', () => {
+    // Behind a 4096 side, `high` at 1080p came out at ×2.13 and at 1440p at
+    // ×1.6: the rung promised three and the side took it back.
+    const fhd = { width: 1920, height: 1080, pixelRatio: 1 }
+    const qhd = { width: 2560, height: 1440, pixelRatio: 1 }
+    expect(supersampleFor(fhd, QUALITY.high)).toBeGreaterThan(2.5)
+    expect(supersampleFor(qhd, QUALITY.high)).toBeGreaterThan(2)
+    expect(supersampleFor(fhd, QUALITY.high)).toBeGreaterThan(supersampleFor(fhd, QUALITY.medium))
+    // And the device's own limit still wins.
+    expect(supersampleFor(fhd, QUALITY.high, 4096)).toBeCloseTo(4096 / 1920, 5)
+    // The budget caps the whole frame, whatever the side allows.
+    const s = supersampleFor(qhd, QUALITY.high)
+    expect(qhd.width * qhd.height * s * s).toBeLessThanOrEqual(QUALITY.high.glPixels + 1)
   })
 
   it('names every tier a preference can resolve to', () => {
@@ -112,6 +133,17 @@ describe('the finishing passes', () => {
     expect(post).toMatch(/gl_FragColor = vec4\(col, 1\.0\);\s*#include <colorspace_fragment>/)
   })
 
+  it('bring the frame down in linear light, and encode it once, after', () => {
+    // `drawImage` averaged sRGB bytes: every thin bright line came out darker.
+    const resolve = post.match(/const RESOLVE_FRAG = \/\* glsl \*\/ `([\s\S]*?)\n`/)
+    expect(resolve, 'RESOLVE_FRAG not found').not.toBeNull()
+    expect(resolve![1]).toMatch(/#include <colorspace_fragment>\s*\}\s*$/)
+    // Only over a float chain: eight bits of linear light band in the darks.
+    expect(post).toMatch(/const resolve = !!out && half &&/)
+    // The copy onto the bitmap reads whatever size the chain left on the canvas.
+    expect(render).toMatch(/drawImage\(renderer\.domElement, 0, 0, canvasSize\.width, canvasSize\.height/)
+  })
+
   it('apply the same tone curve the plain frame gets, and apply it once', () => {
     // A render target gets no tone mapping from the renderer, so the
     // composite applies the curve itself, with three's own functions; the
@@ -143,15 +175,20 @@ describe('the finishing passes', () => {
     expect(sprite![1]).not.toMatch(/uVignette|uGrain|uAberration|tBlur|tAo|tBloom/)
     const composite = post.match(/const COMPOSITE_FRAG = \/\* glsl \*\/ `([\s\S]*?)\n`/)
     expect(composite![1]).toMatch(/\$\{GRADE_PARS\}/)
+    // No grain anywhere, the finished frame included: the player refused a
+    // fine noise over any surface of the game (2026-09-25).
+    expect(composite![1]).not.toMatch(/uGrain|hash\(gl_FragCoord/)
     // Graded exactly when the room was photographed, and only then.
     expect(render).toMatch(/photographed \? makeSpriteGrader\(renderer, rig\) : null/)
     expect(render).toMatch(/grader\.render\(spriteScene, camera, pw, ph\)/)
   })
 
-  it('give the sprites a small shadow map of their own, as soft on the ground as the room', () => {
+  it('light the sprites with the lights of the room, and spend no shadow map on them', () => {
+    // A gull or a boat far off casts on nothing of the room's: a shadow map
+    // rendered per sprite was most of what the sprites used to cost.
     expect(render).toMatch(/makeLights\(rig, \{ \.\.\.q, shadowMap: LOOK\.shadow\.spriteMap \}\)/)
     expect(LOOK.shadow.spriteMap).toBeLessThanOrEqual(1024)
-    expect(render).toMatch(/spriteLights\.sun\.shadow\.radius = roomRadius \*/)
+    expect(render).toMatch(/spriteLights\.sun\.castShadow = false/)
   })
 
   it('carry no visual number of their own: every one is the look\'s', () => {
@@ -165,7 +202,6 @@ describe('the finishing passes', () => {
     expect(post).toMatch(/LOOK\.post\.dofSpread/)
     expect(post).toMatch(/LOOK\.post\.bloomKnee/)
     expect(post).toMatch(/LOOK\.ao\.blurDepthFalloff/)
-    expect(render).toMatch(/LOOK\.shadow\.spriteTint/)
   })
 
   it('read the depth of the frame for the occlusion, and multiply it in before the bloom and the focus', () => {
@@ -178,7 +214,7 @@ describe('the finishing passes', () => {
 
   it('light the room in the scene and render its shadow map once per frame', () => {
     expect(render).toMatch(/makeLights\(rig, q\)/)
-    expect(render).toMatch(/lights\.fitShadow\(frameBox\(/)
+    expect(render).toMatch(/lights\.fitShadow\(new Box3\(/)
     expect(render).toMatch(/renderer\.shadowMap\.needsUpdate = true/)
     expect(read('components/scene/lighting.ts')).toMatch(/renderer\.shadowMap\.autoUpdate = false/)
     // Every bucket that is a thing is lit and shadowed; what glows, the ink
@@ -205,16 +241,16 @@ describe('the finishing passes', () => {
     expect(post).toMatch(/const t = keep\(target\(w, h, o\)\)\s*assertComplete\(renderer, t\)/)
     expect(post).toMatch(/assertComplete\(renderer, sceneRT\)/)
     expect((post.match(/= make\(/g) ?? []).length).toBeGreaterThanOrEqual(6)
-    // And a GPU with no float render targets at all never starts the chain,
-    // nor a VSM shadow map, which is a float target too.
+    // And a GPU with no float render targets at all never starts the chain.
+    // The shadow is PCF everywhere: a depth map, bytes, which every GPU holds.
     expect(render).toMatch(/const post = software \|\| !floatOk \? null : q\.post/)
-    expect(render).toMatch(/if \(!floatOk\) renderer\.shadowMap\.type = PCFShadowMap/)
+    expect(read('components/scene/lighting.ts')).toMatch(/renderer\.shadowMap\.type = PCFShadowMap/)
   })
 
   it('copy the frame out of a live context, before the paint that may clear it', () => {
     // No `preserveDrawingBuffer`: once the browser composites, the drawing
     // buffer may read back empty, and the report awaits exactly that paint.
-    const copy = render.indexOf('ctx.drawImage(gl, 0, 0, gw, gh, 0, 0, size.width, size.height)')
+    const copy = render.indexOf('ctx.drawImage(renderer.domElement, 0, 0, canvasSize.width, canvasSize.height, 0, 0, size.width, size.height)')
     expect(copy).toBeGreaterThan(0)
     expect(copy).toBeLessThan(render.indexOf('await report(RENDER_STEPS.drawn)'))
     expect(render.lastIndexOf('assertAlive(renderer)', copy)).toBeGreaterThan(render.indexOf('if (!photographed) renderer.render(scene, camera)'))

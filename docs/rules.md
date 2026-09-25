@@ -4,7 +4,7 @@
 
 ## 1. Overview
 
-LOCO is a card-shedding game for **2–10 players**. Goal: be the first to discard all cards.
+LOCO is a card-shedding game for **2–7 players**. Goal: be the first to discard all cards.
 
 ## 2. Deck (112 cards)
 

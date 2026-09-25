@@ -89,15 +89,18 @@ describe('<WaitingRoom /> host advice', () => {
     }
   })
 
-  it('says what a table size costs, under the field that sets it', () => {
+  // The seat field carries no note: seven is the cap, and advice about a
+  // table size the cap already rules out would be advice about nothing.
+  it('puts no note under the seat field', () => {
     renderRoom()
-    expect(screen.getByText(en.maxPlayersHint)).toBeTruthy()
+    const field = document.getElementById('loco-max-players')!
+    expect(field.nextElementSibling).toBeNull()
   })
 
   // The advice belongs to the decision, and a guest is not making it.
-  it('says neither to somebody who cannot change either', () => {
+  it('says nothing about length to somebody who cannot change it', () => {
     renderRoom(1)
-    expect(screen.queryByText(en.maxPlayersHint)).toBeNull()
+    expect(screen.queryByText(matchLengthLabel('BO3', players.length, en.matchLengthUnit))).toBeNull()
   })
 
   // The plate copies a link, and the toast only says so after the press. The

@@ -66,7 +66,7 @@
   // Mirrors the server's serverMinPlayers / serverMaxPlayers (game/room.go). A cap
   // of 1 is a room that can never start, so the field must not even offer it.
   const MIN_PLAYERS = 2
-  const MAX_PLAYERS = 10
+  const MAX_PLAYERS = 7
 
   const t = $derived(i18n.t)
   const isOwner = $derived(myIndex === 0)
@@ -293,10 +293,6 @@
           onblur={handleMaxPlayersBlur}
           class="maxInput"
         />
-        <!-- The advice existed, in the FAQ and in the rules — which is to say
-             nowhere near the control it is about. Quiet is a hue here as
-             everywhere else, never an opacity on the ink. -->
-        <p class="configHint">{t.maxPlayersHint}</p>
       </div>
     </div>
   {:else}
@@ -830,13 +826,6 @@
      at 0.75, which on the indigo is a third of the way back to invisible. */
   .formatBtnActive .formatLen {
     color: var(--color-on-dark);
-  }
-
-  /* A note under a control, not a label over one. */
-  .configHint {
-    margin: 0;
-    font: 600 12px/1.35 var(--font-body);
-    color: var(--color-muted);
   }
 
   .formatBtnActive {

@@ -1,196 +1,121 @@
 /**
- * Velvet: a square in a district of art-deco hotels.
+ * Velvet, seen from the table: the terrace of an art-deco hotel on its
+ * boulevard, the grand hotel across the way with its marquee, a skyline of
+ * cream towers stepped back tier on tier.
  *
- * Cream stone stepped back tier on tier, gold trim, one hotel to a block
- * with palm gardens between them, a grand hotel with its marquee on the
- * right of the square, a fountain at the top, doormen. The chequer under the
- * table is set on the diagonal, which is how a lobby floor is laid. At dusk
- * the whole thing goes amber; at noon it is white and the shadows are hard.
- * It was four hotels to a block and a palm on every corner, and read as a
- * cliff of lit windows; the gardens are what make it a boulevard.
+ * - **Near**: a marble chequer, black and cream, a brass floor lamp and a
+ *   palm in its urn on the left, a fluted column on the right, the
+ *   balustrade along the terrace's edge.
+ * - **Middle**: the boulevard past the balustrade, lined with palms, a fountain in the
+ *   roundabout, and the grand hotel on the right — cream stone, gold trim, the
+ *   name on its marquee in lights.
+ * - **Far**: the deco skyline, stepped tops, amber windows at dusk, the hills
+ *   behind it gone blue.
  */
-import type { Builder } from './common'
+import type { Builder } from './vista'
+import { neonText } from './vista'
 import { MAPS } from '../../cards/maps'
-import { cityGrid, lots, podium, crowd, neonText, at, along, FLOOR, nearSpot } from './common'
-import { mix, cssHex } from '../sky'
-import type { Actor } from '../life'
-import { cloud, over, plane, puff, streetWalkers, traffic } from './actors'
+import { mix } from '../sky'
+import { hills, skyline, vistaTable } from './vista'
+import { airship, gull } from './vistaLife'
 
-const GOLD = 0xe0b45a
-const CREAM = 0xf0e6d2
-
-/** The cars, parked along the streets and driving them. */
-const CARS = [0xd94c4c, 0x2f8fbf, 0xf4d35e, 0x2b2b2b, 0x8a5aa8, 0xf5f0e6] as const
+const MARBLE = 0xefe6d6
+const MARBLE_DARK = 0xc29a78
+const BRASS = 0xd9a441
+const STONE = 0xe9dcc2
+const STONE2 = 0xd8c6a4
+const GOLD = 0xf0c46a
+/** The boulevard, level with the terrace: the balustrade is what parts them. */
+const STREET = -0.2
+const EDGE = -7
 
 export const velvet: Builder = (k) => {
   const rng = k.rng
   const on = k.rig.lampsOn
-  const { sx, sy, a, b } = k.anchor
+  const view = k.view
+  if (!view) return
+  vistaTable(k, MAPS.velvet.table)
 
-  k.floor(0xb9a58c, FLOOR)
-  podium(k, { stone: 0x3a2410, step: 0xd9cdb5, floor: 0xf1e7d4, floor2: mix(0x7a2b3a, 0xf1e7d4, 0.55), accent: GOLD, top: cssHex(MAPS.velvet.table.felt) })
-
-  const facades = [0xd7c6a8, 0xc9b8d8, 0x9fc3c6, 0xe8c9b0, 0xf0e6d2, 0xb8c8d8, 0xe6d3c0]
-  const hotel = (x: number, z: number, w: number, d: number, h: number) => {
-    const c = rng.pick(facades)
-    k.tower(x, z, w, h, d, c, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8, door: false })
-    k.tower(x, z, w * 0.62, Math.max(1.5, h * 0.3), d * 0.62, mix(c, 0xffffff, 0.3), { y: h, floorH: 1.5, trim: GOLD, roof: 'flat' })
-    if (rng.chance(0.2)) {
-      k.cyl(x, h * 1.3, z, 0.18, 2.6, GOLD, { seg: 6, cap: false })
-      k.sphere(x, h * 1.3 + 2.8, z, 0.3, on ? 0xfff0c0 : GOLD, { glow: on, seg: 6 })
+  // ─── Near: the terrace ──────────────────────────────────────────────────
+  for (let z = EDGE; z < view.eye[2] + 2; z += 1) {
+    for (let x = -18; x < 18; x += 1) {
+      const dark = (Math.round(x) + Math.round(z)) % 2 === 0
+      k.box(x + 0.5, -0.1, z + 0.5, 0.98, 0.1, 0.98, k.ground(dark ? MARBLE_DARK : MARBLE), { outline: false, cap: true, gloss: 0.35 + k.wetGloss() })
     }
-    if (rng.chance(0.15)) {
-      const c2 = rng.pick([0xff8fb8, 0x9fe8ff, 0xffd23c])
-      k.box(x + w / 2 + 0.3, 1.5, z + d / 2 - 0.6, 0.5, h * 0.5, 0.25, 0x2a1a20)
-      k.box(x + w / 2 + 0.58, 1.9, z + d / 2 - 0.6, 0.1, h * 0.45, 0.3, on ? c2 : mix(c2, 0x222222, 0.6), { glow: on, outline: false, cap: false })
-    }
-    // A shopfront with an awning on the face towards the camera. Through
-    // `k.awning`, which starts at the wall and carries a valance: a bare plate
-    // floating six tenths of a tile off the façade is what every shopfront on
-    // this boulevard wore, and it read as a coloured card hovering in the air.
-    k.box(x, 0.3, z + d / 2 + 0.05, w * 0.75, 1.5, 0.08, on ? 0xffe2a8 : 0x2a3346, { glow: on, outline: false, cap: false })
-    k.awning(x, z + d / 2, 0, w * 0.78, rng.pick([0x7a2b3a, 0x2f8fbf, GOLD, 0x2fa07a]), { y: 2.3, depth: 1.1 })
-    // A pair of planters flanking the shopfront.
-    k.planter(x - w * 0.42, z + d / 2 + 0.7, { pot: 0x7a2b3a, r: 0.28 })
-    k.planter(x + w * 0.42, z + d / 2 + 0.7, { pot: 0x7a2b3a, r: 0.28 })
   }
-
-  // Thirteen tiles out, not ten. The tower is fifteen tiles square, which is
-  // ten and a half across the frame, so at ten its near corner stood a tile and
-  // a half inside the felt — and the table, being drawn over the render, cut
-  // the ground floor off a building in front of it.
-  const hotelSpot = { sx: sx + a + 13, sy: sy + 1 }
-  k.landmark('hotel', hotelSpot.sx, hotelSpot.sy, 31)
-  const fountainSpot = { sx: sx - 8, sy: sy + b + 7 }
-  const near = nearSpot
-
-  /** An unbuilt block: a lawn with two or three palms and a bench. */
-  const garden = (x: number, z: number, w: number) => {
-    k.slab(x, z, w - 1, w - 1, k.ground(0x8fbf6a), { h: 0.05 })
-    const n = rng.int(2, 3)
-    for (let i = 0; i < n; i++) k.tree(x + rng.range(-w / 3, w / 3), z + rng.range(-w / 3, w / 3), { kind: 'palm', h: rng.range(2.2, 3) })
-    if (rng.chance(0.5)) k.bench(x + rng.range(-1, 1), z + w / 3, 0, 0x5a3a20)
+  // The balustrade: a plinth, balusters, a rail.
+  k.box(0, 0, EDGE - 0.2, 36, 0.25, 0.6, STONE2)
+  for (let x = -17.5; x <= 17.5; x += 0.55) {
+    k.cyl(x, 0.25, EDGE - 0.2, 0.12, 0.7, STONE, { seg: 8, rTop: 0.08, outline: false })
   }
+  k.box(0, 0.95, EDGE - 0.2, 36, 0.18, 0.7, STONE, { cap: true })
+  for (let x = -16; x <= 16; x += 8) k.box(x, 0, EDGE - 0.2, 0.7, 1.2, 0.8, STONE2)
 
-  const plan = cityGrid(k, {
-    block: 11,
-    road: 3.6,
-    roadColor: 0x3a3d48,
-    sidewalk: 0xd9cdb5,
-    dashes: true,
-    crossings: true,
-    cars: CARS,
-    carDensity: 0.2,
-    lamp: { h: 3.2, heads: 2, color: 0xfff0c0, post: 0x2a2a35 },
-    people: 0.3,
-    maxHeight: 18,
-    density: (c) => (c.front ? 1 : c.dist < 40 ? 0.5 : 0.8),
-    open: (c) => {
-      if (near(c, hotelSpot, 9)) return
-      garden(c.x, c.z, c.w)
-    },
-    fill: (c) => {
-      if (near(c, hotelSpot, 9)) return
-      if (c.front) {
-        for (const l of lots(c, 2, 2, 1)) {
-          const r = rng.next()
-          if (r < 0.45) k.tree(l.x, l.z, { kind: 'palm', h: 2.4 })
-          else if (r < 0.65) {
-            k.box(l.x, 0, l.z, 1.1, 0.8, 1.1, 0x7a2b3a)
-            k.bush(l.x, l.z, 0.5, 0x3f8f52)
-          }
-        }
-        return
-      }
-      // One hotel to a block: low beside the square, taller at the edge.
-      const [l] = lots(c, 1, 1, 0)
-      hotel(l.x, l.z, l.w - rng.range(1.5, 3), l.d - rng.range(1.5, 3), c.dist < 40 ? rng.range(4, 7) : rng.range(6, 14))
-      if (rng.chance(0.5)) k.tree(c.x - c.w / 2 - 0.9, c.z - c.d / 2 - 0.9, { kind: 'palm', h: rng.range(2.2, 3) })
-    },
-  })
+  // Left: the palm in its urn and the brass lamp.
+  k.cyl(-6.2, 0, -3.8, 0.55, 0.9, BRASS, { seg: 14, rTop: 0.75, gloss: 0.6 })
+  k.tree(-6.2, -3.8, { kind: 'palm', h: 4.4 })
+  k.cyl(-5.2, 0, -0.6, 0.3, 0.06, BRASS, { seg: 12, gloss: 0.6 })
+  k.cyl(-5.2, 0.06, -0.6, 0.04, 2.2, BRASS, { seg: 6, gloss: 0.6, cap: false })
+  k.cone(-5.2, 2.0, -0.6, 0.55, 0.45, on ? 0xffe0a8 : 0xf3ead8, { seg: 12, glow: on })
+  if (on) k.halo(-5.2, 0, -0.6, 1.8, 0xffd08a, 0.3)
+  // Right: a fluted column holding up nothing but the frame.
+  k.box(6.6, 0, -5, 1.3, 0.3, 1.3, STONE2)
+  k.cyl(6.6, 0.3, -5, 0.5, 5, STONE, { seg: 16 })
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2
+    k.box(6.6 + Math.cos(a) * 0.5, 0.3, -5 + Math.sin(a) * 0.5, 0.06, 5, 0.06, STONE2, { outline: false, cap: false })
+  }
+  k.box(6.6, 5.3, -5, 1.4, 0.4, 1.4, STONE2)
+  k.box(6.6, 5.1, -5, 1.2, 0.1, 1.2, GOLD, { outline: false, cap: false })
 
-  // ─── The grand hotel, on the right ─────────────────────────────────────
-  {
-    const [hx, hz] = at(hotelSpot.sx, hotelSpot.sy)
-    k.tower(hx, hz, 15, 12, 15, CREAM, { floorH: 1.5, trim: GOLD, roof: 'none', windowColor: 0xffe2a8 })
-    k.tower(hx, hz, 11, 5, 11, mix(CREAM, 0xffffff, 0.3), { y: 12, floorH: 1.5, trim: GOLD, roof: 'none' })
-    k.tower(hx, hz, 7, 4, 7, mix(CREAM, 0xffffff, 0.5), { y: 17, floorH: 1.5, trim: GOLD, roof: 'none' })
-    k.box(hx, 21, hz, 4, 3, 4, CREAM)
-    k.cyl(hx, 24, hz, 0.3, 6, GOLD, { seg: 6, cap: false })
-    k.sphere(hx, 30.3, hz, 0.45, on ? 0xfff0c0 : GOLD, { glow: on, seg: 8 })
-    if (on) k.halo(hx, 30.3, hz, 1.4, 0xfff0c0, 0.4, false)
-    // Pilasters on the two faces the camera sees, +z and +x.
-    for (let i = -3; i <= 3; i++) {
-      k.box(hx + i * 2.2, 0.7, hz + 8.1, 0.3, 11, 0.25, GOLD, { outline: false, cap: false })
-      k.box(hx + 8.1, 0.7, hz + i * 2.2, 0.25, 11, 0.3, GOLD, { outline: false, cap: false })
+  // ─── Middle: the boulevard and the grand hotel ──────────────────────────
+  k.box(0, STREET - 0.3, -2600, 9000, 0.3, 5300, k.ground(0x5a5048), { outline: false, cap: false, gloss: k.wetGloss() })
+  // The promenade: palms in a row either side, lamps between them.
+  for (let z = -18; z > -160; z -= 12) {
+    for (const x of [-22, 22]) {
+      k.tree(x + rng.range(-0.5, 0.5), z, { kind: 'palm', h: 7 })
+      k.lamp(x * 0.8, z - 6, { h: 4.2, style: 'globe', post: 0x2a2226, color: 0xffd08a })
     }
-    // The entrance is on the +z face, the one turned towards the square. It
-    // used to be laid on the diagonal, which put the marquee and its LOCO!
-    // inside the tower's corner: all a player saw of the sign was "L(".
-    const ex = hx - 2
-    const ez = hz + 7.5
-    k.box(ex, 3.4, ez + 1.5, 7, 0.5, 3, 0x7a2b3a)
-    k.box(ex, 3.9, ez + 1.5, 6.6, 0.12, 2.6, GOLD, { outline: false, cap: false })
-    for (let i = 0; i < 13; i++) k.sphere(ex - 3.2 + i * 0.533, 3.65, ez + 3.05, 0.14, on ? 0xfff0c0 : 0xd9c9a3, { glow: on, seg: 5, outline: false })
-    if (on) k.halo(ex, 0, ez + 2.5, 5, 0xffe2a8, 0.28)
-    // The sign stands on the marquee's front edge, square to the square.
-    k.box(ex, 3.9, ez + 2.75, 6, 1.9, 0.25, 0x2a1a20)
-    neonText(k, 'LOCO!', ex, 4.05, ez + 2.95, 0.3, GOLD)
-    k.box(ex, 0, ez + 0.1, 3, 3, 0.3, on ? 0xffe2a8 : 0x3a2a30, { glow: on, outline: !on })
-    k.person(ex - 2.2, ez + 3.8, 0, { shirt: 0x7a2b3a, pants: 0x2a1a20, hat: 0x7a2b3a })
-    k.person(ex + 2.2, ez + 3.8, 0, { shirt: 0x7a2b3a, pants: 0x2a1a20, hat: 0x7a2b3a })
-    k.tree(ex - 5, ez + 3, { kind: 'palm', h: 2.8 })
-    k.tree(ex + 5, ez + 3, { kind: 'palm', h: 2.6 })
-    k.slab(ex, ez + 6, 3, 6, k.ground(0x9a1e34), { y: 0.1, h: 0.05 })
-    for (let i = 0; i < 5; i++) {
-      for (const side of [-1, 1]) {
-        const x = ex + side * 1.9
-        const z = ez + 4 + i * 1.3
-        k.cyl(x, 0, z, 0.06, 0.9, GOLD, { seg: 6, cap: false, outline: false })
-        k.sphere(x, 0.95, z, 0.1, GOLD, { seg: 5, outline: false })
+  }
+  // The fountain in the roundabout.
+  k.cyl(0, STREET, -70, 7, 0.9, STONE2, { seg: 24 })
+  k.cyl(0, STREET + 0.9, -70, 6.4, 0.1, 0x3f7a8a, { seg: 24, water: true, outline: false, cap: false })
+  k.cyl(0, STREET + 0.9, -70, 1.2, 3, STONE, { seg: 12, rTop: 0.6 })
+  k.sphere(0, STREET + 4.2, -70, 0.8, GOLD, { seg: 10 })
+
+  // The grand hotel on the right: tiers stepped back, gold at every step.
+  const hx = 62
+  const hz = -120
+  let y = STREET
+  let w = 44
+  for (const h of [26, 18, 12, 8]) {
+    k.box(hx, y, hz, w, h, w * 0.6, STONE)
+    k.box(hx, y + h - 0.6, hz, w + 0.4, 0.6, w * 0.6 + 0.4, GOLD, { outline: false })
+    const floors = Math.floor(h / 3.2)
+    for (let f = 0; f < floors; f++) {
+      for (let c = hx - w / 2 + 1.6; c < hx + w / 2 - 1; c += 2.4) {
+        const litHere = on && rng.chance(k.rig.windowsLit + 0.15)
+        k.box(c, y + f * 3.2 + 1.2, hz + w * 0.3 + 0.05, 1.1, 1.6, 0.08, litHere ? 0xffd08a : 0x3a4452, { glow: litHere, outline: false, cap: false })
       }
     }
-    k.car(ex + 6, ez + 8, Math.PI, 0x2b2b2b)
+    for (let c = hx - w / 2 + 3; c < hx + w / 2 - 2; c += 6) k.box(c, y, hz + w * 0.3 + 0.1, 0.5, h - 0.6, 0.2, STONE2, { outline: false, cap: false })
+    y += h
+    w *= 0.72
   }
+  k.cyl(hx, y, hz, 0.8, 16, GOLD, { seg: 8, rTop: 0.1 })
+  // The marquee over its door, and the name in lights on it.
+  k.box(hx - 8, STREET + 4.5, hz + 14.2, 18, 1.2, 3, 0x2a2226)
+  neonText(k, 'LOCO!', hx - 8, STREET + 5.8, hz + 15.2, 0.7, on ? GOLD : mix(GOLD, 0x5a4a30, 0.3))
+  if (on) for (let i = 0; i < 18; i++) k.sphere(hx - 16.5 + i, STREET + 4.4, hz + 15.8, 0.14, 0xfff0c0, { glow: true, seg: 6, outline: false })
 
-  // ─── The fountain at the top, the benches, the guests ──────────────────
-  const [fx, fz] = at(fountainSpot.sx, fountainSpot.sy)
-  {
-    k.cyl(fx, 0, fz, 3.6, 0.6, 0xd9cdb5, { seg: 16 })
-    k.disc(fx, 0.6, fz, 3.1, 0x6fc3ff, { seg: 16 })
-    k.cyl(fx, 0.6, fz, 0.6, 1.8, 0xd9cdb5, { seg: 8 })
-    k.cyl(fx, 2.4, fz, 1.6, 0.3, 0xd9cdb5, { seg: 12 })
-    k.disc(fx, 2.7, fz, 1.4, 0x6fc3ff, { seg: 12 })
-    k.cyl(fx, 2.7, fz, 0.35, 1.3, 0xd9cdb5, { seg: 8 })
-    k.sphere(fx, 4.2, fz, 0.4, GOLD, { seg: 6 })
-    for (let i = 0; i < 10; i++) {
-      const t = (i / 10) * Math.PI * 2
-      k.sphere(fx + Math.cos(t) * 2.3, 1.0 + rng.range(0, 0.6), fz + Math.sin(t) * 2.3, 0.2, 0xdff4ff, { seg: 5, outline: false })
-    }
-    if (on) k.halo(fx, 0.62, fz, 3, 0x6fc3ff, 0.25)
-  }
-  for (let i = 0; i < 6; i++) {
-    const t = (i / 6) * Math.PI * 2 + 0.3
-    const [x, z] = at(sx + Math.cos(t) * (a + 8), sy + Math.sin(t) * (b + 5.5))
-    const [cx, cz] = at(sx, sy)
-    if (Math.abs(Math.cos(t)) > 0.9 && Math.cos(t) > 0) continue
-    k.bench(x, z, Math.atan2(cx - x, cz - z) + Math.PI, 0x5a3a20)
-    if (i % 2) k.lamp(x + 1.4, z - 1.4, { h: 3.0, heads: 2, color: 0xfff0c0, post: 0x2a2a35 })
-  }
-  along(...at(sx - a - 6, sy + b + 4), ...at(sx - a - 6, sy - b - 4), 3, (x, z) => k.tree(x, z, { kind: 'palm', h: 2.6 }))
-  crowd(k, 6)
-
-  // ─── What moves: the fountain, traffic round the square, a plane ───────
-  const life: Actor[] = []
-  for (let i = 0; i < 3; i++) {
-    life.push(puff(k, `spray-${i}`, { at: over(fx, fz, 4.4), rise: 1.4, duration: 1500 + i * 250, delay: i * 500, size: 0.6, color: 0xdff4ff }))
-  }
-  life.push(...traffic(k, plan, CARS, 1))
-  if (k.rig.weather === 'clear' || k.rig.weather === 'cloudy') {
-    life.push(cloud(k, 'cloud-0', { sy: 18.5, size: 1.2, duration: 175_000 }))
-    life.push(cloud(k, 'cloud-1', { sy: 15.5, size: 0.8, duration: 220_000, delay: 80_000, from: 50, to: -50 }))
-    life.push(plane(k, 'plane', { sy: 16.5, every: 120_000 }))
-  }
-  life.push(...streetWalkers(k, plan, 2))
-  return life
+  // ─── Far: the deco skyline ──────────────────────────────────────────────
+  const towers = [STONE, STONE2, 0xe2cfa9, 0xd9c09a, 0xcdb89a]
+  skyline(k, { x0: -420, x1: 200, z0: -200, z1: -380, h: [20, 60], w: [18, 30], count: 30, colors: towers, base: STREET, tiers: 1, window: 0xffd08a, windows: 0.8 })
+  skyline(k, { x0: -1000, x1: 1000, z0: -480, z1: -800, h: [30, 90], w: [22, 40], count: 50, colors: towers.map((c) => mix(c, 0xb8a8c8, 0.2)), base: STREET, tiers: 2, windows: 0.3, spires: { count: 3, h: [110, 150] } })
+  hills(k, -3200, 3200, -2400, 180, 0x7a86a8, 12, STREET)
+  // ─── What moves: an airship over the skyline, gulls off the sea ─────────
+  return [
+    airship('airship', [[-520, 110, -950], [-260, 118, -950]], { duration: 340_000, hull: 0xe9dcc2, band: GOLD, size: 12 }),
+    gull('gull-a', [[-40, 16, -60], [-6, 20, -80], [26, 17, -66]], { duration: 28_000 }),
+  ]
 }

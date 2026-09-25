@@ -4,7 +4,7 @@
   import type { FeltAnchor } from '../cards/layout'
   import { sceneKey } from '../cards/maps'
   import { lightRig, rigCssVars } from './sky'
-  import { peekScene, prepareScene, renderSizeFor, sameFelt, sizeCloseEnough, type PreparedScene } from './sceneCache'
+  import { peekScene, prepareScene, renderSizeFor, sameFelt, sizeCloseEnough, tableFits, type PreparedScene } from './sceneCache'
   import { elementSize } from '../../hooks/boardMetrics.svelte'
   import { graphicsPref } from '../../hooks/uiPrefs.svelte'
   import { lookVersion, subscribeLook } from './look'
@@ -38,8 +38,14 @@
     scene: SceneSpec
     /** Where the felt is on screen: the podium is rendered under it. */
     anchor: FeltAnchor
+    /**
+     * Out: whether the frame on screen carries the table under the felt as it
+     * is now (`tableFits`). While it does the render *is* the table, lit by the
+     * room; while it does not, the board draws its CSS table over it.
+     */
+    tableDrawn?: boolean
   }
-  let { scene, anchor }: Props = $props()
+  let { scene, anchor, tableDrawn = $bindable(false) }: Props = $props()
 
   /**
    * How long the viewport has to hold still before the room is rendered again.
@@ -77,6 +83,10 @@
   let shown: PreparedScene | null = null
   /** The same entry, for the life layer: what moves belongs to the frame on screen. */
   let alive = $state<PreparedScene | null>(null)
+
+  $effect(() => {
+    tableDrawn = drawn && tableFits(alive, size.current.width, size.current.height, anchor)
+  })
 
   function paint(entry: PreparedScene) {
     const frame = entry.canvas
@@ -196,7 +206,11 @@
   <canvas bind:this={canvasA} class="frame" class:top={topIsA} class:entering={topIsA && entering}></canvas>
   <canvas bind:this={canvasB} class="frame" class:top={!topIsA} class:entering={!topIsA && entering}></canvas>
   <LifeLayer scene={alive} width={size.current.width} height={size.current.height} />
-  <WeatherLayer weather={scene.weather} dry={scene.map.dry ?? false} />
+  <WeatherLayer
+    weather={scene.weather}
+    dry={scene.map.dry ?? false}
+    clear="radial-gradient({anchor.rx}px {anchor.ry}px at {anchor.cx}px {anchor.cy}px, transparent 99%, #000 100%)"
+  />
 </div>
 
 <style>

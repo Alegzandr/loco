@@ -11,6 +11,7 @@
   import { GRAPHICS_PREFS, type GraphicsPref } from '../hooks/graphicsPref'
   import { muffleBedWhile } from '../hooks/bedMuffle.svelte'
   import LanguageSwitcher from './LanguageSwitcher.svelte'
+  import { startFpsMeter } from './fpsMeter'
 
   type Props = {
     /**
@@ -61,6 +62,20 @@
   const graphicsOptions: [GraphicsPref, string][] = $derived(
     GRAPHICS_PREFS.map((p) => [p, t.prefsGraphicsTier[p]]),
   )
+
+  // The page's frame rate beside the graphics row, only while the panel is
+  // open. Written into the node directly: a figure that moves twice a second
+  // for as long as somebody looks is continuous, and stays out of state.
+  let fpsNode = $state<HTMLSpanElement | null>(null)
+  $effect(() => {
+    const node = fpsNode
+    if (!open || !node) return
+    const fmt = t.prefsFps
+    node.textContent = ''
+    return startFpsMeter((fps) => {
+      node.textContent = fmt.replace('%n', String(fps))
+    })
+  })
 
   // The drawer in `layouts/GamePage.astro` is markup Astro rendered, outside
   // `#root`, so it asks for this panel by event rather than by calling into it.
@@ -186,7 +201,10 @@
                `auto` resolved to on this device, so the row never asks a player
                to guess what their phone can take. -->
           <div class="group">
-            <span class="label">{t.prefsGraphics}</span>
+            <div class="labelRow">
+              <span class="label">{t.prefsGraphics}</span>
+              <span class="fps" bind:this={fpsNode} aria-hidden="true"></span>
+            </div>
             <div class="seg segFour" role="group" aria-label={t.prefsGraphics}>
               {#each graphicsOptions as [value, label] (value)}
                 <button
@@ -397,6 +415,20 @@
   .label {
     font: 600 14px/1.2 var(--font-display);
     color: var(--color-ink);
+  }
+
+  .labelRow {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-sm);
+  }
+
+  /* A reading, not a setting: quiet, and in figures that do not jitter. */
+  .fps {
+    font: 600 12px/1.2 var(--font-body);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-muted);
   }
 
   .hint {

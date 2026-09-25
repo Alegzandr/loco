@@ -193,6 +193,7 @@ describe('a component effect ignores the props it does not watch', () => {
       pendingDraw: 0,
       hasDrawn: false,
       lastPlay: null,
+      lastDraw: null,
       swapNotice: null,
       catchFlash: null,
       showRoundSummary: false,
@@ -225,14 +226,36 @@ describe('a component effect ignores the props it does not watch', () => {
     expect(container.querySelectorAll('.flier').length).toBe(drawn)
   })
 
-  it('flies the Contre-LOCO! penalty once, not once per message', () => {
+  it('announces the Contre-LOCO! penalty once, not once per message', () => {
     const { container } = render(GameView, { onSend: vi.fn(), wsStatus: 'open' })
 
     act(() => {
       gameStore.setState({ catchFlash: { at: 1000, seat: 1 } })
     })
-    const drawn = container.querySelectorAll('.flier').length
+    const drawn = container.querySelectorAll('.effectAnchor').length
     expect(drawn).toBeGreaterThan(0)
+
+    anUnrelatedMessage(1)
+    anUnrelatedMessage(2)
+
+    expect(container.querySelectorAll('.effectAnchor').length).toBe(drawn)
+  })
+
+  it('flies a draw into its hand once, not once per message', () => {
+    const { container } = render(GameView, { onSend: vi.fn(), wsStatus: 'open' })
+
+    act(() => {
+      gameStore.setState({
+        players: [
+          { index: 0, nickname: 'Alice', hand_size: 1, connected: true },
+          { index: 1, nickname: 'Bob', hand_size: 5, connected: true },
+        ],
+        lastDraw: { at: 1000, seat: 1, count: 2, penalty: true },
+      })
+    })
+    // One back per card drawn, each into its own place in Bob's fan.
+    const drawn = container.querySelectorAll('.flier').length
+    expect(drawn).toBe(2)
 
     anUnrelatedMessage(1)
     anUnrelatedMessage(2)

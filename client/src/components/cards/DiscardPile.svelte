@@ -14,7 +14,7 @@
   import SuitMark from './SuitMark.svelte'
   import { colorAssistPref } from '../../hooks/colorAssist'
   import { watchPref } from '../../hooks/prefs.svelte'
-  import { discardPosition } from './layout'
+  import { discardPosition, onPile, pileTransform, PILE_CHIP_REACH } from './layout'
 
   type Props = {
     card: CardDTO | null
@@ -38,6 +38,15 @@
   let { card, activeColor, pendingDraw, width, height, topReserve = 0, landscape = false, playStamp = 0 }: Props = $props()
 
   const assist = watchPref(colorAssistPref)
+
+  // The pile's thickness: its near side, once it lies on the felt, drawn as the
+  // edges of the cards under it, offset straight down in the pile's own plane.
+  const EDGE_LAYERS = [9, 6, 3]
+
+  // The two corner tokens stay upright, as readable as ever, but pinned to
+  // where the laid card's corners are seen.
+  const nearLeft = onPile(0, CARD_H)
+  const farRight = onPile(CARD_W, 0)
 
   // Fixed tilts for the cards buried under the top one. Static rather than random
   // so the pile doesn't reshuffle itself on every update.
@@ -115,12 +124,20 @@
          exactly when people ask where the colour is. Keyed on the colour so a wild
          resolving replays all three. Framer Motion staged these; they are CSS
          entrance animations now, replayed by the same key. -->
+    <!-- Everything that lies on the felt is laid down with the pile: the pool, the
+         ring, the cards. The chip and the badge are tokens read across the room
+         and stay upright, outside it. -->
+    <div class="laid" style="transform: {pileTransform()}">
     {#key activeColor}
       <div class="pool" style="color: {ACTIVE_RING[activeColor]}"></div>
     {/key}
     <!-- `color` drives both the border (border-color defaults to currentColor) and
          the glow, so the active colour is set in one place. -->
     <div class="ring" style="color: {ACTIVE_RING[activeColor]}"></div>
+    <div class="contact"></div>
+    {#each EDGE_LAYERS as dy (dy)}
+      <div class="edge" style="top: {dy}px"></div>
+    {/each}
     {#each UNDER_LAYERS as l, i (i)}
       <div
         class="under"
@@ -133,6 +150,7 @@
         <Card card={shown} />
       </div>
     {/key}
+    </div>
     <!-- The chip carries the suit's whole gradient, so it is literally the paint of
          the swatch that was tapped in <ColorPicker /> and of the cards it now lets
          you play. A flat sample would be a fourth colour to learn. Bottom-left
@@ -141,7 +159,7 @@
     {#key activeColor}
       <div
         class="chip"
-        style="left: -16px; top: {CARD_H - 22}px; color: {ACTIVE_RING[
+        style="left: {nearLeft.x - PILE_CHIP_REACH}px; top: {nearLeft.y - 22}px; color: {ACTIVE_RING[
           activeColor
         ]}; background: linear-gradient({SUIT_ANGLE_DEG}deg, {SUIT_PAINT[activeColor]
           .from}, {SUIT_PAINT[activeColor].to})"
@@ -155,7 +173,7 @@
     {#if pendingDraw > 0}
       <div
         class="badge"
-        style="left: {CARD_W - 46 / 2}px; top: {-30 / 2}px"
+        style="left: {farRight.x - 46 / 2}px; top: {farRight.y - 30 / 2}px"
         aria-label="pending draw {pendingDraw}"
       >
         +{pendingDraw}
@@ -167,6 +185,41 @@
 <style>
   .pile {
     position: absolute;
+    pointer-events: none;
+  }
+
+  /* The laid pile, tipped back about the card's centre (`pileTransform`). */
+  .laid {
+    position: absolute;
+    inset: 0;
+    transform-origin: 50% 50%;
+  }
+
+  /* The pile's contact shadow on the felt, cast the way the room's sun casts
+     every block's (`--sun-dx` / `--sun-dy`, the table's own shadow). Soft, and
+     that is allowed here: it is ambience, grounding the pile in the room; the
+     structure is still the ink outline and the band of edges. */
+  .contact {
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+    pointer-events: none;
+    transform: translate(calc(var(--sun-dx, 0) * 7px), calc(var(--sun-dy, 0.7) * 7px + 4px));
+    box-shadow: 0 0 12px 3px rgba(0, 0, 0, calc(0.5 + var(--scene-dark, 0) * 0.2));
+    background: rgba(0, 0, 0, 0.35);
+  }
+
+  /* The near side of the pile: card edges under the top one, paper in shade.
+     Solid rather than faded, for the same reason the deck's buried layers are
+     darkened: faded they would take the felt's colour and read as a glow. */
+  .edge {
+    position: absolute;
+    left: 0;
+    width: 72px;
+    height: 108px;
+    border-radius: 11px;
+    background: var(--card-edge);
+    border: var(--stroke-thin) solid var(--color-stroke);
     pointer-events: none;
   }
 

@@ -599,8 +599,8 @@ func TestRoomCreated_IncludesMatchFormatAndMaxPlayers(t *testing.T) {
 	if created.MatchFormat != "BO1" {
 		t.Errorf("default MatchFormat = %q, want BO1", created.MatchFormat)
 	}
-	if created.MaxPlayers != 10 {
-		t.Errorf("default MaxPlayers = %d, want 10", created.MaxPlayers)
+	if created.MaxPlayers != 7 {
+		t.Errorf("default MaxPlayers = %d, want 7", created.MaxPlayers)
 	}
 }
 

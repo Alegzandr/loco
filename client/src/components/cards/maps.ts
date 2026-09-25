@@ -21,14 +21,29 @@ import { TIMES, WEATHERS, isTime, isWeather, type TimeOfDay, type Weather } from
 export type MapId = 'neon' | 'rune' | 'velvet' | 'orbit' | 'sakura' | 'marina'
 
 /**
- * What the CSS table is made of, per room. Every value is a CSS colour.
+ * What the rim and the edge are made of: a noble material, one per room.
+ * `lacquer` is a piano finish (Neon's black, Sakura's urushi), `oak` an oiled
+ * quartersawn oak, `burl` a varnished walnut burl, `titanium` brushed metal,
+ * `teak` a yacht's varnished teak.
+ */
+export type RimKind = 'lacquer' | 'oak' | 'burl' | 'titanium' | 'teak'
+/** The edge's profile, seen in section: what the render sweeps round the felt. */
+export type EdgeProfile = 'bullnose' | 'ogee' | 'knife' | 'square'
+/** What the table stands on. */
+export type PedestalKind = 'tulip' | 'turned' | 'deco' | 'tripod' | 'legs' | 'capstan'
+
+/**
+ * What the table is made of, per room. Every colour is a CSS colour.
  *
  * `felt` and `feltDeep` are the playing surface's gradient, `rim` the material
- * of the edge, `rimLight` the sheen it catches, `base` the plinth under it,
- * `inlay` the thin line set into the rim (a neon tube, a brass bead, a rune
- * groove). The hour tints the sheen (`--scene-tint`) and dims the whole object
- * (`--scene-dark`); the materials themselves never change with it, because a
- * table is a physical thing and night does not repaint it.
+ * of the edge, `rimLight` the sheen it catches, `base` the pedestal, `inlay`
+ * the metal set into the wood (the bead round the felt and the play
+ * direction's chevrons). The rest names the materials, so the CSS can draw
+ * their grain (`tableSurface.ts`) and the render can sweep the edge and turn
+ * the pedestal (`scene/maps/vista.ts: vistaTable`). The hour tints the sheen
+ * (`--scene-tint`) and dims the whole object (`--scene-dark`); the materials
+ * themselves never change with it, because a table is a physical thing and
+ * night does not repaint it.
  */
 export interface TableMaterials {
   felt: string
@@ -37,6 +52,15 @@ export interface TableMaterials {
   rimLight: string
   base: string
   inlay: string
+  rimKind: RimKind
+  /** The material's second colour: the wood's rings, the lacquer's depth, the brushing. */
+  grain: string
+  /** Metal flakes sown in the finish (Sakura's gold in the urushi, *nashiji*). */
+  fleck?: string
+  edge: EdgeProfile
+  pedestal: PedestalKind
+  /** The pedestal is stone and this is its vein (Velvet's black marble). */
+  baseVein?: string
 }
 
 export interface MapDef {
@@ -72,12 +96,16 @@ export const MAPS: Record<MapId, MapDef> = {
   neon: {
     id: 'neon',
     table: {
-      felt: '#1a1530',
-      feltDeep: '#0a0816',
-      rim: '#15121f',
-      rimLight: '#6b4fb8',
-      base: '#0b0912',
-      inlay: '#c56bff',
+      felt: '#2a2046',
+      feltDeep: '#0d0a1c',
+      rim: '#0e0c14',
+      rimLight: '#c9b8ff',
+      base: '#b9bec9',
+      inlay: '#dfe3ec',
+      rimKind: 'lacquer',
+      grain: '#2c2640',
+      edge: 'knife',
+      pedestal: 'tulip',
     },
     accent: '#c56bff',
     accentDeep: '#5a1e9c',
@@ -86,12 +114,16 @@ export const MAPS: Record<MapId, MapDef> = {
   rune: {
     id: 'rune',
     table: {
-      felt: '#2b3a2e',
-      feltDeep: '#121b15',
-      rim: '#4a2e17',
-      rimLight: '#a8713a',
-      base: '#2c1a0c',
-      inlay: '#ffab52',
+      felt: '#2b4431',
+      feltDeep: '#0f1c13',
+      rim: '#7a5130',
+      rimLight: '#e0ad72',
+      base: '#5a3719',
+      inlay: '#c9955a',
+      rimKind: 'oak',
+      grain: '#3b2412',
+      edge: 'square',
+      pedestal: 'turned',
     },
     accent: '#ffab52',
     accentDeep: '#6d3410',
@@ -100,12 +132,17 @@ export const MAPS: Record<MapId, MapDef> = {
   velvet: {
     id: 'velvet',
     table: {
-      felt: '#5a1424',
-      feltDeep: '#2a0810',
-      rim: '#3a2410',
-      rimLight: '#e0b45a',
-      base: '#1f1408',
-      inlay: '#f0c46a',
+      felt: '#6e1729',
+      feltDeep: '#2a0610',
+      rim: '#6b3d1c',
+      rimLight: '#f3cf94',
+      base: '#141214',
+      inlay: '#e9c46e',
+      rimKind: 'burl',
+      grain: '#2b1406',
+      edge: 'ogee',
+      pedestal: 'deco',
+      baseVein: '#d9d2c6',
     },
     accent: '#f0c46a',
     accentDeep: '#5e3a12',
@@ -114,12 +151,16 @@ export const MAPS: Record<MapId, MapDef> = {
   orbit: {
     id: 'orbit',
     table: {
-      felt: '#0e2a3a',
-      feltDeep: '#061420',
-      rim: '#5c6672',
-      rimLight: '#c9d3dd',
-      base: '#2b3239',
-      inlay: '#4fd6ff',
+      felt: '#133342',
+      feltDeep: '#061520',
+      rim: '#868e99',
+      rimLight: '#eef4fa',
+      base: '#7a828d',
+      inlay: '#bfe8f5',
+      rimKind: 'titanium',
+      grain: '#5c646f',
+      edge: 'knife',
+      pedestal: 'tripod',
     },
     accent: '#4fd6ff',
     accentDeep: '#123a63',
@@ -129,12 +170,17 @@ export const MAPS: Record<MapId, MapDef> = {
   sakura: {
     id: 'sakura',
     table: {
-      felt: '#1f3a2a',
-      feltDeep: '#0d1c14',
-      rim: '#7a1f1f',
-      rimLight: '#d94c4c',
-      base: '#3a0e0e',
-      inlay: '#ffb7d0',
+      felt: '#27432f',
+      feltDeep: '#0e1d14',
+      rim: '#9a1f17',
+      rimLight: '#ff9a7a',
+      base: '#17110f',
+      inlay: '#e6bc62',
+      rimKind: 'lacquer',
+      grain: '#4f0a07',
+      fleck: '#e8c065',
+      edge: 'bullnose',
+      pedestal: 'legs',
     },
     accent: '#ff8fb8',
     accentDeep: '#7a2a4a',
@@ -143,12 +189,16 @@ export const MAPS: Record<MapId, MapDef> = {
   marina: {
     id: 'marina',
     table: {
-      felt: '#12304a',
+      felt: '#15344f',
       feltDeep: '#081726',
-      rim: '#6e5232',
-      rimLight: '#c9a06a',
-      base: '#3a2a18',
-      inlay: '#ffd166',
+      rim: '#8f5d2e',
+      rimLight: '#f3c47e',
+      base: '#5a2e14',
+      inlay: '#d9a84e',
+      rimKind: 'teak',
+      grain: '#4a2a10',
+      edge: 'bullnose',
+      pedestal: 'capstan',
     },
     accent: '#5fc8ff',
     accentDeep: '#153f5e',

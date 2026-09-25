@@ -410,6 +410,7 @@
     swapNotice={g.swapNotice}
     catchFlash={g.catchFlash}
     lastPlay={g.lastPlay}
+    lastDraw={g.lastDraw}
     isReconnecting={g.isReconnecting || reconnect.current}
     {scene}
     {anchor}
@@ -747,11 +748,14 @@
   />
 
   {#if g.unoDeclared}
+    {@const caller = g.players.find((pl) => pl.index === g.unoDeclaredByIndex)}
+    <!-- The word alone on the sticker, the caller on the tag the other two shouts
+         hang their seat on: "Pixel: LOCO!" was one line of mixed type. -->
     <div class="unoBanner">
-      {g.unoDeclaredByIndex >= 0 &&
-      g.players.find((pl) => pl.index === g.unoDeclaredByIndex)?.nickname
-        ? `${g.players.find((pl) => pl.index === g.unoDeclaredByIndex)!.nickname}: ${t.unoBanner}`
-        : t.unoBanner}
+      <span class="unoWord">{t.unoBanner}</span>
+      {#if g.unoDeclaredByIndex >= 0 && caller?.nickname}
+        <span class="unoWho">{caller.nickname}</span>
+      {/if}
     </div>
   {/if}
 
@@ -883,9 +887,11 @@
      punches in and settles — built to be legible in a clipped highlight. */
   .unoBanner {
     position: absolute;
-    /* Sits above the pile rather than over it — the play that triggered the shout
-       must stay visible while the banner is up. */
-    top: 24%;
+    /* On the shout line (`--shout-y`, published by the board): the tallest free
+       gap in the middle of the table, so the play that triggered the shout
+       stays visible, and so does the hand of whoever faces us, which a fixed
+       height above the piles covered. */
+    top: var(--shout-y, 24%);
     /* Centred by `inset-inline: 0` + `margin-inline: auto`, never `left: 50%` —
        the rule the notice pills below carry, and the same bug: anchored at the
        midpoint the box is shrink-to-fit against the right half of the screen,
@@ -898,20 +904,23 @@
     width: fit-content;
     max-width: calc(100% - 2 * var(--space-base));
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     text-align: center;
-    text-wrap: balance;
-    overflow-wrap: anywhere;
-    font: 700 clamp(26px, 5.6vw, 56px) / 1.05 var(--font-display);
-    letter-spacing: -1px;
-    color: var(--color-on-dark);
-    background: var(--gradient-primary);
-    padding: 14px 40px;
-    border: 5px solid var(--color-stroke);
-    border-radius: var(--radius-lg);
+    /* A die-cut sticker: the red, a white margin cut round it, the ink edge
+       outside that, and the hard shadow under the lot. It was a red rounded
+       plate with a glow, which read as a button nobody could press. The bottom
+       padding leaves room for the caller's tag hanging off the edge. */
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0 14%, rgba(255, 255, 255, 0) 14% 100%),
+      var(--gradient-primary);
+    padding: 12px 46px 26px;
+    border: 5px solid var(--color-on-dark);
+    border-radius: var(--radius-xl);
     box-shadow:
-      0 8px 0 var(--color-stroke-soft),
-      0 0 60px rgba(255, 61, 104, 0.6);
-    text-shadow: 0 4px 0 rgba(120, 10, 40, 0.5);
+      0 0 0 4px var(--color-stroke),
+      0 12px 0 var(--color-stroke-soft);
     pointer-events: none;
     animation: unoPunch 0.45s var(--ease-bounce) forwards;
     /* 45: the third of the three moments allowed to shout, on the layer the
@@ -937,9 +946,53 @@
     }
   }
 
+  /* The relief all three shouts wear: white, the ink outline, a stepped ink
+     extrusion — hard, never blurred. */
+  .unoWord {
+    font: 700 clamp(34px, 7vw, 76px) / 1.05 var(--font-display);
+    letter-spacing: -1px;
+    color: var(--color-on-dark);
+    -webkit-text-stroke: 5px var(--color-stroke);
+    paint-order: stroke fill;
+    text-shadow:
+      0 2px 0 var(--color-stroke),
+      0 4px 0 var(--color-stroke),
+      0 6px 0 var(--color-stroke),
+      0 9px 0 var(--color-stroke-soft);
+    white-space: nowrap;
+  }
+
+  /* The caller, on the tag the interception and the catch stamp hang their seat
+     on: ink on the board's plate, and no seat-colour dot, which read as
+     decoration.
+     `anywhere` is for the nickname, which may be one 20-character word. */
+  .unoWho {
+    position: absolute;
+    bottom: -22px;
+    inset-inline: 0;
+    margin-inline: auto;
+    width: fit-content;
+    max-width: calc(100% + 24px);
+    box-sizing: border-box;
+    padding: 6px 16px;
+    font: 700 clamp(14px, 2.2vw, 19px) / 1.2 var(--font-display);
+    letter-spacing: 0;
+    color: var(--color-ink);
+    background: var(--color-surface-strong);
+    border: var(--stroke) solid var(--color-stroke);
+    border-radius: var(--radius-full);
+    box-shadow: var(--shadow-hard);
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+  }
+
   @media (max-width: 480px) {
     .unoBanner {
-      padding: 10px 22px;
+      padding: 10px 28px 24px;
+      border-width: 4px;
+    }
+    .unoWord {
+      -webkit-text-stroke-width: 4px;
     }
   }
 

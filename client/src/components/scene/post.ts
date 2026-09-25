@@ -6,10 +6,9 @@
  * against: the occlusion in the creases the shadow map cannot see (SSAO from
  * the frame's own depth), the light off a lamp spilling past its glass
  * (bloom), a filmic tone curve over the linear frame, a grade that keeps the
- * shade cool and the light warm, the focus held on the table's band and
- * easing off towards the top and bottom of the frame (a tilt-shift, which is
- * how a diorama is photographed), the corners a touch darker and a touch
- * fringed, a fine grain, and a last pass of edge anti-aliasing over the
+ * shade cool and the light warm, the air over the far ground (`AirOptions`),
+ * a lens focused on the table that lets the far go soft, the corners a touch
+ * darker and a touch fringed, and a last pass of edge anti-aliasing over the
  * supersampling. Every one is a full-screen shader over a texture the scene
  * was rendered into, every number in them is the look's (`look.ts`), and
  * every one runs exactly once per match: the result is copied out and the
@@ -22,7 +21,7 @@
  *     └─▶ lit = scene × occlusion ──▶ litRT
  *           ├─▶ bright pass ¼ ──▶ blur ×2 ──▶ bloomRT
  *           ├─▶ copy ½ ──▶ blur ──▶ blurRT                     (the out-of-focus copy)
- *           └─▶ composite (FXAA · fringe · focus · bloom · tone · grade · vignette · grain) ──▶ canvas
+ *           └─▶ composite (FXAA · fringe · focus · bloom · tone · grade · vignette) ──▶ canvas
  *
  * Colour: the scene renders into the target in linear light, the passes work
  * in linear, the tone curve is applied in the composite exactly as the plain
@@ -42,6 +41,7 @@ import {
   Mesh,
   NearestFilter,
   OrthographicCamera,
+  PerspectiveCamera,
   PlaneGeometry,
   Scene,
   ShaderMaterial,
@@ -61,14 +61,6 @@ import type { PostOptions } from './quality'
 import { DEBUG_VIEWS, LOOK, type ToneMapping } from './look'
 import { channels, lightingFor } from './shade'
 
-/** The felt's ellipse in the render's own pixels: where the focus is held. */
-export interface FocusBand {
-  cx: number
-  cy: number
-  rx: number
-  ry: number
-}
-
 const QUAD_VERT = /* glsl */ `
   varying vec2 vUv;
   void main() {
@@ -86,37 +78,98 @@ const COPY_FRAG = /* glsl */ `
 `
 
 /**
- * Ambient occlusion from the depth of an orthographic frame.
+ * The supersampled frame brought down to the bitmap, in linear light.
  *
- * Under an orthographic camera the depth buffer is linear in view depth and
- * a pixel's view-space x/y are its uv across the camera's frame, so a
- * position is reconstructed exactly and a sample point projects back to a
- * uv with a divide by nothing. The normal is taken from the depth's own
+ * The browser's `drawImage` did this before, on sRGB bytes and with whatever
+ * filter the browser calls "high": averaging encoded values darkens every thin
+ * bright line (a lit window, a neon tube, a rim of sky between two roofs) and
+ * the filter changed from one engine to the next. Here the composite is kept
+ * linear in a float target and every bitmap pixel gathers the source texels
+ * under a Mitchell–Netravali kernel (B = C = ⅓) two bitmap pixels wide: sharp
+ * enough for the ink outlines, no ringing to speak of round them, and no
+ * stairs left for the eye to find. The encoding is applied after, once.
+ * `RESOLVE_RADIUS` is the kernel's reach in source texels, a compile-time
+ * bound for the loop.
+ */
+const RESOLVE_FRAG = /* glsl */ `
+  uniform sampler2D tSrc;
+  uniform vec2 uSrc;
+  uniform vec2 uRatio;
+  varying vec2 vUv;
+
+  float mitchell(float x) {
+    x = abs(x);
+    if (x < 1.0) return (7.0 * x * x * x - 12.0 * x * x + 16.0 / 3.0) / 6.0;
+    if (x < 2.0) return (-7.0 / 3.0 * x * x * x + 12.0 * x * x - 20.0 * x + 32.0 / 3.0) / 6.0;
+    return 0.0;
+  }
+
+  void main() {
+    vec2 c = vUv * uSrc;
+    vec2 base = floor(c);
+    vec3 acc = vec3(0.0);
+    float wsum = 0.0;
+    for (int j = -RESOLVE_RADIUS; j <= RESOLVE_RADIUS; j++) {
+      float wy = mitchell((base.y + float(j) + 0.5 - c.y) / uRatio.y);
+      if (wy == 0.0) continue;
+      for (int i = -RESOLVE_RADIUS; i <= RESOLVE_RADIUS; i++) {
+        vec2 t = base + vec2(float(i), float(j)) + 0.5;
+        float w = mitchell((t.x - c.x) / uRatio.x) * wy;
+        if (w == 0.0) continue;
+        acc += texture2D(tSrc, t / uSrc).rgb * w;
+        wsum += w;
+      }
+    }
+    gl_FragColor = vec4(max(acc / max(wsum, 1e-4), 0.0), 1.0);
+    #include <colorspace_fragment>
+  }
+`
+
+/**
+ * Where a pixel stands in view space, from the depth buffer and the camera's
+ * inverse projection: exact under either camera (the rooms seen from above are
+ * orthographic, the rooms seen from the table in perspective), and a sample
+ * point goes back to a uv through the projection itself.
+ */
+const VIEW_PARS = /* glsl */ `
+  uniform mat4 uProj;
+  uniform mat4 uProjInv;
+  vec3 viewAt(vec2 uv, float d) {
+    vec4 v = uProjInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+    return v.xyz / v.w;
+  }
+  vec2 uvOfView(vec3 p) {
+    vec4 c = uProj * vec4(p, 1.0);
+    return c.xy / c.w * 0.5 + 0.5;
+  }
+`
+
+/**
+ * Ambient occlusion from the depth of the frame (`VIEW_PARS`).
+ * The normal is taken from the depth's own
  * differences, the smaller of each pair so an edge does not smear it. Two
  * radii: a wide one for the foot of a wall and the well of a courtyard, a
  * tight one for the crease between two blocks. The per-pixel rotation is a
  * hash, and the blur that follows takes the noise out.
  */
 const AO_FRAG = /* glsl */ `
+  ${VIEW_PARS}
   uniform sampler2D tDepth;
   uniform vec2 uRes;
-  uniform vec4 uFrame;   // left, right, bottom, top
-  uniform vec2 uRange;   // near, far
   uniform float uRadius;
   uniform float uRadiusSmall;
   uniform float uPower;
   uniform float uSeed;
   varying vec2 vUv;
 
-  float viewZ(vec2 uv) {
-    float d = texture2D(tDepth, uv).x;
-    return -(uRange.x + d * (uRange.y - uRange.x));
-  }
   vec3 viewPos(vec2 uv) {
-    return vec3(uFrame.x + uv.x * (uFrame.y - uFrame.x), uFrame.z + uv.y * (uFrame.w - uFrame.z), viewZ(uv));
+    return viewAt(uv, texture2D(tDepth, uv).x);
+  }
+  float viewZ(vec2 uv) {
+    return viewPos(uv).z;
   }
   vec2 uvOf(vec3 p) {
-    return vec2((p.x - uFrame.x) / (uFrame.y - uFrame.x), (p.y - uFrame.z) / (uFrame.w - uFrame.z));
+    return uvOfView(p);
   }
   // Interleaved gradient noise: no diagonal streaks, unlike the sine hash.
   float hash(vec2 p) {
@@ -126,6 +179,8 @@ const AO_FRAG = /* glsl */ `
 
   void main() {
     vec2 px = 1.0 / uRes;
+    // The sky: nothing there to occlude.
+    if (texture2D(tDepth, vUv).x >= 0.99999) { gl_FragColor = vec4(1.0); return; }
     vec3 P = viewPos(vUv);
     // The normal: the smaller difference on each axis, so a pixel on an edge
     // takes the surface it is on and not the one behind it.
@@ -182,19 +237,27 @@ const AO_FRAG = /* glsl */ `
 
 /** A depth-aware box blur of the occlusion, one direction; run twice. */
 const AO_BLUR_FRAG = /* glsl */ `
+  ${VIEW_PARS}
   uniform sampler2D tAo;
   uniform sampler2D tDepth;
   uniform vec2 uDir;
   uniform float uDepthScale;
+  uniform float uDepthRel;
   varying vec2 vUv;
+  // View depth, in tiles: the depth buffer is not linear under a perspective camera.
+  float lin(vec2 uv) {
+    return -viewAt(vec2(0.5), texture2D(tDepth, uv).x).z;
+  }
   void main() {
-    float d0 = texture2D(tDepth, vUv).x;
+    float d0 = lin(vUv);
     float sum = 0.0;
     float wsum = 0.0;
     for (int i = -AO_BLUR; i <= AO_BLUR; i++) {
       vec2 uv = vUv + uDir * float(i);
-      float d = texture2D(tDepth, uv).x;
-      float w = exp(-abs(d - d0) * uDepthScale);
+      float d = lin(uv);
+      // A tile of depth roughly halves the weight near the lens; far off a
+      // tile is less than a pixel, so there it is a share of the distance.
+      float w = exp(-abs(d - d0) * uDepthScale / max(1.0, d0 * uDepthRel));
       sum += texture2D(tAo, uv).x * w;
       wsum += w;
     }
@@ -304,17 +367,12 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform sampler2D tBloom;
   uniform vec2 uRes;
   uniform float uFxaa;
-  uniform float uFocusY;
-  uniform float uDofFrom;
-  uniform float uDofTo;
   uniform float uDofMax;
   uniform float uBloom;
   uniform float uVignette;
   uniform vec4 uVignetteShape;   // from, to, squash, scale
-  uniform float uGrain;
   uniform float uAberration;
   uniform vec2 uAberrationRange;
-  uniform float uSeed;
   uniform int uDebug;
   uniform sampler2D tAo;
   uniform sampler2D tDepth;
@@ -322,16 +380,25 @@ const COMPOSITE_FRAG = /* glsl */ `
   uniform vec3 uMistColor;
   uniform float uMistHeight;
   uniform float uMistScale;
-  uniform vec4 uFrame;       // left, right, bottom, top
-  uniform vec2 uRange;       // near, far
+  uniform float uMistNear;
   uniform mat4 uCameraWorld;
+  // The air, in a room seen from the table (\`AirOptions\`).
+  uniform float uHazeDist;
+  uniform float uHazeMax;
+  uniform vec3 uHazeColor;
+  uniform vec3 uLightDir;
+  uniform vec3 uLightColor;
+  uniform float uSunGlow;
+  uniform float uSunGlowPower;
+  uniform float uHazeDesat;
+  // The focus: the table sharp, the far soft.
+  uniform float uFocusDist;
   varying vec2 vUv;
+  ${VIEW_PARS}
 
-  // Where the pixel stands in the world: under an orthographic camera the
-  // depth is linear, so it is exact.
+  // Where the pixel stands in the world.
   vec3 worldAt(vec2 uv) {
-    float d = texture2D(tDepth, uv).x;
-    vec3 view = vec3(uFrame.x + uv.x * (uFrame.y - uFrame.x), uFrame.z + uv.y * (uFrame.w - uFrame.z), -(uRange.x + d * (uRange.y - uRange.x)));
+    vec3 view = viewAt(uv, texture2D(tDepth, uv).x);
     return (uCameraWorld * vec4(view, 1.0)).xyz;
   }
 
@@ -374,10 +441,6 @@ const COMPOSITE_FRAG = /* glsl */ `
     return rgbB;
   }
 
-  float hash(vec2 p) {
-    return fract(sin(dot(p, vec2(12.9898, 78.233)) + uSeed) * 43758.5453);
-  }
-
   void main() {
     vec2 px = 1.0 / uRes;
     vec2 uv = vUv;
@@ -397,10 +460,10 @@ const COMPOSITE_FRAG = /* glsl */ `
       sharp.b = texture2D(tScene, uv - off).b;
     }
 
-    // The focus: a band across the frame at the table's height, everything
-    // above and below it easing into the blurred copy.
-    float d = abs(uv.y - uFocusY);
-    float blurAmt = smoothstep(uDofFrom, uDofTo, d) * uDofMax;
+    float depth = texture2D(tDepth, uv).x;
+    float dist = depth >= 0.99999 ? 1e6 : length(viewAt(uv, depth));
+    // A lens focused on the table: the far goes soft, slowly, the sky with it.
+    float blurAmt = smoothstep(uFocusDist * 2.0, uFocusDist * 40.0, dist) * uDofMax;
     vec3 col = mix(sharp, texture2D(tBlur, uv).rgb, blurAmt);
 
     col += texture2D(tBloom, uv).rgb * uBloom;
@@ -412,9 +475,24 @@ const COMPOSITE_FRAG = /* glsl */ `
       vec3 wp = worldAt(uv);
       float low = exp(-max(0.0, wp.y) / uMistHeight);
       float bank = mix(0.12, 1.0, smoothstep(0.3, 0.85, mistNoise(wp.xz)));
-      // Farther is thicker: the top of the frame is the far streets.
-      float far = mix(0.65, 1.25, uv.y);
+      // None over the table and the near ground, thickening over the water
+      // and the fields: a bank lying out there, never a veil on the lens.
+      float far = smoothstep(uMistNear, uMistNear * 4.0, dist);
       col = mix(col, uMistColor, clamp(uMist * low * bank * far, 0.0, 0.85));
+    }
+
+    // The air: the far sinks into the colour of the sky low down, loses its
+    // saturation, and glows towards the light. Not the sky itself (a depth of
+    // 1), which is the air already.
+    if (depth < 0.99999) {
+      vec3 wp = worldAt(uv);
+      vec3 camPos = (uCameraWorld * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+      vec3 ray = normalize(wp - camPos);
+      float t = uHazeMax * (1.0 - exp(-dist / uHazeDist));
+      float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      col = mix(col, vec3(l), uHazeDesat * t);
+      vec3 air = uHazeColor + uLightColor * uSunGlow * pow(max(dot(ray, uLightDir), 0.0), uSunGlowPower);
+      col = mix(col, air, t);
     }
 
     // The tone curve, with the exposure, in linear light: the same function
@@ -429,8 +507,6 @@ const COMPOSITE_FRAG = /* glsl */ `
     float v = smoothstep(uVignetteShape.x, uVignetteShape.y, length(fromC * vec2(1.0, uVignetteShape.z)) * uVignetteShape.w);
     col *= 1.0 - v * uVignette;
 
-    col += (hash(gl_FragCoord.xy) - 0.5) * uGrain;
-
     gl_FragColor = vec4(col, 1.0);
     #include <colorspace_fragment>
   }
@@ -439,7 +515,7 @@ const COMPOSITE_FRAG = /* glsl */ `
 /**
  * A sprite, graded: the same tone curve and the same grade as the room it
  * stands in, and nothing that belongs to the frame rather than to the light —
- * no vignette, no grain, no fringe, no focus band (a walker is small enough to
+ * no vignette, no fringe, no focus (a gull is small enough to
  * be all in one band, and the frame's corners are not where the sprite will
  * be), and no occlusion (there is no room around it to occlude). The sprite's
  * target is premultiplied (a transparent clear, blended into); the colour is
@@ -483,6 +559,31 @@ function mistColor(rig: LightRig): Vector3 {
 
 /** `uTone` in the composite: 0 is exposure alone, the rest are three's curves. */
 const TONE_INDEX: Record<ToneMapping, number> = { none: 0, aces: 1, agx: 2, neutral: 3 }
+
+/** The air of a room seen from the table (`LOOK.vista.haze`), colours in linear light. */
+export interface AirOptions {
+  distance: number
+  max: number
+  color: Vector3
+  lightDir: Vector3
+  lightColor: Vector3
+  sunGlow: number
+  sunGlowPower: number
+  desaturate: number
+  /** The table's distance from the lens, tiles: where the focus is. */
+  focus: number
+  dof: number
+  /** Bloom on top of the look's own. */
+  bloom: number
+}
+
+/** The projection and its inverse, which every pass that reconstructs a position reads (`VIEW_PARS`). */
+function viewUniforms(camera: Camera): Record<string, { value: unknown }> {
+  return {
+    uProj: { value: camera.projectionMatrix.clone() },
+    uProjInv: { value: camera.projectionMatrixInverse.clone() },
+  }
+}
 
 function quadCamera(): Camera {
   return new OrthographicCamera(-1, 1, 1, -1, 0, 1)
@@ -557,20 +658,25 @@ function rgb(hex: number): Vector3 {
  * own pixels, y down. The camera has to be orthographic: the occlusion pass
  * reconstructs positions from its frame.
  *
+ * With `out` smaller than the frame and a float chain, the canvas is left at
+ * `out` instead, brought down in linear light (`RESOLVE_FRAG`); the return
+ * says which size the canvas holds.
+ *
  * Throws on a GPU that cannot hold a target this size; the caller falls back
  * to the plain render.
  */
 export function renderWithPost(
   renderer: WebGLRenderer,
   scene: Scene,
-  camera: OrthographicCamera,
+  camera: OrthographicCamera | PerspectiveCamera,
   width: number,
   height: number,
   rig: LightRig,
-  focus: FocusBand,
   opts: PostOptions,
   seed: number,
-): void {
+  air: AirOptions,
+  out?: { width: number; height: number },
+): { width: number; height: number } {
   const gl = renderer.getContext()
   const targets: WebGLRenderTarget[] = []
   const materials: ShaderMaterial[] = []
@@ -641,8 +747,7 @@ export function renderWithPost(
         {
           tDepth: { value: depthTexture },
           uRes: { value: new Vector2(aw, ah) },
-          uFrame: { value: [camera.left, camera.right, camera.bottom, camera.top] },
-          uRange: { value: new Vector2(camera.near, camera.far) },
+          ...viewUniforms(camera),
           uRadius: { value: LOOK.ao.radius },
           uRadiusSmall: { value: LOOK.ao.radiusSmall },
           uPower: { value: LOOK.ao.power },
@@ -657,8 +762,10 @@ export function renderWithPost(
           tAo: { value: null },
           tDepth: { value: depthTexture },
           uDir: { value: new Vector2() },
+          ...viewUniforms(camera),
           // A difference of a tile of depth roughly halves the weight.
-          uDepthScale: { value: (camera.far - camera.near) * LOOK.ao.blurDepthFalloff },
+          uDepthScale: { value: LOOK.ao.blurDepthFalloff },
+          uDepthRel: { value: camera instanceof PerspectiveCamera ? 0.12 : 0 },
         },
         { AO_BLUR: Math.max(1, Math.round(LOOK.ao.blur)) },
       )
@@ -713,26 +820,19 @@ export function renderWithPost(
     // A darker room blooms more: at noon the lamps are off and what is bright
     // is the sky and the snow, which must not glow; at midnight the lamps are
     // the light.
-    const bloomStrength = opts.bloom ? LOOK.post.bloomStrength + rig.dark * LOOK.post.bloomDark : 0
-    const focusY = 1 - focus.cy / height
-    const dofFrom = (focus.ry / height) * LOOK.post.dofBand
+    const bloomStrength = opts.bloom ? LOOK.post.bloomStrength + rig.dark * LOOK.post.bloomDark + air.bloom : 0
     const composite = shader(COMPOSITE_FRAG, {
       tScene: { value: litRT.texture },
       tBlur: { value: blurA.texture },
       tBloom: { value: bloomA.texture },
       uRes: { value: new Vector2(width, height) },
       uFxaa: { value: opts.fxaa ? 1 : 0 },
-      uFocusY: { value: focusY },
-      uDofFrom: { value: dofFrom },
-      uDofTo: { value: dofFrom + LOOK.post.dofEase },
-      uDofMax: { value: opts.dof ? LOOK.post.dofMax : 0 },
+      uDofMax: { value: opts.dof ? air.dof : 0 },
       uBloom: { value: bloomStrength },
       uVignette: { value: opts.vignette },
       uVignetteShape: { value: new Vector4(LOOK.post.vignetteFrom, LOOK.post.vignetteTo, LOOK.post.vignetteSquash, LOOK.post.vignetteScale) },
-      uGrain: { value: opts.grain ? LOOK.post.grain : 0 },
       uAberration: { value: opts.aberration ? LOOK.post.aberration : 0 },
       uAberrationRange: { value: new Vector2(LOOK.post.aberrationFrom, LOOK.post.aberrationTo) },
-      uSeed: { value: seed },
       ...gradeUniforms(rig),
       uDebug: { value: import.meta.env.DEV ? DEBUG_VIEWS.indexOf(LOOK.debug) : 0 },
       tAo: { value: aoA.texture },
@@ -741,11 +841,38 @@ export function renderWithPost(
       uMistColor: { value: mistColor(rig) },
       uMistHeight: { value: LOOK.mist.height },
       uMistScale: { value: LOOK.mist.scale },
-      uFrame: { value: new Vector4(camera.left, camera.right, camera.bottom, camera.top) },
-      uRange: { value: new Vector2(camera.near, camera.far) },
+      uMistNear: { value: LOOK.mist.near },
+      ...viewUniforms(camera),
       uCameraWorld: { value: camera.matrixWorld.clone() },
+      uHazeDist: { value: air.distance },
+      uHazeMax: { value: air.max },
+      uHazeColor: { value: air.color },
+      uLightDir: { value: air.lightDir },
+      uLightColor: { value: air.lightColor },
+      uSunGlow: { value: air.sunGlow },
+      uSunGlowPower: { value: air.sunGlowPower },
+      uHazeDesat: { value: air.desaturate },
+      uFocusDist: { value: air.focus },
     })
-    pass(composite, null)
+    const resolve = !!out && half && (out.width < width || out.height < height)
+    if (!resolve) {
+      pass(composite, null)
+      return { width, height }
+    }
+    // Linear, float, and the encoding left to the resolve: a target carries
+    // no colour space, so `colorspace_fragment` writes it as it is.
+    const finalRT = make(width, height, { half })
+    pass(composite, finalRT)
+    const rx = width / out.width
+    const ry = height / out.height
+    const resolveMat = shader(
+      RESOLVE_FRAG,
+      { tSrc: { value: finalRT.texture }, uSrc: { value: new Vector2(width, height) }, uRatio: { value: new Vector2(rx, ry) } },
+      { RESOLVE_RADIUS: Math.ceil(2 * Math.max(rx, ry)) + 1 },
+    )
+    renderer.setSize(out.width, out.height, false)
+    pass(resolveMat, null)
+    return { width: out.width, height: out.height }
   } finally {
     renderer.setRenderTarget(null)
     for (const t of targets) t.dispose()

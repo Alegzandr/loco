@@ -1264,6 +1264,30 @@ describe('gameStore', () => {
     expect(n?.targetIndex).toBe(1)
   })
 
+  it('keeps the hand we give away on the Swap notice, whatever arrives after it', () => {
+    // The snapshot carrying the hand we receive can land in the same frame as
+    // the play, so the board would otherwise fly our *new* cards out of our
+    // seat. The notice keeps the old ones.
+    const given: CardDTO[] = [
+      { color: 'yellow', kind: 'number', value: 2 },
+      { color: 'green', kind: 'number', value: 7 },
+    ]
+    gameStore.setState({
+      myIndex: 0,
+      currentTurn: 0,
+      direction: 1,
+      swapNotice: null,
+      myHand: [{ color: 'red', kind: 'swap' }, ...given],
+      players: [
+        { index: 0, nickname: 'alice', hand_size: 3, connected: true },
+        { index: 1, nickname: 'bob', hand_size: 9, connected: true },
+      ],
+    })
+    gameStore.getState().applyCardPlayed(0, { color: 'red', kind: 'swap' }, 1, 0, 'red', undefined, 1)
+    gameStore.setState({ myHand: [{ color: 'blue', kind: 'number', value: 9 }] })
+    expect(gameStore.getState().swapNotice?.givenHand).toEqual(given)
+  })
+
   it('applyCardPlayed sets swapNotice with kind=global_switch and direction', () => {
     gameStore.setState({
       myIndex: 1,
@@ -1421,6 +1445,42 @@ describe('applyCardDrawn keeps our own roster count honest', () => {
     const s = gameStore.getState()
     expect(s.myHand).toHaveLength(3)
     expect(s.players.find((p) => p.index === 0)?.hand_size).toBe(3)
+  })
+})
+
+// The board flies every drawn card into its place in the hand that drew it, so
+// the store has to say which hand grew, by how much, and whether it was a
+// Contre-LOCO! charging it (`uno_caught` arrives first, then the cards).
+describe('applyCardDrawn tells the board which hand grew', () => {
+  const table = () =>
+    gameStore.setState({
+      myIndex: 0,
+      myHand: [{ color: 'red', kind: 'number', value: 1 }],
+      players: [
+        { index: 0, nickname: 'Nova', hand_size: 1, connected: true },
+        { index: 1, nickname: 'Kiwi', hand_size: 1, connected: true },
+      ],
+      catchFlash: null,
+      lastDraw: null,
+    })
+
+  it('names the seat and the count of an opponent draw', () => {
+    table()
+    gameStore.getState().applyCardDrawn(null, 1, 1, true, 1, 0)
+    expect(gameStore.getState().lastDraw).toMatchObject({ seat: 1, count: 1, penalty: false })
+  })
+
+  it('marks the cards a catch charged as a penalty', () => {
+    table()
+    gameStore.getState().applyUnoCaught(1)
+    gameStore.getState().applyCardDrawn(null, 1, 0, undefined, 2, undefined)
+    expect(gameStore.getState().lastDraw).toMatchObject({ seat: 1, count: 2, penalty: true })
+  })
+
+  it('says nothing for a draw that handed over no card', () => {
+    table()
+    gameStore.getState().applyCardDrawn(null, 1, 1, true, 0, 0)
+    expect(gameStore.getState().lastDraw).toBeNull()
   })
 })
 

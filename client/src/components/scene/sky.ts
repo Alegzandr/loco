@@ -18,7 +18,7 @@
  * other visual number, so the dev panel can move a sun; this file is the
  * arithmetic that turns them into one rig per hour and sky.
  */
-import { LOOK, WINDOWS_LIT_MAX, type HourLook } from './look'
+import { LOOK, WINDOWS_LIT_MAX, type HourLook, type SkyBody } from './look'
 
 export const TIMES = ['dawn', 'day', 'dusk', 'night'] as const
 export type TimeOfDay = (typeof TIMES)[number]
@@ -44,14 +44,12 @@ export type Hex = number
 export interface LightRig {
   time: TimeOfDay
   weather: Weather
-  /** Sky gradient, top and horizon. Painted in CSS behind the render and used as the fog colour. */
+  /** Sky gradient, top and horizon: the dome's, the air's colour, and CSS behind the render. */
   sky: { top: Hex; horizon: Hex }
   /** The key light. Elevation and azimuth in degrees; azimuth 0 is +z (towards the camera), 90 is +x. */
   sun: { color: Hex; intensity: number; elevation: number; azimuth: number; shadow: number }
   /** Hemisphere fill. */
   ambient: { sky: Hex; ground: Hex; intensity: number }
-  /** Distance fog, or null. `near`/`far` are fractions of the visible depth, 0 = the bottom of the frame, 1 = the top. */
-  fog: { color: Hex; near: number; far: number } | null
   /** Street lamps, signs and lanterns are lit. */
   lampsOn: boolean
   /** Share of windows lit, 0–1. */
@@ -68,6 +66,16 @@ export interface LightRig {
   grade: { shadowTint: Hex; highlightTint: Hex; splitStrength: number; saturation: number }
   /** Multiplies the shadow's softness: the room's. */
   shadowSoftness: number
+  /** The body drawn in a vista's sky, or null: none up in the frame, or hidden by the weather. */
+  body: (SkyBody & { visibility: number }) | null
+  /** Stars in a vista's sky, 0–1. */
+  stars: number
+  /** Cloud over a vista's sky, 0–1. */
+  cloud: number
+  /** Multiplies the air (`LOOK.vista.haze`): the room's (`LOOK.rooms[id].haze`) times the weather's. */
+  haze: number
+  /** A room in space: its planet, or null for a room under an atmosphere. */
+  space: { planet: { azimuth: number; elevation: number; size: number; lit: { azimuth: number; elevation: number } } } | null
 }
 
 // ─── Colour arithmetic, on plain numbers ────────────────────────────────────
@@ -120,8 +128,9 @@ export function hexCss(c: Hex): string {
 export function lightRig(time: TimeOfDay, weather: Weather, room?: string): LightRig {
   const h: HourLook = LOOK.hours[time]
   const r = (room ? LOOK.rooms[room] : undefined) ?? {}
-  let skyTop = h.sky.top
-  let skyHorizon = h.sky.horizon
+  const roomSky = r.sky?.[time] ?? h.sky
+  let skyTop = roomSky.top
+  let skyHorizon = roomSky.horizon
   let sunColor = h.sun.color
   // The hour's own numbers, through the look's two global knobs.
   let sunIntensity = h.sun.intensity * LOOK.sun.intensity
@@ -132,7 +141,6 @@ export function lightRig(time: TimeOfDay, weather: Weather, room?: string): Ligh
   let lampsOn = h.lampsOn
   let windowsLit = h.windowsLit
   let dark = h.dark
-  let fog: LightRig['fog'] = null
   let snow = false
   let wet = false
 
@@ -209,15 +217,26 @@ export function lightRig(time: TimeOfDay, weather: Weather, room?: string): Ligh
       shadow = 0.35
       ambientSky = mix(ambientSky, veil, 0.5)
       ambientIntensity *= 1.1
-      // Starting further off and never quite closing: the near half of the
-      // frame keeps its colour and the depth reads as depth, not a flat veil.
-      fog = { color: skyHorizon, near: 0.4, far: 1.15 }
       lampsOn = true
       windowsLit = Math.max(windowsLit, 0.5)
       dark = Math.min(1, dark + 0.15)
       break
     }
   }
+
+  // The key light is the hour's, or the room's own (`LOOK.rooms[id].sun`):
+  // low over the horizon at the two ends of the day, lighting the room from
+  // behind so the shadows come towards the table.
+  const sunAngles = r.sun?.[time] ?? h.sun
+  // A room may put its own body up (a sun where the hour has none) or take
+  // the hour's down (`null`: there is no moon over the moon).
+  const own = r.body?.[time]
+  const bodyAt = own === null ? null : h.body ? { ...h.body, ...(own ?? {}) } : own && own.kind ? ({ azimuth: 180, elevation: 5, size: 1.5, ...own } as SkyBody) : null
+  // What the weather leaves of it: a veil over it in a cloudy sky, nothing in
+  // rain, a storm or a fog.
+  // Space has no weather in its sky: a dust storm or a flare is on the ground.
+  const visibility = r.space ? 1 : weather === 'clear' || weather === 'snow' ? 1 : weather === 'cloudy' ? 0.45 : 0
+  const cloud = r.space ? 0 : Math.min(1, LOOK.vista.sky.clouds + (weather === 'cloudy' ? 0.45 : weather === 'rain' || weather === 'storm' ? 0.6 : weather === 'snow' ? 0.4 : 0))
 
   // The room's own light, over the hour and the sky.
   if (r.sunTint !== undefined) sunColor = mix(sunColor, r.sunTint, r.sunTintMix ?? 0)
@@ -235,15 +254,19 @@ export function lightRig(time: TimeOfDay, weather: Weather, room?: string): Ligh
     },
     shadowSoftness: r.shadowSoftness ?? 1,
     sky: { top: skyTop, horizon: skyHorizon },
-    sun: { ...h.sun, color: sunColor, intensity: sunIntensity, shadow, elevation: Math.max(6, Math.min(85, h.sun.elevation + LOOK.sun.elevationOffset)) },
+    sun: { azimuth: sunAngles.azimuth, color: sunColor, intensity: sunIntensity, shadow, elevation: Math.max(3, Math.min(85, sunAngles.elevation + LOOK.sun.elevationOffset)) },
     ambient: { sky: ambientSky, ground: ambientGround, intensity: ambientIntensity },
-    fog,
     lampsOn,
     windowsLit: Math.min(WINDOWS_LIT_MAX, windowsLit),
     snow,
     wet,
     dark,
     tintCss: hexCss(mix(sunColor, 0xffffff, 0.25)),
+    body: bodyAt && visibility > 0 ? { ...bodyAt, visibility } : null,
+    stars: r.space ? 1 : visibility > 0 ? h.stars * visibility : 0,
+    cloud,
+    haze: (r.haze ?? 1) * LOOK.vista.haze.weather[weather],
+    space: r.space ?? null,
   }
 }
 
@@ -274,8 +297,8 @@ export function shadowDirection(rig: LightRig): [number, number] {
   // The shadow runs away from the sun: world (-sin az, 0, -cos az).
   const wx = -Math.sin(az)
   const wz = -Math.cos(az)
-  const dx = (wx - wz) / Math.SQRT2
-  const dy = ((wx + wz) / Math.SQRT2) * Math.sin((32 * Math.PI) / 180)
+  // Seen from the table: world +x is screen right, and +z comes towards the
+  // camera, down the screen, foreshortened by the low eye.
   const len = Math.min(2.2, Math.max(0.35, 0.45 / Math.tan(el)))
-  return [dx * len, dy * len]
+  return [wx * len * 0.8, wz * len * 0.3]
 }

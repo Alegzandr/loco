@@ -14,7 +14,7 @@ import { lightRig } from '../components/scene/sky'
 import { seededRng } from '../components/scene/rng'
 
 function kit() {
-  return new Kit({ rig: lightRig('night', 'clear'), rng: seededRng('halo'), outline: 0.02, anchor: { sx: 0, sy: 0, a: 10, b: 5 } })
+  return new Kit({ rig: lightRig('night', 'clear'), rng: seededRng('halo'), outline: 0.02 })
 }
 
 /** The bounding box of everything in the halo bucket of a built kit. */

@@ -156,6 +156,33 @@
     font-size: 53px;
   }
 
+  /* The finish: card stock under the room's light, over the art and the
+     glyphs. A gloss band struck across the face at the angle the light comes
+     from (`--sun-dx`), in the light's own colour (`--scene-tint`), and the
+     stock's thickness as two hairlines: its top edge catching the light, its
+     bottom one turned away. Weaker as the room darkens, and never a dimming:
+     the face must read the same at 720p at noon and at midnight. Off the
+     board every variable falls back, and the card is lit by plain white.
+     No blend mode: it would promote every card on the table to a layer. */
+  .card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      linear-gradient(
+        calc(118deg - var(--sun-dx, 0) * 24deg),
+        rgba(255, 255, 255, 0) 30%,
+        color-mix(in srgb, var(--scene-tint, #ffffff) calc(24% * (1 - var(--scene-dark, 0) * 0.6)), transparent) 44%,
+        rgba(255, 255, 255, 0) 58%
+      ),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0) 32%, rgba(0, 0, 0, 0) 70%, rgba(0, 0, 0, 0.14) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.3),
+      inset 0 -1.5px 0 rgba(0, 0, 0, 0.25);
+  }
+
   /* Global: the element wearing it is rendered by <CardArt />. */
   .card :global(.art) {
     position: absolute;

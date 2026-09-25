@@ -70,11 +70,13 @@ describe('map registry', () => {
     }
   })
 
-  it('names every material of every table as a CSS colour', () => {
+  it('names every colour of every table as a CSS colour', () => {
+    const kinds = new Set(['rimKind', 'edge', 'pedestal'])
     for (const id of MAP_IDS) {
       const m = MAPS[id]
       expect(m.id).toBe(id)
       for (const [name, value] of Object.entries(m.table)) {
+        if (kinds.has(name)) continue
         expect(value, `${id}.table.${name}`).toMatch(/^#[0-9a-f]{6}$/)
       }
       expect(m.accent).toMatch(/^#[0-9a-f]{6}$/)
@@ -165,8 +167,8 @@ describe('the light rig', () => {
     expect(lightRig('day', 'clear').snow).toBe(false)
     expect(lightRig('day', 'rain').wet).toBe(true)
     expect(lightRig('day', 'storm').wet).toBe(true)
-    expect(lightRig('day', 'fog').fog).not.toBeNull()
-    expect(lightRig('day', 'clear').fog).toBeNull()
+    // A fog closes the air over the far ground (`LOOK.vista.haze.weather`).
+    expect(lightRig('day', 'fog').haze).toBeGreaterThan(lightRig('day', 'clear').haze * 2)
     expect(lightRig('day', 'storm').sun.intensity).toBeLessThan(lightRig('day', 'cloudy').sun.intensity)
     expect(lightRig('day', 'rain').lampsOn).toBe(true)
   })

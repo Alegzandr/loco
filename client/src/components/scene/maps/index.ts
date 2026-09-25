@@ -3,10 +3,11 @@
  * `render.ts` looks the id up here, so a map that exists in `cards/maps.ts`
  * without a builder is a type error rather than a blank room; `sceneCache`
  * loads the kits before the builder runs, so every `k.model` it asks for is
- * there or is known to be missing.
+ * there or is known to be missing. Every room is seen from the table
+ * (`view.ts`, `maps/vista.ts`).
  */
 import type { MapId } from '../../cards/maps'
-import type { Builder } from './common'
+import type { Builder } from './vista'
 import type { KitName } from '../models/lib'
 import { neon } from './neon'
 import { rune } from './rune'
@@ -24,12 +25,14 @@ export const BUILDERS: Record<MapId, Builder> = { neon, rune, velvet, orbit, sak
  * and the townsfolk for orbit, where a person is always an astronaut.
  */
 export const KITS: Record<MapId, readonly KitName[]> = {
-  marina: ['pirate', 'suburb', 'city', 'roads', 'nature', 'cars', 'people'],
-  neon: ['roads', 'cars', 'people', 'nature'],
-  velvet: ['roads', 'cars', 'people', 'nature'],
-  rune: ['nature', 'people'],
-  sakura: ['nature', 'people', 'quaternius'],
-  orbit: ['space'],
+  // Seen from the table, a room is mostly drawn in blocks: the kits left are
+  // the dinghy at the jetty, the bushes and palms, and velvet's street lamps.
+  marina: ['pirate', 'nature'],
+  neon: ['nature'],
+  velvet: ['roads', 'nature'],
+  rune: [],
+  sakura: [],
+  orbit: [],
 }
 
 const TOWNSFOLK = ['female-a', 'female-b', 'female-c', 'female-d', 'female-e', 'female-f', 'male-a', 'male-b', 'male-c', 'male-d', 'male-e', 'male-f']

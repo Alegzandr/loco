@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   clockwiseOpponents,
-  opponentBubblePositions,
+  seatLayout,
   boardScale,
   boardSpace,
   MAX_BOARD_SCALE,
@@ -10,9 +10,69 @@ import {
   tableRect,
   discardPosition,
   deckPosition,
-  directionMarkers,
+  directionArrows,
+  directionArrowBox,
+  DIRECTION_RADIUS,
+  feltSquash,
+  tableTrackEllipse,
+  TABLE_TRACK_WIDTH,
+  FELT_RIM,
+  onPile,
+  pileTransform,
+  PILE_PERSPECTIVE,
+  PILE_SQUASH,
+  PILE_TILT_DEG,
+  MIN_SQUASH,
+  PILE_CHIP_REACH,
 } from '../components/cards/layout'
-import { CARD_H, BOTTOM_RESERVE } from '../components/cards/cardTheme'
+import { CARD_W, CARD_H, BOTTOM_RESERVE } from '../components/cards/cardTheme'
+
+describe('the piles lie on the felt', () => {
+  // What the browser does with `perspective(d) rotateX(t)` about the box's
+  // centre, written out as the spec's matrices rather than as `onPile`'s algebra:
+  // the corner tokens and the landing squash are only right if the two agree.
+  function css(x: number, y: number): { x: number; y: number } {
+    const t = (PILE_TILT_DEG * Math.PI) / 180
+    const [px, py] = [x - CARD_W / 2, y - CARD_H / 2]
+    // rotateX: y' = y cos t, z' = y sin t; perspective: w = 1 - z'/d.
+    const ry = py * Math.cos(t)
+    const rz = py * Math.sin(t)
+    const w = 1 - rz / PILE_PERSPECTIVE
+    return { x: CARD_W / 2 + px / w, y: CARD_H / 2 + ry / w }
+  }
+
+  it('says in numbers exactly what the CSS transform draws', () => {
+    expect(pileTransform()).toBe(`perspective(${PILE_PERSPECTIVE}px) rotateX(${PILE_TILT_DEG}deg)`)
+    for (const [x, y] of [[0, 0], [CARD_W, 0], [0, CARD_H], [CARD_W, CARD_H], [CARD_W / 2, CARD_H / 2]]) {
+      const a = onPile(x, y)
+      const b = css(x, y)
+      expect(a.x).toBeCloseTo(b.x, 6)
+      expect(a.y).toBeCloseTo(b.y, 6)
+    }
+  })
+
+  it('keeps the pair close in, and the colour chip clear of the deck', () => {
+    for (const [w, h, reserve] of [[1920, 1080, 158], [390, 844, 156]]) {
+      const deck = deckPosition(w, h, reserve)
+      const discard = discardPosition(w, h, reserve)
+      // The deck's nearest seen point is its bottom layer's near-right corner;
+      // the chip's is its left edge off the discard's near-left corner.
+      const deckRight = deck.x + onPile(CARD_W, CARD_H + 9).x
+      const chipLeft = discard.x + onPile(0, CARD_H).x - PILE_CHIP_REACH
+      expect(chipLeft - deckRight).toBeGreaterThanOrEqual(8)
+      expect(discard.x - (deck.x + CARD_W)).toBeLessThanOrEqual(CARD_W / 2)
+    }
+  })
+
+  it('draws the far edge narrower than the near one, and the card flatter than it is', () => {
+    const far = onPile(CARD_W, 0).x - onPile(0, 0).x
+    const near = onPile(CARD_W, CARD_H).x - onPile(0, CARD_H).x
+    expect(far).toBeLessThan(near)
+    expect(PILE_SQUASH).toBeLessThan(0.9)
+    // Never laid flatter than the hands lying on the same felt around it.
+    expect(PILE_SQUASH).toBeGreaterThanOrEqual(MIN_SQUASH)
+  })
+})
 
 describe('pile placement', () => {
   it('centres the deck/discard pair inside the felt, seats included', () => {
@@ -137,73 +197,84 @@ describe('boardScale', () => {
   })
 })
 
-describe('directionMarkers', () => {
-  const W = 600
-  const H = 320
+describe('directionArrows', () => {
+  // The points of a path, in order.
+  const points = (d: string) =>
+    [...d.matchAll(/(-?\d+(?:\.\d+)?) (-?\d+(?:\.\d+)?)/g)].map((m) => ({ x: Number(m[1]), y: Number(m[2]) }))
+  // The path runs the outer edge (33 points), then neck, tip, neck and back
+  // down the inner edge: the tip is the 35th point.
+  const tip = (d: string) => {
+    const c = directionArrowBox() / 2
+    const p = points(d)[34]
+    return { x: p.x - c, y: p.y - c }
+  }
 
-  // Two things go wrong on a flat oval and only on a flat oval, which is why
-  // they are pinned here: evenly-spaced *parametric* angles bunch the chevrons
-  // at the two ends, and shrinking both semi-axes by the same amount is not an
-  // offset curve — it drifts away from the rim wherever the curvature is low.
-  it('spaces the markers evenly by arc length, not by angle', () => {
-    const marks = directionMarkers(W, H, 1, 12)
-    expect(marks).toHaveLength(12)
-    const gaps = marks.map((m, i) => {
-      const n = marks[(i + 1) % marks.length]
-      return Math.hypot(n.x - m.x, n.y - m.y)
-    })
-    // Chords, not arcs, so a little variation is geometry rather than a bug —
-    // but nothing like the ~2× spread uniform angles produce at this aspect.
-    expect(Math.max(...gaps) / Math.min(...gaps)).toBeLessThan(1.12)
-  })
-
-  it('keeps every marker the same distance from the felt rim', () => {
-    // Shortest distance from a point to the box's own ellipse, sampled finely.
-    const distToRim = (w: number, h: number, p: { x: number; y: number }) => {
-      let best = Infinity
-      for (let i = 0; i < 4000; i++) {
-        const t = (i / 4000) * Math.PI * 2
-        const ex = w / 2 + (w / 2) * Math.cos(t)
-        const ey = h / 2 + (h / 2) * Math.sin(t)
-        best = Math.min(best, Math.hypot(ex - p.x, ey - p.y))
-      }
-      return best
-    }
-    for (const [w, h] of [[600, 320], [960, 440], [340, 320]]) {
-      const gaps = directionMarkers(w, h, 1, 12).map((m) => distToRim(w, h, m))
-      expect(Math.max(...gaps) - Math.min(...gaps)).toBeLessThan(2)
-    }
+  it('draws two arrows, one each side of the piles', () => {
+    const [right, left] = directionArrows(1)
+    const c = directionArrowBox() / 2
+    const mean = (d: string) => points(d).reduce((s, p) => s + p.x - c, 0) / points(d).length
+    expect(mean(right)).toBeGreaterThan(DIRECTION_RADIUS * 0.6)
+    expect(mean(left)).toBeLessThan(-DIRECTION_RADIUS * 0.6)
   })
 
   it('points clockwise on screen for direction +1', () => {
-    // The seat arc runs local seat (bottom) → next seat (top left) → … → top
-    // right, i.e. 6 o'clock → 9 → 12 → 3, which is clockwise on screen. The
-    // ring must agree with it: at the ellipse's rightmost point the flow goes
-    // *down* (+90°), at the leftmost it goes up (-90°).
-    const right = directionMarkers(W, H, 1, 4)[0]
-    expect(right.x).toBeGreaterThan(W / 2)
-    expect(right.angle).toBeCloseTo(90, 5)
+    // The seat arc runs 6 o'clock → 9 → 12 → 3 for +1: down the right-hand
+    // side, up the left. With y pointing down, the right arrow's head is
+    // below its middle and the left arrow's above.
+    const [right, left] = directionArrows(1)
+    expect(tip(right).y).toBeGreaterThan(0)
+    expect(tip(left).y).toBeLessThan(0)
   })
 
-  it('mirrors every marker when the direction flips', () => {
-    const cw = directionMarkers(W, H, 1, 8)
-    const ccw = directionMarkers(W, H, -1, 8)
-    expect(ccw[0].angle).toBeCloseTo(-90, 5)
-    // Same ring of positions, opposite heading — a reverse must not move the
-    // chevrons, only turn them round.
-    const cwSet = cw.map((m) => `${m.x.toFixed(3)},${m.y.toFixed(3)}`).sort()
-    const ccwSet = ccw.map((m) => `${m.x.toFixed(3)},${m.y.toFixed(3)}`).sort()
-    expect(ccwSet).toEqual(cwSet)
+  it('turns both heads round when the direction flips', () => {
+    const [right, left] = directionArrows(-1)
+    expect(tip(right).y).toBeLessThan(0)
+    expect(tip(left).y).toBeGreaterThan(0)
   })
 
-  it('walks the markers in flow order so a chase animation reads as motion', () => {
-    // Consecutive markers step along the flow: the second one is where the
-    // first one is heading, not behind it.
-    const marks = directionMarkers(W, H, 1, 8)
-    const step = { x: marks[1].x - marks[0].x, y: marks[1].y - marks[0].y }
-    const rad = (marks[0].angle * Math.PI) / 180
-    const heading = { x: Math.cos(rad), y: Math.sin(rad) }
-    expect(step.x * heading.x + step.y * heading.y).toBeGreaterThan(0)
+  it('keeps every point of the arrows inside the box it is drawn in', () => {
+    const box = directionArrowBox()
+    for (const d of [...directionArrows(1), ...directionArrows(-1)]) {
+      for (const p of points(d)) {
+        expect(p.x).toBeGreaterThanOrEqual(0)
+        expect(p.y).toBeGreaterThanOrEqual(0)
+        expect(p.x).toBeLessThanOrEqual(box)
+        expect(p.y).toBeLessThanOrEqual(box)
+      }
+    }
+  })
+
+  it('clears both piles', () => {
+    // The circle stands outside the pair of cards: deck | gap | discard.
+    const discard = discardPosition(1280, 800)
+    const deck = deckPosition(1280, 800)
+    const halfPair = (discard.x + CARD_W - deck.x) / 2
+    expect(DIRECTION_RADIUS).toBeGreaterThan(halfPair)
+  })
+})
+
+describe('the table seen from a chair', () => {
+  it('foreshortens the depth by the felt against the table it stands for', () => {
+    // A felt as flat on screen as the table is deep on the ground reads as
+    // seen from straight above, and is not squashed at all.
+    expect(feltSquash(600, 900)).toBe(1)
+    // The desktop's flat oval: its depth is a fraction of its width.
+    const k = feltSquash(1200, 440)
+    expect(k).toBeGreaterThan(0.2)
+    expect(k).toBeLessThan(0.4)
+    expect(feltSquash(0, 100)).toBe(1)
+  })
+
+  it('lays the racetrack as an ellipse concentric with the felt, against the rim', () => {
+    // Taken in by the same amount on both axes, exactly as the CSS draws the
+    // rim's inner edge: every line round the table the same kind of oval. An
+    // offset curve came to points at the ends of a flat oval, and bands drawn
+    // foreshortened had a gap that swelled at the sides.
+    const e = tableTrackEllipse(1200, 440)
+    expect(e.cx).toBe(600)
+    expect(e.cy).toBe(220)
+    expect(600 - e.rx).toBeCloseTo(FELT_RIM + TABLE_TRACK_WIDTH / 2, 6)
+    expect(220 - e.ry).toBeCloseTo(FELT_RIM + TABLE_TRACK_WIDTH / 2, 6)
   })
 })
 
@@ -229,20 +300,20 @@ describe('opponent layout helpers', () => {
     expect(others.map((p) => p.index)).toEqual([5, 0])
   })
 
-  it('opponentBubblePositions keep bubbles on-screen for small/mobile viewport', () => {
-    const positions = opponentBubblePositions(3, 320, 640)
-    expect(positions).toHaveLength(3)
-    for (const pos of positions) {
-      expect(pos.x).toBeGreaterThanOrEqual(0)
-      expect(pos.x).toBeLessThanOrEqual(320)
-      expect(pos.y).toBeGreaterThan(0)
+  it('keeps every seat on-screen for a small phone', () => {
+    const { seats } = seatLayout(3, 320, 640)
+    expect(seats).toHaveLength(3)
+    for (const s of seats) {
+      expect(s.box.left).toBeGreaterThanOrEqual(0)
+      expect(s.box.left + s.box.width).toBeLessThanOrEqual(320)
+      expect(s.box.top).toBeGreaterThan(0)
     }
   })
 
-  it('opponentBubblePositions place first clockwise opponent on the left', () => {
-    const positions = opponentBubblePositions(2, 1024, 768)
-    expect(positions[0].x).toBeLessThan(positions[1].x)
-    expect(positions[0].y).toBeGreaterThan(0)
-    expect(positions[1].y).toBeGreaterThan(0)
+  it('places the first clockwise opponent on the left', () => {
+    const { seats } = seatLayout(2, 1024, 768)
+    expect(seats[0].x).toBeLessThan(seats[1].x)
+    expect(seats[0].y).toBeGreaterThan(0)
+    expect(seats[1].y).toBeGreaterThan(0)
   })
 })

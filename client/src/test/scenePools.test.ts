@@ -18,7 +18,7 @@ import { LOOK } from '../components/scene/look'
 import { POOL_RANGE, splatPools } from '../components/scene/pools'
 
 function roomKit(time: 'day' | 'night' = 'night') {
-  return new Kit({ rig: lightRig(time, 'clear'), rng: seededRng('pools'), outline: 0.02, anchor: { sx: 0, sy: 0, a: 10, b: 5 }, frame: { w: 80, h: 45 } })
+  return new Kit({ rig: lightRig(time, 'clear'), rng: seededRng('pools'), outline: 0.02, lightPools: true })
 }
 
 function haloMeshes(k: Kit): number {
@@ -66,7 +66,7 @@ describe('a pool of light', () => {
   })
 
   it('leaves a sprite its disc: a car carries its headlights on its own bitmap', () => {
-    const sprite = new Kit({ rig: lightRig('night', 'clear'), rng: seededRng('car'), outline: 0.02, anchor: { sx: 0, sy: 0, a: 0, b: 0 } })
+    const sprite = new Kit({ rig: lightRig('night', 'clear'), rng: seededRng('car'), outline: 0.02 })
     sprite.halo(0, 0, 0, 1.2, 0xfff3c4, 0.2)
     expect(sprite.pools).toHaveLength(0)
     expect(haloMeshes(sprite)).toBe(1)

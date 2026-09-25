@@ -136,7 +136,8 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       // Surface a transient notice when a hand-swapping card resolves so non-actors
       // understand why their (or others') card counts just changed.
       const resolvedDirection = typeof direction === 'number' && direction !== 0 ? direction : s.direction
-      const swapNotice = makeSwapNotice(card, playerIndex, chosenPlayer, resolvedDirection) ?? s.swapNotice
+      const made = makeSwapNotice(card, playerIndex, chosenPlayer, resolvedDirection)
+      const swapNotice = made ? { ...made, givenHand: updatedHand } : s.swapNotice
       // Who owes the table a declaration is the server's answer, carried on
       // this message (`catch_seats`). The client used to work it out again from
       // the roster and the card kind, which put the rule that a Swap or a
@@ -211,7 +212,13 @@ export const createTableActions: StateCreator<GameStore, TableActions> = (set) =
       // that seat with "target does not have exactly 1 card". Keeping the window
       // open leaves Contre-LOCO! armed on a tap that can only come back refused.
       const catchWindows = s.catchWindows.filter((w) => w.seat !== playerIndex)
+      const grew = cards && cards.length > 0 ? cards.length : (drawnCount ?? 0)
+      // The server says `uno_caught` and then grows the hand, so a catch on this
+      // seat a moment ago is what these cards are.
+      const penalty = !!s.catchFlash && s.catchFlash.seat === playerIndex && Date.now() - s.catchFlash.at < 1500
+      const lastDraw = grew > 0 ? { seat: playerIndex, count: grew, penalty, at: stamp() } : s.lastDraw
       const turnState = {
+        lastDraw,
         currentTurn: turn,
         hasDrawn: hasDrawn ?? s.hasDrawn,
         pendingDraw: pendingDraw ?? s.pendingDraw,

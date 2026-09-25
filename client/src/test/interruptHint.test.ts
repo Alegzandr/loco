@@ -137,29 +137,25 @@ describe('isCounterCard', () => {
 describe('the interception slam lands where the words are', () => {
   const source = readFileSync(join(process.cwd(), 'src', 'components/InterruptBanner.svelte'), 'utf8')
 
-  it('tilts the band about the centre and sweeps it from the left', () => {
-    // `skewY` moves a point vertically by its distance from the transform
-    // origin. Skewed about its own left edge — a fifth of a screen off the left
-    // of the frame — the band arrived at the middle of the screen a hundred and
-    // forty pixels above where it was drawn, and on a wide monitor the words
-    // came down on empty board with the band floating over them. Two elements:
-    // the tilt pivots about the centre, the sweep still starts at the left.
-    const tilt = source.match(/\n {2}\.slashTilt \{[\s\S]*?\n {2}\}/)
-    const slash = source.match(/\n {2}\.slash \{[\s\S]*?\n {2}\}/)
-    expect(tilt, '.slashTilt rule not found').not.toBeNull()
-    expect(slash, '.slash rule not found').not.toBeNull()
-    expect(tilt![0]).toMatch(/transform:\s*skewY\(-?\d+deg\)/)
-    expect(tilt![0]).toMatch(/transform-origin:\s*center center/)
-    expect(slash![0]).not.toMatch(/skewY/)
-    expect(slash![0]).toMatch(/transform-origin:\s*left center/)
-    // And the sweep's own keyframes carry no skew either, or the tilt is
-    // applied twice on the element that is not centred.
-    const sweep = source.match(/@keyframes slashSweep \{[\s\S]*?\n {2}\}/)
-    expect(sweep![0]).not.toMatch(/skewY/)
+  it('prints the word on a ribbon cut to it, never a band across the frame', () => {
+    // The band used to span 140% of the frame: it read as a screen transition,
+    // not as an object, and the player refused it. The ribbon lives inside the
+    // banner, so it takes the slam's tilt with the word and no second skew can
+    // come apart from it.
+    expect(source).not.toMatch(/slashTilt|skewY|width:\s*140%/)
+    const ribbon = source.replace(/\r\n/g, '\n').match(/\n {2}\.ribbon \{[\s\S]*?\n {2}\}/)
+    expect(ribbon, '.ribbon rule not found').not.toBeNull()
+    expect(ribbon![0]).toMatch(/left:\s*-\d+px/)
+    expect(ribbon![0]).toMatch(/right:\s*-\d+px/)
+    expect(source.indexOf('class="ribbon"')).toBeGreaterThan(source.indexOf('class="banner"'))
   })
 
-  it('takes the whole band away under reduced motion', () => {
-    expect(source).toMatch(/:root\[data-motion="reduce"\] \.slashTilt \{[^}]*display:\s*none/)
+  it('keeps the ribbon under reduced motion and takes away what travels', () => {
+    // The ribbon is the plate the word is printed on, so a still frame without
+    // it is white type on the felt. What reduced motion owes is no unfurl and
+    // no speed lines.
+    expect(source).toMatch(/:root\[data-motion="reduce"\] \.ribbon \{[^}]*animation:\s*none/)
+    expect(source).toMatch(/:root\[data-motion="reduce"\] \.streak \{[^}]*display:\s*none/)
   })
 })
 

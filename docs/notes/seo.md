@@ -603,13 +603,13 @@ and the skies from the same lists the server draws from — the same copy the lo
 the same registry the board paints from. Nothing here describes a room a second time.
 
 **The room is a photograph of the render, with the board's table over it.** A content page ships
-no script, so it cannot render the diorama; `make rooms` (`tools/rooms/shoot.mjs`) opens the
+no script, so it cannot render the room; `make rooms` (`tools/rooms/shoot.mjs`) opens the
 `room-still-<id>` showcase scene for each room — the room alone at its signature hour, 16:9, the
-podium built under exactly the ellipse the page's CSS table draws — and writes
+camera solved and the table built under exactly the ellipse the page's CSS table draws — and writes
 `src/assets/rooms/<id>.webp`, committed like `og.png` because CI has no browser. The page serves
 each through `<Image />` (three widths, lazy, with the hour's sky gradient behind it while it
 loads) and lays `.roomTable` / `.roomGlow` over it — a transcription of `GameBoard.svelte`'s
-table, no plinth since the render carries the podium — and tells the rest: the hours and skies the
+table, no plinth since the render carries what stands under the felt — and tells the rest: the hours and skies the
 room can be dealt under. `roomsPage.test.ts` pins the hour written on the page to the
 hour the scene is shot at and fails on a room with no still; the E2E counts six.
 

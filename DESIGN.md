@@ -422,6 +422,8 @@ pulses at exactly one card.
   a dashboard.
 - **Don't** mix the UI palette with the suit palette in either direction.
 - **Don't** give the interface a second palette, and don't let a table or a card face follow the one it has.
+  The *light* on a card does follow the room it is dealt in (a gloss at the sun's angle, in its colour);
+  the face under it never does, and never dims.
 - **Don't** set the chunky display face uppercase above the 11px Label step.
 - **Don't** reach for a modal first. The score table is held open with a key and pinned with a
   button precisely because it refused to become one.

@@ -13,7 +13,6 @@
 import { describe, it, expect } from 'vitest'
 import { BackSide, Box3, Mesh, MeshBasicMaterial, Vector3 } from 'three'
 import { Kit, ASTRONAUT_MODEL_YAW, spotChance } from '../components/scene/kit'
-import { personRot } from '../components/scene/maps/actors'
 import { lightRig } from '../components/scene/sky'
 import { seededRng } from '../components/scene/rng'
 import type { Baked } from '../components/scene/models/bake'
@@ -33,7 +32,7 @@ function lib(ids: string[], side = 1): ModelLib {
 }
 
 function kit(models: ModelLib) {
-  return new Kit({ rig: lightRig('day', 'clear'), rng: seededRng('models'), outline: 0.02, shadows: false, models, anchor: { sx: 0, sy: 0, a: 10, b: 5 } })
+  return new Kit({ rig: lightRig('day', 'clear'), rng: seededRng('models'), outline: 0.02, shadows: false, models })
 }
 
 function box(k: Kit): Box3 {
@@ -51,6 +50,9 @@ const TOWNSFOLK = ['female-a', 'female-b', 'female-c', 'female-d', 'female-e', '
   `people/character-${w}#idle`,
   `people/character-${w}#walk`,
 ])
+
+/** The rotation that faces a person along a heading on the ground: a person faces +z at rot 0. */
+const personRot = ([hx, hz]: [number, number]) => Math.atan2(hx, hz)
 
 describe('a drawn person', () => {
   it('faces the way it walks, whichever kit drew it', () => {
@@ -106,7 +108,7 @@ describe('a model house after dark', () => {
     let lit = 0
     for (let i = 0; i < n; i++) {
       const rig = { ...lightRig('night', 'clear'), windowsLit }
-      const k = new Kit({ rig, rng: seededRng('house'), outline: 0.02, shadows: false, models: house(), anchor: { sx: 0, sy: 0, a: 10, b: 5 } })
+      const k = new Kit({ rig, rng: seededRng('house'), outline: 0.02, shadows: false, models: house() })
       k.model('suburb/building-type-a', i * 3.7, i * 1.3, { collide: false })
       k.build().traverse((o) => {
         const m = o as Mesh

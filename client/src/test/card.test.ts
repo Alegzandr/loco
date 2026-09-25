@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render, screen, fireEvent } from './render'
 import Card from '../components/cards/Card.svelte'
 import CardBack from '../components/cards/CardBack.svelte'
@@ -218,4 +220,27 @@ describe('card art rendering cost', () => {
     })
     expect(new Set(masks).size).toBe(1)
   })
+})
+
+describe("the finish: card stock under the room's light", () => {
+  // jsdom applies no component styles, so the finish is read off the source.
+  const finishOf = (file: string, sel: string) => {
+    const src = readFileSync(join(process.cwd(), 'src', 'components', 'cards', file), 'utf8')
+    const at = src.indexOf(`${sel}::after {`)
+    expect(at, `${sel}::after not found in ${file}`).toBeGreaterThan(-1)
+    return src.slice(at, src.indexOf('\n  }', at))
+  }
+
+  for (const [file, sel] of [['Card.svelte', '.card'], ['CardBack.svelte', '.back']]) {
+    it(`${file}: the gloss is the room's light, and it fades with the room rather than dimming the face`, () => {
+      const css = finishOf(file, sel)
+      expect(css).toContain('var(--scene-tint, #ffffff)')
+      expect(css).toContain('var(--sun-dx, 0)')
+      expect(css).toContain('var(--scene-dark, 0)')
+      // A dimming would take the face down at night; a blend mode would put
+      // every card on the table on a layer of its own.
+      expect(css).not.toMatch(/mix-blend-mode|filter|opacity/)
+      expect(css).toContain('pointer-events: none')
+    })
+  }
 })

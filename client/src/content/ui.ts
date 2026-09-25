@@ -137,8 +137,8 @@ export const UI: Record<string, Copy> = {
     },
     friendsStep1: { en: "Open a table", fr: "Ouvre une table" },
     friendsStep1Body: {
-        en: "Pick a nickname and open a table. You get a short code, you are already sitting at it, and the table is yours: you decide how long the match runs and how many seats it has, up to ten.",
-        fr: "Choisis un pseudo et ouvre une table. Tu reçois un code court, tu y es déjà assis, et la table est à toi : c’est toi qui décides de la longueur du match et du nombre de places, jusqu’à dix.",
+        en: "Pick a nickname and open a table. You get a short code, you are already sitting at it, and the table is yours: you decide how long the match runs and how many seats it has, up to seven.",
+        fr: "Choisis un pseudo et ouvre une table. Tu reçois un code court, tu y es déjà assis, et la table est à toi : c’est toi qui décides de la longueur du match et du nombre de places, jusqu’à sept.",
     },
     friendsStep2: { en: "Send the link", fr: "Envoie le lien" },
     friendsStep2Body: {
@@ -209,8 +209,8 @@ export const UI: Record<string, Copy> = {
     },
     homeAboutH2: { en: "What LOCO! is", fr: "LOCO!, en deux mots" },
     homeAbout: {
-        en: "A fast card game for 2 to 10 players, in the browser, free and with no signup. You match a card by colour or by number, and the round ends the second somebody empties their hand.",
-        fr: "Un jeu de cartes rapide pour 2 à 10 joueurs, dans le navigateur, gratuit et sans inscription. Tu poses une carte de la même couleur ou du même chiffre, et la manche s’arrête à la seconde où quelqu’un vide sa main.",
+        en: "A fast card game for 2 to 7 players, in the browser, free and with no signup. You match a card by colour or by number, and the round ends the second somebody empties their hand.",
+        fr: "Un jeu de cartes rapide pour 2 à 7 joueurs, dans le navigateur, gratuit et sans inscription. Tu poses une carte de la même couleur ou du même chiffre, et la manche s’arrête à la seconde où quelqu’un vide sa main.",
     },
     homeDiffH2: { en: "What makes it different", fr: "Ce qui le distingue" },
     /*
@@ -296,8 +296,8 @@ export const UI: Record<string, Copy> = {
     },
     liveHowStep3: { en: "Play with your chat", fr: "Joue avec ton chat" },
     liveHowStep3Body: {
-        en: "A table takes up to ten, needs no account and nothing installed: a name and the link is the whole of it. So the fastest way to fill one is to drop the link in chat and start dealing.",
-        fr: "Une table accueille jusqu’à dix personnes, sans compte et sans rien à installer : un pseudo et le lien, c’est tout. Le plus rapide pour la remplir, c’est de coller le lien dans le chat et de distribuer.",
+        en: "A table takes up to seven, needs no account and nothing installed: a name and the link is the whole of it. So the fastest way to fill one is to drop the link in chat and start dealing.",
+        fr: "Une table accueille jusqu’à sept personnes, sans compte et sans rien à installer : un pseudo et le lien, c’est tout. Le plus rapide pour la remplir, c’est de coller le lien dans le chat et de distribuer.",
     },
     liveListedH2: { en: "How this list works", fr: "Comment cette liste marche" },
     liveListedBody: {

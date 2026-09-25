@@ -158,6 +158,8 @@ export interface Translations {
   /** `%tier` is the tier `auto` landed on for this device. */
   prefsGraphicsAutoHint: string
   prefsGraphicsHint: string
+  /** The page's frame rate beside the graphics row; `%n` is the figure. */
+  prefsFps: string
   prefsStreamer: string
   prefsColorAssist: string
   prefsColorAssistHint: string
@@ -311,7 +313,6 @@ export interface Translations {
   // "≈" and a range: a match stops the moment the lead cannot be caught, so a
   // best of 7 finishes anywhere between four rounds and seven.
   matchLengthUnit: string       // "min" — the unit inside "≈ 8-14 min"
-  maxPlayersHint: string        // under the seat count
 
   // ─── Game View ────────────────────────────────────────────────
   draw: string
@@ -407,7 +408,7 @@ export interface Translations {
    */
   roundShort: string
   decisiveRoundShort: string
-  /** The vibration switch, shown only on a device with a motor. */
+  /** The vibration switch, shown only on a touch screen that can vibrate. */
   prefsHaptics: string
   prefsHapticsHint: string
   player: string
@@ -582,6 +583,7 @@ export const en: Translations = {
   prefsGraphics: 'Graphics',
   prefsGraphicsTier: { auto: 'Auto', high: 'High', medium: 'Medium', light: 'Light' },
   prefsGraphicsAutoHint: 'Picked for this device: %tier. The room is drawn once per match, so this only changes how long the table takes to open.',
+  prefsFps: '%n FPS',
   prefsGraphicsHint: 'The room is drawn once per match, so this only changes how long the table takes to open and how much weather sits over it.',
   prefsStreamer: 'Streamer mode',
   prefsColorAssist: 'Colour shapes',
@@ -686,7 +688,6 @@ export const en: Translations = {
   bestOf5: 'Best of 5',
   bestOf7: 'Best of 7',
   matchLengthUnit: 'min',
-  maxPlayersHint: 'It breathes best between 2 and 6.',
 
   // ─── Game View ────────────────────────────────────────────────
   draw: 'Draw',
@@ -776,7 +777,7 @@ export const en: Translations = {
   roundShort: 'M%n',
   decisiveRoundShort: 'Decisive',
   prefsHaptics: 'Vibrations',
-  prefsHapticsHint: 'A pulse under your thumb on every card, call and catch.',
+  prefsHapticsHint: 'Your phone buzzes briefly when your turn comes round, on every card played, and on every LOCO! and Catch!',
   player: 'Player',
   // The rank column is 40px wide and its cells already read "1st", "2nd": any
   // word here spills into the player column, in every language. A leaderboard
@@ -884,7 +885,7 @@ export const en: Translations = {
     {
       heading: 'The table',
       items: [
-        '2 to 10 players. It breathes best between 2 and 6.',
+        '2 to 7 players. It breathes best between 2 and 6.',
         'Eight cards each, dealt fresh every round.',
         'The pile always opens on a number card, so nobody eats a +4 before their first turn.',
         'Round 1 opens on a random seat. After that, whoever is last on points goes first.',
