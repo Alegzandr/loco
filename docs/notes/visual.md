@@ -242,6 +242,14 @@ the scaled card lands on the box it was given. **Not on a phone on its side** (`
   places round its rim did not fit; 86%/1200/620 then read as too big, table and hand alike
   (2026-09-25). **The top reserve on the rim is only the plate across the top**
   (`TOP_CHROME + plateH / 2 + 4`); rows report their whole block, as before.
+- **But it never starts above `FELT_TOP_MIN`** (24.5% of the board's height, on a board 560 wide or
+  more), and it gives that height up from its top, never its near edge. With the seats on the rim
+  nothing else held it down: it climbed to 11% of a 16:9 monitor, the horizon cannot stand below
+  the felt's top edge (`scene/view.ts`), so the camera fell back to `horizonMin` and the room lost
+  its sky and every sun and moon — which only CI's `sceneView` / `sceneVista` noticed (2026-09-26).
+  The number is what leaves `LOOK.vista.camera.horizon` reachable inside the lens range;
+  `sceneView.test.ts` pins it on five monitor sizes and every size of table. A phone upright is
+  exempt: its narrow lens already leaves the horizon room.
 - Seats clear `TOP_CHROME` (58px) so they never sit under the round badge / theme / audio / rules
   cluster.
 
