@@ -266,14 +266,29 @@
 
   /* ─── Fog ──────────────────────────────────────────────────────────────── */
 
+  /* A fog is the colour of the light in it: pale by day, the sky's own blue
+     after dark. A white veil at midnight turned the night into a milky noon
+     and put out every lamp under it. */
   .veil {
+    --fog: color-mix(in srgb, var(--sky-horizon, #ebf0f6) calc(var(--scene-dark, 0) * 75%), rgb(235, 240, 246));
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, rgba(235, 240, 246, 0.32) 0%, rgba(235, 240, 246, 0.14) 40%, rgba(235, 240, 246, 0.05) 75%, rgba(235, 240, 246, 0.02) 100%);
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--fog) 32%, transparent) 0%,
+      color-mix(in srgb, var(--fog) 14%, transparent) 40%,
+      color-mix(in srgb, var(--fog) 5%, transparent) 75%,
+      color-mix(in srgb, var(--fog) 2%, transparent) 100%
+    );
+  }
+
+  /* The banks are drawn white: after dark they thin rather than glow. */
+  .fogA {
+    opacity: calc(1 - 0.5 * var(--scene-dark, 0));
   }
 
   .fogB {
-    opacity: 0.7;
+    opacity: calc(0.7 * (1 - 0.5 * var(--scene-dark, 0)));
   }
 
   /* ─── Storm ────────────────────────────────────────────────────────────── */

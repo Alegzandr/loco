@@ -937,6 +937,13 @@ export const SCENES: Scene[] = [
     deadlineIn: 24,
   },
   {
+    id: 'game-map-velvet-night-fog',
+    title: 'Map · Velvet · nuit, brume (les lumières dans l’air)',
+    screen: 'game',
+    state: { ...gameBase, mapId: 'velvet', mapTime: 'night', mapWeather: 'fog' },
+    deadlineIn: 24,
+  },
+  {
     id: 'game-map-orbit',
     title: 'Map · Orbit · nuit',
     screen: 'game',

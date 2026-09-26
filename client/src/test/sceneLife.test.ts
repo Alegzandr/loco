@@ -24,6 +24,7 @@ import {
   type Actor,
   type Sprite,
 } from '../components/scene/life'
+import { driftingBoat } from '../components/scene/maps/vistaLife'
 
 const read = (p: string) => readFileSync(join(process.cwd(), 'src', p), 'utf8')
 
@@ -108,6 +109,23 @@ describe('keyframes', () => {
       expect(k.offset).toBeLessThanOrEqual(1)
     }
     expect(cycleMs(a)).toBe(9000)
+  })
+
+  it('sails a boat bow first, out of the haze and back into it, never stern first', () => {
+    // The hull is built bow towards +x. A `bounce` brought it home backwards
+    // across the whole bay, and stopped dead at each end to do it.
+    const boat = driftingBoat('b', [[-40, 0, -200], [40, 0, -200]])
+    const f = routeKeyframes({ ...boat, path: boat.world!.map((p) => [p[0], p[2] / 10] as [number, number]) }, 1920, 1080, ppu)
+    const xs = f.map((k) => Number(/translate\(([-\d.]+)px/.exec(k.transform)![1]))
+    for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1])
+    expect(f.some((k) => k.transform.includes('scaleX'))).toBe(false)
+    expect(f[0].opacity).toBe(0)
+    expect(f[f.length - 1].opacity).toBe(0)
+    expect(f.some((k) => k.opacity === 1)).toBe(true)
+    // At anchor: one point, and it only rocks.
+    const moored = driftingBoat('m', [[0, 0, -100]])
+    expect(moored.world).toHaveLength(1)
+    expect(moored.bob).toBeDefined()
   })
 
   it('never hands the browser offsets that go backwards', () => {

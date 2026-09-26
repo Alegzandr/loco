@@ -65,10 +65,30 @@ export const sakura: Builder = (k) => {
     k.cyl(x, 2.73, EDGE + 0.6, 0.18, 0.06, POST, { seg: 8, cap: false, outline: false })
     if (on) k.halo(x, 2.4, EDGE + 0.6, 0.7, 0xffc27a, 0.3, false)
   }
-  // A cushion and a low tray on the boards to the left.
+  // A cushion on the boards to the left, and tea to the right: a low
+  // lacquered table on four legs, a pot with its spout and handle side on to
+  // the camera, two cups. Legs and a thin top, so it reads as a table and
+  // never as a crate; a profile, so the pot reads as a pot under snow too.
   k.box(-5.0, 0, -1.2, 1.0, 0.18, 1.0, 0x7a4a8a)
-  k.box(4.8, 0, -1.6, 1.2, 0.3, 0.8, CEDAR2)
-  k.cyl(4.6, 0.3, -1.6, 0.14, 0.2, 0xe8e2d6, { seg: 10 })
+  {
+    const tx = 4.8
+    const tz = -1.6
+    const top = 0.3
+    for (const [dx, dz] of [[-0.5, -0.28], [0.5, -0.28], [-0.5, 0.28], [0.5, 0.28]] as const) {
+      k.box(tx + dx, 0, tz + dz, 0.08, top - 0.06, 0.08, POST, { outline: false, cap: false })
+    }
+    k.box(tx, top - 0.06, tz, 1.3, 0.06, 0.8, LACQUER, { cap: false })
+    const POT = 0xe8e2d6
+    const px = tx - 0.15
+    k.cyl(px, top, tz, 0.17, 0.2, POT, { seg: 14, rTop: 0.13, cap: false })
+    k.cyl(px, top + 0.2, tz, 0.09, 0.03, scale(POT, 0.85), { seg: 12, cap: false, outline: false })
+    k.sphere(px, top + 0.25, tz, 0.035, POST, { seg: 6, outline: false })
+    k.cyl(px - 0.24, top + 0.1, tz, 0.03, 0.16, POT, { axis: 'x', seg: 6, rTop: 0.02, cap: false })
+    k.box(px + 0.2, top + 0.05, tz, 0.04, 0.12, 0.04, POST, { outline: false, cap: false })
+    k.box(px + 0.17, top + 0.15, tz, 0.08, 0.03, 0.04, POST, { outline: false, cap: false })
+    k.box(px + 0.17, top + 0.04, tz, 0.08, 0.03, 0.04, POST, { outline: false, cap: false })
+    for (const dx of [0.3, 0.48]) k.cyl(tx + dx, top, tz + 0.12, 0.055, 0.08, 0xf4efe6, { seg: 10, rTop: 0.07, cap: false })
+  }
 
   // ─── Cherry branches over the top corners ───────────────────────────────
   // Two trees just past the posts, their crowns reaching in under the eave.
@@ -92,10 +112,12 @@ export const sakura: Builder = (k) => {
   blossom(10.5, 3.3, -13, 2.4, 50)
 
   // ─── Middle: the garden ─────────────────────────────────────────────────
-  k.box(0, -0.6, -2600, 9000, 0.1, 5200, k.ground(mix(MOSS, 0x5a7a4a, 0.4)), { outline: false, cap: false })
+  // The ground's top is at -0.6: the gravel, the petals and the pond lie on
+  // it, and a slab laid lower than its top is a slab nobody sees.
+  k.box(0, -0.7, -2600, 9000, 0.1, 5200, k.ground(mix(MOSS, 0x5a7a4a, 0.4)), { outline: false, cap: false })
   // Raked gravel in front of the veranda, stepping stones across it, and
   // petals fallen on both.
-  k.box(0, -0.58, -18, 70, 0.05, 26, k.ground(GRAVEL), { outline: false, cap: false })
+  k.box(0, -0.6, -18, 70, 0.04, 26, k.ground(GRAVEL), { outline: false, cap: false })
   for (let i = 0; i < 9; i++) k.cyl(-1 + Math.sin(i) * 2, -0.55, EDGE - 2 - i * 2.4, rng.range(0.5, 0.7), 0.1, STONE, { seg: 8, outline: false })
   for (let i = 0; i < 220; i++) k.disc(rng.range(-30, 30), -0.52, rng.range(-6.5, -60), rng.range(0.05, 0.12), k.leaf(rng.pick(PINK)))
   // Stone lanterns.
@@ -109,13 +131,24 @@ export const sakura: Builder = (k) => {
   toro(11, -24, 1.2)
   toro(-22, -40, 1.4)
   // The pond, its bridge, the torii at its edge.
-  k.cyl(4, -0.62, -60, 18, 0.1, 0x3f7a8a, { seg: 32, water: true, outline: false, cap: false })
-  for (let i = 0; i < 12; i++) {
-    const t = i / 11
-    const a = Math.sin(t * Math.PI) * 1.6
-    k.box(-8 + t * 16, -0.4 + a, -58, 1.4, 0.2, 2.4, LACQUER, { outline: false, cap: false })
+  k.cyl(0, -0.6, -60, 10, 0.06, 0x3f7a8a, { seg: 32, water: true, outline: false, cap: false })
+  // A drum bridge seen side on, bank to bank: one unbroken arched deck, a
+  // rail on each side on its posts, a taller post at each of the four ends.
+  // Separate slabs stepping up read as a torii fallen over.
+  const SPAN = 12
+  const RISE = 2.6
+  const arc = (t: number): [number, number] => [-SPAN + 2 * SPAN * t, -0.6 + RISE * Math.sin(Math.PI * t)]
+  const N = 14
+  for (let i = 0; i < N; i++) {
+    const [ax, ay] = arc(i / N)
+    const [bx, by] = arc((i + 1) / N)
+    const len = Math.hypot(bx - ax, by - ay) * 1.12
+    const tilt = Math.atan2(by - ay, bx - ax)
+    k.box((ax + bx) / 2, (ay + by) / 2 + 0.12, -58, len, 0.24, 2.4, LACQUER, { tilt })
+    for (const dz of [-1.1, 1.1]) k.box((ax + bx) / 2, (ay + by) / 2 + 1.0, -58 + dz, len, 0.14, 0.14, LACQUER, { tilt, outline: false })
+    if (i > 0) for (const dz of [-1.1, 1.1]) k.box(ax, ay + 0.2, -58 + dz, 0.14, 0.8, 0.14, LACQUER, { outline: false, cap: false })
   }
-  k.box(-8, -0.6, -58, 0.2, 2, 2.4, LACQUER, { outline: false, cap: false })
+  for (const x of [-SPAN, SPAN]) for (const dz of [-1.1, 1.1]) k.box(x, -0.6, -58 + dz, 0.26, 1.9, 0.26, LACQUER, { cap: false })
   const torii = (x: number, z: number, s: number) => {
     for (const dx of [-2.2, 2.2]) k.cyl(x + dx * s, -0.6, z, 0.28 * s, 6 * s, LACQUER, { seg: 10 })
     k.box(x, -0.6 + 4.6 * s, z, 5.6 * s, 0.4 * s, 0.5 * s, LACQUER)
@@ -127,10 +160,11 @@ export const sakura: Builder = (k) => {
   for (let i = 0; i < 60; i++) {
     const x = rng.range(-120, 120)
     const z = rng.range(-22, -170)
-    if (Math.abs(x) < 12 && z > -80) continue
+    if (Math.abs(x) < 15 && z > -80) continue
+    // The crown sits up on its trunk: a crown down to the ground is a bush.
     const s = rng.range(0.8, 1.3)
-    k.cyl(x, -0.6, z, 0.35 * s, 3 * s, 0x4a2c22, { seg: 6, rTop: 0.22 * s })
-    for (let j = 0; j < 7; j++) k.sphere(x + rng.range(-2, 2) * s, -0.6 + (3.2 + rng.range(0, 1.6)) * s, z + rng.range(-1.5, 1.5) * s, rng.range(1.2, 2) * s, k.leaf(rng.pick(PINK)), { seg: 8, outline: false })
+    k.cyl(x, -0.6, z, 0.35 * s, 4.4 * s, 0x4a2c22, { seg: 6, rTop: 0.22 * s })
+    for (let j = 0; j < 7; j++) k.sphere(x + rng.range(-1.9, 1.9) * s, -0.6 + (4.3 + rng.range(0, 1.2)) * s, z + rng.range(-1.4, 1.4) * s, rng.range(1.1, 1.6) * s, k.leaf(rng.pick(PINK)), { seg: 8, outline: false })
   }
 
   // ─── Far: the pagoda on its hill, the mountain ──────────────────────────
@@ -139,7 +173,7 @@ export const sakura: Builder = (k) => {
   for (let i = 0; i < 26; i++) {
     const x = rng.range(-90, 90)
     const z = rng.range(-26, -70)
-    if (Math.abs(x) < 10) continue
+    if (Math.abs(x) < 14) continue
     const r = rng.range(0.9, 1.8)
     k.sphere(x, -0.6 + r * 0.35, z, r, k.leaf(mix(0x3f6e45, 0x557f4a, rng.range(0, 1))), { seg: 8 })
   }

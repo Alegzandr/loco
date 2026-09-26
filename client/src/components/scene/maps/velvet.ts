@@ -17,7 +17,7 @@ import { neonText } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix } from '../sky'
 import { hills, skyline, vistaTable } from './vista'
-import { airship, gull } from './vistaLife'
+import { airship, gull, skyAltitude, skyRoom } from './vistaLife'
 
 const MARBLE = 0xefe6d6
 const MARBLE_DARK = 0xc29a78
@@ -25,8 +25,12 @@ const BRASS = 0xd9a441
 const STONE = 0xe9dcc2
 const STONE2 = 0xd8c6a4
 const GOLD = 0xf0c46a
-/** The boulevard, level with the terrace: the balustrade is what parts them. */
-const STREET = -0.2
+/**
+ * The boulevard, level with the terrace: the balustrade is what parts them.
+ * Level to the tile: every palm and lamp on it stands at 0, and a street a
+ * fifth of a tile down left the whole promenade floating over it.
+ */
+const STREET = 0
 const EDGE = -7
 
 export const velvet: Builder = (k) => {
@@ -69,12 +73,29 @@ export const velvet: Builder = (k) => {
   k.box(6.6, 5.1, -5, 1.2, 0.1, 1.2, GOLD, { outline: false, cap: false })
 
   // ─── Middle: the boulevard and the grand hotel ──────────────────────────
-  k.box(0, STREET - 0.3, -2600, 9000, 0.3, 5300, k.ground(0x5a5048), { outline: false, cap: false, gloss: k.wetGloss() })
+  const hx = 62
+  const hz = -120
+  // The name on the hotel's marquee, and the line from the table to it: a
+  // palm or a lamp planted on that line stood its trunk across a letter.
+  const signX = hx - 8
+  const signZ = hz + 15.2
+  const signHalf = 8.5 * 0.9 + 1
+  const [ex, , ez] = view.eye
+  const acrossSign = (x: number, z: number) => {
+    const t = (ez - z) / (ez - signZ)
+    const at = ex + (signX - ex) * t
+    return t > 0 && t < 1 && Math.abs(x - at) < (signHalf + 0.6) * t + 0.6
+  }
+  // It stops under the balustrade's plinth, where the terrace begins: the two
+  // tops are one level and would fight for the same pixels.
+  const far = -5250
+  k.box(0, STREET - 0.3, (far + EDGE - 0.2) / 2, 9000, 0.3, EDGE - 0.2 - far, k.ground(0x5a5048), { outline: false, cap: false, gloss: k.wetGloss() })
   // The promenade: palms in a row either side, lamps between them.
   for (let z = -18; z > -160; z -= 12) {
     for (const x of [-22, 22]) {
-      k.tree(x + rng.range(-0.5, 0.5), z, { kind: 'palm', h: 7 })
-      k.lamp(x * 0.8, z - 6, { h: 4.2, style: 'globe', post: 0x2a2226, color: 0xffd08a })
+      const px = x + rng.range(-0.5, 0.5)
+      if (!acrossSign(px, z)) k.tree(px, z, { kind: 'palm', h: 7 })
+      if (!acrossSign(x * 0.8, z - 6)) k.lamp(x * 0.8, z - 6, { h: 4.2, style: 'globe', post: 0x2a2226, color: 0xffd08a })
     }
   }
   // The fountain in the roundabout.
@@ -84,8 +105,6 @@ export const velvet: Builder = (k) => {
   k.sphere(0, STREET + 4.2, -70, 0.8, GOLD, { seg: 10 })
 
   // The grand hotel on the right: tiers stepped back, gold at every step.
-  const hx = 62
-  const hz = -120
   let y = STREET
   let w = 44
   for (const h of [26, 18, 12, 8]) {
@@ -105,7 +124,7 @@ export const velvet: Builder = (k) => {
   k.cyl(hx, y, hz, 0.8, 16, GOLD, { seg: 8, rTop: 0.1 })
   // The marquee over its door, and the name in lights on it.
   k.box(hx - 8, STREET + 4.5, hz + 14.2, 18, 1.2, 3, 0x2a2226)
-  neonText(k, 'LOCO!', hx - 8, STREET + 5.8, hz + 15.2, 0.7, on ? GOLD : mix(GOLD, 0x5a4a30, 0.3))
+  neonText(k, 'LOCO!', signX, STREET + 5.8, signZ, 0.9, on ? GOLD : mix(GOLD, 0x5a4a30, 0.3))
   if (on) for (let i = 0; i < 18; i++) k.sphere(hx - 16.5 + i, STREET + 4.4, hz + 15.8, 0.14, 0xfff0c0, { glow: true, seg: 6, outline: false })
 
   // ─── Far: the deco skyline ──────────────────────────────────────────────
@@ -114,8 +133,14 @@ export const velvet: Builder = (k) => {
   skyline(k, { x0: -1000, x1: 1000, z0: -480, z1: -800, h: [30, 90], w: [22, 40], count: 50, colors: towers.map((c) => mix(c, 0xb8a8c8, 0.2)), base: STREET, tiers: 2, windows: 0.3, spires: { count: 3, h: [110, 150] } })
   hills(k, -3200, 3200, -2400, 180, 0x7a86a8, 12, STREET)
   // ─── What moves: an airship over the skyline, gulls off the sea ─────────
+  // Halfway down the band of sky, whatever the frame's shape.
+  const shipY = skyAltitude(view, 11, -180, 0.5, 14)
   return [
-    airship('airship', [[-520, 110, -950], [-260, 118, -950]], { duration: 340_000, hull: 0xe9dcc2, band: GOLD, size: 12 }),
+    // In front of the skyline, between the fountain's column and the lamps and
+    // palms on the right, which all stand up into the sky on a wide frame: a
+    // sprite is drawn over everything, so an airship behind a tower, a palm or
+    // a lamp read as a piece of it.
+    airship('airship', [[8, shipY, -180], [14, shipY, -180]], { duration: 340_000, hull: 0xe9dcc2, band: GOLD, size: 1.3, maxTall: skyRoom(view, 11, -180, 0.6) }),
     gull('gull-a', [[-40, 16, -60], [-6, 20, -80], [26, 17, -66]], { duration: 28_000 }),
   ]
 }

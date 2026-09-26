@@ -220,6 +220,14 @@ a claim about behaviour, not about taste.
   took the duck's own return with it, ramping the bed back to full under the one sound people clip.
   A crossfade between two source gains cannot have that argument, which is why `duckUntil` and
   `duckAmount` are gone rather than ported.
+- **A voice has two gains, the way in and the way out, and `retire` owns the second alone.** The
+  way out can be asked for while the way in is still on its curve: a match quit inside the first two
+  seconds of its piece, another one started as fast. Firefox and Safari refuse any event added
+  inside a `setValueCurveAtTime` span (Chromium lets it through, which is why it was never heard
+  there), so on one node the fade-out threw out of `retire` **before the source was stopped**, and
+  the loop being left played under the next one for good — the sound "doubled" on every quick
+  restart. `retire` also schedules the stop before any automation. `musicScene.test.ts` fakes the
+  strict engines and fails without either.
 - **The intensity is slewed and the section is held.** Game events move the intensity in jumps. A
   Contre-LOCO! that lands and a hand that grows back would otherwise crossfade the bed out and
   straight back in, twice, inside two seconds. `SLEW_PER_SEC` gives a full swing ~1.8s and

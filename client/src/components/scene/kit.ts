@@ -72,7 +72,7 @@ import { grainPixels, type GrainKind } from './grain'
 import type { V3, View } from './view'
 import { Placer, type Footprint } from './placer'
 import type { ModelLib } from './models/lib'
-import { compact, hullFor, splitGlow } from './models/bake'
+import { compact, hullFor, lampHead, splitGlow } from './models/bake'
 import { POOLS_FRAG_PARS, POOLS_OUT, poolUniforms, splatPools, type Pool, type PoolUniforms } from './pools'
 import { MIRROR_FRAG_PARS, MIRROR_NORMAL, MIRROR_OUT, MIRROR_VERT, MIRROR_VERT_PARS, makeMirror, type Mirror } from './mirror'
 
@@ -686,8 +686,13 @@ export class Kit {
       return
     }
     const rr = flat ? r : Math.min(r, HALO_SPHERE_MAX)
-    const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 10, 8)
+    const g = flat ? new CylinderGeometry(rr, rr, 0.02, 16) : new SphereGeometry(rr, 12, 10)
     this.push(this.place(g, x, flat ? y + 0.03 : y, z), color, 'halo')
+    // A sphere of light has no edge: it thins to nothing towards its rim as
+    // seen from the table. With a flat colour it was a pale disc pinned over
+    // the lamp — a frosted globe, or a coloured dot, never a glow. The frame
+    // is taken from one place, so the fade is baked into the vertices.
+    if (!flat && this.view) fadeToRim(g, this.view.eye)
     this.haloAlphas.push(alpha)
   }
 
@@ -924,9 +929,29 @@ export class Kit {
     // A drawn street light where the room has one; the pool of light is ours.
     if (this.models?.has('roads/light-curved') && o.style !== 'lantern') {
       const id = o.heads === 2 ? 'roads/light-curved-double' : 'roads/light-curved'
+      // Stood at the height asked for, like the block one: at the kit's own
+      // scale the post is 2.3 tiles, a bollard under a row of palms.
+      const tall = this.models.get(id)?.h
+      const scale = tall ? (o.h ?? 2.6) / tall : 1
       // Refused is refused: a block lamp in the same spot would stand inside
       // whatever took it.
-      if (this.model(id, x, z, { rot: this.rng.range(0, Math.PI * 2), margin: 0.1 }) && this.rig.lampsOn) this.halo(x, 0, z, 1.8, o.color ?? 0xffe1a1, 0.22)
+      const rot = this.rng.range(0, Math.PI * 2)
+      if (!this.model(id, x, z, { rot, scale, margin: 0.1 }) || !this.rig.lampsOn) return
+      // The drawn bulb faces the ground under the arm and is never seen from
+      // the table: the light is hung there, and the pool laid under it rather
+      // than at the post's foot.
+      const glow = o.color ?? 0xffe1a1
+      const [hx, hy, hz] = lampHead(this.models.get(id)!)
+      for (const side of o.heads === 2 ? [1, -1] : [1]) {
+        const lx = hx * side * scale
+        const lz = hz * side * scale
+        const wx = x + lx * Math.cos(rot) + lz * Math.sin(rot)
+        const wz = z - lx * Math.sin(rot) + lz * Math.cos(rot)
+        const wy = hy * scale
+        this.oval(wx, wy - 0.1 * scale, wz, 0.2 * scale, 0.2 * scale, 0.1 * scale, mix(glow, 0xffffff, 0.35), { glow: true, outline: false, cap: false, seg: 10 })
+        this.halo(wx, wy - 0.05 * scale, wz, 0.3 * scale, glow, 0.3, false)
+        this.halo(wx, 0, wz, 1.8 * Math.max(1, scale), glow, 0.22)
+      }
       return
     }
     const h = o.h ?? 2.6
@@ -1959,4 +1984,19 @@ function plateGeometry(pts: readonly [number, number][], y: number, h: number): 
   g.setAttribute('normal', new Float32BufferAttribute(nor, 3))
   g.setIndex(idx)
   return g
+}
+
+/** Scales a geometry's vertex colours by how squarely each vertex faces `eye`: bright at the middle, nothing at the rim. */
+function fadeToRim(g: BufferGeometry, eye: readonly [number, number, number]) {
+  const pos = g.getAttribute('position')
+  const nrm = g.getAttribute('normal')
+  const col = g.getAttribute('color')
+  for (let i = 0; i < pos.count; i++) {
+    const dx = eye[0] - pos.getX(i)
+    const dy = eye[1] - pos.getY(i)
+    const dz = eye[2] - pos.getZ(i)
+    const f = Math.max(0, (nrm.getX(i) * dx + nrm.getY(i) * dy + nrm.getZ(i) * dz) / Math.hypot(dx, dy, dz))
+    const k = f * f * f
+    col.setXYZ(i, col.getX(i) * k, col.getY(i) * k, col.getZ(i) * k)
+  }
 }

@@ -121,6 +121,10 @@ export function mountLookPanel(): GUI {
   post.add(LOOK.post, 'bloomThreshold', 0, 2, 0.05).name('bloom threshold')
   post.add(LOOK.post, 'bloomStrength', 0, 1.5, 0.05).name('bloom (noon)')
   post.add(LOOK.post, 'bloomDark', 0, 1.5, 0.05).name('bloom (+ at night)')
+  post.add(LOOK.post, 'bloomWide', 0, 2, 0.05).name('glow in the air (night)')
+  post.add(LOOK.post, 'bloomWideSpread', 0.5, 4, 0.1).name('glow width')
+  post.add(LOOK.post, 'bloomWeather', 0, 1, 0.05).name('glow (+ per weather)')
+  post.add(LOOK.post, 'pierce', 0, 1, 0.05).name('lights through the air')
   post.add(LOOK.post, 'aberration', 0, 6, 0.1).name('fringe')
 
   const view = gui.addFolder('View')

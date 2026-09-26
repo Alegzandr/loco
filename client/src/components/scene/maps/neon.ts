@@ -20,7 +20,7 @@ import { neonText } from './vista'
 import { MAPS } from '../../cards/maps'
 import { mix, scale } from '../sky'
 import { deck, hills, skyline, vistaTable } from './vista'
-import { aircraft, airship } from './vistaLife'
+import { aircraft, airship, skyAltitude, skyRoom } from './vistaLife'
 
 const TILE = 0x2c2936
 const STEEL = 0x2b2a36
@@ -122,8 +122,13 @@ export const neon: Builder = (k) => {
   k.cyl(tx, STREET + 92, tz, 1.6, 40, scale(tc, 1.15), { seg: 6, rTop: 0.3 })
   if (on) for (const y of [60, 92, 131]) k.sphere(tx, STREET + y, tz, 2.4, 0xff3b4f, { glow: true, seg: 8, outline: false })
   // ─── What moves ─────────────────────────────────────────────────────────
+  // Halfway down the band of sky, whatever the frame's shape.
+  const blimpY = skyAltitude(view, -80, -150, 0.5, 12)
   return [
     aircraft('plane', [[-1600, 190, -1900], [1600, 230, -1900]], { duration: 46_000, every: 110_000, size: 7 }),
-    airship('blimp', [[-420, 70, -760], [-180, 76, -760]], { duration: 320_000, hull: on ? 0x3a3450 : 0xd9d2c6, band: on ? NEON[0] : 0xc56bff, size: 9 }),
+    // A sprite is drawn over the whole frame, so the blimp flies in front of
+    // every tower that stands up into the sky, never behind one: out past the
+    // spires it was drawn over them, a piece of a building hung in the air.
+    airship('blimp', [[-80, blimpY, -150], [-34, blimpY, -150]], { duration: 320_000, hull: on ? 0x3a3450 : 0xd9d2c6, band: on ? NEON[0] : 0xc56bff, size: 1.8, maxTall: skyRoom(view, -80, -150, 0.6) }),
   ]
 }

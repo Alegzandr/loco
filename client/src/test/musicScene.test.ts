@@ -18,14 +18,40 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { audio } from '../audio/engine'
 import { music } from '../audio/music'
 
+/**
+ * As strict as Firefox and Safari, which refuse any event added inside a
+ * `setValueCurveAtTime` span (Chromium lets it through, which is why the bug
+ * below was never heard on it). `cancelScheduledValues` removes what starts at
+ * or after its time, and nothing else.
+ */
 class FakeParam {
   value = 1
-  cancelScheduledValues() {}
-  setValueAtTime() {}
-  setTargetAtTime() {}
-  linearRampToValueAtTime() {}
-  exponentialRampToValueAtTime() {}
-  setValueCurveAtTime() {}
+  private curves: { at: number; end: number }[] = []
+  private add(at: number) {
+    if (this.curves.some((c) => at > c.at && at < c.end)) {
+      throw new DOMException("Can't add events during a curve event", 'NotSupportedError')
+    }
+  }
+  cancelScheduledValues(t: number) {
+    this.curves = this.curves.filter((c) => c.at < t)
+  }
+  setValueAtTime(_v: number, at: number) {
+    this.add(at)
+  }
+  setTargetAtTime(_v: number, at: number) {
+    this.add(at)
+  }
+  linearRampToValueAtTime(_v: number, at: number) {
+    this.add(at)
+  }
+  exponentialRampToValueAtTime(_v: number, at: number) {
+    this.add(at)
+  }
+  setValueCurveAtTime(_c: Float32Array, at: number, duration: number) {
+    this.add(at)
+    this.add(at + duration)
+    this.curves.push({ at, end: at + duration })
+  }
 }
 
 class FakeGain {
@@ -34,16 +60,25 @@ class FakeGain {
   disconnect() {}
 }
 
+/** Every source started, and the context time it was told to stop at. */
+const sources: { stopAt: number | null }[] = []
+
 class FakeSource {
   buffer: unknown = null
   loop = false
   loopStart = 0
   loopEnd = 0
   onended: (() => void) | null = null
+  playbackRate = new FakeParam()
+  stopAt: number | null = null
   connect() {}
   disconnect() {}
-  start() {}
-  stop() {}
+  start() {
+    sources.push(this)
+  }
+  stop(at?: number) {
+    this.stopAt = at ?? 0
+  }
 }
 
 class FakeBuffer {
@@ -62,9 +97,14 @@ class FakeBuffer {
   }
 }
 
+/** The context's clock, in seconds. Moved by hand. */
+let clock = 0
+
 class FakeContext {
   state = 'running'
-  currentTime = 0
+  get currentTime() {
+    return clock
+  }
   sampleRate = 48_000
   destination = {}
   createGain() {
@@ -151,6 +191,25 @@ describe('a scene move', () => {
       expect(music.getFamily()).not.toBe(family)
       family = music.getFamily()
     }
+  })
+
+  it('leaves one loop sounding when the scene moves during the opening fade', async () => {
+    // A match quit inside the first two seconds of its piece, and another one
+    // started as fast: every move lands while the incoming loop is still on
+    // its fade-in curve. Firefox and Safari refused the fade-out scheduled on
+    // top of it, the throw skipped the source's stop, and the loop left kept
+    // playing under the next one — the sound doubled, for good.
+    sources.length = 0
+    music.setIntensity(0.34)
+    music.start('game')
+    await settle()
+    for (const scene of ['lobby', 'game', 'lobby', 'game'] as const) {
+      clock += 0.5
+      music.start(scene)
+      await settle()
+    }
+    const neverStopped = sources.filter((s) => s.stopAt === null)
+    expect(neverStopped.length, 'a loop left behind is still playing').toBe(1)
   })
 
   it('answers the screen it lands on rather than the tension it left', async () => {

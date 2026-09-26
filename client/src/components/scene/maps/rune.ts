@@ -4,8 +4,8 @@
  *
  * - **Near**: cobbles; on the left the corner of the tavern, half-timbered,
  *   its window warm and its sign hanging from an iron bracket with a lantern
- *   under it; on the right a cart with its barrels and one of the standing
- *   stones whose rune glows after dark.
+ *   under it; on the right a market stall with its barrels, and out on the
+ *   square one of the standing stones whose rune glows after dark.
  * - **Middle**: the street running away on the right, gabled houses in a
  *   row, a well, then the meadow climbing to the woods.
  * - **Far**: the hill, the tower on it with windows the wrong colour and a
@@ -86,7 +86,7 @@ export const rune: Builder = (k) => {
   k.lantern(tx + 2.8, 3.1, -4.2, on ? 0xffc27a : 0x6a5a40, 0.26)
   if (on) k.halo(tx + 2.8, 3.1, -4.2, 0.7, WARM, 0.35, false)
 
-  // ─── Near: a market stall and the stone on the right ────────────────────
+  // ─── Near: a market stall on the right ──────────────────────────────────
   // A striped awning over a counter of baskets, barrels by it, lit by its
   // own lantern after dark: colour where the cart was a black shape.
   const cx = 7.2
@@ -98,9 +98,12 @@ export const rune: Builder = (k) => {
   }
   k.lantern(cx - 1.2, 2.1, cz + 0.9, on ? 0xffc27a : 0x6a5a40, 0.22)
   if (on) k.halo(cx - 1.2, 0, cz + 0.9, 2.4, WARM, 0.35)
-  // The standing stone, its rune lit after dark.
-  const sx = 9
-  const sz = -11
+  // The standing stone, its rune lit after dark. Out on the square between the
+  // well and the stall, clear of both: set straight behind the stall it lined
+  // up with it from the table, and all that showed between the posts was a
+  // violet panel with a white slab floating on it.
+  const sx = 5.2
+  const sz = -17
   k.box(sx, 0, sz, 1.3, 3.6, 0.8, 0x7e7f86, { rot: -0.2 })
   k.box(sx - 0.06, 1.8, sz + 0.42, 0.5, 1.1, 0.04, on ? RUNE : 0x5a5a66, { rot: -0.2, glow: on, outline: false, cap: false })
   if (on) k.halo(sx, 0, sz + 1, 2.5, RUNE, 0.3)
@@ -120,20 +123,26 @@ export const rune: Builder = (k) => {
     const z = rng.range(-90, -220)
     if (Math.abs(x) < 20) continue
     const s = rng.range(0.8, 1.4)
-    k.cyl(x, 0, z, 0.35 * s, 2.5 * s, 0x5a3a26, { seg: 6 })
-    k.sphere(x, 3.6 * s, z, 2.2 * s, k.leaf(mix(0x4f7a3a, 0x6a8a42, rng.range(0, 1))), { seg: 8, outline: false })
+    // The crown starts at twice a person's height, so the trunk under it
+    // still reads at this distance and through the rain.
+    k.cyl(x, 0, z, 0.4 * s, 3 * s, 0x5a3a26, { seg: 6 })
+    k.sphere(x, 4.4 * s, z, 2.2 * s, k.leaf(mix(0x4f7a3a, 0x6a8a42, rng.range(0, 1))), { seg: 8, outline: false })
   }
 
   // ─── Far: the hill, the tower, the woods, the mountains ─────────────────
   // Low folds of meadow, never high enough to hide what stands behind them.
   hills(k, -700, 200, -620, 18, mix(MEADOW, 0x4a6a3a, 0.4), 8, -1)
   hills(k, 100, 1300, -760, 16, mix(MEADOW, 0x4a6a3a, 0.5), 8, -1)
-  // Woods on the slopes: dark pines in clumps, in front of the folds.
+  // Woods in front of the folds: dark pines standing on the meadow, each on
+  // its trunk. The band is flat ground, so a pine lifted off it is a cone
+  // hanging in the air.
   for (let i = 0; i < 160; i++) {
     const x = rng.range(-900, 1200)
     const z = rng.range(-300, -520)
     const hh = rng.range(9, 16)
-    k.cone(x, rng.range(0, 14), z, hh * 0.28, hh, mix(PINE, 0x3f5f45, rng.range(0, 1)), { seg: 6, outline: false })
+    const bole = hh * 0.22
+    k.cyl(x, 0, z, hh * 0.05, bole + 0.5, 0x3e2a1c, { seg: 5, outline: false, cap: false })
+    k.cone(x, bole, z, hh * 0.28, hh, mix(PINE, 0x3f5f45, rng.range(0, 1)), { seg: 6, outline: false })
   }
   hills(k, -3000, 3000, -2600, 240, 0x5a6a8a, 12, -1)
   // The tower: a round keep narrowing up, a pointed cap, windows lit the
@@ -143,7 +152,11 @@ export const rune: Builder = (k) => {
   const wx = -110
   const wz = -600
   const wy = 12
-  k.cone(wx, -1, wz, 70, wy + 1, mix(MEADOW, 0x4a6a3a, 0.35), { seg: 14, outline: false })
+  // The hill has a flat crown wider than the keep: a cone's apex is a point,
+  // and a keep stood on a point stands on nothing. The keep's footing goes
+  // down into the hill so no slope or mist can show daylight under it.
+  k.cyl(wx, -1, wz, 70, wy + 1, mix(MEADOW, 0x4a6a3a, 0.35), { seg: 14, rTop: 9, outline: false })
+  k.cyl(wx, wy - 3, wz, 5.2, 3.4, 0x7a7584, { seg: 12, rTop: 4.8, outline: false })
   k.cyl(wx, wy, wz, 4.4, 22, 0x8f8a9a, { seg: 12, rTop: 3.6 })
   for (const y of [7, 13, 18]) k.box(wx, wy + y, wz + 4, 0.9, 1.6, 0.4, on ? RUNE : 0x3a3548, { glow: on, outline: false, cap: false })
   k.cyl(wx, wy + 22, wz, 5.2, 1.1, 0x6a6474, { seg: 12 })

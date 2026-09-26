@@ -1098,7 +1098,9 @@ stated at the top of `styles/tokens.css`:
     none on the moon).
   - **The room is lit, and it is lit once** (`scene/lighting.ts`, `scene/shade.ts`): a warm sun, a
     cool sky in the shade, a dim rim, a rough matte `MeshStandardMaterial` with the colour in the
-    vertices, **one PCF shadow map over the near ground** (`VISTA_SHADOW_REACH`). **Never VSM**:
+    vertices, **one PCF shadow map over the near ground** (`LOOK.shadow.reach`), **reaching every tree and
+    street lamp the room plants** (a room's own `shadowReach`, `sceneShadowReach.test.ts`, which also
+    fails on one floating over its ground). **Never VSM**:
     three's half-float moments quantise a shadow edge into a staircase at a metre a tile. **Its
     `normalBias` is sized for a metre a tile** (0.03). **In the room the outline is a darker note of
     the block's own colour** (`inkFor`), never `INK` — the one place the ink rule bends — **a fixed
@@ -1153,7 +1155,10 @@ stated at the top of `styles/tokens.css`:
     the route's first point, **photographs it with the room's own camera cropped to it**, projects
     the route and writes the scale at every point (`Actor.world`, `Actor.scales`), **carried on the
     same transform as the translation** — still one animation. **Keep routes clear of the near
-    props**: a sprite is drawn over the whole frame. Reduced motion holds the first frame, and is
+    props**: a sprite is drawn over the whole frame (`sceneLifeOcclusion.test.ts`, every lamp
+    post). **What hangs in the sky flies in front of every tower that reaches into it, placed by
+    the frame and never at a height in tiles** (`skyAltitude`, `skyRoom`,
+    `sceneSkyActors.test.ts`). Reduced motion holds the first frame, and is
     **followed live**. **One transform animation per element**: the route on `.actor`, a bob on
     `.body`, a spin or puff on `.face`. `sceneLife.test.ts`.
   - **A `loop` either walks its closing leg or fades over it, and there is no third option**
@@ -1182,7 +1187,16 @@ stated at the top of `styles/tokens.css`:
     things, slow, at the edges and in the sky, never a crowd and nothing crossing the table.
     **Windows are mostly dark after dark** (`WINDOWS_LIT_MAX`, a half, `sceneLighting.test.ts`).
     **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, `kitHalo.test.ts`): an
-    additive sphere over a tower is a building the player can see through.
+    additive sphere over a tower is a building the player can see through. **And it has no edge**
+    (`fadeToRim`): a flat sphere of light is a pale disc.
+  - **A light is a light, not a coloured dot** (visual.md, "A light is a light"): **it shines through
+    the mist and the air instead of sinking into them like a wall** (`LOOK.post.pierce`, lamps on
+    only), **the bloom goes on after the air**, and a second wide one lays the glow round it
+    (`bloomWide`, the hour's `dark`, thickened by the weather). **A drawn lamp's bulb is hung by the
+    kit at the end of its arm** (`models/bake.ts: lampHead`): the model's faces the ground. **The
+    fog's veil is the hour's colour, never a fixed white.** **A sign is bent tubes on a dark panel,
+    never a bitmap of blocks** (`neonText`), and nothing is planted between it and the table.
+    `sceneLights.test.ts`, scene `game-map-velvet-night-fog`.
   - `maps.test.ts` pins the client's maps, hours and skies to `server/game/maps.go`. Add a room by
     adding a builder, a registry entry, its copy in both languages, its `MapID` and weather list in
     Go, its light in `LOOK.rooms`, and its scenes.
@@ -1328,7 +1342,9 @@ Detail: [`docs/notes/audio.md`](docs/notes/audio.md).
   arriving during a swap is recorded in `desired`, never dropped.**
 - **A bed with nothing sounding and nothing on its way asks again on the next tick.**
 - **A loop change is a crossfade between two source gains, equal-power, and never touches `out.gain`**
-  — which belongs to `duck()` alone. The voice's filters are its own; the bed's one low-pass
+  — which belongs to `duck()` alone. **Each voice fades in on one gain and out on another** (`Voice.release`,
+  `retire`'s alone): Firefox and Safari refuse a fade-out laid over a fade-in still running, and the
+  throw left the old loop playing under the new one. The voice's filters are its own; the bed's one low-pass
   (`tone`, after the duck) belongs to `setMuffled` and `dip`.
 - **The bed answers a moment by `bedCueFor`, one answer, the strongest**: the match's fanfare
   **brakes** it (`brake()`: slowed like a record, quiet for `BRAKE_REST_MS`, the recap's piece

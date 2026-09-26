@@ -14,10 +14,45 @@
  */
 import type { Kit } from '../kit'
 import type { Actor } from '../life'
+import type { View } from '../view'
 import { mix, scale, type Hex } from '../sky'
 import { sailboat } from './vista'
 
 type P3 = [number, number, number]
+
+/** The share of a boat's crossing spent coming out of the haze, and going back into it. */
+export const BOAT_FADE = 0.15
+
+/**
+ * The altitude at which something over `(x, z)` stands `frac` of the way down
+ * the band of sky, from the frame's top edge to the horizon. What flies in the
+ * sky band is placed by the frame, never at a height in tiles: that band is a
+ * sliver on a wide screen and a slab on a tall one, and a blimp at a fixed
+ * height was cut in half by the top edge of one. Without a view, `fallback`.
+ */
+export function skyAltitude(view: View | undefined, x: number, z: number, frac: number, fallback: number): number {
+  if (!view) return fallback
+  const at = view.project([x, view.eye[1], z])
+  if (!at) return fallback
+  const r = view.ray(at[0], Math.max(0, view.horizonY) * frac)
+  if (Math.abs(r[2]) < 1e-6) return fallback
+  const t = (z - view.eye[2]) / r[2]
+  return t > 0 ? view.eye[1] + t * r[1] : fallback
+}
+
+/**
+ * How tall, in tiles, something at depth `z` may be to take `share` of the
+ * band of sky: on an ultrawide frame the band is a few dozen pixels, and a
+ * blimp sized for a monitor fills it top to bottom. Infinity without a view.
+ */
+export function skyRoom(view: View | undefined, x: number, z: number, share: number): number {
+  const at = view?.project([x, view.eye[1], z])
+  if (!view || !at) return Infinity
+  return share * Math.max(0, view.horizonY) * view.tileAt(at[2])
+}
+
+/** An airship's height, top of the fin to the gondola's keel, per unit of `size`. */
+const AIRSHIP_TALL = 2.8
 
 /** A gull or any pale sea bird: two wings at a beat, on a wide arc. */
 export function gull(id: string, route: P3[], o: { duration?: number; delay?: number; color?: Hex; size?: number } = {}): Actor {
@@ -50,15 +85,27 @@ export function bat(id: string, route: P3[], o: { duration?: number; delay?: num
   }
 }
 
-/** A sailing boat drifting across the bay, rocking on the swell. */
+/**
+ * A sailing boat crossing the bay, bow first, rocking on the swell. It is built
+ * bow towards +x, so the route runs left to right, and it is a one-way trip
+ * that comes out of the haze and goes back into it: a `bounce` sailed it home
+ * stern first, and a sprite turned round by `scaleX(-1)` is a hull flipping on
+ * the spot. The fades take the first and last `BOAT_FADE` of the crossing.
+ * One point is a boat at anchor, which only rocks.
+ */
 export function driftingBoat(id: string, route: P3[], o: { duration?: number; delay?: number; hull?: Hex; trim?: Hex; size?: number } = {}): Actor {
+  const crossing = route.length > 1
+  const a = route[0]
+  const b = route[route.length - 1]
+  const at = (t: number): P3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
   return {
     id,
     flying: true,
     path: [[0, 0]],
-    world: route,
-    duration: o.duration ?? 240_000,
-    motion: 'bounce',
+    world: crossing ? [a, at(BOAT_FADE), at(1 - BOAT_FADE), b] : [a],
+    duration: o.duration ?? 120_000,
+    motion: crossing ? 'loop' : undefined,
+    fade: crossing,
     delay: o.delay,
     bob: { amp: 0.04, period: 3800 },
     build: (k) => sailboat(k, 0, 0, 0, o.size ?? 1, o.hull ?? 0xf2ece0, o.trim ?? 0x2f5d7a, 0.15),
@@ -90,8 +137,8 @@ export function aircraft(id: string, route: P3[], o: { duration?: number; every?
 }
 
 /** An airship, slow, its gondola lit: the deco sky's and the neon sky's. */
-export function airship(id: string, route: P3[], o: { duration?: number; delay?: number; hull?: Hex; band?: Hex; size?: number } = {}): Actor {
-  const s = o.size ?? 10
+export function airship(id: string, route: P3[], o: { duration?: number; delay?: number; hull?: Hex; band?: Hex; size?: number; maxTall?: number } = {}): Actor {
+  const s = Math.min(o.size ?? 10, (o.maxTall ?? Infinity) / AIRSHIP_TALL)
   return {
     id,
     flying: true,

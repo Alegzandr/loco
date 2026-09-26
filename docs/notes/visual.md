@@ -836,9 +836,16 @@ Each builder's header names its three grounds.
   The kit writes a block's colour into its vertices; the merged mesh is one rough, matte
   `MeshStandardMaterial` that casts and receives, and the sun, the sky and the shadow reach it
   through its normals like any rendered object.
-- **The sun throws one PCF shadow map over the near ground** (`VISTA_SHADOW_REACH`: 16 tiles either
+- **The sun throws one PCF shadow map over the near ground** (`LOOK.shadow.reach`: 16 tiles either
   side, 42 back, 12 up, fitted in light space). The near ground is where a shadow can be seen, and
   a map over the whole bay was three centimetres a texel on planks the camera stands a metre from.
+  **A room whose middle ground is planted reaches further** (`LOOK.rooms[id].shadowReach`, carried
+  on the rig): velvet's promenade of palms and lamps runs 22 tiles either side and out to 160, and
+  under the default not one of them cast a shadow — a row of trees standing on nothing. Velvet
+  reaches 30 and 165. The texels are spread over the box, so reach only where a caster stands.
+  `sceneShadowReach.test.ts` fails on a tree or a street lamp planted outside its room's reach,
+  **and on one standing off the ground slab under it**: velvet's boulevard lay a fifth of a tile
+  under the terrace, every model on it stood at the terrace's level, and the promenade floated.
   **PCF, not VSM**: three keeps the VSM moments in half floats, and over the depth a sun at
   `SUN_DIST` sees, the mean quantises in steps of a hand's width — a staircase along every shadow
   edge on the deck, which no blur radius touched. PCF compares against a 24-bit depth and softens
@@ -873,6 +880,12 @@ Each builder's header names its three grounds.
   is put there alone.
 - **Unlit, a neon tube or a neon letter keeps its colour a shade down** (`neonText`), never grey: by
   day the grey version turned the neon district into any city and the brand's own sign into a blank.
+- **A sign is glass tubes bent along the letter, on a dark panel, never a bitmap of blocks**
+  (`neonText`, the stroke font `GLYPHS`): lit, each tube is its colour with a core near white laid
+  in front of it, and the glow round the word is the bloom's — no halo sphere over it. The 5×3
+  bitmap it replaced came out, at the hundred metres a sign is read from and under the bloom, a
+  row of blobs (`L 0C0!`). **A sign is also kept clear of what stands between it and the table**:
+  velvet plants no palm and no lamp on the line from the eye to its marquee (`acrossSign`).
 
 ### The render (`scene/render.ts`, `scene/sceneCache.ts`)
 - **One frame, then the context is released.** A match is a hand of cards animating over the scene
@@ -933,7 +946,8 @@ Each builder's header names its three grounds.
   The room is lit in the scene, and what the finishing passes add is, in this order: the
   **occlusion** (below), a last FXAA pass over the supersampling, the bloom (a bright pass at a
   quarter of the frame over the occluded frame, blurred twice, added back scaled by `rig.dark` and
-  by `LOOK.vista.bloom` — a sun in the frame spills), a **lens focused on the table** (the far goes
+  by `LOOK.vista.bloom` — a sun in the frame spills — plus a wide one at a sixteenth, and both
+  added **after** the air: "A light is a light", below), a **lens focused on the table** (the far goes
   soft slowly, from twice the table's distance to forty times it, `LOOK.vista.dof`), the **mist**
   and the **air** (below), then the **tone curve** with the exposure (ACES by default), then the
   grade on the display range — the shade pulled towards a cool note and the light towards a warm
@@ -1077,10 +1091,26 @@ holds every actor on its route's first point with nothing running, and **is foll
   (`makeSpriteGrader`). A sprite casts no shadow and has no shadow map: nothing of the room is under
   it.
 - **Keep a route clear of the near props.** A sprite is drawn over the whole frame, so a boat routed
-  behind the lamp post passes in front of it. The routes are written in the sky and on open water,
-  and across the far side of the bay; nothing walks the near ground.
+  behind the lamp post passes in front of it (the marina's boat did, through the jetty's lamps). The
+  routes are written in the sky and on open water, and across the far side of the bay; nothing
+  walks the near ground. `sceneLifeOcclusion.test.ts` projects every route against every lamp post
+  nearer than it, in four frames.
+- **What hangs in the sky flies in front of everything that stands up into it, and is placed by
+  the frame, never at a height in tiles** (`vistaLife.ts: skyAltitude`, `skyRoom`). Neon's blimp
+  flew out past the spires at a fixed 70 tiles: drawn over towers nearer than itself and cut in
+  half by the top edge of a wide frame, it read as **an unfinished building floating in the sky**.
+  The band of sky is a sliver on an ultrawide (69px at 2560×1080) and a slab on a monitor, so an
+  airship stands halfway down it and takes at most 0.6 of it (`airship`'s `maxTall`), in front of
+  the first row of the skyline and clear of the palms, lamps and fountain that reach into the band.
+  `sceneSkyActors.test.ts` checks every route slower than two minutes against every block nearer
+  than it, and against the top edge, in four frames.
 - **A `loop` either walks its closing leg or fades over it, and there is no third option**
   (`closesTheRing`, `sceneLife.test.ts`): a wrap the player can see is something teleporting home.
+- **A boat sails bow first, one way, and never comes back** (`vistaLife.ts: driftingBoat`): it
+  comes out of the haze and fades back into it (`BOAT_FADE` of the crossing at each end). It was a
+  `bounce`, which sailed it home stern first across the whole bay after stopping dead; `turn` is no
+  answer for a hull, which a `scaleX(-1)` flips on the spot. A boat too near to fade without
+  reading as a ghost is **at anchor**: one point, and it only rocks.
 - **A pass writes its opacity on every frame**, or it fades out across its whole crossing.
 - **The layer is laid out in the frame's CSS pixels and scaled to the element**, one transform, at
   z-index 3, above both frames and under the weather (4): the rain falls on the boat.
@@ -1099,6 +1129,28 @@ breathe: a horizon and a sky are the quietest things a picture can hold.
   is also what makes the lit ones read. The model houses answer the same share one at a time.
 - **A round halo is a lamp head's, never a building's** (`HALO_SPHERE_MAX`, 0.8 tiles,
   `kitHalo.test.ts`): an additive sphere over a tower is a pale veil laid over it.
+- **And it has no edge** (`fadeToRim`): bright where it faces the table, nothing at its rim, baked
+  into its vertices since the frame is taken from one place. A flat translucent sphere was a pale
+  disc pinned over each lantern, a frosted globe and not a glow. `sceneLights.test.ts`.
+
+### A light is a light, not a coloured dot (`post.ts`, `kit.ts: lamp`, `sceneLights.test.ts`)
+The pass of 2026-09-26 answered "the lights look like dots of colour", and four things each did it:
+- **The air and the mist were laid over a lamp exactly as over a wall.** A light in the haze sank
+  to a pale square the colour of the fog. The composite now reads how much of a pixel is a light
+  (`LOOK.post.emitFrom` / `emitKnee`, a luminance, after dark only) and lets that much through the
+  mist and the air (`pierce`).
+- **The bloom was added before the air**, which took it away again. It goes on after: it is the
+  light the air scatters towards the lens, so the air does not dim it.
+- **The bloom was one tight width**: a rim round each light and nothing in the air round it. A
+  second level at a sixteenth of the frame (`bloomWide`, `bloomWideSpread`) lays the wide glow,
+  scaled by the hour's `dark` (the lamps' own) and thickened by the weather's air (`bloomWeather`):
+  a lamp in the fog is a ball of light.
+- **A drawn street lamp's bulb faces the ground under its arm**, so from the table the velvet
+  boulevard was a row of unlit posts with a pool at each foot. `models/bake.ts: lampHead` finds the
+  end of the arm and the kit hangs a bulb and a halo there, with the pool under the head.
+- **The fog's veil is the colour of the light in it** (`WeatherLayer.svelte`'s `.veil`, the hour's
+  horizon mixed in by `--scene-dark`), and the drawn banks thin after dark: a white veil at midnight
+  made a milky noon and put out every lamp under it. Scene `game-map-velvet-night-fog`.
 
 ### Props that were the same mistake in every room (`scene/kit.ts`)
 Each was one line of geometry standing in for something with a shape:

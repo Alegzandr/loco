@@ -87,6 +87,12 @@ export interface Look {
     normalBias: number
     /** The side of a sprite's shadow map, texels: small, a sprite casts on nothing of the room's. */
     spriteMap: number
+    /**
+     * How far the map reaches from the table, tiles: `side` either way across,
+     * `back` away from the camera, `up` the top of what receives. The texels are
+     * spread over it, so a room reaches further only when a caster stands there.
+     */
+    reach: ShadowReach
   }
   material: {
     roughness: number
@@ -164,6 +170,24 @@ export interface Look {
     bloomStrength: number
     /** …plus this much at midnight. */
     bloomDark: number
+    /**
+     * The wide glow a light lays in the air round it, at midnight (it follows
+     * the hour's `dark`): what makes a lamp a light and not a coloured dot.
+     */
+    bloomWide: number
+    /** How wide, in sixteenth-frame texels per tap. */
+    bloomWideSpread: number
+    /** How much more of it per unit of air the weather adds over a clear night: a lamp in the fog is a ball of light. */
+    bloomWeather: number
+    /**
+     * What counts as a light, in linear light after exposure (where it starts,
+     * and the knee to full): a light shines through the mist and the air
+     * rather than sinking into them like a wall.
+     */
+    emitFrom: number
+    emitKnee: number
+    /** How much of the air a light sees through, 0-1, when the lamps are on. */
+    pierce: number
     /** The out-of-focus copy's blur step, in half-frame texels per tap. */
     dofSpread: number
     /** Colour fringe in the corners, in frame pixels at the supersampled size. */
@@ -251,6 +275,12 @@ export interface Look {
   rooms: Record<string, RoomLook>
   /** Dev only: the composite shows one pass alone. Always `off` in a build. */
   debug: DebugView
+}
+
+export interface ShadowReach {
+  side: number
+  back: number
+  up: number
 }
 
 /** A body in the sky: where it stands, what it is, how large it is drawn. */
@@ -405,6 +435,8 @@ export interface RoomLook {
   ambient?: number
   /** Multiplies the shadow's softness: under 1 is a harder shadow. */
   shadowSoftness?: number
+  /** The shadow map's reach, over `LOOK.shadow.reach`: a room whose middle ground has a row of casters out past it. */
+  shadowReach?: Partial<ShadowReach>
   /** The body in this room's sky, per hour, over `LOOK.hours[h].body`: where the sun rises is a room's. */
   body?: Partial<Record<'dawn' | 'day' | 'dusk' | 'night', Partial<SkyBody> | null>>
   /** This room's key light, per hour, over `LOOK.hours[h].sun`. */
@@ -475,7 +507,7 @@ export const LOOK: Look = {
   },
   sun: { intensity: 1, elevationOffset: 0 },
   ambient: { intensity: 1, rim: 0.35 },
-  shadow: { radius: 6, bias: -0.0004, normalBias: 0.03, spriteMap: 512 },
+  shadow: { radius: 6, bias: -0.0004, normalBias: 0.03, spriteMap: 512, reach: { side: 16, back: 42, up: 12 } },
   material: { roughness: 0.94, metalness: 0, glowIntensity: 1.8, haloIntensity: 0.45, footShade: 0.1, glossRoughness: 0.14, envIntensity: 1.0, glassGloss: 0.9, wetGloss: 0.55, paintGloss: 0.45 },
   outline: { px: 1.4, darken: 0.42, inkMix: 0.3 },
   ao: { radius: 1.8, radiusSmall: 0.45, intensity: 1.0, power: 2.0, samples: 16, blur: 4, blurDepthFalloff: 0.7 },
@@ -494,6 +526,12 @@ export const LOOK: Look = {
     bloomKnee: 0.5,
     bloomStrength: 0.06,
     bloomDark: 0.22,
+    bloomWide: 0.35,
+    bloomWideSpread: 1.6,
+    bloomWeather: 0.35,
+    emitFrom: 0.7,
+    emitKnee: 0.45,
+    pierce: 0.85,
     dofSpread: 1.4,
     aberration: 1.6,
     aberrationFrom: 0.09,
@@ -540,7 +578,10 @@ export const LOOK: Look = {
     rune: {
       sunTint: 0xffc27a, sunTintMix: 0.12, highlightTint: 0xffd08a, splitStrength: 0.1 },
     // The hotel: brass in the light, a deep blue in the shade.
+    // Its promenade of palms runs out to 160 tiles, 22 either side: under the
+    // default reach not one of them cast a shadow.
     velvet: {
+      shadowReach: { side: 30, back: 165 },
       sunTint: 0xffc58a, sunTintMix: 0.15, shadowTint: 0x2c3f86, highlightTint: 0xffc070, splitStrength: 0.12, saturation: 1.04 },
     // No air: little sky light, a hard shadow, a sun that is white, and the
     // shade lit by the Earth's blue.
